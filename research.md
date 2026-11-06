@@ -200,6 +200,82 @@ standing approvals, host-only CLI runtimes).
 `src/worker/`, `src/agents/cli-runner/` (MCP bridge), `src/infra/`, `packages/gateway-protocol/`; Orca has no
 `--host ssh:` flag in this revision, only the `orcad` SSH bridge.
 
+### 3.5 Harness drivers and durability: Omnigent, genie, durable-harness, companion (read from code, 2026-11-06)
+
+Sources (in `.tmp/`, read by research agents; paths are theirs): Omnigent `7230afa` (Apache-2.0, Python, sparse
+`omnigent/`, `docs/`, `specs/`); genie `68bf387` (MIT); durable-harness `c7d2472` (Apache-2.0); companion `c950f6f`
+(MIT). Who uses pi as the brain: only OpenClaw at scale (3.3, 3.4); omp is a single-machine fork; companion runs pi
+durably in a container; genie uses pi only for small schema-bound "mikro" agents; Omnigent and durable-harness treat pi
+as one harness among many.
+
+**Omnigent** (meta-harness over Claude Code, Codex, Cursor, Pi, Hermes…):
+- Processes: server (FastAPI, Postgres/SQLite/CockroachDB via Alembic), **host daemon** on each machine (outbound
+  WebSocket, control frames only: launch runner, worktree, secrets, harness login; its hello lists live runners for
+  reconciliation, `omnigent/host/connect.py`), and one **runner** per session with its own outbound tunnel
+  (`omnigent/runner/transports/ws_tunnel/serve.py`). No inbound listeners anywhere.
+- One interface, `Executor.run_turn(...) -> AsyncIterator[ExecutorEvent]` (`omnigent/inner/executor.py`); each harness
+  declares a **capability matrix** (integration mode, elicitation style, resume, auth; `omnigent/harness_capabilities.py`).
+- Headless drivers: Claude Agent SDK with tools as MCP; one long-lived **`codex app-server`** per session over
+  JSON-RPC; **`pi --mode rpc`** with tools from a generated extension, turn ends at `agent_settled` (Pi ≥ 0.80.4,
+  `omnigent/inner/pi_executor.py`). "Native" variants run the real TUI in tmux with `send-keys`, and use Claude Code
+  PreToolUse/UserPromptSubmit hooks for policy.
+- Policies ALLOW / DENY / ASK at session → agent → server, fail-closed; `spawn_bounds` (≤ 5 dispatches per turn),
+  `worktree_guard`, `blast_radius`; MITM egress proxy with default-deny rules; **credential proxy**: the sandbox holds
+  only `oa_cred_*` placeholders and the proxy swaps in the secret per host (`omnigent/inner/credential_proxy.py`).
+- Managed hosts in Modal, E2B, K8s with a per-launch token; a replacement sandbox keeps the same `host_id`.
+- Resilience contract tested with a fault-proxy lab (`docs/network-resilience.md`). Their own gaps: pending approvals in
+  server memory, no event cursor (out-of-order replay), no task/DAG model ("turn/steering state … in-memory in the
+  runner"). PRs are discovered from tool output and reported until acknowledged.
+
+**genie** ("wishes in, PRs out"):
+- One task runs as a scripted chain of schema-bound agents: Admit → Work → Gate → Review → Repair → Publish →
+  Read-back (`.claude/workflows/wish.js`).
+- Admission limits (≤ 25 files, ≤ 2,000 insertions) and a **denylist** of trust-boundary paths (`.github/`, hooks,
+  `Makefile`, package scripts) that forces a written plan; plans are `WISH.md` with groups, owned files, `depends-on`
+  and a validation command, approved before work.
+- Parallel writers need disjoint files or their own worktrees; worktree path from `git rev-parse --git-common-dir`.
+- Review by a **different, read-only agent on the exact commit SHA** (SHIP / FIX-FIRST / BLOCKED); repair budget 2;
+  **read-back in code, no agent**: remote head = local head, PR files = declared files, verdict SHIP; never merges, the
+  human does.
+- Security note: its worker template launches Claude with `--dangerously-skip-permissions`.
+
+**durable-harness** (Vercel Labs):
+- Every action goes through `ctx.effect(key, {replay: 'safe' | 'never'}, fn)`: commit intent, run, commit outcome; a
+  `never` action interrupted by a crash returns "interrupted" with its partial output (`harness-world/src/types.ts`).
+- After a crash the agent gets a **recovery note** listing finished and interrupted calls ("may have taken effect:
+  check before repeating").
+- Claude Code through the Agent SDK `query()` with a `SessionStore` mirror into the journal; Codex through
+  `codex app-server --stdio` (`thread/start|resume`, `turn/start|steer|interrupt`); model calls through a gateway so the
+  VM never holds a credential; one process group per session with kill-before-resume.
+- Pi via pi-durable with a fenced single-owner `Storage` (`StorageFenced`). Not available through `pi --mode rpc`.
+
+**companion** (durable pi companions in a Box):
+- Daemon in the container: idempotent `PUT /runs/:id` with a request hash (`IDEMPOTENCY_CONFLICT` on mismatch);
+  on restart every unfinished run becomes `interrupted` and is **never redispatched**.
+- Steering is journaled before pi sees it; cancel aborts the controller and the pi session.
+- Questions are rows (`task_questions`) answered out of band, capped at 2 hours.
+- Single executor leader by `pg_try_advisory_lock`, writes guarded by the lock holder; UI updates via
+  `pg_notify` → SSE.
+
+**What Hypomnema takes from 3.5** (adds to 3.4):
+
+| Pattern | From | Where in Hypomnema |
+|---|---|---|
+| Outbound control channel per node (hello lists live workers) + one data stream per worker | Omnigent host/runner | `hypomnema-node` protocol |
+| Capability matrix per runtime (mode, questions, resume, auth) | Omnigent | `runtime` registry (Strategy behind a registry) |
+| Headless drivers: `codex app-server` JSON-RPC, Claude Agent SDK or stream-json, `pi --mode rpc` ending at `agent_settled` | Omnigent, durable-harness | `runtime` adapters; spike #1 checks the Claude path |
+| Replay policy `safe` / `never`, intent before effect, recovery note instead of replay | durable-harness, companion | every Dispatch effect (push, PR, merge request) on the node and control plane |
+| Idempotent run start with request hash; restart marks runs `interrupted`, never redispatches | companion | node daemon run API |
+| Placeholder credentials swapped by the proxy | Omnigent, durable-harness | node egress proxy + vault session (4.1) |
+| ALLOW / DENY / ASK, fail-closed, spawn bounds, blast radius, egress default-deny | Omnigent | `mcpbridge` and node proxy policy |
+| Admission limits and denylist; reviewer ≠ author on the exact SHA; repair budget; read-back in code; human merges | genie | the PR flow in step 2 |
+| Questions as rows answered out of band | companion | Gate rows answered from Telegram, with timeout |
+| Advisory-lock leader + `LISTEN/NOTIFY` | companion | control-plane background loops (or River) |
+| Resilience contract and fault lab | Omnigent | acceptance tests for node and control plane |
+
+Not taken: tmux keystroke injection (fragile), approvals in memory, no event cursor, Vercel Workflow World as a
+dependency (copy its semantics into Postgres instead), `--dangerously-skip-permissions` without a sandbox.
+
 ## 4. Architecture (agreed 2026-11-06)
 
 Goal: many VMs on many clouds, one owner. The stack and the deployables are fixed from the start; features are built
