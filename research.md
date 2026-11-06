@@ -83,7 +83,7 @@ This is my judgement from the sources above, not verified market data.
 | Shared memory | ⚠️ engrams (NIP-AE) are per agent–owner pair, encrypted to the owner; **not shared between agents** | ✅ memory stores `/memory/<store>/…`, files without history | ✅ at the Gateway | Local files (`MEMORY.md`); Honcho plugin |
 | Vault | ⚠️ keypair per agent, secrets kept out of configuration | ✅ secrets scoped to org, project or user, `secret_env` | ❓ | `.env` per instance |
 | Chat channels | The workspace itself (desktop; mobile in progress) | Slack, Discord, GitHub, custom | Telegram, X and many more | Telegram, Discord… |
-| License, size (stars on 2026-11-06) | Apache 2.0, 36.8k stars | Apache 2.0, 3.4k stars | Open source, run by a foundation; about 394k stars | Open source; license ❓ |
+| License, size (stars on 2026-11-06) | Apache 2.0, 36.8k stars | Apache 2.0, 3.4k stars | MIT, OpenClaw Foundation; about 394k stars | Open source; license ❓ |
 
 ### 3.3 Notes on each
 
@@ -155,6 +155,50 @@ This is my judgement from the sources above, not verified market data.
 | Mainplane (11/2026) | Mesh control plane connecting agents to your machines | Vault and memory unclear |
 | Infisical Agent Vault | Vault and credential proxy for agents: the agent never sees the real credential | Documented as a product in `docs/documentation/platform/agent-vault/` (clone `81e981d`); used here as a design reference (4.1) |
 | ai-memory | Memory shared across agents and machines | |
+
+### 3.4 Multi-machine orchestration: Orca, OpenClaw, Omnara (read from code, 2026-11-06)
+
+Sources: Orca `.tmp/orca` at `4c13ae46` (sparse: `src/main/runtime/orchestration`, `src/cli/handlers/orchestration`,
+`src/shared/remote-runtime`, `src/main/ssh`, `skill-guides/orchestration`); OpenClaw `.tmp/openclaw` at `d622a2b`
+(sparse: `docs`, `src/agents/subagents`, `src/agents/harness`, `src/acp`, `src/gateway/worker-environments`,
+`src/cli/node*-cli`, `extensions/acpx`, `packages/agent-core`); Omnara `.tmp/omnara` docs (`agents/failure-handling.mdx`,
+`machines/overview.mdx`, `agents/configuration.mdx`, `tools/built-in.mdx`) and `internal/storage`. Orca and OpenClaw were
+read by research agents; paths are theirs, spot-checked, not every line re-read.
+
+**Three shapes.** Omnara runs the LLM loop centrally and machines only execute commands. Orca has a stateful runtime
+(desktop app or `orca serve`) with a thin `orca` CLI over RPC; a coordinator agent drives it, and workers are full
+CLI agents in terminals, local or on paired servers. OpenClaw's gateway runs pi; it can place its own pi worker loop
+or Codex's remote execution on paired nodes or rented boxes, but Claude Code and ACP sessions are host-only
+(`extensions/acpx/src/harness.ts:157`). Hypomnema is Orca's shape (central state, autonomous CLI workers on
+machines) with Omnara's durability and OpenClaw's outbound workers.
+
+| Mechanism | Orca | OpenClaw | Omnara | Hypomnema takes |
+|---|---|---|---|---|
+| State store | SQLite `orchestration.db`, WAL; every lifecycle write is `BEGIN IMMEDIATE` plus a guarded `UPDATE … WHERE state IN (allowed)` that must change one row (`db/lifecycle-transition.ts`) | SQLite by default, Postgres optional (`state.postgres.sql`) | Postgres; agent = event log | Postgres; guarded single-row transitions in a transaction; one canonical lock order (Omnara `lifecyclelock`) |
+| Work unit vs attempt | `tasks` vs `dispatch_contexts` (one row per attempt, `retry_of_dispatch_id`, `failure_count`) | `subagent_runs`, `worker_session_placements` | agent step under a lease | Task vs Dispatch (one row per attempt, retry chain, failure count travels only along the chain) |
+| DAG | deps as JSON; ready computed in SQL; `promoteReadyTasks` in the completion transaction (`db/tasks/task-store.ts`). **Gap:** failure does not propagate to dependents | none (parent/child tree, depth ≤ 5, 5 children, 8 concurrent per lane) | parent/child tree (`max_subagents`, depth) | DAG as Orca, **plus** failure/cancel propagates to dependents as `blocked` with a reason |
+| Retries | circuit breaker after 3 failures → `circuit_broken` | delivery retries until a 30 min deadline | model calls retried 8×; tools not rerun | circuit breaker per Task; interrupted tool or Dispatch is **reconciled, never replayed** |
+| Fencing | three mechanisms: process identity (pane + incarnation), `consumer_generation` on mail batches, `runtime_epoch` for restarted runtimes | CAS on `state + transition_generation + environment_id + owner_epoch + claim id/generation` (`placement-turn-claims.worker.ts`) | lease renewed ~30 s; a worker that lost its lease cannot save | one **`epoch`** column on Dispatch plus owner epoch of the node; every write from a node is a CAS on `(dispatch_id, epoch, state)` |
+| Unknown outcomes | explicit `start_unknown`, `stop_unknown`; silence never proves exit; a live observation older than 60 s becomes `unverifiable` | operation status `unknown` | "outcome unknown" told to the agent | explicit `*_unknown` states; liveness facts with timestamps and freshness |
+| Idempotency | `mutation_receipts (caller_fingerprint, request_id)` + payload hash; `request-show` answers "did it take effect"; `request_mismatch` on reuse with other input | `worker_session_tool_operations (session, claim, tool_call_id)` + `request_digest`; fixed provider lease IDs | dedupe by tool-call ID | mutation receipts as Orca for every control-plane mutation (from pi tools, CLI, Telegram) |
+| Mailbox | typed messages (`status, dispatch, worker_done, merge_ready, escalation, handoff, decision_gate, question, heartbeat`), ordered by `sequence`; a `check` returns the same unacknowledged batch until `--ack`; groups resolved at send time | delivery record per child with generation-scoped key, separate from the run record | result arrives as a message in the parent's timeline | typed messages in Postgres, batch + ack, stable content-derived IDs (escalations deduped); delivery record separate from the Dispatch |
+| Waking the coordinator | resolves an in-memory waiter, else types a pointer into the idle terminal | steer into the active turn or queue in the session lane | worker claims the agent when input arrives | brain is woken by an event (River job) — no polling, no terminal typing |
+| Worker reports done | `worker_done {taskId, dispatchId, outcome}`; authority from the observed sender, not the body; duplicates return `duplicate:true` | announce path | final answer as message | node reports with `(dispatch_id, epoch)`; authority from the node identity bound to the Dispatch |
+| Worker stops silently | escalation to the coordinator, never auto-settle | 60 s "no output" notice | machine unreachable after 30 s | escalation to the brain and to Telegram; the owner or brain decides |
+| Gates | `decision_gates`; opening blocks the task; only explicit resolution unblocks. **Gap:** `timeoutGate` has no caller | approvals per call | approvals wait in Postgres indefinitely | Gate as Orca **with a timeout** and a reminder |
+| Remote connection | home dials the server over WebSocket, E2E-encrypted, pinned Curve25519 key from the pairing code; SSH deploys `orcad` on loopback via an SSH stdio bridge (`src/main/ssh/orcad-stdio-bridge.ts`) | **node dials the gateway** (TLS WebSocket), two approvals (device, then commands), Ed25519 identity | `omnarad` dials out | node dials the control plane (as OpenClaw, Omnara); pairing with a pinned key (as Orca); SSH executor bootstraps the node over an SSH stdio bridge instead of opening ports |
+| Remote sync | per-Dispatch outbox with per-direction sequence → pull after sequence → contiguity check → idempotent import → ack-through; cursors reset on worker-host `runtimeEpoch` (`federation-sync.ts`); ping 10 s, dead after 25 s | transcript commits via `(session_id, run_epoch, next_seq)`; ACK cursors only move forward | — | the same outbox/sequence/ack/epoch protocol, **direction flipped**: the node pushes its outbox and long-polls its inbox |
+| Credentials | device token in the pairing code | minted per dispatch, stored hashed, bound to the claim (`credential.ts`) | `secret_env` from scoped secrets | vault session per Dispatch (4.1), bound to node identity and epoch |
+| Tool location | — | workspace/process tools run remotely, authority-bearing tools stay on the control plane | machines run commands only | same split: GitHub merge, vault, gates stay on the control plane; files and processes on the node |
+| Workspace results | — | staged under `refs/openclaw/worker-results/` before the claim is released | — | push to a branch named for the Dispatch before reporting done; the ref is the recovery fence |
+
+**Not copied:** Orca's terminal panes, PTY pointer typing and hook-state stop detection (desktop app); embedded
+single-writer SQLite on the control plane; OpenClaw's single-gateway assumptions (children die on restart, in-memory
+standing approvals, host-only CLI runtimes).
+
+**Not yet read** (add to the sparse checkouts when designing the node): OpenClaw `src/gateway/`, `src/node-host/`,
+`src/worker/`, `src/agents/cli-runner/` (MCP bridge), `src/infra/`, `packages/gateway-protocol/`; Orca has no
+`--host ssh:` flag in this revision, only the `orcad` SSH bridge.
 
 ## 4. Architecture (agreed 2026-11-06)
 
