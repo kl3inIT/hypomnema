@@ -1,0 +1,21 @@
+# Glossary
+
+One meaning per term. Use these words in code, documents, issues and messages. A term from a reference project that
+means something else is named here once and not used.
+
+| Term | Meaning | Not to be confused with |
+|---|---|---|
+| **Owner** | The one person who assigns work, approves gates and owns every resource | A user of a multi-tenant product |
+| **Run** | One objective from the owner, such as "add login with Google to second-bite". Holds Tasks | A model "run" or a CI run |
+| **Task** | One unit of work inside a Run, with dependencies on other Tasks of the same Run (a DAG) | Orca's task, which has the same meaning |
+| **Dispatch** | One attempt to carry out a Task: placed on one Node with one Runtime, with an epoch for fencing. A retry is a new Dispatch | The Task itself; a Task may have many Dispatches |
+| **Gate** | A decision a Task waits on, answered by the owner (plan approval, merge approval, a question) | A per-tool-call permission prompt, which is a Policy verdict |
+| **Brain** | The pi process that plans, creates Tasks, opens Gates and summarises results. Holds no state | A worker |
+| **Worker** | A CLI agent process (Claude Code, Codex, or pi) carrying out one Dispatch | The Node it runs on |
+| **Runtime** | The kind of worker and how it is driven: `claude-cli`, `codex`, `pi` | A model or a provider |
+| **Node** | A machine paired with the control plane that runs Workers: a VM, a server, a sandbox | Omnara's "machine", same meaning |
+| **Executor** | How the control plane reaches a Node: `node` (the daemon dials out) or `ssh` | A Runtime |
+| **Session** | A vault credential session opened for one Dispatch and revoked when it closes | A chat session or a CLI session; call those "conversation" and "CLI session" |
+| **Announce** | A Worker's final report to the Brain, with outcome and evidence | A chat message to the owner |
+| **Policy** | A rule that answers a tool call or request with ALLOW, DENY or ASK | A Gate |
+| **Epoch** | A counter on a Dispatch; a write from a stale epoch is refused | A timestamp |
