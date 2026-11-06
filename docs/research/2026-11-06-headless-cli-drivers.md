@@ -63,7 +63,36 @@ This is the protocol the Claude Agent SDK uses underneath, so Go can drive it wi
 - The account a node is logged in with is visible in Claude's `initialize` response; the node should report it so
   the owner sees which subscription each node spends.
 
+## Isolation (Claude Code)
+
+Reference: durable-harness `packages/harness-sandbox/probes/claude-code/sandbox-in-vm.ts` (commit `c7d2472`). It runs
+the pinned `claude` as a separate user with private `HOME`, `TMPDIR` and `CLAUDE_CONFIG_DIR`, and turns on **Claude
+Code's own sandbox** through `--settings`: `filesystem.allowWrite` (workspace and private dirs), `denyRead` on the
+config directory that holds the credentials, `credentials.envVars` deny, `network.allowedDomains` /
+`deniedDomains`, `failIfUnavailable: true`, `allowUnsandboxedCommands: false`. On Linux the sandbox needs
+`bubblewrap` and `socat`. Then a list of probe commands checks what a Bash command can see.
+
+On zm (no sudo; the owner is in the `docker` group) the separate user was replaced by a Docker container
+(`ubuntu:24.04` + `bubblewrap socat`, run with `--user 1000`, only the workspace and a private `/s` mounted):
+
+- **Sandbox on**: Claude refused to start: "Ubuntu's AppArmor restriction on user namespaces stops bubblewrap here
+  … `sandbox.failIfUnavailable` is set — refusing to start without a working sandbox." zm has
+  `kernel.apparmor_restrict_unprivileged_userns = 1`. `seccomp=unconfined`, `apparmor=unconfined` and
+  `--cap-add SYS_ADMIN,NET_ADMIN` on the container did not help. The fix needs root on the host: install
+  bubblewrap's AppArmor profile (Claude Code sandboxing docs) or set the sysctl to 0.
+- **Container only, sandbox off**: the Bash tool ran as uid 1000, could not write `/opt`, saw only the container's
+  processes, but **read the credentials file** (551 bytes) and listed the config directory, and **reached any host**
+  (`example.com` 200).
+
+Consequences:
+
+- A node needs root once at setup to allow bubblewrap (AppArmor profile), and must refuse to run workers when the
+  sandbox is unavailable, as `failIfUnavailable` does.
+- A container alone is not isolation: the CLI's own login must sit where the worker's commands cannot read it, which
+  Claude's sandbox does with `denyRead`. Egress must go through the node proxy on a network with no other route.
+
 ## Not done yet
 
 - Codex approve / decline / interrupt / resume (needs `codex login --device-auth` on zm).
-- Isolation: both CLIs in a container under another user, network only through a local proxy.
+- Isolation with the sandbox on, after the AppArmor profile is installed on zm; then the same probe for Codex (its
+  `sandbox: workspace-write` uses Landlock and seccomp on Linux).
