@@ -96,3 +96,13 @@ Consequences:
 - Codex approve / decline / interrupt / resume (needs `codex login --device-auth` on zm).
 - Isolation with the sandbox on, after the AppArmor profile is installed on zm; then the same probe for Codex (its
   `sandbox: workspace-write` uses Landlock and seccomp on Linux).
+
+## Decision on isolation (2026-11-06)
+
+How the references isolate workers: Orca has no worker sandbox (worktrees and the CLI's permission modes on the
+owner's machines); Omnara isolates by machine (the owner's VM or a cloud sandbox from a pool, created on demand and
+deleted when idle) and uses Landlock + seccomp (`internal/sandbox/sandbox_linux.go`, called from
+`internal/harness/tools/storage_search.go:360`) and a chroot (`storage_write.go:158`) only for its own tools that touch
+other tenants' memory files on the shared control plane; Omnigent and durable-harness stack sandboxes for untrusted,
+multi-user work. Hypomnema has one owner and trusted machines, so it follows Orca by default and Omnara's pools for
+untrusted work; the CLI sandbox is opt-in. Rule recorded in `docs/conventions.md` (Data and security).

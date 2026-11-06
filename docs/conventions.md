@@ -142,8 +142,16 @@ Each deployable is a Go modular monolith under `internal/`, with `cmd/<deployabl
   Dispatch; workers see placeholders. Egress is deny by default per Dispatch.
 - Policies answer ALLOW, DENY or ASK and **fail closed**. They are evaluated in Go behind `mcpbridge` and the node
   proxy; the pi extension only forwards. Spawn bounds and blast radius limits apply to the Brain.
-- Workers run under a separate identity with process isolation (landlock and seccomp, or a container). Flags that
-  disable a CLI's own permission checks are allowed only inside that isolation.
+- **Trusted machines, untrusted content.** The owner and the owner's machines are trusted; what agents read is not.
+  As Orca does, the isolation unit is the machine: no nested sandbox inside a node by default, because it costs setup
+  on every host, breaks easily and slows every command for little gain on a dedicated VM. What is always on, being
+  cheap: tokens scoped to the repositories of the Dispatch and without merge rights (the owner merges at Gate 2); one
+  worktree per Dispatch; work accepted only from the owner; no unrelated secrets on a worker host. A node should be a
+  VM used only by Hypomnema.
+- Stronger isolation is opt-in: the CLI's own sandbox (Claude Code `sandbox` settings, Codex `workspace-write`) for a
+  node that needs it (it requires `bubblewrap` and, on Ubuntu, an AppArmor profile), and a disposable cloud sandbox
+  per Dispatch, as Omnara's pools, for work from untrusted sources. Flags that disable a CLI's own permission checks
+  are allowed only inside such a sandbox.
 - The vault encrypts with AES-256-GCM in a three-level key hierarchy; the root key lives only on the vault host, with
   an offline backup and a rotation procedure.
 - Logs and transcripts are scrubbed of secret patterns before they are stored.
