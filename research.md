@@ -77,13 +77,13 @@ This is my judgement from the sources above, not verified market data.
 | | Buzz (Block) | Omnara | OpenClaw | Hermes Agent (Nous) |
 |---|---|---|---|---|
 | Kind | Workspace where humans and agents share rooms | Platform for running agents (API, CLI, SDK) | Personal assistant | Personal assistant |
-| Harness | **ACP → Claude Code, Codex, goose, OpenCode** | Its own (Go worker) | Its own | Its own |
-| Subscription | ⚠️ `buzz-acp` README documents `OPENAI_API_KEY` ("not a ChatGPT subscription") and `ANTHROPIC_API_KEY`; subscription login not documented | ❌ API key only; can point at a proxy such as 9Router (watch the terms of service) | ❓ | ❓ |
+| Harness | **ACP → Claude Code, Codex, goose, OpenCode** | Its own (Go worker) | **pi** embedded as the default runtime, plus CLI backends (Claude Code), the Codex app-server harness and ACP agents (3.3) | Its own |
+| Subscription | ⚠️ `buzz-acp` README documents `OPENAI_API_KEY` ("not a ChatGPT subscription") and `ANTHROPIC_API_KEY`; subscription login not documented | ❌ API key only; can point at a proxy such as 9Router (watch the terms of service) | ✅ through the vendor runtimes: Claude Code CLI backend, Codex app-server ("the usual ChatGPT/Codex subscription setup") | ❓ |
 | Many servers | ⚠️ `buzz-acp` is a headless daemon that connects to a relay over WebSocket, so it runs on any server; managed remote bodies are 🚧 (`buzz-backend-kubernetes`, mesh) | ✅ BYO machines (`omnarad`, outbound connection, no open ports) and pools of 12 sandbox providers | ✅ Gateway and nodes (pairing approval, SSH or Tailscale) | ⚠️ One SSH target per configuration |
 | Shared memory | ⚠️ engrams (NIP-AE) are per agent–owner pair, encrypted to the owner; **not shared between agents** | ✅ memory stores `/memory/<store>/…`, files without history | ✅ at the Gateway | Local files (`MEMORY.md`); Honcho plugin |
 | Vault | ⚠️ keypair per agent, secrets kept out of configuration | ✅ secrets scoped to org, project or user, `secret_env` | ❓ | `.env` per instance |
 | Chat channels | The workspace itself (desktop; mobile in progress) | Slack, Discord, GitHub, custom | Telegram, X and many more | Telegram, Discord… |
-| License, size (stars on 2026-11-06) | Apache 2.0, 36.8k stars | Apache 2.0, 3.4k stars | Open source, run by a foundation; license ❓ | Open source; license ❓ |
+| License, size (stars on 2026-11-06) | Apache 2.0, 36.8k stars | Apache 2.0, 3.4k stars | Open source, run by a foundation; about 394k stars | Open source; license ❓ |
 
 ### 3.3 Notes on each
 
@@ -123,6 +123,26 @@ This is my judgement from the sources above, not verified market data.
 - Nodes are machines that run commands: `openclaw node run --host <gateway>`, each approved with
   `openclaw devices approve`.
 - Exec approvals are per node.
+- **How it delegates** (sparse clone of `docs/` at `d622a2b`, 2026-11-06; read `concepts/agent-runtimes.md` §Runtime
+  ownership and §Runtime selection, `gateway/cli-backends.md` §How it works and §Keeping Claude Code orchestration
+  tools, `specs/codex-supervision.md`, `tools/acp-agents.md`, `tools/acp-agents/sessions.md`, `delivery.md`,
+  `tools/subagents.md`):
+  - Four layers: channel, provider, model, **agent runtime** (`openclaw`/pi, `claude-cli`, `codex`, `copilot`). The
+    runtime is chosen per model (`agentRuntime.id`), so one turn can run on pi and the next on Claude Code.
+  - **Sub-agents**: `sessions_spawn({task})` starts a background run in its own session, which **announces** its
+    result back to the requester. A cheaper model can be set for sub-agents.
+  - **ACP agents**: `sessions_spawn({task, runtime: "acp", agentId: "codex", mode: "run"})` runs a real Claude Code,
+    Codex or Gemini CLI through `@openclaw/acpx`; one-shot runs report through the same announce path, persistent
+    ones bind to a chat thread. The docs forbid turning this into a parent–child chat.
+  - **CLI backends**: a turn runs on the installed Claude Code executable, kept warm across turns. Tools reach the CLI
+    through a loopback **MCP bridge** with OpenClaw's policy and approvals; Claude's own file and shell tools are
+    withheld. `Agent` and `Workflow` can be opted in; descendants still running when a turn ends have their process
+    closed so they cannot act under a later turn's authority.
+  - **Paired nodes**: an idle Codex thread on another machine can be continued with `codex exec resume`, gated by
+    `operator.admin` and an explicit node-command allowlist.
+- Maturity, self-reported (`docs/maturity/scorecard.md`): Agent Runtime M3 Beta; "External Runtimes and Subagents"
+  had QA evidence for 3 of 10 features in the 2026-09-24 run. Open issues by title on 2026-11-06: `claude-cli` 129
+  (496 closed), `subagent` 95 (1,080 closed), `acp` 49 (546 closed). Widely used; the user accepts it as proven.
 
 **Others**:
 
@@ -136,49 +156,65 @@ This is my judgement from the sources above, not verified market data.
 | Infisical Agent Vault | Vault and credential proxy for agents: the agent never sees the real credential | Documented as a product in `docs/documentation/platform/agent-vault/` (clone `81e981d`); used here as a design reference (4.1) |
 | ai-memory | Memory shared across agents and machines | |
 
-## 4. Recommended architecture
+## 4. Architecture (agreed 2026-11-06, provisional; implemented piece by piece, see §6)
 
 ```
-              Telegram / Lark / X / Buzz room
-                          │
-              ┌───────────▼──────────────────┐
-              │ Brain: relay / control plane │  shared memory, history, coordination
-              └───┬──────────┬───────────────┘
-       knowledge  │          │ secrets
-   (MemoryOS, MCP)│          │ (Hypomnema vault)
-        ┌─────────┼──────────┼─────────┐
-       zm      server B   sandbox    laptop    ← each machine runs a node daemon + Claude Code / Codex
+Telegram / Lark / X / Web
+          │
+┌─────────▼────────────────────────────────────────────────────────┐
+│ Gateway (TypeScript, embeds the pi SDK as the brain)              │
+│  • layers as in OpenClaw: channel · provider · model · runtime    │
+│  • Run → Task (DAG) → Dispatch → Gate, stored in Postgres as an   │
+│    event log                                                      │
+│  • tools through a policy-checked MCP bridge: MemoryOS (memory),  │
+│    Northstar (personal OS), spawn / send / gate                   │
+└───────┬─────────────────────────────────────┬────────────────────┘
+        │ Dispatch                             │ credential session per Dispatch
+┌───────▼──────────────────────┐      ┌────────▼───────────────────┐
+│ Node daemon (Go), one per    │◀────▶│ Vault + egress proxy (Go)  │
+│ machine: zm · EC2 · K8s ·    │      │ 3-level keys, session per  │
+│ sandbox                      │      │ Dispatch (4.1)             │
+└───────┬──────────────────────┘      └────────────────────────────┘
+        ▼
+ Runtimes: pi (non-code work) · Claude Code CLI · Codex app-server / exec
 ```
 
-**Decision (2026-11-06): build the core yourself, adopt the hands.** The parts that hold your identity, secrets,
-memory and decisions are built in Hypomnema, learning from the projects above, so no outside product owns them. The
-parts that only execute (the vendor coding CLIs, their ACP adapters, sandbox providers) are reused as they are.
+**Decisions:**
+1. **Build the core, adopt the hands.** Identity, secrets, task state and decisions live in Hypomnema; the vendor
+   CLIs, sandbox providers and pi are reused as they are.
+2. **pi is the core harness (the brain)**, as in OpenClaw, where pi is the default runtime. Conditions:
+   - upstream pi (`earendil-works/pi`), not the omp fork;
+   - the brain runs on an API key or a cheap model; coordination needs few tokens;
+   - code work always goes to the vendor CLIs, never to pi on a Claude subscription;
+   - task state lives in the gateway's Postgres, not in pi's session, so a pi crash loses no work.
+3. **Languages**: TypeScript for the gateway and web, because the gateway embeds the pi SDK in-process. Go for the
+   node daemon and the vault, as separate processes: single binaries on every machine, standard-library crypto, few
+   dependencies, and a security boundary between the brain and the secrets.
+4. **Orchestration model**: a deterministic state machine in the gateway; the LLM only plans and works.
 
-| Layer | Build or adopt | Learn from |
-|---|---|---|
-| Control plane: event log, agents, tasks, approvals | **Build** | Buzz (signed event log, rooms per branch, author gate), Omnara ("the machine does not own the agent", agent as event log) |
-| Node daemon on each machine | **Build** | Omnara `omnarad` (outbound connection only, self-update, systemd or launchd), OpenClaw node pairing approval |
-| Vault and credential broker | **Build** (4.1) | Infisical key hierarchy, machine identities, Agent Vault sessions and proxy |
-| Shared memory | **Have**: MemoryOS over MCP | Buzz engrams for per-agent private notes |
-| Personal OS: notes, tasks, calendar, finance | **Have**: Northstar over MCP (§5) | |
-| Coding harness | **Adopt**: Claude Code, Codex via `claude-agent-acp`, `codex-acp` | `buzz-acp` for how to drive them over ACP |
-| Sandboxes | **Adopt**: Daytona, E2B, Modal… when needed | Omnara pools |
+| Component | Language | Does | Learns from |
+|---|---|---|---|
+| Brain | pi SDK in the gateway | Understands the request, splits it into Tasks, dispatches, summarises, does non-code work | OpenClaw (pi as default runtime) |
+| Gateway | TypeScript | Channels, task state, gates, MCP bridge, runtime selection | OpenClaw: layers, `sessions_spawn`, announce, MCP bridge. Orca: Task vs Dispatch, gates, wake on event, fencing |
+| Node daemon | Go | Outbound connection, worktrees, runs and supervises CLIs, parses JSON output | Omnara `omnarad` and `internal/machinedaemon`, OpenClaw node pairing |
+| Vault + proxy | Go | Holds secrets, opens a session per Dispatch, attaches credentials on egress | Infisical (key hierarchy, Agent Vault), omp `auth-gateway` |
+| Code workers | vendor CLIs | Write code, open PRs | Claude Code, Codex |
+| Memory, personal OS | existing | Over MCP | MemoryOS, Northstar (§5) |
 
-1. **Interim runway**: until the control plane exists, a self-hosted Buzz relay plus `buzz-acp` on each server is a
-   working testbed (headless, one keypair per agent). Use it to learn what the control plane must do, not as the
-   base.
-2. **Cost**: Buzz documents API keys only. If the node daemon drives the CLIs on a subscription, check the vendor
-   terms first (3.1).
-3. **Knowledge**: MemoryOS through MCP is the **shared** memory; per-agent notes stay private to each agent.
-4. **Security**: issue and chat text is untrusted input while the agent holds tokens.
-   - Only the owner (or an allowlist) can assign work, as in Buzz's `--respond-to owner-only`.
-   - A public channel such as X mentions never starts work directly; it goes through an approval step.
-   - Agents get brokered credentials (4.1), never raw secrets. Merge rights stay behind a human or CI gate.
-5. **Record each decision**: one file per decision in `docs/decisions/`, append-only, in the style of Northstar's
-   `harness.md`.
+**Delegation flow:**
+1. A message arrives; only the owner or an allowlist can assign work.
+2. The pi brain plans and creates Tasks as a DAG.
+3. **Gate 1**: the owner approves the plan.
+4. Each Task becomes a Dispatch on a machine and runtime (`claude-cli`, `codex`, or pi); the vault opens a credential
+   session for that Dispatch only.
+5. The worker runs in its own worktree, uses tools through the policy-checked MCP bridge, and **announces** its
+   result back to the brain.
+6. Review and CI, then **Gate 2**: the owner approves the merge. Closing the Dispatch revokes its vault session.
 
-**Is it overkill?** Building the hands would be. Building the brain (control plane, vault) is the point of the
-project. Keep each piece small: one Postgres, one daemon, one MCP surface.
+**Security**: issue and chat text is untrusted input while agents hold tokens. A public channel such as X mentions
+never starts work directly; it goes through a gate. Agents get brokered credentials (4.1), never raw secrets.
+
+**Record each decision** in `docs/decisions/`, one append-only file per decision.
 
 ### 4.1 Vault design, learned from Infisical
 
@@ -233,18 +269,23 @@ How it fits Hypomnema:
 - Also reuse its repository harness (`harness.md`: repo as system of record, thin `CLAUDE.md`/`AGENTS.md`,
   `ARCHITECTURE.md` for facts only, append-only `docs/decisions/`).
 
-## 6. Next steps (in order)
+## 6. Build order (one piece at a time, each usable on its own)
 
-1. ~~Read `buzz-acp`: headless, and how engrams work.~~ Done 2026-11-06: headless works (see 3.3); engrams are per
-   agent, so shared memory comes from MemoryOS. Still open: whether `claude-agent-acp` and `codex-acp` accept a
-   subscription login on a server, and whether the terms allow it.
-2. Testbed: self-host a Buzz relay on zm, add one Claude Code agent and one Codex agent with MemoryOS and Northstar
-   MCP, run one task that ends in a PR. Write down what the control plane must do.
-3. Write the first decisions in `docs/decisions/`: build the core, memory boundary (Northstar vs MemoryOS), vault
-   design (4.1).
-4. Build the vault first (key hierarchy, node identities, session per task, proxy), since every later piece needs it.
-5. Build the control plane and node daemon; replace the Buzz testbed.
-6. Read Paseo, Omnigent and Codex Orchestrator for how they drive the CLIs on many servers.
+0. **Decisions**: write `docs/decisions/` for the architecture (§4), the memory boundary (Northstar vs MemoryOS) and
+   the vault design (4.1).
+1. **Gateway + brain**: Telegram → gateway (TypeScript) → pi brain → reply. Postgres event log; MemoryOS and Northstar
+   over MCP. Usable alone as a personal assistant.
+2. **Local code worker**: the brain dispatches Claude Code or Codex on the same machine, in a worktree, in headless
+   mode with JSON output; the worker announces back; Gate 1 and Gate 2 are approved from Telegram. Done when one
+   message ends in one merged PR.
+3. **Vault + proxy (Go)**: move the GitHub token and model keys out of environment variables; one credential session
+   per Dispatch. Required before step 4 and before any public channel.
+4. **Node daemon (Go)**: pairing, outbound connection, the same worker running on zm, EC2 or a sandbox.
+5. **Task DAG and stations**: several Tasks per Run, a review worker, the CI fix loop; Kubernetes or sandbox pools when
+   needed.
+
+Earlier research steps: `buzz-acp` read on 2026-11-06 (headless works; engrams are per agent). The Buzz testbed is
+dropped: OpenClaw already shows the delegation model (3.3).
 
 ## 7. Naming
 
@@ -285,3 +326,5 @@ daemon that runs on each machine.
 - Vault and memory: https://infisical.com/blog/agent-vault-the-open-source-credential-proxy-and-vault-for-agents · https://github.com/akitaonrails/ai-memory · https://themenonlab.blog/blog/mainplane-open-source-distributed-ai-agent-shed
 - Infisical: https://github.com/Infisical/infisical (docs `internals/security.mdx`, `documentation/platform/agent-vault/`, `documentation/platform/agent-proxy/`)
 - Northstar: https://github.com/kl3inIT/northstar (README, `harness.md`)
+- OpenClaw docs (clone `d622a2b`): `concepts/agent-runtimes.md`, `gateway/cli-backends.md`, `specs/codex-supervision.md`, `tools/acp-agents*.md`, `tools/subagents.md`, `maturity/scorecard.md`
+- pi: https://github.com/earendil-works/pi (clone `2a32a60`) · oh-my-pi: https://github.com/can1357/oh-my-pi (clone `660a31d`) · Orca: https://github.com/stablyai/orca (`orca skills get orchestration`, v1.4.250)
