@@ -30,6 +30,9 @@
 
 - Research before design: study mature open-source projects and the owner's own repositories from primary sources
   (code, official docs), compare, recommend one, then wait ([reference-based design](docs/conventions.md#reference-based-design-and-scope-control)).
+- Before a spike or prototype, search the cloned references for the same mechanism. If a reference already does it,
+  read its code as the specification and test only what is specific to this environment (accounts, versions,
+  servers).
 - Every piece of work has a GitHub issue. Its body holds the design and plan for small changes. A multi-day change or
   a new module also gets a design section approved in the issue before code.
 - Branch `<issue>-<slug>`; commit subjects `type(scope): summary (#<issue>)`; one pull request per issue. The agent
