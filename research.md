@@ -283,3 +283,5 @@ daemon that runs on each machine.
 - Meta-harnesses: https://www.augmentcode.com/tools/open-source-agent-orchestrators · https://github.com/omnigent-ai/omnigent · https://github.com/christianreiss/codex-orchestrator · https://superset.sh/
 - Lists: https://github.com/andyrewlee/awesome-agent-orchestrators · https://github.com/bradAGI/awesome-cli-coding-agents
 - Vault and memory: https://infisical.com/blog/agent-vault-the-open-source-credential-proxy-and-vault-for-agents · https://github.com/akitaonrails/ai-memory · https://themenonlab.blog/blog/mainplane-open-source-distributed-ai-agent-shed
+- Infisical: https://github.com/Infisical/infisical (docs `internals/security.mdx`, `documentation/platform/agent-vault/`, `documentation/platform/agent-proxy/`)
+- Northstar: https://github.com/kl3inIT/northstar (README, `harness.md`)
