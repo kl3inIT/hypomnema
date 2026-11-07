@@ -25,7 +25,7 @@ stored data. In Hypomnema these families exist from the start:
 | Runtime (drive a worker) | `claude-cli`, `codex`, `pi` |
 | Machine provider (later) | EC2, Hetzner, Modal, Daytona, E2B… |
 | Model provider for the coordinator | per provider |
-| Channel | Telegram, later web, Lark |
+| Channel | web chat, later Telegram, Lark |
 
 - One interface per function, named after the function (`Runtime`, `Channel`); one type per implementation, named
   after the vendor and function (`CodexRuntime`, `TelegramChannel`), inside the owning module.

@@ -7,7 +7,7 @@ Intent, not fact. What exists is in [ARCHITECTURE.md](../ARCHITECTURE.md); the e
 
 A personal software factory for one owner: one coordinator, many hands.
 
-- The owner assigns work from a phone (Telegram first, later web and mobile).
+- The owner assigns work from a phone or a laptop through a web chat first; Telegram and a Flutter app later.
 - A coordinator plans the work, splits it into tasks, and dispatches them to coding agents.
 - The agents are the vendor CLIs, Claude Code and Codex, running on many machines across many clouds: VPS, EC2,
   Kubernetes, disposable sandboxes.
@@ -44,8 +44,8 @@ Two deployables, all Go:
   OpenClaw, Omnara and Omnigent do.
 - **Shared infrastructure** for every node and worker comes later: a browser service, versioned skills pulled by
   nodes, memory stores read and written through tools, alongside the vault and the gateway.
-- **Clients talk only to the control plane**: Telegram first; a web chat and a Flutter app later, over one OpenAPI
-  contract, with events over SSE.
+- **Clients talk only to the control plane**: a web chat first, built for the phone as Omnigent's web UI is;
+  Telegram and a Flutter app later. All use one OpenAPI contract, with events over SSE.
 
 ## What it learns from
 
@@ -58,5 +58,5 @@ in the research, including [workers, accounts and the gateway](research/2026-11-
 ## Build order
 
 One piece at a time, each usable on its own: spikes; a skeleton of the two deployables on one machine; the first
-merged PR from a Telegram message; a second cloud; task graphs and review stations; machine pools, web and mobile.
+merged PR from a web chat message; a second cloud; task graphs and review stations; machine pools, Telegram and mobile.
 Each step is a GitHub issue.
