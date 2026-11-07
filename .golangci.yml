@@ -1,0 +1,146 @@
+# Omnara's curated set (.tmp/omnara/.golangci.yml at 0ef1711), correctness first, without its custom linter and
+# with this repository's boundaries. The version is pinned in tools/ci/go.mod. Rules are in docs/conventions.md.
+version: "2"
+
+run:
+  timeout: 5m
+  build-tags:
+    - integration
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - staticcheck
+    - unused
+    - ineffassign
+    - asasalint
+    - bidichk
+    - bodyclose
+    - canonicalheader
+    - containedctx
+    - contextcheck
+    - copyloopvar
+    - depguard
+    - durationcheck
+    - errchkjson
+    - errname
+    - errorlint
+    - exhaustive
+    - fatcontext
+    - forbidigo
+    - forcetypeassert
+    - gocheckcompilerdirectives
+    - gomoddirectives
+    - gosec
+    - intrange
+    - lll
+    - loggercheck
+    - makezero
+    - misspell
+    - nilerr
+    - nilnesserr
+    - nilnil
+    - noctx
+    - nolintlint
+    - predeclared
+    - reassign
+    - recvcheck
+    - rowserrcheck
+    - sloglint
+    - sqlclosecheck
+    - testifylint
+    - tparallel
+    - unconvert
+    - usestdlibvars
+    - usetesting
+    - wastedassign
+  settings:
+    staticcheck:
+      checks: [all, -QF*, -ST1000]
+    errorlint:
+      errorf: true
+      asserts: true
+      comparison: true
+    exhaustive:
+      default-signifies-exhaustive: true
+    misspell:
+      locale: US
+    lll:
+      line-length: 120
+      tab-width: 1
+    rowserrcheck:
+      packages: [github.com/jackc/pgx/v5]
+    sloglint:
+      attr-only: true
+      context: scope
+    nolintlint:
+      require-specific: true
+      require-explanation: true
+    gomoddirectives:
+      toolchain-forbidden: true
+    forbidigo:
+      analyze-types: true
+      forbid:
+        # Determinism in the execution core: time and randomness are passed in (docs/conventions.md).
+        - pattern: ^time\.Now$
+          msg: the execution core takes a clock; do not read the wall clock here
+        - pattern: ^time\.Since$
+          msg: the execution core takes a clock; do not read the wall clock here
+    depguard:
+      rules:
+        banned:
+          list-mode: lax
+          deny:
+            - pkg: "math/rand$"
+              desc: use crypto/rand; math/rand/v2 must be justified in review
+            - pkg: github.com/pkg/errors
+              desc: use errors and fmt.Errorf with %w
+            - pkg: "log$"
+              desc: use log/slog
+            - pkg: github.com/stretchr/testify/mock
+              desc: hand-write fakes at the boundary; only require and assert are used
+            - pkg: github.com/stretchr/testify/suite
+              desc: tests are plain functions; only require and assert are used
+        shared_depends_on_no_tree:
+          list-mode: lax
+          files: ["**/internal/shared/**"]
+          deny:
+            - pkg: github.com/kl3inIT/hypomnema/internal/controlplane
+              desc: shared is linked into every binary and depends on no tree
+            - pkg: github.com/kl3inIT/hypomnema/internal/node
+              desc: shared is linked into every binary and depends on no tree
+        controlplane_tree:
+          list-mode: lax
+          files: ["**/internal/controlplane/**", "**/cmd/hypomnema/**"]
+          deny:
+            - pkg: github.com/kl3inIT/hypomnema/internal/node
+              desc: the control plane talks to nodes through internal/shared/nodeproto only
+        node_tree:
+          list-mode: lax
+          files: ["**/internal/node/**", "**/cmd/hypomnema-node/**"]
+          deny:
+            - pkg: github.com/kl3inIT/hypomnema/internal/controlplane
+              desc: the node talks to the control plane through internal/shared/nodeproto, and gets credentials only through vault sessions
+            - pkg: github.com/kl3inIT/hypomnema/internal/shared/postgres
+              desc: the node has no PostgreSQL
+            - pkg: github.com/jackc/pgx
+              desc: the node has no PostgreSQL
+  exclusions:
+    rules:
+      - linters: [forbidigo]
+        path-except: internal/controlplane/execution/
+      - linters: [forbidigo]
+        path: _test\.go$
+      - linters: [lll]
+        source: '^\s*(//|"|`)'
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/kl3inIT/hypomnema

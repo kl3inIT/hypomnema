@@ -25,7 +25,7 @@ stored data. In Hypomnema these families exist from the start:
 | Runtime (drive a worker) | `claude-cli`, `codex`, `pi` |
 | Executor (reach a node) | `node`, `ssh` |
 | Machine provider (later) | EC2, Hetzner, Modal, Daytona, E2B… |
-| Model provider for the brain | per provider |
+| Model provider for the coordinator | per provider |
 | Channel | Telegram, later web, Lark |
 
 - One interface per function, named after the function (`Runtime`, `Executor`); one type per implementation, named
@@ -53,7 +53,8 @@ stored data. In Hypomnema these families exist from the start:
   license, transitive weight and fit. Exception: cryptography in the vault uses Go's standard library and `x/crypto`
   only.
 - Do not prebuild workers, queues, registries or plugin mechanisms for hypothetical future use.
-- Carry accepted decisions across turns; do not reopen rejected ones or silently widen scope.
+- Carry accepted decisions across turns; do not reopen rejected ones or silently widen scope on your own. When the
+  owner changes a decision or a name, that is normal: follow [AGENTS.md](../AGENTS.md#working-rules).
 
 ## Boundary discovery
 
@@ -69,8 +70,9 @@ that protect security, placement or concurrent state are drawn and enforced. For
 3. **Package first**: a new part is a package inside an existing tree; package boundaries inside a tree are not
    enforced beyond what the compiler does.
 4. **New boundary or deployable only with evidence**: a security, placement, scaling or failure reason, recorded in an
-   ADR. The three deployables have theirs: the node runs on every machine and reads untrusted text; the vault keeps
-   secrets away from both.
+   ADR. The two deployables have theirs: the node runs on every machine and reads untrusted text. The vault is a
+   package of the control plane until a reason to move it appears
+   ([decision](decisions/2026-11-07-two-deployables.md)).
 
 ## Layout and boundaries
 
@@ -79,22 +81,23 @@ enforce a few boundaries with `depguard`; Tailscale and Nomad also check each bi
 keeps one flat `internal/` with a storage package behind named methods.
 
 ```
-cmd/hypomnema, cmd/hypomnema-node, cmd/hypomnema-vault   entry points
-internal/controlplane/...   flat packages: execution, brain, mcpbridge, policy, channel/<provider>, httpapi…
+cmd/hypomnema, cmd/hypomnema-node   entry points
+internal/controlplane/...   flat packages: execution, vault, coordinator, mcpbridge, policy, channel/<provider>, httpapi…
 internal/node/...           flat packages: connection, runtime/<name>, proxy, statedb…
-internal/vault/...          flat packages: keys, secrets, sessions, audit…
-internal/shared/...         platform (config, logging, HTTP, errors, ids, clock), nodeproto, vaultproto
+internal/shared/...         platform (config, logging, HTTP, errors, ids, clock), postgres, nodeproto
 ```
 
 The three boundaries that matter:
 
-1. **Between deployables**: each tree imports only itself and `internal/shared`. `shared` stays small and holds no
-   driver (no Postgres, no vault cryptography), because it ships in every binary.
+1. **Between deployables**: each tree imports only itself and `internal/shared`. `shared` stays small, because a
+   binary links whatever of it the binary imports: `shared/platform` depends on no driver and goes into every binary;
+   `shared/postgres` is for the control plane, and the dependency check keeps it out of the node. Vault cryptography
+   never lives in `shared`: it stays in `controlplane/vault`, the only package that holds the root key.
 2. **Execution state has one writer**: only `controlplane/execution` uses the generated sqlc code for Run, Task,
    Dispatch, Gate, leases and nodes, and exposes named operations (`ClaimNextDispatch`, `ExpireLeases`,
    `MarkNodeLost`…), as Omnara's `internal/storage`. These rows change together under concurrency, so one package
    holds one lock order.
-3. **Untrusted input passes policy**: every state change requested by the Brain, a channel or a webhook goes through
+3. **Untrusted input passes policy**: every state change requested by the Coordinator, a channel or a webhook goes through
    `controlplane/policy`. This one cannot be linted; it is held by design review and tests.
 
 **Enforcement**, run by `make verify` locally and in CI:
@@ -126,9 +129,9 @@ The three boundaries that matter:
   proven. Silence or a timeout never proves that a process exited.
 - **Replay policy**: every effect with consequences outside the control plane (push, opening a PR, a merge request, a
   message) is declared `safe` or `never`. Intent is recorded before the effect and the outcome after. A `never`
-  effect interrupted by a crash is never repeated; the Brain receives a recovery note saying what finished and what
+  effect interrupted by a crash is never repeated; the Coordinator receives a recovery note saying what finished and what
   may have taken effect, and reconciles (for example by reading GitHub).
-- **Idempotency**: every mutation from the Brain, the CLI, a channel or a node carries a request id. A receipt keyed by
+- **Idempotency**: every mutation from the Coordinator, the CLI, a channel or a node carries a request id. A receipt keyed by
   caller and request id stores the payload hash; a reused id with another payload is refused; a lost reply can be
   checked instead of repeated.
 - **Failure propagates**: when a Task fails or is cancelled, its dependents become `blocked` with a reason. A retry
@@ -166,7 +169,17 @@ The three boundaries that matter:
 - Workers never hold a raw secret. The node's egress proxy attaches credentials from a vault Session scoped to one
   Dispatch; workers see placeholders. Egress is deny by default per Dispatch.
 - Policies answer ALLOW, DENY or ASK and **fail closed**. They are evaluated in Go behind `mcpbridge` and the node
-  proxy; the pi extension only forwards. Spawn bounds and blast radius limits apply to the Brain.
+  proxy; the pi extension only forwards.
+- **Spawning follows the references' default** (OpenClaw `sessions_spawn`, Omnara `spawn_agent`, Omnigent dispatch):
+  every tool, `spawn` included, has a permission of ALLOW, ASK or DENY, and `spawn` is ALLOW. Hard limits always apply
+  and are checked in Go: workers running at once, spawn depth, dispatches per turn (as Omnigent's `spawn_bounds`) and
+  per Run, and a cost budget that ASKs when reached (as Omnigent's subagent budget). Plan approval before spawning,
+  as genie's `wish`, is an option for large work, not the default.
+- **Separate OS users on one host**: the control plane and vault (`hypomnema`), the Coordinator (`coordinator`: pi with its
+  built-in tools, a filtered environment as Omnigent's `clean_agent_env`, its own directory) and a node's workers
+  (`agent`). The control plane starts pi through one sudoers rule limited to that command. No secret is passed on a
+  command line; every local service (PostgreSQL, the control plane API) requires authentication, as localhost is
+  not a trust boundary once the Coordinator has a shell. `compose.yaml`'s trust authentication is for development only.
 - **Trusted machines, untrusted content.** The owner and the owner's machines are trusted; what agents read is not.
   As Orca does, the isolation unit is the machine: no nested sandbox inside a node by default, because it costs setup
   on every host, breaks easily and slows every command for little gain on a dedicated VM. What is always on, being
@@ -177,8 +190,16 @@ The three boundaries that matter:
   node that needs it (it requires `bubblewrap` and, on Ubuntu, an AppArmor profile), and a disposable cloud sandbox
   per Dispatch, as Omnara's pools, for work from untrusted sources. Flags that disable a CLI's own permission checks
   are allowed only inside such a sandbox.
-- The vault encrypts with AES-256-GCM in a three-level key hierarchy; the root key lives only on the vault host, with
-  an offline backup and a rotation procedure.
+- The vault is a secret manager the owner manages (create, list without values, rotate by version, delete refused
+  while in use), encrypted as Omnara's `internal/secrets`: a data key per secret version, wrapped by a root key chosen
+  by ID from a keyring, with the secret's identity as associated data. The root key comes from the environment of the
+  control plane host, with an offline backup and a rotation procedure that rewraps data keys.
+- Workers get credentials as Infisical's Agent Vault does: the control plane opens a session per Dispatch with the
+  services it may reach; the node's proxy, running as another OS user than the worker, decrypts HTTPS with its own CA,
+  attaches the credential (or replaces a placeholder for tools that insist on a token) only for allowed hosts, methods
+  and paths, logs every request, and stops when the session is revoked. No tool returns a secret value to the Coordinator or
+  a worker. A secret the proxy cannot attach (SSH keys, AWS SigV4, local database passwords) is given in clear only
+  through a Gate the owner approves. Research: [secrets for agents](research/2026-11-07-secrets-for-agents.md).
 - Logs and transcripts are scrubbed of secret patterns before they are stored.
 
 ## Testing
