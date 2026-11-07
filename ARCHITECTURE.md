@@ -22,7 +22,7 @@ one connection, WAL, `synchronous=FULL`, pragmas read back after opening; its di
 
 Migrations are goose SQL files embedded in the binary (`internal/controlplane/orchestration/migrations`); the schema
 holds Runs, Tasks, Task dependencies, Dispatches, Conversations, receipts, Dispatch effects and resources, slot
-cooldowns and questions. `internal/controlplane/orchestration` is their only writer: named operations, each one `BEGIN IMMEDIATE`
+cooldowns, questions and the event log. `internal/controlplane/orchestration` is their only writer: named operations, each one `BEGIN IMMEDIATE`
 transaction, every status change a guarded `UPDATE` checked against a transition table (`transitions.go`).
 
 - Runs and Tasks: create a Run, create Tasks with dependencies, cancel or reopen a Task, finish or cancel a Run. A
@@ -46,7 +46,14 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   is addressed to it and can forward a question to the owner. Open questions close when their Dispatch settles (a
   `wait` question) or their Task is canceled (a Gate); a Gate never expires.
 
-Nothing calls these operations yet: there is no node API, scheduler, mailbox or events.
+- Events: every change writes its events in the same transaction to one log with an increasing `seq`: Runs,
+  Tasks and Dispatches with the status they left, Conversations closed, questions opened, answered, forwarded or
+  canceled, and the reaper's escalations. Lease renewals, progress, effects and resources are not events. With one
+  writer, a later commit always has higher `seq` values, so a reader following `ListEvents` (cursor, limit up to
+  500, `has_more`, filters by Run or Task) misses nothing. `Subscribe` wakes readers after each commit with a
+  signal that carries no data.
+
+Nothing calls these operations yet: there is no node API, scheduler or mailbox.
 
 ## Code
 

@@ -65,6 +65,13 @@ func (s *Service) CreateDispatch(ctx context.Context, taskID string, spec Dispat
 			return fmt.Errorf("inserting dispatch: %w", err)
 		}
 
+		if err := emit(ctx, q, now, event{
+			kind: EventDispatchCreated, run: task.RunID, task: taskID, dispatch: id, node: node,
+			payload: map[string]any{"conversation_id": conv, "recovery": recovery, "gate_question_id": gate},
+		}); err != nil {
+			return err
+		}
+
 		return transitionTask(ctx, q, now, taskID, TaskRunning, BlockedNone, "")
 	})
 	if err != nil {
@@ -145,13 +152,31 @@ func checkCooldown(ctx context.Context, q *store.Queries, now int64, node, runti
 }
 
 func closeConversation(ctx context.Context, q *store.Queries, now int64, id string, reason CloseReason) error {
-	if _, err := q.CloseConversation(ctx, store.CloseConversationParams{
+	n, err := q.CloseConversation(ctx, store.CloseConversationParams{
 		CloseReason: nullString(string(reason)), Now: now, ID: id,
-	}); err != nil {
+	})
+	if err != nil {
 		return fmt.Errorf("closing conversation %s: %w", id, err)
 	}
 
-	return nil
+	if n != 1 {
+		return nil
+	}
+
+	conv, err := q.GetConversation(ctx, id)
+	if err != nil {
+		return notFound(err, "conversation", id)
+	}
+
+	task, err := q.GetTask(ctx, conv.TaskID)
+	if err != nil {
+		return notFound(err, "task", conv.TaskID)
+	}
+
+	return emit(ctx, q, now, event{
+		kind: EventConversationClosed, run: task.RunID, task: task.ID, node: conv.NodeID,
+		payload: map[string]any{"conversation_id": id, "reason": string(reason)},
+	})
 }
 
 // AcceptDispatch is a node taking a queued Dispatch. It succeeds only before
@@ -170,6 +195,10 @@ func (s *Service) AcceptDispatch(ctx context.Context, call NodeCall) (Accepted, 
 
 		if n != 1 {
 			return Accepted{}, fmt.Errorf("%w: dispatch %s is %s or expired", ErrConflict, d.ID, d.Status)
+		}
+
+		if err := emitDispatchStatus(ctx, q, now, d, DispatchStarting, map[string]any{"epoch": d.Epoch + 1}); err != nil {
+			return Accepted{}, err
 		}
 
 		return accepted(ctx, q, d, lease)
@@ -304,6 +333,10 @@ func (s *Service) ReportStarted(ctx context.Context, call NodeCall, processRef, 
 
 		if n != 1 {
 			return fmt.Errorf("%w: dispatch %s is %s, not starting", ErrConflict, d.ID, d.Status)
+		}
+
+		if err := emitDispatchStatus(ctx, q, now, d, DispatchRunning, nil); err != nil {
+			return err
 		}
 
 		if cliSessionRef == "" {
@@ -593,6 +626,11 @@ func (s *Service) ReattachDispatch(ctx context.Context, call NodeCall, processRe
 					ErrConflict, d.ID, d.Status, d.Epoch)
 			}
 
+			if err := emitDispatchStatus(ctx, q, now, d, DispatchRunning,
+				map[string]any{"epoch": d.Epoch + 1, "reattached": true}); err != nil {
+				return Accepted{}, err
+			}
+
 			task, err := q.GetTask(ctx, d.TaskID)
 			if err != nil {
 				return Accepted{}, notFound(err, "task", d.TaskID)
@@ -603,8 +641,11 @@ func (s *Service) ReattachDispatch(ctx context.Context, call NodeCall, processRe
 			}
 
 			if task.CancelRequestedAt.Valid {
-				if _, err := q.RequestStop(ctx, store.RequestStopParams{Now: now, ID: d.ID}); err != nil {
-					return Accepted{}, fmt.Errorf("stopping %s: %w", d.ID, err)
+				running := d
+				running.Status, running.Epoch = string(DispatchRunning), d.Epoch+1
+
+				if err := requestStop(ctx, q, now, running); err != nil {
+					return Accepted{}, err
 				}
 			}
 
@@ -699,11 +740,24 @@ func (s *Service) settle(ctx context.Context, q *store.Queries, now int64, d sto
 		return fmt.Errorf("%w: dispatch %s is %s, cannot become %s", ErrConflict, d.ID, d.Status, to)
 	}
 
+	if err := emitDispatchStatus(ctx, q, now, d, to, map[string]any{"class": string(class)}); err != nil {
+		return err
+	}
+
 	// The worker no longer waits for anything (Orca's closeQuestionsForDispatch on every settlement).
-	if _, err := q.CancelOpenWaitQuestionsOfDispatch(ctx, store.CancelOpenWaitQuestionsOfDispatchParams{
+	closed, err := q.CancelOpenWaitQuestionsOfDispatch(ctx, store.CancelOpenWaitQuestionsOfDispatchParams{
 		Now: now, DispatchID: d.ID,
-	}); err != nil {
+	})
+	if err != nil {
 		return fmt.Errorf("closing the questions of %s: %w", d.ID, err)
+	}
+
+	for _, c := range closed {
+		if err := emitQuestion(ctx, q, now, EventQuestionCanceled,
+			questionRef{id: c.ID, task: c.TaskID, run: c.RunID, dispatch: c.DispatchID},
+			map[string]any{"mode": c.Mode, "reason": "dispatch_ended"}); err != nil {
+			return err
+		}
 	}
 
 	conv, err := q.GetConversation(ctx, d.ConversationID)
@@ -826,7 +880,25 @@ func markUnknown(ctx context.Context, q *store.Queries, now int64, d store.Dispa
 		return fmt.Errorf("%w: dispatch %s is %s, cannot become %s", ErrConflict, d.ID, d.Status, to)
 	}
 
+	if err := emitDispatchStatus(ctx, q, now, d, to, map[string]any{"cause": string(cause)}); err != nil {
+		return err
+	}
+
 	return transitionTask(ctx, q, now, d.TaskID, TaskBlocked, BlockedDispatchUnknown, "")
+}
+
+// requestStop asks a starting or running Dispatch to stop.
+func requestStop(ctx context.Context, q *store.Queries, now int64, d store.Dispatch) error {
+	n, err := q.RequestStop(ctx, store.RequestStopParams{Now: now, ID: d.ID})
+	if err != nil {
+		return fmt.Errorf("stopping dispatch %s: %w", d.ID, err)
+	}
+
+	if n != 1 {
+		return fmt.Errorf("%w: dispatch %s changed while stopping", ErrConflict, d.ID)
+	}
+
+	return emitDispatchStatus(ctx, q, now, d, DispatchStopping, nil)
 }
 
 // Reap applies the timers: queued Dispatches expire, lost leases make the
@@ -847,6 +919,12 @@ func (s *Service) Reap(ctx context.Context) (Reaped, error) {
 
 		if err := reapEscalations(ctx, q, now, &out); err != nil {
 			return err
+		}
+
+		for _, e := range out.Escalations {
+			if err := emitEscalation(ctx, q, now, e); err != nil {
+				return err
+			}
 		}
 
 		return reapHousekeeping(ctx, q, now)

@@ -164,6 +164,12 @@ func (s *Service) insertQuestion(ctx context.Context, q *store.Queries, now int6
 		return "", fmt.Errorf("inserting a question of %s: %w", d.ID, err)
 	}
 
+	if err := emitQuestion(ctx, q, now, EventQuestionOpened,
+		questionRef{id: id, task: task.ID, run: task.RunID, dispatch: d.ID},
+		map[string]any{"mode": string(mode), "addressed_to": string(a.To)}); err != nil {
+		return "", err
+	}
+
 	return id, nil
 }
 
@@ -258,6 +264,12 @@ func (s *Service) AnswerQuestion(ctx context.Context, id string, by Addressee, a
 			return fmt.Errorf("%w: question %s changed while answering", ErrConflict, id)
 		}
 
+		if err := emitQuestion(ctx, q, now, EventQuestionAnswered,
+			questionRef{id: id, task: question.TaskID, run: question.RunID, dispatch: question.DispatchID},
+			map[string]any{"mode": string(question.Mode), "answered_by": string(by)}); err != nil {
+			return err
+		}
+
 		if question.Mode == QuestionGate {
 			return transitionTask(ctx, q, now, question.TaskID, TaskReady, BlockedNone, "")
 		}
@@ -282,13 +294,15 @@ func (s *Service) ForwardQuestion(ctx context.Context, id string) error {
 			return fmt.Errorf("forwarding %s: %w", id, err)
 		}
 
-		if n == 1 {
-			return nil
-		}
-
 		row, err := q.GetQuestion(ctx, id)
 		if err != nil {
 			return notFound(err, "question", id)
+		}
+
+		if n == 1 {
+			return emitQuestion(ctx, q, now, EventQuestionForwarded,
+				questionRef{id: id, task: row.TaskID, run: row.RunID, dispatch: row.DispatchID},
+				map[string]any{"mode": row.Mode, "addressed_to": string(AddressOwner)})
 		}
 
 		return fmt.Errorf("%w: question %s is %s and addressed to the %s", ErrConflict, id, row.Status, row.AddressedTo)

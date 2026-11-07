@@ -71,6 +71,18 @@ type DispatchResource struct {
 	ReleasedAt sql.NullInt64
 }
 
+type Event struct {
+	Seq        int64
+	Kind       string
+	RunID      sql.NullString
+	TaskID     sql.NullString
+	DispatchID sql.NullString
+	QuestionID sql.NullString
+	NodeID     sql.NullString
+	Payload    string
+	CreatedAt  int64
+}
+
 type Question struct {
 	ID           string
 	DispatchID   string

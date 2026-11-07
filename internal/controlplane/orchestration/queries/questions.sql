@@ -22,13 +22,15 @@ WHERE id = @id AND status = 'open';
 UPDATE questions SET updated_at = @now, addressed_to = 'owner', remind_at = @remind_at
 WHERE id = @id AND status = 'open' AND addressed_to = 'coordinator';
 
--- name: CancelOpenWaitQuestionsOfDispatch :execrows
+-- name: CancelOpenWaitQuestionsOfDispatch :many
 UPDATE questions SET updated_at = @now, status = 'canceled', cancel_reason = 'dispatch_ended', remind_at = NULL
-WHERE dispatch_id = @dispatch_id AND mode = 'wait' AND status = 'open';
+WHERE dispatch_id = @dispatch_id AND mode = 'wait' AND status = 'open'
+RETURNING id, task_id, run_id, dispatch_id, mode, addressed_to;
 
--- name: CancelOpenGatesOfTask :execrows
+-- name: CancelOpenGatesOfTask :many
 UPDATE questions SET updated_at = @now, status = 'canceled', cancel_reason = 'task_canceled', remind_at = NULL
-WHERE task_id = @task_id AND mode = 'gate' AND status = 'open';
+WHERE task_id = @task_id AND mode = 'gate' AND status = 'open'
+RETURNING id, task_id, run_id, dispatch_id, mode, addressed_to;
 
 -- name: ListUndeliveredAnswers :many
 SELECT * FROM questions
@@ -50,7 +52,7 @@ WHERE (CAST(@run_id AS TEXT) = '' OR run_id = @run_id)
 ORDER BY created_at, id;
 
 -- name: ListDueReminders :many
-SELECT id, dispatch_id FROM questions
+SELECT id, dispatch_id, task_id, run_id FROM questions
 WHERE status = 'open' AND addressed_to = 'owner' AND remind_at <= CAST(@now AS INTEGER)
 ORDER BY remind_at;
 
