@@ -15,7 +15,8 @@ means something else is named here once and not used.
 | **Worker** | A CLI agent process (Claude Code, Codex, or pi) carrying out one Dispatch | The Node it runs on |
 | **Runtime** | The kind of worker and how it is driven: `claude-cli`, `codex`, `pi` | A model or a provider |
 | **Node** | A machine paired with the control plane that runs Workers: a VM, a server, a sandbox | Omnara's "machine", same meaning |
-| **Executor** | How the control plane reaches a Node: `node` (the daemon dials out) or `ssh` | A Runtime |
+| **Account** | One credential a Runtime runs under: a Claude subscription, a Codex subscription or an API key. Managed by the control plane; a Dispatch records which one it used | A user account of the owner |
+| **Model gateway** | The control plane module every model request goes through: forwards subscription traffic, injects API keys, records usage per Dispatch | A Node's egress proxy |
 | **Session** | A vault credential session opened for one Dispatch and revoked when it closes | A chat session or a CLI session; call those "conversation" and "CLI session" |
 | **Announce** | A Worker's final report to the Coordinator, with outcome and evidence | A chat message to the owner |
 | **Policy** | A rule that answers a tool call or request with ALLOW, DENY or ASK | A Gate |

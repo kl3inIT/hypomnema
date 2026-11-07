@@ -29,25 +29,31 @@ Two deployables, all Go:
 - **Workers are the vendor CLIs**, driven headless: Codex through `codex app-server` (JSON-RPC), Claude Code through
   bidirectional stream-JSON with permission prompts answered by the host. pi can also be a worker for small cheap
   jobs.
-- **Nodes dial out.** No machine opens an inbound port. An SSH executor exists only to bootstrap a node or to reach a
-  trusted machine of the owner.
-- **Secrets never reach a worker.** The node's proxy attaches credentials from a vault session opened for one
+- **Nodes dial out.** No machine opens an inbound port. SSH is only how the owner installs a node (a one-time token,
+  as Omnara's installer); no work runs over SSH.
+- **Credentials are per Dispatch.** The node's proxy attaches credentials from a vault session opened for one
   Dispatch and revoked when it closes, as Infisical's Agent Vault. The vault lives in the control plane; it moves to
   its own host only when the control plane has to run somewhere less trusted.
+- **Every model request goes through one model gateway** in the control plane, which forwards subscription traffic
+  unchanged, injects API keys, pins one account per session for the prompt cache, and records usage per Dispatch. The
+  control plane manages the accounts: a Claude subscription only through Claude Code with a `claude setup-token` token
+  from the vault; a Codex subscription through `codex app-server` with tokens the control plane refreshes.
 - **One machine is enough to start**, with three OS users that each hold only their own: `hypomnema` (control plane
   and vault, the root key), `coordinator` (pi with all its tools, a filtered environment and its own directory), `agent`
   (a node running workers). More machines only add nodes. The coordinator spawns workers by itself within hard limits, as
   OpenClaw, Omnara and Omnigent do.
+- **Shared infrastructure** for every node and worker comes later: a browser service, versioned skills pulled by
+  nodes, memory stores read and written through tools, alongside the vault and the gateway.
 - **Clients talk only to the control plane**: Telegram first; a web chat and a Flutter app later, over one OpenAPI
   contract, with events over SSE.
 
 ## What it learns from
 
 Orca for the orchestration model (Run, Task, Dispatch, Gate, mailbox, fencing), Omnara for durability (agents as
-event logs, leases, reapers, outbound daemons), OpenClaw for the coordinator's tool surface and delegation (`sessions_spawn`,
+event logs, leases, reapers, outbound daemons), Coder for the transition matrix, the model gateway and prebuilt pools, OpenClaw for the coordinator's tool surface and delegation (`sessions_spawn`,
 announce, MCP bridge), Omnigent and durable-harness for driving CLIs and replay policy, Infisical for the vault,
 second-bite for the Go stack, Omnara, Grafana, Teleport and Nomad for the layout and its checks. Details and paths are
-in the research.
+in the research, including [workers, accounts and the gateway](research/2026-11-07-workers-accounts-gateway.md).
 
 ## Build order
 
