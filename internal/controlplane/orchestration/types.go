@@ -35,6 +35,8 @@ const (
 	BlockedDependencyFailed BlockedReason = "dependency_failed"
 	BlockedGate             BlockedReason = "gate"
 	BlockedDispatchUnknown  BlockedReason = "dispatch_unknown"
+	// BlockedNeedsAuth: the worker's account needs a login; never retried automatically.
+	BlockedNeedsAuth BlockedReason = "needs_auth"
 )
 
 // Run is one objective from the owner.
@@ -65,6 +67,10 @@ type Task struct {
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 	FinishedAt    *time.Time
+	// NotBefore: no Dispatch is created before it (back-off, or a rate limit's reset).
+	NotBefore *time.Time
+	// CancelRequestedAt: a cancel waits for the running Dispatch to stop.
+	CancelRequestedAt *time.Time
 }
 
 // NewTask describes a Task to create. Ref names it within one CreateTasks

@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math/rand/v2"
+	"slices"
 	"strings"
 	"time"
 
@@ -17,12 +19,14 @@ type Service struct {
 	db    *sql.DB
 	clock platform.Clock
 	newID func(prefix string) string
+	// random returns a number in [0, 1) for the back-off jitter.
+	random func() float64
 }
 
 // New returns a Service over an opened, migrated database. The clock and id
 // generator are passed in so tests control time and ids.
 func New(db *sql.DB, clock platform.Clock, newID func(prefix string) string) *Service {
-	return &Service{db: db, clock: clock, newID: newID}
+	return &Service{db: db, clock: clock, newID: newID, random: rand.Float64}
 }
 
 // write runs fn in one transaction. The connection opens every transaction
@@ -92,18 +96,34 @@ func (s *Service) FinishRun(ctx context.Context, id string) error {
 	})
 }
 
-// CancelRun cancels a Run and every Task in it that has not ended.
+// CancelRun cancels a Run and every Task in it that has not ended. A Task
+// whose Dispatch may still be running is canceled once that Dispatch stops
+// (Omnigent's _best_effort_stop walks every running worker the same way).
 func (s *Service) CancelRun(ctx context.Context, id string) error {
 	return s.write(ctx, func(q *store.Queries, now int64) error {
 		if err := transitionRun(ctx, q, now, id, RunOpen, RunCanceled); err != nil {
 			return err
 		}
 
-		_, err := q.CancelOpenTasksOfRun(ctx, store.CancelOpenTasksOfRunParams{
-			Now: now, RunID: id, FromStatuses: taskFrom(TaskCanceled),
-		})
+		ids, err := q.ListUnfinishedTaskIDs(ctx, store.ListUnfinishedTaskIDsParams{RunID: id, Statuses: unfinished()})
 		if err != nil {
-			return fmt.Errorf("canceling the run's tasks: %w", err)
+			return fmt.Errorf("listing the run's tasks: %w", err)
+		}
+
+		for _, t := range ids {
+			// An earlier Task's cancel may have ended this one already.
+			task, err := q.GetTask(ctx, t)
+			if err != nil {
+				return notFound(err, "task", t)
+			}
+
+			if TaskStatus(task.Status).terminal() {
+				continue
+			}
+
+			if err := s.cancelTask(ctx, q, now, t); err != nil {
+				return err
+			}
 		}
 
 		return nil
@@ -293,52 +313,185 @@ func (s *Service) ListTasks(ctx context.Context, runID string) ([]Task, error) {
 	return out, nil
 }
 
-// CompleteTask records a running Task's success and makes ready every
-// dependent whose dependencies have now all succeeded, in the same
-// transaction (Orca's promoteReadyTasks).
-func (s *Service) CompleteTask(ctx context.Context, id, result string) error {
+// completeTask records a Task's success and makes ready every dependent whose
+// dependencies have now all succeeded, in the same transaction (Orca's
+// promoteReadyTasks).
+func completeTask(ctx context.Context, q *store.Queries, now int64, id, result string) error {
+	if err := transitionTask(ctx, q, now, id, TaskSucceeded, BlockedNone, result); err != nil {
+		return err
+	}
+
+	ready, err := q.ListUnblockedDependents(ctx, id)
+	if err != nil {
+		return fmt.Errorf("listing dependents: %w", err)
+	}
+
+	for _, dep := range ready {
+		if err := transitionTask(ctx, q, now, dep, TaskReady, BlockedNone, ""); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// failTask records that a Task failed for good, and blocks every Task that
+// depends on it, directly or not. Orca leaves such dependents pending, so a
+// run never converges; this departs from Orca on purpose.
+func failTask(ctx context.Context, q *store.Queries, now int64, id, reason string) error {
+	if err := transitionTask(ctx, q, now, id, TaskFailed, BlockedNone, reason); err != nil {
+		return err
+	}
+
+	return blockDependents(ctx, q, now, id)
+}
+
+// cancelNow cancels a Task that has no Dispatch left running, and blocks its
+// dependents.
+func cancelNow(ctx context.Context, q *store.Queries, now int64, id string) error {
+	if err := transitionTask(ctx, q, now, id, TaskCanceled, BlockedNone, ""); err != nil {
+		return err
+	}
+
+	return blockDependents(ctx, q, now, id)
+}
+
+// CancelTask cancels a Task that has not ended. If its Dispatch may still be
+// running, the Dispatch is asked to stop and the Task is canceled only once
+// the stop is confirmed or the Dispatch otherwise settles, so no second worker
+// starts while the first may still push (Orca's beginWorkerStop).
+func (s *Service) CancelTask(ctx context.Context, id string) error {
 	return s.write(ctx, func(q *store.Queries, now int64) error {
-		if err := transitionTask(ctx, q, now, id, TaskSucceeded, BlockedNone, result); err != nil {
+		return s.cancelTask(ctx, q, now, id)
+	})
+}
+
+func (s *Service) cancelTask(ctx context.Context, q *store.Queries, now int64, id string) error {
+	task, err := q.GetTask(ctx, id)
+	if err != nil {
+		return notFound(err, "task", id)
+	}
+
+	if TaskStatus(task.Status).terminal() {
+		return fmt.Errorf("%w: task %s is %s", ErrConflict, id, task.Status)
+	}
+
+	d, err := q.ActiveDispatchOfTask(ctx, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return cancelNow(ctx, q, now, id)
+	}
+
+	if err != nil {
+		return fmt.Errorf("reading the dispatch of task %s: %w", id, err)
+	}
+
+	if err := q.RequestTaskCancel(ctx, store.RequestTaskCancelParams{Now: now, ID: id}); err != nil {
+		return fmt.Errorf("requesting the cancel of task %s: %w", id, err)
+	}
+
+	switch DispatchStatus(d.Status) {
+	case DispatchQueued:
+		// No node has it yet, so nothing can be running.
+		return s.settle(ctx, q, now, d, DispatchCanceled, FailureNone, nil, nil, true)
+	case DispatchStarting, DispatchRunning:
+		n, err := q.RequestStop(ctx, store.RequestStopParams{Now: now, ID: d.ID})
+		if err != nil {
+			return fmt.Errorf("stopping dispatch %s: %w", d.ID, err)
+		}
+
+		if n != 1 {
+			return fmt.Errorf("%w: dispatch %s changed while stopping", ErrConflict, d.ID)
+		}
+
+		return nil
+	default:
+		// stopping, unknown, stop_unknown: the cancel applies when the Dispatch settles.
+		return nil
+	}
+}
+
+// ReopenTask gives a failed Task, or one blocked because its account needed a
+// login, a new start: its failure count is reset, and the Tasks blocked only
+// because of it go back to waiting (Orca resets its breaker the same way,
+// failed-start-circuit-breaker.test.ts).
+func (s *Service) ReopenTask(ctx context.Context, id string) error {
+	return s.write(ctx, func(q *store.Queries, now int64) error {
+		task, err := q.GetTask(ctx, id)
+		if err != nil {
+			return notFound(err, "task", id)
+		}
+
+		run, err := q.GetRun(ctx, task.RunID)
+		if err != nil {
+			return notFound(err, "run", task.RunID)
+		}
+
+		reopenable := TaskStatus(task.Status) == TaskFailed ||
+			(TaskStatus(task.Status) == TaskBlocked && BlockedReason(task.BlockedReason.String) == BlockedNeedsAuth)
+
+		switch {
+		case RunStatus(run.Status) != RunOpen:
+			return fmt.Errorf("%w: run %s is %s", ErrConflict, run.ID, run.Status)
+		case !reopenable:
+			return fmt.Errorf("%w: task %s is %s; only a failed task or one that needs a login reopens",
+				ErrConflict, id, task.Status)
+		}
+
+		if err := q.ResetTaskFailures(ctx, store.ResetTaskFailuresParams{Now: now, ID: id}); err != nil {
+			return fmt.Errorf("resetting task %s: %w", id, err)
+		}
+
+		if err := transitionTask(ctx, q, now, id, TaskReady, BlockedNone, ""); err != nil {
 			return err
 		}
 
-		ready, err := q.ListUnblockedDependents(ctx, id)
+		return unblockDependents(ctx, q, now, id)
+	})
+}
+
+// unblockDependents walks the dependents of a reopened Task and puts back to
+// pending each one that was blocked only by dependencies that can now succeed.
+func unblockDependents(ctx context.Context, q *store.Queries, now int64, id string) error {
+	queue := []string{id}
+
+	for len(queue) > 0 {
+		deps, err := q.ListDependents(ctx, queue[0])
 		if err != nil {
 			return fmt.Errorf("listing dependents: %w", err)
 		}
 
-		for _, dep := range ready {
-			if err := transitionTask(ctx, q, now, dep, TaskReady, BlockedNone, ""); err != nil {
+		queue = queue[1:]
+
+		for _, d := range deps {
+			t, err := q.GetTask(ctx, d.ID)
+			if err != nil {
+				return notFound(err, "task", d.ID)
+			}
+
+			if TaskStatus(t.Status) != TaskBlocked || BlockedReason(t.BlockedReason.String) != BlockedDependencyFailed {
+				continue
+			}
+
+			states, err := q.ListDependencyStates(ctx, d.ID)
+			if err != nil {
+				return fmt.Errorf("reading the dependencies of %s: %w", d.ID, err)
+			}
+
+			if slices.ContainsFunc(states, func(st store.ListDependencyStatesRow) bool {
+				return depState{TaskStatus(st.Status), BlockedReason(st.BlockedReason.String)}.neverSucceeds()
+			}) {
+				continue
+			}
+
+			if err := transitionTask(ctx, q, now, d.ID, TaskPending, BlockedNone, ""); err != nil {
 				return err
 			}
+
+			queue = append(queue, d.ID)
 		}
+	}
 
-		return nil
-	})
-}
-
-// FailTask records that a Task failed for good, and blocks every Task that
-// depends on it, directly or not. Orca leaves such dependents pending, so a
-// run never converges; this departs from Orca on purpose.
-func (s *Service) FailTask(ctx context.Context, id, reason string) error {
-	return s.write(ctx, func(q *store.Queries, now int64) error {
-		if err := transitionTask(ctx, q, now, id, TaskFailed, BlockedNone, reason); err != nil {
-			return err
-		}
-
-		return blockDependents(ctx, q, now, id)
-	})
-}
-
-// CancelTask cancels a Task that has not ended and blocks its dependents.
-func (s *Service) CancelTask(ctx context.Context, id string) error {
-	return s.write(ctx, func(q *store.Queries, now int64) error {
-		if err := transitionTask(ctx, q, now, id, TaskCanceled, BlockedNone, ""); err != nil {
-			return err
-		}
-
-		return blockDependents(ctx, q, now, id)
-	})
+	return nil
 }
 
 // blockDependents walks the dependents of a Task that will never succeed and
@@ -355,7 +508,8 @@ func blockDependents(ctx context.Context, q *store.Queries, now int64, id string
 		queue = queue[1:]
 
 		for _, d := range deps {
-			if !canTask(TaskStatus(d.Status), TaskBlocked) {
+			st := TaskStatus(d.Status)
+			if st != TaskPending && st != TaskReady {
 				continue
 			}
 
@@ -436,6 +590,14 @@ func nullString(s string) sql.NullString {
 	return sql.NullString{String: s, Valid: s != ""}
 }
 
+func nullMillis(t *time.Time) sql.NullInt64 {
+	if t == nil {
+		return sql.NullInt64{}
+	}
+
+	return sql.NullInt64{Int64: t.UnixMilli(), Valid: true}
+}
+
 func millis(ms int64) time.Time { return time.UnixMilli(ms).UTC() }
 
 func optionalTime(v sql.NullInt64) *time.Time {
@@ -462,5 +624,6 @@ func taskFromRow(t store.Task) Task {
 		Status: TaskStatus(t.Status), BlockedReason: BlockedReason(t.BlockedReason.String),
 		FailureCount: int(t.FailureCount), Result: t.Result.String,
 		CreatedAt: millis(t.CreatedAt), UpdatedAt: millis(t.UpdatedAt), FinishedAt: optionalTime(t.FinishedAt),
+		NotBefore: optionalTime(t.NotBefore), CancelRequestedAt: optionalTime(t.CancelRequestedAt),
 	}
 }

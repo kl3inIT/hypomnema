@@ -55,10 +55,27 @@ WHERE d.depends_on = @task_id
       WHERE d2.task_id = t.id AND u.status <> 'succeeded')
 ORDER BY t.position;
 
--- name: CancelOpenTasksOfRun :execrows
-UPDATE tasks
-SET status = 'canceled', blocked_reason = NULL, updated_at = @now, finished_at = @now
-WHERE run_id = @run_id AND status IN (sqlc.slice('from_statuses'));
-
 -- name: CountUnfinishedTasks :one
 SELECT count(*) FROM tasks WHERE run_id = @run_id AND status IN (sqlc.slice('statuses'));
+
+-- name: ListDependencyStates :many
+SELECT u.status, u.blocked_reason
+FROM task_deps d
+JOIN tasks u ON u.id = d.depends_on
+WHERE d.task_id = @task_id;
+
+-- name: ListUnfinishedTaskIDs :many
+SELECT id FROM tasks WHERE run_id = @run_id AND status IN (sqlc.slice('statuses')) ORDER BY position;
+
+-- name: RecordTaskFailure :one
+UPDATE tasks SET failure_count = failure_count + 1, updated_at = @now WHERE id = @id
+RETURNING failure_count;
+
+-- name: SetTaskNotBefore :exec
+UPDATE tasks SET not_before = @not_before, updated_at = @now WHERE id = @id;
+
+-- name: RequestTaskCancel :exec
+UPDATE tasks SET cancel_requested_at = coalesce(cancel_requested_at, @now), updated_at = @now WHERE id = @id;
+
+-- name: ResetTaskFailures :exec
+UPDATE tasks SET failure_count = 0, not_before = NULL, updated_at = @now WHERE id = @id;

@@ -8,6 +8,75 @@ import (
 	"database/sql"
 )
 
+type Conversation struct {
+	ID            string
+	TaskID        string
+	NodeID        string
+	Worktree      string
+	Runtime       string
+	AccountRef    string
+	CliSessionRef sql.NullString
+	Status        string
+	CloseReason   sql.NullString
+	CreatedAt     int64
+	UpdatedAt     int64
+}
+
+type Dispatch struct {
+	ID              string
+	TaskID          string
+	ConversationID  string
+	NodeID          string
+	Status          string
+	Epoch           int64
+	FailureClass    sql.NullString
+	UnknownCause    sql.NullString
+	Recovery        int64
+	ProcessRef      sql.NullString
+	Result          sql.NullString
+	ResetsAt        sql.NullInt64
+	CreatedAt       int64
+	UpdatedAt       int64
+	AcceptedAt      sql.NullInt64
+	StartedAt       sql.NullInt64
+	LeaseExpiresAt  sql.NullInt64
+	ProgressAt      sql.NullInt64
+	StopRequestedAt sql.NullInt64
+	StopAckedAt     sql.NullInt64
+	StalledAt       sql.NullInt64
+	OverrunAt       sql.NullInt64
+	SettledAt       sql.NullInt64
+}
+
+type DispatchEffect struct {
+	DispatchID string
+	Seq        int64
+	Kind       string
+	Ref        string
+	Phase      string
+	Payload    sql.NullString
+	CreatedAt  int64
+	UpdatedAt  int64
+}
+
+type DispatchResource struct {
+	DispatchID string
+	Kind       string
+	Ref        string
+	Custody    string
+	CreatedAt  int64
+	ReleasedAt sql.NullInt64
+}
+
+type Receipt struct {
+	Caller      string
+	RequestID   string
+	Method      string
+	PayloadHash string
+	Response    string
+	CreatedAt   int64
+}
+
 type Run struct {
 	ID         string
 	Objective  string
@@ -18,22 +87,32 @@ type Run struct {
 	FinishedAt sql.NullInt64
 }
 
+type SlotCooldown struct {
+	NodeID     string
+	Runtime    string
+	AccountRef string
+	Until      int64
+	Reason     string
+}
+
 type Task struct {
-	ID            string
-	RunID         string
-	Position      int64
-	Role          string
-	Spec          string
-	Runtime       sql.NullString
-	Model         sql.NullString
-	Effort        sql.NullString
-	Status        string
-	BlockedReason sql.NullString
-	FailureCount  int64
-	Result        sql.NullString
-	CreatedAt     int64
-	UpdatedAt     int64
-	FinishedAt    sql.NullInt64
+	ID                string
+	RunID             string
+	Position          int64
+	Role              string
+	Spec              string
+	Runtime           sql.NullString
+	Model             sql.NullString
+	Effort            sql.NullString
+	Status            string
+	BlockedReason     sql.NullString
+	FailureCount      int64
+	Result            sql.NullString
+	CreatedAt         int64
+	UpdatedAt         int64
+	FinishedAt        sql.NullInt64
+	NotBefore         sql.NullInt64
+	CancelRequestedAt sql.NullInt64
 }
 
 type TaskDep struct {
