@@ -1,5 +1,5 @@
 // Package controlplane assembles the control plane: its configuration, its
-// SQLite database and its HTTP server. The parts that make it useful (execution,
+// SQLite database and its HTTP server. The parts that make it useful (orchestration,
 // vault, coordinator, channels, policy) are packages under this tree, added by later
 // issues.
 package controlplane

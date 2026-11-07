@@ -82,7 +82,7 @@ keeps one flat `internal/` with a storage package behind named methods.
 
 ```
 cmd/hypomnema, cmd/hypomnema-node   entry points
-internal/controlplane/...   flat packages: execution, vault, coordinator, mcpbridge, policy, channel/<provider>, httpapi…
+internal/controlplane/...   flat packages: orchestration, vault, coordinator, mcpbridge, policy, channel/<provider>, httpapi…
 internal/node/...           flat packages: connection, runtime/<name>, proxy, statedb…
 internal/shared/...         platform (config, logging, HTTP, errors, ids, clock), sqlite, nodeproto
 ```
@@ -93,7 +93,7 @@ The three boundaries that matter:
    binary links whatever of it the binary imports: `shared/platform` depends on no driver and goes into every binary;
    `shared/sqlite` opens the database of the control plane and of the node's state alike. Vault cryptography
    never lives in `shared`: it stays in `controlplane/vault`, the only package that holds the root key.
-2. **Execution state has one writer**: only `controlplane/execution` uses the generated sqlc code for Run, Task,
+2. **Orchestration state has one writer**: only `controlplane/orchestration` uses the generated sqlc code for Run, Task,
    Dispatch, Gate, leases and nodes, and exposes named operations (`ClaimNextDispatch`, `ExpireLeases`,
    `MarkNodeLost`…), as Omnara's `internal/storage`. These rows change together under concurrency, so one package
    holds one lock order.
@@ -110,13 +110,13 @@ The three boundaries that matter:
 - **Full dependency check per binary** (as Nomad's `make check`, Tailscale's `depaware`): `go list -deps` of the node
   must not contain `internal/controlplane`, and the control plane's must not contain `internal/node`. `depguard` sees
   only direct imports and would miss a leak through `shared`.
-- **Determinism in the execution core** (as Nomad's semgrep rule on its state machine): no `time.Now` or `math/rand`
-  in `controlplane/execution`; a clock is passed in, so lease and timeout tests are exact.
+- **Determinism in the orchestration core** (as Nomad's semgrep rule on its state machine): no `time.Now` or `math/rand`
+  in `controlplane/orchestration`; a clock is passed in, so lease and timeout tests are exact.
 - **Generated and tidy**: `go mod tidy`, `sqlc generate` and the OpenAPI generation leave `git diff --exit-code`
   clean; released migrations are never edited (as Omnara's `migration-check`).
 - `sqlc vet` rules for query invariants, once queries exist.
 
-## Execution core
+## Orchestration core
 
 - **Transitions are guarded writes**: one transaction, `UPDATE … WHERE id = $1 AND state = ANY($allowed)`, which must
   change exactly one row or fail with a conflict. The allowed transitions are listed in one place in code.
@@ -149,8 +149,8 @@ The three boundaries that matter:
   or when two writes must commit together.
 - An **event** when the change is complete without the listener: a side effect, a notice, another module catching up,
   or when a call would create a dependency cycle.
-- Never ask through an event and wait for a reply. An event states a past fact (`execution.DispatchCompletedEvent`,
-  key `execution.dispatch_completed`), carries identifiers only, and is written to an outbox table in the
+- Never ask through an event and wait for a reply. An event states a past fact (`orchestration.DispatchCompletedEvent`,
+  key `orchestration.dispatch_completed`), carries identifiers only, and is written to an outbox table in the
   transaction that made the change. Listeners run after the commit, are idempotent, and do not depend on order.
 
 ## API

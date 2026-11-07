@@ -11,6 +11,7 @@ means something else is named here once and not used.
 | **Dispatch** | One attempt to carry out a Task: placed on one Node with one Runtime, with an epoch for fencing. A retry is a new Dispatch | The Task itself; a Task may have many Dispatches |
 | **Gate** | A decision a Task waits on, answered by the owner (plan approval, merge approval, a question) | A per-tool-call permission prompt, which is a Policy verdict |
 | **Coordinator** | The pi process that plans, creates Tasks, dispatches them, opens Gates and summarises results; it does not do the work itself. Holds no state. Called Brain until 2026-11-07, as in older research notes; the role is Orca's coordinator | A worker |
+| **Orchestration** | The control plane module that keeps Runs, Tasks, Dispatches, Gates, leases, mailboxes and the event log, and is the only writer of that state. It runs nothing itself. Called execution until 2026-11-07; the name is Orca's (`src/main/runtime/orchestration/`) | The Coordinator, which decides; orchestration keeps the record |
 | **Worker** | A CLI agent process (Claude Code, Codex, or pi) carrying out one Dispatch | The Node it runs on |
 | **Runtime** | The kind of worker and how it is driven: `claude-cli`, `codex`, `pi` | A model or a provider |
 | **Node** | A machine paired with the control plane that runs Workers: a VM, a server, a sandbox | Omnara's "machine", same meaning |

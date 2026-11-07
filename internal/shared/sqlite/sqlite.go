@@ -32,7 +32,7 @@ func FromEnv(env *platform.Env, prefix string) Config {
 
 // pragmas are set on open and read back, so a driver that ignored one is
 // caught before any state is written. synchronous=FULL because losing
-// execution state on a crash costs more than the slower commit.
+// orchestration state on a crash costs more than the slower commit.
 var pragmas = map[string]int{
 	"busy_timeout": 5000,
 	"foreign_keys": 1,
