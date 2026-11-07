@@ -183,6 +183,9 @@ The three boundaries that matter:
 
 ## Testing
 
+- Assertions use testify's `require` (stop at the first failure) and `assert` (several independent checks), as
+  Omnara does; `go-cmp` for structural diffs. `testify/mock` and `testify/suite` are refused by `depguard`: fakes are
+  hand-written at the boundary, and tests stay plain functions.
 - Every test names the observable contract and the regression it would catch, at the smallest boundary that can
   detect it.
 - Persistence and concurrency are tested against a real Postgres (testcontainers): guarded transitions, lease expiry,
@@ -196,6 +199,8 @@ The three boundaries that matter:
 - One `go.mod` at the repository root; the Go version is pinned there. `golangci-lint` configuration in the root.
 - Errors are wrapped with context (`fmt.Errorf("claim dispatch: %w", err)`) and matched with `errors.Is` / `errors.As`;
   expected failures have typed errors.
+- Applications follow the twelve-factor rules: configuration from the environment, logs to stdout, graceful shutdown
+  on SIGTERM, migrations and other admin tasks as explicit commands.
 - Every blocking call takes a `context.Context`; long-running loops stop on cancellation.
 - Logging with `log/slog`, structured, with the request id, run id and dispatch id as attributes.
 - Tooling follows Omnara: one `Makefile` with `make verify` (static checks, unit and race tests) that CI also runs, a
