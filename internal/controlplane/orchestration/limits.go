@@ -46,6 +46,9 @@ const (
 	MaxQuestionText = 4000
 	MaxAnswerText   = 4000
 	MaxOptions      = 10
+	// EventPageDefault and EventPageMax bound one page of the event log (Omnara).
+	EventPageDefault = 100
+	EventPageMax     = 500
 )
 
 // backoff is the wait before the n-th retry; r is a random number in [0, 1).

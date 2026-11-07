@@ -37,9 +37,10 @@ func (q *Queries) AnswerQuestion(ctx context.Context, arg AnswerQuestionParams) 
 	return result.RowsAffected()
 }
 
-const cancelOpenGatesOfTask = `-- name: CancelOpenGatesOfTask :execrows
+const cancelOpenGatesOfTask = `-- name: CancelOpenGatesOfTask :many
 UPDATE questions SET updated_at = ?1, status = 'canceled', cancel_reason = 'task_canceled', remind_at = NULL
 WHERE task_id = ?2 AND mode = 'gate' AND status = 'open'
+RETURNING id, task_id, run_id, dispatch_id, mode, addressed_to
 `
 
 type CancelOpenGatesOfTaskParams struct {
@@ -47,17 +48,49 @@ type CancelOpenGatesOfTaskParams struct {
 	TaskID string
 }
 
-func (q *Queries) CancelOpenGatesOfTask(ctx context.Context, arg CancelOpenGatesOfTaskParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, cancelOpenGatesOfTask, arg.Now, arg.TaskID)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
+type CancelOpenGatesOfTaskRow struct {
+	ID          string
+	TaskID      string
+	RunID       string
+	DispatchID  string
+	Mode        string
+	AddressedTo string
 }
 
-const cancelOpenWaitQuestionsOfDispatch = `-- name: CancelOpenWaitQuestionsOfDispatch :execrows
+func (q *Queries) CancelOpenGatesOfTask(ctx context.Context, arg CancelOpenGatesOfTaskParams) ([]CancelOpenGatesOfTaskRow, error) {
+	rows, err := q.db.QueryContext(ctx, cancelOpenGatesOfTask, arg.Now, arg.TaskID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []CancelOpenGatesOfTaskRow{}
+	for rows.Next() {
+		var i CancelOpenGatesOfTaskRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.TaskID,
+			&i.RunID,
+			&i.DispatchID,
+			&i.Mode,
+			&i.AddressedTo,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const cancelOpenWaitQuestionsOfDispatch = `-- name: CancelOpenWaitQuestionsOfDispatch :many
 UPDATE questions SET updated_at = ?1, status = 'canceled', cancel_reason = 'dispatch_ended', remind_at = NULL
 WHERE dispatch_id = ?2 AND mode = 'wait' AND status = 'open'
+RETURNING id, task_id, run_id, dispatch_id, mode, addressed_to
 `
 
 type CancelOpenWaitQuestionsOfDispatchParams struct {
@@ -65,12 +98,43 @@ type CancelOpenWaitQuestionsOfDispatchParams struct {
 	DispatchID string
 }
 
-func (q *Queries) CancelOpenWaitQuestionsOfDispatch(ctx context.Context, arg CancelOpenWaitQuestionsOfDispatchParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, cancelOpenWaitQuestionsOfDispatch, arg.Now, arg.DispatchID)
+type CancelOpenWaitQuestionsOfDispatchRow struct {
+	ID          string
+	TaskID      string
+	RunID       string
+	DispatchID  string
+	Mode        string
+	AddressedTo string
+}
+
+func (q *Queries) CancelOpenWaitQuestionsOfDispatch(ctx context.Context, arg CancelOpenWaitQuestionsOfDispatchParams) ([]CancelOpenWaitQuestionsOfDispatchRow, error) {
+	rows, err := q.db.QueryContext(ctx, cancelOpenWaitQuestionsOfDispatch, arg.Now, arg.DispatchID)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	return result.RowsAffected()
+	defer rows.Close()
+	items := []CancelOpenWaitQuestionsOfDispatchRow{}
+	for rows.Next() {
+		var i CancelOpenWaitQuestionsOfDispatchRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.TaskID,
+			&i.RunID,
+			&i.DispatchID,
+			&i.Mode,
+			&i.AddressedTo,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const forwardQuestion = `-- name: ForwardQuestion :execrows
@@ -186,7 +250,7 @@ func (q *Queries) InsertQuestion(ctx context.Context, arg InsertQuestionParams) 
 }
 
 const listDueReminders = `-- name: ListDueReminders :many
-SELECT id, dispatch_id FROM questions
+SELECT id, dispatch_id, task_id, run_id FROM questions
 WHERE status = 'open' AND addressed_to = 'owner' AND remind_at <= CAST(?1 AS INTEGER)
 ORDER BY remind_at
 `
@@ -194,6 +258,8 @@ ORDER BY remind_at
 type ListDueRemindersRow struct {
 	ID         string
 	DispatchID string
+	TaskID     string
+	RunID      string
 }
 
 func (q *Queries) ListDueReminders(ctx context.Context, now int64) ([]ListDueRemindersRow, error) {
@@ -205,7 +271,12 @@ func (q *Queries) ListDueReminders(ctx context.Context, now int64) ([]ListDueRem
 	items := []ListDueRemindersRow{}
 	for rows.Next() {
 		var i ListDueRemindersRow
-		if err := rows.Scan(&i.ID, &i.DispatchID); err != nil {
+		if err := rows.Scan(
+			&i.ID,
+			&i.DispatchID,
+			&i.TaskID,
+			&i.RunID,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

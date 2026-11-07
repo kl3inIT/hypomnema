@@ -21,12 +21,14 @@ type Service struct {
 	newID func(prefix string) string
 	// random returns a number in [0, 1) for the back-off jitter.
 	random func() float64
+	// notify wakes event readers after each commit.
+	notify *notifier
 }
 
 // New returns a Service over an opened, migrated database. The clock and id
 // generator are passed in so tests control time and ids.
 func New(db *sql.DB, clock platform.Clock, newID func(prefix string) string) *Service {
-	return &Service{db: db, clock: clock, newID: newID, random: rand.Float64}
+	return &Service{db: db, clock: clock, newID: newID, random: rand.Float64, notify: newNotifier()}
 }
 
 // write runs fn in one transaction. The connection opens every transaction
@@ -45,6 +47,8 @@ func (s *Service) write(ctx context.Context, fn func(q *store.Queries, now int64
 		return fmt.Errorf("committing: %w", err)
 	}
 
+	s.notify.signal()
+
 	return nil
 }
 
@@ -61,7 +65,13 @@ func (s *Service) CreateRun(ctx context.Context, objective, createdBy string) (R
 	id := s.newID("run")
 
 	err := s.write(ctx, func(q *store.Queries, now int64) error {
-		return q.InsertRun(ctx, store.InsertRunParams{ID: id, Objective: objective, CreatedBy: createdBy, Now: now})
+		if err := q.InsertRun(ctx, store.InsertRunParams{
+			ID: id, Objective: objective, CreatedBy: createdBy, Now: now,
+		}); err != nil {
+			return fmt.Errorf("inserting run: %w", err)
+		}
+
+		return emit(ctx, q, now, event{kind: EventRunCreated, run: id, payload: map[string]any{"created_by": createdBy}})
 	})
 	if err != nil {
 		return Run{}, fmt.Errorf("creating a run: %w", err)
@@ -185,6 +195,13 @@ func (s *Service) CreateTasks(ctx context.Context, runID string, tasks []NewTask
 				if err := q.InsertTaskDep(ctx, store.InsertTaskDepParams{TaskID: id, DependsOn: dep}); err != nil {
 					return fmt.Errorf("inserting a dependency of %q: %w", nt.Ref, err)
 				}
+			}
+
+			if err := emit(ctx, q, now, event{
+				kind: EventTaskCreated, run: runID, task: id,
+				payload: map[string]any{"status": string(st), "reason": string(reason)},
+			}); err != nil {
+				return err
 			}
 
 			byRef[nt.Ref] = id
@@ -353,8 +370,17 @@ func cancelNow(ctx context.Context, q *store.Queries, now int64, id string) erro
 		return err
 	}
 
-	if _, err := q.CancelOpenGatesOfTask(ctx, store.CancelOpenGatesOfTaskParams{Now: now, TaskID: id}); err != nil {
+	gates, err := q.CancelOpenGatesOfTask(ctx, store.CancelOpenGatesOfTaskParams{Now: now, TaskID: id})
+	if err != nil {
 		return fmt.Errorf("closing the gate of task %s: %w", id, err)
+	}
+
+	for _, g := range gates {
+		if err := emitQuestion(ctx, q, now, EventQuestionCanceled,
+			questionRef{id: g.ID, task: g.TaskID, run: g.RunID, dispatch: g.DispatchID},
+			map[string]any{"mode": g.Mode, "reason": "task_canceled"}); err != nil {
+			return err
+		}
 	}
 
 	return blockDependents(ctx, q, now, id)
@@ -398,16 +424,7 @@ func (s *Service) cancelTask(ctx context.Context, q *store.Queries, now int64, i
 		// No node has it yet, so nothing can be running.
 		return s.settle(ctx, q, now, d, DispatchCanceled, FailureNone, nil, nil, true)
 	case DispatchStarting, DispatchRunning:
-		n, err := q.RequestStop(ctx, store.RequestStopParams{Now: now, ID: d.ID})
-		if err != nil {
-			return fmt.Errorf("stopping dispatch %s: %w", d.ID, err)
-		}
-
-		if n != 1 {
-			return fmt.Errorf("%w: dispatch %s changed while stopping", ErrConflict, d.ID)
-		}
-
-		return nil
+		return requestStop(ctx, q, now, d)
 	default:
 		// stopping, unknown, stop_unknown: the cancel applies when the Dispatch settles.
 		return nil
@@ -533,6 +550,16 @@ func blockDependents(ctx context.Context, q *store.Queries, now int64, id string
 func transitionTask(ctx context.Context, q *store.Queries, now int64, id string,
 	to TaskStatus, reason BlockedReason, result string,
 ) error {
+	current, err := q.GetTask(ctx, id)
+	if err != nil {
+		return notFound(err, "task", id)
+	}
+
+	from := TaskStatus(current.Status)
+	if !canTask(from, to) {
+		return fmt.Errorf("%w: task %s is %s, cannot become %s", ErrConflict, id, from, to)
+	}
+
 	finished := sql.NullInt64{}
 	if to.terminal() {
 		finished = sql.NullInt64{Int64: now, Valid: true}
@@ -546,16 +573,14 @@ func transitionTask(ctx context.Context, q *store.Queries, now int64, id string,
 		return fmt.Errorf("moving task %s to %s: %w", id, to, err)
 	}
 
-	if n == 1 {
-		return nil
+	if n != 1 {
+		return fmt.Errorf("%w: task %s changed while becoming %s", ErrConflict, id, to)
 	}
 
-	t, err := q.GetTask(ctx, id)
-	if err != nil {
-		return notFound(err, "task", id)
-	}
-
-	return fmt.Errorf("%w: task %s is %s, cannot become %s", ErrConflict, id, t.Status, to)
+	return emit(ctx, q, now, event{
+		kind: EventTaskStatus, run: current.RunID, task: id,
+		payload: map[string]any{"from": string(from), "to": string(to), "reason": string(reason)},
+	})
 }
 
 func transitionRun(ctx context.Context, q *store.Queries, now int64, id string, from, to RunStatus) error {
@@ -571,7 +596,12 @@ func transitionRun(ctx context.Context, q *store.Queries, now int64, id string, 
 	}
 
 	if n == 1 {
-		return nil
+		kind := EventRunFinished
+		if to == RunCanceled {
+			kind = EventRunCanceled
+		}
+
+		return emit(ctx, q, now, event{kind: kind, run: id})
 	}
 
 	r, err := q.GetRun(ctx, id)
