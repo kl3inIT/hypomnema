@@ -20,7 +20,7 @@
 ## Act or ask
 
 - **Ask first** before: writing code for a design that has not been approved; anything outward-facing, shared or
-  hard to undo (pushing to `main`, changing a server, creating accounts or repositories, deleting, spending money);
+  hard to undo (pushing code to `main`, changing a server, creating accounts or repositories, deleting, spending money);
   choosing between designs; widening the scope of the issue.
 - **Act without asking** on: anything the owner approved in this conversation, and its obvious follow-ups (tests,
   fixing CI, updating docs, the PR); reading, searching and cloning references into `.tmp/`.
@@ -37,12 +37,16 @@
   read its code as the specification and test only what is specific to this environment (accounts, versions,
   servers).
 - Changing an earlier decision or name is normal as understanding grows. Make the change everywhere it is stated, in
-  one pull request, with its reason: a new ADR that supersedes the old one for a decision, a "called X until <date>"
+  one change, with its reason: a new ADR that supersedes the old one for a decision, a "called X until <date>"
   note in the glossary for a term. Dated research notes stay as written.
-- Every piece of work has a GitHub issue. Its body holds the design and plan for small changes. A multi-day change or
+- Every code change has a GitHub issue. Its body holds the design and plan for small changes. A multi-day change or
   a new module also gets a design section approved in the issue before code.
-- Branch `<issue>-<slug>`; commit subjects `type(scope): summary (#<issue>)`; one pull request per issue. The agent
-  watches CI, fixes red runs at the cause, and merges when green and approved; a docs-only PR merges when green.
+- Code: branch `<issue>-<slug>`; commit subjects `type(scope): summary (#<issue>)`; one pull request per issue. The
+  agent watches CI, fixes red runs at the cause, and merges when green and approved.
+- Docs-only changes (`docs/`, `AGENTS.md`, `README`s) are committed and pushed straight to `main`, subject
+  `docs: summary`: no issue, branch or pull request (owner, 2026-11-07). If the checkout is on another session's
+  branch, commit from a temporary worktree on `origin/main`. A design change that affects an open issue also gets a
+  comment on that issue.
 - Run `make verify` before pushing once it exists.
 - Work in its own `git worktree` when another session may use this checkout; never switch the branch of a checkout
   you did not start.
