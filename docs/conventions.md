@@ -88,8 +88,10 @@ internal/shared/...         platform (config, logging, HTTP, errors, ids, clock)
 
 The three boundaries that matter:
 
-1. **Between deployables**: each tree imports only itself and `internal/shared`. `shared` stays small and holds no
-   driver (no Postgres, no vault cryptography), because it ships in every binary.
+1. **Between deployables**: each tree imports only itself and `internal/shared`. `shared` stays small, because a
+   binary links whatever of it the binary imports: `shared/platform` depends on no driver and goes into every binary;
+   `shared/postgres` is for the control plane and the vault, and the dependency check keeps it out of the node. Vault
+   cryptography never lives in `shared`.
 2. **Execution state has one writer**: only `controlplane/execution` uses the generated sqlc code for Run, Task,
    Dispatch, Gate, leases and nodes, and exposes named operations (`ClaimNextDispatch`, `ExpireLeases`,
    `MarkNodeLost`…), as Omnara's `internal/storage`. These rows change together under concurrency, so one package

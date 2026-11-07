@@ -1,0 +1,26 @@
+# Local PostgreSQL for development: one server, two databases, as the control plane and the vault each own one.
+# Bound to localhost only and with trust authentication, so no password lives in this file.
+#
+#   docker compose up -d
+#   HYPOMNEMA_DATABASE_URL=postgres://hypomnema@127.0.0.1:5432/hypomnema go run ./cmd/hypomnema serve
+#   HYPOMNEMA_VAULT_DATABASE_URL=postgres://hypomnema@127.0.0.1:5432/hypomnema_vault go run ./cmd/hypomnema-vault serve
+services:
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: hypomnema
+      POSTGRES_DB: hypomnema
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres:/var/lib/postgresql
+      - ./deploy/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "hypomnema"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+volumes:
+  postgres:

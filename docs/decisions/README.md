@@ -8,5 +8,8 @@ Architecture decision records. Record a decision only after it is accepted and i
   the top of the old one pointing to it.
 
 Decisions agreed but not yet implemented live in [vision.md](../vision.md) and the
-[research](../research/2026-11-06-platform.md). The first record, the three deployables and their boundaries, is
-written when the skeleton (issue #3) starts.
+[research](../research/2026-11-06-platform.md).
+
+| Record | Decision |
+|---|---|
+| [2026-11-07-three-deployables.md](2026-11-07-three-deployables.md) | Three binaries in one module, three trees, three enforced boundaries |
