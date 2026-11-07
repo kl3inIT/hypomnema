@@ -10,7 +10,8 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X $(MODULE)/internal/shared/platform.Version=$(VERSION)
 BINARIES := hypomnema hypomnema-node
 
-.PHONY: help verify verify-static fmt-check tidy-check lint deps-check sqlc-generate sqlc-check migration-check unit race \n	govulncheck build
+.PHONY: help verify verify-static fmt-check tidy-check lint deps-check sqlc-generate sqlc-check migration-check \
+	unit race govulncheck build
 
 help: ## List the targets
 	@awk 'BEGIN {FS = ":.*## "} /^[a-z-]+:.*## / {printf "  %-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -46,14 +47,14 @@ sqlc-generate: ## Regenerate the typed queries from the migrations and queries
 sqlc-check: ## Fail when the generated queries are not what sqlc would generate
 	$(SQLC) generate
 	@git diff --exit-code -- internal/controlplane/orchestration/internal/store
-	@test -z "$$(git status --porcelain -- internal/controlplane/orchestration/internal/store)" || 		{ echo 'sqlc generated files that are not committed'; exit 1; }
+	@test -z "$$(git status --porcelain -- internal/controlplane/orchestration/internal/store)" || \
+		{ echo 'sqlc generated files that are not committed'; exit 1; }
 
 # As Omnara's migration-check: a migration that is on main is released and never edited or removed.
 migration-check: ## Fail when a migration already on origin/main was changed or removed
 	@git rev-parse --verify -q origin/main >/dev/null || { echo 'migration-check needs origin/main'; exit 1; }
-	@changed="$$(git diff --name-status origin/main -- $(MIGRATIONS) | grep -v '^A' || true)"; 	test -z "$$changed" || { printf 'released migrations must not change:
-%s
-' "$$changed"; exit 1; }
+	@changed="$$(git diff --name-status origin/main -- $(MIGRATIONS) | grep -v '^A' || true)"; \
+	test -z "$$changed" || { printf 'released migrations must not change:\n%s\n' "$$changed"; exit 1; }
 
 unit: ## Unit tests
 	$(GO) test -count=1 ./...
