@@ -53,7 +53,7 @@ Omnara keeps encrypted secrets in its main database with a keyring from the envi
 - Inside a tree, packages may import each other freely; the compiler forbids cycles, review does the rest.
 - The control plane host holds the root key, so every process on it that reads untrusted text runs as another user,
   no secret is passed on a command line (other users can read it in `/proc`), and every local service requires
-  authentication: localhost is not a trust boundary once the brain has a shell.
+  authentication: localhost is not a trust boundary once the coordinator has a shell.
 
 ## Sources
 

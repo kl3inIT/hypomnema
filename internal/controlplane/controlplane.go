@@ -1,6 +1,6 @@
 // Package controlplane assembles the control plane: its configuration, its
 // database and its HTTP server. The parts that make it useful (execution,
-// vault, brain, channels, policy) are packages under this tree, added by later
+// vault, coordinator, channels, policy) are packages under this tree, added by later
 // issues.
 package controlplane
 

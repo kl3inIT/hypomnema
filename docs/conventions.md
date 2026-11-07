@@ -25,7 +25,7 @@ stored data. In Hypomnema these families exist from the start:
 | Runtime (drive a worker) | `claude-cli`, `codex`, `pi` |
 | Executor (reach a node) | `node`, `ssh` |
 | Machine provider (later) | EC2, Hetzner, Modal, Daytona, E2B… |
-| Model provider for the brain | per provider |
+| Model provider for the coordinator | per provider |
 | Channel | Telegram, later web, Lark |
 
 - One interface per function, named after the function (`Runtime`, `Executor`); one type per implementation, named
@@ -53,7 +53,8 @@ stored data. In Hypomnema these families exist from the start:
   license, transitive weight and fit. Exception: cryptography in the vault uses Go's standard library and `x/crypto`
   only.
 - Do not prebuild workers, queues, registries or plugin mechanisms for hypothetical future use.
-- Carry accepted decisions across turns; do not reopen rejected ones or silently widen scope.
+- Carry accepted decisions across turns; do not reopen rejected ones or silently widen scope on your own. When the
+  owner changes a decision or a name, that is normal: follow [AGENTS.md](../AGENTS.md#working-rules).
 
 ## Boundary discovery
 
@@ -81,7 +82,7 @@ keeps one flat `internal/` with a storage package behind named methods.
 
 ```
 cmd/hypomnema, cmd/hypomnema-node   entry points
-internal/controlplane/...   flat packages: execution, vault, brain, mcpbridge, policy, channel/<provider>, httpapi…
+internal/controlplane/...   flat packages: execution, vault, coordinator, mcpbridge, policy, channel/<provider>, httpapi…
 internal/node/...           flat packages: connection, runtime/<name>, proxy, statedb…
 internal/shared/...         platform (config, logging, HTTP, errors, ids, clock), postgres, nodeproto
 ```
@@ -96,7 +97,7 @@ The three boundaries that matter:
    Dispatch, Gate, leases and nodes, and exposes named operations (`ClaimNextDispatch`, `ExpireLeases`,
    `MarkNodeLost`…), as Omnara's `internal/storage`. These rows change together under concurrency, so one package
    holds one lock order.
-3. **Untrusted input passes policy**: every state change requested by the Brain, a channel or a webhook goes through
+3. **Untrusted input passes policy**: every state change requested by the Coordinator, a channel or a webhook goes through
    `controlplane/policy`. This one cannot be linted; it is held by design review and tests.
 
 **Enforcement**, run by `make verify` locally and in CI:
@@ -128,9 +129,9 @@ The three boundaries that matter:
   proven. Silence or a timeout never proves that a process exited.
 - **Replay policy**: every effect with consequences outside the control plane (push, opening a PR, a merge request, a
   message) is declared `safe` or `never`. Intent is recorded before the effect and the outcome after. A `never`
-  effect interrupted by a crash is never repeated; the Brain receives a recovery note saying what finished and what
+  effect interrupted by a crash is never repeated; the Coordinator receives a recovery note saying what finished and what
   may have taken effect, and reconciles (for example by reading GitHub).
-- **Idempotency**: every mutation from the Brain, the CLI, a channel or a node carries a request id. A receipt keyed by
+- **Idempotency**: every mutation from the Coordinator, the CLI, a channel or a node carries a request id. A receipt keyed by
   caller and request id stores the payload hash; a reused id with another payload is refused; a lost reply can be
   checked instead of repeated.
 - **Failure propagates**: when a Task fails or is cancelled, its dependents become `blocked` with a reason. A retry
@@ -174,11 +175,11 @@ The three boundaries that matter:
   and are checked in Go: workers running at once, spawn depth, dispatches per turn (as Omnigent's `spawn_bounds`) and
   per Run, and a cost budget that ASKs when reached (as Omnigent's subagent budget). Plan approval before spawning,
   as genie's `wish`, is an option for large work, not the default.
-- **Separate OS users on one host**: the control plane and vault (`hypomnema`), the Brain (`brain`: pi with its
+- **Separate OS users on one host**: the control plane and vault (`hypomnema`), the Coordinator (`coordinator`: pi with its
   built-in tools, a filtered environment as Omnigent's `clean_agent_env`, its own directory) and a node's workers
   (`agent`). The control plane starts pi through one sudoers rule limited to that command. No secret is passed on a
   command line; every local service (PostgreSQL, the control plane API) requires authentication, as localhost is
-  not a trust boundary once the Brain has a shell. `compose.yaml`'s trust authentication is for development only.
+  not a trust boundary once the Coordinator has a shell. `compose.yaml`'s trust authentication is for development only.
 - **Trusted machines, untrusted content.** The owner and the owner's machines are trusted; what agents read is not.
   As Orca does, the isolation unit is the machine: no nested sandbox inside a node by default, because it costs setup
   on every host, breaks easily and slows every command for little gain on a dedicated VM. What is always on, being
@@ -196,7 +197,7 @@ The three boundaries that matter:
 - Workers get credentials as Infisical's Agent Vault does: the control plane opens a session per Dispatch with the
   services it may reach; the node's proxy, running as another OS user than the worker, decrypts HTTPS with its own CA,
   attaches the credential (or replaces a placeholder for tools that insist on a token) only for allowed hosts, methods
-  and paths, logs every request, and stops when the session is revoked. No tool returns a secret value to the Brain or
+  and paths, logs every request, and stops when the session is revoked. No tool returns a secret value to the Coordinator or
   a worker. A secret the proxy cannot attach (SSH keys, AWS SigV4, local database passwords) is given in clear only
   through a Gate the owner approves. Research: [secrets for agents](research/2026-11-07-secrets-for-agents.md).
 - Logs and transcripts are scrubbed of secret patterns before they are stored.

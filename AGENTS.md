@@ -36,6 +36,9 @@
 - Before a spike or prototype, search the cloned references for the same mechanism. If a reference already does it,
   read its code as the specification and test only what is specific to this environment (accounts, versions,
   servers).
+- Changing an earlier decision or name is normal as understanding grows. Make the change everywhere it is stated, in
+  one pull request, with its reason: a new ADR that supersedes the old one for a decision, a "called X until <date>"
+  note in the glossary for a term. Dated research notes stay as written.
 - Every piece of work has a GitHub issue. Its body holds the design and plan for small changes. A multi-day change or
   a new module also gets a design section approved in the issue before code.
 - Branch `<issue>-<slug>`; commit subjects `type(scope): summary (#<issue>)`; one pull request per issue. The agent
