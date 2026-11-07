@@ -1,0 +1,12 @@
+# sqlc generates typed Go for the orchestration queries (docs/conventions.md, "Generated and tidy").
+version: "2"
+sql:
+  - engine: sqlite
+    schema: internal/controlplane/orchestration/migrations
+    queries: internal/controlplane/orchestration/queries
+    gen:
+      go:
+        package: store
+        out: internal/controlplane/orchestration/internal/store
+        emit_empty_slices: true
+        emit_result_struct_pointers: false

@@ -8,9 +8,11 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 )
@@ -43,7 +45,27 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 	return cfg, nil
 }
 
-// Serve runs the control plane until ctx is canceled.
+// Migrate brings the database schema up to this binary's version.
+func Migrate(ctx context.Context, cfg Config, stdout io.Writer) error {
+	logger := platform.NewLogger(stdout, cfg.Log, binary)
+
+	db, err := sqlite.Open(ctx, cfg.Database)
+	if err != nil {
+		return err
+	}
+	defer db.Close() //nolint:errcheck // Closing at exit; nothing is left to report it to.
+
+	if err := orchestration.Migrate(ctx, db); err != nil {
+		return err
+	}
+
+	logger.InfoContext(ctx, "database migrated", slog.String("path", cfg.Database.Path))
+
+	return nil
+}
+
+// Serve runs the control plane until ctx is canceled. It refuses a database
+// whose schema is not this binary's; `hypomnema migrate` fixes that.
 func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	logger := platform.NewLogger(stdout, cfg.Log, binary)
 
@@ -52,6 +74,10 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		return err
 	}
 	defer db.Close() //nolint:errcheck // Closing at shutdown; nothing is left to report it to.
+
+	if err := orchestration.CheckSchema(ctx, db); err != nil {
+		return err
+	}
 
 	mux := http.NewServeMux()
 	platform.RegisterHealth(mux, sqlite.Ready(db), logger)

@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 )
 
@@ -32,6 +33,7 @@ func TestServeIsReadyWithItsDatabase(t *testing.T) {
 		}[name]
 	})
 	require.NoError(t, err)
+	require.NoError(t, controlplane.Migrate(t.Context(), cfg, io.Discard))
 
 	ctx, cancel := context.WithCancel(t.Context())
 	served := make(chan error, 1)
@@ -53,6 +55,23 @@ func TestServeIsReadyWithItsDatabase(t *testing.T) {
 
 	cancel()
 	require.NoError(t, <-served)
+}
+
+// Serving an unmigrated database is refused with the command that fixes it.
+func TestServeRefusesAnUnmigratedDatabase(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := controlplane.LoadConfig(func(name string) string {
+		return map[string]string{
+			"HYPOMNEMA_DATABASE_PATH": filepath.Join(t.TempDir(), "hypomnema.db"),
+			"HYPOMNEMA_HTTP_ADDR":     freeAddr(t),
+		}[name]
+	})
+	require.NoError(t, err)
+
+	err = controlplane.Serve(t.Context(), cfg, io.Discard)
+	require.ErrorIs(t, err, orchestration.ErrSchemaOutdated)
+	require.ErrorContains(t, err, "hypomnema migrate")
 }
 
 func TestLoadConfigRequiresTheDatabasePath(t *testing.T) {

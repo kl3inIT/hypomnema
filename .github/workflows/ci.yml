@@ -24,6 +24,8 @@ jobs:
           cache-dependency-path: |
             go.sum
             tools/ci/go.sum
+      - name: Fetch main for the migration check
+        run: git fetch --no-tags --depth=1 origin main:refs/remotes/origin/main
       - name: make verify
         run: make verify
       - name: govulncheck
