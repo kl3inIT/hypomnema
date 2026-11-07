@@ -1,5 +1,7 @@
 # Two deployables in one Go module, the vault inside the control plane
 
+> The database part is superseded by [SQLite for the control plane](2026-11-07-sqlite.md).
+
 Date: 2026-11-07. Status: accepted, implemented by issue #3 (repository skeleton).
 
 ## Context

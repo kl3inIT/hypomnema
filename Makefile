@@ -8,7 +8,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X $(MODULE)/internal/shared/platform.Version=$(VERSION)
 BINARIES := hypomnema hypomnema-node
 
-.PHONY: help verify verify-static fmt-check tidy-check lint deps-check unit race test-integration govulncheck build
+.PHONY: help verify verify-static fmt-check tidy-check lint deps-check unit race govulncheck build
 
 help: ## List the targets
 	@awk 'BEGIN {FS = ":.*## "} /^[a-z-]+:.*## / {printf "  %-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -35,7 +35,7 @@ deps-check: ## Fail when a binary links a tree or driver it must not
 		found="$$($(GO) list -deps ./cmd/$$1 | grep -E "$$2" || true)"; \
 		test -z "$$found" || { printf 'cmd/%s must not link:\n%s\n' "$$1" "$$found"; exit 1; }; \
 	}; \
-	check hypomnema-node '^github.com/jackc/pgx|^$(MODULE)/internal/(controlplane|shared/postgres)'; \
+	check hypomnema-node '^$(MODULE)/internal/controlplane(/|$$)'; \
 	check hypomnema '^$(MODULE)/internal/node(/|$$)'
 
 unit: ## Unit tests
@@ -43,9 +43,6 @@ unit: ## Unit tests
 
 race: ## Unit tests with the race detector (needs cgo)
 	CGO_ENABLED=1 $(GO) test -race -count=1 ./...
-
-test-integration: ## Tests against real PostgreSQL in containers (needs Docker)
-	CGO_ENABLED=1 $(GO) test -race -count=1 -tags=integration ./...
 
 govulncheck: ## Known vulnerabilities in what the code calls
 	$(GOVULNCHECK) ./...

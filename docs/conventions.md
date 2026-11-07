@@ -84,14 +84,14 @@ keeps one flat `internal/` with a storage package behind named methods.
 cmd/hypomnema, cmd/hypomnema-node   entry points
 internal/controlplane/...   flat packages: execution, vault, coordinator, mcpbridge, policy, channel/<provider>, httpapi…
 internal/node/...           flat packages: connection, runtime/<name>, proxy, statedb…
-internal/shared/...         platform (config, logging, HTTP, errors, ids, clock), postgres, nodeproto
+internal/shared/...         platform (config, logging, HTTP, errors, ids, clock), sqlite, nodeproto
 ```
 
 The three boundaries that matter:
 
 1. **Between deployables**: each tree imports only itself and `internal/shared`. `shared` stays small, because a
    binary links whatever of it the binary imports: `shared/platform` depends on no driver and goes into every binary;
-   `shared/postgres` is for the control plane, and the dependency check keeps it out of the node. Vault cryptography
+   `shared/sqlite` opens the database of the control plane and of the node's state alike. Vault cryptography
    never lives in `shared`: it stays in `controlplane/vault`, the only package that holds the root key.
 2. **Execution state has one writer**: only `controlplane/execution` uses the generated sqlc code for Run, Task,
    Dispatch, Gate, leases and nodes, and exposes named operations (`ClaimNextDispatch`, `ExpireLeases`,
@@ -103,12 +103,13 @@ The three boundaries that matter:
 **Enforcement**, run by `make verify` locally and in CI:
 
 - `depguard` in `.golangci.yml`: the tree rule (as Grafana's per-directory rules); generated sqlc code only inside
-  its owner (as Omnara and Gitea); the node's SQLite only in `statedb`; a banned-import list where every entry names
+  its owner (as Omnara and Gitea); the SQLite driver only in `shared/sqlite` and `database/sql` only in the packages
+  that own tables (as Omnara's statedb rule); a banned-import list where every entry names
   its replacement (as Teleport: `log` → `log/slog`, `github.com/pkg/errors` → `errors`, `math/rand` →
   `crypto/rand`).
 - **Full dependency check per binary** (as Nomad's `make check`, Tailscale's `depaware`): `go list -deps` of the node
-  and the vault must not contain `pgx`, `internal/controlplane` or each other's tree. `depguard` sees only direct
-  imports and would miss a leak through `shared`.
+  must not contain `internal/controlplane`, and the control plane's must not contain `internal/node`. `depguard` sees
+  only direct imports and would miss a leak through `shared`.
 - **Determinism in the execution core** (as Nomad's semgrep rule on its state machine): no `time.Now` or `math/rand`
   in `controlplane/execution`; a clock is passed in, so lease and timeout tests are exact.
 - **Generated and tidy**: `go mod tidy`, `sqlc generate` and the OpenAPI generation leave `git diff --exit-code`
@@ -121,8 +122,10 @@ The three boundaries that matter:
   change exactly one row or fail with a conflict. The allowed transitions are listed in one place in code.
 - **One lock order** for every transaction that touches more than one entity, written in the module and followed by
   every operation.
-- **Claiming** uses `FOR UPDATE SKIP LOCKED` and a lease with a heartbeat. A worker or node that lost its lease cannot
-  write; a reaper releases expired leases.
+- **One writer**: the control plane is one process with one SQLite connection, and every write transaction takes the
+  write lock when it begins (`_txlock=immediate`), so two claimers cannot both win and no row lock is needed (Orca's
+  orchestration database; `FOR UPDATE SKIP LOCKED` belongs to many writer processes on PostgreSQL). Claiming takes a
+  lease with a heartbeat. A worker or node that lost its lease cannot write; a reaper releases expired leases.
 - **Fencing**: every Dispatch has an `epoch`. Every write from a node is a compare-and-swap on
   `(dispatch_id, epoch, state)`; a stale epoch is refused.
 - **Unknown is a state**: `start_unknown`, `stop_unknown` and similar states exist wherever an outcome cannot be
@@ -147,7 +150,7 @@ The three boundaries that matter:
 - An **event** when the change is complete without the listener: a side effect, a notice, another module catching up,
   or when a call would create a dependency cycle.
 - Never ask through an event and wait for a reply. An event states a past fact (`execution.DispatchCompletedEvent`,
-  key `execution.dispatch_completed`), carries identifiers only, and is written to the outbox (River) in the
+  key `execution.dispatch_completed`), carries identifiers only, and is written to an outbox table in the
   transaction that made the change. Listeners run after the commit, are idempotent, and do not depend on order.
 
 ## API
@@ -178,8 +181,8 @@ The three boundaries that matter:
 - **Separate OS users on one host**: the control plane and vault (`hypomnema`), the Coordinator (`coordinator`: pi with its
   built-in tools, a filtered environment as Omnigent's `clean_agent_env`, its own directory) and a node's workers
   (`agent`). The control plane starts pi through one sudoers rule limited to that command. No secret is passed on a
-  command line; every local service (PostgreSQL, the control plane API) requires authentication, as localhost is
-  not a trust boundary once the Coordinator has a shell. `compose.yaml`'s trust authentication is for development only.
+  command line; the database is a 0600 file of the `hypomnema` user, and every local service (the control plane API)
+  requires authentication, as localhost is not a trust boundary once the Coordinator has a shell.
 - **Trusted machines, untrusted content.** The owner and the owner's machines are trusted; what agents read is not.
   As Orca does, the isolation unit is the machine: no nested sandbox inside a node by default, because it costs setup
   on every host, breaks easily and slows every command for little gain on a dedicated VM. What is always on, being
@@ -209,8 +212,9 @@ The three boundaries that matter:
   hand-written at the boundary, and tests stay plain functions.
 - Every test names the observable contract and the regression it would catch, at the smallest boundary that can
   detect it.
-- Persistence and concurrency are tested against a real Postgres (testcontainers): guarded transitions, lease expiry,
-  two claimers on one Dispatch, stale epochs.
+- Persistence and concurrency are tested against a real SQLite file in `t.TempDir()`, opened with
+  `internal/shared/sqlite` as in production: guarded transitions, lease expiry, two claimers on one Dispatch, stale
+  epochs.
 - Runtime adapters are tested against recorded CLI output, plus a live test per runtime run on demand.
 - Node and control plane share a resilience contract: dropped connections, restarts mid-Dispatch and duplicated
   messages are tested with a fault proxy.
@@ -235,5 +239,5 @@ The three boundaries that matter:
   in `.claude/skills/SOURCES.md`.
 - Vendored skills are copied unchanged with their source, commit and license in `SOURCES.md`, and updated by copying
   again. A skill for a library this project does not use is not installed.
-- No maintained skill exists for sqlc, goose, huma, River, `coder/websocket` or the MCP Go SDK; when one is needed, a
+- No maintained skill exists for sqlc, goose, huma, `coder/websocket` or the MCP Go SDK; when one is needed, a
   short project skill is written from that project's own documentation.

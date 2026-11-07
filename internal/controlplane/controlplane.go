@@ -1,5 +1,5 @@
 // Package controlplane assembles the control plane: its configuration, its
-// database and its HTTP server. The parts that make it useful (execution,
+// SQLite database and its HTTP server. The parts that make it useful (execution,
 // vault, coordinator, channels, policy) are packages under this tree, added by later
 // issues.
 package controlplane
@@ -12,7 +12,7 @@ import (
 	"net/http"
 
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
-	"github.com/kl3inIT/hypomnema/internal/shared/postgres"
+	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 )
 
 const (
@@ -24,7 +24,7 @@ const (
 type Config struct {
 	HTTPAddr string
 	Log      platform.LogConfig
-	Database postgres.Config
+	Database sqlite.Config
 }
 
 // LoadConfig reads the configuration and reports every problem at once.
@@ -33,7 +33,7 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 	cfg := Config{
 		HTTPAddr: env.String(envPrefix+"_HTTP_ADDR", "127.0.0.1:8080"),
 		Log:      env.Log(envPrefix),
-		Database: postgres.FromEnv(env, envPrefix),
+		Database: sqlite.FromEnv(env, envPrefix),
 	}
 
 	if err := env.Err(); err != nil {
@@ -47,14 +47,14 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	logger := platform.NewLogger(stdout, cfg.Log, binary)
 
-	pool, err := postgres.Open(ctx, cfg.Database)
+	db, err := sqlite.Open(ctx, cfg.Database)
 	if err != nil {
 		return err
 	}
-	defer pool.Close()
+	defer db.Close() //nolint:errcheck // Closing at shutdown; nothing is left to report it to.
 
 	mux := http.NewServeMux()
-	platform.RegisterHealth(mux, pool.Ping, logger)
+	platform.RegisterHealth(mux, sqlite.Ready(db), logger)
 
 	ln, err := (&net.ListenConfig{}).Listen(ctx, "tcp", cfg.HTTPAddr)
 	if err != nil {

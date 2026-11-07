@@ -1,5 +1,3 @@
-//go:build integration
-
 package controlplane_test
 
 import (
@@ -7,38 +5,30 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/testcontainers/testcontainers-go"
-	tcpostgres "github.com/testcontainers/testcontainers-go/modules/postgres"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 )
 
-// The control plane started against a real PostgreSQL reports ready, and
-// stops cleanly when told to.
+// The control plane started on a fresh path creates its database, reports
+// ready, and stops cleanly when told to.
 func TestServeIsReadyWithItsDatabase(t *testing.T) {
 	t.Parallel()
 
-	pg, err := tcpostgres.Run(t.Context(), "postgres:18-alpine",
-		tcpostgres.WithDatabase("hypomnema"),
-		tcpostgres.BasicWaitStrategies(),
-	)
-	testcontainers.CleanupContainer(t, pg)
-	require.NoError(t, err)
-
-	url, err := pg.ConnectionString(t.Context(), "sslmode=disable")
-	require.NoError(t, err)
-
+	path := filepath.Join(t.TempDir(), "hypomnema.db")
 	addr := freeAddr(t)
+
 	cfg, err := controlplane.LoadConfig(func(name string) string {
 		return map[string]string{
-			"HYPOMNEMA_DATABASE_URL": url,
-			"HYPOMNEMA_HTTP_ADDR":    addr,
+			"HYPOMNEMA_DATABASE_PATH": path,
+			"HYPOMNEMA_HTTP_ADDR":     addr,
 		}[name]
 	})
 	require.NoError(t, err)
@@ -56,10 +46,20 @@ func TestServeIsReadyWithItsDatabase(t *testing.T) {
 		require.NoError(c, err)
 		_ = resp.Body.Close()
 		assert.Equal(c, http.StatusNoContent, resp.StatusCode)
-	}, 10*time.Second, 100*time.Millisecond)
+	}, 10*time.Second, 50*time.Millisecond)
+
+	_, err = os.Stat(path)
+	require.NoError(t, err)
 
 	cancel()
 	require.NoError(t, <-served)
+}
+
+func TestLoadConfigRequiresTheDatabasePath(t *testing.T) {
+	t.Parallel()
+
+	_, err := controlplane.LoadConfig(func(string) string { return "" })
+	require.ErrorContains(t, err, "HYPOMNEMA_DATABASE_PATH")
 }
 
 func freeAddr(t *testing.T) string {
