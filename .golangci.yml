@@ -4,8 +4,6 @@ version: "2"
 
 run:
   timeout: 5m
-  build-tags:
-    - integration
 
 linters:
   default: none
@@ -71,7 +69,7 @@ linters:
       line-length: 120
       tab-width: 1
     rowserrcheck:
-      packages: [github.com/jackc/pgx/v5]
+      packages: [database/sql]
     sloglint:
       attr-only: true
       context: scope
@@ -103,6 +101,23 @@ linters:
               desc: hand-write fakes at the boundary; only require and assert are used
             - pkg: github.com/stretchr/testify/suite
               desc: tests are plain functions; only require and assert are used
+        sqlite_driver_in_one_place:
+          list-mode: lax
+          files: [$all, "!**/internal/shared/sqlite/**"]
+          deny:
+            - pkg: modernc.org/sqlite
+              desc: open databases with internal/shared/sqlite, which sets and checks the pragmas and permissions
+        database_sql_in_storage_only:
+          list-mode: lax
+          files:
+            - $all
+            - "!**/internal/shared/sqlite/**"
+            - "!**/internal/controlplane/execution/**"
+            - "!**/internal/controlplane/vault/**"
+            - "!**/internal/node/statedb/**"
+          deny:
+            - pkg: database/sql
+              desc: SQL belongs to the package that owns the tables (execution, vault, node statedb), as Omnara's statedb rule
         shared_depends_on_no_tree:
           list-mode: lax
           files: ["**/internal/shared/**"]
@@ -123,10 +138,6 @@ linters:
           deny:
             - pkg: github.com/kl3inIT/hypomnema/internal/controlplane
               desc: the node talks to the control plane through internal/shared/nodeproto, and gets credentials only through vault sessions
-            - pkg: github.com/kl3inIT/hypomnema/internal/shared/postgres
-              desc: the node has no PostgreSQL
-            - pkg: github.com/jackc/pgx
-              desc: the node has no PostgreSQL
   exclusions:
     rules:
       - linters: [forbidigo]

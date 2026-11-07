@@ -20,7 +20,7 @@ Two deployables, all Go:
 
 | Deployable | Runs | Owns |
 |---|---|---|
-| `hypomnema` (control plane) | One place, public TLS endpoint or Tailscale | Channels, the coordinator, Run → Task → Dispatch → Gate as an event log in Postgres, MCP bridge with policy, node registry and placement, the vault (secrets and credential sessions), the API |
+| `hypomnema` (control plane) | One place, public TLS endpoint or Tailscale | Channels, the coordinator, Run → Task → Dispatch → Gate as an event log in SQLite, MCP bridge with policy, node registry and placement, the vault (secrets and credential sessions), the API |
 | `hypomnema-node` | Every machine, cloud and sandbox | Outbound connection, worktrees, running and parsing the CLIs, egress proxy that attaches credentials, process isolation, local journal |
 
 - **The coordinator is pi** (`earendil-works/pi`), run as a child process over `pi --mode rpc`, not forked. It is a
