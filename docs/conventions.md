@@ -60,33 +60,57 @@ stored data. In Hypomnema these families exist from the start:
 Short form of BeyondPilot's sequence, sized for one owner and a mostly technical domain. Every new module, and every
 material change to a boundary:
 
-1. **Glossary**: every term the module introduces has one meaning in the [glossary](glossary.md).
-2. **Owner**: one module is the source of truth for each table, lifecycle and invariant. No two modules write the same
-   table or import each other's persistence package.
-3. **Context map**: what the module provides and requires, the direction of each dependency, which are calls and
-   which are events, and what happens on failure.
-4. **Package module first**: the smallest complete vertical slice as a package with a narrow public root.
-5. **Physical split only with evidence**: a new deployable needs a security, placement, scaling or failure boundary,
-   recorded in an ADR. The three deployables have theirs: the node runs on every machine; the vault keeps secrets
-   away from the host that reads untrusted text.
+Hypomnema is a technical system, not a business domain: its parts share few tables and little vocabulary, so
+business-module ceremony (tables, published API and an allowed-edge list per module) buys nothing. Only boundaries
+that protect security, placement or concurrent state are drawn and enforced. For a new part:
 
-## Module layout
+1. **Glossary**: every term it introduces has one meaning in the [glossary](glossary.md).
+2. **Owner**: one package is the source of truth for each table, lifecycle and invariant.
+3. **Package first**: a new part is a package inside an existing tree; package boundaries inside a tree are not
+   enforced beyond what the compiler does.
+4. **New boundary or deployable only with evidence**: a security, placement, scaling or failure reason, recorded in an
+   ADR. The three deployables have theirs: the node runs on every machine and reads untrusted text; the vault keeps
+   secrets away from both.
 
-Each deployable is a Go modular monolith under `internal/`, with `cmd/<deployable>` as its entry point.
+## Layout and boundaries
 
-- **Edge modules are vertical slices**, as in `second-bite/server`: `identity`, `channel`, `brain`, `integration`,
-  `mcpbridge`, `audit`. Each owns its tables (prefixed by the module name), its queries and its handlers. Its root
-  package is its published API; everything else is under its own `internal/`.
-- **The execution core is one module**, as Omnara's storage layer: `execution` owns Run, Task, Dispatch, Gate,
-  leases, node registry and placement. These tables change together under concurrency (claiming, lease expiry, node
-  loss, session revocation), so one module holds one lock order and exposes only named operations
-  (`ClaimNextDispatch`, `ExpireLeases`, `MarkNodeLost`…). No caller writes its own query against these tables.
-- `internal/platform` holds technical code shared by every module and depends on none.
-- **Enforcement**, checked by `make verify` in CI:
-  - `boundaries_test.go` reads the allowed module dependencies from ARCHITECTURE.md (as second-bite);
-  - `depguard` in `.golangci.yml` forbids importing another module's `internal/` and generated sqlc packages outside
-    their owner, and confines the node's SQLite to its `statedb` package (as Omnara);
-  - `sqlc vet` rules for query invariants.
+Compared in [the Go repository research](research/2026-11-07-go-repository-layout.md): Grafana, Teleport and Gitea
+enforce a few boundaries with `depguard`; Tailscale and Nomad also check each binary's full dependency list; Omnara
+keeps one flat `internal/` with a storage package behind named methods.
+
+```
+cmd/hypomnema, cmd/hypomnema-node, cmd/hypomnema-vault   entry points
+internal/controlplane/...   flat packages: execution, brain, mcpbridge, policy, channel/<provider>, httpapi…
+internal/node/...           flat packages: connection, runtime/<name>, proxy, statedb…
+internal/vault/...          flat packages: keys, secrets, sessions, audit…
+internal/shared/...         platform (config, logging, HTTP, errors, ids, clock), nodeproto, vaultproto
+```
+
+The three boundaries that matter:
+
+1. **Between deployables**: each tree imports only itself and `internal/shared`. `shared` stays small and holds no
+   driver (no Postgres, no vault cryptography), because it ships in every binary.
+2. **Execution state has one writer**: only `controlplane/execution` uses the generated sqlc code for Run, Task,
+   Dispatch, Gate, leases and nodes, and exposes named operations (`ClaimNextDispatch`, `ExpireLeases`,
+   `MarkNodeLost`…), as Omnara's `internal/storage`. These rows change together under concurrency, so one package
+   holds one lock order.
+3. **Untrusted input passes policy**: every state change requested by the Brain, a channel or a webhook goes through
+   `controlplane/policy`. This one cannot be linted; it is held by design review and tests.
+
+**Enforcement**, run by `make verify` locally and in CI:
+
+- `depguard` in `.golangci.yml`: the tree rule (as Grafana's per-directory rules); generated sqlc code only inside
+  its owner (as Omnara and Gitea); the node's SQLite only in `statedb`; a banned-import list where every entry names
+  its replacement (as Teleport: `log` → `log/slog`, `github.com/pkg/errors` → `errors`, `math/rand` →
+  `crypto/rand`).
+- **Full dependency check per binary** (as Nomad's `make check`, Tailscale's `depaware`): `go list -deps` of the node
+  and the vault must not contain `pgx`, `internal/controlplane` or each other's tree. `depguard` sees only direct
+  imports and would miss a leak through `shared`.
+- **Determinism in the execution core** (as Nomad's semgrep rule on its state machine): no `time.Now` or `math/rand`
+  in `controlplane/execution`; a clock is passed in, so lease and timeout tests are exact.
+- **Generated and tidy**: `go mod tidy`, `sqlc generate` and the OpenAPI generation leave `git diff --exit-code`
+  clean; released migrations are never edited (as Omnara's `migration-check`).
+- `sqlc vet` rules for query invariants, once queries exist.
 
 ## Execution core
 
@@ -127,7 +151,8 @@ Each deployable is a Go modular monolith under `internal/`, with `cmd/<deployabl
 
 - The control plane's HTTP API is defined in code with `huma`, which generates the OpenAPI 3.1 contract. A change to
   the API regenerates the contract and the clients in the same change; a contract test checks that code and contract
-  agree.
+  agree. A compatibility check compares the contract with the one on `main` and refuses breaking changes, as Omnara's
+  `openapi-compat-check`, because mobile clients generated from it outlive a release.
 - Every error is an RFC 9457 problem with a stable `code` and the request id. Every request has an id, returned in
   `X-Request-Id` and logged.
 - Client events (web, mobile) are served over SSE from the event log, resumable with `Last-Event-ID`. A message sent
@@ -173,5 +198,16 @@ Each deployable is a Go modular monolith under `internal/`, with `cmd/<deployabl
   expected failures have typed errors.
 - Every blocking call takes a `context.Context`; long-running loops stop on cancellation.
 - Logging with `log/slog`, structured, with the request id, run id and dispatch id as attributes.
-- The Go skills vendored from `second-bite` (`golang-*`, `go-code-review`) apply when they are added to the
-  repository.
+- Tooling follows Omnara: one `Makefile` with `make verify` (static checks, unit and race tests) that CI also runs, a
+  curated `.golangci.yml` focused on correctness, and actions pinned by commit.
+
+## Agent skills
+
+- **One source per topic.** Two skills that cover the same topic are never installed together, because when they
+  disagree an agent cannot tell which to follow. Before adding a skill, check the installed list for the same topic.
+- **The repository wins.** When a skill says otherwise than these documents, the documents apply; the conflict is noted
+  in `.claude/skills/SOURCES.md`.
+- Vendored skills are copied unchanged with their source, commit and license in `SOURCES.md`, and updated by copying
+  again. A skill for a library this project does not use is not installed.
+- No maintained skill exists for sqlc, goose, huma, River, `coder/websocket` or the MCP Go SDK; when one is needed, a
+  short project skill is written from that project's own documentation.

@@ -42,7 +42,8 @@ Three deployables, all Go:
 Orca for the orchestration model (Run, Task, Dispatch, Gate, mailbox, fencing), Omnara for durability (agents as
 event logs, leases, reapers, outbound daemons), OpenClaw for the brain's tool surface and delegation (`sessions_spawn`,
 announce, MCP bridge), Omnigent and durable-harness for driving CLIs and replay policy, Infisical for the vault,
-second-bite for the module layout. Details and paths are in the research.
+second-bite for the Go stack, Omnara, Grafana, Teleport and Nomad for the layout and its checks. Details and paths are
+in the research.
 
 ## Build order
 
