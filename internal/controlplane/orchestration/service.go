@@ -346,11 +346,15 @@ func failTask(ctx context.Context, q *store.Queries, now int64, id, reason strin
 	return blockDependents(ctx, q, now, id)
 }
 
-// cancelNow cancels a Task that has no Dispatch left running, and blocks its
-// dependents.
+// cancelNow cancels a Task that has no Dispatch left running, closes its open
+// Gate, and blocks its dependents.
 func cancelNow(ctx context.Context, q *store.Queries, now int64, id string) error {
 	if err := transitionTask(ctx, q, now, id, TaskCanceled, BlockedNone, ""); err != nil {
 		return err
+	}
+
+	if _, err := q.CancelOpenGatesOfTask(ctx, store.CancelOpenGatesOfTaskParams{Now: now, TaskID: id}); err != nil {
+		return fmt.Errorf("closing the gate of task %s: %w", id, err)
 	}
 
 	return blockDependents(ctx, q, now, id)

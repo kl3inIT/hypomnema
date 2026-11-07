@@ -16,11 +16,25 @@ WHERE id = @id AND status = 'open';
 UPDATE conversations SET cli_session_ref = @cli_session_ref, updated_at = @now WHERE id = @id;
 
 -- name: InsertDispatch :exec
-INSERT INTO dispatches (id, task_id, conversation_id, node_id, status, recovery, created_at, updated_at)
-VALUES (@id, @task_id, @conversation_id, @node_id, 'queued', @recovery, @now, @now);
+INSERT INTO dispatches (id, task_id, conversation_id, node_id, status, recovery, gate_question_id,
+                        created_at, updated_at)
+VALUES (@id, @task_id, @conversation_id, @node_id, 'queued', @recovery, @gate_question_id, @now, @now);
 
 -- name: GetDispatch :one
 SELECT * FROM dispatches WHERE id = @id;
+
+-- name: LastDispatchOfTask :one
+SELECT * FROM dispatches WHERE task_id = @task_id ORDER BY created_at DESC, rowid DESC LIMIT 1;
+
+-- name: StartWaiting :exec
+UPDATE dispatches SET updated_at = @now, waiting_since = coalesce(waiting_since, @now) WHERE id = @id;
+
+-- name: StopWaiting :exec
+-- The wait is over: its time leaves the duration limit and the stall timer starts again.
+UPDATE dispatches
+SET updated_at = @now, waited_ms = waited_ms + (@now - waiting_since), waiting_since = NULL, progress_at = @now,
+    stalled_at = NULL
+WHERE id = @id AND waiting_since IS NOT NULL;
 
 -- name: ActiveDispatchOfTask :one
 SELECT * FROM dispatches
@@ -64,7 +78,8 @@ WHERE id = @id AND status IN (sqlc.slice('from_statuses'));
 -- name: SettleDispatch :execrows
 UPDATE dispatches
 SET updated_at = @now, status = @to_status, failure_class = @failure_class, unknown_cause = NULL,
-    result = @result, resets_at = @resets_at, lease_expires_at = NULL, settled_at = @now
+    result = @result, resets_at = @resets_at, lease_expires_at = NULL, settled_at = @now,
+    waited_ms = waited_ms + coalesce(@now - waiting_since, 0), waiting_since = NULL
 WHERE id = @id AND status IN (sqlc.slice('from_statuses'));
 
 -- name: Reattach :execrows
@@ -87,12 +102,15 @@ SELECT id FROM dispatches WHERE status = 'stopping' AND stop_acked_at <= CAST(@a
 
 -- name: MarkStalled :many
 UPDATE dispatches SET updated_at = @now, stalled_at = @now
-WHERE status = 'running' AND stalled_at IS NULL AND progress_at <= CAST(@progress_before AS INTEGER)
+WHERE status = 'running' AND stalled_at IS NULL AND waiting_since IS NULL
+  AND progress_at <= CAST(@progress_before AS INTEGER)
 RETURNING id, node_id;
 
 -- name: MarkOverrun :many
+-- Running time leaves out the time spent waiting for answers, including a wait still under way.
 UPDATE dispatches SET updated_at = @now, overrun_at = @now
-WHERE status = 'running' AND overrun_at IS NULL AND started_at <= CAST(@started_before AS INTEGER)
+WHERE status = 'running' AND overrun_at IS NULL
+  AND started_at + waited_ms + CAST(@max_ms AS INTEGER) <= coalesce(waiting_since, @now)
 RETURNING id, node_id;
 
 -- name: RecentDispatchStatusesOfNode :many

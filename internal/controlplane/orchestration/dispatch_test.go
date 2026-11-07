@@ -203,12 +203,13 @@ func TestEveryDispatchTransitionPair(t *testing.T) {
 		{DispatchStarting, DispatchRunning}, {DispatchStarting, DispatchFailed},
 		{DispatchStarting, DispatchStopping}, {DispatchStarting, DispatchUnknown},
 		{DispatchRunning, DispatchSucceeded}, {DispatchRunning, DispatchFailed},
-		{DispatchRunning, DispatchStopping}, {DispatchRunning, DispatchUnknown},
+		{DispatchRunning, DispatchStopping}, {DispatchRunning, DispatchUnknown}, {DispatchRunning, DispatchGated},
 		{DispatchStopping, DispatchCanceled}, {DispatchStopping, DispatchStopUnknown},
 		{DispatchUnknown, DispatchRunning}, {DispatchUnknown, DispatchSucceeded}, {DispatchUnknown, DispatchFailed},
-		{DispatchUnknown, DispatchCanceled}, {DispatchUnknown, DispatchAbandoned},
+		{DispatchUnknown, DispatchCanceled}, {DispatchUnknown, DispatchAbandoned}, {DispatchUnknown, DispatchGated},
 		{DispatchStopUnknown, DispatchSucceeded}, {DispatchStopUnknown, DispatchFailed},
 		{DispatchStopUnknown, DispatchCanceled}, {DispatchStopUnknown, DispatchAbandoned},
+		{DispatchStopUnknown, DispatchGated},
 	} {
 		allowed[p] = true
 	}
@@ -216,7 +217,7 @@ func TestEveryDispatchTransitionPair(t *testing.T) {
 	w := newWorld(t)
 	guarded := map[DispatchStatus]bool{
 		DispatchSucceeded: true, DispatchFailed: true, DispatchCanceled: true, DispatchExpired: true,
-		DispatchAbandoned: true, DispatchUnknown: true, DispatchStopUnknown: true,
+		DispatchAbandoned: true, DispatchUnknown: true, DispatchStopUnknown: true, DispatchGated: true,
 	}
 
 	for _, from := range dispatchOrder {
