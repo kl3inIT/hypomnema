@@ -13,11 +13,12 @@ means something else is named here once and not used.
 | **Coordinator** | The pi process that plans, creates Tasks, dispatches them, opens Gates and summarises results; it does not do the work itself. Holds no state. Called Brain until 2026-11-07, as in older research notes; the role is Orca's coordinator | A worker |
 | **Orchestration** | The control plane module that keeps Runs, Tasks, Dispatches, Gates, leases, mailboxes and the event log, and is the only writer of that state. It runs nothing itself. Called execution until 2026-11-07; the name is Orca's (`src/main/runtime/orchestration/`) | The Coordinator, which decides; orchestration keeps the record |
 | **Worker** | A CLI agent process (Claude Code, Codex, or pi) carrying out one Dispatch | The Node it runs on |
+| **Conversation** | A Worker's CLI conversation (a Claude Code session id, a Codex thread id) on one Node and worktree, recorded by orchestration. A later Dispatch of the same Task continues it when the previous Dispatch settled cleanly; a crash or an unknown outcome starts a new one with a recovery note | A Dispatch, which is one attempt and ends; a vault Session |
 | **Runtime** | The kind of worker and how it is driven: `claude-cli`, `codex`, `pi` | A model or a provider |
 | **Node** | A machine paired with the control plane that runs Workers: a VM, a server, a sandbox | Omnara's "machine", same meaning |
 | **Account** | One credential a Runtime runs under: a Claude subscription, a Codex subscription or an API key. Managed by the control plane; a Dispatch records which one it used | A user account of the owner |
 | **Model gateway** | The control plane module every model request goes through: forwards subscription traffic, injects API keys, records usage per Dispatch | A Node's egress proxy |
-| **Session** | A vault credential session opened for one Dispatch and revoked when it closes | A chat session or a CLI session; call those "conversation" and "CLI session" |
+| **Session** | A vault credential session opened for one Dispatch and revoked when it closes | A CLI session or a chat; call those Conversation |
 | **Announce** | A Worker's final report to the Coordinator, with outcome and evidence | A chat message to the owner |
 | **Policy** | A rule that answers a tool call or request with ALLOW, DENY or ASK | A Gate |
 | **Epoch** | A counter on a Dispatch; a write from a stale epoch is refused | A timestamp |
