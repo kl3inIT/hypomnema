@@ -12,4 +12,4 @@ Decisions agreed but not yet implemented live in [vision.md](../vision.md) and t
 
 | Record | Decision |
 |---|---|
-| [2026-11-07-three-deployables.md](2026-11-07-three-deployables.md) | Three binaries in one module, three trees, three enforced boundaries |
+| [2026-11-07-two-deployables.md](2026-11-07-two-deployables.md) | Two binaries in one module, the vault inside the control plane, three enforced boundaries |

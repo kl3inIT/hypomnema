@@ -6,7 +6,7 @@ GOVULNCHECK = $(CI_TOOL) golang.org/x/vuln/cmd/govulncheck
 MODULE := github.com/kl3inIT/hypomnema
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X $(MODULE)/internal/shared/platform.Version=$(VERSION)
-BINARIES := hypomnema hypomnema-node hypomnema-vault
+BINARIES := hypomnema hypomnema-node
 
 .PHONY: help verify verify-static fmt-check tidy-check lint deps-check unit race test-integration govulncheck build
 
@@ -35,9 +35,8 @@ deps-check: ## Fail when a binary links a tree or driver it must not
 		found="$$($(GO) list -deps ./cmd/$$1 | grep -E "$$2" || true)"; \
 		test -z "$$found" || { printf 'cmd/%s must not link:\n%s\n' "$$1" "$$found"; exit 1; }; \
 	}; \
-	check hypomnema-node '^github.com/jackc/pgx|^$(MODULE)/internal/(controlplane|vault|shared/postgres)'; \
-	check hypomnema-vault '^$(MODULE)/internal/(controlplane|node)'; \
-	check hypomnema '^$(MODULE)/internal/(node|vault)(/|$$)'
+	check hypomnema-node '^github.com/jackc/pgx|^$(MODULE)/internal/(controlplane|shared/postgres)'; \
+	check hypomnema '^$(MODULE)/internal/node(/|$$)'
 
 unit: ## Unit tests
 	$(GO) test -count=1 ./...
@@ -51,7 +50,7 @@ test-integration: ## Tests against real PostgreSQL in containers (needs Docker)
 govulncheck: ## Known vulnerabilities in what the code calls
 	$(GOVULNCHECK) ./...
 
-build: ## Build the three binaries into bin/
+build: ## Build the binaries into bin/
 	@mkdir -p bin
 	@for b in $(BINARIES); do \
 		CGO_ENABLED=0 $(GO) build -trimpath -ldflags "$(LDFLAGS)" -o bin/$$b ./cmd/$$b || exit 1; \

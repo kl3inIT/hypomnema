@@ -9,27 +9,24 @@ statement true or false.
 | Binary | Commands | What it does today |
 |---|---|---|
 | `cmd/hypomnema` (control plane) | `serve`, `version` | Opens its PostgreSQL database and serves `/livez` and `/readyz` |
-| `cmd/hypomnema-vault` (vault) | `serve`, `version` | Same, with its own database |
 | `cmd/hypomnema-node` (node) | `version` | Prints its version |
 
 Configuration comes from the environment: `HYPOMNEMA_HTTP_ADDR` (default `127.0.0.1:8080`),
 `HYPOMNEMA_DATABASE_URL` (required), `HYPOMNEMA_DATABASE_MAX_CONNS` (default 10), `HYPOMNEMA_LOG_LEVEL`,
-`HYPOMNEMA_LOG_FORMAT` (`json` or `text`); the vault reads the same names with the prefix `HYPOMNEMA_VAULT_` and
-listens on `127.0.0.1:8090` by default. Logs are JSON on stdout; `serve` stops on SIGINT or SIGTERM and lets
+`HYPOMNEMA_LOG_FORMAT` (`json` or `text`). Logs are JSON on stdout; `serve` stops on SIGINT or SIGTERM and lets
 requests in flight finish. `/readyz` answers 503 with `Retry-After` while the database does not answer.
 
 ## Code
 
 ```
-internal/controlplane   package controlplane: configuration and serving
-internal/vault          package vault: configuration and serving
+internal/controlplane     package controlplane: configuration and serving
 internal/shared/platform  environment settings, slog logger, HTTP server and probes, version
-internal/shared/postgres  PostgreSQL pool (control plane and vault only)
+internal/shared/postgres  PostgreSQL pool (control plane only)
 ```
 
-There is no `internal/node` yet. Boundaries ([decision](docs/decisions/2026-11-07-three-deployables.md)) are checked
-by `make verify`: depguard rules per tree in `.golangci.yml`, and `deps-check`, which refuses PostgreSQL, the control
-plane and the vault in the node binary.
+There is no `internal/node` and no vault yet. Boundaries ([decision](docs/decisions/2026-11-07-two-deployables.md))
+are checked by `make verify`: depguard rules per tree in `.golangci.yml`, and `deps-check`, which refuses PostgreSQL
+and the control plane in the node binary.
 
 ## Verification
 
@@ -37,4 +34,4 @@ plane and the vault in the node binary.
   `tools/ci/go.mod`), the dependency check, unit tests and race tests.
 - `make test-integration`: tests tagged `integration` against PostgreSQL 18 in containers (testcontainers).
 - CI (`.github/workflows/ci.yml`) runs both and `govulncheck` on every pull request and on `main`.
-- Local PostgreSQL: `compose.yaml`, one server with the databases `hypomnema` and `hypomnema_vault`.
+- Local PostgreSQL: `compose.yaml`.

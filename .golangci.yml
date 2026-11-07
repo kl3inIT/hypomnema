@@ -111,36 +111,22 @@ linters:
               desc: shared is linked into every binary and depends on no tree
             - pkg: github.com/kl3inIT/hypomnema/internal/node
               desc: shared is linked into every binary and depends on no tree
-            - pkg: github.com/kl3inIT/hypomnema/internal/vault
-              desc: shared is linked into every binary and depends on no tree
         controlplane_tree:
           list-mode: lax
           files: ["**/internal/controlplane/**", "**/cmd/hypomnema/**"]
           deny:
             - pkg: github.com/kl3inIT/hypomnema/internal/node
               desc: the control plane talks to nodes through internal/shared/nodeproto only
-            - pkg: github.com/kl3inIT/hypomnema/internal/vault
-              desc: the control plane talks to the vault over its API only
         node_tree:
           list-mode: lax
           files: ["**/internal/node/**", "**/cmd/hypomnema-node/**"]
           deny:
             - pkg: github.com/kl3inIT/hypomnema/internal/controlplane
-              desc: the node talks to the control plane through internal/shared/nodeproto only
-            - pkg: github.com/kl3inIT/hypomnema/internal/vault
-              desc: the node talks to the vault over its API only
+              desc: the node talks to the control plane through internal/shared/nodeproto, and gets credentials only through vault sessions
             - pkg: github.com/kl3inIT/hypomnema/internal/shared/postgres
               desc: the node has no PostgreSQL
             - pkg: github.com/jackc/pgx
               desc: the node has no PostgreSQL
-        vault_tree:
-          list-mode: lax
-          files: ["**/internal/vault/**", "**/cmd/hypomnema-vault/**"]
-          deny:
-            - pkg: github.com/kl3inIT/hypomnema/internal/controlplane
-              desc: the vault depends on no other tree
-            - pkg: github.com/kl3inIT/hypomnema/internal/node
-              desc: the vault depends on no other tree
   exclusions:
     rules:
       - linters: [forbidigo]

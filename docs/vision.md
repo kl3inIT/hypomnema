@@ -16,13 +16,12 @@ A personal software factory for one owner: one brain, many hands.
 
 ## Target architecture
 
-Three deployables, all Go:
+Two deployables, all Go:
 
 | Deployable | Runs | Owns |
 |---|---|---|
-| `hypomnema` (control plane) | One place, public TLS endpoint or Tailscale | Channels, the brain, Run → Task → Dispatch → Gate as an event log in Postgres, MCP bridge with policy, node registry and placement, the API |
+| `hypomnema` (control plane) | One place, public TLS endpoint or Tailscale | Channels, the brain, Run → Task → Dispatch → Gate as an event log in Postgres, MCP bridge with policy, node registry and placement, the vault (secrets and credential sessions), the API |
 | `hypomnema-node` | Every machine, cloud and sandbox | Outbound connection, worktrees, running and parsing the CLIs, egress proxy that attaches credentials, process isolation, local journal |
-| `hypomnema-vault` | Its own host, apart from the control plane | Key hierarchy, credential sessions per Dispatch, audit |
 
 - **The brain is pi** (`earendil-works/pi`), run as a child process over `pi --mode rpc`, not forked. It is a
   coordinator in Orca's shape: it decides, and the control plane holds every piece of state, so a pi crash loses
@@ -33,7 +32,9 @@ Three deployables, all Go:
 - **Nodes dial out.** No machine opens an inbound port. An SSH executor exists only to bootstrap a node or to reach a
   trusted machine of the owner.
 - **Secrets never reach a worker.** The node's proxy attaches credentials from a vault session opened for one
-  Dispatch and revoked when it closes. The vault runs on its own host because the brain reads untrusted text.
+  Dispatch and revoked when it closes, as Infisical's Agent Vault. The vault lives in the control plane; it moves to
+  its own host only when the control plane has to run somewhere less trusted. The brain runs pi without its built-in
+  tools (`--no-builtin-tools`), so untrusted text cannot make it read the host.
 - **Clients talk only to the control plane**: Telegram first; a web chat and a Flutter app later, over one OpenAPI
   contract, with events over SSE.
 
@@ -47,6 +48,6 @@ in the research.
 
 ## Build order
 
-One piece at a time, each usable on its own: spikes; a skeleton of the three deployables on one machine; the first
+One piece at a time, each usable on its own: spikes; a skeleton of the two deployables on one machine; the first
 merged PR from a Telegram message; a second cloud; task graphs and review stations; machine pools, web and mobile.
 Each step is a GitHub issue.

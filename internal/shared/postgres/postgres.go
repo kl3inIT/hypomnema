@@ -1,6 +1,6 @@
-// Package postgres opens the PostgreSQL pool of the control plane and of the
-// vault, each with its own database. The node never links it: the dependency
-// check in the Makefile refuses pgx in the node binary.
+// Package postgres opens the control plane's PostgreSQL pool. The node never
+// links it: the dependency check in the Makefile refuses pgx in the node
+// binary.
 package postgres
 
 import (

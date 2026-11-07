@@ -13,7 +13,7 @@
 ## Talking to the owner
 
 - Answer in Vietnamese, short, in plain words. Lead with the answer. No walls of options.
-- Never use a bare internal identifier: say what it is ("issue #3, the skeleton of the three deployables").
+- Never use a bare internal identifier: say what it is ("issue #3, the repository skeleton").
 - Give one recommendation with its reason, not a survey. Ask one question at a time.
 - Separate what was read in code or docs from what is inferred; mark the second as such.
 

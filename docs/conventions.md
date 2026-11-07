@@ -69,8 +69,9 @@ that protect security, placement or concurrent state are drawn and enforced. For
 3. **Package first**: a new part is a package inside an existing tree; package boundaries inside a tree are not
    enforced beyond what the compiler does.
 4. **New boundary or deployable only with evidence**: a security, placement, scaling or failure reason, recorded in an
-   ADR. The three deployables have theirs: the node runs on every machine and reads untrusted text; the vault keeps
-   secrets away from both.
+   ADR. The two deployables have theirs: the node runs on every machine and reads untrusted text. The vault is a
+   package of the control plane until a reason to move it appears
+   ([decision](decisions/2026-11-07-two-deployables.md)).
 
 ## Layout and boundaries
 
@@ -79,19 +80,18 @@ enforce a few boundaries with `depguard`; Tailscale and Nomad also check each bi
 keeps one flat `internal/` with a storage package behind named methods.
 
 ```
-cmd/hypomnema, cmd/hypomnema-node, cmd/hypomnema-vault   entry points
-internal/controlplane/...   flat packages: execution, brain, mcpbridge, policy, channel/<provider>, httpapi…
+cmd/hypomnema, cmd/hypomnema-node   entry points
+internal/controlplane/...   flat packages: execution, vault, brain, mcpbridge, policy, channel/<provider>, httpapi…
 internal/node/...           flat packages: connection, runtime/<name>, proxy, statedb…
-internal/vault/...          flat packages: keys, secrets, sessions, audit…
-internal/shared/...         platform (config, logging, HTTP, errors, ids, clock), nodeproto, vaultproto
+internal/shared/...         platform (config, logging, HTTP, errors, ids, clock), postgres, nodeproto
 ```
 
 The three boundaries that matter:
 
 1. **Between deployables**: each tree imports only itself and `internal/shared`. `shared` stays small, because a
    binary links whatever of it the binary imports: `shared/platform` depends on no driver and goes into every binary;
-   `shared/postgres` is for the control plane and the vault, and the dependency check keeps it out of the node. Vault
-   cryptography never lives in `shared`.
+   `shared/postgres` is for the control plane, and the dependency check keeps it out of the node. Vault cryptography
+   never lives in `shared`: it stays in `controlplane/vault`, the only package that holds the root key.
 2. **Execution state has one writer**: only `controlplane/execution` uses the generated sqlc code for Run, Task,
    Dispatch, Gate, leases and nodes, and exposes named operations (`ClaimNextDispatch`, `ExpireLeases`,
    `MarkNodeLost`…), as Omnara's `internal/storage`. These rows change together under concurrency, so one package
@@ -179,8 +179,16 @@ The three boundaries that matter:
   node that needs it (it requires `bubblewrap` and, on Ubuntu, an AppArmor profile), and a disposable cloud sandbox
   per Dispatch, as Omnara's pools, for work from untrusted sources. Flags that disable a CLI's own permission checks
   are allowed only inside such a sandbox.
-- The vault encrypts with AES-256-GCM in a three-level key hierarchy; the root key lives only on the vault host, with
-  an offline backup and a rotation procedure.
+- The vault is a secret manager the owner manages (create, list without values, rotate by version, delete refused
+  while in use), encrypted as Omnara's `internal/secrets`: a data key per secret version, wrapped by a root key chosen
+  by ID from a keyring, with the secret's identity as associated data. The root key comes from the environment of the
+  control plane host, with an offline backup and a rotation procedure that rewraps data keys.
+- Workers get credentials as Infisical's Agent Vault does: the control plane opens a session per Dispatch with the
+  services it may reach; the node's proxy, running as another OS user than the worker, decrypts HTTPS with its own CA,
+  attaches the credential (or replaces a placeholder for tools that insist on a token) only for allowed hosts, methods
+  and paths, logs every request, and stops when the session is revoked. No tool returns a secret value to the Brain or
+  a worker. A secret the proxy cannot attach (SSH keys, AWS SigV4, local database passwords) is given in clear only
+  through a Gate the owner approves. Research: [secrets for agents](research/2026-11-07-secrets-for-agents.md).
 - Logs and transcripts are scrubbed of secret patterns before they are stored.
 
 ## Testing
