@@ -53,8 +53,14 @@ func (s *Service) CreateDispatch(ctx context.Context, taskID string, spec Dispat
 			return err
 		}
 
+		gate, err := answeredGateBefore(ctx, q, taskID)
+		if err != nil {
+			return err
+		}
+
 		if err := q.InsertDispatch(ctx, store.InsertDispatchParams{
-			ID: id, TaskID: taskID, ConversationID: conv, NodeID: node, Recovery: boolInt(recovery), Now: now,
+			ID: id, TaskID: taskID, ConversationID: conv, NodeID: node, Recovery: boolInt(recovery),
+			GateQuestionID: nullString(gate), Now: now,
 		}); err != nil {
 			return fmt.Errorf("inserting dispatch: %w", err)
 		}
@@ -166,16 +172,70 @@ func (s *Service) AcceptDispatch(ctx context.Context, call NodeCall) (Accepted, 
 			return Accepted{}, fmt.Errorf("%w: dispatch %s is %s or expired", ErrConflict, d.ID, d.Status)
 		}
 
-		conv, err := q.GetConversation(ctx, d.ConversationID)
-		if err != nil {
-			return Accepted{}, notFound(err, "conversation", d.ConversationID)
-		}
-
-		return Accepted{
-			Epoch: int(d.Epoch) + 1, LeaseExpiresAt: millis(lease), Recovery: d.Recovery == 1,
-			CLISessionRef: conv.CliSessionRef.String,
-		}, nil
+		return accepted(ctx, q, d, lease)
 	})
+}
+
+// accepted is what a node learns when it takes a Dispatch: the new epoch and
+// lease, the Conversation's CLI session, whether the worker gets the recovery
+// note, and the answered Gate it resumes from.
+func accepted(ctx context.Context, q *store.Queries, d store.Dispatch, lease int64) (Accepted, error) {
+	conv, err := q.GetConversation(ctx, d.ConversationID)
+	if err != nil {
+		return Accepted{}, notFound(err, "conversation", d.ConversationID)
+	}
+
+	out := Accepted{
+		Epoch: int(d.Epoch) + 1, LeaseExpiresAt: millis(lease), Recovery: d.Recovery == 1,
+		CLISessionRef: conv.CliSessionRef.String,
+	}
+
+	if !d.GateQuestionID.Valid {
+		return out, nil
+	}
+
+	row, err := q.GetQuestion(ctx, d.GateQuestionID.String)
+	if err != nil {
+		return Accepted{}, notFound(err, "question", d.GateQuestionID.String)
+	}
+
+	gate, err := questionFromRow(row)
+	if err != nil {
+		return Accepted{}, err
+	}
+
+	out.Gate = &gate
+
+	return out, nil
+}
+
+// answeredGateBefore returns the answered Gate a new Dispatch of the Task
+// resumes from: the Gate raised by the Task's last Dispatch, when that one
+// ended gated (Orca puts the resolved gate in the next Dispatch's preamble).
+func answeredGateBefore(ctx context.Context, q *store.Queries, taskID string) (string, error) {
+	last, err := q.LastDispatchOfTask(ctx, taskID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+
+	if err != nil {
+		return "", fmt.Errorf("reading the last dispatch of %s: %w", taskID, err)
+	}
+
+	if DispatchStatus(last.Status) != DispatchGated {
+		return "", nil
+	}
+
+	gate, err := q.GateOfDispatch(ctx, last.ID)
+	if err != nil {
+		return "", notFound(err, "gate of dispatch", last.ID)
+	}
+
+	if QuestionStatus(gate.Status) != QuestionAnswered {
+		return "", nil
+	}
+
+	return gate.ID, nil
 }
 
 // Heartbeat renews the lease of a live Dispatch. A lease that has run out is
@@ -198,7 +258,25 @@ func (s *Service) Heartbeat(ctx context.Context, call NodeCall) (Beat, error) {
 			return Beat{}, fmt.Errorf("%w: dispatch %s is %s or its lease ran out", ErrConflict, d.ID, d.Status)
 		}
 
-		return Beat{LeaseExpiresAt: millis(lease), StopRequested: DispatchStatus(d.Status) == DispatchStopping}, nil
+		rows, err := q.ListUndeliveredAnswers(ctx, d.ID)
+		if err != nil {
+			return Beat{}, fmt.Errorf("reading the answers for %s: %w", d.ID, err)
+		}
+
+		answers := make([]Question, 0, len(rows))
+
+		for _, r := range rows {
+			question, err := questionFromRow(r)
+			if err != nil {
+				return Beat{}, err
+			}
+
+			answers = append(answers, question)
+		}
+
+		return Beat{
+			LeaseExpiresAt: millis(lease), StopRequested: DispatchStatus(d.Status) == DispatchStopping, Answers: answers,
+		}, nil
 	})
 }
 
@@ -402,19 +480,21 @@ var reportable = map[DispatchStatus][]FailureClass{
 	DispatchStopUnknown: {FailureNone, FailureWorkerError, FailureRateLimited},
 }
 
-// ReportFinished is the worker's final report, relayed by the node. A settled
-// Dispatch accepts only an identical repeat.
+// ReportFinished is the worker's final report, relayed by the node. With a
+// Gate, the worker ended to wait for a decision: the Dispatch ends gated and
+// the Task waits for the answer. A settled Dispatch accepts only an identical
+// repeat.
 func (s *Service) ReportFinished(ctx context.Context, call NodeCall, o Outcome) error {
-	if o.Class == FailureNone && strings.TrimSpace(o.Result.Summary) == "" {
-		return fmt.Errorf("%w: a success needs a summary", ErrInvalid)
-	}
-
-	if o.Class == FailureLost {
-		return fmt.Errorf("%w: only the coordinator settles a dispatch as lost", ErrInvalid)
+	if err := validOutcome(o); err != nil {
+		return err
 	}
 
 	to := DispatchSucceeded
-	if o.Class != FailureNone {
+
+	switch {
+	case o.Gate != nil:
+		to = DispatchGated
+	case o.Class != FailureNone:
 		to = DispatchFailed
 	}
 
@@ -442,8 +522,52 @@ func (s *Service) ReportFinished(ctx context.Context, call NodeCall, o Outcome) 
 			return fmt.Errorf("%w: dispatch %s is %s and cannot end as %q", ErrConflict, d.ID, d.Status, o.Class)
 		}
 
+		if o.Gate != nil {
+			return s.settleGated(ctx, q, now, d, o)
+		}
+
 		return s.settle(ctx, q, now, d, to, o.Class, &o.Result, o.ResetsAt, true)
 	})
+}
+
+func validOutcome(o Outcome) error {
+	switch {
+	case o.Gate != nil && o.Class != FailureNone:
+		return fmt.Errorf("%w: a gate ends a dispatch without a failure", ErrInvalid)
+	case o.Gate != nil:
+		return validAsk(*o.Gate)
+	case o.Class == FailureNone && strings.TrimSpace(o.Result.Summary) == "":
+		return fmt.Errorf("%w: a success needs a summary", ErrInvalid)
+	case o.Class == FailureLost:
+		return fmt.Errorf("%w: only the coordinator settles a dispatch as lost", ErrInvalid)
+	default:
+		return nil
+	}
+}
+
+// settleGated ends a Dispatch whose worker stopped to wait for a decision,
+// and opens the Gate: the Task is blocked until it is answered, and the next
+// Dispatch resumes the Conversation with the answer (Orca's createGate). A
+// Task whose cancel was requested is canceled instead.
+func (s *Service) settleGated(ctx context.Context, q *store.Queries, now int64, d store.Dispatch, o Outcome) error {
+	if err := s.settle(ctx, q, now, d, DispatchGated, FailureNone, &o.Result, nil, true); err != nil {
+		return err
+	}
+
+	task, err := q.GetTask(ctx, d.TaskID)
+	if err != nil {
+		return notFound(err, "task", d.TaskID)
+	}
+
+	if TaskStatus(task.Status).terminal() {
+		return nil
+	}
+
+	if _, err := s.insertQuestion(ctx, q, now, d, task, QuestionGate, *o.Gate); err != nil {
+		return err
+	}
+
+	return transitionTask(ctx, q, now, d.TaskID, TaskBlocked, BlockedGate, "")
 }
 
 // ReattachDispatch is a node that came back (a laptop that slept) proving its
@@ -484,15 +608,7 @@ func (s *Service) ReattachDispatch(ctx context.Context, call NodeCall, processRe
 				}
 			}
 
-			conv, err := q.GetConversation(ctx, d.ConversationID)
-			if err != nil {
-				return Accepted{}, notFound(err, "conversation", d.ConversationID)
-			}
-
-			return Accepted{
-				Epoch: int(d.Epoch) + 1, LeaseExpiresAt: millis(lease), Recovery: d.Recovery == 1,
-				CLISessionRef: conv.CliSessionRef.String,
-			}, nil
+			return accepted(ctx, q, d, lease)
 		})
 }
 
@@ -583,6 +699,13 @@ func (s *Service) settle(ctx context.Context, q *store.Queries, now int64, d sto
 		return fmt.Errorf("%w: dispatch %s is %s, cannot become %s", ErrConflict, d.ID, d.Status, to)
 	}
 
+	// The worker no longer waits for anything (Orca's closeQuestionsForDispatch on every settlement).
+	if _, err := q.CancelOpenWaitQuestionsOfDispatch(ctx, store.CancelOpenWaitQuestionsOfDispatchParams{
+		Now: now, DispatchID: d.ID,
+	}); err != nil {
+		return fmt.Errorf("closing the questions of %s: %w", d.ID, err)
+	}
+
 	conv, err := q.GetConversation(ctx, d.ConversationID)
 	if err != nil {
 		return notFound(err, "conversation", d.ConversationID)
@@ -620,6 +743,9 @@ func (s *Service) afterSettle(ctx context.Context, q *store.Queries, now int64, 
 		return completeTask(ctx, q, now, d.TaskID, result.Summary)
 	case DispatchCanceled:
 		return cancelNow(ctx, q, now, d.TaskID)
+	case DispatchGated:
+		// settleGated opens the Gate and blocks the Task.
+		return nil
 	case DispatchExpired:
 		return transitionTask(ctx, q, now, d.TaskID, TaskReady, BlockedNone, "")
 	case DispatchAbandoned:
@@ -831,13 +957,30 @@ func reapEscalations(ctx context.Context, q *store.Queries, now int64, out *Reap
 		out.Escalations = append(out.Escalations, Escalation{Kind: EscalationStalled, DispatchID: r.ID, NodeID: r.NodeID})
 	}
 
-	overrun, err := q.MarkOverrun(ctx, store.MarkOverrunParams{Now: now, StartedBefore: now - MaxDuration.Milliseconds()})
+	overrun, err := q.MarkOverrun(ctx, store.MarkOverrunParams{Now: now, MaxMs: MaxDuration.Milliseconds()})
 	if err != nil {
 		return fmt.Errorf("marking overlong dispatches: %w", err)
 	}
 
 	for _, r := range overrun {
 		out.Escalations = append(out.Escalations, Escalation{Kind: EscalationOverrun, DispatchID: r.ID, NodeID: r.NodeID})
+	}
+
+	due, err := q.ListDueReminders(ctx, now)
+	if err != nil {
+		return fmt.Errorf("listing due reminders: %w", err)
+	}
+
+	for _, r := range due {
+		if err := q.SetRemindAt(ctx, store.SetRemindAtParams{
+			Now: now, RemindAt: sql.NullInt64{Int64: now + ReminderEvery.Milliseconds(), Valid: true}, ID: r.ID,
+		}); err != nil {
+			return fmt.Errorf("scheduling the next reminder of %s: %w", r.ID, err)
+		}
+
+		out.Escalations = append(out.Escalations, Escalation{
+			Kind: EscalationQuestionReminder, DispatchID: r.DispatchID, QuestionID: r.ID,
+		})
 	}
 
 	return nil
@@ -1037,7 +1180,8 @@ func dispatchFromRow(d store.Dispatch) (Dispatch, error) {
 		StartedAt: optionalTime(d.StartedAt), LeaseExpiresAt: optionalTime(d.LeaseExpiresAt),
 		ProgressAt: optionalTime(d.ProgressAt), StopRequestedAt: optionalTime(d.StopRequestedAt),
 		StalledAt: optionalTime(d.StalledAt), OverrunAt: optionalTime(d.OverrunAt),
-		SettledAt: optionalTime(d.SettledAt),
+		SettledAt: optionalTime(d.SettledAt), WaitingSince: optionalTime(d.WaitingSince),
+		Waited: time.Duration(d.WaitedMs) * time.Millisecond, GateQuestionID: d.GateQuestionID.String,
 	}
 
 	if d.Result.Valid {

@@ -36,6 +36,16 @@ const (
 	// ReceiptRetention and ReceiptKeep bound the receipts kept (Orca).
 	ReceiptRetention = 30 * 24 * time.Hour
 	ReceiptKeep      = 10000
+	// ReminderFirst and ReminderEvery: an open question to the owner is
+	// escalated after ReminderFirst, then every ReminderEvery (inferred; no
+	// reference reminds). A Gate never expires (Orca, Omnara).
+	ReminderFirst = time.Hour
+	ReminderEvery = 24 * time.Hour
+	// MaxQuestionText, MaxAnswerText and MaxOptions bound a question and its
+	// answer (inferred; Omnara caps an answer at 50 KB).
+	MaxQuestionText = 4000
+	MaxAnswerText   = 4000
+	MaxOptions      = 10
 )
 
 // backoff is the wait before the n-th retry; r is a random number in [0, 1).

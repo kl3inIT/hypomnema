@@ -21,8 +21,8 @@ one connection, WAL, `synchronous=FULL`, pragmas read back after opening; its di
 0600, and an existing file that group or others can access, or that another user owns, is refused (Linux).
 
 Migrations are goose SQL files embedded in the binary (`internal/controlplane/orchestration/migrations`); the schema
-holds Runs, Tasks, Task dependencies, Dispatches, Conversations, receipts, Dispatch effects and resources, and slot
-cooldowns. `internal/controlplane/orchestration` is their only writer: named operations, each one `BEGIN IMMEDIATE`
+holds Runs, Tasks, Task dependencies, Dispatches, Conversations, receipts, Dispatch effects and resources, slot
+cooldowns and questions. `internal/controlplane/orchestration` is their only writer: named operations, each one `BEGIN IMMEDIATE`
 transaction, every status change a guarded `UPDATE` checked against a transition table (`transitions.go`).
 
 - Runs and Tasks: create a Run, create Tasks with dependencies, cancel or reopen a Task, finish or cancel a Run. A
@@ -38,9 +38,15 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   that is needed blocks the Task. Every node call carries a request id and is answered once (receipts).
 - `Reap` applies the timers in `limits.go`: queued Dispatches expire after 5 min, lost leases and unconfirmed stops
   are marked, stalls (15 min without progress), Dispatches past 4 h and nodes with three expiries in a row are
-  returned as escalations; nothing is killed.
+  returned as escalations, as are open questions to the owner after 1 h, then daily; nothing is killed.
+- Questions: a worker asks the coordinator or the owner. A `wait` question keeps the worker running, pauses its stall
+  and duration timers, and its answer reaches the node in the heartbeat reply until the node acknowledges it. A
+  Gate is a final report: the Dispatch ends `gated`, the Task is blocked until the answer, and the next Dispatch
+  resumes the Conversation with the question and answer. The first answer wins; the coordinator answers only what
+  is addressed to it and can forward a question to the owner. Open questions close when their Dispatch settles (a
+  `wait` question) or their Task is canceled (a Gate); a Gate never expires.
 
-Nothing calls these operations yet: there is no node API, scheduler, Gates, mailbox or events.
+Nothing calls these operations yet: there is no node API, scheduler, mailbox or events.
 
 ## Code
 

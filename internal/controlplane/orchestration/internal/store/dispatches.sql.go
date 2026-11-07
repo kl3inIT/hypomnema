@@ -41,7 +41,7 @@ func (q *Queries) AcceptDispatch(ctx context.Context, arg AcceptDispatchParams) 
 }
 
 const activeDispatchOfTask = `-- name: ActiveDispatchOfTask :one
-SELECT id, task_id, conversation_id, node_id, status, epoch, failure_class, unknown_cause, recovery, process_ref, result, resets_at, created_at, updated_at, accepted_at, started_at, lease_expires_at, progress_at, stop_requested_at, stop_acked_at, stalled_at, overrun_at, settled_at FROM dispatches
+SELECT id, task_id, conversation_id, node_id, status, epoch, failure_class, unknown_cause, recovery, process_ref, result, resets_at, created_at, updated_at, accepted_at, started_at, lease_expires_at, progress_at, stop_requested_at, stop_acked_at, stalled_at, overrun_at, settled_at, waiting_since, waited_ms, gate_question_id FROM dispatches
 WHERE task_id = ?1 AND status IN ('queued', 'starting', 'running', 'stopping', 'unknown', 'stop_unknown')
 `
 
@@ -72,6 +72,9 @@ func (q *Queries) ActiveDispatchOfTask(ctx context.Context, taskID string) (Disp
 		&i.StalledAt,
 		&i.OverrunAt,
 		&i.SettledAt,
+		&i.WaitingSince,
+		&i.WaitedMs,
+		&i.GateQuestionID,
 	)
 	return i, err
 }
@@ -173,7 +176,7 @@ func (q *Queries) GetCooldown(ctx context.Context, arg GetCooldownParams) (SlotC
 }
 
 const getDispatch = `-- name: GetDispatch :one
-SELECT id, task_id, conversation_id, node_id, status, epoch, failure_class, unknown_cause, recovery, process_ref, result, resets_at, created_at, updated_at, accepted_at, started_at, lease_expires_at, progress_at, stop_requested_at, stop_acked_at, stalled_at, overrun_at, settled_at FROM dispatches WHERE id = ?1
+SELECT id, task_id, conversation_id, node_id, status, epoch, failure_class, unknown_cause, recovery, process_ref, result, resets_at, created_at, updated_at, accepted_at, started_at, lease_expires_at, progress_at, stop_requested_at, stop_acked_at, stalled_at, overrun_at, settled_at, waiting_since, waited_ms, gate_question_id FROM dispatches WHERE id = ?1
 `
 
 func (q *Queries) GetDispatch(ctx context.Context, id string) (Dispatch, error) {
@@ -203,6 +206,9 @@ func (q *Queries) GetDispatch(ctx context.Context, id string) (Dispatch, error) 
 		&i.StalledAt,
 		&i.OverrunAt,
 		&i.SettledAt,
+		&i.WaitingSince,
+		&i.WaitedMs,
+		&i.GateQuestionID,
 	)
 	return i, err
 }
@@ -259,8 +265,9 @@ func (q *Queries) InsertConversation(ctx context.Context, arg InsertConversation
 }
 
 const insertDispatch = `-- name: InsertDispatch :exec
-INSERT INTO dispatches (id, task_id, conversation_id, node_id, status, recovery, created_at, updated_at)
-VALUES (?1, ?2, ?3, ?4, 'queued', ?5, ?6, ?6)
+INSERT INTO dispatches (id, task_id, conversation_id, node_id, status, recovery, gate_question_id,
+                        created_at, updated_at)
+VALUES (?1, ?2, ?3, ?4, 'queued', ?5, ?6, ?7, ?7)
 `
 
 type InsertDispatchParams struct {
@@ -269,6 +276,7 @@ type InsertDispatchParams struct {
 	ConversationID string
 	NodeID         string
 	Recovery       int64
+	GateQuestionID sql.NullString
 	Now            int64
 }
 
@@ -279,6 +287,7 @@ func (q *Queries) InsertDispatch(ctx context.Context, arg InsertDispatchParams) 
 		arg.ConversationID,
 		arg.NodeID,
 		arg.Recovery,
+		arg.GateQuestionID,
 		arg.Now,
 	)
 	return err
@@ -311,7 +320,7 @@ func (q *Queries) InsertReceipt(ctx context.Context, arg InsertReceiptParams) er
 }
 
 const lastDispatchOfConversation = `-- name: LastDispatchOfConversation :one
-SELECT id, task_id, conversation_id, node_id, status, epoch, failure_class, unknown_cause, recovery, process_ref, result, resets_at, created_at, updated_at, accepted_at, started_at, lease_expires_at, progress_at, stop_requested_at, stop_acked_at, stalled_at, overrun_at, settled_at FROM dispatches WHERE conversation_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT 1
+SELECT id, task_id, conversation_id, node_id, status, epoch, failure_class, unknown_cause, recovery, process_ref, result, resets_at, created_at, updated_at, accepted_at, started_at, lease_expires_at, progress_at, stop_requested_at, stop_acked_at, stalled_at, overrun_at, settled_at, waiting_since, waited_ms, gate_question_id FROM dispatches WHERE conversation_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT 1
 `
 
 func (q *Queries) LastDispatchOfConversation(ctx context.Context, conversationID string) (Dispatch, error) {
@@ -341,6 +350,47 @@ func (q *Queries) LastDispatchOfConversation(ctx context.Context, conversationID
 		&i.StalledAt,
 		&i.OverrunAt,
 		&i.SettledAt,
+		&i.WaitingSince,
+		&i.WaitedMs,
+		&i.GateQuestionID,
+	)
+	return i, err
+}
+
+const lastDispatchOfTask = `-- name: LastDispatchOfTask :one
+SELECT id, task_id, conversation_id, node_id, status, epoch, failure_class, unknown_cause, recovery, process_ref, result, resets_at, created_at, updated_at, accepted_at, started_at, lease_expires_at, progress_at, stop_requested_at, stop_acked_at, stalled_at, overrun_at, settled_at, waiting_since, waited_ms, gate_question_id FROM dispatches WHERE task_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT 1
+`
+
+func (q *Queries) LastDispatchOfTask(ctx context.Context, taskID string) (Dispatch, error) {
+	row := q.db.QueryRowContext(ctx, lastDispatchOfTask, taskID)
+	var i Dispatch
+	err := row.Scan(
+		&i.ID,
+		&i.TaskID,
+		&i.ConversationID,
+		&i.NodeID,
+		&i.Status,
+		&i.Epoch,
+		&i.FailureClass,
+		&i.UnknownCause,
+		&i.Recovery,
+		&i.ProcessRef,
+		&i.Result,
+		&i.ResetsAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.AcceptedAt,
+		&i.StartedAt,
+		&i.LeaseExpiresAt,
+		&i.ProgressAt,
+		&i.StopRequestedAt,
+		&i.StopAckedAt,
+		&i.StalledAt,
+		&i.OverrunAt,
+		&i.SettledAt,
+		&i.WaitingSince,
+		&i.WaitedMs,
+		&i.GateQuestionID,
 	)
 	return i, err
 }
@@ -528,13 +578,14 @@ func (q *Queries) ListStopTimedOut(ctx context.Context, ackedBefore int64) ([]st
 
 const markOverrun = `-- name: MarkOverrun :many
 UPDATE dispatches SET updated_at = ?1, overrun_at = ?1
-WHERE status = 'running' AND overrun_at IS NULL AND started_at <= CAST(?2 AS INTEGER)
+WHERE status = 'running' AND overrun_at IS NULL
+  AND started_at + waited_ms + CAST(?2 AS INTEGER) <= coalesce(waiting_since, ?1)
 RETURNING id, node_id
 `
 
 type MarkOverrunParams struct {
-	Now           int64
-	StartedBefore int64
+	Now   int64
+	MaxMs int64
 }
 
 type MarkOverrunRow struct {
@@ -542,8 +593,9 @@ type MarkOverrunRow struct {
 	NodeID string
 }
 
+// Running time leaves out the time spent waiting for answers, including a wait still under way.
 func (q *Queries) MarkOverrun(ctx context.Context, arg MarkOverrunParams) ([]MarkOverrunRow, error) {
-	rows, err := q.db.QueryContext(ctx, markOverrun, arg.Now, arg.StartedBefore)
+	rows, err := q.db.QueryContext(ctx, markOverrun, arg.Now, arg.MaxMs)
 	if err != nil {
 		return nil, err
 	}
@@ -586,7 +638,8 @@ func (q *Queries) MarkProgress(ctx context.Context, arg MarkProgressParams) (int
 
 const markStalled = `-- name: MarkStalled :many
 UPDATE dispatches SET updated_at = ?1, stalled_at = ?1
-WHERE status = 'running' AND stalled_at IS NULL AND progress_at <= CAST(?2 AS INTEGER)
+WHERE status = 'running' AND stalled_at IS NULL AND waiting_since IS NULL
+  AND progress_at <= CAST(?2 AS INTEGER)
 RETURNING id, node_id
 `
 
@@ -899,7 +952,8 @@ func (q *Queries) SetCLISessionRef(ctx context.Context, arg SetCLISessionRefPara
 const settleDispatch = `-- name: SettleDispatch :execrows
 UPDATE dispatches
 SET updated_at = ?1, status = ?2, failure_class = ?3, unknown_cause = NULL,
-    result = ?4, resets_at = ?5, lease_expires_at = NULL, settled_at = ?1
+    result = ?4, resets_at = ?5, lease_expires_at = NULL, settled_at = ?1,
+    waited_ms = waited_ms + coalesce(?1 - waiting_since, 0), waiting_since = NULL
 WHERE id = ?6 AND status IN (/*SLICE:from_statuses*/?)
 `
 
@@ -935,6 +989,38 @@ func (q *Queries) SettleDispatch(ctx context.Context, arg SettleDispatchParams) 
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const startWaiting = `-- name: StartWaiting :exec
+UPDATE dispatches SET updated_at = ?1, waiting_since = coalesce(waiting_since, ?1) WHERE id = ?2
+`
+
+type StartWaitingParams struct {
+	Now int64
+	ID  string
+}
+
+func (q *Queries) StartWaiting(ctx context.Context, arg StartWaitingParams) error {
+	_, err := q.db.ExecContext(ctx, startWaiting, arg.Now, arg.ID)
+	return err
+}
+
+const stopWaiting = `-- name: StopWaiting :exec
+UPDATE dispatches
+SET updated_at = ?1, waited_ms = waited_ms + (?1 - waiting_since), waiting_since = NULL, progress_at = ?1,
+    stalled_at = NULL
+WHERE id = ?2 AND waiting_since IS NOT NULL
+`
+
+type StopWaitingParams struct {
+	Now int64
+	ID  string
+}
+
+// The wait is over: its time leaves the duration limit and the stall timer starts again.
+func (q *Queries) StopWaiting(ctx context.Context, arg StopWaitingParams) error {
+	_, err := q.db.ExecContext(ctx, stopWaiting, arg.Now, arg.ID)
+	return err
 }
 
 const trimReceipts = `-- name: TrimReceipts :execrows

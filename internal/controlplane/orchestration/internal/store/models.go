@@ -46,6 +46,9 @@ type Dispatch struct {
 	StalledAt       sql.NullInt64
 	OverrunAt       sql.NullInt64
 	SettledAt       sql.NullInt64
+	WaitingSince    sql.NullInt64
+	WaitedMs        int64
+	GateQuestionID  sql.NullString
 }
 
 type DispatchEffect struct {
@@ -66,6 +69,26 @@ type DispatchResource struct {
 	Custody    string
 	CreatedAt  int64
 	ReleasedAt sql.NullInt64
+}
+
+type Question struct {
+	ID           string
+	DispatchID   string
+	TaskID       string
+	RunID        string
+	Mode         string
+	AddressedTo  string
+	Text         string
+	Options      string
+	Status       string
+	CancelReason sql.NullString
+	Answer       sql.NullString
+	AnsweredBy   sql.NullString
+	AnsweredAt   sql.NullInt64
+	DeliveredAt  sql.NullInt64
+	RemindAt     sql.NullInt64
+	CreatedAt    int64
+	UpdatedAt    int64
 }
 
 type Receipt struct {

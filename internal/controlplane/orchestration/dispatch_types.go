@@ -19,6 +19,8 @@ const (
 	DispatchCanceled    DispatchStatus = "canceled"
 	DispatchExpired     DispatchStatus = "expired"
 	DispatchAbandoned   DispatchStatus = "abandoned"
+	// DispatchGated: the worker ended to wait for a decision (a Gate); the Conversation can continue.
+	DispatchGated DispatchStatus = "gated"
 )
 
 // FailureClass says why a Dispatch failed, which decides what the Task does next.
@@ -106,6 +108,11 @@ type Dispatch struct {
 	StalledAt       *time.Time
 	OverrunAt       *time.Time
 	SettledAt       *time.Time
+	// WaitingSince is set while the worker waits for an answer; Waited is the time spent waiting.
+	WaitingSince *time.Time
+	Waited       time.Duration
+	// GateQuestionID is the answered Gate this Dispatch resumes from.
+	GateQuestionID string
 }
 
 // Conversation is the worker's CLI session for one Task: one node, worktree,
@@ -179,6 +186,8 @@ type Outcome struct {
 	Class    FailureClass
 	ResetsAt *time.Time
 	Result   Result
+	// Gate: the worker ended to wait for this decision.
+	Gate *Ask
 }
 
 // Accepted is the reply to AcceptDispatch and ReattachDispatch.
@@ -187,12 +196,16 @@ type Accepted struct {
 	LeaseExpiresAt time.Time `json:"lease_expires_at"`
 	Recovery       bool      `json:"recovery"`
 	CLISessionRef  string    `json:"cli_session_ref,omitempty"`
+	// Gate is the answered decision this Dispatch resumes from, for the worker's instructions.
+	Gate *Question `json:"gate,omitempty"`
 }
 
 // Beat is the reply to a heartbeat. StopRequested tells the node to stop the worker.
 type Beat struct {
 	LeaseExpiresAt time.Time `json:"lease_expires_at"`
 	StopRequested  bool      `json:"stop_requested"`
+	// Answers are answered questions the node has not acknowledged yet.
+	Answers []Question `json:"answers"`
 }
 
 // EffectPhase is whether an outside effect is about to happen or has happened.
@@ -241,6 +254,8 @@ const (
 	EscalationOverrun EscalationKind = "overrun"
 	// EscalationNodeUnavailable: the node let ExpiriesBeforeUnavailable Dispatches in a row expire.
 	EscalationNodeUnavailable EscalationKind = "node_unavailable"
+	// EscalationQuestionReminder: a question to the owner is still open (after ReminderFirst, then every ReminderEvery).
+	EscalationQuestionReminder EscalationKind = "question_reminder"
 )
 
 // Escalation is one thing the reaper found.
@@ -248,6 +263,7 @@ type Escalation struct {
 	Kind       EscalationKind
 	DispatchID string
 	NodeID     string
+	QuestionID string
 }
 
 // Reaped is what one Reap did.

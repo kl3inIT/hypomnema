@@ -32,19 +32,20 @@ var runTransitions = map[RunStatus][]RunStatus{
 var dispatchTransitions = map[DispatchStatus][]DispatchStatus{
 	DispatchQueued:   {DispatchStarting, DispatchExpired, DispatchCanceled},
 	DispatchStarting: {DispatchRunning, DispatchFailed, DispatchStopping, DispatchUnknown},
-	DispatchRunning:  {DispatchSucceeded, DispatchFailed, DispatchStopping, DispatchUnknown},
+	// gated: the worker ended to wait for a decision.
+	DispatchRunning:  {DispatchSucceeded, DispatchFailed, DispatchGated, DispatchStopping, DispatchUnknown},
 	DispatchStopping: {DispatchCanceled, DispatchStopUnknown},
 	// running: reattached; abandoned: the coordinator or the owner gave up finding out.
 	DispatchUnknown: {
-		DispatchRunning, DispatchSucceeded, DispatchFailed, DispatchCanceled, DispatchAbandoned,
+		DispatchRunning, DispatchSucceeded, DispatchFailed, DispatchGated, DispatchCanceled, DispatchAbandoned,
 	},
-	DispatchStopUnknown: {DispatchSucceeded, DispatchFailed, DispatchCanceled, DispatchAbandoned},
+	DispatchStopUnknown: {DispatchSucceeded, DispatchFailed, DispatchGated, DispatchCanceled, DispatchAbandoned},
 }
 
 // dispatchOrder fixes the iteration order over Dispatch statuses.
 var dispatchOrder = []DispatchStatus{
 	DispatchQueued, DispatchStarting, DispatchRunning, DispatchStopping, DispatchUnknown, DispatchStopUnknown,
-	DispatchSucceeded, DispatchFailed, DispatchCanceled, DispatchExpired, DispatchAbandoned,
+	DispatchSucceeded, DispatchFailed, DispatchCanceled, DispatchExpired, DispatchAbandoned, DispatchGated,
 }
 
 // canTask reports whether a Task may go from one status to another.
