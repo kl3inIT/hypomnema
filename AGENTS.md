@@ -30,6 +30,9 @@
 
 - Research before design: study mature open-source projects and the owner's own repositories from primary sources
   (code, official docs), compare, recommend one, then wait ([reference-based design](docs/conventions.md#reference-based-design-and-scope-control)).
+- Before proposing a default or a rule (security posture, tool access, spawn policy, isolation, layout), read how the
+  references do it and start from their common default; show the comparison with paths and depart only with a stated
+  reason. Mark what no reference does as inference.
 - Before a spike or prototype, search the cloned references for the same mechanism. If a reference already does it,
   read its code as the specification and test only what is specific to this environment (accounts, versions,
   servers).

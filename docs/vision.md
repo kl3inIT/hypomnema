@@ -33,8 +33,11 @@ Two deployables, all Go:
   trusted machine of the owner.
 - **Secrets never reach a worker.** The node's proxy attaches credentials from a vault session opened for one
   Dispatch and revoked when it closes, as Infisical's Agent Vault. The vault lives in the control plane; it moves to
-  its own host only when the control plane has to run somewhere less trusted. The brain runs pi without its built-in
-  tools (`--no-builtin-tools`), so untrusted text cannot make it read the host.
+  its own host only when the control plane has to run somewhere less trusted.
+- **One machine is enough to start**, with three OS users that each hold only their own: `hypomnema` (control plane
+  and vault, the root key), `brain` (pi with all its tools, a filtered environment and its own directory), `agent`
+  (a node running workers). More machines only add nodes. The brain spawns workers by itself within hard limits, as
+  OpenClaw, Omnara and Omnigent do.
 - **Clients talk only to the control plane**: Telegram first; a web chat and a Flutter app later, over one OpenAPI
   contract, with events over SSE.
 

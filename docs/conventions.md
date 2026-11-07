@@ -168,7 +168,17 @@ The three boundaries that matter:
 - Workers never hold a raw secret. The node's egress proxy attaches credentials from a vault Session scoped to one
   Dispatch; workers see placeholders. Egress is deny by default per Dispatch.
 - Policies answer ALLOW, DENY or ASK and **fail closed**. They are evaluated in Go behind `mcpbridge` and the node
-  proxy; the pi extension only forwards. Spawn bounds and blast radius limits apply to the Brain.
+  proxy; the pi extension only forwards.
+- **Spawning follows the references' default** (OpenClaw `sessions_spawn`, Omnara `spawn_agent`, Omnigent dispatch):
+  every tool, `spawn` included, has a permission of ALLOW, ASK or DENY, and `spawn` is ALLOW. Hard limits always apply
+  and are checked in Go: workers running at once, spawn depth, dispatches per turn (as Omnigent's `spawn_bounds`) and
+  per Run, and a cost budget that ASKs when reached (as Omnigent's subagent budget). Plan approval before spawning,
+  as genie's `wish`, is an option for large work, not the default.
+- **Separate OS users on one host**: the control plane and vault (`hypomnema`), the Brain (`brain`: pi with its
+  built-in tools, a filtered environment as Omnigent's `clean_agent_env`, its own directory) and a node's workers
+  (`agent`). The control plane starts pi through one sudoers rule limited to that command. No secret is passed on a
+  command line; every local service (PostgreSQL, the control plane API) requires authentication, as localhost is
+  not a trust boundary once the Brain has a shell. `compose.yaml`'s trust authentication is for development only.
 - **Trusted machines, untrusted content.** The owner and the owner's machines are trusted; what agents read is not.
   As Orca does, the isolation unit is the machine: no nested sandbox inside a node by default, because it costs setup
   on every host, breaks easily and slows every command for little gain on a dedicated VM. What is always on, being

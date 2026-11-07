@@ -28,7 +28,8 @@ Omnara keeps encrypted secrets in its main database with a keyring from the envi
   generated queries); policy on every state change requested from untrusted input.
 - **Enforcement**: `depguard` rules per tree; a full dependency check per binary in the Makefile (the node never links
   PostgreSQL or the control plane); the gate is `make verify`, run the same way locally and in CI.
-- pi runs with `--no-builtin-tools`, so untrusted text cannot make the brain read the control plane host.
+- On the control plane host, pi runs as its own OS user with a filtered environment, and a node may run workers as a
+  third user; none of them can read the control plane's files or process environment (checked on Ubuntu 24.04).
 
 ## Alternatives considered
 
@@ -50,8 +51,9 @@ Omnara keeps encrypted secrets in its main database with a keyring from the envi
 - A new boundary or deployable needs a security, placement, scaling or failure reason and its own record.
 - `internal/shared` must stay small; the dependency check is what catches a driver leaking into the node.
 - Inside a tree, packages may import each other freely; the compiler forbids cycles, review does the rest.
-- The control plane host holds the root key, so it must stay trusted: no worker runs there, and the brain has no
-  shell.
+- The control plane host holds the root key, so every process on it that reads untrusted text runs as another user,
+  no secret is passed on a command line (other users can read it in `/proc`), and every local service requires
+  authentication: localhost is not a trust boundary once the brain has a shell.
 
 ## Sources
 
