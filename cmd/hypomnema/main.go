@@ -1,5 +1,6 @@
 // Command hypomnema runs the control plane.
 //
+//	hypomnema migrate   bring the database schema up to this version
 //	hypomnema serve     serve until SIGINT or SIGTERM
 //	hypomnema version   print the version
 package main
@@ -17,7 +18,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 )
 
-var errUsage = errors.New("usage: hypomnema serve | hypomnema version")
+var errUsage = errors.New("usage: hypomnema migrate | hypomnema serve | hypomnema version")
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -41,10 +42,14 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout 
 		_, err := fmt.Fprintln(stdout, platform.Version)
 
 		return err
-	case "serve":
+	case "migrate", "serve":
 		cfg, err := controlplane.LoadConfig(getenv)
 		if err != nil {
 			return err
+		}
+
+		if args[0] == "migrate" {
+			return controlplane.Migrate(ctx, cfg, stdout)
 		}
 
 		return controlplane.Serve(ctx, cfg, stdout)

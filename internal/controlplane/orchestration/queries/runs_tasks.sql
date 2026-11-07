@@ -1,0 +1,64 @@
+-- name: InsertRun :exec
+INSERT INTO runs (id, objective, status, created_by, created_at, updated_at)
+VALUES (@id, @objective, 'open', @created_by, @now, @now);
+
+-- name: GetRun :one
+SELECT * FROM runs WHERE id = @id;
+
+-- name: TransitionRun :execrows
+UPDATE runs
+SET status = @to_status, updated_at = @now, finished_at = @now
+WHERE id = @id AND status = @from_status;
+
+-- name: NextTaskPosition :one
+SELECT CAST(coalesce(max(position), 0) + 1 AS INTEGER) AS next FROM tasks WHERE run_id = @run_id;
+
+-- name: InsertTask :exec
+INSERT INTO tasks (id, run_id, position, role, spec, runtime, model, effort, status, blocked_reason,
+                   created_at, updated_at)
+VALUES (@id, @run_id, @position, @role, @spec, @runtime, @model, @effort, @status, @blocked_reason, @now, @now);
+
+-- name: InsertTaskDep :exec
+INSERT INTO task_deps (task_id, depends_on) VALUES (@task_id, @depends_on);
+
+-- name: GetTask :one
+SELECT * FROM tasks WHERE id = @id;
+
+-- name: ListTasksByRun :many
+SELECT * FROM tasks WHERE run_id = @run_id ORDER BY position;
+
+-- name: TransitionTask :execrows
+UPDATE tasks
+SET status         = @to_status,
+    blocked_reason = @blocked_reason,
+    result         = coalesce(@result, result),
+    updated_at     = @now,
+    finished_at    = @finished_at
+WHERE id = @id AND status IN (sqlc.slice('from_statuses'));
+
+-- name: ListDependents :many
+SELECT t.id, t.status
+FROM task_deps d
+JOIN tasks t ON t.id = d.task_id
+WHERE d.depends_on = @task_id
+ORDER BY t.position;
+
+-- name: ListUnblockedDependents :many
+-- Pending dependents of a Task whose every dependency has succeeded.
+SELECT t.id
+FROM task_deps d
+JOIN tasks t ON t.id = d.task_id
+WHERE d.depends_on = @task_id
+  AND t.status = 'pending'
+  AND NOT EXISTS (
+      SELECT 1 FROM task_deps d2 JOIN tasks u ON u.id = d2.depends_on
+      WHERE d2.task_id = t.id AND u.status <> 'succeeded')
+ORDER BY t.position;
+
+-- name: CancelOpenTasksOfRun :execrows
+UPDATE tasks
+SET status = 'canceled', blocked_reason = NULL, updated_at = @now, finished_at = @now
+WHERE run_id = @run_id AND status IN (sqlc.slice('from_statuses'));
+
+-- name: CountUnfinishedTasks :one
+SELECT count(*) FROM tasks WHERE run_id = @run_id AND status IN (sqlc.slice('statuses'));
