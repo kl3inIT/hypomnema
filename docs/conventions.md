@@ -23,13 +23,12 @@ stored data. In Hypomnema these families exist from the start:
 | Function | Implementations |
 |---|---|
 | Runtime (drive a worker) | `claude-cli`, `codex`, `pi` |
-| Executor (reach a node) | `node`, `ssh` |
 | Machine provider (later) | EC2, Hetzner, Modal, Daytona, E2B… |
 | Model provider for the coordinator | per provider |
 | Channel | Telegram, later web, Lark |
 
-- One interface per function, named after the function (`Runtime`, `Executor`); one type per implementation, named
-  after the vendor and function (`CodexRuntime`, `SSHExecutor`), inside the owning module.
+- One interface per function, named after the function (`Runtime`, `Channel`); one type per implementation, named
+  after the vendor and function (`CodexRuntime`, `TelegramChannel`), inside the owning module.
 - One registry resolves an implementation by key and fails at startup on a missing or duplicate key.
 - The key is identity only. What an implementation supports comes from a **capabilities** value it returns (for a
   Runtime: integration mode, how it asks questions, resume, authentication), not from flags on the key.
