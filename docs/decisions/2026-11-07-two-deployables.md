@@ -26,7 +26,7 @@ Omnara keeps encrypted secrets in its main database with a keyring from the envi
 - **Two trees** under `internal/` (`controlplane`, `node`), each importing only itself and `internal/shared`; flat
   packages inside each tree, as Omnara's `internal/`. The vault is `controlplane/vault`, the only package that holds
   the root key.
-- **Three enforced boundaries**: between the trees; one writer of execution state (`controlplane/execution` owns the
+- **Three enforced boundaries**: between the trees; one writer of orchestration state (`controlplane/orchestration` owns the
   generated queries); policy on every state change requested from untrusted input.
 - **Enforcement**: `depguard` rules per tree; a full dependency check per binary in the Makefile (the node never links
   PostgreSQL or the control plane); the gate is `make verify`, run the same way locally and in CI.

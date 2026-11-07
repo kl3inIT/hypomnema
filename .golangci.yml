@@ -81,11 +81,11 @@ linters:
     forbidigo:
       analyze-types: true
       forbid:
-        # Determinism in the execution core: time and randomness are passed in (docs/conventions.md).
+        # Determinism in the orchestration core: time and randomness are passed in (docs/conventions.md).
         - pattern: ^time\.Now$
-          msg: the execution core takes a clock; do not read the wall clock here
+          msg: the orchestration core takes a clock; do not read the wall clock here
         - pattern: ^time\.Since$
-          msg: the execution core takes a clock; do not read the wall clock here
+          msg: the orchestration core takes a clock; do not read the wall clock here
     depguard:
       rules:
         banned:
@@ -112,12 +112,12 @@ linters:
           files:
             - $all
             - "!**/internal/shared/sqlite/**"
-            - "!**/internal/controlplane/execution/**"
+            - "!**/internal/controlplane/orchestration/**"
             - "!**/internal/controlplane/vault/**"
             - "!**/internal/node/statedb/**"
           deny:
             - pkg: database/sql
-              desc: SQL belongs to the package that owns the tables (execution, vault, node statedb), as Omnara's statedb rule
+              desc: SQL belongs to the package that owns the tables (orchestration, vault, node statedb), as Omnara's statedb rule
         shared_depends_on_no_tree:
           list-mode: lax
           files: ["**/internal/shared/**"]
@@ -141,7 +141,7 @@ linters:
   exclusions:
     rules:
       - linters: [forbidigo]
-        path-except: internal/controlplane/execution/
+        path-except: internal/controlplane/orchestration/
       - linters: [forbidigo]
         path: _test\.go$
       - linters: [lll]

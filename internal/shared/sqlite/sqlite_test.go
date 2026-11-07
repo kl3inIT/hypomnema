@@ -13,7 +13,7 @@ import (
 )
 
 // A new database is private to its owner and in WAL mode with the pragmas
-// set, because it holds execution state and, later, the vault's ciphertext.
+// set, because it holds orchestration state and, later, the vault's ciphertext.
 func TestOpenCreatesAPrivateWALDatabase(t *testing.T) {
 	t.Parallel()
 
