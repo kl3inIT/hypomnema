@@ -50,6 +50,7 @@
 
 ## Skills
 
-Use the matching skill when its trigger appears: `research-then-decide` (how others do it, design choices),
-`ship-branch` (commit, PR, CI, merge), `test-audit` (writing or reviewing tests), `code-review`, `chat-reply`
-(drafting a message to someone else).
+Vendored skills live in `.claude/skills/` with their sources in `SOURCES.md`; never install two skills for one topic
+([conventions](docs/conventions.md#agent-skills)). Use the matching skill when its trigger appears:
+`research-then-decide` (how others do it, design choices), `ship-branch` (commit, PR, CI, merge), `test-audit`
+(writing or reviewing tests), `code-review`, `chat-reply` (drafting a message to someone else).
