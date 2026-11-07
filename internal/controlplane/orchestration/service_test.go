@@ -37,7 +37,11 @@ func newTestService(t *testing.T) (*Service, *sql.DB, *fakeClock) {
 		return fmt.Sprintf("%s_%04d", prefix, n)
 	}
 
-	return New(db, clock, ids), db, clock
+	s := New(db, clock, ids)
+	// No jitter: the back-off is exactly BackoffBase × 2^(n−1).
+	s.random = func() float64 { return 0.5 }
+
+	return s, db, clock
 }
 
 func newRun(t *testing.T, s *Service) Run {
@@ -47,14 +51,6 @@ func newRun(t *testing.T, s *Service) Run {
 	require.NoError(t, err)
 
 	return run
-}
-
-// start puts a ready Task into running, as creating its Dispatch will (#19, PR 2).
-func start(t *testing.T, s *Service, id string) {
-	t.Helper()
-	require.NoError(t, s.write(t.Context(), func(q *store.Queries, now int64) error {
-		return transitionTask(t.Context(), q, now, id, TaskRunning, BlockedNone, "")
-	}))
 }
 
 func statuses(t *testing.T, s *Service, runID string) map[string]string {
@@ -82,7 +78,9 @@ func TestEveryTaskTransitionPair(t *testing.T) {
 		{TaskReady, TaskRunning}, {TaskReady, TaskBlocked}, {TaskReady, TaskCanceled},
 		{TaskRunning, TaskSucceeded}, {TaskRunning, TaskFailed}, {TaskRunning, TaskReady},
 		{TaskRunning, TaskBlocked}, {TaskRunning, TaskCanceled},
-		{TaskBlocked, TaskReady}, {TaskBlocked, TaskFailed}, {TaskBlocked, TaskCanceled},
+		{TaskBlocked, TaskPending}, {TaskBlocked, TaskReady}, {TaskBlocked, TaskRunning},
+		{TaskBlocked, TaskSucceeded}, {TaskBlocked, TaskFailed}, {TaskBlocked, TaskCanceled},
+		{TaskFailed, TaskReady},
 	} {
 		allowed[p] = true
 	}
@@ -127,27 +125,21 @@ func TestEveryTaskTransitionPair(t *testing.T) {
 func TestTaskBecomesReadyWhenAllDependenciesSucceed(t *testing.T) {
 	t.Parallel()
 
-	s, _, _ := newTestService(t)
-	run := newRun(t, s)
+	w := newWorld(t)
+	tasks := w.tasks(
+		NewTask{Ref: "api", Role: "implement", Spec: "api"},
+		NewTask{Ref: "ui", Role: "implement", Spec: "ui"},
+		NewTask{Ref: "review", Role: "review", Spec: "review", DependsOn: []string{"api", "ui"}},
+	)
+	assert.Equal(t, map[string]string{"api": "ready:", "ui": "ready:", "review": "pending:"}, w.statuses())
 
-	tasks, err := s.CreateTasks(t.Context(), run.ID, []NewTask{
-		{Ref: "api", Role: "implement", Spec: "api"},
-		{Ref: "ui", Role: "implement", Spec: "ui"},
-		{Ref: "review", Role: "review", Spec: "review", DependsOn: []string{"api", "ui"}},
-	})
-	require.NoError(t, err)
-	assert.Equal(t, map[string]string{"api": "ready:", "ui": "ready:", "review": "pending:"}, statuses(t, s, run.ID))
+	w.succeed(tasks[0].ID, "PR #1")
+	assert.Equal(t, "pending:", w.statuses()["review"])
 
-	start(t, s, tasks[0].ID)
-	require.NoError(t, s.CompleteTask(t.Context(), tasks[0].ID, "PR #1"))
-	assert.Equal(t, "pending:", statuses(t, s, run.ID)["review"])
+	w.succeed(tasks[1].ID, "PR #2")
+	assert.Equal(t, "ready:", w.statuses()["review"])
 
-	start(t, s, tasks[1].ID)
-	require.NoError(t, s.CompleteTask(t.Context(), tasks[1].ID, "PR #2"))
-	assert.Equal(t, "ready:", statuses(t, s, run.ID)["review"])
-
-	api, err := s.GetTask(t.Context(), tasks[0].ID)
-	require.NoError(t, err)
+	api := w.task(tasks[0].ID)
 	assert.Equal(t, "PR #1", api.Result)
 	require.NotNil(t, api.FinishedAt)
 	assert.Equal(t, t0, *api.FinishedAt)
@@ -158,26 +150,22 @@ func TestTaskBecomesReadyWhenAllDependenciesSucceed(t *testing.T) {
 func TestFailureBlocksEveryDependentTransitively(t *testing.T) {
 	t.Parallel()
 
-	s, _, _ := newTestService(t)
-	run := newRun(t, s)
+	w := newWorld(t)
+	tasks := w.tasks(
+		NewTask{Ref: "a", Role: "implement", Spec: "a"},
+		NewTask{Ref: "b", Role: "implement", Spec: "b", DependsOn: []string{"a"}},
+		NewTask{Ref: "c", Role: "review", Spec: "c", DependsOn: []string{"b"}},
+		NewTask{Ref: "d", Role: "implement", Spec: "d"},
+	)
 
-	tasks, err := s.CreateTasks(t.Context(), run.ID, []NewTask{
-		{Ref: "a", Role: "implement", Spec: "a"},
-		{Ref: "b", Role: "implement", Spec: "b", DependsOn: []string{"a"}},
-		{Ref: "c", Role: "review", Spec: "c", DependsOn: []string{"b"}},
-		{Ref: "d", Role: "implement", Spec: "d"},
-	})
-	require.NoError(t, err)
-
-	start(t, s, tasks[0].ID)
-	require.NoError(t, s.FailTask(t.Context(), tasks[0].ID, "tests failed"))
+	w.failForGood(tasks[0].ID)
 
 	assert.Equal(t, map[string]string{
 		"a": "failed:", "b": "blocked:dependency_failed", "c": "blocked:dependency_failed", "d": "ready:",
-	}, statuses(t, s, run.ID))
+	}, w.statuses())
 
 	// A Task added later on top of a dead branch starts blocked.
-	later, err := s.CreateTasks(t.Context(), run.ID, []NewTask{
+	later, err := w.s.CreateTasks(t.Context(), w.run.ID, []NewTask{
 		{Ref: "e", Role: "implement", Spec: "e", DependsOn: []string{tasks[2].ID}},
 	})
 	require.NoError(t, err)
@@ -226,70 +214,66 @@ func TestCreateTasksRefusesBadDependenciesAtomically(t *testing.T) {
 func TestCancelRunCancelsUnfinishedTasks(t *testing.T) {
 	t.Parallel()
 
-	s, _, clock := newTestService(t)
-	run := newRun(t, s)
+	w := newWorld(t)
+	tasks := w.tasks(
+		NewTask{Ref: "done", Role: "implement", Spec: "done"},
+		NewTask{Ref: "next", Role: "review", Spec: "next", DependsOn: []string{"done"}},
+		NewTask{Ref: "other", Role: "implement", Spec: "other"},
+	)
 
-	tasks, err := s.CreateTasks(t.Context(), run.ID, []NewTask{
-		{Ref: "done", Role: "implement", Spec: "done"},
-		{Ref: "next", Role: "review", Spec: "next", DependsOn: []string{"done"}},
-		{Ref: "other", Role: "implement", Spec: "other"},
-	})
-	require.NoError(t, err)
+	w.succeed(tasks[0].ID, "ok")
 
-	start(t, s, tasks[0].ID)
-	require.NoError(t, s.CompleteTask(t.Context(), tasks[0].ID, "ok"))
+	w.advance(time.Minute)
+	require.NoError(t, w.s.CancelRun(t.Context(), w.run.ID))
 
-	clock.now = t0.Add(time.Minute)
-	require.NoError(t, s.CancelRun(t.Context(), run.ID))
+	assert.Equal(t, map[string]string{"done": "succeeded:", "next": "canceled:", "other": "canceled:"}, w.statuses())
 
-	assert.Equal(t, map[string]string{"done": "succeeded:", "next": "canceled:", "other": "canceled:"},
-		statuses(t, s, run.ID))
-
-	got, err := s.GetRun(t.Context(), run.ID)
+	got, err := w.s.GetRun(t.Context(), w.run.ID)
 	require.NoError(t, err)
 	assert.Equal(t, RunCanceled, got.Status)
 	require.NotNil(t, got.FinishedAt)
 	assert.Equal(t, t0.Add(time.Minute), *got.FinishedAt)
 
-	_, err = s.CreateTasks(t.Context(), run.ID, []NewTask{{Ref: "x", Role: "implement", Spec: "x"}})
+	_, err = w.s.CreateTasks(t.Context(), w.run.ID, []NewTask{{Ref: "x", Role: "implement", Spec: "x"}})
 	require.ErrorIs(t, err, ErrConflict)
-	require.ErrorIs(t, s.CancelRun(t.Context(), run.ID), ErrConflict)
+	require.ErrorIs(t, w.s.CancelRun(t.Context(), w.run.ID), ErrConflict)
 }
 
 // A Run finishes only when every Task in it has ended.
 func TestFinishRunNeedsEveryTaskEnded(t *testing.T) {
 	t.Parallel()
 
-	s, _, _ := newTestService(t)
-	run := newRun(t, s)
+	w := newWorld(t)
+	tasks := w.tasks(NewTask{Ref: "a", Role: "implement", Spec: "a"})
+	require.ErrorIs(t, w.s.FinishRun(t.Context(), w.run.ID), ErrConflict)
 
-	tasks, err := s.CreateTasks(t.Context(), run.ID, []NewTask{{Ref: "a", Role: "implement", Spec: "a"}})
-	require.NoError(t, err)
-	require.ErrorIs(t, s.FinishRun(t.Context(), run.ID), ErrConflict)
-
-	start(t, s, tasks[0].ID)
-	require.NoError(t, s.CompleteTask(t.Context(), tasks[0].ID, "ok"))
-	require.NoError(t, s.FinishRun(t.Context(), run.ID))
+	w.succeed(tasks[0].ID, "ok")
+	require.NoError(t, w.s.FinishRun(t.Context(), w.run.ID))
 }
 
-// Operations name what is wrong: a missing Task, or one in the wrong status.
+// Operations name what is wrong: a missing record, or one in the wrong status.
 func TestOperationsReportNotFoundAndConflict(t *testing.T) {
 	t.Parallel()
 
-	s, _, _ := newTestService(t)
-	run := newRun(t, s)
+	w := newWorld(t)
+	tasks := w.tasks(
+		NewTask{Ref: "a", Role: "implement", Spec: "a"},
+		NewTask{Ref: "b", Role: "implement", Spec: "b", DependsOn: []string{"a"}},
+	)
 
-	tasks, err := s.CreateTasks(t.Context(), run.ID, []NewTask{{Ref: "a", Role: "implement", Spec: "a"}})
-	require.NoError(t, err)
-
-	require.ErrorIs(t, s.CompleteTask(t.Context(), tasks[0].ID, "ok"), ErrConflict)
-	require.ErrorIs(t, s.CompleteTask(t.Context(), "tsk_missing", "ok"), ErrNotFound)
-	_, err = s.GetRun(t.Context(), "run_missing")
+	_, err := w.s.CreateDispatch(t.Context(), tasks[1].ID, w.spec())
+	require.ErrorIs(t, err, ErrConflict)
+	_, err = w.s.CreateDispatch(t.Context(), "tsk_missing", w.spec())
 	require.ErrorIs(t, err, ErrNotFound)
-	_, err = s.CreateTasks(t.Context(), "run_missing", []NewTask{{Ref: "a", Role: "implement", Spec: "a"}})
+	_, err = w.s.GetRun(t.Context(), "run_missing")
 	require.ErrorIs(t, err, ErrNotFound)
-	_, err = s.CreateRun(t.Context(), " ", "owner")
+	_, err = w.s.CreateTasks(t.Context(), "run_missing", []NewTask{{Ref: "a", Role: "implement", Spec: "a"}})
+	require.ErrorIs(t, err, ErrNotFound)
+	_, err = w.s.CreateRun(t.Context(), " ", "owner")
 	require.ErrorIs(t, err, ErrInvalid)
+	require.ErrorIs(t, w.s.ReopenTask(t.Context(), tasks[0].ID), ErrConflict)
+	_, err = w.s.Heartbeat(t.Context(), NodeCall{NodeID: "node_a", DispatchID: "dsp_missing", RequestID: "r"})
+	require.ErrorIs(t, err, ErrNotFound)
 }
 
 // `serve` refuses a database that was not migrated; migrating twice is harmless.
@@ -305,4 +289,45 @@ func TestCheckSchemaNeedsMigrate(t *testing.T) {
 	require.NoError(t, Migrate(ctx, db))
 	require.NoError(t, Migrate(ctx, db))
 	require.NoError(t, CheckSchema(ctx, db))
+}
+
+// Migration 2 rebuilds the tasks table; Runs, Tasks and dependencies written
+// under migration 1 survive it, and foreign keys still hold.
+func TestMigrationKeepsDataFromTheFirstSchema(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	db, err := sqlite.Open(ctx, sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	p, err := provider(db)
+	require.NoError(t, err)
+	_, err = p.UpTo(ctx, 1)
+	require.NoError(t, err)
+
+	for _, stmt := range []string{
+		`INSERT INTO runs (id, objective, status, created_by, created_at, updated_at) VALUES ('r', 'o', 'open', 'owner', 1, 1)`,
+		`INSERT INTO tasks (id, run_id, position, role, spec, status, blocked_reason, created_at, updated_at)
+		 VALUES ('a', 'r', 1, 'implement', 'a', 'failed', NULL, 1, 1),
+		        ('b', 'r', 2, 'implement', 'b', 'blocked', 'dependency_failed', 1, 1)`,
+		`INSERT INTO task_deps (task_id, depends_on) VALUES ('b', 'a')`,
+	} {
+		_, err := db.ExecContext(ctx, stmt)
+		require.NoError(t, err)
+	}
+
+	require.NoError(t, Migrate(ctx, db))
+	require.NoError(t, CheckSchema(ctx, db))
+
+	s := New(db, &fakeClock{now: t0}, func(p string) string { return p + "_x" })
+	assert.Equal(t, map[string]string{"a": "failed:", "b": "blocked:dependency_failed"}, statuses(t, s, "r"))
+
+	var violations int
+	require.NoError(t, db.QueryRowContext(ctx, "SELECT count(*) FROM pragma_foreign_key_check").Scan(&violations))
+	assert.Zero(t, violations)
+
+	// The rebuilt table takes the new reason, and the dependency still links the two.
+	require.NoError(t, s.ReopenTask(ctx, "a"))
+	assert.Equal(t, map[string]string{"a": "ready:", "b": "pending:"}, statuses(t, s, "r"))
 }

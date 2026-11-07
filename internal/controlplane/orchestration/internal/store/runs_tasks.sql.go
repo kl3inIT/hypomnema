@@ -11,38 +11,6 @@ import (
 	"strings"
 )
 
-const cancelOpenTasksOfRun = `-- name: CancelOpenTasksOfRun :execrows
-UPDATE tasks
-SET status = 'canceled', blocked_reason = NULL, updated_at = ?1, finished_at = ?1
-WHERE run_id = ?2 AND status IN (/*SLICE:from_statuses*/?)
-`
-
-type CancelOpenTasksOfRunParams struct {
-	Now          int64
-	RunID        string
-	FromStatuses []string
-}
-
-func (q *Queries) CancelOpenTasksOfRun(ctx context.Context, arg CancelOpenTasksOfRunParams) (int64, error) {
-	query := cancelOpenTasksOfRun
-	var queryParams []interface{}
-	queryParams = append(queryParams, arg.Now)
-	queryParams = append(queryParams, arg.RunID)
-	if len(arg.FromStatuses) > 0 {
-		for _, v := range arg.FromStatuses {
-			queryParams = append(queryParams, v)
-		}
-		query = strings.Replace(query, "/*SLICE:from_statuses*/?", strings.Repeat(",?", len(arg.FromStatuses))[1:], 1)
-	} else {
-		query = strings.Replace(query, "/*SLICE:from_statuses*/?", "NULL", 1)
-	}
-	result, err := q.db.ExecContext(ctx, query, queryParams...)
-	if err != nil {
-		return 0, err
-	}
-	return result.RowsAffected()
-}
-
 const countUnfinishedTasks = `-- name: CountUnfinishedTasks :one
 SELECT count(*) FROM tasks WHERE run_id = ?1 AND status IN (/*SLICE:statuses*/?)
 `
@@ -90,7 +58,7 @@ func (q *Queries) GetRun(ctx context.Context, id string) (Run, error) {
 }
 
 const getTask = `-- name: GetTask :one
-SELECT id, run_id, position, role, spec, runtime, model, effort, status, blocked_reason, failure_count, result, created_at, updated_at, finished_at FROM tasks WHERE id = ?1
+SELECT id, run_id, position, role, spec, runtime, model, effort, status, blocked_reason, failure_count, result, created_at, updated_at, finished_at, not_before, cancel_requested_at FROM tasks WHERE id = ?1
 `
 
 func (q *Queries) GetTask(ctx context.Context, id string) (Task, error) {
@@ -112,6 +80,8 @@ func (q *Queries) GetTask(ctx context.Context, id string) (Task, error) {
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.FinishedAt,
+		&i.NotBefore,
+		&i.CancelRequestedAt,
 	)
 	return i, err
 }
@@ -189,6 +159,41 @@ func (q *Queries) InsertTaskDep(ctx context.Context, arg InsertTaskDepParams) er
 	return err
 }
 
+const listDependencyStates = `-- name: ListDependencyStates :many
+SELECT u.status, u.blocked_reason
+FROM task_deps d
+JOIN tasks u ON u.id = d.depends_on
+WHERE d.task_id = ?1
+`
+
+type ListDependencyStatesRow struct {
+	Status        string
+	BlockedReason sql.NullString
+}
+
+func (q *Queries) ListDependencyStates(ctx context.Context, taskID string) ([]ListDependencyStatesRow, error) {
+	rows, err := q.db.QueryContext(ctx, listDependencyStates, taskID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListDependencyStatesRow{}
+	for rows.Next() {
+		var i ListDependencyStatesRow
+		if err := rows.Scan(&i.Status, &i.BlockedReason); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listDependents = `-- name: ListDependents :many
 SELECT t.id, t.status
 FROM task_deps d
@@ -226,7 +231,7 @@ func (q *Queries) ListDependents(ctx context.Context, taskID string) ([]ListDepe
 }
 
 const listTasksByRun = `-- name: ListTasksByRun :many
-SELECT id, run_id, position, role, spec, runtime, model, effort, status, blocked_reason, failure_count, result, created_at, updated_at, finished_at FROM tasks WHERE run_id = ?1 ORDER BY position
+SELECT id, run_id, position, role, spec, runtime, model, effort, status, blocked_reason, failure_count, result, created_at, updated_at, finished_at, not_before, cancel_requested_at FROM tasks WHERE run_id = ?1 ORDER BY position
 `
 
 func (q *Queries) ListTasksByRun(ctx context.Context, runID string) ([]Task, error) {
@@ -254,6 +259,8 @@ func (q *Queries) ListTasksByRun(ctx context.Context, runID string) ([]Task, err
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.FinishedAt,
+			&i.NotBefore,
+			&i.CancelRequestedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -304,6 +311,49 @@ func (q *Queries) ListUnblockedDependents(ctx context.Context, taskID string) ([
 	return items, nil
 }
 
+const listUnfinishedTaskIDs = `-- name: ListUnfinishedTaskIDs :many
+SELECT id FROM tasks WHERE run_id = ?1 AND status IN (/*SLICE:statuses*/?) ORDER BY position
+`
+
+type ListUnfinishedTaskIDsParams struct {
+	RunID    string
+	Statuses []string
+}
+
+func (q *Queries) ListUnfinishedTaskIDs(ctx context.Context, arg ListUnfinishedTaskIDsParams) ([]string, error) {
+	query := listUnfinishedTaskIDs
+	var queryParams []interface{}
+	queryParams = append(queryParams, arg.RunID)
+	if len(arg.Statuses) > 0 {
+		for _, v := range arg.Statuses {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:statuses*/?", strings.Repeat(",?", len(arg.Statuses))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:statuses*/?", "NULL", 1)
+	}
+	rows, err := q.db.QueryContext(ctx, query, queryParams...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const nextTaskPosition = `-- name: NextTaskPosition :one
 SELECT CAST(coalesce(max(position), 0) + 1 AS INTEGER) AS next FROM tasks WHERE run_id = ?1
 `
@@ -313,6 +363,66 @@ func (q *Queries) NextTaskPosition(ctx context.Context, runID string) (int64, er
 	var next int64
 	err := row.Scan(&next)
 	return next, err
+}
+
+const recordTaskFailure = `-- name: RecordTaskFailure :one
+UPDATE tasks SET failure_count = failure_count + 1, updated_at = ?1 WHERE id = ?2
+RETURNING failure_count
+`
+
+type RecordTaskFailureParams struct {
+	Now int64
+	ID  string
+}
+
+func (q *Queries) RecordTaskFailure(ctx context.Context, arg RecordTaskFailureParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, recordTaskFailure, arg.Now, arg.ID)
+	var failure_count int64
+	err := row.Scan(&failure_count)
+	return failure_count, err
+}
+
+const requestTaskCancel = `-- name: RequestTaskCancel :exec
+UPDATE tasks SET cancel_requested_at = coalesce(cancel_requested_at, ?1), updated_at = ?1 WHERE id = ?2
+`
+
+type RequestTaskCancelParams struct {
+	Now int64
+	ID  string
+}
+
+func (q *Queries) RequestTaskCancel(ctx context.Context, arg RequestTaskCancelParams) error {
+	_, err := q.db.ExecContext(ctx, requestTaskCancel, arg.Now, arg.ID)
+	return err
+}
+
+const resetTaskFailures = `-- name: ResetTaskFailures :exec
+UPDATE tasks SET failure_count = 0, not_before = NULL, updated_at = ?1 WHERE id = ?2
+`
+
+type ResetTaskFailuresParams struct {
+	Now int64
+	ID  string
+}
+
+func (q *Queries) ResetTaskFailures(ctx context.Context, arg ResetTaskFailuresParams) error {
+	_, err := q.db.ExecContext(ctx, resetTaskFailures, arg.Now, arg.ID)
+	return err
+}
+
+const setTaskNotBefore = `-- name: SetTaskNotBefore :exec
+UPDATE tasks SET not_before = ?1, updated_at = ?2 WHERE id = ?3
+`
+
+type SetTaskNotBeforeParams struct {
+	NotBefore sql.NullInt64
+	Now       int64
+	ID        string
+}
+
+func (q *Queries) SetTaskNotBefore(ctx context.Context, arg SetTaskNotBeforeParams) error {
+	_, err := q.db.ExecContext(ctx, setTaskNotBefore, arg.NotBefore, arg.Now, arg.ID)
+	return err
 }
 
 const transitionRun = `-- name: TransitionRun :execrows
