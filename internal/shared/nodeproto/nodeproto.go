@@ -281,3 +281,46 @@ type Finished struct {
 type Reattach struct {
 	ProcessRef string `json:"process_ref"`
 }
+
+// Answer is the owner's or the coordinator's answer: an option, a text, or both.
+type Answer struct {
+	Option *int   `json:"option,omitempty"`
+	Text   string `json:"text,omitempty"`
+}
+
+// Question is the payload of an answer message: an answered question a
+// worker waits for. The node passes it on, then acknowledges it with an
+// answer_ack report.
+type Question struct {
+	ID          string   `json:"id"`
+	DispatchID  string   `json:"dispatch_id"`
+	Mode        string   `json:"mode"`
+	AddressedTo string   `json:"addressed_to"`
+	Text        string   `json:"text"`
+	Options     []Option `json:"options"`
+	Status      string   `json:"status"`
+	Answer      *Answer  `json:"answer,omitempty"`
+	AnsweredBy  string   `json:"answered_by,omitempty"`
+}
+
+// Accepted is the response to an accept or reattach report.
+type Accepted struct {
+	Epoch          int       `json:"epoch"`
+	LeaseExpiresAt time.Time `json:"lease_expires_at"`
+	Recovery       bool      `json:"recovery"`
+	CLISessionRef  string    `json:"cli_session_ref,omitempty"`
+	// Gate is the answered decision the Dispatch resumes from.
+	Gate *Question `json:"gate,omitempty"`
+}
+
+// Beat is the response to a heartbeat report.
+type Beat struct {
+	LeaseExpiresAt time.Time  `json:"lease_expires_at"`
+	StopRequested  bool       `json:"stop_requested"`
+	Answers        []Question `json:"answers"`
+}
+
+// Asked is the response to a question report.
+type Asked struct {
+	QuestionID string `json:"question_id"`
+}

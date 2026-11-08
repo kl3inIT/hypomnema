@@ -1,0 +1,201 @@
+// Package node assembles the node: its configuration file, the CLIs it
+// finds, and its commands. The configuration lives in the node's home
+// (default ~/.hypomnema-node) as config.json, mode 0600 in a 0700
+// directory, as Omnara's daemon.json (internal/omnarad/daemon_config.go at
+// 0ef1711); it holds the node's token and nothing else secret.
+package node
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"log/slog"
+	"net/url"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/kl3inIT/hypomnema/internal/node/daemon"
+	"github.com/kl3inIT/hypomnema/internal/node/statedb"
+	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
+	"github.com/kl3inIT/hypomnema/internal/shared/platform"
+)
+
+// Runtimes the node looks for on its PATH, by CLI name (Orca local-agent-cli-presence.ts).
+var knownRuntimes = []string{"claude", "codex"}
+
+const versionTimeout = 10 * time.Second
+
+// Config is the node's configuration file.
+type Config struct {
+	// URL is the control plane's base URL.
+	URL string `json:"url"`
+	// Token is the node's token, from `hypomnema nodes add`.
+	Token string `json:"token"`
+	// WorktreeRoot is where the node makes its worktrees.
+	WorktreeRoot string `json:"worktree_root"`
+}
+
+// DefaultHome is ~/.hypomnema-node.
+func DefaultHome() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("finding the home directory: %w", err)
+	}
+
+	return filepath.Join(home, ".hypomnema-node"), nil
+}
+
+func configPath(home string) string { return filepath.Join(home, "config.json") }
+
+// StatePath is the node's state database in its home.
+func StatePath(home string) string { return filepath.Join(home, "state.db") }
+
+// Init writes the configuration. The token is read from tokenFile, so it
+// never appears on a command line or in shell history.
+func Init(home, rawURL, tokenFile, worktreeRoot string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
+		return fmt.Errorf("the control plane URL %q must be http(s)://host", rawURL)
+	}
+
+	raw, err := os.ReadFile(tokenFile) //nolint:gosec // the owner names the file holding the token
+	if err != nil {
+		return fmt.Errorf("reading the token file: %w", err)
+	}
+
+	token := strings.TrimSpace(string(raw))
+	if !strings.HasPrefix(token, "hyn_") {
+		return errors.New("the token file does not hold a node token (hyn_…)")
+	}
+
+	if worktreeRoot == "" {
+		worktreeRoot = filepath.Join(home, "worktrees")
+	}
+
+	if !filepath.IsAbs(worktreeRoot) {
+		return fmt.Errorf("the worktree root %q must be absolute", worktreeRoot)
+	}
+
+	if err := os.MkdirAll(home, 0o700); err != nil {
+		return fmt.Errorf("making %s: %w", home, err)
+	}
+
+	if err := os.Chmod(home, 0o700); err != nil { //nolint:gosec // a directory needs its execute bit; 0700 is owner-only
+		return fmt.Errorf("restricting %s: %w", home, err)
+	}
+
+	body, err := json.MarshalIndent(Config{URL: strings.TrimSuffix(rawURL, "/"), Token: token,
+		WorktreeRoot: worktreeRoot}, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encoding the configuration: %w", err)
+	}
+
+	// Written whole and renamed into place, so a crash never leaves half a file.
+	tmp := configPath(home) + ".tmp"
+	if err := os.WriteFile(tmp, append(body, '\n'), 0o600); err != nil {
+		return fmt.Errorf("writing the configuration: %w", err)
+	}
+
+	if err := os.Rename(tmp, configPath(home)); err != nil {
+		return fmt.Errorf("saving the configuration: %w", err)
+	}
+
+	return nil
+}
+
+// LoadConfig reads the configuration from home.
+func LoadConfig(home string) (Config, error) {
+	raw, err := os.ReadFile(configPath(home))
+	if err != nil {
+		return Config{}, fmt.Errorf("reading the configuration (run `hypomnema-node init` first): %w", err)
+	}
+
+	var cfg Config
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		return Config{}, fmt.Errorf("decoding %s: %w", configPath(home), err)
+	}
+
+	if cfg.URL == "" || cfg.Token == "" || cfg.WorktreeRoot == "" {
+		return Config{}, fmt.Errorf("%s needs url, token and worktree_root", configPath(home))
+	}
+
+	return cfg, nil
+}
+
+// DetectRuntimes finds the known CLIs on PATH and reads their versions.
+func DetectRuntimes(ctx context.Context) []nodeproto.RuntimeInfo {
+	out := []nodeproto.RuntimeInfo{}
+
+	for _, name := range knownRuntimes {
+		path, err := exec.LookPath(name)
+		if err != nil {
+			continue
+		}
+
+		out = append(out, nodeproto.RuntimeInfo{Runtime: name, Path: path, Version: cliVersion(ctx, path)})
+	}
+
+	return out
+}
+
+func cliVersion(ctx context.Context, path string) string {
+	ctx, cancel := context.WithTimeout(ctx, versionTimeout)
+	defer cancel()
+
+	var stdout bytes.Buffer
+
+	cmd := exec.CommandContext(ctx, path, "--version")
+	cmd.Stdout = &stdout
+
+	if err := cmd.Run(); err != nil {
+		return ""
+	}
+
+	line, _, _ := strings.Cut(strings.TrimSpace(stdout.String()), "\n")
+
+	return strings.TrimSpace(line)
+}
+
+// Check says hello once with the configuration and prints what the control
+// plane answered, to confirm an install.
+func Check(ctx context.Context, home string, stdout io.Writer) error {
+	cfg, err := LoadConfig(home)
+	if err != nil {
+		return err
+	}
+
+	db, err := statedb.Open(ctx, StatePath(home), time.Now)
+	if err != nil {
+		return err
+	}
+	defer db.Close() //nolint:errcheck // Closing at exit; nothing is left to report it to.
+
+	runtimes := DetectRuntimes(ctx)
+
+	d := daemon.New(daemon.Config{
+		URL: cfg.URL, Token: cfg.Token, WorktreeRoot: cfg.WorktreeRoot, Version: platform.Version, Runtimes: runtimes,
+	}, db, nil, slog.New(slog.DiscardHandler))
+
+	nodeID, err := d.Hello(ctx)
+	if err != nil {
+		return err
+	}
+
+	_, _ = fmt.Fprintf(stdout, "connected to %s as %s\n", cfg.URL, nodeID)
+
+	for _, r := range runtimes {
+		_, _ = fmt.Fprintf(stdout, "  %s %s (%s)\n", r.Runtime, r.Version, r.Path)
+	}
+
+	if len(runtimes) == 0 {
+		_, _ = fmt.Fprintln(stdout, "  no CLI found on PATH: install claude or codex")
+	}
+
+	return nil
+}
