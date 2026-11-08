@@ -9,7 +9,7 @@ statement true or false.
 | Binary | Commands | What it does today |
 |---|---|---|
 | `cmd/hypomnema` (control plane) | `migrate`, `serve`, `version`, `nodes add\|list`, `accounts add\|list`, `run`, `answer`, `questions` | `migrate` brings the database schema up to the binary's version; `serve` refuses any other schema, then serves `/livez`, `/readyz` and the node API and runs the scheduler loop; the other commands are the owner's (below) |
-| `cmd/hypomnema-node` (node) | `init`, `check`, `accounts set`, `run`, `service`, `shim`, `version` | `init --url --token-file` writes the node's configuration; `check` says hello once and lists the CLIs it found; `accounts set` records where an account's Claude token is; `run` runs the daemon with the Claude runner; `service` prints a systemd user unit; `shim` runs one worker (started by the daemon) |
+| `cmd/hypomnema-node` (node) | `init`, `check`, `accounts set`, `run`, `service`, `shim`, `mcp`, `version` | `init --url --token-file` writes the node's configuration; `check` says hello once and lists the CLIs it found; `accounts set` records where an account's Claude token is; `run` runs the daemon with the Claude runner; `service` prints a systemd user unit; `shim` runs one worker and `mcp` serves its tools (both started for a worker, not by hand) |
 
 Configuration comes from the environment: `HYPOMNEMA_HTTP_ADDR` (default `127.0.0.1:8080`),
 `HYPOMNEMA_DATABASE_PATH` (required, absolute), `HYPOMNEMA_LOG_LEVEL`, `HYPOMNEMA_LOG_FORMAT` (`json` or `text`),
@@ -114,17 +114,35 @@ Node (`internal/node`):
     socket to the worker's stdin, and writes `exit.json` when the worker exits. The runner reads the journal from a
     saved offset, so a new daemon adopts a running worker. A stop sends an interrupt and closes stdin; a worker still
     alive after 30 s is killed with its whole session group.
-  - Reported: the session id from `system/init` as started, progress at most every 30 s, and one turn per Dispatch.
-    After the turn's `result` stdin is closed; on exit the result gives the outcome (success, `rate_limited` after a
-    rejected rate-limit event, `needs_auth` on a login error, else `worker_error`). An exit with no result is reported
-    as exited, which makes the outcome unknown; a worker that never started is `start_failed`.
-  - Every permission prompt is allowed for now.
-  - The first turn has the Task's spec, the repository and branch, the instruction to open a pull request with
-    `gh`, the recovery note and a resolved Gate.
+  - Reported:
+    - the session id from `system/init`, as started;
+    - progress at most every 30 s;
+    - one turn per Dispatch: stdin is closed after the turn's `result`.
+  - The worker's tools (`internal/node/workertools`, `hypomnema-node mcp`) come in through `--mcp-config` with
+    `--strict-mcp-config`; AskUserQuestion is disallowed. They reach the runner only through a bridge directory beside
+    the journal (`internal/node/bridge`), so a question survives a daemon restart.
+    - `ask`: the runner submits the question, records the control plane's id, writes the answer for the waiting
+      call, and acknowledges it. While it waits, the call sends `notifications/progress` every minute; tool calls may
+      last 24 h (`MCP_TOOL_TIMEOUT`). A canceled call withdraws the question.
+    - `finish`: the final report, with summary, evidence and an optional Gate. It is the outcome once the worker
+      exits.
+  - Without `finish`, the outcome is one of:
+    - `rate_limited`, after a rejected rate-limit event;
+    - `needs_auth`, on a login error;
+    - `worker_error`, "stopped without finish", as Orca reports a stop without `worker_done`;
+    - exited with no result: the outcome is unknown;
+    - a worker that never started is `start_failed`.
+  - Every permission prompt is allowed and logged (`node.tool_allowed`). The node's machine or user is the boundary
+    ([research](docs/research/2026-11-08-worker-permissions.md)).
+  - The first turn, after Orca's preamble, has:
+    - the Task's spec, the repository and branch, and the instruction to open a pull request with `gh`;
+    - `ask` instead of guessing, `finish` exactly once (with a Gate for decisions the owner must make), and no
+      subagents;
+    - the recovery note and a resolved Gate.
 - Worktrees (`internal/node/worktree`): a bare mirror per repository under the node's home, fetched into
   `origin/*` before each new worktree. `git worktree add -b hyp/<task>` from `origin/<base>`, or from the existing
   branch on a retry; reused while it exists. Git uses the node user's own credentials.
-- There is no ask or finish tool for workers, no vault and no mailbox yet.
+- There is no vault, permission rule or mailbox yet.
 
 ## Code
 
@@ -133,10 +151,12 @@ internal/controlplane     package controlplane: configuration, migrate, serve an
 internal/controlplane/nodeapi  the node API: hello and the node WebSocket
 internal/e2e               tests only: the control plane's node API with the node daemon
 internal/node             package node: configuration, CLI detection, init, check, run and the systemd unit
+internal/node/bridge      the mailbox between a worker's tools and the runner: questions, answers, the final report
 internal/node/claude      the Claude Code runner: worker environment, stream-JSON, journal reading, outcome
 internal/node/daemon      the node's connection: hello, socket, offers, outbox, Runner interface
 internal/node/shim        one worker kept across daemon restarts: journal, input socket, exit file
 internal/node/statedb     the node's SQLite state: Dispatches held and the report outbox
+internal/node/workertools the worker's MCP server: ask and finish
 internal/node/worktree    bare mirrors and git worktrees per Task
 internal/controlplane/orchestration  Runs, Tasks, Dispatches, Conversations, questions, events, nodes, accounts, the scheduler; migrations; queries generated by sqlc (internal/store)
 internal/shared/nodeproto the wire protocol between a node and the control plane

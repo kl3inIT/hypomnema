@@ -7,10 +7,14 @@
 //	claude -p --input-format stream-json --output-format stream-json --verbose
 //	  --permission-mode manual --permission-prompt-tool stdio [--resume <session>] [--model <m>]
 //
-// It reads the shim's journal from a saved offset, reports the session id
-// from system/init, progress, and the outcome from the last result and the
-// exit. Permission prompts are allowed for now; policy comes with the
-// worker's tools.
+// It reads the shim's journal from a saved offset and reports the session id
+// from system/init and progress. The worker talks back through two MCP tools
+// (internal/node/workertools) over the bridge directory: ask, whose
+// questions and answers the runner relays, and finish, whose report is the
+// outcome. A worker that exits without finish fails, as Orca reports a stop
+// without worker_done. Every permission prompt is allowed and logged: the
+// node's machine or user is the boundary, as Orca, OpenHands and Coder run
+// their workers by default.
 package claude
 
 import (
@@ -28,6 +32,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kl3inIT/hypomnema/internal/node/bridge"
 	"github.com/kl3inIT/hypomnema/internal/node/daemon"
 	"github.com/kl3inIT/hypomnema/internal/node/shim"
 	"github.com/kl3inIT/hypomnema/internal/node/statedb"
@@ -46,6 +51,10 @@ const (
 	// socketWait bounds the wait for a new shim's input socket.
 	socketWait = 10 * time.Second
 	offsetFile = "offset"
+	mcpFile    = "mcp.json"
+	// toolTimeout is the hard limit on one tool call, so an ask can wait a day
+	// (spike 2: the default is about 27.8 h; set explicitly).
+	toolTimeout = 24 * time.Hour
 )
 
 // Account is how the node runs Claude under one account until the vault
@@ -162,8 +171,10 @@ func (rn *Runner) Start(ctx context.Context, d statedb.Dispatch, r daemon.Report
 		session = d.Accepted.CLISessionRef
 	}
 
+	dir := rn.dir(d.ID)
 	argv := []string{rn.Claude, "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
-		"--permission-mode", "manual", "--permission-prompt-tool", "stdio"}
+		"--permission-mode", "manual", "--permission-prompt-tool", "stdio",
+		"--mcp-config", filepath.Join(dir, mcpFile), "--strict-mcp-config", "--disallowedTools", "AskUserQuestion"}
 	if session != "" {
 		argv = append(argv, "--resume", session)
 	}
@@ -172,13 +183,16 @@ func (rn *Runner) Start(ctx context.Context, d statedb.Dispatch, r daemon.Report
 		argv = append(argv, "--model", o.Model)
 	}
 
-	dir := rn.dir(d.ID)
 	if err := os.RemoveAll(dir); err != nil {
 		return fmt.Errorf("clearing %s: %w", dir, err)
 	}
 
 	spec := shim.Spec{Argv: argv, Env: rn.env(configDir, string(token)), Dir: o.Worktree}
 	if err := shim.WriteSpec(dir, spec); err != nil {
+		return err
+	}
+
+	if err := rn.writeMCPConfig(dir); err != nil {
 		return err
 	}
 
@@ -215,7 +229,7 @@ func (rn *Runner) Start(ctx context.Context, d statedb.Dispatch, r daemon.Report
 // CLAUDE_CONFIG_DIR per account).
 func (rn *Runner) env(configDir, token string) []string {
 	out := []string{"CLAUDE_CONFIG_DIR=" + configDir, "CLAUDE_CODE_OAUTH_TOKEN=" + strings.TrimSpace(token),
-		"LANG=C.UTF-8"}
+		"LANG=C.UTF-8", "MCP_TOOL_TIMEOUT=" + strconv.FormatInt(toolTimeout.Milliseconds(), 10)}
 
 	for _, name := range []string{"PATH", "HOME", "USER", "LOGNAME", "TMPDIR", "SystemRoot", "TEMP", "TMP"} {
 		if v, ok := os.LookupEnv(name); ok {
@@ -325,11 +339,108 @@ func (rn *Runner) Release(id string) {
 	_ = os.RemoveAll(dir)
 }
 
-// Answer is for the worker's ask tool, which comes with issue #32's last PR.
-func (rn *Runner) Answer(string, nodeproto.Question) {}
+// writeMCPConfig names the worker's tools server: this binary's `mcp`
+// command over the bridge directory.
+func (rn *Runner) writeMCPConfig(dir string) error {
+	raw, err := json.Marshal(map[string]any{"mcpServers": map[string]any{
+		"hypomnema": map[string]any{
+			"type": "stdio", "command": rn.Exe, "args": []string{"mcp", "--dir", bridge.Dir(dir)},
+			"timeout": toolTimeout.Milliseconds(),
+		},
+	}})
+	if err != nil {
+		return err
+	}
 
-// Asked is for the worker's ask tool, which comes with issue #32's last PR.
-func (rn *Runner) Asked(string, string, string) {}
+	return os.WriteFile(filepath.Join(dir, mcpFile), raw, 0o600)
+}
+
+// Asked records the control plane's id for a question the worker asked.
+func (rn *Runner) Asked(id, reportID, questionID string) {
+	dir := bridge.Dir(rn.dir(id))
+
+	qs, err := bridge.Questions(dir)
+	if err != nil {
+		return
+	}
+
+	for _, q := range qs {
+		if r, _ := bridge.Marked(dir, q.Seq, "report"); r == reportID {
+			_ = bridge.Mark(dir, q.Seq, "question", questionID)
+		}
+	}
+}
+
+// Answer passes an answer to the waiting ask and acknowledges it. An answer
+// for a question not yet known here is ignored; it comes again until
+// acknowledged.
+func (rn *Runner) Answer(id string, q nodeproto.Question) {
+	j := rn.get(id)
+	if j == nil || q.Answer == nil {
+		return
+	}
+
+	dir := bridge.Dir(j.dir)
+
+	qs, err := bridge.Questions(dir)
+	if err != nil {
+		return
+	}
+
+	ctx := context.Background()
+
+	for _, mine := range qs {
+		if qid, _ := bridge.Marked(dir, mine.Seq, "question"); qid != q.ID {
+			continue
+		}
+
+		if _, done, _ := bridge.Answered(dir, mine.Seq); !done {
+			if err := bridge.Answer(dir, mine.Seq, answerText(q)); err != nil {
+				return
+			}
+		}
+
+		rn.report(ctx, j, j.r.AnswerReceived(ctx, q.ID))
+
+		return
+	}
+}
+
+func answerText(q nodeproto.Question) string {
+	a := q.Answer
+	label := ""
+
+	if a.Option != nil && *a.Option >= 0 && *a.Option < len(q.Options) {
+		label = q.Options[*a.Option].Label
+	}
+
+	return strings.TrimSpace(label + " " + a.Text)
+}
+
+// relay submits the questions the worker asked that the daemon has not.
+func (rn *Runner) relay(ctx context.Context, j *job) {
+	dir := bridge.Dir(j.dir)
+
+	qs, err := bridge.Questions(dir)
+	if err != nil {
+		return
+	}
+
+	for _, q := range qs {
+		if _, sent := bridge.Marked(dir, q.Seq, "report"); sent {
+			continue
+		}
+
+		reportID, err := j.r.Ask(ctx, q.Ask)
+		if err != nil {
+			rn.report(ctx, j, err)
+
+			continue
+		}
+
+		_ = bridge.Mark(dir, q.Seq, "report", reportID)
+	}
+}
 
 // event is the part of a stream-JSON line the runner reads.
 type event struct {
@@ -357,6 +468,8 @@ func (rn *Runner) tail(ctx context.Context, j *job) {
 	offset := readOffset(j.dir)
 
 	for {
+		rn.relay(ctx, j)
+
 		n, err := rn.readFrom(ctx, j, offset)
 		offset += n
 
@@ -487,13 +600,17 @@ func (rn *Runner) handle(ctx context.Context, j *job, line []byte) {
 // permission answers a permission prompt: allowed, for now.
 func (rn *Runner) permission(ctx context.Context, j *job, e event) {
 	var req struct {
-		Subtype string          `json:"subtype"`
-		Input   json.RawMessage `json:"input"`
+		Subtype  string          `json:"subtype"`
+		ToolName string          `json:"tool_name"`
+		Input    json.RawMessage `json:"input"`
 	}
 
 	if json.Unmarshal(e.Request, &req) != nil || req.Subtype != "can_use_tool" {
 		return
 	}
+
+	rn.Logger.InfoContext(ctx, "tool allowed",
+		slog.String("event", "node.tool_allowed"), slog.String("dispatch_id", j.id), slog.String("tool", req.ToolName))
 
 	input := req.Input
 	if len(input) == 0 {
@@ -530,10 +647,29 @@ func (rn *Runner) ended(ctx context.Context, j *job, exit shim.Exit) {
 	switch {
 	case stopping:
 		rn.report(ctx, j, j.r.Stopped(ctx))
+
+		return
 	case !started && result == nil:
 		rn.report(ctx, j, j.r.Finished(ctx, nodeproto.Finished{
 			Class: "start_failed", Summary: firstLine(exit.Error, rn.stderr(j)), Exit: ex,
 		}))
+
+		return
+	}
+
+	final, finished, err := bridge.Finished(bridge.Dir(j.dir))
+	if err != nil {
+		rn.report(ctx, j, err)
+	}
+
+	switch {
+	case finished:
+		f := nodeproto.Finished{Summary: final.Summary, Evidence: final.Evidence, Gate: final.Gate, Exit: ex}
+		if result != nil {
+			f.Usage = usage(result)
+		}
+
+		rn.report(ctx, j, j.r.Finished(ctx, f))
 	case result == nil:
 		rn.report(ctx, j, j.r.Exited(ctx))
 	default:
@@ -541,20 +677,20 @@ func (rn *Runner) ended(ctx context.Context, j *job, exit shim.Exit) {
 	}
 }
 
+func usage(res *event) *nodeproto.Usage {
+	if res.Usage == nil {
+		return nil
+	}
+
+	return &nodeproto.Usage{
+		Input: res.Usage.Input, Output: res.Usage.Output, CacheRead: res.Usage.CacheRead, CacheWrite: res.Usage.CacheWrite,
+	}
+}
+
+// outcome is a worker that exited without calling finish: a rate limit, a
+// login, or else a failure (Orca: "Worker stopped without reporting").
 func outcome(res *event, limited *time.Time, ex nodeproto.Exit) nodeproto.Finished {
-	f := nodeproto.Finished{Summary: res.Result, Exit: ex}
-
-	if res.Usage != nil {
-		f.Usage = &nodeproto.Usage{
-			Input: res.Usage.Input, Output: res.Usage.Output, CacheRead: res.Usage.CacheRead,
-			CacheWrite: res.Usage.CacheWrite,
-		}
-	}
-
-	if res.Subtype == "success" && !res.IsError {
-		return f
-	}
-
+	f := nodeproto.Finished{Summary: res.Result, Exit: ex, Usage: usage(res)}
 	lower := strings.ToLower(res.Result)
 
 	switch {
@@ -565,6 +701,7 @@ func outcome(res *event, limited *time.Time, ex nodeproto.Exit) nodeproto.Finish
 		f.Class = "needs_auth"
 	default:
 		f.Class = "worker_error"
+		f.Summary = strings.TrimSpace("stopped without finish: " + res.Result)
 	}
 
 	if f.Summary == "" {

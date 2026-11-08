@@ -13,6 +13,8 @@
 //	                        print a systemd user unit for the daemon
 //	hypomnema-node shim --dir DIR
 //	                        run one worker (started by the daemon)
+//	hypomnema-node mcp --dir DIR
+//	                        the worker's ask and finish tools over stdio (started by the worker's CLI)
 //	hypomnema-node version  print the version
 package main
 
@@ -28,6 +30,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/node"
 	"github.com/kl3inIT/hypomnema/internal/node/shim"
+	"github.com/kl3inIT/hypomnema/internal/node/workertools"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 )
 
@@ -132,12 +135,16 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		_, err = fmt.Fprintf(stdout, "account %s uses %s\n", args[2], *tokenFile)
 
 		return err
-	case "shim":
-		fs := flag.NewFlagSet("shim", flag.ContinueOnError)
-		dir := fs.String("dir", "", "the worker's directory")
+	case "shim", "mcp":
+		fs := flag.NewFlagSet(args[0], flag.ContinueOnError)
+		dir := fs.String("dir", "", "the worker's directory (shim) or bridge directory (mcp)")
 
 		if err := fs.Parse(args[1:]); err != nil || *dir == "" {
 			return errUsage
+		}
+
+		if args[0] == "mcp" {
+			return workertools.Serve(ctx, os.Stdin, stdout, *dir)
 		}
 
 		return shim.Main(ctx, *dir)

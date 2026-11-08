@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kl3inIT/hypomnema/internal/node/bridge"
 	"github.com/kl3inIT/hypomnema/internal/node/shim"
 	"github.com/kl3inIT/hypomnema/internal/node/statedb"
 	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
@@ -101,6 +102,36 @@ func fakeClaude(mode string) int {
 				continue
 			}
 
+			dir := bridgeDir()
+
+			if mode == "ask" {
+				seq, err := bridge.Ask(dir, nodeproto.Ask{
+					Text: "goth or hand-written?", Options: []nodeproto.Option{{Label: "goth"}, {Label: "hand-written"}},
+					To: "owner",
+				})
+				if err != nil {
+					return 5
+				}
+
+				for {
+					answer, ok, _ := bridge.Answered(dir, seq)
+					if ok {
+						_ = os.WriteFile("answer.txt", []byte(answer), 0o600)
+
+						break
+					}
+
+					time.Sleep(20 * time.Millisecond)
+				}
+			}
+
+			if mode != "nofinish" {
+				_ = bridge.Finish(dir, bridge.Final{
+					Summary:  "added the button",
+					Evidence: []nodeproto.Evidence{{Kind: "pull_request", Ref: "kl3inIT/second-bite#7"}},
+				})
+			}
+
 			emit(out, map[string]any{"type": "result", "subtype": "success", "is_error": false,
 				"result": "did it; https://github.com/kl3inIT/second-bite/pull/7",
 				"usage":  map[string]any{"input_tokens": 1200, "output_tokens": 300, "cache_read_input_tokens": 9000}})
@@ -110,11 +141,44 @@ func fakeClaude(mode string) int {
 	return exit
 }
 
+// bridgeDir is the bridge directory named in the worker's --mcp-config, as
+// the real tools server gets it.
+func bridgeDir() string {
+	for i, a := range os.Args {
+		if a != "--mcp-config" || i+1 >= len(os.Args) {
+			continue
+		}
+
+		raw, err := os.ReadFile(os.Args[i+1]) //nolint:gosec // the config the runner names
+		if err != nil {
+			return ""
+		}
+
+		var cfg struct {
+			MCPServers map[string]struct {
+				Args []string `json:"args"`
+			} `json:"mcpServers"`
+		}
+
+		if json.Unmarshal(raw, &cfg) != nil {
+			return ""
+		}
+
+		if args := cfg.MCPServers["hypomnema"].Args; len(args) == 3 {
+			return args[2]
+		}
+	}
+
+	return ""
+}
+
 // reporter records what the runner reports.
 type reporter struct {
 	mu       sync.Mutex
 	id       string
 	started  []string
+	asks     []nodeproto.Ask
+	received []string
 	finished []nodeproto.Finished
 	exited   int
 	stopped  int
@@ -139,9 +203,30 @@ func (r *reporter) Started(_ context.Context, processRef, session string) error 
 
 func (r *reporter) Progress(context.Context) error { return nil }
 
-func (r *reporter) Ask(context.Context, nodeproto.Ask) (string, error) { return "rep_q", nil }
+func (r *reporter) Ask(_ context.Context, a nodeproto.Ask) (string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
-func (r *reporter) AnswerReceived(context.Context, string) error { return nil }
+	r.asks = append(r.asks, a)
+
+	return "rep_q", nil
+}
+
+func (r *reporter) AnswerReceived(_ context.Context, questionID string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.received = append(r.received, questionID)
+
+	return nil
+}
+
+func (r *reporter) asked() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return len(r.asks)
+}
 
 func (r *reporter) Finished(_ context.Context, f nodeproto.Finished) error {
 	r.mu.Lock()
@@ -239,7 +324,8 @@ func TestWorkerRunsToSuccess(t *testing.T) {
 	require.Len(t, r.finished, 1)
 	f := r.finished[0]
 	assert.Empty(t, f.Class)
-	assert.Contains(t, f.Summary, "pull/7")
+	assert.Equal(t, "added the button", f.Summary, "the outcome is the finish tool's report")
+	assert.Equal(t, []nodeproto.Evidence{{Kind: "pull_request", Ref: "kl3inIT/second-bite#7"}}, f.Evidence)
 	require.NotNil(t, f.Usage)
 	assert.Equal(t, int64(9000), f.Usage.CacheRead)
 	require.NotNil(t, f.Exit.Code)
@@ -268,7 +354,51 @@ func TestFailedTurnIsAWorkerError(t *testing.T) {
 
 	require.Len(t, r.finished, 1)
 	assert.Equal(t, "worker_error", r.finished[0].Class)
-	assert.Equal(t, "boom", r.finished[0].Summary)
+	assert.Equal(t, "stopped without finish: boom", r.finished[0].Summary)
+}
+
+// Scenario: the turn ends well but the worker never called finish. It fails
+// (Orca: "Worker stopped without reporting").
+func TestTurnWithoutFinishFails(t *testing.T) {
+	t.Parallel()
+
+	g := newRig(t, "nofinish")
+	r := newReporter("dsp_1")
+	require.NoError(t, g.runner.Start(t.Context(), g.dispatch("dsp_1"), r))
+	r.wait(t)
+
+	require.Len(t, r.finished, 1)
+	assert.Equal(t, "worker_error", r.finished[0].Class)
+	assert.True(t, strings.HasPrefix(r.finished[0].Summary, "stopped without finish"))
+}
+
+// Scenario: the worker asks the owner through its tool. The question is
+// reported, the control plane's id is recorded, the answer reaches the
+// waiting tool with the option's label, and it is acknowledged.
+func TestAskIsRelayedAndAnswered(t *testing.T) {
+	t.Parallel()
+
+	g := newRig(t, "ask")
+	r := newReporter("dsp_1")
+	require.NoError(t, g.runner.Start(t.Context(), g.dispatch("dsp_1"), r))
+
+	require.Eventually(t, func() bool { return r.asked() == 1 }, 20*time.Second, 20*time.Millisecond)
+	assert.Equal(t, "goth or hand-written?", r.asks[0].Text)
+
+	g.runner.Asked("dsp_1", "rep_q", "q_1")
+
+	second := 1
+	g.runner.Answer("dsp_1", nodeproto.Question{
+		ID: "q_1", Options: []nodeproto.Option{{Label: "goth"}, {Label: "hand-written"}},
+		Answer: &nodeproto.Answer{Option: &second, Text: "keep it small"},
+	})
+	r.wait(t)
+
+	assert.Equal(t, "hand-written keep it small", g.file("answer.txt"))
+	assert.Equal(t, []string{"q_1"}, r.received)
+	require.Len(t, r.finished, 1)
+	assert.Empty(t, r.finished[0].Class)
+	assert.Equal(t, 1, r.asked(), "a question is asked once")
 }
 
 // Scenario: the process dies after it started, with no result. The outcome
