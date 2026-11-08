@@ -64,16 +64,27 @@ func (s *Service) read() *store.Queries {
 }
 
 // CreateRun records a new objective from the owner.
-func (s *Service) CreateRun(ctx context.Context, objective, createdBy string) (Run, error) {
+func (s *Service) CreateRun(ctx context.Context, nr NewRun) (Run, error) {
+	objective, createdBy := nr.Objective, nr.CreatedBy
 	if strings.TrimSpace(objective) == "" || createdBy == "" {
 		return Run{}, fmt.Errorf("%w: a run needs an objective and its creator", ErrInvalid)
+	}
+
+	if nr.Repo != "" && !validRepo(nr.Repo) {
+		return Run{}, fmt.Errorf("%w: repository %q is not owner/name", ErrInvalid, nr.Repo)
+	}
+
+	base := ""
+	if nr.Repo != "" {
+		base = or(nr.Base, DefaultBase)
 	}
 
 	id := s.newID("run")
 
 	err := s.write(ctx, func(q *store.Queries, now int64) error {
 		if err := q.InsertRun(ctx, store.InsertRunParams{
-			ID: id, Objective: objective, CreatedBy: createdBy, Now: now,
+			ID: id, Objective: objective, CreatedBy: createdBy, Repo: nullString(nr.Repo), Base: nullString(base),
+			Now: now,
 		}); err != nil {
 			return fmt.Errorf("inserting run: %w", err)
 		}
@@ -654,6 +665,7 @@ func optionalTime(v sql.NullInt64) *time.Time {
 func runFromRow(r store.Run) Run {
 	return Run{
 		ID: r.ID, Objective: r.Objective, Status: RunStatus(r.Status), CreatedBy: r.CreatedBy,
+		Repo: r.Repo.String, Base: r.Base.String,
 		CreatedAt: millis(r.CreatedAt), UpdatedAt: millis(r.UpdatedAt), FinishedAt: optionalTime(r.FinishedAt),
 	}
 }
@@ -667,4 +679,22 @@ func taskFromRow(t store.Task) Task {
 		CreatedAt: millis(t.CreatedAt), UpdatedAt: millis(t.UpdatedAt), FinishedAt: optionalTime(t.FinishedAt),
 		NotBefore: optionalTime(t.NotBefore), CancelRequestedAt: optionalTime(t.CancelRequestedAt),
 	}
+}
+
+// validRepo reports whether s is owner/name with GitHub's characters.
+func validRepo(s string) bool {
+	owner, name, ok := strings.Cut(s, "/")
+	if !ok || owner == "" || name == "" || strings.Contains(name, "/") {
+		return false
+	}
+
+	for _, r := range owner + name {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_', r == '.':
+		default:
+			return false
+		}
+	}
+
+	return name != "." && name != ".."
 }

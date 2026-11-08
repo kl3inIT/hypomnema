@@ -1,6 +1,6 @@
 -- name: InsertRun :exec
-INSERT INTO runs (id, objective, status, created_by, created_at, updated_at)
-VALUES (@id, @objective, 'open', @created_by, @now, @now);
+INSERT INTO runs (id, objective, status, created_by, repo, base, created_at, updated_at)
+VALUES (@id, @objective, 'open', @created_by, @repo, @base, @now, @now);
 
 -- name: GetRun :one
 SELECT * FROM runs WHERE id = @id;

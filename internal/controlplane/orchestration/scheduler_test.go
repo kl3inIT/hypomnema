@@ -116,7 +116,7 @@ func TestSchedulerTakesTheOldestRunFirst(t *testing.T) {
 	w.advance(time.Second)
 	w.alive(w.node)
 
-	later, err := w.s.CreateRun(t.Context(), "a later objective", "owner")
+	later, err := w.s.CreateRun(t.Context(), NewRun{Objective: "a later objective", CreatedBy: "owner"})
 	require.NoError(t, err)
 	_, err = w.s.CreateTasks(t.Context(), later.ID, []NewTask{
 		{Ref: "p", Role: "implement", Spec: "p"},

@@ -153,6 +153,8 @@ type Run struct {
 	CreatedAt  int64
 	UpdatedAt  int64
 	FinishedAt sql.NullInt64
+	Repo       sql.NullString
+	Base       sql.NullString
 }
 
 type Task struct {
