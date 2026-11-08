@@ -33,6 +33,10 @@
 - Before proposing a default or a rule (security posture, tool access, spawn policy, isolation, layout), read how the
   references do it and start from their common default; show the comparison with paths and depart only with a stated
   reason. Mark what no reference does as inference.
+- When comparing options, the amount of code to write is not a cost: agents write it. Weigh complexity instead:
+  moving parts, failure modes, state that must stay consistent, what has to be operated, and how hard the result is
+  to understand and change. "Less code" alone never justifies departing from what the references do (owner,
+  2026-11-08).
 - Before a spike or prototype, search the cloned references for the same mechanism. If a reference already does it,
   read its code as the specification and test only what is specific to this environment (accounts, versions,
   servers).
