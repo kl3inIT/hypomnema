@@ -46,14 +46,27 @@ var ErrUnauthorized = errors.New("the control plane refused the node token")
 
 var errReplaced = errors.New("another connection of this node took over")
 
+// Reporter is how a Runner reports what one worker does; *Worker is the
+// daemon's.
+type Reporter interface {
+	ID() string
+	Started(ctx context.Context, processRef, cliSessionRef string) error
+	Progress(ctx context.Context) error
+	Ask(ctx context.Context, a nodeproto.Ask) (string, error)
+	AnswerReceived(ctx context.Context, questionID string) error
+	Finished(ctx context.Context, f nodeproto.Finished) error
+	Exited(ctx context.Context) error
+	Stopped(ctx context.Context) error
+}
+
 // Runner runs workers. Its methods return quickly; what a worker does comes
-// back through its Worker.
+// back through its Reporter.
 type Runner interface {
 	// Start runs the worker of an accepted Dispatch.
-	Start(ctx context.Context, d statedb.Dispatch, w *Worker) error
+	Start(ctx context.Context, d statedb.Dispatch, r Reporter) error
 	// Adopt takes back a Dispatch whose worker may still run, after the
 	// daemon restarted or the outcome was marked unknown.
-	Adopt(ctx context.Context, d statedb.Dispatch, w *Worker) error
+	Adopt(ctx context.Context, d statedb.Dispatch, r Reporter) error
 	// Stop asks the worker to stop; the Runner reports Stopped when it has.
 	Stop(id string)
 	// Release kills the worker and cleans up, reporting nothing: the
