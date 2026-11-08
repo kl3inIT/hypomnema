@@ -17,8 +17,9 @@ UPDATE conversations SET cli_session_ref = @cli_session_ref, updated_at = @now W
 
 -- name: InsertDispatch :exec
 INSERT INTO dispatches (id, task_id, conversation_id, node_id, status, recovery, gate_question_id,
-                        created_at, updated_at)
-VALUES (@id, @task_id, @conversation_id, @node_id, 'queued', @recovery, @gate_question_id, @now, @now);
+                        model, effort, created_at, updated_at)
+VALUES (@id, @task_id, @conversation_id, @node_id, 'queued', @recovery, @gate_question_id,
+        @model, @effort, @now, @now);
 
 -- name: GetDispatch :one
 SELECT * FROM dispatches WHERE id = @id;
@@ -154,14 +155,13 @@ WHERE dispatch_id = @dispatch_id AND kind = @kind AND ref = @ref AND released_at
 SELECT * FROM dispatch_resources WHERE dispatch_id = @dispatch_id ORDER BY created_at, kind, ref;
 
 -- name: UpsertCooldown :exec
-INSERT INTO slot_cooldowns (node_id, runtime, account_ref, until, reason)
-VALUES (@node_id, @runtime, @account_ref, @until, @reason)
-ON CONFLICT (node_id, runtime, account_ref) DO UPDATE
-SET until = max(slot_cooldowns.until, excluded.until), reason = excluded.reason;
+INSERT INTO account_cooldowns (runtime, account_ref, until, reason)
+VALUES (@runtime, @account_ref, @until, @reason)
+ON CONFLICT (runtime, account_ref) DO UPDATE
+SET until = max(account_cooldowns.until, excluded.until), reason = excluded.reason;
 
 -- name: GetCooldown :one
-SELECT * FROM slot_cooldowns
-WHERE node_id = @node_id AND runtime = @runtime AND account_ref = @account_ref AND until > @now;
+SELECT * FROM account_cooldowns WHERE runtime = @runtime AND account_ref = @account_ref AND until > @now;
 
 -- name: DeleteExpiredCooldowns :execrows
-DELETE FROM slot_cooldowns WHERE until <= @now;
+DELETE FROM account_cooldowns WHERE until <= @now;
