@@ -31,7 +31,7 @@ const wait = 5 * time.Second
 // fakeRunner records what the daemon asks of it; the test drives each worker.
 type fakeRunner struct {
 	mu       sync.Mutex
-	workers  map[string]*daemon.Worker
+	workers  map[string]daemon.Reporter
 	adopted  []string
 	stops    []string
 	released []string
@@ -41,11 +41,11 @@ type fakeRunner struct {
 
 func newFakeRunner() *fakeRunner {
 	return &fakeRunner{
-		workers: map[string]*daemon.Worker{}, answers: map[string][]nodeproto.Question{}, asked: map[string]string{},
+		workers: map[string]daemon.Reporter{}, answers: map[string][]nodeproto.Question{}, asked: map[string]string{},
 	}
 }
 
-func (r *fakeRunner) Start(_ context.Context, d statedb.Dispatch, w *daemon.Worker) error {
+func (r *fakeRunner) Start(_ context.Context, d statedb.Dispatch, w daemon.Reporter) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -54,7 +54,7 @@ func (r *fakeRunner) Start(_ context.Context, d statedb.Dispatch, w *daemon.Work
 	return nil
 }
 
-func (r *fakeRunner) Adopt(_ context.Context, d statedb.Dispatch, w *daemon.Worker) error {
+func (r *fakeRunner) Adopt(_ context.Context, d statedb.Dispatch, w daemon.Reporter) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -92,10 +92,10 @@ func (r *fakeRunner) Asked(_, reportID, questionID string) {
 	r.asked[reportID] = questionID
 }
 
-func (r *fakeRunner) worker(t *testing.T) *daemon.Worker {
+func (r *fakeRunner) worker(t *testing.T) daemon.Reporter {
 	t.Helper()
 
-	var w *daemon.Worker
+	var w daemon.Reporter
 
 	require.Eventually(t, func() bool {
 		r.mu.Lock()

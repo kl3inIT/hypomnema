@@ -20,8 +20,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kl3inIT/hypomnema/internal/node/claude"
 	"github.com/kl3inIT/hypomnema/internal/node/daemon"
 	"github.com/kl3inIT/hypomnema/internal/node/statedb"
+	"github.com/kl3inIT/hypomnema/internal/node/worktree"
 	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 )
@@ -39,6 +41,10 @@ type Config struct {
 	Token string `json:"token"`
 	// WorktreeRoot is where the node makes its worktrees.
 	WorktreeRoot string `json:"worktree_root"`
+	// Accounts maps an account id of the control plane to where its
+	// credentials are on this node, until the vault exists. Only the file's
+	// path is here, never the token.
+	Accounts map[string]claude.Account `json:"accounts,omitempty"`
 }
 
 // DefaultHome is ~/.hypomnema-node.
@@ -90,8 +96,16 @@ func Init(home, rawURL, tokenFile, worktreeRoot string) error {
 		return fmt.Errorf("restricting %s: %w", home, err)
 	}
 
-	body, err := json.MarshalIndent(Config{URL: strings.TrimSuffix(rawURL, "/"), Token: token,
-		WorktreeRoot: worktreeRoot}, "", "  ")
+	cfg := Config{URL: strings.TrimSuffix(rawURL, "/"), Token: token, WorktreeRoot: worktreeRoot}
+	if old, err := LoadConfig(home); err == nil {
+		cfg.Accounts = old.Accounts
+	}
+
+	return saveConfig(home, cfg)
+}
+
+func saveConfig(home string, cfg Config) error {
+	body, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encoding the configuration: %w", err)
 	}
@@ -107,6 +121,101 @@ func Init(home, rawURL, tokenFile, worktreeRoot string) error {
 	}
 
 	return nil
+}
+
+// SetAccount records where the credentials of a control plane account are on
+// this node. The file must be private to the node's user.
+func SetAccount(home, accountID, tokenFile string) error {
+	cfg, err := LoadConfig(home)
+	if err != nil {
+		return err
+	}
+
+	if !strings.HasPrefix(accountID, "acc_") {
+		return fmt.Errorf("%q is not an account id (acc_…, from `hypomnema accounts list`)", accountID)
+	}
+
+	abs, err := filepath.Abs(tokenFile)
+	if err != nil {
+		return err
+	}
+
+	info, err := os.Stat(abs)
+	if err != nil {
+		return fmt.Errorf("reading the token file: %w", err)
+	}
+
+	if info.Mode().Perm()&0o077 != 0 && runtimeIsUnix() {
+		return fmt.Errorf("%s can be read by others; chmod 600 it first", abs)
+	}
+
+	if cfg.Accounts == nil {
+		cfg.Accounts = map[string]claude.Account{}
+	}
+
+	cfg.Accounts[accountID] = claude.Account{TokenFile: abs}
+
+	return saveConfig(home, cfg)
+}
+
+// Run runs the daemon with the Claude runner until ctx ends.
+func Run(ctx context.Context, home string, logger *slog.Logger) error {
+	cfg, err := LoadConfig(home)
+	if err != nil {
+		return err
+	}
+
+	exe, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("finding the node binary: %w", err)
+	}
+
+	runtimes := DetectRuntimes(ctx)
+
+	claudePath := ""
+	for _, r := range runtimes {
+		if r.Runtime == "claude" {
+			claudePath = r.Path
+		}
+	}
+
+	db, err := statedb.Open(ctx, StatePath(home), time.Now)
+	if err != nil {
+		return err
+	}
+	defer db.Close() //nolint:errcheck // Closing at shutdown; nothing is left to report it to.
+
+	runner := &claude.Runner{
+		Home: home, Exe: exe, Claude: claudePath, Accounts: cfg.Accounts, Logger: logger,
+		Worktrees: worktree.Maker{Root: home},
+	}
+
+	logger.InfoContext(ctx, "node starting", slog.String("event", "node.starting"), slog.String("url", cfg.URL),
+		slog.Int("runtimes", len(runtimes)), slog.Int("accounts", len(cfg.Accounts)))
+
+	return daemon.New(daemon.Config{
+		URL: cfg.URL, Token: cfg.Token, WorktreeRoot: cfg.WorktreeRoot, Version: platform.Version, Runtimes: runtimes,
+	}, db, runner, logger).Run(ctx)
+}
+
+// Unit is a systemd user unit for the daemon. KillMode=process keeps workers
+// alive when the daemon restarts (Omnara service_systemd.go; spike 1a).
+func Unit(exe, home string) string {
+	return fmt.Sprintf(`[Unit]
+Description=Hypomnema node
+After=network-online.target
+
+[Service]
+Type=exec
+ExecStart=%s run --home %s
+Restart=on-failure
+RestartSec=3
+KillMode=process
+TimeoutStopSec=30s
+
+[Install]
+WantedBy=default.target
+`, exe, home)
 }
 
 // LoadConfig reads the configuration from home.
@@ -189,6 +298,10 @@ func Check(ctx context.Context, home string, stdout io.Writer) error {
 
 	_, _ = fmt.Fprintf(stdout, "connected to %s as %s\n", cfg.URL, nodeID)
 
+	for id, a := range cfg.Accounts {
+		_, _ = fmt.Fprintf(stdout, "  account %s: %s\n", id, a.TokenFile)
+	}
+
 	for _, r := range runtimes {
 		_, _ = fmt.Fprintf(stdout, "  %s %s (%s)\n", r.Runtime, r.Version, r.Path)
 	}
@@ -199,3 +312,5 @@ func Check(ctx context.Context, home string, stdout io.Writer) error {
 
 	return nil
 }
+
+func runtimeIsUnix() bool { return os.PathSeparator == '/' }
