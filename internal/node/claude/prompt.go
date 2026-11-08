@@ -13,9 +13,21 @@ import (
 const recoveryNote = "Your previous attempt at this task was interrupted and its outcome is unknown. " +
 	"Check the worktree, the branch and any pull request before redoing work."
 
-// Prompt is the worker's first turn, shortened from Orca's dispatch preamble
-// (src/main/runtime/orchestration/preamble.ts). The tools to ask and to
-// finish come with issue #32's last PR.
+// rules are the worker's instructions for its tools (Orca's preamble forbids
+// AskUserQuestion and subagents and requires worker_done exactly once).
+const rules = "\nRules:\n" +
+	"- When a decision is not yours to make, call the `ask` tool and wait for the answer. " +
+	"Never use AskUserQuestion; no one reads it.\n" +
+	"- When the work is done, call the `finish` tool exactly once with a short summary and the evidence " +
+	"(the pull request as owner/repo#N), then end your turn. A task ended without `finish` counts as failed.\n" +
+	"- If the owner must decide before the work goes on (such as whether to merge), " +
+	"pass that question as `gate` to `finish` instead of waiting.\n" +
+	"- Do not start subagents, and do not work outside this directory.\n"
+
+// Prompt is the worker's first turn, after Orca's dispatch preamble
+// (src/main/runtime/orchestration/preamble.ts L52-113): who it is, the task,
+// where to work, ask instead of AskUserQuestion, finish exactly once, no
+// subagents; then the recovery note and a resolved Gate.
 func Prompt(d statedb.Dispatch) string {
 	o := d.Offer
 
@@ -33,8 +45,7 @@ func Prompt(d statedb.Dispatch) string {
 		b.WriteString("Work only in this directory.\n")
 	}
 
-	b.WriteString("Do not wait for a person: no one can answer you yet. ")
-	b.WriteString("End with a short summary of what you did, with the pull request's URL.\n")
+	b.WriteString(rules)
 
 	if d.Accepted != nil && d.Accepted.Recovery {
 		b.WriteString("\n" + recoveryNote + "\n")
