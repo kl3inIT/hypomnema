@@ -3,6 +3,7 @@ module github.com/kl3inIT/hypomnema
 go 1.27.3
 
 require (
+	github.com/coder/websocket v1.8.15
 	github.com/pressly/goose/v3 v3.29.0
 	github.com/stretchr/testify v1.12.1
 	modernc.org/sqlite v1.61.1

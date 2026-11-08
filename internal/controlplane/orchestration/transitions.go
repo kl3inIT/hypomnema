@@ -100,6 +100,9 @@ func (s TaskStatus) terminal() bool {
 	return slices.Contains(taskTerminal, s)
 }
 
+// Terminal reports whether a Task in this status has ended for good.
+func (s TaskStatus) Terminal() bool { return s.terminal() }
+
 // settled reports whether a Dispatch has ended for good.
 func (s DispatchStatus) settled() bool {
 	return len(dispatchTransitions[s]) == 0

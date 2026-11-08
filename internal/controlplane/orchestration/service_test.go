@@ -47,7 +47,7 @@ func newTestService(t *testing.T) (*Service, *sql.DB, *fakeClock) {
 func newRun(t *testing.T, s *Service) Run {
 	t.Helper()
 
-	run, err := s.CreateRun(t.Context(), "add Google login to second-bite", "owner")
+	run, err := s.CreateRun(t.Context(), NewRun{Objective: "add Google login to second-bite", CreatedBy: "owner"})
 	require.NoError(t, err)
 
 	return run
@@ -269,7 +269,7 @@ func TestOperationsReportNotFoundAndConflict(t *testing.T) {
 	require.ErrorIs(t, err, ErrNotFound)
 	_, err = w.s.CreateTasks(t.Context(), "run_missing", []NewTask{{Ref: "a", Role: "implement", Spec: "a"}})
 	require.ErrorIs(t, err, ErrNotFound)
-	_, err = w.s.CreateRun(t.Context(), " ", "owner")
+	_, err = w.s.CreateRun(t.Context(), NewRun{Objective: " ", CreatedBy: "owner"})
 	require.ErrorIs(t, err, ErrInvalid)
 	require.ErrorIs(t, w.s.ReopenTask(t.Context(), tasks[0].ID), ErrConflict)
 	_, err = w.s.Heartbeat(t.Context(), NodeCall{NodeID: "node_a", DispatchID: "dsp_missing", RequestID: "r"})

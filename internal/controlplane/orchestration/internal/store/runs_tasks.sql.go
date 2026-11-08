@@ -39,7 +39,7 @@ func (q *Queries) CountUnfinishedTasks(ctx context.Context, arg CountUnfinishedT
 }
 
 const getRun = `-- name: GetRun :one
-SELECT id, objective, status, created_by, created_at, updated_at, finished_at FROM runs WHERE id = ?1
+SELECT id, objective, status, created_by, created_at, updated_at, finished_at, repo, base FROM runs WHERE id = ?1
 `
 
 func (q *Queries) GetRun(ctx context.Context, id string) (Run, error) {
@@ -53,6 +53,8 @@ func (q *Queries) GetRun(ctx context.Context, id string) (Run, error) {
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.FinishedAt,
+		&i.Repo,
+		&i.Base,
 	)
 	return i, err
 }
@@ -87,14 +89,16 @@ func (q *Queries) GetTask(ctx context.Context, id string) (Task, error) {
 }
 
 const insertRun = `-- name: InsertRun :exec
-INSERT INTO runs (id, objective, status, created_by, created_at, updated_at)
-VALUES (?1, ?2, 'open', ?3, ?4, ?4)
+INSERT INTO runs (id, objective, status, created_by, repo, base, created_at, updated_at)
+VALUES (?1, ?2, 'open', ?3, ?4, ?5, ?6, ?6)
 `
 
 type InsertRunParams struct {
 	ID        string
 	Objective string
 	CreatedBy string
+	Repo      sql.NullString
+	Base      sql.NullString
 	Now       int64
 }
 
@@ -103,6 +107,8 @@ func (q *Queries) InsertRun(ctx context.Context, arg InsertRunParams) error {
 		arg.ID,
 		arg.Objective,
 		arg.CreatedBy,
+		arg.Repo,
+		arg.Base,
 		arg.Now,
 	)
 	return err

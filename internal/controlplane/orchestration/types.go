@@ -41,10 +41,13 @@ const (
 
 // Run is one objective from the owner.
 type Run struct {
-	ID         string
-	Objective  string
-	Status     RunStatus
-	CreatedBy  string
+	ID        string
+	Objective string
+	Status    RunStatus
+	CreatedBy string
+	// Repo (owner/name) and Base are where the Run's workers make their worktrees.
+	Repo       string
+	Base       string
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
 	FinishedAt *time.Time
@@ -86,3 +89,14 @@ type NewTask struct {
 	Effort    string
 	DependsOn []string
 }
+
+// NewRun is a Run to create. Repo is owner/name; Base defaults to DefaultBase.
+type NewRun struct {
+	Objective string
+	CreatedBy string
+	Repo      string
+	Base      string
+}
+
+// DefaultBase is the branch a Run's worktrees start from unless it names one.
+const DefaultBase = "main"
