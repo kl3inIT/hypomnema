@@ -206,7 +206,24 @@ type questionRef struct{ id, task, run, dispatch string }
 func emitEscalation(ctx context.Context, q *store.Queries, now int64, e Escalation) error {
 	ev := event{
 		kind: EventEscalation, dispatch: e.DispatchID, question: e.QuestionID, node: e.NodeID,
-		payload: map[string]any{"kind": string(e.Kind)},
+		task: e.TaskID, payload: map[string]any{"kind": string(e.Kind)},
+	}
+
+	if e.Reason != "" {
+		ev.payload["reason"] = e.Reason
+	}
+
+	if e.AccountRef != "" {
+		ev.payload["account_ref"] = e.AccountRef
+	}
+
+	if e.TaskID != "" && e.DispatchID == "" {
+		task, err := q.GetTask(ctx, e.TaskID)
+		if err != nil {
+			return notFound(err, "task", e.TaskID)
+		}
+
+		ev.run = task.RunID
 	}
 
 	if e.DispatchID != "" {

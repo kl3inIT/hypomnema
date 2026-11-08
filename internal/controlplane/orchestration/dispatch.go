@@ -34,45 +34,18 @@ func (s *Service) CreateDispatch(ctx context.Context, taskID string, spec Dispat
 			return notFound(err, "task", taskID)
 		}
 
-		run, err := q.GetRun(ctx, task.RunID)
-		if err != nil {
-			return notFound(err, "run", task.RunID)
-		}
-
-		switch {
-		case RunStatus(run.Status) != RunOpen:
-			return fmt.Errorf("%w: run %s is %s", ErrConflict, run.ID, run.Status)
-		case TaskStatus(task.Status) != TaskReady:
-			return fmt.Errorf("%w: task %s is %s, not ready", ErrConflict, taskID, task.Status)
-		case task.NotBefore.Valid && task.NotBefore.Int64 > now:
-			return fmt.Errorf("%w: task %s waits until %s", ErrConflict, taskID, millis(task.NotBefore.Int64))
-		}
-
-		conv, node, recovery, err := s.conversationFor(ctx, q, now, taskID, spec)
+		p, err := loadPlacement(ctx, q, now)
 		if err != nil {
 			return err
 		}
 
-		gate, err := answeredGateBefore(ctx, q, taskID)
-		if err != nil {
-			return err
+		if p.active >= MaxActiveDispatches {
+			return fmt.Errorf("%w: %d dispatches are active, the limit", ErrUnavailable, p.active)
 		}
 
-		if err := q.InsertDispatch(ctx, store.InsertDispatchParams{
-			ID: id, TaskID: taskID, ConversationID: conv, NodeID: node, Recovery: boolInt(recovery),
-			GateQuestionID: nullString(gate), Now: now,
-		}); err != nil {
-			return fmt.Errorf("inserting dispatch: %w", err)
-		}
+		_, model, effort := s.resolve(task)
 
-		if err := emit(ctx, q, now, event{
-			kind: EventDispatchCreated, run: task.RunID, task: taskID, dispatch: id, node: node,
-			payload: map[string]any{"conversation_id": conv, "recovery": recovery, "gate_question_id": gate},
-		}); err != nil {
-			return err
-		}
-
-		return transitionTask(ctx, q, now, taskID, TaskRunning, BlockedNone, "")
+		return s.createDispatch(ctx, q, now, id, task, spec, p, model, effort)
 	})
 	if err != nil {
 		return Dispatch{}, fmt.Errorf("creating a dispatch: %w", err)
@@ -81,19 +54,80 @@ func (s *Service) CreateDispatch(ctx context.Context, taskID string, spec Dispat
 	return s.GetDispatch(ctx, id)
 }
 
-// conversationFor returns the Conversation a new Dispatch runs in, its node,
-// and whether the worker must be told the previous attempt was interrupted.
-func (s *Service) conversationFor(ctx context.Context, q *store.Queries, now int64, taskID string,
-	spec DispatchSpec,
-) (string, string, bool, error) {
-	latest, err := q.LatestConversationOfTask(ctx, taskID)
-	hasLatest := err == nil
-
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return "", "", false, fmt.Errorf("reading the conversation of task %s: %w", taskID, err)
+// createDispatch is CreateDispatch inside its transaction, shared with the
+// scheduler. The node and the account must be able to take it now.
+func (s *Service) createDispatch(ctx context.Context, q *store.Queries, now int64, id string, task store.Task,
+	spec DispatchSpec, p *placement, model, effort string,
+) error {
+	run, err := q.GetRun(ctx, task.RunID)
+	if err != nil {
+		return notFound(err, "run", task.RunID)
 	}
 
-	open := hasLatest && ConversationStatus(latest.Status) == ConversationOpen
+	switch {
+	case RunStatus(run.Status) != RunOpen:
+		return fmt.Errorf("%w: run %s is %s", ErrConflict, run.ID, run.Status)
+	case TaskStatus(task.Status) != TaskReady:
+		return fmt.Errorf("%w: task %s is %s, not ready", ErrConflict, task.ID, task.Status)
+	case task.NotBefore.Valid && task.NotBefore.Int64 > now:
+		return fmt.Errorf("%w: task %s waits until %s", ErrConflict, task.ID, millis(task.NotBefore.Int64))
+	}
+
+	conv, node, recovery, err := s.conversationFor(ctx, q, now, task.ID, spec, p)
+	if err != nil {
+		return err
+	}
+
+	gate, err := answeredGateBefore(ctx, q, task.ID)
+	if err != nil {
+		return err
+	}
+
+	if err := q.InsertDispatch(ctx, store.InsertDispatchParams{
+		ID: id, TaskID: task.ID, ConversationID: conv, NodeID: node, Recovery: boolInt(recovery),
+		GateQuestionID: nullString(gate), Model: nullString(model), Effort: nullString(effort), Now: now,
+	}); err != nil {
+		return fmt.Errorf("inserting dispatch: %w", err)
+	}
+
+	p.take(node)
+
+	if err := emit(ctx, q, now, event{
+		kind: EventDispatchCreated, run: task.RunID, task: task.ID, dispatch: id, node: node,
+		payload: map[string]any{"conversation_id": conv, "recovery": recovery, "gate_question_id": gate},
+	}); err != nil {
+		return err
+	}
+
+	return transitionTask(ctx, q, now, task.ID, TaskRunning, BlockedNone, "")
+}
+
+// openConversation returns the Task's latest Conversation and whether it is open.
+func openConversation(ctx context.Context, q *store.Queries, taskID string) (store.Conversation, bool, error) {
+	latest, err := q.LatestConversationOfTask(ctx, taskID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return store.Conversation{}, false, nil
+	}
+
+	if err != nil {
+		return store.Conversation{}, false, fmt.Errorf("reading the conversation of task %s: %w", taskID, err)
+	}
+
+	return latest, ConversationStatus(latest.Status) == ConversationOpen, nil
+}
+
+// conversationFor returns the Conversation a new Dispatch runs in, its node,
+// and whether the worker must be told the previous attempt was interrupted.
+// The node and the account are checked against the placement snapshot.
+func (s *Service) conversationFor(ctx context.Context, q *store.Queries, now int64, taskID string,
+	spec DispatchSpec, p *placement,
+) (string, string, bool, error) {
+	latest, open, err := openConversation(ctx, q, taskID)
+	if err != nil {
+		return "", "", false, err
+	}
+
+	hasLatest := latest.ID != ""
 
 	if spec.Continue {
 		if !open {
@@ -104,7 +138,11 @@ func (s *Service) conversationFor(ctx context.Context, q *store.Queries, now int
 			return "", "", false, fmt.Errorf("%w: conversation %s is on node %s", ErrInvalid, latest.ID, latest.NodeID)
 		}
 
-		if err := checkCooldown(ctx, q, now, latest.NodeID, latest.Runtime, latest.AccountRef); err != nil {
+		if err := p.checkNode(latest.NodeID, latest.Runtime); err != nil {
+			return "", "", false, err
+		}
+
+		if err := p.checkAccount(latest.Runtime, latest.AccountRef); err != nil {
 			return "", "", false, err
 		}
 
@@ -115,7 +153,11 @@ func (s *Service) conversationFor(ctx context.Context, q *store.Queries, now int
 		return "", "", false, fmt.Errorf("%w: a new conversation needs a node, worktree, runtime and account", ErrInvalid)
 	}
 
-	if err := checkCooldown(ctx, q, now, spec.NodeID, spec.Runtime, spec.AccountRef); err != nil {
+	if err := p.checkNode(spec.NodeID, spec.Runtime); err != nil {
+		return "", "", false, err
+	}
+
+	if err := p.checkAccount(spec.Runtime, spec.AccountRef); err != nil {
 		return "", "", false, err
 	}
 
@@ -136,19 +178,6 @@ func (s *Service) conversationFor(ctx context.Context, q *store.Queries, now int
 	recovery := hasLatest && CloseReason(latest.CloseReason.String) == CloseInterrupted
 
 	return id, spec.NodeID, recovery, nil
-}
-
-func checkCooldown(ctx context.Context, q *store.Queries, now int64, node, runtime, account string) error {
-	c, err := q.GetCooldown(ctx, store.GetCooldownParams{NodeID: node, Runtime: runtime, AccountRef: account, Now: now})
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil
-	}
-
-	if err != nil {
-		return fmt.Errorf("reading the cooldown of %s/%s/%s: %w", node, runtime, account, err)
-	}
-
-	return fmt.Errorf("%w: %s/%s/%s until %s (%s)", ErrCoolingDown, node, runtime, account, millis(c.Until), c.Reason)
 }
 
 func closeConversation(ctx context.Context, q *store.Queries, now int64, id string, reason CloseReason) error {
@@ -818,11 +847,8 @@ func (s *Service) afterSettle(ctx context.Context, q *store.Queries, now int64, 
 			until = max(resetsAt.UnixMilli(), now)
 		}
 
-		if err := q.UpsertCooldown(ctx, store.UpsertCooldownParams{
-			NodeID: conv.NodeID, Runtime: conv.Runtime, AccountRef: conv.AccountRef, Until: until,
-			Reason: string(FailureRateLimited),
-		}); err != nil {
-			return fmt.Errorf("cooling down %s/%s/%s: %w", conv.NodeID, conv.Runtime, conv.AccountRef, err)
+		if err := coolAccount(ctx, q, now, d.ID, conv, until); err != nil {
+			return err
 		}
 
 		if err := q.SetTaskNotBefore(ctx, store.SetTaskNotBeforeParams{
@@ -835,6 +861,36 @@ func (s *Service) afterSettle(ctx context.Context, q *store.Queries, now int64, 
 	default:
 		return s.countFailure(ctx, q, now, d.TaskID, class)
 	}
+}
+
+// coolAccount cools an account down after a rate limit, on every node. A
+// long cooldown that leaves its runtime with no free account is escalated.
+func coolAccount(ctx context.Context, q *store.Queries, now int64, dispatchID string, conv store.Conversation,
+	until int64,
+) error {
+	if err := q.UpsertCooldown(ctx, store.UpsertCooldownParams{
+		Runtime: conv.Runtime, AccountRef: conv.AccountRef, Until: until, Reason: string(FailureRateLimited),
+	}); err != nil {
+		return fmt.Errorf("cooling down %s/%s: %w", conv.Runtime, conv.AccountRef, err)
+	}
+
+	after := now + AccountCoolingAlert.Milliseconds()
+	if until <= after {
+		return nil
+	}
+
+	free, err := q.CountAccountsFreeAfter(ctx, store.CountAccountsFreeAfterParams{Runtime: conv.Runtime, After: after})
+	if err != nil {
+		return fmt.Errorf("counting free accounts of %s: %w", conv.Runtime, err)
+	}
+
+	if free > 0 {
+		return nil
+	}
+
+	return emitEscalation(ctx, q, now, Escalation{
+		Kind: EscalationAccountCooling, DispatchID: dispatchID, AccountRef: conv.AccountRef,
+	})
 }
 
 // countFailure records a failure that counts toward the breaker: the Task is
@@ -968,6 +1024,11 @@ func (s *Service) reapQueued(ctx context.Context, q *store.Queries, now int64, o
 
 		if allExpired && !flagged[d.NodeID] {
 			flagged[d.NodeID] = true
+
+			if err := q.MarkNodeUnavailable(ctx, store.MarkNodeUnavailableParams{Now: now, ID: d.NodeID}); err != nil {
+				return fmt.Errorf("marking node %s unavailable: %w", d.NodeID, err)
+			}
+
 			out.Escalations = append(out.Escalations, Escalation{Kind: EscalationNodeUnavailable, NodeID: d.NodeID})
 		}
 	}
@@ -1181,6 +1242,10 @@ func nodeCall[T any](ctx context.Context, s *Service, call NodeCall, method stri
 			return fmt.Errorf("%w: dispatch %s belongs to another node", ErrConflict, d.ID)
 		}
 
+		if err := q.TouchNode(ctx, store.TouchNodeParams{Now: now, ID: call.NodeID}); err != nil {
+			return fmt.Errorf("recording that node %s was seen: %w", call.NodeID, err)
+		}
+
 		if out, err = fn(q, now, d); err != nil {
 			return err
 		}
@@ -1260,6 +1325,7 @@ func dispatchFromRow(d store.Dispatch) (Dispatch, error) {
 		StalledAt: optionalTime(d.StalledAt), OverrunAt: optionalTime(d.OverrunAt),
 		SettledAt: optionalTime(d.SettledAt), WaitingSince: optionalTime(d.WaitingSince),
 		Waited: time.Duration(d.WaitedMs) * time.Millisecond, GateQuestionID: d.GateQuestionID.String,
+		Model: d.Model.String, Effort: d.Effort.String,
 	}
 
 	if d.Result.Valid {

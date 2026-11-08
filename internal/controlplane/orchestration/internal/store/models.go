@@ -8,6 +8,23 @@ import (
 	"database/sql"
 )
 
+type Account struct {
+	ID        string
+	Runtime   string
+	Label     string
+	Status    string
+	Position  int64
+	CreatedAt int64
+	UpdatedAt int64
+}
+
+type AccountCooldown struct {
+	Runtime    string
+	AccountRef string
+	Until      int64
+	Reason     string
+}
+
 type Conversation struct {
 	ID            string
 	TaskID        string
@@ -49,6 +66,8 @@ type Dispatch struct {
 	WaitingSince    sql.NullInt64
 	WaitedMs        int64
 	GateQuestionID  sql.NullString
+	Model           sql.NullString
+	Effort          sql.NullString
 }
 
 type DispatchEffect struct {
@@ -81,6 +100,20 @@ type Event struct {
 	NodeID     sql.NullString
 	Payload    string
 	CreatedAt  int64
+}
+
+type Node struct {
+	ID            string
+	Name          string
+	TokenHash     string
+	Status        string
+	MaxDispatches int64
+	WorktreeRoot  sql.NullString
+	Runtimes      string
+	LastSeenAt    sql.NullInt64
+	UnavailableAt sql.NullInt64
+	CreatedAt     int64
+	UpdatedAt     int64
 }
 
 type Question struct {
@@ -120,14 +153,6 @@ type Run struct {
 	CreatedAt  int64
 	UpdatedAt  int64
 	FinishedAt sql.NullInt64
-}
-
-type SlotCooldown struct {
-	NodeID     string
-	Runtime    string
-	AccountRef string
-	Until      int64
-	Reason     string
 }
 
 type Task struct {

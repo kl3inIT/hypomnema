@@ -34,7 +34,7 @@ const (
 	FailureStartFailed FailureClass = "start_failed"
 	// FailureNeedsAuth: the account needs a login. The Task is blocked, never retried automatically.
 	FailureNeedsAuth FailureClass = "needs_auth"
-	// FailureRateLimited: the account hit a limit. Not counted; the slot cools down.
+	// FailureRateLimited: the account hit a limit. Not counted; the account cools down on every node.
 	FailureRateLimited FailureClass = "rate_limited"
 	// FailureWorkerError: the worker reported a failure. Counts toward the breaker.
 	FailureWorkerError FailureClass = "worker_error"
@@ -113,6 +113,10 @@ type Dispatch struct {
 	Waited       time.Duration
 	// GateQuestionID is the answered Gate this Dispatch resumes from.
 	GateQuestionID string
+	// Model and Effort are what the Dispatch was asked to run with: the Task's
+	// own, or its role's default; empty leaves the runtime's default.
+	Model  string
+	Effort string
 }
 
 // Conversation is the worker's CLI session for one Task: one node, worktree,
@@ -256,14 +260,28 @@ const (
 	EscalationNodeUnavailable EscalationKind = "node_unavailable"
 	// EscalationQuestionReminder: a question to the owner is still open (after ReminderFirst, then every ReminderEvery).
 	EscalationQuestionReminder EscalationKind = "question_reminder"
+	// EscalationUnplaceable: a ready Task found no node or no account for UnplaceableAfter.
+	EscalationUnplaceable EscalationKind = "unplaceable"
+	// EscalationAccountCooling: a rate limit cooled an account for more than
+	// AccountCoolingAlert while every other account of its runtime cools too.
+	EscalationAccountCooling EscalationKind = "account_cooling"
 )
 
-// Escalation is one thing the reaper found.
+// Reasons a Task is unplaceable.
+const (
+	ReasonNoNode    = "no_node"
+	ReasonNoAccount = "no_account"
+)
+
+// Escalation is one thing the reaper or the scheduler found.
 type Escalation struct {
 	Kind       EscalationKind
 	DispatchID string
+	TaskID     string
 	NodeID     string
 	QuestionID string
+	AccountRef string
+	Reason     string
 }
 
 // Reaped is what one Reap did.

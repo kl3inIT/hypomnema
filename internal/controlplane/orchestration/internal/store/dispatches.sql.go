@@ -41,7 +41,7 @@ func (q *Queries) AcceptDispatch(ctx context.Context, arg AcceptDispatchParams) 
 }
 
 const activeDispatchOfTask = `-- name: ActiveDispatchOfTask :one
-SELECT id, task_id, conversation_id, node_id, status, epoch, failure_class, unknown_cause, recovery, process_ref, result, resets_at, created_at, updated_at, accepted_at, started_at, lease_expires_at, progress_at, stop_requested_at, stop_acked_at, stalled_at, overrun_at, settled_at, waiting_since, waited_ms, gate_question_id FROM dispatches
+SELECT id, task_id, conversation_id, node_id, status, epoch, failure_class, unknown_cause, recovery, process_ref, result, resets_at, created_at, updated_at, accepted_at, started_at, lease_expires_at, progress_at, stop_requested_at, stop_acked_at, stalled_at, overrun_at, settled_at, waiting_since, waited_ms, gate_question_id, model, effort FROM dispatches
 WHERE task_id = ?1 AND status IN ('queued', 'starting', 'running', 'stopping', 'unknown', 'stop_unknown')
 `
 
@@ -75,6 +75,8 @@ func (q *Queries) ActiveDispatchOfTask(ctx context.Context, taskID string) (Disp
 		&i.WaitingSince,
 		&i.WaitedMs,
 		&i.GateQuestionID,
+		&i.Model,
+		&i.Effort,
 	)
 	return i, err
 }
@@ -99,7 +101,7 @@ func (q *Queries) CloseConversation(ctx context.Context, arg CloseConversationPa
 }
 
 const deleteExpiredCooldowns = `-- name: DeleteExpiredCooldowns :execrows
-DELETE FROM slot_cooldowns WHERE until <= ?1
+DELETE FROM account_cooldowns WHERE until <= ?1
 `
 
 func (q *Queries) DeleteExpiredCooldowns(ctx context.Context, now int64) (int64, error) {
@@ -146,27 +148,19 @@ func (q *Queries) GetConversation(ctx context.Context, id string) (Conversation,
 }
 
 const getCooldown = `-- name: GetCooldown :one
-SELECT node_id, runtime, account_ref, until, reason FROM slot_cooldowns
-WHERE node_id = ?1 AND runtime = ?2 AND account_ref = ?3 AND until > ?4
+SELECT runtime, account_ref, until, reason FROM account_cooldowns WHERE runtime = ?1 AND account_ref = ?2 AND until > ?3
 `
 
 type GetCooldownParams struct {
-	NodeID     string
 	Runtime    string
 	AccountRef string
 	Now        int64
 }
 
-func (q *Queries) GetCooldown(ctx context.Context, arg GetCooldownParams) (SlotCooldown, error) {
-	row := q.db.QueryRowContext(ctx, getCooldown,
-		arg.NodeID,
-		arg.Runtime,
-		arg.AccountRef,
-		arg.Now,
-	)
-	var i SlotCooldown
+func (q *Queries) GetCooldown(ctx context.Context, arg GetCooldownParams) (AccountCooldown, error) {
+	row := q.db.QueryRowContext(ctx, getCooldown, arg.Runtime, arg.AccountRef, arg.Now)
+	var i AccountCooldown
 	err := row.Scan(
-		&i.NodeID,
 		&i.Runtime,
 		&i.AccountRef,
 		&i.Until,
@@ -176,7 +170,7 @@ func (q *Queries) GetCooldown(ctx context.Context, arg GetCooldownParams) (SlotC
 }
 
 const getDispatch = `-- name: GetDispatch :one
-SELECT id, task_id, conversation_id, node_id, status, epoch, failure_class, unknown_cause, recovery, process_ref, result, resets_at, created_at, updated_at, accepted_at, started_at, lease_expires_at, progress_at, stop_requested_at, stop_acked_at, stalled_at, overrun_at, settled_at, waiting_since, waited_ms, gate_question_id FROM dispatches WHERE id = ?1
+SELECT id, task_id, conversation_id, node_id, status, epoch, failure_class, unknown_cause, recovery, process_ref, result, resets_at, created_at, updated_at, accepted_at, started_at, lease_expires_at, progress_at, stop_requested_at, stop_acked_at, stalled_at, overrun_at, settled_at, waiting_since, waited_ms, gate_question_id, model, effort FROM dispatches WHERE id = ?1
 `
 
 func (q *Queries) GetDispatch(ctx context.Context, id string) (Dispatch, error) {
@@ -209,6 +203,8 @@ func (q *Queries) GetDispatch(ctx context.Context, id string) (Dispatch, error) 
 		&i.WaitingSince,
 		&i.WaitedMs,
 		&i.GateQuestionID,
+		&i.Model,
+		&i.Effort,
 	)
 	return i, err
 }
@@ -266,8 +262,9 @@ func (q *Queries) InsertConversation(ctx context.Context, arg InsertConversation
 
 const insertDispatch = `-- name: InsertDispatch :exec
 INSERT INTO dispatches (id, task_id, conversation_id, node_id, status, recovery, gate_question_id,
-                        created_at, updated_at)
-VALUES (?1, ?2, ?3, ?4, 'queued', ?5, ?6, ?7, ?7)
+                        model, effort, created_at, updated_at)
+VALUES (?1, ?2, ?3, ?4, 'queued', ?5, ?6,
+        ?7, ?8, ?9, ?9)
 `
 
 type InsertDispatchParams struct {
@@ -277,6 +274,8 @@ type InsertDispatchParams struct {
 	NodeID         string
 	Recovery       int64
 	GateQuestionID sql.NullString
+	Model          sql.NullString
+	Effort         sql.NullString
 	Now            int64
 }
 
@@ -288,6 +287,8 @@ func (q *Queries) InsertDispatch(ctx context.Context, arg InsertDispatchParams) 
 		arg.NodeID,
 		arg.Recovery,
 		arg.GateQuestionID,
+		arg.Model,
+		arg.Effort,
 		arg.Now,
 	)
 	return err
@@ -320,7 +321,7 @@ func (q *Queries) InsertReceipt(ctx context.Context, arg InsertReceiptParams) er
 }
 
 const lastDispatchOfConversation = `-- name: LastDispatchOfConversation :one
-SELECT id, task_id, conversation_id, node_id, status, epoch, failure_class, unknown_cause, recovery, process_ref, result, resets_at, created_at, updated_at, accepted_at, started_at, lease_expires_at, progress_at, stop_requested_at, stop_acked_at, stalled_at, overrun_at, settled_at, waiting_since, waited_ms, gate_question_id FROM dispatches WHERE conversation_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT 1
+SELECT id, task_id, conversation_id, node_id, status, epoch, failure_class, unknown_cause, recovery, process_ref, result, resets_at, created_at, updated_at, accepted_at, started_at, lease_expires_at, progress_at, stop_requested_at, stop_acked_at, stalled_at, overrun_at, settled_at, waiting_since, waited_ms, gate_question_id, model, effort FROM dispatches WHERE conversation_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT 1
 `
 
 func (q *Queries) LastDispatchOfConversation(ctx context.Context, conversationID string) (Dispatch, error) {
@@ -353,12 +354,14 @@ func (q *Queries) LastDispatchOfConversation(ctx context.Context, conversationID
 		&i.WaitingSince,
 		&i.WaitedMs,
 		&i.GateQuestionID,
+		&i.Model,
+		&i.Effort,
 	)
 	return i, err
 }
 
 const lastDispatchOfTask = `-- name: LastDispatchOfTask :one
-SELECT id, task_id, conversation_id, node_id, status, epoch, failure_class, unknown_cause, recovery, process_ref, result, resets_at, created_at, updated_at, accepted_at, started_at, lease_expires_at, progress_at, stop_requested_at, stop_acked_at, stalled_at, overrun_at, settled_at, waiting_since, waited_ms, gate_question_id FROM dispatches WHERE task_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT 1
+SELECT id, task_id, conversation_id, node_id, status, epoch, failure_class, unknown_cause, recovery, process_ref, result, resets_at, created_at, updated_at, accepted_at, started_at, lease_expires_at, progress_at, stop_requested_at, stop_acked_at, stalled_at, overrun_at, settled_at, waiting_since, waited_ms, gate_question_id, model, effort FROM dispatches WHERE task_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT 1
 `
 
 func (q *Queries) LastDispatchOfTask(ctx context.Context, taskID string) (Dispatch, error) {
@@ -391,6 +394,8 @@ func (q *Queries) LastDispatchOfTask(ctx context.Context, taskID string) (Dispat
 		&i.WaitingSince,
 		&i.WaitedMs,
 		&i.GateQuestionID,
+		&i.Model,
+		&i.Effort,
 	)
 	return i, err
 }
@@ -1037,14 +1042,13 @@ func (q *Queries) TrimReceipts(ctx context.Context, keep int64) (int64, error) {
 }
 
 const upsertCooldown = `-- name: UpsertCooldown :exec
-INSERT INTO slot_cooldowns (node_id, runtime, account_ref, until, reason)
-VALUES (?1, ?2, ?3, ?4, ?5)
-ON CONFLICT (node_id, runtime, account_ref) DO UPDATE
-SET until = max(slot_cooldowns.until, excluded.until), reason = excluded.reason
+INSERT INTO account_cooldowns (runtime, account_ref, until, reason)
+VALUES (?1, ?2, ?3, ?4)
+ON CONFLICT (runtime, account_ref) DO UPDATE
+SET until = max(account_cooldowns.until, excluded.until), reason = excluded.reason
 `
 
 type UpsertCooldownParams struct {
-	NodeID     string
 	Runtime    string
 	AccountRef string
 	Until      int64
@@ -1053,7 +1057,6 @@ type UpsertCooldownParams struct {
 
 func (q *Queries) UpsertCooldown(ctx context.Context, arg UpsertCooldownParams) error {
 	_, err := q.db.ExecContext(ctx, upsertCooldown,
-		arg.NodeID,
 		arg.Runtime,
 		arg.AccountRef,
 		arg.Until,

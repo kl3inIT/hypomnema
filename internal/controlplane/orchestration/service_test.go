@@ -261,9 +261,9 @@ func TestOperationsReportNotFoundAndConflict(t *testing.T) {
 		NewTask{Ref: "b", Role: "implement", Spec: "b", DependsOn: []string{"a"}},
 	)
 
-	_, err := w.s.CreateDispatch(t.Context(), tasks[1].ID, w.spec())
+	_, err := w.create(tasks[1].ID, w.spec())
 	require.ErrorIs(t, err, ErrConflict)
-	_, err = w.s.CreateDispatch(t.Context(), "tsk_missing", w.spec())
+	_, err = w.create("tsk_missing", w.spec())
 	require.ErrorIs(t, err, ErrNotFound)
 	_, err = w.s.GetRun(t.Context(), "run_missing")
 	require.ErrorIs(t, err, ErrNotFound)

@@ -27,8 +27,8 @@ const (
 	BackoffBase   = 30 * time.Second
 	BackoffMax    = 10 * time.Minute
 	BackoffJitter = 0.2
-	// RateLimitCooldown: how long a slot cools down when a rate limit gives no
-	// reset time (inferred).
+	// RateLimitCooldown: how long an account cools down when a rate limit gives
+	// no reset time (inferred).
 	RateLimitCooldown = time.Minute
 	// ExpiriesBeforeUnavailable: this many expiries in a row on one node
 	// escalate node_unavailable (inferred).
@@ -49,6 +49,22 @@ const (
 	// EventPageDefault and EventPageMax bound one page of the event log (Omnara).
 	EventPageDefault = 100
 	EventPageMax     = 500
+	// MaxActiveDispatches: Dispatches that have not settled, across every node
+	// (Orca MAX_CONCURRENT_DEFAULT; Coder admits inside the transaction).
+	MaxActiveDispatches = 4
+	// NodeDispatchesDefault: a node's own limit unless set (inferred).
+	NodeDispatchesDefault = 2
+	// NodeOfflineAfter: a node not heard from for this long is not connected
+	// (Omnara, docs/agents/failure-handling.mdx).
+	NodeOfflineAfter = 30 * time.Second
+	// ScheduleEvery: the scheduler's pass when nothing wakes it (Orca DEFAULT_POLL_MS).
+	ScheduleEvery = 2 * time.Second
+	// UnplaceableAfter: a ready Task with no node or account for this long is
+	// escalated (inferred).
+	UnplaceableAfter = 5 * time.Minute
+	// AccountCoolingAlert: a rate limit this long, with every other account of
+	// the runtime also cooling, is escalated (inferred).
+	AccountCoolingAlert = time.Hour
 )
 
 // backoff is the wait before the n-th retry; r is a random number in [0, 1).

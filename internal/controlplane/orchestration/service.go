@@ -23,12 +23,19 @@ type Service struct {
 	random func() float64
 	// notify wakes event readers after each commit.
 	notify *notifier
+	// roles are the role defaults (WithRoles).
+	roles map[string]Role
 }
 
 // New returns a Service over an opened, migrated database. The clock and id
 // generator are passed in so tests control time and ids.
-func New(db *sql.DB, clock platform.Clock, newID func(prefix string) string) *Service {
-	return &Service{db: db, clock: clock, newID: newID, random: rand.Float64, notify: newNotifier()}
+func New(db *sql.DB, clock platform.Clock, newID func(prefix string) string, opts ...ServiceOption) *Service {
+	s := &Service{db: db, clock: clock, newID: newID, random: rand.Float64, notify: newNotifier()}
+	for _, o := range opts {
+		o(s)
+	}
+
+	return s
 }
 
 // write runs fn in one transaction. The connection opens every transaction

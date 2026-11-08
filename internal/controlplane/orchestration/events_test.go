@@ -89,7 +89,7 @@ func TestEventsFollowARunThroughAGate(t *testing.T) {
 	_, err = w.s.AnswerQuestion(t.Context(), open[0].ID, AddressOwner, Answer{Option: choice(0)})
 	require.NoError(t, err)
 
-	next, err := w.s.CreateDispatch(t.Context(), tasks[0].ID, DispatchSpec{Continue: true})
+	next, err := w.create(tasks[0].ID, DispatchSpec{Continue: true})
 	require.NoError(t, err)
 	nc := w.accept(next)
 	require.NoError(t, w.s.ReportStarted(t.Context(), w.again(nc), "pid:43@2", "sess_1"))
@@ -156,7 +156,7 @@ func TestRefusedOperationWritesNoEvent(t *testing.T) {
 	)
 	from := w.lastSeq()
 
-	_, err := w.s.CreateDispatch(t.Context(), tasks[1].ID, w.spec())
+	_, err := w.create(tasks[1].ID, w.spec())
 	require.ErrorIs(t, err, ErrConflict)
 	_, err = w.s.CreateTasks(t.Context(), w.run.ID, []NewTask{
 		{Ref: "c", Role: "implement", Spec: "c"},

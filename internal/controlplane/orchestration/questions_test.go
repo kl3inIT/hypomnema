@@ -113,7 +113,7 @@ func TestWaitingPausesTheStallAndDurationTimers(t *testing.T) {
 		w.heartbeat(c)
 	}
 
-	assert.Equal(t, []Escalation{{Kind: EscalationStalled, DispatchID: d.ID, NodeID: "node_a"}}, w.reap().Escalations)
+	assert.Equal(t, []Escalation{{Kind: EscalationStalled, DispatchID: d.ID, NodeID: w.node.ID}}, w.reap().Escalations)
 }
 
 // Scenario: the node goes silent while its worker waits. The question stays
@@ -174,7 +174,7 @@ func TestGateEndsTheDispatchAndResumesWithTheAnswer(t *testing.T) {
 	assert.Equal(t, QuestionGate, open[0].Mode)
 	assert.Equal(t, gate.Text, open[0].Text)
 
-	_, err = w.s.CreateDispatch(t.Context(), tasks[0].ID, w.spec())
+	_, err = w.create(tasks[0].ID, w.spec())
 	require.ErrorIs(t, err, ErrConflict, "the task waits for the decision")
 	_, err = w.s.AnswerQuestion(t.Context(), open[0].ID, AddressCoordinator, Answer{Option: choice(0)})
 	require.ErrorIs(t, err, ErrConflict, "the gate is the owner's")
@@ -183,7 +183,7 @@ func TestGateEndsTheDispatchAndResumesWithTheAnswer(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, TaskReady, w.task(tasks[0].ID).Status)
 
-	next, err := w.s.CreateDispatch(t.Context(), tasks[0].ID, DispatchSpec{Continue: true})
+	next, err := w.create(tasks[0].ID, DispatchSpec{Continue: true})
 	require.NoError(t, err)
 	assert.Equal(t, d.ConversationID, next.ConversationID)
 	assert.Equal(t, open[0].ID, next.GateQuestionID)

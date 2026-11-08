@@ -17,22 +17,66 @@ import (
 // network or the worker and what must follow. They run on real SQLite with a
 // fake clock.
 
-// world is one database, one Run and the calls of one node.
+// world is one database, one Run and the calls of one node, which has Claude
+// and one account.
 type world struct {
-	t     *testing.T
-	s     *Service
-	db    *sql.DB
-	clock *fakeClock
-	run   Run
-	reqs  int
+	t       *testing.T
+	s       *Service
+	db      *sql.DB
+	clock   *fakeClock
+	run     Run
+	reqs    int
+	node    Node
+	account Account
 }
 
 func newWorld(t *testing.T) *world {
 	t.Helper()
 
 	s, db, clock := newTestService(t)
+	w := &world{t: t, s: s, db: db, clock: clock}
+	// The node's own limit is the system's, so the older scenarios meet only one.
+	w.node = w.addNode("node_a", MaxActiveDispatches, "claude")
+	w.account = w.addAccount("claude", "acct_1")
+	w.run = newRun(t, s)
 
-	return &world{t: t, s: s, db: db, clock: clock, run: newRun(t, s)}
+	return w
+}
+
+// addNode registers a node that has connected with the given CLIs.
+func (w *world) addNode(name string, limit int, runtimes ...string) Node {
+	w.t.Helper()
+
+	n, _, err := w.s.AddNode(w.t.Context(), name, limit)
+	require.NoError(w.t, err)
+
+	infos := make([]RuntimeInfo, 0, len(runtimes))
+	for _, r := range runtimes {
+		infos = append(infos, RuntimeInfo{Runtime: r, Path: "/usr/local/bin/" + r, Version: "1.0.0"})
+	}
+
+	require.NoError(w.t, w.s.NodeHello(w.t.Context(), n.ID, Hello{WorktreeRoot: "/srv/wt", Runtimes: infos}))
+
+	return n
+}
+
+func (w *world) addAccount(runtime, label string) Account {
+	w.t.Helper()
+
+	a, err := w.s.AddAccount(w.t.Context(), runtime, label)
+	require.NoError(w.t, err)
+
+	return a
+}
+
+// alive is a node heartbeat at the current time.
+func (w *world) alive(n Node) { require.NoError(w.t, w.s.NodeHeartbeat(w.t.Context(), n.ID)) }
+
+// create is CreateDispatch while the world's node is connected.
+func (w *world) create(taskID string, spec DispatchSpec) (Dispatch, error) {
+	w.alive(w.node)
+
+	return w.s.CreateDispatch(w.t.Context(), taskID, spec)
 }
 
 func (w *world) tasks(nts ...NewTask) []Task {
@@ -74,7 +118,7 @@ func (w *world) conversation(id string) Conversation {
 }
 
 func (w *world) spec() DispatchSpec {
-	return DispatchSpec{NodeID: "node_a", Worktree: "/srv/wt/a", Runtime: "claude", AccountRef: "acct_1"}
+	return DispatchSpec{NodeID: w.node.ID, Worktree: "/srv/wt/a", Runtime: "claude", AccountRef: w.account.ID}
 }
 
 func (w *world) advance(d time.Duration) { w.clock.now = w.clock.now.Add(d) }
@@ -97,7 +141,7 @@ func (w *world) again(c NodeCall) NodeCall {
 func (w *world) dispatch(taskID string) Dispatch {
 	w.t.Helper()
 
-	d, err := w.s.CreateDispatch(w.t.Context(), taskID, w.spec())
+	d, err := w.create(taskID, w.spec())
 	require.NoError(w.t, err)
 
 	return d
@@ -258,6 +302,11 @@ func TestEveryDispatchTransitionPair(t *testing.T) {
 				return err
 			}))
 			assert.Equal(t, allowed[[2]DispatchStatus{from, to}], n == 1, "%s to %s", from, to)
+
+			// Free the slot a refused move left held, so the next pair is admitted.
+			_, err = w.db.ExecContext(t.Context(),
+				"UPDATE dispatches SET status = 'expired', failure_class = NULL, unknown_cause = NULL WHERE id = ?", d.ID)
+			require.NoError(t, err)
 		}
 	}
 }
@@ -359,7 +408,7 @@ func TestLostLeaseMakesTheOutcomeUnknown(t *testing.T) {
 	assert.Equal(t, UnknownLeaseLost, got.UnknownCause)
 	assert.Equal(t, "blocked:dispatch_unknown", w.statuses()["a"])
 
-	_, err = w.s.CreateDispatch(t.Context(), task.ID, w.spec())
+	_, err = w.create(task.ID, w.spec())
 	require.ErrorIs(t, err, ErrConflict)
 }
 
@@ -399,7 +448,7 @@ func TestReattachRecoversASleepingNode(t *testing.T) {
 	require.ErrorIs(t, err, ErrConflict, "another process")
 
 	other := w.again(c)
-	other.NodeID = "node_b"
+	other.NodeID = "nod_other"
 	_, err = w.s.ReattachDispatch(t.Context(), other, "pid:42@1")
 	require.ErrorIs(t, err, ErrConflict, "another node")
 
@@ -443,7 +492,7 @@ func TestReattachIsRefusedOnceTheOutcomeIsSettled(t *testing.T) {
 	require.ErrorIs(t, err, ErrConflict)
 
 	w.advance(BackoffBase)
-	_, err = w.s.CreateDispatch(t.Context(), task.ID, DispatchSpec{Continue: true})
+	_, err = w.create(task.ID, DispatchSpec{Continue: true})
 	require.ErrorIs(t, err, ErrConflict, "a closed conversation is not continued")
 
 	next := w.dispatch(task.ID)
@@ -492,7 +541,7 @@ func TestCancelWaitsForTheConfirmedStop(t *testing.T) {
 	assert.Equal(t, TaskRunning, w.task(tasks[0].ID).Status)
 	assert.NotNil(t, w.task(tasks[0].ID).CancelRequestedAt)
 	assert.Equal(t, DispatchStopping, w.dispatchOf(d.ID).Status)
-	_, err := w.s.CreateDispatch(t.Context(), tasks[0].ID, w.spec())
+	_, err := w.create(tasks[0].ID, w.spec())
 	require.ErrorIs(t, err, ErrConflict, "no second worker while the first may push")
 
 	assert.True(t, w.heartbeat(c).StopRequested)
@@ -606,7 +655,7 @@ func TestThirdCountedFailureTripsTheBreaker(t *testing.T) {
 	w.failOnce(a, FailureWorkerError)
 	assert.Equal(t, 1, w.task(a).FailureCount)
 	assert.Equal(t, w.clock.now.Add(BackoffBase), *w.task(a).NotBefore)
-	_, err := w.s.CreateDispatch(t.Context(), a, w.spec())
+	_, err := w.create(a, w.spec())
 	require.ErrorIs(t, err, ErrConflict, "too early")
 
 	w.advance(BackoffBase)
@@ -630,9 +679,9 @@ func TestThirdCountedFailureTripsTheBreaker(t *testing.T) {
 }
 
 // Scenario: the account hits a rate limit. It is not counted; the Task waits
-// for the reset, and the slot takes no other Dispatch until then while another
-// account still can.
-func TestRateLimitIsNotCountedAndCoolsTheSlot(t *testing.T) {
+// for the reset, and the account takes no other Dispatch until then while
+// another account still can.
+func TestRateLimitIsNotCountedAndCoolsTheAccount(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
@@ -649,12 +698,12 @@ func TestRateLimitIsNotCountedAndCoolsTheSlot(t *testing.T) {
 	assert.Zero(t, w.task(tasks[0].ID).FailureCount)
 	assert.Equal(t, resets, *w.task(tasks[0].ID).NotBefore)
 
-	_, err := w.s.CreateDispatch(t.Context(), tasks[1].ID, w.spec())
+	_, err := w.create(tasks[1].ID, w.spec())
 	require.ErrorIs(t, err, ErrCoolingDown)
 
 	other := w.spec()
-	other.AccountRef = "acct_2"
-	_, err = w.s.CreateDispatch(t.Context(), tasks[2].ID, other)
+	other.AccountRef = w.addAccount("claude", "acct_2").ID
+	_, err = w.create(tasks[2].ID, other)
 	require.NoError(t, err)
 
 	w.clock.now = resets
@@ -681,7 +730,7 @@ func TestExpiriesInARowMakeTheNodeUnavailable(t *testing.T) {
 			continue
 		}
 
-		assert.Equal(t, []Escalation{{Kind: EscalationNodeUnavailable, NodeID: "node_a"}}, r.Escalations)
+		assert.Equal(t, []Escalation{{Kind: EscalationNodeUnavailable, NodeID: w.node.ID}}, r.Escalations)
 	}
 
 	assert.Zero(t, w.task(task.ID).FailureCount)
@@ -699,7 +748,7 @@ func TestNeedsAuthIsNeverRetried(t *testing.T) {
 	assert.Equal(t, "blocked:needs_auth", w.statuses()["a"])
 
 	w.advance(24 * time.Hour)
-	_, err := w.s.CreateDispatch(t.Context(), task.ID, w.spec())
+	_, err := w.create(task.ID, w.spec())
 	require.ErrorIs(t, err, ErrConflict)
 
 	require.NoError(t, w.s.ReopenTask(t.Context(), task.ID))
@@ -750,10 +799,10 @@ func TestContinuingAConversation(t *testing.T) {
 	first := w.failOnce(tasks[0].ID, FailureWorkerError)
 	w.advance(BackoffBase)
 
-	_, err := w.s.CreateDispatch(t.Context(), tasks[0].ID, DispatchSpec{Continue: true, NodeID: "node_b"})
+	_, err := w.create(tasks[0].ID, DispatchSpec{Continue: true, NodeID: "nod_other"})
 	require.ErrorIs(t, err, ErrInvalid, "a conversation stays on its node")
 
-	next, err := w.s.CreateDispatch(t.Context(), tasks[0].ID, DispatchSpec{Continue: true})
+	next, err := w.create(tasks[0].ID, DispatchSpec{Continue: true})
 	require.NoError(t, err)
 	assert.Equal(t, first.ConversationID, next.ConversationID)
 	assert.False(t, next.Recovery)
@@ -792,7 +841,7 @@ func TestStallAndOverrunAreEscalatedNotKilled(t *testing.T) {
 	assert.Empty(t, w.reap().Escalations)
 
 	keepAlive(time.Minute)
-	assert.Equal(t, []Escalation{{Kind: EscalationStalled, DispatchID: d.ID, NodeID: "node_a"}}, w.reap().Escalations)
+	assert.Equal(t, []Escalation{{Kind: EscalationStalled, DispatchID: d.ID, NodeID: w.node.ID}}, w.reap().Escalations)
 	assert.Empty(t, w.reap().Escalations, "escalated once")
 	assert.NotNil(t, w.dispatchOf(d.ID).StalledAt)
 
@@ -801,7 +850,7 @@ func TestStallAndOverrunAreEscalatedNotKilled(t *testing.T) {
 
 	keepAlive(MaxDuration - 2*StallAfter + time.Minute)
 	r := w.reap()
-	assert.Contains(t, r.Escalations, Escalation{Kind: EscalationOverrun, DispatchID: d.ID, NodeID: "node_a"})
+	assert.Contains(t, r.Escalations, Escalation{Kind: EscalationOverrun, DispatchID: d.ID, NodeID: w.node.ID})
 	assert.Equal(t, DispatchRunning, w.dispatchOf(d.ID).Status)
 }
 
