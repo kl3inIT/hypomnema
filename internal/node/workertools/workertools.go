@@ -306,12 +306,10 @@ func (s *server) ask(ctx context.Context, raw, progressToken json.RawMessage) (m
 	waited := 0
 
 	for {
+		// A read that fails (the answer being renamed into place on Windows)
+		// is tried again on the next poll.
 		answer, ok, err := bridge.Answered(s.dir, seq)
-		if err != nil {
-			return nil, err
-		}
-
-		if ok {
+		if err == nil && ok {
 			return toolText("The answer: "+answer, false), nil
 		}
 
