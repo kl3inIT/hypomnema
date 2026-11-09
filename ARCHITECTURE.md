@@ -24,7 +24,8 @@ messages and wake-ups go as one `prompt`, or a follow-up while pi works, and are
 them; each assistant `message_end` is kept as the coordinator's message and each tool call as one system line. On
 the server pi runs as the `coordinator` user through `deploy/coordinator/`: a root-owned launcher (`hypomnema-pi`,
 a clean environment, only a chat id and model flags), one sudoers rule limited to it, pi's instructions, a
-`models.json` whose key is read from a 0600 file, and the setup script the owner runs with sudo.
+`models.json` whose key is read from a 0600 file, pi's version with its lockfile (`package.json`, which Dependabot
+updates; the setup installs it with `npm ci`), and the setup script the owner runs with sudo.
 Logs are JSON on stdout; `serve` stops on SIGINT or SIGTERM and lets requests in flight finish. `/readyz` answers 503
 with `Retry-After` while the database does not answer.
 
@@ -294,3 +295,5 @@ and the node in the control plane binary.
   production build, at a phone's and a desktop's size.
 - CI (`.github/workflows/ci.yml`) runs `make verify` and `govulncheck`, and in a second job `make web-check` and
   `make web-e2e`, on every pull request and on `main`.
+- Dependabot (`.github/dependabot.yml`) proposes updates weekly for the Go modules (`/`, `/tools/ci`), the web
+  client, pi (`deploy/coordinator`) and the GitHub Actions, with minor and patch updates grouped.
