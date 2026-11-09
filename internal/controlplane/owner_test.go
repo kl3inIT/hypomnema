@@ -114,6 +114,29 @@ func TestFollowEndsWhenTheTaskEnds(t *testing.T) {
 	assert.Equal(t, orchestration.RunFinished, finished.Status)
 }
 
+// Scenario: the owner answers by number, by an option's label in any case, or
+// with free text.
+func TestParseAnswer(t *testing.T) {
+	t.Parallel()
+
+	options := []orchestration.Option{{Label: "red"}, {Label: "Green"}}
+	option := func(i int) *int { return &i }
+
+	for _, c := range []struct {
+		typed string
+		want  orchestration.Answer
+	}{
+		{"2", orchestration.Answer{Option: option(1)}},
+		{"green", orchestration.Answer{Option: option(1)}},
+		{" RED ", orchestration.Answer{Option: option(0)}},
+		{"blue please", orchestration.Answer{Text: "blue please"}},
+	} {
+		assert.Equal(t, c.want, parseAnswer(options, c.typed), c.typed)
+	}
+
+	assert.Equal(t, orchestration.Answer{Text: "green"}, parseAnswer(nil, "green"))
+}
+
 // syncBuffer is a bytes.Buffer safe for one writer and one reader.
 type syncBuffer struct {
 	mu  sync.Mutex
