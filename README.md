@@ -12,6 +12,10 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for what exists and [docs/vision.md](docs
    (it checks the token and keeps it in `~/.hypomnema/client.json`).
 3. Then, for example, `hypomnema run --repo owner/name "<objective>"`.
 
+To let your own agent (Claude Code, Codex or pi) coordinate workers, log in with a `coordinator` token and run
+`hypomnema skills install`. It installs the coordinator skill into `~/.claude/skills` and `~/.agents/skills`; then
+ask the agent to give the work to Hypomnema workers.
+
 ## Setting up a node machine
 
 A node runs the workers. Do this on the machine that will run them, with the control plane already serving.

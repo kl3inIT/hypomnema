@@ -16,8 +16,13 @@
 //
 //	hypomnema login --url URL --token-file FILE
 //	hypomnema run --repo owner/name [--base B] [--role R] [--runtime X] [--model M] [--detach] <objective>
-//	hypomnema answer <question> <number or text>
-//	hypomnema questions                        list open questions to the owner
+//	hypomnema runs create|list|show|finish|cancel|wait …
+//	hypomnema tasks create|show|cancel|reopen …
+//	hypomnema questions [show|forward] …, hypomnema answer <question> <answer>
+//	hypomnema whoami
+//	hypomnema skills get|install …              the coordinator skill (no login needed)
+//
+// `hypomnema <command> --help` lists a command's flags; every one takes --json.
 //
 //	hypomnema version                          print the version
 package main
@@ -39,6 +44,7 @@ import (
 
 var errUsage = errors.New("usage: hypomnema migrate | serve | version | nodes add|list | accounts add|list | " +
 	"tokens add|list|revoke | login --url URL --token-file FILE | run --repo owner/name <objective> | " +
+	"runs … | tasks … | questions … | whoami | skills get|install | " +
 	"answer <question> <answer> | questions")
 
 func main() {
@@ -58,6 +64,13 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout 
 		return errUsage
 	}
 
+	if args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
+		_, err := fmt.Fprintf(stdout, "%s\n\nover the client API (after login):\n%s\n\n"+
+			"`hypomnema <command> --help` lists a command's flags.\n", errUsage, clientcli.Usage())
+
+		return err
+	}
+
 	if args[0] == "version" {
 		if len(args) != 1 {
 			return errUsage
@@ -68,18 +81,13 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout 
 		return err
 	}
 
-	if slices.Contains(clientcli.Commands, args[0]) {
+	if slices.Contains(clientcli.Commands(), args[0]) {
 		home, err := clientcli.DefaultHome()
 		if err != nil {
 			return err
 		}
 
-		err = clientcli.Command(ctx, home, args, stdout)
-		if errors.Is(err, clientcli.ErrUsage) {
-			return errors.Join(err, errUsage)
-		}
-
-		return err
+		return clientcli.Command(ctx, home, args, os.Stdin, stdout)
 	}
 
 	cfg, err := controlplane.LoadConfig(getenv)
