@@ -94,3 +94,49 @@ would add a Node server to operate.
 
 The chat components are chosen with the web chat design. The options are MemoryOS's assistant-ui with streamdown and
 Omnigent's ai-elements with streamdown. The design starts phone-first, as Omnigent's web UI is (`docs/vision.md`).
+
+## 5. The look
+
+What the references set in shadcn's `components.json` (read in `.tmp/`):
+
+| Reference | Style | Base color |
+|---|---|---|
+| Omnigent `web` | `radix-nova` | neutral |
+| Orca | `new-york-v4` | neutral |
+| Omnara, Coder, Bifrost, Buzz | `new-york` | zinc |
+| Hermes desktop, companion | `new-york` | neutral |
+| LiteLLM | `base-vega` | gray |
+
+OpenClaw and opencode use Solid, not shadcn.
+
+None uses a tinted base color. The primary color differs:
+
+- Orca keeps it neutral (`src/renderer/src/assets/main.css`: `--primary: #e5e5e5` in dark mode).
+- Omnara uses blue (`frontend/apps/web/src/styles/palette.css`).
+- Omnigent uses its brand pink by default. Its default palette is `omni` (`web/src/lib/themePalette.ts` L47, `--primary: #df3c85`), and the user can pick seven other palettes.
+
+Omnigent also adds its own tokens on top of shadcn's (`web/src/index.css` L259-276):
+
+- `--status-blue`, `--status-green`, `--status-yellow`, `--status-red` and `--status-gray`;
+- `--success`, `--warning` and `--info`;
+- `--link`, `--border-strong`, `--code-bg` and `--sidebar-active`.
+
+affectUI's agent orchestration screen (read from its CSS on 2026-11-09) uses:
+
+- Inter at 13px;
+- dark surfaces in steps (`#0e0e10`, `#141416`, `#1b1b1e`) with 8% white hairlines;
+- four text levels made by white opacity;
+- one blue accent;
+- status pairs, each a text color on a tinted background (running, done, needs you, failed).
+
+**Decided by the owner on 2026-11-09:**
+
+- **Base:** the shadcn preset `b43eDcOJc` (Nova, base color neutral, theme and charts pink, Inter, Lucide, small radius). It is applied with `shadcn init --preset b43eDcOJc --base base`. Dark is the default, and light follows the system.
+- **Brand color:** pink, on Radix Colors' scale rather than shadcn's brighter one: `#d6409f` for the primary fill, and `#ff8dcc` for links and accents on dark.
+- **Tokens added in `index.css`**, after Omnigent:
+  - five statuses: running (blue), done (green), needs you (amber), failed (red leaning orange, as affectUI's `#ff977d`, so it does not read as the pink brand), and queued (gray). Each has a text color and a tinted background, for light and dark.
+  - `--link`, `--border-strong`, `--code-bg` and `--sidebar-active`;
+  - a mono font for ids, branches and logs.
+  - A status is never shown by color alone: it carries an icon and a word.
+- **Type:** 13px on wide screens; inputs are 16px on phones, as iOS zooms into smaller inputs.
+- **Not now:** user-selectable palettes, as Omnigent has; there is one user.
