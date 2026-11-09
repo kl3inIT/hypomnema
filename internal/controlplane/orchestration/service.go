@@ -88,11 +88,17 @@ func (s *Service) CreateRunOnce(ctx context.Context, o Once, nr NewRun) (Run, er
 		var err error
 
 		id, err = once(ctx, q, now, o, "runs.create", nr, func() (string, error) {
+			if nr.ChatID != "" {
+				if _, err := q.GetChat(ctx, nr.ChatID); err != nil {
+					return "", notFound(err, "chat", nr.ChatID)
+				}
+			}
+
 			id := s.newID("run")
 
 			if err := q.InsertRun(ctx, store.InsertRunParams{
 				ID: id, Objective: objective, CreatedBy: createdBy, Repo: nullString(nr.Repo), Base: nullString(base),
-				CoordinatorTokenID: nullString(nr.CoordinatorTokenID), Now: now,
+				CoordinatorTokenID: nullString(nr.CoordinatorTokenID), ChatID: nullString(nr.ChatID), Now: now,
 			}); err != nil {
 				return "", fmt.Errorf("inserting run: %w", err)
 			}
@@ -738,7 +744,7 @@ func optionalTime(v sql.NullInt64) *time.Time {
 func runFromRow(r store.Run) Run {
 	return Run{
 		ID: r.ID, Objective: r.Objective, Status: RunStatus(r.Status), CreatedBy: r.CreatedBy,
-		Repo: r.Repo.String, Base: r.Base.String, CoordinatorTokenID: r.CoordinatorTokenID.String,
+		Repo: r.Repo.String, Base: r.Base.String, CoordinatorTokenID: r.CoordinatorTokenID.String, ChatID: r.ChatID.String,
 		CreatedAt: millis(r.CreatedAt), UpdatedAt: millis(r.UpdatedAt), FinishedAt: optionalTime(r.FinishedAt),
 	}
 }

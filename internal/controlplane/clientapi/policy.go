@@ -61,6 +61,11 @@ var policies = map[string]policy{
 	"ListProviders":       {},
 	"ApplyProvider":       {scope: scopeOwner},
 	"ListModels":          {},
+	"ListChats":           {scope: scopeOwner},
+	"CreateChat":          {scope: scopeOwner},
+	"GetChat":             {scope: scopeOwner},
+	"ListChatMessages":    {scope: scopeOwner, long: true},
+	"SendChatMessage":     {scope: scopeOwner},
 }
 
 var (
@@ -76,7 +81,7 @@ func (s *Server) checkPolicy(ctx context.Context, p policy, tok orchestration.To
 	}
 
 	if p.scope == scopeOwner {
-		return fmt.Errorf("%w: only the owner changes profiles and providers", errForbidden)
+		return fmt.Errorf("%w: only the owner's token may do this", errForbidden)
 	}
 
 	runID, err := s.runOf(ctx, p.scope, request)

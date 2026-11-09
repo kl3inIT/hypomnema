@@ -45,6 +45,21 @@ type Server struct {
 	// stop ends long requests (event waits and streams) when the server shuts down.
 	stop      <-chan struct{}
 	heartbeat time.Duration
+	// coordinator reports whether pi works on a chat; nil when none runs.
+	coordinator Coordinator
+}
+
+// Coordinator is what the API asks of the coordinator's supervisor.
+type Coordinator interface {
+	Enabled() bool
+	Working(chatID string) bool
+}
+
+// WithCoordinator lets chats report whether pi is working on them.
+func (s *Server) WithCoordinator(c Coordinator) *Server {
+	s.coordinator = c
+
+	return s
 }
 
 // New returns a Server. Long requests end when stop is closed, so a shutdown

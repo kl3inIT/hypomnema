@@ -51,9 +51,11 @@ type Run struct {
 	// CoordinatorTokenID is the coordinator token that coordinates the Run;
 	// empty when the owner created it.
 	CoordinatorTokenID string
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
-	FinishedAt         *time.Time
+	// ChatID is the chat whose coordinator created the Run, if any.
+	ChatID     string
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+	FinishedAt *time.Time
 }
 
 // Task is one unit of work inside a Run.
@@ -101,6 +103,8 @@ type NewRun struct {
 	Repo               string
 	Base               string
 	CoordinatorTokenID string
+	// ChatID names the chat whose coordinator creates it, if any.
+	ChatID string
 }
 
 // RunFilter selects Runs; empty fields match everything.

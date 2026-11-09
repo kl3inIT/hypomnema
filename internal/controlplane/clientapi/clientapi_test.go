@@ -46,7 +46,7 @@ func newWorld(t *testing.T) *world {
 	svc := orchestration.New(db, platform.SystemClock{}, platform.NewID)
 
 	stop := make(chan struct{})
-	srv := New(svc, slog.New(slog.DiscardHandler), stop)
+	srv := New(svc, slog.New(slog.DiscardHandler), stop).WithCoordinator(fakeCoordinator{})
 	srv.heartbeat = 50 * time.Millisecond
 
 	mux := http.NewServeMux()
@@ -628,4 +628,65 @@ func TestOnlyTheOwnerChangesProfiles(t *testing.T) {
 		openapi.Source{Source: "name: router\nkind: openai_compatible\nmodels: [m1]\n"})
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusForbidden, provider.StatusCode())
+}
+
+// fakeCoordinator says pi runs and is never working.
+type fakeCoordinator struct{}
+
+func (fakeCoordinator) Enabled() bool         { return true }
+func (fakeCoordinator) Working(_ string) bool { return false }
+
+// Scenario: the owner chats with pi from the web. Only the owner's token
+// reads or writes chats; a message read with wait arrives as it is kept; a
+// Run created from the chat records it.
+func TestOnlyTheOwnerChats(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	owner, _ := w.token("web", bearertoken.Owner)
+	pi, _ := w.token("pi", bearertoken.Coordinator)
+	ctx := t.Context()
+
+	created, err := owner.CreateChatWithResponse(ctx, openapi.NewChat{})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, created.StatusCode(), string(created.Body))
+	chat := created.JSON201
+	assert.True(t, chat.Coordinator)
+	assert.False(t, chat.Working)
+
+	refused, err := pi.ListChatsWithResponse(ctx, nil)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, refused.StatusCode(), "a coordinator token does not read the owner's chats")
+
+	sent, err := owner.SendChatMessageWithResponse(ctx, chat.Id, openapi.NewChatMessage{Text: "add a health page"})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, sent.StatusCode())
+	assert.Equal(t, openapi.ChatRoleOwner, sent.JSON201.Role)
+	assert.Nil(t, sent.JSON201.DeliveredAt)
+
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		_, _ = w.svc.AddChatMessage(context.WithoutCancel(ctx), chat.Id, orchestration.ChatCoordinator, "On it.")
+	}()
+
+	wait := 5
+	after := sent.JSON201.Seq
+
+	page, err := owner.ListChatMessagesWithResponse(ctx, chat.Id,
+		&openapi.ListChatMessagesParams{After: &after, Wait: &wait})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, page.StatusCode())
+	require.Len(t, page.JSON200.Data, 1, "the wait returns the reply as it is kept")
+	assert.Equal(t, "On it.", page.JSON200.Data[0].Text)
+	assert.Equal(t, page.JSON200.Data[0].Seq, page.JSON200.NextAfter)
+
+	run, err := pi.CreateRunWithResponse(ctx, nil, openapi.NewRun{Objective: "health page", ChatId: &chat.Id})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, run.StatusCode(), string(run.Body))
+	assert.Equal(t, chat.Id, val(run.JSON201.ChatId))
+
+	unknown := "cht_none"
+	missing, err := pi.CreateRunWithResponse(ctx, nil, openapi.NewRun{Objective: "x", ChatId: &unknown})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusNotFound, missing.StatusCode())
 }

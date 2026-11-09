@@ -1,0 +1,49 @@
+#!/bin/sh
+# Starts pi, the coordinator, for one chat (issue #41, PR 3). Installed root-owned as /usr/local/bin/hypomnema-pi; the
+# control plane's user runs it as the coordinator user through one sudoers rule limited to this file. It accepts only
+# a chat id and the model flags the control plane adds, and gives pi a clean environment, as Omnigent's
+# _clean_pi_env does: no variable of the caller reaches pi.
+set -eu
+
+usage() {
+  echo "usage: hypomnema-pi <chat id> [--provider P] [--model M] [--thinking T]" >&2
+  exit 2
+}
+
+chat="${1:-}"
+[ -n "$chat" ] || usage
+shift
+
+case "$chat" in
+  cht_*) ;;
+  *) usage ;;
+esac
+case "$chat" in
+  *[!A-Za-z0-9_]*) usage ;;
+esac
+
+# The rest are flag and value pairs, from a short list, with plain values.
+expect=flag
+for arg in "$@"; do
+  if [ "$expect" = flag ]; then
+    case "$arg" in
+      --provider | --model | --thinking) expect=value ;;
+      *) usage ;;
+    esac
+  else
+    case "$arg" in
+      "" | -* | *[!A-Za-z0-9._/:-]*) usage ;;
+    esac
+    expect=flag
+  fi
+done
+[ "$expect" = flag ] || usage
+
+home=/home/coordinator/.hypomnema-coordinator
+cd "$home/work"
+
+exec env -i \
+  HOME=/home/coordinator USER=coordinator LOGNAME=coordinator LANG=C.UTF-8 TERM=dumb \
+  PATH=/opt/hypomnema-node/bin:/home/coordinator/.local/bin:/usr/local/bin:/usr/bin:/bin \
+  PI_CODING_AGENT_DIR="$home/agent" HYPOMNEMA_CHAT_ID="$chat" \
+  pi --mode rpc --session-dir "$home/sessions" --session-id "$chat" "$@"

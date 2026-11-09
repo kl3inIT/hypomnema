@@ -84,6 +84,27 @@ func (e BlockedReason) Valid() bool {
 	}
 }
 
+// Defines values for ChatRole.
+const (
+	ChatRoleCoordinator ChatRole = "coordinator"
+	ChatRoleOwner       ChatRole = "owner"
+	ChatRoleSystem      ChatRole = "system"
+)
+
+// Valid indicates whether the value is a known member of the ChatRole enum.
+func (e ChatRole) Valid() bool {
+	switch e {
+	case ChatRoleCoordinator:
+		return true
+	case ChatRoleOwner:
+		return true
+	case ChatRoleSystem:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for DispatchStatus.
 const (
 	DispatchStatusAbandoned   DispatchStatus = "abandoned"
@@ -357,6 +378,50 @@ type Answer struct {
 // BlockedReason defines model for BlockedReason.
 type BlockedReason string
 
+// Chat defines model for Chat.
+type Chat struct {
+	// Coordinator A coordinator is configured to answer; false means messages are kept and nothing answers.
+	Coordinator bool      `json:"coordinator"`
+	CreatedAt   time.Time `json:"created_at"`
+	Id          string    `json:"id"`
+	Title       string    `json:"title"`
+	UpdatedAt   time.Time `json:"updated_at"`
+
+	// Working The coordinator is working on a turn of this chat.
+	Working bool `json:"working"`
+}
+
+// ChatList defines model for ChatList.
+type ChatList struct {
+	Data []Chat `json:"data"`
+}
+
+// ChatMessage defines model for ChatMessage.
+type ChatMessage struct {
+	ChatId    string    `json:"chat_id"`
+	CreatedAt time.Time `json:"created_at"`
+
+	// DeliveredAt When the coordinator got an owner message or a wake-up.
+	DeliveredAt *time.Time `json:"delivered_at,omitempty"`
+
+	// EventSeq The event a wake-up reports.
+	EventSeq *int64   `json:"event_seq,omitempty"`
+	Role     ChatRole `json:"role"`
+	Seq      int64    `json:"seq"`
+	Text     string   `json:"text"`
+}
+
+// ChatMessageList defines model for ChatMessageList.
+type ChatMessageList struct {
+	Data []ChatMessage `json:"data"`
+
+	// NextAfter The cursor for the next page.
+	NextAfter int64 `json:"next_after"`
+}
+
+// ChatRole defines model for ChatRole.
+type ChatRole string
+
 // Dispatch defines model for Dispatch.
 type Dispatch struct {
 	CreatedAt    time.Time `json:"created_at"`
@@ -452,9 +517,22 @@ type ModelList struct {
 	Data []Model `json:"data"`
 }
 
+// NewChat defines model for NewChat.
+type NewChat struct {
+	Title *string `json:"title,omitempty"`
+}
+
+// NewChatMessage defines model for NewChatMessage.
+type NewChatMessage struct {
+	Text string `json:"text"`
+}
+
 // NewRun defines model for NewRun.
 type NewRun struct {
-	Base      *string `json:"base,omitempty"`
+	Base *string `json:"base,omitempty"`
+
+	// ChatId The chat whose coordinator creates it; that chat is woken by the Run's events.
+	ChatId    *string `json:"chat_id,omitempty"`
 	Objective string  `json:"objective"`
 	Repo      *string `json:"repo,omitempty"`
 }
@@ -587,6 +665,9 @@ type QuestionStatus string
 type Run struct {
 	Base *string `json:"base,omitempty"`
 
+	// ChatId The chat whose coordinator created the Run.
+	ChatId *string `json:"chat_id,omitempty"`
+
 	// CoordinatorTokenId The coordinator token that coordinates the Run; absent when the owner created it.
 	CoordinatorTokenId *string    `json:"coordinator_token_id,omitempty"`
 	CreatedAt          time.Time  `json:"created_at"`
@@ -604,6 +685,9 @@ type Run struct {
 // RunDetail defines model for RunDetail.
 type RunDetail struct {
 	Base *string `json:"base,omitempty"`
+
+	// ChatId The chat whose coordinator created the Run.
+	ChatId *string `json:"chat_id,omitempty"`
 
 	// CoordinatorTokenId The coordinator token that coordinates the Run; absent when the owner created it.
 	CoordinatorTokenId *string    `json:"coordinator_token_id,omitempty"`
@@ -705,6 +789,9 @@ type TokenKind string
 // After defines model for After.
 type After = int64
 
+// ChatID defines model for ChatID.
+type ChatID = string
+
 // IdempotencyKey defines model for IdempotencyKey.
 type IdempotencyKey = string
 
@@ -719,6 +806,21 @@ type RunID = string
 
 // TaskID defines model for TaskID.
 type TaskID = string
+
+// ListChatsParams defines parameters for ListChats.
+type ListChatsParams struct {
+	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// ListChatMessagesParams defines parameters for ListChatMessages.
+type ListChatMessagesParams struct {
+	// After The seq of the last event already read.
+	After *After `form:"after,omitempty" json:"after,omitempty"`
+	Limit *int   `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Wait Seconds to wait when no message follows the cursor yet; zero answers at once.
+	Wait *int `form:"wait,omitempty" json:"wait,omitempty"`
+}
 
 // ListEventsParams defines parameters for ListEvents.
 type ListEventsParams struct {
@@ -771,6 +873,12 @@ type CreateTasksParams struct {
 	// IdempotencyKey Makes the request safe to repeat: the same key with the same request returns the first result; with another request it is idempotency_key_conflict.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
+
+// CreateChatJSONRequestBody defines body for CreateChat for application/json ContentType.
+type CreateChatJSONRequestBody = NewChat
+
+// SendChatMessageJSONRequestBody defines body for SendChatMessage for application/json ContentType.
+type SendChatMessageJSONRequestBody = NewChatMessage
 
 // ApplyProfileJSONRequestBody defines body for ApplyProfile for application/json ContentType.
 type ApplyProfileJSONRequestBody = Source
@@ -865,6 +973,49 @@ type ClientInterface interface {
 	//
 	// Corresponds with GET /accounts (the `ListAccounts` operationId).
 	ListAccounts(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListChats The owner's chats with the coordinator, the most recently active first
+	//
+	// Corresponds with GET /chats (the `ListChats` operationId).
+	ListChats(ctx context.Context, params *ListChatsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateChatWithBody Start a chat with the coordinator
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /chats (the `CreateChat` operationId).
+	CreateChatWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateChat Start a chat with the coordinator
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /chats (the `CreateChat` operationId).
+	CreateChat(ctx context.Context, body CreateChatJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetChat A chat, and whether the coordinator is working on it
+	//
+	// Corresponds with GET /chats/{chat_id} (the `GetChat` operationId).
+	GetChat(ctx context.Context, chatId ChatID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListChatMessages A chat's messages after a cursor, oldest first; optionally wait for the next one
+	//
+	// Corresponds with GET /chats/{chat_id}/messages (the `ListChatMessages` operationId).
+	ListChatMessages(ctx context.Context, chatId ChatID, params *ListChatMessagesParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SendChatMessageWithBody Write to the coordinator; it gets the message when it can take it
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /chats/{chat_id}/messages (the `SendChatMessage` operationId).
+	SendChatMessageWithBody(ctx context.Context, chatId ChatID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SendChatMessage Write to the coordinator; it gets the message when it can take it
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /chats/{chat_id}/messages (the `SendChatMessage` operationId).
+	SendChatMessage(ctx context.Context, chatId ChatID, body SendChatMessageJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListEvents Events after a cursor, oldest first; optionally wait for the next one
 	//
@@ -1039,6 +1190,119 @@ type ClientInterface interface {
 // Corresponds with GET /accounts (the `ListAccounts` operationId).
 func (c *Client) ListAccounts(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewListAccountsRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListChats The owner's chats with the coordinator, the most recently active first
+//
+// Corresponds with GET /chats (the `ListChats` operationId).
+func (c *Client) ListChats(ctx context.Context, params *ListChatsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListChatsRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateChatWithBody Start a chat with the coordinator
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /chats (the `CreateChat` operationId).
+func (c *Client) CreateChatWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateChatRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateChat Start a chat with the coordinator
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /chats (the `CreateChat` operationId).
+func (c *Client) CreateChat(ctx context.Context, body CreateChatJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateChatRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetChat A chat, and whether the coordinator is working on it
+//
+// Corresponds with GET /chats/{chat_id} (the `GetChat` operationId).
+func (c *Client) GetChat(ctx context.Context, chatId ChatID, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetChatRequest(c.Server, chatId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListChatMessages A chat's messages after a cursor, oldest first; optionally wait for the next one
+//
+// Corresponds with GET /chats/{chat_id}/messages (the `ListChatMessages` operationId).
+func (c *Client) ListChatMessages(ctx context.Context, chatId ChatID, params *ListChatMessagesParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListChatMessagesRequest(c.Server, chatId, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SendChatMessageWithBody Write to the coordinator; it gets the message when it can take it
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /chats/{chat_id}/messages (the `SendChatMessage` operationId).
+func (c *Client) SendChatMessageWithBody(ctx context.Context, chatId ChatID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSendChatMessageRequestWithBody(c.Server, chatId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SendChatMessage Write to the coordinator; it gets the message when it can take it
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /chats/{chat_id}/messages (the `SendChatMessage` operationId).
+func (c *Client) SendChatMessage(ctx context.Context, chatId ChatID, body SendChatMessageJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSendChatMessageRequest(c.Server, chatId, body)
 	if err != nil {
 		return nil, err
 	}
@@ -1529,6 +1793,266 @@ func NewListAccountsRequest(server string) (*http.Request, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	return req, nil
+}
+
+// NewListChatsRequest constructs an http.Request for the ListChats method
+func NewListChatsRequest(server string, params *ListChatsParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/chats")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewCreateChatRequest calls the generic CreateChat builder with application/json body
+func NewCreateChatRequest(server string, body CreateChatJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateChatRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewCreateChatRequestWithBody constructs an http.Request for the CreateChat method, with any body, and a specified content type
+func NewCreateChatRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/chats")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewGetChatRequest constructs an http.Request for the GetChat method
+func NewGetChatRequest(server string, chatId ChatID) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "chat_id", chatId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/chats/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewListChatMessagesRequest constructs an http.Request for the ListChatMessages method
+func NewListChatMessagesRequest(server string, chatId ChatID, params *ListChatMessagesParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "chat_id", chatId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/chats/%s/messages", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.After != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "after", *params.After, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: "int64"}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Wait != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "wait", *params.Wait, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewSendChatMessageRequest calls the generic SendChatMessage builder with application/json body
+func NewSendChatMessageRequest(server string, chatId ChatID, body SendChatMessageJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewSendChatMessageRequestWithBody(server, chatId, "application/json", bodyReader)
+}
+
+// NewSendChatMessageRequestWithBody constructs an http.Request for the SendChatMessage method, with any body, and a specified content type
+func NewSendChatMessageRequestWithBody(server string, chatId ChatID, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "chat_id", chatId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/chats/%s/messages", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
 
 	return req, nil
 }
@@ -2680,6 +3204,55 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /accounts (the `ListAccounts` operationId).
 	ListAccountsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListAccountsResponse, error)
 
+	// ListChatsWithResponse The owner's chats with the coordinator, the most recently active first
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /chats (the `ListChats` operationId).
+	ListChatsWithResponse(ctx context.Context, params *ListChatsParams, reqEditors ...RequestEditorFn) (*ListChatsResponse, error)
+
+	// CreateChatWithBodyWithResponse Start a chat with the coordinator
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /chats (the `CreateChat` operationId).
+	CreateChatWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateChatResponse, error)
+
+	// CreateChatWithResponse Start a chat with the coordinator
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /chats (the `CreateChat` operationId).
+	CreateChatWithResponse(ctx context.Context, body CreateChatJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateChatResponse, error)
+
+	// GetChatWithResponse A chat, and whether the coordinator is working on it
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /chats/{chat_id} (the `GetChat` operationId).
+	GetChatWithResponse(ctx context.Context, chatId ChatID, reqEditors ...RequestEditorFn) (*GetChatResponse, error)
+
+	// ListChatMessagesWithResponse A chat's messages after a cursor, oldest first; optionally wait for the next one
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /chats/{chat_id}/messages (the `ListChatMessages` operationId).
+	ListChatMessagesWithResponse(ctx context.Context, chatId ChatID, params *ListChatMessagesParams, reqEditors ...RequestEditorFn) (*ListChatMessagesResponse, error)
+
+	// SendChatMessageWithBodyWithResponse Write to the coordinator; it gets the message when it can take it
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /chats/{chat_id}/messages (the `SendChatMessage` operationId).
+	SendChatMessageWithBodyWithResponse(ctx context.Context, chatId ChatID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SendChatMessageResponse, error)
+
+	// SendChatMessageWithResponse Write to the coordinator; it gets the message when it can take it
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /chats/{chat_id}/messages (the `SendChatMessage` operationId).
+	SendChatMessageWithResponse(ctx context.Context, chatId ChatID, body SendChatMessageJSONRequestBody, reqEditors ...RequestEditorFn) (*SendChatMessageResponse, error)
+
 	// ListEventsWithResponse Events after a cursor, oldest first; optionally wait for the next one
 	//
 	// Returns a wrapper object for the known response body format(s).
@@ -2928,6 +3501,246 @@ func (r ListAccountsResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r ListAccountsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListChatsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ChatList
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListChatsResponse) GetJSON200() *ChatList {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListChatsResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListChatsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListChatsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListChatsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListChatsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type CreateChatResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *Chat
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r CreateChatResponse) GetJSON201() *Chat {
+	return r.JSON201
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r CreateChatResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r CreateChatResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateChatResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateChatResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CreateChatResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetChatResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Chat
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetChatResponse) GetJSON200() *Chat {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r GetChatResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r GetChatResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetChatResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetChatResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetChatResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListChatMessagesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ChatMessageList
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListChatMessagesResponse) GetJSON200() *ChatMessageList {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListChatMessagesResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListChatMessagesResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListChatMessagesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListChatMessagesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListChatMessagesResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type SendChatMessageResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *ChatMessage
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r SendChatMessageResponse) GetJSON201() *ChatMessage {
+	return r.JSON201
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r SendChatMessageResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r SendChatMessageResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r SendChatMessageResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r SendChatMessageResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r SendChatMessageResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -4099,6 +4912,97 @@ func (c *ClientWithResponses) ListAccountsWithResponse(ctx context.Context, reqE
 	return ParseListAccountsResponse(rsp)
 }
 
+// ListChatsWithResponse The owner's chats with the coordinator, the most recently active first
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /chats (the `ListChats` operationId).
+func (c *ClientWithResponses) ListChatsWithResponse(ctx context.Context, params *ListChatsParams, reqEditors ...RequestEditorFn) (*ListChatsResponse, error) {
+	rsp, err := c.ListChats(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListChatsResponse(rsp)
+}
+
+// CreateChatWithBodyWithResponse Start a chat with the coordinator
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /chats (the `CreateChat` operationId).
+func (c *ClientWithResponses) CreateChatWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateChatResponse, error) {
+	rsp, err := c.CreateChatWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateChatResponse(rsp)
+}
+
+// CreateChatWithResponse Start a chat with the coordinator
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /chats (the `CreateChat` operationId).
+func (c *ClientWithResponses) CreateChatWithResponse(ctx context.Context, body CreateChatJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateChatResponse, error) {
+	rsp, err := c.CreateChat(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateChatResponse(rsp)
+}
+
+// GetChatWithResponse A chat, and whether the coordinator is working on it
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /chats/{chat_id} (the `GetChat` operationId).
+func (c *ClientWithResponses) GetChatWithResponse(ctx context.Context, chatId ChatID, reqEditors ...RequestEditorFn) (*GetChatResponse, error) {
+	rsp, err := c.GetChat(ctx, chatId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetChatResponse(rsp)
+}
+
+// ListChatMessagesWithResponse A chat's messages after a cursor, oldest first; optionally wait for the next one
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /chats/{chat_id}/messages (the `ListChatMessages` operationId).
+func (c *ClientWithResponses) ListChatMessagesWithResponse(ctx context.Context, chatId ChatID, params *ListChatMessagesParams, reqEditors ...RequestEditorFn) (*ListChatMessagesResponse, error) {
+	rsp, err := c.ListChatMessages(ctx, chatId, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListChatMessagesResponse(rsp)
+}
+
+// SendChatMessageWithBodyWithResponse Write to the coordinator; it gets the message when it can take it
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /chats/{chat_id}/messages (the `SendChatMessage` operationId).
+func (c *ClientWithResponses) SendChatMessageWithBodyWithResponse(ctx context.Context, chatId ChatID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SendChatMessageResponse, error) {
+	rsp, err := c.SendChatMessageWithBody(ctx, chatId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSendChatMessageResponse(rsp)
+}
+
+// SendChatMessageWithResponse Write to the coordinator; it gets the message when it can take it
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /chats/{chat_id}/messages (the `SendChatMessage` operationId).
+func (c *ClientWithResponses) SendChatMessageWithResponse(ctx context.Context, chatId ChatID, body SendChatMessageJSONRequestBody, reqEditors ...RequestEditorFn) (*SendChatMessageResponse, error) {
+	rsp, err := c.SendChatMessage(ctx, chatId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSendChatMessageResponse(rsp)
+}
+
 // ListEventsWithResponse Events after a cursor, oldest first; optionally wait for the next one
 //
 // Returns a wrapper object for the known response body format(s).
@@ -4498,6 +5402,171 @@ func ParseListAccountsResponse(rsp *http.Response) (*ListAccountsResponse, error
 			return nil, err
 		}
 		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListChatsResponse parses an HTTP response from a ListChatsWithResponse call
+func ParseListChatsResponse(rsp *http.Response) (*ListChatsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListChatsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ChatList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCreateChatResponse parses an HTTP response from a CreateChatWithResponse call
+func ParseCreateChatResponse(rsp *http.Response) (*CreateChatResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateChatResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest Chat
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetChatResponse parses an HTTP response from a GetChatWithResponse call
+func ParseGetChatResponse(rsp *http.Response) (*GetChatResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetChatResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Chat
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListChatMessagesResponse parses an HTTP response from a ListChatMessagesWithResponse call
+func ParseListChatMessagesResponse(rsp *http.Response) (*ListChatMessagesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListChatMessagesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ChatMessageList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseSendChatMessageResponse parses an HTTP response from a SendChatMessageWithResponse call
+func ParseSendChatMessageResponse(rsp *http.Response) (*SendChatMessageResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &SendChatMessageResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest ChatMessage
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
 		var dest Error
@@ -5308,6 +6377,21 @@ type ServerInterface interface {
 	// ListAccounts The accounts workers run under (no secrets)
 	// (GET /accounts)
 	ListAccounts(w http.ResponseWriter, r *http.Request)
+	// ListChats The owner's chats with the coordinator, the most recently active first
+	// (GET /chats)
+	ListChats(w http.ResponseWriter, r *http.Request, params ListChatsParams)
+	// CreateChat Start a chat with the coordinator
+	// (POST /chats)
+	CreateChat(w http.ResponseWriter, r *http.Request)
+	// GetChat A chat, and whether the coordinator is working on it
+	// (GET /chats/{chat_id})
+	GetChat(w http.ResponseWriter, r *http.Request, chatId ChatID)
+	// ListChatMessages A chat's messages after a cursor, oldest first; optionally wait for the next one
+	// (GET /chats/{chat_id}/messages)
+	ListChatMessages(w http.ResponseWriter, r *http.Request, chatId ChatID, params ListChatMessagesParams)
+	// SendChatMessage Write to the coordinator; it gets the message when it can take it
+	// (POST /chats/{chat_id}/messages)
+	SendChatMessage(w http.ResponseWriter, r *http.Request, chatId ChatID)
 	// ListEvents Events after a cursor, oldest first; optionally wait for the next one
 	// (GET /events)
 	ListEvents(w http.ResponseWriter, r *http.Request, params ListEventsParams)
@@ -5396,6 +6480,173 @@ func (siw *ServerInterfaceWrapper) ListAccounts(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListAccounts(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListChats operation middleware
+func (siw *ServerInterfaceWrapper) ListChats(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListChatsParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListChats(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateChat operation middleware
+func (siw *ServerInterfaceWrapper) CreateChat(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateChat(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetChat operation middleware
+func (siw *ServerInterfaceWrapper) GetChat(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "chat_id" -------------
+	var chatId ChatID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "chat_id", r.PathValue("chat_id"), &chatId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "chat_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetChat(w, r, chatId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListChatMessages operation middleware
+func (siw *ServerInterfaceWrapper) ListChatMessages(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "chat_id" -------------
+	var chatId ChatID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "chat_id", r.PathValue("chat_id"), &chatId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "chat_id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListChatMessagesParams
+
+	// ------------- Optional query parameter "after" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "after", r.URL.Query(), &params.After, runtime.BindQueryParameterOptions{Type: "integer", Format: "int64"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "after"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "after", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "wait" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "wait", r.URL.Query(), &params.Wait, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "wait"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "wait", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListChatMessages(w, r, chatId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SendChatMessage operation middleware
+func (siw *ServerInterfaceWrapper) SendChatMessage(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "chat_id" -------------
+	var chatId ChatID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "chat_id", r.PathValue("chat_id"), &chatId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "chat_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SendChatMessage(w, r, chatId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -6345,6 +7596,11 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/providers", wrapper.ListProviders)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/providers/{name}", wrapper.ApplyProvider)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/models", wrapper.ListModels)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/chats", wrapper.ListChats)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/chats", wrapper.CreateChat)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/chats/{chat_id}", wrapper.GetChat)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/chats/{chat_id}/messages", wrapper.ListChatMessages)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/chats/{chat_id}/messages", wrapper.SendChatMessage)
 
 	return m
 }
@@ -6378,6 +7634,203 @@ type ListAccountsdefaultJSONResponse struct {
 }
 
 func (response ListAccountsdefaultJSONResponse) VisitListAccountsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListChatsRequestObject struct {
+	Params ListChatsParams
+}
+
+type ListChatsResponseObject interface {
+	VisitListChatsResponse(w http.ResponseWriter) error
+}
+
+type ListChats200JSONResponse ChatList
+
+func (response ListChats200JSONResponse) VisitListChatsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListChatsdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListChatsdefaultJSONResponse) VisitListChatsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateChatRequestObject struct {
+	Body *CreateChatJSONRequestBody
+}
+
+type CreateChatResponseObject interface {
+	VisitCreateChatResponse(w http.ResponseWriter) error
+}
+
+type CreateChat201JSONResponse Chat
+
+func (response CreateChat201JSONResponse) VisitCreateChatResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateChatdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response CreateChatdefaultJSONResponse) VisitCreateChatResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetChatRequestObject struct {
+	ChatId ChatID `json:"chat_id"`
+}
+
+type GetChatResponseObject interface {
+	VisitGetChatResponse(w http.ResponseWriter) error
+}
+
+type GetChat200JSONResponse Chat
+
+func (response GetChat200JSONResponse) VisitGetChatResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetChatdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetChatdefaultJSONResponse) VisitGetChatResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListChatMessagesRequestObject struct {
+	ChatId ChatID `json:"chat_id"`
+	Params ListChatMessagesParams
+}
+
+type ListChatMessagesResponseObject interface {
+	VisitListChatMessagesResponse(w http.ResponseWriter) error
+}
+
+type ListChatMessages200JSONResponse ChatMessageList
+
+func (response ListChatMessages200JSONResponse) VisitListChatMessagesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListChatMessagesdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListChatMessagesdefaultJSONResponse) VisitListChatMessagesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SendChatMessageRequestObject struct {
+	ChatId ChatID `json:"chat_id"`
+	Body   *SendChatMessageJSONRequestBody
+}
+
+type SendChatMessageResponseObject interface {
+	VisitSendChatMessageResponse(w http.ResponseWriter) error
+}
+
+type SendChatMessage201JSONResponse ChatMessage
+
+func (response SendChatMessage201JSONResponse) VisitSendChatMessageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SendChatMessagedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response SendChatMessagedefaultJSONResponse) VisitSendChatMessageResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -7374,6 +8827,21 @@ type StrictServerInterface interface {
 	// ListAccounts The accounts workers run under (no secrets)
 	// (GET /accounts)
 	ListAccounts(ctx context.Context, request ListAccountsRequestObject) (ListAccountsResponseObject, error)
+	// ListChats The owner's chats with the coordinator, the most recently active first
+	// (GET /chats)
+	ListChats(ctx context.Context, request ListChatsRequestObject) (ListChatsResponseObject, error)
+	// CreateChat Start a chat with the coordinator
+	// (POST /chats)
+	CreateChat(ctx context.Context, request CreateChatRequestObject) (CreateChatResponseObject, error)
+	// GetChat A chat, and whether the coordinator is working on it
+	// (GET /chats/{chat_id})
+	GetChat(ctx context.Context, request GetChatRequestObject) (GetChatResponseObject, error)
+	// ListChatMessages A chat's messages after a cursor, oldest first; optionally wait for the next one
+	// (GET /chats/{chat_id}/messages)
+	ListChatMessages(ctx context.Context, request ListChatMessagesRequestObject) (ListChatMessagesResponseObject, error)
+	// SendChatMessage Write to the coordinator; it gets the message when it can take it
+	// (POST /chats/{chat_id}/messages)
+	SendChatMessage(ctx context.Context, request SendChatMessageRequestObject) (SendChatMessageResponseObject, error)
 	// ListEvents Events after a cursor, oldest first; optionally wait for the next one
 	// (GET /events)
 	ListEvents(ctx context.Context, request ListEventsRequestObject) (ListEventsResponseObject, error)
@@ -7504,6 +8972,149 @@ func (sh *strictHandler) ListAccounts(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListAccountsResponseObject); ok {
 		if err := validResponse.VisitListAccountsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListChats operation middleware
+func (sh *strictHandler) ListChats(w http.ResponseWriter, r *http.Request, params ListChatsParams) {
+	var request ListChatsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListChats(ctx, request.(ListChatsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListChats")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListChatsResponseObject); ok {
+		if err := validResponse.VisitListChatsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateChat operation middleware
+func (sh *strictHandler) CreateChat(w http.ResponseWriter, r *http.Request) {
+	var request CreateChatRequestObject
+
+	var body CreateChatJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateChat(ctx, request.(CreateChatRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateChat")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateChatResponseObject); ok {
+		if err := validResponse.VisitCreateChatResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetChat operation middleware
+func (sh *strictHandler) GetChat(w http.ResponseWriter, r *http.Request, chatId ChatID) {
+	var request GetChatRequestObject
+
+	request.ChatId = chatId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetChat(ctx, request.(GetChatRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetChat")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetChatResponseObject); ok {
+		if err := validResponse.VisitGetChatResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListChatMessages operation middleware
+func (sh *strictHandler) ListChatMessages(w http.ResponseWriter, r *http.Request, chatId ChatID, params ListChatMessagesParams) {
+	var request ListChatMessagesRequestObject
+
+	request.ChatId = chatId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListChatMessages(ctx, request.(ListChatMessagesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListChatMessages")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListChatMessagesResponseObject); ok {
+		if err := validResponse.VisitListChatMessagesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SendChatMessage operation middleware
+func (sh *strictHandler) SendChatMessage(w http.ResponseWriter, r *http.Request, chatId ChatID) {
+	var request SendChatMessageRequestObject
+
+	request.ChatId = chatId
+
+	var body SendChatMessageJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SendChatMessage(ctx, request.(SendChatMessageRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SendChatMessage")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SendChatMessageResponseObject); ok {
+		if err := validResponse.VisitSendChatMessageResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -8166,81 +9777,90 @@ func (sh *strictHandler) ReopenTask(w http.ResponseWriter, r *http.Request, task
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
-	"AA==",
+	"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",
+	"dQs5nNPdNMmEV2KC3TSfX/5/AA==",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

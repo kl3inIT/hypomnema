@@ -402,6 +402,86 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ModelList" }
         default: { $ref: "#/components/responses/Error" }
+  /chats:
+    get:
+      operationId: ListChats
+      summary: The owner's chats with the coordinator, the most recently active first
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 500 }
+      responses:
+        "200":
+          description: The chats.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ChatList" }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      operationId: CreateChat
+      summary: Start a chat with the coordinator
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewChat" }
+      responses:
+        "201":
+          description: The chat.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Chat" }
+        default: { $ref: "#/components/responses/Error" }
+  /chats/{chat_id}:
+    parameters:
+      - $ref: "#/components/parameters/ChatID"
+    get:
+      operationId: GetChat
+      summary: A chat, and whether the coordinator is working on it
+      responses:
+        "200":
+          description: The chat.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Chat" }
+        default: { $ref: "#/components/responses/Error" }
+  /chats/{chat_id}/messages:
+    parameters:
+      - $ref: "#/components/parameters/ChatID"
+    get:
+      operationId: ListChatMessages
+      summary: A chat's messages after a cursor, oldest first; optionally wait for the next one
+      parameters:
+        - $ref: "#/components/parameters/After"
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 500 }
+        - name: wait
+          in: query
+          description: Seconds to wait when no message follows the cursor yet; zero answers at once.
+          schema: { type: integer, minimum: 0, maximum: 50 }
+      responses:
+        "200":
+          description: One page of messages.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ChatMessageList" }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      operationId: SendChatMessage
+      summary: Write to the coordinator; it gets the message when it can take it
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewChatMessage" }
+      responses:
+        "201":
+          description: The message, waiting for the coordinator.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ChatMessage" }
+        default: { $ref: "#/components/responses/Error" }
 components:
   securitySchemes:
     bearerAuth:
@@ -413,6 +493,11 @@ components:
       in: path
       required: true
       schema: { type: string, minLength: 1, maxLength: 63 }
+    ChatID:
+      name: chat_id
+      in: path
+      required: true
+      schema: { type: string, minLength: 1 }
     RunID:
       name: run_id
       in: path
@@ -495,6 +580,9 @@ components:
         coordinator_token_id:
           type: string
           description: The coordinator token that coordinates the Run; absent when the owner created it.
+        chat_id:
+          type: string
+          description: The chat whose coordinator created the Run.
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
         finished_at: { type: string, format: date-time }
@@ -527,6 +615,10 @@ components:
           type: string
           pattern: "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
         base: { type: string, minLength: 1, maxLength: 255 }
+        chat_id:
+          type: string
+          minLength: 1
+          description: The chat whose coordinator creates it; that chat is woken by the Run's events.
     TaskStatus:
       type: string
       enum: [pending, ready, running, blocked, succeeded, failed, canceled]
@@ -858,3 +950,66 @@ components:
         data:
           type: array
           items: { $ref: "#/components/schemas/Model" }
+    NewChat:
+      type: object
+      additionalProperties: false
+      properties:
+        title: { type: string, maxLength: 200 }
+    Chat:
+      type: object
+      required: [id, title, working, coordinator, created_at, updated_at]
+      properties:
+        id: { type: string }
+        title: { type: string }
+        working:
+          type: boolean
+          description: The coordinator is working on a turn of this chat.
+        coordinator:
+          type: boolean
+          description: A coordinator is configured to answer; false means messages are kept and nothing answers.
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    ChatList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/Chat" }
+    ChatRole:
+      type: string
+      enum: [owner, coordinator, system]
+    NewChatMessage:
+      type: object
+      required: [text]
+      additionalProperties: false
+      properties:
+        text: { type: string, minLength: 1, maxLength: 100000 }
+    ChatMessage:
+      type: object
+      required: [seq, chat_id, role, text, created_at]
+      properties:
+        seq: { type: integer, format: int64 }
+        chat_id: { type: string }
+        role: { $ref: "#/components/schemas/ChatRole" }
+        text: { type: string }
+        event_seq:
+          type: integer
+          format: int64
+          description: The event a wake-up reports.
+        delivered_at:
+          type: string
+          format: date-time
+          description: When the coordinator got an owner message or a wake-up.
+        created_at: { type: string, format: date-time }
+    ChatMessageList:
+      type: object
+      required: [data, next_after]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/ChatMessage" }
+        next_after:
+          type: integer
+          format: int64
+          description: The cursor for the next page.

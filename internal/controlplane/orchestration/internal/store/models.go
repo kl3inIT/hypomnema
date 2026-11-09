@@ -25,6 +25,23 @@ type AccountCooldown struct {
 	Reason     string
 }
 
+type Chat struct {
+	ID        string
+	Title     string
+	CreatedAt int64
+	UpdatedAt int64
+}
+
+type ChatMessage struct {
+	Seq         int64
+	ChatID      string
+	Role        string
+	Text        string
+	EventSeq    sql.NullInt64
+	DeliveredAt sql.NullInt64
+	CreatedAt   int64
+}
+
 type ClientToken struct {
 	ID        string
 	Name      string
@@ -203,6 +220,7 @@ type Run struct {
 	Repo               sql.NullString
 	Base               sql.NullString
 	CoordinatorTokenID sql.NullString
+	ChatID             sql.NullString
 }
 
 type Task struct {

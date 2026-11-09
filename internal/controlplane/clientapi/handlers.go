@@ -49,6 +49,7 @@ func (s *Server) CreateRun(ctx context.Context, req openapi.CreateRunRequestObje
 
 	nr := orchestration.NewRun{
 		Objective: req.Body.Objective, CreatedBy: tok.Name, Repo: val(req.Body.Repo), Base: val(req.Body.Base),
+		ChatID: val(req.Body.ChatId),
 	}
 	if tok.Kind == bearertoken.Coordinator {
 		nr.CoordinatorTokenID = tok.ID
@@ -85,7 +86,7 @@ func (s *Server) GetRun(ctx context.Context, req openapi.GetRunRequestObject) (o
 	r := toRun(run)
 	out := openapi.GetRun200JSONResponse{
 		Id: r.Id, Objective: r.Objective, Status: r.Status, CreatedBy: r.CreatedBy, Repo: r.Repo, Base: r.Base,
-		CoordinatorTokenId: r.CoordinatorTokenId, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
+		CoordinatorTokenId: r.CoordinatorTokenId, ChatId: r.ChatId, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
 		FinishedAt: r.FinishedAt, Tasks: make([]openapi.TaskDetail, 0, len(tasks)),
 	}
 

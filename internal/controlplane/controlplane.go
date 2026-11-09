@@ -6,6 +6,7 @@ package controlplane
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +15,7 @@ import (
 	"net/http"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/coordinator"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/nodeapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/webui"
@@ -32,6 +34,9 @@ type Config struct {
 	HTTPAddr string
 	Log      platform.LogConfig
 	Database sqlite.Config
+	// CoordinatorCommand starts pi for a chat id appended to it, from
+	// HYPOMNEMA_COORDINATOR_COMMAND as a JSON array; empty: no coordinator.
+	CoordinatorCommand []string
 }
 
 // LoadConfig reads the configuration and reports every problem at once.
@@ -43,7 +48,14 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 		Database: sqlite.FromEnv(env, envPrefix),
 	}
 
-	if err := env.Err(); err != nil {
+	var cmdErr error
+	if raw := env.String(envPrefix+"_COORDINATOR_COMMAND", ""); raw != "" {
+		if err := json.Unmarshal([]byte(raw), &cfg.CoordinatorCommand); err != nil || len(cfg.CoordinatorCommand) == 0 {
+			cmdErr = fmt.Errorf("%s_COORDINATOR_COMMAND is not a JSON array of strings", envPrefix)
+		}
+	}
+
+	if err := errors.Join(env.Err(), cmdErr); err != nil {
 		return Config{}, fmt.Errorf("configuration: %w", err)
 	}
 
@@ -94,7 +106,9 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	platform.RegisterHealth(mux, sqlite.Ready(db), logger)
 	nodeapi.New(svc, logger).Register(mux)
 
-	if err := clientapi.New(svc, logger, ctx.Done()).Register(mux); err != nil {
+	sup := coordinator.New(svc, coordinator.Config{Command: cfg.CoordinatorCommand, Logger: logger})
+
+	if err := clientapi.New(svc, logger, ctx.Done()).WithCoordinator(sup).Register(mux); err != nil {
 		return err
 	}
 
@@ -119,10 +133,19 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		}
 	}()
 
+	supDone := make(chan struct{})
+
+	go func() {
+		defer close(supDone)
+
+		_ = sup.Run(ctx)
+	}()
+
 	serveErr := platform.Serve(ctx, ln, mux, logger)
 
 	cancel(nil)
 	<-loopDone
+	<-supDone
 
 	if cause := context.Cause(ctx); cause != nil && !errors.Is(cause, context.Canceled) {
 		return errors.Join(serveErr, cause)
