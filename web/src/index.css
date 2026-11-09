@@ -4,6 +4,10 @@
 @import "@fontsource-variable/inter";
 @import "@fontsource-variable/geist-mono";
 
+/* streamdown renders pi's replies; Tailwind must see the classes it uses. */
+@source "../node_modules/streamdown/dist/*.js";
+@source "../node_modules/@streamdown/code/dist/*.js";
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {

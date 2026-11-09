@@ -21,7 +21,10 @@ The coordinator (`internal/controlplane/coordinator`, issue #41 PR 3): `serve` r
 that has something for pi, with the `coordinator` profile's model (`--provider`, `--model`, `--thinking`), and stops
 it after 30 min idle by closing its stdin; it starts again with the same session id. pi's own retries are off. Owner
 messages and wake-ups go as one `prompt`, or a follow-up while pi works, and are marked delivered once pi accepted
-them; each assistant `message_end` is kept as the coordinator's message and each tool call as one system line. On
+them. pi's activity is kept and relayed as Omnara does (issue #41 PR 4): each assistant `message_end` is kept as
+the coordinator's message with its text and thinking as parts, and each finished tool call as a `tool` message with
+its arguments and result (at most 16 KiB). Text as pi writes it, tools starting and ending, and working or idle go to
+the chat's watchers from memory only and are never stored; `abort` stops pi's turn. On
 the server pi runs as the `coordinator` user through `deploy/coordinator/`: a root-owned launcher (`hypomnema-pi`,
 a clean environment, only a chat id and model flags), one sudoers rule limited to it, pi's instructions, a
 `models.json` whose key is read from a 0600 file, pi's version with its lockfile (`package.json`, which Dependabot
@@ -73,7 +76,8 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   value.
 - Chats (`orchestration/chats.go`, issue #41 PR 3, after Omnara;
   [research](docs/research/2026-11-09-chat-storage.md)): the owner's conversations with pi. Every message is kept
-  (`owner`, `coordinator`, `system`); owner messages and wake-ups wait for pi and are marked delivered one by one. A
+  (`owner`, `coordinator`, `tool`, `system`; replies and tools with JSON `parts`); owner messages and wake-ups wait
+  for pi and are marked delivered one by one. A
   Run records the chat whose pi created it (`runs.chat_id`), and each event of such a Run that needs a coordinator (a
   Task ended or was blocked, a question to the coordinator, an escalation, the Run ended) adds one wake-up to the chat,
   unique per event.
@@ -225,7 +229,15 @@ Node (`internal/node`):
   ([stack and look](docs/research/2026-11-09-directories-sessions-web-stack.md)).
 - The theme (`src/index.css`) has the pink brand color and five status tokens (running, done, needs you, failed,
   queued) for light and dark; dark is the default.
-- One screen: the chat, which says the coordinator is not connected yet. It does not call the client API yet.
+- Sign-in: the owner pastes an owner token once; the browser keeps it (`localStorage`, as OpenClaw's control UI)
+  and sends it on every request.
+- The API client is generated from `api/openapi.yaml` by `@hey-api/openapi-ts` into `src/api/generated` (as Omnara;
+  its `next` build, since the release needs TypeScript 5's compiler API); `make web-api-check` fails when it is stale.
+- Chats with pi (issue #41 PR 4, after Omnara; learned from assistant-ui, ai-elements and pi-web): a list of chats
+  beside the open one. A chat follows `GET /chats/{id}/stream`: kept messages, then pi's live frames, reopened after
+  the last kept message when the server ends it. pi's thoughts and tools between replies form one line that opens,
+  with each command and its output; replies render as markdown with streamdown and shiki, loaded apart from the
+  screen. Enter sends unless an input method is composing; Stop asks pi to end its turn.
 - `web/embed.go` embeds the build (`web/dist`) into `hypomnema`. `make build` builds the client first.
   - The control plane serves it with `internal/controlplane/webui`, after Omnara's `spa.go`:
     - files as they are, with a year's cache under `assets/`;
