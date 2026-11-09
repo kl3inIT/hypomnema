@@ -27,7 +27,7 @@ func chat(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		text = t
 	}
 
-	c, err := pickChat(ctx, e, str(fs, "chat"), boolean(fs, "new"))
+	c, err := pickChat(ctx, e, str(fs, "chat"), boolean(fs, "new"), chatTitle(text))
 	if err != nil {
 		return err
 	}
@@ -58,8 +58,8 @@ func chat(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	return followChat(ctx, e, c.Id, sent.JSON201.Seq, durationFlag(fs, "timeout"))
 }
 
-// pickChat returns the chat named, a new one, or the most recent one.
-func pickChat(ctx context.Context, e *env, id string, fresh bool) (openapi.Chat, error) {
+// pickChat returns the chat named, a new one titled title, or the most recent one.
+func pickChat(ctx context.Context, e *env, id string, fresh bool, title string) (openapi.Chat, error) {
 	if id != "" {
 		r, err := e.api.GetChatWithResponse(ctx, id)
 		if err != nil {
@@ -90,7 +90,12 @@ func pickChat(ctx context.Context, e *env, id string, fresh bool) (openapi.Chat,
 		}
 	}
 
-	r, err := e.api.CreateChatWithResponse(ctx, openapi.NewChat{})
+	newChat := openapi.NewChat{}
+	if title != "" {
+		newChat.Title = &title
+	}
+
+	r, err := e.api.CreateChatWithResponse(ctx, newChat)
 	if err != nil {
 		return openapi.Chat{}, fmt.Errorf("starting a chat: %w", err)
 	}
@@ -100,6 +105,16 @@ func pickChat(ctx context.Context, e *env, id string, fresh bool) (openapi.Chat,
 	}
 
 	return *r.JSON201, nil
+}
+
+// chatTitle is a message's first line, at most 80 characters, as the web titles a new chat.
+func chatTitle(text string) string {
+	line, _, _ := strings.Cut(strings.TrimSpace(text), "\n")
+	if r := []rune(line); len(r) > 80 {
+		line = string(r[:80])
+	}
+
+	return strings.TrimSpace(line)
 }
 
 // followChat prints the messages after the owner's until pi has taken it,

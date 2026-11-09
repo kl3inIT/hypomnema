@@ -1,13 +1,14 @@
 import { ArrowDown } from "lucide-react"
+import { useEffect, useState } from "react"
 import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom"
-
-import { Button } from "@/components/ui/button"
 
 import { ChatItemView } from "./chat-items"
 import { chatItems, type ChatView } from "./chat-state"
 
-// The scrolling conversation. It follows new text while the reader is at the bottom and stops when they scroll up,
-// with a button back down, as ai-elements' Conversation (.tmp/omnigent/web/src/components/ai-elements/conversation.tsx).
+// The scrolling conversation in t3code's lane (MIT, Copyright (c) 2026 T3 Tools Inc.,
+// https://github.com/pingdotgg/t3code; MessagesTimeline.tsx): 46rem centred, rows spaced by their own bottom
+// padding, a "Working for 12s" line while pi works. It follows new text while the reader is at the bottom, with a
+// button back down when they scroll up (ai-elements' Conversation).
 export function Conversation({ view, empty }: { view: ChatView; empty: React.ReactNode }) {
   const items = chatItems(view)
 
@@ -18,18 +19,40 @@ export function Conversation({ view, empty }: { view: ChatView; empty: React.Rea
       resize="smooth"
       role="log"
     >
-      <StickToBottom.Content className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-4">
+      <StickToBottom.Content className="chat-content-lane flex flex-col px-3 pt-4 pb-6 sm:px-12">
         {items.length === 0
           ? empty
-          : items.map((item) => <ChatItemView key={item.key} item={item} />)}
-        {view.working && items.at(-1)?.kind === "owner" && (
-          <p className="text-sm text-muted-foreground" aria-live="polite">
-            pi is working…
-          </p>
-        )}
+          : items.map((item) => <ChatItemView key={item.key} item={item} working={view.working} />)}
+        {view.working && <WorkingFor />}
       </StickToBottom.Content>
       <ScrollDown />
     </StickToBottom>
+  )
+}
+
+// WorkingFor counts the seconds since pi started this turn, as seen from this page.
+function WorkingFor() {
+  const [started] = useState(() => Date.now())
+  const [now, setNow] = useState(started)
+
+  // A clock outside React: one tick a second while pi works.
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000)
+
+    return () => clearInterval(timer)
+  }, [])
+
+  const seconds = Math.floor((now - started) / 1000)
+  const elapsed = seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`
+
+  return (
+    <div
+      className="flex h-6 min-w-0 items-baseline gap-2 px-1 text-sm leading-relaxed text-muted-foreground tabular-nums"
+      aria-live="polite"
+    >
+      <span className="live-tool-shine">Working</span>
+      <span>for {elapsed}</span>
+    </div>
   )
 }
 
@@ -38,14 +61,13 @@ function ScrollDown() {
   if (isAtBottom) return null
 
   return (
-    <Button
-      variant="outline"
-      size="icon"
+    <button
+      type="button"
       aria-label="Scroll to the latest message"
-      className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full"
+      className="absolute bottom-3 left-1/2 flex size-8 -translate-x-1/2 items-center justify-center rounded-full border bg-card text-muted-foreground shadow-xs hover:text-foreground"
       onClick={() => void scrollToBottom()}
     >
-      <ArrowDown />
-    </Button>
+      <ArrowDown className="size-4" />
+    </button>
   )
 }

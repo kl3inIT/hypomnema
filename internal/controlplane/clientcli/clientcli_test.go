@@ -718,11 +718,12 @@ func TestChatFromTheTerminal(t *testing.T) {
 	out, err = w.cmd(t, "chat", "--last", "2")
 	require.NoError(t, err)
 	assert.Contains(t, out, "pi: I read: and a test")
-	assert.NotContains(t, out, "add a health page", "only the last two")
+	assert.NotContains(t, out, "you: add a health page", "only the last two")
 
 	var chats openapi.ChatList
 	w.jsonCmd(t, &chats, "", "chats")
 	require.Len(t, chats.Data, 1)
+	assert.Equal(t, "add a health page", chats.Data[0].Title, "a new chat is titled by its first message")
 
 	out, err = w.cmd(t, "chat", "--new", "a second topic")
 	require.NoError(t, err)
