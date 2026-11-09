@@ -36,6 +36,13 @@ SELECT * FROM tasks WHERE id = @id;
 -- name: ListTasksByRun :many
 SELECT * FROM tasks WHERE run_id = @run_id ORDER BY position;
 
+-- name: ListBoardTasks :many
+-- Every Task of an open Run, and the other Runs' Tasks changed at or after since; most recently changed first.
+SELECT * FROM tasks
+WHERE tasks.run_id IN (SELECT r.id FROM runs r WHERE r.status = 'open') OR tasks.updated_at >= @since
+ORDER BY tasks.updated_at DESC, tasks.id DESC
+LIMIT @lim;
+
 -- name: TransitionTask :execrows
 UPDATE tasks
 SET status         = @to_status,

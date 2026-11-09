@@ -132,8 +132,10 @@ Client API (`internal/controlplane/clientapi`, contract `api/openapi.yaml`, afte
   token is coordinated by it. Changing a Run, its Tasks or its questions needs the owner, or the Run's coordinator
   (403 otherwise). An answer is recorded as the owner's or the coordinator's by the token's kind.
 - Operations: who am I; list, create, show (with each Task's latest Dispatch), finish and cancel Runs; create Tasks
-  with dependencies; show, cancel and reopen a Task; list, show, answer and forward questions; list events; list
-  nodes and accounts. Creating a Run or Tasks takes an `Idempotency-Key`.
+  with dependencies; show, cancel and reopen a Task; list the Tasks a board shows (`GET /tasks`: every Task of an
+  open Run and other Runs' Tasks changed in the last 24 h, with their latest Dispatch, their Runs, and the newest
+  event's seq to follow the stream from); list, show, answer and forward questions; list events; list nodes and
+  accounts. Creating a Run or Tasks takes an `Idempotency-Key`.
 - Events: a page after a cursor, which can wait up to 50 s for the next event (`wait`) instead of polling; and a
   stream of Server-Sent Events at `/api/v1/events/stream`, each with its seq as id, resumed with `Last-Event-ID`,
   with a comment every 10 s. Waits and streams end when the server shuts down.
@@ -240,6 +242,21 @@ Node (`internal/node`):
   the last kept message when the server ends it. pi's thoughts and tools between replies form one line that opens,
   with each command and its output; replies render as markdown with streamdown and shiki, loaded apart from the
   screen. Enter sends unless an input method is composing; Stop asks pi to end its turn.
+- The board and the Runs (issue #41 PR 5; [research](docs/research/2026-11-09-board-and-questions-ui.md)):
+  - `/board`: the Tasks in flight in three columns, Needs you, Working and Done (the last 24 h), after Orca's agent
+    kanban (MIT). Needs you holds an open question to the owner, a failure in an open Run, a stop for a decision
+    and a missing login. Rows per Run or per repository and a repository filter are kept in the URL. A card shows
+    the runtime's mark (from OpenMausBot, Apache 2.0), the Task, its Run, how long it has run and its last sign of
+    life, the machine, the model and the pull request. On a phone the columns stack, Needs you first.
+  - A card opens the Task over the page, as Omnigent opens a session over its canvas (`?task=` in the URL; Escape
+    closes it): the question to answer, start again or cancel, the result and the Task. The worker's own session is
+    not shown until it reaches the server (#43).
+  - Questions are answered as in t3code's pending-input panel: options as radios that 1 to 9 pick, text where the
+    option takes it, Enter sends. A question to pi is shown, and the owner can take it over (forward).
+  - `/runs` lists the Runs, those that ask the owner first; `/runs/{id}` shows the objective, the open questions
+    answered in place, the Tasks and the answered questions; Finish and Cancel.
+  - The sidebar lists the places (New chat, Board with the count that needs the owner, Runs) above the chats.
+    Every page follows `GET /events/stream` from the board's cursor and refreshes what an event may have changed.
 - `web/embed.go` embeds the build (`web/dist`) into `hypomnema`. `make build` builds the client first.
   - The control plane serves it with `internal/controlplane/webui`, after Omnara's `spa.go`:
     - files as they are, with a year's cache under `assets/`;
