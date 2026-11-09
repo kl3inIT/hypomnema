@@ -268,25 +268,22 @@ func (o *owner) printQuestion(q orchestration.Question) {
 		o.printf("    %d. %s\n", i+1, opt.Label)
 	}
 
-	o.printf("  answer with: hypomnema answer %s <number or text>\n", q.ID)
+	o.printf("  answer with: hypomnema answer %s <number, option or text>\n", q.ID)
 }
 
-// answer answers a question as the owner: a number picks that option, any
-// other text is the answer's text.
+// answer answers a question as the owner.
 func (o *owner) answer(ctx context.Context, args []string) error {
 	if len(args) < 2 {
 		return ErrUsage
 	}
 
-	text := strings.Join(args[1:], " ")
-	a := orchestration.Answer{Text: text}
-
-	if n, err := strconv.Atoi(text); err == nil {
-		i := n - 1
-		a = orchestration.Answer{Option: &i}
+	q, err := o.svc.GetQuestion(ctx, args[0])
+	if err != nil {
+		return err
 	}
 
-	q, err := o.svc.AnswerQuestion(ctx, args[0], orchestration.AddressOwner, a)
+	q, err = o.svc.AnswerQuestion(ctx, q.ID, orchestration.AddressOwner,
+		parseAnswer(q.Options, strings.Join(args[1:], " ")))
 	if err != nil {
 		return err
 	}
@@ -294,6 +291,24 @@ func (o *owner) answer(ctx context.Context, args []string) error {
 	o.printf("question %s is %s\n", q.ID, q.Status)
 
 	return nil
+}
+
+// parseAnswer reads what the owner typed: an option's number or its label
+// (any case) picks it; any other text is the answer's text.
+func parseAnswer(options []orchestration.Option, text string) orchestration.Answer {
+	pick := func(i int) orchestration.Answer { return orchestration.Answer{Option: &i} }
+
+	if n, err := strconv.Atoi(text); err == nil {
+		return pick(n - 1)
+	}
+
+	for i, opt := range options {
+		if strings.EqualFold(strings.TrimSpace(text), opt.Label) {
+			return pick(i)
+		}
+	}
+
+	return orchestration.Answer{Text: text}
 }
 
 // questions lists the open questions addressed to the owner.
