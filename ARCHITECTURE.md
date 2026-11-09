@@ -60,7 +60,7 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   its next hello or a resume. Accounts (runtime, label, position, active or disabled) are kept here with no secret
   value.
 - Profiles (`orchestration/profiles.go`, issue #42, after Omnara's agent configs): a profile is a YAML document
-  (`name`, `runtime`, optional `model: {provider, name, effort}`, `instruction`). Applying a changed source makes a
+  (`name`, `description` of what it is for, `runtime`, optional `model: {provider, name, effort}`, `instruction`). Applying a changed source makes a
   new immutable version and points the name at it; the same source returns the current version. Providers (kind
   `anthropic`, `openai_compatible`, `claude_subscription` or `codex_subscription`, base URL, the name of where the
   API key is kept, never the key) list the models they offer. A profile and a new Task are checked when applied or

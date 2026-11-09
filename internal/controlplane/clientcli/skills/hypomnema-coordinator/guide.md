@@ -35,7 +35,7 @@ commands to run next. `hypomnema <command> --help` lists a command's flags; a fl
    ```
    The file is `{"tasks": [{"ref": "api", "profile": "implementer", "spec": "...", "depends_on": []}]}`. A profile
    sets the runtime, model and instructions a worker runs with; `implementer` is the default, and
-   `hypomnema profiles list --json` shows the others, such as `reviewer` and `explorer` (told to change nothing). Leave the model
+   `hypomnema profiles list --json` shows the others with what each is for; choose by that description. Leave the model
    to the profile unless the owner asks for one; `hypomnema models list --json` shows what `model` may name. Text
    goes through a file, or `-` for standard input, because shell quoting can change it; check the specs in the
    output.

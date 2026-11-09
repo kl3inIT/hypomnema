@@ -11,7 +11,7 @@ import (
 )
 
 const currentProfileVersion = `-- name: CurrentProfileVersion :one
-SELECT v.id, v.profile, v.version, v.source, v.digest, v.runtime, v.provider, v.model, v.effort, v.instruction, v.created_at FROM profiles p JOIN profile_versions v ON v.id = p.current_version_id WHERE p.name = ?1
+SELECT v.id, v.profile, v.version, v.source, v.digest, v.runtime, v.provider, v.model, v.effort, v.instruction, v.created_at, v.description FROM profiles p JOIN profile_versions v ON v.id = p.current_version_id WHERE p.name = ?1
 `
 
 func (q *Queries) CurrentProfileVersion(ctx context.Context, name string) (ProfileVersion, error) {
@@ -29,6 +29,7 @@ func (q *Queries) CurrentProfileVersion(ctx context.Context, name string) (Profi
 		&i.Effort,
 		&i.Instruction,
 		&i.CreatedAt,
+		&i.Description,
 	)
 	return i, err
 }
@@ -59,7 +60,7 @@ func (q *Queries) GetProfile(ctx context.Context, name string) (Profile, error) 
 }
 
 const getProfileVersion = `-- name: GetProfileVersion :one
-SELECT id, profile, version, source, digest, runtime, provider, model, effort, instruction, created_at FROM profile_versions WHERE id = ?1
+SELECT id, profile, version, source, digest, runtime, provider, model, effort, instruction, created_at, description FROM profile_versions WHERE id = ?1
 `
 
 func (q *Queries) GetProfileVersion(ctx context.Context, id string) (ProfileVersion, error) {
@@ -77,6 +78,7 @@ func (q *Queries) GetProfileVersion(ctx context.Context, id string) (ProfileVers
 		&i.Effort,
 		&i.Instruction,
 		&i.CreatedAt,
+		&i.Description,
 	)
 	return i, err
 }
@@ -130,9 +132,10 @@ func (q *Queries) InsertProfile(ctx context.Context, arg InsertProfileParams) er
 }
 
 const insertProfileVersion = `-- name: InsertProfileVersion :exec
-INSERT INTO profile_versions (id, profile, version, source, digest, runtime, provider, model, effort, instruction,
-                              created_at)
-VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+INSERT INTO profile_versions (id, profile, version, source, digest, description, runtime, provider, model, effort,
+                              instruction, created_at)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
+        ?12)
 `
 
 type InsertProfileVersionParams struct {
@@ -141,6 +144,7 @@ type InsertProfileVersionParams struct {
 	Version     int64
 	Source      string
 	Digest      string
+	Description string
 	Runtime     string
 	Provider    sql.NullString
 	Model       sql.NullString
@@ -156,6 +160,7 @@ func (q *Queries) InsertProfileVersion(ctx context.Context, arg InsertProfileVer
 		arg.Version,
 		arg.Source,
 		arg.Digest,
+		arg.Description,
 		arg.Runtime,
 		arg.Provider,
 		arg.Model,
@@ -167,7 +172,7 @@ func (q *Queries) InsertProfileVersion(ctx context.Context, arg InsertProfileVer
 }
 
 const listCurrentProfileVersions = `-- name: ListCurrentProfileVersions :many
-SELECT v.id, v.profile, v.version, v.source, v.digest, v.runtime, v.provider, v.model, v.effort, v.instruction, v.created_at FROM profiles p JOIN profile_versions v ON v.id = p.current_version_id ORDER BY p.name
+SELECT v.id, v.profile, v.version, v.source, v.digest, v.runtime, v.provider, v.model, v.effort, v.instruction, v.created_at, v.description FROM profiles p JOIN profile_versions v ON v.id = p.current_version_id ORDER BY p.name
 `
 
 func (q *Queries) ListCurrentProfileVersions(ctx context.Context) ([]ProfileVersion, error) {
@@ -191,6 +196,7 @@ func (q *Queries) ListCurrentProfileVersions(ctx context.Context) ([]ProfileVers
 			&i.Effort,
 			&i.Instruction,
 			&i.CreatedAt,
+			&i.Description,
 		); err != nil {
 			return nil, err
 		}
@@ -240,7 +246,7 @@ func (q *Queries) ListModels(ctx context.Context) ([]ListModelsRow, error) {
 }
 
 const listProfileVersions = `-- name: ListProfileVersions :many
-SELECT id, profile, version, source, digest, runtime, provider, model, effort, instruction, created_at FROM profile_versions WHERE profile = ?1 ORDER BY version DESC
+SELECT id, profile, version, source, digest, runtime, provider, model, effort, instruction, created_at, description FROM profile_versions WHERE profile = ?1 ORDER BY version DESC
 `
 
 func (q *Queries) ListProfileVersions(ctx context.Context, profile string) ([]ProfileVersion, error) {
@@ -264,6 +270,7 @@ func (q *Queries) ListProfileVersions(ctx context.Context, profile string) ([]Pr
 			&i.Effort,
 			&i.Instruction,
 			&i.CreatedAt,
+			&i.Description,
 		); err != nil {
 			return nil, err
 		}

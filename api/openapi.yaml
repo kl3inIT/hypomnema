@@ -798,9 +798,12 @@ components:
           description: The YAML document; its name must equal the one in the path.
     Profile:
       type: object
-      required: [name, version_id, version, runtime, source, created_at]
+      required: [name, description, version_id, version, runtime, source, created_at]
       properties:
         name: { type: string }
+        description:
+          type: string
+          description: What the profile is for; empty for versions applied before descriptions.
         version_id: { type: string }
         version: { type: integer }
         runtime: { type: string }

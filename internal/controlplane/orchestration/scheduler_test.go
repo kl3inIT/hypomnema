@@ -279,9 +279,9 @@ func TestTaskValuesWinOverProfileDefaults(t *testing.T) {
 
 	w := newWorld(t)
 	implementer, _, err := w.s.ApplyProfile(t.Context(), "",
-		"name: implementer\nruntime: claude\nmodel: {name: opus, effort: high}\n")
+		"name: implementer\ndescription: d\nruntime: claude\nmodel: {name: opus, effort: high}\n")
 	require.NoError(t, err)
-	_, _, err = w.s.ApplyProfile(t.Context(), "", "name: reviewer\nruntime: codex\n")
+	_, _, err = w.s.ApplyProfile(t.Context(), "", "name: reviewer\ndescription: d\nruntime: codex\n")
 	require.NoError(t, err)
 
 	w.tasks(

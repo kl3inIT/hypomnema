@@ -150,6 +150,7 @@ type ProfileVersion struct {
 	Effort      sql.NullString
 	Instruction sql.NullString
 	CreatedAt   int64
+	Description string
 }
 
 type Provider struct {

@@ -104,8 +104,9 @@ func (s *Server) ListModels(ctx context.Context, _ openapi.ListModelsRequestObje
 
 func toProfile(p orchestration.Profile) openapi.Profile {
 	return openapi.Profile{
-		Name: p.Name, VersionId: p.VersionID, Version: p.Version, Runtime: p.Runtime, Provider: ptr(p.Provider),
-		Model: ptr(p.Model), Effort: ptr(p.Effort), Instruction: ptr(p.Instruction), Source: p.Source,
+		Name: p.Name, Description: p.Description, VersionId: p.VersionID, Version: p.Version, Runtime: p.Runtime,
+		Provider: ptr(p.Provider),
+		Model:    ptr(p.Model), Effort: ptr(p.Effort), Instruction: ptr(p.Instruction), Source: p.Source,
 		CreatedAt: p.CreatedAt,
 	}
 }

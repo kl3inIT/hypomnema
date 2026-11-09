@@ -28,6 +28,9 @@ import (
 // DefaultProfile is the profile of a Task that names none.
 const DefaultProfile = "implementer"
 
+// MaxDescription bounds a profile's description.
+const MaxDescription = 500
+
 // Provider kinds.
 const (
 	ProviderAnthropic          = "anthropic"
@@ -54,7 +57,9 @@ var (
 
 // Profile is the current version of a named profile, or one version of it.
 type Profile struct {
-	Name        string
+	Name string
+	// Description says what the profile is for, so a coordinator chooses by it.
+	Description string
 	VersionID   string
 	Version     int
 	Runtime     string
@@ -88,9 +93,10 @@ type Model struct {
 }
 
 type profileSource struct {
-	Name    string `yaml:"name"`
-	Runtime string `yaml:"runtime"`
-	Model   *struct {
+	Name        string `yaml:"name"`
+	Description string `yaml:"description"`
+	Runtime     string `yaml:"runtime"`
+	Model       *struct {
 		Provider string `yaml:"provider"`
 		Name     string `yaml:"name"`
 		Effort   string `yaml:"effort"`
@@ -135,7 +141,10 @@ func (s *Service) ApplyProfile(ctx context.Context, name, source string) (Profil
 		return Profile{}, false, err
 	}
 
-	p := Profile{Name: in.Name, Runtime: in.Runtime, Instruction: in.Instruction, Source: source}
+	p := Profile{
+		Name: in.Name, Description: strings.TrimSpace(in.Description), Runtime: in.Runtime,
+		Instruction: in.Instruction, Source: source,
+	}
 	if in.Model != nil {
 		p.Provider, p.Model, p.Effort = in.Model.Provider, in.Model.Name, in.Model.Effort
 	}
@@ -146,6 +155,11 @@ func (s *Service) ApplyProfile(ctx context.Context, name, source string) (Profil
 
 	if name != "" && name != p.Name {
 		return Profile{}, false, fmt.Errorf("%w: the source names profile %q, not %q", ErrInvalid, p.Name, name)
+	}
+
+	if p.Description == "" || len(p.Description) > MaxDescription {
+		return Profile{}, false, fmt.Errorf("%w: a profile needs a description of at most %d characters: what it is for",
+			ErrInvalid, MaxDescription)
 	}
 
 	var (
@@ -188,7 +202,7 @@ func (s *Service) ApplyProfile(ctx context.Context, name, source string) (Profil
 		}
 
 		if err := q.InsertProfileVersion(ctx, store.InsertProfileVersionParams{
-			ID: id, Profile: p.Name, Version: current.Version + 1, Source: source, Digest: digest,
+			ID: id, Profile: p.Name, Version: current.Version + 1, Source: source, Digest: digest, Description: p.Description,
 			Runtime: p.Runtime, Provider: nullString(p.Provider), Model: nullString(p.Model),
 			Effort: nullString(p.Effort), Instruction: nullString(p.Instruction), Now: now,
 		}); err != nil {
@@ -323,8 +337,9 @@ func (s *Service) ListProfileVersions(ctx context.Context, name string) ([]Profi
 
 func profileFromRow(v store.ProfileVersion) Profile {
 	return Profile{
-		Name: v.Profile, VersionID: v.ID, Version: int(v.Version), Runtime: v.Runtime, Provider: v.Provider.String,
-		Model: v.Model.String, Effort: v.Effort.String, Instruction: v.Instruction.String, Source: v.Source,
+		Name: v.Profile, Description: v.Description, VersionID: v.ID, Version: int(v.Version), Runtime: v.Runtime,
+		Provider: v.Provider.String,
+		Model:    v.Model.String, Effort: v.Effort.String, Instruction: v.Instruction.String, Source: v.Source,
 		CreatedAt: millis(v.CreatedAt),
 	}
 }
