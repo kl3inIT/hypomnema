@@ -108,3 +108,34 @@ func TestRunEventsWakeTheirChatOnce(t *testing.T) {
 	assert.Equal(t, ChatSystem, wakes[0].Role)
 	assert.NotZero(t, wakes[0].EventSeq)
 }
+
+// Scenario: a chat started without a title, as from the CLI, takes its first
+// owner message's first line; a chat with a title keeps it.
+func TestAChatIsNamedByItsFirstMessage(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	untitledChat, err := w.s.CreateChat(ctx, "")
+	require.NoError(t, err)
+	assert.Equal(t, "Chat", untitledChat.Title)
+
+	_, err = w.s.AddChatMessage(ctx, untitledChat.ID, ChatOwner, "  add a health page\nwith a test")
+	require.NoError(t, err)
+	_, err = w.s.AddChatMessage(ctx, untitledChat.ID, ChatOwner, "and docs")
+	require.NoError(t, err)
+
+	got, err := w.s.GetChat(ctx, untitledChat.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "add a health page", got.Title, "the first message names it, once")
+
+	named, err := w.s.CreateChat(ctx, "release notes")
+	require.NoError(t, err)
+	_, err = w.s.AddChatMessage(ctx, named.ID, ChatOwner, "write them")
+	require.NoError(t, err)
+
+	got, err = w.s.GetChat(ctx, named.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "release notes", got.Title)
+}

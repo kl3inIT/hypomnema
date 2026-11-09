@@ -64,11 +64,25 @@ type ChatMessage struct {
 	CreatedAt   time.Time
 }
 
-// CreateChat starts a chat. The title defaults to "Chat".
+// untitled is a new chat's title until its first owner message names it
+// (queries/chats.sql TitleUntitledChat, migration 00012).
+const untitled = "Chat"
+
+// titleOf is a message's first line, at most 80 characters.
+func titleOf(text string) string {
+	line, _, _ := strings.Cut(strings.TrimSpace(text), "\n")
+	if r := []rune(line); len(r) > 80 {
+		line = string(r[:80])
+	}
+
+	return strings.TrimSpace(line)
+}
+
+// CreateChat starts a chat. Without a title, its first owner message names it.
 func (s *Service) CreateChat(ctx context.Context, title string) (Chat, error) {
 	title = strings.TrimSpace(title)
 	if title == "" {
-		title = "Chat"
+		title = untitled
 	}
 
 	if len(title) > 200 {
@@ -163,6 +177,12 @@ func (s *Service) AddChatMessageParts(ctx context.Context, chatID string, role C
 		})
 		if err != nil {
 			return fmt.Errorf("inserting a message: %w", err)
+		}
+
+		if role == ChatOwner {
+			if err := q.TitleUntitledChat(ctx, store.TitleUntitledChatParams{ID: chatID, Title: titleOf(text)}); err != nil {
+				return fmt.Errorf("titling the chat: %w", err)
+			}
 		}
 
 		return q.TouchChat(ctx, store.TouchChatParams{ID: chatID, Now: now})
