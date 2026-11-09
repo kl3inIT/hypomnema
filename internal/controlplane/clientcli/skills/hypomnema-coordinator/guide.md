@@ -16,7 +16,8 @@ cut from the Run's base branch, and opens a pull request; you check the result a
 every record, so `hypomnema runs show <run_id> --json` tells you where a Run stands, also after you lose context.
 
 Changes to the Run's repository are Tasks, unless the owner gives a change to you: workers have the repository, the
-branch and the checks, and the owner reviews their pull requests. Read files and run read-only commands as much as
+branch and the checks, and the owner reviews their pull requests. A change the owner gives you goes on your own
+branch and into a pull request, as a worker's would. Read files and run read-only commands as much as
 planning needs.
 
 Add `--json` to every command and read the result before the next step. When a result has `next`, those are the
@@ -33,12 +34,13 @@ commands to run next. `hypomnema <command> --help` lists a command's flags; a fl
    hypomnema tasks create <run_id> --file <tasks.json> --key <new key> --json
    ```
    The file is `{"tasks": [{"ref": "api", "role": "implement", "spec": "...", "depends_on": []}]}`. The role is
-   `implement` unless the owner set up others. Text goes through a file, or `-` for standard input, because shell
+   `implement` unless the owner set up others; a Task may also name `runtime`, `model` and `effort`. Text goes through a file, or `-` for standard input, because shell
    quoting can change it; check the specs in the output.
 3. Wait (below), handle what the wait returns, and wait again until every Task has ended: succeeded, failed or
    canceled. A blocked Task has not ended.
 4. Finish the Run with `hypomnema runs finish <run_id> --json`, then report to the owner per Task: the outcome, the
-   evidence (the pull request), and what is left.
+   evidence (the pull request), and what is left. While the owner has yet to decide on a fix you offered for a
+   failed Task, leave the Run open: a finished Run takes no new Tasks.
 
 A key is any string unique to that create, such as `health-run-1`. When a create gets no answer (a timeout, a
 dropped connection), run it again with the same `--key`: the control plane returns the first result instead of
@@ -82,7 +84,7 @@ A worker asks you when it cannot go on without a decision, and waits. Read the q
 `hypomnema questions show <question_id> --json`.
 
 - Answer when the answer follows from the spec, the objective, the owner's words, or the repository's existing code
-  (read it, and name the file you based the answer on):
+  (read it), and say what you based it on: the file, or the owner's words quoted:
   `hypomnema answer <question_id> --text-file <file> --json`, or `hypomnema answer <question_id> <option number> --json`.
 - Forward to the owner a choice none of those settles; anything about secrets or access; and anything irreversible,
   destructive or outside the Task's repository that the owner has not decided in so many words:
@@ -100,7 +102,8 @@ A worker's report is a claim; the Task's record and its evidence are what count.
   `{"kind": "pull_request", "ref": "<url>"}`. Check them against the spec: the pull request is in the right
   repository, and the checks the spec asked for ran. When the evidence has no pull request, look for one read-only
   (`gh pr list --repo <owner/name> --head hyp/<task_id>`); when there is none, create a follow-up Task whose spec
-  names the branch `hyp/<task_id>` and what is missing.
+  says to start from the branch `hyp/<task_id>` (fetch it and merge it into its own branch) and names what is
+  missing. `gh pr checks <url>` shows whether the checks ran.
 - `failed` or `blocked`: load the `recovery` reference before acting.
 - Report a failed, blocked or canceled Task as exactly that, with what is left.
 
@@ -114,4 +117,4 @@ when its spec turns out wrong and a corrected Task will replace it; the `recover
 
 | When | Load |
 |---|---|
-| A Task failed or is blocked, or the owner asks to retry or stop work | `hypomnema skills get hypomnema-coordinator --reference recovery` |
+| A Task failed or is blocked, a Task needs cancelling or replacing, or the owner asks to retry or stop work | `hypomnema skills get hypomnema-coordinator --reference recovery` |
