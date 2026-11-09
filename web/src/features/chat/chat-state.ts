@@ -79,7 +79,7 @@ export function chatReducer(view: ChatView, action: ChatAction): ChatView {
 export type ChatItem =
   | { kind: "owner"; key: string; message: ChatMessage }
   | { kind: "notice"; key: string; message: ChatMessage }
-  | { kind: "reply"; key: string; text: string; streaming: boolean }
+  | { kind: "reply"; key: string; text: string; streaming: boolean; createdAt?: string }
   | { kind: "activity"; key: string; steps: Step[]; open: boolean }
 
 // One step of pi's work: a thought, or a tool with its result (absent while it runs).
@@ -139,7 +139,13 @@ export function chatItems(view: ChatView): ChatItem[] {
             step({ kind: "thinking", key: `${key}-${i}`, text: p.text }, `a${key}`)
           } else if (p.type === "text" && p.text) {
             close()
-            items.push({ kind: "reply", key: `${key}-${i}`, text: p.text, streaming: false })
+            items.push({
+              kind: "reply",
+              key: `${key}-${i}`,
+              text: p.text,
+              streaming: false,
+              createdAt: m.created_at,
+            })
           }
         })
         break

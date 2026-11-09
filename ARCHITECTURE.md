@@ -227,8 +227,10 @@ Node (`internal/node`):
 - `web/`: a Vite single-page app with React, TypeScript, TanStack Router (file routes in `src/routes`) and Query,
   Tailwind and shadcn on Base UI (preset `b43eDcOJc`), pnpm
   ([stack and look](docs/research/2026-11-09-directories-sessions-web-stack.md)).
-- The theme (`src/index.css`) has the pink brand color and five status tokens (running, done, needs you, failed,
-  queued) for light and dark; dark is the default.
+- The look follows t3code (MIT): its light and dark colors with a blue-indigo primary, 14px text, a 46rem chat lane,
+  a full-height 16rem sidebar, its work-log rows, composer and markdown styles (`src/index.css`, `features/chat/`),
+  each adapted file naming its source. Five status tokens (running, done, needs you, failed, queued) follow its
+  palette; dark is the default.
 - Sign-in: the owner pastes an owner token once; the browser keeps it (`localStorage`, as OpenClaw's control UI)
   and sends it on every request.
 - The API client is generated from `api/openapi.yaml` by `@hey-api/openapi-ts` into `src/api/generated` (as Omnara;

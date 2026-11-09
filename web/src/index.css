@@ -8,12 +8,14 @@
 @source "../node_modules/streamdown/dist/*.js";
 @source "../node_modules/@streamdown/code/dist/*.js";
 
-@custom-variant dark (&:is(.dark *));
+@custom-variant dark (&:is(.dark, .dark *));
 
 @theme inline {
   --font-heading: var(--font-sans);
-  --font-sans: "Inter Variable", sans-serif;
-  --font-mono: "Geist Mono Variable", ui-monospace, monospace;
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "Inter Variable", "Segoe UI", system-ui, sans-serif;
+  --font-mono:
+    ui-monospace, "SF Mono", "SFMono-Regular", Menlo, Consolas, "Geist Mono Variable", monospace;
   --color-link: var(--link);
   --color-border-strong: var(--border-strong);
   --color-code: var(--code-bg);
@@ -59,111 +61,142 @@
   --color-card: var(--card);
   --color-foreground: var(--foreground);
   --color-background: var(--background);
-  --radius-sm: calc(var(--radius) * 0.6);
-  --radius-md: calc(var(--radius) * 0.8);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) * 1.4);
-  --radius-2xl: calc(var(--radius) * 1.8);
-  --radius-3xl: calc(var(--radius) * 2.2);
-  --radius-4xl: calc(var(--radius) * 2.6);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+  --radius-4xl: calc(var(--radius) + 16px);
+  /* t3code's extra tokens and sizes. */
+  --color-surface-raised: var(--surface-raised);
+  --color-secondary-label: var(--secondary-label);
+  --color-icon-muted: var(--icon-muted);
+  --color-message: var(--message-surface);
+  --color-message-foreground: var(--message-foreground);
+  --color-message-action: var(--message-action);
+  --color-message-action-foreground: var(--message-action-foreground);
+  --color-message-action-hover: var(--message-action-hover);
+  --color-tool-error-icon: var(--tool-error-icon);
+  --color-info-foreground: var(--info-foreground);
+  --color-sidebar-row-hover: var(--sidebar-row-hover);
+  --color-sidebar-row-active: var(--sidebar-row-active);
+  --text-2xs: 0.6875rem;
+  --text-2xs--line-height: calc(1 / 0.6875);
+  --text-3xs: 0.625rem;
+  --text-3xs--line-height: calc(0.875 / 0.625);
+  --shadow-composer: 0 1px 2px rgb(0 0 0 / 5%);
+  --inset-shadow-control-highlight: 0 1px rgb(255 255 255 / 16%);
+  --inset-shadow-control-pressed: 0 1px rgb(0 0 0 / 8%);
 }
 
+/* Colors after t3code's theme (apps/web/src/index.css, MIT, Copyright (c) 2026 T3 Tools Inc.,
+   https://github.com/pingdotgg/t3code): a near-white or true-black canvas, raised cards, quiet borders, and a
+   blue-indigo primary. */
 :root {
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: #d6409f;
-  --primary-foreground: #ffffff;
-  --secondary: oklch(0.967 0.001 286.375);
-  --secondary-foreground: oklch(0.21 0.006 285.885);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.823 0.12 346.018);
-  --chart-2: oklch(0.656 0.241 354.308);
-  --chart-3: oklch(0.592 0.249 0.584);
-  --chart-4: oklch(0.525 0.223 3.958);
-  --chart-5: oklch(0.459 0.187 3.815);
-  --radius: 0.45rem;
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.592 0.249 0.584);
-  --sidebar-primary-foreground: oklch(0.971 0.014 343.198);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
-  /* Hypomnema's own tokens: Radix Colors steps 11 (text) and 3 (soft background). */
-  --link: #c2298a;
-  --border-strong: oklch(0.708 0 0);
-  --code-bg: oklch(0 0 0 / 6%);
-  --sidebar-active: color-mix(in srgb, var(--primary) 12%, transparent);
-  --status-running: #0d74ce;
-  --status-running-soft: #e6f4fe;
-  --status-done: #218358;
-  --status-done-soft: #e6f6eb;
-  --status-needs-you: #ab6400;
-  --status-needs-you-soft: #fff7c2;
-  --status-failed: #d13415;
-  --status-failed-soft: #feebe7;
-  --status-queued: #60646c;
-  --status-queued-soft: #f0f0f3;
+  color-scheme: light;
+  --radius: 0.5rem;
+  --background: oklch(99.2% 0 0);
+  --foreground: var(--color-zinc-900);
+  --surface-raised: color-mix(in srgb, var(--card) 20%, transparent);
+  --card: var(--color-white);
+  --card-foreground: var(--color-zinc-900);
+  --popover: var(--color-white);
+  --popover-foreground: var(--color-zinc-900);
+  --primary: oklch(0.488 0.217 264);
+  --primary-foreground: var(--color-white);
+  --secondary: var(--color-zinc-50);
+  --secondary-foreground: var(--color-zinc-800);
+  --muted: var(--color-zinc-50);
+  --muted-foreground: var(--color-zinc-500);
+  --secondary-label: var(--muted-foreground);
+  --icon-muted: var(--muted-foreground);
+  --message-surface: color-mix(in srgb, var(--color-zinc-200) 55%, var(--color-zinc-100));
+  --message-foreground: var(--foreground);
+  --message-action: var(--primary);
+  --message-action-foreground: var(--primary-foreground);
+  --message-action-hover: color-mix(in srgb, var(--primary) 90%, var(--background));
+  --accent: var(--color-zinc-100);
+  --accent-foreground: var(--color-zinc-900);
+  --destructive: var(--color-red-500);
+  --tool-error-icon: var(--color-red-500);
+  --border: var(--color-zinc-200);
+  --input: var(--color-zinc-300);
+  --ring: var(--primary);
+  --info-foreground: var(--color-blue-700);
+  --chart-1: oklch(0.809 0.105 251.813);
+  --chart-2: oklch(0.623 0.214 259.815);
+  --chart-3: oklch(0.546 0.245 262.881);
+  --chart-4: oklch(0.488 0.243 264.376);
+  --chart-5: oklch(0.424 0.199 265.638);
+  --sidebar: var(--color-zinc-50);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: var(--color-zinc-100);
+  --sidebar-accent-foreground: var(--color-zinc-900);
+  --sidebar-border: var(--border);
+  --sidebar-ring: var(--ring);
+  --sidebar-row-hover: oklch(99.2% 0 0);
+  --sidebar-row-active: var(--color-white);
+  --chat-content-max-width: 46rem;
+  --workspace-topbar-height: 52px;
+  --glass-blur: 12px;
+  --glass-opacity: 80%;
+  --app-scrollbar-thumb: rgb(217 217 217);
+  /* Hypomnema's own tokens. */
+  --link: var(--info-foreground);
+  --border-strong: var(--color-zinc-400);
+  --code-bg: var(--muted);
+  --sidebar-active: var(--sidebar-row-active);
+  --status-running: var(--color-blue-600);
+  --status-running-soft: color-mix(in srgb, var(--color-blue-500) 10%, transparent);
+  --status-done: var(--color-emerald-700);
+  --status-done-soft: color-mix(in srgb, var(--color-emerald-500) 10%, transparent);
+  --status-needs-you: var(--color-amber-700);
+  --status-needs-you-soft: color-mix(in srgb, var(--color-amber-500) 10%, transparent);
+  --status-failed: var(--color-red-700);
+  --status-failed-soft: color-mix(in srgb, var(--color-red-500) 8%, transparent);
+  --status-queued: var(--muted-foreground);
+  --status-queued-soft: var(--muted);
 }
 
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: #d6409f;
-  --primary-foreground: #ffffff;
-  --secondary: oklch(0.274 0.006 286.033);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.823 0.12 346.018);
-  --chart-2: oklch(0.656 0.241 354.308);
-  --chart-3: oklch(0.592 0.249 0.584);
-  --chart-4: oklch(0.525 0.223 3.958);
-  --chart-5: oklch(0.459 0.187 3.815);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.656 0.241 354.308);
-  --sidebar-primary-foreground: oklch(0.971 0.014 343.198);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
-  --link: #ff8dcc;
-  --border-strong: oklch(1 0 0 / 20%);
-  --code-bg: oklch(1 0 0 / 6%);
-  --sidebar-active: color-mix(in srgb, var(--primary) 16%, transparent);
-  --status-running: #70b8ff;
-  --status-running-soft: #0d2847;
-  --status-done: #3dd68c;
-  --status-done-soft: #132d21;
-  --status-needs-you: #ffca16;
-  --status-needs-you-soft: #302008;
-  --status-failed: #ff977d;
-  --status-failed-soft: #391714;
-  --status-queued: #b0b4ba;
-  --status-queued-soft: #212225;
+  color-scheme: dark;
+  --background: #000;
+  --surface-raised: color-mix(in srgb, var(--color-neutral-950) 97%, var(--color-white));
+  --foreground: var(--color-neutral-100);
+  --card: color-mix(in srgb, var(--color-neutral-950) 97%, var(--color-white));
+  --card-foreground: var(--color-neutral-100);
+  --popover: color-mix(in srgb, var(--color-neutral-950) 97%, var(--color-white));
+  --popover-foreground: var(--color-neutral-100);
+  --primary: oklch(0.571 0.21 264);
+  --secondary: rgb(255 255 255 / 3%);
+  --secondary-foreground: var(--color-neutral-100);
+  --muted: rgb(255 255 255 / 3%);
+  --muted-foreground: var(--color-neutral-400);
+  --accent: rgb(255 255 255 / 4%);
+  --accent-foreground: var(--color-neutral-100);
+  --message-surface: color-mix(in srgb, var(--color-neutral-950) 92%, var(--color-white));
+  --destructive: color-mix(in srgb, var(--color-red-500) 90%, var(--color-white));
+  --tool-error-icon: #fca5a5;
+  --border: rgb(255 255 255 / 8%);
+  --input: rgb(255 255 255 / 11%);
+  --info-foreground: var(--color-blue-400);
+  --sidebar: var(--card);
+  --sidebar-foreground: var(--foreground);
+  --sidebar-accent: var(--accent);
+  --sidebar-accent-foreground: var(--color-neutral-100);
+  --sidebar-row-hover: var(--accent);
+  --sidebar-row-active: var(--accent);
+  --glass-blur: 16px;
+  --app-scrollbar-thumb: rgb(255 255 255 / 8%);
+  --border-strong: rgb(255 255 255 / 20%);
+  --status-running: var(--color-blue-400);
+  --status-done: var(--color-emerald-400);
+  --status-needs-you: var(--color-amber-400);
+  --status-failed: var(--color-red-400);
+  --status-failed-soft: color-mix(in srgb, var(--color-red-500) 16%, transparent);
 }
 
 @layer base {
@@ -176,12 +209,6 @@
   html {
     @apply font-sans;
   }
-  /* Dense on wide screens, as Linear and affectUI are. */
-  @media (min-width: 48rem) {
-    body {
-      font-size: 0.8125rem;
-    }
-  }
   /* iOS zooms into a field whose text is under 16px. */
   @media (max-width: 47.99rem) {
     input,
@@ -190,4 +217,240 @@
       font-size: 1rem;
     }
   }
+}
+
+/* The chat, after t3code (apps/web/src/index.css, MIT, Copyright (c) 2026 T3 Tools Inc.): one centred lane,
+   quiet markdown, and a light that runs over the name of a tool while it works. streamdown marks its elements
+   with data-streamdown; these rules are unlayered, so they win over its utility classes. */
+.chat-content-lane {
+  margin-inline: auto;
+  width: 100%;
+  max-width: var(--chat-content-max-width);
+}
+
+.chat-markdown > :first-child {
+  margin-top: 0;
+}
+
+.chat-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.chat-markdown
+  :is(
+    p,
+    ul,
+    ol,
+    blockquote,
+    pre,
+    [data-streamdown="table-wrapper"],
+    [data-streamdown="code-block"]
+  ) {
+  margin: 0.65rem 0;
+}
+
+.chat-markdown :is(h1, h2, h3, h4, h5, h6) {
+  margin: 1.25rem 0 0.5rem;
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--foreground);
+}
+
+.chat-markdown h1 {
+  font-size: 1.25rem;
+}
+
+.chat-markdown h2 {
+  font-size: 1.125rem;
+}
+
+.chat-markdown h3 {
+  font-size: 1rem;
+}
+
+.chat-markdown :is(h4, h5, h6) {
+  font-size: 0.875rem;
+}
+
+.chat-markdown ul {
+  padding-inline-start: 1.25rem;
+  list-style-type: disc;
+}
+
+.chat-markdown ol {
+  padding-inline-start: 1.25rem;
+  list-style-type: decimal;
+}
+
+.chat-markdown li + li {
+  margin-top: 0.25rem;
+}
+
+.chat-markdown a {
+  color: var(--info-foreground);
+  text-decoration: none;
+}
+
+.chat-markdown a:is(:hover, :focus-visible) {
+  background-image: radial-gradient(circle, currentcolor 0.75px, transparent 1px);
+  background-position: left bottom;
+  background-repeat: repeat-x;
+  background-size: 4px 2px;
+}
+
+.chat-markdown blockquote {
+  border-inline-start: 2px solid color-mix(in srgb, currentcolor 35%, transparent);
+  padding-inline-start: 0.8rem;
+}
+
+.chat-markdown strong,
+.chat-markdown [data-streamdown="strong"] {
+  font-weight: 700;
+}
+
+.chat-markdown :not(pre) > code,
+.chat-markdown [data-streamdown="inline-code"] {
+  border: 1px solid transparent;
+  border-radius: 0.25rem;
+  background: color-mix(in srgb, var(--foreground) 10%, transparent);
+  padding: 0.1em 0.35em;
+  color: var(--foreground);
+  font-size: 0.85em;
+}
+
+.chat-markdown [data-streamdown="code-block"] {
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 0.5rem;
+  background: var(--secondary);
+  line-height: 1.375;
+}
+
+.dark .chat-markdown [data-streamdown="code-block"] {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--input) 32%, transparent);
+}
+
+.chat-markdown [data-streamdown="code-block-header"] {
+  color: color-mix(in srgb, var(--foreground) 72%, transparent);
+  font-family: var(--font-mono);
+  font-size: var(--text-2xs);
+}
+
+.chat-markdown [data-streamdown="code-block"] :is(pre, [data-streamdown="code-block-body"]) {
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent !important;
+}
+
+.chat-markdown pre {
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+/* Tables as diagnostics: row separators only, the outer columns flush with the prose. */
+.chat-markdown [data-streamdown="table-wrapper"] {
+  gap: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+}
+
+/* streamdown puts the table in a bordered box with a scroller inside; only the scroller stays. */
+.chat-markdown [data-streamdown="table-wrapper"] > div {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+
+/* The lane wraps anywhere, which would shrink columns to single letters; a table wraps at words, so a column
+   is at least its longest word and only wider content scrolls. */
+/* A narrow screen scrolls the table rather than squeezing every column to a word per line. */
+.chat-markdown table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  overflow-wrap: normal;
+  word-break: normal;
+  font-size: 0.875rem;
+}
+
+.chat-markdown :is(thead, tr, th, td) {
+  background: transparent;
+}
+
+.chat-markdown :is(th, td) {
+  max-width: 24rem;
+  padding: 0.45rem 0.75rem;
+  border: none;
+  background: transparent;
+  overflow-wrap: break-word;
+  text-align: start;
+  text-wrap: pretty;
+  vertical-align: top;
+}
+
+.chat-markdown :is(th, td):first-child {
+  padding-inline-start: 0;
+}
+
+.chat-markdown :is(th, td):last-child {
+  padding-inline-end: 0;
+}
+
+.chat-markdown thead th {
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  padding-block: 0.55rem;
+  font-weight: 600;
+}
+
+.chat-markdown tbody td {
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .chat-markdown[data-streaming] > * {
+    transition: opacity 600ms ease-out;
+
+    @starting-style {
+      opacity: 0;
+    }
+  }
+}
+
+@keyframes live-tool-shine {
+  from {
+    background-position:
+      -4.5rem 0,
+      0 0;
+  }
+  to {
+    background-position:
+      calc(100% + 4.5rem) 0,
+      0 0;
+  }
+}
+
+/* Stepped, not every frame, so a long turn does not keep the GPU busy. */
+@utility live-tool-shine {
+  @media (prefers-reduced-motion: no-preference) and (forced-colors: none) {
+    color: transparent;
+    background-image:
+      linear-gradient(to right, transparent, var(--foreground), transparent),
+      linear-gradient(var(--secondary-label), var(--secondary-label));
+    background-size:
+      4.5rem 100%,
+      100% 100%;
+    background-repeat: no-repeat;
+    background-clip: text;
+    animation: live-tool-shine 2.2s steps(30) infinite;
+  }
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--app-scrollbar-thumb) transparent;
 }
