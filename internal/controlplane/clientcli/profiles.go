@@ -25,7 +25,7 @@ func profilesList(ctx context.Context, e *env, fs *flag.FlagSet) error {
 
 	return e.print(fs, resp.JSON200, func() {
 		for _, p := range resp.JSON200.Data {
-			e.printf("%s\tv%d\t%s\t%s\n", p.Name, p.Version, p.Runtime, modelOf(p))
+			e.printf("%s\tv%d\t%s\t%s\n  %s\n", p.Name, p.Version, p.Runtime, modelOf(p), p.Description)
 		}
 	})
 }

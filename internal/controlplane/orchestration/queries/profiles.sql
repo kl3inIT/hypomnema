@@ -35,9 +35,10 @@ INSERT INTO profiles (name, current_version_id, created_at, updated_at) VALUES (
 UPDATE profiles SET current_version_id = @version_id, updated_at = @now WHERE name = @name;
 
 -- name: InsertProfileVersion :exec
-INSERT INTO profile_versions (id, profile, version, source, digest, runtime, provider, model, effort, instruction,
-                              created_at)
-VALUES (@id, @profile, @version, @source, @digest, @runtime, @provider, @model, @effort, @instruction, @now);
+INSERT INTO profile_versions (id, profile, version, source, digest, description, runtime, provider, model, effort,
+                              instruction, created_at)
+VALUES (@id, @profile, @version, @source, @digest, @description, @runtime, @provider, @model, @effort, @instruction,
+        @now);
 
 -- name: GetProfileVersion :one
 SELECT * FROM profile_versions WHERE id = @id;

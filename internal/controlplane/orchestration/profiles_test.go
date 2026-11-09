@@ -21,6 +21,8 @@ func TestTheStartingSetIsThere(t *testing.T) {
 	names := map[string]string{}
 	for _, p := range profiles {
 		names[p.Name] = p.Runtime
+		assert.NotEmpty(t, p.Description, "%s says what it is for", p.Name)
+		assert.Equal(t, 2, p.Version, "%s: the seed, then the seed with its description", p.Name)
 	}
 
 	assert.Equal(t, map[string]string{
@@ -48,13 +50,13 @@ func TestAChangedProfileIsANewVersion(t *testing.T) {
 	w.tasks(NewTask{Ref: "a", Spec: "a"})
 	first := w.dispatchOf(w.schedule().Created[0])
 
-	source := "name: implementer\nruntime: claude\nmodel:\n  name: sonnet\n  effort: high\n" +
+	source := "name: implementer\ndescription: d\nruntime: claude\nmodel:\n  name: sonnet\n  effort: high\n" +
 		"instruction: Run the tests before finishing.\n"
 
 	v2, created, err := w.s.ApplyProfile(ctx, "", source)
 	require.NoError(t, err)
 	assert.True(t, created)
-	assert.Equal(t, 2, v2.Version)
+	assert.Equal(t, 3, v2.Version)
 	assert.Equal(t, "claude-subscription", v2.Provider, "found from the model")
 
 	same, created, err := w.s.ApplyProfile(ctx, "", source)
@@ -64,8 +66,8 @@ func TestAChangedProfileIsANewVersion(t *testing.T) {
 
 	versions, err := w.s.ListProfileVersions(ctx, "implementer")
 	require.NoError(t, err)
-	require.Len(t, versions, 2)
-	assert.Equal(t, 2, versions[0].Version, "newest first")
+	require.Len(t, versions, 3)
+	assert.Equal(t, 3, versions[0].Version, "newest first")
 
 	w.tasks(NewTask{Ref: "b", Spec: "b"})
 	second := w.dispatchOf(w.schedule().Created[0])
@@ -98,34 +100,36 @@ func TestAProfileIsCheckedWhenApplied(t *testing.T) {
 	require.NoError(t, err)
 
 	for source, want := range map[string]string{
-		"name: Bad Name\nruntime: claude\n":                                 "lowercase",
-		"name: x\nruntime: claude\nflavor: red\n":                           "flavor",
-		"name: x\nruntime: gemini\n":                                        "unknown runtime",
-		"name: x\nruntime: claude\nmodel: {name: opus, effort: huge}\n":     "unknown effort",
-		"name: x\nruntime: claude\nmodel: {name: gpt-5}\n":                  "no provider",
-		"name: x\nruntime: claude\nmodel: {provider: router, name: opus}\n": "cannot run against",
-		"name: x\nruntime: pi\nmodel: {provider: router, name: opus}\n":     "does not offer",
-		"name: x\nruntime: codex\nmodel: {provider: nobody}\n":              "not found",
+		"name: Bad Name\ndescription: d\nruntime: claude\n":                                 "lowercase",
+		"name: x\ndescription: d\nruntime: claude\nflavor: red\n":                           "flavor",
+		"name: x\ndescription: d\nruntime: gemini\n":                                        "unknown runtime",
+		"name: x\ndescription: d\nruntime: claude\nmodel: {name: opus, effort: huge}\n":     "unknown effort",
+		"name: x\ndescription: d\nruntime: claude\nmodel: {name: gpt-5}\n":                  "no provider",
+		"name: x\ndescription: d\nruntime: claude\nmodel: {provider: router, name: opus}\n": "cannot run against",
+		"name: x\ndescription: d\nruntime: pi\nmodel: {provider: router, name: opus}\n":     "does not offer",
+		"name: x\ndescription: d\nruntime: codex\nmodel: {provider: nobody}\n":              "not found",
+		"name: x\nruntime: claude\n":                                                        "needs a description",
 	} {
 		_, _, err := w.s.ApplyProfile(t.Context(), "", source)
 		require.ErrorContains(t, err, want, source)
 	}
 
-	_, _, err = w.s.ApplyProfile(t.Context(), "other", "name: x\nruntime: claude\n")
+	_, _, err = w.s.ApplyProfile(t.Context(), "other", "name: x\ndescription: d\nruntime: claude\n")
 	require.ErrorIs(t, err, ErrInvalid, "the name in the path must be the source's")
 
-	p, _, err := w.s.ApplyProfile(t.Context(), "", "name: coordinator\nruntime: pi\nmodel: {name: sonnet}\n")
+	p, _, err := w.s.ApplyProfile(t.Context(), "",
+		"name: coordinator\ndescription: d\nruntime: pi\nmodel: {name: sonnet}\n")
 	require.NoError(t, err)
 	assert.Equal(t, "router", p.Provider, "only router offers sonnet to pi")
 
-	p, _, err = w.s.ApplyProfile(t.Context(), "", "name: x\nruntime: claude\nmodel: {name: sonnet}\n")
+	p, _, err = w.s.ApplyProfile(t.Context(), "", "name: x\ndescription: d\nruntime: claude\nmodel: {name: sonnet}\n")
 	require.NoError(t, err)
 	assert.Equal(t, "claude-subscription", p.Provider, "claude cannot use router's kind")
 
 	_, err = w.s.ApplyProvider(t.Context(), "", "name: anthropic\nkind: anthropic\nmodels: [sonnet]\n")
 	require.NoError(t, err)
 
-	_, _, err = w.s.ApplyProfile(t.Context(), "", "name: y\nruntime: claude\nmodel: {name: sonnet}\n")
+	_, _, err = w.s.ApplyProfile(t.Context(), "", "name: y\ndescription: d\nruntime: claude\nmodel: {name: sonnet}\n")
 	require.ErrorContains(t, err, "name the provider", "claude now reaches sonnet two ways")
 }
 
@@ -145,7 +149,8 @@ func TestAProviderKeepsItsProfilesWorking(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"m1", "m2"}, p.Models)
 
-	_, _, err = w.s.ApplyProfile(ctx, "", "name: coordinator\nruntime: pi\nmodel: {provider: router, name: m1}\n")
+	_, _, err = w.s.ApplyProfile(ctx, "",
+		"name: coordinator\ndescription: d\nruntime: pi\nmodel: {provider: router, name: m1}\n")
 	require.NoError(t, err)
 
 	_, err = w.s.ApplyProvider(ctx, "", "name: router\nkind: openai_compatible\nmodels: [m2]\n")

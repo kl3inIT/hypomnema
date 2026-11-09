@@ -49,7 +49,8 @@ func newPlane(t *testing.T) *plane {
 
 	svc := orchestration.New(db, platform.SystemClock{}, platform.NewID)
 
-	_, _, err = svc.ApplyProfile(t.Context(), "", "name: implementer\nruntime: claude\nmodel: {name: opus}\n")
+	_, _, err = svc.ApplyProfile(t.Context(), "",
+		"name: implementer\ndescription: d\nruntime: claude\nmodel: {name: opus}\n")
 	require.NoError(t, err)
 
 	mux := http.NewServeMux()
