@@ -1,0 +1,26 @@
+# Dependency updates (issue #54). Weekly, with minor and patch updates grouped per ecosystem so each week brings a
+# few pull requests; a major version comes alone. CI checks each one like any other pull request.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directories: ["/", "/tools/ci"]
+    schedule: { interval: weekly }
+    groups:
+      go:
+        update-types: [minor, patch]
+  - package-ecosystem: npm
+    directory: /web
+    schedule: { interval: weekly }
+    groups:
+      web:
+        update-types: [minor, patch]
+  - package-ecosystem: npm
+    # pi, the coordinator on the server; a new version is installed by running deploy/coordinator/setup-coordinator.sh.
+    directory: /deploy/coordinator
+    schedule: { interval: weekly }
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }
+    groups:
+      actions:
+        update-types: [minor, patch]
