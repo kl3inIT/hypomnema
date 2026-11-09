@@ -202,6 +202,22 @@ Node (`internal/node`):
 - In development, `pnpm dev` forwards `/api`, `/livez` and `/readyz` to the control plane (`HYPOMNEMA_API_URL`,
   default `http://127.0.0.1:8080`).
 
+## Where it runs
+
+Since 2026-11-09, on the owner's tailnet (Tailscale); nothing is public:
+
+- Control plane: zm, user `dat`, `~/hypomnema-cp` (binary, `env`, SQLite in `data/`), tmux session `hyp-cp`,
+  listening on `127.0.0.1:18990`. Tailscale runs without root (userspace networking, tmux `hyp-ts`, state in
+  `~/hypomnema-cp/tailscale`) and `tailscale serve` publishes it to the tailnet as
+  `https://hypomnema.taild3b6dc.ts.net`.
+- Node: aioffice-app, user `hypnode`, `~/bin/hypomnema-node`, tmux session `hyp-node`, pointed at that URL; the
+  machine joined the tailnet as `aioffice-node`. The earlier control plane there (`~ubuntu/hypomnema-cp`) is
+  stopped and kept for rollback.
+- The owner's laptop joined as `laptop` and is logged in with a coordinator token; the coordinator skill is
+  installed.
+- Each machine joins the tailnet once, approved in the owner's Tailscale account. There is no service manager yet:
+  a reboot needs the tmux sessions started again.
+
 ## Code
 
 ```
