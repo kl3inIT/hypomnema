@@ -51,9 +51,10 @@ type Supervisor struct {
 	svc *orchestration.Service
 	cfg Config
 
-	mu    sync.Mutex
-	procs map[string]*proc
-	kick  chan struct{}
+	mu       sync.Mutex
+	procs    map[string]*proc
+	watchers map[string]map[watcher]struct{}
+	kick     chan struct{}
 }
 
 // New returns a Supervisor; Run starts it.
@@ -66,7 +67,10 @@ func New(svc *orchestration.Service, cfg Config) *Supervisor {
 		cfg.Logger = slog.New(slog.DiscardHandler)
 	}
 
-	return &Supervisor{svc: svc, cfg: cfg, procs: map[string]*proc{}, kick: make(chan struct{}, 1)}
+	return &Supervisor{
+		svc: svc, cfg: cfg, procs: map[string]*proc{}, watchers: map[string]map[watcher]struct{}{},
+		kick: make(chan struct{}, 1),
+	}
 }
 
 // Enabled reports whether a command to start pi is configured.

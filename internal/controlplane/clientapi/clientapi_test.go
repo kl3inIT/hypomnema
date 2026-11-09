@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/coordinator"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
@@ -33,6 +35,8 @@ type world struct {
 	stop chan struct{}
 	// workers are the Dispatches a test drives, by the id of a question they asked.
 	workers map[string]*worker
+	// pi plays the coordinator's supervisor.
+	pi *fakeCoordinator
 }
 
 func newWorld(t *testing.T) *world {
@@ -46,7 +50,8 @@ func newWorld(t *testing.T) *world {
 	svc := orchestration.New(db, platform.SystemClock{}, platform.NewID)
 
 	stop := make(chan struct{})
-	srv := New(svc, slog.New(slog.DiscardHandler), stop).WithCoordinator(fakeCoordinator{})
+	pi := &fakeCoordinator{live: make(chan coordinator.Frame, 16)}
+	srv := New(svc, slog.New(slog.DiscardHandler), stop).WithCoordinator(pi)
 	srv.heartbeat = 50 * time.Millisecond
 
 	mux := http.NewServeMux()
@@ -62,7 +67,7 @@ func newWorld(t *testing.T) *world {
 		}
 	})
 
-	return &world{t: t, svc: svc, url: hs.URL, stop: stop, workers: map[string]*worker{}}
+	return &world{t: t, svc: svc, url: hs.URL, stop: stop, workers: map[string]*worker{}, pi: pi}
 }
 
 // token adds a token and returns a client that sends it.
@@ -630,11 +635,25 @@ func TestOnlyTheOwnerChangesProfiles(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, provider.StatusCode())
 }
 
-// fakeCoordinator says pi runs and is never working.
-type fakeCoordinator struct{}
+// fakeCoordinator says pi runs and is never working; a test sends live
+// frames on live and reads which chats were stopped.
+type fakeCoordinator struct {
+	live    chan coordinator.Frame
+	aborted atomic.Value
+}
 
-func (fakeCoordinator) Enabled() bool         { return true }
-func (fakeCoordinator) Working(_ string) bool { return false }
+func (*fakeCoordinator) Enabled() bool         { return true }
+func (*fakeCoordinator) Working(_ string) bool { return false }
+
+func (f *fakeCoordinator) Watch(_ string) (<-chan coordinator.Frame, func()) {
+	return f.live, func() {}
+}
+
+func (f *fakeCoordinator) Abort(_ context.Context, chatID string) error {
+	f.aborted.Store(chatID)
+
+	return nil
+}
 
 // Scenario: the owner chats with pi from the web. Only the owner's token
 // reads or writes chats; a message read with wait arrives as it is kept; a
@@ -689,4 +708,100 @@ func TestOnlyTheOwnerChats(t *testing.T) {
 	missing, err := pi.CreateRunWithResponse(ctx, nil, openapi.NewRun{Objective: "x", ChatId: &unknown})
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusNotFound, missing.StatusCode())
+}
+
+// Scenario: the web opens a chat while pi answers. It gets pi's state, the
+// kept messages after its cursor with their seq as the id, pi's text as it is
+// written (no id: not kept), then the kept reply with its parts. Stop goes to
+// pi.
+func TestStreamChatShowsPiLive(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	owner, _ := w.token("web", bearertoken.Owner)
+	ctx := t.Context()
+
+	chat, err := w.svc.CreateChat(ctx, "")
+	require.NoError(t, err)
+
+	old, err := w.svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, "first")
+	require.NoError(t, err)
+	_, err = w.svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, "add a health page")
+	require.NoError(t, err)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, w.url+BasePath+"/chats/"+chat.ID+"/stream", nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+bearerOf(t, w, "stream"))
+	req.Header.Set("Last-Event-ID", strconv.FormatInt(old.Seq, 10))
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+
+	defer func() { _ = resp.Body.Close() }()
+
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	lines := make(chan string, 100)
+
+	go func() {
+		defer close(lines)
+
+		sc := bufio.NewScanner(resp.Body)
+		for sc.Scan() {
+			if l := sc.Text(); l != "" && !strings.HasPrefix(l, ":") {
+				lines <- l
+			}
+		}
+	}()
+
+	next := func() string {
+		t.Helper()
+
+		select {
+		case l, ok := <-lines:
+			require.True(t, ok, "the stream ended")
+
+			return l
+		case <-time.After(5 * time.Second):
+			t.Fatal("no frame in time")
+
+			return ""
+		}
+	}
+
+	assert.Equal(t, "event: state", next())
+	assert.JSONEq(t, `{"working":false}`, strings.TrimPrefix(next(), "data: "))
+	assert.Equal(t, "id: "+strconv.FormatInt(old.Seq+1, 10), next(), "resumes after Last-Event-ID")
+	assert.Equal(t, "event: message", next())
+	assert.Contains(t, next(), "add a health page")
+
+	w.pi.live <- coordinator.Frame{Event: coordinator.FrameDelta, Data: map[string]any{
+		"kind": "text", "index": 0, "delta": "On ",
+	}}
+	assert.Equal(t, "event: delta", next(), "a live frame has no id")
+	assert.JSONEq(t, `{"kind":"text","index":0,"delta":"On "}`, strings.TrimPrefix(next(), "data: "))
+
+	_, err = w.svc.AddChatMessageParts(ctx, chat.ID, orchestration.ChatCoordinator, "On it.",
+		json.RawMessage(`[{"type":"thinking","text":"plan"},{"type":"text","text":"On it."}]`))
+	require.NoError(t, err)
+
+	assert.True(t, strings.HasPrefix(next(), "id: "))
+	assert.Equal(t, "event: message", next())
+
+	var kept openapi.ChatMessage
+	require.NoError(t, json.Unmarshal([]byte(strings.TrimPrefix(next(), "data: ")), &kept))
+	assert.Equal(t, openapi.ChatRoleCoordinator, kept.Role)
+	require.NotNil(t, kept.Parts)
+	assert.Equal(t, "plan", val((*kept.Parts)[0].Text))
+
+	stopped, err := owner.AbortChatWithResponse(ctx, chat.ID)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusNoContent, stopped.StatusCode())
+	assert.Equal(t, chat.ID, w.pi.aborted.Load())
+
+	close(w.stop)
+
+	for range lines {
+		// Drain until the server ends the stream.
+	}
 }

@@ -84,11 +84,51 @@ func (e BlockedReason) Valid() bool {
 	}
 }
 
+// Defines values for ChatDeltaKind.
+const (
+	ChatDeltaKindText     ChatDeltaKind = "text"
+	ChatDeltaKindThinking ChatDeltaKind = "thinking"
+)
+
+// Valid indicates whether the value is a known member of the ChatDeltaKind enum.
+func (e ChatDeltaKind) Valid() bool {
+	switch e {
+	case ChatDeltaKindText:
+		return true
+	case ChatDeltaKindThinking:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ChatPartType.
+const (
+	ChatPartTypeText       ChatPartType = "text"
+	ChatPartTypeThinking   ChatPartType = "thinking"
+	ChatPartTypeToolResult ChatPartType = "tool_result"
+)
+
+// Valid indicates whether the value is a known member of the ChatPartType enum.
+func (e ChatPartType) Valid() bool {
+	switch e {
+	case ChatPartTypeText:
+		return true
+	case ChatPartTypeThinking:
+		return true
+	case ChatPartTypeToolResult:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ChatRole.
 const (
 	ChatRoleCoordinator ChatRole = "coordinator"
 	ChatRoleOwner       ChatRole = "owner"
 	ChatRoleSystem      ChatRole = "system"
+	ChatRoleTool        ChatRole = "tool"
 )
 
 // Valid indicates whether the value is a known member of the ChatRole enum.
@@ -99,6 +139,26 @@ func (e ChatRole) Valid() bool {
 	case ChatRoleOwner:
 		return true
 	case ChatRoleSystem:
+		return true
+	case ChatRoleTool:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ChatToolActivityPhase.
+const (
+	End   ChatToolActivityPhase = "end"
+	Start ChatToolActivityPhase = "start"
+)
+
+// Valid indicates whether the value is a known member of the ChatToolActivityPhase enum.
+func (e ChatToolActivityPhase) Valid() bool {
+	switch e {
+	case End:
+		return true
+	case Start:
 		return true
 	default:
 		return false
@@ -391,6 +451,16 @@ type Chat struct {
 	Working bool `json:"working"`
 }
 
+// ChatDelta Text or thinking pi is writing, to append to block index of the current reply.
+type ChatDelta struct {
+	Delta string        `json:"delta"`
+	Index int           `json:"index"`
+	Kind  ChatDeltaKind `json:"kind"`
+}
+
+// ChatDeltaKind defines model for ChatDelta.Kind.
+type ChatDeltaKind string
+
 // ChatList defines model for ChatList.
 type ChatList struct {
 	Data []Chat `json:"data"`
@@ -405,10 +475,15 @@ type ChatMessage struct {
 	DeliveredAt *time.Time `json:"delivered_at,omitempty"`
 
 	// EventSeq The event a wake-up reports.
-	EventSeq *int64   `json:"event_seq,omitempty"`
-	Role     ChatRole `json:"role"`
-	Seq      int64    `json:"seq"`
-	Text     string   `json:"text"`
+	EventSeq *int64 `json:"event_seq,omitempty"`
+
+	// Parts A reply's text and thinking, or a tool's result; absent for owner and system messages.
+	Parts *[]ChatPart `json:"parts,omitempty"`
+
+	// Role owner: typed by the owner; coordinator: pi's reply; tool: a tool pi ran, with its result; system: a wake-up or a notice.
+	Role ChatRole `json:"role"`
+	Seq  int64    `json:"seq"`
+	Text string   `json:"text"`
 }
 
 // ChatMessageList defines model for ChatMessageList.
@@ -419,8 +494,49 @@ type ChatMessageList struct {
 	NextAfter int64 `json:"next_after"`
 }
 
-// ChatRole defines model for ChatRole.
+// ChatPart One piece of a reply (text, thinking) or of a tool pi ran (tool_result).
+type ChatPart struct {
+	// Args The tool's arguments.
+	Args       *map[string]interface{} `json:"args,omitempty"`
+	DurationMs *int64                  `json:"duration_ms,omitempty"`
+	Error      *bool                   `json:"error,omitempty"`
+
+	// Id The tool call.
+	Id *string `json:"id,omitempty"`
+
+	// Name The tool.
+	Name *string `json:"name,omitempty"`
+
+	// Output The tool's result, at most 16 KiB.
+	Output *string `json:"output,omitempty"`
+	Text   *string `json:"text,omitempty"`
+
+	// Truncated The output was cut.
+	Truncated *bool        `json:"truncated,omitempty"`
+	Type      ChatPartType `json:"type"`
+}
+
+// ChatPartType defines model for ChatPart.Type.
+type ChatPartType string
+
+// ChatRole owner: typed by the owner; coordinator: pi's reply; tool: a tool pi ran, with its result; system: a wake-up or a notice.
 type ChatRole string
+
+// ChatState defines model for ChatState.
+type ChatState struct {
+	Working bool `json:"working"`
+}
+
+// ChatToolActivity A tool started (with its name and arguments) or ended.
+type ChatToolActivity struct {
+	Args  *map[string]interface{} `json:"args,omitempty"`
+	Id    string                  `json:"id"`
+	Name  *string                 `json:"name,omitempty"`
+	Phase ChatToolActivityPhase   `json:"phase"`
+}
+
+// ChatToolActivityPhase defines model for ChatToolActivity.Phase.
+type ChatToolActivityPhase string
 
 // Dispatch defines model for Dispatch.
 type Dispatch struct {
@@ -822,6 +938,15 @@ type ListChatMessagesParams struct {
 	Wait *int `form:"wait,omitempty" json:"wait,omitempty"`
 }
 
+// StreamChatParams defines parameters for StreamChat.
+type StreamChatParams struct {
+	// After The seq of the last event already read.
+	After *After `form:"after,omitempty" json:"after,omitempty"`
+
+	// LastEventID Takes precedence over after, as a reconnecting browser sends it.
+	LastEventID *int64 `json:"Last-Event-ID,omitempty"`
+}
+
 // ListEventsParams defines parameters for ListEvents.
 type ListEventsParams struct {
 	// After The seq of the last event already read.
@@ -998,6 +1123,11 @@ type ClientInterface interface {
 	// Corresponds with GET /chats/{chat_id} (the `GetChat` operationId).
 	GetChat(ctx context.Context, chatId ChatID, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// AbortChat Stop the coordinator's current turn in this chat; nothing happens when it is idle
+	//
+	// Corresponds with POST /chats/{chat_id}/abort (the `AbortChat` operationId).
+	AbortChat(ctx context.Context, chatId ChatID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ListChatMessages A chat's messages after a cursor, oldest first; optionally wait for the next one
 	//
 	// Corresponds with GET /chats/{chat_id}/messages (the `ListChatMessages` operationId).
@@ -1016,6 +1146,13 @@ type ClientInterface interface {
 	//
 	// Corresponds with POST /chats/{chat_id}/messages (the `SendChatMessage` operationId).
 	SendChatMessage(ctx context.Context, chatId ChatID, body SendChatMessageJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// StreamChat A chat as Server-Sent Events, resumable with Last-Event-ID
+	//
+	// Kept messages come as `message` frames with their seq as the id and a ChatMessage as data. While pi works, frames without an id show what is not kept yet: `reset` (a new reply starts), `delta` (ChatDelta), `tool` (ChatToolActivity) and `state` (ChatState); a kept message replaces what they showed. A comment line is sent every 10 seconds.
+	//
+	// Corresponds with GET /chats/{chat_id}/stream (the `StreamChat` operationId).
+	StreamChat(ctx context.Context, chatId ChatID, params *StreamChatParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListEvents Events after a cursor, oldest first; optionally wait for the next one
 	//
@@ -1264,6 +1401,21 @@ func (c *Client) GetChat(ctx context.Context, chatId ChatID, reqEditors ...Reque
 	return c.Client.Do(req)
 }
 
+// AbortChat Stop the coordinator's current turn in this chat; nothing happens when it is idle
+//
+// Corresponds with POST /chats/{chat_id}/abort (the `AbortChat` operationId).
+func (c *Client) AbortChat(ctx context.Context, chatId ChatID, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAbortChatRequest(c.Server, chatId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // ListChatMessages A chat's messages after a cursor, oldest first; optionally wait for the next one
 //
 // Corresponds with GET /chats/{chat_id}/messages (the `ListChatMessages` operationId).
@@ -1303,6 +1455,23 @@ func (c *Client) SendChatMessageWithBody(ctx context.Context, chatId ChatID, con
 // Corresponds with POST /chats/{chat_id}/messages (the `SendChatMessage` operationId).
 func (c *Client) SendChatMessage(ctx context.Context, chatId ChatID, body SendChatMessageJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewSendChatMessageRequest(c.Server, chatId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// StreamChat A chat as Server-Sent Events, resumable with Last-Event-ID
+//
+// Kept messages come as `message` frames with their seq as the id and a ChatMessage as data. While pi works, frames without an id show what is not kept yet: `reset` (a new reply starts), `delta` (ChatDelta), `tool` (ChatToolActivity) and `state` (ChatState); a kept message replaces what they showed. A comment line is sent every 10 seconds.
+//
+// Corresponds with GET /chats/{chat_id}/stream (the `StreamChat` operationId).
+func (c *Client) StreamChat(ctx context.Context, chatId ChatID, params *StreamChatParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewStreamChatRequest(c.Server, chatId, params)
 	if err != nil {
 		return nil, err
 	}
@@ -1925,6 +2094,40 @@ func NewGetChatRequest(server string, chatId ChatID) (*http.Request, error) {
 	return req, nil
 }
 
+// NewAbortChatRequest constructs an http.Request for the AbortChat method
+func NewAbortChatRequest(server string, chatId ChatID) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "chat_id", chatId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/chats/%s/abort", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewListChatMessagesRequest constructs an http.Request for the ListChatMessages method
 func NewListChatMessagesRequest(server string, chatId ChatID, params *ListChatMessagesParams) (*http.Request, error) {
 	var err error
@@ -2053,6 +2256,82 @@ func NewSendChatMessageRequestWithBody(server string, chatId ChatID, contentType
 	}
 
 	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewStreamChatRequest constructs an http.Request for the StreamChat method
+func NewStreamChatRequest(server string, chatId ChatID, params *StreamChatParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "chat_id", chatId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/chats/%s/stream", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.After != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "after", *params.After, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: "int64"}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		if params.LastEventID != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Last-Event-ID", *params.LastEventID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "integer", Format: "int64"})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("Last-Event-ID", headerParam0)
+		}
+
+	}
 
 	return req, nil
 }
@@ -3232,6 +3511,13 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /chats/{chat_id} (the `GetChat` operationId).
 	GetChatWithResponse(ctx context.Context, chatId ChatID, reqEditors ...RequestEditorFn) (*GetChatResponse, error)
 
+	// AbortChatWithResponse Stop the coordinator's current turn in this chat; nothing happens when it is idle
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /chats/{chat_id}/abort (the `AbortChat` operationId).
+	AbortChatWithResponse(ctx context.Context, chatId ChatID, reqEditors ...RequestEditorFn) (*AbortChatResponse, error)
+
 	// ListChatMessagesWithResponse A chat's messages after a cursor, oldest first; optionally wait for the next one
 	//
 	// Returns a wrapper object for the known response body format(s).
@@ -3252,6 +3538,15 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with POST /chats/{chat_id}/messages (the `SendChatMessage` operationId).
 	SendChatMessageWithResponse(ctx context.Context, chatId ChatID, body SendChatMessageJSONRequestBody, reqEditors ...RequestEditorFn) (*SendChatMessageResponse, error)
+
+	// StreamChatWithResponse A chat as Server-Sent Events, resumable with Last-Event-ID
+	//
+	// Kept messages come as `message` frames with their seq as the id and a ChatMessage as data. While pi works, frames without an id show what is not kept yet: `reset` (a new reply starts), `delta` (ChatDelta), `tool` (ChatToolActivity) and `state` (ChatState); a kept message replaces what they showed. A comment line is sent every 10 seconds.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /chats/{chat_id}/stream (the `StreamChat` operationId).
+	StreamChatWithResponse(ctx context.Context, chatId ChatID, params *StreamChatParams, reqEditors ...RequestEditorFn) (*StreamChatResponse, error)
 
 	// ListEventsWithResponse Events after a cursor, oldest first; optionally wait for the next one
 	//
@@ -3651,6 +3946,47 @@ func (r GetChatResponse) ContentType() string {
 	return ""
 }
 
+type AbortChatResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r AbortChatResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r AbortChatResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r AbortChatResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r AbortChatResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r AbortChatResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type ListChatMessagesResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -3741,6 +4077,47 @@ func (r SendChatMessageResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r SendChatMessageResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type StreamChatResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r StreamChatResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r StreamChatResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r StreamChatResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r StreamChatResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r StreamChatResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -4964,6 +5341,19 @@ func (c *ClientWithResponses) GetChatWithResponse(ctx context.Context, chatId Ch
 	return ParseGetChatResponse(rsp)
 }
 
+// AbortChatWithResponse Stop the coordinator's current turn in this chat; nothing happens when it is idle
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /chats/{chat_id}/abort (the `AbortChat` operationId).
+func (c *ClientWithResponses) AbortChatWithResponse(ctx context.Context, chatId ChatID, reqEditors ...RequestEditorFn) (*AbortChatResponse, error) {
+	rsp, err := c.AbortChat(ctx, chatId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAbortChatResponse(rsp)
+}
+
 // ListChatMessagesWithResponse A chat's messages after a cursor, oldest first; optionally wait for the next one
 //
 // Returns a wrapper object for the known response body format(s).
@@ -5001,6 +5391,21 @@ func (c *ClientWithResponses) SendChatMessageWithResponse(ctx context.Context, c
 		return nil, err
 	}
 	return ParseSendChatMessageResponse(rsp)
+}
+
+// StreamChatWithResponse A chat as Server-Sent Events, resumable with Last-Event-ID
+//
+// Kept messages come as `message` frames with their seq as the id and a ChatMessage as data. While pi works, frames without an id show what is not kept yet: `reset` (a new reply starts), `delta` (ChatDelta), `tool` (ChatToolActivity) and `state` (ChatState); a kept message replaces what they showed. A comment line is sent every 10 seconds.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /chats/{chat_id}/stream (the `StreamChat` operationId).
+func (c *ClientWithResponses) StreamChatWithResponse(ctx context.Context, chatId ChatID, params *StreamChatParams, reqEditors ...RequestEditorFn) (*StreamChatResponse, error) {
+	rsp, err := c.StreamChat(ctx, chatId, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseStreamChatResponse(rsp)
 }
 
 // ListEventsWithResponse Events after a cursor, oldest first; optionally wait for the next one
@@ -5514,6 +5919,35 @@ func ParseGetChatResponse(rsp *http.Response) (*GetChatResponse, error) {
 	return response, nil
 }
 
+// ParseAbortChatResponse parses an HTTP response from a AbortChatWithResponse call
+func ParseAbortChatResponse(rsp *http.Response) (*AbortChatResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &AbortChatResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseListChatMessagesResponse parses an HTTP response from a ListChatMessagesWithResponse call
 func ParseListChatMessagesResponse(rsp *http.Response) (*ListChatMessagesResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -5568,6 +6002,32 @@ func ParseSendChatMessageResponse(rsp *http.Response) (*SendChatMessageResponse,
 		}
 		response.JSON201 = &dest
 
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseStreamChatResponse parses an HTTP response from a StreamChatWithResponse call
+func ParseStreamChatResponse(rsp *http.Response) (*StreamChatResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &StreamChatResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
 		var dest Error
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -6386,12 +6846,18 @@ type ServerInterface interface {
 	// GetChat A chat, and whether the coordinator is working on it
 	// (GET /chats/{chat_id})
 	GetChat(w http.ResponseWriter, r *http.Request, chatId ChatID)
+	// AbortChat Stop the coordinator's current turn in this chat; nothing happens when it is idle
+	// (POST /chats/{chat_id}/abort)
+	AbortChat(w http.ResponseWriter, r *http.Request, chatId ChatID)
 	// ListChatMessages A chat's messages after a cursor, oldest first; optionally wait for the next one
 	// (GET /chats/{chat_id}/messages)
 	ListChatMessages(w http.ResponseWriter, r *http.Request, chatId ChatID, params ListChatMessagesParams)
 	// SendChatMessage Write to the coordinator; it gets the message when it can take it
 	// (POST /chats/{chat_id}/messages)
 	SendChatMessage(w http.ResponseWriter, r *http.Request, chatId ChatID)
+	// StreamChat A chat as Server-Sent Events, resumable with Last-Event-ID
+	// (GET /chats/{chat_id}/stream)
+	StreamChat(w http.ResponseWriter, r *http.Request, chatId ChatID, params StreamChatParams)
 	// ListEvents Events after a cursor, oldest first; optionally wait for the next one
 	// (GET /events)
 	ListEvents(w http.ResponseWriter, r *http.Request, params ListEventsParams)
@@ -6562,6 +7028,32 @@ func (siw *ServerInterfaceWrapper) GetChat(w http.ResponseWriter, r *http.Reques
 	handler.ServeHTTP(w, r)
 }
 
+// AbortChat operation middleware
+func (siw *ServerInterfaceWrapper) AbortChat(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "chat_id" -------------
+	var chatId ChatID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "chat_id", r.PathValue("chat_id"), &chatId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "chat_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AbortChat(w, r, chatId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListChatMessages operation middleware
 func (siw *ServerInterfaceWrapper) ListChatMessages(w http.ResponseWriter, r *http.Request) {
 
@@ -6647,6 +7139,69 @@ func (siw *ServerInterfaceWrapper) SendChatMessage(w http.ResponseWriter, r *htt
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SendChatMessage(w, r, chatId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// StreamChat operation middleware
+func (siw *ServerInterfaceWrapper) StreamChat(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "chat_id" -------------
+	var chatId ChatID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "chat_id", r.PathValue("chat_id"), &chatId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "chat_id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params StreamChatParams
+
+	// ------------- Optional query parameter "after" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "after", r.URL.Query(), &params.After, runtime.BindQueryParameterOptions{Type: "integer", Format: "int64"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "after"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "after", Err: err})
+		}
+		return
+	}
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Last-Event-ID" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Last-Event-ID")]; found {
+		var LastEventID int64
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Last-Event-ID", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Last-Event-ID", valueList[0], &LastEventID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: "int64"})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Last-Event-ID", Err: err})
+			return
+		}
+
+		params.LastEventID = &LastEventID
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.StreamChat(w, r, chatId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -7599,6 +8154,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/chats", wrapper.ListChats)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/chats", wrapper.CreateChat)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/chats/{chat_id}", wrapper.GetChat)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/chats/{chat_id}/stream", wrapper.StreamChat)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/chats/{chat_id}/abort", wrapper.AbortChat)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/chats/{chat_id}/messages", wrapper.ListChatMessages)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/chats/{chat_id}/messages", wrapper.SendChatMessage)
 
@@ -7762,6 +8319,39 @@ func (response GetChatdefaultJSONResponse) VisitGetChatResponse(w http.ResponseW
 	return err
 }
 
+type AbortChatRequestObject struct {
+	ChatId ChatID `json:"chat_id"`
+}
+
+type AbortChatResponseObject interface {
+	VisitAbortChatResponse(w http.ResponseWriter) error
+}
+
+type AbortChat204Response struct {
+}
+
+func (response AbortChat204Response) VisitAbortChatResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type AbortChatdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response AbortChatdefaultJSONResponse) VisitAbortChatResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListChatMessagesRequestObject struct {
 	ChatId ChatID `json:"chat_id"`
 	Params ListChatMessagesParams
@@ -7831,6 +8421,75 @@ type SendChatMessagedefaultJSONResponse struct {
 }
 
 func (response SendChatMessagedefaultJSONResponse) VisitSendChatMessageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StreamChatRequestObject struct {
+	ChatId ChatID `json:"chat_id"`
+	Params StreamChatParams
+}
+
+type StreamChatResponseObject interface {
+	VisitStreamChatResponse(w http.ResponseWriter) error
+}
+
+type StreamChat200TexteventStreamResponse struct {
+	Body          io.Reader
+	ContentLength int64
+}
+
+func (response StreamChat200TexteventStreamResponse) VisitStreamChatResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		// If w doesn't support flushing, fall back to io.Copy.
+		_, err := io.Copy(w, response.Body)
+		return err
+	}
+	// text/event-stream messages are typically small; use a
+	// modest buffer and flush after each chunk so clients see
+	// events immediately instead of waiting on OS buffering.
+	buf := make([]byte, 4096)
+	for {
+		n, err := response.Body.Read(buf)
+		if n > 0 {
+			if _, writeErr := w.Write(buf[:n]); writeErr != nil {
+				return writeErr
+			}
+			flusher.Flush()
+		}
+		if err != nil {
+			if err == io.EOF {
+				return nil
+			}
+			return err
+		}
+	}
+}
+
+type StreamChatdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response StreamChatdefaultJSONResponse) VisitStreamChatResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -8836,12 +9495,18 @@ type StrictServerInterface interface {
 	// GetChat A chat, and whether the coordinator is working on it
 	// (GET /chats/{chat_id})
 	GetChat(ctx context.Context, request GetChatRequestObject) (GetChatResponseObject, error)
+	// AbortChat Stop the coordinator's current turn in this chat; nothing happens when it is idle
+	// (POST /chats/{chat_id}/abort)
+	AbortChat(ctx context.Context, request AbortChatRequestObject) (AbortChatResponseObject, error)
 	// ListChatMessages A chat's messages after a cursor, oldest first; optionally wait for the next one
 	// (GET /chats/{chat_id}/messages)
 	ListChatMessages(ctx context.Context, request ListChatMessagesRequestObject) (ListChatMessagesResponseObject, error)
 	// SendChatMessage Write to the coordinator; it gets the message when it can take it
 	// (POST /chats/{chat_id}/messages)
 	SendChatMessage(ctx context.Context, request SendChatMessageRequestObject) (SendChatMessageResponseObject, error)
+	// StreamChat A chat as Server-Sent Events, resumable with Last-Event-ID
+	// (GET /chats/{chat_id}/stream)
+	StreamChat(ctx context.Context, request StreamChatRequestObject) (StreamChatResponseObject, error)
 	// ListEvents Events after a cursor, oldest first; optionally wait for the next one
 	// (GET /events)
 	ListEvents(ctx context.Context, request ListEventsRequestObject) (ListEventsResponseObject, error)
@@ -9062,6 +9727,32 @@ func (sh *strictHandler) GetChat(w http.ResponseWriter, r *http.Request, chatId 
 	}
 }
 
+// AbortChat operation middleware
+func (sh *strictHandler) AbortChat(w http.ResponseWriter, r *http.Request, chatId ChatID) {
+	var request AbortChatRequestObject
+
+	request.ChatId = chatId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AbortChat(ctx, request.(AbortChatRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AbortChat")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AbortChatResponseObject); ok {
+		if err := validResponse.VisitAbortChatResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ListChatMessages operation middleware
 func (sh *strictHandler) ListChatMessages(w http.ResponseWriter, r *http.Request, chatId ChatID, params ListChatMessagesParams) {
 	var request ListChatMessagesRequestObject
@@ -9115,6 +9806,33 @@ func (sh *strictHandler) SendChatMessage(w http.ResponseWriter, r *http.Request,
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(SendChatMessageResponseObject); ok {
 		if err := validResponse.VisitSendChatMessageResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// StreamChat operation middleware
+func (sh *strictHandler) StreamChat(w http.ResponseWriter, r *http.Request, chatId ChatID, params StreamChatParams) {
+	var request StreamChatRequestObject
+
+	request.ChatId = chatId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.StreamChat(ctx, request.(StreamChatRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "StreamChat")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(StreamChatResponseObject); ok {
+		if err := validResponse.VisitStreamChatResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -9777,90 +10495,100 @@ func (sh *strictHandler) ReopenTask(w http.ResponseWriter, r *http.Request, task
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
-	"dQs5nNPdNMmEV2KC3TSfX/5/AA==",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

@@ -63,20 +63,46 @@ func fakePi() int {
 		}
 
 		first, _, _ := strings.Cut(text, "\n")
-		for _, rec := range []map[string]any{
-			{"type": "agent_start"},
-			{
-				"type": "tool_execution_start", "toolName": "bash",
-				"args": map[string]any{"command": "hypomnema runs list --json"},
-			},
-			{"type": "message_end", "message": map[string]any{
-				"role": "assistant", "stopReason": "stop",
-				"content": []map[string]any{{"type": "text", "text": "echo: " + first}},
-			}},
-			{"type": "agent_settled", "aborted": false},
-		} {
+		answer := "echo: " + first
+		for _, rec := range turn(answer) {
 			emit(out, rec)
 		}
+	}
+}
+
+// turn is one answer as pi writes it: thinking and a tool call, the tool
+// running, then the reply.
+func turn(reply string) []map[string]any {
+	return []map[string]any{
+		{"type": "agent_start"},
+		{"type": "message_start", "message": map[string]any{"role": "assistant"}},
+		{"type": "message_update", "assistantMessageEvent": map[string]any{
+			"type": "thinking_delta", "contentIndex": 0, "delta": "check the runs",
+		}},
+		{"type": "message_end", "message": map[string]any{
+			"role": "assistant", "stopReason": "toolUse",
+			"content": []map[string]any{
+				{"type": "thinking", "thinking": "check the runs"},
+				{"type": "toolCall", "id": "call_1", "name": "bash", "arguments": map[string]any{}},
+			},
+		}},
+		{
+			"type": "tool_execution_start", "toolCallId": "call_1", "toolName": "bash",
+			"args": map[string]any{"command": "hypomnema runs list --json"},
+		},
+		{
+			"type": "tool_execution_end", "toolCallId": "call_1", "toolName": "bash", "isError": false,
+			"durationMs": 12, "result": map[string]any{"content": []map[string]any{{"type": "text", "text": "[]"}}},
+		},
+		{"type": "message_start", "message": map[string]any{"role": "assistant"}},
+		{"type": "message_update", "assistantMessageEvent": map[string]any{
+			"type": "text_delta", "contentIndex": 0, "delta": reply,
+		}},
+		{"type": "message_end", "message": map[string]any{
+			"role": "assistant", "stopReason": "stop",
+			"content": []map[string]any{{"type": "text", "text": reply}},
+		}},
+		{"type": "agent_settled", "aborted": false},
 	}
 }
 
@@ -148,7 +174,34 @@ func TestPiAnswersTheOwner(t *testing.T) {
 	require.NoError(t, err)
 
 	waitFor(t, svc, chat.ID, orchestration.ChatCoordinator, "echo: add a health page")
-	waitFor(t, svc, chat.ID, orchestration.ChatSystem, "pi ran bash: hypomnema runs list --json")
+	waitFor(t, svc, chat.ID, orchestration.ChatTool, "pi ran bash: hypomnema runs list --json")
+
+	msgs, err := svc.ListChatMessages(ctx, chat.ID, 0, 0)
+	require.NoError(t, err)
+
+	var thinking, tool []Part
+
+	for _, m := range msgs {
+		var parts []Part
+		if m.Parts != nil {
+			require.NoError(t, json.Unmarshal(m.Parts, &parts))
+		}
+
+		switch {
+		case m.Role == orchestration.ChatTool:
+			tool = parts
+		case m.Role == orchestration.ChatCoordinator && m.Text == "":
+			thinking = parts
+		}
+	}
+
+	assert.Equal(t, []Part{{Type: "thinking", Text: "check the runs"}}, thinking,
+		"a reply with only thinking and a tool call keeps the thinking")
+	require.Len(t, tool, 1)
+	assert.Equal(t, "tool_result", tool[0].Type)
+	assert.Equal(t, "call_1", tool[0].ID)
+	assert.Equal(t, "[]", tool[0].Output)
+	assert.JSONEq(t, `{"command":"hypomnema runs list --json"}`, string(tool[0].Args))
 
 	undelivered, err := svc.Undelivered(ctx, chat.ID)
 	require.NoError(t, err)
@@ -247,4 +300,70 @@ func TestPiRunsTheCoordinatorProfilesModel(t *testing.T) {
 	args, err = sup.modelArgs(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"--provider", "ninerouter", "--model", "cx/gpt-6.1-sol", "--thinking", "high"}, args)
+}
+
+// Scenario: the web watches a chat while pi answers: it sees pi start
+// working, its thinking and text as written, the tool start and end, and pi
+// going idle; of these only the finished messages are kept.
+func TestWatchersSeePiWorkLive(t *testing.T) {
+	t.Parallel()
+
+	svc, sup := newSupervisor(t)
+	ctx := t.Context()
+
+	chat, err := svc.CreateChat(ctx, "")
+	require.NoError(t, err)
+
+	frames, stop := sup.Watch(chat.ID)
+	defer stop()
+
+	_, err = svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, "hello")
+	require.NoError(t, err)
+
+	var got []string
+
+	timeout := time.After(10 * time.Second)
+
+	for len(got) == 0 || got[len(got)-1] != "state:false" {
+		select {
+		case f := <-frames:
+			data, err := json.Marshal(f.Data)
+			require.NoError(t, err)
+
+			var m map[string]any
+			_ = json.Unmarshal(data, &m)
+
+			switch f.Event {
+			case FrameState:
+				got = append(got, fmt.Sprintf("state:%v", m["working"]))
+			case FrameDelta:
+				got = append(got, fmt.Sprintf("%s:%s", m["kind"], m["delta"]))
+			case FrameTool:
+				got = append(got, fmt.Sprintf("tool:%s", m["phase"]))
+			default:
+				got = append(got, f.Event)
+			}
+		case <-timeout:
+			require.FailNow(t, "pi never went idle", "%v", got)
+		}
+	}
+
+	assert.Equal(t, []string{
+		"state:true", "reset", "thinking:check the runs", "tool:start", "tool:end", "reset", "text:echo: hello",
+		"state:false",
+	}, got)
+
+	require.NoError(t, sup.Abort(ctx, chat.ID), "stopping an idle pi does nothing")
+}
+
+func TestToolOutputIsCappedOnACharacter(t *testing.T) {
+	t.Parallel()
+
+	out, cut := capText(strings.Repeat("é", 10), 5)
+	assert.True(t, cut)
+	assert.Equal(t, "éé", out, "never half a character")
+
+	out, cut = capText("short", 5)
+	assert.False(t, cut)
+	assert.Equal(t, "short", out)
 }

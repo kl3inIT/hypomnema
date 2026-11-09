@@ -23,6 +23,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/coordinator"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
@@ -656,6 +657,10 @@ type replier struct{ svc *orchestration.Service }
 
 func (replier) Enabled() bool         { return true }
 func (replier) Working(_ string) bool { return false }
+
+func (replier) Watch(_ string) (<-chan coordinator.Frame, func()) { return nil, func() {} }
+
+func (replier) Abort(_ context.Context, _ string) error { return nil }
 
 func (r replier) run(ctx context.Context) {
 	for {

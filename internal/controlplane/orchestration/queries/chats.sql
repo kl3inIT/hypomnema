@@ -11,8 +11,8 @@ SELECT * FROM chats ORDER BY updated_at DESC, id LIMIT @lim;
 UPDATE chats SET updated_at = @now WHERE id = @id;
 
 -- name: InsertChatMessage :one
-INSERT INTO chat_messages (chat_id, role, text, event_seq, created_at)
-VALUES (@chat_id, @role, @text, @event_seq, @now)
+INSERT INTO chat_messages (chat_id, role, text, parts, event_seq, created_at)
+VALUES (@chat_id, @role, @text, @parts, @event_seq, @now)
 RETURNING seq;
 
 -- name: ListChatMessages :many

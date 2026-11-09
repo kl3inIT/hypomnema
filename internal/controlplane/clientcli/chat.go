@@ -182,6 +182,10 @@ func showChat(ctx context.Context, e *env, c openapi.Chat, last int) error {
 func printChatMessage(e *env, m openapi.ChatMessage) {
 	switch m.Role {
 	case openapi.ChatRoleCoordinator:
+		if strings.TrimSpace(m.Text) == "" {
+			return // only thinking, which the web shows
+		}
+
 		e.printf("\npi: %s\n", m.Text)
 	case openapi.ChatRoleOwner:
 		e.printf("\nyou: %s\n", m.Text)
