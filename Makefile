@@ -4,6 +4,8 @@ CI_TOOL = $(GO) tool -modfile=tools/ci/go.mod
 GOLANGCI_LINT = $(CI_TOOL) github.com/golangci/golangci-lint/v2/cmd/golangci-lint
 GOVULNCHECK = $(CI_TOOL) golang.org/x/vuln/cmd/govulncheck
 SQLC = CGO_ENABLED=0 $(CI_TOOL) github.com/sqlc-dev/sqlc/cmd/sqlc
+OAPI_CODEGEN = $(CI_TOOL) github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen
+OPENAPI_GEN := internal/controlplane/clientapi/openapi
 MIGRATIONS := internal/controlplane/orchestration/migrations
 MODULE := github.com/kl3inIT/hypomnema
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
@@ -11,14 +13,14 @@ LDFLAGS := -s -w -X $(MODULE)/internal/shared/platform.Version=$(VERSION)
 BINARIES := hypomnema hypomnema-node
 
 .PHONY: help verify verify-static fmt-check tidy-check lint deps-check sqlc-generate sqlc-check migration-check \
-	unit race govulncheck build web-install web-check web-build web-e2e
+	openapi-generate openapi-check unit race govulncheck build web-install web-check web-build web-e2e
 
 help: ## List the targets
 	@awk 'BEGIN {FS = ":.*## "} /^[a-z-]+:.*## / {printf "  %-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 verify: verify-static unit race ## The gate to run before every push
 
-verify-static: fmt-check tidy-check lint deps-check sqlc-check migration-check
+verify-static: fmt-check tidy-check lint deps-check sqlc-check openapi-check migration-check
 
 fmt-check: ## Fail when a Go file is not gofmt-formatted
 	@files="$$(gofmt -l cmd internal web)"; \
@@ -49,6 +51,16 @@ sqlc-check: ## Fail when the generated queries are not what sqlc would generate
 	@git diff --exit-code -- internal/controlplane/orchestration/internal/store
 	@test -z "$$(git status --porcelain -- internal/controlplane/orchestration/internal/store)" || \
 		{ echo 'sqlc generated files that are not committed'; exit 1; }
+
+openapi-generate: ## Regenerate the client API's types, server and client from api/openapi.yaml
+	$(OAPI_CODEGEN) -config api/oapi-codegen.yaml api/openapi.yaml
+
+# As Omnara's openapi-check: the generated code is committed and must match the contract.
+openapi-check: ## Fail when the generated client API code is not what the contract generates
+	$(OAPI_CODEGEN) -config api/oapi-codegen.yaml api/openapi.yaml
+	@git diff --exit-code -- $(OPENAPI_GEN)
+	@test -z "$$(git status --porcelain -- $(OPENAPI_GEN))" || \
+		{ echo 'oapi-codegen generated files that are not committed'; exit 1; }
 
 # As Omnara's migration-check: a migration that is on main is released and never edited or removed.
 migration-check: ## Fail when a migration already on origin/main was changed or removed

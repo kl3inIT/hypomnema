@@ -49,6 +49,9 @@ const (
 	// EventPageDefault and EventPageMax bound one page of the event log (Omnara).
 	EventPageDefault = 100
 	EventPageMax     = 500
+	// RunPageDefault and RunPageMax bound one page of Runs (Omnara's PageLimit).
+	RunPageDefault = 50
+	RunPageMax     = 100
 	// MaxActiveDispatches: Dispatches that have not settled, across every node
 	// (Orca MAX_CONCURRENT_DEFAULT; Coder admits inside the transaction).
 	MaxActiveDispatches = 4

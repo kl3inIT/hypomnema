@@ -2,20 +2,15 @@ package controlplane
 
 import (
 	"bytes"
-	"context"
 	"io"
 	"path/filepath"
-	"strings"
-	"sync"
+	"regexp"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
-	"github.com/kl3inIT/hypomnema/internal/shared/platform"
-	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 )
 
 func migratedConfig(t *testing.T) Config {
@@ -39,10 +34,10 @@ func command(t *testing.T, cfg Config, args ...string) (string, error) {
 	return out.String(), err
 }
 
-// Scenario: the owner sets up a node and an account and starts a Run without
-// following it. The token is printed once; listing shows the node offline
-// until it connects.
-func TestOwnerSetsUpAndStartsARun(t *testing.T) {
+// Scenario: the owner sets up a node and an account on the server. The
+// node's token is printed once; listing shows the node offline until it
+// connects.
+func TestOwnerSetsUpANodeAndAnAccount(t *testing.T) {
 	t.Parallel()
 
 	cfg := migratedConfig(t)
@@ -60,99 +55,42 @@ func TestOwnerSetsUpAndStartsARun(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, out, "(claude personal)")
 
-	out, err = command(t, cfg, "run", "--repo", "kl3inIT/second-bite", "--detach", "add", "Google", "login")
-	require.NoError(t, err)
-	assert.Regexp(t, `^run run_\w+, task tsk_\w+\n$`, out)
-
-	_, err = command(t, cfg, "run", "--detach", "no repository")
-	require.ErrorIs(t, err, ErrUsage)
-
-	_, err = command(t, cfg, "run", "--repo", "not a repo", "--detach", "x")
-	require.ErrorIs(t, err, orchestration.ErrInvalid)
-
 	_, err = command(t, cfg, "teleport")
 	require.ErrorIs(t, err, ErrUsage)
 }
 
-// Scenario: the owner follows a Run. Its events are printed until the Task
-// ends; then the Run is finished.
-func TestFollowEndsWhenTheTaskEnds(t *testing.T) {
+// Scenario: the owner makes a token for the laptop's coordinator, lists it,
+// and revokes it. The secret is printed once and never listed.
+func TestOwnerManagesClientTokens(t *testing.T) {
 	t.Parallel()
 
 	cfg := migratedConfig(t)
 
-	db, err := sqlite.Open(t.Context(), cfg.Database)
+	out, err := command(t, cfg, "tokens", "add", "laptop", "--kind", "coordinator")
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
+	assert.Contains(t, out, "token laptop (tok_")
 
-	svc := orchestration.New(db, platform.SystemClock{}, platform.NewID)
+	secret := regexp.MustCompile(`(?m)^hyp_coordinator_v1_\S+$`).FindString(out)
+	require.NotEmpty(t, secret)
 
-	run, err := svc.CreateRun(t.Context(), orchestration.NewRun{
-		Objective: "add Google login", CreatedBy: "owner", Repo: "kl3inIT/second-bite",
-	})
+	id := regexp.MustCompile(`tok_\w+`).FindString(out)
+
+	out, err = command(t, cfg, "tokens", "list")
 	require.NoError(t, err)
+	assert.Contains(t, out, id+"\tlaptop\tcoordinator\tactive")
+	assert.NotContains(t, out, secret)
 
-	tasks, err := svc.CreateTasks(t.Context(), run.ID, []orchestration.NewTask{{Ref: "a", Role: "implement", Spec: "x"}})
+	_, err = command(t, cfg, "tokens", "add", "web", "--kind", "admin")
+	require.ErrorIs(t, err, orchestration.ErrInvalid)
+
+	_, err = command(t, cfg, "tokens", "add", "web", "extra")
+	require.ErrorIs(t, err, ErrUsage)
+
+	out, err = command(t, cfg, "tokens", "revoke", id)
 	require.NoError(t, err)
+	assert.Contains(t, out, "revoked")
 
-	var out syncBuffer
-
-	o := &owner{svc: svc, out: &out, every: 10 * time.Millisecond}
-	done := make(chan error, 1)
-
-	go func() { done <- o.follow(context.WithoutCancel(t.Context()), run.ID, tasks[0].ID) }()
-
-	require.Eventually(t, func() bool { return strings.Contains(out.String(), "task.created") }, 5*time.Second,
-		10*time.Millisecond)
-	require.NoError(t, svc.CancelTask(t.Context(), tasks[0].ID))
-	require.NoError(t, <-done)
-
-	assert.Contains(t, out.String(), "task canceled")
-
-	finished, err := svc.GetRun(t.Context(), run.ID)
+	out, err = command(t, cfg, "tokens", "list")
 	require.NoError(t, err)
-	assert.Equal(t, orchestration.RunFinished, finished.Status)
-}
-
-// Scenario: the owner answers by number, by an option's label in any case, or
-// with free text.
-func TestParseAnswer(t *testing.T) {
-	t.Parallel()
-
-	options := []orchestration.Option{{Label: "red"}, {Label: "Green"}}
-	option := func(i int) *int { return &i }
-
-	for _, c := range []struct {
-		typed string
-		want  orchestration.Answer
-	}{
-		{"2", orchestration.Answer{Option: option(1)}},
-		{"green", orchestration.Answer{Option: option(1)}},
-		{" RED ", orchestration.Answer{Option: option(0)}},
-		{"blue please", orchestration.Answer{Text: "blue please"}},
-	} {
-		assert.Equal(t, c.want, parseAnswer(options, c.typed), c.typed)
-	}
-
-	assert.Equal(t, orchestration.Answer{Text: "green"}, parseAnswer(nil, "green"))
-}
-
-// syncBuffer is a bytes.Buffer safe for one writer and one reader.
-type syncBuffer struct {
-	mu  sync.Mutex
-	buf bytes.Buffer
-}
-
-func (b *syncBuffer) Write(p []byte) (int, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	return b.buf.Write(p)
-}
-
-func (b *syncBuffer) String() string {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
-	return b.buf.String()
+	assert.Contains(t, out, "\tcoordinator\trevoked ")
 }

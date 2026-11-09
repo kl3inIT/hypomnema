@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/http"
 
+	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/nodeapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/webui"
@@ -115,9 +116,17 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 
 	svc := orchestration.New(db, platform.SystemClock{}, platform.NewID, orchestration.WithRoles(cfg.Roles))
 
+	// The scheduler runs while the server does; if it fails, the server stops.
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+
 	mux := http.NewServeMux()
 	platform.RegisterHealth(mux, sqlite.Ready(db), logger)
 	nodeapi.New(svc, logger).Register(mux)
+
+	if err := clientapi.New(svc, logger, ctx.Done()).Register(mux); err != nil {
+		return err
+	}
 
 	if assets := web.Dist(); webui.Available(assets) {
 		mux.Handle("/", webui.Handler(assets))
@@ -127,10 +136,6 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("listening on %s: %w", cfg.HTTPAddr, err)
 	}
-
-	// The scheduler runs while the server does; if it fails, the server stops.
-	ctx, cancel := context.WithCancelCause(ctx)
-	defer cancel(nil)
 
 	loopDone := make(chan struct{})
 

@@ -1,15 +1,25 @@
 // Command hypomnema runs the control plane and the owner's commands.
 //
+// On the server, with the database (HYPOMNEMA_DATABASE_PATH):
+//
 //	hypomnema migrate                          bring the database schema up to this version
-//	hypomnema serve                            serve the node API and run the scheduler until SIGINT or SIGTERM
-//	hypomnema version                          print the version
+//	hypomnema serve                            serve the APIs and run the scheduler until SIGINT or SIGTERM
 //	hypomnema nodes add <name> [--max N]       register a node; prints its token once
 //	hypomnema nodes list
 //	hypomnema accounts add <runtime> <label>   record an account (no secret)
 //	hypomnema accounts list
+//	hypomnema tokens add <name> [--kind owner|coordinator]   make a client API token; prints it once
+//	hypomnema tokens list
+//	hypomnema tokens revoke <token id>
+//
+// Anywhere, over the client API (after login):
+//
+//	hypomnema login --url URL --token-file FILE
 //	hypomnema run --repo owner/name [--base B] [--role R] [--runtime X] [--model M] [--detach] <objective>
 //	hypomnema answer <question> <number or text>
 //	hypomnema questions                        list open questions to the owner
+//
+//	hypomnema version                          print the version
 package main
 
 import (
@@ -19,14 +29,17 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"slices"
 	"syscall"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/clientcli"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 )
 
 var errUsage = errors.New("usage: hypomnema migrate | serve | version | nodes add|list | accounts add|list | " +
-	"run --repo owner/name <objective> | answer <question> <answer> | questions")
+	"tokens add|list|revoke | login --url URL --token-file FILE | run --repo owner/name <objective> | " +
+	"answer <question> <answer> | questions")
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -51,6 +64,20 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout 
 		}
 
 		_, err := fmt.Fprintln(stdout, platform.Version)
+
+		return err
+	}
+
+	if slices.Contains(clientcli.Commands, args[0]) {
+		home, err := clientcli.DefaultHome()
+		if err != nil {
+			return err
+		}
+
+		err = clientcli.Command(ctx, home, args, stdout)
+		if errors.Is(err, clientcli.ErrUsage) {
+			return errors.Join(err, errUsage)
+		}
 
 		return err
 	}

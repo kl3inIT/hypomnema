@@ -1151,6 +1151,17 @@ func (s *Service) GetDispatch(ctx context.Context, id string) (Dispatch, error) 
 	return dispatchFromRow(row)
 }
 
+// LatestDispatch returns a Task's most recent Dispatch; ErrNotFound when it
+// has none yet.
+func (s *Service) LatestDispatch(ctx context.Context, taskID string) (Dispatch, error) {
+	row, err := s.read().LastDispatchOfTask(ctx, taskID)
+	if err != nil {
+		return Dispatch{}, notFound(err, "dispatch of task", taskID)
+	}
+
+	return dispatchFromRow(row)
+}
+
 // GetConversation returns one Conversation.
 func (s *Service) GetConversation(ctx context.Context, id string) (Conversation, error) {
 	row, err := s.read().GetConversation(ctx, id)
