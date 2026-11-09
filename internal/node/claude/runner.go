@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -244,7 +245,10 @@ func waitSocket(ctx context.Context, dir string) error {
 	deadline := time.Now().Add(socketWait)
 
 	for {
-		if _, err := os.Stat(filepath.Join(dir, shim.SocketFile)); err == nil {
+		// The socket file appears at bind, before the shim listens; only a connection proves it is ready.
+		if conn, err := (&net.Dialer{}).DialContext(ctx, "unix", filepath.Join(dir, shim.SocketFile)); err == nil {
+			_ = conn.Close()
+
 			return nil
 		}
 
