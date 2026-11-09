@@ -333,6 +333,56 @@ func TestListRunsPages(t *testing.T) {
 	assert.Equal(t, openapi.InvalidRequest, errorCode(t, resp.Body, resp.StatusCode(), http.StatusBadRequest))
 }
 
+// Scenario: a board asks for the work in flight. It gets every Task of an
+// open Run, and a canceled Run's Tasks only while they are recent, each Run
+// once.
+func TestListTasksFillsABoard(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	c, _ := w.token("web", bearertoken.Owner)
+	ctx := t.Context()
+
+	open := w.createRun(c, "open")
+	closed := w.createRun(c, "closed")
+
+	for _, r := range []openapi.Run{open, closed} {
+		resp, err := c.CreateTasksWithResponse(ctx, r.Id, &openapi.CreateTasksParams{}, openapi.NewTasks{
+			Tasks: []openapi.NewTask{{Ref: "a", Spec: r.Objective + " a"}, {Ref: "b", Spec: r.Objective + " b"}},
+		})
+		require.NoError(t, err)
+		require.Equal(t, http.StatusCreated, resp.StatusCode(), string(resp.Body))
+	}
+
+	cancel, err := c.CancelRunWithResponse(ctx, closed.Id)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, cancel.StatusCode(), string(cancel.Body))
+
+	board, err := c.ListTasksWithResponse(ctx, &openapi.ListTasksParams{})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, board.StatusCode(), string(board.Body))
+	assert.Len(t, board.JSON200.Data, 4, "a canceled Run's Tasks show while they are recent")
+	assert.ElementsMatch(t, []string{"open", "closed"}, objectives(board.JSON200.Runs), "each Run once")
+
+	events, err := c.ListEventsWithResponse(ctx, &openapi.ListEventsParams{After: &board.JSON200.After})
+	require.NoError(t, err)
+	assert.Empty(t, events.JSON200.Data, "after is the newest event when the board was read")
+	assert.Positive(t, board.JSON200.After)
+
+	later := time.Now().Add(time.Hour)
+	board, err = c.ListTasksWithResponse(ctx, &openapi.ListTasksParams{Since: &later})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, board.StatusCode(), string(board.Body))
+
+	specs := []string{}
+	for _, task := range board.JSON200.Data {
+		specs = append(specs, task.Spec)
+	}
+
+	assert.ElementsMatch(t, []string{"open a", "open b"}, specs, "an open Run's Tasks always show")
+	assert.Equal(t, []string{"open"}, objectives(board.JSON200.Runs))
+}
+
 func objectives(runs []openapi.Run) []string {
 	out := make([]string, 0, len(runs))
 	for _, r := range runs {

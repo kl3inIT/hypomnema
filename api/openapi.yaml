@@ -122,6 +122,28 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/TaskList" }
         default: { $ref: "#/components/responses/Error" }
+  /tasks:
+    get:
+      operationId: ListTasks
+      summary: The Tasks a board shows, most recently changed first
+      description: >-
+        Every Task of an open Run, and the Tasks of other Runs that changed at or after since, with their latest
+        Dispatch and the Runs they belong to. One call fills a board of the work in flight.
+      parameters:
+        - name: since
+          in: query
+          description: Tasks of Runs that are no longer open count only when they changed at or after it; 24 hours ago by default.
+          schema: { type: string, format: date-time }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 500, default: 200 }
+      responses:
+        "200":
+          description: The Tasks and their Runs.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TaskBoard" }
+        default: { $ref: "#/components/responses/Error" }
   /tasks/{task_id}:
     parameters:
       - $ref: "#/components/parameters/TaskID"
@@ -697,6 +719,21 @@ components:
         data:
           type: array
           items: { $ref: "#/components/schemas/Task" }
+    TaskBoard:
+      type: object
+      required: [data, runs, after]
+      properties:
+        after:
+          type: integer
+          format: int64
+          description: The newest event's seq when the board was read; follow the events after it to keep it current.
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/TaskDetail" }
+        runs:
+          type: array
+          description: The Runs of these Tasks, once each.
+          items: { $ref: "#/components/schemas/Run" }
     NewTasks:
       type: object
       required: [tasks]

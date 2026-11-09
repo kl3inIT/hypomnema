@@ -2,6 +2,7 @@ import { createRootRoute, Outlet } from "@tanstack/react-router"
 
 import { LoginScreen } from "@/features/auth/login-screen"
 import { useToken } from "@/features/auth/token"
+import { LiveUpdates } from "@/features/shell/app-shell"
 
 export const Route = createRootRoute({
   component: RootLayout,
@@ -12,5 +13,16 @@ export const Route = createRootRoute({
 function RootLayout() {
   const token = useToken()
 
-  return <div className="flex h-svh bg-background">{token ? <Outlet /> : <LoginScreen />}</div>
+  return (
+    <div className="flex h-svh bg-background">
+      {token ? (
+        <>
+          <LiveUpdates />
+          <Outlet />
+        </>
+      ) : (
+        <LoginScreen />
+      )}
+    </div>
+  )
 }

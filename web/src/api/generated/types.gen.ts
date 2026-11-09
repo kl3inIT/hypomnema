@@ -101,6 +101,18 @@ export type TaskList = {
   data: Array<Task>;
 };
 
+export type TaskBoard = {
+  /**
+   * The newest event's seq when the board was read; follow the events after it to keep it current.
+   */
+  after: number;
+  data: Array<TaskDetail>;
+  /**
+   * The Runs of these Tasks, once each.
+   */
+  runs: Array<Run>;
+};
+
 export type NewTasks = {
   tasks: Array<NewTask>;
 };
@@ -667,6 +679,37 @@ export type CreateTasksResponses = {
 };
 
 export type CreateTasksResponse = CreateTasksResponses[keyof CreateTasksResponses];
+
+export type ListTasksData = {
+  body?: never;
+  path?: never;
+  query?: {
+    /**
+     * Tasks of Runs that are no longer open count only when they changed at or after it; 24 hours ago by default.
+     */
+    since?: string;
+    limit?: number;
+  };
+  url: '/tasks';
+};
+
+export type ListTasksErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListTasksError = ListTasksErrors[keyof ListTasksErrors];
+
+export type ListTasksResponses = {
+  /**
+   * The Tasks and their Runs.
+   */
+  200: TaskBoard;
+};
+
+export type ListTasksResponse = ListTasksResponses[keyof ListTasksResponses];
 
 export type GetTaskData = {
   body?: never;

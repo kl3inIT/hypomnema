@@ -43,6 +43,7 @@ var policies = map[string]policy{
 	"FinishRun":           {scope: scopeRun},
 	"CancelRun":           {scope: scopeRun},
 	"CreateTasks":         {scope: scopeRun},
+	"ListTasks":           {},
 	"GetTask":             {},
 	"CancelTask":          {scope: scopeTask},
 	"ReopenTask":          {scope: scopeTask},
