@@ -10,7 +10,9 @@
 set -eu
 
 cp_user="${1:?the control plane user, such as dat}"
-src="${2:?the directory with hypomnema-pi, AGENTS.md and hypomnema}"
+src=$(cd "${2:?the directory with hypomnema-pi, AGENTS.md and hypomnema}" && pwd)
+# Commands run as the coordinator, who cannot enter the caller's directory.
+cd /
 cp_home=$(getent passwd "$cp_user" | cut -d: -f6)
 node_src="${NODE_SRC:-$cp_home/.hermes/node}"
 router_env="${ROUTER_ENV:-$cp_home/hypomnema-spike/.env}"
