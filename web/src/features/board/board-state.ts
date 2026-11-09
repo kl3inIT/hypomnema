@@ -162,14 +162,29 @@ export function repos(cards: Card[]) {
   return [...new Set(cards.map((c) => c.run.repo).filter((r): r is string => !!r))].toSorted()
 }
 
-// pullRequest is the pull request a Task's latest Dispatch reported, as its number when the link has one.
+// pullRequest is the pull request a Task's latest Dispatch reported, as its number when the link has one. A worker
+// writes the evidence, so only an http(s) link is kept: anything else (javascript:, data:) is never made a link.
 export function pullRequest(task: TaskDetail): { url: string; label: string } | undefined {
   const ref = task.latest_dispatch?.result?.evidence.find((e) => e.kind === "pull_request")?.ref
+  const url = safeLink(ref)
+  if (!url) return undefined
+
+  const n = /\/pull\/(\d+)/.exec(new URL(url).pathname)?.[1]
+
+  return { url, label: n ? `PR #${n}` : "PR" }
+}
+
+// safeLink returns ref as an http(s) URL, or undefined for any other scheme or text.
+export function safeLink(ref: string | undefined): string | undefined {
   if (!ref) return undefined
 
-  const n = /\/pull\/(\d+)/.exec(ref)?.[1]
+  try {
+    const url = new URL(ref)
 
-  return { url: ref, label: n ? `PR #${n}` : "PR" }
+    return url.protocol === "https:" || url.protocol === "http:" ? url.href : undefined
+  } catch {
+    return undefined
+  }
 }
 
 export function firstLine(text: string, max = 120) {

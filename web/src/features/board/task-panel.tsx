@@ -8,7 +8,7 @@ import "@/api/client"
 import { cancelTask, forwardQuestion, getRun, getTask, reopenTask } from "@/api/generated/sdk.gen"
 import { since } from "@/lib/time"
 
-import { boardCards, firstLine, pullRequest, type Card } from "./board-state"
+import { boardCards, firstLine, pullRequest, safeLink, type Card } from "./board-state"
 import { QuestionForm } from "./question-form"
 import { RuntimeMark } from "./runtime-mark"
 import { boardKey, questionsKey, useBoard } from "./use-board"
@@ -121,9 +121,9 @@ function PanelBody({ taskId }: { taskId: string }) {
             {dispatch?.result?.evidence.map((e) => (
               <p key={e.kind + e.ref} className="mt-1 truncate text-xs text-muted-foreground">
                 {e.kind}:{" "}
-                {/^https?:\/\//.test(e.ref) ? (
+                {safeLink(e.ref) ? (
                   <a
-                    href={e.ref}
+                    href={safeLink(e.ref)}
                     target="_blank"
                     rel="noreferrer"
                     className="text-link hover:underline"

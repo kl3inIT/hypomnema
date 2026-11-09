@@ -2,7 +2,7 @@ import { expect, test } from "vitest"
 
 import type { Dispatch } from "@/api/generated/types.gen"
 
-import { boardCards, byColumn, lanes, pullRequest } from "./board-state"
+import { boardCards, byColumn, lanes, pullRequest, safeLink } from "./board-state"
 import { board, question, run, task } from "./fixtures"
 
 const open = run("run_1")
@@ -132,3 +132,19 @@ test("a pull request is named by its number", () => {
   expect(pullRequest(t)).toEqual({ url: "https://github.com/o/r/pull/63", label: "PR #63" })
   expect(pullRequest(task("u", "run_1"))).toBeUndefined()
 })
+
+// Scenario: a worker reports a link that would run script or is not a link; it is never made a link.
+test.each(["javascript:alert(1)//pull/1", "data:text/html,x", "not a url"])(
+  "%s is not a link",
+  (ref) => {
+    const t = task("t", "run_1", {
+      latest_dispatch: dispatch({
+        status: "succeeded",
+        result: { summary: "done", evidence: [{ kind: "pull_request", ref }] },
+      }),
+    })
+
+    expect(pullRequest(t)).toBeUndefined()
+    expect(safeLink(ref)).toBeUndefined()
+  },
+)
