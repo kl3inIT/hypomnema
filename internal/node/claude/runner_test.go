@@ -294,7 +294,7 @@ func (g *rig) dispatch(id string) statedb.Dispatch {
 	return statedb.Dispatch{
 		ID: id, State: statedb.StateAccepted, Epoch: 1,
 		Offer: nodeproto.Offer{
-			DispatchID: id, TaskID: "tsk_1", RunID: "run_1", Role: "implement", Spec: "add the Google login button",
+			DispatchID: id, TaskID: "tsk_1", RunID: "run_1", Profile: "implementer", Spec: "add the Google login button",
 			Worktree: g.worktree, Runtime: "claude", AccountRef: "acc_1", Model: "opus",
 		},
 		Accepted: &nodeproto.Accepted{Epoch: 1},
@@ -480,6 +480,14 @@ func TestPromptCarriesTheGateAndTheRecoveryNote(t *testing.T) {
 	assert.Contains(t, p, "gh pr create")
 	assert.Contains(t, p, "outcome is unknown")
 	assert.Contains(t, p, "DECISION GATE RESOLVED. You asked: PR #7 is green. Merge it?\nThe answer: merge")
+	assert.NotContains(t, p, "For this kind of task", "no instruction, no section")
+
+	d.Offer.Profile, d.Offer.Instruction = "reviewer", "Report problems; change nothing.\n"
+	p = Prompt(d)
+	assert.Contains(t, p, "Task (reviewer):")
+	assert.Contains(t, p, "Rules:")
+	assert.Greater(t, strings.Index(p, "For this kind of task:\nReport problems; change nothing."),
+		strings.Index(p, "Rules:"), "the profile's instruction follows the rules")
 }
 
 func emit(out *json.Encoder, v map[string]any) {

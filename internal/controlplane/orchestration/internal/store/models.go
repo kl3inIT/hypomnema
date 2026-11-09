@@ -49,34 +49,35 @@ type Conversation struct {
 }
 
 type Dispatch struct {
-	ID              string
-	TaskID          string
-	ConversationID  string
-	NodeID          string
-	Status          string
-	Epoch           int64
-	FailureClass    sql.NullString
-	UnknownCause    sql.NullString
-	Recovery        int64
-	ProcessRef      sql.NullString
-	Result          sql.NullString
-	ResetsAt        sql.NullInt64
-	CreatedAt       int64
-	UpdatedAt       int64
-	AcceptedAt      sql.NullInt64
-	StartedAt       sql.NullInt64
-	LeaseExpiresAt  sql.NullInt64
-	ProgressAt      sql.NullInt64
-	StopRequestedAt sql.NullInt64
-	StopAckedAt     sql.NullInt64
-	StalledAt       sql.NullInt64
-	OverrunAt       sql.NullInt64
-	SettledAt       sql.NullInt64
-	WaitingSince    sql.NullInt64
-	WaitedMs        int64
-	GateQuestionID  sql.NullString
-	Model           sql.NullString
-	Effort          sql.NullString
+	ID               string
+	TaskID           string
+	ConversationID   string
+	NodeID           string
+	Status           string
+	Epoch            int64
+	FailureClass     sql.NullString
+	UnknownCause     sql.NullString
+	Recovery         int64
+	ProcessRef       sql.NullString
+	Result           sql.NullString
+	ResetsAt         sql.NullInt64
+	CreatedAt        int64
+	UpdatedAt        int64
+	AcceptedAt       sql.NullInt64
+	StartedAt        sql.NullInt64
+	LeaseExpiresAt   sql.NullInt64
+	ProgressAt       sql.NullInt64
+	StopRequestedAt  sql.NullInt64
+	StopAckedAt      sql.NullInt64
+	StalledAt        sql.NullInt64
+	OverrunAt        sql.NullInt64
+	SettledAt        sql.NullInt64
+	WaitingSince     sql.NullInt64
+	WaitedMs         int64
+	GateQuestionID   sql.NullString
+	Model            sql.NullString
+	Effort           sql.NullString
+	ProfileVersionID sql.NullString
 }
 
 type DispatchEffect struct {
@@ -111,6 +112,11 @@ type Event struct {
 	CreatedAt  int64
 }
 
+type Model struct {
+	Provider string
+	Name     string
+}
+
 type Node struct {
 	ID            string
 	Name          string
@@ -123,6 +129,37 @@ type Node struct {
 	UnavailableAt sql.NullInt64
 	CreatedAt     int64
 	UpdatedAt     int64
+}
+
+type Profile struct {
+	Name             string
+	CurrentVersionID string
+	CreatedAt        int64
+	UpdatedAt        int64
+}
+
+type ProfileVersion struct {
+	ID          string
+	Profile     string
+	Version     int64
+	Source      string
+	Digest      string
+	Runtime     string
+	Provider    sql.NullString
+	Model       sql.NullString
+	Effort      sql.NullString
+	Instruction sql.NullString
+	CreatedAt   int64
+}
+
+type Provider struct {
+	Name      string
+	Kind      string
+	BaseUrl   sql.NullString
+	ApiKeyRef sql.NullString
+	Source    string
+	CreatedAt int64
+	UpdatedAt int64
 }
 
 type Question struct {
@@ -171,7 +208,7 @@ type Task struct {
 	ID                string
 	RunID             string
 	Position          int64
-	Role              string
+	Profile           string
 	Spec              string
 	Runtime           sql.NullString
 	Model             sql.NullString

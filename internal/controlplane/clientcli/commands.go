@@ -22,9 +22,9 @@ var commands = []command{
 		flags: func(fs *flag.FlagSet) {
 			fs.String("repo", "", "repository the work happens in, owner/name")
 			fs.String("base", "", "branch the worktree starts from (default main)")
-			fs.String("role", "implement", "role of the Task")
-			fs.String("runtime", "", "runtime, instead of the role's default")
-			fs.String("model", "", "model, instead of the role's default")
+			fs.String("profile", "", "profile of the Task (default implementer)")
+			fs.String("runtime", "", "runtime, instead of the profile's")
+			fs.String("model", "", "model, instead of the profile's")
 			fs.Bool("detach", false, "create the Run and return without following it")
 		},
 		run: ownerRun,
@@ -77,13 +77,13 @@ var commands = []command{
 		flags: func(fs *flag.FlagSet) {
 			fs.String("file", "", `a JSON file {"tasks": [...]}, or - for standard input`)
 			fs.String("ref", "task", "the Task's name within this request")
-			fs.String("role", "implement", "the Task's role")
+			fs.String("profile", "", "the Task's profile (default implementer)")
 			fs.String("spec", "", "the Task's spec")
 			fs.String("spec-file", "", "read the spec from this file, or - for standard input")
 			fs.String("depends-on", "", "comma-separated refs or Task ids it depends on")
-			fs.String("runtime", "", "runtime, instead of the role's default")
-			fs.String("model", "", "model, instead of the role's default")
-			fs.String("effort", "", "effort, instead of the role's default")
+			fs.String("runtime", "", "runtime, instead of the profile's")
+			fs.String("model", "", "model, instead of the profile's")
+			fs.String("effort", "", "effort, instead of the profile's")
 			fs.String("key", "", "idempotency key; repeat a create whose result was lost with the same key")
 			jsonFlag(fs)
 		},
@@ -127,6 +127,34 @@ var commands = []command{
 			jsonFlag(fs)
 		},
 		run: answer,
+	},
+	{
+		name: "profiles list", summary: "the profiles Tasks can name, at their current versions",
+		flags: jsonFlag, run: profilesList,
+	},
+	{
+		name: "profiles show", args: "<profile>", min: 1, max: 1, summary: "a profile's current version and source",
+		flags: jsonFlag, run: profilesShow,
+	},
+	{
+		name: "profiles versions", args: "<profile>", min: 1, max: 1, summary: "a profile's versions, newest first",
+		flags: jsonFlag, run: profilesVersions,
+	},
+	{
+		name: "profiles apply", args: "<file>", min: 1, max: 1,
+		summary: "store a profile's YAML (owner); a changed source makes a new version",
+		flags:   jsonFlag, run: profilesApply,
+	},
+	{
+		name: "providers list", summary: "the sources of models, with the models each offers",
+		flags: jsonFlag, run: providersList,
+	},
+	{
+		name: "providers apply", args: "<file>", min: 1, max: 1,
+		summary: "store a provider's YAML and its models (owner)", flags: jsonFlag, run: providersApply,
+	},
+	{
+		name: "models list", summary: "every model, with its provider", flags: jsonFlag, run: modelsList,
 	},
 	{
 		name: "skills get", args: "[skill]", max: 1, offline: true,

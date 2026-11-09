@@ -114,9 +114,11 @@ type Dispatch struct {
 	// GateQuestionID is the answered Gate this Dispatch resumes from.
 	GateQuestionID string
 	// Model and Effort are what the Dispatch was asked to run with: the Task's
-	// own, or its role's default; empty leaves the runtime's default.
+	// own, or its profile's; empty leaves the runtime's default.
 	Model  string
 	Effort string
+	// ProfileVersionID is the profile version it ran with; empty before profiles.
+	ProfileVersionID string
 }
 
 // Conversation is the worker's CLI session for one Task: one node, worktree,

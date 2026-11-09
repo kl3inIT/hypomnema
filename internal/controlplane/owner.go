@@ -41,7 +41,7 @@ func Command(ctx context.Context, cfg Config, args []string, stdout io.Writer) e
 	}
 
 	o := &owner{
-		svc: orchestration.New(db, platform.SystemClock{}, platform.NewID, orchestration.WithRoles(cfg.Roles)),
+		svc: orchestration.New(db, platform.SystemClock{}, platform.NewID),
 		out: stdout,
 	}
 

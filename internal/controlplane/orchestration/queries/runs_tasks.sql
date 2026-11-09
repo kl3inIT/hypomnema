@@ -22,9 +22,9 @@ WHERE id = @id AND status = @from_status;
 SELECT CAST(coalesce(max(position), 0) + 1 AS INTEGER) AS next FROM tasks WHERE run_id = @run_id;
 
 -- name: InsertTask :exec
-INSERT INTO tasks (id, run_id, position, role, spec, runtime, model, effort, status, blocked_reason,
+INSERT INTO tasks (id, run_id, position, profile, spec, runtime, model, effort, status, blocked_reason,
                    created_at, updated_at)
-VALUES (@id, @run_id, @position, @role, @spec, @runtime, @model, @effort, @status, @blocked_reason, @now, @now);
+VALUES (@id, @run_id, @position, @profile, @spec, @runtime, @model, @effort, @status, @blocked_reason, @now, @now);
 
 -- name: InsertTaskDep :exec
 INSERT INTO task_deps (task_id, depends_on) VALUES (@task_id, @depends_on);

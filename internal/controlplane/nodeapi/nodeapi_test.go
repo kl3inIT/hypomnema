@@ -47,8 +47,10 @@ func newPlane(t *testing.T) *plane {
 	t.Cleanup(func() { _ = db.Close() })
 	require.NoError(t, orchestration.Migrate(t.Context(), db))
 
-	svc := orchestration.New(db, platform.SystemClock{}, platform.NewID,
-		orchestration.WithRoles(map[string]orchestration.Role{"implement": {Runtime: "claude", Model: "opus"}}))
+	svc := orchestration.New(db, platform.SystemClock{}, platform.NewID)
+
+	_, _, err = svc.ApplyProfile(t.Context(), "", "name: implementer\nruntime: claude\nmodel: {name: opus}\n")
+	require.NoError(t, err)
 
 	mux := http.NewServeMux()
 	New(svc, slog.New(slog.DiscardHandler)).Register(mux)
@@ -192,7 +194,7 @@ func (p *plane) task() orchestration.Task {
 	require.NoError(p.t, err)
 
 	tasks, err := p.svc.CreateTasks(p.t.Context(), run.ID, []orchestration.NewTask{
-		{Ref: "a", Role: "implement", Spec: "add the Google login button"},
+		{Ref: "a", Profile: "implementer", Spec: "add the Google login button"},
 	})
 	require.NoError(p.t, err)
 

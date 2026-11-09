@@ -192,6 +192,30 @@ func (e NodeStatus) Valid() bool {
 	}
 }
 
+// Defines values for ProviderKind.
+const (
+	Anthropic          ProviderKind = "anthropic"
+	ClaudeSubscription ProviderKind = "claude_subscription"
+	CodexSubscription  ProviderKind = "codex_subscription"
+	OpenaiCompatible   ProviderKind = "openai_compatible"
+)
+
+// Valid indicates whether the value is a known member of the ProviderKind enum.
+func (e ProviderKind) Valid() bool {
+	switch e {
+	case Anthropic:
+		return true
+	case ClaudeSubscription:
+		return true
+	case CodexSubscription:
+		return true
+	case OpenaiCompatible:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for QuestionMode.
 const (
 	QuestionModeGate QuestionMode = "gate"
@@ -335,21 +359,24 @@ type BlockedReason string
 
 // Dispatch defines model for Dispatch.
 type Dispatch struct {
-	CreatedAt    time.Time       `json:"created_at"`
-	Effort       *string         `json:"effort,omitempty"`
-	Epoch        int             `json:"epoch"`
-	FailureClass *string         `json:"failure_class,omitempty"`
-	Id           string          `json:"id"`
-	Model        *string         `json:"model,omitempty"`
-	NodeId       string          `json:"node_id"`
-	ProgressAt   *time.Time      `json:"progress_at,omitempty"`
-	Result       *DispatchResult `json:"result,omitempty"`
-	SettledAt    *time.Time      `json:"settled_at,omitempty"`
-	StartedAt    *time.Time      `json:"started_at,omitempty"`
-	Status       DispatchStatus  `json:"status"`
-	TaskId       string          `json:"task_id"`
-	UnknownCause *string         `json:"unknown_cause,omitempty"`
-	UpdatedAt    time.Time       `json:"updated_at"`
+	CreatedAt    time.Time `json:"created_at"`
+	Effort       *string   `json:"effort,omitempty"`
+	Epoch        int       `json:"epoch"`
+	FailureClass *string   `json:"failure_class,omitempty"`
+	Id           string    `json:"id"`
+	Model        *string   `json:"model,omitempty"`
+	NodeId       string    `json:"node_id"`
+
+	// ProfileVersionId The profile version it ran with; absent for Dispatches from before profiles.
+	ProfileVersionId *string         `json:"profile_version_id,omitempty"`
+	ProgressAt       *time.Time      `json:"progress_at,omitempty"`
+	Result           *DispatchResult `json:"result,omitempty"`
+	SettledAt        *time.Time      `json:"settled_at,omitempty"`
+	StartedAt        *time.Time      `json:"started_at,omitempty"`
+	Status           DispatchStatus  `json:"status"`
+	TaskId           string          `json:"task_id"`
+	UnknownCause     *string         `json:"unknown_cause,omitempty"`
+	UpdatedAt        time.Time       `json:"updated_at"`
 
 	// WaitingSince Set while the worker waits for an answer.
 	WaitingSince *time.Time `json:"waiting_since,omitempty"`
@@ -413,6 +440,18 @@ type Me struct {
 	Name string    `json:"name"`
 }
 
+// Model defines model for Model.
+type Model struct {
+	Kind     string `json:"kind"`
+	Name     string `json:"name"`
+	Provider string `json:"provider"`
+}
+
+// ModelList defines model for ModelList.
+type ModelList struct {
+	Data []Model `json:"data"`
+}
+
 // NewRun defines model for NewRun.
 type NewRun struct {
 	Base      *string `json:"base,omitempty"`
@@ -427,9 +466,11 @@ type NewTask struct {
 	Effort    *string   `json:"effort,omitempty"`
 	Model     *string   `json:"model,omitempty"`
 
+	// Profile The profile it runs with; implementer when left out.
+	Profile *string `json:"profile,omitempty"`
+
 	// Ref Names the Task within this request, for depends_on.
 	Ref     string  `json:"ref"`
-	Role    string  `json:"role"`
 	Runtime *string `json:"runtime,omitempty"`
 	Spec    string  `json:"spec"`
 }
@@ -467,6 +508,45 @@ type NodeList struct {
 type Option struct {
 	AllowsText *bool  `json:"allows_text,omitempty"`
 	Label      string `json:"label"`
+}
+
+// Profile defines model for Profile.
+type Profile struct {
+	CreatedAt   time.Time `json:"created_at"`
+	Effort      *string   `json:"effort,omitempty"`
+	Instruction *string   `json:"instruction,omitempty"`
+	Model       *string   `json:"model,omitempty"`
+	Name        string    `json:"name"`
+	Provider    *string   `json:"provider,omitempty"`
+	Runtime     string    `json:"runtime"`
+	Source      string    `json:"source"`
+	Version     int       `json:"version"`
+	VersionId   string    `json:"version_id"`
+}
+
+// ProfileList defines model for ProfileList.
+type ProfileList struct {
+	Data []Profile `json:"data"`
+}
+
+// Provider defines model for Provider.
+type Provider struct {
+	// ApiKeyRef Where the API key is kept, by name; never the key.
+	ApiKeyRef *string      `json:"api_key_ref,omitempty"`
+	BaseUrl   *string      `json:"base_url,omitempty"`
+	Kind      ProviderKind `json:"kind"`
+	Models    []string     `json:"models"`
+	Name      string       `json:"name"`
+	Source    string       `json:"source"`
+	UpdatedAt time.Time    `json:"updated_at"`
+}
+
+// ProviderKind defines model for Provider.Kind.
+type ProviderKind string
+
+// ProviderList defines model for ProviderList.
+type ProviderList struct {
+	Data []Provider `json:"data"`
 }
 
 // Question defines model for Question.
@@ -555,6 +635,12 @@ type Runtime struct {
 	Version string `json:"version"`
 }
 
+// Source defines model for Source.
+type Source struct {
+	// Source The YAML document; its name must equal the one in the path.
+	Source string `json:"source"`
+}
+
 // Task defines model for Task.
 type Task struct {
 	BlockedReason     *BlockedReason `json:"blocked_reason,omitempty"`
@@ -569,8 +655,8 @@ type Task struct {
 	// NotBefore No new Dispatch starts before it (a back-off or a rate limit).
 	NotBefore *time.Time `json:"not_before,omitempty"`
 	Position  int        `json:"position"`
+	Profile   string     `json:"profile"`
 	Result    *string    `json:"result,omitempty"`
-	Role      string     `json:"role"`
 	RunId     string     `json:"run_id"`
 	Runtime   *string    `json:"runtime,omitempty"`
 	Spec      string     `json:"spec"`
@@ -593,8 +679,8 @@ type TaskDetail struct {
 	// NotBefore No new Dispatch starts before it (a back-off or a rate limit).
 	NotBefore *time.Time `json:"not_before,omitempty"`
 	Position  int        `json:"position"`
+	Profile   string     `json:"profile"`
 	Result    *string    `json:"result,omitempty"`
-	Role      string     `json:"role"`
 	RunId     string     `json:"run_id"`
 	Runtime   *string    `json:"runtime,omitempty"`
 	Spec      string     `json:"spec"`
@@ -618,6 +704,9 @@ type After = int64
 
 // IdempotencyKey defines model for IdempotencyKey.
 type IdempotencyKey = string
+
+// Name defines model for Name.
+type Name = string
 
 // QuestionID defines model for QuestionID.
 type QuestionID = string
@@ -679,6 +768,12 @@ type CreateTasksParams struct {
 	// IdempotencyKey Makes the request safe to repeat: the same key with the same request returns the first result; with another request it is idempotency_key_conflict.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
 }
+
+// ApplyProfileJSONRequestBody defines body for ApplyProfile for application/json ContentType.
+type ApplyProfileJSONRequestBody = Source
+
+// ApplyProviderJSONRequestBody defines body for ApplyProvider for application/json ContentType.
+type ApplyProviderJSONRequestBody = Source
 
 // AnswerQuestionJSONRequestBody defines body for AnswerQuestion for application/json ContentType.
 type AnswerQuestionJSONRequestBody = Answer
@@ -785,10 +880,63 @@ type ClientInterface interface {
 	// Corresponds with GET /me (the `GetMe` operationId).
 	GetMe(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ListModels Every model, with its provider and the provider's kind
+	//
+	// Corresponds with GET /models (the `ListModels` operationId).
+	ListModels(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ListNodes The machines that run workers
 	//
 	// Corresponds with GET /nodes (the `ListNodes` operationId).
 	ListNodes(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListProfiles Every profile, at its current version
+	//
+	// Corresponds with GET /profiles (the `ListProfiles` operationId).
+	ListProfiles(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetProfile A profile at its current version
+	//
+	// Corresponds with GET /profiles/{name} (the `GetProfile` operationId).
+	GetProfile(ctx context.Context, name Name, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ApplyProfileWithBody Store a profile's YAML; a changed source makes a new version
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PUT /profiles/{name} (the `ApplyProfile` operationId).
+	ApplyProfileWithBody(ctx context.Context, name Name, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ApplyProfile Store a profile's YAML; a changed source makes a new version
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PUT /profiles/{name} (the `ApplyProfile` operationId).
+	ApplyProfile(ctx context.Context, name Name, body ApplyProfileJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListProfileVersions A profile's versions, newest first
+	//
+	// Corresponds with GET /profiles/{name}/versions (the `ListProfileVersions` operationId).
+	ListProfileVersions(ctx context.Context, name Name, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListProviders The sources of models, with the models each offers
+	//
+	// Corresponds with GET /providers (the `ListProviders` operationId).
+	ListProviders(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ApplyProviderWithBody Store a provider's YAML and the models it offers
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PUT /providers/{name} (the `ApplyProvider` operationId).
+	ApplyProviderWithBody(ctx context.Context, name Name, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ApplyProvider Store a provider's YAML and the models it offers
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PUT /providers/{name} (the `ApplyProvider` operationId).
+	ApplyProvider(ctx context.Context, name Name, body ApplyProviderJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListQuestions Questions from workers, in the order they were asked
 	//
@@ -945,11 +1093,154 @@ func (c *Client) GetMe(ctx context.Context, reqEditors ...RequestEditorFn) (*htt
 	return c.Client.Do(req)
 }
 
+// ListModels Every model, with its provider and the provider's kind
+//
+// Corresponds with GET /models (the `ListModels` operationId).
+func (c *Client) ListModels(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListModelsRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // ListNodes The machines that run workers
 //
 // Corresponds with GET /nodes (the `ListNodes` operationId).
 func (c *Client) ListNodes(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewListNodesRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListProfiles Every profile, at its current version
+//
+// Corresponds with GET /profiles (the `ListProfiles` operationId).
+func (c *Client) ListProfiles(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListProfilesRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetProfile A profile at its current version
+//
+// Corresponds with GET /profiles/{name} (the `GetProfile` operationId).
+func (c *Client) GetProfile(ctx context.Context, name Name, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetProfileRequest(c.Server, name)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ApplyProfileWithBody Store a profile's YAML; a changed source makes a new version
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PUT /profiles/{name} (the `ApplyProfile` operationId).
+func (c *Client) ApplyProfileWithBody(ctx context.Context, name Name, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewApplyProfileRequestWithBody(c.Server, name, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ApplyProfile Store a profile's YAML; a changed source makes a new version
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PUT /profiles/{name} (the `ApplyProfile` operationId).
+func (c *Client) ApplyProfile(ctx context.Context, name Name, body ApplyProfileJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewApplyProfileRequest(c.Server, name, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListProfileVersions A profile's versions, newest first
+//
+// Corresponds with GET /profiles/{name}/versions (the `ListProfileVersions` operationId).
+func (c *Client) ListProfileVersions(ctx context.Context, name Name, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListProfileVersionsRequest(c.Server, name)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListProviders The sources of models, with the models each offers
+//
+// Corresponds with GET /providers (the `ListProviders` operationId).
+func (c *Client) ListProviders(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListProvidersRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ApplyProviderWithBody Store a provider's YAML and the models it offers
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PUT /providers/{name} (the `ApplyProvider` operationId).
+func (c *Client) ApplyProviderWithBody(ctx context.Context, name Name, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewApplyProviderRequestWithBody(c.Server, name, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ApplyProvider Store a provider's YAML and the models it offers
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PUT /providers/{name} (the `ApplyProvider` operationId).
+func (c *Client) ApplyProvider(ctx context.Context, name Name, body ApplyProviderJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewApplyProviderRequest(c.Server, name, body)
 	if err != nil {
 		return nil, err
 	}
@@ -1461,6 +1752,33 @@ func NewGetMeRequest(server string) (*http.Request, error) {
 	return req, nil
 }
 
+// NewListModelsRequest constructs an http.Request for the ListModels method
+func NewListModelsRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/models")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewListNodesRequest constructs an http.Request for the ListNodes method
 func NewListNodesRequest(server string) (*http.Request, error) {
 	var err error
@@ -1484,6 +1802,222 @@ func NewListNodesRequest(server string) (*http.Request, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	return req, nil
+}
+
+// NewListProfilesRequest constructs an http.Request for the ListProfiles method
+func NewListProfilesRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/profiles")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetProfileRequest constructs an http.Request for the GetProfile method
+func NewGetProfileRequest(server string, name Name) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "name", name, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/profiles/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewApplyProfileRequest calls the generic ApplyProfile builder with application/json body
+func NewApplyProfileRequest(server string, name Name, body ApplyProfileJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewApplyProfileRequestWithBody(server, name, "application/json", bodyReader)
+}
+
+// NewApplyProfileRequestWithBody constructs an http.Request for the ApplyProfile method, with any body, and a specified content type
+func NewApplyProfileRequestWithBody(server string, name Name, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "name", name, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/profiles/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewListProfileVersionsRequest constructs an http.Request for the ListProfileVersions method
+func NewListProfileVersionsRequest(server string, name Name) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "name", name, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/profiles/%s/versions", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewListProvidersRequest constructs an http.Request for the ListProviders method
+func NewListProvidersRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/providers")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewApplyProviderRequest calls the generic ApplyProvider builder with application/json body
+func NewApplyProviderRequest(server string, name Name, body ApplyProviderJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewApplyProviderRequestWithBody(server, name, "application/json", bodyReader)
+}
+
+// NewApplyProviderRequestWithBody constructs an http.Request for the ApplyProvider method, with any body, and a specified content type
+func NewApplyProviderRequestWithBody(server string, name Name, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "name", name, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/providers/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
 
 	return req, nil
 }
@@ -2166,12 +2700,75 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /me (the `GetMe` operationId).
 	GetMeWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetMeResponse, error)
 
+	// ListModelsWithResponse Every model, with its provider and the provider's kind
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /models (the `ListModels` operationId).
+	ListModelsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListModelsResponse, error)
+
 	// ListNodesWithResponse The machines that run workers
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with GET /nodes (the `ListNodes` operationId).
 	ListNodesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListNodesResponse, error)
+
+	// ListProfilesWithResponse Every profile, at its current version
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /profiles (the `ListProfiles` operationId).
+	ListProfilesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListProfilesResponse, error)
+
+	// GetProfileWithResponse A profile at its current version
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /profiles/{name} (the `GetProfile` operationId).
+	GetProfileWithResponse(ctx context.Context, name Name, reqEditors ...RequestEditorFn) (*GetProfileResponse, error)
+
+	// ApplyProfileWithBodyWithResponse Store a profile's YAML; a changed source makes a new version
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /profiles/{name} (the `ApplyProfile` operationId).
+	ApplyProfileWithBodyWithResponse(ctx context.Context, name Name, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ApplyProfileResponse, error)
+
+	// ApplyProfileWithResponse Store a profile's YAML; a changed source makes a new version
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /profiles/{name} (the `ApplyProfile` operationId).
+	ApplyProfileWithResponse(ctx context.Context, name Name, body ApplyProfileJSONRequestBody, reqEditors ...RequestEditorFn) (*ApplyProfileResponse, error)
+
+	// ListProfileVersionsWithResponse A profile's versions, newest first
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /profiles/{name}/versions (the `ListProfileVersions` operationId).
+	ListProfileVersionsWithResponse(ctx context.Context, name Name, reqEditors ...RequestEditorFn) (*ListProfileVersionsResponse, error)
+
+	// ListProvidersWithResponse The sources of models, with the models each offers
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /providers (the `ListProviders` operationId).
+	ListProvidersWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListProvidersResponse, error)
+
+	// ApplyProviderWithBodyWithResponse Store a provider's YAML and the models it offers
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /providers/{name} (the `ApplyProvider` operationId).
+	ApplyProviderWithBodyWithResponse(ctx context.Context, name Name, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ApplyProviderResponse, error)
+
+	// ApplyProviderWithResponse Store a provider's YAML and the models it offers
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /providers/{name} (the `ApplyProvider` operationId).
+	ApplyProviderWithResponse(ctx context.Context, name Name, body ApplyProviderJSONRequestBody, reqEditors ...RequestEditorFn) (*ApplyProviderResponse, error)
 
 	// ListQuestionsWithResponse Questions from workers, in the order they were asked
 	//
@@ -2471,6 +3068,54 @@ func (r GetMeResponse) ContentType() string {
 	return ""
 }
 
+type ListModelsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ModelList
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListModelsResponse) GetJSON200() *ModelList {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListModelsResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListModelsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListModelsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListModelsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListModelsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type ListNodesResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -2513,6 +3158,301 @@ func (r ListNodesResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r ListNodesResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListProfilesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ProfileList
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListProfilesResponse) GetJSON200() *ProfileList {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListProfilesResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListProfilesResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListProfilesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListProfilesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListProfilesResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetProfileResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Profile
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetProfileResponse) GetJSON200() *Profile {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r GetProfileResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r GetProfileResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetProfileResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetProfileResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetProfileResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ApplyProfileResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Profile
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *Profile
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ApplyProfileResponse) GetJSON200() *Profile {
+	return r.JSON200
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r ApplyProfileResponse) GetJSON201() *Profile {
+	return r.JSON201
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ApplyProfileResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ApplyProfileResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ApplyProfileResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ApplyProfileResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ApplyProfileResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListProfileVersionsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ProfileList
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListProfileVersionsResponse) GetJSON200() *ProfileList {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListProfileVersionsResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListProfileVersionsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListProfileVersionsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListProfileVersionsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListProfileVersionsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListProvidersResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ProviderList
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListProvidersResponse) GetJSON200() *ProviderList {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListProvidersResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListProvidersResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListProvidersResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListProvidersResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListProvidersResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ApplyProviderResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Provider
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ApplyProviderResponse) GetJSON200() *Provider {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ApplyProviderResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ApplyProviderResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ApplyProviderResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ApplyProviderResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ApplyProviderResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -3197,6 +4137,19 @@ func (c *ClientWithResponses) GetMeWithResponse(ctx context.Context, reqEditors 
 	return ParseGetMeResponse(rsp)
 }
 
+// ListModelsWithResponse Every model, with its provider and the provider's kind
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /models (the `ListModels` operationId).
+func (c *ClientWithResponses) ListModelsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListModelsResponse, error) {
+	rsp, err := c.ListModels(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListModelsResponse(rsp)
+}
+
 // ListNodesWithResponse The machines that run workers
 //
 // Returns a wrapper object for the known response body format(s).
@@ -3208,6 +4161,110 @@ func (c *ClientWithResponses) ListNodesWithResponse(ctx context.Context, reqEdit
 		return nil, err
 	}
 	return ParseListNodesResponse(rsp)
+}
+
+// ListProfilesWithResponse Every profile, at its current version
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /profiles (the `ListProfiles` operationId).
+func (c *ClientWithResponses) ListProfilesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListProfilesResponse, error) {
+	rsp, err := c.ListProfiles(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListProfilesResponse(rsp)
+}
+
+// GetProfileWithResponse A profile at its current version
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /profiles/{name} (the `GetProfile` operationId).
+func (c *ClientWithResponses) GetProfileWithResponse(ctx context.Context, name Name, reqEditors ...RequestEditorFn) (*GetProfileResponse, error) {
+	rsp, err := c.GetProfile(ctx, name, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetProfileResponse(rsp)
+}
+
+// ApplyProfileWithBodyWithResponse Store a profile's YAML; a changed source makes a new version
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /profiles/{name} (the `ApplyProfile` operationId).
+func (c *ClientWithResponses) ApplyProfileWithBodyWithResponse(ctx context.Context, name Name, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ApplyProfileResponse, error) {
+	rsp, err := c.ApplyProfileWithBody(ctx, name, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseApplyProfileResponse(rsp)
+}
+
+// ApplyProfileWithResponse Store a profile's YAML; a changed source makes a new version
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /profiles/{name} (the `ApplyProfile` operationId).
+func (c *ClientWithResponses) ApplyProfileWithResponse(ctx context.Context, name Name, body ApplyProfileJSONRequestBody, reqEditors ...RequestEditorFn) (*ApplyProfileResponse, error) {
+	rsp, err := c.ApplyProfile(ctx, name, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseApplyProfileResponse(rsp)
+}
+
+// ListProfileVersionsWithResponse A profile's versions, newest first
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /profiles/{name}/versions (the `ListProfileVersions` operationId).
+func (c *ClientWithResponses) ListProfileVersionsWithResponse(ctx context.Context, name Name, reqEditors ...RequestEditorFn) (*ListProfileVersionsResponse, error) {
+	rsp, err := c.ListProfileVersions(ctx, name, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListProfileVersionsResponse(rsp)
+}
+
+// ListProvidersWithResponse The sources of models, with the models each offers
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /providers (the `ListProviders` operationId).
+func (c *ClientWithResponses) ListProvidersWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListProvidersResponse, error) {
+	rsp, err := c.ListProviders(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListProvidersResponse(rsp)
+}
+
+// ApplyProviderWithBodyWithResponse Store a provider's YAML and the models it offers
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /providers/{name} (the `ApplyProvider` operationId).
+func (c *ClientWithResponses) ApplyProviderWithBodyWithResponse(ctx context.Context, name Name, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ApplyProviderResponse, error) {
+	rsp, err := c.ApplyProviderWithBody(ctx, name, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseApplyProviderResponse(rsp)
+}
+
+// ApplyProviderWithResponse Store a provider's YAML and the models it offers
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /providers/{name} (the `ApplyProvider` operationId).
+func (c *ClientWithResponses) ApplyProviderWithResponse(ctx context.Context, name Name, body ApplyProviderJSONRequestBody, reqEditors ...RequestEditorFn) (*ApplyProviderResponse, error) {
+	rsp, err := c.ApplyProvider(ctx, name, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseApplyProviderResponse(rsp)
 }
 
 // ListQuestionsWithResponse Questions from workers, in the order they were asked
@@ -3543,6 +4600,39 @@ func ParseGetMeResponse(rsp *http.Response) (*GetMeResponse, error) {
 	return response, nil
 }
 
+// ParseListModelsResponse parses an HTTP response from a ListModelsWithResponse call
+func ParseListModelsResponse(rsp *http.Response) (*ListModelsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListModelsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ModelList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseListNodesResponse parses an HTTP response from a ListNodesWithResponse call
 func ParseListNodesResponse(rsp *http.Response) (*ListNodesResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -3559,6 +4649,211 @@ func ParseListNodesResponse(rsp *http.Response) (*ListNodesResponse, error) {
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest NodeList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListProfilesResponse parses an HTTP response from a ListProfilesWithResponse call
+func ParseListProfilesResponse(rsp *http.Response) (*ListProfilesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListProfilesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ProfileList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetProfileResponse parses an HTTP response from a GetProfileWithResponse call
+func ParseGetProfileResponse(rsp *http.Response) (*GetProfileResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetProfileResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Profile
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseApplyProfileResponse parses an HTTP response from a ApplyProfileWithResponse call
+func ParseApplyProfileResponse(rsp *http.Response) (*ApplyProfileResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ApplyProfileResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Profile
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest Profile
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListProfileVersionsResponse parses an HTTP response from a ListProfileVersionsWithResponse call
+func ParseListProfileVersionsResponse(rsp *http.Response) (*ListProfileVersionsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListProfileVersionsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ProfileList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListProvidersResponse parses an HTTP response from a ListProvidersWithResponse call
+func ParseListProvidersResponse(rsp *http.Response) (*ListProvidersResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListProvidersResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ProviderList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseApplyProviderResponse parses an HTTP response from a ApplyProviderWithResponse call
+func ParseApplyProviderResponse(rsp *http.Response) (*ApplyProviderResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ApplyProviderResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Provider
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -4019,9 +5314,30 @@ type ServerInterface interface {
 	// GetMe The token making the request
 	// (GET /me)
 	GetMe(w http.ResponseWriter, r *http.Request)
+	// ListModels Every model, with its provider and the provider's kind
+	// (GET /models)
+	ListModels(w http.ResponseWriter, r *http.Request)
 	// ListNodes The machines that run workers
 	// (GET /nodes)
 	ListNodes(w http.ResponseWriter, r *http.Request)
+	// ListProfiles Every profile, at its current version
+	// (GET /profiles)
+	ListProfiles(w http.ResponseWriter, r *http.Request)
+	// GetProfile A profile at its current version
+	// (GET /profiles/{name})
+	GetProfile(w http.ResponseWriter, r *http.Request, name Name)
+	// ApplyProfile Store a profile's YAML; a changed source makes a new version
+	// (PUT /profiles/{name})
+	ApplyProfile(w http.ResponseWriter, r *http.Request, name Name)
+	// ListProfileVersions A profile's versions, newest first
+	// (GET /profiles/{name}/versions)
+	ListProfileVersions(w http.ResponseWriter, r *http.Request, name Name)
+	// ListProviders The sources of models, with the models each offers
+	// (GET /providers)
+	ListProviders(w http.ResponseWriter, r *http.Request)
+	// ApplyProvider Store a provider's YAML and the models it offers
+	// (PUT /providers/{name})
+	ApplyProvider(w http.ResponseWriter, r *http.Request, name Name)
 	// ListQuestions Questions from workers, in the order they were asked
 	// (GET /questions)
 	ListQuestions(w http.ResponseWriter, r *http.Request, params ListQuestionsParams)
@@ -4265,11 +5581,157 @@ func (siw *ServerInterfaceWrapper) GetMe(w http.ResponseWriter, r *http.Request)
 	handler.ServeHTTP(w, r)
 }
 
+// ListModels operation middleware
+func (siw *ServerInterfaceWrapper) ListModels(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListModels(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListNodes operation middleware
 func (siw *ServerInterfaceWrapper) ListNodes(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListNodes(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListProfiles operation middleware
+func (siw *ServerInterfaceWrapper) ListProfiles(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListProfiles(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetProfile operation middleware
+func (siw *ServerInterfaceWrapper) GetProfile(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name Name
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", r.PathValue("name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetProfile(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ApplyProfile operation middleware
+func (siw *ServerInterfaceWrapper) ApplyProfile(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name Name
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", r.PathValue("name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ApplyProfile(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListProfileVersions operation middleware
+func (siw *ServerInterfaceWrapper) ListProfileVersions(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name Name
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", r.PathValue("name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListProfileVersions(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListProviders operation middleware
+func (siw *ServerInterfaceWrapper) ListProviders(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListProviders(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ApplyProvider operation middleware
+func (siw *ServerInterfaceWrapper) ApplyProvider(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name Name
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", r.PathValue("name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ApplyProvider(w, r, name)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -4873,6 +6335,13 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/events/stream", wrapper.StreamEvents)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/nodes", wrapper.ListNodes)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/accounts", wrapper.ListAccounts)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/profiles", wrapper.ListProfiles)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/profiles/{name}", wrapper.GetProfile)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/profiles/{name}", wrapper.ApplyProfile)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/profiles/{name}/versions", wrapper.ListProfileVersions)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/providers", wrapper.ListProviders)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/providers/{name}", wrapper.ApplyProvider)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/models", wrapper.ListModels)
 
 	return m
 }
@@ -5062,6 +6531,44 @@ func (response GetMedefaultJSONResponse) VisitGetMeResponse(w http.ResponseWrite
 	return err
 }
 
+type ListModelsRequestObject struct {
+}
+
+type ListModelsResponseObject interface {
+	VisitListModelsResponse(w http.ResponseWriter) error
+}
+
+type ListModels200JSONResponse ModelList
+
+func (response ListModels200JSONResponse) VisitListModelsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListModelsdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListModelsdefaultJSONResponse) VisitListModelsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListNodesRequestObject struct {
 }
 
@@ -5089,6 +6596,254 @@ type ListNodesdefaultJSONResponse struct {
 }
 
 func (response ListNodesdefaultJSONResponse) VisitListNodesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListProfilesRequestObject struct {
+}
+
+type ListProfilesResponseObject interface {
+	VisitListProfilesResponse(w http.ResponseWriter) error
+}
+
+type ListProfiles200JSONResponse ProfileList
+
+func (response ListProfiles200JSONResponse) VisitListProfilesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListProfilesdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListProfilesdefaultJSONResponse) VisitListProfilesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetProfileRequestObject struct {
+	Name Name `json:"name"`
+}
+
+type GetProfileResponseObject interface {
+	VisitGetProfileResponse(w http.ResponseWriter) error
+}
+
+type GetProfile200JSONResponse Profile
+
+func (response GetProfile200JSONResponse) VisitGetProfileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetProfiledefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetProfiledefaultJSONResponse) VisitGetProfileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApplyProfileRequestObject struct {
+	Name Name `json:"name"`
+	Body *ApplyProfileJSONRequestBody
+}
+
+type ApplyProfileResponseObject interface {
+	VisitApplyProfileResponse(w http.ResponseWriter) error
+}
+
+type ApplyProfile200JSONResponse Profile
+
+func (response ApplyProfile200JSONResponse) VisitApplyProfileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApplyProfile201JSONResponse Profile
+
+func (response ApplyProfile201JSONResponse) VisitApplyProfileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApplyProfiledefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ApplyProfiledefaultJSONResponse) VisitApplyProfileResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListProfileVersionsRequestObject struct {
+	Name Name `json:"name"`
+}
+
+type ListProfileVersionsResponseObject interface {
+	VisitListProfileVersionsResponse(w http.ResponseWriter) error
+}
+
+type ListProfileVersions200JSONResponse ProfileList
+
+func (response ListProfileVersions200JSONResponse) VisitListProfileVersionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListProfileVersionsdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListProfileVersionsdefaultJSONResponse) VisitListProfileVersionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListProvidersRequestObject struct {
+}
+
+type ListProvidersResponseObject interface {
+	VisitListProvidersResponse(w http.ResponseWriter) error
+}
+
+type ListProviders200JSONResponse ProviderList
+
+func (response ListProviders200JSONResponse) VisitListProvidersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListProvidersdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListProvidersdefaultJSONResponse) VisitListProvidersResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApplyProviderRequestObject struct {
+	Name Name `json:"name"`
+	Body *ApplyProviderJSONRequestBody
+}
+
+type ApplyProviderResponseObject interface {
+	VisitApplyProviderResponse(w http.ResponseWriter) error
+}
+
+type ApplyProvider200JSONResponse Provider
+
+func (response ApplyProvider200JSONResponse) VisitApplyProviderResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ApplyProviderdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ApplyProviderdefaultJSONResponse) VisitApplyProviderResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -5625,9 +7380,30 @@ type StrictServerInterface interface {
 	// GetMe The token making the request
 	// (GET /me)
 	GetMe(ctx context.Context, request GetMeRequestObject) (GetMeResponseObject, error)
+	// ListModels Every model, with its provider and the provider's kind
+	// (GET /models)
+	ListModels(ctx context.Context, request ListModelsRequestObject) (ListModelsResponseObject, error)
 	// ListNodes The machines that run workers
 	// (GET /nodes)
 	ListNodes(ctx context.Context, request ListNodesRequestObject) (ListNodesResponseObject, error)
+	// ListProfiles Every profile, at its current version
+	// (GET /profiles)
+	ListProfiles(ctx context.Context, request ListProfilesRequestObject) (ListProfilesResponseObject, error)
+	// GetProfile A profile at its current version
+	// (GET /profiles/{name})
+	GetProfile(ctx context.Context, request GetProfileRequestObject) (GetProfileResponseObject, error)
+	// ApplyProfile Store a profile's YAML; a changed source makes a new version
+	// (PUT /profiles/{name})
+	ApplyProfile(ctx context.Context, request ApplyProfileRequestObject) (ApplyProfileResponseObject, error)
+	// ListProfileVersions A profile's versions, newest first
+	// (GET /profiles/{name}/versions)
+	ListProfileVersions(ctx context.Context, request ListProfileVersionsRequestObject) (ListProfileVersionsResponseObject, error)
+	// ListProviders The sources of models, with the models each offers
+	// (GET /providers)
+	ListProviders(ctx context.Context, request ListProvidersRequestObject) (ListProvidersResponseObject, error)
+	// ApplyProvider Store a provider's YAML and the models it offers
+	// (PUT /providers/{name})
+	ApplyProvider(ctx context.Context, request ApplyProviderRequestObject) (ApplyProviderResponseObject, error)
 	// ListQuestions Questions from workers, in the order they were asked
 	// (GET /questions)
 	ListQuestions(ctx context.Context, request ListQuestionsRequestObject) (ListQuestionsResponseObject, error)
@@ -5808,6 +7584,30 @@ func (sh *strictHandler) GetMe(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// ListModels operation middleware
+func (sh *strictHandler) ListModels(w http.ResponseWriter, r *http.Request) {
+	var request ListModelsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListModels(ctx, request.(ListModelsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListModels")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListModelsResponseObject); ok {
+		if err := validResponse.VisitListModelsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ListNodes operation middleware
 func (sh *strictHandler) ListNodes(w http.ResponseWriter, r *http.Request) {
 	var request ListNodesRequestObject
@@ -5825,6 +7625,172 @@ func (sh *strictHandler) ListNodes(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListNodesResponseObject); ok {
 		if err := validResponse.VisitListNodesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListProfiles operation middleware
+func (sh *strictHandler) ListProfiles(w http.ResponseWriter, r *http.Request) {
+	var request ListProfilesRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListProfiles(ctx, request.(ListProfilesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListProfiles")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListProfilesResponseObject); ok {
+		if err := validResponse.VisitListProfilesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetProfile operation middleware
+func (sh *strictHandler) GetProfile(w http.ResponseWriter, r *http.Request, name Name) {
+	var request GetProfileRequestObject
+
+	request.Name = name
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetProfile(ctx, request.(GetProfileRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetProfile")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetProfileResponseObject); ok {
+		if err := validResponse.VisitGetProfileResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ApplyProfile operation middleware
+func (sh *strictHandler) ApplyProfile(w http.ResponseWriter, r *http.Request, name Name) {
+	var request ApplyProfileRequestObject
+
+	request.Name = name
+
+	var body ApplyProfileJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ApplyProfile(ctx, request.(ApplyProfileRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ApplyProfile")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ApplyProfileResponseObject); ok {
+		if err := validResponse.VisitApplyProfileResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListProfileVersions operation middleware
+func (sh *strictHandler) ListProfileVersions(w http.ResponseWriter, r *http.Request, name Name) {
+	var request ListProfileVersionsRequestObject
+
+	request.Name = name
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListProfileVersions(ctx, request.(ListProfileVersionsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListProfileVersions")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListProfileVersionsResponseObject); ok {
+		if err := validResponse.VisitListProfileVersionsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListProviders operation middleware
+func (sh *strictHandler) ListProviders(w http.ResponseWriter, r *http.Request) {
+	var request ListProvidersRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListProviders(ctx, request.(ListProvidersRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListProviders")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListProvidersResponseObject); ok {
+		if err := validResponse.VisitListProvidersResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ApplyProvider operation middleware
+func (sh *strictHandler) ApplyProvider(w http.ResponseWriter, r *http.Request, name Name) {
+	var request ApplyProviderRequestObject
+
+	request.Name = name
+
+	var body ApplyProviderJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ApplyProvider(ctx, request.(ApplyProviderRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ApplyProvider")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ApplyProviderResponseObject); ok {
+		if err := validResponse.VisitApplyProviderResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -6197,69 +8163,80 @@ func (sh *strictHandler) ReopenTask(w http.ResponseWriter, r *http.Request, task
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
-	"QVhtt1h8ukXsudYFh/NSZ9EoGvJCDLG0f7v+3wA=",
+	"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",
+	"M2LPtcU6nNNl6WTKKzHFttHPz/8cAA==",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

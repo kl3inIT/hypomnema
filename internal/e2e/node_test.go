@@ -148,8 +148,7 @@ func newWorld(t *testing.T) *world {
 	t.Cleanup(func() { _ = db.Close() })
 	require.NoError(t, orchestration.Migrate(t.Context(), db))
 
-	svc := orchestration.New(db, platform.SystemClock{}, platform.NewID,
-		orchestration.WithRoles(map[string]orchestration.Role{"implement": {Runtime: "claude"}}))
+	svc := orchestration.New(db, platform.SystemClock{}, platform.NewID)
 
 	mux := http.NewServeMux()
 	nodeapi.New(svc, slog.New(slog.DiscardHandler)).Register(mux)
@@ -220,7 +219,7 @@ func (w *world) task() orchestration.Task {
 	require.NoError(w.t, err)
 
 	tasks, err := w.svc.CreateTasks(w.t.Context(), run.ID, []orchestration.NewTask{
-		{Ref: "a", Role: "implement", Spec: "add the Google login button"},
+		{Ref: "a", Profile: "implementer", Spec: "add the Google login button"},
 	})
 	require.NoError(w.t, err)
 

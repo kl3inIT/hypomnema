@@ -23,8 +23,6 @@ type Service struct {
 	random func() float64
 	// notify wakes event readers after each commit.
 	notify *notifier
-	// roles are the role defaults (WithRoles).
-	roles map[string]Role
 }
 
 // New returns a Service over an opened, migrated database. The clock and id
@@ -273,7 +271,15 @@ func (s *Service) insertTasks(ctx context.Context, q *store.Queries, now int64, 
 	status := map[string]depState{}
 
 	for i, nt := range tasks {
+		if nt.Profile == "" {
+			nt.Profile = DefaultProfile
+		}
+
 		if err := validNewTask(nt, byRef); err != nil {
+			return nil, err
+		}
+
+		if err := checkTaskProfile(ctx, q, nt); err != nil {
 			return nil, err
 		}
 
@@ -286,7 +292,7 @@ func (s *Service) insertTasks(ctx context.Context, q *store.Queries, now int64, 
 		st, reason := initialStatus(deps, status)
 
 		if err := q.InsertTask(ctx, store.InsertTaskParams{
-			ID: id, RunID: runID, Position: position + int64(i), Role: nt.Role, Spec: nt.Spec,
+			ID: id, RunID: runID, Position: position + int64(i), Profile: nt.Profile, Spec: nt.Spec,
 			Runtime: nullString(nt.Runtime), Model: nullString(nt.Model), Effort: nullString(nt.Effort),
 			Status: string(st), BlockedReason: nullString(string(reason)), Now: now,
 		}); err != nil {
@@ -320,8 +326,8 @@ func validNewTask(nt NewTask, byRef map[string]string) error {
 		return fmt.Errorf("%w: a task needs a ref", ErrInvalid)
 	case byRef[nt.Ref] != "":
 		return fmt.Errorf("%w: ref %q is used twice", ErrInvalid, nt.Ref)
-	case strings.TrimSpace(nt.Role) == "" || strings.TrimSpace(nt.Spec) == "":
-		return fmt.Errorf("%w: task %q needs a role and a spec", ErrInvalid, nt.Ref)
+	case strings.TrimSpace(nt.Spec) == "":
+		return fmt.Errorf("%w: task %q needs a spec", ErrInvalid, nt.Ref)
 	default:
 		return nil
 	}
@@ -739,7 +745,7 @@ func runFromRow(r store.Run) Run {
 
 func taskFromRow(t store.Task) Task {
 	return Task{
-		ID: t.ID, RunID: t.RunID, Position: int(t.Position), Role: t.Role, Spec: t.Spec,
+		ID: t.ID, RunID: t.RunID, Position: int(t.Position), Profile: t.Profile, Spec: t.Spec,
 		Runtime: t.Runtime.String, Model: t.Model.String, Effort: t.Effort.String,
 		Status: TaskStatus(t.Status), BlockedReason: BlockedReason(t.BlockedReason.String),
 		FailureCount: int(t.FailureCount), Result: t.Result.String,

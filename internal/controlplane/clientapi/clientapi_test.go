@@ -43,8 +43,7 @@ func newWorld(t *testing.T) *world {
 	t.Cleanup(func() { _ = db.Close() })
 	require.NoError(t, orchestration.Migrate(t.Context(), db))
 
-	svc := orchestration.New(db, platform.SystemClock{}, platform.NewID,
-		orchestration.WithRoles(map[string]orchestration.Role{"implement": {Runtime: "claude"}}))
+	svc := orchestration.New(db, platform.SystemClock{}, platform.NewID)
 
 	stop := make(chan struct{})
 	srv := New(svc, slog.New(slog.DiscardHandler), stop)
@@ -223,8 +222,8 @@ func TestACoordinatorChangesOnlyItsOwnRuns(t *testing.T) {
 	assert.Equal(t, "laptop", run.CreatedBy)
 
 	tasks, err := laptop.CreateTasksWithResponse(ctx, run.Id, nil, openapi.NewTasks{Tasks: []openapi.NewTask{
-		{Ref: "a", Role: "implement", Spec: "write the handler"},
-		{Ref: "b", Role: "implement", Spec: "write its test", DependsOn: &[]string{"a"}},
+		{Ref: "a", Spec: "write the handler"},
+		{Ref: "b", Spec: "write its test", DependsOn: &[]string{"a"}},
 	}})
 	require.NoError(t, err)
 	require.Equal(t, http.StatusCreated, tasks.StatusCode(), string(tasks.Body))
@@ -242,7 +241,7 @@ func TestACoordinatorChangesOnlyItsOwnRuns(t *testing.T) {
 	assert.Equal(t, openapi.Forbidden, errorCode(t, cancel.Body, cancel.StatusCode(), http.StatusForbidden))
 
 	more, err := other.CreateTasksWithResponse(ctx, run.Id, nil, openapi.NewTasks{Tasks: []openapi.NewTask{
-		{Ref: "c", Role: "implement", Spec: "x"},
+		{Ref: "c", Spec: "x"},
 	}})
 	require.NoError(t, err)
 	assert.Equal(t, openapi.Forbidden, errorCode(t, more.Body, more.StatusCode(), http.StatusForbidden))
@@ -409,7 +408,7 @@ func (w *world) askFromAWorker(c *openapi.ClientWithResponses, runID, text strin
 	}))
 
 	tasks, err := c.CreateTasksWithResponse(ctx, runID, nil, openapi.NewTasks{Tasks: []openapi.NewTask{
-		{Ref: "a", Role: "implement", Spec: "work"},
+		{Ref: "a", Spec: "work"},
 	}})
 	require.NoError(w.t, err)
 	require.Equal(w.t, http.StatusCreated, tasks.StatusCode(), string(tasks.Body))
@@ -582,4 +581,51 @@ func bearerOf(t *testing.T, w *world, name string) string {
 	require.NoError(t, err)
 
 	return secret
+}
+
+// Scenario: a coordinator reads the profiles, providers and models to choose
+// from, but only the owner changes them. Applying the same source twice
+// makes one version; a name that differs from the path is refused.
+func TestOnlyTheOwnerChangesProfiles(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	laptop, _ := w.token("laptop", bearertoken.Coordinator)
+	owner, _ := w.token("web", bearertoken.Owner)
+	ctx := t.Context()
+
+	list, err := laptop.ListProfilesWithResponse(ctx)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, list.StatusCode())
+	assert.Len(t, list.JSON200.Data, 4)
+
+	models, err := laptop.ListModelsWithResponse(ctx)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, models.StatusCode())
+	assert.NotEmpty(t, models.JSON200.Data)
+
+	body := openapi.Source{Source: "name: reviewer\nruntime: claude\nmodel: {name: opus, effort: max}\n"}
+
+	refused, err := laptop.ApplyProfileWithResponse(ctx, "reviewer", body)
+	require.NoError(t, err)
+	assert.Equal(t, openapi.Forbidden, errorCode(t, refused.Body, refused.StatusCode(), http.StatusForbidden))
+
+	created, err := owner.ApplyProfileWithResponse(ctx, "reviewer", body)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, created.StatusCode(), string(created.Body))
+	assert.Equal(t, 2, created.JSON201.Version)
+
+	same, err := owner.ApplyProfileWithResponse(ctx, "reviewer", body)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, same.StatusCode())
+	assert.Equal(t, created.JSON201.VersionId, same.JSON200.VersionId)
+
+	wrong, err := owner.ApplyProfileWithResponse(ctx, "explorer", body)
+	require.NoError(t, err)
+	assert.Equal(t, openapi.InvalidRequest, errorCode(t, wrong.Body, wrong.StatusCode(), http.StatusBadRequest))
+
+	provider, err := laptop.ApplyProviderWithResponse(ctx, "router",
+		openapi.Source{Source: "name: router\nkind: openai_compatible\nmodels: [m1]\n"})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, provider.StatusCode())
 }
