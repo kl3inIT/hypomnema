@@ -46,6 +46,8 @@ Two deployables, all Go:
   nodes, memory stores read and written through tools, alongside the vault and the gateway.
 - **Clients talk only to the control plane**: a web chat first, built for the phone as Omnigent's web UI is;
   Telegram and a Flutter app later. All use one OpenAPI contract, with events over SSE.
+  The web client is a Vite single-page app: React, TanStack Router and Query, Tailwind and shadcn on Base UI
+  ([stack](research/2026-11-09-directories-sessions-web-stack.md#4-the-web-stack)).
 
 ## What it learns from
 
