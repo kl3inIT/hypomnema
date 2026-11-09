@@ -81,7 +81,7 @@ keeps one flat `internal/` with a storage package behind named methods.
 
 ```
 cmd/hypomnema, cmd/hypomnema-node   entry points
-internal/controlplane/...   flat packages: orchestration, vault, coordinator, mcpbridge, policy, channel/<provider>, httpapi…
+internal/controlplane/...   flat packages: orchestration, vault, coordinator, clientapi, policy, channel/<provider>, httpapi…
 internal/node/...           flat packages: connection, runtime/<name>, proxy, statedb…
 internal/shared/...         platform (config, logging, HTTP, errors, ids, clock), sqlite, nodeproto
 ```
@@ -170,8 +170,8 @@ The three boundaries that matter:
   Gate.
 - Workers never hold a raw secret. The node's egress proxy attaches credentials from a vault Session scoped to one
   Dispatch; workers see placeholders. Egress is deny by default per Dispatch.
-- Policies answer ALLOW, DENY or ASK and **fail closed**. They are evaluated in Go behind `mcpbridge` and the node
-  proxy; the pi extension only forwards.
+- Policies answer ALLOW, DENY or ASK and **fail closed**. They are evaluated in Go behind the client API and the node
+  proxy.
 - **Spawning follows the references' default** (OpenClaw `sessions_spawn`, Omnara `spawn_agent`, Omnigent dispatch):
   every tool, `spawn` included, has a permission of ALLOW, ASK or DENY, and `spawn` is ALLOW. Hard limits always apply
   and are checked in Go: workers running at once, spawn depth, dispatches per turn (as Omnigent's `spawn_bounds`) and

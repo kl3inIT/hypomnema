@@ -20,12 +20,14 @@ Two deployables, all Go:
 
 | Deployable | Runs | Owns |
 |---|---|---|
-| `hypomnema` (control plane) | One place, public TLS endpoint or Tailscale | Channels, the coordinator, Run → Task → Dispatch → Gate as an event log in SQLite, MCP bridge with policy, node registry and placement, the vault (secrets and credential sessions), the API |
+| `hypomnema` (control plane) | One place, public TLS endpoint or Tailscale | Channels, the coordinator, Run → Task → Dispatch → Gate as an event log in SQLite, the client API with policy (CLI, web; MCP later), node registry and placement, the vault (secrets and credential sessions), the API |
 | `hypomnema-node` | Every machine, cloud and sandbox | Outbound connection, worktrees, running and parsing the CLIs, egress proxy that attaches credentials, process isolation, local journal |
 
 - **The coordinator is pi** (`earendil-works/pi`), run as a child process over `pi --mode rpc`, not forked. It is a
   coordinator in Orca's shape: it decides, and the control plane holds every piece of state, so a pi crash loses
-  nothing. Its tools come through MCP and a thin pi extension; every policy decision is made in Go.
+  nothing. It keeps pi's own tools but edits no code, and drives orchestration with the `hypomnema` CLI and a
+  coordinator skill, as Orca's coordinators drive `orca orchestration` (decided 2026-11-09, issue #41); every policy
+  decision is made in Go behind the client API. The owner's own agent on a laptop coordinates the same way.
 - **Workers are the vendor CLIs**, driven headless: Codex through `codex app-server` (JSON-RPC), Claude Code through
   bidirectional stream-JSON with permission prompts answered by the host. pi can also be a worker for small cheap
   jobs.
