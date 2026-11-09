@@ -13,6 +13,12 @@ import (
 const chatRunEvents = `-- name: ChatRunEvents :many
 SELECT e.seq, e.kind, e.run_id, e.task_id, e.dispatch_id, e.question_id, e.node_id, e.payload, e.created_at FROM events e JOIN runs r ON r.id = e.run_id
 WHERE r.chat_id = ?1 AND e.seq > ?2
+  AND (
+    e.kind IN ('escalation', 'run.finished', 'run.canceled')
+    OR (e.kind = 'task.status'
+        AND json_extract(e.payload, '$.to') IN ('succeeded', 'failed', 'blocked', 'canceled'))
+    OR (e.kind = 'question.opened' AND json_extract(e.payload, '$.addressed_to') = 'coordinator')
+  )
 ORDER BY e.seq
 LIMIT ?3
 `
@@ -23,7 +29,8 @@ type ChatRunEventsParams struct {
 	Lim    int64
 }
 
-// Events of the chat's Runs after a cursor.
+// Events of the chat's Runs after a cursor that need a coordinator (wakeText
+// in chats.go says the same), so events that wake nobody never fill the page.
 func (q *Queries) ChatRunEvents(ctx context.Context, arg ChatRunEventsParams) ([]Event, error) {
 	rows, err := q.db.QueryContext(ctx, chatRunEvents, arg.ChatID, arg.After, arg.Lim)
 	if err != nil {
