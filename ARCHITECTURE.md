@@ -116,7 +116,20 @@ The owner's commands:
   - `login --url URL --token-file FILE` checks the token and keeps both in `~/.hypomnema/client.json` (0600);
   - `run --repo owner/name <objective>` creates a Run with one Task and prints its events (and any question to the
     owner) until the Task ends, then finishes the Run; each read waits for the next event;
-  - `answer <question> <number or text>`, and `questions` lists the open questions to the owner.
+  - `answer <question> <number or text>`, and `questions` lists the open questions to the owner;
+  - the coordinator's commands: `whoami`; `runs create|list|show|finish|cancel|wait`; `tasks create|show|cancel|reopen`
+    (several Tasks with dependencies from one JSON file); `questions [show|forward]`. Each takes `--json`; long text
+    comes from a file or `-` for standard input; flags may follow the arguments; a create takes `--key` so a create
+    whose answer was lost can be repeated.
+  - `runs wait <run>` returns when a Task of the Run ended or was blocked, a question reached the coordinator, an
+    escalation came or the Run ended, with the cursor for the next wait and the next commands (`questions show`,
+    `tasks show`, `runs finish` once every Task ended); it sends one request per 50 s while nothing happens.
+- The coordinator skill (`internal/controlplane/clientcli/skills`, after Orca's
+  [decision](docs/decisions/2026-11-09-coordinator-cli-and-skill.md)): `skills get hypomnema-coordinator` prints
+  the guide compiled into the binary, `--reference recovery` one reference; `skills install` writes the stub
+  `SKILL.md` to `~/.claude/skills` and `~/.agents/skills`, replacing a copy only when it matches a released stub
+  (otherwise only with `--force`, keeping a backup). Tests check that every command in the skill parses and that the
+  stub and guide share their frontmatter.
 
 Node (`internal/node`):
 - `init` writes `~/.hypomnema-node/config.json` (mode 0600, directory 0700) with the control plane's URL, the token
@@ -196,7 +209,7 @@ api                       the client API's contract (openapi.yaml) and oapi-code
 internal/controlplane     package controlplane: configuration, migrate, serve and the owner's server commands
 internal/controlplane/bearertoken  client token format: making, checking and hashing
 internal/controlplane/clientapi  the client API: policies, handlers, events and their stream; generated code in openapi/
-internal/controlplane/clientcli  the commands that call the client API: login, run, answer, questions
+internal/controlplane/clientcli  the commands that call the client API, and the coordinator skill (skills/)
 internal/controlplane/nodeapi  the node API: hello and the node WebSocket
 internal/controlplane/webui    serves the embedded web client
 internal/e2e               tests only: the control plane's node API with the node daemon
