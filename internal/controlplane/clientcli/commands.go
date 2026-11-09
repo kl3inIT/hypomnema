@@ -129,6 +129,22 @@ var commands = []command{
 		run: answer,
 	},
 	{
+		name: "chat", args: "[message]", max: -1,
+		summary: "write to the coordinator on the server and print its replies; without a message, show the chat",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("chat", "", "the chat to use (default the most recent)")
+			fs.Bool("new", false, "start a new chat")
+			fs.String("text-file", "", "read the message from this file, or - for standard input")
+			fs.String("timeout", "10m", "stop printing replies after this long")
+			fs.Int("last", 20, "without a message, how many messages to show")
+		},
+		run: chat,
+	},
+	{
+		name: "chats", summary: "the chats with the coordinator, the most recently active first",
+		flags: jsonFlag, run: chatsList,
+	},
+	{
 		name: "profiles list", summary: "the profiles Tasks can name, at their current versions",
 		flags: jsonFlag, run: profilesList,
 	},

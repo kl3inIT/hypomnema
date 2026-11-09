@@ -38,6 +38,13 @@ type world struct {
 func newWorld(t *testing.T) *world {
 	t.Helper()
 
+	return newWorldWith(t, nil)
+}
+
+// newWorldWith serves the API with a coordinator, or none when nil.
+func newWorldWith(t *testing.T, coord clientapi.Coordinator) *world {
+	t.Helper()
+
 	db, err := sqlite.Open(t.Context(), sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
@@ -48,7 +55,12 @@ func newWorld(t *testing.T) *world {
 	t.Cleanup(func() { close(stop) })
 
 	mux := http.NewServeMux()
-	require.NoError(t, clientapi.New(svc, slog.New(slog.DiscardHandler), stop).Register(mux))
+	srv := clientapi.New(svc, slog.New(slog.DiscardHandler), stop)
+	if coord != nil {
+		srv.WithCoordinator(coord)
+	}
+
+	require.NoError(t, srv.Register(mux))
 
 	hs := httptest.NewServer(mux)
 	t.Cleanup(hs.Close)
@@ -637,4 +649,104 @@ func TestProfilesFromTheCLI(t *testing.T) {
 
 	_, err = coordinator.cmd(t, "profiles", "apply", file)
 	require.ErrorContains(t, err, "forbidden")
+}
+
+// replier plays pi for chat tests: it takes each owner message and answers.
+type replier struct{ svc *orchestration.Service }
+
+func (replier) Enabled() bool         { return true }
+func (replier) Working(_ string) bool { return false }
+
+func (r replier) run(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(20 * time.Millisecond):
+		}
+
+		chats, _ := r.svc.ChatsWithUndelivered(ctx)
+		for _, id := range chats {
+			msgs, _ := r.svc.Undelivered(ctx, id)
+			if len(msgs) == 0 {
+				continue
+			}
+
+			_ = r.svc.MarkDelivered(ctx, id, msgs[len(msgs)-1].Seq)
+			_, _ = r.svc.AddChatMessage(ctx, id, orchestration.ChatSystem, "pi ran bash: hypomnema runs list --json")
+			_, _ = r.svc.AddChatMessage(ctx, id, orchestration.ChatCoordinator, "I read: "+msgs[0].Text)
+		}
+	}
+}
+
+// Scenario: the owner chats with pi from the terminal. The first message
+// starts a chat; the reply and pi's tool line are printed; the next message
+// goes to the same chat. Without a message, the chat is shown.
+func TestChatFromTheTerminal(t *testing.T) {
+	t.Parallel()
+
+	var w *world
+
+	rp := &replier{}
+	w = newWorldWith(t, rp)
+	rp.svc = w.svc
+
+	ctx, cancel := context.WithCancel(context.WithoutCancel(t.Context()))
+	t.Cleanup(cancel)
+
+	go rp.run(ctx)
+
+	w.login(t, bearertoken.Owner)
+
+	out, err := w.cmd(t, "chat", "add", "a", "health", "page")
+	require.NoError(t, err)
+	assert.Contains(t, out, "pi: I read: add a health page")
+	assert.Contains(t, out, "· pi ran bash: hypomnema runs list --json")
+
+	chatID := regexp.MustCompile(`chat (cht_\w+)`).FindStringSubmatch(out)[1]
+
+	out, err = w.cmdIn(t, "and a test\n", "chat", "--text-file", "-")
+	require.NoError(t, err)
+	assert.Contains(t, out, "chat "+chatID, "the most recent chat")
+	assert.Contains(t, out, "pi: I read: and a test")
+
+	out, err = w.cmd(t, "chat", "--last", "2")
+	require.NoError(t, err)
+	assert.Contains(t, out, "pi: I read: and a test")
+	assert.NotContains(t, out, "add a health page", "only the last two")
+
+	var chats openapi.ChatList
+	w.jsonCmd(t, &chats, "", "chats")
+	require.Len(t, chats.Data, 1)
+
+	out, err = w.cmd(t, "chat", "--new", "a second topic")
+	require.NoError(t, err)
+	assert.NotContains(t, out, "chat "+chatID)
+}
+
+// Without a coordinator on the server, a message is kept and the CLI says so.
+func TestChatWithoutACoordinator(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	w.login(t, bearertoken.Owner)
+
+	out, err := w.cmd(t, "chat", "hello")
+	require.NoError(t, err)
+	assert.Contains(t, out, "no coordinator runs on the server")
+}
+
+// pi's environment names its chat; the Runs it creates record it.
+func TestRunsCreatedByPiRecordItsChat(t *testing.T) { //nolint:paralleltest // sets HYPOMNEMA_CHAT_ID
+	w := newWorld(t)
+	w.login(t, bearertoken.Coordinator)
+
+	chat, err := w.svc.CreateChat(t.Context(), "")
+	require.NoError(t, err)
+
+	t.Setenv("HYPOMNEMA_CHAT_ID", chat.ID)
+
+	var run openapi.Run
+	w.jsonCmd(t, &run, "", "runs", "create", "--repo", "kl3inIT/demo", "health page")
+	assert.Equal(t, chat.ID, val(run.ChatId))
 }
