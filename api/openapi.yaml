@@ -305,12 +305,114 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/AccountList" }
         default: { $ref: "#/components/responses/Error" }
+  /profiles:
+    get:
+      operationId: ListProfiles
+      summary: Every profile, at its current version
+      responses:
+        "200":
+          description: The profiles.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProfileList" }
+        default: { $ref: "#/components/responses/Error" }
+  /profiles/{name}:
+    parameters:
+      - $ref: "#/components/parameters/Name"
+    get:
+      operationId: GetProfile
+      summary: A profile at its current version
+      responses:
+        "200":
+          description: The profile.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Profile" }
+        default: { $ref: "#/components/responses/Error" }
+    put:
+      operationId: ApplyProfile
+      summary: Store a profile's YAML; a changed source makes a new version
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Source" }
+      responses:
+        "200":
+          description: The source equals the current version, which is returned.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Profile" }
+        "201":
+          description: A new version.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Profile" }
+        default: { $ref: "#/components/responses/Error" }
+  /profiles/{name}/versions:
+    parameters:
+      - $ref: "#/components/parameters/Name"
+    get:
+      operationId: ListProfileVersions
+      summary: A profile's versions, newest first
+      responses:
+        "200":
+          description: The versions.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProfileList" }
+        default: { $ref: "#/components/responses/Error" }
+  /providers:
+    get:
+      operationId: ListProviders
+      summary: The sources of models, with the models each offers
+      responses:
+        "200":
+          description: The providers.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProviderList" }
+        default: { $ref: "#/components/responses/Error" }
+  /providers/{name}:
+    parameters:
+      - $ref: "#/components/parameters/Name"
+    put:
+      operationId: ApplyProvider
+      summary: Store a provider's YAML and the models it offers
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Source" }
+      responses:
+        "200":
+          description: The provider as stored.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Provider" }
+        default: { $ref: "#/components/responses/Error" }
+  /models:
+    get:
+      operationId: ListModels
+      summary: Every model, with its provider and the provider's kind
+      responses:
+        "200":
+          description: The models.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ModelList" }
+        default: { $ref: "#/components/responses/Error" }
 components:
   securitySchemes:
     bearerAuth:
       type: http
       scheme: bearer
   parameters:
+    Name:
+      name: name
+      in: path
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 63 }
     RunID:
       name: run_id
       in: path
@@ -433,12 +535,12 @@ components:
       enum: [dependency_failed, gate, dispatch_unknown, needs_auth]
     Task:
       type: object
-      required: [id, run_id, position, role, spec, status, failure_count, created_at, updated_at]
+      required: [id, run_id, position, profile, spec, status, failure_count, created_at, updated_at]
       properties:
         id: { type: string }
         run_id: { type: string }
         position: { type: integer }
-        role: { type: string }
+        profile: { type: string }
         spec: { type: string }
         runtime: { type: string }
         model: { type: string }
@@ -480,7 +582,7 @@ components:
           items: { $ref: "#/components/schemas/NewTask" }
     NewTask:
       type: object
-      required: [ref, role, spec]
+      required: [ref, spec]
       additionalProperties: false
       properties:
         ref:
@@ -488,7 +590,11 @@ components:
           minLength: 1
           maxLength: 100
           description: Names the Task within this request, for depends_on.
-        role: { type: string, minLength: 1, maxLength: 100 }
+        profile:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: The profile it runs with; implementer when left out.
         spec: { type: string, minLength: 1, maxLength: 100000 }
         runtime: { type: string, minLength: 1, maxLength: 100 }
         model: { type: string, minLength: 1, maxLength: 200 }
@@ -514,6 +620,9 @@ components:
         unknown_cause: { type: string }
         model: { type: string }
         effort: { type: string }
+        profile_version_id:
+          type: string
+          description: The profile version it ran with; absent for Dispatches from before profiles.
         result: { $ref: "#/components/schemas/DispatchResult" }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
@@ -677,3 +786,72 @@ components:
         data:
           type: array
           items: { $ref: "#/components/schemas/Account" }
+    Source:
+      type: object
+      required: [source]
+      additionalProperties: false
+      properties:
+        source:
+          type: string
+          minLength: 1
+          maxLength: 100000
+          description: The YAML document; its name must equal the one in the path.
+    Profile:
+      type: object
+      required: [name, version_id, version, runtime, source, created_at]
+      properties:
+        name: { type: string }
+        version_id: { type: string }
+        version: { type: integer }
+        runtime: { type: string }
+        provider: { type: string }
+        model: { type: string }
+        effort: { type: string }
+        instruction: { type: string }
+        source: { type: string }
+        created_at: { type: string, format: date-time }
+    ProfileList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/Profile" }
+    Provider:
+      type: object
+      required: [name, kind, models, source, updated_at]
+      properties:
+        name: { type: string }
+        kind:
+          type: string
+          enum: [anthropic, openai_compatible, claude_subscription, codex_subscription]
+        base_url: { type: string }
+        api_key_ref:
+          type: string
+          description: Where the API key is kept, by name; never the key.
+        models:
+          type: array
+          items: { type: string }
+        source: { type: string }
+        updated_at: { type: string, format: date-time }
+    ProviderList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/Provider" }
+    Model:
+      type: object
+      required: [provider, name, kind]
+      properties:
+        provider: { type: string }
+        name: { type: string }
+        kind: { type: string }
+    ModelList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/Model" }

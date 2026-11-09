@@ -57,7 +57,7 @@ func TestWaitQuestionIsAnsweredThroughTheHeartbeat(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
-	task := w.tasks(NewTask{Ref: "a", Role: "implement", Spec: "a"})[0]
+	task := w.tasks(NewTask{Ref: "a", Profile: "implementer", Spec: "a"})[0]
 	d, c := w.start(task.ID)
 
 	id := w.ask(c, libraryChoice(AddressCoordinator))
@@ -93,7 +93,7 @@ func TestWaitingPausesTheStallAndDurationTimers(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
-	task := w.tasks(NewTask{Ref: "a", Role: "implement", Spec: "a"})[0]
+	task := w.tasks(NewTask{Ref: "a", Profile: "implementer", Spec: "a"})[0]
 	d, c := w.start(task.ID)
 	id := w.ask(c, libraryChoice(AddressCoordinator))
 
@@ -123,7 +123,7 @@ func TestQuestionSurvivesALostLeaseUntilTheDispatchSettles(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
-	tasks := w.tasks(NewTask{Ref: "a", Role: "implement", Spec: "a"}, NewTask{Ref: "b", Role: "implement", Spec: "b"})
+	tasks := w.tasks(NewTask{Ref: "a", Spec: "a"}, NewTask{Ref: "b", Spec: "b"})
 	_, ca := w.start(tasks[0].ID)
 	db, cb := w.start(tasks[1].ID)
 	qa := w.ask(ca, libraryChoice(AddressCoordinator))
@@ -157,8 +157,8 @@ func TestGateEndsTheDispatchAndResumesWithTheAnswer(t *testing.T) {
 
 	w := newWorld(t)
 	tasks := w.tasks(
-		NewTask{Ref: "a", Role: "implement", Spec: "a"},
-		NewTask{Ref: "b", Role: "review", Spec: "b", DependsOn: []string{"a"}},
+		NewTask{Ref: "a", Profile: "implementer", Spec: "a"},
+		NewTask{Ref: "b", Profile: "reviewer", Spec: "b", DependsOn: []string{"a"}},
 	)
 	d, c := w.start(tasks[0].ID)
 
@@ -200,7 +200,7 @@ func TestGateEndsTheDispatchAndResumesWithTheAnswer(t *testing.T) {
 	require.NoError(t, w.finish(nc, success("merged PR #7")))
 	assert.Equal(t, map[string]string{"a": "succeeded:", "b": "ready:"}, w.statuses())
 
-	after, err := w.s.CreateTasks(t.Context(), w.run.ID, []NewTask{{Ref: "c", Role: "implement", Spec: "c"}})
+	after, err := w.s.CreateTasks(t.Context(), w.run.ID, []NewTask{{Ref: "c", Profile: "implementer", Spec: "c"}})
 	require.NoError(t, err)
 	fresh := w.dispatch(after[0].ID)
 	assert.Empty(t, fresh.GateQuestionID, "only the Dispatch right after a gate resumes from it")
@@ -212,7 +212,7 @@ func TestCancelClosesAnOpenGate(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
-	task := w.tasks(NewTask{Ref: "a", Role: "implement", Spec: "a"})[0]
+	task := w.tasks(NewTask{Ref: "a", Profile: "implementer", Spec: "a"})[0]
 	_, c := w.start(task.ID)
 	gate := mergeGate()
 	require.NoError(t, w.finish(c, Outcome{Gate: &gate}))
@@ -234,7 +234,7 @@ func TestFirstAnswerWins(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
-	tasks := w.tasks(NewTask{Ref: "a", Role: "implement", Spec: "a"}, NewTask{Ref: "b", Role: "implement", Spec: "b"})
+	tasks := w.tasks(NewTask{Ref: "a", Spec: "a"}, NewTask{Ref: "b", Spec: "b"})
 	_, ca := w.start(tasks[0].ID)
 	_, cb := w.start(tasks[1].ID)
 	id := w.ask(ca, libraryChoice(AddressOwner))
@@ -274,7 +274,7 @@ func TestCoordinatorForwardsAQuestionToTheOwner(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
-	task := w.tasks(NewTask{Ref: "a", Role: "implement", Spec: "a"})[0]
+	task := w.tasks(NewTask{Ref: "a", Profile: "implementer", Spec: "a"})[0]
 	_, c := w.start(task.ID)
 	id := w.ask(c, libraryChoice(AddressCoordinator))
 	assert.Nil(t, w.question(id).RemindAt)
@@ -298,7 +298,7 @@ func TestOwnerIsRemindedAfterAnHourThenDaily(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
-	tasks := w.tasks(NewTask{Ref: "a", Role: "implement", Spec: "a"}, NewTask{Ref: "b", Role: "implement", Spec: "b"})
+	tasks := w.tasks(NewTask{Ref: "a", Spec: "a"}, NewTask{Ref: "b", Spec: "b"})
 	da, ca := w.start(tasks[0].ID)
 	_, cb := w.start(tasks[1].ID)
 	gate := mergeGate()
@@ -332,7 +332,7 @@ func TestRetriedAskReturnsTheSameQuestion(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
-	task := w.tasks(NewTask{Ref: "a", Role: "implement", Spec: "a"})[0]
+	task := w.tasks(NewTask{Ref: "a", Profile: "implementer", Spec: "a"})[0]
 	d, c := w.start(task.ID)
 
 	call := w.again(c)

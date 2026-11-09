@@ -26,7 +26,7 @@ func ownerRun(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	}
 
 	task := openapi.NewTask{
-		Ref: "main", Role: str(fs, "role"), Spec: objective, Runtime: optional(fs, "runtime"),
+		Ref: "main", Profile: optional(fs, "profile"), Spec: objective, Runtime: optional(fs, "runtime"),
 		Model: optional(fs, "model"),
 	}
 

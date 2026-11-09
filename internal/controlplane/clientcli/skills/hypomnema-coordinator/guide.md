@@ -33,9 +33,12 @@ commands to run next. `hypomnema <command> --help` lists a command's flags; a fl
    ```text
    hypomnema tasks create <run_id> --file <tasks.json> --key <new key> --json
    ```
-   The file is `{"tasks": [{"ref": "api", "role": "implement", "spec": "...", "depends_on": []}]}`. The role is
-   `implement` unless the owner set up others; a Task may also name `runtime`, `model` and `effort`. Text goes through a file, or `-` for standard input, because shell
-   quoting can change it; check the specs in the output.
+   The file is `{"tasks": [{"ref": "api", "profile": "implementer", "spec": "...", "depends_on": []}]}`. A profile
+   sets the runtime, model and instructions a worker runs with; `implementer` is the default, and
+   `hypomnema profiles list --json` shows the others, such as `reviewer` and `explorer` (told to change nothing). Leave the model
+   to the profile unless the owner asks for one; `hypomnema models list --json` shows what `model` may name. Text
+   goes through a file, or `-` for standard input, because shell quoting can change it; check the specs in the
+   output.
 3. Wait (below), handle what the wait returns, and wait again until every Task has ended: succeeded, failed or
    canceled. A blocked Task has not ended.
 4. Finish the Run with `hypomnema runs finish <run_id> --json`, then report to the owner per Task: the outcome, the

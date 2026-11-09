@@ -41,7 +41,7 @@ func (q *Queries) AcceptDispatch(ctx context.Context, arg AcceptDispatchParams) 
 }
 
 const activeDispatchOfTask = `-- name: ActiveDispatchOfTask :one
-SELECT id, task_id, conversation_id, node_id, status, epoch, failure_class, unknown_cause, recovery, process_ref, result, resets_at, created_at, updated_at, accepted_at, started_at, lease_expires_at, progress_at, stop_requested_at, stop_acked_at, stalled_at, overrun_at, settled_at, waiting_since, waited_ms, gate_question_id, model, effort FROM dispatches
+SELECT id, task_id, conversation_id, node_id, status, epoch, failure_class, unknown_cause, recovery, process_ref, result, resets_at, created_at, updated_at, accepted_at, started_at, lease_expires_at, progress_at, stop_requested_at, stop_acked_at, stalled_at, overrun_at, settled_at, waiting_since, waited_ms, gate_question_id, model, effort, profile_version_id FROM dispatches
 WHERE task_id = ?1 AND status IN ('queued', 'starting', 'running', 'stopping', 'unknown', 'stop_unknown')
 `
 
@@ -77,6 +77,7 @@ func (q *Queries) ActiveDispatchOfTask(ctx context.Context, taskID string) (Disp
 		&i.GateQuestionID,
 		&i.Model,
 		&i.Effort,
+		&i.ProfileVersionID,
 	)
 	return i, err
 }
@@ -170,7 +171,7 @@ func (q *Queries) GetCooldown(ctx context.Context, arg GetCooldownParams) (Accou
 }
 
 const getDispatch = `-- name: GetDispatch :one
-SELECT id, task_id, conversation_id, node_id, status, epoch, failure_class, unknown_cause, recovery, process_ref, result, resets_at, created_at, updated_at, accepted_at, started_at, lease_expires_at, progress_at, stop_requested_at, stop_acked_at, stalled_at, overrun_at, settled_at, waiting_since, waited_ms, gate_question_id, model, effort FROM dispatches WHERE id = ?1
+SELECT id, task_id, conversation_id, node_id, status, epoch, failure_class, unknown_cause, recovery, process_ref, result, resets_at, created_at, updated_at, accepted_at, started_at, lease_expires_at, progress_at, stop_requested_at, stop_acked_at, stalled_at, overrun_at, settled_at, waiting_since, waited_ms, gate_question_id, model, effort, profile_version_id FROM dispatches WHERE id = ?1
 `
 
 func (q *Queries) GetDispatch(ctx context.Context, id string) (Dispatch, error) {
@@ -205,6 +206,7 @@ func (q *Queries) GetDispatch(ctx context.Context, id string) (Dispatch, error) 
 		&i.GateQuestionID,
 		&i.Model,
 		&i.Effort,
+		&i.ProfileVersionID,
 	)
 	return i, err
 }
@@ -262,21 +264,22 @@ func (q *Queries) InsertConversation(ctx context.Context, arg InsertConversation
 
 const insertDispatch = `-- name: InsertDispatch :exec
 INSERT INTO dispatches (id, task_id, conversation_id, node_id, status, recovery, gate_question_id,
-                        model, effort, created_at, updated_at)
+                        model, effort, profile_version_id, created_at, updated_at)
 VALUES (?1, ?2, ?3, ?4, 'queued', ?5, ?6,
-        ?7, ?8, ?9, ?9)
+        ?7, ?8, ?9, ?10, ?10)
 `
 
 type InsertDispatchParams struct {
-	ID             string
-	TaskID         string
-	ConversationID string
-	NodeID         string
-	Recovery       int64
-	GateQuestionID sql.NullString
-	Model          sql.NullString
-	Effort         sql.NullString
-	Now            int64
+	ID               string
+	TaskID           string
+	ConversationID   string
+	NodeID           string
+	Recovery         int64
+	GateQuestionID   sql.NullString
+	Model            sql.NullString
+	Effort           sql.NullString
+	ProfileVersionID sql.NullString
+	Now              int64
 }
 
 func (q *Queries) InsertDispatch(ctx context.Context, arg InsertDispatchParams) error {
@@ -289,6 +292,7 @@ func (q *Queries) InsertDispatch(ctx context.Context, arg InsertDispatchParams) 
 		arg.GateQuestionID,
 		arg.Model,
 		arg.Effort,
+		arg.ProfileVersionID,
 		arg.Now,
 	)
 	return err
@@ -321,7 +325,7 @@ func (q *Queries) InsertReceipt(ctx context.Context, arg InsertReceiptParams) er
 }
 
 const lastDispatchOfConversation = `-- name: LastDispatchOfConversation :one
-SELECT id, task_id, conversation_id, node_id, status, epoch, failure_class, unknown_cause, recovery, process_ref, result, resets_at, created_at, updated_at, accepted_at, started_at, lease_expires_at, progress_at, stop_requested_at, stop_acked_at, stalled_at, overrun_at, settled_at, waiting_since, waited_ms, gate_question_id, model, effort FROM dispatches WHERE conversation_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT 1
+SELECT id, task_id, conversation_id, node_id, status, epoch, failure_class, unknown_cause, recovery, process_ref, result, resets_at, created_at, updated_at, accepted_at, started_at, lease_expires_at, progress_at, stop_requested_at, stop_acked_at, stalled_at, overrun_at, settled_at, waiting_since, waited_ms, gate_question_id, model, effort, profile_version_id FROM dispatches WHERE conversation_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT 1
 `
 
 func (q *Queries) LastDispatchOfConversation(ctx context.Context, conversationID string) (Dispatch, error) {
@@ -356,12 +360,13 @@ func (q *Queries) LastDispatchOfConversation(ctx context.Context, conversationID
 		&i.GateQuestionID,
 		&i.Model,
 		&i.Effort,
+		&i.ProfileVersionID,
 	)
 	return i, err
 }
 
 const lastDispatchOfTask = `-- name: LastDispatchOfTask :one
-SELECT id, task_id, conversation_id, node_id, status, epoch, failure_class, unknown_cause, recovery, process_ref, result, resets_at, created_at, updated_at, accepted_at, started_at, lease_expires_at, progress_at, stop_requested_at, stop_acked_at, stalled_at, overrun_at, settled_at, waiting_since, waited_ms, gate_question_id, model, effort FROM dispatches WHERE task_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT 1
+SELECT id, task_id, conversation_id, node_id, status, epoch, failure_class, unknown_cause, recovery, process_ref, result, resets_at, created_at, updated_at, accepted_at, started_at, lease_expires_at, progress_at, stop_requested_at, stop_acked_at, stalled_at, overrun_at, settled_at, waiting_since, waited_ms, gate_question_id, model, effort, profile_version_id FROM dispatches WHERE task_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT 1
 `
 
 func (q *Queries) LastDispatchOfTask(ctx context.Context, taskID string) (Dispatch, error) {
@@ -396,6 +401,7 @@ func (q *Queries) LastDispatchOfTask(ctx context.Context, taskID string) (Dispat
 		&i.GateQuestionID,
 		&i.Model,
 		&i.Effort,
+		&i.ProfileVersionID,
 	)
 	return i, err
 }

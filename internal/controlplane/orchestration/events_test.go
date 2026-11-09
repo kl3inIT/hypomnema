@@ -77,8 +77,8 @@ func TestEventsFollowARunThroughAGate(t *testing.T) {
 
 	w := newWorld(t)
 	tasks := w.tasks(
-		NewTask{Ref: "a", Role: "implement", Spec: "a"},
-		NewTask{Ref: "b", Role: "review", Spec: "b", DependsOn: []string{"a"}},
+		NewTask{Ref: "a", Profile: "implementer", Spec: "a"},
+		NewTask{Ref: "b", Profile: "reviewer", Spec: "b", DependsOn: []string{"a"}},
 	)
 	_, c := w.start(tasks[0].ID)
 	gate := mergeGate()
@@ -123,7 +123,7 @@ func TestEventsRecordUnknownReattachAndCancel(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
-	task := w.tasks(NewTask{Ref: "a", Role: "implement", Spec: "a"})[0]
+	task := w.tasks(NewTask{Ref: "a", Profile: "implementer", Spec: "a"})[0]
 	_, c := w.start(task.ID)
 	from := w.lastSeq()
 
@@ -151,16 +151,16 @@ func TestRefusedOperationWritesNoEvent(t *testing.T) {
 
 	w := newWorld(t)
 	tasks := w.tasks(
-		NewTask{Ref: "a", Role: "implement", Spec: "a"},
-		NewTask{Ref: "b", Role: "implement", Spec: "b", DependsOn: []string{"a"}},
+		NewTask{Ref: "a", Profile: "implementer", Spec: "a"},
+		NewTask{Ref: "b", Profile: "implementer", Spec: "b", DependsOn: []string{"a"}},
 	)
 	from := w.lastSeq()
 
 	_, err := w.create(tasks[1].ID, w.spec())
 	require.ErrorIs(t, err, ErrConflict)
 	_, err = w.s.CreateTasks(t.Context(), w.run.ID, []NewTask{
-		{Ref: "c", Role: "implement", Spec: "c"},
-		{Ref: "d", Role: "implement", Spec: "d", DependsOn: []string{"missing"}},
+		{Ref: "c", Profile: "implementer", Spec: "c"},
+		{Ref: "d", Profile: "implementer", Spec: "d", DependsOn: []string{"missing"}},
 	})
 	require.ErrorIs(t, err, ErrInvalid)
 
@@ -173,9 +173,9 @@ func TestListEventsPages(t *testing.T) {
 
 	w := newWorld(t)
 	tasks := w.tasks(
-		NewTask{Ref: "a", Role: "implement", Spec: "a"},
-		NewTask{Ref: "b", Role: "implement", Spec: "b"},
-		NewTask{Ref: "c", Role: "implement", Spec: "c"},
+		NewTask{Ref: "a", Profile: "implementer", Spec: "a"},
+		NewTask{Ref: "b", Profile: "implementer", Spec: "b"},
+		NewTask{Ref: "c", Profile: "implementer", Spec: "c"},
 	)
 	other := newRun(t, w.s)
 	ctx := t.Context()
@@ -212,7 +212,7 @@ func TestEscalationsAreWrittenOnce(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
-	task := w.tasks(NewTask{Ref: "a", Role: "implement", Spec: "a"})[0]
+	task := w.tasks(NewTask{Ref: "a", Profile: "implementer", Spec: "a"})[0]
 	_, c := w.start(task.ID)
 	from := w.lastSeq()
 
@@ -245,15 +245,15 @@ func TestSubscribeSignalsAfterCommit(t *testing.T) {
 	}
 
 	assert.False(t, pending())
-	w.tasks(NewTask{Ref: "a", Role: "implement", Spec: "a"})
+	w.tasks(NewTask{Ref: "a", Profile: "implementer", Spec: "a"})
 	assert.True(t, pending())
 
 	_, err := w.s.CreateDispatch(t.Context(), "tsk_missing", w.spec())
 	require.ErrorIs(t, err, ErrNotFound)
 	assert.False(t, pending(), "a refused operation commits nothing")
 
-	w.tasks(NewTask{Ref: "b", Role: "implement", Spec: "b"})
-	w.tasks(NewTask{Ref: "c", Role: "implement", Spec: "c"})
+	w.tasks(NewTask{Ref: "b", Profile: "implementer", Spec: "b"})
+	w.tasks(NewTask{Ref: "c", Profile: "implementer", Spec: "c"})
 	assert.True(t, pending())
 	assert.False(t, pending(), "two commits, one signal")
 

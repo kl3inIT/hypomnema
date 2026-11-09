@@ -122,10 +122,12 @@ type HeartbeatAck struct {
 // Offer is a queued Dispatch for the node, with what it needs to prepare it.
 // The node accepts it with a report of kind accept.
 type Offer struct {
-	DispatchID     string `json:"dispatch_id"`
-	TaskID         string `json:"task_id"`
-	RunID          string `json:"run_id"`
-	Role           string `json:"role"`
+	DispatchID string `json:"dispatch_id"`
+	TaskID     string `json:"task_id"`
+	RunID      string `json:"run_id"`
+	Profile    string `json:"profile"`
+	// Instruction is the profile's, added to the worker's built-in instructions.
+	Instruction    string `json:"instruction,omitempty"`
 	Spec           string `json:"spec"`
 	Repo           string `json:"repo,omitempty"`
 	Base           string `json:"base,omitempty"`

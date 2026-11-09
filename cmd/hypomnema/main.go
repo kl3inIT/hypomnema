@@ -15,7 +15,7 @@
 // Anywhere, over the client API (after login):
 //
 //	hypomnema login --url URL --token-file FILE
-//	hypomnema run --repo owner/name [--base B] [--role R] [--runtime X] [--model M] [--detach] <objective>
+//	hypomnema run --repo owner/name [--base B] [--profile P] [--runtime X] [--model M] [--detach] <objective>
 //	hypomnema runs create|list|show|finish|cancel|wait …
 //	hypomnema tasks create|show|cancel|reopen …
 //	hypomnema questions [show|forward] …, hypomnema answer <question> <answer>

@@ -136,8 +136,8 @@ func TestCreateTasksOnceReturnsTheFirstTasks(t *testing.T) {
 	run := newRun(t, s)
 	o := Once{Caller: "tok_1", Key: "tasks-1"}
 	tasks := []NewTask{
-		{Ref: "a", Role: "implement", Spec: "a"},
-		{Ref: "b", Role: "implement", Spec: "b", DependsOn: []string{"a"}},
+		{Ref: "a", Profile: "implementer", Spec: "a"},
+		{Ref: "b", Profile: "implementer", Spec: "b", DependsOn: []string{"a"}},
 	}
 
 	first, err := s.CreateTasksOnce(ctx, o, run.ID, tasks)

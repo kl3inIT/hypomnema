@@ -12,8 +12,8 @@ statement true or false.
 | `cmd/hypomnema-node` (node) | `init`, `check`, `accounts set`, `run`, `service`, `shim`, `mcp`, `version` | `init --url --token-file` writes the node's configuration; `check` says hello once and lists the CLIs it found; `accounts set` records where an account's Claude token is; `run` runs the daemon with the Claude runner; `service` prints a systemd user unit; `shim` runs one worker and `mcp` serves its tools (both started for a worker, not by hand) |
 
 Configuration comes from the environment: `HYPOMNEMA_HTTP_ADDR` (default `127.0.0.1:8080`),
-`HYPOMNEMA_DATABASE_PATH` (required, absolute), `HYPOMNEMA_LOG_LEVEL`, `HYPOMNEMA_LOG_FORMAT` (`json` or `text`),
-`HYPOMNEMA_ROLES` (role defaults as JSON; default `{"implement": {"runtime": "claude"}}`).
+`HYPOMNEMA_DATABASE_PATH` (required, absolute), `HYPOMNEMA_LOG_LEVEL`, `HYPOMNEMA_LOG_FORMAT` (`json` or `text`).
+Which runtime and model agents use is stored, as profiles (below), not configured.
 Logs are JSON on stdout; `serve` stops on SIGINT or SIGTERM and lets requests in flight finish. `/readyz` answers 503
 with `Retry-After` while the database does not answer.
 
@@ -59,11 +59,21 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   30 s (any node call counts). A node can be drained and resumed; three expiries in a row mark it unavailable until
   its next hello or a resume. Accounts (runtime, label, position, active or disabled) are kept here with no secret
   value.
+- Profiles (`orchestration/profiles.go`, issue #42, after Omnara's agent configs): a profile is a YAML document
+  (`name`, `runtime`, optional `model: {provider, name, effort}`, `instruction`). Applying a changed source makes a
+  new immutable version and points the name at it; the same source returns the current version. Providers (kind
+  `anthropic`, `openai_compatible`, `claude_subscription` or `codex_subscription`, base URL, the name of where the
+  API key is kept, never the key) list the models they offer. A profile and a new Task are checked when applied or
+  created: a known runtime (`claude`, `codex`, `pi`), an effort from `low` to `max`, and a model a provider of a
+  kind that runtime can use offers (found from the model when the provider is not named). A provider change that
+  would leave a profile's model or runtime unserved is refused. A Task names a profile, `implementer` by default.
+  The starting set: `implementer`, `reviewer`, `explorer` (told to change nothing; nothing enforces it yet) on
+  Claude Code with its default model, and `coordinator` on pi; provider `claude-subscription`.
 - Scheduler: `Schedule` is one pass in one transaction, and `Loop` runs `Reap` and `Schedule` every 2 s and on each
   commit signal. At most 4 Dispatches that have not settled exist at once, one waiting on a question included; the
   coordinator's `CreateDispatch` meets the same limit and checks. Ready Tasks of open Runs go oldest Run first, then
-  by position; the runtime, model and effort are the Task's own or its role's default, and the Dispatch records the
-  model and effort. An open Conversation continues only on its node, once that node is active, connected, not
+  by position; the runtime, model and effort are the Task's own or its profile's current version, and the Dispatch
+  records the model, the effort and that version; its worker gets the version's instruction after the built-in rules. An open Conversation continues only on its node, once that node is active, connected, not
   unavailable and below its limit; a new one goes to the least loaded such node that has the runtime and a worktree
   root, ties by id, with the first active account of the runtime that is not cooling down, in
   `<worktree root>/<run>/<task>`. A Task with no node or no account for 5 min is escalated once (`unplaceable`), and
@@ -121,6 +131,8 @@ The owner's commands:
     (several Tasks with dependencies from one JSON file); `questions [show|forward]`. Each takes `--json`; long text
     comes from a file or `-` for standard input; flags may follow the arguments; a create takes `--key` so a create
     whose answer was lost can be repeated.
+  - `profiles list|show|versions|apply`, `providers list|apply` and `models list`; every token reads them, only the
+    owner's applies a YAML file (the API's `PUT /profiles/{name}` and `PUT /providers/{name}`).
   - `runs wait <run>` returns when a Task of the Run ended or was blocked, a question reached the coordinator, an
     escalation came or the Run ended, with the cursor for the next wait and the next commands (`questions show`,
     `tasks show`, `runs finish` once every Task ended); it sends one request per 50 s while nothing happens.

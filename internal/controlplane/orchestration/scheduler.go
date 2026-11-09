@@ -14,21 +14,8 @@ import (
 // fewer than MaxActiveDispatches have not settled (Orca coordinator.ts tick;
 // Coder admits inside the acquisition transaction).
 
-// Role is a role's default runtime, model and effort; a Task's own values
-// win (docs/research/2026-11-07-workers-accounts-gateway.md §2).
-type Role struct {
-	Runtime string
-	Model   string
-	Effort  string
-}
-
 // ServiceOption configures a Service.
 type ServiceOption func(*Service)
-
-// WithRoles sets the role defaults.
-func WithRoles(roles map[string]Role) ServiceOption {
-	return func(s *Service) { s.roles = roles }
-}
 
 // Scheduled is what one pass did.
 type Scheduled struct {
@@ -84,9 +71,12 @@ func (s *Service) scheduleTask(ctx context.Context, q *store.Queries, now int64,
 		return notFound(err, "task", taskID)
 	}
 
-	runtime, model, effort := s.resolve(task)
+	r, err := resolve(ctx, q, task)
+	if err != nil {
+		return err
+	}
 
-	spec, reason, err := placeTask(ctx, q, p, task, runtime)
+	spec, reason, err := placeTask(ctx, q, p, task, r.runtime)
 	if err != nil {
 		return err
 	}
@@ -96,7 +86,7 @@ func (s *Service) scheduleTask(ctx context.Context, q *store.Queries, now int64,
 	}
 
 	id := s.newID("dsp")
-	if err := s.createDispatch(ctx, q, now, id, task, *spec, p, model, effort); err != nil {
+	if err := s.createDispatch(ctx, q, now, id, task, *spec, p, r); err != nil {
 		return err
 	}
 
@@ -182,14 +172,6 @@ func (s *Service) unplaceable(ctx context.Context, q *store.Queries, now int64, 
 	}
 
 	return nil
-}
-
-// resolve returns the runtime, model and effort a Task runs with: its own
-// values, then its role's defaults.
-func (s *Service) resolve(task store.Task) (runtime, model, effort string) {
-	role := s.roles[task.Role]
-
-	return or(task.Runtime.String, role.Runtime), or(task.Model.String, role.Model), or(task.Effort.String, role.Effort)
 }
 
 // Loop runs Reap and then Schedule every ScheduleEvery and whenever a commit

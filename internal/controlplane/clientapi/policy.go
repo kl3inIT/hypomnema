@@ -25,6 +25,8 @@ const (
 	scopeRun
 	scopeTask
 	scopeQuestion
+	// scopeOwner: only the owner's tokens.
+	scopeOwner
 )
 
 type policy struct {
@@ -34,24 +36,31 @@ type policy struct {
 }
 
 var policies = map[string]policy{
-	"GetMe":           {},
-	"ListRuns":        {},
-	"CreateRun":       {},
-	"GetRun":          {},
-	"FinishRun":       {scope: scopeRun},
-	"CancelRun":       {scope: scopeRun},
-	"CreateTasks":     {scope: scopeRun},
-	"GetTask":         {},
-	"CancelTask":      {scope: scopeTask},
-	"ReopenTask":      {scope: scopeTask},
-	"ListQuestions":   {},
-	"GetQuestion":     {},
-	"AnswerQuestion":  {scope: scopeQuestion},
-	"ForwardQuestion": {scope: scopeQuestion},
-	"ListEvents":      {long: true},
-	"StreamEvents":    {long: true},
-	"ListNodes":       {},
-	"ListAccounts":    {},
+	"GetMe":               {},
+	"ListRuns":            {},
+	"CreateRun":           {},
+	"GetRun":              {},
+	"FinishRun":           {scope: scopeRun},
+	"CancelRun":           {scope: scopeRun},
+	"CreateTasks":         {scope: scopeRun},
+	"GetTask":             {},
+	"CancelTask":          {scope: scopeTask},
+	"ReopenTask":          {scope: scopeTask},
+	"ListQuestions":       {},
+	"GetQuestion":         {},
+	"AnswerQuestion":      {scope: scopeQuestion},
+	"ForwardQuestion":     {scope: scopeQuestion},
+	"ListEvents":          {long: true},
+	"StreamEvents":        {long: true},
+	"ListNodes":           {},
+	"ListAccounts":        {},
+	"ListProfiles":        {},
+	"GetProfile":          {},
+	"ListProfileVersions": {},
+	"ApplyProfile":        {scope: scopeOwner},
+	"ListProviders":       {},
+	"ApplyProvider":       {scope: scopeOwner},
+	"ListModels":          {},
 }
 
 var (
@@ -64,6 +73,10 @@ var (
 func (s *Server) checkPolicy(ctx context.Context, p policy, tok orchestration.Token, request any) error {
 	if p.scope == scopeNone || tok.Kind == bearertoken.Owner {
 		return nil
+	}
+
+	if p.scope == scopeOwner {
+		return fmt.Errorf("%w: only the owner changes profiles and providers", errForbidden)
 	}
 
 	runID, err := s.runOf(ctx, p.scope, request)

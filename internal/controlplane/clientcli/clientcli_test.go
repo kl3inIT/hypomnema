@@ -43,8 +43,7 @@ func newWorld(t *testing.T) *world {
 	t.Cleanup(func() { _ = db.Close() })
 	require.NoError(t, orchestration.Migrate(t.Context(), db))
 
-	svc := orchestration.New(db, platform.SystemClock{}, platform.NewID,
-		orchestration.WithRoles(map[string]orchestration.Role{"implement": {Runtime: "claude"}}))
+	svc := orchestration.New(db, platform.SystemClock{}, platform.NewID)
 	stop := make(chan struct{})
 	t.Cleanup(func() { close(stop) })
 
@@ -225,8 +224,8 @@ func TestACoordinatorFollowsTheRecipe(t *testing.T) {
 
 	var tasks openapi.TaskList
 	w.jsonCmd(t, &tasks, `{"tasks": [
-		{"ref": "api", "role": "implement", "spec": "add GET /health"},
-		{"ref": "docs", "role": "implement", "spec": "document it", "depends_on": ["api"]}
+		{"ref": "api", "profile": "implementer", "spec": "add GET /health"},
+		{"ref": "docs", "profile": "implementer", "spec": "document it", "depends_on": ["api"]}
 	]}`, "tasks", "create", run.Id, "--file", "-")
 	require.Len(t, tasks.Data, 2)
 	assert.Equal(t, openapi.TaskStatusPending, tasks.Data[1].Status)
@@ -598,4 +597,43 @@ func (b *syncBuffer) String() string {
 	defer b.mu.Unlock()
 
 	return b.buf.String()
+}
+
+// Scenario: the owner changes the reviewer profile from the laptop; applying
+// the same file again changes nothing. A coordinator lists the profiles and
+// models to choose from but cannot change them.
+func TestProfilesFromTheCLI(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	w.login(t, bearertoken.Owner)
+
+	file := filepath.Join(t.TempDir(), "reviewer.yaml")
+	require.NoError(t, os.WriteFile(file, []byte("name: reviewer\nruntime: claude\nmodel:\n  name: opus\n"), 0o600))
+
+	out, err := w.cmd(t, "profiles", "apply", file)
+	require.NoError(t, err)
+	assert.Contains(t, out, "profile reviewer: new version v2")
+
+	out, err = w.cmd(t, "profiles", "apply", file)
+	require.NoError(t, err)
+	assert.Contains(t, out, "unchanged, still v2")
+
+	var versions openapi.ProfileList
+	w.jsonCmd(t, &versions, "", "profiles", "versions", "reviewer")
+	assert.Len(t, versions.Data, 2)
+
+	coordinator := &world{svc: w.svc, url: w.url, home: filepath.Join(t.TempDir(), "coordinator")}
+	coordinator.login(t, bearertoken.Coordinator)
+
+	var profiles openapi.ProfileList
+	coordinator.jsonCmd(t, &profiles, "", "profiles", "list")
+	assert.Len(t, profiles.Data, 4)
+
+	var models openapi.ModelList
+	coordinator.jsonCmd(t, &models, "", "models", "list")
+	assert.NotEmpty(t, models.Data)
+
+	_, err = coordinator.cmd(t, "profiles", "apply", file)
+	require.ErrorContains(t, err, "forbidden")
 }

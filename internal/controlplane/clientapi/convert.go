@@ -46,7 +46,7 @@ func toTask(t orchestration.Task) openapi.Task {
 	}
 
 	return openapi.Task{
-		Id: t.ID, RunId: t.RunID, Position: t.Position, Role: t.Role, Spec: t.Spec,
+		Id: t.ID, RunId: t.RunID, Position: t.Position, Profile: t.Profile, Spec: t.Spec,
 		Runtime: ptr(t.Runtime), Model: ptr(t.Model), Effort: ptr(t.Effort),
 		Status: openapi.TaskStatus(t.Status), BlockedReason: reason, FailureCount: t.FailureCount,
 		Result: ptr(t.Result), CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt, FinishedAt: t.FinishedAt,
@@ -57,7 +57,7 @@ func toTask(t orchestration.Task) openapi.Task {
 func toTaskDetail(t orchestration.Task, d *orchestration.Dispatch) openapi.TaskDetail {
 	b := toTask(t)
 	out := openapi.TaskDetail{
-		Id: b.Id, RunId: b.RunId, Position: b.Position, Role: b.Role, Spec: b.Spec, Runtime: b.Runtime,
+		Id: b.Id, RunId: b.RunId, Position: b.Position, Profile: b.Profile, Spec: b.Spec, Runtime: b.Runtime,
 		Model: b.Model, Effort: b.Effort, Status: b.Status, BlockedReason: b.BlockedReason,
 		FailureCount: b.FailureCount, Result: b.Result, CreatedAt: b.CreatedAt, UpdatedAt: b.UpdatedAt,
 		FinishedAt: b.FinishedAt, NotBefore: b.NotBefore, CancelRequestedAt: b.CancelRequestedAt,
@@ -75,7 +75,8 @@ func toDispatch(d orchestration.Dispatch) openapi.Dispatch {
 	out := openapi.Dispatch{
 		Id: d.ID, TaskId: d.TaskID, NodeId: d.NodeID, Status: openapi.DispatchStatus(d.Status), Epoch: d.Epoch,
 		FailureClass: ptr(string(d.FailureClass)), UnknownCause: ptr(string(d.UnknownCause)),
-		Model: ptr(d.Model), Effort: ptr(d.Effort), CreatedAt: d.CreatedAt, UpdatedAt: d.UpdatedAt,
+		Model: ptr(d.Model), Effort: ptr(d.Effort), ProfileVersionId: ptr(d.ProfileVersionID),
+		CreatedAt: d.CreatedAt, UpdatedAt: d.UpdatedAt,
 		StartedAt: d.StartedAt, ProgressAt: d.ProgressAt, SettledAt: d.SettledAt, WaitingSince: d.WaitingSince,
 	}
 
@@ -152,7 +153,8 @@ func toAccount(a orchestration.Account) openapi.Account {
 
 func fromNewTask(t openapi.NewTask) orchestration.NewTask {
 	return orchestration.NewTask{
-		Ref: t.Ref, Role: t.Role, Spec: t.Spec, Runtime: val(t.Runtime), Model: val(t.Model), Effort: val(t.Effort),
+		Ref: t.Ref, Profile: val(t.Profile), Spec: t.Spec, Runtime: val(t.Runtime), Model: val(t.Model),
+		Effort:    val(t.Effort),
 		DependsOn: val(t.DependsOn),
 	}
 }
