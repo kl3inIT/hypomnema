@@ -1,9 +1,17 @@
 -- name: InsertRun :exec
-INSERT INTO runs (id, objective, status, created_by, repo, base, created_at, updated_at)
-VALUES (@id, @objective, 'open', @created_by, @repo, @base, @now, @now);
+INSERT INTO runs (id, objective, status, created_by, repo, base, coordinator_token_id, created_at, updated_at)
+VALUES (@id, @objective, 'open', @created_by, @repo, @base, @coordinator_token_id, @now, @now);
 
 -- name: GetRun :one
 SELECT * FROM runs WHERE id = @id;
+
+-- name: ListRuns :many
+-- Newest first, after the cursor (created_at, id) of the previous page when one is given.
+SELECT * FROM runs
+WHERE (CAST(@status AS TEXT) = '' OR status = @status)
+  AND (CAST(@has_cursor AS INTEGER) = 0 OR created_at < @cursor_at OR (created_at = @cursor_at AND id < @cursor_id))
+ORDER BY created_at DESC, id DESC
+LIMIT @lim;
 
 -- name: TransitionRun :execrows
 UPDATE runs

@@ -39,7 +39,7 @@ func (q *Queries) CountUnfinishedTasks(ctx context.Context, arg CountUnfinishedT
 }
 
 const getRun = `-- name: GetRun :one
-SELECT id, objective, status, created_by, created_at, updated_at, finished_at, repo, base FROM runs WHERE id = ?1
+SELECT id, objective, status, created_by, created_at, updated_at, finished_at, repo, base, coordinator_token_id FROM runs WHERE id = ?1
 `
 
 func (q *Queries) GetRun(ctx context.Context, id string) (Run, error) {
@@ -55,6 +55,7 @@ func (q *Queries) GetRun(ctx context.Context, id string) (Run, error) {
 		&i.FinishedAt,
 		&i.Repo,
 		&i.Base,
+		&i.CoordinatorTokenID,
 	)
 	return i, err
 }
@@ -89,17 +90,18 @@ func (q *Queries) GetTask(ctx context.Context, id string) (Task, error) {
 }
 
 const insertRun = `-- name: InsertRun :exec
-INSERT INTO runs (id, objective, status, created_by, repo, base, created_at, updated_at)
-VALUES (?1, ?2, 'open', ?3, ?4, ?5, ?6, ?6)
+INSERT INTO runs (id, objective, status, created_by, repo, base, coordinator_token_id, created_at, updated_at)
+VALUES (?1, ?2, 'open', ?3, ?4, ?5, ?6, ?7, ?7)
 `
 
 type InsertRunParams struct {
-	ID        string
-	Objective string
-	CreatedBy string
-	Repo      sql.NullString
-	Base      sql.NullString
-	Now       int64
+	ID                 string
+	Objective          string
+	CreatedBy          string
+	Repo               sql.NullString
+	Base               sql.NullString
+	CoordinatorTokenID sql.NullString
+	Now                int64
 }
 
 func (q *Queries) InsertRun(ctx context.Context, arg InsertRunParams) error {
@@ -109,6 +111,7 @@ func (q *Queries) InsertRun(ctx context.Context, arg InsertRunParams) error {
 		arg.CreatedBy,
 		arg.Repo,
 		arg.Base,
+		arg.CoordinatorTokenID,
 		arg.Now,
 	)
 	return err
@@ -223,6 +226,63 @@ func (q *Queries) ListDependents(ctx context.Context, taskID string) ([]ListDepe
 	for rows.Next() {
 		var i ListDependentsRow
 		if err := rows.Scan(&i.ID, &i.Status); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRuns = `-- name: ListRuns :many
+SELECT id, objective, status, created_by, created_at, updated_at, finished_at, repo, base, coordinator_token_id FROM runs
+WHERE (CAST(?1 AS TEXT) = '' OR status = ?1)
+  AND (CAST(?2 AS INTEGER) = 0 OR created_at < ?3 OR (created_at = ?3 AND id < ?4))
+ORDER BY created_at DESC, id DESC
+LIMIT ?5
+`
+
+type ListRunsParams struct {
+	Status    string
+	HasCursor int64
+	CursorAt  int64
+	CursorID  string
+	Lim       int64
+}
+
+// Newest first, after the cursor (created_at, id) of the previous page when one is given.
+func (q *Queries) ListRuns(ctx context.Context, arg ListRunsParams) ([]Run, error) {
+	rows, err := q.db.QueryContext(ctx, listRuns,
+		arg.Status,
+		arg.HasCursor,
+		arg.CursorAt,
+		arg.CursorID,
+		arg.Lim,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Run{}
+	for rows.Next() {
+		var i Run
+		if err := rows.Scan(
+			&i.ID,
+			&i.Objective,
+			&i.Status,
+			&i.CreatedBy,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.FinishedAt,
+			&i.Repo,
+			&i.Base,
+			&i.CoordinatorTokenID,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)

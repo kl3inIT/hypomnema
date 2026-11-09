@@ -25,6 +25,15 @@ type AccountCooldown struct {
 	Reason     string
 }
 
+type ClientToken struct {
+	ID        string
+	Name      string
+	Kind      string
+	TokenHash string
+	CreatedAt int64
+	RevokedAt sql.NullInt64
+}
+
 type Conversation struct {
 	ID            string
 	TaskID        string
@@ -146,15 +155,16 @@ type Receipt struct {
 }
 
 type Run struct {
-	ID         string
-	Objective  string
-	Status     string
-	CreatedBy  string
-	CreatedAt  int64
-	UpdatedAt  int64
-	FinishedAt sql.NullInt64
-	Repo       sql.NullString
-	Base       sql.NullString
+	ID                 string
+	Objective          string
+	Status             string
+	CreatedBy          string
+	CreatedAt          int64
+	UpdatedAt          int64
+	FinishedAt         sql.NullInt64
+	Repo               sql.NullString
+	Base               sql.NullString
+	CoordinatorTokenID sql.NullString
 }
 
 type Task struct {

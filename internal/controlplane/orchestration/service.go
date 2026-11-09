@@ -63,8 +63,13 @@ func (s *Service) read() *store.Queries {
 	return store.New(s.db)
 }
 
-// CreateRun records a new objective from the owner.
+// CreateRun records a new objective from the owner or a coordinator.
 func (s *Service) CreateRun(ctx context.Context, nr NewRun) (Run, error) {
+	return s.CreateRunOnce(ctx, Once{}, nr)
+}
+
+// CreateRunOnce is CreateRun with an idempotency key.
+func (s *Service) CreateRunOnce(ctx context.Context, o Once, nr NewRun) (Run, error) {
 	objective, createdBy := nr.Objective, nr.CreatedBy
 	if strings.TrimSpace(objective) == "" || createdBy == "" {
 		return Run{}, fmt.Errorf("%w: a run needs an objective and its creator", ErrInvalid)
@@ -79,23 +84,65 @@ func (s *Service) CreateRun(ctx context.Context, nr NewRun) (Run, error) {
 		base = or(nr.Base, DefaultBase)
 	}
 
-	id := s.newID("run")
+	var id string
 
 	err := s.write(ctx, func(q *store.Queries, now int64) error {
-		if err := q.InsertRun(ctx, store.InsertRunParams{
-			ID: id, Objective: objective, CreatedBy: createdBy, Repo: nullString(nr.Repo), Base: nullString(base),
-			Now: now,
-		}); err != nil {
-			return fmt.Errorf("inserting run: %w", err)
-		}
+		var err error
 
-		return emit(ctx, q, now, event{kind: EventRunCreated, run: id, payload: map[string]any{"created_by": createdBy}})
+		id, err = once(ctx, q, now, o, "runs.create", nr, func() (string, error) {
+			id := s.newID("run")
+
+			if err := q.InsertRun(ctx, store.InsertRunParams{
+				ID: id, Objective: objective, CreatedBy: createdBy, Repo: nullString(nr.Repo), Base: nullString(base),
+				CoordinatorTokenID: nullString(nr.CoordinatorTokenID), Now: now,
+			}); err != nil {
+				return "", fmt.Errorf("inserting run: %w", err)
+			}
+
+			return id, emit(ctx, q, now, event{
+				kind: EventRunCreated, run: id, payload: map[string]any{"created_by": createdBy},
+			})
+		})
+
+		return err
 	})
 	if err != nil {
 		return Run{}, fmt.Errorf("creating a run: %w", err)
 	}
 
 	return s.GetRun(ctx, id)
+}
+
+// ListRuns returns Runs newest first, a page at a time. The limit defaults
+// to RunPageDefault and is capped at RunPageMax.
+func (s *Service) ListRuns(ctx context.Context, f RunFilter, after *RunCursor, limit int) (RunPage, error) {
+	if limit <= 0 {
+		limit = RunPageDefault
+	}
+
+	limit = min(limit, RunPageMax)
+
+	p := store.ListRunsParams{Status: string(f.Status), Lim: int64(limit) + 1}
+	if after != nil {
+		p.HasCursor, p.CursorAt, p.CursorID = 1, after.CreatedAt.UnixMilli(), after.ID
+	}
+
+	rows, err := s.read().ListRuns(ctx, p)
+	if err != nil {
+		return RunPage{}, fmt.Errorf("listing runs: %w", err)
+	}
+
+	page := RunPage{Runs: make([]Run, 0, min(len(rows), limit))}
+	for _, r := range rows[:min(len(rows), limit)] {
+		page.Runs = append(page.Runs, runFromRow(r))
+	}
+
+	if len(rows) > limit {
+		last := page.Runs[len(page.Runs)-1]
+		page.Next = &RunCursor{CreatedAt: last.CreatedAt, ID: last.ID}
+	}
+
+	return page, nil
 }
 
 // GetRun returns one Run.
@@ -164,70 +211,28 @@ func (s *Service) CancelRun(ctx context.Context, id string) error {
 // dependency succeeded, blocked when one failed or was canceled, and pending
 // otherwise.
 func (s *Service) CreateTasks(ctx context.Context, runID string, tasks []NewTask) ([]Task, error) {
+	return s.CreateTasksOnce(ctx, Once{}, runID, tasks)
+}
+
+// CreateTasksOnce is CreateTasks with an idempotency key.
+func (s *Service) CreateTasksOnce(ctx context.Context, o Once, runID string, tasks []NewTask) ([]Task, error) {
 	if len(tasks) == 0 {
 		return nil, fmt.Errorf("%w: no tasks", ErrInvalid)
 	}
 
-	ids := make([]string, 0, len(tasks))
+	var ids []string
 
 	err := s.write(ctx, func(q *store.Queries, now int64) error {
-		run, err := q.GetRun(ctx, runID)
-		if err != nil {
-			return notFound(err, "run", runID)
-		}
+		var err error
 
-		if RunStatus(run.Status) != RunOpen {
-			return fmt.Errorf("%w: run %s is %s", ErrConflict, runID, run.Status)
-		}
+		ids, err = once(ctx, q, now, o, "tasks.create", struct {
+			RunID string
+			Tasks []NewTask
+		}{runID, tasks}, func() ([]string, error) {
+			return s.insertTasks(ctx, q, now, runID, tasks)
+		})
 
-		position, err := q.NextTaskPosition(ctx, runID)
-		if err != nil {
-			return fmt.Errorf("reading the next task position: %w", err)
-		}
-
-		byRef := map[string]string{}
-		status := map[string]depState{}
-
-		for i, nt := range tasks {
-			if err := validNewTask(nt, byRef); err != nil {
-				return err
-			}
-
-			deps, err := resolveDeps(ctx, q, runID, nt.DependsOn, byRef, status)
-			if err != nil {
-				return err
-			}
-
-			id := s.newID("tsk")
-			st, reason := initialStatus(deps, status)
-
-			if err := q.InsertTask(ctx, store.InsertTaskParams{
-				ID: id, RunID: runID, Position: position + int64(i), Role: nt.Role, Spec: nt.Spec,
-				Runtime: nullString(nt.Runtime), Model: nullString(nt.Model), Effort: nullString(nt.Effort),
-				Status: string(st), BlockedReason: nullString(string(reason)), Now: now,
-			}); err != nil {
-				return fmt.Errorf("inserting task %q: %w", nt.Ref, err)
-			}
-
-			for _, dep := range deps {
-				if err := q.InsertTaskDep(ctx, store.InsertTaskDepParams{TaskID: id, DependsOn: dep}); err != nil {
-					return fmt.Errorf("inserting a dependency of %q: %w", nt.Ref, err)
-				}
-			}
-
-			if err := emit(ctx, q, now, event{
-				kind: EventTaskCreated, run: runID, task: id,
-				payload: map[string]any{"status": string(st), "reason": string(reason)},
-			}); err != nil {
-				return err
-			}
-
-			byRef[nt.Ref] = id
-			status[id] = depState{st, reason}
-			ids = append(ids, id)
-		}
-
-		return nil
+		return err
 	})
 	if err != nil {
 		return nil, fmt.Errorf("creating tasks: %w", err)
@@ -245,6 +250,68 @@ func (s *Service) CreateTasks(ctx context.Context, runID string, tasks []NewTask
 	}
 
 	return out, nil
+}
+
+func (s *Service) insertTasks(ctx context.Context, q *store.Queries, now int64, runID string, tasks []NewTask,
+) ([]string, error) {
+	run, err := q.GetRun(ctx, runID)
+	if err != nil {
+		return nil, notFound(err, "run", runID)
+	}
+
+	if RunStatus(run.Status) != RunOpen {
+		return nil, fmt.Errorf("%w: run %s is %s", ErrConflict, runID, run.Status)
+	}
+
+	position, err := q.NextTaskPosition(ctx, runID)
+	if err != nil {
+		return nil, fmt.Errorf("reading the next task position: %w", err)
+	}
+
+	ids := make([]string, 0, len(tasks))
+	byRef := map[string]string{}
+	status := map[string]depState{}
+
+	for i, nt := range tasks {
+		if err := validNewTask(nt, byRef); err != nil {
+			return nil, err
+		}
+
+		deps, err := resolveDeps(ctx, q, runID, nt.DependsOn, byRef, status)
+		if err != nil {
+			return nil, err
+		}
+
+		id := s.newID("tsk")
+		st, reason := initialStatus(deps, status)
+
+		if err := q.InsertTask(ctx, store.InsertTaskParams{
+			ID: id, RunID: runID, Position: position + int64(i), Role: nt.Role, Spec: nt.Spec,
+			Runtime: nullString(nt.Runtime), Model: nullString(nt.Model), Effort: nullString(nt.Effort),
+			Status: string(st), BlockedReason: nullString(string(reason)), Now: now,
+		}); err != nil {
+			return nil, fmt.Errorf("inserting task %q: %w", nt.Ref, err)
+		}
+
+		for _, dep := range deps {
+			if err := q.InsertTaskDep(ctx, store.InsertTaskDepParams{TaskID: id, DependsOn: dep}); err != nil {
+				return nil, fmt.Errorf("inserting a dependency of %q: %w", nt.Ref, err)
+			}
+		}
+
+		if err := emit(ctx, q, now, event{
+			kind: EventTaskCreated, run: runID, task: id,
+			payload: map[string]any{"status": string(st), "reason": string(reason)},
+		}); err != nil {
+			return nil, err
+		}
+
+		byRef[nt.Ref] = id
+		status[id] = depState{st, reason}
+		ids = append(ids, id)
+	}
+
+	return ids, nil
 }
 
 func validNewTask(nt NewTask, byRef map[string]string) error {
@@ -665,7 +732,7 @@ func optionalTime(v sql.NullInt64) *time.Time {
 func runFromRow(r store.Run) Run {
 	return Run{
 		ID: r.ID, Objective: r.Objective, Status: RunStatus(r.Status), CreatedBy: r.CreatedBy,
-		Repo: r.Repo.String, Base: r.Base.String,
+		Repo: r.Repo.String, Base: r.Base.String, CoordinatorTokenID: r.CoordinatorTokenID.String,
 		CreatedAt: millis(r.CreatedAt), UpdatedAt: millis(r.UpdatedAt), FinishedAt: optionalTime(r.FinishedAt),
 	}
 }

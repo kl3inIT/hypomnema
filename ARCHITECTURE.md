@@ -8,7 +8,7 @@ statement true or false.
 
 | Binary | Commands | What it does today |
 |---|---|---|
-| `cmd/hypomnema` (control plane) | `migrate`, `serve`, `version`, `nodes add\|list`, `accounts add\|list`, `run`, `answer`, `questions` | `migrate` brings the database schema up to the binary's version; `serve` refuses any other schema, then serves `/livez`, `/readyz`, the node API and the web client, and runs the scheduler loop; the other commands are the owner's (below) |
+| `cmd/hypomnema` (control plane) | `migrate`, `serve`, `version`, `nodes add\|list`, `accounts add\|list`, `tokens add\|list\|revoke`, `login`, `run`, `answer`, `questions` | `migrate` brings the database schema up to the binary's version; `serve` refuses any other schema, then serves `/livez`, `/readyz`, the node API, the client API and the web client, and runs the scheduler loop; the other commands are the owner's (below) |
 | `cmd/hypomnema-node` (node) | `init`, `check`, `accounts set`, `run`, `service`, `shim`, `mcp`, `version` | `init --url --token-file` writes the node's configuration; `check` says hello once and lists the CLIs it found; `accounts set` records where an account's Claude token is; `run` runs the daemon with the Claude runner; `service` prints a systemd user unit; `shim` runs one worker and `mcp` serves its tools (both started for a worker, not by hand) |
 
 Configuration comes from the environment: `HYPOMNEMA_HTTP_ADDR` (default `127.0.0.1:8080`),
@@ -23,7 +23,7 @@ one connection, WAL, `synchronous=FULL`, pragmas read back after opening; its di
 
 Migrations are goose SQL files embedded in the binary (`internal/controlplane/orchestration/migrations`); the schema
 holds Runs, Tasks, Task dependencies, Dispatches, Conversations, receipts, Dispatch effects and resources, account
-cooldowns, questions, the event log, nodes and accounts. `internal/controlplane/orchestration` is their only writer: named operations, each one `BEGIN IMMEDIATE`
+cooldowns, questions, the event log, nodes, accounts and client tokens. `internal/controlplane/orchestration` is their only writer: named operations, each one `BEGIN IMMEDIATE`
 transaction, every status change a guarded `UPDATE` checked against a transition table (`transitions.go`).
 
 - Runs and Tasks: create a Run, create Tasks with dependencies, cancel or reopen a Task, finish or cancel a Run. A
@@ -69,7 +69,14 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   `<worktree root>/<run>/<task>`. A Task with no node or no account for 5 min is escalated once (`unplaceable`), and
   a rate limit over an hour that leaves its runtime with no free account is escalated (`account_cooling`).
 
-- Runs name the repository their workers work in (`owner/name`) and its base branch (default `main`).
+- Runs name the repository their workers work in (`owner/name`) and its base branch (default `main`), and the
+  coordinator token that coordinates them, if a coordinator created them. Runs are listed newest first, a page at a
+  time.
+- Client tokens: kind `owner` or `coordinator`, in Omnara's format (`hyp_<kind>_v1_`, 43 Base62 characters and a
+  CRC32 checksum, checked before the database is read; `internal/controlplane/bearertoken`). Shown once; only the
+  SHA-256 is stored; a revoked token no longer authenticates.
+- Creating a Run or Tasks can carry an idempotency key: the same caller and key with the same request return the first
+  result, with another request it is a conflict. The key is kept as a receipt, as node calls are.
 
 Node API (`internal/controlplane/nodeapi`, protocol in `internal/shared/nodeproto`, after Omnara's daemon protocol):
 - A node registers with `POST /node/v1/hello` and its bearer token. It sends its CLIs, its worktree root and the
@@ -83,12 +90,33 @@ Node API (`internal/controlplane/nodeapi`, protocol in `internal/shared/nodeprot
   the same answer. One that can never apply is `permanent_reject`; one that may pass is `transient_error`.
 - A second connection of the same node replaces the first, which is told `presence_replaced`.
 
-The owner's commands open the same database as `serve`:
-- `nodes add <name>` prints the node's token once;
-- `accounts add <runtime> <label>` records an account;
-- `run --repo owner/name <objective>` creates a Run with one Task and prints its events (and any question to the
-  owner) until the Task ends, then finishes the Run;
-- `answer <question> <number or text>`, and `questions` lists the open questions to the owner.
+Client API (`internal/controlplane/clientapi`, contract `api/openapi.yaml`, after Omnara's `internal/httpapi`):
+- Served at `/api/v1`. The spec is written by hand; oapi-codegen generates the types, a strict server, a Go client and
+  the embedded spec into `clientapi/openapi`.
+- Every request is checked against the spec first (`validation_failed`), and bodies are limited to 1 MiB. Errors are
+  `{code, message}`.
+- Every request carries a client token (`Authorization: Bearer`); without a valid one the answer is 401.
+- Each operation has a policy. Every token reads everything and may create a Run; a Run created with a coordinator
+  token is coordinated by it. Changing a Run, its Tasks or its questions needs the owner, or the Run's coordinator
+  (403 otherwise). An answer is recorded as the owner's or the coordinator's by the token's kind.
+- Operations: who am I; list, create, show (with each Task's latest Dispatch), finish and cancel Runs; create Tasks
+  with dependencies; show, cancel and reopen a Task; list, show, answer and forward questions; list events; list
+  nodes and accounts. Creating a Run or Tasks takes an `Idempotency-Key`.
+- Events: a page after a cursor, which can wait up to 50 s for the next event (`wait`) instead of polling; and a
+  stream of Server-Sent Events at `/api/v1/events/stream`, each with its seq as id, resumed with `Last-Event-ID`,
+  with a comment every 10 s. Waits and streams end when the server shuts down.
+
+The owner's commands:
+- On the server, with the same database as `serve`:
+  - `nodes add <name>` prints the node's token once;
+  - `accounts add <runtime> <label>` records an account;
+  - `tokens add <name> [--kind owner|coordinator]` prints a client token once; `tokens list` and
+    `tokens revoke <id>`.
+- From any machine, over the client API (`internal/controlplane/clientcli`):
+  - `login --url URL --token-file FILE` checks the token and keeps both in `~/.hypomnema/client.json` (0600);
+  - `run --repo owner/name <objective>` creates a Run with one Task and prints its events (and any question to the
+    owner) until the Task ends, then finishes the Run; each read waits for the next event;
+  - `answer <question> <number or text>`, and `questions` lists the open questions to the owner.
 
 Node (`internal/node`):
 - `init` writes `~/.hypomnema-node/config.json` (mode 0600, directory 0700) with the control plane's URL, the token
@@ -151,7 +179,7 @@ Node (`internal/node`):
   ([stack and look](docs/research/2026-11-09-directories-sessions-web-stack.md)).
 - The theme (`src/index.css`) has the pink brand color and five status tokens (running, done, needs you, failed,
   queued) for light and dark; dark is the default.
-- One screen: the chat, which says the coordinator is not connected yet. There is no API for clients yet.
+- One screen: the chat, which says the coordinator is not connected yet. It does not call the client API yet.
 - `web/embed.go` embeds the build (`web/dist`) into `hypomnema`. `make build` builds the client first.
   - The control plane serves it with `internal/controlplane/webui`, after Omnara's `spa.go`:
     - files as they are, with a year's cache under `assets/`;
@@ -164,7 +192,11 @@ Node (`internal/node`):
 ## Code
 
 ```
-internal/controlplane     package controlplane: configuration, migrate, serve and the owner's commands
+api                       the client API's contract (openapi.yaml) and oapi-codegen's configuration
+internal/controlplane     package controlplane: configuration, migrate, serve and the owner's server commands
+internal/controlplane/bearertoken  client token format: making, checking and hashing
+internal/controlplane/clientapi  the client API: policies, handlers, events and their stream; generated code in openapi/
+internal/controlplane/clientcli  the commands that call the client API: login, run, answer, questions
 internal/controlplane/nodeapi  the node API: hello and the node WebSocket
 internal/controlplane/webui    serves the embedded web client
 internal/e2e               tests only: the control plane's node API with the node daemon
@@ -193,7 +225,8 @@ and the node in the control plane binary.
 
 - `make verify`: gofmt, `go mod tidy -diff` for both modules, golangci-lint (`.golangci.yml`, tools pinned in
   `tools/ci/go.mod`), the dependency check, `sqlc-check` (generated queries match `sqlc generate`),
-  `migration-check` (migrations already on `origin/main` are unchanged), unit tests and race tests.
+  `openapi-check` (generated client API code matches `api/openapi.yaml`), `migration-check` (migrations already on
+  `origin/main` are unchanged), unit tests and race tests.
 - Tests that need a database open a real file in a temporary directory; no containers.
 - `make web-check`: oxlint, oxfmt, `tsc -b` and vitest for the web client; `make web-e2e`: Playwright on the
   production build, at a phone's and a desktop's size.

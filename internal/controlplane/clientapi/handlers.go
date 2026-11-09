@@ -1,0 +1,307 @@
+package clientapi
+
+import (
+	"context"
+	"errors"
+
+	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+)
+
+var _ openapi.StrictServerInterface = (*Server)(nil)
+
+// GetMe returns the calling token.
+func (s *Server) GetMe(ctx context.Context, _ openapi.GetMeRequestObject) (openapi.GetMeResponseObject, error) {
+	tok := principal(ctx)
+
+	return openapi.GetMe200JSONResponse{Id: tok.ID, Name: tok.Name, Kind: openapi.TokenKind(tok.Kind)}, nil
+}
+
+// ListRuns returns a page of Runs, newest first.
+func (s *Server) ListRuns(ctx context.Context, req openapi.ListRunsRequestObject,
+) (openapi.ListRunsResponseObject, error) {
+	cursor, err := decodeCursor(req.Params.Cursor)
+	if err != nil {
+		return nil, err
+	}
+
+	page, err := s.svc.ListRuns(ctx, orchestration.RunFilter{Status: orchestration.RunStatus(val(req.Params.Status))},
+		cursor, val(req.Params.Limit))
+	if err != nil {
+		return nil, err
+	}
+
+	out := openapi.ListRuns200JSONResponse{
+		Data: make([]openapi.Run, 0, len(page.Runs)), NextCursor: encodeCursor(page.Next),
+	}
+	for _, r := range page.Runs {
+		out.Data = append(out.Data, toRun(r))
+	}
+
+	return out, nil
+}
+
+// CreateRun creates a Run. A coordinator token becomes its coordinator.
+func (s *Server) CreateRun(ctx context.Context, req openapi.CreateRunRequestObject,
+) (openapi.CreateRunResponseObject, error) {
+	tok := principal(ctx)
+
+	nr := orchestration.NewRun{
+		Objective: req.Body.Objective, CreatedBy: tok.Name, Repo: val(req.Body.Repo), Base: val(req.Body.Base),
+	}
+	if tok.Kind == bearertoken.Coordinator {
+		nr.CoordinatorTokenID = tok.ID
+	}
+
+	run, err := s.svc.CreateRunOnce(ctx, once(tok, req.Params.IdempotencyKey), nr)
+	if err != nil {
+		return nil, err
+	}
+
+	return openapi.CreateRun201JSONResponse(toRun(run)), nil
+}
+
+func once(tok orchestration.Token, key *string) orchestration.Once {
+	if key == nil {
+		return orchestration.Once{}
+	}
+
+	return orchestration.Once{Caller: tok.ID, Key: *key}
+}
+
+// GetRun returns a Run with its Tasks and their latest Dispatches.
+func (s *Server) GetRun(ctx context.Context, req openapi.GetRunRequestObject) (openapi.GetRunResponseObject, error) {
+	run, err := s.svc.GetRun(ctx, req.RunId)
+	if err != nil {
+		return nil, err
+	}
+
+	tasks, err := s.svc.ListTasks(ctx, run.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	r := toRun(run)
+	out := openapi.GetRun200JSONResponse{
+		Id: r.Id, Objective: r.Objective, Status: r.Status, CreatedBy: r.CreatedBy, Repo: r.Repo, Base: r.Base,
+		CoordinatorTokenId: r.CoordinatorTokenId, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
+		FinishedAt: r.FinishedAt, Tasks: make([]openapi.TaskDetail, 0, len(tasks)),
+	}
+
+	for _, t := range tasks {
+		detail, err := s.taskDetail(ctx, t)
+		if err != nil {
+			return nil, err
+		}
+
+		out.Tasks = append(out.Tasks, detail)
+	}
+
+	return out, nil
+}
+
+func (s *Server) taskDetail(ctx context.Context, t orchestration.Task) (openapi.TaskDetail, error) {
+	d, err := s.svc.LatestDispatch(ctx, t.ID)
+	if errors.Is(err, orchestration.ErrNotFound) {
+		return toTaskDetail(t, nil), nil
+	}
+
+	if err != nil {
+		return openapi.TaskDetail{}, err
+	}
+
+	return toTaskDetail(t, &d), nil
+}
+
+// FinishRun closes a Run whose Tasks have all ended.
+func (s *Server) FinishRun(ctx context.Context, req openapi.FinishRunRequestObject,
+) (openapi.FinishRunResponseObject, error) {
+	if err := s.svc.FinishRun(ctx, req.RunId); err != nil {
+		return nil, err
+	}
+
+	run, err := s.svc.GetRun(ctx, req.RunId)
+	if err != nil {
+		return nil, err
+	}
+
+	return openapi.FinishRun200JSONResponse(toRun(run)), nil
+}
+
+// CancelRun cancels a Run and its unfinished Tasks.
+func (s *Server) CancelRun(ctx context.Context, req openapi.CancelRunRequestObject,
+) (openapi.CancelRunResponseObject, error) {
+	if err := s.svc.CancelRun(ctx, req.RunId); err != nil {
+		return nil, err
+	}
+
+	run, err := s.svc.GetRun(ctx, req.RunId)
+	if err != nil {
+		return nil, err
+	}
+
+	return openapi.CancelRun200JSONResponse(toRun(run)), nil
+}
+
+// CreateTasks adds Tasks to a Run.
+func (s *Server) CreateTasks(ctx context.Context, req openapi.CreateTasksRequestObject,
+) (openapi.CreateTasksResponseObject, error) {
+	in := make([]orchestration.NewTask, 0, len(req.Body.Tasks))
+	for _, t := range req.Body.Tasks {
+		in = append(in, fromNewTask(t))
+	}
+
+	tasks, err := s.svc.CreateTasksOnce(ctx, once(principal(ctx), req.Params.IdempotencyKey), req.RunId, in)
+	if err != nil {
+		return nil, err
+	}
+
+	out := openapi.CreateTasks201JSONResponse{Data: make([]openapi.Task, 0, len(tasks))}
+	for _, t := range tasks {
+		out.Data = append(out.Data, toTask(t))
+	}
+
+	return out, nil
+}
+
+// GetTask returns a Task with its latest Dispatch.
+func (s *Server) GetTask(ctx context.Context, req openapi.GetTaskRequestObject) (openapi.GetTaskResponseObject, error) {
+	t, err := s.svc.GetTask(ctx, req.TaskId)
+	if err != nil {
+		return nil, err
+	}
+
+	detail, err := s.taskDetail(ctx, t)
+	if err != nil {
+		return nil, err
+	}
+
+	return openapi.GetTask200JSONResponse(detail), nil
+}
+
+// CancelTask cancels a Task.
+func (s *Server) CancelTask(ctx context.Context, req openapi.CancelTaskRequestObject,
+) (openapi.CancelTaskResponseObject, error) {
+	if err := s.svc.CancelTask(ctx, req.TaskId); err != nil {
+		return nil, err
+	}
+
+	t, err := s.svc.GetTask(ctx, req.TaskId)
+	if err != nil {
+		return nil, err
+	}
+
+	return openapi.CancelTask200JSONResponse(toTask(t)), nil
+}
+
+// ReopenTask gives a failed Task a new start.
+func (s *Server) ReopenTask(ctx context.Context, req openapi.ReopenTaskRequestObject,
+) (openapi.ReopenTaskResponseObject, error) {
+	if err := s.svc.ReopenTask(ctx, req.TaskId); err != nil {
+		return nil, err
+	}
+
+	t, err := s.svc.GetTask(ctx, req.TaskId)
+	if err != nil {
+		return nil, err
+	}
+
+	return openapi.ReopenTask200JSONResponse(toTask(t)), nil
+}
+
+// ListQuestions returns questions in the order they were asked.
+func (s *Server) ListQuestions(ctx context.Context, req openapi.ListQuestionsRequestObject,
+) (openapi.ListQuestionsResponseObject, error) {
+	qs, err := s.svc.ListQuestions(ctx, orchestration.QuestionFilter{
+		RunID: val(req.Params.RunId), TaskID: val(req.Params.TaskId),
+		AddressedTo: orchestration.Addressee(val(req.Params.AddressedTo)),
+		Status:      orchestration.QuestionStatus(val(req.Params.Status)),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	out := openapi.ListQuestions200JSONResponse{Data: make([]openapi.Question, 0, len(qs))}
+	for _, q := range qs {
+		out.Data = append(out.Data, toQuestion(q))
+	}
+
+	return out, nil
+}
+
+// GetQuestion returns one question.
+func (s *Server) GetQuestion(ctx context.Context, req openapi.GetQuestionRequestObject,
+) (openapi.GetQuestionResponseObject, error) {
+	q, err := s.svc.GetQuestion(ctx, req.QuestionId)
+	if err != nil {
+		return nil, err
+	}
+
+	return openapi.GetQuestion200JSONResponse(toQuestion(q)), nil
+}
+
+// AnswerQuestion answers as the owner or as the Run's coordinator, by the
+// caller's token.
+func (s *Server) AnswerQuestion(ctx context.Context, req openapi.AnswerQuestionRequestObject,
+) (openapi.AnswerQuestionResponseObject, error) {
+	by := orchestration.AddressOwner
+	if principal(ctx).Kind == bearertoken.Coordinator {
+		by = orchestration.AddressCoordinator
+	}
+
+	q, err := s.svc.AnswerQuestion(ctx, req.QuestionId, by,
+		orchestration.Answer{Option: req.Body.Option, Text: val(req.Body.Text)})
+	if err != nil {
+		return nil, err
+	}
+
+	return openapi.AnswerQuestion200JSONResponse(toQuestion(q)), nil
+}
+
+// ForwardQuestion passes a coordinator's question to the owner.
+func (s *Server) ForwardQuestion(ctx context.Context, req openapi.ForwardQuestionRequestObject,
+) (openapi.ForwardQuestionResponseObject, error) {
+	if err := s.svc.ForwardQuestion(ctx, req.QuestionId); err != nil {
+		return nil, err
+	}
+
+	q, err := s.svc.GetQuestion(ctx, req.QuestionId)
+	if err != nil {
+		return nil, err
+	}
+
+	return openapi.ForwardQuestion200JSONResponse(toQuestion(q)), nil
+}
+
+// ListNodes returns the nodes.
+func (s *Server) ListNodes(ctx context.Context, _ openapi.ListNodesRequestObject,
+) (openapi.ListNodesResponseObject, error) {
+	nodes, err := s.svc.ListNodes(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	out := openapi.ListNodes200JSONResponse{Data: make([]openapi.Node, 0, len(nodes))}
+	for _, n := range nodes {
+		out.Data = append(out.Data, toNode(n))
+	}
+
+	return out, nil
+}
+
+// ListAccounts returns the accounts, which hold no secret.
+func (s *Server) ListAccounts(ctx context.Context, _ openapi.ListAccountsRequestObject,
+) (openapi.ListAccountsResponseObject, error) {
+	accounts, err := s.svc.ListAccounts(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	out := openapi.ListAccounts200JSONResponse{Data: make([]openapi.Account, 0, len(accounts))}
+	for _, a := range accounts {
+		out.Data = append(out.Data, toAccount(a))
+	}
+
+	return out, nil
+}

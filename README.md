@@ -2,6 +2,16 @@
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for what exists and [docs/vision.md](docs/vision.md) for the goal.
 
+## Using the CLI from another machine
+
+`hypomnema run`, `answer` and `questions` call the client API, so they work from a laptop as well as on the server.
+
+1. On the control plane, run `hypomnema tokens add <name>` (add `--kind coordinator` for an agent that coordinates its
+   own Runs) and save the token it prints (shown once) to a file, mode 0600.
+2. On the other machine: `hypomnema login --url <control plane URL> --token-file <token file>`
+   (it checks the token and keeps it in `~/.hypomnema/client.json`).
+3. Then, for example, `hypomnema run --repo owner/name "<objective>"`.
+
 ## Setting up a node machine
 
 A node runs the workers. Do this on the machine that will run them, with the control plane already serving.

@@ -1,0 +1,679 @@
+openapi: 3.0.3
+info:
+  title: Hypomnema client API
+  version: v1
+  description: >-
+    The one API every client of the control plane uses: the web client, the
+    hypomnema CLI, and coordinators (pi on the server, or the owner's own agent
+    over MCP). Issue #41. Every request carries a bearer token: an owner token
+    may do everything; a coordinator token changes only the Runs it
+    coordinates and reads the rest.
+servers:
+  - url: /api/v1
+security:
+  - bearerAuth: []
+paths:
+  /me:
+    get:
+      operationId: GetMe
+      summary: The token making the request
+      responses:
+        "200":
+          description: The caller.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Me" }
+        default: { $ref: "#/components/responses/Error" }
+  /runs:
+    get:
+      operationId: ListRuns
+      summary: Runs, newest first
+      parameters:
+        - name: status
+          in: query
+          schema: { $ref: "#/components/schemas/RunStatus" }
+        - name: cursor
+          in: query
+          description: The next_cursor of the previous page.
+          schema: { type: string, minLength: 1, maxLength: 200 }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100 }
+      responses:
+        "200":
+          description: One page of Runs.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RunList" }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      operationId: CreateRun
+      summary: Create a Run; a coordinator token becomes its coordinator
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewRun" }
+      responses:
+        "201":
+          description: The Run.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Run" }
+        default: { $ref: "#/components/responses/Error" }
+  /runs/{run_id}:
+    parameters:
+      - $ref: "#/components/parameters/RunID"
+    get:
+      operationId: GetRun
+      summary: A Run with its Tasks and each Task's latest Dispatch
+      responses:
+        "200":
+          description: The Run.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RunDetail" }
+        default: { $ref: "#/components/responses/Error" }
+  /runs/{run_id}/finish:
+    parameters:
+      - $ref: "#/components/parameters/RunID"
+    post:
+      operationId: FinishRun
+      summary: Close a Run whose Tasks have all ended
+      responses:
+        "200":
+          description: The Run.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Run" }
+        default: { $ref: "#/components/responses/Error" }
+  /runs/{run_id}/cancel:
+    parameters:
+      - $ref: "#/components/parameters/RunID"
+    post:
+      operationId: CancelRun
+      summary: Cancel a Run and every Task in it that has not ended
+      responses:
+        "200":
+          description: The Run.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Run" }
+        default: { $ref: "#/components/responses/Error" }
+  /runs/{run_id}/tasks:
+    parameters:
+      - $ref: "#/components/parameters/RunID"
+    post:
+      operationId: CreateTasks
+      summary: Add Tasks to an open Run, with their dependencies
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewTasks" }
+      responses:
+        "201":
+          description: The Tasks, in the order given.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TaskList" }
+        default: { $ref: "#/components/responses/Error" }
+  /tasks/{task_id}:
+    parameters:
+      - $ref: "#/components/parameters/TaskID"
+    get:
+      operationId: GetTask
+      summary: A Task with its latest Dispatch
+      responses:
+        "200":
+          description: The Task.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TaskDetail" }
+        default: { $ref: "#/components/responses/Error" }
+  /tasks/{task_id}/cancel:
+    parameters:
+      - $ref: "#/components/parameters/TaskID"
+    post:
+      operationId: CancelTask
+      summary: Cancel a Task; a running worker is stopped first
+      responses:
+        "200":
+          description: The Task.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Task" }
+        default: { $ref: "#/components/responses/Error" }
+  /tasks/{task_id}/reopen:
+    parameters:
+      - $ref: "#/components/parameters/TaskID"
+    post:
+      operationId: ReopenTask
+      summary: Give a failed Task, or one waiting for a login, a new start
+      responses:
+        "200":
+          description: The Task.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Task" }
+        default: { $ref: "#/components/responses/Error" }
+  /questions:
+    get:
+      operationId: ListQuestions
+      summary: Questions from workers, in the order they were asked
+      parameters:
+        - name: status
+          in: query
+          schema: { $ref: "#/components/schemas/QuestionStatus" }
+        - name: addressed_to
+          in: query
+          schema: { $ref: "#/components/schemas/Addressee" }
+        - name: run_id
+          in: query
+          schema: { type: string, minLength: 1 }
+        - name: task_id
+          in: query
+          schema: { type: string, minLength: 1 }
+      responses:
+        "200":
+          description: The questions.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/QuestionList" }
+        default: { $ref: "#/components/responses/Error" }
+  /questions/{question_id}:
+    parameters:
+      - $ref: "#/components/parameters/QuestionID"
+    get:
+      operationId: GetQuestion
+      summary: One question
+      responses:
+        "200":
+          description: The question.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Question" }
+        default: { $ref: "#/components/responses/Error" }
+  /questions/{question_id}/answer:
+    parameters:
+      - $ref: "#/components/parameters/QuestionID"
+    post:
+      operationId: AnswerQuestion
+      summary: Answer a question; the first answer wins
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Answer" }
+      responses:
+        "200":
+          description: The question with its answer.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Question" }
+        default: { $ref: "#/components/responses/Error" }
+  /questions/{question_id}/forward:
+    parameters:
+      - $ref: "#/components/parameters/QuestionID"
+    post:
+      operationId: ForwardQuestion
+      summary: Pass a question addressed to the coordinator on to the owner
+      responses:
+        "200":
+          description: The question.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Question" }
+        default: { $ref: "#/components/responses/Error" }
+  /events:
+    get:
+      operationId: ListEvents
+      summary: Events after a cursor, oldest first; optionally wait for the next one
+      parameters:
+        - $ref: "#/components/parameters/After"
+        - name: run_id
+          in: query
+          schema: { type: string, minLength: 1 }
+        - name: task_id
+          in: query
+          schema: { type: string, minLength: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 500 }
+        - name: wait
+          in: query
+          description: >-
+            Seconds to wait when no event follows the cursor yet; the answer is
+            an empty page when none came. Zero answers at once.
+          schema: { type: integer, minimum: 0, maximum: 50 }
+      responses:
+        "200":
+          description: One page of events.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EventList" }
+        default: { $ref: "#/components/responses/Error" }
+  /events/stream:
+    get:
+      operationId: StreamEvents
+      summary: Events as Server-Sent Events, resumable with Last-Event-ID
+      description: >-
+        Each frame has the event's seq as its id, its kind as the event name
+        and the Event as JSON data. A comment line is sent every 10 seconds.
+      parameters:
+        - $ref: "#/components/parameters/After"
+        - name: Last-Event-ID
+          in: header
+          description: Takes precedence over after, as a reconnecting browser sends it.
+          schema: { type: integer, format: int64, minimum: 0 }
+        - name: run_id
+          in: query
+          schema: { type: string, minLength: 1 }
+        - name: task_id
+          in: query
+          schema: { type: string, minLength: 1 }
+      responses:
+        "200":
+          description: The stream.
+          content:
+            text/event-stream:
+              schema: { type: string }
+        default: { $ref: "#/components/responses/Error" }
+  /nodes:
+    get:
+      operationId: ListNodes
+      summary: The machines that run workers
+      responses:
+        "200":
+          description: The nodes.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/NodeList" }
+        default: { $ref: "#/components/responses/Error" }
+  /accounts:
+    get:
+      operationId: ListAccounts
+      summary: The accounts workers run under (no secrets)
+      responses:
+        "200":
+          description: The accounts.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AccountList" }
+        default: { $ref: "#/components/responses/Error" }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  parameters:
+    RunID:
+      name: run_id
+      in: path
+      required: true
+      schema: { type: string, minLength: 1 }
+    TaskID:
+      name: task_id
+      in: path
+      required: true
+      schema: { type: string, minLength: 1 }
+    QuestionID:
+      name: question_id
+      in: path
+      required: true
+      schema: { type: string, minLength: 1 }
+    After:
+      name: after
+      in: query
+      description: The seq of the last event already read.
+      schema: { type: integer, format: int64, minimum: 0 }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      description: >-
+        Makes the request safe to repeat: the same key with the same request
+        returns the first result; with another request it is
+        idempotency_key_conflict.
+      schema: { type: string, minLength: 1, maxLength: 255 }
+  responses:
+    Error:
+      description: An error.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+  schemas:
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code: { $ref: "#/components/schemas/ErrorCode" }
+        message: { type: string }
+    ErrorCode:
+      type: string
+      enum:
+        - validation_failed
+        - invalid_request
+        - unauthorized
+        - forbidden
+        - not_found
+        - conflict
+        - idempotency_key_conflict
+        - unavailable
+        - request_too_large
+        - internal_error
+    TokenKind:
+      type: string
+      enum: [owner, coordinator]
+    Me:
+      type: object
+      required: [id, name, kind]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        kind: { $ref: "#/components/schemas/TokenKind" }
+    RunStatus:
+      type: string
+      enum: [open, finished, canceled]
+    Run:
+      type: object
+      required: [id, objective, status, created_by, created_at, updated_at]
+      properties:
+        id: { type: string }
+        objective: { type: string }
+        status: { $ref: "#/components/schemas/RunStatus" }
+        created_by: { type: string }
+        repo:
+          type: string
+          description: The repository workers work in, owner/name.
+        base: { type: string }
+        coordinator_token_id:
+          type: string
+          description: The coordinator token that coordinates the Run; absent when the owner created it.
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        finished_at: { type: string, format: date-time }
+    RunDetail:
+      allOf:
+        - $ref: "#/components/schemas/Run"
+        - type: object
+          required: [tasks]
+          properties:
+            tasks:
+              type: array
+              items: { $ref: "#/components/schemas/TaskDetail" }
+    RunList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/Run" }
+        next_cursor:
+          type: string
+          description: Present when more Runs follow.
+    NewRun:
+      type: object
+      required: [objective]
+      additionalProperties: false
+      properties:
+        objective: { type: string, minLength: 1, maxLength: 20000 }
+        repo:
+          type: string
+          pattern: "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+        base: { type: string, minLength: 1, maxLength: 255 }
+    TaskStatus:
+      type: string
+      enum: [pending, ready, running, blocked, succeeded, failed, canceled]
+    BlockedReason:
+      type: string
+      enum: [dependency_failed, gate, dispatch_unknown, needs_auth]
+    Task:
+      type: object
+      required: [id, run_id, position, role, spec, status, failure_count, created_at, updated_at]
+      properties:
+        id: { type: string }
+        run_id: { type: string }
+        position: { type: integer }
+        role: { type: string }
+        spec: { type: string }
+        runtime: { type: string }
+        model: { type: string }
+        effort: { type: string }
+        status: { $ref: "#/components/schemas/TaskStatus" }
+        blocked_reason: { $ref: "#/components/schemas/BlockedReason" }
+        failure_count: { type: integer }
+        result: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        finished_at: { type: string, format: date-time }
+        not_before:
+          type: string
+          format: date-time
+          description: No new Dispatch starts before it (a back-off or a rate limit).
+        cancel_requested_at: { type: string, format: date-time }
+    TaskDetail:
+      allOf:
+        - $ref: "#/components/schemas/Task"
+        - type: object
+          properties:
+            latest_dispatch: { $ref: "#/components/schemas/Dispatch" }
+    TaskList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/Task" }
+    NewTasks:
+      type: object
+      required: [tasks]
+      additionalProperties: false
+      properties:
+        tasks:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items: { $ref: "#/components/schemas/NewTask" }
+    NewTask:
+      type: object
+      required: [ref, role, spec]
+      additionalProperties: false
+      properties:
+        ref:
+          type: string
+          minLength: 1
+          maxLength: 100
+          description: Names the Task within this request, for depends_on.
+        role: { type: string, minLength: 1, maxLength: 100 }
+        spec: { type: string, minLength: 1, maxLength: 100000 }
+        runtime: { type: string, minLength: 1, maxLength: 100 }
+        model: { type: string, minLength: 1, maxLength: 200 }
+        effort: { type: string, minLength: 1, maxLength: 50 }
+        depends_on:
+          type: array
+          maxItems: 100
+          description: Refs of earlier Tasks in this request, or ids of Tasks already in the Run.
+          items: { type: string, minLength: 1 }
+    DispatchStatus:
+      type: string
+      enum: [queued, starting, running, stopping, unknown, stop_unknown, succeeded, failed, gated, canceled, expired, abandoned]
+    Dispatch:
+      type: object
+      required: [id, task_id, node_id, status, epoch, created_at, updated_at]
+      properties:
+        id: { type: string }
+        task_id: { type: string }
+        node_id: { type: string }
+        status: { $ref: "#/components/schemas/DispatchStatus" }
+        epoch: { type: integer }
+        failure_class: { type: string }
+        unknown_cause: { type: string }
+        model: { type: string }
+        effort: { type: string }
+        result: { $ref: "#/components/schemas/DispatchResult" }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        started_at: { type: string, format: date-time }
+        progress_at: { type: string, format: date-time }
+        settled_at: { type: string, format: date-time }
+        waiting_since:
+          type: string
+          format: date-time
+          description: Set while the worker waits for an answer.
+    DispatchResult:
+      type: object
+      required: [summary, evidence]
+      properties:
+        summary: { type: string }
+        evidence:
+          type: array
+          items: { $ref: "#/components/schemas/Evidence" }
+    Evidence:
+      type: object
+      required: [kind, ref]
+      properties:
+        kind:
+          type: string
+          description: For example pull_request, commit or ci.
+        ref: { type: string }
+    QuestionStatus:
+      type: string
+      enum: [open, answered, canceled]
+    Addressee:
+      type: string
+      enum: [coordinator, owner]
+    QuestionMode:
+      type: string
+      enum: [wait, gate]
+    Option:
+      type: object
+      required: [label]
+      properties:
+        label: { type: string }
+        allows_text: { type: boolean }
+    Answer:
+      type: object
+      additionalProperties: false
+      description: Pick one option by index, and add text when it allows; a question without options takes text.
+      properties:
+        option: { type: integer, minimum: 0 }
+        text: { type: string, maxLength: 20000 }
+    Question:
+      type: object
+      required: [id, dispatch_id, task_id, run_id, mode, addressed_to, text, options, status, created_at]
+      properties:
+        id: { type: string }
+        dispatch_id: { type: string }
+        task_id: { type: string }
+        run_id: { type: string }
+        mode: { $ref: "#/components/schemas/QuestionMode" }
+        addressed_to: { $ref: "#/components/schemas/Addressee" }
+        text: { type: string }
+        options:
+          type: array
+          items: { $ref: "#/components/schemas/Option" }
+        status: { $ref: "#/components/schemas/QuestionStatus" }
+        cancel_reason: { type: string }
+        answer: { $ref: "#/components/schemas/Answer" }
+        answered_by: { $ref: "#/components/schemas/Addressee" }
+        answered_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+    QuestionList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/Question" }
+    Event:
+      type: object
+      required: [seq, kind, payload, created_at]
+      properties:
+        seq: { type: integer, format: int64 }
+        kind:
+          type: string
+          description: >-
+            run.created, run.finished, run.canceled, task.created, task.status,
+            dispatch.created, dispatch.status, conversation.closed,
+            question.opened, question.answered, question.forwarded,
+            question.canceled or escalation.
+        run_id: { type: string }
+        task_id: { type: string }
+        dispatch_id: { type: string }
+        question_id: { type: string }
+        node_id: { type: string }
+        payload:
+          type: object
+          additionalProperties: true
+          description: Ids, statuses and reasons; content is read from its own record.
+        created_at: { type: string, format: date-time }
+    EventList:
+      type: object
+      required: [data, next_after, has_more]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/Event" }
+        next_after:
+          type: integer
+          format: int64
+          description: The after of the next request.
+        has_more: { type: boolean }
+    Runtime:
+      type: object
+      required: [runtime, path, version]
+      properties:
+        runtime: { type: string }
+        path: { type: string }
+        version: { type: string }
+    Node:
+      type: object
+      required: [id, name, status, max_dispatches, runtimes, connected, active, created_at]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        status:
+          type: string
+          enum: [active, drained]
+        max_dispatches: { type: integer }
+        worktree_root: { type: string }
+        runtimes:
+          type: array
+          items: { $ref: "#/components/schemas/Runtime" }
+        last_seen_at: { type: string, format: date-time }
+        unavailable_at: { type: string, format: date-time }
+        connected: { type: boolean }
+        active:
+          type: integer
+          description: Its Dispatches that have not settled.
+        created_at: { type: string, format: date-time }
+    NodeList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/Node" }
+    Account:
+      type: object
+      required: [id, runtime, label, status, position]
+      properties:
+        id: { type: string }
+        runtime: { type: string }
+        label: { type: string }
+        status:
+          type: string
+          enum: [active, disabled]
+        position: { type: integer }
+        cooling_until: { type: string, format: date-time }
+    AccountList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/Account" }

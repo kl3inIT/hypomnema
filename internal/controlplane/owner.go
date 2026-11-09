@@ -6,26 +6,25 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"strconv"
 	"strings"
 	"time"
 
+	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 )
 
-// The owner's commands until the web chat (#27) exists. They open the same
-// database as `hypomnema serve`; SQLite serializes their writes with the
-// server's, and the server's scheduler sees them on its next pass.
+// The owner's commands that run on the server: they open the same database as
+// `hypomnema serve`, whose writes SQLite serializes with theirs. Nodes,
+// accounts and client tokens are set up here, since a client needs a token
+// before it can call the client API. Everything else goes through that API
+// (internal/controlplane/clientcli).
 
 // ErrUsage marks a command line that is wrong.
 var ErrUsage = errors.New("usage")
 
-// followEvery is how often `run` reads new events.
-const followEvery = time.Second
-
-// Command runs one owner command: nodes, accounts, run, answer or questions.
+// Command runs one owner command: nodes, accounts or tokens.
 func Command(ctx context.Context, cfg Config, args []string, stdout io.Writer) error {
 	if len(args) == 0 {
 		return ErrUsage
@@ -43,7 +42,7 @@ func Command(ctx context.Context, cfg Config, args []string, stdout io.Writer) e
 
 	o := &owner{
 		svc: orchestration.New(db, platform.SystemClock{}, platform.NewID, orchestration.WithRoles(cfg.Roles)),
-		out: stdout, every: followEvery,
+		out: stdout,
 	}
 
 	switch args[0] {
@@ -51,21 +50,16 @@ func Command(ctx context.Context, cfg Config, args []string, stdout io.Writer) e
 		return o.nodes(ctx, args[1:])
 	case "accounts":
 		return o.accounts(ctx, args[1:])
-	case "run":
-		return o.run(ctx, args[1:])
-	case "answer":
-		return o.answer(ctx, args[1:])
-	case "questions":
-		return o.questions(ctx)
+	case "tokens":
+		return o.tokens(ctx, args[1:])
 	default:
 		return ErrUsage
 	}
 }
 
 type owner struct {
-	svc   *orchestration.Service
-	out   io.Writer
-	every time.Duration
+	svc *orchestration.Service
+	out io.Writer
 }
 
 func (o *owner) printf(format string, a ...any) {
@@ -154,175 +148,51 @@ func (o *owner) accounts(ctx context.Context, args []string) error {
 	}
 }
 
-// run creates a Run with one Task and follows it until the Task ends.
-func (o *owner) run(ctx context.Context, args []string) error {
-	fs := flag.NewFlagSet("run", flag.ContinueOnError)
-	repo := fs.String("repo", "", "repository the work happens in, owner/name")
-	base := fs.String("base", "", "branch the worktree starts from (default main)")
-	role := fs.String("role", "implement", "role of the Task")
-	runtime := fs.String("runtime", "", "runtime, instead of the role's default")
-	model := fs.String("model", "", "model, instead of the role's default")
-	detach := fs.Bool("detach", false, "create the Run and return without following it")
+// tokens adds, lists and revokes the client API's tokens.
+func (o *owner) tokens(ctx context.Context, args []string) error {
+	switch {
+	case len(args) >= 2 && args[0] == "add":
+		fs := flag.NewFlagSet("tokens add", flag.ContinueOnError)
+		kind := fs.String("kind", string(bearertoken.Owner), "owner (everything) or coordinator (its own Runs)")
 
-	if err := fs.Parse(args); err != nil {
-		return fmt.Errorf("%w: %w", ErrUsage, err)
-	}
+		if err := fs.Parse(args[2:]); err != nil || fs.NArg() != 0 {
+			return fmt.Errorf("%w: tokens add <name> [--kind owner|coordinator]", ErrUsage)
+		}
 
-	objective := strings.TrimSpace(strings.Join(fs.Args(), " "))
-	if objective == "" || *repo == "" {
-		return fmt.Errorf("%w: run needs --repo owner/name and an objective", ErrUsage)
-	}
-
-	run, err := o.svc.CreateRun(ctx, orchestration.NewRun{
-		Objective: objective, CreatedBy: "owner", Repo: *repo, Base: *base,
-	})
-	if err != nil {
-		return err
-	}
-
-	tasks, err := o.svc.CreateTasks(ctx, run.ID, []orchestration.NewTask{
-		{Ref: "main", Role: *role, Spec: objective, Runtime: *runtime, Model: *model},
-	})
-	if err != nil {
-		return err
-	}
-
-	o.printf("run %s, task %s\n", run.ID, tasks[0].ID)
-
-	if *detach {
-		return nil
-	}
-
-	return o.follow(ctx, run.ID, tasks[0].ID)
-}
-
-// follow prints the Run's events until its Task ends, then finishes the Run.
-func (o *owner) follow(ctx context.Context, runID, taskID string) error {
-	var after int64
-
-	tick := time.NewTicker(o.every)
-	defer tick.Stop()
-
-	for {
-		page, err := o.svc.ListEvents(ctx, after, orchestration.EventFilter{RunID: runID}, orchestration.EventPageMax)
+		t, secret, err := o.svc.AddToken(ctx, args[1], bearertoken.Kind(*kind))
 		if err != nil {
 			return err
 		}
 
-		for _, e := range page.Events {
-			if err := o.printEvent(ctx, e); err != nil {
-				return err
-			}
-		}
+		o.printf("token %s (%s, %s)\n", t.Name, t.ID, t.Kind)
+		o.printf("shown only now; put it in a file for `hypomnema login --token-file` and nowhere else:\n%s\n", secret)
 
-		after = page.NextAfter
-
-		task, err := o.svc.GetTask(ctx, taskID)
+		return nil
+	case len(args) == 1 && args[0] == "list":
+		tokens, err := o.svc.ListTokens(ctx)
 		if err != nil {
 			return err
 		}
 
-		if task.Status.Terminal() && !page.HasMore {
-			if err := o.svc.FinishRun(ctx, runID); err != nil && !errors.Is(err, orchestration.ErrConflict) {
-				return err
+		for _, t := range tokens {
+			state := "active"
+			if t.RevokedAt != nil {
+				state = "revoked " + t.RevokedAt.Format(time.RFC3339)
 			}
 
-			o.printf("task %s: %s\n", task.Status, task.Result)
-
-			return nil
+			o.printf("%s\t%s\t%s\t%s\n", t.ID, t.Name, t.Kind, state)
 		}
 
-		select {
-		case <-ctx.Done():
-			o.printf("stopped following; run %s goes on\n", runID)
-
-			return nil
-		case <-tick.C:
-		}
-	}
-}
-
-func (o *owner) printEvent(ctx context.Context, e orchestration.Event) error {
-	o.printf("%s %s %s\n", e.CreatedAt.Local().Format("15:04:05"), e.Kind, string(e.Payload))
-
-	if e.Kind != orchestration.EventQuestionOpened {
 		return nil
-	}
+	case len(args) == 2 && args[0] == "revoke":
+		if err := o.svc.RevokeToken(ctx, args[1]); err != nil {
+			return err
+		}
 
-	q, err := o.svc.GetQuestion(ctx, e.QuestionID)
-	if err != nil {
-		return err
-	}
+		o.printf("token %s revoked\n", args[1])
 
-	if q.AddressedTo == orchestration.AddressOwner {
-		o.printQuestion(q)
-	}
-
-	return nil
-}
-
-func (o *owner) printQuestion(q orchestration.Question) {
-	o.printf("  question %s (%s): %s\n", q.ID, q.Mode, q.Text)
-
-	for i, opt := range q.Options {
-		o.printf("    %d. %s\n", i+1, opt.Label)
-	}
-
-	o.printf("  answer with: hypomnema answer %s <number, option or text>\n", q.ID)
-}
-
-// answer answers a question as the owner.
-func (o *owner) answer(ctx context.Context, args []string) error {
-	if len(args) < 2 {
+		return nil
+	default:
 		return ErrUsage
 	}
-
-	q, err := o.svc.GetQuestion(ctx, args[0])
-	if err != nil {
-		return err
-	}
-
-	q, err = o.svc.AnswerQuestion(ctx, q.ID, orchestration.AddressOwner,
-		parseAnswer(q.Options, strings.Join(args[1:], " ")))
-	if err != nil {
-		return err
-	}
-
-	o.printf("question %s is %s\n", q.ID, q.Status)
-
-	return nil
-}
-
-// parseAnswer reads what the owner typed: an option's number or its label
-// (any case) picks it; any other text is the answer's text.
-func parseAnswer(options []orchestration.Option, text string) orchestration.Answer {
-	pick := func(i int) orchestration.Answer { return orchestration.Answer{Option: &i} }
-
-	if n, err := strconv.Atoi(text); err == nil {
-		return pick(n - 1)
-	}
-
-	for i, opt := range options {
-		if strings.EqualFold(strings.TrimSpace(text), opt.Label) {
-			return pick(i)
-		}
-	}
-
-	return orchestration.Answer{Text: text}
-}
-
-// questions lists the open questions addressed to the owner.
-func (o *owner) questions(ctx context.Context) error {
-	qs, err := o.svc.ListQuestions(ctx, orchestration.QuestionFilter{
-		Status: orchestration.QuestionOpen, AddressedTo: orchestration.AddressOwner,
-	})
-	if err != nil {
-		return err
-	}
-
-	for _, q := range qs {
-		o.printQuestion(q)
-	}
-
-	return nil
 }

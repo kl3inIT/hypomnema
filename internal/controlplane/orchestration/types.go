@@ -46,11 +46,14 @@ type Run struct {
 	Status    RunStatus
 	CreatedBy string
 	// Repo (owner/name) and Base are where the Run's workers make their worktrees.
-	Repo       string
-	Base       string
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
-	FinishedAt *time.Time
+	Repo string
+	Base string
+	// CoordinatorTokenID is the coordinator token that coordinates the Run;
+	// empty when the owner created it.
+	CoordinatorTokenID string
+	CreatedAt          time.Time
+	UpdatedAt          time.Time
+	FinishedAt         *time.Time
 }
 
 // Task is one unit of work inside a Run.
@@ -91,11 +94,30 @@ type NewTask struct {
 }
 
 // NewRun is a Run to create. Repo is owner/name; Base defaults to DefaultBase.
+// CoordinatorTokenID names the coordinator token that coordinates it, if any.
 type NewRun struct {
-	Objective string
-	CreatedBy string
-	Repo      string
-	Base      string
+	Objective          string
+	CreatedBy          string
+	Repo               string
+	Base               string
+	CoordinatorTokenID string
+}
+
+// RunFilter selects Runs; empty fields match everything.
+type RunFilter struct {
+	Status RunStatus
+}
+
+// RunCursor is where a page of Runs ends; the next page starts after it.
+type RunCursor struct {
+	CreatedAt time.Time
+	ID        string
+}
+
+// RunPage is one page of Runs, newest first. Next is set when more follow.
+type RunPage struct {
+	Runs []Run
+	Next *RunCursor
 }
 
 // DefaultBase is the branch a Run's worktrees start from unless it names one.
