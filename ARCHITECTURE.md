@@ -8,7 +8,7 @@ statement true or false.
 
 | Binary | Commands | What it does today |
 |---|---|---|
-| `cmd/hypomnema` (control plane) | `migrate`, `serve`, `version`, `nodes add\|list`, `accounts add\|list`, `run`, `answer`, `questions` | `migrate` brings the database schema up to the binary's version; `serve` refuses any other schema, then serves `/livez`, `/readyz` and the node API and runs the scheduler loop; the other commands are the owner's (below) |
+| `cmd/hypomnema` (control plane) | `migrate`, `serve`, `version`, `nodes add\|list`, `accounts add\|list`, `run`, `answer`, `questions` | `migrate` brings the database schema up to the binary's version; `serve` refuses any other schema, then serves `/livez`, `/readyz`, the node API and the web client, and runs the scheduler loop; the other commands are the owner's (below) |
 | `cmd/hypomnema-node` (node) | `init`, `check`, `accounts set`, `run`, `service`, `shim`, `mcp`, `version` | `init --url --token-file` writes the node's configuration; `check` says hello once and lists the CLIs it found; `accounts set` records where an account's Claude token is; `run` runs the daemon with the Claude runner; `service` prints a systemd user unit; `shim` runs one worker and `mcp` serves its tools (both started for a worker, not by hand) |
 
 Configuration comes from the environment: `HYPOMNEMA_HTTP_ADDR` (default `127.0.0.1:8080`),
@@ -144,11 +144,29 @@ Node (`internal/node`):
   branch on a retry; reused while it exists. Git uses the node user's own credentials.
 - There is no vault, permission rule or mailbox yet.
 
+## Web client
+
+- `web/`: a Vite single-page app with React, TypeScript, TanStack Router (file routes in `src/routes`) and Query,
+  Tailwind and shadcn on Base UI (preset `b43eDcOJc`), pnpm
+  ([stack and look](docs/research/2026-11-09-directories-sessions-web-stack.md)).
+- The theme (`src/index.css`) has the pink brand color and five status tokens (running, done, needs you, failed,
+  queued) for light and dark; dark is the default.
+- One screen: the chat, which says the coordinator is not connected yet. There is no API for clients yet.
+- `web/embed.go` embeds the build (`web/dist`) into `hypomnema`. `make build` builds the client first.
+  - The control plane serves it with `internal/controlplane/webui`, after Omnara's `spa.go`:
+    - files as they are, with a year's cache under `assets/`;
+    - `index.html` for any other path, with a Content-Security-Policy that allows only its own origin;
+    - a 404 for a missing asset or a server path (`api`, `node`, `livez`, `readyz`).
+  - A binary built without the client (only `dist/.gitkeep`) serves none.
+- In development, `pnpm dev` forwards `/api`, `/livez` and `/readyz` to the control plane (`HYPOMNEMA_API_URL`,
+  default `http://127.0.0.1:8080`).
+
 ## Code
 
 ```
 internal/controlplane     package controlplane: configuration, migrate, serve and the owner's commands
 internal/controlplane/nodeapi  the node API: hello and the node WebSocket
+internal/controlplane/webui    serves the embedded web client
 internal/e2e               tests only: the control plane's node API with the node daemon
 internal/node             package node: configuration, CLI detection, init, check, run and the systemd unit
 internal/node/bridge      the mailbox between a worker's tools and the runner: questions, answers, the final report
@@ -162,12 +180,13 @@ internal/controlplane/orchestration  Runs, Tasks, Dispatches, Conversations, que
 internal/shared/nodeproto the wire protocol between a node and the control plane
 internal/shared/platform  environment settings, slog logger, HTTP server and probes, version, clock, ids
 internal/shared/sqlite    SQLite opening, pragmas and file permissions
+web                       the web client (pnpm) and embed.go, which embeds its build
 ```
 
 There is no vault yet. `internal/e2e` holds only tests, so neither binary links it; it is the one package that
 imports both trees. Boundaries ([decision](docs/decisions/2026-11-07-two-deployables.md))
 are checked by `make verify`: depguard rules per tree in `.golangci.yml` (the SQLite driver only in `shared/sqlite`,
-`database/sql` only in packages that own tables), and `deps-check`, which refuses the control plane in the node binary
+`database/sql` only in packages that own tables), and `deps-check`, which refuses the control plane and `web` in the node binary
 and the node in the control plane binary.
 
 ## Verification
@@ -176,4 +195,7 @@ and the node in the control plane binary.
   `tools/ci/go.mod`), the dependency check, `sqlc-check` (generated queries match `sqlc generate`),
   `migration-check` (migrations already on `origin/main` are unchanged), unit tests and race tests.
 - Tests that need a database open a real file in a temporary directory; no containers.
-- CI (`.github/workflows/ci.yml`) runs `make verify` and `govulncheck` on every pull request and on `main`.
+- `make web-check`: oxlint, oxfmt, `tsc -b` and vitest for the web client; `make web-e2e`: Playwright on the
+  production build, at a phone's and a desktop's size.
+- CI (`.github/workflows/ci.yml`) runs `make verify` and `govulncheck`, and in a second job `make web-check` and
+  `make web-e2e`, on every pull request and on `main`.

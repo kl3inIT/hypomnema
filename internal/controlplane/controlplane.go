@@ -16,8 +16,10 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/nodeapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/webui"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
+	"github.com/kl3inIT/hypomnema/web"
 )
 
 const (
@@ -116,6 +118,10 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	mux := http.NewServeMux()
 	platform.RegisterHealth(mux, sqlite.Ready(db), logger)
 	nodeapi.New(svc, logger).Register(mux)
+
+	if assets := web.Dist(); webui.Available(assets) {
+		mux.Handle("/", webui.Handler(assets))
+	}
 
 	ln, err := (&net.ListenConfig{}).Listen(ctx, "tcp", cfg.HTTPAddr)
 	if err != nil {

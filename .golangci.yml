@@ -122,6 +122,8 @@ linters:
           list-mode: lax
           files: ["**/internal/shared/**"]
           deny:
+            - pkg: github.com/kl3inIT/hypomnema/web
+              desc: shared is linked into every binary and depends on no tree
             - pkg: github.com/kl3inIT/hypomnema/internal/controlplane
               desc: shared is linked into every binary and depends on no tree
             - pkg: github.com/kl3inIT/hypomnema/internal/node
@@ -138,6 +140,8 @@ linters:
           deny:
             - pkg: github.com/kl3inIT/hypomnema/internal/controlplane
               desc: the node talks to the control plane through internal/shared/nodeproto, and gets credentials only through vault sessions
+            - pkg: github.com/kl3inIT/hypomnema/web
+              desc: the web client is served by the control plane only
   exclusions:
     rules:
       - linters: [forbidigo]
