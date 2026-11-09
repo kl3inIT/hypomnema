@@ -1,0 +1,16 @@
+{
+  "$schema": "./node_modules/oxfmt/configuration_schema.json",
+  "semi": false,
+  "printWidth": 100,
+  "ignorePatterns": [
+    "dist/**",
+    "src/routeTree.gen.ts",
+    "pnpm-lock.yaml",
+    "playwright-report/**",
+    "test-results/**"
+  ],
+  "sortTailwindcss": {
+    "stylesheet": "./src/index.css",
+    "functions": ["cn", "cva"]
+  }
+}

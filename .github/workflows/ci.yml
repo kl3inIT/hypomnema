@@ -30,3 +30,25 @@ jobs:
         run: make verify
       - name: govulncheck
         run: make govulncheck
+
+  web:
+    name: Web
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          package_json_file: web/package.json
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - name: make web-install
+        run: make web-install
+      - name: make web-check
+        run: make web-check
+      - name: Install Chromium for the browser tests
+        run: pnpm --dir web exec playwright install --with-deps chromium
+      - name: make web-e2e
+        run: make web-e2e

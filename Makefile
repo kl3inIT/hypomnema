@@ -11,7 +11,7 @@ LDFLAGS := -s -w -X $(MODULE)/internal/shared/platform.Version=$(VERSION)
 BINARIES := hypomnema hypomnema-node
 
 .PHONY: help verify verify-static fmt-check tidy-check lint deps-check sqlc-generate sqlc-check migration-check \
-	unit race govulncheck build
+	unit race govulncheck build web-install web-check web-build web-e2e
 
 help: ## List the targets
 	@awk 'BEGIN {FS = ":.*## "} /^[a-z-]+:.*## / {printf "  %-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -21,7 +21,7 @@ verify: verify-static unit race ## The gate to run before every push
 verify-static: fmt-check tidy-check lint deps-check sqlc-check migration-check
 
 fmt-check: ## Fail when a Go file is not gofmt-formatted
-	@files="$$(gofmt -l cmd internal)"; \
+	@files="$$(gofmt -l cmd internal web)"; \
 	test -z "$$files" || { printf 'gofmt needed:\n%s\n' "$$files"; exit 1; }
 
 tidy-check: ## Fail when go.mod or go.sum of a module is not tidy
@@ -38,7 +38,7 @@ deps-check: ## Fail when a binary links a tree or driver it must not
 		found="$$($(GO) list -deps ./cmd/$$1 | grep -E "$$2" || true)"; \
 		test -z "$$found" || { printf 'cmd/%s must not link:\n%s\n' "$$1" "$$found"; exit 1; }; \
 	}; \
-	check hypomnema-node '^$(MODULE)/internal/controlplane(/|$$)'; \
+	check hypomnema-node '^$(MODULE)/(internal/controlplane|web)(/|$$)'; \
 	check hypomnema '^$(MODULE)/internal/node(/|$$)'
 
 sqlc-generate: ## Regenerate the typed queries from the migrations and queries
@@ -65,8 +65,23 @@ race: ## Unit tests with the race detector (needs cgo)
 govulncheck: ## Known vulnerabilities in what the code calls
 	$(GOVULNCHECK) ./...
 
-build: ## Build the binaries into bin/
+# The web client is built first, so that hypomnema embeds it (web/embed.go).
+build: web-build ## Build the web client and the binaries into bin/
 	@mkdir -p bin
 	@for b in $(BINARIES); do \
 		CGO_ENABLED=0 $(GO) build -trimpath -ldflags "$(LDFLAGS)" -o bin/$$b ./cmd/$$b || exit 1; \
 	done
+
+WEB := pnpm --dir web
+
+web-install: ## Install the web client's packages from the lockfile
+	$(WEB) install --frozen-lockfile
+
+web-check: ## Lint, format check, typecheck and unit tests of the web client
+	$(WEB) check
+
+web-build: ## Build the web client into web/dist
+	$(WEB) build
+
+web-e2e: ## Browser tests of the built web client (needs Playwright's Chromium)
+	$(WEB) test:e2e
