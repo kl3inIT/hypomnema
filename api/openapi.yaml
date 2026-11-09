@@ -445,6 +445,41 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Chat" }
         default: { $ref: "#/components/responses/Error" }
+  /chats/{chat_id}/stream:
+    parameters:
+      - $ref: "#/components/parameters/ChatID"
+    get:
+      operationId: StreamChat
+      summary: A chat as Server-Sent Events, resumable with Last-Event-ID
+      description: >-
+        Kept messages come as `message` frames with their seq as the id and a
+        ChatMessage as data. While pi works, frames without an id show what is
+        not kept yet: `reset` (a new reply starts), `delta` (ChatDelta),
+        `tool` (ChatToolActivity) and `state` (ChatState); a kept message
+        replaces what they showed. A comment line is sent every 10 seconds.
+      parameters:
+        - $ref: "#/components/parameters/After"
+        - name: Last-Event-ID
+          in: header
+          description: Takes precedence over after, as a reconnecting browser sends it.
+          schema: { type: integer, format: int64, minimum: 0 }
+      responses:
+        "200":
+          description: The stream.
+          content:
+            text/event-stream:
+              schema: { type: string }
+        default: { $ref: "#/components/responses/Error" }
+  /chats/{chat_id}/abort:
+    parameters:
+      - $ref: "#/components/parameters/ChatID"
+    post:
+      operationId: AbortChat
+      summary: Stop the coordinator's current turn in this chat; nothing happens when it is idle
+      responses:
+        "204":
+          description: pi was asked to stop, or was not working.
+        default: { $ref: "#/components/responses/Error" }
   /chats/{chat_id}/messages:
     parameters:
       - $ref: "#/components/parameters/ChatID"
@@ -978,7 +1013,51 @@ components:
           items: { $ref: "#/components/schemas/Chat" }
     ChatRole:
       type: string
-      enum: [owner, coordinator, system]
+      description: >-
+        owner: typed by the owner; coordinator: pi's reply; tool: a tool pi
+        ran, with its result; system: a wake-up or a notice.
+      enum: [owner, coordinator, tool, system]
+    ChatPart:
+      type: object
+      description: One piece of a reply (text, thinking) or of a tool pi ran (tool_result).
+      required: [type]
+      properties:
+        type: { type: string, enum: [text, thinking, tool_result] }
+        text: { type: string }
+        id: { type: string, description: The tool call. }
+        name: { type: string, description: The tool. }
+        args:
+          type: object
+          additionalProperties: true
+          description: The tool's arguments.
+        output: { type: string, description: "The tool's result, at most 16 KiB." }
+        error: { type: boolean }
+        truncated: { type: boolean, description: The output was cut. }
+        duration_ms: { type: integer, format: int64 }
+    ChatDelta:
+      type: object
+      description: Text or thinking pi is writing, to append to block index of the current reply.
+      required: [kind, index, delta]
+      properties:
+        kind: { type: string, enum: [text, thinking] }
+        index: { type: integer }
+        delta: { type: string }
+    ChatToolActivity:
+      type: object
+      description: A tool started (with its name and arguments) or ended.
+      required: [phase, id]
+      properties:
+        phase: { type: string, enum: [start, end] }
+        id: { type: string }
+        name: { type: string }
+        args:
+          type: object
+          additionalProperties: true
+    ChatState:
+      type: object
+      required: [working]
+      properties:
+        working: { type: boolean }
     NewChatMessage:
       type: object
       required: [text]
@@ -993,6 +1072,10 @@ components:
         chat_id: { type: string }
         role: { $ref: "#/components/schemas/ChatRole" }
         text: { type: string }
+        parts:
+          type: array
+          description: A reply's text and thinking, or a tool's result; absent for owner and system messages.
+          items: { $ref: "#/components/schemas/ChatPart" }
         event_seq:
           type: integer
           format: int64

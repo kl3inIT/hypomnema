@@ -24,6 +24,7 @@ import (
 	nethttpmiddleware "github.com/oapi-codegen/nethttp-middleware"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/coordinator"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 )
 
@@ -53,6 +54,10 @@ type Server struct {
 type Coordinator interface {
 	Enabled() bool
 	Working(chatID string) bool
+	// Watch returns the chat's live frames until stop is called.
+	Watch(chatID string) (frames <-chan coordinator.Frame, stop func())
+	// Abort asks pi to stop its current turn in the chat.
+	Abort(ctx context.Context, chatID string) error
 }
 
 // WithCoordinator lets chats report whether pi is working on them.

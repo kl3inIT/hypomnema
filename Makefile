@@ -13,7 +13,8 @@ LDFLAGS := -s -w -X $(MODULE)/internal/shared/platform.Version=$(VERSION)
 BINARIES := hypomnema hypomnema-node
 
 .PHONY: help verify verify-static fmt-check tidy-check lint deps-check sqlc-generate sqlc-check migration-check \
-	openapi-generate openapi-check unit race govulncheck build web-install web-check web-build web-e2e
+	openapi-generate openapi-check unit race govulncheck build web-install web-check web-api-generate \
+	web-api-check web-build web-e2e
 
 help: ## List the targets
 	@awk 'BEGIN {FS = ":.*## "} /^[a-z-]+:.*## / {printf "  %-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -89,8 +90,17 @@ WEB := pnpm --dir web
 web-install: ## Install the web client's packages from the lockfile
 	$(WEB) install --frozen-lockfile
 
-web-check: ## Lint, format check, typecheck and unit tests of the web client
+web-check: web-api-check ## Lint, format check, typecheck and unit tests of the web client
 	$(WEB) check
+
+web-api-generate: ## Regenerate the web client's typed API client from api/openapi.yaml
+	$(WEB) generate:api
+
+# As openapi-check, for the web client's generated client; it runs in the web job, which has pnpm.
+web-api-check: ## Fail when the web client's generated API client is not what the contract generates
+	$(WEB) generate:api
+	@git diff --exit-code -- web/src/api/generated
+	@test -z "$$(git status --porcelain -- web/src/api/generated)" || 		{ echo 'the web API client has generated files that are not committed'; exit 1; }
 
 web-build: ## Build the web client into web/dist
 	$(WEB) build

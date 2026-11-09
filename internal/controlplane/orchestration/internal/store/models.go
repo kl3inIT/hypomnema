@@ -37,6 +37,7 @@ type ChatMessage struct {
 	ChatID      string
 	Role        string
 	Text        string
+	Parts       sql.NullString
 	EventSeq    sql.NullInt64
 	DeliveredAt sql.NullInt64
 	CreatedAt   int64
