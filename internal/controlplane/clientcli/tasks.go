@@ -16,7 +16,9 @@ func createTasks(ctx context.Context, e *env, runID string, tasks []openapi.NewT
 	resp, err := e.api.CreateTasksWithResponse(ctx, runID, &openapi.CreateTasksParams{IdempotencyKey: idempotencyKey},
 		openapi.NewTasks{Tasks: tasks})
 	if err != nil {
-		return nil, fmt.Errorf("creating tasks: %w", err)
+		return nil, fmt.Errorf("creating tasks got no answer (%w); they may exist: "+
+			"run the same command again with --key %s, which returns them instead of creating more", err,
+			val(idempotencyKey))
 	}
 
 	if resp.JSON201 == nil {

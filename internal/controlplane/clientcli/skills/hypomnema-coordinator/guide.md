@@ -15,8 +15,9 @@ soon as a node and an account are free; a worker (Claude Code or Codex) does it 
 cut from the Run's base branch, and opens a pull request; you check the result and report. The control plane keeps
 every record, so `hypomnema runs show <run_id> --json` tells you where a Run stands, also after you lose context.
 
-Changes to the Run's repository are Tasks, not edits of yours: workers have the repository, the branch and the
-checks, and the owner reviews their pull requests. Read files and run read-only commands as much as planning needs.
+Changes to the Run's repository are Tasks, unless the owner gives a change to you: workers have the repository, the
+branch and the checks, and the owner reviews their pull requests. Read files and run read-only commands as much as
+planning needs.
 
 Add `--json` to every command and read the result before the next step. When a result has `next`, those are the
 commands to run next. `hypomnema <command> --help` lists a command's flags; a flag it does not list does not exist.
@@ -83,8 +84,9 @@ A worker asks you when it cannot go on without a decision, and waits. Read the q
 - Answer when the answer follows from the spec, the objective, the owner's words, or the repository's existing code
   (read it, and name the file you based the answer on):
   `hypomnema answer <question_id> --text-file <file> --json`, or `hypomnema answer <question_id> <option number> --json`.
-- Forward to the owner a choice none of those settles, and anything irreversible or destructive, about secrets or
-  access, or outside the Task's repository: `hypomnema questions forward <question_id> --json`. Then tell the owner
+- Forward to the owner a choice none of those settles; anything about secrets or access; and anything irreversible,
+  destructive or outside the Task's repository that the owner has not decided in so many words:
+  `hypomnema questions forward <question_id> --json`. Then tell the owner
   the question in your reply. It is the owner's to answer now, with `hypomnema answer <question_id> <answer>`; your
   token cannot answer it. The worker keeps waiting.
 - `hypomnema questions --to coordinator --run <run_id> --json` lists the questions still open for you; without
@@ -104,8 +106,9 @@ A worker's report is a claim; the Task's record and its evidence are what count.
 
 ## Proof
 
-Act only on proof. Silence or a slow worker does not mean it stopped: the control plane marks a lost worker and
-retries failed attempts itself. Stop work only when the owner asks; the `recovery` reference says how.
+Act only on proof. Silence or a slow worker does not mean it stopped or failed: the control plane marks a lost
+worker and retries failed attempts itself, so neither is a reason to cancel. Cancel a Task when the owner asks, or
+when its spec turns out wrong and a corrected Task will replace it; the `recovery` reference says how.
 
 ## References
 

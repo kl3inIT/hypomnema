@@ -8,13 +8,12 @@ The control plane has already retried it. A worker's reported failure, a failed 
 the third counted failure fails the Task, with a back-off before each retry. A rate limit moves the Task to another
 account and does not count. The Task's `result` names the attempts and the last cause.
 
-- Read the latest Dispatch's result. When the cause is in the spec (missing context, a wrong assumption), create a
-  new Task with a corrected spec and say why in your report.
-- When the result names no such cause (only `worker_error`, say), the retries have already happened: report the
-  Task as failed with its last cause, and offer the owner to reopen it.
-- Reopen the same Task with `hypomnema tasks reopen <task_id> --json` only when the owner asks, or after the owner
-  fixed the cause outside the spec. Reopening resets the count, and the count is what stops a failing Task from
-  using the owner's accounts again and again.
+- Report the Task as failed with its last cause. The count is what stops a failing Task from using the owner's
+  accounts again and again, so do not go around it on your own: no reopen, and no new Task for the same work.
+- When the latest Dispatch's result shows the cause is in the spec (missing context, a wrong assumption), say so
+  and offer the corrected spec. Create it as a new Task once the owner agrees.
+- Reopen the same Task with `hypomnema tasks reopen <task_id> --json` when the owner asks, for example after fixing
+  the cause outside the spec. Reopening resets the count.
 
 ## A blocked Task
 
@@ -33,5 +32,5 @@ account and does not count. The Task's `result` names the attempts and the last 
 
 - `hypomnema tasks cancel <task_id> --json` stops a running worker before the Task is canceled. Until the stop is
   confirmed the Task has `cancel_requested_at`; report it as stopping, not stopped.
-- `hypomnema runs cancel <run_id> --json` does the same for every unfinished Task of the Run. Use it when the owner
-  gives up the Run.
+- `hypomnema runs cancel <run_id> --json` does the same for every unfinished Task of the Run. Use it only when the
+  owner gives up the Run.

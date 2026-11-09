@@ -13,7 +13,9 @@ import (
 func createRun(ctx context.Context, e *env, nr openapi.NewRun, idempotencyKey *string) (openapi.Run, error) {
 	resp, err := e.api.CreateRunWithResponse(ctx, &openapi.CreateRunParams{IdempotencyKey: idempotencyKey}, nr)
 	if err != nil {
-		return openapi.Run{}, fmt.Errorf("creating the run: %w", err)
+		return openapi.Run{}, fmt.Errorf("creating the run got no answer (%w); the Run may exist: "+
+			"run the same command again with --key %s, which returns it instead of creating a second", err,
+			val(idempotencyKey))
 	}
 
 	if resp.JSON201 == nil {
