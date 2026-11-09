@@ -281,6 +281,21 @@ func (q *Queries) MarkChatMessagesDelivered(ctx context.Context, arg MarkChatMes
 	return err
 }
 
+const titleUntitledChat = `-- name: TitleUntitledChat :exec
+UPDATE chats SET title = ?1 WHERE id = ?2 AND title = 'Chat'
+`
+
+type TitleUntitledChatParams struct {
+	Title string
+	ID    string
+}
+
+// A chat still under the default title takes one from its first owner message.
+func (q *Queries) TitleUntitledChat(ctx context.Context, arg TitleUntitledChatParams) error {
+	_, err := q.db.ExecContext(ctx, titleUntitledChat, arg.Title, arg.ID)
+	return err
+}
+
 const touchChat = `-- name: TouchChat :exec
 UPDATE chats SET updated_at = ?1 WHERE id = ?2
 `

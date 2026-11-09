@@ -52,3 +52,7 @@ WHERE r.chat_id = @chat_id AND e.seq > @after
   )
 ORDER BY e.seq
 LIMIT @lim;
+
+-- name: TitleUntitledChat :exec
+-- A chat still under the default title takes one from its first owner message.
+UPDATE chats SET title = @title WHERE id = @id AND title = 'Chat';

@@ -70,7 +70,7 @@ function SignOut() {
   )
 }
 
-function ChatList({ current }: { current?: string }) {
+function ChatList({ current, label = "Chats" }: { current?: string; label?: string }) {
   const chats = useChats()
 
   if (chats.data?.length === 0) {
@@ -79,7 +79,7 @@ function ChatList({ current }: { current?: string }) {
 
   return (
     <nav aria-label="Chats" className="-mx-2 min-h-0 flex-1 overflow-y-auto px-2">
-      <p className="px-2.5 pt-2 pb-1 text-xs font-medium text-muted-foreground">Chats</p>
+      <p className="px-2.5 pt-2 pb-1 text-xs font-medium text-muted-foreground">{label}</p>
       <div className="flex flex-col gap-px">
         {chats.data?.map((c) => (
           <ChatRow key={c.id} chat={c} current={c.id === current} />
@@ -181,11 +181,11 @@ function NewChat() {
           <p className="max-w-(--chat-content-max-width) text-center text-sm text-muted-foreground">
             pi plans the work, gives it to workers on your machines, and reports back here.
           </p>
-        </div>
-        <div className="mx-auto w-full max-w-(--chat-content-max-width) pb-6 md:hidden">
-          <ChatList />
-          <div className="mt-4">
-            <SignOut />
+          <div className="w-full max-w-(--chat-content-max-width) md:hidden">
+            <ChatList label="Recent chats" />
+            <div className="mt-2">
+              <SignOut />
+            </div>
           </div>
         </div>
       </div>
