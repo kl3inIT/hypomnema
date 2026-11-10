@@ -53,7 +53,14 @@ creating a second Run or second Tasks.
 ## Choosing a profile
 
 `hypomnema profiles list --json` shows each profile with its `description`, its `runtime` (`claude` is Claude Code,
-`codex` is Codex) and its model.
+`codex` is Codex), its model, and whether a worker can start under it now (`available`). Read it once before you
+create Tasks.
+
+- Give work only to a profile with `available: true`. One at `false` has `unavailable_reason`: `no_node` (no
+  connected node has its CLI), `no_account` (its runtime has no account), or `accounts_cooling` (every account
+  waits for a limit to reset, at `available_at`). Tell the owner which profiles cannot run and why, when the work
+  needs one of them; say nothing about it when everything the work needs can run. A profile with no `available`
+  is not a worker's (the coordinator's own).
 
 - Choose by the description first: it says what the profile is for.
 - When two profiles fit a change and differ in runtime, give work across many files, a refactor or writing tests to

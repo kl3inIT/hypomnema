@@ -278,6 +278,9 @@ const (
 const (
 	ReasonNoNode    = "no_node"
 	ReasonNoAccount = "no_account"
+	// ReasonAccountsCooling: every account of the runtime cools down. It is a
+	// profile's reason only; a Task that waits for one is not escalated by it.
+	ReasonAccountsCooling = "accounts_cooling"
 	// ReasonNoNodeReaches is followed by the git host: "no_node_reaches:gitlab.company.example".
 	ReasonNoNodeReaches = "no_node_reaches:"
 )
