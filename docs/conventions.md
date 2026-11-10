@@ -163,6 +163,9 @@ The three boundaries that matter:
   `openapi-compat-check`, because mobile clients generated from it outlive a release.
 - Every error is an RFC 9457 problem with a stable `code` and the request id. Every request has an id, returned in
   `X-Request-Id` and logged.
+- Everything the owner or a coordinator can do is a command of the `hypomnema` CLI: an operation added to the client
+  API gets its command in the same change, and the web client offers nothing the CLI cannot do (owner, 2026-11-10).
+  Orca gives its agents every operation through its CLI the same way.
 - Client events (web, mobile) are served over SSE from the event log, resumable with `Last-Event-ID`. A message sent
   by a client carries a dedupe key; a retry never starts a second run.
 
