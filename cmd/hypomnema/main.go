@@ -13,8 +13,10 @@
 //	hypomnema machines providers add <name> --kind aws --key vault:<secret> --region R --size S [--max N] [--option name=value]…
 //	hypomnema machines providers list | rm <name> | check <name>
 //	hypomnema machines create <name> --provider P [--region R] [--size S] [--max N]   a node on a new machine
-//	hypomnema accounts add <runtime> <label>   record an account (no secret)
+//	hypomnema accounts add <runtime> <label>   record an account whose CLI is logged in on a node (no secret)
+//	hypomnema accounts login codex [--label L] log a subscription in here; its tokens go to the vault
 //	hypomnema accounts list
+//	hypomnema accounts refresh|rm <account>    refresh the tokens now, or remove the account and its tokens
 //	hypomnema tokens add <name> [--kind owner|coordinator]   make a client API token; prints it once
 //	hypomnema tokens list
 //	hypomnema tokens revoke <token id>
@@ -22,7 +24,7 @@
 //	hypomnema secrets add <name> --from-file FILE|- [--kind generic|oauth_token_set] [--meta key=value]…
 //	hypomnema secrets list                     names, kinds, versions and key ids; never a value
 //	hypomnema secrets rotate <name> --from-file FILE|-
-//	hypomnema secrets rm <name>                refused while a model or machine provider names the secret
+//	hypomnema secrets rm <name>                refused while a provider or an account names the secret
 //	hypomnema secrets rewrap                   wrap every data key under the active root key
 //	hypomnema gateway models apply FILE        declare a model the gateway serves (a YAML document)
 //	hypomnema gateway models list | rm <name>
@@ -61,7 +63,7 @@ import (
 )
 
 var errUsage = errors.New("usage: hypomnema migrate | serve | version | " +
-	"nodes add|list|drain|resume|rm|token | machines providers|create | accounts add|list | " +
+	"nodes add|list|drain|resume|rm|token | machines providers|create | accounts add|login|list|refresh|rm | " +
 	"tokens add|list|revoke | secrets keygen|add|list|rotate|rm|rewrap | gateway models|keys … | login --url URL --token-file FILE | run --repo owner/name <objective> | " +
 	"runs … | tasks … | questions … | whoami | skills get|install | " +
 	"answer <question> <answer> | questions")

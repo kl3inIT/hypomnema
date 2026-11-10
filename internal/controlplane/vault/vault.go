@@ -138,6 +138,9 @@ type NewSecret struct {
 	Kind     Kind
 	Payload  Payload
 	Metadata map[string]string
+	// AccessTokenExpiresAt is when a token set's access token ends; zero
+	// when it is not known.
+	AccessTokenExpiresAt time.Time
 }
 
 // Ref returns how another record names this secret as the place a key is
@@ -239,7 +242,7 @@ func (s *Service) Create(ctx context.Context, n NewSecret) (Secret, error) {
 			return fmt.Errorf("storing secret %q: %w", n.Name, err)
 		}
 
-		return insertVersion(ctx, q, id, sealedVersion, nil, now)
+		return insertVersion(ctx, q, id, sealedVersion, knownTime(n.AccessTokenExpiresAt), now)
 	})
 	if err != nil {
 		return Secret{}, fmt.Errorf("creating a secret: %w", err)
@@ -249,9 +252,18 @@ func (s *Service) Create(ctx context.Context, n NewSecret) (Secret, error) {
 }
 
 // Rotate stores a new value as the secret's next version, which becomes the
-// one in use. Earlier versions stay, encrypted. For a token set it is how a
-// new login is recorded, and it clears the mark of a login that is required.
+// one in use. Earlier versions stay, encrypted.
 func (s *Service) Rotate(ctx context.Context, name string, p Payload) (Secret, error) {
+	return s.rotate(ctx, name, p, nil)
+}
+
+// RotateTokenSet records a new login of a token set: its next version, with
+// when the access token ends, and no mark of a login that is required.
+func (s *Service) RotateTokenSet(ctx context.Context, name string, login Refreshed) (Secret, error) {
+	return s.rotate(ctx, name, login.Payload, knownTime(login.AccessTokenExpiresAt))
+}
+
+func (s *Service) rotate(ctx context.Context, name string, p Payload, expires *time.Time) (Secret, error) {
 	if s.keyring == nil {
 		return Secret{}, ErrNotConfigured
 	}
@@ -275,7 +287,7 @@ func (s *Service) Rotate(ctx context.Context, name string, p Payload) (Secret, e
 			return err
 		}
 
-		if err := insertVersion(ctx, q, id, sealedVersion, nil, now); err != nil {
+		if err := insertVersion(ctx, q, id, sealedVersion, expires, now); err != nil {
 			return err
 		}
 
@@ -474,6 +486,15 @@ func currentVersion(ctx context.Context, q *store.Queries, name string) (store.S
 	}
 
 	return row, current, nil
+}
+
+// knownTime is nil for the zero time: a moment that is not known.
+func knownTime(t time.Time) *time.Time {
+	if t.IsZero() {
+		return nil
+	}
+
+	return &t
 }
 
 func optionalTime(v sql.NullInt64) *time.Time {

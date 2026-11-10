@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/nodeapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/subscription"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
@@ -56,9 +58,11 @@ func Command(ctx context.Context, cfg Config, args []string, stdin io.Reader, st
 	o := &owner{
 		publicURL: cfg.PublicURL,
 
-		svc:      svc,
-		vault:    secrets,
-		machines: machineManager(svc, secrets, cfg.PublicURL, platform.NewLogger(io.Discard, cfg.Log, binary)),
+		svc:           svc,
+		vault:         secrets,
+		vaultReady:    cfg.VaultKeys != nil,
+		subscriptions: newSubscriptions(cfg, svc, secrets, slog.New(slog.DiscardHandler)),
+		machines:      machineManager(svc, secrets, cfg.PublicURL, platform.NewLogger(io.Discard, cfg.Log, binary)),
 		gateway: modelgateway.New(db, platform.SystemClock{}, platform.NewID, gatewayProviders(svc),
 			gatewaySecrets(secrets)),
 		in:  stdin,
@@ -88,10 +92,13 @@ type owner struct {
 	publicURL string
 	svc       *orchestration.Service
 	vault     *vault.Service
-	machines  *machines.Manager
-	gateway   *modelgateway.Service
-	in        io.Reader
-	out       io.Writer
+	// vaultReady says the vault has its root key and can seal a secret.
+	vaultReady    bool
+	subscriptions *subscription.Service
+	machines      *machines.Manager
+	gateway       *modelgateway.Service
+	in            io.Reader
+	out           io.Writer
 }
 
 func (o *owner) printf(format string, a ...any) {
@@ -276,40 +283,6 @@ func runtimes(rs []orchestration.RuntimeInfo) string {
 	return strings.Join(out, ", ")
 }
 
-func (o *owner) accounts(ctx context.Context, args []string) error {
-	switch {
-	case len(args) == 3 && args[0] == "add":
-		//nolint:gosec // G602 false positive: this case holds only when len(args) == 3
-		a, err := o.svc.AddAccount(ctx, args[1], args[2])
-		if err != nil {
-			return err
-		}
-
-		o.printf("account %s (%s %s)\n", a.ID, a.Runtime, a.Label)
-
-		return nil
-	case len(args) == 1 && args[0] == "list":
-		accounts, err := o.svc.ListAccounts(ctx)
-		if err != nil {
-			return err
-		}
-
-		for _, a := range accounts {
-			cooling := ""
-			if a.CoolingUntil != nil {
-				cooling = "cooling until " + a.CoolingUntil.Format(time.RFC3339)
-			}
-
-			o.printf("%s\t%s\t%s\t%s\t%s\n", a.ID, a.Runtime, a.Label, a.Status, cooling)
-		}
-
-		return nil
-	default:
-		return ErrUsage
-	}
-}
-
-// tokens adds, lists and revokes the client API's tokens.
 func (o *owner) tokens(ctx context.Context, args []string) error {
 	switch {
 	case len(args) >= 2 && args[0] == "add":

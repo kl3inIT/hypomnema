@@ -8,7 +8,7 @@ statement true or false.
 
 | Binary | Commands | What it does today |
 |---|---|---|
-| `cmd/hypomnema` (control plane) | `migrate`, `serve`, `version`, `nodes add\|list\|drain\|resume\|rm`, `nodes token add\|list\|revoke`, `machines providers add\|list\|rm\|check`, `machines create`, `accounts add\|list`, `tokens add\|list\|revoke`, `secrets keygen\|add\|list\|rotate\|rm\|rewrap`, `gateway models\|keys`, `login`, `run`, `answer`, `questions` | `migrate` brings the database schema up to the binary's version; `serve` refuses any other schema, then serves `/livez`, `/readyz`, the node API, the client API, the model gateway and the web client, and runs the scheduler loop; the other commands are the owner's (below) |
+| `cmd/hypomnema` (control plane) | `migrate`, `serve`, `version`, `nodes add\|list\|drain\|resume\|rm`, `nodes token add\|list\|revoke`, `machines providers add\|list\|rm\|check`, `machines create`, `accounts add\|login\|list\|refresh\|rm`, `tokens add\|list\|revoke`, `secrets keygen\|add\|list\|rotate\|rm\|rewrap`, `gateway models\|keys`, `login`, `run`, `answer`, `questions` | `migrate` brings the database schema up to the binary's version; `serve` refuses any other schema, then serves `/livez`, `/readyz`, the node API, the client API, the model gateway and the web client, and runs the scheduler loop; the other commands are the owner's (below) |
 | `cmd/hypomnema-node` (node) | `install`, `init`, `check`, `accounts set`, `run`, `service`, `shim`, `mcp`, `version` | `install --url` puts the node on the machine (below); `init --url --token-file` writes the node's configuration; `check` says hello once and lists the CLIs it found; `accounts set` records where an account's Claude token is; `run` runs the daemon with the Claude runner; `service` prints a systemd user unit; `shim` runs one worker and `mcp` serves its tools (both started for a worker, not by hand) |
 
 Configuration comes from the environment: `HYPOMNEMA_HTTP_ADDR` (default `127.0.0.1:8080`),
@@ -82,7 +82,9 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   (`GET /nodes` shows it as `stats`). A node can be drained and resumed; three expiries in a row mark it unavailable until its next hello or
   a resume. A removed node is kept as `deleted`: its tokens are revoked, it is no longer listed or placed on, and
   its name is free; one that still runs a Dispatch is not removed. Accounts (runtime, label, position, active or
-  disabled) are kept here with no secret value.
+  disabled) are kept here with no secret value. One the owner logged in on the control plane (below) also has the
+  vendor's id of the account, its email and plan, the name of the vault secret holding its tokens, and how its
+  refreshes went; placement leaves these alone, since no node holds their tokens.
 - Machines created at a provider (issue #69, step 3; `orchestration/machines.go` keeps the record,
   `internal/controlplane/machines` calls the provider, after Omnara's `internal/machinepool`). One kind exists, `aws`
   (EC2); [setup](deploy/machines/aws.md).
@@ -190,14 +192,31 @@ proxy, does not exist yet.
   exchange and the write go on when the caller stops waiting, and the write is retried. A caller that names a
   version the secret has moved past gets the newer set without an exchange. A failure that may pass keeps the token
   set and frees the lease; a rejection for good marks the secret as needing a new login until the owner rotates it.
-  After a refresh only the new version and the one before it are kept. Nothing calls `Refresh` yet.
-- `Open` returns a value to callers inside the control plane: the model gateway, for a provider's key, and the
-  wiring that hands a git host's token to an offer. No API, coordinator or web package may import the vault
-  (`depguard`), and the owner's commands never print a value.
+  After a refresh only the new version and the one before it are kept. Subscription accounts call it (below).
+- `Open` returns a value to callers inside the control plane: the model gateway, for a provider's key, the
+  wiring that hands a git host's token to an offer, and subscription accounts, for a token set. No API,
+  coordinator or web package may import the vault (`depguard`), and the owner's commands never print a value.
 - A provider names a secret as `vault:<name>` in its `api_key_ref`; nothing resolves that reference yet. Deleting a
-  secret is refused while a provider names it.
+  secret is refused while a provider or an account names it.
 - The tables `secrets`, `secret_versions` and `secret_refresh_leases` are in the one migration stream and are read and written only by this
   package, through its own generated queries.
+
+Subscription accounts (`internal/controlplane/subscription`, issue #20 step 2, after CLIProxyAPI, 9router-go and the
+Codex CLI; [research](docs/research/2026-11-10-subscription-login-and-refresh.md)) are logged in once on the control
+plane, which keeps their tokens fresh. Nothing uses the tokens yet: the gateway's adapters come next.
+
+- One `Vendor` per kind of subscription starts a login, exchanges a refresh token and reads who a token set belongs
+  to. Only Codex exists: a device code (a link and a one-time code, 15 minutes), or, when OpenAI offers this client
+  none, the browser login whose loopback address the owner pastes back, checked against the state and the PKCE
+  verifier the control plane kept.
+- A login makes an account, or gives new tokens to the account that already has the vendor's id (Codex: the
+  ChatGPT account id, read with the email and the plan from the id token). The tokens are a vault secret of kind
+  `oauth_token_set`, named after the account, with the time the access token ends.
+- `serve` looks every 5 minutes for access tokens that end within the vendor's lead (Codex: 30 minutes) and
+  refreshes them through the vault's `Refresh`. A refusal for good (401, or an error code such as `invalid_grant` or
+  `refresh_token_reused`) marks the account as needing a new login and is not tried again. Any other failure keeps
+  the tokens and is tried again after 5 minutes, doubling up to a day; its reason is recorded with the status and
+  error code only.
 
 The model gateway (`internal/controlplane/modelgateway`, issue #20,
 [decision](docs/decisions/2026-11-10-model-gateway.md)) serves chat from OpenAI-compatible providers to clients that
@@ -286,7 +305,10 @@ The owner's commands:
     [--option name=value]…`, `machines providers list`, `machines providers rm|check <name>` and
     `machines create <name> --provider P [--region R] [--size S] [--max N]` manage provider machines; a machine
     is removed with `nodes rm`;
-  - `accounts add <runtime> <label>` records an account;
+  - `accounts add <runtime> <label>` records an account whose CLI is logged in on a node; `accounts login codex
+    [--label L]` logs a subscription in here, printing a link and a code and waiting, or asking for the pasted
+    address; `accounts list` shows each with the state of its tokens; `accounts refresh <account>` and
+    `accounts rm <account>` (which removes the tokens too) are for those logged in here;
   - `tokens add <name> [--kind owner|coordinator]` prints a client token once; `tokens list` and
     `tokens revoke <id>`;
   - `secrets keygen [id]` prints a new root key; `secrets add <name> --from-file FILE|-` (with `--kind` and
@@ -520,6 +542,7 @@ internal/node/worktree    bare mirrors and git worktrees per Task
 internal/controlplane/coordinator  the supervisor of pi, the coordinator: one pi in RPC mode per chat
 internal/controlplane/machines  machines created at a provider: the Provider interface, the AWS (EC2) provider, the first-boot script, create, remove and the pass that settles what is left between
 internal/controlplane/orchestration  Runs, Tasks, Dispatches, Conversations, questions, events, nodes, accounts, machine providers, the scheduler; migrations; queries generated by sqlc (internal/store)
+internal/controlplane/subscription  subscription accounts: a vendor's login and refresh, tokens kept in the vault
 internal/shared/githost   git hosts: how a repository is named, and each kind's clone URL, command and links
 internal/shared/nodeproto the wire protocol between a node and the control plane
 internal/shared/platform  environment settings, slog logger, HTTP server and probes, version, clock, ids

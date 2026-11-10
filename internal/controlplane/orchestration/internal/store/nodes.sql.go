@@ -13,7 +13,7 @@ import (
 
 const countAccountsFreeAfter = `-- name: CountAccountsFreeAfter :one
 SELECT count(*) FROM accounts a
-WHERE a.runtime = ?1 AND a.status = 'active'
+WHERE a.runtime = ?1 AND a.status = 'active' AND a.secret_ref IS NULL
   AND NOT EXISTS (SELECT 1 FROM account_cooldowns c
                   WHERE c.runtime = a.runtime AND c.account_ref = a.id AND c.until > ?2)
 `
@@ -23,7 +23,7 @@ type CountAccountsFreeAfterParams struct {
 	After   int64
 }
 
-// Active accounts of a runtime with no cooldown lasting past @after.
+// Active accounts of a runtime that a worker can run under, with no cooldown lasting past @after.
 func (q *Queries) CountAccountsFreeAfter(ctx context.Context, arg CountAccountsFreeAfterParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, countAccountsFreeAfter, arg.Runtime, arg.After)
 	var count int64
@@ -140,6 +140,18 @@ func (q *Queries) CountTaskEscalationsSince(ctx context.Context, arg CountTaskEs
 	return count, err
 }
 
+const deleteLoginAccount = `-- name: DeleteLoginAccount :execrows
+DELETE FROM accounts WHERE id = ?1 AND secret_ref IS NOT NULL
+`
+
+func (q *Queries) DeleteLoginAccount(ctx context.Context, id string) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteLoginAccount, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const deleteNode = `-- name: DeleteNode :execrows
 UPDATE nodes SET updated_at = ?1, status = 'deleted', deleted_at = ?1 WHERE id = ?2 AND status <> 'deleted'
 `
@@ -158,7 +170,7 @@ func (q *Queries) DeleteNode(ctx context.Context, arg DeleteNodeParams) (int64, 
 }
 
 const getAccount = `-- name: GetAccount :one
-SELECT id, runtime, label, status, position, created_at, updated_at FROM accounts WHERE id = ?1
+SELECT id, runtime, label, status, position, created_at, updated_at, external_id, email, "plan", secret_ref, refresh_failures, refresh_retry_at, refresh_error FROM accounts WHERE id = ?1
 `
 
 func (q *Queries) GetAccount(ctx context.Context, id string) (Account, error) {
@@ -172,6 +184,44 @@ func (q *Queries) GetAccount(ctx context.Context, id string) (Account, error) {
 		&i.Position,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.ExternalID,
+		&i.Email,
+		&i.Plan,
+		&i.SecretRef,
+		&i.RefreshFailures,
+		&i.RefreshRetryAt,
+		&i.RefreshError,
+	)
+	return i, err
+}
+
+const getAccountByExternalID = `-- name: GetAccountByExternalID :one
+SELECT id, runtime, label, status, position, created_at, updated_at, external_id, email, "plan", secret_ref, refresh_failures, refresh_retry_at, refresh_error FROM accounts WHERE runtime = ?1 AND external_id = ?2
+`
+
+type GetAccountByExternalIDParams struct {
+	Runtime    string
+	ExternalID sql.NullString
+}
+
+func (q *Queries) GetAccountByExternalID(ctx context.Context, arg GetAccountByExternalIDParams) (Account, error) {
+	row := q.db.QueryRowContext(ctx, getAccountByExternalID, arg.Runtime, arg.ExternalID)
+	var i Account
+	err := row.Scan(
+		&i.ID,
+		&i.Runtime,
+		&i.Label,
+		&i.Status,
+		&i.Position,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.ExternalID,
+		&i.Email,
+		&i.Plan,
+		&i.SecretRef,
+		&i.RefreshFailures,
+		&i.RefreshRetryAt,
+		&i.RefreshError,
 	)
 	return i, err
 }
@@ -281,6 +331,39 @@ func (q *Queries) InsertAccount(ctx context.Context, arg InsertAccountParams) er
 	return err
 }
 
+const insertLoginAccount = `-- name: InsertLoginAccount :exec
+INSERT INTO accounts (id, runtime, label, status, position, external_id, email, plan, secret_ref, created_at,
+                      updated_at)
+VALUES (?1, ?2, ?3, 'active',
+        (SELECT coalesce(max(position), 0) + 1 FROM accounts WHERE runtime = ?2),
+        ?4, ?5, ?6, ?7, ?8, ?8)
+`
+
+type InsertLoginAccountParams struct {
+	ID         string
+	Runtime    string
+	Label      string
+	ExternalID sql.NullString
+	Email      sql.NullString
+	Plan       sql.NullString
+	SecretRef  sql.NullString
+	Now        int64
+}
+
+func (q *Queries) InsertLoginAccount(ctx context.Context, arg InsertLoginAccountParams) error {
+	_, err := q.db.ExecContext(ctx, insertLoginAccount,
+		arg.ID,
+		arg.Runtime,
+		arg.Label,
+		arg.ExternalID,
+		arg.Email,
+		arg.Plan,
+		arg.SecretRef,
+		arg.Now,
+	)
+	return err
+}
+
 const insertNode = `-- name: InsertNode :exec
 INSERT INTO nodes (id, name, status, max_dispatches, created_at, updated_at)
 VALUES (?1, ?2, 'active', ?3, ?4, ?4)
@@ -326,8 +409,40 @@ func (q *Queries) InsertNodeToken(ctx context.Context, arg InsertNodeTokenParams
 	return err
 }
 
+const listAccountLabelsBySecretRef = `-- name: ListAccountLabelsBySecretRef :many
+SELECT runtime, label FROM accounts WHERE secret_ref = ?1 ORDER BY runtime, label
+`
+
+type ListAccountLabelsBySecretRefRow struct {
+	Runtime string
+	Label   string
+}
+
+func (q *Queries) ListAccountLabelsBySecretRef(ctx context.Context, secretRef sql.NullString) ([]ListAccountLabelsBySecretRefRow, error) {
+	rows, err := q.db.QueryContext(ctx, listAccountLabelsBySecretRef, secretRef)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListAccountLabelsBySecretRefRow{}
+	for rows.Next() {
+		var i ListAccountLabelsBySecretRefRow
+		if err := rows.Scan(&i.Runtime, &i.Label); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listAccounts = `-- name: ListAccounts :many
-SELECT id, runtime, label, status, position, created_at, updated_at FROM accounts ORDER BY runtime, position, id
+SELECT id, runtime, label, status, position, created_at, updated_at, external_id, email, "plan", secret_ref, refresh_failures, refresh_retry_at, refresh_error FROM accounts ORDER BY runtime, position, id
 `
 
 func (q *Queries) ListAccounts(ctx context.Context) ([]Account, error) {
@@ -347,6 +462,13 @@ func (q *Queries) ListAccounts(ctx context.Context) ([]Account, error) {
 			&i.Position,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.ExternalID,
+			&i.Email,
+			&i.Plan,
+			&i.SecretRef,
+			&i.RefreshFailures,
+			&i.RefreshRetryAt,
+			&i.RefreshError,
 		); err != nil {
 			return nil, err
 		}
@@ -621,6 +743,59 @@ type RevokeNodeTokensParams struct {
 func (q *Queries) RevokeNodeTokens(ctx context.Context, arg RevokeNodeTokensParams) error {
 	_, err := q.db.ExecContext(ctx, revokeNodeTokens, arg.Now, arg.NodeID)
 	return err
+}
+
+const setAccountIdentity = `-- name: SetAccountIdentity :execrows
+UPDATE accounts SET updated_at = ?1, email = ?2, plan = ?3 WHERE id = ?4
+`
+
+type SetAccountIdentityParams struct {
+	Now   int64
+	Email sql.NullString
+	Plan  sql.NullString
+	ID    string
+}
+
+func (q *Queries) SetAccountIdentity(ctx context.Context, arg SetAccountIdentityParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setAccountIdentity,
+		arg.Now,
+		arg.Email,
+		arg.Plan,
+		arg.ID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const setAccountRefresh = `-- name: SetAccountRefresh :execrows
+UPDATE accounts
+SET updated_at = ?1, refresh_failures = ?2, refresh_retry_at = ?3,
+    refresh_error = ?4
+WHERE id = ?5
+`
+
+type SetAccountRefreshParams struct {
+	Now             int64
+	RefreshFailures int64
+	RefreshRetryAt  sql.NullInt64
+	RefreshError    sql.NullString
+	ID              string
+}
+
+func (q *Queries) SetAccountRefresh(ctx context.Context, arg SetAccountRefreshParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setAccountRefresh,
+		arg.Now,
+		arg.RefreshFailures,
+		arg.RefreshRetryAt,
+		arg.RefreshError,
+		arg.ID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const setAccountStatus = `-- name: SetAccountStatus :execrows
