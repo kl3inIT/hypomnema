@@ -48,7 +48,29 @@ jobs:
         run: make web-install
       - name: make web-check
         run: make web-check
+      # Chromium is kept between runs, as t3code's CI keeps it: downloading it and running apt on every run was
+      # most of this job, and a stalled download held a pull request for minutes.
+      - name: Resolve the Playwright version
+        id: playwright_version
+        run: echo "version=$(node -p "require('./web/node_modules/@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+      - name: Cache Chromium
+        id: chromium_cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-shell-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright_version.outputs.version }}
       - name: Install Chromium for the browser tests
-        run: pnpm --dir web exec playwright install --with-deps chromium
+        if: steps.chromium_cache.outputs.cache-hit != 'true'
+        timeout-minutes: 5
+        run: pnpm --dir web exec playwright install --only-shell chromium
+      - name: Install the system packages Chromium misses
+        timeout-minutes: 5
+        run: |
+          browser=$(find "$HOME/.cache/ms-playwright" -name chrome-headless-shell -type f -print -quit)
+          test -n "$browser"
+          if ldd "$browser" | grep '=> not found'; then
+            pnpm --dir web exec playwright install-deps chromium
+          fi
       - name: make web-e2e
+        timeout-minutes: 10
         run: make web-e2e
