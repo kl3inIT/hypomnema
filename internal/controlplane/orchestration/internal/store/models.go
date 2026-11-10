@@ -233,6 +233,31 @@ type Run struct {
 	ChatID             sql.NullString
 }
 
+type Secret struct {
+	ID               string
+	Name             string
+	Kind             string
+	Metadata         string
+	CurrentVersionID string
+	CreatedAt        int64
+	UpdatedAt        int64
+}
+
+type SecretVersion struct {
+	ID                   string
+	SecretID             string
+	VersionNumber        int64
+	PayloadKeys          string
+	EncryptionScheme     string
+	KeyID                string
+	EncryptedDek         []byte
+	EncryptedDekNonce    []byte
+	Nonce                []byte
+	Ciphertext           []byte
+	AccessTokenExpiresAt sql.NullInt64
+	CreatedAt            int64
+}
+
 type Task struct {
 	ID                string
 	RunID             string

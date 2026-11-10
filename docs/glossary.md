@@ -25,6 +25,7 @@ means something else is named here once and not used.
 | **Model table** | The models the Model gateway serves, declared by the owner: a public name, what it can do (chat, images, speech), and its targets (provider and upstream model) in fallback order. A model that is not in it is refused | A provider's own model list |
 | **Gateway key** | A bearer key for the Model gateway: one per Dispatch (revoked when it ends), one for the coordinator, one per tool or machine of the owner, each with the models it may use | A Client token; an Account's credential |
 | **Transcript** | What a Worker said and did during one Dispatch, kept by the control plane as items in order: messages, reasoning, tool calls, their results and notices. The Node sends it from the Worker's journal | A Conversation, which is the CLI's own record on the Node; a Session |
+| **Secret** | A named value kept by the vault, encrypted: an API key or a subscription's token set. It has versions; another record names it as `vault:<name>`. Its value is never shown | An Account, which uses a Secret; a Client token or Gateway key, which are stored as hashes |
 | **Session** | A vault credential session opened for one Dispatch and revoked when it closes | A CLI session or a chat; call those Conversation |
 | **Announce** | A Worker's final report to the Coordinator, with outcome and evidence | A chat message to the owner |
 | **Policy** | A rule that answers a tool call or request with ALLOW, DENY or ASK | A Gate |

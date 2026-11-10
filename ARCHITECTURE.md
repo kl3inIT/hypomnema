@@ -8,11 +8,13 @@ statement true or false.
 
 | Binary | Commands | What it does today |
 |---|---|---|
-| `cmd/hypomnema` (control plane) | `migrate`, `serve`, `version`, `nodes add\|list`, `accounts add\|list`, `tokens add\|list\|revoke`, `login`, `run`, `answer`, `questions` | `migrate` brings the database schema up to the binary's version; `serve` refuses any other schema, then serves `/livez`, `/readyz`, the node API, the client API and the web client, and runs the scheduler loop; the other commands are the owner's (below) |
+| `cmd/hypomnema` (control plane) | `migrate`, `serve`, `version`, `nodes add\|list`, `accounts add\|list`, `tokens add\|list\|revoke`, `secrets keygen\|add\|list\|rotate\|rm\|rewrap`, `login`, `run`, `answer`, `questions` | `migrate` brings the database schema up to the binary's version; `serve` refuses any other schema, then serves `/livez`, `/readyz`, the node API, the client API and the web client, and runs the scheduler loop; the other commands are the owner's (below) |
 | `cmd/hypomnema-node` (node) | `init`, `check`, `accounts set`, `run`, `service`, `shim`, `mcp`, `version` | `init --url --token-file` writes the node's configuration; `check` says hello once and lists the CLIs it found; `accounts set` records where an account's Claude token is; `run` runs the daemon with the Claude runner; `service` prints a systemd user unit; `shim` runs one worker and `mcp` serves its tools (both started for a worker, not by hand) |
 
 Configuration comes from the environment: `HYPOMNEMA_HTTP_ADDR` (default `127.0.0.1:8080`),
-`HYPOMNEMA_DATABASE_PATH` (required, absolute), `HYPOMNEMA_LOG_LEVEL`, `HYPOMNEMA_LOG_FORMAT` (`json` or `text`).
+`HYPOMNEMA_DATABASE_PATH` (required, absolute), `HYPOMNEMA_LOG_LEVEL`, `HYPOMNEMA_LOG_FORMAT` (`json` or `text`),
+and the vault's root keys: `HYPOMNEMA_VAULT_KEYS` (a comma-separated list of `id:base64` entries of 32 bytes) with
+`HYPOMNEMA_VAULT_ACTIVE_KEY_ID`, set together or not at all.
 Which runtime and model agents use is stored, as profiles (below), not configured.
 `HYPOMNEMA_COORDINATOR_COMMAND` (a JSON array) starts pi for a chat id appended to it; unset, chats keep their
 messages and nothing answers.
@@ -38,7 +40,7 @@ one connection, WAL, `synchronous=FULL`, pragmas read back after opening; its di
 
 Migrations are goose SQL files embedded in the binary (`internal/controlplane/orchestration/migrations`); the schema
 holds Runs, Tasks, Task dependencies, Dispatches, Conversations, receipts, Dispatch effects and resources, account
-cooldowns, questions, the event log, nodes, accounts and client tokens. `internal/controlplane/orchestration` is their only writer: named operations, each one `BEGIN IMMEDIATE`
+cooldowns, questions, the event log, nodes, accounts and client tokens, and the vault's secrets, which only the vault touches. `internal/controlplane/orchestration` is their only writer: named operations, each one `BEGIN IMMEDIATE`
 transaction, every status change a guarded `UPDATE` checked against a transition table (`transitions.go`).
 
 - Runs and Tasks: create a Run, create Tasks with dependencies, cancel or reopen a Task, finish or cancel a Run. A
@@ -110,6 +112,26 @@ transaction, every status change a guarded `UPDATE` checked against a transition
 - Creating a Run or Tasks can carry an idempotency key: the same caller and key with the same request return the first
   result, with another request it is a conflict. The key is kept as a receipt, as node calls are.
 
+The vault (`internal/controlplane/vault`, issue #66, after Omnara's `internal/secrets`) is the secret store: API keys
+and subscription token sets, encrypted at rest. Its other half, credential Sessions per Dispatch and the node's
+proxy, does not exist yet.
+- A secret has a name, a kind (`generic`: one value; `oauth_token_set`: a refresh token with, optionally, the access
+  and id tokens), metadata that is not secret, and versions. `Rotate` adds a version and points the secret at it;
+  earlier versions stay, encrypted.
+- Each version is sealed as `aes-256-gcm-envelope-v1`: the payload under a data key of its own, the data key under
+  the root key named by `key_id`. Both are bound to the secret's id, the version's id and number, the kind and the
+  names of the payload's entries, so a version edited or moved in the database does not open.
+- The root keys are a keyring from the environment. Without one the vault is not configured: secrets can be listed
+  and deleted, nothing is sealed or opened, and no path stores a value in the clear. A version sealed under a key
+  that is not in the keyring is listed as such and left untouched. `Rewrap` wraps every data key under the active
+  root key without decrypting a value, and changes nothing when one version cannot be unwrapped.
+- `Open` returns a value to callers inside the control plane; nothing calls it yet. No API, coordinator or web
+  package may import the vault (`depguard`), and the owner's commands never print a value.
+- A provider names a secret as `vault:<name>` in its `api_key_ref`; nothing resolves that reference yet. Deleting a
+  secret is refused while a provider names it.
+- The tables `secrets` and `secret_versions` are in the one migration stream and are read and written only by this
+  package, through its own generated queries.
+
 Node API (`internal/controlplane/nodeapi`, protocol in `internal/shared/nodeproto`, after Omnara's daemon protocol):
 - A node registers with `POST /node/v1/hello` and its bearer token. It sends its CLIs, its worktree root and the
   Dispatches it still holds. Each of those is answered `retain` (still its own at that epoch), `reattach` (marked
@@ -148,7 +170,10 @@ The owner's commands:
   - `nodes add <name>` prints the node's token once;
   - `accounts add <runtime> <label>` records an account;
   - `tokens add <name> [--kind owner|coordinator]` prints a client token once; `tokens list` and
-    `tokens revoke <id>`.
+    `tokens revoke <id>`;
+  - `secrets keygen [id]` prints a new root key; `secrets add <name> --from-file FILE|-` (with `--kind` and
+    `--meta key=value`), `secrets list`, `secrets rotate <name> --from-file FILE|-`, `secrets rm <name>` and
+    `secrets rewrap` manage the vault's secrets. A value is read from a file or standard input and never printed.
 - From any machine, over the client API (`internal/controlplane/clientcli`):
   - `login --url URL --token-file FILE` checks the token and keeps both in `~/.hypomnema/client.json` (0600);
   - `run --repo owner/name <objective>` creates a Run with one Task and prints its events (and any question to the
