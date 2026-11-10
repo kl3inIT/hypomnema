@@ -151,3 +151,44 @@ func TestOwnerRotatesANodeTokenAndRemovesTheNode(t *testing.T) {
 	_, err = command(t, cfg, "nodes", "add", "zm")
 	require.NoError(t, err)
 }
+
+// Scenario: the owner makes the web's user on the server. The password comes
+// on standard input and is never printed; a short one is refused; a new
+// password is set the same way, and the list shows the user without it.
+func TestOwnerMakesTheWebsUser(t *testing.T) {
+	t.Parallel()
+
+	cfg := migratedConfig(t)
+
+	run := func(stdin string, args ...string) (string, error) {
+		var out bytes.Buffer
+		err := Command(t.Context(), cfg, args, strings.NewReader(stdin), &out)
+
+		return out.String(), err
+	}
+
+	_, err := run("short\n", "users", "add", "admin")
+	require.ErrorIs(t, err, orchestration.ErrInvalid)
+
+	out, err := run("correct horse\r\n", "users", "add", "admin")
+	require.NoError(t, err)
+	assert.Contains(t, out, "user admin")
+	assert.NotContains(t, out, "correct horse")
+
+	_, err = run("another one\n", "users", "add", "admin")
+	require.ErrorIs(t, err, orchestration.ErrConflict)
+
+	out, err = run("battery staple\n", "users", "passwd", "admin")
+	require.NoError(t, err)
+	assert.Contains(t, out, "every session of theirs has ended")
+
+	_, err = run("battery staple\n", "users", "passwd", "nobody")
+	require.ErrorIs(t, err, orchestration.ErrNotFound)
+
+	out, err = run("", "users", "list")
+	require.NoError(t, err)
+	assert.Regexp(t, `usr_\S+\tadmin\tpassword set `, out)
+
+	_, err = run("", "users", "add")
+	require.ErrorIs(t, err, ErrUsage)
+}

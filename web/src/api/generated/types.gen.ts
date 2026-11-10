@@ -9,9 +9,14 @@ export type Error = {
   message: string;
 };
 
-export type ErrorCode = 'validation_failed' | 'invalid_request' | 'unauthorized' | 'forbidden' | 'not_found' | 'conflict' | 'idempotency_key_conflict' | 'unavailable' | 'request_too_large' | 'internal_error';
+export type ErrorCode = 'validation_failed' | 'invalid_request' | 'unauthorized' | 'forbidden' | 'not_found' | 'conflict' | 'idempotency_key_conflict' | 'unavailable' | 'request_too_large' | 'rate_limited' | 'internal_error';
 
 export type TokenKind = 'owner' | 'coordinator';
+
+export type Credentials = {
+  username: string;
+  password: string;
+};
 
 export type Me = {
   id: string;
@@ -897,6 +902,56 @@ export type GetMeResponses = {
 };
 
 export type GetMeResponse = GetMeResponses[keyof GetMeResponses];
+
+export type DeleteSessionData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/session';
+};
+
+export type DeleteSessionErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type DeleteSessionError = DeleteSessionErrors[keyof DeleteSessionErrors];
+
+export type DeleteSessionResponses = {
+  /**
+   * Signed out.
+   */
+  204: void;
+};
+
+export type DeleteSessionResponse = DeleteSessionResponses[keyof DeleteSessionResponses];
+
+export type CreateSessionData = {
+  body: Credentials;
+  path?: never;
+  query?: never;
+  url: '/session';
+};
+
+export type CreateSessionErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type CreateSessionError = CreateSessionErrors[keyof CreateSessionErrors];
+
+export type CreateSessionResponses = {
+  /**
+   * Signed in.
+   */
+  204: void;
+};
+
+export type CreateSessionResponse = CreateSessionResponses[keyof CreateSessionResponses];
 
 export type ListRunsData = {
   body?: never;

@@ -67,7 +67,7 @@ import (
 
 var errUsage = errors.New("usage: hypomnema migrate | serve | version | " +
 	"nodes add|list|drain|resume|rm|token | machines providers|create | accounts add|login|list|refresh|rm | " +
-	"tokens add|list|revoke | secrets keygen|add|list|rotate|rm|rewrap | gateway models|keys … | login --url URL --token-file FILE | run --repo owner/name <objective> | " +
+	"tokens add|list|revoke | users add|passwd|list | secrets keygen|add|list|rotate|rm|rewrap | gateway models|keys … | login --url URL --token-file FILE | run --repo owner/name <objective> | " +
 	"runs … | tasks … | questions … | whoami | skills get|install | " +
 	"answer <question> <answer> | questions")
 

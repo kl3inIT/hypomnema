@@ -428,3 +428,19 @@ type TaskDep struct {
 	TaskID    string
 	DependsOn string
 }
+
+type User struct {
+	ID           string
+	Name         string
+	PasswordHash string
+	CreatedAt    int64
+	UpdatedAt    int64
+}
+
+type WebSession struct {
+	ID         string
+	UserID     string
+	SecretHash string
+	CreatedAt  int64
+	ExpiresAt  int64
+}
