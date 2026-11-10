@@ -291,4 +291,15 @@ func TestANodePreparesADispatchForItsAccounts(t *testing.T) {
 	assert.Contains(t, brief, `"$HYPOMNEMA_SKILLS/google-workspace/guide.md"`)
 	assert.Contains(t, brief, "gws --account <label>")
 	assert.Empty(t, Brief(nil))
+
+	// A Dispatch given the Lark app gets Lark's script and guide instead; the guide has no references of its
+	// own, since lark-cli carries its guides itself.
+	_, err = ForDispatch(home, "/opt/hypomnema-node", "https://cp.example", []string{"lark:work"}, "the-key")
+	require.NoError(t, err)
+	assert.FileExists(t, filepath.Join(place.Bin(), "lark-cli"))
+
+	guide, err = os.ReadFile(filepath.Join(place.SkillsDir(), "lark", "guide.md"))
+	require.NoError(t, err)
+	assert.Contains(t, string(guide), "Never run `lark-cli auth")
+	assert.Contains(t, Brief([]string{"lark:work"}), `"$HYPOMNEMA_SKILLS/lark/guide.md"`)
 }

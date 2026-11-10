@@ -20,8 +20,11 @@ var Skills embed.FS
 
 // SkillOf names the skill of an Integration.
 func SkillOf(integration string) (string, bool) {
-	if integration == "google" {
+	switch integration {
+	case "google":
 		return "google-workspace", true
+	case "lark":
+		return "lark", true
 	}
 
 	return "", false

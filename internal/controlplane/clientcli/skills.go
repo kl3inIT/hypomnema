@@ -91,6 +91,7 @@ const defaultSkill = "hypomnema-coordinator"
 var releasedStubs = map[string][]string{
 	"hypomnema-coordinator": {"a47e4460588d8d58dfc994b34b6aaf8cad11dd7ec13c9151d9188f2c2d587e2a"},
 	"google-workspace":      {"129a8091fdeb9d028e8b0550625f2efd54c3eb27b38eba618407d68b82fdd894"},
+	"lark":                  {"04115d29ecb6f7c706684dc868052997fe3015a32607711d3e060845b15fb774"},
 }
 
 func skillsGet(_ context.Context, e *env, fset *flag.FlagSet) error {
