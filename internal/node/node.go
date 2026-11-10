@@ -97,6 +97,14 @@ func Configure(home, rawURL, token, worktreeRoot string) error {
 		return errors.New("that does not hold a node token (hyn_…)")
 	}
 
+	// An install over a node that is already there changes where it connects and with what, and nothing else:
+	// what the machine's owner set in its configuration stays, the worktree root too unless another is named.
+	old, oldErr := LoadConfig(home)
+
+	if worktreeRoot == "" && oldErr == nil {
+		worktreeRoot = old.WorktreeRoot
+	}
+
 	if worktreeRoot == "" {
 		worktreeRoot = filepath.Join(home, "worktrees")
 	}
@@ -113,10 +121,12 @@ func Configure(home, rawURL, token, worktreeRoot string) error {
 		return fmt.Errorf("restricting %s: %w", home, err)
 	}
 
-	cfg := Config{URL: strings.TrimSuffix(rawURL, "/"), Token: token, WorktreeRoot: worktreeRoot}
-	if old, err := LoadConfig(home); err == nil {
-		cfg.Accounts = old.Accounts
+	cfg := Config{}
+	if oldErr == nil {
+		cfg = old
 	}
+
+	cfg.URL, cfg.Token, cfg.WorktreeRoot = strings.TrimSuffix(rawURL, "/"), token, worktreeRoot
 
 	return saveConfig(home, cfg)
 }
