@@ -128,6 +128,7 @@ func LarkCLI() Def {
 		release = "https://github.com/larksuite/cli/releases/download/v" + version + "/lark-cli-" + version
 	)
 
+	//nolint:gosec // The names of variables and public addresses; no credential is here.
 	return Def{
 		Integration: "lark", Name: "lark-cli", Version: version,
 		TokenEnv:  "LARKSUITE_CLI_TENANT_ACCESS_TOKEN",

@@ -79,7 +79,6 @@ func newControlPlane(t *testing.T, accounts ...Connection) *controlPlane {
 
 		for _, a := range c.accounts {
 			if a.Label == asked.Label {
-				//nolint:gosec // A made-up token, which is what this stand-in answers with.
 				answer := TokenResponse{
 					AccessToken: "ya29.fresh-for-" + asked.Label, ExpiresAt: time.Now().Add(time.Hour),
 				}
@@ -87,6 +86,7 @@ func newControlPlane(t *testing.T, accounts ...Connection) *controlPlane {
 					answer.ClientID = "cli_a1b2"
 				}
 
+				//nolint:gosec // A made-up token, which is what this stand-in answers with.
 				_ = json.NewEncoder(w).Encode(answer)
 
 				return
