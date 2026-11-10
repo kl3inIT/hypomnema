@@ -163,6 +163,47 @@ func TestNodeStatsKeepTheLatestMeasurement(t *testing.T) {
 	require.ErrorIs(t, w.s.NodeStats(t.Context(), "nod_missing", SystemStats{}), ErrNotFound)
 }
 
+// Scenario: the owner renames a machine. It keeps its id, its token and its
+// place in the list under the new name; the name of another live machine is
+// refused, the name of a removed one is free, and an empty name is refused.
+func TestRenamedNodeKeepsEverythingButItsName(t *testing.T) {
+	t.Parallel()
+
+	s, _, _ := newTestService(t)
+	ctx := t.Context()
+
+	n, token, err := s.AddNode(ctx, "kdlstc-dev", 0)
+	require.NoError(t, err)
+
+	other, _, err := s.AddNode(ctx, "builder", 0)
+	require.NoError(t, err)
+
+	gone, _, err := s.AddNode(ctx, "old-name", 0)
+	require.NoError(t, err)
+	require.NoError(t, s.RemoveNode(ctx, gone.ID))
+
+	renamed, err := s.RenameNode(ctx, n.ID, "  stc-dev  ")
+	require.NoError(t, err)
+	assert.Equal(t, n.ID, renamed.ID)
+	assert.Equal(t, "stc-dev", renamed.Name)
+
+	still, err := s.AuthenticateNode(ctx, token)
+	require.NoError(t, err)
+	assert.Equal(t, "stc-dev", still.Name)
+
+	_, err = s.RenameNode(ctx, n.ID, other.Name)
+	require.ErrorIs(t, err, ErrConflict)
+
+	_, err = s.RenameNode(ctx, n.ID, "old-name")
+	require.NoError(t, err)
+
+	_, err = s.RenameNode(ctx, n.ID, "   ")
+	require.ErrorIs(t, err, ErrInvalid)
+
+	_, err = s.RenameNode(ctx, gone.ID, "back")
+	require.ErrorIs(t, err, ErrNotFound)
+}
+
 // Scenario: a node with two GPUs sends what they measured, then a machine
 // whose GPU went away sends none. The registry shows the GPUs of the latest
 // measurement, none once the node reports none, and refuses a GPU that

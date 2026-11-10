@@ -171,6 +171,20 @@ func (o *owner) nodes(ctx context.Context, args []string) error {
 		o.printf("node %s (%s) %s\n", n.Name, n.ID, done)
 
 		return nil
+	case len(args) == 3 && args[0] == "rename":
+		n, err := o.node(ctx, args[1])
+		if err != nil {
+			return err
+		}
+
+		renamed, err := o.svc.RenameNode(ctx, n.ID, args[2])
+		if err != nil {
+			return err
+		}
+
+		o.printf("node %s (%s) is now %s\n", n.Name, n.ID, renamed.Name)
+
+		return nil
 	case len(args) >= 1 && args[0] == "token":
 		return o.nodeTokens(ctx, args[1:])
 	default:

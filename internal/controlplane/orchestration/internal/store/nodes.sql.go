@@ -715,6 +715,24 @@ func (q *Queries) NodeHello(ctx context.Context, arg NodeHelloParams) (int64, er
 	return result.RowsAffected()
 }
 
+const renameNode = `-- name: RenameNode :execrows
+UPDATE nodes SET updated_at = ?1, name = ?2 WHERE id = ?3 AND status <> 'deleted'
+`
+
+type RenameNodeParams struct {
+	Now  int64
+	Name string
+	ID   string
+}
+
+func (q *Queries) RenameNode(ctx context.Context, arg RenameNodeParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, renameNode, arg.Now, arg.Name, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const resumeNode = `-- name: ResumeNode :execrows
 UPDATE nodes SET updated_at = ?1, status = 'active', unavailable_at = NULL WHERE id = ?2 AND status <> 'deleted'
 `

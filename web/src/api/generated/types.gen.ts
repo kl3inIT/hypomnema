@@ -332,6 +332,10 @@ export type Node = {
   created_at: string;
 };
 
+export type NodeChange = {
+  name: string;
+};
+
 export type NewTerminal = {
   /**
    * The session, a UUID the client makes and keeps. The same id returns to the same shell while the node keeps it: five minutes after the last connection left.
@@ -1606,6 +1610,33 @@ export type RemoveNodeResponses = {
 };
 
 export type RemoveNodeResponse = RemoveNodeResponses[keyof RemoveNodeResponses];
+
+export type UpdateNodeData = {
+  body: NodeChange;
+  path: {
+    node_id: string;
+  };
+  query?: never;
+  url: '/nodes/{node_id}';
+};
+
+export type UpdateNodeErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type UpdateNodeError = UpdateNodeErrors[keyof UpdateNodeErrors];
+
+export type UpdateNodeResponses = {
+  /**
+   * The node.
+   */
+  200: Node;
+};
+
+export type UpdateNodeResponse = UpdateNodeResponses[keyof UpdateNodeResponses];
 
 export type DrainNodeData = {
   body?: never;

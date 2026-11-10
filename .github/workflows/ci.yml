@@ -13,26 +13,107 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  verify:
-    name: Verify
+  # What changed (issue #129, as Coder's `changes` job): a change of documentation alone runs none of the jobs
+  # below. Documentation is pushed straight to main, and ran every check until 2026-11-10.
+  changes:
+    name: Changes
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        id: filter
+        with:
+          # A file counts as code when it is neither under docs/ nor Markdown.
+          predicate-quantifier: every
+          filters: |
+            code:
+              - '!docs/**'
+              - '!**/*.md'
+
+  # The Go checks are three jobs side by side (issue #129): no reference runs them one after another, and the
+  # race tests alone were most of the old Verify job. `make verify` is still the three of them, for a laptop.
+  static:
+    name: Static
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-          cache-dependency-path: |
-            go.sum
-            tools/ci/go.sum
+          cache: false
+      # Each job keeps its own build cache, as Omnara's matrix legs do: what the race detector builds is of no use
+      # to the others, and one shared key would keep only the first job's.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-static-${{ runner.os }}-${{ hashFiles('go.sum', 'tools/ci/go.sum') }}
+          restore-keys: go-static-${{ runner.os }}-
       - name: Fetch main for the migration check
         run: git fetch --no-tags --depth=1 origin main:refs/remotes/origin/main
-      - name: make verify
-        run: make verify
+      - name: make verify-static
+        run: make verify-static
       - name: govulncheck
         run: make govulncheck
 
+  unit:
+    name: Unit
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      # Each job keeps its own build cache, as Omnara's matrix legs do: what the race detector builds is of no use
+      # to the others, and one shared key would keep only the first job's.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-unit-${{ runner.os }}-${{ hashFiles('go.sum', 'tools/ci/go.sum') }}
+          restore-keys: go-unit-${{ runner.os }}-
+      - name: make unit
+        run: make unit
+
+  race:
+    name: Race
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      # Each job keeps its own build cache, as Omnara's matrix legs do: what the race detector builds is of no use
+      # to the others, and one shared key would keep only the first job's.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: go-race-${{ runner.os }}-${{ hashFiles('go.sum', 'tools/ci/go.sum') }}
+          restore-keys: go-race-${{ runner.os }}-
+      - name: make race
+        run: make race
+
   web:
     name: Web
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -74,3 +155,20 @@ jobs:
       - name: make web-e2e
         timeout-minutes: 10
         run: make web-e2e
+
+  # The one check to wait for: it passes when no job failed, the skipped ones of a documentation change
+  # included (Coder's `required`).
+  required:
+    name: Required
+    needs: [changes, static, unit, race, web]
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Every job passed or was skipped
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "results: $RESULTS"
+          case " $RESULTS " in
+            *" failure "*|*" cancelled "*) exit 1 ;;
+          esac

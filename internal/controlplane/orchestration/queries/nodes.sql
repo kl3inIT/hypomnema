@@ -144,3 +144,6 @@ ORDER BY r.created_at, r.id, t.position;
 SELECT count(*) FROM events
 WHERE task_id = @task_id AND kind = 'escalation' AND json_extract(payload, '$.kind') = CAST(@kind AS TEXT)
   AND created_at >= @since;
+
+-- name: RenameNode :execrows
+UPDATE nodes SET updated_at = @now, name = @name WHERE id = @id AND status <> 'deleted';

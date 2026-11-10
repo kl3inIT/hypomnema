@@ -410,6 +410,21 @@ paths:
   /nodes/{node_id}:
     parameters:
       - $ref: "#/components/parameters/NodeID"
+    patch:
+      operationId: UpdateNode
+      summary: Rename a node (owner only); its id, its tokens and what it runs stay
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NodeChange" }
+      responses:
+        "200":
+          description: The node.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Node" }
+        default: { $ref: "#/components/responses/Error" }
     delete:
       operationId: RemoveNode
       summary: Remove a node that runs no Dispatch; its tokens stop working (owner only)
@@ -1511,6 +1526,12 @@ components:
           type: integer
           description: Its Dispatches that have not settled.
         created_at: { type: string, format: date-time }
+    NodeChange:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 64 }
     NewTerminal:
       type: object
       additionalProperties: false

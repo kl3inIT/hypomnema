@@ -269,6 +269,36 @@ func (s *Service) RemoveNode(ctx context.Context, nodeID string) error {
 	})
 }
 
+// maxNodeName bounds a node's name, as the client API does.
+const maxNodeName = 64
+
+// RenameNode gives a node another name. The name of another node that has
+// not been removed is refused; its id, its tokens and what it runs stay.
+func (s *Service) RenameNode(ctx context.Context, nodeID, name string) (Node, error) {
+	name = strings.TrimSpace(name)
+	if name == "" || len(name) > maxNodeName {
+		return Node{}, fmt.Errorf("%w: a node's name is 1 to %d characters", ErrInvalid, maxNodeName)
+	}
+
+	err := s.write(ctx, func(q *store.Queries, now int64) error {
+		n, err := q.RenameNode(ctx, store.RenameNodeParams{Now: now, Name: name, ID: nodeID})
+		if err != nil {
+			return fmt.Errorf("%w: another node is named %q: %w", ErrConflict, name, err)
+		}
+
+		if n != 1 {
+			return fmt.Errorf("%w: node %s", ErrNotFound, nodeID)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return Node{}, fmt.Errorf("renaming a node: %w", err)
+	}
+
+	return s.GetNode(ctx, nodeID)
+}
+
 // AddNodeToken gives a node one more token and returns it with its secret,
 // which is shown only here.
 func (s *Service) AddNodeToken(ctx context.Context, nodeID, name string) (NodeToken, string, error) {

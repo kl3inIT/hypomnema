@@ -524,6 +524,42 @@ test("a machine's menu opens its terminal when it can", async () => {
   )
 })
 
+// Scenario: the owner renames a machine from its menu. The dialog starts from the current name and cannot send it
+// unchanged; a name another machine has is refused in the server's words and the dialog stays; a free name is sent
+// and the dialog closes.
+test("a machine is renamed from its menu", async () => {
+  const user = userEvent.setup()
+  let answer = () => json({ code: "conflict", message: 'another node is named "builder"' }, 409)
+  const requests = nodesServer([node("kdlstc-dev")], { "PATCH /nodes/kdlstc-dev": () => answer() })
+  await open()
+
+  await user.click(await screen.findByRole("button", { name: "Actions for kdlstc-dev" }))
+  await user.click(await screen.findByRole("menuitem", { name: "Rename" }))
+
+  const dialog = await screen.findByRole("dialog")
+  const input = within(dialog).getByLabelText(/Name/)
+  expect(input).toHaveValue("kdlstc-dev")
+  expect(within(dialog).getByRole("button", { name: "Rename" })).toBeDisabled()
+
+  await user.clear(input)
+  await user.type(input, "builder")
+  await user.click(within(dialog).getByRole("button", { name: "Rename" }))
+  expect(await within(dialog).findByRole("alert")).toHaveTextContent(
+    'another node is named "builder"',
+  )
+
+  answer = () => json(node("kdlstc-dev", { name: "stc-dev" }))
+  await user.clear(input)
+  await user.type(input, "stc-dev")
+  await user.click(within(dialog).getByRole("button", { name: "Rename" }))
+
+  await vi.waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+  expect(requests).toEqual([
+    { call: "PATCH /nodes/kdlstc-dev", body: { name: "builder" } },
+    { call: "PATCH /nodes/kdlstc-dev", body: { name: "stc-dev" } },
+  ])
+})
+
 const GiB = 2 ** 30
 const gpu = (index: number, usage: number, usedGiB: number, celsius: number) => ({
   index,

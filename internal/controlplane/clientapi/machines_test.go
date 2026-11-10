@@ -218,6 +218,38 @@ func TestOwnerStopsAndStartsAMachine(t *testing.T) {
 	assert.Equal(t, openapi.Conflict, errorCode(t, none.Body, none.StatusCode(), http.StatusConflict))
 }
 
+// Scenario: the owner renames a machine from the web. The answer is the
+// node under its new name; a coordinator token renames nothing, and a name
+// another machine has is a conflict.
+func TestOnlyTheOwnerRenamesANode(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+	owner, _ := w.token("web", bearertoken.Owner)
+	laptop, _ := w.token("laptop", bearertoken.Coordinator)
+
+	n, _, err := w.svc.AddNode(ctx, "kdlstc-dev", 0)
+	require.NoError(t, err)
+
+	_, _, err = w.svc.AddNode(ctx, "builder", 0)
+	require.NoError(t, err)
+
+	refused, err := laptop.UpdateNodeWithResponse(ctx, n.ID, openapi.NodeChange{Name: "stc-dev"})
+	require.NoError(t, err)
+	assert.Equal(t, openapi.Forbidden, errorCode(t, refused.Body, refused.StatusCode(), http.StatusForbidden))
+
+	renamed, err := owner.UpdateNodeWithResponse(ctx, n.ID, openapi.NodeChange{Name: "stc-dev"})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, renamed.StatusCode(), string(renamed.Body))
+	assert.Equal(t, "stc-dev", renamed.JSON200.Name)
+	assert.Equal(t, n.ID, renamed.JSON200.Id)
+
+	taken, err := owner.UpdateNodeWithResponse(ctx, n.ID, openapi.NodeChange{Name: "builder"})
+	require.NoError(t, err)
+	assert.Equal(t, openapi.Conflict, errorCode(t, taken.Body, taken.StatusCode(), http.StatusConflict))
+}
+
 // Scenario: the Machines page reads a node whose machine has a GPU. The
 // node's stats carry the GPU with its use, memory, temperature and power; a
 // node without a GPU has no list at all.
