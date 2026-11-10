@@ -29,7 +29,8 @@ its arguments and result (at most 16 KiB). Text as pi writes it, tools starting 
 the chat's watchers from memory only and are never stored; `abort` stops pi's turn. On
 the server pi runs as the `coordinator` user through `deploy/coordinator/`: a root-owned launcher (`hypomnema-pi`,
 a clean environment, only a chat id and model flags), one sudoers rule limited to it, pi's instructions, a
-`models.json` whose key is read from a 0600 file, pi's version with its lockfile (`package.json`, which Dependabot
+`models.json` that names the model gateway (`/v1` of the control plane) and reads pi's gateway key from a 0600
+file, pi's version with its lockfile (`package.json`, which Dependabot
 updates; the setup installs it with `npm ci`), and the setup script the owner runs with sudo.
 Logs are JSON on stdout; `serve` stops on SIGINT or SIGTERM and lets requests in flight finish. `/readyz` answers 503
 with `Retry-After` while the database does not answer.
@@ -416,6 +417,10 @@ Since 2026-11-09, on the owner's tailnet (Tailscale); nothing is public:
   listening on `127.0.0.1:18990`. Tailscale runs without root (userspace networking, tmux `hyp-ts`, state in
   `~/hypomnema-cp/tailscale`) and `tailscale serve` publishes it to the tailnet as
   `https://hypomnema.taild3b6dc.ts.net`.
+- Model gateway, since 2026-11-10: the vault's root key is in `~/hypomnema-cp/env`; the secret `ninerouter` holds
+  the key of 9router, which runs on the same machine and serves the owner's Codex subscription; provider
+  `ninerouter` names it as `vault:ninerouter`; the gateway serves the model `gpt-6.1-sol` from it. pi calls the
+  gateway with its own key (provider `gateway`, profile `coordinator`), no longer 9router itself.
 - Node: aioffice-app, user `hypnode`, `~/bin/hypomnema-node`, tmux session `hyp-node`, pointed at that URL; the
   machine joined the tailnet as `aioffice-node`. The earlier control plane there (`~ubuntu/hypomnema-cp`) is
   stopped and kept for rollback.
