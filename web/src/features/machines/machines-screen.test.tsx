@@ -520,3 +520,68 @@ test("a machine's menu opens its terminal when it can", async () => {
     "The machine is not connected.",
   )
 })
+
+const GiB = 2 ** 30
+const gpu = (index: number, usage: number, usedGiB: number, celsius: number) => ({
+  index,
+  name: "NVIDIA RTX 4090",
+  usage_percent: usage,
+  memory_used_bytes: usedGiB * GiB,
+  memory_total_bytes: 24 * GiB,
+  temperature_celsius: celsius,
+  power_watts: 312,
+})
+
+// Scenario: one machine serves models on two GPUs and another has none. The GPU machine's card shows each GPU's
+// use, memory and temperature with the same meters as the CPU; the other machine's card has no GPU rows at all.
+// The table has the GPU columns because one machine has a GPU, with a dash for the machine that has none.
+test("a machine with GPUs shows each one, and a machine without has no GPU rows", async () => {
+  const user = userEvent.setup()
+  nodesServer([
+    node("serving", {
+      stats: { ...used(4, 50)!, gpus: [gpu(0, 87, 22.2, 74), gpu(1, 3, 0.6, 41)] },
+    }),
+    node("plain"),
+  ])
+  await open()
+
+  const serving = await machine("serving")
+  expect(within(serving).getByRole("meter", { name: "GPU 0" })).toHaveAttribute(
+    "aria-valuenow",
+    "87",
+  )
+  expect(within(serving).getByRole("meter", { name: "GPU 0" })).toHaveAttribute("data-tone", "warn")
+  expect(within(serving).getByRole("meter", { name: "GPU 0" })).toHaveAttribute(
+    "title",
+    "NVIDIA RTX 4090 · 312 W",
+  )
+  expect(within(serving).getByRole("meter", { name: "GPU 0 memory" })).toHaveAttribute(
+    "data-tone",
+    "crit",
+  )
+  expect(within(serving).getByRole("meter", { name: "GPU 0 memory" })).toHaveAttribute(
+    "title",
+    "22.2 GiB of 24.0 GiB",
+  )
+  expect(within(serving).getByRole("meter", { name: "GPU 1" })).toHaveAttribute("data-tone", "good")
+  expect(serving).toHaveTextContent("74 °C")
+
+  const plain = await machine("plain")
+  expect(plain).not.toHaveTextContent("GPU")
+  expect(within(plain).queryByRole("meter", { name: /GPU/ })).toBeNull()
+
+  await user.click(screen.getByRole("button", { name: "table" }))
+  expect(await screen.findByRole("columnheader", { name: "GPU" })).toBeVisible()
+  expect(screen.getByRole("columnheader", { name: "GPU Mem" })).toBeVisible()
+})
+
+// Scenario: no machine has a GPU. The table has no GPU columns, so nothing is spent on a column of dashes.
+test("the table has no GPU columns when no machine has a GPU", async () => {
+  const user = userEvent.setup()
+  nodesServer([node("plain"), node("other")])
+  await open()
+
+  await user.click(await screen.findByRole("button", { name: "table" }))
+  await screen.findByRole("columnheader", { name: "CPU" })
+  expect(screen.queryByRole("columnheader", { name: "GPU" })).toBeNull()
+})

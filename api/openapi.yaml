@@ -1662,7 +1662,25 @@ components:
         load1:
           type: number
           description: The one-minute load average; zero where the system has none.
+        gpus:
+          type: array
+          description: The machine's GPUs, by index. Left out for a machine that has none or whose node reads none.
+          items: { $ref: "#/components/schemas/NodeGPU" }
         at: { type: string, format: date-time }
+    NodeGPU:
+      type: object
+      description: One GPU's latest measurement, as Beszel's GPUData.
+      required: [index, name, usage_percent, memory_used_bytes, memory_total_bytes]
+      properties:
+        index: { type: integer }
+        name: { type: string }
+        usage_percent:
+          type: number
+          description: How busy the GPU is, 0 to 100.
+        memory_used_bytes: { type: integer, format: int64 }
+        memory_total_bytes: { type: integer, format: int64 }
+        temperature_celsius: { type: number }
+        power_watts: { type: number }
     GitHostKind:
       type: string
       enum: [github, gitlab]

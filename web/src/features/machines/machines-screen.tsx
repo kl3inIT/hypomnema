@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils"
 import { AddMachine } from "./add-machine"
 import { RemoveMachine } from "./machine-actions"
 import { IndicatorDot, MachineProblem, StateText } from "./machine-cells"
-import { columns } from "./machines-columns"
+import { columns, shownColumns } from "./machines-columns"
 import { errorText, machineNote, machineState, summary } from "./machines-state"
 import { useMachinePower, useMachines } from "./use-machines"
 
@@ -95,6 +95,8 @@ export function MachinesScreen() {
 
 // MachinesTable is Beszel's AllSystemsTable: it scrolls inside its box.
 function MachinesTable({ nodes }: { nodes: Node[] }) {
+  const columns = shownColumns(nodes)
+
   return (
     <div className="relative max-w-full overflow-auto rounded-lg border">
       <table className="w-full text-sm">
@@ -130,7 +132,9 @@ function MachinesTable({ nodes }: { nodes: Node[] }) {
                   key={column.id}
                   className={cn(
                     "h-14 px-3 py-0",
-                    ["cpu", "memory", "disk"].includes(column.id) && "min-w-32",
+                    ["cpu", "memory", "disk", "gpu", "gpu_memory"].includes(column.id) &&
+                      "min-w-32",
+                    column.id === "gpu" && "min-w-44",
                   )}
                 >
                   {column.cell(node)}
@@ -221,6 +225,7 @@ function Measurements({ node }: { node: Node }) {
       >
         {columns.map((column) => {
           if (column.id === "machine" || column.id === "actions") return null
+          if (column.has && !column.has(node)) return null
 
           return (
             <div key={column.id} className="col-span-3 grid grid-cols-subgrid items-center">
