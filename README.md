@@ -30,6 +30,14 @@ To let your own agent (Claude Code, Codex or pi) coordinate workers, log in with
 `hypomnema skills install`. It installs the coordinator skill into `~/.claude/skills` and `~/.agents/skills`; then
 ask the agent to give the work to Hypomnema workers.
 
+## The web client
+
+The control plane serves the web client at its own URL, the one the CLI logs in to. Open it in a browser and paste an
+owner token to sign in.
+
+`/board` shows the Tasks in flight in three columns: Needs you, Working and Done. `/runs` lists the Runs. A Task opens
+to its question, its result and the worker's transcript.
+
 ## Setting up a node machine
 
 A node runs the workers. Do this on the machine that will run them, with the control plane already serving.
