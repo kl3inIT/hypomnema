@@ -363,6 +363,13 @@ type Secret struct {
 	LoginRequiredAt  sql.NullInt64
 }
 
+type SecretRead struct {
+	ID        int64
+	Secret    string
+	TokenID   string
+	CreatedAt int64
+}
+
 type SecretRefreshLease struct {
 	SecretID          string
 	OwnerToken        string

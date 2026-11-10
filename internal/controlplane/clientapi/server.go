@@ -53,6 +53,8 @@ type Server struct {
 	machines Machines
 	// hostTokens keeps git hosts' tokens; nil when the control plane wired none.
 	hostTokens HostTokens
+	// secrets is how the owner reaches the vault; nil when the control plane wired none.
+	secrets Secrets
 }
 
 // HostTokens is how the API has a Connection's token kept (issue #103). The

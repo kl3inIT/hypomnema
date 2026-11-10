@@ -47,6 +47,15 @@ SELECT * FROM connections ORDER BY integration, created_at, label;
 -- name: ListConnectionsOf :many
 SELECT * FROM connections WHERE integration = @integration ORDER BY created_at, label;
 
+-- name: InsertSecretRead :exec
+INSERT INTO secret_reads (secret, token_id, created_at) VALUES (@secret, @token_id, @now);
+
+-- name: ListSecretReads :many
+SELECT * FROM secret_reads WHERE secret = @secret ORDER BY id DESC LIMIT @lim;
+
+-- name: ListConnectionsBySecret :many
+SELECT * FROM connections WHERE secret = @secret ORDER BY integration, label;
+
 -- name: DeleteConnection :execrows
 DELETE FROM connections WHERE integration = @integration AND label = @label;
 

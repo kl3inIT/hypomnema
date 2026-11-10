@@ -453,6 +453,59 @@ export type GitHostList = {
   data: Array<GitHost>;
 };
 
+/**
+ * A secret of the vault, without its value.
+ */
+export type Secret = {
+  name: string;
+  /**
+   * generic (one value) or oauth_token_set (a refresh token and what was issued for it).
+   */
+  kind: string;
+  /**
+   * Counts from 1 and grows each time the value is replaced.
+   */
+  version: number;
+  /**
+   * Not secret; what helps to recognize the secret.
+   */
+  metadata?: {
+    [key: string]: string;
+  };
+  /**
+   * What refers to the secret, such as "provider openai" or "connection github.com:work".
+   */
+  used_by: Array<string>;
+  /**
+   * The root key it is sealed under is not in the keyring, so it cannot be read.
+   */
+  key_missing: boolean;
+  /**
+   * A token set whose refresh token was refused for good.
+   */
+  login_required: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type SecretList = {
+  data: Array<Secret>;
+};
+
+export type SecretValue = {
+  name: string;
+  /**
+   * The secret's values by key; a generic secret has one, under "value".
+   */
+  values: {
+    [key: string]: string;
+  };
+};
+
+export type NewSecretValue = {
+  value: string;
+};
+
 export type NewGitHost = {
   kind: GitHostKind;
 };
@@ -1597,6 +1650,112 @@ export type PutGitHostConnectionResponses = {
 };
 
 export type PutGitHostConnectionResponse = PutGitHostConnectionResponses[keyof PutGitHostConnectionResponses];
+
+export type ListSecretsData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/secrets';
+};
+
+export type ListSecretsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListSecretsError = ListSecretsErrors[keyof ListSecretsErrors];
+
+export type ListSecretsResponses = {
+  /**
+   * The secrets.
+   */
+  200: SecretList;
+};
+
+export type ListSecretsResponse = ListSecretsResponses[keyof ListSecretsResponses];
+
+export type DeleteSecretData = {
+  body?: never;
+  path: {
+    name: string;
+  };
+  query?: never;
+  url: '/secrets/{name}';
+};
+
+export type DeleteSecretErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type DeleteSecretError = DeleteSecretErrors[keyof DeleteSecretErrors];
+
+export type DeleteSecretResponses = {
+  /**
+   * The secret is removed.
+   */
+  204: void;
+};
+
+export type DeleteSecretResponse = DeleteSecretResponses[keyof DeleteSecretResponses];
+
+export type PutSecretData = {
+  body: NewSecretValue;
+  path: {
+    name: string;
+  };
+  query?: never;
+  url: '/secrets/{name}';
+};
+
+export type PutSecretErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type PutSecretError = PutSecretErrors[keyof PutSecretErrors];
+
+export type PutSecretResponses = {
+  /**
+   * The secret, without its value.
+   */
+  200: Secret;
+};
+
+export type PutSecretResponse = PutSecretResponses[keyof PutSecretResponses];
+
+export type GetSecretValueData = {
+  body?: never;
+  path: {
+    name: string;
+  };
+  query?: never;
+  url: '/secrets/{name}/value';
+};
+
+export type GetSecretValueErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GetSecretValueError = GetSecretValueErrors[keyof GetSecretValueErrors];
+
+export type GetSecretValueResponses = {
+  /**
+   * The value.
+   */
+  200: SecretValue;
+};
+
+export type GetSecretValueResponse = GetSecretValueResponses[keyof GetSecretValueResponses];
 
 export type ListReposData = {
   body?: never;
