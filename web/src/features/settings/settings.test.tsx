@@ -9,7 +9,7 @@ import { render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, expect, test, vi } from "vitest"
 
-import type { GitHost, Repo } from "@/api/generated/types.gen"
+import type { GitHost, Integration, Repo } from "@/api/generated/types.gen"
 
 import { IntegrationsScreen } from "./integrations-screen"
 import { RepositoriesScreen } from "./repositories-screen"
@@ -37,9 +37,15 @@ const known = (host: string, kind: GitHost["kind"], has_token = false): GitHost 
 
 // The server: the hosts and repositories it has now. A changing request is kept and applied, so that what the
 // page shows next is what the server says, not what the page assumed. refuse names requests it turns down.
-function server(start: { hosts?: GitHost[]; repos?: Repo[] }, refuse: Record<string, string> = {}) {
+function server(
+  start: { hosts?: GitHost[]; repos?: Repo[]; services?: Integration[] },
+  refuse: Record<string, string> = {},
+) {
   let hosts = start.hosts ?? [known("github.com", "github"), known("gitlab.com", "gitlab")]
   let repos = start.repos ?? []
+  let services = start.services ?? []
+  // The sign-in the owner started and has not completed: its label and what it asked for.
+  let signIn: { label: string; services: string[] } | undefined
   const requests: { call: string; body: unknown }[] = []
 
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
@@ -48,6 +54,7 @@ function server(start: { hosts?: GitHost[]; repos?: Repo[] }, refuse: Record<str
     const call = `${request.method} ${path}`
     if (call === "GET /hosts") return json({ data: hosts })
     if (call === "GET /repos") return json({ data: repos })
+    if (call === "GET /integrations") return json({ data: services })
 
     const body = (await request
       .clone()
@@ -58,6 +65,46 @@ function server(start: { hosts?: GitHost[]; repos?: Repo[] }, refuse: Record<str
     if (refuse[call]) return json({ code: "invalid", message: refuse[call] }, 422)
 
     const [, kind, name, sub] = path.split("/")
+    if (kind === "integrations" && sub === "sign-ins") {
+      const asked = body as unknown as { label: string; services: string[]; callback: string }
+      if (path.endsWith("/sign-ins")) {
+        signIn = { label: asked.label, services: asked.services }
+
+        return json({
+          id: "signin-1",
+          url: "https://accounts.example/auth",
+          expires_in_seconds: 1800,
+        })
+      }
+
+      const now = new Date().toISOString()
+      const connection = {
+        integration: name ?? "",
+        label: signIn?.label ?? "",
+        account: "owner@example.com",
+        services: signIn?.services ?? [],
+        sign_in_required: false,
+        created_at: now,
+        updated_at: now,
+      }
+      services = services.map((i) => ({
+        ...i,
+        connections: [...i.connections.filter((c) => c.label !== connection.label), connection],
+      }))
+
+      return json(connection)
+    }
+
+    if (kind === "integrations" && sub === "connections") {
+      const label = path.split("/")[4]
+      services = services.map((i) => ({
+        ...i,
+        connections: i.connections.filter((c) => c.label !== label),
+      }))
+
+      return json({ revoked: true })
+    }
+
     if (kind === "hosts" && name) {
       const found = hosts.find((h) => h.host === name)
       if (sub === "token") {
@@ -120,6 +167,8 @@ async function open(Screen: () => React.JSX.Element, heading: string) {
   )
   await screen.findByRole("heading", { name: heading })
 }
+
+const cardOf = (title: HTMLElement) => title.closest<HTMLElement>("[data-testid=integration-card]")!
 
 // card is the card whose title is exactly name.
 const card = (name: string) =>
@@ -276,6 +325,126 @@ test("the owner registers a repository under a name and removes it", async () =>
     },
     { call: "DELETE /repos/shop", body: undefined },
   ])
+})
+
+const google = (over: Partial<Integration> = {}): Integration => ({
+  id: "google",
+  name: "Google",
+  client_id: "1234.apps.example",
+  services: ["gmail", "calendar", "drive"],
+  connections: [],
+  ...over,
+})
+
+// Scenario: Google has its OAuth client and no account yet. The owner adds his work account: he names it, lets
+// Gmail only be read and leaves Drive out, opens Google's page from the link, and pastes back the address the
+// browser ended on. The account then shows with its email and what it may do. He then disconnects it, after
+// being told what that does.
+test("the owner signs a Google account in and disconnects it", async () => {
+  const user = userEvent.setup()
+  const requests = server({ services: [google()] })
+  await open(IntegrationsScreen, "Integrations")
+
+  const card = async () => within(await screen.findByText("Google").then(cardOf))
+  expect((await card()).getByText("No account")).toBeInTheDocument()
+
+  await user.click((await card()).getByRole("button", { name: "Add account" }))
+  const dialog = within(await screen.findByRole("dialog"))
+
+  // A name the server would refuse is caught before a sign-in is started.
+  await user.type(dialog.getByLabelText("Name"), "My Work")
+  await user.click(dialog.getByRole("button", { name: "Continue" }))
+  expect(await dialog.findByRole("alert")).toHaveTextContent(
+    "Lower-case letters, digits and dashes",
+  )
+  expect(requests).toEqual([])
+
+  await user.clear(dialog.getByLabelText("Name"))
+  await user.type(dialog.getByLabelText("Name"), "work")
+  await user.selectOptions(dialog.getByLabelText("Gmail"), "Read only")
+  await user.selectOptions(dialog.getByLabelText("Drive"), "Not connected")
+  await user.click(dialog.getByRole("button", { name: "Continue" }))
+
+  expect(await dialog.findByRole("link", { name: /Open Google's sign-in page/ })).toHaveAttribute(
+    "href",
+    "https://accounts.example/auth",
+  )
+  await user.type(
+    dialog.getByLabelText("Address the browser ended on"),
+    "http://localhost:1/?state=s&code=c",
+  )
+  await user.click(dialog.getByRole("button", { name: "Connect" }))
+  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
+
+  const account = within(await screen.findByLabelText("Google account work"))
+  expect(account.getByText("owner@example.com")).toBeInTheDocument()
+  expect(account.getByText("Gmail · read only")).toBeInTheDocument()
+  expect(account.getByText("Calendar")).toBeInTheDocument()
+  expect(account.queryByText("Drive")).not.toBeInTheDocument()
+  expect((await card()).getByText("Connected")).toBeInTheDocument()
+
+  await user.click(account.getByRole("button", { name: "Disconnect work" }))
+  const confirm = within(await screen.findByRole("alertdialog"))
+  expect(confirm.getByText(/asked to end Hypomnema's access/)).toBeInTheDocument()
+  await user.click(confirm.getByRole("button", { name: "Disconnect" }))
+  expect(await (await card()).findByText("No account")).toBeInTheDocument()
+
+  expect(requests).toEqual([
+    {
+      call: "POST /integrations/google/sign-ins",
+      body: { label: "work", services: ["gmail:read", "calendar"] },
+    },
+    {
+      call: "POST /integrations/google/sign-ins/signin-1",
+      body: { callback: "http://localhost:1/?state=s&code=c" },
+    },
+    { call: "DELETE /integrations/google/connections/work", body: undefined },
+  ])
+})
+
+// Scenario: Google has no OAuth client yet: the card says how to give one, and offers no sign-in. An account
+// whose sign-in Google refused says so, and is signed in again under its own name with the access it had.
+test("a service says what it still needs", async () => {
+  const user = userEvent.setup()
+  const now = new Date().toISOString()
+  server({ services: [google({ client_id: undefined })] })
+  await open(IntegrationsScreen, "Integrations")
+
+  const bare = within(await screen.findByText("Google").then(cardOf))
+  expect(bare.getByText("Not set up")).toBeInTheDocument()
+  expect(bare.getByText(/integrations client set google/)).toBeInTheDocument()
+  expect(bare.queryByRole("button", { name: "Add account" })).not.toBeInTheDocument()
+
+  vi.restoreAllMocks()
+  vi.spyOn(window, "scrollTo").mockImplementation(() => {})
+  document.body.innerHTML = ""
+  server({
+    services: [
+      google({
+        connections: [
+          {
+            integration: "google",
+            label: "work",
+            account: "owner@example.com",
+            services: ["gmail:read"],
+            sign_in_required: true,
+            created_at: now,
+            updated_at: now,
+          },
+        ],
+      }),
+    ],
+  })
+  await open(IntegrationsScreen, "Integrations")
+
+  const account = within(await screen.findByLabelText("Google account work"))
+  expect(account.getByText("Needs sign-in")).toBeInTheDocument()
+
+  await user.click(account.getByRole("button", { name: "Sign in again" }))
+  const dialog = within(await screen.findByRole("dialog"))
+  expect(dialog.queryByLabelText("Name")).not.toBeInTheDocument()
+  expect(dialog.getByLabelText("Gmail")).toHaveValue("read")
+  expect(dialog.getByLabelText("Calendar")).toHaveValue("none")
 })
 
 test("a host and a name are read from what was typed or pasted", () => {

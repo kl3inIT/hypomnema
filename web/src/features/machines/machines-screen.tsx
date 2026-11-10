@@ -1,7 +1,8 @@
-import { useState } from "react"
+import { useState, type ReactNode } from "react"
 
 import type { Node } from "@/api/generated/types.gen"
 import { Button } from "@/components/ui/button"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { PageHeader } from "@/features/shell/app-shell"
 import { since } from "@/lib/time"
 import { cn } from "@/lib/utils"
@@ -9,7 +10,7 @@ import { cn } from "@/lib/utils"
 import { AddMachine } from "./add-machine"
 import { RemoveMachine } from "./machine-actions"
 import { IndicatorDot, MachineProblem, StateText } from "./machine-cells"
-import { columns } from "./machines-columns"
+import { columns, type Column } from "./machines-columns"
 import { errorText, machineNote, machineState, summary } from "./machines-state"
 import { useMachinePower, useMachines } from "./use-machines"
 
@@ -111,7 +112,7 @@ function MachinesTable({ nodes }: { nodes: Node[] }) {
                 ) : (
                   <span className="flex items-center gap-2">
                     {column.Icon && <column.Icon className="size-4" aria-hidden />}
-                    {column.name}
+                    <Hinted column={column}>{column.name}</Hinted>
                   </span>
                 )}
               </th>
@@ -211,6 +212,20 @@ function NotReady({ node, note }: { node: Node; note: string }) {
   )
 }
 
+// Hinted is a column's name that says what the column measures when pointed at (owner, 2026-11-10).
+function Hinted({ column, children }: { column: Column; children: ReactNode }) {
+  if (!column.hint) return children
+
+  return (
+    <Tooltip>
+      <TooltipTrigger render={<span className="cursor-help" />}>{children}</TooltipTrigger>
+      <TooltipContent>
+        <span className="block max-w-64 text-pretty">{column.hint}</span>
+      </TooltipContent>
+    </Tooltip>
+  )
+}
+
 // Measurements is the card's rows: one a column, with its icon, its name and its value.
 function Measurements({ node }: { node: Node }) {
   return (
@@ -229,7 +244,9 @@ function Measurements({ node }: { node: Node }) {
                   <column.Icon className="size-4 text-muted-foreground" aria-hidden />
                 )}
               </span>
-              <dt className="pe-3 text-muted-foreground">{column.name}:</dt>
+              <dt className="pe-3 text-muted-foreground">
+                <Hinted column={column}>{column.name}:</Hinted>
+              </dt>
               <dd className="flex min-w-0 items-center">{column.cell(node)}</dd>
             </div>
           )

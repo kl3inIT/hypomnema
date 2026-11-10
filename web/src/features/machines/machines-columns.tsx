@@ -15,8 +15,8 @@ import type { ReactNode } from "react"
 import type { Node } from "@/api/generated/types.gen"
 import { MachineActions } from "./machine-actions"
 import { IndicatorDot, LoadDot, MachineProblem, Meter, StateText } from "./machine-cells"
+import { RuntimeList } from "./runtime-list"
 import { diskPercent, loadPercent, memoryPercent, usedOfTotal } from "./machines-state"
-import { RuntimeMark } from "@/features/board/runtime-mark"
 
 // The columns of the Machines page, after Beszel's systems-table (MIT, Copyright (c) 2024 henrygd,
 // https://github.com/henrygd/beszel; internal/site/src/components/systems-table/systems-table-columns.tsx): one
@@ -28,6 +28,8 @@ import { RuntimeMark } from "@/features/board/runtime-mark"
 export type Column = {
   id: string
   name: string
+  // hint says what the column measures, for whoever points at its name.
+  hint?: string
   Icon?: LucideIcon
   cell: (node: Node) => ReactNode
 }
@@ -53,6 +55,7 @@ export const columns: Column[] = [
   {
     id: "cpu",
     name: "CPU",
+    hint: "The share of all CPUs in use since the last heartbeat.",
     Icon: Cpu,
     cell: (node) =>
       node.stats ? (
@@ -64,6 +67,7 @@ export const columns: Column[] = [
   {
     id: "memory",
     name: "Memory",
+    hint: "Memory in use, of the machine's total.",
     Icon: MemoryStick,
     cell: (node) => {
       const value = memoryPercent(node)
@@ -82,6 +86,7 @@ export const columns: Column[] = [
   {
     id: "disk",
     name: "Disk",
+    hint: "Space used on the volume that holds the worktrees.",
     Icon: HardDrive,
     cell: (node) => {
       const value = diskPercent(node)
@@ -100,6 +105,7 @@ export const columns: Column[] = [
   {
     id: "load",
     name: "Load Avg",
+    hint: "The one-minute load average: how many processes are running or waiting for a CPU. Its colour compares it with the number of CPUs.",
     Icon: Hourglass,
     cell: (node) => {
       const load = loadPercent(node)
@@ -116,6 +122,7 @@ export const columns: Column[] = [
   {
     id: "dispatches",
     name: "Dispatches",
+    hint: "Work running on this machine now, of the most it takes at once.",
     Icon: ListChecks,
     cell: (node) => (
       <span className="whitespace-nowrap tabular-nums">
@@ -126,28 +133,14 @@ export const columns: Column[] = [
   {
     id: "runtimes",
     name: "Runtimes",
+    hint: "The agent CLIs found on this machine. Work for a runtime goes only to a machine that has it.",
     Icon: Bot,
-    cell: (node) =>
-      node.runtimes.length > 0 ? (
-        // Each runtime with its mark, as the board shows a worker's runtime (owner, 2026-11-10).
-        <span
-          className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1"
-          title={node.runtimes.map((r) => `${r.runtime} ${r.version}`.trim()).join(", ")}
-        >
-          {node.runtimes.map((r) => (
-            <span key={r.runtime} className="inline-flex items-center gap-1.5 whitespace-nowrap">
-              <RuntimeMark runtime={r.runtime} />
-              {r.runtime}
-            </span>
-          ))}
-        </span>
-      ) : (
-        none
-      ),
+    cell: (node) => (node.runtimes.length > 0 ? <RuntimeList runtimes={node.runtimes} /> : none),
   },
   {
     id: "agent",
     name: "Agent",
+    hint: "The version of the Hypomnema node running on this machine, and its system.",
     Icon: Wifi,
     cell: (node) => {
       const { daemon_version, os, arch } = node.system ?? {}
@@ -160,6 +153,7 @@ export const columns: Column[] = [
   {
     id: "source",
     name: "Source",
+    hint: "Your own machine, or one created at a provider.",
     Icon: Cloud,
     cell: (node) =>
       node.machine ? (

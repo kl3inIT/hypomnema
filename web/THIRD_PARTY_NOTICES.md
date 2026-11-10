@@ -9,9 +9,9 @@ Each adapted file names its source.
 - The Machines page's cards, table, meters and actions menu (`src/features/machines`) are adapted from Beszel
   (https://github.com/henrygd/beszel, internal/site/src/components/systems-table), MIT.
 - GitHub's mark (`src/components/icons/brand-icons.tsx`) is the path Orca uses
-  (src/renderer/src/components/icons/GitHubIcon.tsx), MIT. GitLab's mark there is the path Omnigent uses
-  (web/src/components/icons/GitLabIcon.tsx), Apache License 2.0, which takes it from devicon
-  (https://github.com/devicons/devicon, icons/gitlab/gitlab-original.svg), MIT.
+  (src/renderer/src/components/icons/GitHubIcon.tsx), MIT. The marks of GitLab, Google, Gmail, Google Calendar,
+  Google Drive and Google Docs there are copied from Onyx (https://github.com/onyx-dot-app/onyx,
+  web/lib/opal/src/logos), MIT, Copyright (c) 2023-present DanswerAI, Inc. Each mark belongs to its brand.
 - The runtime marks (Claude, Codex, pi) are copied from OpenMausBot (https://github.com/milind-soni/OpenMausBot,
   src/components/ProviderIcons.tsx), Apache License 2.0.
 - The titles of a worker's tool calls and the line that says a group of them

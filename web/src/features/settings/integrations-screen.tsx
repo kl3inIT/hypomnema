@@ -37,15 +37,25 @@ import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
 import { Spinner } from "@/components/ui/spinner"
 
+import { ServiceCard } from "./service-cards"
 import { ConfirmDialog, ErrorAlert, TextField } from "./settings-parts"
 import { SettingsPage } from "./settings-shell"
-import { hostName, hostOf, hostsKey, kindName, tokenHelp, useHosts } from "./use-integrations"
+import {
+  hostName,
+  hostOf,
+  hostsKey,
+  kindName,
+  tokenHelp,
+  useHosts,
+  useServices,
+} from "./use-integrations"
 
 // IntegrationsScreen is where the owner connects the services Hypomnema works with. Today those are the git hosts
 // workers push to and open pull requests on; a task tracker would be a second group, as Orca's Integrations pane
 // has "Review providers" and "Task providers" (src/renderer/src/components/settings/integrations/IntegrationsPane.tsx).
 export function IntegrationsScreen() {
   const hosts = useHosts()
+  const services = useServices()
 
   return (
     <SettingsPage
@@ -53,6 +63,20 @@ export function IntegrationsScreen() {
       description="The services Hypomnema works with, and the access it has to each."
       actions={<AddHost />}
     >
+      <section aria-labelledby="services" className="flex flex-col gap-3">
+        <div className="flex flex-col gap-1">
+          <h2 id="services" className="text-sm font-semibold text-foreground">
+            Services
+          </h2>
+          <p className="text-xs text-muted-foreground">
+            Accounts you sign in, for agents to work with on your behalf.
+          </p>
+        </div>
+        <ErrorAlert error={services.error} />
+        {services.data?.map((service) => (
+          <ServiceCard key={service.id} service={service} />
+        ))}
+      </section>
       <section aria-labelledby="git-hosts" className="flex flex-col gap-3">
         <div className="flex flex-col gap-1">
           <h2 id="git-hosts" className="text-sm font-semibold text-foreground">

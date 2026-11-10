@@ -5,6 +5,8 @@ import { createRoot } from "react-dom/client"
 
 import "./index.css"
 import { ThemeProvider } from "@/components/theme-provider"
+import { Toaster } from "@/components/ui/toast"
+import { TooltipProvider } from "@/components/ui/tooltip"
 import { router } from "@/router"
 
 const queryClient = new QueryClient()
@@ -18,7 +20,11 @@ createRoot(root).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <ThemeProvider defaultTheme="dark">
-        <RouterProvider router={router} />
+        {/* One provider for every tooltip, and the place toasts show, for any screen that needs them. */}
+        <TooltipProvider delay={300}>
+          <RouterProvider router={router} />
+          <Toaster />
+        </TooltipProvider>
       </ThemeProvider>
     </QueryClientProvider>
   </StrictMode>,

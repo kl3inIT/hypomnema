@@ -57,6 +57,8 @@ import {
   TableRow,
 } from "@/components/ui/table"
 
+import { cn } from "@/lib/utils"
+
 import { ConfirmDialog, ErrorAlert, TextField } from "./settings-parts"
 import { SettingsPage } from "./settings-shell"
 import { errorText } from "./use-integrations"
@@ -357,8 +359,10 @@ function ValueCell({ secret }: { secret: Secret }) {
     )
   }
 
+  // One line a value, as Infisical keeps a row's value on its line (SecretEditTableRow.tsx: `truncate`): a long
+  // one is cut with its whole text in its title, and is copied whole. A token set names each value before it.
   return (
-    <span className="flex min-w-48 flex-col gap-1.5 font-mono whitespace-normal">
+    <span className="grid max-w-md grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1">
       {entries.map(([key, text]) => (
         <SecretValue key={key} label={entries.length > 1 ? key : undefined} value={text} />
       ))}
@@ -366,7 +370,8 @@ function ValueCell({ secret }: { secret: Secret }) {
   )
 }
 
-// SecretValue is one revealed value with a button that copies it.
+// SecretValue is one revealed value on its line: its key when the secret has several, the value, and a button
+// that copies it.
 function SecretValue({ label, value }: { label?: string; value: string }) {
   const [copied, setCopied] = useState(false)
 
@@ -380,13 +385,15 @@ function SecretValue({ label, value }: { label?: string; value: string }) {
   }
 
   return (
-    <span className="flex items-start gap-1.5">
-      <span className="min-w-0 flex-1">
-        {label && <span className="block font-sans text-xs text-muted-foreground">{label}</span>}
-        <output aria-label={label ?? "value"} className="block break-all whitespace-pre-wrap">
-          {value}
-        </output>
-      </span>
+    <>
+      {label && <span className="text-xs text-muted-foreground">{label}</span>}
+      <output
+        aria-label={label ?? "value"}
+        title={value}
+        className={cn("truncate font-mono", !label && "col-span-2")}
+      >
+        {value}
+      </output>
       <Button
         variant="ghost"
         size="icon-xs"
@@ -395,7 +402,7 @@ function SecretValue({ label, value }: { label?: string; value: string }) {
       >
         {copied ? <Check /> : <Copy />}
       </Button>
-    </span>
+    </>
   )
 }
 

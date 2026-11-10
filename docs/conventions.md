@@ -249,6 +249,9 @@ How the references keep a UI consistent is in
   `Table` (Onyx, Infisical). Nothing to show is `Empty`; something taken away is asked with `AlertDialog`; what the
   server refused is an `Alert` with the server's words.
 - **Every view has its loading, error and empty state** (Coder).
+- **A label that is not plain to a newcomer explains itself when pointed at**, with a `Tooltip` (owner,
+  2026-11-10). A list that does not fit its line shows less of each item, with the rest in a tooltip, rather than
+  wrapping (Coder's `MCPServerIconStack`, Orca's `CrewAgentIcons`, Beszel).
 - **Icons** are lucide's. A brand's mark, which lucide does not carry, is an SVG component in
   `web/src/components/icons` (Orca, Omnigent).
 - **A thing that has a logo is shown with it** beside its name: a git host, a runtime, a service, a model's

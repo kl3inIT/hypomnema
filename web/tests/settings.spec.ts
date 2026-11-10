@@ -24,6 +24,19 @@ async function fakeServer(page: Page, start: { hosts?: Host[]; repos?: Repo[] } 
     { host: "git.company.example", kind: "gitlab", known: false, has_token: false },
   ]
   let repos = start.repos ?? []
+  // Google, with its OAuth client and one account that was signed in.
+  let accounts = [
+    {
+      integration: "google",
+      label: "personal",
+      account: "owner@example.com",
+      services: ["gmail:read", "calendar"],
+      sign_in_required: false,
+      created_at: now,
+      updated_at: now,
+    },
+  ]
+  let asked: { label: string; services: string[] } | undefined
   const calls: string[] = []
 
   await page.route("**/api/v1/**", async (route) => {
@@ -60,6 +73,29 @@ async function fakeServer(page: Page, start: { hosts?: Host[]; repos?: Repo[] } 
         : json(hosts.find((h) => h.host === name))
     }
 
+    if (kind === "integrations" && sub === "sign-ins") {
+      if (path.endsWith("/sign-ins")) {
+        asked = request.postDataJSON() as { label: string; services: string[] }
+
+        return json({
+          id: "signin-1",
+          url: "https://accounts.example/auth",
+          expires_in_seconds: 1800,
+        })
+      }
+
+      const added = { ...accounts[0]!, label: asked?.label ?? "", services: asked?.services ?? [] }
+      accounts = [...accounts.filter((a) => a.label !== added.label), added]
+
+      return json(added)
+    }
+
+    if (kind === "integrations" && sub === "connections") {
+      accounts = accounts.filter((a) => a.label !== path.split("/")[4])
+
+      return json({ revoked: true })
+    }
+
     if (kind === "repos" && name) {
       repos = repos.filter((r) => r.name !== name)
       if (request.method() === "DELETE") return route.fulfill({ status: 204 })
@@ -82,6 +118,18 @@ async function fakeServer(page: Page, start: { hosts?: Host[]; repos?: Repo[] } 
         return json({ id: "tok_1", name: "web", kind: "owner" })
       case "GET /hosts":
         return json({ data: hosts })
+      case "GET /integrations":
+        return json({
+          data: [
+            {
+              id: "google",
+              name: "Google",
+              client_id: "1234.apps.example",
+              services: ["gmail", "calendar", "drive", "docs", "sheets"],
+              connections: accounts,
+            },
+          ],
+        })
       case "GET /repos":
         return json({ data: repos })
       case "GET /tasks":
@@ -191,4 +239,43 @@ test("the owner registers and removes a repository", async ({ page }) => {
   await page.getByRole("alertdialog").getByRole("button", { name: "Remove repository" }).click()
   await expect(page.getByText("No repositories yet")).toBeVisible()
   expect(calls).toEqual(["PUT /repos/app", "DELETE /repos/app"])
+})
+
+// Scenario: Google has one account. The owner adds his work account: names it, lets Gmail only be read, opens
+// Google's page from the link and pastes back the address the browser ended on. Then he disconnects the first one.
+test("the owner signs a second Google account in and disconnects the first", async ({ page }) => {
+  const calls = await fakeServer(page)
+  await page.goto("/settings/integrations")
+
+  const google = card(page, "Google")
+  await expect(google).toContainText("Connected")
+  await expect(google.getByLabel("Google account personal")).toContainText("owner@example.com")
+  expect(await fits(page)).toBe(true)
+
+  await google.getByRole("button", { name: "Add account" }).click()
+  const dialog = page.getByRole("dialog")
+  await dialog.getByLabel("Name").fill("work")
+  await dialog.getByLabel("Gmail").selectOption("Read only")
+  await dialog.getByLabel("Sheets").selectOption("Not connected")
+  await shot(page, "integrations-google-add")
+  await dialog.getByRole("button", { name: "Continue" }).click()
+
+  await expect(dialog.getByRole("link", { name: /Open Google's sign-in page/ })).toBeVisible()
+  await dialog.getByLabel("Address the browser ended on").fill("http://localhost:1/?state=s&code=c")
+  await shot(page, "integrations-google-paste")
+  await dialog.getByRole("button", { name: "Connect" }).click()
+
+  await expect(google.getByLabel("Google account work")).toContainText("Gmail · read only")
+  await expect(dialog).toBeHidden()
+  await shot(page, "integrations-google-two")
+
+  await google.getByRole("button", { name: "Disconnect personal" }).click()
+  await page.getByRole("alertdialog").getByRole("button", { name: "Disconnect" }).click()
+  await expect(google.getByLabel("Google account personal")).toHaveCount(0)
+
+  expect(calls).toEqual([
+    "POST /integrations/google/sign-ins",
+    "POST /integrations/google/sign-ins/signin-1",
+    "DELETE /integrations/google/connections/personal",
+  ])
 })
