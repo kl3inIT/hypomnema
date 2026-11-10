@@ -89,6 +89,10 @@ func (s *Server) authenticate(r *http.Request) (agent, error) {
 		return agent{}, errNoCredential
 	}
 
+	if kind != bearertoken.Session && kind != bearertoken.Owner && kind != bearertoken.Coordinator {
+		return agent{}, errNoCredential
+	}
+
 	if kind == bearertoken.Session {
 		session, err := s.store.AgentSessionOf(r.Context(), secret)
 		if err != nil {
@@ -111,14 +115,18 @@ func (s *Server) authenticate(r *http.Request) (agent, error) {
 		return agent{}, errNoCredential
 	}
 
-	if token.Kind == bearertoken.Owner {
+	// Each kind that may ask is named; a kind added later gets nothing until it is added here.
+	switch token.Kind {
+	case bearertoken.Owner:
 		return agent{name: "owner token " + token.ID, may: func(orchestration.Connection) bool { return true }}, nil
+	case bearertoken.Coordinator:
+		return agent{
+			name: "coordinator token " + token.ID,
+			may:  func(c orchestration.Connection) bool { return c.Chats },
+		}, nil
+	default:
+		return agent{}, errNoCredential
 	}
-
-	return agent{
-		name: "coordinator token " + token.ID,
-		may:  func(c orchestration.Connection) bool { return c.Chats },
-	}, nil
 }
 
 func (s *Server) allowed(ctx context.Context, a agent, integration string) ([]orchestration.Connection, error) {
