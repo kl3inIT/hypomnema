@@ -387,11 +387,17 @@ and the node in the control plane binary.
   `origin/main` are unchanged), unit tests and race tests.
 - Tests that need a database open a real file in a temporary directory; no containers.
 - `make web-doctor`: React Doctor's report on the web client (pinned, local checks only: no score API, crash
-  reports or dependency lookups; `web/doctor.config.json`). It is read, not a gate. Oxlint loads `@shadcn/lint`
-  (`jsPlugins` in `web/.oxlintrc.json`); none of its rules is enabled yet.
+  reports or dependency lookups; `web/doctor.config.json`). It is read, not a gate. Its config turns off the
+  complexity count (a chain of states with early returns is not a defect), and two rules where they misread the
+  code: route files export their `Route`, the Task panel's mutations refresh through one helper, and the
+  transcript's reads stop on their abort signal.
+- Oxlint loads `@shadcn/lint` (`jsPlugins` in `web/.oxlintrc.json`) with `no-raw-colors`, `no-restyle`,
+  `no-unknown-classes` and `require-static-classes`; `no-arbitrary-values` and `no-inline-styles` are not enabled
+  yet. Both tools leave the primitives alone (`web/src/components`: shadcn's components and theme provider).
 - `make web-check`: oxlint, oxfmt, `tsc -b` and vitest for the web client; `make web-e2e`: Playwright on the
   production build, at a phone's and a desktop's size.
 - CI (`.github/workflows/ci.yml`) runs `make verify` and `govulncheck`, and in a second job `make web-check` and
-  `make web-e2e`, on every pull request and on `main`.
+  `make web-e2e`, on every pull request and on `main`. Chromium for the browser tests is cached by the Playwright
+  version, as t3code's CI does.
 - Dependabot (`.github/dependabot.yml`) proposes updates weekly for the Go modules (`/`, `/tools/ci`), the web
   client, pi (`deploy/coordinator`) and the GitHub Actions, with minor and patch updates grouped.

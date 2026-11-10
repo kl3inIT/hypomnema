@@ -43,6 +43,7 @@ export function useTranscript(dispatchId: string) {
               query: { before: newest, limit: page },
               signal,
             })
+            if (signal.aborted) return
             after = data.data.at(-1)?.seq ?? 0
             first.current = data.data[0]?.seq
             setState({ items: data.data, earlier: data.has_more, loaded: true })
@@ -55,6 +56,7 @@ export function useTranscript(dispatchId: string) {
             query: { after, wait, limit: page },
             signal,
           })
+          if (signal.aborted) return
           const last = data.data.at(-1)
           if (!last) {
             if (Date.now() - asked < idleAfter) await pause(idleAfter)
