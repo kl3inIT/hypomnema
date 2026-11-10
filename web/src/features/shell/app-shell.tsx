@@ -13,7 +13,7 @@ import type { ReactNode } from "react"
 
 import "@/api/client"
 import type { Chat } from "@/api/generated/types.gen"
-import { saveToken } from "@/features/auth/token"
+import { signOut } from "@/features/auth/session"
 import { needsYou } from "@/features/board/board-state"
 import { useBoard, useLiveUpdates } from "@/features/board/use-board"
 import { since } from "@/lib/time"
@@ -112,7 +112,7 @@ export function SettingsLink() {
 
 export function SignOut() {
   return (
-    <button type="button" onClick={() => saveToken(null)} className={cn(placeClass, "w-full")}>
+    <button type="button" onClick={() => void signOut()} className={cn(placeClass, "w-full")}>
       <LogOut className="size-4" />
       Sign out
     </button>

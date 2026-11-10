@@ -440,7 +440,6 @@ Client API (`internal/controlplane/clientapi`, contract `api/openapi.yaml`, afte
   `__Host-hypomnema_session`. A wrong name and a wrong password get the same 401. Five wrong tries from one address
   within an hour lock it for 30 seconds, then 2, 10 and 30 minutes (429 with `Retry-After`); the count is in memory
   and a successful sign-in clears it. `DELETE /session` removes the session and tells the browser to drop the cookie.
-  The web client does not use these yet: it still pastes an owner token.
 - Each operation has a policy. Every token reads everything and may create a Run; a Run created with a coordinator
   token is coordinated by it. Changing a Run, its Tasks or its questions needs the owner, or the Run's coordinator
   (403 otherwise), and so does reading a worker's transcript. An answer is recorded as the owner's or the
@@ -601,8 +600,10 @@ Node (`internal/node`):
   a full-height 16rem sidebar, its work-log rows, composer and markdown styles (`src/index.css`, `features/chat/`),
   each adapted file naming its source. Five status tokens (running, done, needs you, failed, queued) follow its
   palette; dark is the default.
-- Sign-in: the owner pastes an owner token once; the browser keeps it (`localStorage`, as OpenClaw's control UI)
-  and sends it on every request.
+- Sign-in (issue #114): a user's name and password, sent once to `POST /session`. The session is the server's
+  HttpOnly cookie, which the browser sends by itself; the page keeps nothing in storage and asks `GET /me` on load
+  to know whether it is signed in. A request answered 401 shows the sign-in screen again. Until 2026-11-10 the owner
+  pasted an owner token that the browser kept in `localStorage`, as OpenClaw's control UI does.
 - The API client is generated from `api/openapi.yaml` by `@hey-api/openapi-ts` into `src/api/generated` (as Omnara;
   its `next` build, since the release needs TypeScript 5's compiler API); `make web-api-check` fails when it is stale.
 - Chats with pi (issue #41 PR 4, after Omnara; learned from assistant-ui, ai-elements and pi-web): a list of chats

@@ -58,7 +58,6 @@ async function fakeServer(page: Page) {
   ]
   const calls: string[] = []
 
-  await page.addInitScript({ content: "localStorage.setItem('hypomnema.token', 'secret')" })
   await page.route("**/api/v1/**", async (route) => {
     const request = route.request()
     const path = new URL(request.url()).pathname.replace("/api/v1", "")
