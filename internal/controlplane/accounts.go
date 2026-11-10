@@ -140,6 +140,9 @@ func (o *owner) accountsList(ctx context.Context) error {
 		cooling := ""
 		if a.CoolingUntil != nil {
 			cooling = "cooling until " + a.CoolingUntil.Format(time.RFC3339)
+			if a.CoolingReason != "" {
+				cooling += " (" + a.CoolingReason + ")"
+			}
 		}
 
 		// An account whose CLI was logged in on a node has no more to show.

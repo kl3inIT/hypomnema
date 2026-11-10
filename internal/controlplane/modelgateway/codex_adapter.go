@@ -1,7 +1,6 @@
 package modelgateway
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha1" //nolint:gosec // UUID version 5 is defined over SHA-1; nothing secret depends on it.
@@ -52,6 +51,8 @@ type AccountToken struct {
 	// ExternalID is the vendor's id of the account (Codex: the ChatGPT account).
 	ExternalID  string
 	AccessToken string
+	// Project is the vendor's project the account works in, when it has one.
+	Project string
 	// Version says which of the account's tokens this is, for the one that
 	// replaces it after a refusal.
 	Version int
@@ -209,123 +210,30 @@ func (s *Server) codexCool(ctx context.Context, token AccountToken, failure *cod
 	}
 }
 
-// codexAnswer turns the backend's event stream into the answer. Nothing is
-// promised to the client before the backend has sent something to show: an
-// error that comes first becomes an error status, so the model's next target
-// can still be tried.
+// codexAnswer turns the backend's event stream into the answer.
 func (s *Server) codexAnswer(
 	ctx context.Context, call chatCall, token AccountToken, built codex.Request, resp *http.Response,
 ) *http.Response {
 	now := s.svc.clock.Now()
 	stream := codex.NewStream(s.svc.newID("chatcmpl"), now.Unix(), call.model, built.Names)
 
-	events := bufio.NewScanner(resp.Body)
-	events.Buffer(make([]byte, 0, 64<<10), maxEventBytes)
-
-	// next reads events until one gives chunks, or the stream ends.
-	next := func() [][]byte {
-		for events.Scan() {
-			data, isData := bytes.CutPrefix(events.Bytes(), []byte("data:"))
-			if !isData {
-				continue
-			}
-
-			if chunks := stream.Event(bytes.TrimSpace(data)); len(chunks) > 0 || stream.Failed() != nil {
-				return chunks
-			}
-		}
-
-		return nil
-	}
-
-	fail := func() *http.Response {
-		_ = resp.Body.Close()
-
-		failure := stream.Failed()
-		if failure == nil {
-			failure = &codex.Failure{
-				Status: http.StatusBadGateway, Type: typeServer, Code: "upstream_truncated",
-				Message: "Codex ended its answer early",
-			}
-		}
-
-		s.codexCool(ctx, token, failure)
-
-		return codexRefusal(failure, now)
-	}
-
-	if !call.req.stream {
-		for !stream.Finished() && stream.Failed() == nil {
-			if chunks := next(); len(chunks) == 0 && stream.Failed() == nil {
-				break // The backend closed the stream.
-			}
-		}
-
-		if !stream.Finished() {
-			return fail()
-		}
-
-		_ = resp.Body.Close()
-
-		return &http.Response{
-			StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}},
-			Body: io.NopCloser(bytes.NewReader(stream.Completion())),
-		}
-	}
-
-	first := next()
-	if len(first) == 0 {
-		return fail()
-	}
-
-	reader, writer := io.Pipe()
-
-	go func() {
-		chunks := first
-
-		for len(chunks) > 0 {
-			for _, chunk := range chunks {
-				if _, err := fmt.Fprintf(writer, "data: %s\n\n", chunk); err != nil {
-					return // The reader closed: the client left or the stream sat idle.
+	return s.translated(ctx, call, resp, translation{
+		event: stream.Event, finished: stream.Finished, completion: stream.Completion,
+		failed: func() bool { return stream.Failed() != nil },
+		refusal: func() *http.Response {
+			failure := stream.Failed()
+			if failure == nil {
+				failure = &codex.Failure{
+					Status: http.StatusBadGateway, Type: typeServer, Code: "upstream_truncated",
+					Message: "Codex ended its answer early",
 				}
 			}
 
-			if stream.Finished() {
-				_, _ = io.WriteString(writer, "data: [DONE]\n\n")
-
-				break
-			}
-
-			chunks = next()
-		}
-
-		if failure := stream.Failed(); failure != nil {
 			s.codexCool(ctx, token, failure)
-			s.logger.WarnContext(ctx, "Codex failed inside its answer",
-				slog.String("event", "modelgateway.codex_stream_failed"), slog.Int("status", failure.Status),
-				slog.String("type", failure.Type), slog.String("code", failure.Code))
-		}
 
-		// With no end mark written, the gateway tells the client the answer
-		// was cut, as for any provider.
-		_ = writer.Close()
-	}()
-
-	return &http.Response{
-		StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"text/event-stream"}},
-		Body: &pipedBody{PipeReader: reader, upstream: resp.Body},
-	}
-}
-
-// pipedBody is a translated stream: closing it also ends the backend's.
-type pipedBody struct {
-	*io.PipeReader
-
-	upstream io.Closer
-}
-
-func (b *pipedBody) Close() error {
-	return errors.Join(b.PipeReader.Close(), b.upstream.Close())
+			return codexRefusal(failure, now)
+		},
+	})
 }
 
 // codexRefusal is an error of the backend as an answer in OpenAI's shape.

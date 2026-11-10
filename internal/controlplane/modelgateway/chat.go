@@ -82,8 +82,9 @@ type chatAdapter interface {
 
 // chatAdapters are the provider kinds the gateway can serve chat from.
 var chatAdapters = map[string]chatAdapter{
-	"openai_compatible":  openAICompatible{},
-	"codex_subscription": codexSubscription{},
+	"openai_compatible":        openAICompatible{},
+	"codex_subscription":       codexSubscription{},
+	"antigravity_subscription": antigravitySubscription{},
 }
 
 // openAICompatible serves any provider that takes OpenAI's chat format at
