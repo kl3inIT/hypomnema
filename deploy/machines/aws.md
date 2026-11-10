@@ -3,8 +3,12 @@
 How the owner lets the control plane create EC2 instances as nodes (issue #69, step 3). What the control plane does
 with them is in [ARCHITECTURE.md](../../ARCHITECTURE.md); this page is the setup.
 
-Status: the adapter is tested against a stand-in for EC2. It has **not yet created a real instance**; the policy
-below and the first-boot script are checked on the first real run.
+Status: run for real on 2026-11-10 in `ap-southeast-1`: one `t3.medium` was created, installed itself, said hello
+after about four and a half minutes with both CLIs found, and was destroyed by `nodes rm`. That run used an
+administrator's key, so the narrow policy below has not been proven yet.
+
+The control plane must be reachable from the internet over `https`: a new machine is outside any private network,
+and it downloads the install script from the control plane and then connects to it.
 
 ## 1. An IAM user that can only do this
 
