@@ -19,6 +19,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/subscription"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
+	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 )
 
@@ -696,4 +697,34 @@ func randomBytes(n int) []byte {
 	_, _ = rand.Read(b) // crypto/rand.Read never fails on supported platforms.
 
 	return b
+}
+
+// Tools are the tools a node of a system is told to have: the tool of each
+// Integration that has a Connection, when it has a release for that system.
+// An Integration nobody signed in to asks nothing of a node. A list that
+// cannot be read is left out: the node keeps what it has.
+func (s *Service) Tools(ctx context.Context, os, arch string) []nodeproto.Tool {
+	var out []nodeproto.Tool
+
+	for _, d := range s.defs {
+		if d.Tool == nil {
+			continue
+		}
+
+		release, ok := d.Tool.Releases[os+"/"+arch]
+		if !ok {
+			continue
+		}
+
+		conns, err := s.store.ConnectionsOf(ctx, d.ID)
+		if err != nil || len(conns) == 0 {
+			continue
+		}
+
+		out = append(out, nodeproto.Tool{
+			Name: d.Tool.Name, Version: d.Tool.Version, URL: release.URL, SHA256: release.SHA256, Binary: release.Binary,
+		})
+	}
+
+	return out
 }

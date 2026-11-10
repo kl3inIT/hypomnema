@@ -76,6 +76,7 @@ func (p *plane) hello(token string, claims ...nodeproto.Claim) (int, nodeproto.H
 	body, err := json.Marshal(nodeproto.HelloRequest{
 		InstanceID: "inst_1", DaemonVersion: "test", WorktreeRoot: "/srv/wt",
 		Runtimes: []nodeproto.RuntimeInfo{{Runtime: "claude", Path: "/usr/local/bin/claude", Version: "2.1.319"}},
+		System:   nodeproto.SystemInfo{OS: "linux", Arch: "arm64"},
 		Claims:   claims,
 	})
 	require.NoError(p.t, err)
@@ -611,4 +612,60 @@ func TestHelloAnswersEachClaim(t *testing.T) {
 		{DispatchID: offer.DispatchID, Kind: nodeproto.DispositionRetain},
 		{DispatchID: "dsp_gone", Kind: nodeproto.DispositionRelease},
 	}, out.Dispositions)
+}
+
+// Scenario: the control plane tells a node which tools to have, for the
+// node's own system, at hello and with every heartbeat's answer; what the
+// node says it has, or why an install failed, is kept with the node.
+func TestANodeIsToldWhichToolsToHave(t *testing.T) {
+	t.Parallel()
+
+	p := newPlane(t)
+
+	gws := nodeproto.Tool{
+		Name: "gws", Version: "0.22.5", URL: "https://example.com/gws-arm64.tar.gz",
+		SHA256: strings.Repeat("ab", 32), Binary: "gws",
+	}
+
+	p.api.WithTools(func(_ context.Context, os, arch string) []nodeproto.Tool {
+		if os == "linux" && arch == "arm64" {
+			return []nodeproto.Tool{gws}
+		}
+
+		return nil
+	})
+
+	status, hello := p.hello(p.token)
+	require.Equal(t, http.StatusOK, status)
+	assert.Equal(t, []nodeproto.Tool{gws}, hello.Tools)
+
+	nodes, err := p.svc.ListNodes(t.Context())
+	require.NoError(t, err)
+	assert.Nil(t, nodes[0].Tools, "the node has not said yet")
+
+	conn := p.connect()
+
+	failed := []nodeproto.ToolState{{Name: "gws", Error: "fetching tool gws 0.22.5: status 503"}}
+	p.send(conn, nodeproto.TypeHeartbeat, nodeproto.Heartbeat{Tools: &failed})
+
+	var ack nodeproto.HeartbeatAck
+	require.NoError(t, json.Unmarshal(p.next(conn, nodeproto.TypeHeartbeatAck).Payload, &ack))
+	assert.Equal(t, []nodeproto.Tool{gws}, ack.Tools)
+
+	nodes, err = p.svc.ListNodes(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, []orchestration.NodeTool{{Name: "gws", Error: "fetching tool gws 0.22.5: status 503"}},
+		nodes[0].Tools)
+
+	installed := []nodeproto.ToolState{{Name: "gws", Version: "0.22.5"}}
+	p.send(conn, nodeproto.TypeHeartbeat, nodeproto.Heartbeat{Tools: &installed})
+	p.next(conn, nodeproto.TypeHeartbeatAck)
+
+	// A heartbeat that says nothing about tools leaves what the node said.
+	p.send(conn, nodeproto.TypeHeartbeat, nodeproto.Heartbeat{})
+	p.next(conn, nodeproto.TypeHeartbeatAck)
+
+	nodes, err = p.svc.ListNodes(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, []orchestration.NodeTool{{Name: "gws", Version: "0.22.5"}}, nodes[0].Tools)
 }

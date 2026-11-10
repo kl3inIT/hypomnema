@@ -38,6 +38,9 @@ type Server struct {
 	// modelKey makes the model gateway's key for a Dispatch; nil when the
 	// control plane wired none.
 	modelKey func(ctx context.Context, dispatchID, model string) (string, bool)
+	// tools names the tools a node of a system should have; nil when the
+	// control plane wired none.
+	tools func(ctx context.Context, os, arch string) []nodeproto.Tool
 
 	mu       sync.Mutex
 	sessions map[string]*session
@@ -53,6 +56,22 @@ func (s *Server) WithHostTokens(token func(ctx context.Context, host, path strin
 	s.hostToken = token
 
 	return s
+}
+
+// WithTools sets which tools a node is told to have.
+func (s *Server) WithTools(tools func(ctx context.Context, os, arch string) []nodeproto.Tool) *Server {
+	s.tools = tools
+
+	return s
+}
+
+// toolsFor are the tools a node of this system is told to have.
+func (s *Server) toolsFor(ctx context.Context, os, arch string) []nodeproto.Tool {
+	if s.tools == nil {
+		return nil
+	}
+
+	return s.tools(ctx, os, arch)
 }
 
 // WithModelKeys sets where an offer's model gateway key comes from.
@@ -139,6 +158,7 @@ func (s *Server) hello(w http.ResponseWriter, r *http.Request) {
 		NodeID: n.ID, Dispositions: make([]nodeproto.Disposition, 0, len(dispositions)),
 		HeartbeatAfterMs: nodeproto.HeartbeatEvery.Milliseconds(),
 		GitHosts:         s.gitHosts(r.Context()),
+		Tools:            s.toolsFor(r.Context(), req.System.OS, req.System.Arch),
 	}
 	for _, d := range dispositions {
 		resp.Dispositions = append(resp.Dispositions, nodeproto.Disposition{DispatchID: d.DispatchID, Kind: string(d.Kind)})
@@ -179,7 +199,8 @@ func (s *Server) socket(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	sess := &session{
-		srv: s, conn: conn, nodeID: n.ID, tokenID: tokenID, cancel: cancel, out: make(chan nodeproto.Message, 64),
+		srv: s, conn: conn, nodeID: n.ID, tokenID: tokenID, os: n.System.OS, arch: n.System.Arch, cancel: cancel,
+		out:     make(chan nodeproto.Message, 64),
 		offered: map[string]bool{}, stopped: map[string]bool{}, answered: map[string]bool{},
 	}
 	s.take(ctx, sess)
@@ -226,8 +247,10 @@ type session struct {
 	nodeID string
 	// tokenID is the token the node connected with; a heartbeat is refused once it is revoked.
 	tokenID string
-	cancel  context.CancelFunc
-	out     chan nodeproto.Message
+	// os and arch are the node's system, for the tools it is told to have.
+	os, arch string
+	cancel   context.CancelFunc
+	out      chan nodeproto.Message
 
 	// What this connection already sent; a new connection sends all again.
 	offered  map[string]bool
@@ -446,6 +469,15 @@ func (c *session) stats(ctx context.Context, payload json.RawMessage) {
 		err = c.srv.svc.NodeReaches(ctx, c.nodeID, *hb.Reaches)
 	}
 
+	if err == nil && hb.Tools != nil {
+		tools := make([]orchestration.NodeTool, 0, len(*hb.Tools))
+		for _, t := range *hb.Tools {
+			tools = append(tools, orchestration.NodeTool{Name: t.Name, Version: t.Version, Error: t.Error})
+		}
+
+		err = c.srv.svc.NodeTools(ctx, c.nodeID, tools)
+	}
+
 	if err == nil && hb.Stats != nil {
 		err = c.srv.svc.NodeStats(ctx, c.nodeID, orchestration.SystemStats{
 			CPUPercent: hb.Stats.CPUPercent, MemoryUsedBytes: hb.Stats.MemoryUsedBytes,
@@ -474,6 +506,7 @@ func (c *session) handle(ctx context.Context, msg nodeproto.Message) error {
 
 		return c.send(ctx, nodeproto.TypeHeartbeatAck, nodeproto.HeartbeatAck{
 			HeartbeatAfterMs: nodeproto.HeartbeatEvery.Milliseconds(), GitHosts: c.srv.gitHosts(ctx),
+			Tools: c.srv.toolsFor(ctx, c.os, c.arch),
 		})
 	case nodeproto.TypeReport:
 		var r nodeproto.Report

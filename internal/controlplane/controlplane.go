@@ -159,7 +159,10 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		gatewaySecrets(secrets))
 	workerKeys := dispatchKeys{gateway: gateway, svc: svc, logger: logger}
 
-	nodeapi.New(svc, logger).WithHostTokens(tokens.Token).WithModelKeys(workerKeys.Key).Register(mux)
+	integrations := integration.New(svc, secrets, platform.SystemClock{}, platform.NewID, integration.Google())
+
+	nodeapi.New(svc, logger).WithHostTokens(tokens.Token).WithModelKeys(workerKeys.Key).WithTools(integrations.Tools).
+		Register(mux)
 	modelgateway.NewServer(gateway, logger, modelgateway.Config{
 		Subscriptions: gatewayAccounts{subs: subscriptions}, CodexBaseURL: cfg.CodexBaseURL,
 		AntigravityBaseURL: cfg.AntigravityBaseURL,
@@ -169,7 +172,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 
 	api := clientapi.New(svc, logger, ctx.Done()).WithCoordinator(sup).WithHostTokens(tokens).
 		WithMachines(machineMgr).WithSecrets(ownerSecrets{vault: secrets, referrers: referrers}).
-		WithIntegrations(integration.New(svc, secrets, platform.SystemClock{}, platform.NewID, integration.Google()))
+		WithIntegrations(integrations)
 	if err := api.Register(mux); err != nil {
 		return err
 	}

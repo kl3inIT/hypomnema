@@ -527,3 +527,39 @@ func TestDisconnectingEndsTheTokensAndForgetsThem(t *testing.T) {
 	assert.Equal(t, "integration-google-client", secrets[0].Name)
 	require.ErrorIs(t, w.vault.Delete(ctx, secrets[0].Name), vault.ErrInUse)
 }
+
+// Scenario: a node is told to have Google's command-line tool only once a
+// Google account is connected, and only when the tool has a release for the
+// node's system. Every release is pinned by a checksum and fetched over HTTPS.
+func TestNodesAreToldToHaveTheToolOfAConnectedIntegration(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t).withClient()
+	ctx := t.Context()
+
+	assert.Empty(t, w.svc.Tools(ctx, "linux", "amd64"), "nobody signed in: no node needs the tool")
+
+	_, err := w.signIn("work", "gmail:read")
+	require.NoError(t, err)
+
+	tools := w.svc.Tools(ctx, "linux", "amd64")
+	require.Len(t, tools, 1)
+	assert.Equal(t, "gws", tools[0].Name)
+	assert.Equal(t, "gws", tools[0].Binary)
+	assert.NotEmpty(t, tools[0].Version)
+
+	arm := w.svc.Tools(ctx, "linux", "arm64")
+	require.Len(t, arm, 1)
+	assert.NotEqual(t, tools[0].SHA256, arm[0].SHA256, "each system has its own release file")
+
+	assert.Empty(t, w.svc.Tools(ctx, "windows", "amd64"), "no release for that system")
+
+	for system, release := range integration.Google().Tool.Releases {
+		assert.Regexp(t, "^[0-9a-f]{64}$", release.SHA256, system)
+		assert.Regexp(t, "^https://github.com/googleworkspace/cli/releases/download/v", release.URL, system)
+	}
+
+	_, err = w.svc.Disconnect(ctx, integration.GoogleID, "work")
+	require.NoError(t, err)
+	assert.Empty(t, w.svc.Tools(ctx, "linux", "amd64"))
+}
