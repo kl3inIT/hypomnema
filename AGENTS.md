@@ -47,6 +47,9 @@
 - Before a spike or prototype, search the cloned references for the same mechanism. If a reference already does it,
   read its code as the specification and test only what is specific to this environment (accounts, versions,
   servers).
+- A reference whose code cannot be read (a closed product, a paid component) is studied on its real pages: open
+  them in a browser and take pictures of each screen and state, kept in `.tmp/`. Text fetched from a page is not
+  the screen (owner, 2026-11-11).
 - Changing an earlier decision or name is normal as understanding grows. Make the change everywhere it is stated, in
   one change, with its reason: a new ADR that supersedes the old one for a decision, a "called X until <date>"
   note in the glossary for a term. Dated research notes stay as written.
