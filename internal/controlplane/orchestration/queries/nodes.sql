@@ -91,14 +91,18 @@ SELECT * FROM accounts ORDER BY runtime, position, id;
 SELECT * FROM accounts WHERE runtime = @runtime AND external_id = @external_id;
 
 -- name: InsertLoginAccount :exec
-INSERT INTO accounts (id, runtime, label, status, position, external_id, email, plan, secret_ref, created_at,
-                      updated_at)
+INSERT INTO accounts (id, runtime, label, status, position, external_id, email, plan, project, secret_ref,
+                      created_at, updated_at)
 VALUES (@id, @runtime, @label, 'active',
         (SELECT coalesce(max(position), 0) + 1 FROM accounts WHERE runtime = @runtime),
-        @external_id, @email, @plan, @secret_ref, @now, @now);
+        @external_id, @email, @plan, @project, @secret_ref, @now, @now);
 
 -- name: SetAccountIdentity :execrows
 UPDATE accounts SET updated_at = @now, email = @email, plan = @plan WHERE id = @id;
+
+-- name: SetAccountLogin :execrows
+-- A new login of an account: who it is now, and the project it works in.
+UPDATE accounts SET updated_at = @now, email = @email, plan = @plan, project = @project WHERE id = @id;
 
 -- name: SetAccountRefresh :execrows
 UPDATE accounts

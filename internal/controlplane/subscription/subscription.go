@@ -66,6 +66,8 @@ type Token struct {
 	// ExternalID is the vendor's id of the account.
 	ExternalID  string
 	AccessToken string
+	// Project is the vendor's project the account works in, when it has one.
+	Project string
 	// Version is the version of the account's secret the token is from.
 	Version int
 }
@@ -76,6 +78,8 @@ type Identity struct {
 	ExternalID string
 	Email      string
 	Plan       string
+	// Project is the vendor's project the account works in, when it has one.
+	Project string
 }
 
 // Login is what a completed login gave.
@@ -207,7 +211,8 @@ func (s *Service) Complete(ctx context.Context, a *Attempt, pasted, label string
 	}
 
 	acct, err := s.accounts.SaveAccountLogin(ctx, orchestration.AccountLogin{
-		Runtime: a.Runtime, ExternalID: login.ExternalID, Email: login.Email, Plan: login.Plan, Label: label,
+		Runtime: a.Runtime, ExternalID: login.ExternalID, Email: login.Email, Plan: login.Plan,
+		Project: login.Project, Label: label,
 	}, func(id string) string { return vault.Ref(secretName(id)) })
 	if err != nil {
 		return Account{}, err
@@ -388,7 +393,7 @@ func (s *Service) tokenOf(ctx context.Context, a orchestration.Account) (Token, 
 
 	return Token{
 		AccountID: a.ID, ExternalID: a.ExternalID, AccessToken: opened.Payload[vault.KeyAccessToken],
-		Version: opened.Version,
+		Project: a.Project, Version: opened.Version,
 	}, nil
 }
 

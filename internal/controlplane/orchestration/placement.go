@@ -254,7 +254,8 @@ func (p *placement) nodeOut(n *nodeLoad) Node {
 func (p *placement) accountOut(a store.Account) Account {
 	out := Account{
 		ID: a.ID, Runtime: a.Runtime, Label: a.Label, Status: AccountStatus(a.Status), Position: int(a.Position),
-		ExternalID: a.ExternalID.String, Email: a.Email.String, Plan: a.Plan.String, SecretRef: a.SecretRef.String,
+		ExternalID: a.ExternalID.String, Email: a.Email.String, Plan: a.Plan.String, Project: a.Project.String,
+		SecretRef: a.SecretRef.String,
 		Refresh: AccountRefresh{
 			Failures: int(a.RefreshFailures), RetryAt: optionalTime(a.RefreshRetryAt), Error: a.RefreshError.String,
 		},

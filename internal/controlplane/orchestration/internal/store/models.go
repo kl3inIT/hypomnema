@@ -23,6 +23,7 @@ type Account struct {
 	RefreshFailures int64
 	RefreshRetryAt  sql.NullInt64
 	RefreshError    sql.NullString
+	Project         sql.NullString
 }
 
 type AccountCooldown struct {
