@@ -8,6 +8,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/ec2 v1.344.2
 	github.com/aws/smithy-go v1.28.8
 	github.com/coder/websocket v1.8.15
+	github.com/creack/pty v1.1.24
 	github.com/getkin/kin-openapi v0.153.0
 	github.com/oapi-codegen/nethttp-middleware v1.3.1
 	github.com/oapi-codegen/runtime v1.8.0

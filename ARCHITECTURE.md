@@ -121,6 +121,26 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     for; it runs when asked, not on a timer, and destroys nothing.
   - Not built: other providers, and delivering the CLIs' logins to a new machine, which the owner still sets on
     it once.
+- A terminal on a node, from the web (issue #116, [research](docs/research/2026-11-10-web-terminal.md); after
+  Coder's reconnecting PTY, read for behaviour and not copied since it is AGPL, and Nezha's IOStream):
+  - The node keeps shells by session id (`internal/node/terminal`): the node user's own shell on a pseudo-terminal
+    (`creack/pty`), in the user's home, with `TERM=xterm-256color`. A shell outlives the connection watching it:
+    its last 64 KiB of output go to a connection that attaches, a second connection takes a session over from the
+    first, and a shell nobody watches for five minutes is ended. Linux and macOS only.
+  - A node says at each hello whether it opens terminals (`nodes.terminal`): its build can, and its own
+    configuration has not set `disable_terminal`, which the control plane cannot undo. It is on by default.
+  - The owner asks for a ticket (`POST /nodes/{node_id}/terminal` with a session id; refused for a node that is
+    not connected or opens no terminal), then opens the WebSocket `/api/v1/terminals/{ticket}`, which the ticket
+    opens once within 30 s and only from the web client's own origin. There the page sends JSON, `{data}` for
+    what is typed and `{height, width}` for a resize (2 to 500 rows, 2 to 1000 columns), and receives the shell's
+    bytes in binary frames.
+  - The control plane names a stream and asks the node on its socket (`terminal_open`); the node opens a second
+    WebSocket (`/node/v1/terminal?stream=`) with its token and presents the stream; the two ends meet within
+    10 s. The control plane only copies both ways, and passes the node's closing reason to the page.
+  - Each terminal is logged when it opens and closes: the node, the session, who asked, from which address, how
+    long it lasted. What is typed and shown is not recorded.
+  - Not built: a command given in a link, several viewers of one shell, files, a shell for coordinators or
+    workers, Windows.
 - Chats (`orchestration/chats.go`, issue #41 PR 3, after Omnara;
   [research](docs/research/2026-11-09-chat-storage.md)): the owner's conversations with pi. Every message is kept
   (`owner`, `coordinator`, `tool`, `system`; replies and tools with JSON `parts`); owner messages and wake-ups wait
@@ -320,6 +340,20 @@ subscriptions. The Claude subscription, other provider formats and other capabil
   made as its offer is sent to the node, good for the Dispatch's model only, carried in the offer (`model_key`). An
   offer sent again carries a new key and the earlier one stops. The control plane revokes a Dispatch's keys when the
   Dispatch settles, looked for at every commit of orchestration and every minute. No runner uses the key yet.
+- `POST /v1/responses` (issue #107, after 9router-go;
+  [research](docs/research/2026-11-10-codex-responses-passthrough.md)) is for a client that speaks OpenAI's Responses
+  format, which the Codex CLI does and nothing else. It serves a model's `codex_subscription` targets only:
+  - The client's body is passed on, not translated (`modelgateway/codex`, `PassThrough`): the model's name at the
+    backend, `stream` on and `store` off, a string input as a user message, references to stored items and their ids
+    taken out, `service_tier` `fast` as `priority`, the lite shape for the models that take it, the client's session
+    as the prompt cache key when it names none, and only the fields the backend takes.
+  - None of the client's headers goes to the backend but its session (`session-id`, `session_id` or
+    `x-session-id`; one per gateway key without). The account, the Codex CLI's identity, a refused token, a usage
+    limit and the next account are the chat route's.
+  - The backend's event stream goes back line for line; the usage is read from `response.completed`. A refusal
+    keeps its status and body.
+  - Not served: a model with no Codex target (400 `model_not_served_here`), an answer that is not a stream (400),
+    `/v1/responses/compact`, a WebSocket.
 - `GET /v1/models` with `Authorization: Bearer <key>` answers OpenAI's list shape with the models the key may use;
   errors are OpenAI's `{"error": {message, type, code}}`, 401 without a valid key.
 - `POST /v1/chat/completions` forwards the request to the model's first target, as 9router-go does: the body is
@@ -659,7 +693,11 @@ Node (`internal/node`):
   machine created at a provider. Such a machine that is not ready says Creating, Not created, Removing or Not
   removed instead, with the provider's reason for a failure; one that is turned off says Stopping, Stopped or
   Starting, and a stopped one says that its disk is still billed and is started from its card. A machine that is on
-  has "Stop machine" in its menu. `GET /nodes` is read again every 5 s while the tab is
+  has "Stop machine" in its menu. A connected machine whose node opens terminals has "Terminal" in its menu, which
+  opens `/machines/<node>/terminal` in a new tab: a page that is only the terminal (xterm.js), with the session's
+  id in its address (`?reconnect=`), so a reload returns to the same shell. A dropped connection is said above
+  the terminal and tried again by itself; a shell that ended offers a new session; a node without a terminal has
+  the item switched off with the reason. `GET /nodes` is read again every 5 s while the tab is
   visible, since no event says a measurement changed. A machine's menu drains or resumes it and removes it after a
   confirmation; a refusal shows the server's message. Where the server has machine providers, "Add machine" first asks where: a machine of the owner's own, or a
   new one at a provider, shown with its size, region and how many machines it has of its limit; a new one takes
@@ -751,6 +789,7 @@ internal/node/claude      the Claude Code runner: worker environment, stream-JSO
 internal/node/daemon      the node's connection: hello, socket, offers, outbox, Runner interface
 internal/node/shim        one worker kept across daemon restarts: journal, input socket, exit file
 internal/node/statedb     the node's SQLite state: Dispatches held and the report outbox
+internal/node/terminal    the shells opened from the web: a session per id, its ring of output, the idle end
 internal/node/workertools the worker's MCP server: ask and finish
 internal/node/worktree    bare mirrors and git worktrees per Task
 internal/controlplane/cloudcode  what is presented to Google's Cloud Code backend: its hosts, the Antigravity IDE's user agent and version

@@ -267,6 +267,7 @@ type Node struct {
 	GitHosts           sql.NullString
 	MachinePower       sql.NullString
 	Tools              sql.NullString
+	Terminal           int64
 }
 
 type NodeToken struct {

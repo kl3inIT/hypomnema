@@ -1,7 +1,16 @@
 import { AlertDialog } from "@base-ui/react/alert-dialog"
 import { Menu } from "@base-ui/react/menu"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { CirclePause, CirclePlay, Ellipsis, Power, PowerOff, Trash2 } from "lucide-react"
+import { Link } from "@tanstack/react-router"
+import {
+  CirclePause,
+  CirclePlay,
+  Ellipsis,
+  Power,
+  PowerOff,
+  SquareTerminal,
+  Trash2,
+} from "lucide-react"
 import { useState } from "react"
 
 import "@/api/client"
@@ -9,7 +18,7 @@ import { drainNode, removeNode, resumeNode } from "@/api/generated/sdk.gen"
 import type { Node } from "@/api/generated/types.gen"
 import { Button } from "@/components/ui/button"
 
-import { errorText, machineState } from "./machines-state"
+import { errorText, machineState, noTerminal } from "./machines-state"
 import { nodesKey, useMachinePower } from "./use-machines"
 
 const itemClass =
@@ -34,6 +43,7 @@ export function MachineActions({ node }: { node: Node }) {
   })
   const power = useMachinePower(node)
   const state = machineState(node)
+  const unreachable = noTerminal(node)
   const refused = toggle.error ?? power.error
 
   return (
@@ -76,6 +86,34 @@ export function MachineActions({ node }: { node: Node }) {
                 <Menu.Item className={itemClass} onClick={() => power.mutate(false)}>
                   <PowerOff className="size-4" />
                   Stop machine
+                </Menu.Item>
+              )}
+              {unreachable === undefined ? (
+                <Menu.Item
+                  className={itemClass}
+                  render={
+                    <Link
+                      to="/machines/$nodeId/terminal"
+                      params={{ nodeId: node.id }}
+                      target="_blank"
+                      rel="noreferrer"
+                    />
+                  }
+                >
+                  <SquareTerminal className="size-4" />
+                  Terminal
+                </Menu.Item>
+              ) : (
+                <Menu.Item
+                  disabled
+                  title={unreachable}
+                  className={`${itemClass} text-muted-foreground`}
+                >
+                  <SquareTerminal className="size-4" />
+                  <span className="flex flex-col">
+                    Terminal
+                    <span className="max-w-48 text-xs whitespace-normal">{unreachable}</span>
+                  </span>
                 </Menu.Item>
               )}
               <Menu.Separator className="mx-1 my-1 h-px bg-border" />

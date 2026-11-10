@@ -19,6 +19,7 @@ import { Route as SettingsIndexRouteImport } from './routes/settings.index'
 import { Route as SettingsIntegrationsRouteImport } from './routes/settings.integrations'
 import { Route as SettingsRepositoriesRouteImport } from './routes/settings.repositories'
 import { Route as SettingsVaultRouteImport } from './routes/settings.vault'
+import { Route as MachinesNodeIdTerminalRouteImport } from './routes/machines_.$nodeId.terminal'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -70,6 +71,11 @@ const SettingsVaultRoute = SettingsVaultRouteImport.update({
   path: '/settings/vault',
   getParentRoute: () => rootRouteImport,
 } as any)
+const MachinesNodeIdTerminalRoute = MachinesNodeIdTerminalRouteImport.update({
+  id: '/machines_/$nodeId/terminal',
+  path: '/machines/$nodeId/terminal',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -82,6 +88,7 @@ export interface FileRoutesByFullPath {
   '/settings/vault': typeof SettingsVaultRoute
   '/runs/': typeof RunsIndexRoute
   '/settings/': typeof SettingsIndexRoute
+  '/machines/$nodeId/terminal': typeof MachinesNodeIdTerminalRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -94,6 +101,7 @@ export interface FileRoutesByTo {
   '/settings/vault': typeof SettingsVaultRoute
   '/runs': typeof RunsIndexRoute
   '/settings': typeof SettingsIndexRoute
+  '/machines/$nodeId/terminal': typeof MachinesNodeIdTerminalRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -107,6 +115,7 @@ export interface FileRoutesById {
   '/settings/vault': typeof SettingsVaultRoute
   '/runs/': typeof RunsIndexRoute
   '/settings/': typeof SettingsIndexRoute
+  '/machines_/$nodeId/terminal': typeof MachinesNodeIdTerminalRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -121,6 +130,7 @@ export interface FileRouteTypes {
     | '/settings/vault'
     | '/runs/'
     | '/settings/'
+    | '/machines/$nodeId/terminal'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -133,6 +143,7 @@ export interface FileRouteTypes {
     | '/settings/vault'
     | '/runs'
     | '/settings'
+    | '/machines/$nodeId/terminal'
   id:
     | '__root__'
     | '/'
@@ -145,6 +156,7 @@ export interface FileRouteTypes {
     | '/settings/vault'
     | '/runs/'
     | '/settings/'
+    | '/machines_/$nodeId/terminal'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -158,6 +170,7 @@ export interface RootRouteChildren {
   SettingsVaultRoute: typeof SettingsVaultRoute
   RunsIndexRoute: typeof RunsIndexRoute
   SettingsIndexRoute: typeof SettingsIndexRoute
+  MachinesNodeIdTerminalRoute: typeof MachinesNodeIdTerminalRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -232,6 +245,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsVaultRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/machines_/$nodeId/terminal': {
+      id: '/machines_/$nodeId/terminal'
+      path: '/machines/$nodeId/terminal'
+      fullPath: '/machines/$nodeId/terminal'
+      preLoaderRoute: typeof MachinesNodeIdTerminalRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -246,6 +266,7 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsVaultRoute: SettingsVaultRoute,
   RunsIndexRoute: RunsIndexRoute,
   SettingsIndexRoute: SettingsIndexRoute,
+  MachinesNodeIdTerminalRoute: MachinesNodeIdTerminalRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

@@ -16,7 +16,14 @@ import (
 const (
 	PathHello  = "/node/v1/hello"
 	PathSocket = "/node/v1/socket"
+	// PathTerminal is the WebSocket a node opens for one terminal connection,
+	// with the stream it was given as ?stream= (issue #116).
+	PathTerminal = "/node/v1/terminal"
 )
+
+// TerminalMeetWithin is how long the two ends of a terminal connection have
+// to meet at the control plane (Nezha io_stream.go: 10 s).
+const TerminalMeetWithin = 10 * time.Second
 
 // Limits and intervals (Omnara client_socket.go, daemon_socket_hub.go).
 const (
@@ -52,6 +59,8 @@ const (
 	TypeAnswer       Type = "answer"
 	TypeItemsAck     Type = "transcript_items_ack"
 	TypeError        Type = "error"
+	// TypeTerminalOpen asks the node to open a terminal connection.
+	TypeTerminalOpen Type = "terminal_open"
 )
 
 // Message is one envelope.
@@ -154,6 +163,33 @@ type HelloRequest struct {
 	Runtimes      []RuntimeInfo `json:"runtimes"`
 	System        SystemInfo    `json:"system"`
 	Claims        []Claim       `json:"claims"`
+	// Terminal says the node opens a terminal when asked: its build can, and
+	// its own configuration has not turned it off.
+	Terminal bool `json:"terminal,omitempty"`
+}
+
+// ValidTerminalSize says whether a terminal may have this size (Nezha
+// terminal_session.go: 2 to 1000 columns, 2 to 500 rows).
+func ValidTerminalSize(rows, cols int) bool {
+	return rows >= 2 && rows <= 500 && cols >= 2 && cols <= 1000
+}
+
+// TerminalResize is the text message that changes a terminal's size, in
+// Coder's field names. The browser sends it to the control plane and the
+// control plane to the node.
+type TerminalResize struct {
+	Height int `json:"height"`
+	Width  int `json:"width"`
+}
+
+// TerminalOpen asks the node to connect a terminal session. SessionID names
+// the shell, which stays across connections; StreamID names this one
+// connection, which the node presents when it dials PathTerminal.
+type TerminalOpen struct {
+	StreamID  string `json:"stream_id"`
+	SessionID string `json:"session_id"`
+	Rows      int    `json:"rows"`
+	Cols      int    `json:"cols"`
 }
 
 // Disposition kinds: what the node does with a claimed Dispatch.

@@ -51,6 +51,9 @@ type Server struct {
 	coordinator Coordinator
 	// machines creates and removes provider machines; nil when the control plane wired none.
 	machines Machines
+	// terminals reaches a node for a terminal; nil when the control plane wired none.
+	terminals Terminals
+	tickets   terminalTickets
 	// logins counts wrong passwords per address; now is the clock it reads.
 	logins *loginLimiter
 	now    func() time.Time
@@ -141,6 +144,9 @@ func (s *Server) Register(mux *http.ServeMux) error {
 			}),
 		openapi.StdHTTPServerOptions{BaseURL: BasePath, BaseRouter: api, ErrorHandlerFunc: s.writeRequestError},
 	)
+
+	// A WebSocket is not in the contract's request and response shapes; its ticket is its permission.
+	mux.HandleFunc("GET "+BasePath+"/terminals/{ticket}", s.terminalSocket)
 
 	mux.Handle(BasePath+"/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
