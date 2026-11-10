@@ -40,13 +40,22 @@ const (
 	// ProviderAntigravitySubscription is served by the model gateway only: no
 	// worker's CLI runs under an Antigravity account.
 	ProviderAntigravitySubscription = "antigravity_subscription"
+	// ProviderModelGateway is the control plane's own model gateway: a worker
+	// under it calls the gateway with a key made for its Dispatch, and which
+	// account or API serves the model is the gateway's business (issue #107).
+	// It has no base URL and no key of its own.
+	ProviderModelGateway = "model_gateway"
 )
+
+// GatewayAccountRef stands where an account's id does for a Conversation
+// whose model the gateway serves: no account on the node runs it.
+const GatewayAccountRef = "gateway"
 
 // runtimeProviders lists, per runtime, the provider kinds it can run against.
 // A Runtime is code on the node; a profile only names one.
 var runtimeProviders = map[string][]string{
 	"claude": {ProviderClaudeSubscription, ProviderAnthropic},
-	"codex":  {ProviderCodexSubscription, ProviderOpenAICompatible},
+	"codex":  {ProviderCodexSubscription, ProviderOpenAICompatible, ProviderModelGateway},
 	"pi":     {ProviderAnthropic, ProviderOpenAICompatible},
 }
 
@@ -399,7 +408,7 @@ func (s *Service) ApplyProvider(ctx context.Context, name, source string) (Provi
 func validProvider(in providerSource) error {
 	kinds := []string{
 		ProviderAnthropic, ProviderOpenAICompatible, ProviderClaudeSubscription, ProviderCodexSubscription,
-		ProviderAntigravitySubscription,
+		ProviderAntigravitySubscription, ProviderModelGateway,
 	}
 
 	switch {
@@ -578,6 +587,9 @@ func checkTaskProfile(ctx context.Context, q *store.Queries, nt NewTask) error {
 type resolved struct {
 	runtime, model, effort string
 	versionID              string
+	// gateway says the model gateway serves the model, so no account on a
+	// node is needed.
+	gateway bool
 }
 
 func resolve(ctx context.Context, q *store.Queries, task store.Task) (resolved, error) {
@@ -586,13 +598,24 @@ func resolve(ctx context.Context, q *store.Queries, task store.Task) (resolved, 
 		return resolved{}, notFound(err, "profile", task.Profile)
 	}
 
-	model := v.Model.String
+	model, provider := v.Model.String, v.Provider.String
 	if task.Runtime.String != "" && task.Runtime.String != v.Runtime {
-		model = "" // the profile's model belongs to its runtime
+		model, provider = "", "" // the profile's model and provider belong to its runtime
+	}
+
+	gateway := false
+
+	if provider != "" {
+		row, err := q.GetProvider(ctx, provider)
+		if err != nil {
+			return resolved{}, notFound(err, "provider", provider)
+		}
+
+		gateway = row.Kind == ProviderModelGateway
 	}
 
 	return resolved{
 		runtime: or(task.Runtime.String, v.Runtime), model: or(task.Model.String, model),
-		effort: or(task.Effort.String, v.Effort.String), versionID: v.ID,
+		effort: or(task.Effort.String, v.Effort.String), versionID: v.ID, gateway: gateway,
 	}, nil
 }

@@ -882,6 +882,10 @@ func (s *Service) afterSettle(ctx context.Context, q *store.Queries, now int64, 
 func coolAccount(ctx context.Context, q *store.Queries, now int64, dispatchID string, conv store.Conversation,
 	until int64,
 ) error {
+	if conv.AccountRef == GatewayAccountRef {
+		return nil // the gateway cools its own accounts down
+	}
+
 	if err := q.UpsertCooldown(ctx, store.UpsertCooldownParams{
 		Runtime: conv.Runtime, AccountRef: conv.AccountRef, Until: until, Reason: string(FailureRateLimited),
 	}); err != nil {

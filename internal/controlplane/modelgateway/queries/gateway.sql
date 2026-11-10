@@ -27,7 +27,14 @@ SELECT * FROM gateway_model_targets WHERE model = @model ORDER BY position;
 DELETE FROM gateway_models WHERE name = @name;
 
 -- name: InsertGatewayKey :exec
-INSERT INTO gateway_keys (id, name, key_hash, models, created_at) VALUES (@id, @name, @key_hash, @models, @now);
+INSERT INTO gateway_keys (id, name, key_hash, models, dispatch_id, created_at)
+VALUES (@id, @name, @key_hash, @models, @dispatch_id, @now);
+
+-- name: RevokeGatewayKeysOfDispatch :execrows
+UPDATE gateway_keys SET revoked_at = @now WHERE dispatch_id = @dispatch_id AND revoked_at IS NULL;
+
+-- name: ListDispatchesWithGatewayKeys :many
+SELECT DISTINCT dispatch_id FROM gateway_keys WHERE dispatch_id IS NOT NULL AND revoked_at IS NULL;
 
 -- name: GetGatewayKey :one
 SELECT * FROM gateway_keys WHERE id = @id;

@@ -32,7 +32,7 @@ func (q *Queries) DeleteGatewayModelTargets(ctx context.Context, model string) e
 }
 
 const getGatewayKey = `-- name: GetGatewayKey :one
-SELECT id, name, key_hash, models, created_at, revoked_at FROM gateway_keys WHERE id = ?1
+SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id FROM gateway_keys WHERE id = ?1
 `
 
 func (q *Queries) GetGatewayKey(ctx context.Context, id string) (GatewayKey, error) {
@@ -45,12 +45,13 @@ func (q *Queries) GetGatewayKey(ctx context.Context, id string) (GatewayKey, err
 		&i.Models,
 		&i.CreatedAt,
 		&i.RevokedAt,
+		&i.DispatchID,
 	)
 	return i, err
 }
 
 const getGatewayKeyByHash = `-- name: GetGatewayKeyByHash :one
-SELECT id, name, key_hash, models, created_at, revoked_at FROM gateway_keys WHERE key_hash = ?1
+SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id FROM gateway_keys WHERE key_hash = ?1
 `
 
 func (q *Queries) GetGatewayKeyByHash(ctx context.Context, keyHash string) (GatewayKey, error) {
@@ -63,6 +64,7 @@ func (q *Queries) GetGatewayKeyByHash(ctx context.Context, keyHash string) (Gate
 		&i.Models,
 		&i.CreatedAt,
 		&i.RevokedAt,
+		&i.DispatchID,
 	)
 	return i, err
 }
@@ -85,15 +87,17 @@ func (q *Queries) GetGatewayModel(ctx context.Context, name string) (GatewayMode
 }
 
 const insertGatewayKey = `-- name: InsertGatewayKey :exec
-INSERT INTO gateway_keys (id, name, key_hash, models, created_at) VALUES (?1, ?2, ?3, ?4, ?5)
+INSERT INTO gateway_keys (id, name, key_hash, models, dispatch_id, created_at)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6)
 `
 
 type InsertGatewayKeyParams struct {
-	ID      string
-	Name    string
-	KeyHash string
-	Models  string
-	Now     int64
+	ID         string
+	Name       string
+	KeyHash    string
+	Models     string
+	DispatchID sql.NullString
+	Now        int64
 }
 
 func (q *Queries) InsertGatewayKey(ctx context.Context, arg InsertGatewayKeyParams) error {
@@ -102,6 +106,7 @@ func (q *Queries) InsertGatewayKey(ctx context.Context, arg InsertGatewayKeyPara
 		arg.Name,
 		arg.KeyHash,
 		arg.Models,
+		arg.DispatchID,
 		arg.Now,
 	)
 	return err
@@ -178,8 +183,35 @@ func (q *Queries) InsertGatewayUsage(ctx context.Context, arg InsertGatewayUsage
 	return err
 }
 
+const listDispatchesWithGatewayKeys = `-- name: ListDispatchesWithGatewayKeys :many
+SELECT DISTINCT dispatch_id FROM gateway_keys WHERE dispatch_id IS NOT NULL AND revoked_at IS NULL
+`
+
+func (q *Queries) ListDispatchesWithGatewayKeys(ctx context.Context) ([]sql.NullString, error) {
+	rows, err := q.db.QueryContext(ctx, listDispatchesWithGatewayKeys)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []sql.NullString{}
+	for rows.Next() {
+		var dispatch_id sql.NullString
+		if err := rows.Scan(&dispatch_id); err != nil {
+			return nil, err
+		}
+		items = append(items, dispatch_id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listGatewayKeys = `-- name: ListGatewayKeys :many
-SELECT id, name, key_hash, models, created_at, revoked_at FROM gateway_keys ORDER BY name
+SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id FROM gateway_keys ORDER BY name
 `
 
 func (q *Queries) ListGatewayKeys(ctx context.Context) ([]GatewayKey, error) {
@@ -198,6 +230,7 @@ func (q *Queries) ListGatewayKeys(ctx context.Context) ([]GatewayKey, error) {
 			&i.Models,
 			&i.CreatedAt,
 			&i.RevokedAt,
+			&i.DispatchID,
 		); err != nil {
 			return nil, err
 		}
@@ -386,6 +419,23 @@ type RevokeGatewayKeyParams struct {
 
 func (q *Queries) RevokeGatewayKey(ctx context.Context, arg RevokeGatewayKeyParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, revokeGatewayKey, arg.Now, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const revokeGatewayKeysOfDispatch = `-- name: RevokeGatewayKeysOfDispatch :execrows
+UPDATE gateway_keys SET revoked_at = ?1 WHERE dispatch_id = ?2 AND revoked_at IS NULL
+`
+
+type RevokeGatewayKeysOfDispatchParams struct {
+	Now        sql.NullInt64
+	DispatchID sql.NullString
+}
+
+func (q *Queries) RevokeGatewayKeysOfDispatch(ctx context.Context, arg RevokeGatewayKeysOfDispatchParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, revokeGatewayKeysOfDispatch, arg.Now, arg.DispatchID)
 	if err != nil {
 		return 0, err
 	}

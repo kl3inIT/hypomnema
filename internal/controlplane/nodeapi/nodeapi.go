@@ -35,6 +35,9 @@ type Server struct {
 	// control plane wired none. The node API may not open a secret itself
 	// (issue #66).
 	hostToken func(ctx context.Context, host, path string) (string, bool)
+	// modelKey makes the model gateway's key for a Dispatch; nil when the
+	// control plane wired none.
+	modelKey func(ctx context.Context, dispatchID, model string) (string, bool)
 
 	mu       sync.Mutex
 	sessions map[string]*session
@@ -48,6 +51,13 @@ func New(svc *orchestration.Service, logger *slog.Logger) *Server {
 // WithHostTokens sets where an offer's git host token comes from.
 func (s *Server) WithHostTokens(token func(ctx context.Context, host, path string) (string, bool)) *Server {
 	s.hostToken = token
+
+	return s
+}
+
+// WithModelKeys sets where an offer's model gateway key comes from.
+func (s *Server) WithModelKeys(key func(ctx context.Context, dispatchID, model string) (string, bool)) *Server {
+	s.modelKey = key
 
 	return s
 }
@@ -360,6 +370,13 @@ func (c *session) push(ctx context.Context) error {
 		if c.srv.hostToken != nil && o.RepoHost != "" {
 			if token, ok := c.srv.hostToken(ctx, o.RepoHost, o.Repo); ok {
 				o.RepoToken = token
+			}
+		}
+
+		// So is the gateway's key: made now, for this Dispatch and its model only.
+		if c.srv.modelKey != nil && o.AccountRef == orchestration.GatewayAccountRef {
+			if key, ok := c.srv.modelKey(ctx, o.DispatchID, o.Model); ok {
+				o.ModelKey = key
 			}
 		}
 

@@ -151,12 +151,14 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	tokens := connections{svc: svc, vault: secrets}
 	machineMgr := machineManager(svc, secrets, cfg.PublicURL, logger)
 
-	nodeapi.New(svc, logger).WithHostTokens(tokens.Token).Register(mux)
 	mux.Handle("GET "+nodeapi.PathInstallScript, nodeapi.InstallScript(cfg.PublicURL, cfg.NodeReleaseURL))
 
 	subscriptions := newSubscriptions(cfg, svc, secrets, logger)
 	gateway := modelgateway.New(db, platform.SystemClock{}, platform.NewID, gatewayProviders(svc),
 		gatewaySecrets(secrets))
+	workerKeys := dispatchKeys{gateway: gateway, svc: svc, logger: logger}
+
+	nodeapi.New(svc, logger).WithHostTokens(tokens.Token).WithModelKeys(workerKeys.Key).Register(mux)
 	modelgateway.NewServer(gateway, logger, modelgateway.Config{
 		Subscriptions: gatewayAccounts{subs: subscriptions}, CodexBaseURL: cfg.CodexBaseURL,
 		AntigravityBaseURL: cfg.AntigravityBaseURL,
@@ -199,6 +201,15 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		machineMgr.Loop(ctx)
 	}()
 
+	// A Dispatch's gateway key stops working when the Dispatch settles.
+	keysDone := make(chan struct{})
+
+	go func() {
+		defer close(keysDone)
+
+		workerKeys.Loop(ctx)
+	}()
+
 	// Tokens of the accounts logged in here are replaced before they end.
 	refreshDone := make(chan struct{})
 
@@ -222,6 +233,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	<-loopDone
 	<-machinesDone
 	<-refreshDone
+	<-keysDone
 	<-supDone
 
 	if cause := context.Cause(ctx); cause != nil && !errors.Is(cause, context.Canceled) {
