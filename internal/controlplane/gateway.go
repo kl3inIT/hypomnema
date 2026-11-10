@@ -12,6 +12,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
 )
 
 // The model gateway's commands (issue #20): the model table and the keys.
@@ -19,7 +20,28 @@ import (
 // until the web client has its screens.
 
 const gatewayUsage = "gateway models apply FILE | gateway models list | gateway models rm <name> | " +
-	"gateway keys add <name> [--models a,b] | gateway keys list | gateway keys revoke <key id>"
+	"gateway keys add <name> [--models a,b] | gateway keys list | gateway keys revoke <key id> | " +
+	"gateway usage [--limit N]"
+
+// gatewaySecrets gives the gateway a provider's key from the vault. A
+// provider served by the gateway keeps its key there and names it as
+// vault:<name>; an environment variable or a file is for a CLI on its own
+// machine, not for the control plane.
+func gatewaySecrets(v *vault.Service) modelgateway.Secrets {
+	return func(ctx context.Context, ref string) (string, error) {
+		name, ok := vault.NameFromRef(ref)
+		if !ok {
+			return "", fmt.Errorf("%w: api_key_ref %q is not vault:<name>", modelgateway.ErrInvalid, ref)
+		}
+
+		opened, err := v.Open(ctx, name)
+		if err != nil {
+			return "", err
+		}
+
+		return opened.Payload[vault.KeyValue], nil
+	}
+}
 
 // gatewayProviders gives the gateway the providers orchestration keeps.
 func gatewayProviders(svc *orchestration.Service) modelgateway.Providers {
@@ -41,6 +63,10 @@ func gatewayProviders(svc *orchestration.Service) modelgateway.Providers {
 
 func (o *owner) gatewayCommand(ctx context.Context, args []string) error {
 	usage := fmt.Errorf("%w: %s", ErrUsage, gatewayUsage)
+
+	if len(args) >= 1 && args[0] == "usage" {
+		return o.gatewayUsageList(ctx, args[1:])
+	}
 
 	if len(args) < 2 {
 		return usage
@@ -190,4 +216,34 @@ func keyModels(k modelgateway.Key) string {
 	}
 
 	return strings.Join(k.Models, ", ")
+}
+
+// gatewayUsageList prints the latest requests the gateway served.
+func (o *owner) gatewayUsageList(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("gateway usage", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+
+	limit := fs.Int("limit", 50, "how many of the latest requests to show")
+
+	if err := fs.Parse(args); err != nil || fs.NArg() != 0 {
+		return fmt.Errorf("%w: %s", ErrUsage, gatewayUsage)
+	}
+
+	rows, err := o.gateway.ListUsage(ctx, *limit)
+	if err != nil {
+		return err
+	}
+
+	for _, u := range rows {
+		tokens := fmt.Sprintf("in %d (cached %d) out %d (reasoning %d)",
+			u.Tokens.Prompt, u.Tokens.Cached, u.Tokens.Completion, u.Tokens.Reasoning)
+		if u.Tokens.Estimated {
+			tokens += " estimated"
+		}
+
+		o.printf("%s\t%s\t%s\t%s:%s\t%s %d\t%s\t%s\n", u.CreatedAt.Format(time.RFC3339), u.KeyName, u.Model,
+			u.Provider, u.UpstreamModel, u.Outcome, u.Status, tokens, u.Duration.Round(time.Millisecond))
+	}
+
+	return nil
 }

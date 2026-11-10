@@ -129,6 +129,55 @@ func (q *Queries) InsertGatewayModelTarget(ctx context.Context, arg InsertGatewa
 	return err
 }
 
+const insertGatewayUsage = `-- name: InsertGatewayUsage :exec
+INSERT INTO gateway_usage (id, key_id, model, provider, upstream_model, stream, attempts, outcome, status,
+                           prompt_tokens, completion_tokens, cached_tokens, reasoning_tokens, estimated, duration_ms,
+                           created_at)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9,
+        ?10, ?11, ?12, ?13, ?14, ?15, ?16)
+`
+
+type InsertGatewayUsageParams struct {
+	ID               string
+	KeyID            string
+	Model            string
+	Provider         string
+	UpstreamModel    string
+	Stream           int64
+	Attempts         int64
+	Outcome          string
+	Status           int64
+	PromptTokens     int64
+	CompletionTokens int64
+	CachedTokens     int64
+	ReasoningTokens  int64
+	Estimated        int64
+	DurationMs       int64
+	Now              int64
+}
+
+func (q *Queries) InsertGatewayUsage(ctx context.Context, arg InsertGatewayUsageParams) error {
+	_, err := q.db.ExecContext(ctx, insertGatewayUsage,
+		arg.ID,
+		arg.KeyID,
+		arg.Model,
+		arg.Provider,
+		arg.UpstreamModel,
+		arg.Stream,
+		arg.Attempts,
+		arg.Outcome,
+		arg.Status,
+		arg.PromptTokens,
+		arg.CompletionTokens,
+		arg.CachedTokens,
+		arg.ReasoningTokens,
+		arg.Estimated,
+		arg.DurationMs,
+		arg.Now,
+	)
+	return err
+}
+
 const listGatewayKeys = `-- name: ListGatewayKeys :many
 SELECT id, name, key_hash, models, created_at, revoked_at FROM gateway_keys ORDER BY name
 `
@@ -246,6 +295,72 @@ func (q *Queries) ListGatewayModels(ctx context.Context) ([]GatewayModel, error)
 			&i.Source,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listGatewayUsage = `-- name: ListGatewayUsage :many
+SELECT u.id, u.key_id, u.model, u.provider, u.upstream_model, u.stream, u.attempts, u.outcome, u.status, u.prompt_tokens, u.completion_tokens, u.cached_tokens, u.reasoning_tokens, u.estimated, u.duration_ms, u.created_at, k.name AS key_name FROM gateway_usage u JOIN gateway_keys k ON k.id = u.key_id
+ORDER BY u.created_at DESC, u.id DESC LIMIT ?1
+`
+
+type ListGatewayUsageRow struct {
+	ID               string
+	KeyID            string
+	Model            string
+	Provider         string
+	UpstreamModel    string
+	Stream           int64
+	Attempts         int64
+	Outcome          string
+	Status           int64
+	PromptTokens     int64
+	CompletionTokens int64
+	CachedTokens     int64
+	ReasoningTokens  int64
+	Estimated        int64
+	DurationMs       int64
+	CreatedAt        int64
+	KeyName          string
+}
+
+func (q *Queries) ListGatewayUsage(ctx context.Context, rowLimit int64) ([]ListGatewayUsageRow, error) {
+	rows, err := q.db.QueryContext(ctx, listGatewayUsage, rowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListGatewayUsageRow{}
+	for rows.Next() {
+		var i ListGatewayUsageRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.KeyID,
+			&i.Model,
+			&i.Provider,
+			&i.UpstreamModel,
+			&i.Stream,
+			&i.Attempts,
+			&i.Outcome,
+			&i.Status,
+			&i.PromptTokens,
+			&i.CompletionTokens,
+			&i.CachedTokens,
+			&i.ReasoningTokens,
+			&i.Estimated,
+			&i.DurationMs,
+			&i.CreatedAt,
+			&i.KeyName,
 		); err != nil {
 			return nil, err
 		}

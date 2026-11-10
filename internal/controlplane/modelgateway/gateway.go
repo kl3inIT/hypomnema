@@ -9,8 +9,9 @@
 // virtual keys: stored as a hash, each with the models it may use. Vendor CLIs
 // (Claude Code, Codex) do not come through here; they talk to their vendor.
 //
-// So far it holds the model table, the keys and GET /v1/models; serving a
-// model is the next step.
+// It serves chat (POST /v1/chat/completions) from OpenAI-compatible providers
+// and records what it served; subscriptions and other capabilities are later
+// steps of the issue.
 package modelgateway
 
 import (
@@ -19,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"regexp"
 	"slices"
 	"strings"
@@ -56,7 +58,7 @@ const CapabilityChat Capability = "chat"
 const AllModels = "*"
 
 // servedKinds are the provider kinds the gateway has an adapter for.
-var servedKinds = []string{"openai_compatible"}
+var servedKinds = slices.Sorted(maps.Keys(chatAdapters))
 
 // A public model name may carry a vendor-style path, as "cx/gpt-6.1-sol".
 var modelNamePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/-]{0,99}$`)
@@ -119,11 +121,15 @@ type Service struct {
 	clock     platform.Clock
 	newID     func(prefix string) string
 	providers Providers
+	secrets   Secrets
 }
 
-// New returns a Service over an opened, migrated database.
-func New(db *sql.DB, clock platform.Clock, newID func(prefix string) string, providers Providers) *Service {
-	return &Service{db: db, clock: clock, newID: newID, providers: providers}
+// New returns a Service over an opened, migrated database. providers looks
+// providers up and secrets gives the key a provider's api_key_ref names.
+func New(
+	db *sql.DB, clock platform.Clock, newID func(prefix string) string, providers Providers, secrets Secrets,
+) *Service {
+	return &Service{db: db, clock: clock, newID: newID, providers: providers, secrets: secrets}
 }
 
 func (s *Service) write(ctx context.Context, fn func(q *store.Queries, now int64) error) error {
