@@ -377,6 +377,29 @@ func (c *session) push(ctx context.Context) error {
 	return nil
 }
 
+// stats records the measurement a heartbeat carries. One that cannot be read
+// or stored is logged and dropped: the heartbeat itself still counts.
+func (c *session) stats(ctx context.Context, payload json.RawMessage) {
+	if len(payload) == 0 {
+		return
+	}
+
+	var hb nodeproto.Heartbeat
+
+	err := json.Unmarshal(payload, &hb)
+	if err == nil && hb.Stats != nil {
+		err = c.srv.svc.NodeStats(ctx, c.nodeID, orchestration.SystemStats{
+			CPUPercent: hb.Stats.CPUPercent, MemoryUsedBytes: hb.Stats.MemoryUsedBytes,
+			DiskUsedBytes: hb.Stats.DiskUsedBytes, Load1: hb.Stats.Load1,
+		})
+	}
+
+	if err != nil {
+		c.srv.logger.WarnContext(ctx, "dropping a node's measurement", slog.String("event", "nodeapi.stats_dropped"),
+			slog.String("node_id", c.nodeID), slog.String("error", err.Error()))
+	}
+}
+
 func (c *session) handle(ctx context.Context, msg nodeproto.Message) error {
 	switch msg.Type {
 	case nodeproto.TypeHeartbeat:
@@ -387,6 +410,8 @@ func (c *session) handle(ctx context.Context, msg nodeproto.Message) error {
 		if err := c.srv.svc.NodeHeartbeat(ctx, c.nodeID); err != nil {
 			return err
 		}
+
+		c.stats(ctx, msg.Payload)
 
 		return c.send(ctx, nodeproto.TypeHeartbeatAck,
 			nodeproto.HeartbeatAck{HeartbeatAfterMs: nodeproto.HeartbeatEvery.Milliseconds()})

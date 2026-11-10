@@ -89,6 +89,8 @@ type Config struct {
 	Version      string
 	Runtimes     []nodeproto.RuntimeInfo
 	System       nodeproto.SystemInfo
+	// Stats measures the machine for a heartbeat; nil, or a nil result: the heartbeat carries none.
+	Stats func(ctx context.Context) *nodeproto.SystemStats
 }
 
 // Daemon is one node's connection.
@@ -374,7 +376,7 @@ func (d *Daemon) loop(ctx context.Context, in <-chan nodeproto.Message, errs <-c
 		case err := <-errs:
 			return healthy, err
 		case <-beat.C:
-			d.send(nodeproto.Message{Type: nodeproto.TypeHeartbeat})
+			d.send(d.heartbeat(ctx))
 			beat.Reset(heartbeat)
 		case <-lease.C:
 			if err := d.renewLeases(ctx); err != nil {
@@ -438,6 +440,19 @@ func (d *Daemon) setOut(out chan nodeproto.Message) {
 // send queues a message on the current session and reports whether it did;
 // while disconnected it is dropped (durable reports are in the outbox and
 // replayed).
+// heartbeat is the heartbeat message, with the machine's measurement when there is one.
+func (d *Daemon) heartbeat(ctx context.Context) nodeproto.Message {
+	if d.cfg.Stats != nil {
+		if stats := d.cfg.Stats(ctx); stats != nil {
+			if msg, err := nodeproto.Encode(nodeproto.TypeHeartbeat, nodeproto.Heartbeat{Stats: stats}); err == nil {
+				return msg
+			}
+		}
+	}
+
+	return nodeproto.Message{Type: nodeproto.TypeHeartbeat}
+}
+
 func (d *Daemon) send(msg nodeproto.Message) bool {
 	d.mu.Lock()
 	out := d.out

@@ -198,7 +198,7 @@ func (q *Queries) GetLiveNodeTokenByHash(ctx context.Context, tokenHash string) 
 }
 
 const getNode = `-- name: GetNode :one
-SELECT id, name, status, max_dispatches, worktree_root, runtimes, daemon_version, os, arch, cpus, memory_bytes, disk_bytes, last_seen_at, unavailable_at, deleted_at, created_at, updated_at FROM nodes WHERE id = ?1
+SELECT id, name, status, max_dispatches, worktree_root, runtimes, daemon_version, os, arch, cpus, memory_bytes, disk_bytes, last_seen_at, unavailable_at, deleted_at, created_at, updated_at, cpu_percent, memory_used_bytes, disk_used_bytes, load1, stats_at FROM nodes WHERE id = ?1
 `
 
 func (q *Queries) GetNode(ctx context.Context, id string) (Node, error) {
@@ -222,6 +222,11 @@ func (q *Queries) GetNode(ctx context.Context, id string) (Node, error) {
 		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CpuPercent,
+		&i.MemoryUsedBytes,
+		&i.DiskUsedBytes,
+		&i.Load1,
+		&i.StatsAt,
 	)
 	return i, err
 }
@@ -416,7 +421,7 @@ func (q *Queries) ListNodeTokens(ctx context.Context, nodeID string) ([]NodeToke
 }
 
 const listNodes = `-- name: ListNodes :many
-SELECT id, name, status, max_dispatches, worktree_root, runtimes, daemon_version, os, arch, cpus, memory_bytes, disk_bytes, last_seen_at, unavailable_at, deleted_at, created_at, updated_at FROM nodes WHERE status <> 'deleted' ORDER BY name
+SELECT id, name, status, max_dispatches, worktree_root, runtimes, daemon_version, os, arch, cpus, memory_bytes, disk_bytes, last_seen_at, unavailable_at, deleted_at, created_at, updated_at, cpu_percent, memory_used_bytes, disk_used_bytes, load1, stats_at FROM nodes WHERE status <> 'deleted' ORDER BY name
 `
 
 // Every node that has not been removed.
@@ -447,6 +452,11 @@ func (q *Queries) ListNodes(ctx context.Context) ([]Node, error) {
 			&i.DeletedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.CpuPercent,
+			&i.MemoryUsedBytes,
+			&i.DiskUsedBytes,
+			&i.Load1,
+			&i.StatsAt,
 		); err != nil {
 			return nil, err
 		}
@@ -606,6 +616,37 @@ type SetAccountStatusParams struct {
 
 func (q *Queries) SetAccountStatus(ctx context.Context, arg SetAccountStatusParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, setAccountStatus, arg.Now, arg.Status, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const setNodeStats = `-- name: SetNodeStats :execrows
+UPDATE nodes
+SET cpu_percent = ?1, memory_used_bytes = ?2, disk_used_bytes = ?3,
+    load1 = ?4, stats_at = ?5
+WHERE id = ?6 AND status <> 'deleted'
+`
+
+type SetNodeStatsParams struct {
+	CpuPercent      sql.NullFloat64
+	MemoryUsedBytes sql.NullInt64
+	DiskUsedBytes   sql.NullInt64
+	Load1           sql.NullFloat64
+	Now             sql.NullInt64
+	ID              string
+}
+
+func (q *Queries) SetNodeStats(ctx context.Context, arg SetNodeStatsParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setNodeStats,
+		arg.CpuPercent,
+		arg.MemoryUsedBytes,
+		arg.DiskUsedBytes,
+		arg.Load1,
+		arg.Now,
+		arg.ID,
+	)
 	if err != nil {
 		return 0, err
 	}

@@ -189,8 +189,17 @@ func (p *placement) take(nodeID string) {
 }
 
 func (p *placement) nodeOut(n *nodeLoad) Node {
+	var stats *SystemStats
+	if n.row.StatsAt.Valid {
+		stats = &SystemStats{
+			CPUPercent: n.row.CpuPercent.Float64, MemoryUsedBytes: n.row.MemoryUsedBytes.Int64,
+			DiskUsedBytes: n.row.DiskUsedBytes.Int64, Load1: n.row.Load1.Float64, At: millis(n.row.StatsAt.Int64),
+		}
+	}
+
 	return Node{
-		ID: n.row.ID, Name: n.row.Name, Status: NodeStatus(n.row.Status), MaxDispatches: int(n.row.MaxDispatches),
+		Stats: stats,
+		ID:    n.row.ID, Name: n.row.Name, Status: NodeStatus(n.row.Status), MaxDispatches: int(n.row.MaxDispatches),
 		WorktreeRoot: n.row.WorktreeRoot.String, Runtimes: nonNil(n.runtimes),
 		System: SystemInfo{
 			DaemonVersion: n.row.DaemonVersion.String, OS: n.row.Os.String, Arch: n.row.Arch.String,

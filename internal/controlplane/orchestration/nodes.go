@@ -63,6 +63,18 @@ type SystemInfo struct {
 	DiskBytes int64
 }
 
+// SystemStats is what a node measured at one moment.
+type SystemStats struct {
+	// CPUPercent is the share of all CPUs in use since the measurement before, 0 to 100.
+	CPUPercent      float64
+	MemoryUsedBytes int64
+	// DiskUsedBytes is of the volume that holds the worktree root.
+	DiskUsedBytes int64
+	// Load1 is the one-minute load average; zero where the system has none.
+	Load1 float64
+	At    time.Time
+}
+
 // Node is one machine that runs workers.
 type Node struct {
 	ID            string
@@ -72,7 +84,9 @@ type Node struct {
 	WorktreeRoot  string
 	Runtimes      []RuntimeInfo
 	System        SystemInfo
-	LastSeenAt    *time.Time
+	// Stats is the node's latest measurement; nil until it has sent one.
+	Stats      *SystemStats
+	LastSeenAt *time.Time
 	// UnavailableAt is set when the node let Dispatches expire in a row.
 	UnavailableAt *time.Time
 	// Connected: heard from within NodeOfflineAfter.
@@ -358,6 +372,23 @@ func (s *Service) NodeHeartbeat(ctx context.Context, nodeID string) error {
 		}
 
 		return q.TouchNode(ctx, store.TouchNodeParams{Now: now, ID: nodeID})
+	})
+}
+
+// NodeStats records what a node measured, replacing its last measurement.
+func (s *Service) NodeStats(ctx context.Context, nodeID string, st SystemStats) error {
+	if st.CPUPercent < 0 || st.CPUPercent > 100 || st.MemoryUsedBytes < 0 || st.DiskUsedBytes < 0 || st.Load1 < 0 {
+		return fmt.Errorf("%w: a measurement out of range", ErrInvalid)
+	}
+
+	return s.write(ctx, func(q *store.Queries, now int64) error {
+		n, err := q.SetNodeStats(ctx, store.SetNodeStatsParams{
+			CpuPercent:      sql.NullFloat64{Float64: st.CPUPercent, Valid: true},
+			MemoryUsedBytes: validInt(st.MemoryUsedBytes), DiskUsedBytes: validInt(st.DiskUsedBytes),
+			Load1: sql.NullFloat64{Float64: st.Load1, Valid: true}, Now: validInt(now), ID: nodeID,
+		})
+
+		return oneRow(n, err, "node", nodeID)
 	})
 }
 

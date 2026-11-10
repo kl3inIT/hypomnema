@@ -140,7 +140,8 @@ func toNode(n orchestration.Node) openapi.Node {
 
 	return openapi.Node{
 		Id: n.ID, Name: n.Name, Status: openapi.NodeStatus(n.Status), MaxDispatches: n.MaxDispatches,
-		WorktreeRoot: ptr(n.WorktreeRoot), Runtimes: runtimes, System: toNodeSystem(n.System), LastSeenAt: n.LastSeenAt,
+		WorktreeRoot: ptr(n.WorktreeRoot), Runtimes: runtimes, System: toNodeSystem(n.System),
+		Stats: toNodeStats(n.Stats), LastSeenAt: n.LastSeenAt,
 		UnavailableAt: n.UnavailableAt, Connected: n.Connected, Active: n.Active, CreatedAt: n.CreatedAt,
 	}
 }
@@ -154,6 +155,17 @@ func toNodeSystem(s orchestration.SystemInfo) *openapi.NodeSystem {
 	return &openapi.NodeSystem{
 		DaemonVersion: ptr(s.DaemonVersion), Os: ptr(s.OS), Arch: ptr(s.Arch), Cpus: ptr(s.CPUs),
 		MemoryBytes: ptr(s.MemoryBytes), DiskBytes: ptr(s.DiskBytes),
+	}
+}
+
+func toNodeStats(s *orchestration.SystemStats) *openapi.NodeStats {
+	if s == nil {
+		return nil
+	}
+
+	return &openapi.NodeStats{
+		CpuPercent: float32(s.CPUPercent), MemoryUsedBytes: s.MemoryUsedBytes, DiskUsedBytes: s.DiskUsedBytes,
+		Load1: float32(s.Load1), At: s.At,
 	}
 }
 

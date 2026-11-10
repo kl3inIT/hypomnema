@@ -990,6 +990,7 @@ components:
           type: array
           items: { $ref: "#/components/schemas/Runtime" }
         system: { $ref: "#/components/schemas/NodeSystem" }
+        stats: { $ref: "#/components/schemas/NodeStats" }
         last_seen_at: { type: string, format: date-time }
         unavailable_at: { type: string, format: date-time }
         connected: { type: boolean }
@@ -1010,6 +1011,23 @@ components:
           type: integer
           format: int64
           description: The size of the volume that holds the worktree root.
+    NodeStats:
+      type: object
+      description: The node's latest measurement, sent with its heartbeat. Left out until it has sent one.
+      required: [cpu_percent, memory_used_bytes, disk_used_bytes, load1, at]
+      properties:
+        cpu_percent:
+          type: number
+          description: The share of all CPUs in use, 0 to 100.
+        memory_used_bytes: { type: integer, format: int64 }
+        disk_used_bytes:
+          type: integer
+          format: int64
+          description: Of the volume that holds the worktree root.
+        load1:
+          type: number
+          description: The one-minute load average; zero where the system has none.
+        at: { type: string, format: date-time }
     NodeList:
       type: object
       required: [data]

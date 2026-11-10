@@ -4,7 +4,9 @@ import (
 	"context"
 	"runtime"
 
+	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/shirou/gopsutil/v4/disk"
+	"github.com/shirou/gopsutil/v4/load"
 	"github.com/shirou/gopsutil/v4/mem"
 
 	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
@@ -25,6 +27,40 @@ func DetectSystem(ctx context.Context, worktreeRoot string) nodeproto.SystemInfo
 	}
 
 	return out
+}
+
+// MeasureSystem is the machine's load for one heartbeat: CPU in use since the
+// call before, memory in use, the worktree volume's use and the one-minute
+// load average. What cannot be read stays zero; nil when nothing can.
+func MeasureSystem(ctx context.Context, worktreeRoot string) *nodeproto.SystemStats {
+	out := nodeproto.SystemStats{}
+	read := false
+
+	// An interval of zero compares with the call before, so it never blocks the heartbeat.
+	if p, err := cpu.PercentWithContext(ctx, 0, false); err == nil && len(p) == 1 {
+		out.CPUPercent = min(max(p[0], 0), 100)
+		read = true
+	}
+
+	if m, err := mem.VirtualMemoryWithContext(ctx); err == nil {
+		out.MemoryUsedBytes = clampInt64(m.Used)
+		read = true
+	}
+
+	if d, err := disk.UsageWithContext(ctx, worktreeRoot); err == nil {
+		out.DiskUsedBytes = clampInt64(d.Used)
+		read = true
+	}
+
+	if l, err := load.AvgWithContext(ctx); err == nil {
+		out.Load1 = max(l.Load1, 0)
+	}
+
+	if !read {
+		return nil
+	}
+
+	return &out
 }
 
 func clampInt64(v uint64) int64 {

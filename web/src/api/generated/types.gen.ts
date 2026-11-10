@@ -296,6 +296,7 @@ export type Node = {
   worktree_root?: string;
   runtimes: Array<Runtime>;
   system?: NodeSystem;
+  stats?: NodeStats;
   last_seen_at?: string;
   unavailable_at?: string;
   connected: boolean;
@@ -319,6 +320,26 @@ export type NodeSystem = {
    * The size of the volume that holds the worktree root.
    */
   disk_bytes?: number;
+};
+
+/**
+ * The node's latest measurement, sent with its heartbeat. Left out until it has sent one.
+ */
+export type NodeStats = {
+  /**
+   * The share of all CPUs in use, 0 to 100.
+   */
+  cpu_percent: number;
+  memory_used_bytes: number;
+  /**
+   * Of the volume that holds the worktree root.
+   */
+  disk_used_bytes: number;
+  /**
+   * The one-minute load average; zero where the system has none.
+   */
+  load1: number;
+  at: string;
 };
 
 export type NodeList = {

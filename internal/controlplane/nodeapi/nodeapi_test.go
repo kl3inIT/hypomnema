@@ -464,6 +464,32 @@ func TestRevokedTokenEndsTheConnection(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, status)
 }
 
+// Scenario: a heartbeat carries what the node measured. The control plane
+// shows it; a heartbeat whose measurement cannot be true is still answered,
+// and the measurement before it stays.
+func TestHeartbeatCarriesTheNodesMeasurement(t *testing.T) {
+	t.Parallel()
+
+	p := newPlane(t)
+	conn := p.connect()
+
+	p.send(conn, nodeproto.TypeHeartbeat, nodeproto.Heartbeat{Stats: &nodeproto.SystemStats{
+		CPUPercent: 42, MemoryUsedBytes: 3 << 30, DiskUsedBytes: 20 << 30, Load1: 1.5,
+	}})
+	p.next(conn, nodeproto.TypeHeartbeatAck)
+
+	p.send(conn, nodeproto.TypeHeartbeat, nodeproto.Heartbeat{Stats: &nodeproto.SystemStats{CPUPercent: 900}})
+	p.next(conn, nodeproto.TypeHeartbeatAck)
+
+	n, err := p.svc.GetNode(t.Context(), p.node.ID)
+	require.NoError(t, err)
+	require.NotNil(t, n.Stats)
+	assert.InDelta(t, 42, n.Stats.CPUPercent, 0)
+	assert.Equal(t, int64(3<<30), n.Stats.MemoryUsedBytes)
+	assert.Equal(t, int64(20<<30), n.Stats.DiskUsedBytes)
+	assert.InDelta(t, 1.5, n.Stats.Load1, 0)
+}
+
 // Scenario: hello after a restart. Each claimed Dispatch is answered.
 func TestHelloAnswersEachClaim(t *testing.T) {
 	t.Parallel()

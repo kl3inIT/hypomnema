@@ -76,7 +76,9 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   its own, never expires, and records its last use at most once an hour. At each connect the node reports its CLIs
   (path and version), its worktree root, and what it is: its version, OS, architecture, CPU count, memory, and the
   size of the volume that holds the worktree root. It is connected while heard from within 30 s (any node call
-  counts). A node can be drained and resumed; three expiries in a row mark it unavailable until its next hello or
+  counts). With each heartbeat it sends what it measured: CPU in use since the heartbeat before, memory in use, the
+  worktree volume's use and the one-minute load average; only the latest measurement is kept, with its time
+  (`GET /nodes` shows it as `stats`). A node can be drained and resumed; three expiries in a row mark it unavailable until its next hello or
   a resume. A removed node is kept as `deleted`: its tokens are revoked, it is no longer listed or placed on, and
   its name is free; one that still runs a Dispatch is not removed. Accounts (runtime, label, position, active or
   disabled) are kept here with no secret value.
