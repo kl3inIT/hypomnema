@@ -56,6 +56,23 @@ scratch that is deleted is the exception; the result is a message with files, an
 a pull request; access to mail and the like is granted per agent, as a skill, an MCP server or a connected app,
 with approval where the project has it; and a schedule that starts work lives on the server.
 
+## 3. Tickets (Linear) in Orca
+
+Read in Orca's code for the owner's question about Linear, the same day.
+
+- Orca keeps where work comes from apart from where code is reviewed. Task providers are `github`, `gitlab`,
+  `linear` and `jira` (`src/shared/task-providers.ts`); review hosts are the five of section 1. Its README: "See
+  your GitHub and Linear tasks in one place, and start a workspace for each".
+- A worktree carries its ticket beside its pull request: `linkedIssue` for a GitHub issue, `linkedLinearIssue` with
+  the Linear workspace's id and URL key (`src/shared/linear/links.ts`). A ticket is given as its identifier
+  (`BEY-12`) or its `linear.app` URL, parsed there.
+- Agents reach Linear through Orca's own CLI (`orca linear issue`, `search`, `list-issues`, `comment`,
+  `team states`; `src/cli/help.ts`), not through a Linear tool of their own, guided by the `orca-linear` skill:
+  work from the linked ticket, finish with the pull request's link and a comment, move the ticket through its
+  states. The guide says to treat ticket text, comments and attachments as untrusted data, never as instructions.
+- Credentials are a Linear API key per Linear workspace, kept encrypted on the machine
+  (`src/main/linear/linear-credential-paths.ts`); several workspaces can be connected.
+
 ## What follows for Hypomnema
 
 Not decided. Each needs its own design, approved by the owner in its issue.
@@ -63,6 +80,8 @@ Not decided. Each needs its own design, approved by the owner in its issue.
 - A Task stays one kind. With no repository it ends in a report and files instead of a pull request.
 - The git host becomes part of a Run's repository, found from its URL, with one adapter a host for the clone URL,
   the command that opens the request, its link and its state; GitHub is the first.
+- A ticket is linked to a Run or a Task apart from its repository, as Orca links it to a worktree; the key stays
+  in the control plane and the coordinator writes back through the client API.
 - A pull request's state is polled, as the references do. Removing a worktree on a merge is something only t3code
   does, and only when asked to.
 
