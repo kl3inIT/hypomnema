@@ -42,6 +42,9 @@ type Server struct {
 	// control plane wired none.
 	tools func(ctx context.Context, os, arch string) []nodeproto.Tool
 
+	// releaseURL is where a node finds its releases, sent at hello.
+	releaseURL string
+
 	mu       sync.Mutex
 	sessions map[string]*session
 	// streams are the terminal connections nodes have been asked to open, by stream id.
@@ -79,6 +82,17 @@ func (s *Server) toolsFor(ctx context.Context, os, arch string) []nodeproto.Tool
 // WithModelKeys sets where an offer's model gateway key comes from.
 func (s *Server) WithModelKeys(key func(ctx context.Context, dispatchID, model string) (string, bool)) *Server {
 	s.modelKey = key
+
+	return s
+}
+
+// WithReleaseURL sets where nodes find their releases; "" means DefaultReleaseURL.
+func (s *Server) WithReleaseURL(url string) *Server {
+	if url == "" {
+		url = DefaultReleaseURL
+	}
+
+	s.releaseURL = strings.TrimSuffix(url, "/")
 
 	return s
 }
@@ -162,6 +176,7 @@ func (s *Server) hello(w http.ResponseWriter, r *http.Request) {
 		HeartbeatAfterMs: nodeproto.HeartbeatEvery.Milliseconds(),
 		GitHosts:         s.gitHosts(r.Context()),
 		Tools:            s.toolsFor(r.Context(), req.System.OS, req.System.Arch),
+		ReleaseURL:       s.releaseURL,
 	}
 	for _, d := range dispositions {
 		resp.Dispositions = append(resp.Dispositions, nodeproto.Disposition{DispatchID: d.DispatchID, Kind: string(d.Kind)})
