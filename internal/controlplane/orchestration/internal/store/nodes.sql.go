@@ -52,6 +52,33 @@ func (q *Queries) CountActiveDispatches(ctx context.Context, statuses []string) 
 	return count, err
 }
 
+const countActiveDispatchesOfNode = `-- name: CountActiveDispatchesOfNode :one
+SELECT count(*) FROM dispatches WHERE node_id = ?1 AND status IN (/*SLICE:statuses*/?)
+`
+
+type CountActiveDispatchesOfNodeParams struct {
+	NodeID   string
+	Statuses []string
+}
+
+func (q *Queries) CountActiveDispatchesOfNode(ctx context.Context, arg CountActiveDispatchesOfNodeParams) (int64, error) {
+	query := countActiveDispatchesOfNode
+	var queryParams []interface{}
+	queryParams = append(queryParams, arg.NodeID)
+	if len(arg.Statuses) > 0 {
+		for _, v := range arg.Statuses {
+			queryParams = append(queryParams, v)
+		}
+		query = strings.Replace(query, "/*SLICE:statuses*/?", strings.Repeat(",?", len(arg.Statuses))[1:], 1)
+	} else {
+		query = strings.Replace(query, "/*SLICE:statuses*/?", "NULL", 1)
+	}
+	row := q.db.QueryRowContext(ctx, query, queryParams...)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countActiveDispatchesPerNode = `-- name: CountActiveDispatchesPerNode :many
 SELECT node_id, count(*) AS n FROM dispatches WHERE status IN (/*SLICE:statuses*/?) GROUP BY node_id
 `
@@ -113,6 +140,23 @@ func (q *Queries) CountTaskEscalationsSince(ctx context.Context, arg CountTaskEs
 	return count, err
 }
 
+const deleteNode = `-- name: DeleteNode :execrows
+UPDATE nodes SET updated_at = ?1, status = 'deleted', deleted_at = ?1 WHERE id = ?2 AND status <> 'deleted'
+`
+
+type DeleteNodeParams struct {
+	Now int64
+	ID  string
+}
+
+func (q *Queries) DeleteNode(ctx context.Context, arg DeleteNodeParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteNode, arg.Now, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const getAccount = `-- name: GetAccount :one
 SELECT id, runtime, label, status, position, created_at, updated_at FROM accounts WHERE id = ?1
 `
@@ -132,8 +176,29 @@ func (q *Queries) GetAccount(ctx context.Context, id string) (Account, error) {
 	return i, err
 }
 
+const getLiveNodeTokenByHash = `-- name: GetLiveNodeTokenByHash :one
+SELECT t.id, t.node_id, t.name, t.token_hash, t.created_at, t.last_used_at, t.revoked_at FROM node_tokens t JOIN nodes n ON n.id = t.node_id
+WHERE t.token_hash = ?1 AND t.revoked_at IS NULL AND n.status <> 'deleted'
+`
+
+// The token, when it is not revoked and its node has not been removed.
+func (q *Queries) GetLiveNodeTokenByHash(ctx context.Context, tokenHash string) (NodeToken, error) {
+	row := q.db.QueryRowContext(ctx, getLiveNodeTokenByHash, tokenHash)
+	var i NodeToken
+	err := row.Scan(
+		&i.ID,
+		&i.NodeID,
+		&i.Name,
+		&i.TokenHash,
+		&i.CreatedAt,
+		&i.LastUsedAt,
+		&i.RevokedAt,
+	)
+	return i, err
+}
+
 const getNode = `-- name: GetNode :one
-SELECT id, name, token_hash, status, max_dispatches, worktree_root, runtimes, last_seen_at, unavailable_at, created_at, updated_at FROM nodes WHERE id = ?1
+SELECT id, name, status, max_dispatches, worktree_root, runtimes, daemon_version, os, arch, cpus, memory_bytes, disk_bytes, last_seen_at, unavailable_at, deleted_at, created_at, updated_at FROM nodes WHERE id = ?1
 `
 
 func (q *Queries) GetNode(ctx context.Context, id string) (Node, error) {
@@ -142,38 +207,40 @@ func (q *Queries) GetNode(ctx context.Context, id string) (Node, error) {
 	err := row.Scan(
 		&i.ID,
 		&i.Name,
-		&i.TokenHash,
 		&i.Status,
 		&i.MaxDispatches,
 		&i.WorktreeRoot,
 		&i.Runtimes,
+		&i.DaemonVersion,
+		&i.Os,
+		&i.Arch,
+		&i.Cpus,
+		&i.MemoryBytes,
+		&i.DiskBytes,
 		&i.LastSeenAt,
 		&i.UnavailableAt,
+		&i.DeletedAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
 	)
 	return i, err
 }
 
-const getNodeByTokenHash = `-- name: GetNodeByTokenHash :one
-SELECT id, name, token_hash, status, max_dispatches, worktree_root, runtimes, last_seen_at, unavailable_at, created_at, updated_at FROM nodes WHERE token_hash = ?1
+const getNodeToken = `-- name: GetNodeToken :one
+SELECT id, node_id, name, token_hash, created_at, last_used_at, revoked_at FROM node_tokens WHERE id = ?1
 `
 
-func (q *Queries) GetNodeByTokenHash(ctx context.Context, tokenHash string) (Node, error) {
-	row := q.db.QueryRowContext(ctx, getNodeByTokenHash, tokenHash)
-	var i Node
+func (q *Queries) GetNodeToken(ctx context.Context, id string) (NodeToken, error) {
+	row := q.db.QueryRowContext(ctx, getNodeToken, id)
+	var i NodeToken
 	err := row.Scan(
 		&i.ID,
+		&i.NodeID,
 		&i.Name,
 		&i.TokenHash,
-		&i.Status,
-		&i.MaxDispatches,
-		&i.WorktreeRoot,
-		&i.Runtimes,
-		&i.LastSeenAt,
-		&i.UnavailableAt,
 		&i.CreatedAt,
-		&i.UpdatedAt,
+		&i.LastUsedAt,
+		&i.RevokedAt,
 	)
 	return i, err
 }
@@ -202,14 +269,13 @@ func (q *Queries) InsertAccount(ctx context.Context, arg InsertAccountParams) er
 }
 
 const insertNode = `-- name: InsertNode :exec
-INSERT INTO nodes (id, name, token_hash, status, max_dispatches, created_at, updated_at)
-VALUES (?1, ?2, ?3, 'active', ?4, ?5, ?5)
+INSERT INTO nodes (id, name, status, max_dispatches, created_at, updated_at)
+VALUES (?1, ?2, 'active', ?3, ?4, ?4)
 `
 
 type InsertNodeParams struct {
 	ID            string
 	Name          string
-	TokenHash     string
 	MaxDispatches int64
 	Now           int64
 }
@@ -218,8 +284,30 @@ func (q *Queries) InsertNode(ctx context.Context, arg InsertNodeParams) error {
 	_, err := q.db.ExecContext(ctx, insertNode,
 		arg.ID,
 		arg.Name,
-		arg.TokenHash,
 		arg.MaxDispatches,
+		arg.Now,
+	)
+	return err
+}
+
+const insertNodeToken = `-- name: InsertNodeToken :exec
+INSERT INTO node_tokens (id, node_id, name, token_hash, created_at) VALUES (?1, ?2, ?3, ?4, ?5)
+`
+
+type InsertNodeTokenParams struct {
+	ID        string
+	NodeID    string
+	Name      string
+	TokenHash string
+	Now       int64
+}
+
+func (q *Queries) InsertNodeToken(ctx context.Context, arg InsertNodeTokenParams) error {
+	_, err := q.db.ExecContext(ctx, insertNodeToken,
+		arg.ID,
+		arg.NodeID,
+		arg.Name,
+		arg.TokenHash,
 		arg.Now,
 	)
 	return err
@@ -292,10 +380,46 @@ func (q *Queries) ListActiveCooldowns(ctx context.Context, now int64) ([]Account
 	return items, nil
 }
 
-const listNodes = `-- name: ListNodes :many
-SELECT id, name, token_hash, status, max_dispatches, worktree_root, runtimes, last_seen_at, unavailable_at, created_at, updated_at FROM nodes ORDER BY name
+const listNodeTokens = `-- name: ListNodeTokens :many
+SELECT id, node_id, name, token_hash, created_at, last_used_at, revoked_at FROM node_tokens WHERE node_id = ?1 ORDER BY created_at, id
 `
 
+func (q *Queries) ListNodeTokens(ctx context.Context, nodeID string) ([]NodeToken, error) {
+	rows, err := q.db.QueryContext(ctx, listNodeTokens, nodeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []NodeToken{}
+	for rows.Next() {
+		var i NodeToken
+		if err := rows.Scan(
+			&i.ID,
+			&i.NodeID,
+			&i.Name,
+			&i.TokenHash,
+			&i.CreatedAt,
+			&i.LastUsedAt,
+			&i.RevokedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listNodes = `-- name: ListNodes :many
+SELECT id, name, status, max_dispatches, worktree_root, runtimes, daemon_version, os, arch, cpus, memory_bytes, disk_bytes, last_seen_at, unavailable_at, deleted_at, created_at, updated_at FROM nodes WHERE status <> 'deleted' ORDER BY name
+`
+
+// Every node that has not been removed.
 func (q *Queries) ListNodes(ctx context.Context) ([]Node, error) {
 	rows, err := q.db.QueryContext(ctx, listNodes)
 	if err != nil {
@@ -308,13 +432,19 @@ func (q *Queries) ListNodes(ctx context.Context) ([]Node, error) {
 		if err := rows.Scan(
 			&i.ID,
 			&i.Name,
-			&i.TokenHash,
 			&i.Status,
 			&i.MaxDispatches,
 			&i.WorktreeRoot,
 			&i.Runtimes,
+			&i.DaemonVersion,
+			&i.Os,
+			&i.Arch,
+			&i.Cpus,
+			&i.MemoryBytes,
+			&i.DiskBytes,
 			&i.LastSeenAt,
 			&i.UnavailableAt,
+			&i.DeletedAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
 		); err != nil {
@@ -379,15 +509,22 @@ func (q *Queries) MarkNodeUnavailable(ctx context.Context, arg MarkNodeUnavailab
 const nodeHello = `-- name: NodeHello :execrows
 UPDATE nodes
 SET updated_at = ?1, last_seen_at = ?1, worktree_root = ?2, runtimes = ?3,
-    unavailable_at = NULL
-WHERE id = ?4
+    daemon_version = ?4, os = ?5, arch = ?6, cpus = ?7, memory_bytes = ?8,
+    disk_bytes = ?9, unavailable_at = NULL
+WHERE id = ?10 AND status <> 'deleted'
 `
 
 type NodeHelloParams struct {
-	Now          int64
-	WorktreeRoot sql.NullString
-	Runtimes     string
-	ID           string
+	Now           int64
+	WorktreeRoot  sql.NullString
+	Runtimes      string
+	DaemonVersion sql.NullString
+	Os            sql.NullString
+	Arch          sql.NullString
+	Cpus          sql.NullInt64
+	MemoryBytes   sql.NullInt64
+	DiskBytes     sql.NullInt64
+	ID            string
 }
 
 func (q *Queries) NodeHello(ctx context.Context, arg NodeHelloParams) (int64, error) {
@@ -395,6 +532,12 @@ func (q *Queries) NodeHello(ctx context.Context, arg NodeHelloParams) (int64, er
 		arg.Now,
 		arg.WorktreeRoot,
 		arg.Runtimes,
+		arg.DaemonVersion,
+		arg.Os,
+		arg.Arch,
+		arg.Cpus,
+		arg.MemoryBytes,
+		arg.DiskBytes,
 		arg.ID,
 	)
 	if err != nil {
@@ -404,7 +547,7 @@ func (q *Queries) NodeHello(ctx context.Context, arg NodeHelloParams) (int64, er
 }
 
 const resumeNode = `-- name: ResumeNode :execrows
-UPDATE nodes SET updated_at = ?1, status = 'active', unavailable_at = NULL WHERE id = ?2
+UPDATE nodes SET updated_at = ?1, status = 'active', unavailable_at = NULL WHERE id = ?2 AND status <> 'deleted'
 `
 
 type ResumeNodeParams struct {
@@ -418,6 +561,37 @@ func (q *Queries) ResumeNode(ctx context.Context, arg ResumeNodeParams) (int64, 
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const revokeNodeToken = `-- name: RevokeNodeToken :execrows
+UPDATE node_tokens SET revoked_at = ?1 WHERE id = ?2 AND revoked_at IS NULL
+`
+
+type RevokeNodeTokenParams struct {
+	Now sql.NullInt64
+	ID  string
+}
+
+func (q *Queries) RevokeNodeToken(ctx context.Context, arg RevokeNodeTokenParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, revokeNodeToken, arg.Now, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const revokeNodeTokens = `-- name: RevokeNodeTokens :exec
+UPDATE node_tokens SET revoked_at = ?1 WHERE node_id = ?2 AND revoked_at IS NULL
+`
+
+type RevokeNodeTokensParams struct {
+	Now    sql.NullInt64
+	NodeID string
+}
+
+func (q *Queries) RevokeNodeTokens(ctx context.Context, arg RevokeNodeTokensParams) error {
+	_, err := q.db.ExecContext(ctx, revokeNodeTokens, arg.Now, arg.NodeID)
+	return err
 }
 
 const setAccountStatus = `-- name: SetAccountStatus :execrows
@@ -439,7 +613,7 @@ func (q *Queries) SetAccountStatus(ctx context.Context, arg SetAccountStatusPara
 }
 
 const setNodeStatus = `-- name: SetNodeStatus :execrows
-UPDATE nodes SET updated_at = ?1, status = ?2 WHERE id = ?3
+UPDATE nodes SET updated_at = ?1, status = ?2 WHERE id = ?3 AND status <> 'deleted'
 `
 
 type SetNodeStatusParams struct {
@@ -467,5 +641,21 @@ type TouchNodeParams struct {
 
 func (q *Queries) TouchNode(ctx context.Context, arg TouchNodeParams) error {
 	_, err := q.db.ExecContext(ctx, touchNode, arg.Now, arg.ID)
+	return err
+}
+
+const touchNodeToken = `-- name: TouchNodeToken :exec
+UPDATE node_tokens SET last_used_at = CAST(?1 AS INTEGER)
+WHERE id = ?2 AND (last_used_at IS NULL OR last_used_at <= CAST(?3 AS INTEGER))
+`
+
+type TouchNodeTokenParams struct {
+	Now    int64
+	ID     string
+	Before int64
+}
+
+func (q *Queries) TouchNodeToken(ctx context.Context, arg TouchNodeTokenParams) error {
+	_, err := q.db.ExecContext(ctx, touchNodeToken, arg.Now, arg.ID, arg.Before)
 	return err
 }

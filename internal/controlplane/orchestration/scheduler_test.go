@@ -443,7 +443,7 @@ func TestNodeTokenAuthenticatesAndIsNotStored(t *testing.T) {
 
 	var stored int
 	require.NoError(t, w.db.QueryRowContext(t.Context(),
-		"SELECT count(*) FROM nodes WHERE token_hash = ? OR name = ?", token, token).Scan(&stored))
+		"SELECT count(*) FROM node_tokens WHERE token_hash = ? OR name = ?", token, token).Scan(&stored))
 	assert.Zero(t, stored)
 
 	_, _, err = w.s.AddNode(t.Context(), "node_new", 0)

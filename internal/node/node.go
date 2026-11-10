@@ -195,6 +195,7 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 
 	d := daemon.New(daemon.Config{
 		URL: cfg.URL, Token: cfg.Token, WorktreeRoot: cfg.WorktreeRoot, Version: platform.Version, Runtimes: runtimes,
+		System: DetectSystem(ctx, cfg.WorktreeRoot),
 	}, db, runner, logger)
 
 	// Workers' transcripts go to the control plane beside their reports (issue #43).

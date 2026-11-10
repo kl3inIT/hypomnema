@@ -29,7 +29,13 @@ type NodeStatus string
 const (
 	NodeActive  NodeStatus = "active"
 	NodeDrained NodeStatus = "drained"
+	// NodeDeleted: removed by the owner; kept only for the record.
+	NodeDeleted NodeStatus = "deleted"
 )
+
+// nodeTokenTouchEvery is how often a token's last use is written (Omnara
+// touches a machine token at most hourly).
+const nodeTokenTouchEvery = time.Hour
 
 // RuntimeInfo is one CLI a node found.
 type RuntimeInfo struct {
@@ -42,6 +48,19 @@ type RuntimeInfo struct {
 type Hello struct {
 	WorktreeRoot string
 	Runtimes     []RuntimeInfo
+	System       SystemInfo
+}
+
+// SystemInfo is what a node is: its daemon and its machine. A zero field was
+// not reported.
+type SystemInfo struct {
+	DaemonVersion string
+	OS            string
+	Arch          string
+	CPUs          int
+	MemoryBytes   int64
+	// DiskBytes is the size of the volume that holds the worktree root.
+	DiskBytes int64
 }
 
 // Node is one machine that runs workers.
@@ -52,6 +71,7 @@ type Node struct {
 	MaxDispatches int
 	WorktreeRoot  string
 	Runtimes      []RuntimeInfo
+	System        SystemInfo
 	LastSeenAt    *time.Time
 	// UnavailableAt is set when the node let Dispatches expire in a row.
 	UnavailableAt *time.Time
@@ -83,8 +103,21 @@ type Account struct {
 	CoolingUntil *time.Time
 }
 
-// AddNode records a node and returns it with its token. The token is shown
-// only here; only its hash is kept.
+// NodeToken is one credential of a node. It holds no secret.
+type NodeToken struct {
+	ID         string
+	NodeID     string
+	Name       string
+	CreatedAt  time.Time
+	LastUsedAt *time.Time
+	RevokedAt  *time.Time
+}
+
+// firstNodeTokenName names the token a node is added with.
+const firstNodeTokenName = "first"
+
+// AddNode records a node and returns it with its first token. The token is
+// shown only here; only its hash is kept.
 func (s *Service) AddNode(ctx context.Context, name string, maxDispatches int) (Node, string, error) {
 	name = strings.TrimSpace(name)
 	if name == "" || maxDispatches < 0 {
@@ -95,22 +128,23 @@ func (s *Service) AddNode(ctx context.Context, name string, maxDispatches int) (
 		maxDispatches = NodeDispatchesDefault
 	}
 
-	raw := make([]byte, 32)
-	if _, err := rand.Read(raw); err != nil {
-		return Node{}, "", fmt.Errorf("making a node token: %w", err)
+	token, err := newNodeToken()
+	if err != nil {
+		return Node{}, "", err
 	}
 
-	token := "hyn_" + base64.RawURLEncoding.EncodeToString(raw)
 	id := s.newID("nod")
 
-	err := s.write(ctx, func(q *store.Queries, now int64) error {
+	err = s.write(ctx, func(q *store.Queries, now int64) error {
 		if err := q.InsertNode(ctx, store.InsertNodeParams{
-			ID: id, Name: name, TokenHash: tokenHash(token), MaxDispatches: int64(maxDispatches), Now: now,
+			ID: id, Name: name, MaxDispatches: int64(maxDispatches), Now: now,
 		}); err != nil {
 			return fmt.Errorf("%w: inserting node %q: %w", ErrConflict, name, err)
 		}
 
-		return nil
+		return q.InsertNodeToken(ctx, store.InsertNodeTokenParams{
+			ID: s.newID("ntk"), NodeID: id, Name: firstNodeTokenName, TokenHash: tokenHash(token), Now: now,
+		})
 	})
 	if err != nil {
 		return Node{}, "", fmt.Errorf("adding a node: %w", err)
@@ -121,18 +155,167 @@ func (s *Service) AddNode(ctx context.Context, name string, maxDispatches int) (
 	return n, token, err
 }
 
+// RemoveNode takes a node out of the registry: its tokens stop working, it
+// is no longer listed and its name is free again. Its row stays for the
+// Dispatches that name it (Omnara deletes a machine the same way). A node
+// that still runs Dispatches is refused: drain it and let them end first.
+func (s *Service) RemoveNode(ctx context.Context, nodeID string) error {
+	return s.write(ctx, func(q *store.Queries, now int64) error {
+		active, err := q.CountActiveDispatchesOfNode(ctx, store.CountActiveDispatchesOfNodeParams{
+			NodeID: nodeID, Statuses: activeDispatchStatuses(),
+		})
+		if err != nil {
+			return fmt.Errorf("counting the dispatches of node %s: %w", nodeID, err)
+		}
+
+		if active > 0 {
+			return fmt.Errorf("%w: node %s still runs %d Dispatches; drain it and let them end", ErrConflict, nodeID,
+				active)
+		}
+
+		n, err := q.DeleteNode(ctx, store.DeleteNodeParams{Now: now, ID: nodeID})
+		if err := oneRow(n, err, "node", nodeID); err != nil {
+			return err
+		}
+
+		if err := q.RevokeNodeTokens(ctx, store.RevokeNodeTokensParams{Now: validInt(now), NodeID: nodeID}); err != nil {
+			return fmt.Errorf("revoking the tokens of node %s: %w", nodeID, err)
+		}
+
+		return nil
+	})
+}
+
+// AddNodeToken gives a node one more token and returns it with its secret,
+// which is shown only here.
+func (s *Service) AddNodeToken(ctx context.Context, nodeID, name string) (NodeToken, string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return NodeToken{}, "", fmt.Errorf("%w: a node token needs a name", ErrInvalid)
+	}
+
+	token, err := newNodeToken()
+	if err != nil {
+		return NodeToken{}, "", err
+	}
+
+	id := s.newID("ntk")
+
+	err = s.write(ctx, func(q *store.Queries, now int64) error {
+		n, err := q.GetNode(ctx, nodeID)
+		if err != nil {
+			return notFound(err, "node", nodeID)
+		}
+
+		if NodeStatus(n.Status) == NodeDeleted {
+			return fmt.Errorf("%w: node %s", ErrNotFound, nodeID)
+		}
+
+		return q.InsertNodeToken(ctx, store.InsertNodeTokenParams{
+			ID: id, NodeID: nodeID, Name: name, TokenHash: tokenHash(token), Now: now,
+		})
+	})
+	if err != nil {
+		return NodeToken{}, "", fmt.Errorf("adding a node token: %w", err)
+	}
+
+	row, err := s.read().GetNodeToken(ctx, id)
+	if err != nil {
+		return NodeToken{}, "", fmt.Errorf("reading node token %s: %w", id, err)
+	}
+
+	return nodeTokenOut(row), token, nil
+}
+
+// ListNodeTokens returns a node's tokens, oldest first, revoked ones included.
+func (s *Service) ListNodeTokens(ctx context.Context, nodeID string) ([]NodeToken, error) {
+	rows, err := s.read().ListNodeTokens(ctx, nodeID)
+	if err != nil {
+		return nil, fmt.Errorf("listing the tokens of node %s: %w", nodeID, err)
+	}
+
+	out := make([]NodeToken, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, nodeTokenOut(r))
+	}
+
+	return out, nil
+}
+
+// RevokeNodeToken makes a node token stop working. A node connected with it
+// is refused at its next heartbeat.
+func (s *Service) RevokeNodeToken(ctx context.Context, tokenID string) error {
+	return s.write(ctx, func(q *store.Queries, now int64) error {
+		n, err := q.RevokeNodeToken(ctx, store.RevokeNodeTokenParams{Now: validInt(now), ID: tokenID})
+
+		return oneRow(n, err, "live node token", tokenID)
+	})
+}
+
 // AuthenticateNode returns the node a token belongs to.
 func (s *Service) AuthenticateNode(ctx context.Context, token string) (Node, error) {
-	row, err := s.read().GetNodeByTokenHash(ctx, tokenHash(token))
+	n, _, err := s.AuthenticateNodeToken(ctx, token)
+
+	return n, err
+}
+
+// AuthenticateNodeToken returns the node a token belongs to and the token's
+// id, which CheckNodeToken takes while the node stays connected. A revoked
+// token and a removed node's token are unknown.
+func (s *Service) AuthenticateNodeToken(ctx context.Context, token string) (Node, string, error) {
+	row, err := s.read().GetLiveNodeTokenByHash(ctx, tokenHash(token))
 	if errors.Is(err, sql.ErrNoRows) {
-		return Node{}, fmt.Errorf("%w: no node has this token", ErrNotFound)
+		return Node{}, "", fmt.Errorf("%w: no node has this token", ErrNotFound)
 	}
 
 	if err != nil {
-		return Node{}, fmt.Errorf("authenticating a node: %w", err)
+		return Node{}, "", fmt.Errorf("authenticating a node: %w", err)
 	}
 
-	return s.GetNode(ctx, row.ID)
+	before := s.clock.Now().Add(-nodeTokenTouchEvery).UnixMilli()
+	if !row.LastUsedAt.Valid || row.LastUsedAt.Int64 <= before {
+		err := s.write(ctx, func(q *store.Queries, now int64) error {
+			return q.TouchNodeToken(ctx, store.TouchNodeTokenParams{Now: now, ID: row.ID, Before: before})
+		})
+		if err != nil {
+			return Node{}, "", fmt.Errorf("recording the use of node token %s: %w", row.ID, err)
+		}
+	}
+
+	n, err := s.GetNode(ctx, row.NodeID)
+
+	return n, row.ID, err
+}
+
+// CheckNodeToken says whether a token a node connected with still works:
+// ErrNotFound once it is revoked or its node removed.
+func (s *Service) CheckNodeToken(ctx context.Context, tokenID string) error {
+	row, err := s.read().GetNodeToken(ctx, tokenID)
+	if err != nil {
+		return notFound(err, "node token", tokenID)
+	}
+
+	if row.RevokedAt.Valid {
+		return fmt.Errorf("%w: node token %s is revoked", ErrNotFound, tokenID)
+	}
+
+	return nil
+}
+
+func newNodeToken() (string, error) {
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return "", fmt.Errorf("making a node token: %w", err)
+	}
+
+	return "hyn_" + base64.RawURLEncoding.EncodeToString(raw), nil
+}
+
+func nodeTokenOut(r store.NodeToken) NodeToken {
+	return NodeToken{
+		ID: r.ID, NodeID: r.NodeID, Name: r.Name, CreatedAt: millis(r.CreatedAt),
+		LastUsedAt: optionalTime(r.LastUsedAt), RevokedAt: optionalTime(r.RevokedAt),
+	}
 }
 
 // NodeHello records what a node found when it connected. It also clears an
@@ -151,7 +334,10 @@ func (s *Service) NodeHello(ctx context.Context, nodeID string, h Hello) error {
 
 	return s.write(ctx, func(q *store.Queries, now int64) error {
 		n, err := q.NodeHello(ctx, store.NodeHelloParams{
-			Now: now, WorktreeRoot: nullString(h.WorktreeRoot), Runtimes: string(runtimes), ID: nodeID,
+			Now: now, WorktreeRoot: nullString(h.WorktreeRoot), Runtimes: string(runtimes),
+			DaemonVersion: nullString(h.System.DaemonVersion), Os: nullString(h.System.OS),
+			Arch: nullString(h.System.Arch), Cpus: nullPositive(int64(h.System.CPUs)),
+			MemoryBytes: nullPositive(h.System.MemoryBytes), DiskBytes: nullPositive(h.System.DiskBytes), ID: nodeID,
 		})
 
 		return oneRow(n, err, "node", nodeID)
@@ -162,8 +348,13 @@ func (s *Service) NodeHello(ctx context.Context, nodeID string, h Hello) error {
 // a Dispatch counts as one too.
 func (s *Service) NodeHeartbeat(ctx context.Context, nodeID string) error {
 	return s.write(ctx, func(q *store.Queries, now int64) error {
-		if _, err := q.GetNode(ctx, nodeID); err != nil {
+		n, err := q.GetNode(ctx, nodeID)
+		if err != nil {
 			return notFound(err, "node", nodeID)
+		}
+
+		if NodeStatus(n.Status) == NodeDeleted {
+			return fmt.Errorf("%w: node %s", ErrNotFound, nodeID)
 		}
 
 		return q.TouchNode(ctx, store.TouchNodeParams{Now: now, ID: nodeID})
@@ -295,6 +486,11 @@ func tokenHash(token string) string {
 
 	return hex.EncodeToString(sum[:])
 }
+
+// nullPositive keeps a size a node reported; zero or less means it did not.
+func nullPositive(v int64) sql.NullInt64 { return sql.NullInt64{Int64: v, Valid: v > 0} }
+
+func validInt(v int64) sql.NullInt64 { return sql.NullInt64{Int64: v, Valid: true} }
 
 func oneRow(n int64, err error, kind, id string) error {
 	if err != nil {

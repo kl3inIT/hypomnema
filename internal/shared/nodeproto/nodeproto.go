@@ -81,6 +81,16 @@ type RuntimeInfo struct {
 	Version string `json:"version"`
 }
 
+// SystemInfo is the machine the node runs on. A zero field was not found.
+type SystemInfo struct {
+	OS          string `json:"os"`
+	Arch        string `json:"arch"`
+	CPUs        int    `json:"cpus"`
+	MemoryBytes int64  `json:"memory_bytes"`
+	// DiskBytes is the size of the volume that holds the worktree root.
+	DiskBytes int64 `json:"disk_bytes"`
+}
+
 // Claim is a Dispatch the node still holds when it connects.
 type Claim struct {
 	DispatchID string `json:"dispatch_id"`
@@ -93,6 +103,7 @@ type HelloRequest struct {
 	DaemonVersion string        `json:"daemon_version"`
 	WorktreeRoot  string        `json:"worktree_root"`
 	Runtimes      []RuntimeInfo `json:"runtimes"`
+	System        SystemInfo    `json:"system"`
 	Claims        []Claim       `json:"claims"`
 }
 

@@ -8,7 +8,7 @@ statement true or false.
 
 | Binary | Commands | What it does today |
 |---|---|---|
-| `cmd/hypomnema` (control plane) | `migrate`, `serve`, `version`, `nodes add\|list`, `accounts add\|list`, `tokens add\|list\|revoke`, `secrets keygen\|add\|list\|rotate\|rm\|rewrap`, `login`, `run`, `answer`, `questions` | `migrate` brings the database schema up to the binary's version; `serve` refuses any other schema, then serves `/livez`, `/readyz`, the node API, the client API and the web client, and runs the scheduler loop; the other commands are the owner's (below) |
+| `cmd/hypomnema` (control plane) | `migrate`, `serve`, `version`, `nodes add\|list\|drain\|resume\|rm`, `nodes token add\|list\|revoke`, `accounts add\|list`, `tokens add\|list\|revoke`, `secrets keygen\|add\|list\|rotate\|rm\|rewrap`, `login`, `run`, `answer`, `questions` | `migrate` brings the database schema up to the binary's version; `serve` refuses any other schema, then serves `/livez`, `/readyz`, the node API, the client API and the web client, and runs the scheduler loop; the other commands are the owner's (below) |
 | `cmd/hypomnema-node` (node) | `init`, `check`, `accounts set`, `run`, `service`, `shim`, `mcp`, `version` | `init --url --token-file` writes the node's configuration; `check` says hello once and lists the CLIs it found; `accounts set` records where an account's Claude token is; `run` runs the daemon with the Claude runner; `service` prints a systemd user unit; `shim` runs one worker and `mcp` serves its tools (both started for a worker, not by hand) |
 
 Configuration comes from the environment: `HYPOMNEMA_HTTP_ADDR` (default `127.0.0.1:8080`),
@@ -71,11 +71,15 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   500, `has_more`, filters by Run or Task) misses nothing. `Subscribe` wakes readers after each commit with a
   signal that carries no data.
 
-- Nodes and accounts: the owner adds a node, which mints a token shown once (only its SHA-256 is stored); the node
-  reports its CLIs (path and version) and worktree root at each connect, and is connected while heard from within
-  30 s (any node call counts). A node can be drained and resumed; three expiries in a row mark it unavailable until
-  its next hello or a resume. Accounts (runtime, label, position, active or disabled) are kept here with no secret
-  value.
+- Nodes and accounts: the owner adds a node, which mints a token shown once (only its SHA-256 is stored). A node
+  has any number of tokens (`node_tokens`, after Omnara's `machine_daemon_tokens`): each has a name, is revoked on
+  its own, never expires, and records its last use at most once an hour. At each connect the node reports its CLIs
+  (path and version), its worktree root, and what it is: its version, OS, architecture, CPU count, memory, and the
+  size of the volume that holds the worktree root. It is connected while heard from within 30 s (any node call
+  counts). A node can be drained and resumed; three expiries in a row mark it unavailable until its next hello or
+  a resume. A removed node is kept as `deleted`: its tokens are revoked, it is no longer listed or placed on, and
+  its name is free; one that still runs a Dispatch is not removed. Accounts (runtime, label, position, active or
+  disabled) are kept here with no secret value.
 - Chats (`orchestration/chats.go`, issue #41 PR 3, after Omnara;
   [research](docs/research/2026-11-09-chat-storage.md)): the owner's conversations with pi. Every message is kept
   (`owner`, `coordinator`, `tool`, `system`; replies and tools with JSON `parts`); owner messages and wake-ups wait
@@ -140,8 +144,8 @@ proxy, does not exist yet.
   package, through its own generated queries.
 
 Node API (`internal/controlplane/nodeapi`, protocol in `internal/shared/nodeproto`, after Omnara's daemon protocol):
-- A node registers with `POST /node/v1/hello` and its bearer token. It sends its CLIs, its worktree root and the
-  Dispatches it still holds. Each of those is answered `retain` (still its own at that epoch), `reattach` (marked
+- A node registers with `POST /node/v1/hello` and its bearer token. It sends its CLIs, its worktree root, its
+  version and machine (measured with gopsutil, as Nezha's and Beszel's agents) and the Dispatches it still holds. Each of those is answered `retain` (still its own at that epoch), `reattach` (marked
   unknown while it was away) or `release`.
 - It then holds one WebSocket at `/node/v1/socket` with JSON `{type, payload}` frames of at most 1 MiB.
 - The control plane offers the node its queued Dispatches with what it needs (Task, repository, worktree, runtime,
@@ -174,7 +178,10 @@ Client API (`internal/controlplane/clientapi`, contract `api/openapi.yaml`, afte
 
 The owner's commands:
 - On the server, with the same database as `serve`:
-  - `nodes add <name>` prints the node's token once;
+  - `nodes add <name>` prints the node's token once; `nodes list` shows each node's state, load, CLIs and
+    machine; `nodes drain|resume|rm <node>` take the node's id or name;
+  - `nodes token add <node> <name>` prints one more token once; `nodes token list <node>` and
+    `nodes token revoke <id>`. A node connected with a revoked token is refused at its next heartbeat;
   - `accounts add <runtime> <label>` records an account;
   - `tokens add <name> [--kind owner|coordinator]` prints a client token once; `tokens list` and
     `tokens revoke <id>`;

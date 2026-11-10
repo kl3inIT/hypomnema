@@ -47,20 +47,20 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET "+nodeproto.PathSocket, s.socket)
 }
 
-// authenticate returns the node a request's bearer token belongs to.
-func (s *Server) authenticate(w http.ResponseWriter, r *http.Request) (orchestration.Node, bool) {
+// authenticate returns the node a request's bearer token belongs to, and the token's id.
+func (s *Server) authenticate(w http.ResponseWriter, r *http.Request) (orchestration.Node, string, bool) {
 	token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if !ok || token == "" {
 		http.Error(w, "a node token is required", http.StatusUnauthorized)
 
-		return orchestration.Node{}, false
+		return orchestration.Node{}, "", false
 	}
 
-	n, err := s.svc.AuthenticateNode(r.Context(), token)
+	n, tokenID, err := s.svc.AuthenticateNodeToken(r.Context(), token)
 	if errors.Is(err, orchestration.ErrNotFound) {
 		http.Error(w, "unknown node token", http.StatusUnauthorized)
 
-		return orchestration.Node{}, false
+		return orchestration.Node{}, "", false
 	}
 
 	if err != nil {
@@ -68,14 +68,14 @@ func (s *Server) authenticate(w http.ResponseWriter, r *http.Request) (orchestra
 			slog.String("event", "nodeapi.auth_failed"), slog.String("error", err.Error()))
 		http.Error(w, "internal error", http.StatusInternalServerError)
 
-		return orchestration.Node{}, false
+		return orchestration.Node{}, "", false
 	}
 
-	return n, true
+	return n, tokenID, true
 }
 
 func (s *Server) hello(w http.ResponseWriter, r *http.Request) {
-	n, ok := s.authenticate(w, r)
+	n, _, ok := s.authenticate(w, r)
 	if !ok {
 		return
 	}
@@ -87,7 +87,10 @@ func (s *Server) hello(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	hello := orchestration.Hello{WorktreeRoot: req.WorktreeRoot}
+	hello := orchestration.Hello{WorktreeRoot: req.WorktreeRoot, System: orchestration.SystemInfo{
+		DaemonVersion: req.DaemonVersion, OS: req.System.OS, Arch: req.System.Arch, CPUs: req.System.CPUs,
+		MemoryBytes: req.System.MemoryBytes, DiskBytes: req.System.DiskBytes,
+	}}
 	for _, rt := range req.Runtimes {
 		hello.Runtimes = append(hello.Runtimes, orchestration.RuntimeInfo{
 			Runtime: rt.Runtime, Path: rt.Path, Version: rt.Version,
@@ -133,7 +136,7 @@ func (s *Server) hello(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) socket(w http.ResponseWriter, r *http.Request) {
-	n, ok := s.authenticate(w, r)
+	n, tokenID, ok := s.authenticate(w, r)
 	if !ok {
 		return
 	}
@@ -154,7 +157,7 @@ func (s *Server) socket(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	sess := &session{
-		srv: s, conn: conn, nodeID: n.ID, cancel: cancel, out: make(chan nodeproto.Message, 64),
+		srv: s, conn: conn, nodeID: n.ID, tokenID: tokenID, cancel: cancel, out: make(chan nodeproto.Message, 64),
 		offered: map[string]bool{}, stopped: map[string]bool{}, answered: map[string]bool{},
 	}
 	s.take(ctx, sess)
@@ -199,8 +202,10 @@ type session struct {
 	srv    *Server
 	conn   *websocket.Conn
 	nodeID string
-	cancel context.CancelFunc
-	out    chan nodeproto.Message
+	// tokenID is the token the node connected with; a heartbeat is refused once it is revoked.
+	tokenID string
+	cancel  context.CancelFunc
+	out     chan nodeproto.Message
 
 	// What this connection already sent; a new connection sends all again.
 	offered  map[string]bool
@@ -375,6 +380,10 @@ func (c *session) push(ctx context.Context) error {
 func (c *session) handle(ctx context.Context, msg nodeproto.Message) error {
 	switch msg.Type {
 	case nodeproto.TypeHeartbeat:
+		if err := c.srv.svc.CheckNodeToken(ctx, c.tokenID); err != nil {
+			return err
+		}
+
 		if err := c.srv.svc.NodeHeartbeat(ctx, c.nodeID); err != nil {
 			return err
 		}
