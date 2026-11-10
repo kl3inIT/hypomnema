@@ -123,10 +123,17 @@ SELECT runtime, label FROM accounts WHERE secret_ref = @secret_ref ORDER BY runt
 -- name: SetAccountStatus :execrows
 UPDATE accounts SET updated_at = @now, status = @status WHERE id = @id;
 
+-- name: InsertTokenAccount :exec
+-- An account whose token the control plane keeps and sends to the node (issue #150).
+INSERT INTO accounts (id, runtime, label, status, position, secret_ref, sent_to_node, created_at, updated_at)
+VALUES (@id, @runtime, @label, 'active',
+        (SELECT coalesce(max(position), 0) + 1 FROM accounts WHERE runtime = @runtime),
+        @secret_ref, 1, @now, @now);
+
 -- name: CountAccountsFreeAfter :one
 -- Active accounts of a runtime that a worker can run under, with no cooldown lasting past @after.
 SELECT count(*) FROM accounts a
-WHERE a.runtime = @runtime AND a.status = 'active' AND a.secret_ref IS NULL
+WHERE a.runtime = @runtime AND a.status = 'active' AND (a.secret_ref IS NULL OR a.sent_to_node = 1)
   AND NOT EXISTS (SELECT 1 FROM account_cooldowns c
                   WHERE c.runtime = a.runtime AND c.account_ref = a.id AND c.until > @after);
 

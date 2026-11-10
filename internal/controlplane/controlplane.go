@@ -164,6 +164,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		integration.Google(), integration.Lark())
 
 	nodes := nodeapi.New(svc, logger).WithHostTokens(tokens.Token).WithModelKeys(workerKeys.Key).
+		WithAccountTokens(accountTokens{svc: svc, vault: secrets, logger: logger}.Token).
 		WithAgentKeys(workerKeys.AgentKey).WithTools(integrations.Tools).WithReleaseURL(cfg.NodeReleaseURL)
 	nodes.Register(mux)
 	// One API for every agent's tools: a worker with its Dispatch's key, the coordinator with its token.

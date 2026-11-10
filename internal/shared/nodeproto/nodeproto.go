@@ -271,6 +271,11 @@ type Offer struct {
 	// the offer's Model only. It is made as the offer is sent and revoked when
 	// the Dispatch settles; the node keeps it with the offer until then.
 	ModelKey string `json:"model_key,omitempty"`
+	// AccountToken is the token of the account the worker runs under, when the
+	// control plane keeps it: a Claude Code worker gets it as
+	// CLAUDE_CODE_OAUTH_TOKEN. Without it the node uses the token file of its
+	// own configuration. The node keeps it with the offer until the Dispatch ends.
+	AccountToken string `json:"account_token,omitempty"`
 	// Uses are the Connections the Run's workers may use ("google:work");
 	// AgentKey is this Dispatch's own key to the control plane's agent API,
 	// with which the tool launcher asks for a token of one of them. It is

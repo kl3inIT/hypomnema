@@ -158,14 +158,21 @@ func (rn *Runner) Start(ctx context.Context, d statedb.Dispatch, r daemon.Report
 		return errors.New("claude is not on this node's PATH")
 	}
 
-	acc, ok := rn.Accounts[o.AccountRef]
-	if !ok {
-		return fmt.Errorf("the node has no credentials for account %s", o.AccountRef)
-	}
+	// The token comes with the offer when the control plane keeps the account
+	// (issue #150), else from the file this node's configuration names.
+	token := []byte(o.AccountToken)
 
-	token, err := os.ReadFile(acc.TokenFile)
-	if err != nil {
-		return fmt.Errorf("reading the token of account %s: %w", o.AccountRef, err)
+	if len(token) == 0 {
+		acc, ok := rn.Accounts[o.AccountRef]
+		if !ok {
+			return fmt.Errorf("the node has no credentials for account %s", o.AccountRef)
+		}
+
+		var err error
+
+		if token, err = os.ReadFile(acc.TokenFile); err != nil {
+			return fmt.Errorf("reading the token of account %s: %w", o.AccountRef, err)
+		}
 	}
 
 	var hostEnv []string

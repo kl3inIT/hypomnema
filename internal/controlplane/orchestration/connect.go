@@ -110,6 +110,10 @@ type Offer struct {
 	// serves its model. Orchestration never fills it: the node API does, as
 	// it sends the offer.
 	ModelKey string `json:"model_key,omitempty"`
+	// AccountToken is the account's token, when the control plane keeps it
+	// (issue #150). Orchestration never fills it: the node API does, from the
+	// vault, as it sends the offer.
+	AccountToken string `json:"account_token,omitempty"`
 	// Uses are the Connections the Run's workers may use; AgentKey is this
 	// Dispatch's own key to ask for their tokens. Orchestration never fills
 	// the key: the node API does, as it sends the offer.

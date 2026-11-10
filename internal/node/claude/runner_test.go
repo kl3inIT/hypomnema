@@ -528,3 +528,30 @@ func emit(out *json.Encoder, v map[string]any) {
 		os.Exit(4)
 	}
 }
+
+// Scenario: the offer carries the account's token (issue #150). The worker
+// runs under it on a node that holds no token of that account; its
+// configuration directory is still the account's own.
+func TestWorkerRunsUnderTheOffersToken(t *testing.T) {
+	t.Parallel()
+
+	g := newRig(t, "success")
+	d := g.dispatch("dsp_1")
+	d.Offer.AccountRef, d.Offer.AccountToken = "acc_kept", "sk-ant-oat01-from-the-control-plane"
+
+	r := newReporter("dsp_1")
+	require.NoError(t, g.runner.Start(t.Context(), d, r))
+	r.wait(t)
+
+	assert.Equal(t, "sk-ant-oat01-from-the-control-plane", g.file("token.txt"))
+	require.Len(t, r.finished, 1)
+	assert.Empty(t, r.finished[0].Class)
+
+	_, err := os.Stat(filepath.Join(g.runner.Home, "accounts", "acc_kept", "claude"))
+	require.NoError(t, err)
+
+	missing := g.dispatch("dsp_2")
+	missing.Offer.AccountRef = "acc_nowhere"
+	require.ErrorContains(t, g.runner.Start(t.Context(), missing, newReporter("dsp_2")),
+		"the node has no credentials for account acc_nowhere")
+}
