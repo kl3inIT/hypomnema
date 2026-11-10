@@ -664,9 +664,10 @@ Node (`internal/node`):
   journal, so a turn survives the daemon; no ACP library holds the connection. A permission request is answered
   with the option that allows. Tried on 2026-11-10 on stc-hy-app with omp 18.18.6 and opencode 2.2.7, one turn each
   against the gateway, driven by a script that sends the runner's messages with the files the runner writes: both
-  made a file and called `finish` as a plain tool, and neither asked for permission. The runner itself has not run
-  on a node yet. The two CLIs were installed there by hand with their own installers; installing them by design is
-  not built.
+  made a file and called `finish` as a plain tool, and neither asked for permission. The runner then ran a Task of
+  each to its end there (node v0.6.0, profiles `omp-worker` and `opencode-worker`). A follow-up that resumes a
+  session has not been tried with the real CLIs. The two CLIs were installed there by hand with their own
+  installers and linked into `/usr/local/bin`; installing them by design is not built.
 - The daemon (`internal/node/daemon`) says hello claiming the Dispatches it holds and applies each disposition, then
   holds the socket:
   - heartbeats every 10 s (or as the control plane says), a WebSocket ping every 20 s;
