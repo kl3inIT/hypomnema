@@ -15,7 +15,7 @@ BINARIES := hypomnema hypomnema-node
 
 .PHONY: help verify verify-static fmt-check tidy-check lint deps-check sqlc-generate sqlc-check migration-check \
 	openapi-generate openapi-check unit race govulncheck build web-install web-check web-api-generate \
-	web-api-check web-build web-e2e
+	web-api-check web-build web-e2e web-doctor
 
 help: ## List the targets
 	@awk 'BEGIN {FS = ":.*## "} /^[a-z-]+:.*## / {printf "  %-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -105,6 +105,11 @@ web-api-check: ## Fail when the web client's generated API client is not what th
 
 web-build: ## Build the web client into web/dist
 	$(WEB) build
+
+# Not a gate: its findings are read, then fixed or ignored in web/doctor.config.json. It runs local checks only
+# (no score API, no crash reports, no Socket.dev lookups).
+web-doctor: ## React Doctor's report on the web client
+	$(WEB) run doctor
 
 web-e2e: ## Browser tests of the built web client (needs Playwright's Chromium)
 	$(WEB) test:e2e

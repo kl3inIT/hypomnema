@@ -252,10 +252,10 @@ const icons = {
   other: Wrench,
 }
 
-// The tones of a diff's lines (Omnigent DIFF_TONE_CLASS).
+// The tones of a diff's lines, from the theme's status colours (Omnigent DIFF_TONE_CLASS uses the raw palette).
 const tone = {
-  add: "text-green-600 dark:text-green-400",
-  del: "text-red-600 dark:text-red-400",
+  add: "text-done",
+  del: "text-failed",
 }
 
 // CallRow is one tool call as Omnigent's ToolTriggerRow draws it: a verb and what it is about, or for a shell
