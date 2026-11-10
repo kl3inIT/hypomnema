@@ -4,10 +4,16 @@
 #   sudo sh setup-coordinator.sh <control plane user> <this directory, with the hypomnema binary added>
 #
 # It creates the coordinator user, installs Node and pi for it, the root-owned launcher and one sudoers rule that lets
-# the control plane's user run only that launcher as the coordinator, a coordinator token and the 9router key in
+# the control plane's user run only that launcher as the coordinator, a coordinator token and pi's gateway key in
 # files of mode 0600, and the coordinator skill. No secret is passed on a command line or printed. Run it again to
 # update pi (package.json and package-lock.json here, which Dependabot updates), the launcher, the binary or the
 # instructions; existing secrets are kept.
+#
+# pi reaches its model through the control plane's model gateway (issue #20). Before the first run, the control
+# plane's user declares the model and makes pi's key, kept in a file only until this script moves it:
+#
+#   hypomnema gateway models apply <model>.yaml
+#   (umask 077; hypomnema gateway keys add pi --models <model> | tail -1 > ~/hypomnema-cp/pi-gateway.key)
 set -eu
 
 cp_user="${1:?the control plane user, such as dat}"
@@ -16,7 +22,9 @@ src=$(cd "${2:?this directory, with the hypomnema binary added}" && pwd)
 cd /
 cp_home=$(getent passwd "$cp_user" | cut -d: -f6)
 node_src="${NODE_SRC:-$cp_home/.hermes/node}"
-router_env="${ROUTER_ENV:-$cp_home/hypomnema-spike/.env}"
+gateway_key="${GATEWAY_KEY_FILE:-$cp_home/hypomnema-cp/pi-gateway.key}"
+gateway_model="${GATEWAY_MODEL:-gpt-6.1-sol}"
+cp_addr="${CP_ADDR:-127.0.0.1:18990}"
 home=/home/coordinator/.hypomnema-coordinator
 
 echo "== user"
@@ -47,21 +55,23 @@ chmod 0440 "$rule.new"
 visudo -cf "$rule.new" >/dev/null
 mv "$rule.new" "$rule"
 
-echo "== 9router key and pi's models"
-if [ ! -s "$home/ninerouter.key" ]; then
-  (umask 077; . "$router_env"; printf '%s' "$NINEROUTER_API_KEY" > "$home/ninerouter.key")
-  chown coordinator:coordinator "$home/ninerouter.key"
+echo "== gateway key and pi's models"
+if [ -s "$gateway_key" ]; then
+  install -o coordinator -g coordinator -m 0600 "$gateway_key" "$home/gateway.key"
+  rm -f "$gateway_key"
 fi
-base_url=$(. "$router_env"; printf '%s' "$NINEROUTER_BASE_URL")
+[ -s "$home/gateway.key" ] || { echo "no gateway key: make one into $gateway_key first" >&2; exit 1; }
+# The key of 9router, which pi called itself until 2026-11-10; the gateway now keeps it in the vault.
+rm -f "$home/ninerouter.key"
 cat > "$home/agent/models.json" <<JSON
 {
   "providers": {
-    "ninerouter": {
-      "name": "9router",
-      "baseUrl": "$base_url",
+    "gateway": {
+      "name": "Hypomnema gateway",
+      "baseUrl": "http://$cp_addr/v1",
       "api": "openai-completions",
-      "apiKey": "!cat $home/ninerouter.key",
-      "models": [{"id": "cx/gpt-6.1-sol", "name": "GPT 6.1 Sol (9router)", "reasoning": true}]
+      "apiKey": "!cat $home/gateway.key",
+      "models": [{"id": "$gateway_model", "name": "$gateway_model (gateway)", "reasoning": true}]
     }
   }
 }
@@ -75,9 +85,10 @@ if [ ! -s /home/coordinator/.hypomnema/client.json ]; then
   # The control plane's own CLI makes the token; only its last line, the token, goes into the file.
   sudo -u "$cp_user" -H sh -c '. ~/hypomnema-cp/env; ~/hypomnema-cp/bin/hypomnema tokens add pi-coordinator --kind coordinator' \
     | tail -1 | sudo -u coordinator tee "$token_file" >/dev/null
-  sudo -u coordinator -H /usr/local/bin/hypomnema login --url "http://${CP_ADDR:-127.0.0.1:18990}" --token-file "$token_file"
+  sudo -u coordinator -H /usr/local/bin/hypomnema login --url "http://$cp_addr" --token-file "$token_file"
   sudo -u coordinator rm -f "$token_file"
 fi
 sudo -u coordinator -H /usr/local/bin/hypomnema skills install --agent agents
 
+echo "pi's model is gateway/$gateway_model: the coordinator profile names that provider and model"
 echo "done: add HYPOMNEMA_COORDINATOR_COMMAND='[\"sudo\",\"-n\",\"-u\",\"coordinator\",\"/usr/local/bin/hypomnema-pi\"]' to the control plane's env and restart it"
