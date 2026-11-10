@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -23,6 +22,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
+	"github.com/kl3inIT/hypomnema/internal/shared/sqlite/sqlitetest"
 )
 
 // Scenario: a Task whose model the gateway serves is offered to a node that
@@ -34,10 +34,9 @@ func TestAnOfferCarriesTheGatewaysKeyUntilTheDispatchSettles(t *testing.T) {
 
 	ctx := t.Context()
 
-	db, err := sqlite.Open(ctx, sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
+	db, err := sqlite.Open(ctx, sqlite.Config{Path: sqlitetest.Migrated(t, orchestration.Migrate)})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
-	require.NoError(t, orchestration.Migrate(ctx, db))
 
 	logger := slog.New(slog.DiscardHandler)
 	svc := orchestration.New(db, platform.SystemClock{}, platform.NewID)

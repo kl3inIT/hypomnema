@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -21,6 +20,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
+	"github.com/kl3inIT/hypomnema/internal/shared/sqlite/sqlitetest"
 )
 
 const (
@@ -217,10 +217,9 @@ type antigravityWorld struct {
 func newAntigravityWorld(t *testing.T, secret string) *antigravityWorld {
 	t.Helper()
 
-	db, err := sqlite.Open(t.Context(), sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
+	db, err := sqlite.Open(t.Context(), sqlite.Config{Path: sqlitetest.Migrated(t, orchestration.Migrate)})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
-	require.NoError(t, orchestration.Migrate(t.Context(), db))
 
 	entry, err := vault.GenerateKey("k1")
 	require.NoError(t, err)

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -18,6 +17,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
+	"github.com/kl3inIT/hypomnema/internal/shared/sqlite/sqlitetest"
 )
 
 type fixedClock struct{}
@@ -30,10 +30,9 @@ func (fixedClock) Now() time.Time { return time.Date(2026, 11, 10, 9, 0, 0, 0, t
 func newGateway(t *testing.T) *modelgateway.Service {
 	t.Helper()
 
-	db, err := sqlite.Open(t.Context(), sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
+	db, err := sqlite.Open(t.Context(), sqlite.Config{Path: sqlitetest.Migrated(t, orchestration.Migrate)})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
-	require.NoError(t, orchestration.Migrate(t.Context(), db))
 
 	orch := orchestration.New(db, platform.SystemClock{}, platform.NewID)
 

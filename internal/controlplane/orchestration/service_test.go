@@ -13,6 +13,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
+	"github.com/kl3inIT/hypomnema/internal/shared/sqlite/sqlitetest"
 )
 
 var t0 = time.Date(2026, 11, 7, 9, 0, 0, 0, time.UTC)
@@ -24,10 +25,9 @@ func (c *fakeClock) Now() time.Time { return c.now }
 func newTestService(t *testing.T) (*Service, *sql.DB, *fakeClock) {
 	t.Helper()
 
-	db, err := sqlite.Open(t.Context(), sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
+	db, err := sqlite.Open(t.Context(), sqlite.Config{Path: sqlitetest.Migrated(t, Migrate)})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
-	require.NoError(t, Migrate(t.Context(), db))
 
 	clock := &fakeClock{now: t0}
 	n := 0

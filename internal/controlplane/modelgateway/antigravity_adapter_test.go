@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -18,6 +17,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
+	"github.com/kl3inIT/hypomnema/internal/shared/sqlite/sqlitetest"
 )
 
 // googleAccount is the Antigravity account logged in on the control plane.
@@ -69,10 +69,9 @@ func newAntigravityGateway(
 ) chatGateway {
 	t.Helper()
 
-	db, err := sqlite.Open(t.Context(), sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
+	db, err := sqlite.Open(t.Context(), sqlite.Config{Path: sqlitetest.Migrated(t, orchestration.Migrate)})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
-	require.NoError(t, orchestration.Migrate(t.Context(), db))
 
 	orch := orchestration.New(db, platform.SystemClock{}, platform.NewID)
 	flash := "name: flash\ntargets:\n  - {provider: antigravity-subscription, model: gemini-3.8-flash-high}\n"
