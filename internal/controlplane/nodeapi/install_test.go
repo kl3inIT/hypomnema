@@ -136,7 +136,9 @@ func TestInstallScriptRefusesWhatTheManifestDoesNotVouchFor(t *testing.T) {
 		says   string
 	}{
 		"checksum": {
-			func(m string) string { return m[:strings.Index(m, "sha256=")] + "sha256=" + strings.Repeat("0", 64) + "\n" },
+			func(m string) string {
+				return m[:strings.Index(m, "sha256=")] + "sha256=" + strings.Repeat("0", 64) + "\n"
+			},
 			"checksum does not match",
 		},
 		"version": {
