@@ -2,7 +2,7 @@ import { expect, test } from "vitest"
 
 import type { Dispatch } from "@/api/generated/types.gen"
 
-import { boardCards, byColumn, lanes, pullRequest, safeLink } from "./board-state"
+import { boardCards, byColumn, evidenceLink, lanes, pullRequest, safeLink } from "./board-state"
 import { board, question, run, task } from "./fixtures"
 
 const open = run("run_1")
@@ -131,6 +131,28 @@ test("a pull request is named by its number", () => {
 
   expect(pullRequest(t)).toEqual({ url: "https://github.com/o/r/pull/63", label: "PR #63" })
   expect(pullRequest(task("u", "run_1"))).toBeUndefined()
+})
+
+// Scenario: a worker reports its pull request as its instructions ask, owner/repo#N. The card and the panel link
+// it on GitHub; the same text as another kind of evidence, or with anything added, is not a link.
+test("a pull request given as owner/repo#N is linked", () => {
+  const t = task("t", "run_1", {
+    latest_dispatch: dispatch({
+      status: "succeeded",
+      result: {
+        summary: "done",
+        evidence: [{ kind: "pull_request", ref: "kl3inIT/hypomnema#78" }],
+      },
+    }),
+  })
+
+  expect(pullRequest(t)).toEqual({
+    url: "https://github.com/kl3inIT/hypomnema/pull/78",
+    label: "PR #78",
+  })
+  expect(evidenceLink("commit", "kl3inIT/hypomnema#78")).toBeUndefined()
+  expect(evidenceLink("pull_request", "kl3inIT/hypomnema#78/../x")).toBeUndefined()
+  expect(evidenceLink("pull_request", "javascript:alert(1)#1")).toBeUndefined()
 })
 
 // Scenario: a worker reports a link that would run script or is not a link; it is never made a link.

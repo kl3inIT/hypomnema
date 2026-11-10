@@ -265,7 +265,9 @@ Node (`internal/node`):
   - Every permission prompt is allowed and logged (`node.tool_allowed`). The node's machine or user is the boundary
     ([research](docs/research/2026-11-08-worker-permissions.md)).
   - The first turn, after Orca's preamble, has:
-    - the Task's spec, the repository and branch, and the instruction to open a pull request with `gh`;
+    - the Task's spec, the repository and branch, and the instruction to open a pull request with
+      `gh pr create --base <base> --head <branch>` (without `--head`, `gh` does not find the branch in a worktree
+      of the mirror);
     - `ask` instead of guessing, `finish` exactly once (with a Gate for decisions the owner must make), and no
       subagents;
     - the recovery note and a resolved Gate.
@@ -297,7 +299,7 @@ Node (`internal/node`):
     kanban (MIT). Needs you holds an open question to the owner, a failure in an open Run, a stop for a decision
     and a missing login. Rows per Run or per repository and a repository filter are kept in the URL. A card shows
     the runtime's mark (from OpenMausBot, Apache 2.0), the Task, its Run, what its worker does now (the Dispatch's
-    `activity`) and how long it has run, the machine, the model and the pull request. While a worker runs the
+    `activity`) and how long it has run, the machine, the model and the pull request (a worker reports it as `owner/repo#N`, linked on GitHub). While a worker runs the
     board is read again every 10 s, since its activity changes without an event. On a phone the columns stack,
     Needs you first.
   - A card opens the Task over the page, as Omnigent opens a session over its canvas (`?task=` in the URL; Escape

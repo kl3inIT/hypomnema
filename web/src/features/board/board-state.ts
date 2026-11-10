@@ -166,12 +166,24 @@ export function repos(cards: Card[]) {
 // writes the evidence, so only an http(s) link is kept: anything else (javascript:, data:) is never made a link.
 export function pullRequest(task: TaskDetail): { url: string; label: string } | undefined {
   const ref = task.latest_dispatch?.result?.evidence.find((e) => e.kind === "pull_request")?.ref
-  const url = safeLink(ref)
+  const url = evidenceLink("pull_request", ref)
   if (!url) return undefined
 
   const n = /\/pull\/(\d+)/.exec(new URL(url).pathname)?.[1]
 
   return { url, label: n ? `PR #${n}` : "PR" }
+}
+
+// A pull request as a worker reports it (its instructions ask for owner/repo#N): the repositories are GitHub's.
+const shortPullRequest = /^([\w.-]+)\/([\w.-]+)#(\d+)$/
+
+// evidenceLink is where a piece of evidence leads: a pull request given as owner/repo#N on GitHub, else the ref
+// itself when it is an http(s) URL. Other text has no link.
+export function evidenceLink(kind: string, ref: string | undefined): string | undefined {
+  const short = kind === "pull_request" ? shortPullRequest.exec(ref ?? "") : null
+  if (short) return `https://github.com/${short[1]}/${short[2]}/pull/${short[3]}`
+
+  return safeLink(ref)
 }
 
 // safeLink returns ref as an http(s) URL, or undefined for any other scheme or text.

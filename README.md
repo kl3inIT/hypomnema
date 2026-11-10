@@ -6,6 +6,20 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for what exists and [docs/vision.md](docs
 
 `hypomnema run`, `answer` and `questions` call the client API, so they work from a laptop as well as on the server.
 
+### Reaching the control plane over Tailscale
+
+The control plane listens only on 127.0.0.1. On its machine, `tailscale serve --bg <port>` publishes it to the
+owner's tailnet as `https://<machine name>.<tailnet>.ts.net`; nothing is public.
+
+Each other machine (a laptop that runs the CLI, or a node machine) joins the same tailnet once (`tailscale up`,
+approved in the owner's Tailscale account) and then uses that URL with `hypomnema login --url` or
+`hypomnema-node init`.
+
+Without root, Tailscale can run in userspace networking mode (`tailscaled --tun=userspace-networking`), which is
+enough for `tailscale serve`.
+
+The current deployment is described in [ARCHITECTURE.md](ARCHITECTURE.md#where-it-runs).
+
 1. On the control plane, run `hypomnema tokens add <name>` (add `--kind coordinator` for an agent that coordinates its
    own Runs) and save the token it prints (shown once) to a file, mode 0600.
 2. On the other machine: `hypomnema login --url <control plane URL> --token-file <token file>`
@@ -15,6 +29,14 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for what exists and [docs/vision.md](docs
 To let your own agent (Claude Code, Codex or pi) coordinate workers, log in with a `coordinator` token and run
 `hypomnema skills install`. It installs the coordinator skill into `~/.claude/skills` and `~/.agents/skills`; then
 ask the agent to give the work to Hypomnema workers.
+
+## The web client
+
+The control plane serves the web client at its own URL, the one the CLI logs in to. Open it in a browser and paste an
+owner token to sign in.
+
+`/board` shows the Tasks in flight in three columns: Needs you, Working and Done. `/runs` lists the Runs. A Task opens
+to its question, its result and the worker's transcript.
 
 ## Setting up a node machine
 

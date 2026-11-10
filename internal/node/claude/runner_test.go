@@ -501,7 +501,8 @@ func TestPromptCarriesTheGateAndTheRecoveryNote(t *testing.T) {
 
 	p := Prompt(d)
 	assert.Contains(t, p, "branch hyp/tsk_1")
-	assert.Contains(t, p, "gh pr create")
+	assert.Contains(t, p, "gh pr create --base main --head hyp/tsk_1",
+		"gh does not find the branch in a worktree of the mirror without --head")
 	assert.Contains(t, p, "outcome is unknown")
 	assert.Contains(t, p, "DECISION GATE RESOLVED. You asked: PR #7 is green. Merge it?\nThe answer: merge")
 	assert.NotContains(t, p, "For this kind of task", "no instruction, no section")
