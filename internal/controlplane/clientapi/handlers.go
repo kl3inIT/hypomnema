@@ -359,7 +359,7 @@ func (s *Server) CreateNode(ctx context.Context, req openapi.CreateNodeRequestOb
 // RemoveNode takes a node out of the registry.
 func (s *Server) RemoveNode(ctx context.Context, req openapi.RemoveNodeRequestObject,
 ) (openapi.RemoveNodeResponseObject, error) {
-	if err := s.svc.RemoveNode(ctx, req.NodeId); err != nil {
+	if err := s.removeNode(ctx, req.NodeId); err != nil {
 		return nil, err
 	}
 

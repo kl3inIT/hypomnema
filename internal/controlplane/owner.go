@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/machines"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/nodeapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
@@ -51,12 +52,13 @@ func Command(ctx context.Context, cfg Config, args []string, stdin io.Reader, st
 	}
 
 	svc := orchestration.New(db, platform.SystemClock{}, platform.NewID)
-	secrets := vault.New(db, platform.SystemClock{}, platform.NewID, cfg.VaultKeys, svc.ProvidersUsingKeyRef)
+	secrets := vault.New(db, platform.SystemClock{}, platform.NewID, cfg.VaultKeys, secretReferrers(svc))
 	o := &owner{
 		publicURL: cfg.PublicURL,
 
-		svc:   svc,
-		vault: secrets,
+		svc:      svc,
+		vault:    secrets,
+		machines: machineManager(svc, secrets, cfg.PublicURL, platform.NewLogger(io.Discard, cfg.Log, binary)),
 		gateway: modelgateway.New(db, platform.SystemClock{}, platform.NewID, gatewayProviders(svc),
 			gatewaySecrets(secrets)),
 		in:  stdin,
@@ -74,6 +76,8 @@ func Command(ctx context.Context, cfg Config, args []string, stdin io.Reader, st
 		return o.secrets(ctx, args[1:])
 	case "gateway":
 		return o.gatewayCommand(ctx, args[1:])
+	case "machines":
+		return o.machinesCommand(ctx, args[1:])
 	default:
 		return ErrUsage
 	}
@@ -84,6 +88,7 @@ type owner struct {
 	publicURL string
 	svc       *orchestration.Service
 	vault     *vault.Service
+	machines  *machines.Manager
 	gateway   *modelgateway.Service
 	in        io.Reader
 	out       io.Writer
@@ -126,6 +131,10 @@ func (o *owner) nodes(ctx context.Context, args []string) error {
 				state = "connected"
 			}
 
+			if n.Machine != nil && n.Machine.State != orchestration.MachineReady {
+				state = machineState(n.Machine)
+			}
+
 			o.printf("%s\t%s\t%s\t%s\t%d/%d\t%s\t%s\n", n.ID, n.Name, n.Status, state, n.Active, n.MaxDispatches,
 				runtimes(n.Runtimes), system(n.System))
 		}
@@ -143,7 +152,7 @@ func (o *owner) nodes(ctx context.Context, args []string) error {
 		case "resume":
 			change, done = o.svc.ResumeNode, "resumed"
 		case "rm":
-			change, done = o.svc.RemoveNode, "removed; its tokens no longer work"
+			change, done = o.machines.Remove, "removed; its tokens no longer work"
 		}
 
 		if err := change(ctx, n.ID); err != nil {

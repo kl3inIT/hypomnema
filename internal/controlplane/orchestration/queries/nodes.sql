@@ -10,10 +10,13 @@ SELECT * FROM nodes WHERE id = @id;
 SELECT * FROM nodes WHERE status <> 'deleted' ORDER BY name;
 
 -- name: NodeHello :execrows
+-- A machine waited for, or given up on, that says hello is ready.
 UPDATE nodes
 SET updated_at = @now, last_seen_at = @now, worktree_root = @worktree_root, runtimes = @runtimes,
     daemon_version = @daemon_version, os = @os, arch = @arch, cpus = @cpus, memory_bytes = @memory_bytes,
-    disk_bytes = @disk_bytes, unavailable_at = NULL
+    disk_bytes = @disk_bytes, unavailable_at = NULL,
+    machine_error = CASE WHEN machine_state IN ('provisioning', 'provision_failed') THEN NULL ELSE machine_error END,
+    machine_state = CASE WHEN machine_state IN ('provisioning', 'provision_failed') THEN 'ready' ELSE machine_state END
 WHERE id = @id AND status <> 'deleted';
 
 -- name: TouchNode :exec

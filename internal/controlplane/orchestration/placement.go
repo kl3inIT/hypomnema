@@ -198,8 +198,8 @@ func (p *placement) nodeOut(n *nodeLoad) Node {
 	}
 
 	return Node{
-		Stats: stats,
-		ID:    n.row.ID, Name: n.row.Name, Status: NodeStatus(n.row.Status), MaxDispatches: int(n.row.MaxDispatches),
+		Stats: stats, Machine: machineOut(n.row),
+		ID: n.row.ID, Name: n.row.Name, Status: NodeStatus(n.row.Status), MaxDispatches: int(n.row.MaxDispatches),
 		WorktreeRoot: n.row.WorktreeRoot.String, Runtimes: nonNil(n.runtimes),
 		System: SystemInfo{
 			DaemonVersion: n.row.DaemonVersion.String, OS: n.row.Os.String, Arch: n.row.Arch.String,

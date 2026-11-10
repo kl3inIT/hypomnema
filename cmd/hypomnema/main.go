@@ -10,6 +10,9 @@
 //	hypomnema nodes token add <node> <name>    one more token for a node; printed once
 //	hypomnema nodes token list <node>
 //	hypomnema nodes token revoke <token id>
+//	hypomnema machines providers add <name> --kind aws --key vault:<secret> --region R --size S [--max N] [--option name=value]…
+//	hypomnema machines providers list | rm <name> | check <name>
+//	hypomnema machines create <name> --provider P [--region R] [--size S] [--max N]   a node on a new machine
 //	hypomnema accounts add <runtime> <label>   record an account (no secret)
 //	hypomnema accounts list
 //	hypomnema tokens add <name> [--kind owner|coordinator]   make a client API token; prints it once
@@ -19,7 +22,7 @@
 //	hypomnema secrets add <name> --from-file FILE|- [--kind generic|oauth_token_set] [--meta key=value]…
 //	hypomnema secrets list                     names, kinds, versions and key ids; never a value
 //	hypomnema secrets rotate <name> --from-file FILE|-
-//	hypomnema secrets rm <name>                refused while a provider names the secret
+//	hypomnema secrets rm <name>                refused while a model or machine provider names the secret
 //	hypomnema secrets rewrap                   wrap every data key under the active root key
 //	hypomnema gateway models apply FILE        declare a model the gateway serves (a YAML document)
 //	hypomnema gateway models list | rm <name>
@@ -58,7 +61,7 @@ import (
 )
 
 var errUsage = errors.New("usage: hypomnema migrate | serve | version | " +
-	"nodes add|list|drain|resume|rm|token | accounts add|list | " +
+	"nodes add|list|drain|resume|rm|token | machines providers|create | accounts add|list | " +
 	"tokens add|list|revoke | secrets keygen|add|list|rotate|rm|rewrap | gateway models|keys … | login --url URL --token-file FILE | run --repo owner/name <objective> | " +
 	"runs … | tasks … | questions … | whoami | skills get|install | " +
 	"answer <question> <answer> | questions")

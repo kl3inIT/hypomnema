@@ -85,7 +85,9 @@ type Node struct {
 	Runtimes      []RuntimeInfo
 	System        SystemInfo
 	// Stats is the node's latest measurement; nil until it has sent one.
-	Stats      *SystemStats
+	Stats *SystemStats
+	// Machine is set for a node created at a provider; nil for one the owner installed.
+	Machine    *Machine
 	LastSeenAt *time.Time
 	// UnavailableAt is set when the node let Dispatches expire in a row.
 	UnavailableAt *time.Time
@@ -172,9 +174,20 @@ func (s *Service) AddNode(ctx context.Context, name string, maxDispatches int) (
 // RemoveNode takes a node out of the registry: its tokens stop working, it
 // is no longer listed and its name is free again. Its row stays for the
 // Dispatches that name it (Omnara deletes a machine the same way). A node
-// that still runs Dispatches is refused: drain it and let them end first.
+// that still runs Dispatches is refused: drain it and let them end first. So
+// is a node created at a provider, whose machine must be destroyed first
+// (BeginMachineRemoval).
 func (s *Service) RemoveNode(ctx context.Context, nodeID string) error {
 	return s.write(ctx, func(q *store.Queries, now int64) error {
+		row, err := q.GetNode(ctx, nodeID)
+		if err != nil {
+			return notFound(err, "node", nodeID)
+		}
+
+		if row.ProviderID.Valid && NodeStatus(row.Status) != NodeDeleted {
+			return fmt.Errorf("%w: node %s is a provider's machine and is removed with it", ErrConflict, nodeID)
+		}
+
 		active, err := q.CountActiveDispatchesOfNode(ctx, store.CountActiveDispatchesOfNodeParams{
 			NodeID: nodeID, Statuses: activeDispatchStatuses(),
 		})

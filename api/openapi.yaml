@@ -1130,6 +1130,7 @@ components:
           items: { $ref: "#/components/schemas/Runtime" }
         system: { $ref: "#/components/schemas/NodeSystem" }
         stats: { $ref: "#/components/schemas/NodeStats" }
+        machine: { $ref: "#/components/schemas/NodeMachine" }
         last_seen_at: { type: string, format: date-time }
         unavailable_at: { type: string, format: date-time }
         connected: { type: boolean }
@@ -1137,6 +1138,28 @@ components:
           type: integer
           description: Its Dispatches that have not settled.
         created_at: { type: string, format: date-time }
+    NodeMachine:
+      type: object
+      description: >-
+        Set for a node whose machine was created at a provider; left out for one the owner installed. Removing
+        the node destroys the machine.
+      required: [provider_id, region, size, state]
+      properties:
+        provider_id: { type: string }
+        resource_id:
+          type: string
+          description: The provider's id for the machine, once the provider has answered.
+        region: { type: string }
+        size: { type: string }
+        state:
+          type: string
+          enum: [provisioning, ready, provision_failed, deleting, delete_failed]
+          description: >-
+            provisioning until the node says hello; provision_failed when the provider refused or the node never
+            did; deleting and delete_failed while the machine is destroyed, which is tried again until it is.
+        error:
+          type: string
+          description: Why the last step failed.
     NodeSystem:
       type: object
       description: What the node said about itself at its last connect. A field it could not find is left out.

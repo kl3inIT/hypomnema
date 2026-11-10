@@ -127,14 +127,16 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	nodeapi.New(svc, logger).Register(mux)
 	mux.Handle("GET "+nodeapi.PathInstallScript, nodeapi.InstallScript(cfg.PublicURL, cfg.NodeReleaseURL))
 
-	secrets := vault.New(db, platform.SystemClock{}, platform.NewID, cfg.VaultKeys, svc.ProvidersUsingKeyRef)
+	secrets := vault.New(db, platform.SystemClock{}, platform.NewID, cfg.VaultKeys, secretReferrers(svc))
+	machineMgr := machineManager(svc, secrets, cfg.PublicURL, logger)
 	gateway := modelgateway.New(db, platform.SystemClock{}, platform.NewID, gatewayProviders(svc),
 		gatewaySecrets(secrets))
 	modelgateway.NewServer(gateway, logger, modelgateway.Config{}).Register(mux)
 
 	sup := coordinator.New(svc, coordinator.Config{Command: cfg.CoordinatorCommand, Logger: logger})
 
-	if err := clientapi.New(svc, logger, ctx.Done()).WithCoordinator(sup).Register(mux); err != nil {
+	api := clientapi.New(svc, logger, ctx.Done()).WithCoordinator(sup).WithNodeRemover(machineMgr.Remove)
+	if err := api.Register(mux); err != nil {
 		return err
 	}
 
@@ -159,6 +161,14 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		}
 	}()
 
+	machinesDone := make(chan struct{})
+
+	go func() {
+		defer close(machinesDone)
+
+		machineMgr.Loop(ctx)
+	}()
+
 	supDone := make(chan struct{})
 
 	go func() {
@@ -171,6 +181,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 
 	cancel(nil)
 	<-loopDone
+	<-machinesDone
 	<-supDone
 
 	if cause := context.Cause(ctx); cause != nil && !errors.Is(cause, context.Canceled) {
