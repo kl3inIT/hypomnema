@@ -23,7 +23,7 @@ import (
 
 const accountsUsage = "accounts add <runtime> <label> [--token FILE|-] | " +
 	"accounts login codex|antigravity [--label L] | " +
-	"accounts list | accounts models <account> | " +
+	"accounts list | accounts disable <account> | accounts enable <account> | accounts models <account> | " +
 	"accounts refresh <account> | accounts rm <account>"
 
 // maxPastedBytes bounds the address the owner pastes to finish a login.
@@ -57,6 +57,20 @@ func (o *owner) accounts(ctx context.Context, args []string) error {
 	case len(args) == 5 && args[0] == "add" && args[3] == "--token":
 		//nolint:gosec // G602 false positive: this case holds only when len(args) == 5
 		return o.accountsAddToken(ctx, args[1], args[2], args[4])
+	case len(args) == 2 && (args[0] == "disable" || args[0] == "enable"):
+		// Placement passes a disabled account over; its token and its record stay.
+		change, done := o.svc.DisableAccount, "disabled: no new work runs under it"
+		if args[0] == "enable" {
+			change, done = o.svc.EnableAccount, "enabled"
+		}
+
+		if err := change(ctx, args[1]); err != nil {
+			return err
+		}
+
+		o.printf("account %s %s\n", args[1], done)
+
+		return nil
 	case len(args) >= 2 && args[0] == "login":
 		return o.accountsLogin(ctx, args[1], args[2:])
 	case len(args) == 1 && args[0] == "list":
