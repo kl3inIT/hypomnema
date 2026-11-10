@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router"
-import { ArrowLeft, FolderGit2, Plug, type LucideIcon } from "lucide-react"
+import { ArrowLeft, Plug, type LucideIcon } from "lucide-react"
 import type { ReactNode } from "react"
 
 import { PageHeader } from "@/features/shell/app-shell"
@@ -10,6 +10,8 @@ import { cn } from "@/lib/utils"
 // route a section (docs/research/2026-11-10-menus-and-settings.md): the headings are t3code's
 // (components/settings/settingsSearch.ts SETTINGS_NAV_GROUPS), and the sidebar's body gives way to the sections
 // with a way back as Omnigent's does (web/src/shell/settingsNav.tsx). A section appears here once it has a page.
+// Repositories has a page (/settings/repositories) but no entry: what a registered repository is, and whether it
+// belongs here or in the app's sidebar as a project, is being decided (issue #44, owner, 2026-11-10).
 type Section = {
   to: "/settings/repositories" | "/settings/integrations"
   label: string
@@ -18,14 +20,12 @@ type Section = {
 
 const groups: { heading: string; sections: Section[] }[] = [
   {
-    heading: "Code",
-    sections: [{ to: "/settings/repositories", label: "Repositories", icon: FolderGit2 }],
-  },
-  {
     heading: "Connections",
     sections: [{ to: "/settings/integrations", label: "Integrations", icon: Plug }],
   },
 ]
+
+const sections = groups.flatMap((group) => group.sections)
 
 const rowClass =
   "flex h-8 items-center gap-2 rounded-lg px-2.5 text-sm font-medium text-muted-foreground/80 hover:bg-sidebar-row-hover hover:text-foreground [&.active]:bg-sidebar-row-active [&.active]:text-foreground"
@@ -79,13 +79,12 @@ export function SettingsPage({
       <PageHeader title={title}>
         <div className="ms-auto flex items-center gap-2">{actions}</div>
       </PageHeader>
-      <nav
-        aria-label="Settings sections"
-        className="flex shrink-0 gap-1 overflow-x-auto px-3 pb-2 md:hidden"
-      >
-        {groups
-          .flatMap((group) => group.sections)
-          .map((section) => (
+      {sections.length > 1 && (
+        <nav
+          aria-label="Settings sections"
+          className="flex shrink-0 gap-1 overflow-x-auto px-3 pb-2 md:hidden"
+        >
+          {sections.map((section) => (
             <Link
               key={section.to}
               to={section.to}
@@ -98,7 +97,8 @@ export function SettingsPage({
               {section.label}
             </Link>
           ))}
-      </nav>
+        </nav>
+      )}
       <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-8 sm:px-5">
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 pt-2">
           <p className="text-sm text-muted-foreground">{description}</p>
