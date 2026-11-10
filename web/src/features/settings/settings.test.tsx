@@ -95,6 +95,22 @@ function server(
       return json(connection)
     }
 
+    if (kind === "integrations" && sub === "connections" && request.method === "PUT") {
+      const now = new Date().toISOString()
+      const connection = {
+        integration: name ?? "",
+        label: path.split("/")[4] ?? "",
+        account: "Hypomnema",
+        services: [],
+        sign_in_required: false,
+        created_at: now,
+        updated_at: now,
+      }
+      services = services.map((i) => ({ ...i, connections: [...i.connections, connection] }))
+
+      return json(connection)
+    }
+
     if (kind === "integrations" && sub === "connections") {
       const label = path.split("/")[4]
       services = services.map((i) => ({
@@ -330,6 +346,7 @@ test("the owner registers a repository under a name and removes it", async () =>
 const google = (over: Partial<Integration> = {}): Integration => ({
   id: "google",
   name: "Google",
+  kind: "oauth",
   client_id: "1234.apps.example",
   services: ["gmail", "calendar", "drive"],
   connections: [],
@@ -400,6 +417,62 @@ test("the owner signs a Google account in and disconnects it", async () => {
     },
     { call: "DELETE /integrations/google/connections/work", body: undefined },
   ])
+})
+
+// Scenario: the owner gave Hypomnema his Lark app's id and secret. He connects the app under a name: no link to
+// open and nothing to paste. The Connection shows the app's own name and offers no sign-in again; disconnecting
+// says the app's id and secret stay.
+test("the owner connects a Lark app with no sign-in and disconnects it", async () => {
+  const user = userEvent.setup()
+  const requests = server({
+    services: [
+      {
+        id: "lark",
+        name: "Lark",
+        kind: "app",
+        client_id: "cli_a1b2",
+        services: [],
+        connections: [],
+      },
+    ],
+  })
+  await open(IntegrationsScreen, "Integrations")
+
+  const card = async () => within(await screen.findByText("Lark").then(cardOf))
+  await user.click((await card()).getByRole("button", { name: "Connect app" }))
+  const dialog = within(await screen.findByRole("dialog"))
+  await user.type(dialog.getByLabelText("Name"), "work")
+  await user.click(dialog.getByRole("button", { name: "Connect" }))
+  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
+
+  const account = within(await screen.findByLabelText("Lark account work"))
+  expect(account.getByText("Hypomnema")).toBeInTheDocument()
+  expect(account.queryByRole("button", { name: /Sign in again/ })).not.toBeInTheDocument()
+  expect((await card()).getByText("Connected")).toBeInTheDocument()
+
+  await user.click(account.getByRole("button", { name: "Disconnect work" }))
+  const confirm = within(await screen.findByRole("alertdialog"))
+  expect(confirm.getByText(/id and secret stay in the vault/)).toBeInTheDocument()
+  await user.click(confirm.getByRole("button", { name: "Disconnect" }))
+  expect(await (await card()).findByText("Not connected")).toBeInTheDocument()
+
+  expect(requests).toEqual([
+    { call: "PUT /integrations/lark/connections/work", body: undefined },
+    { call: "DELETE /integrations/lark/connections/work", body: undefined },
+  ])
+})
+
+// Scenario: Lark is an app and the owner has not given its id and secret yet: the card says how to give them
+// in a file, and offers nothing to connect.
+test("a Lark app that is not set up says how to give its id and secret", async () => {
+  server({ services: [{ id: "lark", name: "Lark", kind: "app", services: [], connections: [] }] })
+  await open(IntegrationsScreen, "Integrations")
+
+  const card = within(await screen.findByText("Lark").then(cardOf))
+  expect(card.getByText("Not set up")).toBeInTheDocument()
+  expect(card.getByText(/app_id and app_secret/)).toBeInTheDocument()
+  expect(card.getByText(/integrations client set lark/)).toBeInTheDocument()
+  expect(card.queryByRole("button", { name: "Connect app" })).not.toBeInTheDocument()
 })
 
 // Scenario: Google has no OAuth client yet: the card says how to give one, and offers no sign-in. An account

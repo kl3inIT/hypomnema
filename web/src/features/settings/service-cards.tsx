@@ -9,6 +9,7 @@ import {
   beginIntegrationSignIn,
   completeIntegrationSignIn,
   deleteIntegrationConnection,
+  putIntegrationConnection,
 } from "@/api/generated/sdk.gen"
 import type { Integration, IntegrationConnection, SignIn } from "@/api/generated/types.gen"
 import {
@@ -17,6 +18,7 @@ import {
   GoogleDocsIcon,
   GoogleDriveIcon,
   GoogleIcon,
+  LarkIcon,
 } from "@/components/icons/brand-icons"
 import { Badge } from "@/components/ui/badge"
 import { Button, buttonVariants } from "@/components/ui/button"
@@ -62,7 +64,8 @@ import { ConfirmDialog, ErrorAlert, TextField } from "./settings-parts"
 import { servicesKey } from "./use-integrations"
 
 // The services that sign in with an account (issue #103, step 4): Google is the first. A card a service, as the
-// git hosts have theirs, with the accounts the owner signed in under it.
+// git hosts have theirs, with the accounts the owner signed in under it. A service of kind app (Lark, issue #135)
+// has the same card: its client is an app of the service, and it is connected with no sign-in.
 
 function useRefreshServices() {
   const queryClient = useQueryClient()
@@ -70,7 +73,10 @@ function useRefreshServices() {
   return () => queryClient.invalidateQueries({ queryKey: servicesKey })
 }
 
-const marks: Record<string, ComponentType<SVGProps<SVGSVGElement>>> = { google: GoogleIcon }
+const marks: Record<string, ComponentType<SVGProps<SVGSVGElement>>> = {
+  google: GoogleIcon,
+  lark: LarkIcon,
+}
 
 type Mark = ComponentType<SVGProps<SVGSVGElement>>
 
@@ -110,6 +116,13 @@ export function ServiceCard({ service }: { service: Integration }) {
   const Mark = marks[service.id] ?? Plug
   const accounts = service.connections.length
   const needsSignIn = service.connections.some((c) => c.sign_in_required)
+  const app = service.kind === "app"
+  const add = (
+    <Button variant="outline" size="sm">
+      <Plus data-icon="inline-start" />
+      {app ? "Connect app" : "Add account"}
+    </Button>
+  )
 
   return (
     <Card size="sm" data-testid="integration-card">
@@ -119,28 +132,28 @@ export function ServiceCard({ service }: { service: Integration }) {
             <Mark className="size-6 shrink-0" />
             <span className="flex flex-col gap-0.5">
               <span>{service.name}</span>
-              <CardDescription>{service.services.map(serviceName).join(" · ")}</CardDescription>
+              <CardDescription>
+                {app ? "Works as your app" : service.services.map(serviceName).join(" · ")}
+              </CardDescription>
             </span>
           </span>
         </CardTitle>
         <CardAction>
           <span className="flex flex-wrap items-center justify-end gap-1.5">
-            {service.client_id && (
-              <SignInDialog
-                service={service}
-                trigger={
-                  <Button variant="outline" size="sm">
-                    <Plus data-icon="inline-start" />
-                    Add account
-                  </Button>
-                }
-              />
-            )}
+            {service.client_id &&
+              (app ? (
+                // An app is one thing: once it is connected there is no second one to add.
+                accounts === 0 && <ConnectAppDialog service={service} trigger={add} />
+              ) : (
+                <SignInDialog service={service} trigger={add} />
+              ))}
             <Badge variant={accounts > 0 && !needsSignIn ? "success" : "warning"}>
               {!service.client_id
                 ? "Not set up"
                 : accounts === 0
-                  ? "No account"
+                  ? app
+                    ? "Not connected"
+                    : "No account"
                   : needsSignIn
                     ? "Needs sign-in"
                     : "Connected"}
@@ -152,8 +165,9 @@ export function ServiceCard({ service }: { service: Integration }) {
         <CardContent>
           <div className="flex flex-col gap-2 border-t pt-3 text-xs text-muted-foreground">
             <p>
-              {service.name} signs in with an OAuth client you create once. Give its file to
-              Hypomnema from a terminal:
+              {app
+                ? `${service.name} is connected as an app you create once in its developer console. Give Hypomnema a JSON file with its app_id and app_secret from a terminal:`
+                : `${service.name} signs in with an OAuth client you create once. Give its file to Hypomnema from a terminal:`}
             </p>
             <code className="font-mono text-foreground">
               hypomnema integrations client set {service.id} --client-file &lt;file&gt;
@@ -182,6 +196,7 @@ function AccountRow({
   connection: IntegrationConnection
 }) {
   const refresh = useRefreshServices()
+  const app = service.kind === "app"
 
   return (
     <Item variant="muted" size="sm" aria-label={`${service.name} account ${connection.label}`}>
@@ -200,16 +215,18 @@ function AccountRow({
         </ItemDescription>
       </ItemContent>
       <ItemActions>
-        <SignInDialog
-          service={service}
-          connection={connection}
-          trigger={
-            <Button variant="ghost" size="sm">
-              <RefreshCw data-icon="inline-start" />
-              Sign in again
-            </Button>
-          }
-        />
+        {!app && (
+          <SignInDialog
+            service={service}
+            connection={connection}
+            trigger={
+              <Button variant="ghost" size="sm">
+                <RefreshCw data-icon="inline-start" />
+                Sign in again
+              </Button>
+            }
+          />
+        )}
         <ConfirmDialog
           trigger={
             <Button variant="ghost" size="sm" aria-label={`Disconnect ${connection.label}`}>
@@ -217,7 +234,11 @@ function AccountRow({
             </Button>
           }
           title={`Disconnect ${connection.label} (${connection.account})?`}
-          consequence={`${service.name} is asked to end Hypomnema's access to this account, and its tokens are removed from the vault. If ${service.name} cannot be reached, remove the access in the account's own security settings.`}
+          consequence={
+            app
+              ? `Hypomnema stops working as this app. The app's id and secret stay in the vault, for when you connect it again; the app itself is removed in ${service.name}'s developer console.`
+              : `${service.name} is asked to end Hypomnema's access to this account, and its tokens are removed from the vault. If ${service.name} cannot be reached, remove the access in the account's own security settings.`
+          }
           action="Disconnect"
           run={() =>
             deleteIntegrationConnection({
@@ -231,15 +252,96 @@ function AccountRow({
   )
 }
 
+const labelSchema = z
+  .string()
+  .regex(/^[a-z0-9][a-z0-9-]{0,30}$/, "Lower-case letters, digits and dashes, such as work.")
+
+// ConnectAppDialog connects a service that is an app. There is nothing to sign in to: the owner names the
+// Connection, and the control plane checks the app's id and secret with the service and reads the app's name.
+function ConnectAppDialog({ service, trigger }: { service: Integration; trigger: ReactElement }) {
+  const refresh = useRefreshServices()
+  const [open, setOpen] = useState(false)
+
+  const connect = useMutation({
+    mutationFn: (label: string) =>
+      putIntegrationConnection({ path: { integration: service.id, label } }),
+  })
+
+  const form = useForm({
+    defaultValues: { label: "" },
+    validators: { onSubmit: z.object({ label: labelSchema }) },
+    onSubmit: async ({ value }) => {
+      try {
+        await connect.mutateAsync(value.label)
+      } catch {
+        return // The dialog stays open and shows what the server refused.
+      }
+
+      await refresh()
+      change(false)
+    },
+  })
+
+  function change(next: boolean) {
+    setOpen(next)
+    if (!next) {
+      form.reset()
+      connect.reset()
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={change}>
+      <DialogTrigger render={trigger} />
+      <DialogContent>
+        <form
+          autoComplete="off"
+          noValidate
+          className="flex flex-col gap-4"
+          onSubmit={(event) => {
+            event.preventDefault()
+            void form.handleSubmit()
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>Connect your {service.name} app</DialogTitle>
+            <DialogDescription>
+              {`There is nothing to sign in to. Hypomnema checks the app's id and secret with ${service.name} and then works as the app, with what the app is allowed there.`}
+            </DialogDescription>
+          </DialogHeader>
+          <FieldGroup>
+            <form.Field name="label">
+              {(field) => (
+                <TextField
+                  field={field}
+                  label="Name"
+                  placeholder="work"
+                  description="What you call this app here, such as work."
+                />
+              )}
+            </form.Field>
+          </FieldGroup>
+          <ErrorAlert error={connect.error} />
+          <DialogFooter>
+            <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
+            <Button type="submit" disabled={connect.isPending}>
+              {connect.isPending && <Spinner data-icon="inline-start" />}
+              Connect
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 // What a service is asked for: nothing, to read, or to read and write.
 const modes = ["write", "read", "none"] as const
 
 type Mode = (typeof modes)[number]
 
 const startSchema = z.object({
-  label: z
-    .string()
-    .regex(/^[a-z0-9][a-z0-9-]{0,30}$/, "Lower-case letters, digits and dashes, such as work."),
+  label: labelSchema,
   access: z
     .record(z.string(), z.enum(modes))
     .refine((access) => Object.values(access).some((m) => m !== "none"), "Choose a service."),

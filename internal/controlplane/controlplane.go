@@ -159,7 +159,8 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		gatewaySecrets(secrets))
 	workerKeys := dispatchKeys{gateway: gateway, svc: svc, logger: logger}
 
-	integrations := integration.New(svc, secrets, platform.SystemClock{}, platform.NewID, integration.Google())
+	integrations := integration.New(svc, secrets, platform.SystemClock{}, platform.NewID,
+		integration.Google(), integration.Lark())
 
 	nodes := nodeapi.New(svc, logger).WithHostTokens(tokens.Token).WithModelKeys(workerKeys.Key).
 		WithTools(integrations.Tools)

@@ -78,6 +78,8 @@ type Service struct {
 
 	mu      sync.Mutex
 	signIns map[string]*signIn
+	// appTokens is the token in use of each app Integration, by its id.
+	appTokens map[string]Token
 }
 
 // signIn is one sign-in the owner started and has not completed.
@@ -95,7 +97,7 @@ func New(store Store, secrets *vault.Service, clock platform.Clock, newID func(s
 ) *Service {
 	return &Service{
 		store: store, vault: secrets, defs: defs, client: &http.Client{Timeout: httpTimeout}, clock: clock,
-		newID: newID, signIns: map[string]*signIn{},
+		newID: newID, signIns: map[string]*signIn{}, appTokens: map[string]Token{},
 	}
 }
 
@@ -116,8 +118,8 @@ type Connection struct {
 type Integration struct {
 	Definition
 
-	// ClientID is the id of the OAuth client it signs in with; empty when
-	// none was set, and then no account can be connected.
+	// ClientID is the id of the OAuth client it signs in with, or of the app
+	// it is; empty when none was set, and then nothing can be connected.
 	ClientID    string
 	Connections []Connection
 }
@@ -202,9 +204,10 @@ func (s *Service) view(ctx context.Context, d Definition, c orchestration.Connec
 	return out
 }
 
-// SetClient keeps the OAuth client an Integration signs in with, replacing
-// the one it had. Connections made with the old client stop refreshing when
-// it is another client: they are signed in again.
+// SetClient keeps the OAuth client an Integration signs in with, or the app
+// it is, replacing the one it had. Connections made with the old client stop
+// refreshing when it is another client: they are signed in again. An app's
+// token in memory is dropped, so the next one is the new client's.
 func (s *Service) SetClient(ctx context.Context, integration, clientID, clientSecret string) error {
 	d, err := s.definition(integration)
 	if err != nil {
@@ -231,6 +234,10 @@ func (s *Service) SetClient(ctx context.Context, integration, clientID, clientSe
 		return vaultError(err)
 	}
 
+	s.mu.Lock()
+	delete(s.appTokens, d.ID)
+	s.mu.Unlock()
+
 	return s.store.SetIntegrationClient(ctx, d.ID, clientID, name)
 }
 
@@ -240,7 +247,7 @@ type oauthClient struct{ id, secret string }
 func (s *Service) oauthClient(ctx context.Context, d Definition) (oauthClient, error) {
 	client, err := s.store.IntegrationClientOf(ctx, d.ID)
 	if errors.Is(err, orchestration.ErrNotFound) {
-		return oauthClient{}, fmt.Errorf("%w: %s has no OAuth client yet; set one with "+
+		return oauthClient{}, fmt.Errorf("%w: %s has no client yet; set one with "+
 			"`hypomnema integrations client set %s --client-file FILE`", orchestration.ErrConflict, d.ID, d.ID)
 	}
 
@@ -262,6 +269,10 @@ func (s *Service) Begin(ctx context.Context, integration, label string, services
 	d, err := s.definition(integration)
 	if err != nil {
 		return SignIn{}, err
+	}
+
+	if d.IsApp() {
+		return SignIn{}, fmt.Errorf("%w: %s is connected as an app, with no sign-in", ErrInvalid, d.ID)
 	}
 
 	if !orchestration.ValidConnectionLabel(label) {
@@ -440,6 +451,10 @@ func (s *Service) Token(ctx context.Context, integration, label string) (Token, 
 		return Token{}, err
 	}
 
+	if d.IsApp() {
+		return s.appToken(ctx, d)
+	}
+
 	opened, err := s.vault.Open(ctx, conn.Secret)
 	if err != nil {
 		return Token{}, vaultError(err)
@@ -512,7 +527,9 @@ func (s *Service) refresh(ctx context.Context, d Definition, current vault.Paylo
 // Disconnect forgets a Connection and its tokens, after asking the provider
 // to end them (Hermes' revoke). A provider that cannot be reached does not
 // keep the Connection here: the owner can still remove the access in the
-// account's own settings, and the answer says so.
+// account's own settings, and the answer says so. An app's Connection holds
+// no token of its own, so nothing is left at the service to end: the app's
+// client stays, for the next Connection.
 func (s *Service) Disconnect(ctx context.Context, integration, label string) (revoked bool, err error) {
 	d, err := s.definition(integration)
 	if err != nil {
@@ -522,6 +539,14 @@ func (s *Service) Disconnect(ctx context.Context, integration, label string) (re
 	conn, err := s.store.ConnectionOf(ctx, d.ID, label)
 	if err != nil {
 		return false, err
+	}
+
+	if d.IsApp() {
+		if _, err := s.store.RemoveConnection(ctx, d.ID, label); err != nil {
+			return false, err
+		}
+
+		return true, nil
 	}
 
 	if opened, err := s.vault.Open(ctx, conn.Secret); err == nil {
@@ -551,8 +576,10 @@ func (s *Service) expiry(t tokenAnswer) time.Time {
 		return time.Time{}
 	}
 
-	return s.clock.Now().Add(time.Duration(t.ExpiresIn) * time.Second)
+	return s.clock.Now().Add(secondsOf(t.ExpiresIn))
 }
+
+func secondsOf(n int64) time.Duration { return time.Duration(n) * time.Second }
 
 // token calls the provider's token endpoint. A grant refused for good
 // (invalid_grant: revoked, expired, or the password changed) wraps
