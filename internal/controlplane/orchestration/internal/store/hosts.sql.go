@@ -108,7 +108,7 @@ func (q *Queries) DeleteRepo(ctx context.Context, name string) (int64, error) {
 }
 
 const getConnection = `-- name: GetConnection :one
-SELECT integration, label, account, secret, created_at, updated_at FROM connections WHERE integration = ?1 AND label = ?2
+SELECT integration, label, account, secret, created_at, updated_at, services FROM connections WHERE integration = ?1 AND label = ?2
 `
 
 type GetConnectionParams struct {
@@ -126,6 +126,7 @@ func (q *Queries) GetConnection(ctx context.Context, arg GetConnectionParams) (C
 		&i.Secret,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Services,
 	)
 	return i, err
 }
@@ -138,6 +139,23 @@ func (q *Queries) GetGitHost(ctx context.Context, host string) (GitHost, error) 
 	row := q.db.QueryRowContext(ctx, getGitHost, host)
 	var i GitHost
 	err := row.Scan(&i.Host, &i.Kind, &i.CreatedAt)
+	return i, err
+}
+
+const getIntegrationClient = `-- name: GetIntegrationClient :one
+SELECT integration, client_id, secret, created_at, updated_at FROM integration_clients WHERE integration = ?1
+`
+
+func (q *Queries) GetIntegrationClient(ctx context.Context, integration string) (IntegrationClient, error) {
+	row := q.db.QueryRowContext(ctx, getIntegrationClient, integration)
+	var i IntegrationClient
+	err := row.Scan(
+		&i.Integration,
+		&i.ClientID,
+		&i.Secret,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
 	return i, err
 }
 
@@ -175,7 +193,7 @@ func (q *Queries) InsertSecretRead(ctx context.Context, arg InsertSecretReadPara
 }
 
 const listConnections = `-- name: ListConnections :many
-SELECT integration, label, account, secret, created_at, updated_at FROM connections ORDER BY integration, created_at, label
+SELECT integration, label, account, secret, created_at, updated_at, services FROM connections ORDER BY integration, created_at, label
 `
 
 func (q *Queries) ListConnections(ctx context.Context) ([]Connection, error) {
@@ -194,6 +212,7 @@ func (q *Queries) ListConnections(ctx context.Context) ([]Connection, error) {
 			&i.Secret,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Services,
 		); err != nil {
 			return nil, err
 		}
@@ -209,7 +228,7 @@ func (q *Queries) ListConnections(ctx context.Context) ([]Connection, error) {
 }
 
 const listConnectionsBySecret = `-- name: ListConnectionsBySecret :many
-SELECT integration, label, account, secret, created_at, updated_at FROM connections WHERE secret = ?1 ORDER BY integration, label
+SELECT integration, label, account, secret, created_at, updated_at, services FROM connections WHERE secret = ?1 ORDER BY integration, label
 `
 
 func (q *Queries) ListConnectionsBySecret(ctx context.Context, secret string) ([]Connection, error) {
@@ -228,6 +247,7 @@ func (q *Queries) ListConnectionsBySecret(ctx context.Context, secret string) ([
 			&i.Secret,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Services,
 		); err != nil {
 			return nil, err
 		}
@@ -243,7 +263,7 @@ func (q *Queries) ListConnectionsBySecret(ctx context.Context, secret string) ([
 }
 
 const listConnectionsOf = `-- name: ListConnectionsOf :many
-SELECT integration, label, account, secret, created_at, updated_at FROM connections WHERE integration = ?1 ORDER BY created_at, label
+SELECT integration, label, account, secret, created_at, updated_at, services FROM connections WHERE integration = ?1 ORDER BY created_at, label
 `
 
 func (q *Queries) ListConnectionsOf(ctx context.Context, integration string) ([]Connection, error) {
@@ -262,6 +282,7 @@ func (q *Queries) ListConnectionsOf(ctx context.Context, integration string) ([]
 			&i.Secret,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Services,
 		); err != nil {
 			return nil, err
 		}
@@ -290,6 +311,39 @@ func (q *Queries) ListGitHosts(ctx context.Context) ([]GitHost, error) {
 	for rows.Next() {
 		var i GitHost
 		if err := rows.Scan(&i.Host, &i.Kind, &i.CreatedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listIntegrationClientsBySecret = `-- name: ListIntegrationClientsBySecret :many
+SELECT integration, client_id, secret, created_at, updated_at FROM integration_clients WHERE secret = ?1 ORDER BY integration
+`
+
+func (q *Queries) ListIntegrationClientsBySecret(ctx context.Context, secret string) ([]IntegrationClient, error) {
+	rows, err := q.db.QueryContext(ctx, listIntegrationClientsBySecret, secret)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []IntegrationClient{}
+	for rows.Next() {
+		var i IntegrationClient
+		if err := rows.Scan(
+			&i.Integration,
+			&i.ClientID,
+			&i.Secret,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -375,10 +429,11 @@ func (q *Queries) ListSecretReads(ctx context.Context, arg ListSecretReadsParams
 }
 
 const upsertConnection = `-- name: UpsertConnection :exec
-INSERT INTO connections (integration, label, account, secret, created_at, updated_at)
-VALUES (?1, ?2, ?3, ?4, ?5, ?5)
+INSERT INTO connections (integration, label, account, secret, services, created_at, updated_at)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)
 ON CONFLICT (integration, label) DO UPDATE
-SET account = excluded.account, secret = excluded.secret, updated_at = excluded.updated_at
+SET account = excluded.account, secret = excluded.secret, services = excluded.services,
+    updated_at = excluded.updated_at
 `
 
 type UpsertConnectionParams struct {
@@ -386,6 +441,7 @@ type UpsertConnectionParams struct {
 	Label       string
 	Account     sql.NullString
 	Secret      string
+	Services    sql.NullString
 	Now         int64
 }
 
@@ -395,6 +451,7 @@ func (q *Queries) UpsertConnection(ctx context.Context, arg UpsertConnectionPara
 		arg.Label,
 		arg.Account,
 		arg.Secret,
+		arg.Services,
 		arg.Now,
 	)
 	return err
@@ -413,6 +470,30 @@ type UpsertGitHostParams struct {
 
 func (q *Queries) UpsertGitHost(ctx context.Context, arg UpsertGitHostParams) error {
 	_, err := q.db.ExecContext(ctx, upsertGitHost, arg.Host, arg.Kind, arg.Now)
+	return err
+}
+
+const upsertIntegrationClient = `-- name: UpsertIntegrationClient :exec
+INSERT INTO integration_clients (integration, client_id, secret, created_at, updated_at)
+VALUES (?1, ?2, ?3, ?4, ?4)
+ON CONFLICT (integration) DO UPDATE
+SET client_id = excluded.client_id, secret = excluded.secret, updated_at = excluded.updated_at
+`
+
+type UpsertIntegrationClientParams struct {
+	Integration string
+	ClientID    string
+	Secret      string
+	Now         int64
+}
+
+func (q *Queries) UpsertIntegrationClient(ctx context.Context, arg UpsertIntegrationClientParams) error {
+	_, err := q.db.ExecContext(ctx, upsertIntegrationClient,
+		arg.Integration,
+		arg.ClientID,
+		arg.Secret,
+		arg.Now,
+	)
 	return err
 }
 

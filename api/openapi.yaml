@@ -557,6 +557,113 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/GitHost" }
         default: { $ref: "#/components/responses/Error" }
+  /integrations:
+    get:
+      operationId: ListIntegrations
+      summary: The services that sign in with an account, with their Connections
+      description: >-
+        An Integration here signs in with OAuth; Google is the first. A git
+        host is an Integration too and is listed under /hosts. No token and no
+        client secret is ever in the answer.
+      responses:
+        "200":
+          description: The Integrations.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IntegrationList" }
+        default: { $ref: "#/components/responses/Error" }
+  /integrations/{integration}/client:
+    parameters:
+      - $ref: "#/components/parameters/IntegrationID"
+    put:
+      operationId: PutIntegrationClient
+      summary: Keep the OAuth client an Integration signs in with; only the owner
+      description: >-
+        The owner creates the client at the service once. Its secret goes into
+        the vault and is never returned. It replaces the client the
+        Integration had.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewIntegrationClient" }
+      responses:
+        "200":
+          description: The Integration, with its client's id.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Integration" }
+        default: { $ref: "#/components/responses/Error" }
+  /integrations/{integration}/sign-ins:
+    parameters:
+      - $ref: "#/components/parameters/IntegrationID"
+    post:
+      operationId: BeginIntegrationSignIn
+      summary: Start signing an account in, as a Connection under a label; only the owner
+      description: >-
+        Answers with a link the owner opens in a browser on any machine. After
+        consent the browser ends on an address that does not load; that
+        address completes the sign-in. A label that exists is signed in again
+        and takes the new services.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewSignIn" }
+      responses:
+        "200":
+          description: The sign-in to complete.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SignIn" }
+        default: { $ref: "#/components/responses/Error" }
+  /integrations/{integration}/sign-ins/{sign_in_id}:
+    parameters:
+      - $ref: "#/components/parameters/IntegrationID"
+      - name: sign_in_id
+        in: path
+        required: true
+        schema: { type: string, minLength: 1, maxLength: 64 }
+    post:
+      operationId: CompleteIntegrationSignIn
+      summary: Complete a sign-in with the address the browser ended on; only the owner
+      description: >-
+        The control plane exchanges the code, keeps the tokens in the vault and
+        records the Connection with the account's own name and the services
+        the consent page allowed.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SignInCallback" }
+      responses:
+        "200":
+          description: The Connection.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IntegrationConnection" }
+        default: { $ref: "#/components/responses/Error" }
+  /integrations/{integration}/connections/{label}:
+    parameters:
+      - $ref: "#/components/parameters/IntegrationID"
+      - name: label
+        in: path
+        required: true
+        schema: { type: string, pattern: "^[a-z0-9][a-z0-9-]{0,30}$" }
+    delete:
+      operationId: DeleteIntegrationConnection
+      summary: Forget a Connection and its tokens; only the owner
+      description: >-
+        The service is asked to end the tokens first. When it cannot be
+        reached the Connection is forgotten all the same, and the answer says
+        the access was not ended there.
+      responses:
+        "200":
+          description: The Connection is forgotten.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Disconnected" }
+        default: { $ref: "#/components/responses/Error" }
   /secrets:
     get:
       operationId: ListSecrets
@@ -890,6 +997,11 @@ components:
       type: http
       scheme: bearer
   parameters:
+    IntegrationID:
+      name: integration
+      in: path
+      required: true
+      schema: { type: string, pattern: "^[a-z][a-z0-9-]{0,30}$" }
     Name:
       name: name
       in: path
@@ -1538,6 +1650,101 @@ components:
           type: object
           additionalProperties: { type: string, maxLength: 65536 }
           writeOnly: true
+    Integration:
+      type: object
+      description: A service that signs in with an account, and what the owner set up for it.
+      required: [id, name, services, connections]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        client_id:
+          type: string
+          description: The id of the OAuth client it signs in with; absent until one is set. Not secret.
+        services:
+          type: array
+          items: { type: string }
+          description: The services a Connection can be granted, such as gmail.
+        connections:
+          type: array
+          items: { $ref: "#/components/schemas/IntegrationConnection" }
+    IntegrationList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/Integration" }
+    IntegrationConnection:
+      type: object
+      description: One account of an Integration the owner signed in, under a label.
+      required: [integration, label, account, services, sign_in_required, created_at, updated_at]
+      properties:
+        integration: { type: string }
+        label: { type: string }
+        account:
+          type: string
+          description: The account's own name at the service, such as its email.
+        services:
+          type: array
+          items: { type: string }
+          description: >-
+            What the Connection was granted: a service alone to read and
+            write, or with ":read" to read only.
+        sign_in_required:
+          type: boolean
+          description: The service refused the Connection's refresh token for good; sign in again.
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    NewIntegrationClient:
+      type: object
+      required: [client_id, client_secret]
+      additionalProperties: false
+      properties:
+        client_id: { type: string, minLength: 1, maxLength: 1024 }
+        client_secret:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          writeOnly: true
+    NewSignIn:
+      type: object
+      required: [label, services]
+      additionalProperties: false
+      properties:
+        label: { type: string, pattern: "^[a-z0-9][a-z0-9-]{0,30}$" }
+        services:
+          type: array
+          minItems: 1
+          maxItems: 32
+          items: { type: string, maxLength: 64 }
+          description: A service alone to read and write, or with ":read" to read only.
+    SignIn:
+      type: object
+      required: [id, url, expires_in_seconds]
+      properties:
+        id: { type: string }
+        url:
+          type: string
+          description: The link the owner opens in a browser to sign in.
+        expires_in_seconds: { type: integer }
+    SignInCallback:
+      type: object
+      required: [callback]
+      additionalProperties: false
+      properties:
+        callback:
+          type: string
+          minLength: 1
+          maxLength: 8192
+          writeOnly: true
+          description: The whole address the browser ended on after consent.
+    Disconnected:
+      type: object
+      required: [revoked]
+      properties:
+        revoked:
+          type: boolean
+          description: Whether the service ended the tokens. When false, remove the access in the account's settings.
     NewGitHost:
       type: object
       required: [kind]

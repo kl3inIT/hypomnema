@@ -33,10 +33,23 @@ SELECT * FROM repos ORDER BY name;
 DELETE FROM repos WHERE name = @name;
 
 -- name: UpsertConnection :exec
-INSERT INTO connections (integration, label, account, secret, created_at, updated_at)
-VALUES (@integration, @label, @account, @secret, @now, @now)
+INSERT INTO connections (integration, label, account, secret, services, created_at, updated_at)
+VALUES (@integration, @label, @account, @secret, @services, @now, @now)
 ON CONFLICT (integration, label) DO UPDATE
-SET account = excluded.account, secret = excluded.secret, updated_at = excluded.updated_at;
+SET account = excluded.account, secret = excluded.secret, services = excluded.services,
+    updated_at = excluded.updated_at;
+
+-- name: UpsertIntegrationClient :exec
+INSERT INTO integration_clients (integration, client_id, secret, created_at, updated_at)
+VALUES (@integration, @client_id, @secret, @now, @now)
+ON CONFLICT (integration) DO UPDATE
+SET client_id = excluded.client_id, secret = excluded.secret, updated_at = excluded.updated_at;
+
+-- name: GetIntegrationClient :one
+SELECT * FROM integration_clients WHERE integration = @integration;
+
+-- name: ListIntegrationClientsBySecret :many
+SELECT * FROM integration_clients WHERE secret = @secret ORDER BY integration;
 
 -- name: GetConnection :one
 SELECT * FROM connections WHERE integration = @integration AND label = @label;

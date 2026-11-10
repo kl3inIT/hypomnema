@@ -113,9 +113,14 @@ func hostsTokenRemove(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	return e.print(fs, resp.JSON200, func() { e.printf("host %s has no token\n", host) })
 }
 
-// integrationsList shows each Integration with its Connections. Today an
-// Integration is a git host (issue #103).
+// integrationsList shows each Integration with its Connections: the git
+// hosts, then the services that sign in with an account (issue #103).
 func integrationsList(ctx context.Context, e *env, fs *flag.FlagSet) error {
+	services, err := signInIntegrations(ctx, e)
+	if err != nil {
+		return err
+	}
+
 	resp, err := e.api.ListGitHostsWithResponse(ctx)
 	if err != nil {
 		return fmt.Errorf("listing integrations: %w", err)
@@ -125,14 +130,37 @@ func integrationsList(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		return apiError("listing integrations", resp.StatusCode(), resp.JSONDefault)
 	}
 
-	return e.print(fs, resp.JSON200, func() {
-		for _, h := range resp.JSON200.Data {
+	all := struct {
+		Data     []openapi.GitHost     `json:"data"`
+		Services []openapi.Integration `json:"services"`
+	}{Data: resp.JSON200.Data, Services: services}
+
+	return e.print(fs, all, func() {
+		for _, h := range all.Data {
 			connected := "not connected"
 			if len(h.Connections) > 0 {
 				connected = strings.Join(h.Connections, ",")
 			}
 
 			e.printf("%s\t%s\t%s\n", h.Host, h.Kind, connected)
+		}
+
+		for _, i := range all.Services {
+			connected := "not connected"
+
+			switch {
+			case i.ClientId == nil:
+				connected = "no OAuth client"
+			case len(i.Connections) > 0:
+				notes := make([]string, 0, len(i.Connections))
+				for _, c := range i.Connections {
+					notes = append(notes, connectionNote(c))
+				}
+
+				connected = strings.Join(notes, "; ")
+			}
+
+			e.printf("%s\toauth\t%s\n", i.Id, connected)
 		}
 	})
 }
@@ -142,6 +170,13 @@ func integrationsList(ctx context.Context, e *env, fs *flag.FlagSet) error {
 // history and in the process list.
 func integrationsConnect(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	host, label := hostOf(fs.Arg(0)), str(fs, "label")
+
+	// A service that signs in with an account takes no token: the owner signs in.
+	if signIn, err := signsIn(ctx, e, host); err != nil {
+		return err
+	} else if signIn {
+		return integrationsSignIn(ctx, e, fs, host)
+	}
 
 	file := str(fs, "token-file")
 	if file == "" {
@@ -174,6 +209,12 @@ func integrationsDisconnect(ctx context.Context, e *env, fs *flag.FlagSet) error
 	}
 
 	host := hostOf(given)
+
+	if signIn, err := signsIn(ctx, e, host); err != nil {
+		return err
+	} else if signIn {
+		return integrationsSignOut(ctx, e, fs, host, label)
+	}
 
 	resp, err := e.api.DeleteGitHostConnectionWithResponse(ctx, host, label)
 	if err != nil {

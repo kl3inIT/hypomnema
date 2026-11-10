@@ -174,6 +174,28 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   - Work on a repository uses the Connection its registered repository names (`repos add --connection`), else
     the host's only one; with several and none named it gets no token, and falls back to the node user's logins.
     A Connection a registered repository names cannot be removed.
+  - An Integration that is not a git host signs in with OAuth (`internal/controlplane/integration`, step 2 of
+    [issue #103](https://github.com/kl3inIT/hypomnema/issues/103)). Google is the only one: Gmail, Calendar, Drive,
+    Docs and Sheets as its services, each granted to read and write or to read only (`gmail:read`).
+    - The owner creates the OAuth client at the service once and gives its file
+      (`integrations client set google --client-file`, `PUT /integrations/{integration}/client`). The client's id
+      is in the `integration_clients` table; its secret is the vault secret `integration-google-client`.
+    - `integrations connect google --label work --services gmail:read,calendar` starts a sign-in
+      (`POST /integrations/{integration}/sign-ins`) and prints a link for a browser on any machine. The browser
+      ends on `http://localhost:1`, which does not load; the owner pastes that address and it completes the
+      sign-in (`POST .../sign-ins/{id}`). The state and the PKCE verifier wait in the control plane's memory for
+      30 minutes, so a restart loses a sign-in that was not completed.
+    - The control plane exchanges the code, reads the account's email, and keeps the tokens as a token set in the
+      vault (`conn-google-<label>`). The Connection records the email and the services Google's answer allowed,
+      which may be less than was asked. Signing a label in again replaces its tokens and services.
+    - `integration.Service.Token` gives a Connection's access token and refreshes it first when under two
+      minutes are left, through the vault's lease. A refresh Google refuses for good marks the Connection as
+      needing a sign-in (`sign_in_required`). Nothing calls `Token` yet: no worker or coordinator is handed a
+      Google token until step 3.
+    - `integrations disconnect google:work` asks Google to revoke the tokens, then forgets the Connection and its
+      secret; the answer says when Google could not be asked.
+    - `GET /integrations` lists these Integrations with their Connections for every token; a token or a client
+      secret is in no answer. The web client does not show them yet.
   - The token reaches a worker with its offer: the node API asks for it by host and repository as it sends the offer, and
     orchestration never holds it. The node gives it to that Dispatch only, as environment: git sends it to that
     host alone (an `http.https://<host>/.extraheader` through `GIT_CONFIG_COUNT`), `gh` reads `GH_TOKEN` (or

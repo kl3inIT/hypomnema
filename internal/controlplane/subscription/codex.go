@@ -208,7 +208,7 @@ func (c *Codex) beginPaste() (*Attempt, error) {
 				return Login{}, errors.New("the login was started too long ago; start it again")
 			}
 
-			code, err := callbackCode(pasted, state)
+			code, err := CallbackCode(pasted, state)
 			if err != nil {
 				return Login{}, err
 			}
@@ -218,10 +218,10 @@ func (c *Codex) beginPaste() (*Attempt, error) {
 	}, nil
 }
 
-// callbackCode reads the authorization code from what the owner pasted: the
+// CallbackCode reads the authorization code from what the owner pasted: the
 // address the browser ended on, or only its query. The state must be the one
 // this login was started with.
-func callbackCode(pasted, state string) (string, error) {
+func CallbackCode(pasted, state string) (string, error) {
 	pasted = strings.TrimSpace(pasted)
 
 	if !strings.Contains(pasted, "://") {
