@@ -604,6 +604,10 @@ Since 2026-11-09, on the owner's tailnet (Tailscale); nothing is public:
   Its second target, kept for a while, is `ninerouter`: 9router on the same machine, which holds a login of the same
   subscription and whose key is the secret `ninerouter`. pi calls the gateway with its own key (provider `gateway`,
   profile `coordinator`), no longer 9router itself.
+- An Antigravity account of the owner's is logged in too, since 2026-11-10; the OAuth secret of the IDE's client is
+  in `~/hypomnema-cp/env`. Provider `antigravity-subscription` was applied again there with the models Google
+  serves that account (`accounts models`): Gemini 2.5, 3 and 3.8, `claude-sonnet-4-6`, `claude-opus-4-6-thinking`,
+  `gpt-oss-120b-medium`. No gateway model is served from it until the owner declares one.
 - Node: aioffice-app, user `hypnode`, `~/bin/hypomnema-node`, tmux session `hyp-node`, pointed at that URL; the
   machine joined the tailnet as `aioffice-node`. The earlier control plane there (`~ubuntu/hypomnema-cp`) is
   stopped and kept for rollback.
