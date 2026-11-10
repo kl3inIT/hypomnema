@@ -641,7 +641,11 @@ Node (`internal/node`):
   MCP server (or `session/resume`, else `session/load`, for a follow-up; a session that is gone starts anew),
   `session/prompt`, then the agent's input is closed. The messages are written to the shim and read from its
   journal, so a turn survives the daemon; no ACP library holds the connection. A permission request is answered
-  with the option that allows. Not verified against the real CLIs yet, and no node has them installed by design.
+  with the option that allows. Tried on 2026-11-10 on stc-hy-app with omp 18.18.6 and opencode 2.2.7, one turn each
+  against the gateway, driven by a script that sends the runner's messages with the files the runner writes: both
+  made a file and called `finish` as a plain tool, and neither asked for permission. The runner itself has not run
+  on a node yet. The two CLIs were installed there by hand with their own installers; installing them by design is
+  not built.
 - The daemon (`internal/node/daemon`) says hello claiming the Dispatches it holds and applies each disposition, then
   holds the socket:
   - heartbeats every 10 s (or as the control plane says), a WebSocket ping every 20 s;
