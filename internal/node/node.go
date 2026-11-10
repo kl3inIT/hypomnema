@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/node/claude"
+	"github.com/kl3inIT/hypomnema/internal/node/codex"
 	"github.com/kl3inIT/hypomnema/internal/node/daemon"
 	"github.com/kl3inIT/hypomnema/internal/node/statedb"
 	"github.com/kl3inIT/hypomnema/internal/node/terminal"
@@ -182,10 +183,14 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 
 	runtimes := DetectRuntimes(ctx)
 
-	claudePath := ""
+	claudePath, codexPath := "", ""
+
 	for _, r := range runtimes {
-		if r.Runtime == "claude" {
+		switch r.Runtime {
+		case "claude":
 			claudePath = r.Path
+		case "codex":
+			codexPath = r.Path
 		}
 	}
 
@@ -217,7 +222,13 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 		Reach:       ReachHost,
 		InstallTool: ToolInstaller{Home: home}.Install,
 		Terminal:    terminals,
-	}, db, runner, logger)
+	}, db, runners{
+		"claude": runner,
+		// A Codex worker's model comes from the control plane's gateway (issue #107).
+		"codex": &codex.Runner{
+			Home: home, Exe: exe, Codex: codexPath, URL: cfg.URL, Logger: logger, Worktrees: worktree.Maker{Root: home},
+		},
+	}, logger)
 
 	// Workers' transcripts go to the control plane beside their reports (issue #43).
 	runner.Send = d.SendItems
