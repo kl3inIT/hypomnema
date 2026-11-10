@@ -31,6 +31,10 @@ const writeTimeout = 10 * time.Second
 type Server struct {
 	svc    *orchestration.Service
 	logger *slog.Logger
+	// hostToken returns the token of a git host for a Dispatch; nil when the
+	// control plane wired none. The node API may not open a secret itself
+	// (issue #66).
+	hostToken func(ctx context.Context, host string) (string, bool)
 
 	mu       sync.Mutex
 	sessions map[string]*session
@@ -39,6 +43,13 @@ type Server struct {
 // New returns a Server over the orchestration service.
 func New(svc *orchestration.Service, logger *slog.Logger) *Server {
 	return &Server{svc: svc, logger: logger, sessions: map[string]*session{}}
+}
+
+// WithHostTokens sets where an offer's git host token comes from.
+func (s *Server) WithHostTokens(token func(ctx context.Context, host string) (string, bool)) *Server {
+	s.hostToken = token
+
+	return s
 }
 
 // Register adds the node routes to mux.
@@ -343,6 +354,13 @@ func (c *session) push(ctx context.Context) error {
 		}
 
 		c.offered[o.DispatchID] = true
+
+		// The token is read when the offer is sent and is kept nowhere in the control plane but the vault.
+		if c.srv.hostToken != nil && o.RepoHost != "" {
+			if token, ok := c.srv.hostToken(ctx, o.RepoHost); ok {
+				o.RepoToken = token
+			}
+		}
 
 		if err := c.send(ctx, nodeproto.TypeOffer, nodeproto.Offer(o)); err != nil {
 			return err

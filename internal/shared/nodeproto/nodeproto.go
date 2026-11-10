@@ -162,8 +162,13 @@ type Offer struct {
 	// RepoHost and RepoKind say where Repo is and how that host is used
 	// (internal/shared/githost); empty from a control plane from before hosts
 	// existed, which means github.com.
-	RepoHost       string `json:"repo_host,omitempty"`
-	RepoKind       string `json:"repo_kind,omitempty"`
+	RepoHost string `json:"repo_host,omitempty"`
+	RepoKind string `json:"repo_kind,omitempty"`
+	// RepoToken is the host's token for this Dispatch, when the owner gave the
+	// host one: git, gh and glab of this worker use it, and nothing else. The
+	// node keeps it with the offer until the Dispatch ends. It stands in for
+	// the vault's credential sessions until they exist (issue #44).
+	RepoToken      string `json:"repo_token,omitempty"`
 	Base           string `json:"base,omitempty"`
 	ConversationID string `json:"conversation_id"`
 	Worktree       string `json:"worktree"`

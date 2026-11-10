@@ -183,9 +183,10 @@ type GatewayUsage struct {
 }
 
 type GitHost struct {
-	Host      string
-	Kind      string
-	CreatedAt int64
+	Host        string
+	Kind        string
+	CreatedAt   int64
+	TokenSecret sql.NullString
 }
 
 type Model struct {

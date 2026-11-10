@@ -165,11 +165,16 @@ func (rn *Runner) Start(ctx context.Context, d statedb.Dispatch, r daemon.Report
 		return fmt.Errorf("reading the token of account %s: %w", o.AccountRef, err)
 	}
 
+	var hostEnv []string
+
 	if o.Repo != "" {
-		src, err := worktree.SourceOf(o.RepoHost, o.RepoKind, o.Repo)
+		src, err := worktree.SourceOf(o.RepoHost, o.RepoKind, o.Repo, o.RepoToken)
 		if err != nil {
 			return err
 		}
+
+		// The worker's git, gh and glab act with the host's token, when the offer carried one.
+		hostEnv = src.Env
 
 		if err := rn.Worktrees.Ensure(ctx, src, o.Base, o.TaskID, o.Worktree); err != nil {
 			return err
@@ -204,7 +209,7 @@ func (rn *Runner) Start(ctx context.Context, d statedb.Dispatch, r daemon.Report
 		return fmt.Errorf("clearing %s: %w", dir, err)
 	}
 
-	spec := shim.Spec{Argv: argv, Env: rn.env(configDir, string(token)), Dir: o.Worktree}
+	spec := shim.Spec{Argv: argv, Env: append(rn.env(configDir, string(token)), hostEnv...), Dir: o.Worktree}
 	if err := shim.WriteSpec(dir, spec); err != nil {
 		return err
 	}

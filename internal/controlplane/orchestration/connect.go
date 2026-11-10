@@ -101,8 +101,11 @@ type Offer struct {
 	Repo        string `json:"repo,omitempty"`
 	// RepoHost and RepoKind say where Repo is and how that host is used; a
 	// node from before hosts existed reads neither and assumes GitHub.
-	RepoHost       string `json:"repo_host,omitempty"`
-	RepoKind       string `json:"repo_kind,omitempty"`
+	RepoHost string `json:"repo_host,omitempty"`
+	RepoKind string `json:"repo_kind,omitempty"`
+	// RepoToken is the host's token for this Dispatch. Orchestration never
+	// fills it: the node API does, from the vault, as it sends the offer.
+	RepoToken      string `json:"repo_token,omitempty"`
 	Base           string `json:"base,omitempty"`
 	ConversationID string `json:"conversation_id"`
 	Worktree       string `json:"worktree"`

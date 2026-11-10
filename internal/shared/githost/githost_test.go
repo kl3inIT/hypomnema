@@ -134,3 +134,39 @@ func TestAPullRequestIsReadFromAWorkersEvidence(t *testing.T) {
 		assert.False(t, ok, ref)
 	}
 }
+
+// With a token, git and the host's own tool act as the token's owner on that
+// host and no other; the token is in the environment, never in an argument.
+// Without one nothing is added, and the node user's logins are used.
+func TestAHostsTokenReachesGitAndItsTool(t *testing.T) {
+	t.Parallel()
+
+	gh, _ := For(GitHub)
+	gl, _ := For(GitLab)
+
+	assert.Equal(t, []string{
+		"GIT_CONFIG_COUNT=1",
+		"GIT_CONFIG_KEY_0=http.https://github.com/.extraheader",
+		"GIT_CONFIG_VALUE_0=Authorization: Basic eC1hY2Nlc3MtdG9rZW46Z2hwX3g=",
+		"GH_TOKEN=ghp_x",
+	}, gh.Env(GitHubHost, "ghp_x"))
+
+	assert.Equal(t, []string{
+		"GIT_CONFIG_COUNT=1",
+		"GIT_CONFIG_KEY_0=http.https://github.company.example/.extraheader",
+		"GIT_CONFIG_VALUE_0=Authorization: Basic eC1hY2Nlc3MtdG9rZW46Z2hwX3g=",
+		"GH_ENTERPRISE_TOKEN=ghp_x",
+		"GH_HOST=github.company.example",
+	}, gh.Env("github.company.example", "ghp_x"), "a company's GitHub server takes the enterprise token and its host")
+
+	assert.Equal(t, []string{
+		"GIT_CONFIG_COUNT=1",
+		"GIT_CONFIG_KEY_0=http.https://gitlab.company.example:8443/.extraheader",
+		"GIT_CONFIG_VALUE_0=Authorization: Basic b2F1dGgyOmdscGF0LXg=",
+		"GITLAB_TOKEN=glpat-x",
+		"GITLAB_HOST=gitlab.company.example:8443",
+	}, gl.Env("gitlab.company.example:8443", "glpat-x"))
+
+	assert.Empty(t, gh.Env(GitHubHost, ""))
+	assert.Empty(t, gl.Env(GitLabHost, ""))
+}

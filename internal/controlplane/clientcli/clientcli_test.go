@@ -56,7 +56,7 @@ func newWorldWith(t *testing.T, coord clientapi.Coordinator) *world {
 	t.Cleanup(func() { close(stop) })
 
 	mux := http.NewServeMux()
-	srv := clientapi.New(svc, slog.New(slog.DiscardHandler), stop)
+	srv := clientapi.New(svc, slog.New(slog.DiscardHandler), stop).WithHostTokens(&keptTokens{svc: svc})
 	if coord != nil {
 		srv.WithCoordinator(coord)
 	}
@@ -408,6 +408,92 @@ func (wk *worker) succeed(t *testing.T, w *world) {
 	}))
 }
 
+// keptTokens stands in for the vault: it remembers what the API handed it and
+// tells orchestration which hosts have a token.
+type keptTokens struct {
+	svc *orchestration.Service
+	mu  sync.Mutex
+	got map[string]string
+}
+
+func (k *keptTokens) Set(ctx context.Context, host, token string) error {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+
+	if k.got == nil {
+		k.got = map[string]string{}
+	}
+
+	k.got[host] = token
+
+	return k.svc.SetGitHostTokenSecret(ctx, host, "kept")
+}
+
+func (k *keptTokens) Clear(ctx context.Context, host string) error {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+
+	delete(k.got, host)
+
+	return k.svc.SetGitHostTokenSecret(ctx, host, "")
+}
+
+func (k *keptTokens) Remove(ctx context.Context, host string) error {
+	if err := k.Clear(ctx, host); err != nil {
+		return err
+	}
+
+	return k.svc.RemoveGitHost(ctx, host)
+}
+
+// Scenario: the owner gives a git host its token from a file, sees which hosts
+// have one, and takes it away. The token is never an argument and never
+// printed; a coordinator cannot set one.
+func TestAHostsTokenFromTheCLI(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	w.login(t, bearertoken.Owner)
+
+	_, err := w.cmd(t, "hosts", "add", "gitlab.company.example")
+	require.NoError(t, err)
+
+	file := filepath.Join(t.TempDir(), "gitlab.token")
+	require.NoError(t, os.WriteFile(file, []byte("glpat-never-printed\n"), 0o600))
+
+	_, err = w.cmd(t, "hosts", "token", "set", "gitlab.company.example")
+	require.ErrorContains(t, err, "--token-file")
+
+	out, err := w.cmd(t, "hosts", "token", "set", "gitlab.company.example", "--token-file", file)
+	require.NoError(t, err)
+	assert.Equal(t, "host gitlab.company.example has a token\n", out)
+
+	out, err = w.cmdIn(t, "ghp_from_stdin\n", "hosts", "token", "set", "github.com", "--token-file", "-")
+	require.NoError(t, err)
+	assert.NotContains(t, out, "ghp_from_stdin")
+
+	out, err = w.cmd(t, "hosts", "list")
+	require.NoError(t, err)
+	assert.Equal(t, "github.com\tgithub\tknown\ttoken\ngitlab.com\tgitlab\tknown\tno token\n"+
+		"gitlab.company.example\tgitlab\tdeclared\ttoken\n", out)
+
+	out, err = w.cmd(t, "hosts", "list", "--json")
+	require.NoError(t, err)
+	assert.NotContains(t, out, "glpat", "the API never returns a token")
+
+	out, err = w.cmd(t, "hosts", "token", "rm", "github.com")
+	require.NoError(t, err)
+	assert.Equal(t, "host github.com has no token\n", out)
+
+	_, err = w.cmd(t, "hosts", "rm", "gitlab.company.example")
+	require.NoError(t, err, "a host is forgotten with its token")
+
+	w.login(t, bearertoken.Coordinator)
+
+	_, err = w.cmdIn(t, "glpat-x", "hosts", "token", "set", "gitlab.com", "--token-file", "-")
+	require.Error(t, err, "only the owner gives a host a token")
+}
+
 // Scenario: the owner sets up the company's GitLab server and its repositories
 // from a terminal, then starts a Run by a repository's short name. A
 // coordinator reads the hosts and repositories and cannot change them.
@@ -427,8 +513,8 @@ func TestHostsAndRepositoriesFromTheCLI(t *testing.T) {
 
 	out, err = w.cmd(t, "hosts", "list")
 	require.NoError(t, err)
-	assert.Equal(t,
-		"github.com\tgithub\tknown\ngitlab.com\tgitlab\tknown\ngitlab.company.example\tgitlab\tdeclared\n", out)
+	assert.Equal(t, "github.com\tgithub\tknown\tno token\ngitlab.com\tgitlab\tknown\tno token\n"+
+		"gitlab.company.example\tgitlab\tdeclared\tno token\n", out)
 
 	out, err = w.cmd(t, "repos", "add", "https://gitlab.company.example/team/Platform-API.git", "--base", "develop")
 	require.NoError(t, err)
