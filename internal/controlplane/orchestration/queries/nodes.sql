@@ -1,33 +1,62 @@
 -- name: InsertNode :exec
-INSERT INTO nodes (id, name, token_hash, status, max_dispatches, created_at, updated_at)
-VALUES (@id, @name, @token_hash, 'active', @max_dispatches, @now, @now);
+INSERT INTO nodes (id, name, status, max_dispatches, created_at, updated_at)
+VALUES (@id, @name, 'active', @max_dispatches, @now, @now);
 
 -- name: GetNode :one
 SELECT * FROM nodes WHERE id = @id;
 
--- name: GetNodeByTokenHash :one
-SELECT * FROM nodes WHERE token_hash = @token_hash;
-
 -- name: ListNodes :many
-SELECT * FROM nodes ORDER BY name;
+-- Every node that has not been removed.
+SELECT * FROM nodes WHERE status <> 'deleted' ORDER BY name;
 
 -- name: NodeHello :execrows
 UPDATE nodes
 SET updated_at = @now, last_seen_at = @now, worktree_root = @worktree_root, runtimes = @runtimes,
-    unavailable_at = NULL
-WHERE id = @id;
+    daemon_version = @daemon_version, os = @os, arch = @arch, cpus = @cpus, memory_bytes = @memory_bytes,
+    disk_bytes = @disk_bytes, unavailable_at = NULL
+WHERE id = @id AND status <> 'deleted';
 
 -- name: TouchNode :exec
 UPDATE nodes SET last_seen_at = CAST(@now AS INTEGER) WHERE id = @id;
 
 -- name: SetNodeStatus :execrows
-UPDATE nodes SET updated_at = @now, status = @status WHERE id = @id;
+UPDATE nodes SET updated_at = @now, status = @status WHERE id = @id AND status <> 'deleted';
 
 -- name: ResumeNode :execrows
-UPDATE nodes SET updated_at = @now, status = 'active', unavailable_at = NULL WHERE id = @id;
+UPDATE nodes SET updated_at = @now, status = 'active', unavailable_at = NULL WHERE id = @id AND status <> 'deleted';
+
+-- name: DeleteNode :execrows
+UPDATE nodes SET updated_at = @now, status = 'deleted', deleted_at = @now WHERE id = @id AND status <> 'deleted';
 
 -- name: MarkNodeUnavailable :exec
 UPDATE nodes SET updated_at = @now, unavailable_at = @now WHERE id = @id AND unavailable_at IS NULL;
+
+-- name: InsertNodeToken :exec
+INSERT INTO node_tokens (id, node_id, name, token_hash, created_at) VALUES (@id, @node_id, @name, @token_hash, @now);
+
+-- name: GetLiveNodeTokenByHash :one
+-- The token, when it is not revoked and its node has not been removed.
+SELECT t.* FROM node_tokens t JOIN nodes n ON n.id = t.node_id
+WHERE t.token_hash = @token_hash AND t.revoked_at IS NULL AND n.status <> 'deleted';
+
+-- name: GetNodeToken :one
+SELECT * FROM node_tokens WHERE id = @id;
+
+-- name: ListNodeTokens :many
+SELECT * FROM node_tokens WHERE node_id = @node_id ORDER BY created_at, id;
+
+-- name: RevokeNodeToken :execrows
+UPDATE node_tokens SET revoked_at = @now WHERE id = @id AND revoked_at IS NULL;
+
+-- name: RevokeNodeTokens :exec
+UPDATE node_tokens SET revoked_at = @now WHERE node_id = @node_id AND revoked_at IS NULL;
+
+-- name: TouchNodeToken :exec
+UPDATE node_tokens SET last_used_at = CAST(@now AS INTEGER)
+WHERE id = @id AND (last_used_at IS NULL OR last_used_at <= CAST(@before AS INTEGER));
+
+-- name: CountActiveDispatchesOfNode :one
+SELECT count(*) FROM dispatches WHERE node_id = @node_id AND status IN (sqlc.slice(statuses));
 
 -- name: CountActiveDispatches :one
 SELECT count(*) FROM dispatches WHERE status IN (sqlc.slice(statuses));

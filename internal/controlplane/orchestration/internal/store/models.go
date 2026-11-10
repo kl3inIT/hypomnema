@@ -147,15 +147,31 @@ type Model struct {
 type Node struct {
 	ID            string
 	Name          string
-	TokenHash     string
 	Status        string
 	MaxDispatches int64
 	WorktreeRoot  sql.NullString
 	Runtimes      string
+	DaemonVersion sql.NullString
+	Os            sql.NullString
+	Arch          sql.NullString
+	Cpus          sql.NullInt64
+	MemoryBytes   sql.NullInt64
+	DiskBytes     sql.NullInt64
 	LastSeenAt    sql.NullInt64
 	UnavailableAt sql.NullInt64
+	DeletedAt     sql.NullInt64
 	CreatedAt     int64
 	UpdatedAt     int64
+}
+
+type NodeToken struct {
+	ID         string
+	NodeID     string
+	Name       string
+	TokenHash  string
+	CreatedAt  int64
+	LastUsedAt sql.NullInt64
+	RevokedAt  sql.NullInt64
 }
 
 type Profile struct {

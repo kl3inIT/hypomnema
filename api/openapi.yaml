@@ -989,6 +989,7 @@ components:
         runtimes:
           type: array
           items: { $ref: "#/components/schemas/Runtime" }
+        system: { $ref: "#/components/schemas/NodeSystem" }
         last_seen_at: { type: string, format: date-time }
         unavailable_at: { type: string, format: date-time }
         connected: { type: boolean }
@@ -996,6 +997,19 @@ components:
           type: integer
           description: Its Dispatches that have not settled.
         created_at: { type: string, format: date-time }
+    NodeSystem:
+      type: object
+      description: What the node said about itself at its last connect. A field it could not find is left out.
+      properties:
+        daemon_version: { type: string }
+        os: { type: string }
+        arch: { type: string }
+        cpus: { type: integer }
+        memory_bytes: { type: integer, format: int64 }
+        disk_bytes:
+          type: integer
+          format: int64
+          description: The size of the volume that holds the worktree root.
     NodeList:
       type: object
       required: [data]

@@ -112,14 +112,127 @@ func (o *owner) nodes(ctx context.Context, args []string) error {
 				state = "connected"
 			}
 
-			o.printf("%s\t%s\t%s\t%s\t%d/%d\t%s\n", n.ID, n.Name, n.Status, state, n.Active, n.MaxDispatches,
-				runtimes(n.Runtimes))
+			o.printf("%s\t%s\t%s\t%s\t%d/%d\t%s\t%s\n", n.ID, n.Name, n.Status, state, n.Active, n.MaxDispatches,
+				runtimes(n.Runtimes), system(n.System))
 		}
+
+		return nil
+	case len(args) == 2 && (args[0] == "drain" || args[0] == "resume" || args[0] == "rm"):
+		n, err := o.node(ctx, args[1])
+		if err != nil {
+			return err
+		}
+
+		change, done := o.svc.DrainNode, "drained: it takes no new work"
+
+		switch args[0] {
+		case "resume":
+			change, done = o.svc.ResumeNode, "resumed"
+		case "rm":
+			change, done = o.svc.RemoveNode, "removed; its tokens no longer work"
+		}
+
+		if err := change(ctx, n.ID); err != nil {
+			return err
+		}
+
+		o.printf("node %s (%s) %s\n", n.Name, n.ID, done)
+
+		return nil
+	case len(args) >= 1 && args[0] == "token":
+		return o.nodeTokens(ctx, args[1:])
+	default:
+		return ErrUsage
+	}
+}
+
+// nodeTokens adds, lists and revokes a node's tokens.
+func (o *owner) nodeTokens(ctx context.Context, args []string) error {
+	switch {
+	case len(args) == 3 && args[0] == "add":
+		//nolint:gosec // G602 false positive: this case holds only when len(args) == 3
+		n, err := o.node(ctx, args[1])
+		if err != nil {
+			return err
+		}
+
+		//nolint:gosec // G602 false positive: this case holds only when len(args) == 3
+		t, secret, err := o.svc.AddNodeToken(ctx, n.ID, args[2])
+		if err != nil {
+			return err
+		}
+
+		o.printf("token %s (%s) of node %s\n", t.Name, t.ID, n.Name)
+		o.printf("shown only now; put it in the node's configuration and nowhere else:\n%s\n", secret)
+
+		return nil
+	case len(args) == 2 && args[0] == "list":
+		//nolint:gosec // G602 false positive: this case holds only when len(args) == 2
+		n, err := o.node(ctx, args[1])
+		if err != nil {
+			return err
+		}
+
+		tokens, err := o.svc.ListNodeTokens(ctx, n.ID)
+		if err != nil {
+			return err
+		}
+
+		for _, t := range tokens {
+			state, used := "active", "never used"
+			if t.RevokedAt != nil {
+				state = "revoked " + t.RevokedAt.Format(time.RFC3339)
+			}
+
+			if t.LastUsedAt != nil {
+				used = "used " + t.LastUsedAt.Format(time.RFC3339)
+			}
+
+			o.printf("%s\t%s\t%s\t%s\n", t.ID, t.Name, state, used)
+		}
+
+		return nil
+	case len(args) == 2 && args[0] == "revoke":
+		//nolint:gosec // G602 false positive: this case holds only when len(args) == 2
+		id := args[1]
+		if err := o.svc.RevokeNodeToken(ctx, id); err != nil {
+			return err
+		}
+
+		o.printf("node token %s revoked\n", id)
 
 		return nil
 	default:
 		return ErrUsage
 	}
+}
+
+// node finds a node by its id or its name.
+func (o *owner) node(ctx context.Context, ref string) (orchestration.Node, error) {
+	nodes, err := o.svc.ListNodes(ctx)
+	if err != nil {
+		return orchestration.Node{}, err
+	}
+
+	for _, n := range nodes {
+		if n.ID == ref || n.Name == ref {
+			return n, nil
+		}
+	}
+
+	return orchestration.Node{}, fmt.Errorf("%w: node %s", orchestration.ErrNotFound, ref)
+}
+
+// system is one line about a node's machine; empty until the node has said hello with it.
+func system(s orchestration.SystemInfo) string {
+	if s.OS == "" {
+		return ""
+	}
+
+	const gib = 1 << 30
+
+	return fmt.Sprintf("%s/%s, %d CPUs, %d GiB memory, %d GiB disk, node %s", s.OS, s.Arch, s.CPUs,
+		s.MemoryBytes/gib, s.DiskBytes/gib, s.DaemonVersion)
 }
 
 func runtimes(rs []orchestration.RuntimeInfo) string {

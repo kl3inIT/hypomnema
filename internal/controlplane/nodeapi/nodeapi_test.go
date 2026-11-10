@@ -431,6 +431,39 @@ func TestNewConnectionReplacesTheOld(t *testing.T) {
 	p.next(fresh, nodeproto.TypeOffer)
 }
 
+// Scenario: the owner revokes the token a node is connected with. The node's
+// next heartbeat ends the connection, and it cannot connect again.
+func TestRevokedTokenEndsTheConnection(t *testing.T) {
+	t.Parallel()
+
+	p := newPlane(t)
+	conn := p.connect()
+
+	tokens, err := p.svc.ListNodeTokens(t.Context(), p.node.ID)
+	require.NoError(t, err)
+	require.Len(t, tokens, 1)
+	require.NoError(t, p.svc.RevokeNodeToken(t.Context(), tokens[0].ID))
+
+	p.send(conn, nodeproto.TypeHeartbeat, nil)
+
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+
+	for {
+		var msg nodeproto.Message
+		if err := wsjson.Read(ctx, conn, &msg); err != nil {
+			require.NoError(t, ctx.Err(), "the socket must close before the wait ends")
+
+			break
+		}
+
+		require.NotEqual(t, nodeproto.TypeHeartbeatAck, msg.Type, "a revoked token gets no heartbeat answer")
+	}
+
+	status, _ := p.hello(p.token)
+	assert.Equal(t, http.StatusUnauthorized, status)
+}
+
 // Scenario: hello after a restart. Each claimed Dispatch is answered.
 func TestHelloAnswersEachClaim(t *testing.T) {
 	t.Parallel()

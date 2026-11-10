@@ -295,6 +295,7 @@ export type Node = {
   max_dispatches: number;
   worktree_root?: string;
   runtimes: Array<Runtime>;
+  system?: NodeSystem;
   last_seen_at?: string;
   unavailable_at?: string;
   connected: boolean;
@@ -303,6 +304,21 @@ export type Node = {
    */
   active: number;
   created_at: string;
+};
+
+/**
+ * What the node said about itself at its last connect. A field it could not find is left out.
+ */
+export type NodeSystem = {
+  daemon_version?: string;
+  os?: string;
+  arch?: string;
+  cpus?: number;
+  memory_bytes?: number;
+  /**
+   * The size of the volume that holds the worktree root.
+   */
+  disk_bytes?: number;
 };
 
 export type NodeList = {

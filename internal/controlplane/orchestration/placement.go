@@ -191,7 +191,12 @@ func (p *placement) take(nodeID string) {
 func (p *placement) nodeOut(n *nodeLoad) Node {
 	return Node{
 		ID: n.row.ID, Name: n.row.Name, Status: NodeStatus(n.row.Status), MaxDispatches: int(n.row.MaxDispatches),
-		WorktreeRoot: n.row.WorktreeRoot.String, Runtimes: nonNil(n.runtimes), LastSeenAt: optionalTime(n.row.LastSeenAt),
+		WorktreeRoot: n.row.WorktreeRoot.String, Runtimes: nonNil(n.runtimes),
+		System: SystemInfo{
+			DaemonVersion: n.row.DaemonVersion.String, OS: n.row.Os.String, Arch: n.row.Arch.String,
+			CPUs: int(n.row.Cpus.Int64), MemoryBytes: n.row.MemoryBytes.Int64, DiskBytes: n.row.DiskBytes.Int64,
+		},
+		LastSeenAt:    optionalTime(n.row.LastSeenAt),
 		UnavailableAt: optionalTime(n.row.UnavailableAt), Connected: p.connected(n), Active: n.active,
 		CreatedAt: millis(n.row.CreatedAt), UpdatedAt: millis(n.row.UpdatedAt),
 	}

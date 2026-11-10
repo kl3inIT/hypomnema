@@ -88,6 +88,7 @@ type Config struct {
 	WorktreeRoot string
 	Version      string
 	Runtimes     []nodeproto.RuntimeInfo
+	System       nodeproto.SystemInfo
 }
 
 // Daemon is one node's connection.
@@ -192,7 +193,7 @@ func (d *Daemon) Hello(ctx context.Context) (string, error) {
 func (d *Daemon) hello(ctx context.Context, claims []nodeproto.Claim) (nodeproto.HelloResponse, error) {
 	body, err := json.Marshal(nodeproto.HelloRequest{
 		InstanceID: d.instance, DaemonVersion: d.cfg.Version, WorktreeRoot: d.cfg.WorktreeRoot,
-		Runtimes: d.cfg.Runtimes, Claims: claims,
+		Runtimes: d.cfg.Runtimes, System: d.cfg.System, Claims: claims,
 	})
 	if err != nil {
 		return nodeproto.HelloResponse{}, fmt.Errorf("encoding hello: %w", err)

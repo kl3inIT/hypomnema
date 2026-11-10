@@ -53,3 +53,8 @@ A node runs the workers. Do this on the machine that will run them, with the con
    `hypomnema-node accounts set <account id> --token-file <file>`
    (the account id comes from `hypomnema accounts add` on the control plane).
 6. Run the daemon: `hypomnema-node run`. To keep it running, `hypomnema-node service` prints a systemd user unit.
+
+To change a node's token, make a new one with `hypomnema nodes token add <node> <name>`, put it in the node's
+configuration, restart the node, then revoke the old one (`hypomnema nodes token list <node>`,
+`hypomnema nodes token revoke <id>`). `hypomnema nodes drain <node>` stops new work on a node and
+`hypomnema nodes rm <node>` removes it once its work has ended.

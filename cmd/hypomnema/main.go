@@ -6,6 +6,10 @@
 //	hypomnema serve                            serve the APIs and run the scheduler until SIGINT or SIGTERM
 //	hypomnema nodes add <name> [--max N]       register a node; prints its token once
 //	hypomnema nodes list
+//	hypomnema nodes drain|resume|rm <node>     stop new work on it, take work again, or remove it
+//	hypomnema nodes token add <node> <name>    one more token for a node; printed once
+//	hypomnema nodes token list <node>
+//	hypomnema nodes token revoke <token id>
 //	hypomnema accounts add <runtime> <label>   record an account (no secret)
 //	hypomnema accounts list
 //	hypomnema tokens add <name> [--kind owner|coordinator]   make a client API token; prints it once
@@ -48,7 +52,8 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 )
 
-var errUsage = errors.New("usage: hypomnema migrate | serve | version | nodes add|list | accounts add|list | " +
+var errUsage = errors.New("usage: hypomnema migrate | serve | version | " +
+	"nodes add|list|drain|resume|rm|token | accounts add|list | " +
 	"tokens add|list|revoke | secrets keygen|add|list|rotate|rm|rewrap | login --url URL --token-file FILE | run --repo owner/name <objective> | " +
 	"runs … | tasks … | questions … | whoami | skills get|install | " +
 	"answer <question> <answer> | questions")
