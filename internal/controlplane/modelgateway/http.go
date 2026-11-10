@@ -1,0 +1,133 @@
+package modelgateway
+
+import (
+	"encoding/json"
+	"errors"
+	"log/slog"
+	"net/http"
+	"strings"
+)
+
+// The gateway's HTTP API speaks OpenAI's shapes, so any OpenAI client works
+// with a base URL and a key: a model list as {"object":"list","data":[…]} and
+// errors as {"error":{message,type,code}}, as 9router-go
+// (internal/handlerutil/response.go) and new-api (middleware/utils.go) do.
+
+// Server serves the gateway's HTTP API.
+type Server struct {
+	svc    *Service
+	logger *slog.Logger
+}
+
+// NewServer returns the gateway's HTTP API over a Service.
+func NewServer(svc *Service, logger *slog.Logger) *Server {
+	return &Server{svc: svc, logger: logger}
+}
+
+// Register adds the gateway's routes to a mux.
+func (s *Server) Register(mux *http.ServeMux) {
+	mux.HandleFunc("GET /v1/models", s.listModels)
+}
+
+type errorBody struct {
+	Error struct {
+		Message string `json:"message"`
+		Type    string `json:"type"`
+		Code    string `json:"code"`
+	} `json:"error"`
+}
+
+// Error types, as OpenAI names them.
+const (
+	typeInvalidRequest = "invalid_request_error"
+	typeAuthentication = "authentication_error"
+	typePermission     = "permission_error"
+	typeServer         = "server_error"
+)
+
+func writeJSON(w http.ResponseWriter, status int, body any) {
+	encoded, err := json.Marshal(body)
+	if err != nil {
+		status, encoded = http.StatusInternalServerError, []byte(`{"error":{"message":"internal error"}}`)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_, _ = w.Write(encoded) // The client went away; nothing is left to tell it.
+}
+
+func writeError(w http.ResponseWriter, status int, kind, code, message string) {
+	var body errorBody
+
+	body.Error.Message, body.Error.Type, body.Error.Code = message, kind, code
+	writeJSON(w, status, body)
+}
+
+// authenticate returns the key a request carries in `Authorization: Bearer`.
+// It answers the request itself when there is none.
+func (s *Server) authenticate(w http.ResponseWriter, r *http.Request) (Key, bool) {
+	secret, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	if !ok || secret == "" {
+		writeError(w, http.StatusUnauthorized, typeAuthentication, "missing_api_key",
+			"a gateway key is required: Authorization: Bearer <key>")
+
+		return Key{}, false
+	}
+
+	k, err := s.svc.Authenticate(r.Context(), secret)
+	if errors.Is(err, ErrUnauthorized) {
+		writeError(w, http.StatusUnauthorized, typeAuthentication, "invalid_api_key", "unknown or revoked gateway key")
+
+		return Key{}, false
+	}
+
+	if err != nil {
+		s.internal(w, r, "modelgateway.auth_failed", err)
+
+		return Key{}, false
+	}
+
+	return k, true
+}
+
+func (s *Server) internal(w http.ResponseWriter, r *http.Request, event string, err error) {
+	s.logger.ErrorContext(r.Context(), "the model gateway failed",
+		slog.String("event", event), slog.String("error", err.Error()))
+	writeError(w, http.StatusInternalServerError, typeServer, "internal_error", "internal error")
+}
+
+type modelList struct {
+	Object string      `json:"object"`
+	Data   []modelItem `json:"data"`
+}
+
+type modelItem struct {
+	ID      string `json:"id"`
+	Object  string `json:"object"`
+	Created int64  `json:"created"`
+	OwnedBy string `json:"owned_by"`
+}
+
+// listModels answers GET /v1/models with the models the key may use.
+func (s *Server) listModels(w http.ResponseWriter, r *http.Request) {
+	k, ok := s.authenticate(w, r)
+	if !ok {
+		return
+	}
+
+	models, err := s.svc.ModelsFor(r.Context(), k)
+	if err != nil {
+		s.internal(w, r, "modelgateway.list_models_failed", err)
+
+		return
+	}
+
+	out := modelList{Object: "list", Data: make([]modelItem, 0, len(models))}
+	for _, m := range models {
+		out.Data = append(out.Data, modelItem{
+			ID: m.Name, Object: "model", Created: m.CreatedAt.Unix(), OwnedBy: "hypomnema",
+		})
+	}
+
+	writeJSON(w, http.StatusOK, out)
+}

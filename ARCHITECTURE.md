@@ -8,7 +8,7 @@ statement true or false.
 
 | Binary | Commands | What it does today |
 |---|---|---|
-| `cmd/hypomnema` (control plane) | `migrate`, `serve`, `version`, `nodes add\|list\|drain\|resume\|rm`, `nodes token add\|list\|revoke`, `accounts add\|list`, `tokens add\|list\|revoke`, `secrets keygen\|add\|list\|rotate\|rm\|rewrap`, `login`, `run`, `answer`, `questions` | `migrate` brings the database schema up to the binary's version; `serve` refuses any other schema, then serves `/livez`, `/readyz`, the node API, the client API and the web client, and runs the scheduler loop; the other commands are the owner's (below) |
+| `cmd/hypomnema` (control plane) | `migrate`, `serve`, `version`, `nodes add\|list\|drain\|resume\|rm`, `nodes token add\|list\|revoke`, `accounts add\|list`, `tokens add\|list\|revoke`, `secrets keygen\|add\|list\|rotate\|rm\|rewrap`, `gateway models\|keys`, `login`, `run`, `answer`, `questions` | `migrate` brings the database schema up to the binary's version; `serve` refuses any other schema, then serves `/livez`, `/readyz`, the node API, the client API, the model gateway and the web client, and runs the scheduler loop; the other commands are the owner's (below) |
 | `cmd/hypomnema-node` (node) | `init`, `check`, `accounts set`, `run`, `service`, `shim`, `mcp`, `version` | `init --url --token-file` writes the node's configuration; `check` says hello once and lists the CLIs it found; `accounts set` records where an account's Claude token is; `run` runs the daemon with the Claude runner; `service` prints a systemd user unit; `shim` runs one worker and `mcp` serves its tools (both started for a worker, not by hand) |
 
 Configuration comes from the environment: `HYPOMNEMA_HTTP_ADDR` (default `127.0.0.1:8080`),
@@ -143,6 +143,22 @@ proxy, does not exist yet.
 - The tables `secrets`, `secret_versions` and `secret_refresh_leases` are in the one migration stream and are read and written only by this
   package, through its own generated queries.
 
+The model gateway (`internal/controlplane/modelgateway`, issue #20,
+[decision](docs/decisions/2026-11-10-model-gateway.md)) so far holds its model table, its keys and one endpoint; it
+does not serve a model yet.
+- A model is a YAML document: a public `name`, a `capability` (`chat`, the only one), and `targets` (a provider and
+  the model's name there) in the order tried. Applying a name again replaces it. A target must name a provider of a
+  kind the gateway has an adapter for (`openai_compatible`) and a model that provider offers, so a model that cannot
+  be served is refused when applied.
+- A gateway key (`hyp_gateway_v1_…`, the client tokens' format) is shown once and kept as its SHA-256, with the
+  public model names it may use (`*`: every model). It is not a client token: the client API refuses it, and
+  `tokens add` cannot make one.
+- `GET /v1/models` with `Authorization: Bearer <key>` answers OpenAI's list shape with the models the key may use;
+  errors are OpenAI's `{"error": {message, type, code}}`, 401 without a valid key.
+- The tables `gateway_models`, `gateway_model_targets` and `gateway_keys` are in the one migration stream and are
+  read and written only by this package, through its own generated queries. Providers are read through
+  orchestration.
+
 Node API (`internal/controlplane/nodeapi`, protocol in `internal/shared/nodeproto`, after Omnara's daemon protocol):
 - A node registers with `POST /node/v1/hello` and its bearer token. It sends its CLIs, its worktree root, its
   version and machine (measured with gopsutil, as Nezha's and Beszel's agents) and the Dispatches it still holds. Each of those is answered `retain` (still its own at that epoch), `reattach` (marked
@@ -187,7 +203,10 @@ The owner's commands:
     `tokens revoke <id>`;
   - `secrets keygen [id]` prints a new root key; `secrets add <name> --from-file FILE|-` (with `--kind` and
     `--meta key=value`), `secrets list`, `secrets rotate <name> --from-file FILE|-`, `secrets rm <name>` and
-    `secrets rewrap` manage the vault's secrets. A value is read from a file or standard input and never printed.
+    `secrets rewrap` manage the vault's secrets. A value is read from a file or standard input and never printed;
+  - `gateway models apply FILE`, `gateway models list`, `gateway models rm <name>` manage the gateway's model
+    table; `gateway keys add <name> [--models a,b]` prints a gateway key once, with `gateway keys list` and
+    `gateway keys revoke <id>`.
 - From any machine, over the client API (`internal/controlplane/clientcli`):
   - `login --url URL --token-file FILE` checks the token and keeps both in `~/.hypomnema/client.json` (0600);
   - `run --repo owner/name <objective>` creates a Run with one Task and prints its events (and any question to the

@@ -7,7 +7,8 @@ SQLC = CGO_ENABLED=0 $(CI_TOOL) github.com/sqlc-dev/sqlc/cmd/sqlc
 OAPI_CODEGEN = $(CI_TOOL) github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen
 OPENAPI_GEN := internal/controlplane/clientapi/openapi
 MIGRATIONS := internal/controlplane/orchestration/migrations
-SQLC_OUT := internal/controlplane/orchestration/internal/store internal/controlplane/vault/internal/store
+SQLC_OUT := internal/controlplane/orchestration/internal/store internal/controlplane/vault/internal/store \
+	internal/controlplane/modelgateway/internal/store
 MODULE := github.com/kl3inIT/hypomnema
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X $(MODULE)/internal/shared/platform.Version=$(VERSION)

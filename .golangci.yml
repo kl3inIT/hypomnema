@@ -114,10 +114,11 @@ linters:
             - "!**/internal/shared/sqlite/**"
             - "!**/internal/controlplane/orchestration/**"
             - "!**/internal/controlplane/vault/**"
+            - "!**/internal/controlplane/modelgateway/**"
             - "!**/internal/node/statedb/**"
           deny:
             - pkg: database/sql
-              desc: SQL belongs to the package that owns the tables (orchestration, vault, node statedb), as Omnara's statedb rule
+              desc: SQL belongs to the package that owns the tables (orchestration, vault, modelgateway, node statedb), as Omnara's statedb rule
         vault_values_stay_inside:
           list-mode: lax
           files:

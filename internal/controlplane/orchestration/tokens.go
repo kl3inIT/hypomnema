@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -30,7 +31,7 @@ type Token struct {
 // shown only here.
 func (s *Service) AddToken(ctx context.Context, name string, kind bearertoken.Kind) (Token, string, error) {
 	name = strings.TrimSpace(name)
-	if name == "" || !kind.Valid() {
+	if name == "" || !slices.Contains(bearertoken.ClientKinds, kind) {
 		return Token{}, "", fmt.Errorf("%w: a token needs a name and a kind (owner or coordinator)", ErrInvalid)
 	}
 

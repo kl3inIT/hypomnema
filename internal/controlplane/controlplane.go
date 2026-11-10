@@ -16,6 +16,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/coordinator"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/nodeapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
@@ -113,6 +114,9 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	mux := http.NewServeMux()
 	platform.RegisterHealth(mux, sqlite.Ready(db), logger)
 	nodeapi.New(svc, logger).Register(mux)
+
+	gateway := modelgateway.New(db, platform.SystemClock{}, platform.NewID, gatewayProviders(svc))
+	modelgateway.NewServer(gateway, logger).Register(mux)
 
 	sup := coordinator.New(svc, coordinator.Config{Command: cfg.CoordinatorCommand, Logger: logger})
 
