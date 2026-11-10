@@ -88,3 +88,38 @@ Omnara and Hermes run no other agent's CLI.
   Dispatch is what the glossary already says.
 - Installing on the control plane's instruction is the owner's rule and goes further than any reference; Omnigent's
   pinned version and its "unavailable" outside the range are the nearest pattern.
+
+## 6. A conversation that continues on another machine
+
+Asked by the owner on 2026-11-10: a worker lasts over many sessions, and what it remembers belongs to the control
+plane, not to a node. Read by a fifth scout in omnigent, openhands-sdk, omnara, coder, orca, hermes-agent, openclaw
+and omp.
+
+| | Where the state to continue lives | On another machine | Files being worked on | Memory across conversations |
+|---|---|---|---|---|
+| Omnigent | The server's conversation items; each CLI's own session file is a copy | Yes. Claude Code, Codex, pi: the CLI's session file is written again from the server's items before every cold resume. opencode: a new session seeded with the transcript as text | not found | not found |
+| Omnara | The control plane's database; the agent loop runs there | Nothing to move | Lost with the machine | Stores of files kept centrally, mounted on the machine |
+| Coder | The control plane's database for its own loop; an ACP sub-agent's session in the workspace | A new workspace and "the last git branch or checkpoint" | The workspace volume; the git branch | Project memory in the database, with tools |
+| OpenHands SDK | A directory on local disk | Only if that directory survives; else a fresh session | not found | `MEMORY.md` files |
+| Orca | The CLI's files on its host | No: "File-based resumes require the transcript's host" | The worktree on that host | not found |
+| Hermes, OpenClaw | Their own database on one host | not found | A workspace directory | Markdown files injected at the start; optional hosted stores |
+| omp | Local JSONL; an optional Redis or SQL backend | Only with that backend | not found | Local or remote backends |
+
+- **Omnigent rebuilds, it does not copy.** `_ensure_local_claude_resume_transcript`
+  (`omnigent/harnesses/claude_native/main.py` L5720): "Cross-machine resume has the Omnigent conversation and Claude
+  external session id on the server, but not Claude Code's local `~/.claude/projects/<cwd>/<sid>.jsonl`"; the
+  wrapper "always rewrites it from committed Omnigent items before launch so Omnigent remains the source of truth".
+  The same for Codex (`codex_native/main.py` L1918) and pi (`pi_native/resume.py` L792). The server wins even when
+  the local file is longer.
+- **Its seed for opencode** (`omnigent/runner/native/orchestration.py` L1670-1735, L2415-2442): when the session is
+  not on this host, a new one is created and given the conversation as text, user and assistant messages only, the
+  first 1000 items, under the heading "Resumed session — the prior opencode session was unavailable on this host, so
+  the earlier conversation is included below for context. Treat it as history; do not re-run prior actions."
+- **Nobody uploads and downloads a CLI's session files or config directory.**
+- **Files being worked on** move by the git branch where they move at all (Coder).
+- **Memory across conversations** is a separate thing everywhere: mostly Markdown files injected when a session
+  starts; kept centrally only by Coder and Omnara.
+
+Read for Hypomnema: the control plane already holds every item of a worker's transcript. Making it the source of
+truth for continuing, as Omnigent does, needs no new store: a session that is on the node is resumed as it is; one
+that is not is started again from the control plane's transcript.
