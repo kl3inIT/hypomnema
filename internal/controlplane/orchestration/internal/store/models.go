@@ -169,23 +169,28 @@ type Model struct {
 }
 
 type Node struct {
-	ID            string
-	Name          string
-	Status        string
-	MaxDispatches int64
-	WorktreeRoot  sql.NullString
-	Runtimes      string
-	DaemonVersion sql.NullString
-	Os            sql.NullString
-	Arch          sql.NullString
-	Cpus          sql.NullInt64
-	MemoryBytes   sql.NullInt64
-	DiskBytes     sql.NullInt64
-	LastSeenAt    sql.NullInt64
-	UnavailableAt sql.NullInt64
-	DeletedAt     sql.NullInt64
-	CreatedAt     int64
-	UpdatedAt     int64
+	ID              string
+	Name            string
+	Status          string
+	MaxDispatches   int64
+	WorktreeRoot    sql.NullString
+	Runtimes        string
+	DaemonVersion   sql.NullString
+	Os              sql.NullString
+	Arch            sql.NullString
+	Cpus            sql.NullInt64
+	MemoryBytes     sql.NullInt64
+	DiskBytes       sql.NullInt64
+	LastSeenAt      sql.NullInt64
+	UnavailableAt   sql.NullInt64
+	DeletedAt       sql.NullInt64
+	CreatedAt       int64
+	UpdatedAt       int64
+	CpuPercent      sql.NullFloat64
+	MemoryUsedBytes sql.NullInt64
+	DiskUsedBytes   sql.NullInt64
+	Load1           sql.NullFloat64
+	StatsAt         sql.NullInt64
 }
 
 type NodeToken struct {

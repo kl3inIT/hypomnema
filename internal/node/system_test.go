@@ -21,3 +21,18 @@ func TestDetectSystemReadsTheMachine(t *testing.T) {
 	assert.Positive(t, got.MemoryBytes)
 	assert.Positive(t, got.DiskBytes)
 }
+
+// Scenario: the node measures the machine for a heartbeat. Memory and the
+// worktree volume are in use, and the CPU share is a percentage.
+func TestMeasureSystemReadsTheMachinesLoad(t *testing.T) {
+	t.Parallel()
+
+	got := MeasureSystem(t.Context(), t.TempDir())
+
+	if assert.NotNil(t, got) {
+		assert.Positive(t, got.MemoryUsedBytes)
+		assert.Positive(t, got.DiskUsedBytes)
+		assert.GreaterOrEqual(t, got.CPUPercent, 0.0)
+		assert.LessOrEqual(t, got.CPUPercent, 100.0)
+	}
+}

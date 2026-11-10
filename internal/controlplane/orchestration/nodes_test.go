@@ -134,3 +134,31 @@ func TestMigrationKeepsNodeTokens(t *testing.T) {
 	assert.Equal(t, NodeDrained, n.Status)
 	assert.Equal(t, 3, n.MaxDispatches)
 }
+
+// Scenario: a node sends what it measured. The registry shows the latest
+// measurement with its time, none before the first, and refuses one that
+// cannot be true.
+func TestNodeStatsKeepTheLatestMeasurement(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+
+	before, err := w.s.GetNode(t.Context(), w.node.ID)
+	require.NoError(t, err)
+	assert.Nil(t, before.Stats)
+
+	require.NoError(t, w.s.NodeStats(t.Context(), w.node.ID, SystemStats{CPUPercent: 10, MemoryUsedBytes: 1 << 30}))
+	require.NoError(t, w.s.NodeStats(t.Context(), w.node.ID, SystemStats{
+		CPUPercent: 38.5, MemoryUsedBytes: 9 << 30, DiskUsedBytes: 81 << 30, Load1: 3.1,
+	}))
+
+	got, err := w.s.GetNode(t.Context(), w.node.ID)
+	require.NoError(t, err)
+	require.NotNil(t, got.Stats)
+	assert.Equal(t, SystemStats{
+		CPUPercent: 38.5, MemoryUsedBytes: 9 << 30, DiskUsedBytes: 81 << 30, Load1: 3.1, At: w.clock.Now().UTC(),
+	}, *got.Stats)
+
+	require.ErrorIs(t, w.s.NodeStats(t.Context(), w.node.ID, SystemStats{CPUPercent: 140}), ErrInvalid)
+	require.ErrorIs(t, w.s.NodeStats(t.Context(), "nod_missing", SystemStats{}), ErrNotFound)
+}

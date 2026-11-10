@@ -91,6 +91,22 @@ type SystemInfo struct {
 	DiskBytes int64 `json:"disk_bytes"`
 }
 
+// SystemStats is what the node measured for one heartbeat.
+type SystemStats struct {
+	// CPUPercent is the share of all CPUs in use since the heartbeat before, 0 to 100.
+	CPUPercent      float64 `json:"cpu_percent"`
+	MemoryUsedBytes int64   `json:"memory_used_bytes"`
+	// DiskUsedBytes is of the volume that holds the worktree root.
+	DiskUsedBytes int64 `json:"disk_used_bytes"`
+	// Load1 is the one-minute load average; zero where the system has none.
+	Load1 float64 `json:"load1"`
+}
+
+// Heartbeat is the node's heartbeat. A node that measures nothing sends none.
+type Heartbeat struct {
+	Stats *SystemStats `json:"stats,omitempty"`
+}
+
 // Claim is a Dispatch the node still holds when it connects.
 type Claim struct {
 	DispatchID string `json:"dispatch_id"`
