@@ -8,11 +8,13 @@ statement true or false.
 
 | Binary | Commands | What it does today |
 |---|---|---|
-| `cmd/hypomnema` (control plane) | `migrate`, `serve`, `version`, `nodes add\|list`, `accounts add\|list`, `tokens add\|list\|revoke`, `login`, `run`, `answer`, `questions` | `migrate` brings the database schema up to the binary's version; `serve` refuses any other schema, then serves `/livez`, `/readyz`, the node API, the client API and the web client, and runs the scheduler loop; the other commands are the owner's (below) |
+| `cmd/hypomnema` (control plane) | `migrate`, `serve`, `version`, `nodes add\|list`, `accounts add\|list`, `tokens add\|list\|revoke`, `secrets keygen\|add\|list\|rotate\|rm\|rewrap`, `login`, `run`, `answer`, `questions` | `migrate` brings the database schema up to the binary's version; `serve` refuses any other schema, then serves `/livez`, `/readyz`, the node API, the client API and the web client, and runs the scheduler loop; the other commands are the owner's (below) |
 | `cmd/hypomnema-node` (node) | `init`, `check`, `accounts set`, `run`, `service`, `shim`, `mcp`, `version` | `init --url --token-file` writes the node's configuration; `check` says hello once and lists the CLIs it found; `accounts set` records where an account's Claude token is; `run` runs the daemon with the Claude runner; `service` prints a systemd user unit; `shim` runs one worker and `mcp` serves its tools (both started for a worker, not by hand) |
 
 Configuration comes from the environment: `HYPOMNEMA_HTTP_ADDR` (default `127.0.0.1:8080`),
-`HYPOMNEMA_DATABASE_PATH` (required, absolute), `HYPOMNEMA_LOG_LEVEL`, `HYPOMNEMA_LOG_FORMAT` (`json` or `text`).
+`HYPOMNEMA_DATABASE_PATH` (required, absolute), `HYPOMNEMA_LOG_LEVEL`, `HYPOMNEMA_LOG_FORMAT` (`json` or `text`),
+and the vault's root keys: `HYPOMNEMA_VAULT_KEYS` (a comma-separated list of `id:base64` entries of 32 bytes) with
+`HYPOMNEMA_VAULT_ACTIVE_KEY_ID`, set together or not at all.
 Which runtime and model agents use is stored, as profiles (below), not configured.
 `HYPOMNEMA_COORDINATOR_COMMAND` (a JSON array) starts pi for a chat id appended to it; unset, chats keep their
 messages and nothing answers.
@@ -21,10 +23,14 @@ The coordinator (`internal/controlplane/coordinator`, issue #41 PR 3): `serve` r
 that has something for pi, with the `coordinator` profile's model (`--provider`, `--model`, `--thinking`), and stops
 it after 30 min idle by closing its stdin; it starts again with the same session id. pi's own retries are off. Owner
 messages and wake-ups go as one `prompt`, or a follow-up while pi works, and are marked delivered once pi accepted
-them; each assistant `message_end` is kept as the coordinator's message and each tool call as one system line. On
+them. pi's activity is kept and relayed as Omnara does (issue #41 PR 4): each assistant `message_end` is kept as
+the coordinator's message with its text and thinking as parts, and each finished tool call as a `tool` message with
+its arguments and result (at most 16 KiB). Text as pi writes it, tools starting and ending, and working or idle go to
+the chat's watchers from memory only and are never stored; `abort` stops pi's turn. On
 the server pi runs as the `coordinator` user through `deploy/coordinator/`: a root-owned launcher (`hypomnema-pi`,
 a clean environment, only a chat id and model flags), one sudoers rule limited to it, pi's instructions, a
-`models.json` whose key is read from a 0600 file, and the setup script the owner runs with sudo.
+`models.json` whose key is read from a 0600 file, pi's version with its lockfile (`package.json`, which Dependabot
+updates; the setup installs it with `npm ci`), and the setup script the owner runs with sudo.
 Logs are JSON on stdout; `serve` stops on SIGINT or SIGTERM and lets requests in flight finish. `/readyz` answers 503
 with `Retry-After` while the database does not answer.
 
@@ -34,7 +40,7 @@ one connection, WAL, `synchronous=FULL`, pragmas read back after opening; its di
 
 Migrations are goose SQL files embedded in the binary (`internal/controlplane/orchestration/migrations`); the schema
 holds Runs, Tasks, Task dependencies, Dispatches, Conversations, receipts, Dispatch effects and resources, account
-cooldowns, questions, the event log, nodes, accounts and client tokens. `internal/controlplane/orchestration` is their only writer: named operations, each one `BEGIN IMMEDIATE`
+cooldowns, questions, the event log, nodes, accounts and client tokens, and the vault's secrets, which only the vault touches. `internal/controlplane/orchestration` is their only writer: named operations, each one `BEGIN IMMEDIATE`
 transaction, every status change a guarded `UPDATE` checked against a transition table (`transitions.go`).
 
 - Runs and Tasks: create a Run, create Tasks with dependencies, cancel or reopen a Task, finish or cancel a Run. A
@@ -72,7 +78,8 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   value.
 - Chats (`orchestration/chats.go`, issue #41 PR 3, after Omnara;
   [research](docs/research/2026-11-09-chat-storage.md)): the owner's conversations with pi. Every message is kept
-  (`owner`, `coordinator`, `system`); owner messages and wake-ups wait for pi and are marked delivered one by one. A
+  (`owner`, `coordinator`, `tool`, `system`; replies and tools with JSON `parts`); owner messages and wake-ups wait
+  for pi and are marked delivered one by one. A
   Run records the chat whose pi created it (`runs.chat_id`), and each event of such a Run that needs a coordinator (a
   Task ended or was blocked, a question to the coordinator, an escalation, the Run ended) adds one wake-up to the chat,
   unique per event.
@@ -105,6 +112,33 @@ transaction, every status change a guarded `UPDATE` checked against a transition
 - Creating a Run or Tasks can carry an idempotency key: the same caller and key with the same request return the first
   result, with another request it is a conflict. The key is kept as a receipt, as node calls are.
 
+The vault (`internal/controlplane/vault`, issue #66, after Omnara's `internal/secrets`) is the secret store: API keys
+and subscription token sets, encrypted at rest. Its other half, credential Sessions per Dispatch and the node's
+proxy, does not exist yet.
+- A secret has a name, a kind (`generic`: one value; `oauth_token_set`: a refresh token with, optionally, the access
+  and id tokens), metadata that is not secret, and versions. `Rotate` adds a version and points the secret at it;
+  earlier versions stay, encrypted.
+- Each version is sealed as `aes-256-gcm-envelope-v1`: the payload under a data key of its own, the data key under
+  the root key named by `key_id`. Both are bound to the secret's id, the version's id and number, the kind and the
+  names of the payload's entries, so a version edited or moved in the database does not open.
+- The root keys are a keyring from the environment. Without one the vault is not configured: secrets can be listed
+  and deleted, nothing is sealed or opened, and no path stores a value in the clear. A version sealed under a key
+  that is not in the keyring is listed as such and left untouched. `Rewrap` wraps every data key under the active
+  root key without decrypting a value, and changes nothing when one version cannot be unwrapped.
+- `Refresh` replaces a token set through a function that asks the provider, one refresher at a time: callers in
+  the process share one exchange; across processes a lease row (`secret_refresh_leases`, about 2.5 min) names the
+  refresher and the version it read, and the result is stored only while the secret is still at that version. The
+  exchange and the write go on when the caller stops waiting, and the write is retried. A caller that names a
+  version the secret has moved past gets the newer set without an exchange. A failure that may pass keeps the token
+  set and frees the lease; a rejection for good marks the secret as needing a new login until the owner rotates it.
+  After a refresh only the new version and the one before it are kept. Nothing calls `Refresh` yet.
+- `Open` returns a value to callers inside the control plane; nothing calls it yet. No API, coordinator or web
+  package may import the vault (`depguard`), and the owner's commands never print a value.
+- A provider names a secret as `vault:<name>` in its `api_key_ref`; nothing resolves that reference yet. Deleting a
+  secret is refused while a provider names it.
+- The tables `secrets`, `secret_versions` and `secret_refresh_leases` are in the one migration stream and are read and written only by this
+  package, through its own generated queries.
+
 Node API (`internal/controlplane/nodeapi`, protocol in `internal/shared/nodeproto`, after Omnara's daemon protocol):
 - A node registers with `POST /node/v1/hello` and its bearer token. It sends its CLIs, its worktree root and the
   Dispatches it still holds. Each of those is answered `retain` (still its own at that epoch), `reattach` (marked
@@ -125,10 +159,15 @@ Client API (`internal/controlplane/clientapi`, contract `api/openapi.yaml`, afte
 - Every request carries a client token (`Authorization: Bearer`); without a valid one the answer is 401.
 - Each operation has a policy. Every token reads everything and may create a Run; a Run created with a coordinator
   token is coordinated by it. Changing a Run, its Tasks or its questions needs the owner, or the Run's coordinator
-  (403 otherwise). An answer is recorded as the owner's or the coordinator's by the token's kind.
+  (403 otherwise), and so does reading a worker's transcript. An answer is recorded as the owner's or the
+  coordinator's by the token's kind.
 - Operations: who am I; list, create, show (with each Task's latest Dispatch), finish and cancel Runs; create Tasks
-  with dependencies; show, cancel and reopen a Task; list, show, answer and forward questions; list events; list
-  nodes and accounts. Creating a Run or Tasks takes an `Idempotency-Key`.
+  with dependencies; show, cancel and reopen a Task; list the Tasks a board shows (`GET /tasks`: every Task of an
+  open Run and other Runs' Tasks changed in the last 24 h, with their latest Dispatch, their Runs, and the newest
+  event's seq to follow the stream from); read a worker's transcript (`GET /dispatches/{id}/items`: the items after a
+  seq, or the newest ones before a seq, 100 a page; it can wait up to 50 s for the next item); list, show, answer
+  and forward questions; list events; list nodes and accounts. Creating a Run or Tasks takes an `Idempotency-Key`.
+  A Dispatch carries `activity`, one line about the newest thing its worker said or did.
 - Events: a page after a cursor, which can wait up to 50 s for the next event (`wait`) instead of polling; and a
   stream of Server-Sent Events at `/api/v1/events/stream`, each with its seq as id, resumed with `Last-Event-ID`,
   with a comment every 10 s. Waits and streams end when the server shuts down.
@@ -138,7 +177,10 @@ The owner's commands:
   - `nodes add <name>` prints the node's token once;
   - `accounts add <runtime> <label>` records an account;
   - `tokens add <name> [--kind owner|coordinator]` prints a client token once; `tokens list` and
-    `tokens revoke <id>`.
+    `tokens revoke <id>`;
+  - `secrets keygen [id]` prints a new root key; `secrets add <name> --from-file FILE|-` (with `--kind` and
+    `--meta key=value`), `secrets list`, `secrets rotate <name> --from-file FILE|-`, `secrets rm <name>` and
+    `secrets rewrap` manage the vault's secrets. A value is read from a file or standard input and never printed.
 - From any machine, over the client API (`internal/controlplane/clientcli`):
   - `login --url URL --token-file FILE` checks the token and keeps both in `~/.hypomnema/client.json` (0600);
   - `run --repo owner/name <objective>` creates a Run with one Task and prints its events (and any question to the
@@ -191,9 +233,24 @@ Node (`internal/node`):
     - the session id from `system/init`, as started;
     - progress at most every 30 s;
     - one turn per Dispatch: stdin is closed after the turn's `result`.
+  - The worker's transcript goes to the control plane apart from its reports
+    ([research](docs/research/2026-11-10-worker-sessions.md)):
+    - Each journal line becomes items of one shape for every runtime: `message`, `reasoning`, `tool_call`,
+      `tool_result`, `notice`. The first instruction and the final result are not items. An item is cut to 64 KiB
+      and says how much was left out.
+    - A second cursor beside the journal (`sent`: offset and last seq) says how far the control plane has it. Each
+      second the runner sends the items of the next whole lines, at most 32 items or 256 KiB, numbered from 1, and
+      one batch of a Dispatch at a time. The cursor moves on the acknowledgement, which brings the next batch at
+      once; a batch not acknowledged in 15 s is sent again with the same numbers.
+    - The control plane stores items by `(dispatch, seq)`, ignores a seq it holds, takes them in any status of the
+      Dispatch, and refuses for good a Dispatch that is not on that node. Items are dropped 30 days after the
+      Dispatch settled.
+    - A transcript the control plane has whole after the worker exited is marked `sent.done`. A new daemon sends the
+      journals under `run/` that are not marked, those from before this existed too.
   - The worker's tools (`internal/node/workertools`, `hypomnema-node mcp`) come in through `--mcp-config` with
-    `--strict-mcp-config`; AskUserQuestion is disallowed. They reach the runner only through a bridge directory beside
-    the journal (`internal/node/bridge`), so a question survives a daemon restart.
+    `--strict-mcp-config`; AskUserQuestion and the subagent tool (`Task`, `Agent`) are disallowed. They reach the
+    runner only through a bridge directory beside the journal (`internal/node/bridge`), so a question survives a
+    daemon restart.
     - `ask`: the runner submits the question, records the control plane's id, writes the answer for the waiting
       call, and acknowledges it. While it waits, the call sends `notifications/progress` every minute; tool calls may
       last 24 h (`MCP_TOOL_TIMEOUT`). A canceled call withdraws the question.
@@ -222,9 +279,48 @@ Node (`internal/node`):
 - `web/`: a Vite single-page app with React, TypeScript, TanStack Router (file routes in `src/routes`) and Query,
   Tailwind and shadcn on Base UI (preset `b43eDcOJc`), pnpm
   ([stack and look](docs/research/2026-11-09-directories-sessions-web-stack.md)).
-- The theme (`src/index.css`) has the pink brand color and five status tokens (running, done, needs you, failed,
-  queued) for light and dark; dark is the default.
-- One screen: the chat, which says the coordinator is not connected yet. It does not call the client API yet.
+- The look follows t3code (MIT): its light and dark colors with a blue-indigo primary, 14px text, a 46rem chat lane,
+  a full-height 16rem sidebar, its work-log rows, composer and markdown styles (`src/index.css`, `features/chat/`),
+  each adapted file naming its source. Five status tokens (running, done, needs you, failed, queued) follow its
+  palette; dark is the default.
+- Sign-in: the owner pastes an owner token once; the browser keeps it (`localStorage`, as OpenClaw's control UI)
+  and sends it on every request.
+- The API client is generated from `api/openapi.yaml` by `@hey-api/openapi-ts` into `src/api/generated` (as Omnara;
+  its `next` build, since the release needs TypeScript 5's compiler API); `make web-api-check` fails when it is stale.
+- Chats with pi (issue #41 PR 4, after Omnara; learned from assistant-ui, ai-elements and pi-web): a list of chats
+  beside the open one. A chat follows `GET /chats/{id}/stream`: kept messages, then pi's live frames, reopened after
+  the last kept message when the server ends it. pi's thoughts and tools between replies form one line that opens,
+  with each command and its output; replies render as markdown with streamdown and shiki, loaded apart from the
+  screen. Enter sends unless an input method is composing; Stop asks pi to end its turn.
+- The board and the Runs (issue #41 PR 5; [research](docs/research/2026-11-09-board-and-questions-ui.md)):
+  - `/board`: the Tasks in flight in three columns, Needs you, Working and Done (the last 24 h), after Orca's agent
+    kanban (MIT). Needs you holds an open question to the owner, a failure in an open Run, a stop for a decision
+    and a missing login. Rows per Run or per repository and a repository filter are kept in the URL. A card shows
+    the runtime's mark (from OpenMausBot, Apache 2.0), the Task, its Run, what its worker does now (the Dispatch's
+    `activity`) and how long it has run, the machine, the model and the pull request. While a worker runs the
+    board is read again every 10 s, since its activity changes without an event. On a phone the columns stack,
+    Needs you first.
+  - A card opens the Task over the page, as Omnigent opens a session over its canvas (`?task=` in the URL; Escape
+    closes it): the question to answer, start again or cancel, the result, the Task and the worker's transcript.
+  - The transcript (issue #43; [research](docs/research/2026-11-10-worker-sessions.md)) is read from its end, 100
+    items a page with "Load earlier", and followed by waiting on `GET /dispatches/{id}/items`.
+    - The worker's messages are prose. Its thoughts and tool calls between two messages are one group: a line
+      that says the calls in words ("Ran 1 shell command, read 2 files") and opens into one row a call. While the
+      worker runs, the last 3 steps of its newest group stay out of the fold.
+    - A row is a verb and what the call is about; a shell call is its command; an edit shows the lines it added
+      and removed and opens to them; a tool with no title of its own is named from its name, with its MCP server
+      as a tag. Titles, categories and the group's line are adapted from Omnigent (`tool-title.ts`, Apache 2.0).
+    - A row opens to the result, 80 lines or 12 000 characters until "Show all".
+    - A worker that succeeded folds to "Worked for 12m" and its last message, as t3code folds a finished turn; a
+      failed or stopped one stays open.
+    - The panel opens at a running worker's newest step and follows it until the reader scrolls away
+      (`use-stick-to-bottom`); with a question, or for a finished Task, it opens at the top.
+  - Questions are answered as in t3code's pending-input panel: options as radios that 1 to 9 pick, text where the
+    option takes it, Enter sends. A question to pi is shown, and the owner can take it over (forward).
+  - `/runs` lists the Runs, those that ask the owner first; `/runs/{id}` shows the objective, the open questions
+    answered in place, the Tasks and the answered questions; Finish and Cancel.
+  - The sidebar lists the places (New chat, Board with the count that needs the owner, Runs) above the chats.
+    Every page follows `GET /events/stream` from the board's cursor and refreshes what an event may have changed.
 - `web/embed.go` embeds the build (`web/dist`) into `hypomnema`. `make build` builds the client first.
   - The control plane serves it with `internal/controlplane/webui`, after Omnara's `spa.go`:
     - files as they are, with a year's cache under `assets/`;
@@ -290,7 +386,18 @@ and the node in the control plane binary.
   `openapi-check` (generated client API code matches `api/openapi.yaml`), `migration-check` (migrations already on
   `origin/main` are unchanged), unit tests and race tests.
 - Tests that need a database open a real file in a temporary directory; no containers.
+- `make web-doctor`: React Doctor's report on the web client (pinned, local checks only: no score API, crash
+  reports or dependency lookups; `web/doctor.config.json`). It is read, not a gate. Its config turns off the
+  complexity count (a chain of states with early returns is not a defect), and two rules where they misread the
+  code: route files export their `Route`, the Task panel's mutations refresh through one helper, and the
+  transcript's reads stop on their abort signal.
+- Oxlint loads `@shadcn/lint` (`jsPlugins` in `web/.oxlintrc.json`) with `no-raw-colors`, `no-restyle`,
+  `no-unknown-classes` and `require-static-classes`; `no-arbitrary-values` and `no-inline-styles` are not enabled
+  yet. Both tools leave the primitives alone (`web/src/components`: shadcn's components and theme provider).
 - `make web-check`: oxlint, oxfmt, `tsc -b` and vitest for the web client; `make web-e2e`: Playwright on the
   production build, at a phone's and a desktop's size.
 - CI (`.github/workflows/ci.yml`) runs `make verify` and `govulncheck`, and in a second job `make web-check` and
-  `make web-e2e`, on every pull request and on `main`.
+  `make web-e2e`, on every pull request and on `main`. Chromium for the browser tests is cached by the Playwright
+  version, as t3code's CI does.
+- Dependabot (`.github/dependabot.yml`) proposes updates weekly for the Go modules (`/`, `/tools/ci`), the web
+  client, pi (`deploy/coordinator`) and the GitHub Actions, with minor and patch updates grouped.

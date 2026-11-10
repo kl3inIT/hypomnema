@@ -476,6 +476,22 @@ func (s *Service) GetProvider(ctx context.Context, name string) (Provider, error
 	return providerFromRow(row, models), nil
 }
 
+// ProvidersUsingKeyRef names the providers whose api_key_ref is ref, so the
+// vault can refuse to delete a secret a provider still names.
+func (s *Service) ProvidersUsingKeyRef(ctx context.Context, ref string) ([]string, error) {
+	names, err := s.read().ListProviderNamesByKeyRef(ctx, nullString(ref))
+	if err != nil {
+		return nil, fmt.Errorf("listing the providers that use %q: %w", ref, err)
+	}
+
+	out := make([]string, 0, len(names))
+	for _, n := range names {
+		out = append(out, "provider "+n)
+	}
+
+	return out, nil
+}
+
 // ListProviders returns every provider with its models, by name.
 func (s *Service) ListProviders(ctx context.Context) ([]Provider, error) {
 	rows, err := s.read().ListProviders(ctx)

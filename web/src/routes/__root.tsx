@@ -1,19 +1,28 @@
 import { createRootRoute, Outlet } from "@tanstack/react-router"
 
+import { LoginScreen } from "@/features/auth/login-screen"
+import { useToken } from "@/features/auth/token"
+import { LiveUpdates } from "@/features/shell/app-shell"
+
 export const Route = createRootRoute({
   component: RootLayout,
 })
 
-// Phone first: one column with a header. The sidebar for wide screens comes with the second screen.
+// The whole window; each screen lays out its own sidebar and header, as t3code's AppSidebarLayout. Without a token,
+// the sign-in screen.
 function RootLayout() {
+  const token = useToken()
+
   return (
-    <div className="flex min-h-svh flex-col">
-      <header className="flex h-12 shrink-0 items-center border-b px-4">
-        <span className="font-medium">Hypomnema</span>
-      </header>
-      <main className="flex min-h-0 flex-1 flex-col">
-        <Outlet />
-      </main>
+    <div className="flex h-svh bg-background">
+      {token ? (
+        <>
+          <LiveUpdates />
+          <Outlet />
+        </>
+      ) : (
+        <LoginScreen />
+      )}
     </div>
   )
 }

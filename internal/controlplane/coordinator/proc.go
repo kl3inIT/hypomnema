@@ -13,8 +13,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 )
 
 // proc is one running pi in RPC mode for one chat.
@@ -31,6 +29,8 @@ type proc struct {
 	nextID     int
 	waiting    map[string]chan response
 	stderr     []string
+	// calls holds the arguments of running tool calls by id, until they end.
+	calls map[string]json.RawMessage
 }
 
 type response struct {
@@ -68,7 +68,7 @@ func start(ctx context.Context, s *Supervisor, chatID string, modelArgs []string
 
 	p := &proc{
 		s: s, chatID: chatID, cmd: cmd, stdin: stdin, done: make(chan struct{}), lastActive: time.Now(),
-		waiting: map[string]chan response{},
+		waiting: map[string]chan response{}, calls: map[string]json.RawMessage{},
 	}
 
 	go p.readStderr(stderr)
@@ -153,26 +153,6 @@ func (p *proc) call(ctx context.Context, cmd map[string]any) (response, error) {
 	}
 }
 
-// record is the part of a pi stdout record the supervisor reads.
-type record struct {
-	Type    string          `json:"type"`
-	ID      string          `json:"id"`
-	Success bool            `json:"success"`
-	Error   string          `json:"error"`
-	Data    json.RawMessage `json:"data"`
-	Message *struct {
-		Role       string `json:"role"`
-		StopReason string `json:"stopReason"`
-		Error      string `json:"errorMessage"`
-		Content    []struct {
-			Type string `json:"type"`
-			Text string `json:"text"`
-		} `json:"content"`
-	} `json:"message"`
-	ToolName string          `json:"toolName"`
-	Args     json.RawMessage `json:"args"`
-}
-
 // read follows pi's stdout until it ends. Records are split on LF only, as
 // pi's rpc.md requires.
 func (p *proc) read(ctx context.Context, stdout io.Reader) {
@@ -197,68 +177,6 @@ func (p *proc) read(ctx context.Context, stdout io.Reader) {
 		if err != nil {
 			return
 		}
-	}
-}
-
-func (p *proc) handle(ctx context.Context, line []byte) {
-	var rec record
-	if err := json.Unmarshal(line, &rec); err != nil {
-		return
-	}
-
-	switch rec.Type {
-	case "response":
-		p.mu.Lock()
-		ch := p.waiting[rec.ID]
-		p.mu.Unlock()
-
-		if ch != nil {
-			ch <- response{Success: rec.Success, Error: rec.Error, Data: rec.Data}
-		}
-	case "agent_start":
-		p.setWorking(true)
-	case "agent_settled":
-		p.setWorking(false)
-		p.s.settled()
-	case "message_end":
-		p.keepReply(ctx, rec)
-	case "tool_execution_start":
-		p.keep(ctx, orchestration.ChatSystem, toolLine(rec.ToolName, rec.Args))
-	}
-}
-
-// keepReply stores an assistant message's text, or its error.
-func (p *proc) keepReply(ctx context.Context, rec record) {
-	m := rec.Message
-	if m == nil || m.Role != "assistant" {
-		return
-	}
-
-	var texts []string
-
-	for _, c := range m.Content {
-		if c.Type == "text" && strings.TrimSpace(c.Text) != "" {
-			texts = append(texts, c.Text)
-		}
-	}
-
-	if len(texts) > 0 {
-		p.keep(ctx, orchestration.ChatCoordinator, strings.Join(texts, "\n\n"))
-	}
-
-	if m.StopReason == "error" {
-		p.keep(ctx, orchestration.ChatSystem, "pi's model call failed: "+m.Error)
-	}
-}
-
-func (p *proc) keep(ctx context.Context, role orchestration.ChatRole, text string) {
-	if strings.TrimSpace(text) == "" {
-		return
-	}
-
-	if _, err := p.s.svc.AddChatMessage(ctx, p.chatID, role, text); err != nil && ctx.Err() == nil {
-		p.s.cfg.Logger.ErrorContext(ctx, "keeping a chat message failed", slog.String("chat_id", p.chatID),
-			slog.Any("error", err))
 	}
 }
 
@@ -313,8 +231,13 @@ func (p *proc) stderrTail() string {
 
 func (p *proc) setWorking(w bool) {
 	p.mu.Lock()
+	changed := p.working != w
 	p.working, p.lastActive = w, time.Now()
 	p.mu.Unlock()
+
+	if changed {
+		p.s.publish(p.chatID, Frame{Event: FrameState, Data: map[string]any{"working": w}})
+	}
 }
 
 func (p *proc) isWorking() bool {

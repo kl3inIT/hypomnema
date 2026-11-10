@@ -44,6 +44,6 @@ cd "$home/work"
 
 exec env -i \
   HOME=/home/coordinator USER=coordinator LOGNAME=coordinator LANG=C.UTF-8 TERM=dumb \
-  PATH=/opt/hypomnema-node/bin:/home/coordinator/.local/bin:/usr/local/bin:/usr/bin:/bin \
+  PATH="/opt/hypomnema-node/bin:$home/pi/node_modules/.bin:/usr/local/bin:/usr/bin:/bin" \
   PI_CODING_AGENT_DIR="$home/agent" HYPOMNEMA_CHAT_ID="$chat" \
   pi --mode rpc --session-dir "$home/sessions" --session-id "$chat" "$@"

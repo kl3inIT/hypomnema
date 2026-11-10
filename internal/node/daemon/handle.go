@@ -46,6 +46,15 @@ func (d *Daemon) handle(ctx context.Context, msg nodeproto.Message) error {
 		}
 
 		return d.acked(ctx, ack)
+	case nodeproto.TypeItemsAck:
+		var ack nodeproto.ItemsAck
+		if err := json.Unmarshal(msg.Payload, &ack); err != nil {
+			return fmt.Errorf("decoding a transcript ack: %w", err)
+		}
+
+		d.runner.ItemsAcked(ack)
+
+		return nil
 	case nodeproto.TypeError:
 		var e nodeproto.Error
 		_ = json.Unmarshal(msg.Payload, &e)
@@ -58,7 +67,7 @@ func (d *Daemon) handle(ctx context.Context, msg nodeproto.Message) error {
 			slog.String("event", "node.server_error"), slog.String("code", e.Code), slog.String("message", e.Message))
 
 		return nil
-	case nodeproto.TypeHeartbeat, nodeproto.TypeReport, nodeproto.TypeHeartbeatAck:
+	case nodeproto.TypeHeartbeat, nodeproto.TypeReport, nodeproto.TypeItems, nodeproto.TypeHeartbeatAck:
 		fallthrough
 	default:
 		return nil

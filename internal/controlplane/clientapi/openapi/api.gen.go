@@ -84,11 +84,51 @@ func (e BlockedReason) Valid() bool {
 	}
 }
 
+// Defines values for ChatDeltaKind.
+const (
+	ChatDeltaKindText     ChatDeltaKind = "text"
+	ChatDeltaKindThinking ChatDeltaKind = "thinking"
+)
+
+// Valid indicates whether the value is a known member of the ChatDeltaKind enum.
+func (e ChatDeltaKind) Valid() bool {
+	switch e {
+	case ChatDeltaKindText:
+		return true
+	case ChatDeltaKindThinking:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ChatPartType.
+const (
+	ChatPartTypeText       ChatPartType = "text"
+	ChatPartTypeThinking   ChatPartType = "thinking"
+	ChatPartTypeToolResult ChatPartType = "tool_result"
+)
+
+// Valid indicates whether the value is a known member of the ChatPartType enum.
+func (e ChatPartType) Valid() bool {
+	switch e {
+	case ChatPartTypeText:
+		return true
+	case ChatPartTypeThinking:
+		return true
+	case ChatPartTypeToolResult:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for ChatRole.
 const (
 	ChatRoleCoordinator ChatRole = "coordinator"
 	ChatRoleOwner       ChatRole = "owner"
 	ChatRoleSystem      ChatRole = "system"
+	ChatRoleTool        ChatRole = "tool"
 )
 
 // Valid indicates whether the value is a known member of the ChatRole enum.
@@ -99,6 +139,26 @@ func (e ChatRole) Valid() bool {
 	case ChatRoleOwner:
 		return true
 	case ChatRoleSystem:
+		return true
+	case ChatRoleTool:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ChatToolActivityPhase.
+const (
+	End   ChatToolActivityPhase = "end"
+	Start ChatToolActivityPhase = "start"
+)
+
+// Valid indicates whether the value is a known member of the ChatToolActivityPhase enum.
+func (e ChatToolActivityPhase) Valid() bool {
+	switch e {
+	case End:
+		return true
+	case Start:
 		return true
 	default:
 		return false
@@ -348,6 +408,33 @@ func (e TokenKind) Valid() bool {
 	}
 }
 
+// Defines values for TranscriptItemKind.
+const (
+	TranscriptItemKindMessage    TranscriptItemKind = "message"
+	TranscriptItemKindNotice     TranscriptItemKind = "notice"
+	TranscriptItemKindReasoning  TranscriptItemKind = "reasoning"
+	TranscriptItemKindToolCall   TranscriptItemKind = "tool_call"
+	TranscriptItemKindToolResult TranscriptItemKind = "tool_result"
+)
+
+// Valid indicates whether the value is a known member of the TranscriptItemKind enum.
+func (e TranscriptItemKind) Valid() bool {
+	switch e {
+	case TranscriptItemKindMessage:
+		return true
+	case TranscriptItemKindNotice:
+		return true
+	case TranscriptItemKindReasoning:
+		return true
+	case TranscriptItemKindToolCall:
+		return true
+	case TranscriptItemKindToolResult:
+		return true
+	default:
+		return false
+	}
+}
+
 // Account defines model for Account.
 type Account struct {
 	CoolingUntil *time.Time    `json:"cooling_until,omitempty"`
@@ -391,6 +478,16 @@ type Chat struct {
 	Working bool `json:"working"`
 }
 
+// ChatDelta Text or thinking pi is writing, to append to block index of the current reply.
+type ChatDelta struct {
+	Delta string        `json:"delta"`
+	Index int           `json:"index"`
+	Kind  ChatDeltaKind `json:"kind"`
+}
+
+// ChatDeltaKind defines model for ChatDelta.Kind.
+type ChatDeltaKind string
+
 // ChatList defines model for ChatList.
 type ChatList struct {
 	Data []Chat `json:"data"`
@@ -405,10 +502,15 @@ type ChatMessage struct {
 	DeliveredAt *time.Time `json:"delivered_at,omitempty"`
 
 	// EventSeq The event a wake-up reports.
-	EventSeq *int64   `json:"event_seq,omitempty"`
-	Role     ChatRole `json:"role"`
-	Seq      int64    `json:"seq"`
-	Text     string   `json:"text"`
+	EventSeq *int64 `json:"event_seq,omitempty"`
+
+	// Parts A reply's text and thinking, or a tool's result; absent for owner and system messages.
+	Parts *[]ChatPart `json:"parts,omitempty"`
+
+	// Role owner: typed by the owner; coordinator: pi's reply; tool: a tool pi ran, with its result; system: a wake-up or a notice.
+	Role ChatRole `json:"role"`
+	Seq  int64    `json:"seq"`
+	Text string   `json:"text"`
 }
 
 // ChatMessageList defines model for ChatMessageList.
@@ -419,11 +521,54 @@ type ChatMessageList struct {
 	NextAfter int64 `json:"next_after"`
 }
 
-// ChatRole defines model for ChatRole.
+// ChatPart One piece of a reply (text, thinking) or of a tool pi ran (tool_result).
+type ChatPart struct {
+	// Args The tool's arguments.
+	Args       *map[string]interface{} `json:"args,omitempty"`
+	DurationMs *int64                  `json:"duration_ms,omitempty"`
+	Error      *bool                   `json:"error,omitempty"`
+
+	// Id The tool call.
+	Id *string `json:"id,omitempty"`
+
+	// Name The tool.
+	Name *string `json:"name,omitempty"`
+
+	// Output The tool's result, at most 16 KiB.
+	Output *string `json:"output,omitempty"`
+	Text   *string `json:"text,omitempty"`
+
+	// Truncated The output was cut.
+	Truncated *bool        `json:"truncated,omitempty"`
+	Type      ChatPartType `json:"type"`
+}
+
+// ChatPartType defines model for ChatPart.Type.
+type ChatPartType string
+
+// ChatRole owner: typed by the owner; coordinator: pi's reply; tool: a tool pi ran, with its result; system: a wake-up or a notice.
 type ChatRole string
+
+// ChatState defines model for ChatState.
+type ChatState struct {
+	Working bool `json:"working"`
+}
+
+// ChatToolActivity A tool started (with its name and arguments) or ended.
+type ChatToolActivity struct {
+	Args  *map[string]interface{} `json:"args,omitempty"`
+	Id    string                  `json:"id"`
+	Name  *string                 `json:"name,omitempty"`
+	Phase ChatToolActivityPhase   `json:"phase"`
+}
+
+// ChatToolActivityPhase defines model for ChatToolActivity.Phase.
+type ChatToolActivityPhase string
 
 // Dispatch defines model for Dispatch.
 type Dispatch struct {
+	// Activity One line about the newest thing the worker said or did.
+	Activity     *string   `json:"activity,omitempty"`
 	CreatedAt    time.Time `json:"created_at"`
 	Effort       *string   `json:"effort,omitempty"`
 	Epoch        int       `json:"epoch"`
@@ -751,6 +896,16 @@ type Task struct {
 	UpdatedAt time.Time  `json:"updated_at"`
 }
 
+// TaskBoard defines model for TaskBoard.
+type TaskBoard struct {
+	// After The newest event's seq when the board was read; follow the events after it to keep it current.
+	After int64        `json:"after"`
+	Data  []TaskDetail `json:"data"`
+
+	// Runs The Runs of these Tasks, once each.
+	Runs []Run `json:"runs"`
+}
+
 // TaskDetail defines model for TaskDetail.
 type TaskDetail struct {
 	BlockedReason     *BlockedReason `json:"blocked_reason,omitempty"`
@@ -786,6 +941,32 @@ type TaskStatus string
 // TokenKind defines model for TokenKind.
 type TokenKind string
 
+// TranscriptItem One entry of a worker's transcript. A message, reasoning or notice has text; a tool_call has call_id, tool and input; a tool_result has call_id, text and failed. The node cuts long text and input.
+type TranscriptItem struct {
+	// CallId Joins a tool_result to its tool_call.
+	CallId *string `json:"call_id,omitempty"`
+
+	// CreatedAt When the control plane received it.
+	CreatedAt time.Time               `json:"created_at"`
+	Failed    *bool                   `json:"failed,omitempty"`
+	Input     *map[string]interface{} `json:"input,omitempty"`
+	Kind      TranscriptItemKind      `json:"kind"`
+	Seq       int64                   `json:"seq"`
+	Text      *string                 `json:"text,omitempty"`
+	Tool      *string                 `json:"tool,omitempty"`
+}
+
+// TranscriptItemKind defines model for TranscriptItemKind.
+type TranscriptItemKind string
+
+// TranscriptItemList defines model for TranscriptItemList.
+type TranscriptItemList struct {
+	Data []TranscriptItem `json:"data"`
+
+	// HasMore More items lie beyond this page in the direction read.
+	HasMore bool `json:"has_more"`
+}
+
 // After defines model for After.
 type After = int64
 
@@ -819,6 +1000,28 @@ type ListChatMessagesParams struct {
 	Limit *int   `form:"limit,omitempty" json:"limit,omitempty"`
 
 	// Wait Seconds to wait when no message follows the cursor yet; zero answers at once.
+	Wait *int `form:"wait,omitempty" json:"wait,omitempty"`
+}
+
+// StreamChatParams defines parameters for StreamChat.
+type StreamChatParams struct {
+	// After The seq of the last event already read.
+	After *After `form:"after,omitempty" json:"after,omitempty"`
+
+	// LastEventID Takes precedence over after, as a reconnecting browser sends it.
+	LastEventID *int64 `json:"Last-Event-ID,omitempty"`
+}
+
+// ListDispatchItemsParams defines parameters for ListDispatchItems.
+type ListDispatchItemsParams struct {
+	// After The seq of the last event already read.
+	After *After `form:"after,omitempty" json:"after,omitempty"`
+
+	// Before Return the newest items with a seq below this one; after and wait are then ignored.
+	Before *int64 `form:"before,omitempty" json:"before,omitempty"`
+	Limit  *int   `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Wait Seconds to wait when no item follows the cursor yet; zero answers at once.
 	Wait *int `form:"wait,omitempty" json:"wait,omitempty"`
 }
 
@@ -872,6 +1075,13 @@ type CreateRunParams struct {
 type CreateTasksParams struct {
 	// IdempotencyKey Makes the request safe to repeat: the same key with the same request returns the first result; with another request it is idempotency_key_conflict.
 	IdempotencyKey *IdempotencyKey `json:"Idempotency-Key,omitempty"`
+}
+
+// ListTasksParams defines parameters for ListTasks.
+type ListTasksParams struct {
+	// Since Tasks of Runs that are no longer open count only when they changed at or after it; 24 hours ago by default.
+	Since *time.Time `form:"since,omitempty" json:"since,omitempty"`
+	Limit *int       `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
 // CreateChatJSONRequestBody defines body for CreateChat for application/json ContentType.
@@ -998,6 +1208,11 @@ type ClientInterface interface {
 	// Corresponds with GET /chats/{chat_id} (the `GetChat` operationId).
 	GetChat(ctx context.Context, chatId ChatID, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// AbortChat Stop the coordinator's current turn in this chat; nothing happens when it is idle
+	//
+	// Corresponds with POST /chats/{chat_id}/abort (the `AbortChat` operationId).
+	AbortChat(ctx context.Context, chatId ChatID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ListChatMessages A chat's messages after a cursor, oldest first; optionally wait for the next one
 	//
 	// Corresponds with GET /chats/{chat_id}/messages (the `ListChatMessages` operationId).
@@ -1016,6 +1231,20 @@ type ClientInterface interface {
 	//
 	// Corresponds with POST /chats/{chat_id}/messages (the `SendChatMessage` operationId).
 	SendChatMessage(ctx context.Context, chatId ChatID, body SendChatMessageJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// StreamChat A chat as Server-Sent Events, resumable with Last-Event-ID
+	//
+	// Kept messages come as `message` frames with their seq as the id and a ChatMessage as data. While pi works, frames without an id show what is not kept yet: `reset` (a new reply starts), `delta` (ChatDelta), `tool` (ChatToolActivity) and `state` (ChatState); a kept message replaces what they showed. A comment line is sent every 10 seconds.
+	//
+	// Corresponds with GET /chats/{chat_id}/stream (the `StreamChat` operationId).
+	StreamChat(ctx context.Context, chatId ChatID, params *StreamChatParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListDispatchItems A worker's transcript during one Dispatch, oldest first; optionally wait for the next item
+	//
+	// What the worker said and did, as the node sent it. With after, the items that follow that seq; with before, the newest items older than it.
+	//
+	// Corresponds with GET /dispatches/{dispatch_id}/items (the `ListDispatchItems` operationId).
+	ListDispatchItems(ctx context.Context, dispatchId string, params *ListDispatchItemsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListEvents Events after a cursor, oldest first; optionally wait for the next one
 	//
@@ -1169,6 +1398,13 @@ type ClientInterface interface {
 	// Corresponds with POST /runs/{run_id}/tasks (the `CreateTasks` operationId).
 	CreateTasks(ctx context.Context, runId RunID, params *CreateTasksParams, body CreateTasksJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ListTasks The Tasks a board shows, most recently changed first
+	//
+	// Every Task of an open Run, and the Tasks of other Runs that changed at or after since, with their latest Dispatch and the Runs they belong to. One call fills a board of the work in flight.
+	//
+	// Corresponds with GET /tasks (the `ListTasks` operationId).
+	ListTasks(ctx context.Context, params *ListTasksParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetTask A Task with its latest Dispatch
 	//
 	// Corresponds with GET /tasks/{task_id} (the `GetTask` operationId).
@@ -1264,6 +1500,21 @@ func (c *Client) GetChat(ctx context.Context, chatId ChatID, reqEditors ...Reque
 	return c.Client.Do(req)
 }
 
+// AbortChat Stop the coordinator's current turn in this chat; nothing happens when it is idle
+//
+// Corresponds with POST /chats/{chat_id}/abort (the `AbortChat` operationId).
+func (c *Client) AbortChat(ctx context.Context, chatId ChatID, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAbortChatRequest(c.Server, chatId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // ListChatMessages A chat's messages after a cursor, oldest first; optionally wait for the next one
 //
 // Corresponds with GET /chats/{chat_id}/messages (the `ListChatMessages` operationId).
@@ -1303,6 +1554,40 @@ func (c *Client) SendChatMessageWithBody(ctx context.Context, chatId ChatID, con
 // Corresponds with POST /chats/{chat_id}/messages (the `SendChatMessage` operationId).
 func (c *Client) SendChatMessage(ctx context.Context, chatId ChatID, body SendChatMessageJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewSendChatMessageRequest(c.Server, chatId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// StreamChat A chat as Server-Sent Events, resumable with Last-Event-ID
+//
+// Kept messages come as `message` frames with their seq as the id and a ChatMessage as data. While pi works, frames without an id show what is not kept yet: `reset` (a new reply starts), `delta` (ChatDelta), `tool` (ChatToolActivity) and `state` (ChatState); a kept message replaces what they showed. A comment line is sent every 10 seconds.
+//
+// Corresponds with GET /chats/{chat_id}/stream (the `StreamChat` operationId).
+func (c *Client) StreamChat(ctx context.Context, chatId ChatID, params *StreamChatParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewStreamChatRequest(c.Server, chatId, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListDispatchItems A worker's transcript during one Dispatch, oldest first; optionally wait for the next item
+//
+// What the worker said and did, as the node sent it. With after, the items that follow that seq; with before, the newest items older than it.
+//
+// Corresponds with GET /dispatches/{dispatch_id}/items (the `ListDispatchItems` operationId).
+func (c *Client) ListDispatchItems(ctx context.Context, dispatchId string, params *ListDispatchItemsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListDispatchItemsRequest(c.Server, dispatchId, params)
 	if err != nil {
 		return nil, err
 	}
@@ -1725,6 +2010,23 @@ func (c *Client) CreateTasks(ctx context.Context, runId RunID, params *CreateTas
 	return c.Client.Do(req)
 }
 
+// ListTasks The Tasks a board shows, most recently changed first
+//
+// Every Task of an open Run, and the Tasks of other Runs that changed at or after since, with their latest Dispatch and the Runs they belong to. One call fills a board of the work in flight.
+//
+// Corresponds with GET /tasks (the `ListTasks` operationId).
+func (c *Client) ListTasks(ctx context.Context, params *ListTasksParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListTasksRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // GetTask A Task with its latest Dispatch
 //
 // Corresponds with GET /tasks/{task_id} (the `GetTask` operationId).
@@ -1925,6 +2227,40 @@ func NewGetChatRequest(server string, chatId ChatID) (*http.Request, error) {
 	return req, nil
 }
 
+// NewAbortChatRequest constructs an http.Request for the AbortChat method
+func NewAbortChatRequest(server string, chatId ChatID) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "chat_id", chatId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/chats/%s/abort", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewListChatMessagesRequest constructs an http.Request for the ListChatMessages method
 func NewListChatMessagesRequest(server string, chatId ChatID, params *ListChatMessagesParams) (*http.Request, error) {
 	var err error
@@ -2053,6 +2389,179 @@ func NewSendChatMessageRequestWithBody(server string, chatId ChatID, contentType
 	}
 
 	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewStreamChatRequest constructs an http.Request for the StreamChat method
+func NewStreamChatRequest(server string, chatId ChatID, params *StreamChatParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "chat_id", chatId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/chats/%s/stream", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.After != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "after", *params.After, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: "int64"}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+
+		if params.LastEventID != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Last-Event-ID", *params.LastEventID, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "integer", Format: "int64"})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("Last-Event-ID", headerParam0)
+		}
+
+	}
+
+	return req, nil
+}
+
+// NewListDispatchItemsRequest constructs an http.Request for the ListDispatchItems method
+func NewListDispatchItemsRequest(server string, dispatchId string, params *ListDispatchItemsParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "dispatch_id", dispatchId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/dispatches/%s/items", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.After != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "after", *params.After, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: "int64"}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Before != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "before", *params.Before, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: "int64"}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Wait != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "wait", *params.Wait, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
 
 	return req, nil
 }
@@ -3051,6 +3560,72 @@ func NewCreateTasksRequestWithBody(server string, runId RunID, params *CreateTas
 	return req, nil
 }
 
+// NewListTasksRequest constructs an http.Request for the ListTasks method
+func NewListTasksRequest(server string, params *ListTasksParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/tasks")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Since != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "since", *params.Since, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: "date-time"}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewGetTaskRequest constructs an http.Request for the GetTask method
 func NewGetTaskRequest(server string, taskId TaskID) (*http.Request, error) {
 	var err error
@@ -3232,6 +3807,13 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /chats/{chat_id} (the `GetChat` operationId).
 	GetChatWithResponse(ctx context.Context, chatId ChatID, reqEditors ...RequestEditorFn) (*GetChatResponse, error)
 
+	// AbortChatWithResponse Stop the coordinator's current turn in this chat; nothing happens when it is idle
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /chats/{chat_id}/abort (the `AbortChat` operationId).
+	AbortChatWithResponse(ctx context.Context, chatId ChatID, reqEditors ...RequestEditorFn) (*AbortChatResponse, error)
+
 	// ListChatMessagesWithResponse A chat's messages after a cursor, oldest first; optionally wait for the next one
 	//
 	// Returns a wrapper object for the known response body format(s).
@@ -3252,6 +3834,24 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with POST /chats/{chat_id}/messages (the `SendChatMessage` operationId).
 	SendChatMessageWithResponse(ctx context.Context, chatId ChatID, body SendChatMessageJSONRequestBody, reqEditors ...RequestEditorFn) (*SendChatMessageResponse, error)
+
+	// StreamChatWithResponse A chat as Server-Sent Events, resumable with Last-Event-ID
+	//
+	// Kept messages come as `message` frames with their seq as the id and a ChatMessage as data. While pi works, frames without an id show what is not kept yet: `reset` (a new reply starts), `delta` (ChatDelta), `tool` (ChatToolActivity) and `state` (ChatState); a kept message replaces what they showed. A comment line is sent every 10 seconds.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /chats/{chat_id}/stream (the `StreamChat` operationId).
+	StreamChatWithResponse(ctx context.Context, chatId ChatID, params *StreamChatParams, reqEditors ...RequestEditorFn) (*StreamChatResponse, error)
+
+	// ListDispatchItemsWithResponse A worker's transcript during one Dispatch, oldest first; optionally wait for the next item
+	//
+	// What the worker said and did, as the node sent it. With after, the items that follow that seq; with before, the newest items older than it.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /dispatches/{dispatch_id}/items (the `ListDispatchItems` operationId).
+	ListDispatchItemsWithResponse(ctx context.Context, dispatchId string, params *ListDispatchItemsParams, reqEditors ...RequestEditorFn) (*ListDispatchItemsResponse, error)
 
 	// ListEventsWithResponse Events after a cursor, oldest first; optionally wait for the next one
 	//
@@ -3436,6 +4036,15 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with POST /runs/{run_id}/tasks (the `CreateTasks` operationId).
 	CreateTasksWithResponse(ctx context.Context, runId RunID, params *CreateTasksParams, body CreateTasksJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateTasksResponse, error)
+
+	// ListTasksWithResponse The Tasks a board shows, most recently changed first
+	//
+	// Every Task of an open Run, and the Tasks of other Runs that changed at or after since, with their latest Dispatch and the Runs they belong to. One call fills a board of the work in flight.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /tasks (the `ListTasks` operationId).
+	ListTasksWithResponse(ctx context.Context, params *ListTasksParams, reqEditors ...RequestEditorFn) (*ListTasksResponse, error)
 
 	// GetTaskWithResponse A Task with its latest Dispatch
 	//
@@ -3651,6 +4260,47 @@ func (r GetChatResponse) ContentType() string {
 	return ""
 }
 
+type AbortChatResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r AbortChatResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r AbortChatResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r AbortChatResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r AbortChatResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r AbortChatResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type ListChatMessagesResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -3741,6 +4391,95 @@ func (r SendChatMessageResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r SendChatMessageResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type StreamChatResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r StreamChatResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r StreamChatResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r StreamChatResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r StreamChatResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r StreamChatResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListDispatchItemsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *TranscriptItemList
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListDispatchItemsResponse) GetJSON200() *TranscriptItemList {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListDispatchItemsResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListDispatchItemsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListDispatchItemsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListDispatchItemsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListDispatchItemsResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -4755,6 +5494,54 @@ func (r CreateTasksResponse) ContentType() string {
 	return ""
 }
 
+type ListTasksResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *TaskBoard
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListTasksResponse) GetJSON200() *TaskBoard {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListTasksResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListTasksResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListTasksResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListTasksResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListTasksResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type GetTaskResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -4964,6 +5751,19 @@ func (c *ClientWithResponses) GetChatWithResponse(ctx context.Context, chatId Ch
 	return ParseGetChatResponse(rsp)
 }
 
+// AbortChatWithResponse Stop the coordinator's current turn in this chat; nothing happens when it is idle
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /chats/{chat_id}/abort (the `AbortChat` operationId).
+func (c *ClientWithResponses) AbortChatWithResponse(ctx context.Context, chatId ChatID, reqEditors ...RequestEditorFn) (*AbortChatResponse, error) {
+	rsp, err := c.AbortChat(ctx, chatId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAbortChatResponse(rsp)
+}
+
 // ListChatMessagesWithResponse A chat's messages after a cursor, oldest first; optionally wait for the next one
 //
 // Returns a wrapper object for the known response body format(s).
@@ -5001,6 +5801,36 @@ func (c *ClientWithResponses) SendChatMessageWithResponse(ctx context.Context, c
 		return nil, err
 	}
 	return ParseSendChatMessageResponse(rsp)
+}
+
+// StreamChatWithResponse A chat as Server-Sent Events, resumable with Last-Event-ID
+//
+// Kept messages come as `message` frames with their seq as the id and a ChatMessage as data. While pi works, frames without an id show what is not kept yet: `reset` (a new reply starts), `delta` (ChatDelta), `tool` (ChatToolActivity) and `state` (ChatState); a kept message replaces what they showed. A comment line is sent every 10 seconds.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /chats/{chat_id}/stream (the `StreamChat` operationId).
+func (c *ClientWithResponses) StreamChatWithResponse(ctx context.Context, chatId ChatID, params *StreamChatParams, reqEditors ...RequestEditorFn) (*StreamChatResponse, error) {
+	rsp, err := c.StreamChat(ctx, chatId, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseStreamChatResponse(rsp)
+}
+
+// ListDispatchItemsWithResponse A worker's transcript during one Dispatch, oldest first; optionally wait for the next item
+//
+// What the worker said and did, as the node sent it. With after, the items that follow that seq; with before, the newest items older than it.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /dispatches/{dispatch_id}/items (the `ListDispatchItems` operationId).
+func (c *ClientWithResponses) ListDispatchItemsWithResponse(ctx context.Context, dispatchId string, params *ListDispatchItemsParams, reqEditors ...RequestEditorFn) (*ListDispatchItemsResponse, error) {
+	rsp, err := c.ListDispatchItems(ctx, dispatchId, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListDispatchItemsResponse(rsp)
 }
 
 // ListEventsWithResponse Events after a cursor, oldest first; optionally wait for the next one
@@ -5343,6 +6173,21 @@ func (c *ClientWithResponses) CreateTasksWithResponse(ctx context.Context, runId
 	return ParseCreateTasksResponse(rsp)
 }
 
+// ListTasksWithResponse The Tasks a board shows, most recently changed first
+//
+// Every Task of an open Run, and the Tasks of other Runs that changed at or after since, with their latest Dispatch and the Runs they belong to. One call fills a board of the work in flight.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /tasks (the `ListTasks` operationId).
+func (c *ClientWithResponses) ListTasksWithResponse(ctx context.Context, params *ListTasksParams, reqEditors ...RequestEditorFn) (*ListTasksResponse, error) {
+	rsp, err := c.ListTasks(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListTasksResponse(rsp)
+}
+
 // GetTaskWithResponse A Task with its latest Dispatch
 //
 // Returns a wrapper object for the known response body format(s).
@@ -5514,6 +6359,35 @@ func ParseGetChatResponse(rsp *http.Response) (*GetChatResponse, error) {
 	return response, nil
 }
 
+// ParseAbortChatResponse parses an HTTP response from a AbortChatWithResponse call
+func ParseAbortChatResponse(rsp *http.Response) (*AbortChatResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &AbortChatResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseListChatMessagesResponse parses an HTTP response from a ListChatMessagesWithResponse call
 func ParseListChatMessagesResponse(rsp *http.Response) (*ListChatMessagesResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -5567,6 +6441,65 @@ func ParseSendChatMessageResponse(rsp *http.Response) (*SendChatMessageResponse,
 			return nil, err
 		}
 		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseStreamChatResponse parses an HTTP response from a StreamChatWithResponse call
+func ParseStreamChatResponse(rsp *http.Response) (*StreamChatResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &StreamChatResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListDispatchItemsResponse parses an HTTP response from a ListDispatchItemsWithResponse call
+func ParseListDispatchItemsResponse(rsp *http.Response) (*ListDispatchItemsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListDispatchItemsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest TranscriptItemList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
 
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
 		var dest Error
@@ -6273,6 +7206,39 @@ func ParseCreateTasksResponse(rsp *http.Response) (*CreateTasksResponse, error) 
 	return response, nil
 }
 
+// ParseListTasksResponse parses an HTTP response from a ListTasksWithResponse call
+func ParseListTasksResponse(rsp *http.Response) (*ListTasksResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListTasksResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest TaskBoard
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseGetTaskResponse parses an HTTP response from a GetTaskWithResponse call
 func ParseGetTaskResponse(rsp *http.Response) (*GetTaskResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -6386,12 +7352,21 @@ type ServerInterface interface {
 	// GetChat A chat, and whether the coordinator is working on it
 	// (GET /chats/{chat_id})
 	GetChat(w http.ResponseWriter, r *http.Request, chatId ChatID)
+	// AbortChat Stop the coordinator's current turn in this chat; nothing happens when it is idle
+	// (POST /chats/{chat_id}/abort)
+	AbortChat(w http.ResponseWriter, r *http.Request, chatId ChatID)
 	// ListChatMessages A chat's messages after a cursor, oldest first; optionally wait for the next one
 	// (GET /chats/{chat_id}/messages)
 	ListChatMessages(w http.ResponseWriter, r *http.Request, chatId ChatID, params ListChatMessagesParams)
 	// SendChatMessage Write to the coordinator; it gets the message when it can take it
 	// (POST /chats/{chat_id}/messages)
 	SendChatMessage(w http.ResponseWriter, r *http.Request, chatId ChatID)
+	// StreamChat A chat as Server-Sent Events, resumable with Last-Event-ID
+	// (GET /chats/{chat_id}/stream)
+	StreamChat(w http.ResponseWriter, r *http.Request, chatId ChatID, params StreamChatParams)
+	// ListDispatchItems A worker's transcript during one Dispatch, oldest first; optionally wait for the next item
+	// (GET /dispatches/{dispatch_id}/items)
+	ListDispatchItems(w http.ResponseWriter, r *http.Request, dispatchId string, params ListDispatchItemsParams)
 	// ListEvents Events after a cursor, oldest first; optionally wait for the next one
 	// (GET /events)
 	ListEvents(w http.ResponseWriter, r *http.Request, params ListEventsParams)
@@ -6455,6 +7430,9 @@ type ServerInterface interface {
 	// CreateTasks Add Tasks to an open Run, with their dependencies
 	// (POST /runs/{run_id}/tasks)
 	CreateTasks(w http.ResponseWriter, r *http.Request, runId RunID, params CreateTasksParams)
+	// ListTasks The Tasks a board shows, most recently changed first
+	// (GET /tasks)
+	ListTasks(w http.ResponseWriter, r *http.Request, params ListTasksParams)
 	// GetTask A Task with its latest Dispatch
 	// (GET /tasks/{task_id})
 	GetTask(w http.ResponseWriter, r *http.Request, taskId TaskID)
@@ -6562,6 +7540,32 @@ func (siw *ServerInterfaceWrapper) GetChat(w http.ResponseWriter, r *http.Reques
 	handler.ServeHTTP(w, r)
 }
 
+// AbortChat operation middleware
+func (siw *ServerInterfaceWrapper) AbortChat(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "chat_id" -------------
+	var chatId ChatID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "chat_id", r.PathValue("chat_id"), &chatId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "chat_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AbortChat(w, r, chatId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListChatMessages operation middleware
 func (siw *ServerInterfaceWrapper) ListChatMessages(w http.ResponseWriter, r *http.Request) {
 
@@ -6647,6 +7651,150 @@ func (siw *ServerInterfaceWrapper) SendChatMessage(w http.ResponseWriter, r *htt
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SendChatMessage(w, r, chatId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// StreamChat operation middleware
+func (siw *ServerInterfaceWrapper) StreamChat(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "chat_id" -------------
+	var chatId ChatID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "chat_id", r.PathValue("chat_id"), &chatId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "chat_id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params StreamChatParams
+
+	// ------------- Optional query parameter "after" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "after", r.URL.Query(), &params.After, runtime.BindQueryParameterOptions{Type: "integer", Format: "int64"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "after"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "after", Err: err})
+		}
+		return
+	}
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Last-Event-ID" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Last-Event-ID")]; found {
+		var LastEventID int64
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Last-Event-ID", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Last-Event-ID", valueList[0], &LastEventID, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "integer", Format: "int64"})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Last-Event-ID", Err: err})
+			return
+		}
+
+		params.LastEventID = &LastEventID
+
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.StreamChat(w, r, chatId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListDispatchItems operation middleware
+func (siw *ServerInterfaceWrapper) ListDispatchItems(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "dispatch_id" -------------
+	var dispatchId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "dispatch_id", r.PathValue("dispatch_id"), &dispatchId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "dispatch_id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListDispatchItemsParams
+
+	// ------------- Optional query parameter "after" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "after", r.URL.Query(), &params.After, runtime.BindQueryParameterOptions{Type: "integer", Format: "int64"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "after"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "after", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "before" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "before", r.URL.Query(), &params.Before, runtime.BindQueryParameterOptions{Type: "integer", Format: "int64"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "before"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "before", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "wait" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "wait", r.URL.Query(), &params.Wait, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "wait"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "wait", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListDispatchItems(w, r, dispatchId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -7373,6 +8521,52 @@ func (siw *ServerInterfaceWrapper) CreateTasks(w http.ResponseWriter, r *http.Re
 	handler.ServeHTTP(w, r)
 }
 
+// ListTasks operation middleware
+func (siw *ServerInterfaceWrapper) ListTasks(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListTasksParams
+
+	// ------------- Optional query parameter "since" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "since", r.URL.Query(), &params.Since, runtime.BindQueryParameterOptions{Type: "string", Format: "date-time"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "since"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "since", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListTasks(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetTask operation middleware
 func (siw *ServerInterfaceWrapper) GetTask(w http.ResponseWriter, r *http.Request) {
 
@@ -7578,9 +8772,11 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/runs/{run_id}/finish", wrapper.FinishRun)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/runs/{run_id}/cancel", wrapper.CancelRun)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/runs/{run_id}/tasks", wrapper.CreateTasks)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/tasks", wrapper.ListTasks)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/tasks/{task_id}", wrapper.GetTask)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/tasks/{task_id}/cancel", wrapper.CancelTask)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/tasks/{task_id}/reopen", wrapper.ReopenTask)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/dispatches/{dispatch_id}/items", wrapper.ListDispatchItems)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/questions", wrapper.ListQuestions)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/questions/{question_id}", wrapper.GetQuestion)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/questions/{question_id}/answer", wrapper.AnswerQuestion)
@@ -7599,6 +8795,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/chats", wrapper.ListChats)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/chats", wrapper.CreateChat)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/chats/{chat_id}", wrapper.GetChat)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/chats/{chat_id}/stream", wrapper.StreamChat)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/chats/{chat_id}/abort", wrapper.AbortChat)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/chats/{chat_id}/messages", wrapper.ListChatMessages)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/chats/{chat_id}/messages", wrapper.SendChatMessage)
 
@@ -7762,6 +8960,39 @@ func (response GetChatdefaultJSONResponse) VisitGetChatResponse(w http.ResponseW
 	return err
 }
 
+type AbortChatRequestObject struct {
+	ChatId ChatID `json:"chat_id"`
+}
+
+type AbortChatResponseObject interface {
+	VisitAbortChatResponse(w http.ResponseWriter) error
+}
+
+type AbortChat204Response struct {
+}
+
+func (response AbortChat204Response) VisitAbortChatResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type AbortChatdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response AbortChatdefaultJSONResponse) VisitAbortChatResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListChatMessagesRequestObject struct {
 	ChatId ChatID `json:"chat_id"`
 	Params ListChatMessagesParams
@@ -7831,6 +9062,115 @@ type SendChatMessagedefaultJSONResponse struct {
 }
 
 func (response SendChatMessagedefaultJSONResponse) VisitSendChatMessageResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StreamChatRequestObject struct {
+	ChatId ChatID `json:"chat_id"`
+	Params StreamChatParams
+}
+
+type StreamChatResponseObject interface {
+	VisitStreamChatResponse(w http.ResponseWriter) error
+}
+
+type StreamChat200TexteventStreamResponse struct {
+	Body          io.Reader
+	ContentLength int64
+}
+
+func (response StreamChat200TexteventStreamResponse) VisitStreamChatResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		// If w doesn't support flushing, fall back to io.Copy.
+		_, err := io.Copy(w, response.Body)
+		return err
+	}
+	// text/event-stream messages are typically small; use a
+	// modest buffer and flush after each chunk so clients see
+	// events immediately instead of waiting on OS buffering.
+	buf := make([]byte, 4096)
+	for {
+		n, err := response.Body.Read(buf)
+		if n > 0 {
+			if _, writeErr := w.Write(buf[:n]); writeErr != nil {
+				return writeErr
+			}
+			flusher.Flush()
+		}
+		if err != nil {
+			if err == io.EOF {
+				return nil
+			}
+			return err
+		}
+	}
+}
+
+type StreamChatdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response StreamChatdefaultJSONResponse) VisitStreamChatResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListDispatchItemsRequestObject struct {
+	DispatchId string `json:"dispatch_id"`
+	Params     ListDispatchItemsParams
+}
+
+type ListDispatchItemsResponseObject interface {
+	VisitListDispatchItemsResponse(w http.ResponseWriter) error
+}
+
+type ListDispatchItems200JSONResponse TranscriptItemList
+
+func (response ListDispatchItems200JSONResponse) VisitListDispatchItemsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListDispatchItemsdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListDispatchItemsdefaultJSONResponse) VisitListDispatchItemsResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -8705,6 +10045,45 @@ func (response CreateTasksdefaultJSONResponse) VisitCreateTasksResponse(w http.R
 	return err
 }
 
+type ListTasksRequestObject struct {
+	Params ListTasksParams
+}
+
+type ListTasksResponseObject interface {
+	VisitListTasksResponse(w http.ResponseWriter) error
+}
+
+type ListTasks200JSONResponse TaskBoard
+
+func (response ListTasks200JSONResponse) VisitListTasksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListTasksdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListTasksdefaultJSONResponse) VisitListTasksResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type GetTaskRequestObject struct {
 	TaskId TaskID `json:"task_id"`
 }
@@ -8836,12 +10215,21 @@ type StrictServerInterface interface {
 	// GetChat A chat, and whether the coordinator is working on it
 	// (GET /chats/{chat_id})
 	GetChat(ctx context.Context, request GetChatRequestObject) (GetChatResponseObject, error)
+	// AbortChat Stop the coordinator's current turn in this chat; nothing happens when it is idle
+	// (POST /chats/{chat_id}/abort)
+	AbortChat(ctx context.Context, request AbortChatRequestObject) (AbortChatResponseObject, error)
 	// ListChatMessages A chat's messages after a cursor, oldest first; optionally wait for the next one
 	// (GET /chats/{chat_id}/messages)
 	ListChatMessages(ctx context.Context, request ListChatMessagesRequestObject) (ListChatMessagesResponseObject, error)
 	// SendChatMessage Write to the coordinator; it gets the message when it can take it
 	// (POST /chats/{chat_id}/messages)
 	SendChatMessage(ctx context.Context, request SendChatMessageRequestObject) (SendChatMessageResponseObject, error)
+	// StreamChat A chat as Server-Sent Events, resumable with Last-Event-ID
+	// (GET /chats/{chat_id}/stream)
+	StreamChat(ctx context.Context, request StreamChatRequestObject) (StreamChatResponseObject, error)
+	// ListDispatchItems A worker's transcript during one Dispatch, oldest first; optionally wait for the next item
+	// (GET /dispatches/{dispatch_id}/items)
+	ListDispatchItems(ctx context.Context, request ListDispatchItemsRequestObject) (ListDispatchItemsResponseObject, error)
 	// ListEvents Events after a cursor, oldest first; optionally wait for the next one
 	// (GET /events)
 	ListEvents(ctx context.Context, request ListEventsRequestObject) (ListEventsResponseObject, error)
@@ -8905,6 +10293,9 @@ type StrictServerInterface interface {
 	// CreateTasks Add Tasks to an open Run, with their dependencies
 	// (POST /runs/{run_id}/tasks)
 	CreateTasks(ctx context.Context, request CreateTasksRequestObject) (CreateTasksResponseObject, error)
+	// ListTasks The Tasks a board shows, most recently changed first
+	// (GET /tasks)
+	ListTasks(ctx context.Context, request ListTasksRequestObject) (ListTasksResponseObject, error)
 	// GetTask A Task with its latest Dispatch
 	// (GET /tasks/{task_id})
 	GetTask(ctx context.Context, request GetTaskRequestObject) (GetTaskResponseObject, error)
@@ -9062,6 +10453,32 @@ func (sh *strictHandler) GetChat(w http.ResponseWriter, r *http.Request, chatId 
 	}
 }
 
+// AbortChat operation middleware
+func (sh *strictHandler) AbortChat(w http.ResponseWriter, r *http.Request, chatId ChatID) {
+	var request AbortChatRequestObject
+
+	request.ChatId = chatId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AbortChat(ctx, request.(AbortChatRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AbortChat")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AbortChatResponseObject); ok {
+		if err := validResponse.VisitAbortChatResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ListChatMessages operation middleware
 func (sh *strictHandler) ListChatMessages(w http.ResponseWriter, r *http.Request, chatId ChatID, params ListChatMessagesParams) {
 	var request ListChatMessagesRequestObject
@@ -9115,6 +10532,60 @@ func (sh *strictHandler) SendChatMessage(w http.ResponseWriter, r *http.Request,
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(SendChatMessageResponseObject); ok {
 		if err := validResponse.VisitSendChatMessageResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// StreamChat operation middleware
+func (sh *strictHandler) StreamChat(w http.ResponseWriter, r *http.Request, chatId ChatID, params StreamChatParams) {
+	var request StreamChatRequestObject
+
+	request.ChatId = chatId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.StreamChat(ctx, request.(StreamChatRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "StreamChat")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(StreamChatResponseObject); ok {
+		if err := validResponse.VisitStreamChatResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListDispatchItems operation middleware
+func (sh *strictHandler) ListDispatchItems(w http.ResponseWriter, r *http.Request, dispatchId string, params ListDispatchItemsParams) {
+	var request ListDispatchItemsRequestObject
+
+	request.DispatchId = dispatchId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListDispatchItems(ctx, request.(ListDispatchItemsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListDispatchItems")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListDispatchItemsResponseObject); ok {
+		if err := validResponse.VisitListDispatchItemsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -9694,6 +11165,32 @@ func (sh *strictHandler) CreateTasks(w http.ResponseWriter, r *http.Request, run
 	}
 }
 
+// ListTasks operation middleware
+func (sh *strictHandler) ListTasks(w http.ResponseWriter, r *http.Request, params ListTasksParams) {
+	var request ListTasksRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListTasks(ctx, request.(ListTasksRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListTasks")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListTasksResponseObject); ok {
+		if err := validResponse.VisitListTasksResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // GetTask operation middleware
 func (sh *strictHandler) GetTask(w http.ResponseWriter, r *http.Request, taskId TaskID) {
 	var request GetTaskRequestObject
@@ -9777,90 +11274,112 @@ func (sh *strictHandler) ReopenTask(w http.ResponseWriter, r *http.Request, task
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
-	"dQs5nNPdNMmEV2KC3TSfX/5/AA==",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

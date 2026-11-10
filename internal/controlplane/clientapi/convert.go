@@ -78,6 +78,7 @@ func toDispatch(d orchestration.Dispatch) openapi.Dispatch {
 		Model: ptr(d.Model), Effort: ptr(d.Effort), ProfileVersionId: ptr(d.ProfileVersionID),
 		CreatedAt: d.CreatedAt, UpdatedAt: d.UpdatedAt,
 		StartedAt: d.StartedAt, ProgressAt: d.ProgressAt, SettledAt: d.SettledAt, WaitingSince: d.WaitingSince,
+		Activity: ptr(d.Activity),
 	}
 
 	if d.Result != nil {

@@ -172,6 +172,60 @@ func (q *Queries) InsertTaskDep(ctx context.Context, arg InsertTaskDepParams) er
 	return err
 }
 
+const listBoardTasks = `-- name: ListBoardTasks :many
+SELECT id, run_id, position, profile, spec, runtime, model, effort, status, blocked_reason, failure_count, result, created_at, updated_at, finished_at, not_before, cancel_requested_at FROM tasks
+WHERE tasks.run_id IN (SELECT r.id FROM runs r WHERE r.status = 'open') OR tasks.updated_at >= ?1
+ORDER BY tasks.updated_at DESC, tasks.id DESC
+LIMIT ?2
+`
+
+type ListBoardTasksParams struct {
+	Since int64
+	Lim   int64
+}
+
+// Every Task of an open Run, and the other Runs' Tasks changed at or after since; most recently changed first.
+func (q *Queries) ListBoardTasks(ctx context.Context, arg ListBoardTasksParams) ([]Task, error) {
+	rows, err := q.db.QueryContext(ctx, listBoardTasks, arg.Since, arg.Lim)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Task{}
+	for rows.Next() {
+		var i Task
+		if err := rows.Scan(
+			&i.ID,
+			&i.RunID,
+			&i.Position,
+			&i.Profile,
+			&i.Spec,
+			&i.Runtime,
+			&i.Model,
+			&i.Effort,
+			&i.Status,
+			&i.BlockedReason,
+			&i.FailureCount,
+			&i.Result,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.FinishedAt,
+			&i.NotBefore,
+			&i.CancelRequestedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listDependencyStates = `-- name: ListDependencyStates :many
 SELECT u.status, u.blocked_reason
 FROM task_deps d

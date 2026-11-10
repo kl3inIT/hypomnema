@@ -118,6 +118,19 @@ linters:
           deny:
             - pkg: database/sql
               desc: SQL belongs to the package that owns the tables (orchestration, vault, node statedb), as Omnara's statedb rule
+        vault_values_stay_inside:
+          list-mode: lax
+          files:
+            - "**/internal/controlplane/clientapi/**"
+            - "**/internal/controlplane/clientcli/**"
+            - "**/internal/controlplane/coordinator/**"
+            - "**/internal/controlplane/nodeapi/**"
+            - "**/internal/controlplane/orchestration/**"
+            - "**/internal/controlplane/webui/**"
+            - "!**/*_test.go"
+          deny:
+            - pkg: github.com/kl3inIT/hypomnema/internal/controlplane/vault
+              desc: a secret's value is opened only by the control plane's own wiring and the model gateway, never by an API, a coordinator or the web client (issue #66)
         shared_depends_on_no_tree:
           list-mode: lax
           files: ["**/internal/shared/**"]

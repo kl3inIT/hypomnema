@@ -7,13 +7,15 @@ SQLC = CGO_ENABLED=0 $(CI_TOOL) github.com/sqlc-dev/sqlc/cmd/sqlc
 OAPI_CODEGEN = $(CI_TOOL) github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen
 OPENAPI_GEN := internal/controlplane/clientapi/openapi
 MIGRATIONS := internal/controlplane/orchestration/migrations
+SQLC_OUT := internal/controlplane/orchestration/internal/store internal/controlplane/vault/internal/store
 MODULE := github.com/kl3inIT/hypomnema
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X $(MODULE)/internal/shared/platform.Version=$(VERSION)
 BINARIES := hypomnema hypomnema-node
 
 .PHONY: help verify verify-static fmt-check tidy-check lint deps-check sqlc-generate sqlc-check migration-check \
-	openapi-generate openapi-check unit race govulncheck build web-install web-check web-build web-e2e
+	openapi-generate openapi-check unit race govulncheck build web-install web-check web-api-generate \
+	web-api-check web-build web-e2e web-doctor
 
 help: ## List the targets
 	@awk 'BEGIN {FS = ":.*## "} /^[a-z-]+:.*## / {printf "  %-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -48,8 +50,8 @@ sqlc-generate: ## Regenerate the typed queries from the migrations and queries
 
 sqlc-check: ## Fail when the generated queries are not what sqlc would generate
 	$(SQLC) generate
-	@git diff --exit-code -- internal/controlplane/orchestration/internal/store
-	@test -z "$$(git status --porcelain -- internal/controlplane/orchestration/internal/store)" || \
+	@git diff --exit-code -- $(SQLC_OUT)
+	@test -z "$$(git status --porcelain -- $(SQLC_OUT))" || \
 		{ echo 'sqlc generated files that are not committed'; exit 1; }
 
 openapi-generate: ## Regenerate the client API's types, server and client from api/openapi.yaml
@@ -89,11 +91,25 @@ WEB := pnpm --dir web
 web-install: ## Install the web client's packages from the lockfile
 	$(WEB) install --frozen-lockfile
 
-web-check: ## Lint, format check, typecheck and unit tests of the web client
+web-check: web-api-check ## Lint, format check, typecheck and unit tests of the web client
 	$(WEB) check
+
+web-api-generate: ## Regenerate the web client's typed API client from api/openapi.yaml
+	$(WEB) generate:api
+
+# As openapi-check, for the web client's generated client; it runs in the web job, which has pnpm.
+web-api-check: ## Fail when the web client's generated API client is not what the contract generates
+	$(WEB) generate:api
+	@git diff --exit-code -- web/src/api/generated
+	@test -z "$$(git status --porcelain -- web/src/api/generated)" || 		{ echo 'the web API client has generated files that are not committed'; exit 1; }
 
 web-build: ## Build the web client into web/dist
 	$(WEB) build
+
+# Not a gate: its findings are read, then fixed or ignored in web/doctor.config.json. It runs local checks only
+# (no score API, no crash reports, no Socket.dev lookups).
+web-doctor: ## React Doctor's report on the web client
+	$(WEB) run doctor
 
 web-e2e: ## Browser tests of the built web client (needs Playwright's Chromium)
 	$(WEB) test:e2e

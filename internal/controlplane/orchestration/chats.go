@@ -25,6 +25,7 @@ type ChatRole string
 const (
 	ChatOwner       ChatRole = "owner"
 	ChatCoordinator ChatRole = "coordinator"
+	ChatTool        ChatRole = "tool"
 	ChatSystem      ChatRole = "system"
 )
 
@@ -53,6 +54,9 @@ type ChatMessage struct {
 	ChatID string
 	Role   ChatRole
 	Text   string
+	// Parts is a JSON array of a reply's or a tool's parts (text, thinking,
+	// tool_call, tool_result); nil for other messages.
+	Parts json.RawMessage
 	// EventSeq is the event a wake-up reports; 0 for other messages.
 	EventSeq int64
 	// DeliveredAt is when pi got an owner message or a wake-up.
@@ -60,11 +64,25 @@ type ChatMessage struct {
 	CreatedAt   time.Time
 }
 
-// CreateChat starts a chat. The title defaults to "Chat".
+// untitled is a new chat's title until its first owner message names it
+// (queries/chats.sql TitleUntitledChat, migration 00012).
+const untitled = "Chat"
+
+// titleOf is a message's first line, at most 80 characters.
+func titleOf(text string) string {
+	line, _, _ := strings.Cut(strings.TrimSpace(text), "\n")
+	if r := []rune(line); len(r) > 80 {
+		line = string(r[:80])
+	}
+
+	return strings.TrimSpace(line)
+}
+
+// CreateChat starts a chat. Without a title, its first owner message names it.
 func (s *Service) CreateChat(ctx context.Context, title string) (Chat, error) {
 	title = strings.TrimSpace(title)
 	if title == "" {
-		title = "Chat"
+		title = untitled
 	}
 
 	if len(title) > 200 {
@@ -120,15 +138,29 @@ func chatFromRow(r store.Chat) Chat {
 }
 
 // AddChatMessage appends a message. An owner message waits for pi until it
-// is delivered; coordinator and system messages are records only.
+// is delivered; coordinator, tool and system messages are records only.
 func (s *Service) AddChatMessage(ctx context.Context, chatID string, role ChatRole, text string) (ChatMessage, error) {
+	return s.AddChatMessageParts(ctx, chatID, role, text, nil)
+}
+
+// AddChatMessageParts appends a message with its parts, a JSON array.
+func (s *Service) AddChatMessageParts(ctx context.Context, chatID string, role ChatRole, text string,
+	parts json.RawMessage,
+) (ChatMessage, error) {
 	switch {
-	case role != ChatOwner && role != ChatCoordinator && role != ChatSystem:
+	case role != ChatOwner && role != ChatCoordinator && role != ChatTool && role != ChatSystem:
 		return ChatMessage{}, fmt.Errorf("%w: unknown chat role %q", ErrInvalid, role)
-	case strings.TrimSpace(text) == "":
+	case strings.TrimSpace(text) == "" && (parts == nil || role == ChatOwner):
 		return ChatMessage{}, fmt.Errorf("%w: a message needs text", ErrInvalid)
 	case len(text) > MaxChatText:
 		return ChatMessage{}, fmt.Errorf("%w: a message is at most %d bytes", ErrInvalid, MaxChatText)
+	case parts != nil && !json.Valid(parts):
+		return ChatMessage{}, fmt.Errorf("%w: message parts are not JSON", ErrInvalid)
+	}
+
+	var stored sql.NullString
+	if parts != nil {
+		stored = sql.NullString{String: string(parts), Valid: true}
 	}
 
 	var seq int64
@@ -141,10 +173,16 @@ func (s *Service) AddChatMessage(ctx context.Context, chatID string, role ChatRo
 		var err error
 
 		seq, err = q.InsertChatMessage(ctx, store.InsertChatMessageParams{
-			ChatID: chatID, Role: string(role), Text: text, Now: now,
+			ChatID: chatID, Role: string(role), Text: text, Parts: stored, Now: now,
 		})
 		if err != nil {
 			return fmt.Errorf("inserting a message: %w", err)
+		}
+
+		if role == ChatOwner {
+			if err := q.TitleUntitledChat(ctx, store.TitleUntitledChatParams{ID: chatID, Title: titleOf(text)}); err != nil {
+				return fmt.Errorf("titling the chat: %w", err)
+			}
 		}
 
 		return q.TouchChat(ctx, store.TouchChatParams{ID: chatID, Now: now})
@@ -182,12 +220,21 @@ func chatMessages(rows []store.ChatMessage) []ChatMessage {
 	out := make([]ChatMessage, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, ChatMessage{
-			Seq: r.Seq, ChatID: r.ChatID, Role: ChatRole(r.Role), Text: r.Text, EventSeq: r.EventSeq.Int64,
+			Seq: r.Seq, ChatID: r.ChatID, Role: ChatRole(r.Role), Text: r.Text, Parts: rawParts(r.Parts),
+			EventSeq:    r.EventSeq.Int64,
 			DeliveredAt: optionalTime(r.DeliveredAt), CreatedAt: millis(r.CreatedAt),
 		})
 	}
 
 	return out
+}
+
+func rawParts(p sql.NullString) json.RawMessage {
+	if !p.Valid {
+		return nil
+	}
+
+	return json.RawMessage(p.String)
 }
 
 // Undelivered returns the owner messages and wake-ups pi has not had yet,

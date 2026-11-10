@@ -37,6 +37,7 @@ type ChatMessage struct {
 	ChatID      string
 	Role        string
 	Text        string
+	Parts       sql.NullString
 	EventSeq    sql.NullInt64
 	DeliveredAt sql.NullInt64
 	CreatedAt   int64
@@ -95,6 +96,7 @@ type Dispatch struct {
 	Model            sql.NullString
 	Effort           sql.NullString
 	ProfileVersionID sql.NullString
+	Activity         sql.NullString
 }
 
 type DispatchEffect struct {
@@ -106,6 +108,14 @@ type DispatchEffect struct {
 	Payload    sql.NullString
 	CreatedAt  int64
 	UpdatedAt  int64
+}
+
+type DispatchItem struct {
+	DispatchID string
+	Seq        int64
+	Kind       string
+	Data       string
+	CreatedAt  int64
 }
 
 type DispatchResource struct {
@@ -221,6 +231,39 @@ type Run struct {
 	Base               sql.NullString
 	CoordinatorTokenID sql.NullString
 	ChatID             sql.NullString
+}
+
+type Secret struct {
+	ID               string
+	Name             string
+	Kind             string
+	Metadata         string
+	CurrentVersionID string
+	CreatedAt        int64
+	UpdatedAt        int64
+	LoginRequiredAt  sql.NullInt64
+}
+
+type SecretRefreshLease struct {
+	SecretID          string
+	OwnerToken        string
+	ExpectedVersionID string
+	ExpiresAt         int64
+}
+
+type SecretVersion struct {
+	ID                   string
+	SecretID             string
+	VersionNumber        int64
+	PayloadKeys          string
+	EncryptionScheme     string
+	KeyID                string
+	EncryptedDek         []byte
+	EncryptedDekNonce    []byte
+	Nonce                []byte
+	Ciphertext           []byte
+	AccessTokenExpiresAt sql.NullInt64
+	CreatedAt            int64
 }
 
 type Task struct {
