@@ -849,8 +849,12 @@ and the node in the control plane binary.
   yet. Both tools leave the primitives alone (`web/src/components`: shadcn's components and theme provider).
 - `make web-check`: oxlint, oxfmt, `tsc -b` and vitest for the web client; `make web-e2e`: Playwright on the
   production build, at a phone's and a desktop's size.
-- CI (`.github/workflows/ci.yml`) runs `make verify` and `govulncheck`, and in a second job `make web-check` and
-  `make web-e2e`, on every pull request and on `main`. Chromium for the browser tests is cached by the Playwright
-  version, as t3code's CI does.
+- CI (`.github/workflows/ci.yml`; [research](docs/research/2026-11-10-ci-and-tests.md)) runs on every pull request
+  and on `main`, as jobs side by side: `Static` (`make verify-static` and `govulncheck`), `Unit` (`make unit`),
+  `Race` (`make race`) and `Web` (`make web-check`, `make web-e2e`). Each Go job keeps its own build cache. A first
+  job, `Changes`, finds whether anything but documentation changed (`docs/**`, `*.md`); when nothing did, the four
+  are skipped. A last job, `Required`, passes when none of them failed and is the one check to wait for. Chromium
+  for the browser tests is cached by the Playwright version, as t3code's CI does. `make verify` is still the three
+  Go targets in a row, for a laptop.
 - Dependabot (`.github/dependabot.yml`) proposes updates weekly for the Go modules (`/`, `/tools/ci`), the web
   client, pi (`deploy/coordinator`) and the GitHub Actions, with minor and patch updates grouped.
