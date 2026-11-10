@@ -17,6 +17,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/coordinator"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/integration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/nodeapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
@@ -167,7 +168,8 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	sup := coordinator.New(svc, coordinator.Config{Command: cfg.CoordinatorCommand, Logger: logger})
 
 	api := clientapi.New(svc, logger, ctx.Done()).WithCoordinator(sup).WithHostTokens(tokens).
-		WithMachines(machineMgr).WithSecrets(ownerSecrets{vault: secrets, referrers: referrers})
+		WithMachines(machineMgr).WithSecrets(ownerSecrets{vault: secrets, referrers: referrers}).
+		WithIntegrations(integration.New(svc, secrets, platform.SystemClock{}, platform.NewID, integration.Google()))
 	if err := api.Register(mux); err != nil {
 		return err
 	}

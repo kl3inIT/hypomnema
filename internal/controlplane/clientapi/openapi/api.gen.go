@@ -657,6 +657,18 @@ type CreatedNode struct {
 	Token *string `json:"token,omitempty"`
 }
 
+// Credentials defines model for Credentials.
+type Credentials struct {
+	Password string `json:"password"`
+	Username string `json:"username"`
+}
+
+// Disconnected defines model for Disconnected.
+type Disconnected struct {
+	// Revoked Whether the service ended the tokens. When false, remove the access in the account's settings.
+	Revoked bool `json:"revoked"`
+}
+
 // Dispatch defines model for Dispatch.
 type Dispatch struct {
 	// Activity One line about the newest thing the worker said or did.
@@ -758,6 +770,39 @@ type GitHostList struct {
 	Data []GitHost `json:"data"`
 }
 
+// Integration A service that signs in with an account, and what the owner set up for it.
+type Integration struct {
+	// ClientId The id of the OAuth client it signs in with; absent until one is set. Not secret.
+	ClientId    *string                 `json:"client_id,omitempty"`
+	Connections []IntegrationConnection `json:"connections"`
+	Id          string                  `json:"id"`
+	Name        string                  `json:"name"`
+
+	// Services The services a Connection can be granted, such as gmail.
+	Services []string `json:"services"`
+}
+
+// IntegrationConnection One account of an Integration the owner signed in, under a label.
+type IntegrationConnection struct {
+	// Account The account's own name at the service, such as its email.
+	Account     string    `json:"account"`
+	CreatedAt   time.Time `json:"created_at"`
+	Integration string    `json:"integration"`
+	Label       string    `json:"label"`
+
+	// Services What the Connection was granted: a service alone to read and write, or with ":read" to read only.
+	Services []string `json:"services"`
+
+	// SignInRequired The service refused the Connection's refresh token for good; sign in again.
+	SignInRequired bool      `json:"sign_in_required"`
+	UpdatedAt      time.Time `json:"updated_at"`
+}
+
+// IntegrationList defines model for IntegrationList.
+type IntegrationList struct {
+	Data []Integration `json:"data"`
+}
+
 // MachineProvider defines model for MachineProvider.
 type MachineProvider struct {
 	Id   string              `json:"id"`
@@ -825,6 +870,12 @@ type NewGitHostToken struct {
 	Token *string `json:"token,omitempty"`
 }
 
+// NewIntegrationClient defines model for NewIntegrationClient.
+type NewIntegrationClient struct {
+	ClientId     string  `json:"client_id"`
+	ClientSecret *string `json:"client_secret,omitempty"`
+}
+
 // NewNode defines model for NewNode.
 type NewNode struct {
 	// MaxDispatches Dispatches the node runs at once; left out, the default.
@@ -868,6 +919,14 @@ type NewRun struct {
 type NewSecretValue struct {
 	Value  *string            `json:"value,omitempty"`
 	Values *map[string]string `json:"values,omitempty"`
+}
+
+// NewSignIn defines model for NewSignIn.
+type NewSignIn struct {
+	Label string `json:"label"`
+
+	// Services A service alone to read and write, or with ":read" to read only.
+	Services []string `json:"services"`
 }
 
 // NewTask defines model for NewTask.
@@ -1182,8 +1241,17 @@ type SecretValue struct {
 
 // SignIn defines model for SignIn.
 type SignIn struct {
-	Password string `json:"password"`
-	Username string `json:"username"`
+	ExpiresInSeconds int    `json:"expires_in_seconds"`
+	Id               string `json:"id"`
+
+	// Url The link the owner opens in a browser to sign in.
+	Url string `json:"url"`
+}
+
+// SignInCallback defines model for SignInCallback.
+type SignInCallback struct {
+	// Callback The whole address the browser ended on after consent.
+	Callback *string `json:"callback,omitempty"`
 }
 
 // Source defines model for Source.
@@ -1294,6 +1362,9 @@ type ChatID = string
 
 // IdempotencyKey defines model for IdempotencyKey.
 type IdempotencyKey = string
+
+// IntegrationID defines model for IntegrationID.
+type IntegrationID = string
 
 // Name defines model for Name.
 type Name = string
@@ -1421,6 +1492,15 @@ type PutGitHostConnectionJSONRequestBody = NewGitHostToken
 // PutGitHostTokenJSONRequestBody defines body for PutGitHostToken for application/json ContentType.
 type PutGitHostTokenJSONRequestBody = NewGitHostToken
 
+// PutIntegrationClientJSONRequestBody defines body for PutIntegrationClient for application/json ContentType.
+type PutIntegrationClientJSONRequestBody = NewIntegrationClient
+
+// BeginIntegrationSignInJSONRequestBody defines body for BeginIntegrationSignIn for application/json ContentType.
+type BeginIntegrationSignInJSONRequestBody = NewSignIn
+
+// CompleteIntegrationSignInJSONRequestBody defines body for CompleteIntegrationSignIn for application/json ContentType.
+type CompleteIntegrationSignInJSONRequestBody = SignInCallback
+
 // CreateNodeJSONRequestBody defines body for CreateNode for application/json ContentType.
 type CreateNodeJSONRequestBody = NewNode
 
@@ -1446,7 +1526,7 @@ type CreateTasksJSONRequestBody = NewTasks
 type PutSecretJSONRequestBody = NewSecretValue
 
 // CreateSessionJSONRequestBody defines body for CreateSession for application/json ContentType.
-type CreateSessionJSONRequestBody = SignIn
+type CreateSessionJSONRequestBody = Credentials
 
 // RequestEditorFn is the function signature for the RequestEditor callback function
 type RequestEditorFn func(ctx context.Context, req *http.Request) error
@@ -1672,6 +1752,74 @@ type ClientInterface interface {
 	//
 	// Corresponds with PUT /hosts/{host}/token (the `PutGitHostToken` operationId).
 	PutGitHostToken(ctx context.Context, host string, body PutGitHostTokenJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListIntegrations The services that sign in with an account, with their Connections
+	//
+	// An Integration here signs in with OAuth; Google is the first. A git host is an Integration too and is listed under /hosts. No token and no client secret is ever in the answer.
+	//
+	// Corresponds with GET /integrations (the `ListIntegrations` operationId).
+	ListIntegrations(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PutIntegrationClientWithBody Keep the OAuth client an Integration signs in with; only the owner
+	//
+	// The owner creates the client at the service once. Its secret goes into the vault and is never returned. It replaces the client the Integration had.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PUT /integrations/{integration}/client (the `PutIntegrationClient` operationId).
+	PutIntegrationClientWithBody(ctx context.Context, integration IntegrationID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PutIntegrationClient Keep the OAuth client an Integration signs in with; only the owner
+	//
+	// The owner creates the client at the service once. Its secret goes into the vault and is never returned. It replaces the client the Integration had.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PUT /integrations/{integration}/client (the `PutIntegrationClient` operationId).
+	PutIntegrationClient(ctx context.Context, integration IntegrationID, body PutIntegrationClientJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DeleteIntegrationConnection Forget a Connection and its tokens; only the owner
+	//
+	// The service is asked to end the tokens first. When it cannot be reached the Connection is forgotten all the same, and the answer says the access was not ended there.
+	//
+	// Corresponds with DELETE /integrations/{integration}/connections/{label} (the `DeleteIntegrationConnection` operationId).
+	DeleteIntegrationConnection(ctx context.Context, integration IntegrationID, label string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// BeginIntegrationSignInWithBody Start signing an account in, as a Connection under a label; only the owner
+	//
+	// Answers with a link the owner opens in a browser on any machine. After consent the browser ends on an address that does not load; that address completes the sign-in. A label that exists is signed in again and takes the new services.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /integrations/{integration}/sign-ins (the `BeginIntegrationSignIn` operationId).
+	BeginIntegrationSignInWithBody(ctx context.Context, integration IntegrationID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// BeginIntegrationSignIn Start signing an account in, as a Connection under a label; only the owner
+	//
+	// Answers with a link the owner opens in a browser on any machine. After consent the browser ends on an address that does not load; that address completes the sign-in. A label that exists is signed in again and takes the new services.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /integrations/{integration}/sign-ins (the `BeginIntegrationSignIn` operationId).
+	BeginIntegrationSignIn(ctx context.Context, integration IntegrationID, body BeginIntegrationSignInJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CompleteIntegrationSignInWithBody Complete a sign-in with the address the browser ended on; only the owner
+	//
+	// The control plane exchanges the code, keeps the tokens in the vault and records the Connection with the account's own name and the services the consent page allowed.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /integrations/{integration}/sign-ins/{sign_in_id} (the `CompleteIntegrationSignIn` operationId).
+	CompleteIntegrationSignInWithBody(ctx context.Context, integration IntegrationID, signInId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CompleteIntegrationSignIn Complete a sign-in with the address the browser ended on; only the owner
+	//
+	// The control plane exchanges the code, keeps the tokens in the vault and records the Connection with the account's own name and the services the consent page allowed.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /integrations/{integration}/sign-ins/{sign_in_id} (the `CompleteIntegrationSignIn` operationId).
+	CompleteIntegrationSignIn(ctx context.Context, integration IntegrationID, signInId string, body CompleteIntegrationSignInJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListMachineProviders The providers a machine can be created at (owner only)
 	//
@@ -2335,6 +2483,154 @@ func (c *Client) PutGitHostTokenWithBody(ctx context.Context, host string, conte
 // Corresponds with PUT /hosts/{host}/token (the `PutGitHostToken` operationId).
 func (c *Client) PutGitHostToken(ctx context.Context, host string, body PutGitHostTokenJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewPutGitHostTokenRequest(c.Server, host, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListIntegrations The services that sign in with an account, with their Connections
+//
+// An Integration here signs in with OAuth; Google is the first. A git host is an Integration too and is listed under /hosts. No token and no client secret is ever in the answer.
+//
+// Corresponds with GET /integrations (the `ListIntegrations` operationId).
+func (c *Client) ListIntegrations(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListIntegrationsRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PutIntegrationClientWithBody Keep the OAuth client an Integration signs in with; only the owner
+//
+// The owner creates the client at the service once. Its secret goes into the vault and is never returned. It replaces the client the Integration had.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PUT /integrations/{integration}/client (the `PutIntegrationClient` operationId).
+func (c *Client) PutIntegrationClientWithBody(ctx context.Context, integration IntegrationID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPutIntegrationClientRequestWithBody(c.Server, integration, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PutIntegrationClient Keep the OAuth client an Integration signs in with; only the owner
+//
+// The owner creates the client at the service once. Its secret goes into the vault and is never returned. It replaces the client the Integration had.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PUT /integrations/{integration}/client (the `PutIntegrationClient` operationId).
+func (c *Client) PutIntegrationClient(ctx context.Context, integration IntegrationID, body PutIntegrationClientJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPutIntegrationClientRequest(c.Server, integration, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DeleteIntegrationConnection Forget a Connection and its tokens; only the owner
+//
+// The service is asked to end the tokens first. When it cannot be reached the Connection is forgotten all the same, and the answer says the access was not ended there.
+//
+// Corresponds with DELETE /integrations/{integration}/connections/{label} (the `DeleteIntegrationConnection` operationId).
+func (c *Client) DeleteIntegrationConnection(ctx context.Context, integration IntegrationID, label string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteIntegrationConnectionRequest(c.Server, integration, label)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// BeginIntegrationSignInWithBody Start signing an account in, as a Connection under a label; only the owner
+//
+// Answers with a link the owner opens in a browser on any machine. After consent the browser ends on an address that does not load; that address completes the sign-in. A label that exists is signed in again and takes the new services.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /integrations/{integration}/sign-ins (the `BeginIntegrationSignIn` operationId).
+func (c *Client) BeginIntegrationSignInWithBody(ctx context.Context, integration IntegrationID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewBeginIntegrationSignInRequestWithBody(c.Server, integration, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// BeginIntegrationSignIn Start signing an account in, as a Connection under a label; only the owner
+//
+// Answers with a link the owner opens in a browser on any machine. After consent the browser ends on an address that does not load; that address completes the sign-in. A label that exists is signed in again and takes the new services.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /integrations/{integration}/sign-ins (the `BeginIntegrationSignIn` operationId).
+func (c *Client) BeginIntegrationSignIn(ctx context.Context, integration IntegrationID, body BeginIntegrationSignInJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewBeginIntegrationSignInRequest(c.Server, integration, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CompleteIntegrationSignInWithBody Complete a sign-in with the address the browser ended on; only the owner
+//
+// The control plane exchanges the code, keeps the tokens in the vault and records the Connection with the account's own name and the services the consent page allowed.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /integrations/{integration}/sign-ins/{sign_in_id} (the `CompleteIntegrationSignIn` operationId).
+func (c *Client) CompleteIntegrationSignInWithBody(ctx context.Context, integration IntegrationID, signInId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCompleteIntegrationSignInRequestWithBody(c.Server, integration, signInId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CompleteIntegrationSignIn Complete a sign-in with the address the browser ended on; only the owner
+//
+// The control plane exchanges the code, keeps the tokens in the vault and records the Connection with the account's own name and the services the consent page allowed.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /integrations/{integration}/sign-ins/{sign_in_id} (the `CompleteIntegrationSignIn` operationId).
+func (c *Client) CompleteIntegrationSignIn(ctx context.Context, integration IntegrationID, signInId string, body CompleteIntegrationSignInJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCompleteIntegrationSignInRequest(c.Server, integration, signInId, body)
 	if err != nil {
 		return nil, err
 	}
@@ -4088,6 +4384,222 @@ func NewPutGitHostTokenRequestWithBody(server string, host string, contentType s
 	return req, nil
 }
 
+// NewListIntegrationsRequest constructs an http.Request for the ListIntegrations method
+func NewListIntegrationsRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/integrations")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewPutIntegrationClientRequest calls the generic PutIntegrationClient builder with application/json body
+func NewPutIntegrationClientRequest(server string, integration IntegrationID, body PutIntegrationClientJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPutIntegrationClientRequestWithBody(server, integration, "application/json", bodyReader)
+}
+
+// NewPutIntegrationClientRequestWithBody constructs an http.Request for the PutIntegrationClient method, with any body, and a specified content type
+func NewPutIntegrationClientRequestWithBody(server string, integration IntegrationID, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "integration", integration, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/integrations/%s/client", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewDeleteIntegrationConnectionRequest constructs an http.Request for the DeleteIntegrationConnection method
+func NewDeleteIntegrationConnectionRequest(server string, integration IntegrationID, label string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "integration", integration, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "label", label, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/integrations/%s/connections/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewBeginIntegrationSignInRequest calls the generic BeginIntegrationSignIn builder with application/json body
+func NewBeginIntegrationSignInRequest(server string, integration IntegrationID, body BeginIntegrationSignInJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewBeginIntegrationSignInRequestWithBody(server, integration, "application/json", bodyReader)
+}
+
+// NewBeginIntegrationSignInRequestWithBody constructs an http.Request for the BeginIntegrationSignIn method, with any body, and a specified content type
+func NewBeginIntegrationSignInRequestWithBody(server string, integration IntegrationID, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "integration", integration, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/integrations/%s/sign-ins", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewCompleteIntegrationSignInRequest calls the generic CompleteIntegrationSignIn builder with application/json body
+func NewCompleteIntegrationSignInRequest(server string, integration IntegrationID, signInId string, body CompleteIntegrationSignInJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCompleteIntegrationSignInRequestWithBody(server, integration, signInId, "application/json", bodyReader)
+}
+
+// NewCompleteIntegrationSignInRequestWithBody constructs an http.Request for the CompleteIntegrationSignIn method, with any body, and a specified content type
+func NewCompleteIntegrationSignInRequestWithBody(server string, integration IntegrationID, signInId string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "integration", integration, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "sign_in_id", signInId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/integrations/%s/sign-ins/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewListMachineProvidersRequest constructs an http.Request for the ListMachineProviders method
 func NewListMachineProvidersRequest(server string) (*http.Request, error) {
 	var err error
@@ -5830,6 +6342,78 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with PUT /hosts/{host}/token (the `PutGitHostToken` operationId).
 	PutGitHostTokenWithResponse(ctx context.Context, host string, body PutGitHostTokenJSONRequestBody, reqEditors ...RequestEditorFn) (*PutGitHostTokenResponse, error)
 
+	// ListIntegrationsWithResponse The services that sign in with an account, with their Connections
+	//
+	// An Integration here signs in with OAuth; Google is the first. A git host is an Integration too and is listed under /hosts. No token and no client secret is ever in the answer.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /integrations (the `ListIntegrations` operationId).
+	ListIntegrationsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListIntegrationsResponse, error)
+
+	// PutIntegrationClientWithBodyWithResponse Keep the OAuth client an Integration signs in with; only the owner
+	//
+	// The owner creates the client at the service once. Its secret goes into the vault and is never returned. It replaces the client the Integration had.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /integrations/{integration}/client (the `PutIntegrationClient` operationId).
+	PutIntegrationClientWithBodyWithResponse(ctx context.Context, integration IntegrationID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutIntegrationClientResponse, error)
+
+	// PutIntegrationClientWithResponse Keep the OAuth client an Integration signs in with; only the owner
+	//
+	// The owner creates the client at the service once. Its secret goes into the vault and is never returned. It replaces the client the Integration had.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /integrations/{integration}/client (the `PutIntegrationClient` operationId).
+	PutIntegrationClientWithResponse(ctx context.Context, integration IntegrationID, body PutIntegrationClientJSONRequestBody, reqEditors ...RequestEditorFn) (*PutIntegrationClientResponse, error)
+
+	// DeleteIntegrationConnectionWithResponse Forget a Connection and its tokens; only the owner
+	//
+	// The service is asked to end the tokens first. When it cannot be reached the Connection is forgotten all the same, and the answer says the access was not ended there.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with DELETE /integrations/{integration}/connections/{label} (the `DeleteIntegrationConnection` operationId).
+	DeleteIntegrationConnectionWithResponse(ctx context.Context, integration IntegrationID, label string, reqEditors ...RequestEditorFn) (*DeleteIntegrationConnectionResponse, error)
+
+	// BeginIntegrationSignInWithBodyWithResponse Start signing an account in, as a Connection under a label; only the owner
+	//
+	// Answers with a link the owner opens in a browser on any machine. After consent the browser ends on an address that does not load; that address completes the sign-in. A label that exists is signed in again and takes the new services.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /integrations/{integration}/sign-ins (the `BeginIntegrationSignIn` operationId).
+	BeginIntegrationSignInWithBodyWithResponse(ctx context.Context, integration IntegrationID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*BeginIntegrationSignInResponse, error)
+
+	// BeginIntegrationSignInWithResponse Start signing an account in, as a Connection under a label; only the owner
+	//
+	// Answers with a link the owner opens in a browser on any machine. After consent the browser ends on an address that does not load; that address completes the sign-in. A label that exists is signed in again and takes the new services.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /integrations/{integration}/sign-ins (the `BeginIntegrationSignIn` operationId).
+	BeginIntegrationSignInWithResponse(ctx context.Context, integration IntegrationID, body BeginIntegrationSignInJSONRequestBody, reqEditors ...RequestEditorFn) (*BeginIntegrationSignInResponse, error)
+
+	// CompleteIntegrationSignInWithBodyWithResponse Complete a sign-in with the address the browser ended on; only the owner
+	//
+	// The control plane exchanges the code, keeps the tokens in the vault and records the Connection with the account's own name and the services the consent page allowed.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /integrations/{integration}/sign-ins/{sign_in_id} (the `CompleteIntegrationSignIn` operationId).
+	CompleteIntegrationSignInWithBodyWithResponse(ctx context.Context, integration IntegrationID, signInId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CompleteIntegrationSignInResponse, error)
+
+	// CompleteIntegrationSignInWithResponse Complete a sign-in with the address the browser ended on; only the owner
+	//
+	// The control plane exchanges the code, keeps the tokens in the vault and records the Connection with the account's own name and the services the consent page allowed.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /integrations/{integration}/sign-ins/{sign_in_id} (the `CompleteIntegrationSignIn` operationId).
+	CompleteIntegrationSignInWithResponse(ctx context.Context, integration IntegrationID, signInId string, body CompleteIntegrationSignInJSONRequestBody, reqEditors ...RequestEditorFn) (*CompleteIntegrationSignInResponse, error)
+
 	// ListMachineProvidersWithResponse The providers a machine can be created at (owner only)
 	//
 	// Returns a wrapper object for the known response body format(s).
@@ -7011,6 +7595,246 @@ func (r PutGitHostTokenResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r PutGitHostTokenResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListIntegrationsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *IntegrationList
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListIntegrationsResponse) GetJSON200() *IntegrationList {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListIntegrationsResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListIntegrationsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListIntegrationsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListIntegrationsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListIntegrationsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type PutIntegrationClientResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Integration
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r PutIntegrationClientResponse) GetJSON200() *Integration {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r PutIntegrationClientResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r PutIntegrationClientResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r PutIntegrationClientResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PutIntegrationClientResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r PutIntegrationClientResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type DeleteIntegrationConnectionResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Disconnected
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r DeleteIntegrationConnectionResponse) GetJSON200() *Disconnected {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r DeleteIntegrationConnectionResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r DeleteIntegrationConnectionResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteIntegrationConnectionResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteIntegrationConnectionResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DeleteIntegrationConnectionResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type BeginIntegrationSignInResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *SignIn
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r BeginIntegrationSignInResponse) GetJSON200() *SignIn {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r BeginIntegrationSignInResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r BeginIntegrationSignInResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r BeginIntegrationSignInResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r BeginIntegrationSignInResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r BeginIntegrationSignInResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type CompleteIntegrationSignInResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *IntegrationConnection
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r CompleteIntegrationSignInResponse) GetJSON200() *IntegrationConnection {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r CompleteIntegrationSignInResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r CompleteIntegrationSignInResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r CompleteIntegrationSignInResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CompleteIntegrationSignInResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CompleteIntegrationSignInResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -9197,6 +10021,126 @@ func (c *ClientWithResponses) PutGitHostTokenWithResponse(ctx context.Context, h
 	return ParsePutGitHostTokenResponse(rsp)
 }
 
+// ListIntegrationsWithResponse The services that sign in with an account, with their Connections
+//
+// An Integration here signs in with OAuth; Google is the first. A git host is an Integration too and is listed under /hosts. No token and no client secret is ever in the answer.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /integrations (the `ListIntegrations` operationId).
+func (c *ClientWithResponses) ListIntegrationsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListIntegrationsResponse, error) {
+	rsp, err := c.ListIntegrations(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListIntegrationsResponse(rsp)
+}
+
+// PutIntegrationClientWithBodyWithResponse Keep the OAuth client an Integration signs in with; only the owner
+//
+// The owner creates the client at the service once. Its secret goes into the vault and is never returned. It replaces the client the Integration had.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /integrations/{integration}/client (the `PutIntegrationClient` operationId).
+func (c *ClientWithResponses) PutIntegrationClientWithBodyWithResponse(ctx context.Context, integration IntegrationID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutIntegrationClientResponse, error) {
+	rsp, err := c.PutIntegrationClientWithBody(ctx, integration, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePutIntegrationClientResponse(rsp)
+}
+
+// PutIntegrationClientWithResponse Keep the OAuth client an Integration signs in with; only the owner
+//
+// The owner creates the client at the service once. Its secret goes into the vault and is never returned. It replaces the client the Integration had.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /integrations/{integration}/client (the `PutIntegrationClient` operationId).
+func (c *ClientWithResponses) PutIntegrationClientWithResponse(ctx context.Context, integration IntegrationID, body PutIntegrationClientJSONRequestBody, reqEditors ...RequestEditorFn) (*PutIntegrationClientResponse, error) {
+	rsp, err := c.PutIntegrationClient(ctx, integration, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePutIntegrationClientResponse(rsp)
+}
+
+// DeleteIntegrationConnectionWithResponse Forget a Connection and its tokens; only the owner
+//
+// The service is asked to end the tokens first. When it cannot be reached the Connection is forgotten all the same, and the answer says the access was not ended there.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with DELETE /integrations/{integration}/connections/{label} (the `DeleteIntegrationConnection` operationId).
+func (c *ClientWithResponses) DeleteIntegrationConnectionWithResponse(ctx context.Context, integration IntegrationID, label string, reqEditors ...RequestEditorFn) (*DeleteIntegrationConnectionResponse, error) {
+	rsp, err := c.DeleteIntegrationConnection(ctx, integration, label, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteIntegrationConnectionResponse(rsp)
+}
+
+// BeginIntegrationSignInWithBodyWithResponse Start signing an account in, as a Connection under a label; only the owner
+//
+// Answers with a link the owner opens in a browser on any machine. After consent the browser ends on an address that does not load; that address completes the sign-in. A label that exists is signed in again and takes the new services.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /integrations/{integration}/sign-ins (the `BeginIntegrationSignIn` operationId).
+func (c *ClientWithResponses) BeginIntegrationSignInWithBodyWithResponse(ctx context.Context, integration IntegrationID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*BeginIntegrationSignInResponse, error) {
+	rsp, err := c.BeginIntegrationSignInWithBody(ctx, integration, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseBeginIntegrationSignInResponse(rsp)
+}
+
+// BeginIntegrationSignInWithResponse Start signing an account in, as a Connection under a label; only the owner
+//
+// Answers with a link the owner opens in a browser on any machine. After consent the browser ends on an address that does not load; that address completes the sign-in. A label that exists is signed in again and takes the new services.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /integrations/{integration}/sign-ins (the `BeginIntegrationSignIn` operationId).
+func (c *ClientWithResponses) BeginIntegrationSignInWithResponse(ctx context.Context, integration IntegrationID, body BeginIntegrationSignInJSONRequestBody, reqEditors ...RequestEditorFn) (*BeginIntegrationSignInResponse, error) {
+	rsp, err := c.BeginIntegrationSignIn(ctx, integration, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseBeginIntegrationSignInResponse(rsp)
+}
+
+// CompleteIntegrationSignInWithBodyWithResponse Complete a sign-in with the address the browser ended on; only the owner
+//
+// The control plane exchanges the code, keeps the tokens in the vault and records the Connection with the account's own name and the services the consent page allowed.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /integrations/{integration}/sign-ins/{sign_in_id} (the `CompleteIntegrationSignIn` operationId).
+func (c *ClientWithResponses) CompleteIntegrationSignInWithBodyWithResponse(ctx context.Context, integration IntegrationID, signInId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CompleteIntegrationSignInResponse, error) {
+	rsp, err := c.CompleteIntegrationSignInWithBody(ctx, integration, signInId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCompleteIntegrationSignInResponse(rsp)
+}
+
+// CompleteIntegrationSignInWithResponse Complete a sign-in with the address the browser ended on; only the owner
+//
+// The control plane exchanges the code, keeps the tokens in the vault and records the Connection with the account's own name and the services the consent page allowed.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /integrations/{integration}/sign-ins/{sign_in_id} (the `CompleteIntegrationSignIn` operationId).
+func (c *ClientWithResponses) CompleteIntegrationSignInWithResponse(ctx context.Context, integration IntegrationID, signInId string, body CompleteIntegrationSignInJSONRequestBody, reqEditors ...RequestEditorFn) (*CompleteIntegrationSignInResponse, error) {
+	rsp, err := c.CompleteIntegrationSignIn(ctx, integration, signInId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCompleteIntegrationSignInResponse(rsp)
+}
+
 // ListMachineProvidersWithResponse The providers a machine can be created at (owner only)
 //
 // Returns a wrapper object for the known response body format(s).
@@ -10390,6 +11334,171 @@ func ParsePutGitHostTokenResponse(rsp *http.Response) (*PutGitHostTokenResponse,
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest GitHost
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListIntegrationsResponse parses an HTTP response from a ListIntegrationsWithResponse call
+func ParseListIntegrationsResponse(rsp *http.Response) (*ListIntegrationsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListIntegrationsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest IntegrationList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePutIntegrationClientResponse parses an HTTP response from a PutIntegrationClientWithResponse call
+func ParsePutIntegrationClientResponse(rsp *http.Response) (*PutIntegrationClientResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PutIntegrationClientResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Integration
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDeleteIntegrationConnectionResponse parses an HTTP response from a DeleteIntegrationConnectionWithResponse call
+func ParseDeleteIntegrationConnectionResponse(rsp *http.Response) (*DeleteIntegrationConnectionResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteIntegrationConnectionResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Disconnected
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseBeginIntegrationSignInResponse parses an HTTP response from a BeginIntegrationSignInWithResponse call
+func ParseBeginIntegrationSignInResponse(rsp *http.Response) (*BeginIntegrationSignInResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &BeginIntegrationSignInResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest SignIn
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseCompleteIntegrationSignInResponse parses an HTTP response from a CompleteIntegrationSignInWithResponse call
+func ParseCompleteIntegrationSignInResponse(rsp *http.Response) (*CompleteIntegrationSignInResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CompleteIntegrationSignInResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest IntegrationConnection
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -11776,6 +12885,21 @@ type ServerInterface interface {
 	// PutGitHostToken Keep a token as the git host's Connection "default"; only the owner
 	// (PUT /hosts/{host}/token)
 	PutGitHostToken(w http.ResponseWriter, r *http.Request, host string)
+	// ListIntegrations The services that sign in with an account, with their Connections
+	// (GET /integrations)
+	ListIntegrations(w http.ResponseWriter, r *http.Request)
+	// PutIntegrationClient Keep the OAuth client an Integration signs in with; only the owner
+	// (PUT /integrations/{integration}/client)
+	PutIntegrationClient(w http.ResponseWriter, r *http.Request, integration IntegrationID)
+	// DeleteIntegrationConnection Forget a Connection and its tokens; only the owner
+	// (DELETE /integrations/{integration}/connections/{label})
+	DeleteIntegrationConnection(w http.ResponseWriter, r *http.Request, integration IntegrationID, label string)
+	// BeginIntegrationSignIn Start signing an account in, as a Connection under a label; only the owner
+	// (POST /integrations/{integration}/sign-ins)
+	BeginIntegrationSignIn(w http.ResponseWriter, r *http.Request, integration IntegrationID)
+	// CompleteIntegrationSignIn Complete a sign-in with the address the browser ended on; only the owner
+	// (POST /integrations/{integration}/sign-ins/{sign_in_id})
+	CompleteIntegrationSignIn(w http.ResponseWriter, r *http.Request, integration IntegrationID, signInId string)
 	// ListMachineProviders The providers a machine can be created at (owner only)
 	// (GET /machine-providers)
 	ListMachineProviders(w http.ResponseWriter, r *http.Request)
@@ -12599,6 +13723,142 @@ func (siw *ServerInterfaceWrapper) PutGitHostToken(w http.ResponseWriter, r *htt
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.PutGitHostToken(w, r, host)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListIntegrations operation middleware
+func (siw *ServerInterfaceWrapper) ListIntegrations(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListIntegrations(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PutIntegrationClient operation middleware
+func (siw *ServerInterfaceWrapper) PutIntegrationClient(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "integration" -------------
+	var integration IntegrationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "integration", r.PathValue("integration"), &integration, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integration", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PutIntegrationClient(w, r, integration)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteIntegrationConnection operation middleware
+func (siw *ServerInterfaceWrapper) DeleteIntegrationConnection(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "integration" -------------
+	var integration IntegrationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "integration", r.PathValue("integration"), &integration, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integration", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "label" -------------
+	var label string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "label", r.PathValue("label"), &label, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "label", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteIntegrationConnection(w, r, integration, label)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// BeginIntegrationSignIn operation middleware
+func (siw *ServerInterfaceWrapper) BeginIntegrationSignIn(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "integration" -------------
+	var integration IntegrationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "integration", r.PathValue("integration"), &integration, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integration", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.BeginIntegrationSignIn(w, r, integration)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CompleteIntegrationSignIn operation middleware
+func (siw *ServerInterfaceWrapper) CompleteIntegrationSignIn(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "integration" -------------
+	var integration IntegrationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "integration", r.PathValue("integration"), &integration, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integration", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "sign_in_id" -------------
+	var signInId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "sign_in_id", r.PathValue("sign_in_id"), &signInId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "sign_in_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CompleteIntegrationSignIn(w, r, integration, signInId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -13783,6 +15043,11 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/hosts/{host}/token", wrapper.PutGitHostToken)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/hosts/{host}/connections/{label}", wrapper.DeleteGitHostConnection)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/hosts/{host}/connections/{label}", wrapper.PutGitHostConnection)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/integrations", wrapper.ListIntegrations)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/integrations/{integration}/client", wrapper.PutIntegrationClient)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/integrations/{integration}/sign-ins", wrapper.BeginIntegrationSignIn)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/integrations/{integration}/sign-ins/{sign_in_id}", wrapper.CompleteIntegrationSignIn)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/integrations/{integration}/connections/{label}", wrapper.DeleteIntegrationConnection)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/secrets", wrapper.ListSecrets)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/secrets/{name}", wrapper.DeleteSecret)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/secrets/{name}", wrapper.PutSecret)
@@ -14555,6 +15820,205 @@ type PutGitHostTokendefaultJSONResponse struct {
 }
 
 func (response PutGitHostTokendefaultJSONResponse) VisitPutGitHostTokenResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListIntegrationsRequestObject struct {
+}
+
+type ListIntegrationsResponseObject interface {
+	VisitListIntegrationsResponse(w http.ResponseWriter) error
+}
+
+type ListIntegrations200JSONResponse IntegrationList
+
+func (response ListIntegrations200JSONResponse) VisitListIntegrationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListIntegrationsdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListIntegrationsdefaultJSONResponse) VisitListIntegrationsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutIntegrationClientRequestObject struct {
+	Integration IntegrationID `json:"integration"`
+	Body        *PutIntegrationClientJSONRequestBody
+}
+
+type PutIntegrationClientResponseObject interface {
+	VisitPutIntegrationClientResponse(w http.ResponseWriter) error
+}
+
+type PutIntegrationClient200JSONResponse Integration
+
+func (response PutIntegrationClient200JSONResponse) VisitPutIntegrationClientResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutIntegrationClientdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response PutIntegrationClientdefaultJSONResponse) VisitPutIntegrationClientResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteIntegrationConnectionRequestObject struct {
+	Integration IntegrationID `json:"integration"`
+	Label       string        `json:"label"`
+}
+
+type DeleteIntegrationConnectionResponseObject interface {
+	VisitDeleteIntegrationConnectionResponse(w http.ResponseWriter) error
+}
+
+type DeleteIntegrationConnection200JSONResponse Disconnected
+
+func (response DeleteIntegrationConnection200JSONResponse) VisitDeleteIntegrationConnectionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteIntegrationConnectiondefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response DeleteIntegrationConnectiondefaultJSONResponse) VisitDeleteIntegrationConnectionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type BeginIntegrationSignInRequestObject struct {
+	Integration IntegrationID `json:"integration"`
+	Body        *BeginIntegrationSignInJSONRequestBody
+}
+
+type BeginIntegrationSignInResponseObject interface {
+	VisitBeginIntegrationSignInResponse(w http.ResponseWriter) error
+}
+
+type BeginIntegrationSignIn200JSONResponse SignIn
+
+func (response BeginIntegrationSignIn200JSONResponse) VisitBeginIntegrationSignInResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type BeginIntegrationSignIndefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response BeginIntegrationSignIndefaultJSONResponse) VisitBeginIntegrationSignInResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CompleteIntegrationSignInRequestObject struct {
+	Integration IntegrationID `json:"integration"`
+	SignInId    string        `json:"sign_in_id"`
+	Body        *CompleteIntegrationSignInJSONRequestBody
+}
+
+type CompleteIntegrationSignInResponseObject interface {
+	VisitCompleteIntegrationSignInResponse(w http.ResponseWriter) error
+}
+
+type CompleteIntegrationSignIn200JSONResponse IntegrationConnection
+
+func (response CompleteIntegrationSignIn200JSONResponse) VisitCompleteIntegrationSignInResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CompleteIntegrationSignIndefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response CompleteIntegrationSignIndefaultJSONResponse) VisitCompleteIntegrationSignInResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -16152,6 +17616,21 @@ type StrictServerInterface interface {
 	// PutGitHostToken Keep a token as the git host's Connection "default"; only the owner
 	// (PUT /hosts/{host}/token)
 	PutGitHostToken(ctx context.Context, request PutGitHostTokenRequestObject) (PutGitHostTokenResponseObject, error)
+	// ListIntegrations The services that sign in with an account, with their Connections
+	// (GET /integrations)
+	ListIntegrations(ctx context.Context, request ListIntegrationsRequestObject) (ListIntegrationsResponseObject, error)
+	// PutIntegrationClient Keep the OAuth client an Integration signs in with; only the owner
+	// (PUT /integrations/{integration}/client)
+	PutIntegrationClient(ctx context.Context, request PutIntegrationClientRequestObject) (PutIntegrationClientResponseObject, error)
+	// DeleteIntegrationConnection Forget a Connection and its tokens; only the owner
+	// (DELETE /integrations/{integration}/connections/{label})
+	DeleteIntegrationConnection(ctx context.Context, request DeleteIntegrationConnectionRequestObject) (DeleteIntegrationConnectionResponseObject, error)
+	// BeginIntegrationSignIn Start signing an account in, as a Connection under a label; only the owner
+	// (POST /integrations/{integration}/sign-ins)
+	BeginIntegrationSignIn(ctx context.Context, request BeginIntegrationSignInRequestObject) (BeginIntegrationSignInResponseObject, error)
+	// CompleteIntegrationSignIn Complete a sign-in with the address the browser ended on; only the owner
+	// (POST /integrations/{integration}/sign-ins/{sign_in_id})
+	CompleteIntegrationSignIn(ctx context.Context, request CompleteIntegrationSignInRequestObject) (CompleteIntegrationSignInResponseObject, error)
 	// ListMachineProviders The providers a machine can be created at (owner only)
 	// (GET /machine-providers)
 	ListMachineProviders(ctx context.Context, request ListMachineProvidersRequestObject) (ListMachineProvidersResponseObject, error)
@@ -16805,6 +18284,157 @@ func (sh *strictHandler) PutGitHostToken(w http.ResponseWriter, r *http.Request,
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(PutGitHostTokenResponseObject); ok {
 		if err := validResponse.VisitPutGitHostTokenResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListIntegrations operation middleware
+func (sh *strictHandler) ListIntegrations(w http.ResponseWriter, r *http.Request) {
+	var request ListIntegrationsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListIntegrations(ctx, request.(ListIntegrationsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListIntegrations")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListIntegrationsResponseObject); ok {
+		if err := validResponse.VisitListIntegrationsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PutIntegrationClient operation middleware
+func (sh *strictHandler) PutIntegrationClient(w http.ResponseWriter, r *http.Request, integration IntegrationID) {
+	var request PutIntegrationClientRequestObject
+
+	request.Integration = integration
+
+	var body PutIntegrationClientJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PutIntegrationClient(ctx, request.(PutIntegrationClientRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PutIntegrationClient")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PutIntegrationClientResponseObject); ok {
+		if err := validResponse.VisitPutIntegrationClientResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteIntegrationConnection operation middleware
+func (sh *strictHandler) DeleteIntegrationConnection(w http.ResponseWriter, r *http.Request, integration IntegrationID, label string) {
+	var request DeleteIntegrationConnectionRequestObject
+
+	request.Integration = integration
+	request.Label = label
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteIntegrationConnection(ctx, request.(DeleteIntegrationConnectionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteIntegrationConnection")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteIntegrationConnectionResponseObject); ok {
+		if err := validResponse.VisitDeleteIntegrationConnectionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// BeginIntegrationSignIn operation middleware
+func (sh *strictHandler) BeginIntegrationSignIn(w http.ResponseWriter, r *http.Request, integration IntegrationID) {
+	var request BeginIntegrationSignInRequestObject
+
+	request.Integration = integration
+
+	var body BeginIntegrationSignInJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.BeginIntegrationSignIn(ctx, request.(BeginIntegrationSignInRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "BeginIntegrationSignIn")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(BeginIntegrationSignInResponseObject); ok {
+		if err := validResponse.VisitBeginIntegrationSignInResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CompleteIntegrationSignIn operation middleware
+func (sh *strictHandler) CompleteIntegrationSignIn(w http.ResponseWriter, r *http.Request, integration IntegrationID, signInId string) {
+	var request CompleteIntegrationSignInRequestObject
+
+	request.Integration = integration
+	request.SignInId = signInId
+
+	var body CompleteIntegrationSignInJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CompleteIntegrationSignIn(ctx, request.(CompleteIntegrationSignInRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CompleteIntegrationSignIn")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CompleteIntegrationSignInResponseObject); ok {
+		if err := validResponse.VisitCompleteIntegrationSignInResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -17873,171 +19503,189 @@ func (sh *strictHandler) ReopenTask(w http.ResponseWriter, r *http.Request, task
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"5H1rc9y2kuhfQXG3ykkVLcl53TrSJx0n5xxvXl45u6l7E98xRPbMYMUBGACUPMel/36rGw+CM+A8JMpJ",
-	"zv1ia2ZIPBrdjX73h6JSq1ZJkNYU5x+Klmu+AguaPl3OLWj8owZTadFaoWRxXvy0BGbgN6bmzC6BNdxY",
-	"BrcgLeONBl6vGf57UpSFwMd/60Cvi7KQfAXFecFp0LIw1RJWHEefK73itjgvhLRffVGUxUpIsepWxflZ",
-	"Wdh1C+4nWIAu7u/L4uWS21df45s0fsvtsh++WnI7E3VRFhp+64SGuji3uoN0wpWQ34Fc2GVx/iLOYKwW",
-	"ckETvKph1SoLslp/C+ttAHzPb8DQ3nEOMJYZPgdmFdPQArfn9JvhK2A3sGZ3wi77b8IrGmynpRtmLjR9",
-	"Y7rGXrjnuVR2CTo+LiwThol+ZbMbWM8qJeeNqGwE9hJ4DboHR7KV57iXARj4+wCGz778stwLlh9oyCzU",
-	"6b+dIO/n+urzA6ZSNYwesVQ1PPaI/xOBKpQcneQ3/8BjJ7rqxufQ3aOH/4mbm9HxLTc3j5vgHl81rZIG",
-	"iCN8o7UijlApaUFa/JO3bSMqjsA6/R+DBPIhGf/fNcyL8+LfTntGc+p+NaduNJplSGCXkgH+dkJ79I8T",
-	"R6oq1blpW61a0Fa4hVVKNUIuZp20ohkwlZpbeG4F4efG9spC1Pjs1tcNv4Ym+0urjHCL/LDFmko8UJop",
-	"96ax3Ha0VpDI234peGXFLS6rFoZfN1AXb3NH3J/dL4U7TD9LWGccO1leP5K6/h+oLK7AA+87YTIArLml",
-	"8xIWVmbfwYVjuI+zcK35emu5NGh2KXWtwRiAFB6VUroWkluli7JQdxJ0BiJlcSnNnbuXeF3TdnnzOtnM",
-	"nDcGNlHqtahumJLAFH3DrtdMyBrel4zLmvG6ZhbeW3a3BIm8ljeNujMXjLPACIgtq876AQyz7haA98R9",
-	"h9BUbUCSXXdZWeDbm6z47OzsLIcHW0D8a6OqG6ivgHuqC4CsoQVZ0yUx5wIRqywW3HpUa7mtlrNO3kh1",
-	"J4uykAC1mfHOLrPQxts2S2/xrLbux0uW/IzXFl5TYtFpqPGS5HR+F4zOia2AS8NWYAxfgGFc46XZWjoW",
-	"vAOFXPg3zElPwtdKNcAlLrDSwC3UM24fTfdW2CZPvV1bHz3JndI3+GdWgNqAkH+WKck4Q8HASVcIuyW3",
-	"uY3nOINbfz9zuUFTCagGW8qRKJ7719BYnlk/UorSuD5Jq24F7UELK+SipDNuEQXxr2vEUkdrQWKsOq1B",
-	"WqahbdbbxFOHWbePDUfJs94bIeuUBoiyyiIscT9rpQHCFKVfxBhgJuChOMzDGSi+/b2jmQxxehk4B8KH",
-	"UEsNjbgFHd8aYsPPyDLtBkovFFIwIyYeiBtRhrM7fgPPuxaP/bDZSbWYGfgtT0he8wjjIlIpbc1g/KBY",
-	"bKNNy7U1OQ5GuPnM8XfiRQGTSrcNq1TzzESZnV8bXMZcab9nfMWsjYVV5G24pINR4zXXGfQoC60aOOT9",
-	"K3wOxQ4HtwNAEe6i3WSC45WplqWI43hyS7BrD9ZOREF+tBykJLy3Mz6uwladNkrTkSH24uOs5Qs4CHNy",
-	"dDqYcmz7dK5b6/lRAmsFVIAskjvkY58gUMuIeJ8i4qm5xz3kuZpL9gl+mDk0/HSbl3K9MOOSklMGtkHj",
-	"kZvrRbdCkJ8Umd3UnSahf+ZO6gAMg6A9bF/ijlvlV8Iq3jQnOdYgvUaafy/7iups29nxlyJNl4xbtlLG",
-	"shdfsW/FX7OjjdBMWVjdyQpJIT+TWwW744ZVnc3LNe6b8RutLJKj33+/0a9jWHnlucpwpcTJzhm+UaPA",
-	"jGRC312kvP6ctYKg1jbrC4Lh+RBHS2fRELZnl44znidsm5iqVFZURIBh0zTdlhyDgxdl4UYZlVrfWG4z",
-	"t2Milu2RqcKTY1D7SanmEpU4Yde5O4RgYCzXFmr2SQQCYq3TOgJ9EWmDrKF+GAVvrW7k8g/0svVDu+Rm",
-	"gGy0ajqHA7RS9zbNmgWVuxTQprN9GtJ/u4vR05tIEeoGZJ6gcBi8rfGJks09NtXQ4ywT0ljeNOaEvSJb",
-	"mlmqO8mUbNZsCRou3J94QEtulvgE6iEn7DuYWyRYP2qr1a2oQT8zbMWrpZBQsrulqJZsAdbQ+7QKZB/O",
-	"rnetlD0p9gGRAJED39deZduGHR/FPbxPGiGB8Wtcubvf7sBY5hQq/AKxGzQzXNSIfrWosyzuIQIjzOdK",
-	"5xkjtKpaJr8k1wPqqp2GWdVwY7Ivj6D1StUj5ppgKsz91mo1Fw3MbkEbb+jLopZ/jvnnmLB08SI5D+S+",
-	"cE5g2FyrFbuGudLxdZMFbqvVQoMxR0HXc/w9RBOWc+WeJlHQ2ubIk/Tc69h3vKXrkPW9cU/fl9FcmdW/",
-	"nbliVvHOTKihc9JYZ0bIKnP/vQE0COHZJ/SC7xjHC6Q3TByqy2RV9mij7c3a0ZzniOU4vX3j3LeYBiD3",
-	"8ts9SMz+JryQkbFNt1pxvT5AbfAPlv38uxb/ZstY+lsHHXjgaOvkH91J6f4yVrWt+7M3bOGXiZ3LdFUF",
-	"UNMgA7MY/l9xWYH7Ct63tOqy4Ndc1kpmDbNlbwvftIztv9Do1Zf+Vlv1avxuGNLI/fM5+PUDJ6C75Y2o",
-	"nage9y0kfTvz7iWCG5oAlRb/dBBS+lrUNUjCTDubq47sI8HjRNd93hnlBrvlokGrtvc+gLEzq9Ss4XpB",
-	"33ELs0ashPXrsaAlb2ZOR8jC+xaylv+HGDSCFXSE2wRj0pAd6E6e+NlKhh/mQgqzDJ8CCpUMabp/kj45",
-	"ki5ZmLn/OX4THqmUxKuGDuykapTBp4IV+kS1IAdfOBY0+Gqu9B3X9eC7sDqSNE3FGzd+VqvadWnydaN4",
-	"fZxK+ao2JXPbA0OSryabtblg3o+E0pYGXrubExksymYaKqXrrPKZuudy69Td6E9HWERGL6SsUcRbEAOI",
-	"9lpDCKEnsIPQODnuvORmtlIa8ir3PvsI/RRMtvhw8EVPYyBJlpcHTn9NDWGTJ86/IV6/56u2AdZ2TRM4",
-	"G9LTaiXIXl2Jk7w8Nd9/xP5w8dnccv8u7D+UyTpKpIQKF2nyYCYfnglwXipjnxn2sn+rZKqpwXhl4oRd",
-	"evVCGCbhFjQpLwPT4tYGN/HiISwTD2tE//p5CRSqENaP+hPjyR5O2M/BdyaB8SBJETfAlxq1EDKCwKty",
-	"yAA644SrbeRdemCPsu5dBOMP61t8FF8hAWH7cHQHJOcthF121yeVWhHvWgjbcPoYFD8JgL4qVkPVcL3J",
-	"WMesC7SFyDWClNLDuRzgzg6k+3bD9eHWW5SFW2n2MvWvTsB9/EgPd2V877To116v3l7Onks6bJvfmexW",
-	"vZaeIb9XNurwiIgcMfcWEdCyawDJNKzULdQnGfaGw76fjQ/9D3XHVlyuEalFOs2Krxm8F8aifUDJCvKj",
-	"j1pqNCy8Z3mblbjfGA+zOYsEubQlUp5wtqe8nm/EP0dsqfjLgwbN6Ts+UiiyU9qNn30DqMnRHYA3E6Dy",
-	"xoiPQGk4Got3resn5AeBW41gxj5YZ5cZ7Cb5C/YI82FCu7vXFZ88cHVTnCrt8sFn+QPchRCIneEmwxXG",
-	"SIJhZMdBcR1+xsS9e8zE2xElLzCi5Gx/0F0KDhpmBByJrHPEwo6+mHMC2O4V/RTkk2PglZdpLiXjVQUm",
-	"GHMT8czdFBWXrO3Mkl1rLsnoh7KBakGS+BlkZTL7JWfxxdlfvtp9EmWBcRTwo2zWTpvaOhpa8QgkgpH9",
-	"CAggz62j7XIbFIldM4hnqO+acIFdsMZbyEt6oIY57xrrN+6Cn776IonqfbHrwksDRb/Yg7NDxrPpfQn3",
-	"VWKwx0mcMEoxXvERYZiXiXFTdtm/tLm5oSuhB8jg2nXIIigUYOP8D9jT2A1Py+79Dyh8gnamyX4fm+tN",
-	"Nj88l3RBB8oCWwtIpn5mSEyYYvpNvwgixgi2X0GrjsT2a+/oOir4ORXFd2hxzjvf6z2Ba2iguEylMaAE",
-	"WQh5+bi1oPH9//sLf/7Ps+d/eev/f/72w1n5+dn9v+eV1VZtL4HQ8pQci0oyZIfddcl8ZMN/XX0Xwwr8",
-	"Ohy+ks4RF5RA5Mtjrwta1dghdfIjnVEf9rR9QPgju1sqM4xTcmRvmLAXnq/jPxSQh2zfO72vOvnMuEgj",
-	"x9B3L8RtX9xCPrRzL/23Kh+RtBDGgoZ6iFB46iX7vTGg3/MIGryBSoP9b950cGTo7jeCzAvvbvHdd8G7",
-	"uwAJWlTM0Li0VfeEeVf6cDQ0BllgBmyIm8EzNZAJ2L0N60p505dffn70ZV26oXa47HNzjJlsPASzMkEO",
-	"yJgOcCSxuWBhM8txtiuYk1kGuG4EaIbDGyaki0yNFjalmajpQfdASAMSMlDPwD61B/9X/P0r9+iLs7NN",
-	"qT31LQ/QdS9ZRSfxpkS+X8RA/+1u37CwTiRyTmGBiLcCaUE7RTlcihtE9uIgbjDfnhozcZzwgQCnWbcO",
-	"BamkP9uHzNwnMxz5pmmhmkAHwa37wd6Oo7s5VuAP7xykPPpJMni5EjJ83KNauhmzW8iGxPB4d2ybqwbC",
-	"eGqw8s79vDXJSy9Q5z0BD7EHL4Sd4b0xYtVeCEvXSqozAK+WUMcUC8obtFpAfcIu+zCKGLfDnSGZNsdF",
-	"HYytwmVeSJdux6sl3st67S4xdukogi43/IYtFBgX2WPVYGy3HLz5jzOej6YMGTszAPIoKHrp+ZAAKG+c",
-	"CqbHocZ2jAHRkfXhJHDlXsjBwlhuzSGLf0MP7smC0lyM+dp9pN8hM7kn7wc+6KPTNqwGmGml7HGWthi4",
-	"sXFCCdRTYiz7ze9xFeLOJjCFxUC6h1nCEizMxsok5Osk7aCXUpxrr2DzjHpNLyuZCdhD/nCFlvgQuEYT",
-	"1GCsVmuTKqHbYl2MON70WK371GVjoWUuMCIfo6XucgaGGBbYRwgl5gR0elFQCtTnTM3nSQxsLcwNhRZe",
-	"sBC24rIFfGDLOePmBmoEiE9Oo498wYVklN/IhGONS8qyccvuAzdjJIyfP42ZebvDhjLqSo/2iMxPRnW6",
-	"gl2xc0H/F3UMtY9xk0pWMLAT0LZCRMNON0U26iyDlzSyEUoimB30Ig4ZvjZsCU2jLlh8zsfIuGtqsDYN",
-	"8864CIo4hHPB1qK+YDU0YMNh0gfox8qgiMdgGNxsWmwftTDpAacbKvAIeL0uymJz/S6FCXyk1GA5BwT0",
-	"Jiix7aRxkB7jEG/CnTAapNtwC8ayFXDTaZKTS0bXfySRJXBtr4Gn0bcDzKfHVY7ij+H0VdvNWtCVjyva",
-	"XrBZcu1SMpqGvXz9X6T7dAZKdobixIuzswRHZbe6dncvUvgMUWV2vbY5k+qPzi50q5puFUQd1dQmxhla",
-	"DcC0jxs+IFIFA05e5PegJDxfCdlZ9LPzmvFb0HwBF+yfoFViQ/TJSk7kkpDd2ApWSq83tnZsKEgK9dyQ",
-	"2/AL+yuLHdfjmygibPJ6b9L1JC9qHxQtrIFmjvcRohxdBf5qRjFyLqCpEd0q1TWUicrmQtZIpKk2t4F8",
-	"ehDbPMC0ETmt5rBSMgQhZ18mcIxgUvTPqqlRyh/M4cdcFsrkxaWt8/oxpkdvwI+yrmcbWTWJpjKWmL+B",
-	"Yu6xHKa87rX5CcII06MYxbtoI6Co4QsGq9au8c8QUW4YlVCAOoSMJwPlw8Z3xNcLaazuKjuGTDti5R/g",
-	"3d1T8oCEg+xP2/ie4NEwIv8A98DwKAYDxA+Dwgl+ZXvlbo8uE4jefqSHS9/j8TG8FRR/mzUV/RwZ/OXr",
-	"V1SOxie2lGjcRuhdeCEGn7mBdRbh0CI/63RzWCCOtEutWlEVZaFakFzMECDcChcOXDW8q2Fmuuv0zCpV",
-	"w/vhl2/HzHhD5XWvyj6K2TsQ9Ph0gjxi+kAXv+wE8/aE8U8Y1vL4eJZQLSeDe76QRz2zam/VEP8sEQGP",
-	"RTx2vuKeis8fyaDjS9froxbngqVnOlbWmCaNfk/U+Y7spn2rDwf0vVfwfY2Sg1HEX8gZ2tkVSH1Qnk9Y",
-	"2mF5PocloRNfT8FZprWOQlWllcuXGKBozFQPEEqMNnvugrCRCSgyDPV4ivx+I9cDs5NCtZcc+9w4jeRN",
-	"5NRFTzJpTkxuoOB6z3tut4VUFyYTJVHjzB0u3p9UbY5+IrqQthSQB7jhs7HUNDtzKXydATNI30veIHPx",
-	"6BIeEjw9Fq08LnNxuzxY+PGRxPTOXjTGg5sAhXGYh6OvjwnII8+Ejv06dUBmsCk+72KuxydJRqYnfbBA",
-	"+Np74646GXEq2o+cMTOsR9jJsCq8c73OQi1kJ01RGGkQ0XBgxALZ/7hdbkfB+AQAV/WICelI0oXGXGxE",
-	"MvTB9ydj4TCzQF7jbqjNBZCFFo1+MDwrZEEue6F/+OThOa5XXXLtPVqipEutP4nMzXW9PjJZ9KqTX4Pl",
-	"rmQeb5of58X5L3v3VNyXHx7lVUUfnZ/3/oHO07du9VNwsk6Olo9xNWK2cet1ijgrpQlzUL9HA8b+SPhd",
-	"fHH0Zg70vPdm7jXyIVRG7pTdOvy4YWpjT71y7e+h8GZuny4YKBfl5MJ5ojmLUyWWUHoPmQSF12yb3h7C",
-	"QFFpXgljRou0aaWs05ldxQjgaM3vZA1UtE0qG2JcbmCtqTiUUfhwxaXLIomlcLdtWfk8thDW9ImS4Pbq",
-	"6v5gcq6/pAxY9glyqLkGswzVJiS6GbirKSOM6ZwHiQn7aTJ94q9WCyFn/QHmqpf4aCl/uw7nw2mCQ2RO",
-	"Bb/UyD5XYHkgyLGIqN2mteIHZT1iXLhNLqFpjYsAqNRCogHULsE/k00YHZW0HlI3wNumR4x+GuagaXX9",
-	"mkpmumrJuGG/Rnsac8aRXws84F8T2Ta59M7xivy1OC5EIaHZ4fJeqk5aX57ihUtm0+rOMAqjwM16oms6",
-	"cBm5bcOrfFDJTmtHb3ILkBoS2xb6HXdrOe4xAet3Az1cjN2IaRyuZBTj9gcI7iGHnyJaPfP80KAx7wbW",
-	"F1uBkSTOKAmlZ1u/uukdSm1sKH+mfrnZ/YuFfHVsdG/LjblTut6IEPtfn+2NK+sM6FyewOfHxZXFYcp+",
-	"LdndRevgEbvrTYrbZ/a/L7//jtWqoqJPF30tqFVnLIPfOu5805RV533P3C63Q/eOjqTzi8ptMkSMbqhi",
-	"rrRsYgHbRUbDQrSp/YxiER+o1kxUcChWFQqFozOFhybUlHbVIrIz5+DJBHQqJuEuRvc544gJ/iBB9/01",
-	"r26eq/nclUrTHB26YuXv98PWvLt6dRLpuqPm0DGlFnY6h3yQ6ANVK8TbqXWraDmMcOqB4hecKF1DxDru",
-	"BsPV/1VxXW+T3o6KDL6EF+UhYMIN/NZrrtc4mpfKeH3hVRH6iZ43vp6DsCiY3AC0+KevxHugS/iou3WX",
-	"jkegHvFmkyLlxH/j4puNDxRCKeXgGqpZrS5flILWUhbjdTuTrRysJvuo4c3TdbEvMTbw0CJZOTf6W7+y",
-	"CeQgv9gHSkEJKSZaawuyHoYo9eWa/PUyVpRpp3rbJ0Mnk+XKRGZf1lw6hHuVDRbBunkgrV67hBFnp8K6",
-	"gvE9jA3xFZhKX8aG6nZrX7yS5C30MVz4IpgzrF5K3+IfM1GX9DVJ30K2Xf+g47Ebj4bywz5AkYU4Kqwb",
-	"alij5KJ/hobLqMZusO3d/ocS0mzMbpUvYehXfoC1crQctLQai4A2XAIqaiBuowH0sPvKY0S+Yqz0dVyP",
-	"Kox5ULr9AElC3v2jCyn7sqXHFRPaY8zPLDWhCo+njgRNiBiMR7tRQZYkFFHBAYQzBcsZDLivetFG/x0n",
-	"FMHKsEYAu4a1cgW6DRVwDsJzLbTXp8eMMPn7YEddIsKDqtPCrt/gRry0DFyDvuyceY12SNPQ1/20S2tb",
-	"1+1EyLkajdajQA2X01A1ggId5xmC6gwY12joDq79ky7xbblu1UrCirOX371yIcQJXzTsk1agZd2SFqlv",
-	"Qcc8QWKjvvYOX9DUGBny/cvXn56wV8Z0wP7tixcn7BtaXWhNVHGtBSAjcTt2FqLzvv47fabKJ7VyO6Mq",
-	"pMj4th0r1ZLLRczZCAKBGDpbfA2xOnRhcvmLvuhC8Y8IAA/Ay9evEqvEeXH7wjnJQfJWFOfF5ydnJ597",
-	"yyWd6Cl3HU7ow8JZKhHVqbbPqxrDv4Wxl+GhjS45n52dTdYjJ23akumUgzgT1nriLAWUZj02bFxnbL6T",
-	"FHEcjBadNLqT3nbwiVTeqmA+pTdP0fm2G0Yv6Yly0Fnslw/ZzmCkzWx2qHIlA0I66mgBgfu3T3gGsePD",
-	"yAEQFKaBfqBAGrLvHJaQiU+7V8bSnSpts2YujcRVCPN6XuY4XB1m3Exfk/Gvql5PBqdQKuV+yFh9XuzG",
-	"8byY9Hh2Hc3jT+YNxSpw72vOHEpCDacfvLv6fpQu/g42nsITouzTwuSSxim946GvADfe2EbY4n6LEeQm",
-	"7h859b3+7t9m4HvKr73R54FjjhHKJY6bP6EvMhkmgtRul6VjFSX10I1657MXPQimQEPVbsL4mQlKvGsb",
-	"FPKAEUgXsYGSyxQyMfeSWgk2kEXb09CvZC9f/z48eOypusaS9+UT3APldmJapWRN7hgMjgqVy2JTGmco",
-	"MaExkVGarcH69AjfeCqt1ZZb8R0fX/CedpZPfW+l7VYy/IAajyAY1DzpUzMNb3iWtvUi4xP3EB7WtLzw",
-	"LdV406zdGQ16siiX9Doxjb8BWSfwedobMUzyO1yMg6m374JoyvCl0CPoExbzeHz4WQsLwSGajIw+EFdP",
-	"0PZriUyq4pJSveniyDEqYzXwVcKmhvv7FlrbY2ClVoD+13f+m3dsrinYMNznQpNFlbvFiNrlXrIEiPgb",
-	"6ogn7GdK6EPOrzTaJ5OhME6BS3wfG0w4d7WPFaC+dmuw5+ydBgP2HZr10e7v+v04o/+nJXtHzcfesU9i",
-	"Dzb8EnV1/13aeORTWuc7SsrzP1Pjk09RvbpJQBDcucatyS5hTUuk/HsEzwqkdV0jhM+wc1roizNmHBM9",
-	"KcpNMqIj8HflQy+BDbSkvoqthgqoArDTQYmBlMzHZgVfuVywa/RgA54dcnkx3gr3O27sc6qV/PzV149o",
-	"QLyfY6MB6JSs7s97FO2nyzRZ3SZM9+JUrBjh9oZ0/edv8GAJDKakfjwrzJB3VDAE0eOEtT79/fRDEqp9",
-	"fxrNQ1mijWlTaXsSyqhFcyhP6kkQhgrr67l5/MBfaQIXoBm9INwicfveys6tVqZtUdw7eCsh++PSI9K2",
-	"3BMs8q72x1Q4f0XNoLcXRMvlxJeuwe2EQhfhItyosnZXJndZPpKJhVQ+eTonqri9H4j+IwLW7ye0IVT+",
-	"lSW2jJl1j9BGeDIFm8j4Oljdaae7QXRNHyW6CW/azRl/hq2qh8kc4+2qN3knsRrn4NyprjiGN7GiEv3F",
-	"B/frzo/T5648cqCPQ4QE7lEqxM+OCFGM4NLnu7ZRsqOq0RVV4vw/f36K7Zs47CHUUD3wsZT6TerNf7hC",
-	"1dPNPjH6GwwOJAHX+TaXMIhA4K7nGd7O+D/6rVj6WN/uDr+i1ePv//Hmxx+8MP1I4fPRpP3nEj//cLzo",
-	"zyUPB/J5iDyMNBNrno1eNb4Y9ZN6hdL2DSMAo4VO45Toi7m5JD1UzK+BMmhGe2OQQMqbO742jK+UK920",
-	"SmB4+gH/u/cNv8HCNjS/pu/9Xg+yxYaN+2ILC2UtyMcD4W9KLwAdAK7DB9Q+VSkEwLv6Ply6+t8IIhej",
-	"l6vY6nKP8sbw/GZijddYH6dV2kYziQ/wjYxnKFgtA+jGJKodRXY/zxK7D7sYHtXrzqbn9CSWtDDBQVa0",
-	"yWltF509HsO+dohFHvFVyyUW9kWycw56oq1wu170rnEX9rRFU6dJ45jTD5QTu0FnW2VeUzQewVsZi44m",
-	"nX2KchfN9g8Wv+8B9SlEm+ufjDUMy37zPvUwnB2FN2wf3iHa0cREXGYnITzZOcuDSpYnLGMzwygBmbNq",
-	"hOCDNIPbhbwR8FwxTyGt6pPDHHhDLyxNdhSoybAc7Z02DjA8fbbk9Qn72SeFD6pjx95U6Rqt2UUaJYPG",
-	"wFge+Ri73CCRp2Scrj3GH497lr1LfUrK/BagjUW/NzqSDUk05MZwVz/gAAabdA05QHRxgP+9gSzVXeSC",
-	"HiyTsT+bSInDkgu/hvF/Lf4QvG+MGyGcUBFDzPBpF76CsCsAR4WWDTIZ3iT7Mw9iTycs2NscIpLE6B33",
-	"NKdvJe4zOEkUKNli6WRslLB3cJQe2/7/ZCYBz6dD8k1O8kBsRy7i638+Dzmgu1XJjYZkT6pS5tqpjTmN",
-	"NzrrmFhL7IT9gNe4qzzIYz7uFEponCxptOMV0aS08CcEawK9D1FcwSiI/w72e3hSmI763TH+GvQ0kAnh",
-	"tTehQLKnfL//WDBtHM3cI08JiNjLbQylaAmTmHf02o2W6ssh4zqYIZO6xDeh2dipVPWeoKcf6IknhFOs",
-	"8z0CJlriNFgzbHypOxkCfvcFkP7gymo90fVCo3/sOBnHP/qp84CPmhwZ2ae6XC7rOhRNT5lX3zO3r5be",
-	"q5EUwOcFBu9swcVJ5er5QmPA+7op9fuQTmdud1uNzVyV3IRATj/4/uA7TXdUsL1HlX12u6vQafWx0HQD",
-	"DRs9dNKg2yp4MC96MBoK1owxqsPL41iHAm42Rj9sgOqUmhscH6oaxxwjya9x3DyYp+VKuwhjoshWjIS6",
-	"i8o4DuyrfYTuOr6XR+aS3wQ32fHhCeB9RQP/+QH+HdmsHJFgiF2Evas9vx/CFKz2BACmUPu008TvCOYy",
-	"bd0c+zNMcP12GjHc92eIE2xgNtmwLHkjk5OhTGhclksCdaqHGTsj1T7JEan2D3pCvp2G0gG4kx1WIjH2",
-	"bT7nJWXS45Sxs8fwEn8VTsodJMadK+2C2xL3EV7UX5z9xRvgA7vjbJD+fepLEewWUV+Hh57wVNKq2COH",
-	"E9Y6lUTvxytDuf6Q8xBy+gYAOv2AuujO/JvXsazDU0NpD4SmCN3yQ43C5mhJhq+gGHX1XbZts07hN70e",
-	"4CvvfGTr0p4Dc0V0XJ2eGPaUAjrp4xINfQj8KVWVHWu8pEvcr2USkYxsoB65nhkqX3ThsuDkAuoAkBVx",
-	"Np7OniXHU//jQfzrv8Ozvy8bC0uekEqfmThqGYJ9+8TNh9Cph/UB9sSPYkg8xIIYlzuNLcNhIpWNcYak",
-	"xKXkvnAl7tR8TgaOAcSS2+Ip2CRN8q/GJ92m9hwumsqNdcHoE3KjIIZRNbVg0POnLOzgjH/z1c53U8V/",
-	"xqcOSlOPBaAOg9Zm/fuxwLuNMvUHVgfouxb8GQMDH46Dg2L8I3gYT//x6BdRxBesd5bSMlQaUdrljcCa",
-	"3YEGlwu8gYKnH8Kf+3LDw2TFR4DfPtg9HnQ/yn6046+4sM5oWBuB52nfT+QRE4wmhNPgg3OZnpmHXicf",
-	"l5kfigi9M8VBegKJyNut4xQud8AZ190k7E5Is5OOTudK34U6etMf/N/c6P9aFPmaG5OAncWbJ5OhS2EJ",
-	"atOLTaFPO+/UK3riCcEV21iMgCtGZ4mpHGbpiGkcWIgdonuyB08iVu4OEsKdHBzcPIwjfooQ52yE24Wr",
-	"wkT+FNwWdUakIpIucToGOlLszsQGh9edjTB6Ep8jjf6R+W4/565DnsIh5o5zI7wxwVmqVeJ0+pgZ7usS",
-	"A5cmH8cS6neOM4DuieTppKdGJnnH5zj5xg0hjrTVcCtU58rDjSWYuVeKsdCyA2ouH52U9+J3LWsV2mfs",
-	"SVzDk5wAD7usvWNHnAFWcD2WkbyqYdUqC7Jafwvr4v7t0/GMTn7sMIU4ZbZo7uOPyIHdhSPma/NdQ6VW",
-	"4BL+tqpfIUs4/eDUzZ36jTvYp0TrUHf4CYF1icP0QjHVKaYbkAxN+LHvdN27cY7F56uu13wG8D11NXKP",
-	"F3vDiKO0R+M+/RE9LSbTJnxgLR0KOZHwVFBlF9Y3SPYFukDWQV0fAtkVhp8eyH+jcf/sQG6U8dzCd4hx",
-	"RECR0ljzeBSssVnUxKhL/IsW8Qe+ONz6PvLVEeuEjyCEL7M+MGctxO1U8W0OMaxKUyTLtPBSDS3IGmQl",
-	"wOv7vs7oThnzjX/mCYkoaTUzAjq/0Gl0TMoZeGbCoIO0NaF9r5e8RO5fyaqdu9P9gk29xOOJGVh6mDBD",
-	"CVG5ojhOiXVwOliNdYt1ntKpI//82D3b9+42Vy3lYUko9N8jUuO++uyo1DgqghRT0PyGYp00crRSFzT2",
-	"U9quaZhjgiH5rlpQOC7MOsF3e+CHVkEIKxeg8o5Ge4eP9v2/klZQvcSDB4Mn756Q/k3zjook/LiSXPNn",
-	"hkGdw5nXnU0Q5knYbNqa6SOr9n5rO/lFtqfdRHkqDiGGKj4PHnp/+Er7zwlxUFmp/azl9Db0u8qWCwlV",
-	"zOOJ+yhcQss+KSR0rnLlP9JypjHA2YdHnTCqQKKB1+7bCu+nuvfwxgEHlUZomDLpbR8bB24pJCmuPDle",
-	"JCiZiTcIa3TVQ2gJL3m1hOcvXfH3TBqtq7HwTqrn5Gx9d1LsKph0/3g+y2s64OE5/rH4qsNa03fB22WA",
-	"feMfPOTywo5nUDPV2Y1TegP2+UulbgTsKW7yaE+4WEicv2SuwYonAROoOEkAekZaOi4pMbXkOJJ7WRji",
-	"5ZyqNv3D2vZHPFE3QohtskvYKHmjJKm5OkxKiQl0WbjcxrQnwAmjqjtsLm6B3WmqCkLmdPKqUgK480Vs",
-	"VJH64rO/OHK/AqvXz2mQbUp28n96mk8QceE63h10o4yjj5AfGXt8z4ri/Je3W7gkoocHG0n4zMnOUIxF",
-	"5KixUR5dCFGByxeM6pVtNR+K/IE5O4UA7xyqG947F0JsGXdXFGGLEbKCgbqwYVeJw/pxYE3VEhG71An7",
-	"Ubp0OzYXmNnCfassTyqhBfW8EYvlSM3HEZVyg5LClvrNcA1MKmrS47t9Mi9cI2GF1l3r7KZRUv3sC7ZU",
-	"nTaMLxSKc/7kxwzYBKd8ZamdjdAONVtHxHO28D9Gb4a+k9ou1TZgiNATmbOTkT0+YSldU240Zggn6w3e",
-	"kXZOP/hwmp2GUpygeGLY7TaV4hNT2EqJGUTV4dFmURwu2kU3APpgy2gcdLdp9GMcytMeR7SO4nBo6PeN",
-	"2UJJAmFiaso43p5qQIb2BGC+ooH//GD+uyBzhOthRmOSp1VJGBRb54x6IZdBP6O8qvuNW3vYY+qXtwg9",
-	"VxrKwbzTTXFenPJWnGJvo7f3/28A",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

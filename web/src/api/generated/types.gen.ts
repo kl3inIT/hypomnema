@@ -13,7 +13,7 @@ export type ErrorCode = 'validation_failed' | 'invalid_request' | 'unauthorized'
 
 export type TokenKind = 'owner' | 'coordinator';
 
-export type SignIn = {
+export type Credentials = {
   username: string;
   password: string;
 };
@@ -521,6 +521,84 @@ export type NewSecretValue = {
   };
 };
 
+/**
+ * A service that signs in with an account, and what the owner set up for it.
+ */
+export type Integration = {
+  id: string;
+  name: string;
+  /**
+   * The id of the OAuth client it signs in with; absent until one is set. Not secret.
+   */
+  client_id?: string;
+  /**
+   * The services a Connection can be granted, such as gmail.
+   */
+  services: Array<string>;
+  connections: Array<IntegrationConnection>;
+};
+
+export type IntegrationList = {
+  data: Array<Integration>;
+};
+
+/**
+ * One account of an Integration the owner signed in, under a label.
+ */
+export type IntegrationConnection = {
+  integration: string;
+  label: string;
+  /**
+   * The account's own name at the service, such as its email.
+   */
+  account: string;
+  /**
+   * What the Connection was granted: a service alone to read and write, or with ":read" to read only.
+   */
+  services: Array<string>;
+  /**
+   * The service refused the Connection's refresh token for good; sign in again.
+   */
+  sign_in_required: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type NewIntegrationClient = {
+  client_id: string;
+};
+
+export type NewSignIn = {
+  label: string;
+  /**
+   * A service alone to read and write, or with ":read" to read only.
+   */
+  services: Array<string>;
+};
+
+export type SignIn = {
+  id: string;
+  /**
+   * The link the owner opens in a browser to sign in.
+   */
+  url: string;
+  expires_in_seconds: number;
+};
+
+export type SignInCallback = {
+  /**
+   * The whole address the browser ended on after consent.
+   */
+  callback: string;
+};
+
+export type Disconnected = {
+  /**
+   * Whether the service ended the tokens. When false, remove the access in the account's settings.
+   */
+  revoked: boolean;
+};
+
 export type NewGitHost = {
   kind: GitHostKind;
 };
@@ -752,6 +830,13 @@ export type ChatMessageList = {
   next_after: number;
 };
 
+export type NewIntegrationClientWritable = {
+  client_id: string;
+  client_secret: string;
+};
+
+export type IntegrationId = string;
+
 export type Name = string;
 
 export type ChatId = string;
@@ -825,7 +910,7 @@ export type DeleteSessionResponses = {
 export type DeleteSessionResponse = DeleteSessionResponses[keyof DeleteSessionResponses];
 
 export type CreateSessionData = {
-  body: SignIn;
+  body: Credentials;
   path?: never;
   query?: never;
   url: '/session';
@@ -1769,6 +1854,141 @@ export type PutGitHostConnectionResponses = {
 };
 
 export type PutGitHostConnectionResponse = PutGitHostConnectionResponses[keyof PutGitHostConnectionResponses];
+
+export type ListIntegrationsData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/integrations';
+};
+
+export type ListIntegrationsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListIntegrationsError = ListIntegrationsErrors[keyof ListIntegrationsErrors];
+
+export type ListIntegrationsResponses = {
+  /**
+   * The Integrations.
+   */
+  200: IntegrationList;
+};
+
+export type ListIntegrationsResponse = ListIntegrationsResponses[keyof ListIntegrationsResponses];
+
+export type PutIntegrationClientData = {
+  body: NewIntegrationClientWritable;
+  path: {
+    integration: string;
+  };
+  query?: never;
+  url: '/integrations/{integration}/client';
+};
+
+export type PutIntegrationClientErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type PutIntegrationClientError = PutIntegrationClientErrors[keyof PutIntegrationClientErrors];
+
+export type PutIntegrationClientResponses = {
+  /**
+   * The Integration, with its client's id.
+   */
+  200: Integration;
+};
+
+export type PutIntegrationClientResponse = PutIntegrationClientResponses[keyof PutIntegrationClientResponses];
+
+export type BeginIntegrationSignInData = {
+  body: NewSignIn;
+  path: {
+    integration: string;
+  };
+  query?: never;
+  url: '/integrations/{integration}/sign-ins';
+};
+
+export type BeginIntegrationSignInErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type BeginIntegrationSignInError = BeginIntegrationSignInErrors[keyof BeginIntegrationSignInErrors];
+
+export type BeginIntegrationSignInResponses = {
+  /**
+   * The sign-in to complete.
+   */
+  200: SignIn;
+};
+
+export type BeginIntegrationSignInResponse = BeginIntegrationSignInResponses[keyof BeginIntegrationSignInResponses];
+
+export type CompleteIntegrationSignInData = {
+  body: SignInCallback;
+  path: {
+    integration: string;
+    sign_in_id: string;
+  };
+  query?: never;
+  url: '/integrations/{integration}/sign-ins/{sign_in_id}';
+};
+
+export type CompleteIntegrationSignInErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type CompleteIntegrationSignInError = CompleteIntegrationSignInErrors[keyof CompleteIntegrationSignInErrors];
+
+export type CompleteIntegrationSignInResponses = {
+  /**
+   * The Connection.
+   */
+  200: IntegrationConnection;
+};
+
+export type CompleteIntegrationSignInResponse = CompleteIntegrationSignInResponses[keyof CompleteIntegrationSignInResponses];
+
+export type DeleteIntegrationConnectionData = {
+  body?: never;
+  path: {
+    integration: string;
+    label: string;
+  };
+  query?: never;
+  url: '/integrations/{integration}/connections/{label}';
+};
+
+export type DeleteIntegrationConnectionErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type DeleteIntegrationConnectionError = DeleteIntegrationConnectionErrors[keyof DeleteIntegrationConnectionErrors];
+
+export type DeleteIntegrationConnectionResponses = {
+  /**
+   * The Connection is forgotten.
+   */
+  200: Disconnected;
+};
+
+export type DeleteIntegrationConnectionResponse = DeleteIntegrationConnectionResponses[keyof DeleteIntegrationConnectionResponses];
 
 export type ListSecretsData = {
   body?: never;

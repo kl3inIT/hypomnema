@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
@@ -31,7 +32,11 @@ type Connection struct {
 	Account string
 	// Secret names the vault secret that holds the credential. The
 	// credential itself is never here.
-	Secret    string
+	Secret string
+	// Services are the services of the Integration this Connection was
+	// granted, each to read or to read and write ("gmail:read", "calendar");
+	// empty for a git host.
+	Services  []string
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
@@ -68,6 +73,91 @@ func (s *Service) SetConnection(ctx context.Context, integration, label, account
 	}
 
 	return s.ConnectionOf(ctx, integration, label)
+}
+
+// SaveServiceConnection records a Connection of an Integration that is not a
+// git host, with the services it was granted, or replaces the one under that
+// label. The caller knows the Integration: this package holds no catalog.
+func (s *Service) SaveServiceConnection(ctx context.Context, c Connection) (Connection, error) {
+	if !ValidConnectionLabel(c.Label) {
+		return Connection{}, fmt.Errorf("%w: a label is lower-case letters, digits and dashes, such as work", ErrInvalid)
+	}
+
+	if c.Integration == "" || c.Secret == "" {
+		return Connection{}, fmt.Errorf("%w: a connection needs its integration and its secret", ErrInvalid)
+	}
+
+	err := s.write(ctx, func(q *store.Queries, now int64) error {
+		return q.UpsertConnection(ctx, store.UpsertConnectionParams{
+			Integration: c.Integration, Label: c.Label, Account: nullString(c.Account), Secret: c.Secret,
+			Services: nullString(strings.Join(c.Services, ",")), Now: now,
+		})
+	})
+	if err != nil {
+		return Connection{}, fmt.Errorf("recording connection %s:%s: %w", c.Integration, c.Label, err)
+	}
+
+	return s.ConnectionOf(ctx, c.Integration, c.Label)
+}
+
+// ConnectionsOf returns an Integration's Connections, oldest first.
+func (s *Service) ConnectionsOf(ctx context.Context, integration string) ([]Connection, error) {
+	rows, err := s.read().ListConnectionsOf(ctx, integration)
+	if err != nil {
+		return nil, fmt.Errorf("listing the connections of %s: %w", integration, err)
+	}
+
+	out := make([]Connection, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, connectionFromRow(r))
+	}
+
+	return out, nil
+}
+
+// IntegrationClient is the OAuth client an Integration signs in with. Its
+// secret is in the vault; this holds only the secret's name.
+type IntegrationClient struct {
+	Integration string
+	ClientID    string
+	Secret      string
+	UpdatedAt   time.Time
+}
+
+// SetIntegrationClient records an Integration's OAuth client, replacing the
+// one it had.
+func (s *Service) SetIntegrationClient(ctx context.Context, integration, clientID, secret string) error {
+	if integration == "" || clientID == "" || secret == "" {
+		return fmt.Errorf("%w: a client needs its integration, its id and its secret", ErrInvalid)
+	}
+
+	err := s.write(ctx, func(q *store.Queries, now int64) error {
+		return q.UpsertIntegrationClient(ctx, store.UpsertIntegrationClientParams{
+			Integration: integration, ClientID: clientID, Secret: secret, Now: now,
+		})
+	})
+	if err != nil {
+		return fmt.Errorf("recording the client of %s: %w", integration, err)
+	}
+
+	return nil
+}
+
+// IntegrationClientOf returns an Integration's OAuth client; ErrNotFound
+// when none was set.
+func (s *Service) IntegrationClientOf(ctx context.Context, integration string) (IntegrationClient, error) {
+	row, err := s.read().GetIntegrationClient(ctx, integration)
+	if errors.Is(err, sql.ErrNoRows) {
+		return IntegrationClient{}, fmt.Errorf("%w: %s has no OAuth client", ErrNotFound, integration)
+	}
+
+	if err != nil {
+		return IntegrationClient{}, fmt.Errorf("reading the client of %s: %w", integration, err)
+	}
+
+	return IntegrationClient{
+		Integration: row.Integration, ClientID: row.ClientID, Secret: row.Secret, UpdatedAt: millis(row.UpdatedAt),
+	}, nil
 }
 
 // ConnectionOf returns one Connection; ErrNotFound when there is none.
@@ -186,6 +276,15 @@ func (s *Service) ConnectionsUsingSecret(ctx context.Context, secret string) ([]
 		out = append(out, "connection "+r.Integration+":"+r.Label)
 	}
 
+	clients, err := s.read().ListIntegrationClientsBySecret(ctx, secret)
+	if err != nil {
+		return nil, fmt.Errorf("listing the clients that use %q: %w", secret, err)
+	}
+
+	for _, c := range clients {
+		out = append(out, "the OAuth client of "+c.Integration)
+	}
+
 	return out, nil
 }
 
@@ -224,8 +323,13 @@ func (s *Service) SecretReads(ctx context.Context, secret string, limit int) ([]
 }
 
 func connectionFromRow(r store.Connection) Connection {
+	var services []string
+	if r.Services.String != "" {
+		services = strings.Split(r.Services.String, ",")
+	}
+
 	return Connection{
-		Integration: r.Integration, Label: r.Label, Account: r.Account.String, Secret: r.Secret,
+		Integration: r.Integration, Label: r.Label, Account: r.Account.String, Secret: r.Secret, Services: services,
 		CreatedAt: millis(r.CreatedAt), UpdatedAt: millis(r.UpdatedAt),
 	}
 }
