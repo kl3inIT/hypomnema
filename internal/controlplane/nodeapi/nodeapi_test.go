@@ -769,3 +769,39 @@ func TestARunsAccountsReachItsWorkerWithAKeyOfItsOwn(t *testing.T) {
 	_, err = p.svc.AgentSessionOf(ctx, offer.AgentKey)
 	require.ErrorIs(t, err, orchestration.ErrNotFound)
 }
+
+// Scenario: the account a Task runs under is a token the control plane keeps
+// (issue #150). The offer carries the token, read as the offer is sent; an
+// account a node holds gets none.
+func TestAnOfferCarriesTheAccountsToken(t *testing.T) {
+	t.Parallel()
+
+	p := newPlane(t)
+
+	var asked []string
+
+	p.api.WithAccountTokens(func(_ context.Context, accountID string) (string, bool) {
+		asked = append(asked, accountID)
+
+		return "sk-ant-oat01-kept", accountID == p.account.ID
+	})
+
+	conn := p.connect()
+	p.task()
+
+	var offer nodeproto.Offer
+	require.NoError(t, json.Unmarshal(p.next(conn, nodeproto.TypeOffer).Payload, &offer))
+	assert.Equal(t, p.account.ID, offer.AccountRef)
+	assert.Equal(t, "sk-ant-oat01-kept", offer.AccountToken)
+	assert.Equal(t, []string{p.account.ID}, asked)
+
+	other := newPlane(t)
+	other.api.WithAccountTokens(func(context.Context, string) (string, bool) { return "", false })
+
+	conn = other.connect()
+	other.task()
+
+	var held nodeproto.Offer
+	require.NoError(t, json.Unmarshal(other.next(conn, nodeproto.TypeOffer).Payload, &held))
+	assert.Empty(t, held.AccountToken)
+}

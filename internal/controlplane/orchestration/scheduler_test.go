@@ -740,3 +740,58 @@ func TestProfilesSayWhetherAWorkerCanStartNow(t *testing.T) {
 	require.NoError(t, w.s.DrainNode(ctx, w.node.ID))
 	assert.Equal(t, &Availability{Reason: ReasonNoNode}, availability()["implementer"])
 }
+
+// Scenario: the owner gives the control plane a Claude token (issue #150).
+// No node holds an account, yet a Claude Code Task is placed on a node that
+// has Claude Code, under the account whose token the control plane keeps; an
+// account before it that cools down is passed over as any other. A Codex
+// account logged in on the control plane is for the gateway: it is not one a
+// worker runs under.
+func TestAnAccountWhoseTokenTheControlPlaneKeepsIsPlaced(t *testing.T) {
+	t.Parallel()
+
+	w := newSchedWorld(t)
+	require.NoError(t, w.s.DisableAccount(t.Context(), w.account.ID))
+
+	kept, err := w.s.AddTokenAccount(t.Context(), "claude", "personal", func(id string) string { return "vault:" + id })
+	require.NoError(t, err)
+	assert.Equal(t, "vault:"+kept.ID, kept.SecretRef)
+
+	_, err = w.s.AddTokenAccount(t.Context(), "codex", "work", func(id string) string { return "vault:" + id })
+	require.ErrorIs(t, err, ErrInvalid, "only Claude Code's token is one to send")
+
+	gateway, err := w.s.SaveAccountLogin(t.Context(), AccountLogin{
+		Runtime: "codex", ExternalID: "chatgpt-1", Email: "owner@example.com",
+	}, func(id string) string { return "vault:" + id })
+	require.NoError(t, err)
+
+	w.addNode("node_codex", 2, "codex")
+	w.tasks(
+		NewTask{Ref: "c", Profile: "implementer", Spec: "c"},
+		NewTask{Ref: "x", Profile: "implementer", Spec: "x", Runtime: "codex"},
+	)
+
+	created := w.schedule().Created
+	require.Len(t, created, 1, "the Codex account is the gateway's, not a worker's")
+
+	d := w.dispatchOf(created[0])
+	assert.Equal(t, "c", w.task(d.TaskID).Spec)
+	assert.Equal(t, kept.ID, w.conversation(d.ConversationID).AccountRef)
+
+	ref, sent, err := w.s.AccountTokenRef(t.Context(), kept.ID)
+	require.NoError(t, err)
+	assert.True(t, sent)
+	assert.Equal(t, kept.SecretRef, ref)
+
+	for _, id := range []string{w.account.ID, gateway.ID, "acc_unknown"} {
+		_, sent, err := w.s.AccountTokenRef(t.Context(), id)
+		require.NoError(t, err)
+		assert.False(t, sent, id)
+	}
+
+	resets := t0.Add(2 * time.Hour)
+	require.NoError(t, w.finish(w.begin(created[0]), Outcome{Class: FailureRateLimited, ResetsAt: &resets}))
+
+	w.tasks(NewTask{Ref: "n", Profile: "implementer", Spec: "n"})
+	assert.Empty(t, w.schedule().Created, "the account cools down as one on a node does")
+}

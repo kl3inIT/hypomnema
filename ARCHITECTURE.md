@@ -591,6 +591,13 @@ The owner's commands:
     [--option name=value]…`, `machines providers list`, `machines providers rm|check <name>` and
     `machines create <name> --provider P [--region R] [--size S] [--max N]` manage provider machines; a machine
     is removed with `nodes rm`;
+  - `accounts add claude <label> --token FILE|-` records an account whose token the control plane keeps (issue
+    #150; [research](docs/research/2026-11-11-claude-credentials-for-workers.md)): the token of `claude
+    setup-token`, read from a file or standard input and stored in the vault as the secret the account names. Such
+    an account (`sent_to_node`) is placed like one a node holds, on any node that has Claude Code; the node API
+    reads its token from the vault as it sends an offer (`account_token`), and the Claude Code runner starts the
+    worker under it, with the account's own `CLAUDE_CONFIG_DIR`. The node keeps the token with the offer until the
+    Dispatch ends. An account logged in on the control plane for the gateway is still not given to a worker.
   - `accounts add <runtime> <label>` records an account whose CLI is logged in on a node; `accounts login codex|antigravity
     [--label L]` logs a subscription in here, printing a link and a code and waiting, or asking for the pasted
     address; `accounts list` shows each with the state of its tokens; `accounts models <account>` asks the vendor which
