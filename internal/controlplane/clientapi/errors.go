@@ -29,6 +29,8 @@ func statusOf(code openapi.ErrorCode) int {
 		return http.StatusRequestEntityTooLarge
 	case openapi.Unavailable:
 		return http.StatusServiceUnavailable
+	case openapi.RateLimited:
+		return http.StatusTooManyRequests
 	default:
 		return http.StatusInternalServerError
 	}
@@ -36,9 +38,14 @@ func statusOf(code openapi.ErrorCode) int {
 
 // codeOf maps the orchestration core's errors, and this package's, to a code.
 func codeOf(err error) openapi.ErrorCode {
-	var tooLarge *http.MaxBytesError
+	var (
+		tooLarge *http.MaxBytesError
+		locked   *lockedError
+	)
 
 	switch {
+	case errors.As(err, &locked):
+		return openapi.RateLimited
 	case errors.Is(err, errUnauthorized):
 		return openapi.Unauthorized
 	case errors.Is(err, errForbidden):
@@ -76,6 +83,11 @@ func (s *Server) writeError(w http.ResponseWriter, r *http.Request, err error) {
 
 	if code == openapi.Unauthorized {
 		w.Header().Set("WWW-Authenticate", `Bearer realm="hypomnema"`)
+	}
+
+	var locked *lockedError
+	if errors.As(err, &locked) {
+		w.Header().Set("Retry-After", retryAfter(locked.wait))
 	}
 
 	writeJSONError(w, statusOf(code), code, message)

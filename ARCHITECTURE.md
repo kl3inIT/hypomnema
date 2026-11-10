@@ -217,6 +217,10 @@ transaction, every status change a guarded `UPDATE` checked against a transition
 - Client tokens: kind `owner` or `coordinator`, in Omnara's format (`hyp_<kind>_v1_`, 43 Base62 characters and a
   CRC32 checksum, checked before the database is read; `internal/controlplane/bearertoken`). Shown once; only the
   SHA-256 is stored; a revoked token no longer authenticates.
+- Users and web sessions (issue #114; [research](docs/research/2026-11-10-web-login.md), each rule from a
+  reference): a user is a name and a password kept as bcrypt at cost 10, made on the server; none is shipped. Signing
+  in opens a web session: a row with the SHA-256 of a random secret, good for 30 days after its last use (extended
+  at most once an hour). A session acts as the owner. A new password ends every session of the user.
 - Creating a Run or Tasks can carry an idempotency key: the same caller and key with the same request return the first
   result, with another request it is a conflict. The key is kept as a receipt, as node calls are.
 
@@ -429,7 +433,14 @@ Client API (`internal/controlplane/clientapi`, contract `api/openapi.yaml`, afte
   the embedded spec into `clientapi/openapi`.
 - Every request is checked against the spec first (`validation_failed`), and bodies are limited to 1 MiB. Errors are
   `{code, message}`.
-- Every request carries a client token (`Authorization: Bearer`); without a valid one the answer is 401.
+- Every request carries a web session's cookie or a client token (`Authorization: Bearer`); the cookie is looked
+  at first, and without a valid one of the two the answer is 401. Signing in is the one operation that needs neither.
+- `POST /session` takes a user's name and password and sets the session as a cookie: HttpOnly, `SameSite=Lax`,
+  `Path=/`, and on HTTPS (the connection's TLS or `X-Forwarded-Proto`) `Secure` with the name
+  `__Host-hypomnema_session`. A wrong name and a wrong password get the same 401. Five wrong tries from one address
+  within an hour lock it for 30 seconds, then 2, 10 and 30 minutes (429 with `Retry-After`); the count is in memory
+  and a successful sign-in clears it. `DELETE /session` removes the session and tells the browser to drop the cookie.
+  The web client does not use these yet: it still pastes an owner token.
 - Each operation has a policy. Every token reads everything and may create a Run; a Run created with a coordinator
   token is coordinated by it. Changing a Run, its Tasks or its questions needs the owner, or the Run's coordinator
   (403 otherwise), and so does reading a worker's transcript. An answer is recorded as the owner's or the
@@ -467,6 +478,8 @@ The owner's commands:
     `accounts rm <account>` (which removes the tokens too) are for those logged in here;
   - `tokens add <name> [--kind owner|coordinator]` prints a client token once; `tokens list` and
     `tokens revoke <id>`;
+  - `users add <name>` makes a user of the web and `users passwd <name>` gives one a new password, both reading the
+    password (at least 8 characters) from standard input; `users list`;
   - `secrets keygen [id]` prints a new root key; `secrets add <name> --from-file FILE|-` (with `--kind` and
     `--meta key=value`), `secrets list`, `secrets rotate <name> --from-file FILE|-`, `secrets rm <name>` and
     `secrets rewrap` manage the vault's secrets. A value is read from a file or standard input and never printed;

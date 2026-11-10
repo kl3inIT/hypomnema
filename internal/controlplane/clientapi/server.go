@@ -51,6 +51,9 @@ type Server struct {
 	coordinator Coordinator
 	// machines creates and removes provider machines; nil when the control plane wired none.
 	machines Machines
+	// logins counts wrong passwords per address; now is the clock it reads.
+	logins *loginLimiter
+	now    func() time.Time
 	// hostTokens keeps git hosts' tokens; nil when the control plane wired none.
 	hostTokens HostTokens
 	// secrets is how the owner reaches the vault; nil when the control plane wired none.
@@ -97,7 +100,9 @@ func (s *Server) WithCoordinator(c Coordinator) *Server {
 // New returns a Server. Long requests end when stop is closed, so a shutdown
 // does not wait for them.
 func New(svc *orchestration.Service, logger *slog.Logger, stop <-chan struct{}) *Server {
-	return &Server{svc: svc, logger: logger, stop: stop, heartbeat: heartbeatEvery}
+	return &Server{
+		svc: svc, logger: logger, stop: stop, heartbeat: heartbeatEvery, logins: newLoginLimiter(), now: time.Now,
+	}
 }
 
 // Machines is what the API asks of the manager of provider machines.
@@ -143,6 +148,33 @@ func (s *Server) Register(mux *http.ServeMux) error {
 	}))
 
 	return nil
+}
+
+// authenticate returns who makes a request: the user of its session cookie,
+// acting as the owner, or else the token it bears.
+func (s *Server) authenticate(ctx context.Context, r *http.Request) (orchestration.Token, string, error) {
+	if secret := sessionSecret(r); secret != "" {
+		tok, session, err := s.svc.AuthenticateSession(ctx, secret)
+		if err == nil {
+			return tok, session.ID, nil
+		}
+
+		if !errors.Is(err, orchestration.ErrNotFound) {
+			return orchestration.Token{}, "", err
+		}
+	}
+
+	secret, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	if !ok || secret == "" {
+		return orchestration.Token{}, "", errUnauthorized
+	}
+
+	tok, err := s.svc.AuthenticateToken(ctx, secret)
+	if errors.Is(err, orchestration.ErrNotFound) {
+		return orchestration.Token{}, "", errUnauthorized
+	}
+
+	return tok, "", err
 }
 
 // requestValidator checks every request against the spec before it reaches a
@@ -201,8 +233,9 @@ func principal(ctx context.Context) orchestration.Token {
 	return t
 }
 
-// authorize authenticates the bearer token and applies the operation's
-// policy. Every operation must have one (TestEveryOperationHasAPolicy).
+// authorize authenticates the request, by its session cookie or else its
+// bearer token, and applies the operation's policy. Every operation must
+// have one (TestEveryOperationHasAPolicy).
 func (s *Server) authorize(next openapi.StrictHandlerFunc, operationID string) openapi.StrictHandlerFunc {
 	return func(ctx context.Context, w http.ResponseWriter, r *http.Request, request any) (any, error) {
 		p, ok := policies[operationID]
@@ -210,21 +243,21 @@ func (s *Server) authorize(next openapi.StrictHandlerFunc, operationID string) o
 			return nil, fmt.Errorf("operation %s has no policy", operationID)
 		}
 
-		secret, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if !ok || secret == "" {
-			return nil, errUnauthorized
+		c := newCaller(r)
+
+		if p.public {
+			ctx = context.WithValue(ctx, callerKey{}, c)
+
+			return next(ctx, w, r.WithContext(ctx), request)
 		}
 
-		tok, err := s.svc.AuthenticateToken(ctx, secret)
-		if errors.Is(err, orchestration.ErrNotFound) {
-			return nil, errUnauthorized
-		}
-
+		tok, sessionID, err := s.authenticate(ctx, r)
 		if err != nil {
 			return nil, err
 		}
 
-		ctx = context.WithValue(ctx, principalKey{}, tok)
+		c.sessionID = sessionID
+		ctx = context.WithValue(context.WithValue(ctx, principalKey{}, tok), callerKey{}, c)
 
 		if err := s.checkPolicy(ctx, p, tok, request); err != nil {
 			return nil, err

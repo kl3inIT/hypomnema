@@ -24,6 +24,36 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Me" }
         default: { $ref: "#/components/responses/Error" }
+  /session:
+    post:
+      operationId: CreateSession
+      summary: Sign in to the web with a user's name and password
+      description: >-
+        The session is set as an HttpOnly cookie, which the browser sends on later requests in place of a bearer
+        token. After five wrong tries from one address the answer is 429 with Retry-After.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Credentials" }
+      responses:
+        "204":
+          description: Signed in.
+          headers:
+            Set-Cookie:
+              schema: { type: string }
+        default: { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: DeleteSession
+      summary: Sign out, ending the session of the request's cookie
+      responses:
+        "204":
+          description: Signed out.
+          headers:
+            Set-Cookie:
+              schema: { type: string }
+        default: { $ref: "#/components/responses/Error" }
   /runs:
     get:
       operationId: ListRuns
@@ -1070,10 +1100,18 @@ components:
         - idempotency_key_conflict
         - unavailable
         - request_too_large
+        - rate_limited
         - internal_error
     TokenKind:
       type: string
       enum: [owner, coordinator]
+    Credentials:
+      type: object
+      required: [username, password]
+      additionalProperties: false
+      properties:
+        username: { type: string, minLength: 1, maxLength: 63 }
+        password: { type: string, minLength: 1, maxLength: 72 }
     Me:
       type: object
       required: [id, name, kind]

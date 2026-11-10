@@ -76,6 +76,8 @@ func Command(ctx context.Context, cfg Config, args []string, stdin io.Reader, st
 		return o.accounts(ctx, args[1:])
 	case "tokens":
 		return o.tokens(ctx, args[1:])
+	case "users":
+		return o.users(ctx, args[1:])
 	case "secrets":
 		return o.secrets(ctx, args[1:])
 	case "gateway":
