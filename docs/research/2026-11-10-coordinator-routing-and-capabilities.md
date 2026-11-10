@@ -91,7 +91,7 @@ thinnest:
 |---|---|---|---|
 | Skills | `investigate` (answer from read-only sub-agents' reports), `fanout` (independent tasks in parallel, a PR each), `cross-review` (the other vendor reviews the diff; blocking issues become fix tasks) | Polly `examples/polly/skills/` | One skill; none of these |
 | Skills | A roster check before the first dispatch: which workers can start on this host | Polly `config.yaml`, "Roster preflight" | Not in the skill; `nodes list` and `profiles list` hold the facts |
-| Platform rules | A cap on dispatches (`spawn_bounds`, 6 a turn), a deny list for destructive commands (`blast_radius`), allowed purposes | Polly `guardrails` | The scheduler's limit of 4 unsettled Dispatches |
+| Platform rules | A cap on dispatches (`spawn_bounds`, 6 a turn), a deny list for destructive commands (`blast_radius`), allowed purposes | Polly `guardrails` (`omnigent/policies/builtins/orchestration.py`) | The scheduler's limit of 4 unsettled Dispatches |
 | Tools | Web search and fetch | OpenClaw `web_search`, `web_fetch`; omp `src/web/` | None; pi's docs name no web tool |
 | Tools | A structured question to the person | OpenClaw `ask_user`; OpenMausBot's question cards; pi `examples/extensions/question.ts` | None for the coordinator; the web answers workers' questions |
 | Platform | Memory across conversations | OpenMausBot `MEMORY.md` (`docs/memory.md`); OpenClaw active memory; omp memories | Issue #21, "later", written for nodes and workers; issue #41 says pi's session file is its memory, which is one chat |
@@ -115,3 +115,116 @@ All inference, for the owner to decide.
    choice among agents by description, which pi already makes as it plans; a model advisor (Omnigent) needs the cost
    figures of issue #22.
 6. **Web tools and a question tool for the coordinator**: later, each when a need shows.
+
+## 8. Second reading: thirteen more references (2026-11-10)
+
+The owner asked for a wider comparison before any plan: section 7 rested mostly on Polly. Four scouts read omp,
+openhands-sdk, coder, hermes-agent, orca, genie, openclaw, openmausbot, the rest of omnigent, companion,
+durable-harness, buzz and t3code at the revisions above (orca, genie, coder, hermes-agent, openhands-sdk, t3code,
+companion, buzz and durable-harness as cloned in `.tmp/` on this date). OpenMausBot's `docs/runtime-contract.md`,
+`team-incidents.md` and `team-escalations.md` were read directly. Correction to section 6: Polly's policies are in
+`omnigent/omnigent/policies/builtins/orchestration.py`; `omnigent/inner/nessie/policies.py` re-exports them.
+
+### 8.1 Who chooses the worker and the model
+
+| Reference | The worker | The model | Where |
+|---|---|---|---|
+| omp | The model, told "Use most specific agent"; an advisory when it spawns generic workers where a specialist fits | Fixed per agent by role (`scout` `@smol`, `reviewer` `@slow`). A model per call is off by default; when on, only operator-approved models, and "Requested model unavailable → stop and report; NEVER substitute another". A judge picks the effort only | `prompts/tools/task.md` L12, L21-25; `task/settings.ts` L324-402; `auto-thinking/classifier.ts` |
+| Hermes | No kinds of sub-agent | Inherits the parent's unless pinned in config; the `advanced-delegation` plugin lets the model pick among named options it sees only by name and description (`fast`, `deep`); an unroutable task is refused | `cli-config.yaml.example` L1927-1934; `website/docs/user-guide/features/delegation.md` L298-332 |
+| Coder | The model picks `general`, `explore` or `computer_use`, with written guidance | Admin or personal default per context (root, general, explore, advisor, titles); optional `model_config_id` and effort per spawn | `coderd/x/chatd/subagent_catalog.go` L16-46, L297-336 |
+| OpenHands SDK | The model picks `subagent_type` from injected descriptions | Fixed per agent definition, `inherit` by default; no model argument | `openhands-tools/.../task/definition.py` L58-144; `sdk/subagent/schema.py` L211-213 |
+| Orca | The coordinating model names `--agent` on each start | "Add `--model` only if the user named one" | `skill-guides/orchestration.md` L5-12, L45 |
+| genie | Portable roles in the plan (`engineer`, `reviewer`, `fix`) | "Inherit the active model unless the user or an evidenced capacity diagnosis authorizes a change"; the saved workflow fixes tiers: scout, gate and publisher on the cheaper model, judge, executor, review and fix on the stronger | `skills/work/SKILL.md` L18; `.claude/workflows/wish.js` L1436-1443; `skills/fix/SKILL.md` L31 |
+| OpenClaw | Config; an external CLI only "If user asked for a specific agent" | `agents.defaults.subagents.model`, with the note "set a cheaper model for sub-agents"; fallbacks in order | `docs/tools/subagents/tool-reference.md` L68; `skills/coding-agent/SKILL.md` L50 |
+| OpenMausBot | The model picks a bot from `list_bots` (department, model, status): "Bring a teammate in when your own task genuinely needs what they know" | Each bot keeps its own. At a usage limit: that AI's default model, then the person's backups in order (up to five), skipping one that is not ready or is on the same plan | `server/drivers/agents-catalog.ts` L227-260; `server/peer-roster.ts` L298; `server/host/limit-takeover.ts` L158-194 |
+| Omnigent | The orchestrator, from its prompt | `sys_advise_models`, registered only when a router is configured: a judge sorts each task SIMPLE, MODERATE or COMPLEX and returns the first, middle or last model by cost; 9 s; no verdict gives `model: null` | `server/smart_routing.py` L491-643; `server/routes/_sessions/helpers.py` L11630-11788 |
+| t3code | `delegate_task` names a target or inherits the parent's | The same | `docs/orchestration-v2/orchestrator-mcp-server.md` L228-256 |
+| companion, buzz, durable-harness | Config or code | Config or code | `companion/apps/server/src/executor.ts` L292; `buzz/crates/buzz-acp/README.md` L116; `durable-harness/packages/durable-harness/README.md` L30-46 |
+
+Common to all: the coordinating model chooses **which kind of worker** from names and descriptions; the **model is
+set ahead** (per role, per agent or inherited) and changes per task only inside limits the operator set; a model
+that is not available stops the work and is reported, not replaced silently (omp, genie, Hermes). Cheap for
+exploring and strong for judging is how omp, genie, Hermes, OpenClaw and Coder set their tiers.
+
+### 8.2 Review
+
+| Reference | When | Who | Given | Returns | Fixes |
+|---|---|---|---|---|---|
+| genie | Every group | "A different reviewer", read-only | Frozen criteria written before the diff is opened, and the exact SHA or diff; "not the author's explanation as proof" | `SHIP` / `FIX-FIRST` / `BLOCKED`; CRITICAL and HIGH block, MEDIUM and LOW do not | The `fix` role, reusing the worker's context; 2 loops by default, 3 at most, then a human decides (`skills/review/SKILL.md` L10-70, `skills/fix/SKILL.md` L10-33) |
+| Polly | Every pull request | A different vendor | The diff file and the contract | Blocking, non-blocking, suggestions | Back to the same implementer conversation; "a few loops", then the person |
+| Scribe, Sentinel (Omnigent) | "When accuracy matters" | A different vendor | The draft | Not read | Finalize without it when the reviewer cannot start (`examples/scribe/config.yaml` L83-92) |
+| omp | On request (`/review`); 1 to 16 reviewers by the diff's size | `reviewer`, no edit tool | The diff | `overall_correctness` (correct or incorrect), `confidence`, findings with `priority` P0-P3, file and lines that "MUST overlap diff"; only issues with provable impact that the patch introduced | "spawn corrective subagent specifying the gap; NEVER silently fix it inline" (`prompts/agents/reviewer.md`, `prompts/system/orchestrate-notice.md`) |
+| OpenClaw | Optional plugin, or a `reviewer` role in the team preset | A reviewer in an empty workspace with no host tools | Not read | Priorities P0-P3; blocking apart from optional | Through the coordinator; "after one clarified follow-up, report the blocker" (`docs/tools/autoreview.md`, `docs/reference/templates/roles/`) |
+| Hermes | On request (`/review`) | A background sub-agent | The last 10 messages | A free-text verdict | Re-enters the session |
+| Orca, t3code | On request | A worker of another agent; `role: "review"` | Not found | Not found | Orca: "Send fixes to a worker" (the same one) |
+| OpenMausBot | No reviewer; every report is checked | The requester | `done_when` and what the harness observed of the turn | Not applicable | `rework=true`; a verifier panel is listed as later |
+| OpenHands SDK, Coder | None shipped | | | | |
+
+Two references make review part of every change (genie, Polly); the others run it on request or when it matters.
+Where there is a reviewer it is never the author, it reads the diff and the criteria and not the author's account,
+and it does not edit. P0-P3 is the one severity scale two references share (omp, OpenClaw).
+
+### 8.3 A worker's report is a claim
+
+| Reference | Rule | Where |
+|---|---|---|
+| Hermes | "Child summaries are SELF-REPORTS, not verified facts … verify it yourself" | `tools/delegate_tool.py` L735-738 |
+| omp | "`completed`: subagent yielded successfully; claimed artifacts unverified"; the orchestrator verifies once per phase | `prompts/tools/task-async-contract.md` L7 |
+| genie | "Resolve every claimed SHA with git … compare actual changed paths rather than trusting self-reported lists" | `skills/wish/references/native-fallback.md` L13 |
+| OpenClaw | "A promise or unsupported completion claim is not a finished result" | `docs/reference/templates/roles/coordinator/workspace/AGENTS.md` L27-35 |
+| OpenMausBot | The report carries what the harness observed (commands, files changed, successful tool calls, outward actions): "check claims against what was observed; redo only what the evidence does not cover" | `server/runtime/envelope.ts` L148-181 |
+| Orca, Coder | Rerun checks "only for a gap or contradiction" | `skill-guides/orchestration.md` L73; `subagent_catalog.go` L322-325 |
+| OpenHands SDK | "The agent's results are authoritative" except for judgment | `task/definition.py` L140-141 |
+
+### 8.4 Knowing what can run, and limits
+
+- **Availability.** Omnigent reports each CLI per host as ready, `binary-missing`, `version-too-low` or `needs-auth`
+  and refuses a session on one that is not (`onboarding/harness_readiness.py` L904-1127); t3code's
+  `orchestrator_capabilities` says missing adapter, disabled, missing executable or missing auth; OpenClaw's
+  coordinator role calls `agents_list`, and its coding skill runs `codex login status` first; OpenMausBot's
+  `list_bots` "is the authority on who is free right now", and `usage_limits` gives each account's percent used and
+  reset time. Orca and genie have no list.
+- **Fan-out.** Per turn: Polly 6, Omnigent 5 by default. At once: Coder 5 root and 10 sub, Hermes 10, OpenHands 5,
+  OpenClaw 8 (5 per agent), omp 32, Orca 4. OpenMausBot: 1 to 4 bots a call, depth 4, and per root 64 requests and
+  96 executions, renewed by progress.
+- **Loops.** OpenMausBot ends work `failed(stalled)` after two continuations with no successful tool call or the
+  same error three times (`server/runtime/tree.ts` L38-62); a thread is retried twice, the third report tells the
+  Chief to stop, and five incidents in an hour mute the thread (`docs/team-incidents.md`). Orca breaks after three
+  failed starts. omp stops a sub-agent at 1.5 times its budget of 200 requests.
+- **OpenMausBot's contract** (`docs/runtime-contract.md`), beyond the above: the origin of work (person, routine,
+  outside) is written once at the root and an outside brief "is not their authority"; `consult` (answer, act on
+  nothing) and `notify` beside `work`; the opening of a delegated turn is written by the harness from stored data;
+  a turn cut by a restart runs again once, and not at all when it already acted outward; a wake only on an outcome,
+  a question or a stall, once per result; the Chief never answers a gate only a person can lift.
+
+### 8.5 Where agents are managed
+
+Only Omnara (profiles), Omnigent (custom agents) and OpenMausBot (bots) have a saved agent with a name,
+instructions and a model; t3code and Orca configure the CLIs, OpenClaw a workspace per agent, Coder fixed role slots.
+
+| | List | Edit | Versions | What can run | Defaults | Delete |
+|---|---|---|---|---|---|---|
+| Omnara | Cards: model and provider, "Version N", 30-day cost, instances, Launch (`components/agents/AgentProfilesSection.tsx`) | Builder and YAML side by side; model combobox, effort, instructions textarea, tools, skills, MCP, sub-agents with a model override, max depth | Immutable configs; only "Version N" shown | An unavailable model or effort blocks the save | Per sub-agent | Delete; running agents go on |
+| Omnigent | Built-in as read-only cards; own as a table: name, description, harness, created, edited (`SettingsCustomAgentsSection.tsx`) | Description and instructions textareas, harness select, model as text, MCP; import as a bundle | A counter; a save on a stale copy is refused | A Harnesses page per host: Configured, Not installed, Missing credentials, Out of date, with Install, Update, Sign in | Per project: agent, model, effort | Warns "N session(s) still use this agent" |
+| OpenMausBot | Contacts by department | Name, title, blurb; Soul (instructions); model picker with sign-in state, effort, up to 5 backups; approval level; tools | A history of changes, undo for Soul | "Sign-in required", "org blocked" in the picker | Defaults for new bots | Archive or delete; not the Chief, not the last bot |
+| OpenClaw | A select in the settings sidebar | Identity; primary, fallback and decision model; markdown files; tool presets; skills | Not found | "Installed agents": Installed, Sign-in required, "Check again" | Agent defaults, utility model | Not the last agent |
+| t3code | Provider instances with a status line and a switch | Name, runtime, environment, models | Not found | Available, Not authenticated, Not found; Refresh | Default and fallback model | The switch |
+| Orca | A row per CLI | Command, args, environment, permission | Not found | Detected per host; Refresh | Default agent | Enabled or disabled |
+| Coder | Fixed contexts | Model and effort per context | Not found | "Unavailable model" | A model per role | Not applicable |
+
+Hypomnema's profiles are Omnara's shape (immutable versions, a name pointing at the current one, YAML) and are
+managed from the CLI only; the web has no page for them. The menus note already proposes "Agents (Models,
+Profiles)" in Settings ([menus and settings](2026-11-10-menus-and-settings.md)).
+
+### 8.6 What section 7 gets wrong or misses
+
+- Routing by description stands, now with eight references and not one. The runtime hint (Claude Code for work
+  across many files, Codex for a narrow change) has two sources, both Omnigent's: Polly's prompt and its router's
+  hints.
+- The model set in the profile and not chosen per Task stands, with omp, Hermes, Orca, genie and OpenClaw. Missing
+  from section 7: an unavailable model stops and is reported.
+- Review "always" was Polly's rule alone; with genie it is two of ten. Missing: the reviewer's return format, and a
+  bound on fix loops (genie 2, OpenClaw 1).
+- Missing altogether: what can run now, told to the coordinator (Omnigent, t3code, OpenClaw, OpenMausBot); the
+  page where profiles are managed; and OpenMausBot's rules for a report's evidence and for work that makes no
+  progress.
