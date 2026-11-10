@@ -24,7 +24,7 @@ import (
 
 // TokenEnv names the environment variable an install reads the node token
 // from, for a machine with no terminal.
-const TokenEnv = "HYPOMNEMA_NODE_TOKEN"
+const TokenEnv = "HYPOMNEMA_NODE_TOKEN" //nolint:gosec // G101: the variable's name, not a credential
 
 const (
 	unitName       = "hypomnema-node.service"
@@ -144,11 +144,11 @@ func sameFile(a, b string) (bool, error) {
 // startService installs the systemd user unit and (re)starts it. Where there
 // is no systemd user manager it says how to run the node by hand.
 func startService(ctx context.Context, exe, home string, stdout io.Writer) error {
-	systemctl, err := exec.LookPath("systemctl")
-	if runtime.GOOS != "linux" || err != nil {
+	systemctl, lookErr := exec.LookPath("systemctl")
+	if runtime.GOOS != "linux" || lookErr != nil {
 		_, _ = fmt.Fprintf(stdout, "no systemd here: run the node with `%s run --home %s`\n", exe, home)
 
-		return nil
+		return nil //nolint:nilerr // no systemctl is not a failure: the owner runs the node by hand
 	}
 
 	config, err := os.UserConfigDir()
@@ -225,7 +225,7 @@ func promptToken() (string, error) {
 	}
 	defer tty.Close() //nolint:errcheck // A terminal; nothing to flush.
 
-	fd := int(tty.Fd()) //nolint:gosec // a file descriptor fits an int
+	fd := int(tty.Fd())
 	if !term.IsTerminal(fd) {
 		return "", missing
 	}

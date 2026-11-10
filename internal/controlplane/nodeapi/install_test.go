@@ -84,7 +84,9 @@ func newRelease(t *testing.T, version string) *release {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /node", func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, binary) })
-	mux.HandleFunc("GET /{manifest}", func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, r.manifest) })
+	mux.HandleFunc("GET /{manifest}", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, r.manifest)
+	})
 
 	r.srv = httptest.NewServer(mux)
 	t.Cleanup(r.srv.Close)
