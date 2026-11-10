@@ -12,6 +12,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/subscription"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
 )
 
@@ -41,6 +42,46 @@ func gatewaySecrets(v *vault.Service) modelgateway.Secrets {
 
 		return opened.Payload[vault.KeyValue], nil
 	}
+}
+
+// gatewayAccounts gives the gateway's built-in providers the accounts logged
+// in on the control plane.
+type gatewayAccounts struct{ subs *subscription.Service }
+
+func (g gatewayAccounts) Token(ctx context.Context, runtime string) (modelgateway.AccountToken, error) {
+	return accountToken(g.subs.Token(ctx, runtime))
+}
+
+func (g gatewayAccounts) TokenAfterRefusal(
+	ctx context.Context, refused modelgateway.AccountToken,
+) (modelgateway.AccountToken, error) {
+	return accountToken(g.subs.TokenAfterRefusal(ctx, subscription.Token{
+		AccountID: refused.AccountID, ExternalID: refused.ExternalID, Version: refused.Version,
+	}))
+}
+
+func (g gatewayAccounts) CoolDown(
+	ctx context.Context, runtime, accountID string, until time.Time, reason string,
+) error {
+	return g.subs.CoolDown(ctx, runtime, accountID, until, reason)
+}
+
+// accountToken says a subscription's answer in the gateway's words.
+func accountToken(t subscription.Token, err error) (modelgateway.AccountToken, error) {
+	var cooling *subscription.CoolingError
+
+	switch {
+	case errors.As(err, &cooling):
+		return modelgateway.AccountToken{}, &modelgateway.CoolingError{Until: cooling.Until}
+	case errors.Is(err, subscription.ErrNoAccount):
+		return modelgateway.AccountToken{}, fmt.Errorf("%w: %w", modelgateway.ErrNoAccount, err)
+	case err != nil:
+		return modelgateway.AccountToken{}, err
+	}
+
+	return modelgateway.AccountToken{
+		AccountID: t.AccountID, ExternalID: t.ExternalID, AccessToken: t.AccessToken, Version: t.Version,
+	}, nil
 }
 
 // gatewayProviders gives the gateway the providers orchestration keeps.

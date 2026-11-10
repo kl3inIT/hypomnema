@@ -454,3 +454,55 @@ func TestAFailureThatMayPassKeepsTheTokensAndIsTriedAgainLater(t *testing.T) {
 	assert.Nil(t, a.Refresh.RetryAt)
 	assert.Equal(t, "refresh-2", w.tokens(a)[vault.KeyRefreshToken])
 }
+
+// Scenario: the gateway asks for a token to call Codex with. It gets the
+// account's access token; one about to end is refreshed first. A token the
+// backend refused is exchanged once, and a second caller that held the same
+// refused token gets the new one without another exchange. While the account
+// waits for its usage limit no token is given, and the error says until when.
+func TestTheGatewayGetsAValidTokenOfAnAccountThatCanBeUsed(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+
+	_, err := w.subs.Token(t.Context(), "codex")
+	require.ErrorIs(t, err, subscription.ErrNoAccount)
+
+	a := w.login()
+
+	first, err := w.subs.Token(t.Context(), "codex")
+	require.NoError(t, err)
+	assert.Equal(t, subscription.Token{
+		AccountID: a.ID, ExternalID: chatGPTAccount, AccessToken: "access-1", Version: 1,
+	}, first)
+
+	w.clock.advance(time.Hour - 30*time.Second)
+
+	fresh, err := w.subs.Token(t.Context(), "codex")
+	require.NoError(t, err)
+	assert.Equal(t, "access-2", fresh.AccessToken)
+	assert.Equal(t, 1, w.openai.refreshCalls())
+
+	after, err := w.subs.TokenAfterRefusal(t.Context(), fresh)
+	require.NoError(t, err)
+	assert.Equal(t, "access-3", after.AccessToken)
+
+	late, err := w.subs.TokenAfterRefusal(t.Context(), fresh)
+	require.NoError(t, err)
+	assert.Equal(t, after, late)
+	assert.Equal(t, 2, w.openai.refreshCalls(), "the token was already replaced; it is not exchanged again")
+
+	until := w.clock.Now().Add(3 * time.Hour)
+	require.NoError(t, w.subs.CoolDown(t.Context(), "codex", a.ID, until, "usage limit"))
+
+	_, err = w.subs.Token(t.Context(), "codex")
+
+	var cooling *subscription.CoolingError
+	require.ErrorAs(t, err, &cooling)
+	assert.Equal(t, until, cooling.Until)
+
+	w.clock.advance(3*time.Hour + time.Second)
+
+	_, err = w.subs.Token(t.Context(), "codex")
+	require.NoError(t, err)
+}

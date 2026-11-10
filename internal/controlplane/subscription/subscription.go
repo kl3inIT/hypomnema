@@ -33,6 +33,9 @@ const (
 	// db/accounts_oauth_lock.go.
 	retryFirst = 5 * time.Minute
 	retryMax   = 24 * time.Hour
+	// useLead is how close to its end a token is refreshed before it is
+	// used for a request, as 9router-go's providers.IsExpired.
+	useLead = 60 * time.Second
 )
 
 // Errors a caller can tell apart.
@@ -43,7 +46,29 @@ var (
 	ErrNoTokens = errors.New("the account was not logged in on the control plane")
 	// ErrLoginFailed is returned when the vendor did not complete a login.
 	ErrLoginFailed = errors.New("the login did not complete")
+	// ErrNoAccount is returned when no account of a runtime can be used:
+	// none was logged in here, or every one is disabled or needs a new login.
+	ErrNoAccount = errors.New("no account logged in here can be used")
 )
+
+// CoolingError says every usable account of a runtime waits for a usage
+// limit to end; Until is when the first one is free.
+type CoolingError struct{ Until time.Time }
+
+func (e *CoolingError) Error() string {
+	return "every account waits for its usage limit, until " + e.Until.UTC().Format(time.RFC3339)
+}
+
+// Token is an account's access token, for a caller inside the control plane
+// that sends it to the vendor. The caller keeps it out of logs and errors.
+type Token struct {
+	AccountID string
+	// ExternalID is the vendor's id of the account.
+	ExternalID  string
+	AccessToken string
+	// Version is the version of the account's secret the token is from.
+	Version int
+}
 
 // Identity is who an account is at its vendor. None of it is secret.
 type Identity struct {
@@ -99,6 +124,7 @@ type Accounts interface {
 	) (orchestration.Account, error)
 	ListAccounts(ctx context.Context) ([]orchestration.Account, error)
 	SetAccountPlan(ctx context.Context, id, email, plan string) error
+	CoolAccount(ctx context.Context, runtime, id string, until time.Time, reason string) error
 	RecordAccountRefresh(ctx context.Context, id string, r orchestration.AccountRefresh) error
 	RemoveAccountLogin(ctx context.Context, id string) error
 }
@@ -281,11 +307,89 @@ func (s *Service) Refresh(ctx context.Context, id string) (Account, error) {
 		return Account{}, err
 	}
 
-	if err := s.refresh(ctx, a); err != nil {
+	if err := s.refresh(ctx, a, 0); err != nil {
 		return Account{}, err
 	}
 
 	return s.Get(ctx, id)
+}
+
+// Token returns a valid access token of the first account of a runtime that
+// can be used: active, logged in here, and not waiting for a usage limit. A
+// token about to end is refreshed first.
+func (s *Service) Token(ctx context.Context, runtime string) (Token, error) {
+	accounts, err := s.List(ctx)
+	if err != nil {
+		return Token{}, err
+	}
+
+	var free *time.Time
+
+	for _, a := range accounts {
+		if a.Runtime != runtime || a.Status != orchestration.AccountActive || a.State != StateActive {
+			continue
+		}
+
+		if a.CoolingUntil != nil {
+			if free == nil || a.CoolingUntil.Before(*free) {
+				free = a.CoolingUntil
+			}
+
+			continue
+		}
+
+		if a.AccessTokenExpiresAt != nil && a.AccessTokenExpiresAt.Sub(s.clock.Now()) < useLead {
+			if err := s.refresh(ctx, a, 0); err != nil {
+				return Token{}, err
+			}
+		}
+
+		return s.tokenOf(ctx, a.Account)
+	}
+
+	if free != nil {
+		return Token{}, &CoolingError{Until: *free}
+	}
+
+	return Token{}, fmt.Errorf("%w: %s", ErrNoAccount, runtime)
+}
+
+// TokenAfterRefusal returns a new token for an account whose token the vendor
+// refused. The refresh token is exchanged unless the account's tokens were
+// replaced since the refused one was read: then those are returned.
+func (s *Service) TokenAfterRefusal(ctx context.Context, refused Token) (Token, error) {
+	a, err := s.Get(ctx, refused.AccountID)
+	if err != nil {
+		return Token{}, err
+	}
+
+	if err := s.refresh(ctx, a, refused.Version); err != nil {
+		return Token{}, err
+	}
+
+	return s.tokenOf(ctx, a.Account)
+}
+
+// CoolDown keeps an account out of use until its usage limit ends.
+func (s *Service) CoolDown(ctx context.Context, runtime, accountID string, until time.Time, reason string) error {
+	return s.accounts.CoolAccount(ctx, runtime, accountID, until, reason)
+}
+
+func (s *Service) tokenOf(ctx context.Context, a orchestration.Account) (Token, error) {
+	name, ok := vault.NameFromRef(a.SecretRef)
+	if !ok {
+		return Token{}, fmt.Errorf("%w: account %s", ErrNoTokens, a.ID)
+	}
+
+	opened, err := s.vault.Open(ctx, name)
+	if err != nil {
+		return Token{}, fmt.Errorf("opening the tokens of account %s: %w", a.ID, err)
+	}
+
+	return Token{
+		AccountID: a.ID, ExternalID: a.ExternalID, AccessToken: opened.Payload[vault.KeyAccessToken],
+		Version: opened.Version,
+	}, nil
 }
 
 // RefreshDue refreshes every account whose access token ends within its
@@ -316,7 +420,7 @@ func (s *Service) RefreshDue(ctx context.Context) error {
 			continue
 		}
 
-		if err := s.refresh(ctx, a); err != nil {
+		if err := s.refresh(ctx, a, 0); err != nil {
 			failed = append(failed, err)
 		}
 	}
@@ -344,8 +448,9 @@ func (s *Service) Loop(ctx context.Context) {
 }
 
 // refresh exchanges the account's refresh token through the vault and
-// records how it went.
-func (s *Service) refresh(ctx context.Context, a Account) error {
+// records how it went. stale is the version of the tokens found too old; zero
+// means the ones in the vault now.
+func (s *Service) refresh(ctx context.Context, a Account, stale int) error {
 	vendor, ok := s.vendors[a.Runtime]
 	if !ok {
 		return fmt.Errorf("%w: %q", ErrUnknownVendor, a.Runtime)
@@ -356,12 +461,16 @@ func (s *Service) refresh(ctx context.Context, a Account) error {
 		return fmt.Errorf("%w: account %s", ErrNoTokens, a.ID)
 	}
 
-	opened, err := s.vault.Open(ctx, name)
-	if err != nil {
-		return fmt.Errorf("opening the tokens of account %s: %w", a.ID, err)
+	if stale == 0 {
+		opened, err := s.vault.Open(ctx, name)
+		if err != nil {
+			return fmt.Errorf("opening the tokens of account %s: %w", a.ID, err)
+		}
+
+		stale = opened.Version
 	}
 
-	refreshed, err := s.vault.Refresh(ctx, name, opened.Version, vendor.Refresh)
+	refreshed, err := s.vault.Refresh(ctx, name, stale, vendor.Refresh)
 	if err != nil {
 		return errors.Join(
 			fmt.Errorf("refreshing account %s: %w", a.ID, err),
