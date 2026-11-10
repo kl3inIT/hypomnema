@@ -32,6 +32,7 @@ const known = (host: string, kind: GitHost["kind"], has_token = false): GitHost 
   kind,
   known: true,
   has_token,
+  connections: has_token ? ["default"] : [],
 })
 
 // The server: the hosts and repositories it has now. A changing request is kept and applied, so that what the
@@ -68,7 +69,13 @@ function server(start: { hosts?: GitHost[]; repos?: Repo[] }, refuse: Record<str
       } else if (!found) {
         hosts = [
           ...hosts,
-          { host: name, kind: body?.kind as GitHost["kind"], known: false, has_token: false },
+          {
+            host: name,
+            kind: body?.kind as GitHost["kind"],
+            known: false,
+            has_token: false,
+            connections: [],
+          },
         ]
       }
 

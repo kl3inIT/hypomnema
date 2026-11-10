@@ -461,10 +461,11 @@ paths:
         schema: { type: string, minLength: 3, maxLength: 255 }
     put:
       operationId: PutGitHostToken
-      summary: Keep a token for a git host, replacing the one it had; only the owner
+      summary: Keep a token as the git host's Connection "default"; only the owner
       description: >-
-        The token goes into the vault and is never returned. A worker of a Run
-        on this host gets it for its git, gh and glab.
+        The form of before a host could have several Connections. The token
+        goes into the vault and is never returned. A worker of a Run on this
+        host gets it for its git, gh and glab.
       requestBody:
         required: true
         content:
@@ -479,10 +480,51 @@ paths:
         default: { $ref: "#/components/responses/Error" }
     delete:
       operationId: DeleteGitHostToken
-      summary: Forget a git host's token; only the owner
+      summary: Forget the git host's Connection "default"; only the owner
       responses:
         "200":
           description: The host, now without a token.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GitHost" }
+        default: { $ref: "#/components/responses/Error" }
+  /hosts/{host}/connections/{label}:
+    parameters:
+      - name: host
+        in: path
+        required: true
+        schema: { type: string, minLength: 3, maxLength: 255 }
+      - name: label
+        in: path
+        required: true
+        schema: { type: string, pattern: "^[a-z0-9][a-z0-9-]{0,30}$" }
+    put:
+      operationId: PutGitHostConnection
+      summary: Keep a token as a Connection of a git host, under a label; only the owner
+      description: >-
+        A Connection is one account of the host. The token goes into the vault
+        and is never returned; it replaces the token the Connection had. Work
+        on a repository uses the Connection its registered repository names,
+        else the host's only one.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewGitHostToken" }
+      responses:
+        "200":
+          description: The host, with the Connection.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GitHost" }
+        default: { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: DeleteGitHostConnection
+      summary: Forget a Connection of a git host and its token; only the owner
+      description: Refused while a registered repository names the Connection.
+      responses:
+        "200":
+          description: The host, without the Connection.
           content:
             application/json:
               schema: { $ref: "#/components/schemas/GitHost" }
@@ -1312,15 +1354,19 @@ components:
       enum: [github, gitlab]
     GitHost:
       type: object
-      required: [host, kind, known, has_token]
+      required: [host, kind, known, has_token, connections]
       properties:
         host: { type: string }
         kind: { $ref: "#/components/schemas/GitHostKind" }
         has_token:
           type: boolean
           description: >-
-            Whether the owner gave the host a token. Without one a worker uses
-            the logins of the node's own user.
+            Whether the host has a Connection. Without one a worker uses the
+            logins of the node's own user.
+        connections:
+          type: array
+          items: { type: string }
+          description: The labels of the host's Connections, oldest first. A token is never here.
         known:
           type: boolean
           description: True for github.com and gitlab.com, which need no declaration.
@@ -1359,6 +1405,9 @@ components:
         base:
           type: string
           description: The branch worktrees start from when a Run names none.
+        connection:
+          type: string
+          description: The label of the host's Connection work on it uses; absent for the host's only one.
         created_at: { type: string, format: date-time }
     RepoList:
       type: object
@@ -1378,6 +1427,10 @@ components:
           maxLength: 500
           description: owner/name on GitHub, or the URL of a repository on a known host.
         base: { type: string, minLength: 1, maxLength: 255 }
+        connection:
+          type: string
+          pattern: "^[a-z0-9][a-z0-9-]{0,30}$"
+          description: The label of a Connection of the repository's host.
     NodeList:
       type: object
       required: [data]

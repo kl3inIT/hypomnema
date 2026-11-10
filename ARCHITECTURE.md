@@ -153,11 +153,17 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     with the command that declares it. A declared host is forgotten only when no open Run and no registered
     repository is on it.
   - A repository can be registered under a short name with the base branch its Runs start from.
-  - A host can have a token, given by the owner (`PUT /hosts/{host}/token`, `hosts token set <host> --token-file`).
-    It is a secret in the vault (`git-host-<host>`); the host's record only names it, and the API never returns
-    it. The control plane's own wiring (`internal/controlplane/hosttokens.go`) stands between the vault and the
-    two APIs, which may not open a secret.
-  - The token reaches a worker with its offer: the node API reads it from the vault as it sends the offer, and
+  - A host is an Integration, and the owner connects accounts of it: each is a Connection with a label
+    (`PUT /hosts/{host}/connections/{label}`, `integrations connect <host> --label work --token-file`), kept in
+    the `connections` table ([issue #103](https://github.com/kl3inIT/hypomnema/issues/103)). Its token is a secret
+    in the vault (`conn-<host>-<label>`); the Connection only names it, and the API returns labels, never a token.
+    The control plane's own wiring (`internal/controlplane/hosttokens.go`) stands between the vault and the two
+    APIs, which may not open a secret. `hosts token set|rm` and `/hosts/{host}/token` act on the Connection
+    `default`, which is also what a host's single token of before became.
+  - Work on a repository uses the Connection its registered repository names (`repos add --connection`), else
+    the host's only one; with several and none named it gets no token, and falls back to the node user's logins.
+    A Connection a registered repository names cannot be removed.
+  - The token reaches a worker with its offer: the node API asks for it by host and repository as it sends the offer, and
     orchestration never holds it. The node gives it to that Dispatch only, as environment: git sends it to that
     host alone (an `http.https://<host>/.extraheader` through `GIT_CONFIG_COUNT`), `gh` reads `GH_TOKEN` (or
     `GH_ENTERPRISE_TOKEN` with `GH_HOST`), `glab` reads `GITLAB_TOKEN` and `GITLAB_HOST`. It is in no command's
@@ -412,8 +418,9 @@ The owner's commands:
     (several Tasks with dependencies from one JSON file); `questions [show|forward]`. Each takes `--json`; long text
     comes from a file or `-` for standard input; flags may follow the arguments; a create takes `--key` so a create
     whose answer was lost can be repeated.
-  - `hosts list|add|rm`, `hosts token set|rm` and `repos list|add|rm`: the git hosts a Run can be on, their
-    tokens, and the repositories registered under a name; every token reads them, only the owner's changes them.
+  - `hosts list|add|rm`, `integrations list|connect|disconnect` (and the older `hosts token set|rm`) and
+    `repos list|add|rm`: the git hosts a Run can be on, the accounts connected to each, and the repositories
+    registered under a name; every token reads them, only the owner's changes them.
     `hosts add` takes a host's name or a URL copied from the browser (`--kind`, default `gitlab`); `hosts token
     set` reads the token from `--token-file` (or `-`), never from an argument; `repos add` takes `owner/name` or a
     URL (`--name`, `--base`). `--repo` of `run` and `runs create` takes a registered name, `owner/name` or a URL.
