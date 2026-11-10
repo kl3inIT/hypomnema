@@ -35,10 +35,14 @@ type policy struct {
 	scope scope
 	// long: the request may outlive the server's write timeout.
 	long bool
+	// public: the request needs no token and no session; signing in is the one.
+	public bool
 }
 
 var policies = map[string]policy{
 	"GetMe":                   {},
+	"CreateSession":           {public: true},
+	"DeleteSession":           {},
 	"ListRuns":                {},
 	"CreateRun":               {},
 	"GetRun":                  {},
@@ -96,7 +100,7 @@ var policies = map[string]policy{
 }
 
 var (
-	errUnauthorized = errors.New("a valid bearer token is required")
+	errUnauthorized = errors.New("signing in or a valid bearer token is required")
 	errForbidden    = errors.New("forbidden")
 )
 
