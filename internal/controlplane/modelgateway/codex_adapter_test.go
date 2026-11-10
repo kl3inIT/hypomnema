@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -23,50 +25,119 @@ import (
 )
 
 // accounts stands in for the accounts logged in on the control plane: one
-// ChatGPT account whose token can be refused and which can cool down.
+// account unless ids names several, taken in that order. A token can be
+// refused, and an account can cool down.
 type accounts struct {
 	mu sync.Mutex
 	// none says no account is logged in.
-	none      bool
+	none bool
+	// ids are the accounts, in order; empty means the one account "acc_1".
+	ids []string
+	// keepCooling makes a cooling account still be given, so a test can see
+	// what its next failure does.
+	keepCooling bool
+	// quota is what the vendor says is left of each account's quota per model.
+	quota map[string]map[string]float64
+
 	refreshes int
+	// cooling and reason are the last cooldown; cooled holds each account's,
+	// and waits how long each one was, in order.
 	cooling   time.Time
 	reason    string
+	cooled    map[string]time.Time
+	waits     map[string][]time.Duration
+	quotaAsks map[string]int
 }
 
-func (a *accounts) Token(context.Context, string) (modelgateway.AccountToken, error) {
+func (a *accounts) Token(_ context.Context, _ string, skip ...string) (modelgateway.AccountToken, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
-	switch {
-	case a.none:
+	if a.none {
 		return modelgateway.AccountToken{}, modelgateway.ErrNoAccount
-	case !a.cooling.IsZero():
-		return modelgateway.AccountToken{}, &modelgateway.CoolingError{Until: a.cooling}
 	}
 
-	return modelgateway.AccountToken{
-		AccountID: "acc_1", ExternalID: "chatgpt-account", AccessToken: fmt.Sprintf("access-%d", a.refreshes),
-		Version: a.refreshes + 1,
-	}, nil
+	ids := a.ids
+	if len(ids) == 0 {
+		ids = []string{"acc_1"}
+	}
+
+	var free time.Time
+
+	for _, id := range ids {
+		if slices.Contains(skip, id) {
+			continue
+		}
+
+		if until := a.cooled[id]; until.After(time.Now()) && !a.keepCooling {
+			if free.IsZero() || until.Before(free) {
+				free = until
+			}
+
+			continue
+		}
+
+		token := "access-" + strconv.Itoa(a.refreshes)
+		if id != "acc_1" {
+			token = id + "-" + token
+		}
+
+		return modelgateway.AccountToken{
+			AccountID: id, ExternalID: "chatgpt-account", AccessToken: token, Version: a.refreshes + 1,
+		}, nil
+	}
+
+	if !free.IsZero() {
+		return modelgateway.AccountToken{}, &modelgateway.CoolingError{Until: free}
+	}
+
+	return modelgateway.AccountToken{}, modelgateway.ErrNoAccount
 }
 
 func (a *accounts) TokenAfterRefusal(
-	ctx context.Context, _ modelgateway.AccountToken,
+	ctx context.Context, refused modelgateway.AccountToken,
 ) (modelgateway.AccountToken, error) {
 	a.mu.Lock()
 	a.refreshes++
 	a.mu.Unlock()
 
-	return a.Token(ctx, "codex")
+	// The same account, whatever comes before it.
+	all := a.ids
+	if len(all) == 0 {
+		all = []string{"acc_1"}
+	}
+
+	others := slices.DeleteFunc(slices.Clone(all), func(id string) bool { return id == refused.AccountID })
+
+	return a.Token(ctx, "", others...)
 }
 
-func (a *accounts) CoolDown(_ context.Context, _, _ string, until time.Time, reason string) error {
+func (a *accounts) CoolDown(_ context.Context, _, id string, until time.Time, reason string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
+	if a.cooled == nil {
+		a.cooled, a.waits = map[string]time.Time{}, map[string][]time.Duration{}
+	}
+
 	a.cooling, a.reason = until, reason
+	a.cooled[id] = until
+	a.waits[id] = append(a.waits[id], time.Until(until).Round(time.Second))
 
 	return nil
+}
+
+func (a *accounts) Quota(_ context.Context, id string) (map[string]float64, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	if a.quotaAsks == nil {
+		a.quotaAsks = map[string]int{}
+	}
+
+	a.quotaAsks[id]++
+
+	return a.quota[id], nil
 }
 
 func (a *accounts) cooledUntil() time.Time {
@@ -74,6 +145,21 @@ func (a *accounts) cooledUntil() time.Time {
 	defer a.mu.Unlock()
 
 	return a.cooling
+}
+
+// waited returns how long each cooldown of an account was, in order.
+func (a *accounts) waited(id string) []time.Duration {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	return slices.Clone(a.waits[id])
+}
+
+func (a *accounts) asked(id string) int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	return a.quotaAsks[id]
 }
 
 // codexBackend starts a stand-in for chatgpt.com/backend-api/codex that
@@ -330,7 +416,7 @@ func TestAUsageLimitCoolsTheAccountDownAndTheNextTargetServes(t *testing.T) {
 
 	status, headers, body = g.call(t, g.key, askSol+`}`)
 	assert.Equal(t, http.StatusTooManyRequests, status)
-	assert.Contains(t, body, "usage_limit_reached")
+	assert.Contains(t, body, "account_unavailable")
 	assert.NotEmpty(t, headers.Get("Retry-After"))
 	assert.Equal(t, 1, got.calls(), "a cooling account is not sent to the backend")
 
@@ -411,4 +497,97 @@ func TestWithNoAccountTheProviderIsSkipped(t *testing.T) {
 
 	status, _, _ = withFallback.call(t, withFallback.key, askSol+`}`)
 	assert.Equal(t, http.StatusOK, status)
+}
+
+// Scenario: two Codex accounts are logged in and the first is rate limited.
+// The same request is served by the second, and the client sees only the
+// answer. The first cools down two seconds; limited again it cools four; once
+// it has answered, the count starts over. With both limited the client gets
+// the last refusal.
+func TestTheNextAccountServesWhenOneIsLimited(t *testing.T) {
+	t.Parallel()
+
+	limited := map[string]bool{"Bearer access-0": true}
+
+	var mu sync.Mutex
+
+	backend, got := codexBackend(t, func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		refuse := limited[r.Header.Get("Authorization")]
+		mu.Unlock()
+
+		if refuse {
+			plain(http.StatusTooManyRequests, `{"error":{"type":"rate_limit_exceeded","message":"slow down"}}`)(w, r)
+
+			return
+		}
+
+		stream(helloEvents...)(w, r)
+	})
+	subs := &accounts{ids: []string{"acc_1", "acc_2"}, keepCooling: true}
+	g := newCodexGateway(t, backend, subs)
+
+	status, _, body := g.call(t, g.key, askSol+`}`)
+	require.Equal(t, http.StatusOK, status, body)
+	assert.Equal(t, 2, got.calls())
+
+	sentHeaders, _ := got.last(t)
+	assert.Equal(t, "Bearer acc_2-access-0", sentHeaders.Get("Authorization"))
+	assert.Equal(t, []time.Duration{2 * time.Second}, subs.waited("acc_1"))
+	assert.Empty(t, subs.waited("acc_2"))
+
+	status, _, _ = g.call(t, g.key, askSol+`}`)
+	require.Equal(t, http.StatusOK, status)
+	assert.Equal(t, []time.Duration{2 * time.Second, 4 * time.Second}, subs.waited("acc_1"))
+
+	mu.Lock()
+	limited = map[string]bool{}
+	mu.Unlock()
+
+	status, _, _ = g.call(t, g.key, askSol+`}`)
+	require.Equal(t, http.StatusOK, status)
+
+	mu.Lock()
+	limited = map[string]bool{"Bearer access-0": true, "Bearer acc_2-access-0": true}
+	mu.Unlock()
+
+	status, _, body = g.call(t, g.key, askSol+`}`)
+	assert.Equal(t, http.StatusTooManyRequests, status)
+	assert.Contains(t, body, "slow down")
+	assert.Equal(t, []time.Duration{2 * time.Second, 4 * time.Second, 2 * time.Second}, subs.waited("acc_1"),
+		"an answer in between starts the count over")
+	assert.Equal(t, []time.Duration{2 * time.Second}, subs.waited("acc_2"))
+}
+
+// Scenario: what each kind of refusal costs an account. A payment or
+// permission refusal cools it two minutes and the next account is tried; a
+// server error that is no overload cools it thirty seconds and reaches the
+// client, since another account would not help; a request the backend finds
+// wrong costs nothing.
+func TestARefusalCoolsTheAccountByItsKind(t *testing.T) {
+	t.Parallel()
+
+	for name, c := range map[string]struct {
+		status int
+		wait   []time.Duration
+		calls  int
+	}{
+		"forbidden":      {http.StatusForbidden, []time.Duration{2 * time.Minute}, 2},
+		"server error":   {http.StatusInternalServerError, []time.Duration{30 * time.Second}, 1},
+		"bad request":    {http.StatusBadRequest, nil, 1},
+		"overloaded 503": {http.StatusServiceUnavailable, []time.Duration{2 * time.Second}, 2},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			backend, got := codexBackend(t, plain(c.status, `{"error":{"message":"no"}}`))
+			subs := &accounts{ids: []string{"acc_1", "acc_2"}}
+			g := newCodexGateway(t, backend, subs)
+
+			status, _, _ := g.call(t, g.key, askSol+`}`)
+			assert.Equal(t, c.status, status)
+			assert.Equal(t, c.wait, subs.waited("acc_1"))
+			assert.Equal(t, c.calls, got.calls())
+		})
+	}
 }

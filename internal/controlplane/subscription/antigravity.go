@@ -123,6 +123,10 @@ func (a *Antigravity) Runtime() string { return antigravityRuntime }
 // RefreshLead implements Vendor.
 func (a *Antigravity) RefreshLead() time.Duration { return antigravityRefreshLead }
 
+// RefreshSpacing implements Vendor: 9router-go's longer pause for the
+// providers it calls sensitive (internal/proxy/oauth/background.go).
+func (a *Antigravity) RefreshSpacing() time.Duration { return 12 * time.Second }
+
 // Identify implements Vendor. A Google token set does not say whose it is:
 // the account keeps what its login found.
 func (a *Antigravity) Identify(vault.Payload) (Identity, error) {

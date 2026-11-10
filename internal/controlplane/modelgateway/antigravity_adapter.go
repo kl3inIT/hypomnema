@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -120,19 +119,25 @@ func (antigravitySubscription) do(ctx context.Context, s *Server, call chatCall)
 		return nil, fmt.Errorf("%w: provider %q has no accounts to run under", ErrNoAccount, call.upstream.Provider)
 	}
 
+	model := call.upstream.Model
 	now := s.svc.clock.Now()
-	token, err := s.accounts.Token(ctx, antigravityRuntime)
 
-	var cooling *CoolingError
-	if errors.As(err, &cooling) {
-		return openAIError(http.StatusTooManyRequests, "rate_limit_error", "account_unavailable",
-			"the Antigravity account cannot be used for now", cooling.Until.Sub(now)), nil
-	}
+	// An account near the end of its quota for this model is used after the others.
+	nearQuota := func(token AccountToken) bool { return s.accountState.nearQuota(token.AccountID, model, now) }
 
+	resp, err := s.underAccounts(ctx, antigravityRuntime, nearQuota, func(token AccountToken) (*http.Response, error) {
+		return s.antigravityAttempt(ctx, call, token)
+	})
 	if err != nil {
 		return nil, fmt.Errorf("provider %q: %w", call.upstream.Provider, err)
 	}
 
+	return resp, nil
+}
+
+// antigravityAttempt serves a request under one account.
+func (s *Server) antigravityAttempt(ctx context.Context, call chatCall, token AccountToken) (*http.Response, error) {
+	now := s.svc.clock.Now()
 	model := call.upstream.Model
 
 	until, entered := s.antigravity.enter(token.AccountID, model, now)
@@ -176,7 +181,7 @@ func (antigravitySubscription) do(ctx context.Context, s *Server, call chatCall)
 		if err != nil {
 			release()
 
-			return nil, fmt.Errorf("provider %q: %w", call.upstream.Provider, err)
+			return nil, err
 		}
 	}
 
@@ -188,6 +193,9 @@ func (antigravitySubscription) do(ctx context.Context, s *Server, call chatCall)
 
 		return s.antigravityRefused(ctx, token, model, antigravity.ParseFailure(resp.StatusCode, body)), nil
 	}
+
+	s.accountState.served(token.AccountID)
+	s.readQuota(ctx, token.AccountID)
 
 	stream := antigravity.NewStream(s.svc.newID("chatcmpl"), now.Unix(), call.model, built.Names)
 
@@ -260,8 +268,12 @@ func (s *Server) antigravityRefused(
 
 		return openAIError(http.StatusServiceUnavailable, typeServer, "account_verification_required",
 			"Google asks for the Antigravity account to be verified", 0)
-	case f.Status != http.StatusTooManyRequests || f.Reason == antigravity.ReasonNoCapacity:
-		// Nothing of the account's is used up.
+	case f.Reason == antigravity.ReasonNoCapacity:
+		// Nothing of the account's is used up: Google has no room for the model.
+	case f.Status != http.StatusTooManyRequests:
+		// Not a limit of a model: the account cools down as any account
+		// does after such a failure (accounts.go).
+		s.cool(ctx, antigravityRuntime, token, f.Status, false, time.Time{}, f.Code)
 	case f.Reason == antigravity.ReasonQuotaExhausted || wait >= antigravityLongWait:
 		if wait <= 0 {
 			wait = antigravityQuotaWait
