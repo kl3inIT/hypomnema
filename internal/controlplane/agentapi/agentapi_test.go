@@ -234,7 +234,8 @@ func TestTheCoordinatorGetsOnlyWhatTheOwnerAllowedForChats(t *testing.T) {
 
 	status, labels = w.get(owner, "google")
 	require.Equal(t, http.StatusOK, status)
-	assert.Equal(t, []string{"work", "personal"}, labels)
+	// Two accounts connected within the same moment are listed by label, so their order is not this test's claim.
+	assert.ElementsMatch(t, []string{"work", "personal"}, labels)
 
 	_, err = w.svc.SetConnectionChats(ctx, "google", "work", false)
 	require.NoError(t, err)
