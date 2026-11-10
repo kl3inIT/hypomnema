@@ -255,6 +255,24 @@ func (e ErrorCode) Valid() bool {
 	}
 }
 
+// Defines values for GitHostKind.
+const (
+	Github GitHostKind = "github"
+	Gitlab GitHostKind = "gitlab"
+)
+
+// Valid indicates whether the value is a known member of the GitHostKind enum.
+func (e GitHostKind) Valid() bool {
+	switch e {
+	case Github:
+		return true
+	case Gitlab:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for NodeStatus.
 const (
 	NodeStatusActive  NodeStatus = "active"
@@ -643,6 +661,24 @@ type Evidence struct {
 	Ref  string `json:"ref"`
 }
 
+// GitHost defines model for GitHost.
+type GitHost struct {
+	CreatedAt *time.Time  `json:"created_at,omitempty"`
+	Host      string      `json:"host"`
+	Kind      GitHostKind `json:"kind"`
+
+	// Known True for github.com and gitlab.com, which need no declaration.
+	Known bool `json:"known"`
+}
+
+// GitHostKind defines model for GitHostKind.
+type GitHostKind string
+
+// GitHostList defines model for GitHostList.
+type GitHostList struct {
+	Data []GitHost `json:"data"`
+}
+
 // Me defines model for Me.
 type Me struct {
 	Id   string    `json:"id"`
@@ -672,6 +708,19 @@ type NewChatMessage struct {
 	Text string `json:"text"`
 }
 
+// NewGitHost defines model for NewGitHost.
+type NewGitHost struct {
+	Kind GitHostKind `json:"kind"`
+}
+
+// NewRepo defines model for NewRepo.
+type NewRepo struct {
+	Base *string `json:"base,omitempty"`
+
+	// Repo owner/name on GitHub, or the URL of a repository on a known host.
+	Repo string `json:"repo"`
+}
+
 // NewRun defines model for NewRun.
 type NewRun struct {
 	Base *string `json:"base,omitempty"`
@@ -679,7 +728,9 @@ type NewRun struct {
 	// ChatId The chat whose coordinator creates it; that chat is woken by the Run's events.
 	ChatId    *string `json:"chat_id,omitempty"`
 	Objective string  `json:"objective"`
-	Repo      *string `json:"repo,omitempty"`
+
+	// Repo A registered repository's name, owner/name on GitHub, or the URL of a repository on a known host.
+	Repo *string `json:"repo,omitempty"`
 }
 
 // NewTask defines model for NewTask.
@@ -839,6 +890,21 @@ type QuestionMode string
 // QuestionStatus defines model for QuestionStatus.
 type QuestionStatus string
 
+// Repo defines model for Repo.
+type Repo struct {
+	// Base The branch worktrees start from when a Run names none.
+	Base      *string   `json:"base,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	Host      string    `json:"host"`
+	Name      string    `json:"name"`
+	Path      string    `json:"path"`
+}
+
+// RepoList defines model for RepoList.
+type RepoList struct {
+	Data []Repo `json:"data"`
+}
+
 // Run defines model for Run.
 type Run struct {
 	Base *string `json:"base,omitempty"`
@@ -854,8 +920,11 @@ type Run struct {
 	Id                 string     `json:"id"`
 	Objective          string     `json:"objective"`
 
-	// Repo The repository workers work in, owner/name.
-	Repo      *string   `json:"repo,omitempty"`
+	// Repo The path of the repository workers work in on its host; owner/name on github.com.
+	Repo *string `json:"repo,omitempty"`
+
+	// RepoHost The git host the repository is on; present when the Run has a repository.
+	RepoHost  *string   `json:"repo_host,omitempty"`
 	Status    RunStatus `json:"status"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
@@ -875,8 +944,11 @@ type RunDetail struct {
 	Id                 string     `json:"id"`
 	Objective          string     `json:"objective"`
 
-	// Repo The repository workers work in, owner/name.
-	Repo      *string      `json:"repo,omitempty"`
+	// Repo The path of the repository workers work in on its host; owner/name on github.com.
+	Repo *string `json:"repo,omitempty"`
+
+	// RepoHost The git host the repository is on; present when the Run has a repository.
+	RepoHost  *string      `json:"repo_host,omitempty"`
 	Status    RunStatus    `json:"status"`
 	Tasks     []TaskDetail `json:"tasks"`
 	UpdatedAt time.Time    `json:"updated_at"`
@@ -1123,6 +1195,9 @@ type CreateChatJSONRequestBody = NewChat
 // SendChatMessageJSONRequestBody defines body for SendChatMessage for application/json ContentType.
 type SendChatMessageJSONRequestBody = NewChatMessage
 
+// PutGitHostJSONRequestBody defines body for PutGitHost for application/json ContentType.
+type PutGitHostJSONRequestBody = NewGitHost
+
 // ApplyProfileJSONRequestBody defines body for ApplyProfile for application/json ContentType.
 type ApplyProfileJSONRequestBody = Source
 
@@ -1131,6 +1206,9 @@ type ApplyProviderJSONRequestBody = Source
 
 // AnswerQuestionJSONRequestBody defines body for AnswerQuestion for application/json ContentType.
 type AnswerQuestionJSONRequestBody = Answer
+
+// PutRepoJSONRequestBody defines body for PutRepo for application/json ContentType.
+type PutRepoJSONRequestBody = NewRepo
 
 // CreateRunJSONRequestBody defines body for CreateRun for application/json ContentType.
 type CreateRunJSONRequestBody = NewRun
@@ -1291,6 +1369,30 @@ type ClientInterface interface {
 	// Corresponds with GET /events/stream (the `StreamEvents` operationId).
 	StreamEvents(ctx context.Context, params *StreamEventsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// ListGitHosts The git hosts a Run can be on; github.com and gitlab.com are always among them
+	//
+	// Corresponds with GET /hosts (the `ListGitHosts` operationId).
+	ListGitHosts(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DeleteGitHost Forget a declared host; refused while an open Run or a registered repository is on it
+	//
+	// Corresponds with DELETE /hosts/{host} (the `DeleteGitHost` operationId).
+	DeleteGitHost(ctx context.Context, host string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PutGitHostWithBody Declare a company's git server and its kind; only the owner
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PUT /hosts/{host} (the `PutGitHost` operationId).
+	PutGitHostWithBody(ctx context.Context, host string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PutGitHost Declare a company's git server and its kind; only the owner
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PUT /hosts/{host} (the `PutGitHost` operationId).
+	PutGitHost(ctx context.Context, host string, body PutGitHostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// GetMe The token making the request
 	//
 	// Corresponds with GET /me (the `GetMe` operationId).
@@ -1382,6 +1484,30 @@ type ClientInterface interface {
 	//
 	// Corresponds with POST /questions/{question_id}/forward (the `ForwardQuestion` operationId).
 	ForwardQuestion(ctx context.Context, questionId QuestionID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListRepos The repositories registered under a name
+	//
+	// Corresponds with GET /repos (the `ListRepos` operationId).
+	ListRepos(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DeleteRepo Forget a registered repository; Runs that named it keep their host and path
+	//
+	// Corresponds with DELETE /repos/{name} (the `DeleteRepo` operationId).
+	DeleteRepo(ctx context.Context, name Name, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PutRepoWithBody Register a repository under a name, or change what the name means; only the owner
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PUT /repos/{name} (the `PutRepo` operationId).
+	PutRepoWithBody(ctx context.Context, name Name, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PutRepo Register a repository under a name, or change what the name means; only the owner
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PUT /repos/{name} (the `PutRepo` operationId).
+	PutRepo(ctx context.Context, name Name, body PutRepoJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListRuns Runs, newest first
 	//
@@ -1663,6 +1789,70 @@ func (c *Client) StreamEvents(ctx context.Context, params *StreamEventsParams, r
 	return c.Client.Do(req)
 }
 
+// ListGitHosts The git hosts a Run can be on; github.com and gitlab.com are always among them
+//
+// Corresponds with GET /hosts (the `ListGitHosts` operationId).
+func (c *Client) ListGitHosts(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListGitHostsRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DeleteGitHost Forget a declared host; refused while an open Run or a registered repository is on it
+//
+// Corresponds with DELETE /hosts/{host} (the `DeleteGitHost` operationId).
+func (c *Client) DeleteGitHost(ctx context.Context, host string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteGitHostRequest(c.Server, host)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PutGitHostWithBody Declare a company's git server and its kind; only the owner
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PUT /hosts/{host} (the `PutGitHost` operationId).
+func (c *Client) PutGitHostWithBody(ctx context.Context, host string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPutGitHostRequestWithBody(c.Server, host, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PutGitHost Declare a company's git server and its kind; only the owner
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PUT /hosts/{host} (the `PutGitHost` operationId).
+func (c *Client) PutGitHost(ctx context.Context, host string, body PutGitHostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPutGitHostRequest(c.Server, host, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
 // GetMe The token making the request
 //
 // Corresponds with GET /me (the `GetMe` operationId).
@@ -1905,6 +2095,70 @@ func (c *Client) AnswerQuestion(ctx context.Context, questionId QuestionID, body
 // Corresponds with POST /questions/{question_id}/forward (the `ForwardQuestion` operationId).
 func (c *Client) ForwardQuestion(ctx context.Context, questionId QuestionID, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewForwardQuestionRequest(c.Server, questionId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListRepos The repositories registered under a name
+//
+// Corresponds with GET /repos (the `ListRepos` operationId).
+func (c *Client) ListRepos(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListReposRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DeleteRepo Forget a registered repository; Runs that named it keep their host and path
+//
+// Corresponds with DELETE /repos/{name} (the `DeleteRepo` operationId).
+func (c *Client) DeleteRepo(ctx context.Context, name Name, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteRepoRequest(c.Server, name)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PutRepoWithBody Register a repository under a name, or change what the name means; only the owner
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PUT /repos/{name} (the `PutRepo` operationId).
+func (c *Client) PutRepoWithBody(ctx context.Context, name Name, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPutRepoRequestWithBody(c.Server, name, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PutRepo Register a repository under a name, or change what the name means; only the owner
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PUT /repos/{name} (the `PutRepo` operationId).
+func (c *Client) PutRepo(ctx context.Context, name Name, body PutRepoJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPutRepoRequest(c.Server, name, body)
 	if err != nil {
 		return nil, err
 	}
@@ -2794,6 +3048,114 @@ func NewStreamEventsRequest(server string, params *StreamEventsParams) (*http.Re
 	return req, nil
 }
 
+// NewListGitHostsRequest constructs an http.Request for the ListGitHosts method
+func NewListGitHostsRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/hosts")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewDeleteGitHostRequest constructs an http.Request for the DeleteGitHost method
+func NewDeleteGitHostRequest(server string, host string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "host", host, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/hosts/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewPutGitHostRequest calls the generic PutGitHost builder with application/json body
+func NewPutGitHostRequest(server string, host string, body PutGitHostJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPutGitHostRequestWithBody(server, host, "application/json", bodyReader)
+}
+
+// NewPutGitHostRequestWithBody constructs an http.Request for the PutGitHost method, with any body, and a specified content type
+func NewPutGitHostRequestWithBody(server string, host string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "host", host, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/hosts/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewGetMeRequest constructs an http.Request for the GetMe method
 func NewGetMeRequest(server string) (*http.Request, error) {
 	var err error
@@ -3292,6 +3654,114 @@ func NewForwardQuestionRequest(server string, questionId QuestionID) (*http.Requ
 	if err != nil {
 		return nil, err
 	}
+
+	return req, nil
+}
+
+// NewListReposRequest constructs an http.Request for the ListRepos method
+func NewListReposRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/repos")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewDeleteRepoRequest constructs an http.Request for the DeleteRepo method
+func NewDeleteRepoRequest(server string, name Name) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "name", name, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/repos/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewPutRepoRequest calls the generic PutRepo builder with application/json body
+func NewPutRepoRequest(server string, name Name, body PutRepoJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPutRepoRequestWithBody(server, name, "application/json", bodyReader)
+}
+
+// NewPutRepoRequestWithBody constructs an http.Request for the PutRepo method, with any body, and a specified content type
+func NewPutRepoRequestWithBody(server string, name Name, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "name", name, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/repos/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
 
 	return req, nil
 }
@@ -3902,6 +4372,34 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /events/stream (the `StreamEvents` operationId).
 	StreamEventsWithResponse(ctx context.Context, params *StreamEventsParams, reqEditors ...RequestEditorFn) (*StreamEventsResponse, error)
 
+	// ListGitHostsWithResponse The git hosts a Run can be on; github.com and gitlab.com are always among them
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /hosts (the `ListGitHosts` operationId).
+	ListGitHostsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListGitHostsResponse, error)
+
+	// DeleteGitHostWithResponse Forget a declared host; refused while an open Run or a registered repository is on it
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with DELETE /hosts/{host} (the `DeleteGitHost` operationId).
+	DeleteGitHostWithResponse(ctx context.Context, host string, reqEditors ...RequestEditorFn) (*DeleteGitHostResponse, error)
+
+	// PutGitHostWithBodyWithResponse Declare a company's git server and its kind; only the owner
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /hosts/{host} (the `PutGitHost` operationId).
+	PutGitHostWithBodyWithResponse(ctx context.Context, host string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutGitHostResponse, error)
+
+	// PutGitHostWithResponse Declare a company's git server and its kind; only the owner
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /hosts/{host} (the `PutGitHost` operationId).
+	PutGitHostWithResponse(ctx context.Context, host string, body PutGitHostJSONRequestBody, reqEditors ...RequestEditorFn) (*PutGitHostResponse, error)
+
 	// GetMeWithResponse The token making the request
 	//
 	// Returns a wrapper object for the known response body format(s).
@@ -4013,6 +4511,34 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with POST /questions/{question_id}/forward (the `ForwardQuestion` operationId).
 	ForwardQuestionWithResponse(ctx context.Context, questionId QuestionID, reqEditors ...RequestEditorFn) (*ForwardQuestionResponse, error)
+
+	// ListReposWithResponse The repositories registered under a name
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /repos (the `ListRepos` operationId).
+	ListReposWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListReposResponse, error)
+
+	// DeleteRepoWithResponse Forget a registered repository; Runs that named it keep their host and path
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with DELETE /repos/{name} (the `DeleteRepo` operationId).
+	DeleteRepoWithResponse(ctx context.Context, name Name, reqEditors ...RequestEditorFn) (*DeleteRepoResponse, error)
+
+	// PutRepoWithBodyWithResponse Register a repository under a name, or change what the name means; only the owner
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /repos/{name} (the `PutRepo` operationId).
+	PutRepoWithBodyWithResponse(ctx context.Context, name Name, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutRepoResponse, error)
+
+	// PutRepoWithResponse Register a repository under a name, or change what the name means; only the owner
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /repos/{name} (the `PutRepo` operationId).
+	PutRepoWithResponse(ctx context.Context, name Name, body PutRepoJSONRequestBody, reqEditors ...RequestEditorFn) (*PutRepoResponse, error)
 
 	// ListRunsWithResponse Runs, newest first
 	//
@@ -4602,6 +5128,143 @@ func (r StreamEventsResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r StreamEventsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListGitHostsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *GitHostList
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListGitHostsResponse) GetJSON200() *GitHostList {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListGitHostsResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListGitHostsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListGitHostsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListGitHostsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListGitHostsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type DeleteGitHostResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r DeleteGitHostResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r DeleteGitHostResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteGitHostResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteGitHostResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DeleteGitHostResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type PutGitHostResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *GitHost
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r PutGitHostResponse) GetJSON200() *GitHost {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r PutGitHostResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r PutGitHostResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r PutGitHostResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PutGitHostResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r PutGitHostResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -5233,6 +5896,143 @@ func (r ForwardQuestionResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r ForwardQuestionResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListReposResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *RepoList
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListReposResponse) GetJSON200() *RepoList {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListReposResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListReposResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListReposResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListReposResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListReposResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type DeleteRepoResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r DeleteRepoResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r DeleteRepoResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteRepoResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteRepoResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DeleteRepoResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type PutRepoResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Repo
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r PutRepoResponse) GetJSON200() *Repo {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r PutRepoResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r PutRepoResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r PutRepoResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PutRepoResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r PutRepoResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -5894,6 +6694,58 @@ func (c *ClientWithResponses) StreamEventsWithResponse(ctx context.Context, para
 	return ParseStreamEventsResponse(rsp)
 }
 
+// ListGitHostsWithResponse The git hosts a Run can be on; github.com and gitlab.com are always among them
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /hosts (the `ListGitHosts` operationId).
+func (c *ClientWithResponses) ListGitHostsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListGitHostsResponse, error) {
+	rsp, err := c.ListGitHosts(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListGitHostsResponse(rsp)
+}
+
+// DeleteGitHostWithResponse Forget a declared host; refused while an open Run or a registered repository is on it
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with DELETE /hosts/{host} (the `DeleteGitHost` operationId).
+func (c *ClientWithResponses) DeleteGitHostWithResponse(ctx context.Context, host string, reqEditors ...RequestEditorFn) (*DeleteGitHostResponse, error) {
+	rsp, err := c.DeleteGitHost(ctx, host, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteGitHostResponse(rsp)
+}
+
+// PutGitHostWithBodyWithResponse Declare a company's git server and its kind; only the owner
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /hosts/{host} (the `PutGitHost` operationId).
+func (c *ClientWithResponses) PutGitHostWithBodyWithResponse(ctx context.Context, host string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutGitHostResponse, error) {
+	rsp, err := c.PutGitHostWithBody(ctx, host, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePutGitHostResponse(rsp)
+}
+
+// PutGitHostWithResponse Declare a company's git server and its kind; only the owner
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /hosts/{host} (the `PutGitHost` operationId).
+func (c *ClientWithResponses) PutGitHostWithResponse(ctx context.Context, host string, body PutGitHostJSONRequestBody, reqEditors ...RequestEditorFn) (*PutGitHostResponse, error) {
+	rsp, err := c.PutGitHost(ctx, host, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePutGitHostResponse(rsp)
+}
+
 // GetMeWithResponse The token making the request
 //
 // Returns a wrapper object for the known response body format(s).
@@ -6100,6 +6952,58 @@ func (c *ClientWithResponses) ForwardQuestionWithResponse(ctx context.Context, q
 		return nil, err
 	}
 	return ParseForwardQuestionResponse(rsp)
+}
+
+// ListReposWithResponse The repositories registered under a name
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /repos (the `ListRepos` operationId).
+func (c *ClientWithResponses) ListReposWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListReposResponse, error) {
+	rsp, err := c.ListRepos(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListReposResponse(rsp)
+}
+
+// DeleteRepoWithResponse Forget a registered repository; Runs that named it keep their host and path
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with DELETE /repos/{name} (the `DeleteRepo` operationId).
+func (c *ClientWithResponses) DeleteRepoWithResponse(ctx context.Context, name Name, reqEditors ...RequestEditorFn) (*DeleteRepoResponse, error) {
+	rsp, err := c.DeleteRepo(ctx, name, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteRepoResponse(rsp)
+}
+
+// PutRepoWithBodyWithResponse Register a repository under a name, or change what the name means; only the owner
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /repos/{name} (the `PutRepo` operationId).
+func (c *ClientWithResponses) PutRepoWithBodyWithResponse(ctx context.Context, name Name, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutRepoResponse, error) {
+	rsp, err := c.PutRepoWithBody(ctx, name, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePutRepoResponse(rsp)
+}
+
+// PutRepoWithResponse Register a repository under a name, or change what the name means; only the owner
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /repos/{name} (the `PutRepo` operationId).
+func (c *ClientWithResponses) PutRepoWithResponse(ctx context.Context, name Name, body PutRepoJSONRequestBody, reqEditors ...RequestEditorFn) (*PutRepoResponse, error) {
+	rsp, err := c.PutRepo(ctx, name, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePutRepoResponse(rsp)
 }
 
 // ListRunsWithResponse Runs, newest first
@@ -6605,6 +7509,101 @@ func ParseStreamEventsResponse(rsp *http.Response) (*StreamEventsResponse, error
 	return response, nil
 }
 
+// ParseListGitHostsResponse parses an HTTP response from a ListGitHostsWithResponse call
+func ParseListGitHostsResponse(rsp *http.Response) (*ListGitHostsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListGitHostsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest GitHostList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDeleteGitHostResponse parses an HTTP response from a DeleteGitHostWithResponse call
+func ParseDeleteGitHostResponse(rsp *http.Response) (*DeleteGitHostResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteGitHostResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePutGitHostResponse parses an HTTP response from a PutGitHostWithResponse call
+func ParsePutGitHostResponse(rsp *http.Response) (*PutGitHostResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PutGitHostResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest GitHost
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseGetMeResponse parses an HTTP response from a GetMeWithResponse call
 func ParseGetMeResponse(rsp *http.Response) (*GetMeResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -7041,6 +8040,101 @@ func ParseForwardQuestionResponse(rsp *http.Response) (*ForwardQuestionResponse,
 	return response, nil
 }
 
+// ParseListReposResponse parses an HTTP response from a ListReposWithResponse call
+func ParseListReposResponse(rsp *http.Response) (*ListReposResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListReposResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest RepoList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDeleteRepoResponse parses an HTTP response from a DeleteRepoWithResponse call
+func ParseDeleteRepoResponse(rsp *http.Response) (*DeleteRepoResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteRepoResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePutRepoResponse parses an HTTP response from a PutRepoWithResponse call
+func ParsePutRepoResponse(rsp *http.Response) (*PutRepoResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PutRepoResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Repo
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseListRunsResponse parses an HTTP response from a ListRunsWithResponse call
 func ParseListRunsResponse(rsp *http.Response) (*ListRunsResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -7406,6 +8500,15 @@ type ServerInterface interface {
 	// StreamEvents Events as Server-Sent Events, resumable with Last-Event-ID
 	// (GET /events/stream)
 	StreamEvents(w http.ResponseWriter, r *http.Request, params StreamEventsParams)
+	// ListGitHosts The git hosts a Run can be on; github.com and gitlab.com are always among them
+	// (GET /hosts)
+	ListGitHosts(w http.ResponseWriter, r *http.Request)
+	// DeleteGitHost Forget a declared host; refused while an open Run or a registered repository is on it
+	// (DELETE /hosts/{host})
+	DeleteGitHost(w http.ResponseWriter, r *http.Request, host string)
+	// PutGitHost Declare a company's git server and its kind; only the owner
+	// (PUT /hosts/{host})
+	PutGitHost(w http.ResponseWriter, r *http.Request, host string)
 	// GetMe The token making the request
 	// (GET /me)
 	GetMe(w http.ResponseWriter, r *http.Request)
@@ -7445,6 +8548,15 @@ type ServerInterface interface {
 	// ForwardQuestion Pass a question addressed to the coordinator on to the owner
 	// (POST /questions/{question_id}/forward)
 	ForwardQuestion(w http.ResponseWriter, r *http.Request, questionId QuestionID)
+	// ListRepos The repositories registered under a name
+	// (GET /repos)
+	ListRepos(w http.ResponseWriter, r *http.Request)
+	// DeleteRepo Forget a registered repository; Runs that named it keep their host and path
+	// (DELETE /repos/{name})
+	DeleteRepo(w http.ResponseWriter, r *http.Request, name Name)
+	// PutRepo Register a repository under a name, or change what the name means; only the owner
+	// (PUT /repos/{name})
+	PutRepo(w http.ResponseWriter, r *http.Request, name Name)
 	// ListRuns Runs, newest first
 	// (GET /runs)
 	ListRuns(w http.ResponseWriter, r *http.Request, params ListRunsParams)
@@ -8002,6 +9114,72 @@ func (siw *ServerInterfaceWrapper) StreamEvents(w http.ResponseWriter, r *http.R
 	handler.ServeHTTP(w, r)
 }
 
+// ListGitHosts operation middleware
+func (siw *ServerInterfaceWrapper) ListGitHosts(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListGitHosts(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteGitHost operation middleware
+func (siw *ServerInterfaceWrapper) DeleteGitHost(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "host" -------------
+	var host string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "host", r.PathValue("host"), &host, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "host", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteGitHost(w, r, host)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PutGitHost operation middleware
+func (siw *ServerInterfaceWrapper) PutGitHost(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "host" -------------
+	var host string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "host", r.PathValue("host"), &host, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "host", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PutGitHost(w, r, host)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // GetMe operation middleware
 func (siw *ServerInterfaceWrapper) GetMe(w http.ResponseWriter, r *http.Request) {
 
@@ -8317,6 +9495,72 @@ func (siw *ServerInterfaceWrapper) ForwardQuestion(w http.ResponseWriter, r *htt
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ForwardQuestion(w, r, questionId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListRepos operation middleware
+func (siw *ServerInterfaceWrapper) ListRepos(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListRepos(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteRepo operation middleware
+func (siw *ServerInterfaceWrapper) DeleteRepo(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name Name
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", r.PathValue("name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteRepo(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PutRepo operation middleware
+func (siw *ServerInterfaceWrapper) PutRepo(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name Name
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", r.PathValue("name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PutRepo(w, r, name)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -8817,6 +10061,12 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/events", wrapper.ListEvents)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/events/stream", wrapper.StreamEvents)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/nodes", wrapper.ListNodes)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/hosts", wrapper.ListGitHosts)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/hosts/{host}", wrapper.DeleteGitHost)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/hosts/{host}", wrapper.PutGitHost)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/repos", wrapper.ListRepos)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/repos/{name}", wrapper.DeleteRepo)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/repos/{name}", wrapper.PutRepo)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/accounts", wrapper.ListAccounts)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/profiles", wrapper.ListProfiles)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/profiles/{name}", wrapper.GetProfile)
@@ -9311,6 +10561,117 @@ type StreamEventsdefaultJSONResponse struct {
 }
 
 func (response StreamEventsdefaultJSONResponse) VisitStreamEventsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListGitHostsRequestObject struct {
+}
+
+type ListGitHostsResponseObject interface {
+	VisitListGitHostsResponse(w http.ResponseWriter) error
+}
+
+type ListGitHosts200JSONResponse GitHostList
+
+func (response ListGitHosts200JSONResponse) VisitListGitHostsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListGitHostsdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListGitHostsdefaultJSONResponse) VisitListGitHostsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteGitHostRequestObject struct {
+	Host string `json:"host"`
+}
+
+type DeleteGitHostResponseObject interface {
+	VisitDeleteGitHostResponse(w http.ResponseWriter) error
+}
+
+type DeleteGitHost204Response struct {
+}
+
+func (response DeleteGitHost204Response) VisitDeleteGitHostResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteGitHostdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response DeleteGitHostdefaultJSONResponse) VisitDeleteGitHostResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutGitHostRequestObject struct {
+	Host string `json:"host"`
+	Body *PutGitHostJSONRequestBody
+}
+
+type PutGitHostResponseObject interface {
+	VisitPutGitHostResponse(w http.ResponseWriter) error
+}
+
+type PutGitHost200JSONResponse GitHost
+
+func (response PutGitHost200JSONResponse) VisitPutGitHostResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutGitHostdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response PutGitHostdefaultJSONResponse) VisitPutGitHostResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -9841,6 +11202,117 @@ func (response ForwardQuestiondefaultJSONResponse) VisitForwardQuestionResponse(
 	return err
 }
 
+type ListReposRequestObject struct {
+}
+
+type ListReposResponseObject interface {
+	VisitListReposResponse(w http.ResponseWriter) error
+}
+
+type ListRepos200JSONResponse RepoList
+
+func (response ListRepos200JSONResponse) VisitListReposResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListReposdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListReposdefaultJSONResponse) VisitListReposResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteRepoRequestObject struct {
+	Name Name `json:"name"`
+}
+
+type DeleteRepoResponseObject interface {
+	VisitDeleteRepoResponse(w http.ResponseWriter) error
+}
+
+type DeleteRepo204Response struct {
+}
+
+func (response DeleteRepo204Response) VisitDeleteRepoResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteRepodefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response DeleteRepodefaultJSONResponse) VisitDeleteRepoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutRepoRequestObject struct {
+	Name Name `json:"name"`
+	Body *PutRepoJSONRequestBody
+}
+
+type PutRepoResponseObject interface {
+	VisitPutRepoResponse(w http.ResponseWriter) error
+}
+
+type PutRepo200JSONResponse Repo
+
+func (response PutRepo200JSONResponse) VisitPutRepoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutRepodefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response PutRepodefaultJSONResponse) VisitPutRepoResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListRunsRequestObject struct {
 	Params ListRunsParams
 }
@@ -10269,6 +11741,15 @@ type StrictServerInterface interface {
 	// StreamEvents Events as Server-Sent Events, resumable with Last-Event-ID
 	// (GET /events/stream)
 	StreamEvents(ctx context.Context, request StreamEventsRequestObject) (StreamEventsResponseObject, error)
+	// ListGitHosts The git hosts a Run can be on; github.com and gitlab.com are always among them
+	// (GET /hosts)
+	ListGitHosts(ctx context.Context, request ListGitHostsRequestObject) (ListGitHostsResponseObject, error)
+	// DeleteGitHost Forget a declared host; refused while an open Run or a registered repository is on it
+	// (DELETE /hosts/{host})
+	DeleteGitHost(ctx context.Context, request DeleteGitHostRequestObject) (DeleteGitHostResponseObject, error)
+	// PutGitHost Declare a company's git server and its kind; only the owner
+	// (PUT /hosts/{host})
+	PutGitHost(ctx context.Context, request PutGitHostRequestObject) (PutGitHostResponseObject, error)
 	// GetMe The token making the request
 	// (GET /me)
 	GetMe(ctx context.Context, request GetMeRequestObject) (GetMeResponseObject, error)
@@ -10308,6 +11789,15 @@ type StrictServerInterface interface {
 	// ForwardQuestion Pass a question addressed to the coordinator on to the owner
 	// (POST /questions/{question_id}/forward)
 	ForwardQuestion(ctx context.Context, request ForwardQuestionRequestObject) (ForwardQuestionResponseObject, error)
+	// ListRepos The repositories registered under a name
+	// (GET /repos)
+	ListRepos(ctx context.Context, request ListReposRequestObject) (ListReposResponseObject, error)
+	// DeleteRepo Forget a registered repository; Runs that named it keep their host and path
+	// (DELETE /repos/{name})
+	DeleteRepo(ctx context.Context, request DeleteRepoRequestObject) (DeleteRepoResponseObject, error)
+	// PutRepo Register a repository under a name, or change what the name means; only the owner
+	// (PUT /repos/{name})
+	PutRepo(ctx context.Context, request PutRepoRequestObject) (PutRepoResponseObject, error)
 	// ListRuns Runs, newest first
 	// (GET /runs)
 	ListRuns(ctx context.Context, request ListRunsRequestObject) (ListRunsResponseObject, error)
@@ -10678,6 +12168,89 @@ func (sh *strictHandler) StreamEvents(w http.ResponseWriter, r *http.Request, pa
 	}
 }
 
+// ListGitHosts operation middleware
+func (sh *strictHandler) ListGitHosts(w http.ResponseWriter, r *http.Request) {
+	var request ListGitHostsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListGitHosts(ctx, request.(ListGitHostsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListGitHosts")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListGitHostsResponseObject); ok {
+		if err := validResponse.VisitListGitHostsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteGitHost operation middleware
+func (sh *strictHandler) DeleteGitHost(w http.ResponseWriter, r *http.Request, host string) {
+	var request DeleteGitHostRequestObject
+
+	request.Host = host
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteGitHost(ctx, request.(DeleteGitHostRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteGitHost")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteGitHostResponseObject); ok {
+		if err := validResponse.VisitDeleteGitHostResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PutGitHost operation middleware
+func (sh *strictHandler) PutGitHost(w http.ResponseWriter, r *http.Request, host string) {
+	var request PutGitHostRequestObject
+
+	request.Host = host
+
+	var body PutGitHostJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PutGitHost(ctx, request.(PutGitHostRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PutGitHost")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PutGitHostResponseObject); ok {
+		if err := validResponse.VisitPutGitHostResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // GetMe operation middleware
 func (sh *strictHandler) GetMe(w http.ResponseWriter, r *http.Request) {
 	var request GetMeRequestObject
@@ -11027,6 +12600,89 @@ func (sh *strictHandler) ForwardQuestion(w http.ResponseWriter, r *http.Request,
 	}
 }
 
+// ListRepos operation middleware
+func (sh *strictHandler) ListRepos(w http.ResponseWriter, r *http.Request) {
+	var request ListReposRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListRepos(ctx, request.(ListReposRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListRepos")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListReposResponseObject); ok {
+		if err := validResponse.VisitListReposResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteRepo operation middleware
+func (sh *strictHandler) DeleteRepo(w http.ResponseWriter, r *http.Request, name Name) {
+	var request DeleteRepoRequestObject
+
+	request.Name = name
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteRepo(ctx, request.(DeleteRepoRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteRepo")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteRepoResponseObject); ok {
+		if err := validResponse.VisitDeleteRepoResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PutRepo operation middleware
+func (sh *strictHandler) PutRepo(w http.ResponseWriter, r *http.Request, name Name) {
+	var request PutRepoRequestObject
+
+	request.Name = name
+
+	var body PutRepoJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PutRepo(ctx, request.(PutRepoRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PutRepo")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PutRepoResponseObject); ok {
+		if err := validResponse.VisitPutRepoResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ListRuns operation middleware
 func (sh *strictHandler) ListRuns(w http.ResponseWriter, r *http.Request, params ListRunsParams) {
 	var request ListRunsRequestObject
@@ -11307,117 +12963,127 @@ func (sh *strictHandler) ReopenTask(w http.ResponseWriter, r *http.Request, task
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
+	"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",
+	"6U0hyYRXYoItiT48/N8A",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

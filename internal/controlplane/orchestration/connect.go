@@ -96,9 +96,13 @@ type Offer struct {
 	RunID      string `json:"run_id"`
 	Profile    string `json:"profile"`
 	// Instruction is the profile's, added to the worker's built-in instructions.
-	Instruction    string `json:"instruction,omitempty"`
-	Spec           string `json:"spec"`
-	Repo           string `json:"repo,omitempty"`
+	Instruction string `json:"instruction,omitempty"`
+	Spec        string `json:"spec"`
+	Repo        string `json:"repo,omitempty"`
+	// RepoHost and RepoKind say where Repo is and how that host is used; a
+	// node from before hosts existed reads neither and assumes GitHub.
+	RepoHost       string `json:"repo_host,omitempty"`
+	RepoKind       string `json:"repo_kind,omitempty"`
 	Base           string `json:"base,omitempty"`
 	ConversationID string `json:"conversation_id"`
 	Worktree       string `json:"worktree"`
@@ -198,10 +202,22 @@ func offerOf(ctx context.Context, q *store.Queries, d store.Dispatch) (Offer, er
 		instruction = v.Instruction.String
 	}
 
+	host, kind := repoHost(run), ""
+
+	if host != "" {
+		h, err := gitHostOf(ctx, q, host)
+		if err != nil {
+			return Offer{}, err
+		}
+
+		kind = string(h.Kind)
+	}
+
 	return Offer{
 		DispatchID: d.ID, TaskID: task.ID, RunID: run.ID, Profile: task.Profile, Instruction: instruction,
 		Spec: task.Spec,
-		Repo: run.Repo.String, Base: run.Base.String, ConversationID: conv.ID, Worktree: conv.Worktree,
+		Repo: run.Repo.String, RepoHost: host, RepoKind: kind,
+		Base: run.Base.String, ConversationID: conv.ID, Worktree: conv.Worktree,
 		Runtime: conv.Runtime, AccountRef: conv.AccountRef, CLISessionRef: conv.CliSessionRef.String,
 		Model: d.Model.String, Effort: d.Effort.String,
 	}, nil

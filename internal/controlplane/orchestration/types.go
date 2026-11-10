@@ -45,9 +45,11 @@ type Run struct {
 	Objective string
 	Status    RunStatus
 	CreatedBy string
-	// Repo (owner/name) and Base are where the Run's workers make their worktrees.
-	Repo string
-	Base string
+	// Repo and Base are where the Run's workers make their worktrees: Repo is
+	// the repository's path on RepoHost (owner/name on github.com).
+	Repo     string
+	RepoHost string
+	Base     string
 	// CoordinatorTokenID is the coordinator token that coordinates the Run;
 	// empty when the owner created it.
 	CoordinatorTokenID string
@@ -95,7 +97,9 @@ type NewTask struct {
 	DependsOn []string
 }
 
-// NewRun is a Run to create. Repo is owner/name; Base defaults to DefaultBase.
+// NewRun is a Run to create. Repo is a registered repository's name,
+// owner/name on GitHub, or a repository's URL on a known host; Base defaults
+// to the registered repository's, else DefaultBase.
 // CoordinatorTokenID names the coordinator token that coordinates it, if any.
 type NewRun struct {
 	Objective          string

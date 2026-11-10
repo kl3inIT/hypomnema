@@ -222,7 +222,7 @@ func tools() []map[string]any {
 							"type": "object",
 							"properties": map[string]any{
 								"kind": map[string]any{"type": "string", "description": "pull_request, commit or ci_run"},
-								"ref":  map[string]any{"type": "string", "description": "owner/repo#7, a SHA or a URL"},
+								"ref":  map[string]any{"type": "string", "description": "the pull request's URL, a SHA or another URL"},
 							},
 							"required": []string{"kind", "ref"},
 						},

@@ -180,7 +180,7 @@ func TestRunFollowsUntilTheTaskEnds(t *testing.T) {
 	require.ErrorIs(t, err, ErrUsage)
 
 	_, err = w.cmd(t, "run", "--repo", "not a repo", "--detach", "x")
-	require.ErrorContains(t, err, "validation_failed")
+	require.ErrorContains(t, err, "is not owner/name or the URL of a repository")
 
 	var buf syncBuffer
 
@@ -406,6 +406,69 @@ func (wk *worker) succeed(t *testing.T, w *world) {
 			Evidence: []orchestration.Evidence{{Kind: "pull_request", Ref: "https://github.com/kl3inIT/demo/pull/7"}},
 		},
 	}))
+}
+
+// Scenario: the owner sets up the company's GitLab server and its repositories
+// from a terminal, then starts a Run by a repository's short name. A
+// coordinator reads the hosts and repositories and cannot change them.
+func TestHostsAndRepositoriesFromTheCLI(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	w.login(t, bearertoken.Owner)
+
+	out, err := w.cmd(t, "runs", "create", "--repo", "https://gitlab.company.example/team/app", "ship it")
+	require.Error(t, err, out)
+	require.ErrorContains(t, err, "hypomnema hosts add gitlab.company.example --kind gitlab")
+
+	out, err = w.cmd(t, "hosts", "add", "https://GitLab.Company.Example/users/sign_in")
+	require.NoError(t, err)
+	assert.Equal(t, "host gitlab.company.example is gitlab\n", out, "a URL copied from the browser names its host")
+
+	out, err = w.cmd(t, "hosts", "list")
+	require.NoError(t, err)
+	assert.Equal(t,
+		"github.com\tgithub\tknown\ngitlab.com\tgitlab\tknown\ngitlab.company.example\tgitlab\tdeclared\n", out)
+
+	out, err = w.cmd(t, "repos", "add", "https://gitlab.company.example/team/Platform-API.git", "--base", "develop")
+	require.NoError(t, err)
+	assert.Equal(t, "repository platform-api is https://gitlab.company.example/team/Platform-API\n", out)
+
+	_, err = w.cmd(t, "repos", "add", "kl3inIT/hypomnema", "--name", "hyp")
+	require.NoError(t, err)
+
+	out, err = w.cmd(t, "repos", "list")
+	require.NoError(t, err)
+	assert.Equal(t,
+		"hyp\tkl3inIT/hypomnema\t\nplatform-api\thttps://gitlab.company.example/team/Platform-API\tdevelop\n", out)
+
+	var run openapi.Run
+	w.jsonCmd(t, &run, "", "runs", "create", "--repo", "platform-api", "ship it")
+	assert.Equal(t, [3]string{"gitlab.company.example", "team/Platform-API", "develop"},
+		[3]string{val(run.RepoHost), val(run.Repo), val(run.Base)})
+
+	_, err = w.cmd(t, "hosts", "rm", "gitlab.company.example")
+	require.ErrorContains(t, err, "1 open runs and 1 registered repositories")
+
+	_, err = w.cmd(t, "runs", "cancel", run.Id)
+	require.NoError(t, err)
+	_, err = w.cmd(t, "repos", "rm", "platform-api")
+	require.NoError(t, err)
+
+	out, err = w.cmd(t, "hosts", "rm", "gitlab.company.example")
+	require.NoError(t, err)
+	assert.Equal(t, "host gitlab.company.example is forgotten\n", out)
+
+	w.login(t, bearertoken.Coordinator)
+
+	out, err = w.cmd(t, "repos", "list")
+	require.NoError(t, err)
+	assert.Contains(t, out, "hyp\tkl3inIT/hypomnema")
+
+	_, err = w.cmd(t, "hosts", "add", "gitlab.company.example")
+	require.Error(t, err, "only the owner declares a host")
+	_, err = w.cmd(t, "repos", "rm", "hyp")
+	require.Error(t, err, "only the owner changes the repositories")
 }
 
 // A worker's output may hold terminal escapes; printed as text they are shown,

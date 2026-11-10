@@ -186,9 +186,10 @@ func TestRequestsAreValidatedAgainstTheContract(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, openapi.ValidationFailed, errorCode(t, resp.Body, resp.StatusCode(), http.StatusBadRequest))
 
+	// A repository is a registered name, owner/name or a URL, so the service reads it, not the contract.
 	resp, err = c.CreateRunWithResponse(t.Context(), nil, openapi.NewRun{Objective: "x", Repo: ptr("not a repo")})
 	require.NoError(t, err)
-	assert.Equal(t, openapi.ValidationFailed, errorCode(t, resp.Body, resp.StatusCode(), http.StatusBadRequest))
+	assert.Equal(t, openapi.InvalidRequest, errorCode(t, resp.Body, resp.StatusCode(), http.StatusBadRequest))
 
 	limit := 1000
 	runs, err := c.ListRunsWithResponse(t.Context(), &openapi.ListRunsParams{Limit: &limit})

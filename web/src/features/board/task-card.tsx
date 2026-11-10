@@ -48,7 +48,7 @@ export function TaskCard({
       {showRun && (
         <span className="truncate text-2xs text-muted-foreground">
           {firstLine(run.objective, 80)}
-          {run.repo && ` · ${run.repo.split("/")[1]}`}
+          {run.repo && ` · ${run.repo.split("/").at(-1)}`}
         </span>
       )}
 

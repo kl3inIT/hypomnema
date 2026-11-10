@@ -24,7 +24,8 @@ The current deployment is described in [ARCHITECTURE.md](ARCHITECTURE.md#where-i
    own Runs) and save the token it prints (shown once) to a file, mode 0600.
 2. On the other machine: `hypomnema login --url <control plane URL> --token-file <token file>`
    (it checks the token and keeps it in `~/.hypomnema/client.json`).
-3. Then, for example, `hypomnema run --repo owner/name "<objective>"`.
+3. Then, for example, `hypomnema run --repo owner/name "<objective>"`. A repository on GitLab is named by its
+   URL; a company's GitLab server is declared once with `hypomnema hosts add <host>`.
 
 To let your own agent (Claude Code, Codex or pi) coordinate workers, log in with a `coordinator` token and run
 `hypomnema skills install`. It installs the coordinator skill into `~/.claude/skills` and `~/.agents/skills`; then
