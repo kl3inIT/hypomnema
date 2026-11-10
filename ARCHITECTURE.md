@@ -340,7 +340,7 @@ subscriptions. The Claude subscription, other provider formats and other capabil
 - A Dispatch whose model the gateway serves gets a key of its own (issue #107, as the git host's token travels):
   made as its offer is sent to the node, good for the Dispatch's model only, carried in the offer (`model_key`). An
   offer sent again carries a new key and the earlier one stops. The control plane revokes a Dispatch's keys when the
-  Dispatch settles, looked for at every commit of orchestration and every minute. No runner uses the key yet.
+  Dispatch settles, looked for at every commit of orchestration and every minute. The Codex runner uses it.
 - `POST /v1/responses` (issue #107, after 9router-go;
   [research](docs/research/2026-11-10-codex-responses-passthrough.md)) is for a client that speaks OpenAI's Responses
   format, which the Codex CLI does and nothing else. It serves a model's `codex_subscription` targets only:
@@ -566,6 +566,16 @@ Node (`internal/node`):
 - `init` writes `~/.hypomnema-node/config.json` (mode 0600, directory 0700) with the control plane's URL, the token
   read from a file, and the worktree root.
 - At connect the node finds `claude` and `codex` on its PATH and reads their `--version`.
+- The daemon has a runner per runtime and gives a Dispatch to the runner of its offer's runtime (issue #107).
+- A Codex worker (`internal/node/codex`; [research](docs/research/2026-11-10-codex-responses-passthrough.md)) has
+  no login on the node: its model comes from the control plane's gateway under the offer's key. One turn is one
+  process under a shim, as a Claude Code worker's: `codex exec --json --skip-git-repo-check --ignore-user-config
+  --dangerously-bypass-approvals-and-sandbox`, with `-c` overrides that name the gateway (`<control plane>/v1`,
+  `wire_api = "responses"`, the key read from the environment variable `HYPOMNEMA_MODEL_KEY`) and the tools server
+  (`ask`, `finish`), the model and the effort, and the prompt on standard input. `CODEX_HOME` is
+  `conversations/<conversation>/codex` under the node's home, so a follow-up Dispatch continues with
+  `exec resume <thread id>`. The thread id of `thread.started` is the session; the outcome is `finish`'s report,
+  or else what `turn.failed` said. A stop kills the process. A Codex worker's transcript is not sent yet.
 - The daemon (`internal/node/daemon`) says hello claiming the Dispatches it holds and applies each disposition, then
   holds the socket:
   - heartbeats every 10 s (or as the control plane says), a WebSocket ping every 20 s;
@@ -781,6 +791,7 @@ internal/e2e               tests only: the control plane's node API with the nod
 internal/node             package node: configuration, CLI detection, init, check, run and the systemd unit
 internal/node/bridge      the mailbox between a worker's tools and the runner: questions, answers, the final report
 internal/node/claude      the Claude Code runner: worker environment, stream-JSON, journal reading, outcome
+internal/node/codex       the Codex CLI runner: the gateway as its provider, `exec --json`, journal reading, outcome
 internal/node/daemon      the node's connection: hello, socket, offers, outbox, Runner interface
 internal/node/shim        one worker kept across daemon restarts: journal, input socket, exit file
 internal/node/statedb     the node's SQLite state: Dispatches held and the report outbox
