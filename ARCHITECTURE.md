@@ -112,8 +112,8 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     failed, and a due destroy is tried again. Nothing is created or destroyed without the owner asking.
   - `machines providers check <name>` proves the key works and lists the provider's machines that no node stands
     for; it runs when asked, not on a timer, and destroys nothing.
-  - Not built: other providers, choosing a region or size on the web (the API and the CLI take them), and
-    delivering the CLIs' logins to a new machine, which the owner still sets on it once.
+  - Not built: other providers, and delivering the CLIs' logins to a new machine, which the owner still sets on
+    it once.
 - Chats (`orchestration/chats.go`, issue #41 PR 3, after Omnara;
   [research](docs/research/2026-11-09-chat-storage.md)): the owner's conversations with pi. Every message is kept
   (`owner`, `coordinator`, `tool`, `system`; replies and tools with JSON `parts`); owner messages and wake-ups wait
@@ -523,8 +523,10 @@ Node (`internal/node`):
   removed instead, with the provider's reason for a failure. `GET /nodes` is read again every 5 s while the tab is
   visible, since no event says a measurement changed. A machine's menu drains or resumes it and removes it after a
   confirmation; a refusal shows the server's message. Where the server has machine providers, "Add machine" first asks where: a machine of the owner's own, or a
-  new one at a provider, shown with its size, region and how many machines it has of its limit; a new one is
-  created at once and needs no token, and a provider at its limit creates none. For a machine of the owner's own,
+  new one at a provider, shown with its size, region and how many machines it has of its limit; a new one takes
+  a size and a region, each the provider's default when left empty, is created at once and needs no token, and a
+  provider at its limit creates none. A machine that was not created is removed from its own card, behind the
+  same confirmation as the menu's. For a machine of the owner's own,
   "Add machine" takes a name and an optional limit, then shows
   the node's token and the install line once, each with a copy button; the token is kept only while that dialog is
   open.

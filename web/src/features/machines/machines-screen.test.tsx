@@ -360,3 +360,59 @@ test("removing a provider's machine warns that it is destroyed", async () => {
     "Its machine is destroyed at the provider",
   )
 })
+
+// Scenario: the owner wants a bigger machine in another region than the provider's defaults. The dialog shows
+// the defaults as what an empty field means, and the request carries what was typed and nothing for a field left
+// empty.
+test("a machine at a provider takes a size and a region", async () => {
+  const user = userEvent.setup()
+  const requests = nodesServer(
+    [node("builder")],
+    { "POST /nodes": () => json({ node: node("big", atAws("provisioning")) }, 201) },
+    [aws(0)],
+  )
+  await open()
+
+  await user.click(screen.getByRole("button", { name: "Add machine" }))
+  const dialog = await screen.findByRole("dialog")
+  expect(within(dialog).queryByLabelText("Size")).not.toBeInTheDocument()
+
+  await user.click(await within(dialog).findByRole("radio", { name: "A new machine at aws" }))
+  expect(within(dialog).getByLabelText("Size")).toHaveAttribute("placeholder", "t3.medium")
+  expect(within(dialog).getByLabelText("Region")).toHaveAttribute("placeholder", "ap-southeast-1")
+
+  await user.type(within(dialog).getByLabelText("Name"), "big")
+  await user.type(within(dialog).getByLabelText("Size"), "t3.large")
+  await user.click(within(dialog).getByRole("button", { name: "Create" }))
+
+  await within(dialog).findByText("big is being created")
+  expect(requests).toEqual([
+    { call: "POST /nodes", body: { name: "big", provider: "aws", size: "t3.large" } },
+  ])
+})
+
+// Scenario: a machine the provider refused is removed from its own card, behind the same confirmation as the
+// menu's; a machine still being created offers no such button.
+test("a machine that was not created is removed from its card", async () => {
+  const user = userEvent.setup()
+  const requests = nodesServer(
+    [
+      node("refused", atAws("provision_failed", "VcpuLimitExceeded")),
+      node("fresh", atAws("provisioning")),
+    ],
+    { "DELETE /nodes/refused": () => new Response(null, { status: 204 }) },
+  )
+  await open()
+
+  expect(within(await machine("fresh")).queryByRole("button", { name: "Remove" })).toBeNull()
+
+  await user.click(within(await machine("refused")).getByRole("button", { name: "Remove" }))
+  const confirm = await screen.findByRole("alertdialog")
+  expect(confirm).toHaveTextContent("Remove refused?")
+  expect(requests).toEqual([])
+
+  await user.click(within(confirm).getByRole("button", { name: "Remove" }))
+  await vi.waitFor(() =>
+    expect(requests).toEqual([{ call: "DELETE /nodes/refused", body: undefined }]),
+  )
+})

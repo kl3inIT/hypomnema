@@ -31,13 +31,6 @@ export function MachineActions({ node }: { node: Node }) {
         : await drainNode({ path: { node_id: node.id } }),
     onSettled: () => queryClient.invalidateQueries({ queryKey: nodesKey }),
   })
-  const remove = useMutation({
-    mutationFn: async () => await removeNode({ path: { node_id: node.id } }),
-    onSuccess: async () => {
-      setRemoving(false)
-      await queryClient.invalidateQueries({ queryKey: nodesKey })
-    },
-  })
 
   return (
     <div className="flex items-center justify-end gap-2">
@@ -69,13 +62,7 @@ export function MachineActions({ node }: { node: Node }) {
                 )}
               </Menu.Item>
               <Menu.Separator className="mx-1 my-1 h-px bg-border" />
-              <Menu.Item
-                className={itemClass}
-                onClick={() => {
-                  remove.reset()
-                  setRemoving(true)
-                }}
-              >
+              <Menu.Item className={itemClass} onClick={() => setRemoving(true)}>
                 <Trash2 className="size-4" />
                 Remove
               </Menu.Item>
@@ -84,36 +71,64 @@ export function MachineActions({ node }: { node: Node }) {
         </Menu.Portal>
       </Menu.Root>
 
-      <AlertDialog.Root open={removing} onOpenChange={setRemoving}>
-        <AlertDialog.Portal>
-          <AlertDialog.Backdrop className="fixed inset-0 z-40 bg-black/60 transition-opacity data-ending-style:opacity-0 data-starting-style:opacity-0" />
-          <AlertDialog.Popup className="fixed top-1/2 left-1/2 z-50 flex w-[calc(100vw-2rem)] max-w-sm -translate-x-1/2 -translate-y-1/2 flex-col gap-3 rounded-xl border bg-background p-5 text-start font-normal whitespace-normal outline-none">
-            <AlertDialog.Title className="text-sm font-medium">
-              Remove {node.name}?
-            </AlertDialog.Title>
-            <AlertDialog.Description className="text-sm text-muted-foreground">
-              {node.machine
-                ? "Its machine is destroyed at the provider, with everything on it. This cannot be undone."
-                : "Its tokens stop working and it can take no more work. This cannot be undone."}
-            </AlertDialog.Description>
-            {remove.error && (
-              <p role="alert" className="text-sm text-destructive">
-                {errorText(remove.error)}
-              </p>
-            )}
-            <div className="flex justify-end gap-2 pt-1">
-              <AlertDialog.Close render={<Button variant="outline" />}>Cancel</AlertDialog.Close>
-              <Button
-                variant="destructive"
-                disabled={remove.isPending}
-                onClick={() => remove.mutate()}
-              >
-                {remove.isPending ? "Removing…" : "Remove"}
-              </Button>
-            </div>
-          </AlertDialog.Popup>
-        </AlertDialog.Portal>
-      </AlertDialog.Root>
+      <RemoveMachine node={node} open={removing} onOpenChange={setRemoving} />
     </div>
+  )
+}
+
+// RemoveMachine is the confirmation before a machine is removed, and the removal. A refusal shows the server's
+// message and keeps the dialog open.
+export function RemoveMachine({
+  node,
+  open,
+  onOpenChange,
+}: {
+  node: Node
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  const queryClient = useQueryClient()
+  const remove = useMutation({
+    mutationFn: async () => await removeNode({ path: { node_id: node.id } }),
+    onSuccess: async () => {
+      onOpenChange(false)
+      await queryClient.invalidateQueries({ queryKey: nodesKey })
+    },
+  })
+
+  function change(next: boolean) {
+    if (!next) remove.reset()
+    onOpenChange(next)
+  }
+
+  return (
+    <AlertDialog.Root open={open} onOpenChange={change}>
+      <AlertDialog.Portal>
+        <AlertDialog.Backdrop className="fixed inset-0 z-40 bg-black/60 transition-opacity data-ending-style:opacity-0 data-starting-style:opacity-0" />
+        <AlertDialog.Popup className="fixed top-1/2 left-1/2 z-50 flex w-[calc(100vw-2rem)] max-w-sm -translate-x-1/2 -translate-y-1/2 flex-col gap-3 rounded-xl border bg-background p-5 text-start font-normal whitespace-normal outline-none">
+          <AlertDialog.Title className="text-sm font-medium">Remove {node.name}?</AlertDialog.Title>
+          <AlertDialog.Description className="text-sm text-muted-foreground">
+            {node.machine
+              ? "Its machine is destroyed at the provider, with everything on it. This cannot be undone."
+              : "Its tokens stop working and it can take no more work. This cannot be undone."}
+          </AlertDialog.Description>
+          {remove.error && (
+            <p role="alert" className="text-sm text-destructive">
+              {errorText(remove.error)}
+            </p>
+          )}
+          <div className="flex justify-end gap-2 pt-1">
+            <AlertDialog.Close render={<Button variant="outline" />}>Cancel</AlertDialog.Close>
+            <Button
+              variant="destructive"
+              disabled={remove.isPending}
+              onClick={() => remove.mutate()}
+            >
+              {remove.isPending ? "Removing…" : "Remove"}
+            </Button>
+          </div>
+        </AlertDialog.Popup>
+      </AlertDialog.Portal>
+    </AlertDialog.Root>
   )
 }
