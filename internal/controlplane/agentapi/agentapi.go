@@ -4,7 +4,8 @@
 // Who the agent is decides what it gets:
 //
 //   - a worker presents its Dispatch's own key and gets the Connections its
-//     Run was given;
+//     Run was given; when a coordinator created the Run, only while the owner
+//     still allows them for chats;
 //   - the coordinator presents its coordinator token and gets the Connections
 //     the owner switched on for chats;
 //   - the owner's own token gets every Connection, as it can already read the
@@ -96,8 +97,11 @@ func (s *Server) authenticate(r *http.Request) (agent, error) {
 
 		return agent{
 			name: "dispatch " + session.DispatchID,
+			// A Run a coordinator created was given only what the coordinator may use, and keeps it only while
+			// the coordinator may: the owner's switch is read now, not when the Run was made.
 			may: func(c orchestration.Connection) bool {
-				return slices.Contains(session.Uses, orchestration.Use(c.Integration, c.Label))
+				return slices.Contains(session.Uses, orchestration.Use(c.Integration, c.Label)) &&
+					(!session.ByCoordinator || c.Chats)
 			},
 		}, nil
 	}

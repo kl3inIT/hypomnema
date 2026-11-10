@@ -139,6 +139,12 @@ type AgentSession struct {
 	DispatchID string
 	// Uses are the Connections the key may ask a token for.
 	Uses []string
+	// ByCoordinator says the Dispatch's Run was created by a coordinator,
+	// which could give it only what the owner allowed for chats. Such a key
+	// works for a Connection only while that is still allowed: what the owner
+	// takes back from the coordinator, its Runs lose too. A key whose Dispatch
+	// cannot be found counts as one.
+	ByCoordinator bool
 }
 
 // AddAgentSession makes a Dispatch's key and returns it once; only its hash
@@ -182,7 +188,50 @@ func (s *Service) AgentSessionOf(ctx context.Context, secret string) (AgentSessi
 		return AgentSession{}, fmt.Errorf("reading an agent session: %w", err)
 	}
 
-	return AgentSession{ID: row.ID, DispatchID: row.DispatchID, Uses: strings.Split(row.Uses, ",")}, nil
+	byCoordinator, err := s.runByCoordinator(ctx, row.DispatchID)
+	if err != nil {
+		return AgentSession{}, err
+	}
+
+	return AgentSession{
+		ID: row.ID, DispatchID: row.DispatchID, Uses: strings.Split(row.Uses, ","), ByCoordinator: byCoordinator,
+	}, nil
+}
+
+// runByCoordinator reports whether a Dispatch's Run was created by a
+// coordinator. It is read when asked, not kept with the key. A Dispatch or a
+// Run that is gone answers yes: the stricter of the two.
+func (s *Service) runByCoordinator(ctx context.Context, dispatchID string) (bool, error) {
+	q := s.read()
+
+	dispatch, err := q.GetDispatch(ctx, dispatchID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return true, nil
+	}
+
+	if err != nil {
+		return false, fmt.Errorf("reading dispatch %s: %w", dispatchID, err)
+	}
+
+	task, err := q.GetTask(ctx, dispatch.TaskID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return true, nil
+	}
+
+	if err != nil {
+		return false, fmt.Errorf("reading task %s: %w", dispatch.TaskID, err)
+	}
+
+	run, err := q.GetRun(ctx, task.RunID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return true, nil
+	}
+
+	if err != nil {
+		return false, fmt.Errorf("reading run %s: %w", task.RunID, err)
+	}
+
+	return run.CoordinatorTokenID.Valid, nil
 }
 
 // RevokeAgentSessions stops every key of a Dispatch from working; none is no

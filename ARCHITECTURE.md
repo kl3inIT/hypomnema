@@ -255,6 +255,9 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       Dispatch settles, as its model gateway key is. The coordinator presents its coordinator token and gets the
       Connections allowed for chats. An owner's token gets every Connection. Each token handed out is logged with
       who got it, never the token.
+      The key of a Dispatch whose Run a coordinator created works for a Connection only while the owner still
+      allows it for chats: the switch is read at every request, so what he takes back from the coordinator its
+      Runs lose too. A Run the owner created keeps what he gave it.
     - **A Task goes to a node that has the tool.** A Run that uses a Google account is placed only on a node
       that reported `gws` installed; while none has, the Task waits with `no_node_has_tool:gws`.
     - **On a node**, for a Dispatch with Connections, the runner writes the script and the skill's guide under the

@@ -126,17 +126,29 @@ func (w *world) call(method, path, key string, body any) (int, []byte) {
 	return resp.StatusCode, raw
 }
 
-// Scenario: a worker's Dispatch was given the work account only. With its
-// own key it sees that account and gets its token; the personal account is
-// not listed and its token is refused; once the Dispatch is over the key
-// gets nothing. What was handed out is logged with the Dispatch, never the
-// token.
-func TestAWorkerGetsOnlyTheAccountsItsRunWasGiven(t *testing.T) {
+// Scenario: a coordinator's Run was given the work account, which the owner
+// allowed for chats. Its worker, with its Dispatch's own key, sees that
+// account and gets its token; the personal account, also allowed for chats
+// but not given to this Run, is not listed and its token is refused. When
+// the owner takes the work account back from the coordinator, the Run's
+// worker loses it at its next call. Once the Dispatch is over the key gets
+// nothing. What was handed out is logged with the Dispatch, never the token.
+//
+// A Run the owner created keeps what he gave it whatever the switch says;
+// that is checked where a real Dispatch exists (the node API's tests). Here
+// the key's Dispatch is unknown, which counts as a coordinator's.
+func TestAWorkerGetsOnlyTheAccountsItsRunWasGivenAndStillHas(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
+	ctx := t.Context()
 
-	key, err := w.svc.AddAgentSession(t.Context(), "dsp_1", []string{"google:work"})
+	for _, label := range []string{"work", "personal"} {
+		_, err := w.svc.SetConnectionChats(ctx, "google", label, true)
+		require.NoError(t, err)
+	}
+
+	key, err := w.svc.AddAgentSession(ctx, "dsp_1", []string{"google:work"})
 	require.NoError(t, err)
 
 	status, labels := w.get(key, "google")
@@ -159,7 +171,24 @@ func TestAWorkerGetsOnlyTheAccountsItsRunWasGiven(t *testing.T) {
 	assert.Contains(t, w.logs.String(), "google:work")
 	assert.NotContains(t, w.logs.String(), "ya29.")
 
-	require.NoError(t, w.svc.RevokeAgentSessions(t.Context(), "dsp_1"))
+	// The owner takes the account back from the coordinator: its Run's worker loses it too.
+	_, err = w.svc.SetConnectionChats(ctx, "google", "work", false)
+	require.NoError(t, err)
+
+	status, _ = w.token(key, "work")
+	assert.Equal(t, http.StatusForbidden, status)
+
+	status, labels = w.get(key, "google")
+	require.Equal(t, http.StatusOK, status)
+	assert.Empty(t, labels)
+
+	_, err = w.svc.SetConnectionChats(ctx, "google", "work", true)
+	require.NoError(t, err)
+
+	status, _ = w.token(key, "work")
+	require.Equal(t, http.StatusOK, status)
+
+	require.NoError(t, w.svc.RevokeAgentSessions(ctx, "dsp_1"))
 
 	status, _ = w.token(key, "work")
 	assert.Equal(t, http.StatusUnauthorized, status)

@@ -757,6 +757,7 @@ func TestARunsAccountsReachItsWorkerWithAKeyOfItsOwn(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, offer.DispatchID, session.DispatchID)
 	assert.Equal(t, []string{"google:work"}, session.Uses)
+	assert.False(t, session.ByCoordinator, "the owner created this Run: it keeps what he gave it")
 
 	stored, err := p.svc.NodePending(ctx, p.node.ID)
 	require.NoError(t, err)
