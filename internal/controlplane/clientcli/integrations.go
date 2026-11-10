@@ -15,7 +15,8 @@ import (
 
 // Integrations that sign in with an account, from the terminal (issue #103).
 // A git host is connected with a token (hosts.go); these are connected by
-// signing in, in a browser on any machine.
+// signing in, in a browser on any machine, or, when the Integration is an app
+// of the service (Lark, issue #135), with no sign-in at all.
 
 // maxPastedBytes bounds the address pasted back after a sign-in.
 const maxPastedBytes = 8192
@@ -34,24 +35,31 @@ func signInIntegrations(ctx context.Context, e *env) ([]openapi.Integration, err
 	return resp.JSON200.Data, nil
 }
 
-// signsIn says whether id names an Integration that signs in with an account.
-func signsIn(ctx context.Context, e *env, id string) (bool, error) {
+// serviceOf returns the Integration id names when it is one that signs in
+// with an account or is an app, and nil when it is not: a git host.
+func serviceOf(ctx context.Context, e *env, id string) (*openapi.Integration, error) {
 	all, err := signInIntegrations(ctx, e)
 	if err != nil {
-		return false, err
+		return nil, err
 	}
 
 	for _, i := range all {
 		if i.Id == id {
-			return true, nil
+			return &i, nil
 		}
 	}
 
-	return false, nil
+	return nil, nil //nolint:nilnil // No such service is an answer, not a failure: the name is then a git host's.
 }
 
 func connectionNote(c openapi.IntegrationConnection) string {
-	note := c.Label + " (" + c.Account + ": " + strings.Join(c.Services, ",") + ")"
+	note := c.Label + " (" + c.Account
+	if len(c.Services) > 0 {
+		note += ": " + strings.Join(c.Services, ",")
+	}
+
+	note += ")"
+
 	if c.SignInRequired {
 		note += " needs sign-in"
 	}
@@ -63,10 +71,11 @@ func connectionNote(c openapi.IntegrationConnection) string {
 	return note
 }
 
-// integrationsClientSet sends the OAuth client the owner created at the
-// service, read from the file the service gave: Google's "client secret"
-// JSON. The secret is never an argument: arguments show in the shell's
-// history and in the process list.
+// integrationsClientSet sends the client the owner created at the service,
+// read from a file: the JSON Google gives for an OAuth client, or for an app
+// (Lark) a JSON object with its app_id and app_secret, which the service
+// shows on a page and gives no file for. The secret is never an argument:
+// arguments show in the shell's history and in the process list.
 func integrationsClientSet(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	id := fs.Arg(0)
 
@@ -92,6 +101,8 @@ func integrationsClientSet(ctx context.Context, e *env, fs *flag.FlagSet) error 
 
 		Installed *client `json:"installed"`
 		Web       *client `json:"web"`
+		AppID     string  `json:"app_id"`
+		AppSecret string  `json:"app_secret"`
 	}
 
 	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
@@ -105,8 +116,12 @@ func integrationsClientSet(ctx context.Context, e *env, fs *flag.FlagSet) error 
 		c = *parsed.Web
 	}
 
+	if parsed.AppID != "" {
+		c = client{ClientID: parsed.AppID, ClientSecret: parsed.AppSecret}
+	}
+
 	if c.ClientID == "" || c.ClientSecret == "" {
-		return errors.New("the client file has no client_id and client_secret")
+		return errors.New("the client file has no client_id and client_secret, nor an app_id and app_secret")
 	}
 
 	resp, err := e.api.PutIntegrationClientWithResponse(ctx, id, openapi.NewIntegrationClient{
@@ -120,7 +135,35 @@ func integrationsClientSet(ctx context.Context, e *env, fs *flag.FlagSet) error 
 		return apiError("keeping the client of "+id, resp.StatusCode(), resp.JSONDefault)
 	}
 
-	return e.print(fs, resp.JSON200, func() { e.printf("%s signs in with client %s\n", id, c.ClientID) })
+	return e.print(fs, resp.JSON200, func() {
+		if resp.JSON200.Kind == openapi.App {
+			e.printf("%s is app %s\n", id, c.ClientID)
+
+			return
+		}
+
+		e.printf("%s signs in with client %s\n", id, c.ClientID)
+	})
+}
+
+// integrationsConnectApp connects an Integration that is an app: there is
+// nothing to sign in to, the control plane checks the app's id and secret
+// with the service.
+func integrationsConnectApp(ctx context.Context, e *env, fs *flag.FlagSet, id string) error {
+	label := str(fs, "label")
+
+	resp, err := e.api.PutIntegrationConnectionWithResponse(ctx, id, label)
+	if err != nil {
+		return fmt.Errorf("connecting %s:%s: %w", id, label, err)
+	}
+
+	if resp.JSON200 == nil {
+		return apiError("connecting "+id+":"+label, resp.StatusCode(), resp.JSONDefault)
+	}
+
+	c := resp.JSON200
+
+	return e.print(fs, c, func() { e.printf("%s:%s is connected as the app %s\n", id, c.Label, c.Account) })
 }
 
 // integrationsSignIn signs an account in: it prints the link, waits for the

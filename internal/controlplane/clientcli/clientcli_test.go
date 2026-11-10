@@ -1119,8 +1119,9 @@ func TestRunsCreatedByPiRecordItsChat(t *testing.T) { //nolint:paralleltest // s
 	assert.Equal(t, chat.ID, val(run.ChatId))
 }
 
-// signIns stands in for the service that signs accounts in: one Integration,
-// google, whose sign-in is completed by any address that carries its state.
+// signIns stands in for the service that signs accounts in: google, whose
+// sign-in is completed by any address that carries its state, and lark, an
+// app that is connected once it has a client.
 type signIns struct {
 	mu          sync.Mutex
 	clientID    string
@@ -1129,24 +1130,49 @@ type signIns struct {
 	asked       []string
 	label       string
 	connections []integration.Connection
+
+	appID     string
+	appSecret string
+	apps      []integration.Connection
 }
 
 func (s *signIns) List(context.Context) ([]integration.Integration, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	return []integration.Integration{{
-		Definition: integration.Google(), ClientID: s.clientID, Connections: slices.Clone(s.connections),
-	}}, nil
+	return []integration.Integration{
+		{Definition: integration.Google(), ClientID: s.clientID, Connections: slices.Clone(s.connections)},
+		{Definition: integration.Lark(), ClientID: s.appID, Connections: slices.Clone(s.apps)},
+	}, nil
 }
 
-func (s *signIns) SetClient(_ context.Context, _, clientID, clientSecret string) error {
+func (s *signIns) SetClient(_ context.Context, id, clientID, clientSecret string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if id == integration.LarkID {
+		s.appID, s.appSecret = clientID, clientSecret
+
+		return nil
+	}
 
 	s.clientID, s.secret = clientID, clientSecret
 
 	return nil
+}
+
+func (s *signIns) Connect(_ context.Context, id, label string) (integration.Connection, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if id != integration.LarkID || s.appID == "" {
+		return integration.Connection{}, integration.ErrInvalid
+	}
+
+	c := integration.Connection{Integration: id, Label: label, Account: "Hypomnema"}
+	s.apps = append(s.apps, c)
+
+	return c, nil
 }
 
 func (s *signIns) Begin(_ context.Context, _, label string, services []string) (integration.SignIn, error) {
@@ -1196,9 +1222,17 @@ func (s *signIns) SetChats(_ context.Context, _, label string, allowed bool) (in
 	return integration.Connection{}, integration.ErrNotFound
 }
 
-func (s *signIns) Disconnect(_ context.Context, _, label string) (bool, error) {
+func (s *signIns) Disconnect(_ context.Context, id, label string) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	for i, c := range s.apps {
+		if id == integration.LarkID && c.Label == label {
+			s.apps = slices.Delete(s.apps, i, i+1)
+
+			return true, nil
+		}
+	}
 
 	for i, c := range s.connections {
 		if c.Label == label {
@@ -1209,6 +1243,47 @@ func (s *signIns) Disconnect(_ context.Context, _, label string) (bool, error) {
 	}
 
 	return false, integration.ErrNotFound
+}
+
+// Scenario: the owner gives Hypomnema his Lark app from a file with its id
+// and secret, connects it as "work" with the same command he connects a
+// Google account with, sees it in the list, and disconnects it. There is no
+// link to open and nothing to paste; the secret is read from the file and
+// never printed; a coordinator cannot connect the app.
+func TestConnectingALarkAppFromTheCLI(t *testing.T) {
+	t.Parallel()
+
+	services := &signIns{}
+	w := newWorldWith(t, nil, func(s *clientapi.Server) { s.WithIntegrations(services) })
+	w.login(t, bearertoken.Owner)
+
+	out, err := w.cmd(t, "integrations", "list")
+	require.NoError(t, err)
+	assert.Contains(t, out, "lark\tapp\tno client\n")
+
+	out, err = w.cmdIn(t, `{"app_id":"cli_a1b2","app_secret":"never-printed"}`, "integrations", "client", "set", "lark",
+		"--client-file", "-")
+	require.NoError(t, err)
+	assert.Equal(t, "lark is app cli_a1b2\n", out)
+	assert.Equal(t, "never-printed", services.appSecret)
+
+	out, err = w.cmd(t, "integrations", "connect", "lark", "--label", "work")
+	require.NoError(t, err)
+	assert.Equal(t, "lark:work is connected as the app Hypomnema\n", out)
+
+	out, err = w.cmd(t, "integrations", "list")
+	require.NoError(t, err)
+	assert.Contains(t, out, "lark\tapp\twork (Hypomnema)\n")
+
+	out, err = w.cmd(t, "integrations", "disconnect", "lark:work")
+	require.NoError(t, err)
+	assert.Equal(t, "lark:work is forgotten\n", out)
+
+	w.login(t, bearertoken.Coordinator)
+
+	_, err = w.cmd(t, "integrations", "connect", "lark", "--label", "work")
+	require.Error(t, err, "only the owner connects an app")
+	assert.Empty(t, services.apps)
 }
 
 // Scenario: the owner gives Hypomnema the Google client from the file Google
@@ -1225,7 +1300,7 @@ func TestSigningAGoogleAccountInFromTheCLI(t *testing.T) {
 
 	out, err := w.cmd(t, "integrations", "list")
 	require.NoError(t, err)
-	assert.Contains(t, out, "google\toauth\tno OAuth client\n")
+	assert.Contains(t, out, "google\toauth\tno client\n")
 
 	_, err = w.cmd(t, "integrations", "client", "set", "google")
 	require.ErrorContains(t, err, "--client-file")

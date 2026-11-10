@@ -160,7 +160,8 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		gatewaySecrets(secrets))
 	workerKeys := dispatchKeys{gateway: gateway, svc: svc, logger: logger}
 
-	integrations := integration.New(svc, secrets, platform.SystemClock{}, platform.NewID, integration.Google())
+	integrations := integration.New(svc, secrets, platform.SystemClock{}, platform.NewID,
+		integration.Google(), integration.Lark())
 
 	nodes := nodeapi.New(svc, logger).WithHostTokens(tokens.Token).WithModelKeys(workerKeys.Key).
 		WithAgentKeys(workerKeys.AgentKey).WithTools(integrations.Tools).WithReleaseURL(cfg.NodeReleaseURL)
@@ -169,7 +170,9 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	agentapi.New(svc, func(ctx context.Context, id, label string) (agentapi.Token, error) {
 		token, err := integrations.Token(ctx, id, label)
 
-		return agentapi.Token{AccessToken: token.AccessToken, ExpiresAt: token.ExpiresAt}, err
+		return agentapi.Token{
+			AccessToken: token.AccessToken, ExpiresAt: token.ExpiresAt, ClientID: token.ClientID,
+		}, err
 	}, logger).Register(mux)
 	modelgateway.NewServer(gateway, logger, modelgateway.Config{
 		Subscriptions: gatewayAccounts{subs: subscriptions}, CodexBaseURL: cfg.CodexBaseURL,

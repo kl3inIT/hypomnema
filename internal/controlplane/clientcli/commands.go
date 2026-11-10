@@ -203,7 +203,7 @@ var commands = []command{
 	{
 		name: "integrations connect", args: "<integration>", min: 1, max: 1,
 		summary: "connect an account under a label: a git host with a token read from a file, a service such as " +
-			"google by signing in (owner)",
+			"google by signing in, an app such as lark with nothing more (owner)",
 		flags: func(fs *flag.FlagSet) {
 			fs.String("label", "default", "the name of this account, such as work")
 			fs.String("token-file", "", "for a git host: the file holding the token, or - for standard input")
@@ -220,7 +220,8 @@ var commands = []command{
 	},
 	{
 		name: "integrations client set", args: "<integration>", min: 1, max: 1,
-		summary: "keep the OAuth client a service signs in with, from the JSON file the service gave (owner)",
+		summary: "keep the OAuth client a service signs in with, from the JSON file the service gave, or the app " +
+			"a service is, from a JSON file with its app_id and app_secret (owner)",
 		flags: func(fs *flag.FlagSet) {
 			fs.String("client-file", "", "the client's JSON file, or - for standard input")
 			jsonFlag(fs)

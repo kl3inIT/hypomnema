@@ -8,8 +8,9 @@
 //
 // A git host is an Integration too, but its credential is a token the owner
 // types in, so it lives with the git hosts (the control plane's own wiring).
-// This package is for the Integrations that sign in with OAuth; Google is the
-// first.
+// This package is for the Integrations whose credential the control plane
+// mints: Google signs an account in with OAuth; Lark is an app, whose id and
+// secret give a token with no sign-in (issue #135).
 package integration
 
 import (
@@ -18,13 +19,31 @@ import (
 	"strings"
 )
 
-// Definition is what an Integration that signs in with OAuth declares. It is
-// code, not something the owner writes, as Onyx's providers and Companion's
-// definitions are.
+// Kind is how an Integration's credential is obtained (issue #103, credential
+// kinds).
+type Kind string
+
+const (
+	// KindOAuth: an account signs in on the service's consent page, and the
+	// control plane keeps its refresh token.
+	KindOAuth Kind = "oauth"
+	// KindApp: the client is an app of the service; its id and secret give an
+	// access token that acts as the app, with no sign-in.
+	KindApp Kind = "app"
+)
+
+// Definition is what an Integration declares. It is code, not something the
+// owner writes, as Onyx's providers and Companion's definitions are.
 type Definition struct {
 	// ID names the Integration in commands and addresses: google.
 	ID   string
 	Name string
+	// Kind is how its credential is obtained; empty is KindOAuth.
+	Kind Kind
+	// AppTokenURL gives an app's access token for its id and secret, and
+	// AppInfoURL says which app the token is; both are for KindApp.
+	AppTokenURL string
+	AppInfoURL  string
 	// AuthURL is the consent page; TokenURL exchanges a code or a refresh
 	// token; RevokeURL ends a token; UserInfoURL says whose account signed in.
 	AuthURL     string
@@ -172,6 +191,18 @@ func (d Definition) granted(asked []Grant, scopes []string) []Grant {
 	return out
 }
 
+// IsApp says whether the Integration's credential is an app's.
+func (d Definition) IsApp() bool { return d.Kind == KindApp }
+
+// CredentialKind is the Integration's Kind, with the default spelled out.
+func (d Definition) CredentialKind() Kind {
+	if d.Kind == "" {
+		return KindOAuth
+	}
+
+	return d.Kind
+}
+
 // GoogleID is the id of the Google Integration.
 const GoogleID = "google"
 
@@ -205,5 +236,29 @@ func Google() Definition {
 			{Name: "docs", Read: []string{scope + "documents.readonly"}, Write: []string{scope + "documents"}},
 			{Name: "sheets", Read: []string{scope + "spreadsheets.readonly"}, Write: []string{scope + "spreadsheets"}},
 		},
+	}
+}
+
+// LarkID is the id of the Lark Integration.
+const LarkID = "lark"
+
+// Lark is Lark (larksuite.com) as a custom app of the owner's organization:
+// the app's id and secret give a tenant access token, good for at most two
+// hours, that acts as the app (issue #135). What the app may read and change
+// is what its scopes in the Lark Developer Console allow, so a Connection has
+// no services to choose here.
+//
+// The token endpoint is the one Lark documents for a custom app and lark-cli
+// names (internal/core/types.go); the bot's own information is what says
+// which app a token is.
+func Lark() Definition {
+	const host = "https://open.larksuite.com"
+
+	return Definition{
+		ID:          LarkID,
+		Name:        "Lark",
+		Kind:        KindApp,
+		AppTokenURL: host + "/open-apis/auth/v3/tenant_access_token/internal",
+		AppInfoURL:  host + "/open-apis/bot/v3/info",
 	}
 }

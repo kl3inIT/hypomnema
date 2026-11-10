@@ -28,8 +28,15 @@ func TestMain(m *testing.M) {
 		os.Exit(m.Run())
 	}
 
-	fmt.Printf("token=%s key=%q args=%s\n", os.Getenv(GoogleWorkspaceCLI().TokenEnv), os.Getenv(EnvKey),
+	// The stand-in is installed under the tool's own name, which says whose variables to print.
+	def, _ := Named(filepath.Base(os.Args[0]))
+
+	fmt.Printf("token=%s key=%q args=%s\n", os.Getenv(def.TokenEnv), os.Getenv(EnvKey),
 		strings.Join(os.Args[1:], " "))
+
+	if def.ClientEnv != "" {
+		fmt.Printf("client=%s brand=%s\n", os.Getenv(def.ClientEnv), os.Getenv("LARKSUITE_CLI_BRAND"))
+	}
 
 	if len(os.Args) > 1 && os.Args[len(os.Args)-1] == "fail" {
 		os.Exit(3)
@@ -72,10 +79,15 @@ func newControlPlane(t *testing.T, accounts ...Connection) *controlPlane {
 
 		for _, a := range c.accounts {
 			if a.Label == asked.Label {
-				//nolint:gosec // A made-up token, which is what this stand-in answers with.
-				_ = json.NewEncoder(w).Encode(TokenResponse{
+				answer := TokenResponse{
 					AccessToken: "ya29.fresh-for-" + asked.Label, ExpiresAt: time.Now().Add(time.Hour),
-				})
+				}
+				if asked.Integration == "lark" {
+					answer.ClientID = "cli_a1b2"
+				}
+
+				//nolint:gosec // A made-up token, which is what this stand-in answers with.
+				_ = json.NewEncoder(w).Encode(answer)
 
 				return
 			}
@@ -91,8 +103,15 @@ func newControlPlane(t *testing.T, accounts ...Connection) *controlPlane {
 	return c
 }
 
-// installed puts the stand-in where the pinned tool would be.
+// installed puts the stand-in where the pinned gws would be.
 func installed(t *testing.T) string {
+	t.Helper()
+
+	return installedAs(t, GoogleWorkspaceCLI())
+}
+
+// installedAs puts the stand-in where a pinned tool would be.
+func installedAs(t *testing.T, def Def) string {
 	t.Helper()
 
 	if runtime.GOOS == "windows" {
@@ -100,7 +119,6 @@ func installed(t *testing.T) string {
 	}
 
 	home := t.TempDir()
-	def := GoogleWorkspaceCLI()
 	target := ToolPath(home, def.Name, def.Version)
 
 	require.NoError(t, os.MkdirAll(filepath.Dir(target), 0o700))
@@ -140,6 +158,22 @@ func TestTheLauncherRunsAToolWithAFreshToken(t *testing.T) {
 	var exit *ExitError
 	require.ErrorAs(t, err, &exit)
 	assert.Equal(t, 3, exit.Code)
+}
+
+// Scenario: an agent given the owner's Lark app runs lark-cli. Lark's tool
+// will not run on a token alone: the launcher also gives it the app's id,
+// which the control plane sent with the token, and the brand it is always
+// run with.
+func TestTheLauncherGivesLarksToolTheAppsIDBesideTheToken(t *testing.T) {
+	home := installedAs(t, LarkCLI())
+	c := newControlPlane(t, Connection{Label: "work", Account: "Hypomnema"})
+
+	var out bytes.Buffer
+
+	require.NoError(t, c.launcher(home, &out).Run(t.Context(), "lark-cli", []string{"calendar", "+agenda"}))
+	assert.Equal(t, "token=ya29.fresh-for-work key=\"\" args=calendar +agenda\nclient=cli_a1b2 brand=lark\n",
+		out.String())
+	assert.Equal(t, []string{"connections lark", "token lark:work"}, c.calls)
 }
 
 // Scenario: an agent given two accounts must name one; the flag that names

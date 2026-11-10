@@ -150,7 +150,7 @@ func integrationsList(ctx context.Context, e *env, fs *flag.FlagSet) error {
 
 			switch {
 			case i.ClientId == nil:
-				connected = "no OAuth client"
+				connected = "no client"
 			case len(i.Connections) > 0:
 				notes := make([]string, 0, len(i.Connections))
 				for _, c := range i.Connections {
@@ -160,7 +160,7 @@ func integrationsList(ctx context.Context, e *env, fs *flag.FlagSet) error {
 				connected = strings.Join(notes, "; ")
 			}
 
-			e.printf("%s\toauth\t%s\n", i.Id, connected)
+			e.printf("%s\t%s\t%s\n", i.Id, i.Kind, connected)
 		}
 	})
 }
@@ -171,10 +171,18 @@ func integrationsList(ctx context.Context, e *env, fs *flag.FlagSet) error {
 func integrationsConnect(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	host, label := hostOf(fs.Arg(0)), str(fs, "label")
 
-	// A service that signs in with an account takes no token: the owner signs in.
-	if signIn, err := signsIn(ctx, e, host); err != nil {
+	// A service that signs in with an account takes no token: the owner signs in. One that is an app has
+	// nothing to sign in to.
+	service, err := serviceOf(ctx, e, host)
+	if err != nil {
 		return err
-	} else if signIn {
+	}
+
+	if service != nil && service.Kind == openapi.App {
+		return integrationsConnectApp(ctx, e, fs, host)
+	}
+
+	if service != nil {
 		return integrationsSignIn(ctx, e, fs, host)
 	}
 
@@ -210,9 +218,9 @@ func integrationsDisconnect(ctx context.Context, e *env, fs *flag.FlagSet) error
 
 	host := hostOf(given)
 
-	if signIn, err := signsIn(ctx, e, host); err != nil {
+	if service, err := serviceOf(ctx, e, host); err != nil {
 		return err
-	} else if signIn {
+	} else if service != nil {
 		return integrationsSignOut(ctx, e, fs, host, label)
 	}
 

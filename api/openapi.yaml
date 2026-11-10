@@ -626,11 +626,12 @@ paths:
   /integrations:
     get:
       operationId: ListIntegrations
-      summary: The services that sign in with an account, with their Connections
+      summary: The services that sign in with an account or are an app, with their Connections
       description: >-
-        An Integration here signs in with OAuth; Google is the first. A git
-        host is an Integration too and is listed under /hosts. No token and no
-        client secret is ever in the answer.
+        An Integration here signs an account in with OAuth, as Google, or is
+        an app of the service, as Lark. A git host is an Integration too and
+        is listed under /hosts. No token and no client secret is ever in the
+        answer.
       responses:
         "200":
           description: The Integrations.
@@ -643,11 +644,12 @@ paths:
       - $ref: "#/components/parameters/IntegrationID"
     put:
       operationId: PutIntegrationClient
-      summary: Keep the OAuth client an Integration signs in with; only the owner
+      summary: Keep the OAuth client an Integration signs in with, or the app it is; only the owner
       description: >-
-        The owner creates the client at the service once. Its secret goes into
-        the vault and is never returned. It replaces the client the
-        Integration had.
+        The owner creates the client at the service once: an OAuth client, or
+        for an Integration of kind app the app itself, whose id and secret
+        these are. Its secret goes into the vault and is never returned. It
+        replaces the client the Integration had.
       requestBody:
         required: true
         content:
@@ -716,6 +718,21 @@ paths:
         in: path
         required: true
         schema: { type: string, pattern: "^[a-z0-9][a-z0-9-]{0,30}$" }
+    put:
+      operationId: PutIntegrationConnection
+      summary: Connect an Integration of kind app, as a Connection under a label; only the owner
+      description: >-
+        There is no sign-in: the control plane asks the service for a token
+        with the app's id and secret, reads the app's name with it and records
+        the Connection. A label that exists is checked again. An Integration
+        that signs an account in is refused: it starts a sign-in.
+      responses:
+        "200":
+          description: The Connection.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IntegrationConnection" }
+        default: { $ref: "#/components/responses/Error" }
     patch:
       operationId: PatchIntegrationConnection
       summary: Say whether the coordinator may use a Connection in chats; only the owner
@@ -1820,18 +1837,28 @@ components:
           writeOnly: true
     Integration:
       type: object
-      description: A service that signs in with an account, and what the owner set up for it.
-      required: [id, name, services, connections]
+      description: A service that signs in with an account or is an app, and what the owner set up for it.
+      required: [id, name, kind, services, connections]
       properties:
         id: { type: string }
         name: { type: string }
+        kind:
+          type: string
+          enum: [oauth, app]
+          description: >-
+            How a Connection is made: oauth signs an account in, in a browser;
+            app has no sign-in, its client being an app of the service.
         client_id:
           type: string
-          description: The id of the OAuth client it signs in with; absent until one is set. Not secret.
+          description: >-
+            The id of the OAuth client it signs in with, or of the app it is;
+            absent until one is set. Not secret.
         services:
           type: array
           items: { type: string }
-          description: The services a Connection can be granted, such as gmail.
+          description: >-
+            The services a Connection can be granted, such as gmail; none for
+            an app, which may do what the service allows the app.
         connections:
           type: array
           items: { $ref: "#/components/schemas/IntegrationConnection" }
@@ -1851,7 +1878,7 @@ components:
         label: { type: string }
         account:
           type: string
-          description: The account's own name at the service, such as its email.
+          description: The account's own name at the service, such as its email; an app's name.
         services:
           type: array
           items: { type: string }

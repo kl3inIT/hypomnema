@@ -44,6 +44,9 @@ type Store interface {
 type Token struct {
 	AccessToken string
 	ExpiresAt   time.Time
+	// ClientID is the id of the Integration's client when its tool needs it
+	// beside the token: a Lark app's id. Not a secret.
+	ClientID string
 }
 
 // Tokens gives a Connection's access token, fresh. It is the control plane's
@@ -205,7 +208,9 @@ func (s *Server) token(w http.ResponseWriter, r *http.Request) {
 		slog.String("connection", orchestration.Use(asked.Integration, asked.Label)))
 
 	w.Header().Set("Cache-Control", "no-store")
-	answer(w, agenttool.TokenResponse{AccessToken: token.AccessToken, ExpiresAt: token.ExpiresAt})
+	answer(w, agenttool.TokenResponse{
+		AccessToken: token.AccessToken, ExpiresAt: token.ExpiresAt, ClientID: token.ClientID,
+	})
 }
 
 // fail answers an error of the store or the vault's wiring. A Connection

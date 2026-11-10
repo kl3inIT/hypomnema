@@ -62,6 +62,9 @@ type TokenRequest struct {
 type TokenResponse struct {
 	AccessToken string    `json:"access_token"`
 	ExpiresAt   time.Time `json:"expires_at"`
+	// ClientID is the id of the Integration's client, for a tool that will
+	// not run without it (Def.ClientEnv): a Lark app's id. Not a secret.
+	ClientID string `json:"client_id,omitempty"`
 }
 
 // Launcher runs a tool for an agent with a fresh token of the account it acts
@@ -131,7 +134,12 @@ func (l Launcher) Run(ctx context.Context, name string, args []string) error {
 	//nolint:gosec // The pinned tool, installed by this machine's own installer.
 	cmd := exec.CommandContext(ctx, ToolPath(l.ToolsHome, def.Name, def.Version), rest...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = l.Stdin, l.Stdout, l.Stderr
-	cmd.Env = append(without(os.Environ(), EnvKey), def.TokenEnv+"="+token.AccessToken)
+	cmd.Env = append(without(os.Environ(), EnvKey), def.Env...)
+	cmd.Env = append(cmd.Env, def.TokenEnv+"="+token.AccessToken)
+
+	if def.ClientEnv != "" && token.ClientID != "" {
+		cmd.Env = append(cmd.Env, def.ClientEnv+"="+token.ClientID)
+	}
 
 	err = cmd.Run()
 

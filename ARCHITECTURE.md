@@ -274,8 +274,29 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       writes. `hypomnema skills install` installs its stub beside the coordinator's.
     - `integrations disconnect google:work` asks Google to revoke the tokens, then forgets the Connection and its
       secret; the answer says when Google could not be asked.
-    - `GET /integrations` lists these Integrations with their Connections for every token; a token or a client
-      secret is in no answer. The web client does not show them yet.
+    - `GET /integrations` lists these Integrations with their Connections and their kind (`oauth`, `app`) for
+      every token; a token or a client secret is in no answer.
+  - Lark is an Integration of kind `app` ([issue #135](https://github.com/kl3inIT/hypomnema/issues/135)): its
+    client is a custom app of the owner's Lark organization, and nothing is signed in.
+    - The owner gives the app's id and secret in a JSON file with `app_id` and `app_secret`
+      (`integrations client set lark --client-file`); they are kept as an OAuth client's is, the secret as
+      `integration-lark-client`.
+    - `integrations connect lark --label work` (`PUT /integrations/{integration}/connections/{label}`) asks Lark
+      for a tenant access token with the id and secret, reads the app's name with it, and records the Connection
+      under that name. It has no services: the app may do what its scopes in Lark's console allow. A secret Lark
+      refuses connects nothing. `POST .../sign-ins` refuses an app, and this refuses an Integration that signs in.
+    - `integration.Service.Token` gives the tenant access token. It is kept in memory only and asked of Lark
+      again when under two minutes are left of its two hours, or when the client was replaced. The agent API
+      hands it to an agent that was given the Connection, as it hands Google's.
+    - Its tool is `lark-cli` 1.0.100 (`github.com/larksuite/cli`) for Linux on amd64 and arm64, in the tool
+      catalog beside `gws` (`internal/shared/agenttool`) and installed and launched the same way. It will not run
+      on a token alone, so the agent API's answer also carries the app's id, and the launcher sets
+      `LARKSUITE_CLI_TENANT_ACCESS_TOKEN`, `LARKSUITE_CLI_APP_ID` and `LARKSUITE_CLI_BRAND=lark` for it.
+    - It has no skill yet: an agent is told the command is on its PATH and has the tool's own `--help`.
+      Not tried: the launcher with the real `lark-cli` on a node.
+    - `integrations disconnect lark:work` forgets the Connection and keeps the app's id and secret.
+    - Only Lark international (`open.larksuite.com`) is declared; Feishu is not. A person's own sign-in (their
+      mail, calendar and drive) is not built: a Connection acts as the app.
   - The token reaches a worker with its offer: the node API asks for it by host and repository as it sends the offer, and
     orchestration never holds it. The node gives it to that Dispatch only, as environment: git sends it to that
     host alone (an `http.https://<host>/.extraheader` through `GIT_CONFIG_COUNT`), `gh` reads `GH_TOKEN` (or
@@ -813,7 +834,9 @@ Node (`internal/node`):
     with its email, what it may do and whether it needs a sign-in. "Add account" and "Sign in again" take a name
     and, for each service, read and write, read only or not connected; then give a link to Google's page and take
     the address the browser ended on. "Disconnect" asks first. A service without its OAuth client shows the
-    command that gives one; the client itself is given from the CLI only.
+    command that gives one; the client itself is given from the CLI only. Lark's card
+    ([issue #135](https://github.com/kl3inIT/hypomnema/issues/135)) has "Connect app", which takes a name only,
+    and its Connection has no "Sign in again".
   - Both pages do only what `hosts ...`, `repos ...` and `integrations ...` do in the CLI.
   - The Settings screens are built on the standard components ([issue #123](https://github.com/kl3inIT/hypomnema/issues/123)):
     every shadcn component of the project's style is in `web/src/components/ui`; a form is TanStack Form with a

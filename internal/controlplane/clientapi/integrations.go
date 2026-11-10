@@ -20,6 +20,7 @@ type Integrations interface {
 	SetClient(ctx context.Context, id, clientID, clientSecret string) error
 	Begin(ctx context.Context, id, label string, services []string) (integration.SignIn, error)
 	Complete(ctx context.Context, id, signInID, pasted string) (integration.Connection, error)
+	Connect(ctx context.Context, id, label string) (integration.Connection, error)
 	Disconnect(ctx context.Context, id, label string) (revoked bool, err error)
 	// SetChats says whether the coordinator may use a Connection in chats.
 	SetChats(ctx context.Context, id, label string, allowed bool) (integration.Connection, error)
@@ -49,7 +50,8 @@ func toIntegrationConnection(c integration.Connection) openapi.IntegrationConnec
 
 func toIntegration(i integration.Integration) openapi.Integration {
 	out := openapi.Integration{
-		Id: i.ID, Name: i.Name, Services: make([]string, 0, len(i.Services)),
+		Id: i.ID, Name: i.Name, Kind: openapi.IntegrationKind(i.CredentialKind()),
+		Services:    make([]string, 0, len(i.Services)),
 		Connections: make([]openapi.IntegrationConnection, 0, len(i.Connections)),
 	}
 	if i.ClientID != "" {
@@ -144,6 +146,21 @@ func (s *Server) CompleteIntegrationSignIn(ctx context.Context, req openapi.Comp
 	}
 
 	return openapi.CompleteIntegrationSignIn200JSONResponse(toIntegrationConnection(conn)), nil
+}
+
+// PutIntegrationConnection connects an Integration of kind app under a label.
+func (s *Server) PutIntegrationConnection(ctx context.Context, req openapi.PutIntegrationConnectionRequestObject,
+) (openapi.PutIntegrationConnectionResponseObject, error) {
+	if s.integrations == nil {
+		return nil, errNoIntegrations
+	}
+
+	conn, err := s.integrations.Connect(ctx, req.Integration, req.Label)
+	if err != nil {
+		return nil, err
+	}
+
+	return openapi.PutIntegrationConnection200JSONResponse(toIntegrationConnection(conn)), nil
 }
 
 // PatchIntegrationConnection says whether the coordinator may use a

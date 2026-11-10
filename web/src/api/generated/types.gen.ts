@@ -589,17 +589,21 @@ export type NewSecretValue = {
 };
 
 /**
- * A service that signs in with an account, and what the owner set up for it.
+ * A service that signs in with an account or is an app, and what the owner set up for it.
  */
 export type Integration = {
   id: string;
   name: string;
   /**
-   * The id of the OAuth client it signs in with; absent until one is set. Not secret.
+   * How a Connection is made: oauth signs an account in, in a browser; app has no sign-in, its client being an app of the service.
+   */
+  kind: 'oauth' | 'app';
+  /**
+   * The id of the OAuth client it signs in with, or of the app it is; absent until one is set. Not secret.
    */
   client_id?: string;
   /**
-   * The services a Connection can be granted, such as gmail.
+   * The services a Connection can be granted, such as gmail; none for an app, which may do what the service allows the app.
    */
   services: Array<string>;
   connections: Array<IntegrationConnection>;
@@ -616,7 +620,7 @@ export type IntegrationConnection = {
   integration: string;
   label: string;
   /**
-   * The account's own name at the service, such as its email.
+   * The account's own name at the service, such as its email; an app's name.
    */
   account: string;
   /**
@@ -2158,6 +2162,34 @@ export type PatchIntegrationConnectionResponses = {
 };
 
 export type PatchIntegrationConnectionResponse = PatchIntegrationConnectionResponses[keyof PatchIntegrationConnectionResponses];
+
+export type PutIntegrationConnectionData = {
+  body?: never;
+  path: {
+    integration: string;
+    label: string;
+  };
+  query?: never;
+  url: '/integrations/{integration}/connections/{label}';
+};
+
+export type PutIntegrationConnectionErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type PutIntegrationConnectionError = PutIntegrationConnectionErrors[keyof PutIntegrationConnectionErrors];
+
+export type PutIntegrationConnectionResponses = {
+  /**
+   * The Connection.
+   */
+  200: IntegrationConnection;
+};
+
+export type PutIntegrationConnectionResponse = PutIntegrationConnectionResponses[keyof PutIntegrationConnectionResponses];
 
 export type ListSecretsData = {
   body?: never;

@@ -26,6 +26,12 @@ type Def struct {
 	Version string
 	// TokenEnv is the variable the tool reads a ready access token from.
 	TokenEnv string
+	// ClientEnv is the variable the tool reads the id of the Integration's
+	// client from, when it will not run without it; empty for a tool that
+	// needs the token alone. The id is not a secret.
+	ClientEnv string
+	// Env are the variables the tool is always run with, as "NAME=value".
+	Env []string
 	// Releases is the release file of each system, by "os/arch".
 	Releases map[string]Release
 }
@@ -53,7 +59,7 @@ func (d Def) For(os, arch string) (nodeproto.Tool, bool) {
 }
 
 // Catalog is every tool, one an Integration.
-func Catalog() []Def { return []Def{GoogleWorkspaceCLI()} }
+func Catalog() []Def { return []Def{GoogleWorkspaceCLI(), LarkCLI()} }
 
 // Of returns the tool of an Integration.
 func Of(integration string) (Def, bool) {
@@ -102,6 +108,44 @@ func GoogleWorkspaceCLI() Def {
 				URL:    release + "google-workspace-cli-aarch64-unknown-linux-musl.tar.gz",
 				SHA256: "e700fe63524932b10ec2130b47ece90aa850e66005fe52ccfc4cf8767bf9919a",
 				Binary: "gws",
+			},
+		},
+	}
+}
+
+// LarkCLI is Lark's own command-line tool (github.com/larksuite/cli, MIT). It
+// reads a ready token from LARKSUITE_CLI_TENANT_ACCESS_TOKEN on every call
+// (internal/envvars/envvars.go), refuses to run with one unless the app's id
+// is in LARKSUITE_CLI_APP_ID beside it, and then writes nothing to its
+// configuration directory (tried on 2026-11-10, issue #135). The brand names
+// Lark international, the only one the Integration declares; the two notifier
+// variables keep its notices about updates out of what an agent reads. The
+// checksums are the ones of the release's checksums.txt, read the same day
+// and matched against the files.
+func LarkCLI() Def {
+	const (
+		version = "1.0.100"
+		release = "https://github.com/larksuite/cli/releases/download/v" + version + "/lark-cli-" + version
+	)
+
+	//nolint:gosec // The names of variables and public addresses; no credential is here.
+	return Def{
+		Integration: "lark", Name: "lark-cli", Version: version,
+		TokenEnv:  "LARKSUITE_CLI_TENANT_ACCESS_TOKEN",
+		ClientEnv: "LARKSUITE_CLI_APP_ID",
+		Env: []string{
+			"LARKSUITE_CLI_BRAND=lark", "LARKSUITE_CLI_NO_UPDATE_NOTIFIER=1", "LARKSUITE_CLI_NO_SKILLS_NOTIFIER=1",
+		},
+		Releases: map[string]Release{
+			"linux/amd64": {
+				URL:    release + "-linux-amd64.tar.gz",
+				SHA256: "cd7363f731c9e5dd2becd909837922cffea8aad229d581a84eb13c6aa0ce6808",
+				Binary: "lark-cli",
+			},
+			"linux/arm64": {
+				URL:    release + "-linux-arm64.tar.gz",
+				SHA256: "166e95ffaec34f82123f50316480250329884c09e71a6f92313047e2c5c3fa5d",
+				Binary: "lark-cli",
 			},
 		},
 	}
