@@ -18,6 +18,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/coordinator"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/nodeapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/webui"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
@@ -37,6 +38,10 @@ type Config struct {
 	// CoordinatorCommand starts pi for a chat id appended to it, from
 	// HYPOMNEMA_COORDINATOR_COMMAND as a JSON array; empty: no coordinator.
 	CoordinatorCommand []string
+	// VaultKeys holds the vault's root keys, from HYPOMNEMA_VAULT_KEYS (a
+	// comma-separated list of id:base64 entries) and
+	// HYPOMNEMA_VAULT_ACTIVE_KEY_ID; nil: the vault is not configured.
+	VaultKeys *vault.Keyring
 }
 
 // LoadConfig reads the configuration and reports every problem at once.
@@ -55,7 +60,10 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 		}
 	}
 
-	if err := errors.Join(env.Err(), cmdErr); err != nil {
+	keys, keysErr := vault.ParseKeyring(getenv(envPrefix+"_VAULT_KEYS"), getenv(envPrefix+"_VAULT_ACTIVE_KEY_ID"))
+	cfg.VaultKeys = keys
+
+	if err := errors.Join(env.Err(), cmdErr, keysErr); err != nil {
 		return Config{}, fmt.Errorf("configuration: %w", err)
 	}
 

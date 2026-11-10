@@ -285,6 +285,33 @@ func (q *Queries) ListProfileVersions(ctx context.Context, profile string) ([]Pr
 	return items, nil
 }
 
+const listProviderNamesByKeyRef = `-- name: ListProviderNamesByKeyRef :many
+SELECT name FROM providers WHERE api_key_ref = ?1 ORDER BY name
+`
+
+func (q *Queries) ListProviderNamesByKeyRef(ctx context.Context, apiKeyRef sql.NullString) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listProviderNamesByKeyRef, apiKeyRef)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		items = append(items, name)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listProviders = `-- name: ListProviders :many
 SELECT name, kind, base_url, api_key_ref, source, created_at, updated_at FROM providers ORDER BY name
 `

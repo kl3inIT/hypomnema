@@ -193,9 +193,16 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 	logger.InfoContext(ctx, "node starting", slog.String("event", "node.starting"), slog.String("url", cfg.URL),
 		slog.Int("runtimes", len(runtimes)), slog.Int("accounts", len(cfg.Accounts)))
 
-	return daemon.New(daemon.Config{
+	d := daemon.New(daemon.Config{
 		URL: cfg.URL, Token: cfg.Token, WorktreeRoot: cfg.WorktreeRoot, Version: platform.Version, Runtimes: runtimes,
-	}, db, runner, logger).Run(ctx)
+	}, db, runner, logger)
+
+	// Workers' transcripts go to the control plane beside their reports (issue #43).
+	runner.Send = d.SendItems
+
+	go runner.Forward(ctx)
+
+	return d.Run(ctx)
 }
 
 // Unit is a systemd user unit for the daemon. KillMode=process keeps workers

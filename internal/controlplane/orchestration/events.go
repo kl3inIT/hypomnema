@@ -63,6 +63,18 @@ type EventPage struct {
 	HasMore   bool
 }
 
+// LastEventSeq returns the newest event's seq, 0 when there is none. A reader
+// that takes it before a snapshot and follows the events after it misses no
+// change.
+func (s *Service) LastEventSeq(ctx context.Context) (int64, error) {
+	seq, err := s.read().LastEventSeq(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("reading the last event: %w", err)
+	}
+
+	return seq, nil
+}
+
 // ListEvents returns the events after a sequence number, oldest first. The
 // limit defaults to EventPageDefault and is capped at EventPageMax (Omnara).
 func (s *Service) ListEvents(ctx context.Context, after int64, f EventFilter, limit int) (EventPage, error) {

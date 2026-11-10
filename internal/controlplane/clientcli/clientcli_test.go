@@ -23,6 +23,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/coordinator"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
@@ -657,6 +658,10 @@ type replier struct{ svc *orchestration.Service }
 func (replier) Enabled() bool         { return true }
 func (replier) Working(_ string) bool { return false }
 
+func (replier) Watch(_ string) (<-chan coordinator.Frame, func()) { return nil, func() {} }
+
+func (replier) Abort(_ context.Context, _ string) error { return nil }
+
 func (r replier) run(ctx context.Context) {
 	for {
 		select {
@@ -713,11 +718,12 @@ func TestChatFromTheTerminal(t *testing.T) {
 	out, err = w.cmd(t, "chat", "--last", "2")
 	require.NoError(t, err)
 	assert.Contains(t, out, "pi: I read: and a test")
-	assert.NotContains(t, out, "add a health page", "only the last two")
+	assert.NotContains(t, out, "you: add a health page", "only the last two")
 
 	var chats openapi.ChatList
 	w.jsonCmd(t, &chats, "", "chats")
 	require.Len(t, chats.Data, 1)
+	assert.Equal(t, "add a health page", chats.Data[0].Title, "a new chat is titled by its first message")
 
 	out, err = w.cmd(t, "chat", "--new", "a second topic")
 	require.NoError(t, err)

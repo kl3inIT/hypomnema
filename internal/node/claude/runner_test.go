@@ -92,7 +92,13 @@ func fakeClaude(mode string) int {
 				"request": map[string]any{"subtype": "can_use_tool", "tool_name": "Write", "input": map[string]any{"x": 1}},
 			})
 		case msg.Type == "control_response" && msg.Response.RequestID == "perm_1":
-			emit(out, map[string]any{"type": "assistant", "message": map[string]any{"content": "working"}})
+			emit(out, map[string]any{"type": "assistant", "message": map[string]any{"content": []map[string]any{
+				{"type": "text", "text": "Adding the button."},
+				{"type": "tool_use", "id": "call_1", "name": "Write", "input": map[string]any{"file_path": "login.tsx"}},
+			}}})
+			emit(out, map[string]any{"type": "user", "message": map[string]any{"content": []map[string]any{
+				{"type": "tool_result", "tool_use_id": "call_1", "content": "wrote login.tsx"},
+			}}})
 
 			if mode == "error" {
 				emit(out, map[string]any{"type": "result", "subtype": "error_during_execution", "is_error": true,
@@ -317,9 +323,25 @@ func TestWorkerRunsToSuccess(t *testing.T) {
 	t.Parallel()
 
 	g := newRig(t, "success")
+	p := &plane{}
+	g.runner.Send = p.send
 	r := newReporter("dsp_1")
 	require.NoError(t, g.runner.Start(t.Context(), g.dispatch("dsp_1"), r))
 	r.wait(t)
+
+	// The transcript of the worker just run is ready for the control plane.
+	g.runner.smu.Lock()
+	g.runner.step(t.Context(), g.runner.transcripts["dsp_1"])
+	g.runner.smu.Unlock()
+
+	require.Len(t, p.sent(), 1)
+	sent := p.sent()[0]
+	assert.Equal(t, "dsp_1", sent.DispatchID)
+	require.Len(t, sent.Items, 3)
+	assert.Equal(t, nodeproto.Item{Seq: 1, Kind: nodeproto.ItemMessage, Text: "Adding the button."}, sent.Items[0])
+	assert.Equal(t, "Write", sent.Items[1].Tool)
+	assert.Equal(t, nodeproto.Item{Seq: 3, Kind: nodeproto.ItemToolResult, CallID: "call_1", Text: "wrote login.tsx"},
+		sent.Items[2])
 
 	require.Len(t, r.finished, 1)
 	f := r.finished[0]
@@ -337,6 +359,8 @@ func TestWorkerRunsToSuccess(t *testing.T) {
 	assert.Contains(t, g.file("prompt.txt"), "add the Google login button")
 	assert.Contains(t, g.file("argv.txt"), "--permission-prompt-tool stdio")
 	assert.Contains(t, g.file("argv.txt"), "--model opus")
+	assert.Contains(t, g.file("argv.txt"), "--disallowedTools AskUserQuestion,Task,Agent",
+		"a worker cannot ask outside ask or start subagents")
 	assert.Equal(t, "sk-ant-oat01-test", g.file("token.txt"))
 
 	_, err := os.Stat(filepath.Join(g.runner.dir("dsp_1"), shim.SpecFile))

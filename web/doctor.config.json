@@ -1,0 +1,21 @@
+{
+  "$schema": "https://react.doctor/schema/config.json",
+  "ignore": {
+    "files": ["dist/**", "src/routeTree.gen.ts", "src/api/generated/**", "src/components/**"],
+    "rules": ["react-doctor/no-high-complexity-react-function"],
+    "overrides": [
+      {
+        "files": ["src/routes/**"],
+        "rules": ["react/only-export-components"]
+      },
+      {
+        "files": ["src/features/board/task-panel.tsx"],
+        "rules": ["react-doctor/query-mutation-missing-invalidation"]
+      },
+      {
+        "files": ["src/features/board/use-transcript.ts"],
+        "rules": ["react-doctor/no-set-state-after-await-in-effect"]
+      }
+    ]
+  }
+}

@@ -181,3 +181,30 @@ func outcomeOf(f nodeproto.Finished) orchestration.Outcome {
 
 	return out
 }
+
+// items stores a batch of a worker's transcript and answers with the newest
+// item held, so the node moves its cursor (issue #43).
+func (s *Server) items(ctx context.Context, nodeID string, b nodeproto.Items) nodeproto.ItemsAck {
+	items := make([]orchestration.Item, 0, len(b.Items))
+	for _, it := range b.Items {
+		items = append(items, orchestration.Item{
+			Seq: it.Seq, Kind: orchestration.ItemKind(it.Kind), Text: it.Text, CallID: it.CallID, Tool: it.Tool,
+			Input: it.Input, Failed: it.Failed,
+		})
+	}
+
+	seq, err := s.svc.AddItems(ctx, nodeID, b.DispatchID, items)
+
+	switch {
+	case err == nil:
+		return nodeproto.ItemsAck{DispatchID: b.DispatchID, Seq: seq, Status: nodeproto.AckCommitted}
+	case permanent(err):
+		return nodeproto.ItemsAck{DispatchID: b.DispatchID, Status: nodeproto.AckRejected, Error: err.Error()}
+	default:
+		s.logger.WarnContext(ctx, "transcript items failed",
+			slog.String("event", "nodeapi.items_failed"), slog.String("node_id", nodeID),
+			slog.String("dispatch_id", b.DispatchID), slog.String("error", err.Error()))
+
+		return nodeproto.ItemsAck{DispatchID: b.DispatchID, Status: nodeproto.AckTransient, Error: err.Error()}
+	}
+}

@@ -427,6 +427,32 @@ func (s *Service) ListTasks(ctx context.Context, runID string) ([]Task, error) {
 	return out, nil
 }
 
+// BoardLimitMax caps the Tasks one ListBoardTasks returns.
+const BoardLimitMax = 500
+
+// ListBoardTasks returns every Task of an open Run and the other Runs' Tasks
+// changed at or after since, most recently changed first: what a board of the
+// work in flight shows (Orca's agent dashboard, Omnara's agents list).
+func (s *Service) ListBoardTasks(ctx context.Context, since time.Time, limit int) ([]Task, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+
+	rows, err := s.read().ListBoardTasks(ctx, store.ListBoardTasksParams{
+		Since: since.UnixMilli(), Lim: int64(min(limit, BoardLimitMax)),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("listing board tasks: %w", err)
+	}
+
+	out := make([]Task, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, taskFromRow(r))
+	}
+
+	return out, nil
+}
+
 // completeTask records a Task's success and makes ready every dependent whose
 // dependencies have now all succeeded, in the same transaction (Orca's
 // promoteReadyTasks).

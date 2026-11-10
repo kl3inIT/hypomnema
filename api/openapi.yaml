@@ -122,6 +122,28 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/TaskList" }
         default: { $ref: "#/components/responses/Error" }
+  /tasks:
+    get:
+      operationId: ListTasks
+      summary: The Tasks a board shows, most recently changed first
+      description: >-
+        Every Task of an open Run, and the Tasks of other Runs that changed at or after since, with their latest
+        Dispatch and the Runs they belong to. One call fills a board of the work in flight.
+      parameters:
+        - name: since
+          in: query
+          description: Tasks of Runs that are no longer open count only when they changed at or after it; 24 hours ago by default.
+          schema: { type: string, format: date-time }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 500, default: 200 }
+      responses:
+        "200":
+          description: The Tasks and their Runs.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TaskBoard" }
+        default: { $ref: "#/components/responses/Error" }
   /tasks/{task_id}:
     parameters:
       - $ref: "#/components/parameters/TaskID"
@@ -160,6 +182,39 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Task" }
+        default: { $ref: "#/components/responses/Error" }
+  /dispatches/{dispatch_id}/items:
+    parameters:
+      - name: dispatch_id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      operationId: ListDispatchItems
+      summary: A worker's transcript during one Dispatch, oldest first; optionally wait for the next item
+      description: >-
+        What the worker said and did, as the node sent it. With after, the
+        items that follow that seq; with before, the newest items older than
+        it.
+      parameters:
+        - $ref: "#/components/parameters/After"
+        - name: before
+          in: query
+          description: Return the newest items with a seq below this one; after and wait are then ignored.
+          schema: { type: integer, format: int64, minimum: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 500 }
+        - name: wait
+          in: query
+          description: Seconds to wait when no item follows the cursor yet; zero answers at once.
+          schema: { type: integer, minimum: 0, maximum: 50 }
+      responses:
+        "200":
+          description: One page of items.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TranscriptItemList" }
         default: { $ref: "#/components/responses/Error" }
   /questions:
     get:
@@ -445,6 +500,41 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Chat" }
         default: { $ref: "#/components/responses/Error" }
+  /chats/{chat_id}/stream:
+    parameters:
+      - $ref: "#/components/parameters/ChatID"
+    get:
+      operationId: StreamChat
+      summary: A chat as Server-Sent Events, resumable with Last-Event-ID
+      description: >-
+        Kept messages come as `message` frames with their seq as the id and a
+        ChatMessage as data. While pi works, frames without an id show what is
+        not kept yet: `reset` (a new reply starts), `delta` (ChatDelta),
+        `tool` (ChatToolActivity) and `state` (ChatState); a kept message
+        replaces what they showed. A comment line is sent every 10 seconds.
+      parameters:
+        - $ref: "#/components/parameters/After"
+        - name: Last-Event-ID
+          in: header
+          description: Takes precedence over after, as a reconnecting browser sends it.
+          schema: { type: integer, format: int64, minimum: 0 }
+      responses:
+        "200":
+          description: The stream.
+          content:
+            text/event-stream:
+              schema: { type: string }
+        default: { $ref: "#/components/responses/Error" }
+  /chats/{chat_id}/abort:
+    parameters:
+      - $ref: "#/components/parameters/ChatID"
+    post:
+      operationId: AbortChat
+      summary: Stop the coordinator's current turn in this chat; nothing happens when it is idle
+      responses:
+        "204":
+          description: pi was asked to stop, or was not working.
+        default: { $ref: "#/components/responses/Error" }
   /chats/{chat_id}/messages:
     parameters:
       - $ref: "#/components/parameters/ChatID"
@@ -662,6 +752,21 @@ components:
         data:
           type: array
           items: { $ref: "#/components/schemas/Task" }
+    TaskBoard:
+      type: object
+      required: [data, runs, after]
+      properties:
+        after:
+          type: integer
+          format: int64
+          description: The newest event's seq when the board was read; follow the events after it to keep it current.
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/TaskDetail" }
+        runs:
+          type: array
+          description: The Runs of these Tasks, once each.
+          items: { $ref: "#/components/schemas/Run" }
     NewTasks:
       type: object
       required: [tasks]
@@ -725,6 +830,45 @@ components:
           type: string
           format: date-time
           description: Set while the worker waits for an answer.
+        activity:
+          type: string
+          description: One line about the newest thing the worker said or did.
+    TranscriptItemKind:
+      type: string
+      enum: [message, reasoning, tool_call, tool_result, notice]
+    TranscriptItem:
+      type: object
+      required: [seq, kind, created_at]
+      description: >-
+        One entry of a worker's transcript. A message, reasoning or notice has
+        text; a tool_call has call_id, tool and input; a tool_result has
+        call_id, text and failed. The node cuts long text and input.
+      properties:
+        seq: { type: integer, format: int64 }
+        kind: { $ref: "#/components/schemas/TranscriptItemKind" }
+        text: { type: string }
+        call_id:
+          type: string
+          description: Joins a tool_result to its tool_call.
+        tool: { type: string }
+        input:
+          type: object
+          additionalProperties: true
+        failed: { type: boolean }
+        created_at:
+          type: string
+          format: date-time
+          description: When the control plane received it.
+    TranscriptItemList:
+      type: object
+      required: [data, has_more]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/TranscriptItem" }
+        has_more:
+          type: boolean
+          description: More items lie beyond this page in the direction read.
     DispatchResult:
       type: object
       required: [summary, evidence]
@@ -978,7 +1122,51 @@ components:
           items: { $ref: "#/components/schemas/Chat" }
     ChatRole:
       type: string
-      enum: [owner, coordinator, system]
+      description: >-
+        owner: typed by the owner; coordinator: pi's reply; tool: a tool pi
+        ran, with its result; system: a wake-up or a notice.
+      enum: [owner, coordinator, tool, system]
+    ChatPart:
+      type: object
+      description: One piece of a reply (text, thinking) or of a tool pi ran (tool_result).
+      required: [type]
+      properties:
+        type: { type: string, enum: [text, thinking, tool_result] }
+        text: { type: string }
+        id: { type: string, description: The tool call. }
+        name: { type: string, description: The tool. }
+        args:
+          type: object
+          additionalProperties: true
+          description: The tool's arguments.
+        output: { type: string, description: "The tool's result, at most 16 KiB." }
+        error: { type: boolean }
+        truncated: { type: boolean, description: The output was cut. }
+        duration_ms: { type: integer, format: int64 }
+    ChatDelta:
+      type: object
+      description: Text or thinking pi is writing, to append to block index of the current reply.
+      required: [kind, index, delta]
+      properties:
+        kind: { type: string, enum: [text, thinking] }
+        index: { type: integer }
+        delta: { type: string }
+    ChatToolActivity:
+      type: object
+      description: A tool started (with its name and arguments) or ended.
+      required: [phase, id]
+      properties:
+        phase: { type: string, enum: [start, end] }
+        id: { type: string }
+        name: { type: string }
+        args:
+          type: object
+          additionalProperties: true
+    ChatState:
+      type: object
+      required: [working]
+      properties:
+        working: { type: boolean }
     NewChatMessage:
       type: object
       required: [text]
@@ -993,6 +1181,10 @@ components:
         chat_id: { type: string }
         role: { $ref: "#/components/schemas/ChatRole" }
         text: { type: string }
+        parts:
+          type: array
+          description: A reply's text and thinking, or a tool's result; absent for owner and system messages.
+          items: { $ref: "#/components/schemas/ChatPart" }
         event_seq:
           type: integer
           format: int64

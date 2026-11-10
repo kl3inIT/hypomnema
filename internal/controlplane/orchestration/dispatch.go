@@ -1142,6 +1142,11 @@ func reapHousekeeping(ctx context.Context, q *store.Queries, now int64) error {
 		return fmt.Errorf("trimming receipts: %w", err)
 	}
 
+	settledBefore := sql.NullInt64{Int64: now - ItemRetention.Milliseconds(), Valid: true}
+	if _, err := q.DeleteDispatchItemsSettledBefore(ctx, settledBefore); err != nil {
+		return fmt.Errorf("dropping old transcript items: %w", err)
+	}
+
 	return nil
 }
 
@@ -1341,6 +1346,7 @@ func dispatchFromRow(d store.Dispatch) (Dispatch, error) {
 		SettledAt: optionalTime(d.SettledAt), WaitingSince: optionalTime(d.WaitingSince),
 		Waited: time.Duration(d.WaitedMs) * time.Millisecond, GateQuestionID: d.GateQuestionID.String,
 		Model: d.Model.String, Effort: d.Effort.String, ProfileVersionID: d.ProfileVersionID.String,
+		Activity: d.Activity.String,
 	}
 
 	if d.Result.Valid {
