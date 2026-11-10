@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
 )
@@ -187,7 +188,7 @@ func tasksList(ctx context.Context, e *env, fs *flag.FlagSet) error {
 
 	return e.print(fs, resp.JSON200, func() {
 		for _, t := range resp.JSON200.Data {
-			e.printf("%s\t%s\t%s\t%s\n", t.Id, taskState(t.Status, t.BlockedReason), t.RunId, taskLine(t))
+			e.printf("%s\t%s\t%s\t%s\n", t.Id, taskState(t.Status, t.BlockedReason), t.RunId, plain(taskLine(t)))
 		}
 	})
 }
@@ -264,7 +265,7 @@ func tasksTranscript(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		for _, it := range resp.JSON200.Data {
 			after = it.Seq
 
-			if err := e.print(fs, it, func() { e.printf("%s\n", itemLine(it)) }); err != nil {
+			if err := e.print(fs, it, func() { e.printf("%s\n", plain(itemLine(it))) }); err != nil {
 				return err
 			}
 		}
@@ -277,6 +278,26 @@ func tasksTranscript(ctx context.Context, e *env, fs *flag.FlagSet) error {
 			return nil
 		}
 	}
+}
+
+// plain makes text from a worker safe to print on a terminal: a control
+// character other than a newline or a tab is shown as its escape (`\x1b`), so
+// a worker's output cannot move the cursor, recolour or rewrite what the
+// owner reads. JSON output needs none of this: it escapes them itself.
+func plain(s string) string {
+	var b strings.Builder
+
+	for _, r := range s {
+		if r != '\n' && r != '\t' && unicode.IsControl(r) {
+			b.WriteString(strings.Trim(strconv.QuoteRuneToASCII(r), "'"))
+
+			continue
+		}
+
+		b.WriteRune(r)
+	}
+
+	return b.String()
 }
 
 // itemHints are the inputs that say what a tool call is about, in the order tried.

@@ -408,6 +408,15 @@ func (wk *worker) succeed(t *testing.T, w *world) {
 	}))
 }
 
+// A worker's output may hold terminal escapes; printed as text they are shown,
+// not obeyed. Newlines and tabs stay.
+func TestWorkerTextCannotDriveTheTerminal(t *testing.T) {
+	t.Parallel()
+
+	got := plain("ok\x1b[2J\x1b]0;title\x07\tdone\nnext\u009b31m\x7f")
+	assert.Equal(t, `ok\x1b[2J\x1b]0;title\a`+"\tdone\nnext"+`\u009b31m\x7f`, got)
+}
+
 // Scenario: the owner watches a worker from a terminal, without the web. The
 // list says what the worker does now; the transcript prints what it said and
 // did, a line an item; following it prints each new item and ends once the
