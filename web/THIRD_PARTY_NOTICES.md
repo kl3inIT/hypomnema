@@ -8,6 +8,10 @@ Each adapted file names its source.
   src/renderer/src/components/dashboard-popout), MIT.
 - The Machines page's cards, table, meters and actions menu (`src/features/machines`) are adapted from Beszel
   (https://github.com/henrygd/beszel, internal/site/src/components/systems-table), MIT.
+- GitHub's mark (`src/components/icons/brand-icons.tsx`) is the path Orca uses
+  (src/renderer/src/components/icons/GitHubIcon.tsx), MIT. GitLab's mark there is the path Omnigent uses
+  (web/src/components/icons/GitLabIcon.tsx), Apache License 2.0, which takes it from devicon
+  (https://github.com/devicons/devicon, icons/gitlab/gitlab-original.svg), MIT.
 - The runtime marks (Claude, Codex, pi) are copied from OpenMausBot (https://github.com/milind-soni/OpenMausBot,
   src/components/ProviderIcons.tsx), Apache License 2.0.
 - The titles of a worker's tool calls and the line that says a group of them

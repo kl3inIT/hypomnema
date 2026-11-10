@@ -154,7 +154,7 @@ test("the owner adds and removes a company's git server", async ({ page }) => {
 
   await card(page, "gitlab.other.example").getByRole("button", { name: "Remove" }).click()
   await shot(page, "integrations-remove-confirm")
-  await page.getByRole("dialog").getByRole("button", { name: "Remove host" }).click()
+  await page.getByRole("alertdialog").getByRole("button", { name: "Remove host" }).click()
   await expect(card(page, "gitlab.other.example")).toHaveCount(0)
 
   expect(calls).toEqual([
@@ -181,14 +181,14 @@ test("the owner registers and removes a repository", async ({ page }) => {
   await shot(page, "repositories-add")
   await dialog.getByRole("button", { name: "Add", exact: true }).click()
 
-  await expect(page.getByRole("listitem")).toContainText(
+  await expect(page.locator("[data-slot=item]")).toContainText(
     "git.company.example/team/app · starts from develop",
   )
   expect(await fits(page)).toBe(true)
   await shot(page, "repositories-one")
 
   await page.getByRole("button", { name: "Remove app" }).click()
-  await page.getByRole("dialog").getByRole("button", { name: "Remove repository" }).click()
+  await page.getByRole("alertdialog").getByRole("button", { name: "Remove repository" }).click()
   await expect(page.getByText("No repositories yet")).toBeVisible()
   expect(calls).toEqual(["PUT /repos/app", "DELETE /repos/app"])
 })

@@ -121,11 +121,16 @@ async function open(Screen: () => React.JSX.Element, heading: string) {
   await screen.findByRole("heading", { name: heading })
 }
 
-const card = async (name: string) => {
-  const title = await screen.findByText(name, { selector: "p" })
+// card is the card whose title is exactly name.
+const card = (name: string) =>
+  waitFor(() => {
+    const found = screen
+      .queryAllByTestId("integration-card")
+      .find((c) => within(c).queryByText(name) !== null)
+    if (!found) throw new Error(`no card named ${name}`)
 
-  return title.closest<HTMLElement>("[data-testid=integration-card]")!
-}
+    return found
+  })
 
 // Scenario: github.com has a token and gitlab.com has none. Each card says so; the one without a token says what
 // workers do meanwhile and where to make a token, and only the one with a token offers to remove it.
@@ -161,7 +166,11 @@ test("the owner gives a host its token", async () => {
   const dialog = within(await screen.findByRole("dialog"))
   const field = dialog.getByLabelText("Access token")
   expect(field).toHaveAttribute("type", "password")
-  expect(dialog.getByRole("button", { name: "Save token" })).toBeDisabled()
+
+  // Nothing is sent without a token: the form says what is missing.
+  await user.click(dialog.getByRole("button", { name: "Save token" }))
+  expect(await dialog.findByRole("alert")).toHaveTextContent("Paste the token.")
+  expect(requests).toEqual([])
 
   await user.type(field, " glpat-typed ")
   await user.click(dialog.getByRole("button", { name: "Save token" }))
@@ -208,16 +217,16 @@ test("the owner adds a company's server, removes its token and removes it", asyn
   expect(await within(company).findByText("Connected")).toBeInTheDocument()
 
   await user.click(within(company).getByRole("button", { name: "Remove token" }))
-  dialog = within(await screen.findByRole("dialog"))
+  dialog = within(await screen.findByRole("alertdialog"))
   expect(dialog.getByText(/keeps the token it started with/)).toBeInTheDocument()
   await user.click(dialog.getByRole("button", { name: "Remove token" }))
   expect(await within(await card("git.company.example")).findByText("No token")).toBeInTheDocument()
-  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
+  await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument())
 
   await user.click(
     within(await card("git.company.example")).getByRole("button", { name: "Remove" }),
   )
-  dialog = within(await screen.findByRole("dialog"))
+  dialog = within(await screen.findByRole("alertdialog"))
   await user.click(dialog.getByRole("button", { name: "Remove host" }))
   await waitFor(() => expect(screen.queryByText("git.company.example")).not.toBeInTheDocument())
 
@@ -252,11 +261,11 @@ test("the owner registers a repository under a name and removes it", async () =>
   await user.type(dialog.getByLabelText("Base branch"), "develop")
   await user.click(dialog.getByRole("button", { name: "Add" }))
 
-  const row = (await screen.findByText("shop")).closest("li")!
+  const row = (await screen.findByText("shop")).closest<HTMLElement>("[data-slot=item]")!
   expect(row).toHaveTextContent("gitlab.company.example/team/app · starts from develop")
 
   await user.click(within(row).getByRole("button", { name: "Remove shop" }))
-  dialog = within(await screen.findByRole("dialog"))
+  dialog = within(await screen.findByRole("alertdialog"))
   await user.click(dialog.getByRole("button", { name: "Remove repository" }))
   expect(await screen.findByText("No repositories yet")).toBeInTheDocument()
 
