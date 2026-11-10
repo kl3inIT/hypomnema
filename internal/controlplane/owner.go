@@ -138,7 +138,7 @@ func (o *owner) nodes(ctx context.Context, args []string) error {
 				state = "connected"
 			}
 
-			if n.Machine != nil && n.Machine.State != orchestration.MachineReady {
+			if n.Machine != nil && (n.Machine.State != orchestration.MachineReady || n.Machine.Power != "") {
 				state = machineState(n.Machine)
 			}
 

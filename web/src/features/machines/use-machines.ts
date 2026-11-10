@@ -1,7 +1,13 @@
-import { useQuery } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import "@/api/client"
-import { listMachineProviders, listNodes } from "@/api/generated/sdk.gen"
+import {
+  listMachineProviders,
+  listNodes,
+  startNodeMachine,
+  stopNodeMachine,
+} from "@/api/generated/sdk.gen"
+import type { Node } from "@/api/generated/types.gen"
 
 export const nodesKey = ["nodes"] as const
 export const providersKey = ["machine-providers"] as const
@@ -27,5 +33,19 @@ export function useMachines() {
     queryKey: nodesKey,
     queryFn: async () => (await listNodes()).data.data,
     refetchInterval: whileOpen,
+  })
+}
+
+// useMachinePower turns a provider's machine off or on. A machine that is off keeps its disk; the server refuses
+// to turn off one that still runs a Dispatch, and says so.
+export function useMachinePower(node: Node) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async (on: boolean) =>
+      on
+        ? await startNodeMachine({ path: { node_id: node.id } })
+        : await stopNodeMachine({ path: { node_id: node.id } }),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: nodesKey }),
   })
 }

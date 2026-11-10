@@ -400,6 +400,34 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Node" }
         default: { $ref: "#/components/responses/Error" }
+  /nodes/{node_id}/stop:
+    parameters:
+      - $ref: "#/components/parameters/NodeID"
+    post:
+      operationId: StopNodeMachine
+      summary: >-
+        Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work; refused with
+        409 while it runs a Dispatch
+      responses:
+        "200":
+          description: The node, its machine stopping or stopped.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Node" }
+        default: { $ref: "#/components/responses/Error" }
+  /nodes/{node_id}/start:
+    parameters:
+      - $ref: "#/components/parameters/NodeID"
+    post:
+      operationId: StartNodeMachine
+      summary: Turn a stopped machine on (owner only); it takes work again once its node connects
+      responses:
+        "200":
+          description: The node, its machine starting.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Node" }
+        default: { $ref: "#/components/responses/Error" }
   /nodes/{node_id}/resume:
     parameters:
       - $ref: "#/components/parameters/NodeID"
@@ -1210,6 +1238,12 @@ components:
           description: >-
             provisioning until the node says hello; provision_failed when the provider refused or the node never
             did; deleting and delete_failed while the machine is destroyed, which is tried again until it is.
+        power:
+          type: string
+          enum: [stopping, stopped, starting]
+          description: >-
+            Left out while the machine is on. stopped: off, with its disk kept; stopping and starting: asked for,
+            and asked again until it has happened.
         error:
           type: string
           description: Why the last step failed.

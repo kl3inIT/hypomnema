@@ -21,6 +21,8 @@ import (
 type fakeCloud struct {
 	created   []machines.Spec
 	deleted   []string
+	stopped   []string
+	started   []string
 	createErr error
 }
 
@@ -42,6 +44,18 @@ func (c *fakeCloud) Find(context.Context, string, string) (machines.Resource, bo
 
 func (c *fakeCloud) Delete(_ context.Context, _, nodeID string) error {
 	c.deleted = append(c.deleted, nodeID)
+
+	return nil
+}
+
+func (c *fakeCloud) Stop(_ context.Context, _, nodeID string) error {
+	c.stopped = append(c.stopped, nodeID)
+
+	return nil
+}
+
+func (c *fakeCloud) Start(_ context.Context, _, nodeID string) error {
+	c.started = append(c.started, nodeID)
 
 	return nil
 }
@@ -155,4 +169,51 @@ func TestRefusedMachineIsAnsweredAsAFailedNode(t *testing.T) {
 	require.NotNil(t, failed.JSON201.Node.Machine)
 	assert.Equal(t, openapi.NodeMachineStateProvisionFailed, failed.JSON201.Node.Machine.State)
 	assert.Contains(t, *failed.JSON201.Node.Machine.Error, "VcpuLimitExceeded")
+}
+
+// Scenario: the owner turns a machine off from the web and on again. The
+// answers show the machine stopped, then starting; a coordinator token turns
+// nothing off; and a node the owner installed has no machine to stop.
+func TestOwnerStopsAndStartsAMachine(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	cloud := w.withCloud()
+	ctx := t.Context()
+	owner, _ := w.token("web", bearertoken.Owner)
+	laptop, _ := w.token("laptop", bearertoken.Coordinator)
+
+	aws := "aws"
+
+	created, err := owner.CreateNodeWithResponse(ctx, openapi.NewNode{Name: "build-1", Provider: &aws})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, created.StatusCode(), string(created.Body))
+
+	id := created.JSON201.Node.Id
+	require.NoError(t, w.svc.NodeHello(ctx, id, orchestration.Hello{}))
+
+	refused, err := laptop.StopNodeMachineWithResponse(ctx, id)
+	require.NoError(t, err)
+	assert.Equal(t, openapi.Forbidden, errorCode(t, refused.Body, refused.StatusCode(), http.StatusForbidden))
+
+	stopped, err := owner.StopNodeMachineWithResponse(ctx, id)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, stopped.StatusCode(), string(stopped.Body))
+	require.NotNil(t, stopped.JSON200.Machine.Power)
+	assert.Equal(t, openapi.NodeMachinePowerStopped, *stopped.JSON200.Machine.Power)
+	assert.Equal(t, openapi.NodeStatusDrained, stopped.JSON200.Status)
+	assert.Equal(t, []string{id}, cloud.stopped)
+
+	started, err := owner.StartNodeMachineWithResponse(ctx, id)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, started.StatusCode(), string(started.Body))
+	assert.Equal(t, openapi.NodeMachinePowerStarting, *started.JSON200.Machine.Power)
+	assert.Equal(t, []string{id}, cloud.started)
+
+	own, _, err := w.svc.AddNode(ctx, "zm", 0)
+	require.NoError(t, err)
+
+	none, err := owner.StopNodeMachineWithResponse(ctx, own.ID)
+	require.NoError(t, err)
+	assert.Equal(t, openapi.Conflict, errorCode(t, none.Body, none.StatusCode(), http.StatusConflict))
 }

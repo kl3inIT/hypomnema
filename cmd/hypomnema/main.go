@@ -13,6 +13,7 @@
 //	hypomnema machines providers add <name> --kind aws --key vault:<secret> --region R --size S [--max N] [--option name=value]…
 //	hypomnema machines providers list | rm <name> | check <name>
 //	hypomnema machines create <name> --provider P [--region R] [--size S] [--max N]   a node on a new machine
+//	hypomnema machines stop|start <node>       turn a provider's machine off, keeping its disk, or on again
 //	hypomnema accounts add <runtime> <label>   record an account whose CLI is logged in on a node (no secret)
 //	hypomnema accounts login codex [--label L] log a subscription in here; its tokens go to the vault
 //	hypomnema accounts list

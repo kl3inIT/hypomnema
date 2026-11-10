@@ -10,6 +10,9 @@ export type MachineState =
   | "create_failed"
   | "removing"
   | "remove_failed"
+  | "stopping"
+  | "stopped"
+  | "starting"
 
 // What a provider's machine is doing, when that says more than its connection: being created, not created, being
 // destroyed, or not destroyed yet.
@@ -25,6 +28,8 @@ const providerStates: Partial<Record<NonNullable<Node["machine"]>["state"], Mach
 export function machineState(node: Node): MachineState {
   const provider = node.machine && providerStates[node.machine.state]
   if (provider) return provider
+  // A ready machine that is not on says so: its node is drained and offline because of it, not on its own.
+  if (node.machine?.power) return node.machine.power
 
   if (!node.connected) return "offline"
 
@@ -39,6 +44,9 @@ export const stateNames: Record<MachineState, string> = {
   create_failed: "Not created",
   removing: "Removing",
   remove_failed: "Not removed",
+  stopping: "Stopping",
+  stopped: "Stopped",
+  starting: "Starting",
 }
 
 // machineNote is what the page says in place of measurements for a provider's machine that is not ready: what is
@@ -53,16 +61,25 @@ export function machineNote(node: Node) {
       return "Its machine is being destroyed at the provider."
     case "remove_failed":
       return "Its machine may still run and cost money. Destroying it is tried again until it works."
+    case "stopping":
+      return "Its machine is being turned off."
+    case "stopped":
+      return "Its machine is off and takes no work. The provider bills for its disk, not for the machine. Everything on it is kept."
+    case "starting":
+      return "Its machine is being turned on and comes online in about a minute."
     default:
       return undefined
   }
 }
 
-// machineProblem is why a provider's machine was not created or not destroyed, in the provider's words.
+// machineProblem is why a provider's machine was not created, destroyed, stopped or started, in the provider's
+// words.
 export function machineProblem(node: Node) {
   const state = machineState(node)
 
-  return state === "create_failed" || state === "remove_failed" ? node.machine?.error : undefined
+  return ["create_failed", "remove_failed", "stopping", "starting"].includes(state)
+    ? node.machine?.error
+    : undefined
 }
 
 export type MeterTone = "good" | "warn" | "crit"

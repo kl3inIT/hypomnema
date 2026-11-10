@@ -71,6 +71,19 @@ const (
 	MachineDeleteFailed MachineState = "delete_failed"
 )
 
+// MachinePower says whether a provider's machine that is ready is on.
+type MachinePower string
+
+// Machine power. The empty value is a machine that is on.
+const (
+	// MachineStopping: asked to stop; the provider is asked until it has.
+	MachineStopping MachinePower = "stopping"
+	// MachineStopped: off. It keeps its disk and costs no compute.
+	MachineStopped MachinePower = "stopped"
+	// MachineStarting: asked to start, until its node says hello.
+	MachineStarting MachinePower = "starting"
+)
+
 // Machine is what a node created at a provider records besides the node.
 type Machine struct {
 	ProviderID string
@@ -79,6 +92,8 @@ type Machine struct {
 	Region     string
 	Size       string
 	State      MachineState
+	// Power is empty while the machine is on.
+	Power MachinePower
 	// Error says why the last step failed.
 	Error string
 	// Attempts counts failed deletions; RetryAt is when the next is due.
@@ -402,7 +417,8 @@ func machineOut(r store.Node) *Machine {
 
 	return &Machine{
 		ProviderID: r.ProviderID.String, ResourceID: r.ProviderResourceID.String, Region: r.Region.String,
-		Size: r.Size.String, State: MachineState(r.MachineState.String), Error: r.MachineError.String,
+		Size: r.Size.String, State: MachineState(r.MachineState.String),
+		Power: MachinePower(r.MachinePower.String), Error: r.MachineError.String,
 		Attempts: int(r.MachineAttempts), RetryAt: optionalTime(r.MachineRetryAt),
 	}
 }
@@ -425,4 +441,75 @@ func nonNilMap(m map[string]string) map[string]string {
 	}
 
 	return m
+}
+
+// BeginMachineStop starts stopping a provider's machine: its node takes no
+// more work and the machine is to be stopped at the provider. It is refused
+// while the node runs Dispatches, and for a machine that is not ready and on.
+func (s *Service) BeginMachineStop(ctx context.Context, nodeID string) error {
+	return s.write(ctx, func(q *store.Queries, now int64) error {
+		active, err := q.CountActiveDispatchesOfNode(ctx, store.CountActiveDispatchesOfNodeParams{
+			NodeID: nodeID, Statuses: activeDispatchStatuses(),
+		})
+		if err != nil {
+			return fmt.Errorf("counting the dispatches of node %s: %w", nodeID, err)
+		}
+
+		if active > 0 {
+			return fmt.Errorf("%w: node %s still runs %d Dispatches; drain it and let them end", ErrConflict, nodeID,
+				active)
+		}
+
+		n, err := q.StopMachine(ctx, store.StopMachineParams{Now: now, ID: nodeID})
+
+		return powerChanged(n, err, nodeID, "ready and on")
+	})
+}
+
+// MachineStopped records that the provider has stopped a machine.
+func (s *Service) MachineStopped(ctx context.Context, nodeID string) error {
+	return s.write(ctx, func(q *store.Queries, now int64) error {
+		n, err := q.MachineStopped(ctx, store.MachineStoppedParams{Now: now, ID: nodeID})
+
+		return oneRow(n, err, "machine being stopped", nodeID)
+	})
+}
+
+// BeginMachineStart starts starting a stopped machine: its node takes work
+// again, and the machine is on once the node says hello.
+func (s *Service) BeginMachineStart(ctx context.Context, nodeID string) error {
+	return s.write(ctx, func(q *store.Queries, now int64) error {
+		n, err := q.StartMachine(ctx, store.StartMachineParams{Now: now, ID: nodeID})
+
+		return powerChanged(n, err, nodeID, "stopped")
+	})
+}
+
+// MachinePowerFailed records why the provider did not stop or start a
+// machine; the step is tried again.
+func (s *Service) MachinePowerFailed(ctx context.Context, nodeID, reason string) error {
+	return s.write(ctx, func(q *store.Queries, now int64) error {
+		_, err := q.SetMachinePowerError(ctx, store.SetMachinePowerErrorParams{
+			Now: now, Error: nullString(reason), ID: nodeID,
+		})
+		if err != nil {
+			return fmt.Errorf("recording the power error of machine %s: %w", nodeID, err)
+		}
+
+		return nil
+	})
+}
+
+// powerChanged is a power update's error: no row means the node is not a
+// provider's machine in the state the change starts from.
+func powerChanged(n int64, err error, nodeID, from string) error {
+	if err != nil {
+		return fmt.Errorf("updating machine %s: %w", nodeID, err)
+	}
+
+	if n != 1 {
+		return fmt.Errorf("%w: node %s is not a provider's machine that is %s", ErrConflict, nodeID, from)
+	}
+
+	return nil
 }

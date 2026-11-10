@@ -306,6 +306,27 @@ func (e NodeStatus) Valid() bool {
 	}
 }
 
+// Defines values for NodeMachinePower.
+const (
+	NodeMachinePowerStarting NodeMachinePower = "starting"
+	NodeMachinePowerStopped  NodeMachinePower = "stopped"
+	NodeMachinePowerStopping NodeMachinePower = "stopping"
+)
+
+// Valid indicates whether the value is a known member of the NodeMachinePower enum.
+func (e NodeMachinePower) Valid() bool {
+	switch e {
+	case NodeMachinePowerStarting:
+		return true
+	case NodeMachinePowerStopped:
+		return true
+	case NodeMachinePowerStopping:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for NodeMachineState.
 const (
 	NodeMachineStateDeleteFailed    NodeMachineState = "delete_failed"
@@ -895,9 +916,12 @@ type NodeList struct {
 // NodeMachine Set for a node whose machine was created at a provider; left out for one the owner installed. Removing the node destroys the machine.
 type NodeMachine struct {
 	// Error Why the last step failed.
-	Error      *string `json:"error,omitempty"`
-	ProviderId string  `json:"provider_id"`
-	Region     string  `json:"region"`
+	Error *string `json:"error,omitempty"`
+
+	// Power Left out while the machine is on. stopped: off, with its disk kept; stopping and starting: asked for, and asked again until it has happened.
+	Power      *NodeMachinePower `json:"power,omitempty"`
+	ProviderId string            `json:"provider_id"`
+	Region     string            `json:"region"`
 
 	// ResourceId The provider's id for the machine, once the provider has answered.
 	ResourceId *string `json:"resource_id,omitempty"`
@@ -906,6 +930,9 @@ type NodeMachine struct {
 	// State provisioning until the node says hello; provision_failed when the provider refused or the node never did; deleting and delete_failed while the machine is destroyed, which is tried again until it is.
 	State NodeMachineState `json:"state"`
 }
+
+// NodeMachinePower Left out while the machine is on. stopped: off, with its disk kept; stopping and starting: asked for, and asked again until it has happened.
+type NodeMachinePower string
 
 // NodeMachineState provisioning until the node says hello; provision_failed when the provider refused or the node never did; deleting and delete_failed while the machine is destroyed, which is tried again until it is.
 type NodeMachineState string
@@ -1600,6 +1627,16 @@ type ClientInterface interface {
 	// Corresponds with POST /nodes/{node_id}/resume (the `ResumeNode` operationId).
 	ResumeNode(ctx context.Context, nodeId NodeID, reqEditors ...RequestEditorFn) (*http.Response, error)
 
+	// StartNodeMachine Turn a stopped machine on (owner only); it takes work again once its node connects
+	//
+	// Corresponds with POST /nodes/{node_id}/start (the `StartNodeMachine` operationId).
+	StartNodeMachine(ctx context.Context, nodeId NodeID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// StopNodeMachine Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work; refused with 409 while it runs a Dispatch
+	//
+	// Corresponds with POST /nodes/{node_id}/stop (the `StopNodeMachine` operationId).
+	StopNodeMachine(ctx context.Context, nodeId NodeID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
 	// ListProfiles Every profile, at its current version
 	//
 	// Corresponds with GET /profiles (the `ListProfiles` operationId).
@@ -2227,6 +2264,36 @@ func (c *Client) DrainNode(ctx context.Context, nodeId NodeID, reqEditors ...Req
 // Corresponds with POST /nodes/{node_id}/resume (the `ResumeNode` operationId).
 func (c *Client) ResumeNode(ctx context.Context, nodeId NodeID, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewResumeNodeRequest(c.Server, nodeId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// StartNodeMachine Turn a stopped machine on (owner only); it takes work again once its node connects
+//
+// Corresponds with POST /nodes/{node_id}/start (the `StartNodeMachine` operationId).
+func (c *Client) StartNodeMachine(ctx context.Context, nodeId NodeID, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewStartNodeMachineRequest(c.Server, nodeId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// StopNodeMachine Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work; refused with 409 while it runs a Dispatch
+//
+// Corresponds with POST /nodes/{node_id}/stop (the `StopNodeMachine` operationId).
+func (c *Client) StopNodeMachine(ctx context.Context, nodeId NodeID, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewStopNodeMachineRequest(c.Server, nodeId)
 	if err != nil {
 		return nil, err
 	}
@@ -3826,6 +3893,74 @@ func NewResumeNodeRequest(server string, nodeId NodeID) (*http.Request, error) {
 	return req, nil
 }
 
+// NewStartNodeMachineRequest constructs an http.Request for the StartNodeMachine method
+func NewStartNodeMachineRequest(server string, nodeId NodeID) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "node_id", nodeId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/nodes/%s/start", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewStopNodeMachineRequest constructs an http.Request for the StopNodeMachine method
+func NewStopNodeMachineRequest(server string, nodeId NodeID) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "node_id", nodeId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/nodes/%s/stop", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewListProfilesRequest constructs an http.Request for the ListProfiles method
 func NewListProfilesRequest(server string) (*http.Request, error) {
 	var err error
@@ -5076,6 +5211,20 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with POST /nodes/{node_id}/resume (the `ResumeNode` operationId).
 	ResumeNodeWithResponse(ctx context.Context, nodeId NodeID, reqEditors ...RequestEditorFn) (*ResumeNodeResponse, error)
+
+	// StartNodeMachineWithResponse Turn a stopped machine on (owner only); it takes work again once its node connects
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /nodes/{node_id}/start (the `StartNodeMachine` operationId).
+	StartNodeMachineWithResponse(ctx context.Context, nodeId NodeID, reqEditors ...RequestEditorFn) (*StartNodeMachineResponse, error)
+
+	// StopNodeMachineWithResponse Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work; refused with 409 while it runs a Dispatch
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /nodes/{node_id}/stop (the `StopNodeMachine` operationId).
+	StopNodeMachineWithResponse(ctx context.Context, nodeId NodeID, reqEditors ...RequestEditorFn) (*StopNodeMachineResponse, error)
 
 	// ListProfilesWithResponse Every profile, at its current version
 	//
@@ -6394,6 +6543,102 @@ func (r ResumeNodeResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r ResumeNodeResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type StartNodeMachineResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Node
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r StartNodeMachineResponse) GetJSON200() *Node {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r StartNodeMachineResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r StartNodeMachineResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r StartNodeMachineResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r StartNodeMachineResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r StartNodeMachineResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type StopNodeMachineResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Node
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r StopNodeMachineResponse) GetJSON200() *Node {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r StopNodeMachineResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r StopNodeMachineResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r StopNodeMachineResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r StopNodeMachineResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r StopNodeMachineResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -7891,6 +8136,32 @@ func (c *ClientWithResponses) ResumeNodeWithResponse(ctx context.Context, nodeId
 	return ParseResumeNodeResponse(rsp)
 }
 
+// StartNodeMachineWithResponse Turn a stopped machine on (owner only); it takes work again once its node connects
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /nodes/{node_id}/start (the `StartNodeMachine` operationId).
+func (c *ClientWithResponses) StartNodeMachineWithResponse(ctx context.Context, nodeId NodeID, reqEditors ...RequestEditorFn) (*StartNodeMachineResponse, error) {
+	rsp, err := c.StartNodeMachine(ctx, nodeId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseStartNodeMachineResponse(rsp)
+}
+
+// StopNodeMachineWithResponse Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work; refused with 409 while it runs a Dispatch
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /nodes/{node_id}/stop (the `StopNodeMachine` operationId).
+func (c *ClientWithResponses) StopNodeMachineWithResponse(ctx context.Context, nodeId NodeID, reqEditors ...RequestEditorFn) (*StopNodeMachineResponse, error) {
+	rsp, err := c.StopNodeMachine(ctx, nodeId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseStopNodeMachineResponse(rsp)
+}
+
 // ListProfilesWithResponse Every profile, at its current version
 //
 // Returns a wrapper object for the known response body format(s).
@@ -9036,6 +9307,72 @@ func ParseResumeNodeResponse(rsp *http.Response) (*ResumeNodeResponse, error) {
 	return response, nil
 }
 
+// ParseStartNodeMachineResponse parses an HTTP response from a StartNodeMachineWithResponse call
+func ParseStartNodeMachineResponse(rsp *http.Response) (*StartNodeMachineResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &StartNodeMachineResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Node
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseStopNodeMachineResponse parses an HTTP response from a StopNodeMachineWithResponse call
+func ParseStopNodeMachineResponse(rsp *http.Response) (*StopNodeMachineResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &StopNodeMachineResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Node
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseListProfilesResponse parses an HTTP response from a ListProfilesWithResponse call
 func ParseListProfilesResponse(rsp *http.Response) (*ListProfilesResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -9872,6 +10209,12 @@ type ServerInterface interface {
 	// ResumeNode Let a node take new work again (owner only)
 	// (POST /nodes/{node_id}/resume)
 	ResumeNode(w http.ResponseWriter, r *http.Request, nodeId NodeID)
+	// StartNodeMachine Turn a stopped machine on (owner only); it takes work again once its node connects
+	// (POST /nodes/{node_id}/start)
+	StartNodeMachine(w http.ResponseWriter, r *http.Request, nodeId NodeID)
+	// StopNodeMachine Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work; refused with 409 while it runs a Dispatch
+	// (POST /nodes/{node_id}/stop)
+	StopNodeMachine(w http.ResponseWriter, r *http.Request, nodeId NodeID)
 	// ListProfiles Every profile, at its current version
 	// (GET /profiles)
 	ListProfiles(w http.ResponseWriter, r *http.Request)
@@ -10734,6 +11077,58 @@ func (siw *ServerInterfaceWrapper) ResumeNode(w http.ResponseWriter, r *http.Req
 	handler.ServeHTTP(w, r)
 }
 
+// StartNodeMachine operation middleware
+func (siw *ServerInterfaceWrapper) StartNodeMachine(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "node_id" -------------
+	var nodeId NodeID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "node_id", r.PathValue("node_id"), &nodeId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "node_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.StartNodeMachine(w, r, nodeId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// StopNodeMachine operation middleware
+func (siw *ServerInterfaceWrapper) StopNodeMachine(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "node_id" -------------
+	var nodeId NodeID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "node_id", r.PathValue("node_id"), &nodeId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "node_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.StopNodeMachine(w, r, nodeId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListProfiles operation middleware
 func (siw *ServerInterfaceWrapper) ListProfiles(w http.ResponseWriter, r *http.Request) {
 
@@ -11577,6 +11972,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/machine-providers", wrapper.ListMachineProviders)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/nodes/{node_id}", wrapper.RemoveNode)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/nodes/{node_id}/drain", wrapper.DrainNode)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/nodes/{node_id}/stop", wrapper.StopNodeMachine)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/nodes/{node_id}/start", wrapper.StartNodeMachine)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/nodes/{node_id}/resume", wrapper.ResumeNode)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/hosts", wrapper.ListGitHosts)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/hosts/{host}", wrapper.DeleteGitHost)
@@ -12583,6 +12980,84 @@ func (response ResumeNodedefaultJSONResponse) VisitResumeNodeResponse(w http.Res
 	return err
 }
 
+type StartNodeMachineRequestObject struct {
+	NodeId NodeID `json:"node_id"`
+}
+
+type StartNodeMachineResponseObject interface {
+	VisitStartNodeMachineResponse(w http.ResponseWriter) error
+}
+
+type StartNodeMachine200JSONResponse Node
+
+func (response StartNodeMachine200JSONResponse) VisitStartNodeMachineResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StartNodeMachinedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response StartNodeMachinedefaultJSONResponse) VisitStartNodeMachineResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StopNodeMachineRequestObject struct {
+	NodeId NodeID `json:"node_id"`
+}
+
+type StopNodeMachineResponseObject interface {
+	VisitStopNodeMachineResponse(w http.ResponseWriter) error
+}
+
+type StopNodeMachine200JSONResponse Node
+
+func (response StopNodeMachine200JSONResponse) VisitStopNodeMachineResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type StopNodeMachinedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response StopNodeMachinedefaultJSONResponse) VisitStopNodeMachineResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListProfilesRequestObject struct {
 }
 
@@ -13566,6 +14041,12 @@ type StrictServerInterface interface {
 	// ResumeNode Let a node take new work again (owner only)
 	// (POST /nodes/{node_id}/resume)
 	ResumeNode(ctx context.Context, request ResumeNodeRequestObject) (ResumeNodeResponseObject, error)
+	// StartNodeMachine Turn a stopped machine on (owner only); it takes work again once its node connects
+	// (POST /nodes/{node_id}/start)
+	StartNodeMachine(ctx context.Context, request StartNodeMachineRequestObject) (StartNodeMachineResponseObject, error)
+	// StopNodeMachine Turn a provider's machine off, keeping its disk (owner only). Its node takes no more work; refused with 409 while it runs a Dispatch
+	// (POST /nodes/{node_id}/stop)
+	StopNodeMachine(ctx context.Context, request StopNodeMachineRequestObject) (StopNodeMachineResponseObject, error)
 	// ListProfiles Every profile, at its current version
 	// (GET /profiles)
 	ListProfiles(ctx context.Context, request ListProfilesRequestObject) (ListProfilesResponseObject, error)
@@ -14322,6 +14803,58 @@ func (sh *strictHandler) ResumeNode(w http.ResponseWriter, r *http.Request, node
 	}
 }
 
+// StartNodeMachine operation middleware
+func (sh *strictHandler) StartNodeMachine(w http.ResponseWriter, r *http.Request, nodeId NodeID) {
+	var request StartNodeMachineRequestObject
+
+	request.NodeId = nodeId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.StartNodeMachine(ctx, request.(StartNodeMachineRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "StartNodeMachine")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(StartNodeMachineResponseObject); ok {
+		if err := validResponse.VisitStartNodeMachineResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// StopNodeMachine operation middleware
+func (sh *strictHandler) StopNodeMachine(w http.ResponseWriter, r *http.Request, nodeId NodeID) {
+	var request StopNodeMachineRequestObject
+
+	request.NodeId = nodeId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.StopNodeMachine(ctx, request.(StopNodeMachineRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "StopNodeMachine")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(StopNodeMachineResponseObject); ok {
+		if err := validResponse.VisitStopNodeMachineResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ListProfiles operation middleware
 func (sh *strictHandler) ListProfiles(w http.ResponseWriter, r *http.Request) {
 	var request ListProfilesRequestObject
@@ -14962,146 +15495,149 @@ func (sh *strictHandler) ReopenTask(w http.ResponseWriter, r *http.Request, task
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

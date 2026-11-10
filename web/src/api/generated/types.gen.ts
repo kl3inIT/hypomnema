@@ -335,6 +335,10 @@ export type NodeMachine = {
    */
   state: 'provisioning' | 'ready' | 'provision_failed' | 'deleting' | 'delete_failed';
   /**
+   * Left out while the machine is on. stopped: off, with its disk kept; stopping and starting: asked for, and asked again until it has happened.
+   */
+  power?: 'stopping' | 'stopped' | 'starting';
+  /**
    * Why the last step failed.
    */
   error?: string;
@@ -1363,6 +1367,60 @@ export type DrainNodeResponses = {
 };
 
 export type DrainNodeResponse = DrainNodeResponses[keyof DrainNodeResponses];
+
+export type StopNodeMachineData = {
+  body?: never;
+  path: {
+    node_id: string;
+  };
+  query?: never;
+  url: '/nodes/{node_id}/stop';
+};
+
+export type StopNodeMachineErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type StopNodeMachineError = StopNodeMachineErrors[keyof StopNodeMachineErrors];
+
+export type StopNodeMachineResponses = {
+  /**
+   * The node, its machine stopping or stopped.
+   */
+  200: Node;
+};
+
+export type StopNodeMachineResponse = StopNodeMachineResponses[keyof StopNodeMachineResponses];
+
+export type StartNodeMachineData = {
+  body?: never;
+  path: {
+    node_id: string;
+  };
+  query?: never;
+  url: '/nodes/{node_id}/start';
+};
+
+export type StartNodeMachineErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type StartNodeMachineError = StartNodeMachineErrors[keyof StartNodeMachineErrors];
+
+export type StartNodeMachineResponses = {
+  /**
+   * The node, its machine starting.
+   */
+  200: Node;
+};
+
+export type StartNodeMachineResponse = StartNodeMachineResponses[keyof StartNodeMachineResponses];
 
 export type ResumeNodeData = {
   body?: never;

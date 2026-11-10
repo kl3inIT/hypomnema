@@ -10,8 +10,8 @@ import { AddMachine } from "./add-machine"
 import { RemoveMachine } from "./machine-actions"
 import { IndicatorDot, MachineProblem, StateText } from "./machine-cells"
 import { columns } from "./machines-columns"
-import { machineNote, machineState, summary } from "./machines-state"
-import { useMachines } from "./use-machines"
+import { errorText, machineNote, machineState, summary } from "./machines-state"
+import { useMachinePower, useMachines } from "./use-machines"
 
 type Layout = "grid" | "table"
 
@@ -173,7 +173,9 @@ function MachineCard({ node }: { node: Node }) {
 // what was asked for and when.
 function NotReady({ node, note }: { node: Node; note: string }) {
   const [removing, setRemoving] = useState(false)
-  const failed = machineState(node) === "create_failed"
+  const power = useMachinePower(node)
+  const state = machineState(node)
+  const failed = state === "create_failed"
 
   return (
     <div className="flex flex-col gap-2 px-5 pt-3.5 pb-4 text-sm">
@@ -181,8 +183,21 @@ function NotReady({ node, note }: { node: Node; note: string }) {
       <p className="text-muted-foreground">{note}</p>
       {node.machine && (
         <p className="text-xs text-muted-foreground">
-          {node.machine.size} in {node.machine.region} · asked for {since(node.created_at)}
+          {node.machine.size} in {node.machine.region}
+          {(state === "creating" || failed) && ` · asked for ${since(node.created_at)}`}
         </p>
+      )}
+      {state === "stopped" && (
+        <div className="flex items-center gap-2 pt-1">
+          <Button size="sm" disabled={power.isPending} onClick={() => power.mutate(true)}>
+            {power.isPending ? "Starting…" : "Start"}
+          </Button>
+          {power.error && (
+            <span role="alert" className="min-w-0 truncate text-xs text-destructive">
+              {errorText(power.error)}
+            </span>
+          )}
+        </div>
       )}
       {failed && (
         <div className="pt-1">

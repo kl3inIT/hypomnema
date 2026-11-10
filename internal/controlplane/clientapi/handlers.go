@@ -386,6 +386,49 @@ func (s *Server) createMachine(ctx context.Context, provider string, body *opena
 	return openapi.CreateNode201JSONResponse{Node: toNode(n)}, nil
 }
 
+// StopNodeMachine turns a provider's machine off.
+func (s *Server) StopNodeMachine(ctx context.Context, req openapi.StopNodeMachineRequestObject,
+) (openapi.StopNodeMachineResponseObject, error) {
+	n, err := s.power(ctx, req.NodeId, false)
+	if err != nil {
+		return nil, err
+	}
+
+	return openapi.StopNodeMachine200JSONResponse(toNode(n)), nil
+}
+
+// StartNodeMachine turns a stopped machine on.
+func (s *Server) StartNodeMachine(ctx context.Context, req openapi.StartNodeMachineRequestObject,
+) (openapi.StartNodeMachineResponseObject, error) {
+	n, err := s.power(ctx, req.NodeId, true)
+	if err != nil {
+		return nil, err
+	}
+
+	return openapi.StartNodeMachine200JSONResponse(toNode(n)), nil
+}
+
+// power stops or starts a machine. When the change was recorded and the
+// provider did not act yet, the node is answered as it is: between the two,
+// with the reason.
+func (s *Server) power(ctx context.Context, nodeID string, on bool) (orchestration.Node, error) {
+	if s.machines == nil {
+		return orchestration.Node{}, fmt.Errorf("%w: this control plane creates no machines", orchestration.ErrInvalid)
+	}
+
+	change := s.machines.Stop
+	if on {
+		change = s.machines.Start
+	}
+
+	n, err := change(ctx, nodeID)
+	if err != nil && n.Machine == nil {
+		return orchestration.Node{}, err
+	}
+
+	return n, nil
+}
+
 // ListMachineProviders returns the machine providers, which hold no secret,
 // each with how many machines it has.
 func (s *Server) ListMachineProviders(ctx context.Context, _ openapi.ListMachineProvidersRequestObject,

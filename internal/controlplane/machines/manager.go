@@ -40,6 +40,10 @@ type Registry interface {
 	BeginMachineRemoval(ctx context.Context, nodeID string) error
 	MachineRemoved(ctx context.Context, nodeID string) error
 	MachineRemovalFailed(ctx context.Context, nodeID, reason string, retryAt time.Time) error
+	BeginMachineStop(ctx context.Context, nodeID string) error
+	MachineStopped(ctx context.Context, nodeID string) error
+	BeginMachineStart(ctx context.Context, nodeID string) error
+	MachinePowerFailed(ctx context.Context, nodeID, reason string) error
 	ListUnsettledMachines(ctx context.Context) ([]orchestration.Node, error)
 	ListMachinesOfProvider(ctx context.Context, providerID string) ([]orchestration.Node, error)
 }
@@ -168,6 +172,83 @@ func (m *Manager) Remove(ctx context.Context, nodeID string) error {
 	return m.destroy(context.WithoutCancel(ctx), node)
 }
 
+// Stop turns a provider's machine off, keeping its disk: its node takes no
+// more work, then the provider is asked to stop the machine. It is refused
+// while the node runs Dispatches. When the provider does not stop it now, the
+// machine stays `stopping`, the loop asks again, and the error is returned.
+func (m *Manager) Stop(ctx context.Context, nodeID string) (orchestration.Node, error) {
+	if err := m.reg.BeginMachineStop(ctx, nodeID); err != nil {
+		return orchestration.Node{}, err
+	}
+
+	return m.afterPower(ctx, nodeID, m.stop)
+}
+
+// Start turns a stopped machine on. It takes work again once its node says
+// hello. When the provider does not start it now, the machine stays
+// `starting`, the loop asks again, and the error is returned.
+func (m *Manager) Start(ctx context.Context, nodeID string) (orchestration.Node, error) {
+	if err := m.reg.BeginMachineStart(ctx, nodeID); err != nil {
+		return orchestration.Node{}, err
+	}
+
+	return m.afterPower(ctx, nodeID, m.start)
+}
+
+// afterPower takes the first step of a stop or a start that was recorded,
+// which is not abandoned with the request, and returns the node as it is now.
+func (m *Manager) afterPower(
+	ctx context.Context, nodeID string, step func(context.Context, orchestration.Node) error,
+) (orchestration.Node, error) {
+	ctx = context.WithoutCancel(ctx)
+
+	node, err := m.reg.GetNode(ctx, nodeID)
+	if err != nil {
+		return orchestration.Node{}, err
+	}
+
+	stepErr := step(ctx, node)
+
+	node, err = m.reg.GetNode(ctx, nodeID)
+	if err != nil {
+		return orchestration.Node{}, errors.Join(stepErr, err)
+	}
+
+	return node, stepErr
+}
+
+func (m *Manager) stop(ctx context.Context, node orchestration.Node) error {
+	err := m.withProvider(ctx, node, func(ctx context.Context, p Provider) error {
+		return p.Stop(ctx, node.Machine.Region, node.ID)
+	})
+	if err == nil {
+		return m.reg.MachineStopped(ctx, node.ID)
+	}
+
+	return m.powerFailed(ctx, node, "stopped", err)
+}
+
+// start asks the provider to turn the machine on. It stays `starting` until
+// its node says hello, which the registry records.
+func (m *Manager) start(ctx context.Context, node orchestration.Node) error {
+	err := m.withProvider(ctx, node, func(ctx context.Context, p Provider) error {
+		return p.Start(ctx, node.Machine.Region, node.ID)
+	})
+	if err == nil {
+		return nil
+	}
+
+	return m.powerFailed(ctx, node, "started", err)
+}
+
+func (m *Manager) powerFailed(ctx context.Context, node orchestration.Node, what string, cause error) error {
+	if err := m.reg.MachinePowerFailed(ctx, node.ID, cause.Error()); err != nil {
+		return errors.Join(cause, err)
+	}
+
+	return fmt.Errorf("the machine of node %s is not %s yet and is asked again: %w", node.ID, what, cause)
+}
+
 // destroy asks the provider to destroy a node's machine and records the outcome.
 func (m *Manager) destroy(ctx context.Context, node orchestration.Node) error {
 	err := m.withProvider(ctx, node, func(ctx context.Context, p Provider) error {
@@ -232,6 +313,17 @@ func (m *Manager) Settle(ctx context.Context) error {
 
 func (m *Manager) settle(ctx context.Context, n orchestration.Node) error {
 	now := m.clock.Now()
+
+	// A stop or a start is asked for again until it has happened: both are safe to repeat.
+	switch n.Machine.Power {
+	case orchestration.MachineStopping:
+		return m.stop(ctx, n)
+	case orchestration.MachineStarting:
+		return m.start(ctx, n)
+	case orchestration.MachineStopped:
+		return nil
+	default:
+	}
 
 	switch n.Machine.State {
 	case orchestration.MachineProvisioning:

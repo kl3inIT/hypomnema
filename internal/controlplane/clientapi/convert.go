@@ -178,7 +178,8 @@ func toNodeMachine(m *orchestration.Machine) *openapi.NodeMachine {
 
 	return &openapi.NodeMachine{
 		ProviderId: m.ProviderID, ResourceId: ptr(m.ResourceID), Region: m.Region, Size: m.Size,
-		State: openapi.NodeMachineState(m.State), Error: ptr(m.Error),
+		State: openapi.NodeMachineState(m.State), Power: ptr(openapi.NodeMachinePower(m.Power)),
+		Error: ptr(m.Error),
 	}
 }
 

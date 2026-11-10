@@ -246,6 +246,7 @@ type Node struct {
 	MachineAttempts    int64
 	MachineRetryAt     sql.NullInt64
 	GitHosts           sql.NullString
+	MachinePower       sql.NullString
 }
 
 type NodeToken struct {

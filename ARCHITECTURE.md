@@ -8,7 +8,7 @@ statement true or false.
 
 | Binary | Commands | What it does today |
 |---|---|---|
-| `cmd/hypomnema` (control plane) | `migrate`, `serve`, `version`, `nodes add\|list\|drain\|resume\|rm`, `nodes token add\|list\|revoke`, `machines providers add\|list\|rm\|check`, `machines create`, `accounts add\|login\|list\|refresh\|rm`, `tokens add\|list\|revoke`, `secrets keygen\|add\|list\|rotate\|rm\|rewrap`, `gateway models\|keys`, `login`, `run`, `answer`, `questions` | `migrate` brings the database schema up to the binary's version; `serve` refuses any other schema, then serves `/livez`, `/readyz`, the node API, the client API, the model gateway and the web client, and runs the scheduler loop; the other commands are the owner's (below) |
+| `cmd/hypomnema` (control plane) | `migrate`, `serve`, `version`, `nodes add\|list\|drain\|resume\|rm`, `nodes token add\|list\|revoke`, `machines providers add\|list\|rm\|check`, `machines create\|stop\|start`, `accounts add\|login\|list\|refresh\|rm`, `tokens add\|list\|revoke`, `secrets keygen\|add\|list\|rotate\|rm\|rewrap`, `gateway models\|keys`, `login`, `run`, `answer`, `questions` | `migrate` brings the database schema up to the binary's version; `serve` refuses any other schema, then serves `/livez`, `/readyz`, the node API, the client API, the model gateway and the web client, and runs the scheduler loop; the other commands are the owner's (below) |
 | `cmd/hypomnema-node` (node) | `install`, `init`, `check`, `accounts set`, `run`, `service`, `shim`, `mcp`, `version` | `install --url` puts the node on the machine (below); `init --url --token-file` writes the node's configuration; `check` says hello once and lists the CLIs it found; `accounts set` records where an account's Claude token is; `run` runs the daemon with the Claude runner; `service` prints a systemd user unit; `shim` runs one worker and `mcp` serves its tools (both started for a worker, not by hand) |
 
 Configuration comes from the environment: `HYPOMNEMA_HTTP_ADDR` (default `127.0.0.1:8080`),
@@ -110,6 +110,12 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   - While the server runs, every 30 s a pass settles what is left between: a create that was cut short is looked
     up at the provider after 2 minutes and taken up or marked failed, a machine that never said hello is marked
     failed, and a due destroy is tried again. Nothing is created or destroyed without the owner asking.
+  - Stop and start (`machines stop|start <node>`, `POST /nodes/{node_id}/stop` and `/start`, owner only): a
+    machine that is ready and on is turned off at the provider and keeps its disk, as Coder's AWS template stops
+    an instance instead of destroying it. Its node is drained first, and a node that runs a Dispatch is refused.
+    The machine's power is `stopping`, then `stopped`; a start makes the node active again and the power
+    `starting` until the node says hello. A stop or a start the provider did not carry out is asked again every
+    pass, with the reason recorded. A stopped machine still counts toward its provider's limit and can be removed.
   - `machines providers check <name>` proves the key works and lists the provider's machines that no node stands
     for; it runs when asked, not on a timer, and destroys nothing.
   - Not built: other providers, and delivering the CLIs' logins to a new machine, which the owner still sets on
@@ -520,7 +526,9 @@ Node (`internal/node`):
   from 65 % and red from 90 % and are grey while it is not connected, its load average, its Dispatches against its
   limit, its runtimes, its daemon version and platform, and its source: "Your own", or the size and region of a
   machine created at a provider. Such a machine that is not ready says Creating, Not created, Removing or Not
-  removed instead, with the provider's reason for a failure. `GET /nodes` is read again every 5 s while the tab is
+  removed instead, with the provider's reason for a failure; one that is turned off says Stopping, Stopped or
+  Starting, and a stopped one says that its disk is still billed and is started from its card. A machine that is on
+  has "Stop machine" in its menu. `GET /nodes` is read again every 5 s while the tab is
   visible, since no event says a measurement changed. A machine's menu drains or resumes it and removes it after a
   confirmation; a refusal shows the server's message. Where the server has machine providers, "Add machine" first asks where: a machine of the owner's own, or a
   new one at a provider, shown with its size, region and how many machines it has of its limit; a new one takes

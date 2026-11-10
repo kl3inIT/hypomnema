@@ -1,7 +1,7 @@
 import { AlertDialog } from "@base-ui/react/alert-dialog"
 import { Menu } from "@base-ui/react/menu"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { CirclePause, CirclePlay, Ellipsis, Trash2 } from "lucide-react"
+import { CirclePause, CirclePlay, Ellipsis, Power, PowerOff, Trash2 } from "lucide-react"
 import { useState } from "react"
 
 import "@/api/client"
@@ -9,8 +9,8 @@ import { drainNode, removeNode, resumeNode } from "@/api/generated/sdk.gen"
 import type { Node } from "@/api/generated/types.gen"
 import { Button } from "@/components/ui/button"
 
-import { errorText } from "./machines-state"
-import { nodesKey } from "./use-machines"
+import { errorText, machineState } from "./machines-state"
+import { nodesKey, useMachinePower } from "./use-machines"
 
 const itemClass =
   "flex cursor-default items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm outline-none select-none data-highlighted:bg-accent data-highlighted:text-accent-foreground"
@@ -18,7 +18,8 @@ const itemClass =
 // MachineActions is a machine's menu, after Beszel's ActionsButton (MIT, Copyright (c) 2024 henrygd,
 // https://github.com/henrygd/beszel; internal/site/src/components/systems-table/systems-table-columns.tsx): Drain
 // or Resume where Beszel pauses, and Remove behind a confirmation. Changed: Base UI's Menu and AlertDialog; no
-// edit or copy items; a refused request shows the server's message.
+// edit or copy items; a refused request shows the server's message; a provider's machine that is on can be
+// stopped, and one that is stopped is started instead of drained or resumed.
 export function MachineActions({ node }: { node: Node }) {
   const queryClient = useQueryClient()
   const [removing, setRemoving] = useState(false)
@@ -31,12 +32,15 @@ export function MachineActions({ node }: { node: Node }) {
         : await drainNode({ path: { node_id: node.id } }),
     onSettled: () => queryClient.invalidateQueries({ queryKey: nodesKey }),
   })
+  const power = useMachinePower(node)
+  const state = machineState(node)
+  const refused = toggle.error ?? power.error
 
   return (
     <div className="flex items-center justify-end gap-2">
-      {toggle.error && (
+      {refused && (
         <span role="alert" className="max-w-56 truncate text-xs font-normal text-destructive">
-          {errorText(toggle.error)}
+          {errorText(refused)}
         </span>
       )}
       <Menu.Root>
@@ -48,19 +52,32 @@ export function MachineActions({ node }: { node: Node }) {
         <Menu.Portal>
           <Menu.Positioner align="end" sideOffset={4} className="z-50 outline-none">
             <Menu.Popup className="min-w-36 rounded-lg border bg-popover p-1 text-popover-foreground shadow-md outline-none">
-              <Menu.Item className={itemClass} onClick={() => toggle.mutate()}>
-                {drained ? (
-                  <>
-                    <CirclePlay className="size-4" />
-                    Resume
-                  </>
-                ) : (
-                  <>
-                    <CirclePause className="size-4" />
-                    Drain
-                  </>
-                )}
-              </Menu.Item>
+              {state === "stopped" ? (
+                <Menu.Item className={itemClass} onClick={() => power.mutate(true)}>
+                  <Power className="size-4" />
+                  Start machine
+                </Menu.Item>
+              ) : (
+                <Menu.Item className={itemClass} onClick={() => toggle.mutate()}>
+                  {drained ? (
+                    <>
+                      <CirclePlay className="size-4" />
+                      Resume
+                    </>
+                  ) : (
+                    <>
+                      <CirclePause className="size-4" />
+                      Drain
+                    </>
+                  )}
+                </Menu.Item>
+              )}
+              {node.machine?.state === "ready" && !node.machine.power && (
+                <Menu.Item className={itemClass} onClick={() => power.mutate(false)}>
+                  <PowerOff className="size-4" />
+                  Stop machine
+                </Menu.Item>
+              )}
               <Menu.Separator className="mx-1 my-1 h-px bg-border" />
               <Menu.Item className={itemClass} onClick={() => setRemoving(true)}>
                 <Trash2 className="size-4" />

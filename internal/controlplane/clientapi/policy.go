@@ -59,6 +59,8 @@ var policies = map[string]policy{
 	"ListNodes":            {},
 	"CreateNode":           {scope: scopeOwner},
 	"ListMachineProviders": {scope: scopeOwner},
+	"StopNodeMachine":      {scope: scopeOwner},
+	"StartNodeMachine":     {scope: scopeOwner},
 	"RemoveNode":           {scope: scopeOwner},
 	"DrainNode":            {scope: scopeOwner},
 	"ResumeNode":           {scope: scopeOwner},

@@ -34,6 +34,10 @@ type cloud struct {
 	createErr error
 	deleteErr error
 	deletes   int
+	// off holds the nodes whose machine is stopped.
+	off      map[string]bool
+	stopErr  error
+	startErr error
 }
 
 func (c *cloud) Validate(context.Context, string, string) error { return c.validate }
@@ -67,6 +71,26 @@ func (c *cloud) Delete(_ context.Context, _, nodeID string) error {
 	return nil
 }
 
+func (c *cloud) Stop(_ context.Context, _, nodeID string) error {
+	if c.stopErr != nil {
+		return c.stopErr
+	}
+
+	c.off[nodeID] = true
+
+	return nil
+}
+
+func (c *cloud) Start(_ context.Context, _, nodeID string) error {
+	if c.startErr != nil {
+		return c.startErr
+	}
+
+	delete(c.off, nodeID)
+
+	return nil
+}
+
 func (c *cloud) List(context.Context, string) ([]machines.Resource, error) {
 	out := make([]machines.Resource, 0, len(c.machines))
 	for _, r := range c.machines {
@@ -96,7 +120,7 @@ func newWorld(t *testing.T, url string) *world {
 	w := &world{
 		t:     t,
 		clock: &clock{now: time.Date(2026, 11, 10, 9, 0, 0, 0, time.UTC)},
-		cloud: &cloud{machines: map[string]machines.Resource{}},
+		cloud: &cloud{machines: map[string]machines.Resource{}, off: map[string]bool{}},
 	}
 	w.svc = orchestration.New(db, w.clock, platform.NewID)
 
@@ -374,4 +398,112 @@ func TestCheckNamesMachinesNoNodeStandsFor(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, orphans, 1)
 	assert.Equal(t, "i-orphan", orphans[0].ID)
+}
+
+// ready is a machine that was created and whose node has said hello.
+func (w *world) ready(name string) orchestration.Node {
+	w.t.Helper()
+
+	n := w.create(name)
+	require.NoError(w.t, w.svc.NodeHello(w.t.Context(), n.ID, orchestration.Hello{WorktreeRoot: "/home/hypomnema/wt"}))
+
+	return w.node(n.ID)
+}
+
+// Scenario: the owner stops a machine to stop paying for it and starts it
+// again later. Stopped, the machine is off at the provider and its node,
+// still listed, takes no work; started, the node takes work again and the
+// machine counts as on once its node says hello. A stopped machine can still
+// be removed.
+func TestStoppedMachineKeepsItsNodeAndStartsAgain(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t, publicURL)
+	n := w.ready("build-1")
+
+	stopped, err := w.mgr.Stop(t.Context(), n.ID)
+	require.NoError(t, err)
+	assert.Equal(t, orchestration.MachineStopped, stopped.Machine.Power)
+	assert.Equal(t, orchestration.NodeDrained, stopped.Status)
+	assert.True(t, w.cloud.off[n.ID])
+	assert.Equal(t, []string{"build-1"}, w.listed())
+
+	_, err = w.mgr.Stop(t.Context(), n.ID)
+	require.ErrorIs(t, err, orchestration.ErrConflict, "it is already stopped")
+
+	started, err := w.mgr.Start(t.Context(), n.ID)
+	require.NoError(t, err)
+	assert.Equal(t, orchestration.MachineStarting, started.Machine.Power)
+	assert.Equal(t, orchestration.NodeActive, started.Status)
+	assert.False(t, w.cloud.off[n.ID])
+
+	require.NoError(t, w.svc.NodeHello(t.Context(), n.ID, orchestration.Hello{}))
+	assert.Empty(t, w.node(n.ID).Machine.Power)
+
+	_, err = w.mgr.Stop(t.Context(), n.ID)
+	require.NoError(t, err)
+	require.NoError(t, w.mgr.Remove(t.Context(), n.ID))
+	assert.Empty(t, w.listed())
+	assert.Empty(t, w.cloud.machines)
+}
+
+// Scenario: only a provider's machine that is ready and on can be stopped,
+// and only a stopped one started: not the owner's own machine, and not one
+// that is still being created.
+func TestStopAndStartAreRefusedWhereTheyMeanNothing(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t, publicURL)
+	own, _, err := w.svc.AddNode(t.Context(), "zm", 0)
+	require.NoError(t, err)
+
+	fresh := w.create("build-1")
+
+	for _, id := range []string{own.ID, fresh.ID} {
+		_, err := w.mgr.Stop(t.Context(), id)
+		require.ErrorIs(t, err, orchestration.ErrConflict)
+
+		_, err = w.mgr.Start(t.Context(), id)
+		require.ErrorIs(t, err, orchestration.ErrConflict)
+	}
+
+	assert.Empty(t, w.cloud.off)
+	assert.Equal(t, orchestration.NodeActive, w.node(own.ID).Status)
+}
+
+// Scenario: the provider is down when the owner stops a machine. The node
+// already takes no work and says why the machine is not stopped; the
+// provider is asked again and the machine is stopped once it answers. The
+// same holds for a start.
+func TestStopAndStartAreAskedAgainUntilTheProviderActs(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t, publicURL)
+	n := w.ready("build-1")
+
+	w.cloud.stopErr = errors.New("RequestLimitExceeded")
+
+	got, err := w.mgr.Stop(t.Context(), n.ID)
+	require.ErrorContains(t, err, "RequestLimitExceeded")
+	assert.Equal(t, orchestration.MachineStopping, got.Machine.Power)
+	assert.Contains(t, got.Machine.Error, "RequestLimitExceeded")
+	assert.Equal(t, orchestration.NodeDrained, got.Status)
+
+	w.cloud.stopErr = nil
+	require.NoError(t, w.mgr.Settle(t.Context()))
+
+	got = w.node(n.ID)
+	assert.Equal(t, orchestration.MachineStopped, got.Machine.Power)
+	assert.Empty(t, got.Machine.Error)
+
+	w.cloud.startErr = errors.New("InsufficientInstanceCapacity")
+
+	got, err = w.mgr.Start(t.Context(), n.ID)
+	require.ErrorContains(t, err, "InsufficientInstanceCapacity")
+	assert.Equal(t, orchestration.MachineStarting, got.Machine.Power)
+	assert.True(t, w.cloud.off[n.ID])
+
+	w.cloud.startErr = nil
+	require.NoError(t, w.mgr.Settle(t.Context()))
+	assert.False(t, w.cloud.off[n.ID])
 }

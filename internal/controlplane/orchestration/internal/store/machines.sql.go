@@ -204,7 +204,7 @@ func (q *Queries) InsertMachineProvider(ctx context.Context, arg InsertMachinePr
 }
 
 const listLiveMachinesOfProvider = `-- name: ListLiveMachinesOfProvider :many
-SELECT id, name, status, max_dispatches, worktree_root, runtimes, daemon_version, os, arch, cpus, memory_bytes, disk_bytes, last_seen_at, unavailable_at, deleted_at, created_at, updated_at, cpu_percent, memory_used_bytes, disk_used_bytes, load1, stats_at, provider_id, provider_resource_id, region, size, machine_state, machine_error, machine_attempts, machine_retry_at, git_hosts FROM nodes WHERE provider_id = ?1 AND status <> 'deleted' ORDER BY created_at, id
+SELECT id, name, status, max_dispatches, worktree_root, runtimes, daemon_version, os, arch, cpus, memory_bytes, disk_bytes, last_seen_at, unavailable_at, deleted_at, created_at, updated_at, cpu_percent, memory_used_bytes, disk_used_bytes, load1, stats_at, provider_id, provider_resource_id, region, size, machine_state, machine_error, machine_attempts, machine_retry_at, git_hosts, machine_power FROM nodes WHERE provider_id = ?1 AND status <> 'deleted' ORDER BY created_at, id
 `
 
 func (q *Queries) ListLiveMachinesOfProvider(ctx context.Context, providerID sql.NullString) ([]Node, error) {
@@ -248,6 +248,7 @@ func (q *Queries) ListLiveMachinesOfProvider(ctx context.Context, providerID sql
 			&i.MachineAttempts,
 			&i.MachineRetryAt,
 			&i.GitHosts,
+			&i.MachinePower,
 		); err != nil {
 			return nil, err
 		}
@@ -328,12 +329,13 @@ func (q *Queries) ListMachineProviders(ctx context.Context) ([]MachineProvider, 
 }
 
 const listUnsettledMachines = `-- name: ListUnsettledMachines :many
-SELECT id, name, status, max_dispatches, worktree_root, runtimes, daemon_version, os, arch, cpus, memory_bytes, disk_bytes, last_seen_at, unavailable_at, deleted_at, created_at, updated_at, cpu_percent, memory_used_bytes, disk_used_bytes, load1, stats_at, provider_id, provider_resource_id, region, size, machine_state, machine_error, machine_attempts, machine_retry_at, git_hosts FROM nodes
-WHERE status <> 'deleted' AND machine_state IN ('provisioning', 'deleting', 'delete_failed')
+SELECT id, name, status, max_dispatches, worktree_root, runtimes, daemon_version, os, arch, cpus, memory_bytes, disk_bytes, last_seen_at, unavailable_at, deleted_at, created_at, updated_at, cpu_percent, memory_used_bytes, disk_used_bytes, load1, stats_at, provider_id, provider_resource_id, region, size, machine_state, machine_error, machine_attempts, machine_retry_at, git_hosts, machine_power FROM nodes
+WHERE status <> 'deleted'
+  AND (machine_state IN ('provisioning', 'deleting', 'delete_failed') OR machine_power IN ('stopping', 'starting'))
 ORDER BY created_at, id
 `
 
-// Machines the control plane still owes a step: waited for, or being destroyed.
+// Machines the control plane still owes a step: waited for, being destroyed, or between on and off.
 func (q *Queries) ListUnsettledMachines(ctx context.Context) ([]Node, error) {
 	rows, err := q.db.QueryContext(ctx, listUnsettledMachines)
 	if err != nil {
@@ -375,6 +377,7 @@ func (q *Queries) ListUnsettledMachines(ctx context.Context) ([]Node, error) {
 			&i.MachineAttempts,
 			&i.MachineRetryAt,
 			&i.GitHosts,
+			&i.MachinePower,
 		); err != nil {
 			return nil, err
 		}
@@ -387,6 +390,43 @@ func (q *Queries) ListUnsettledMachines(ctx context.Context) ([]Node, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const machineStopped = `-- name: MachineStopped :execrows
+UPDATE nodes SET updated_at = ?1, machine_power = 'stopped', machine_error = NULL
+WHERE id = ?2 AND machine_power = 'stopping'
+`
+
+type MachineStoppedParams struct {
+	Now int64
+	ID  string
+}
+
+func (q *Queries) MachineStopped(ctx context.Context, arg MachineStoppedParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, machineStopped, arg.Now, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const setMachinePowerError = `-- name: SetMachinePowerError :execrows
+UPDATE nodes SET updated_at = ?1, machine_error = ?2
+WHERE id = ?3 AND machine_power IN ('stopping', 'starting')
+`
+
+type SetMachinePowerErrorParams struct {
+	Now   int64
+	Error sql.NullString
+	ID    string
+}
+
+func (q *Queries) SetMachinePowerError(ctx context.Context, arg SetMachinePowerErrorParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setMachinePowerError, arg.Now, arg.Error, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const setMachineResource = `-- name: SetMachineResource :execrows
@@ -408,6 +448,25 @@ func (q *Queries) SetMachineResource(ctx context.Context, arg SetMachineResource
 	return result.RowsAffected()
 }
 
+const startMachine = `-- name: StartMachine :execrows
+UPDATE nodes SET updated_at = ?1, status = 'active', machine_power = 'starting', machine_error = NULL
+WHERE id = ?2 AND status <> 'deleted' AND machine_state = 'ready' AND machine_power = 'stopped'
+`
+
+type StartMachineParams struct {
+	Now int64
+	ID  string
+}
+
+// A stopped machine is to be started and takes work again once its node says hello.
+func (q *Queries) StartMachine(ctx context.Context, arg StartMachineParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, startMachine, arg.Now, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const startMachineDeletion = `-- name: StartMachineDeletion :execrows
 UPDATE nodes
 SET updated_at = ?1, status = 'drained', machine_state = 'deleting', machine_error = NULL, machine_attempts = 0,
@@ -423,6 +482,25 @@ type StartMachineDeletionParams struct {
 
 func (q *Queries) StartMachineDeletion(ctx context.Context, arg StartMachineDeletionParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, startMachineDeletion, arg.Now, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const stopMachine = `-- name: StopMachine :execrows
+UPDATE nodes SET updated_at = ?1, status = 'drained', machine_power = 'stopping', machine_error = NULL
+WHERE id = ?2 AND status <> 'deleted' AND machine_state = 'ready' AND machine_power IS NULL
+`
+
+type StopMachineParams struct {
+	Now int64
+	ID  string
+}
+
+// A ready machine that is on takes no more work and is to be stopped.
+func (q *Queries) StopMachine(ctx context.Context, arg StopMachineParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, stopMachine, arg.Now, arg.ID)
 	if err != nil {
 		return 0, err
 	}
