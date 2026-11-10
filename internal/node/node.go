@@ -202,6 +202,7 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 		URL: cfg.URL, Token: cfg.Token, WorktreeRoot: cfg.WorktreeRoot, Version: platform.Version, Runtimes: runtimes,
 		System: DetectSystem(ctx, cfg.WorktreeRoot),
 		Stats:  func(ctx context.Context) *nodeproto.SystemStats { return MeasureSystem(ctx, cfg.WorktreeRoot) },
+		Reach:  ReachHost,
 	}, db, runner, logger)
 
 	// Workers' transcripts go to the control plane beside their reports (issue #43).

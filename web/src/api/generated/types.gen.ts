@@ -304,6 +304,10 @@ export type Node = {
   runtimes: Array<Runtime>;
   system?: NodeSystem;
   stats?: NodeStats;
+  /**
+   * The git hosts the node reached when it last tried. Absent for a node that has not said, which is taken to reach every host. A Task on a host goes only to a node that reaches it.
+   */
+  git_hosts?: Array<string>;
   machine?: NodeMachine;
   last_seen_at?: string;
   unavailable_at?: string;

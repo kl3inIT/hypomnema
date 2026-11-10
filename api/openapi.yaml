@@ -1164,6 +1164,12 @@ components:
           items: { $ref: "#/components/schemas/Runtime" }
         system: { $ref: "#/components/schemas/NodeSystem" }
         stats: { $ref: "#/components/schemas/NodeStats" }
+        git_hosts:
+          type: array
+          items: { type: string }
+          description: >-
+            The git hosts the node reached when it last tried. Absent for a node that has not said, which is taken
+            to reach every host. A Task on a host goes only to a node that reaches it.
         machine: { $ref: "#/components/schemas/NodeMachine" }
         last_seen_at: { type: string, format: date-time }
         unavailable_at: { type: string, format: date-time }

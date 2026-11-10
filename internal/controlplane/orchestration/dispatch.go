@@ -133,6 +133,16 @@ func (s *Service) conversationFor(ctx context.Context, q *store.Queries, now int
 
 	hasLatest := latest.ID != ""
 
+	task, err := q.GetTask(ctx, taskID)
+	if err != nil {
+		return "", "", false, notFound(err, "task", taskID)
+	}
+
+	host, err := runHost(ctx, q, task.RunID)
+	if err != nil {
+		return "", "", false, err
+	}
+
 	if spec.Continue {
 		if !open {
 			return "", "", false, fmt.Errorf("%w: task %s has no open conversation to continue", ErrConflict, taskID)
@@ -142,7 +152,7 @@ func (s *Service) conversationFor(ctx context.Context, q *store.Queries, now int
 			return "", "", false, fmt.Errorf("%w: conversation %s is on node %s", ErrInvalid, latest.ID, latest.NodeID)
 		}
 
-		if err := p.checkNode(latest.NodeID, latest.Runtime); err != nil {
+		if err := p.checkNode(latest.NodeID, latest.Runtime, host); err != nil {
 			return "", "", false, err
 		}
 
@@ -157,7 +167,7 @@ func (s *Service) conversationFor(ctx context.Context, q *store.Queries, now int
 		return "", "", false, fmt.Errorf("%w: a new conversation needs a node, worktree, runtime and account", ErrInvalid)
 	}
 
-	if err := p.checkNode(spec.NodeID, spec.Runtime); err != nil {
+	if err := p.checkNode(spec.NodeID, spec.Runtime, host); err != nil {
 		return "", "", false, err
 	}
 

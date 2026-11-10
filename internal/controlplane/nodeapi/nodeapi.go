@@ -128,6 +128,7 @@ func (s *Server) hello(w http.ResponseWriter, r *http.Request) {
 	resp := nodeproto.HelloResponse{
 		NodeID: n.ID, Dispositions: make([]nodeproto.Disposition, 0, len(dispositions)),
 		HeartbeatAfterMs: nodeproto.HeartbeatEvery.Milliseconds(),
+		GitHosts:         s.gitHosts(r.Context()),
 	}
 	for _, d := range dispositions {
 		resp.Dispositions = append(resp.Dispositions, nodeproto.Disposition{DispatchID: d.DispatchID, Kind: string(d.Kind)})
@@ -395,7 +396,26 @@ func (c *session) push(ctx context.Context) error {
 	return nil
 }
 
-// stats records the measurement a heartbeat carries. One that cannot be read
+// gitHosts are the hosts a node is asked to try. A list that cannot be read is
+// left out: the node keeps the one it has.
+func (s *Server) gitHosts(ctx context.Context) []string {
+	hosts, err := s.svc.ListGitHosts(ctx)
+	if err != nil {
+		s.logger.WarnContext(ctx, "listing git hosts for a node", slog.String("event", "nodeapi.git_hosts_failed"),
+			slog.String("error", err.Error()))
+
+		return nil
+	}
+
+	out := make([]string, 0, len(hosts))
+	for _, h := range hosts {
+		out = append(out, h.Host)
+	}
+
+	return out
+}
+
+// stats records the measurement and the reached git hosts a heartbeat carries. One that cannot be read
 // or stored is logged and dropped: the heartbeat itself still counts.
 func (c *session) stats(ctx context.Context, payload json.RawMessage) {
 	if len(payload) == 0 {
@@ -405,6 +425,10 @@ func (c *session) stats(ctx context.Context, payload json.RawMessage) {
 	var hb nodeproto.Heartbeat
 
 	err := json.Unmarshal(payload, &hb)
+	if err == nil && hb.Reaches != nil {
+		err = c.srv.svc.NodeReaches(ctx, c.nodeID, *hb.Reaches)
+	}
+
 	if err == nil && hb.Stats != nil {
 		err = c.srv.svc.NodeStats(ctx, c.nodeID, orchestration.SystemStats{
 			CPUPercent: hb.Stats.CPUPercent, MemoryUsedBytes: hb.Stats.MemoryUsedBytes,
@@ -431,8 +455,9 @@ func (c *session) handle(ctx context.Context, msg nodeproto.Message) error {
 
 		c.stats(ctx, msg.Payload)
 
-		return c.send(ctx, nodeproto.TypeHeartbeatAck,
-			nodeproto.HeartbeatAck{HeartbeatAfterMs: nodeproto.HeartbeatEvery.Milliseconds()})
+		return c.send(ctx, nodeproto.TypeHeartbeatAck, nodeproto.HeartbeatAck{
+			HeartbeatAfterMs: nodeproto.HeartbeatEvery.Milliseconds(), GitHosts: c.srv.gitHosts(ctx),
+		})
 	case nodeproto.TypeReport:
 		var r nodeproto.Report
 		if err := json.Unmarshal(msg.Payload, &r); err != nil || r.ReportID == "" {

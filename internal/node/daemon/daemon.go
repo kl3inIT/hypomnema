@@ -91,6 +91,8 @@ type Config struct {
 	System       nodeproto.SystemInfo
 	// Stats measures the machine for a heartbeat; nil, or a nil result: the heartbeat carries none.
 	Stats func(ctx context.Context) *nodeproto.SystemStats
+	// Reach reports whether this machine reaches a git host; nil: the node says nothing about hosts.
+	Reach func(ctx context.Context, host string) bool
 }
 
 // Daemon is one node's connection.
@@ -108,12 +110,20 @@ type Daemon struct {
 	out       chan nodeproto.Message // the current session's send queue; nil while disconnected
 	ephemeral map[string]nodeproto.Report
 	known     map[string]bool // Dispatches the Runner has this process
+	// hosts knows which git hosts this machine reaches; nil when the node does not try.
+	hosts *hostWatch
 }
 
 // New returns a Daemon.
 func New(cfg Config, db *statedb.DB, runner Runner, logger *slog.Logger) *Daemon {
+	var hosts *hostWatch
+	if cfg.Reach != nil {
+		hosts = newHostWatch(cfg.Reach)
+	}
+
 	return &Daemon{
-		cfg: cfg, db: db, runner: runner, logger: logger, http: &http.Client{Timeout: 30 * time.Second},
+		hosts: hosts,
+		cfg:   cfg, db: db, runner: runner, logger: logger, http: &http.Client{Timeout: 30 * time.Second},
 		newID: platform.NewID, instance: platform.NewID("ins"),
 		ephemeral: map[string]nodeproto.Report{}, known: map[string]bool{},
 	}
@@ -122,6 +132,10 @@ func New(cfg Config, db *statedb.DB, runner Runner, logger *slog.Logger) *Daemon
 // Run keeps the node connected until ctx ends or the token is refused.
 func (d *Daemon) Run(ctx context.Context) error {
 	wait := backoffMin
+
+	if d.hosts != nil {
+		go d.hosts.run(ctx)
+	}
 
 	for {
 		healthy, err := d.connectOnce(ctx)
@@ -177,6 +191,8 @@ func (d *Daemon) connectOnce(ctx context.Context) (bool, error) {
 	if err := d.dispose(ctx, held, resp.Dispositions); err != nil {
 		return false, err
 	}
+
+	d.hosts.ask(resp.GitHosts)
 
 	return d.session(ctx, time.Duration(resp.HeartbeatAfterMs)*time.Millisecond)
 }
@@ -387,8 +403,12 @@ func (d *Daemon) loop(ctx context.Context, in <-chan nodeproto.Message, errs <-c
 				healthy = true
 
 				var ack nodeproto.HeartbeatAck
-				if json.Unmarshal(msg.Payload, &ack) == nil && ack.HeartbeatAfterMs > 0 {
-					heartbeat = time.Duration(ack.HeartbeatAfterMs) * time.Millisecond
+				if json.Unmarshal(msg.Payload, &ack) == nil {
+					if ack.HeartbeatAfterMs > 0 {
+						heartbeat = time.Duration(ack.HeartbeatAfterMs) * time.Millisecond
+					}
+
+					d.hosts.ask(ack.GitHosts)
 				}
 
 				continue
@@ -442,11 +462,14 @@ func (d *Daemon) setOut(out chan nodeproto.Message) {
 // replayed).
 // heartbeat is the heartbeat message, with the machine's measurement when there is one.
 func (d *Daemon) heartbeat(ctx context.Context) nodeproto.Message {
+	hb := nodeproto.Heartbeat{Reaches: d.hosts.said()}
 	if d.cfg.Stats != nil {
-		if stats := d.cfg.Stats(ctx); stats != nil {
-			if msg, err := nodeproto.Encode(nodeproto.TypeHeartbeat, nodeproto.Heartbeat{Stats: stats}); err == nil {
-				return msg
-			}
+		hb.Stats = d.cfg.Stats(ctx)
+	}
+
+	if hb.Stats != nil || hb.Reaches != nil {
+		if msg, err := nodeproto.Encode(nodeproto.TypeHeartbeat, hb); err == nil {
+			return msg
 		}
 	}
 
