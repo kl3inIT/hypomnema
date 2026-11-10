@@ -130,12 +130,15 @@ Client API (`internal/controlplane/clientapi`, contract `api/openapi.yaml`, afte
 - Every request carries a client token (`Authorization: Bearer`); without a valid one the answer is 401.
 - Each operation has a policy. Every token reads everything and may create a Run; a Run created with a coordinator
   token is coordinated by it. Changing a Run, its Tasks or its questions needs the owner, or the Run's coordinator
-  (403 otherwise). An answer is recorded as the owner's or the coordinator's by the token's kind.
+  (403 otherwise), and so does reading a worker's transcript. An answer is recorded as the owner's or the
+  coordinator's by the token's kind.
 - Operations: who am I; list, create, show (with each Task's latest Dispatch), finish and cancel Runs; create Tasks
   with dependencies; show, cancel and reopen a Task; list the Tasks a board shows (`GET /tasks`: every Task of an
   open Run and other Runs' Tasks changed in the last 24 h, with their latest Dispatch, their Runs, and the newest
-  event's seq to follow the stream from); list, show, answer and forward questions; list events; list nodes and
-  accounts. Creating a Run or Tasks takes an `Idempotency-Key`.
+  event's seq to follow the stream from); read a worker's transcript (`GET /dispatches/{id}/items`: the items after a
+  seq, or the newest ones before a seq, 100 a page; it can wait up to 50 s for the next item); list, show, answer
+  and forward questions; list events; list nodes and accounts. Creating a Run or Tasks takes an `Idempotency-Key`.
+  A Dispatch carries `activity`, one line about the newest thing its worker said or did.
 - Events: a page after a cursor, which can wait up to 50 s for the next event (`wait`) instead of polling; and a
   stream of Server-Sent Events at `/api/v1/events/stream`, each with its seq as id, resumed with `Last-Event-ID`,
   with a comment every 10 s. Waits and streams end when the server shuts down.
@@ -198,9 +201,24 @@ Node (`internal/node`):
     - the session id from `system/init`, as started;
     - progress at most every 30 s;
     - one turn per Dispatch: stdin is closed after the turn's `result`.
+  - The worker's transcript goes to the control plane apart from its reports
+    ([research](docs/research/2026-11-10-worker-sessions.md)):
+    - Each journal line becomes items of one shape for every runtime: `message`, `reasoning`, `tool_call`,
+      `tool_result`, `notice`. The first instruction and the final result are not items. An item is cut to 64 KiB
+      and says how much was left out.
+    - A second cursor beside the journal (`sent`: offset and last seq) says how far the control plane has it. Each
+      second the runner sends the items of the next whole lines, at most 32 items or 256 KiB, numbered from 1, and
+      one batch of a Dispatch at a time. The cursor moves on the acknowledgement, which brings the next batch at
+      once; a batch not acknowledged in 15 s is sent again with the same numbers.
+    - The control plane stores items by `(dispatch, seq)`, ignores a seq it holds, takes them in any status of the
+      Dispatch, and refuses for good a Dispatch that is not on that node. Items are dropped 30 days after the
+      Dispatch settled.
+    - A transcript the control plane has whole after the worker exited is marked `sent.done`. A new daemon sends the
+      journals under `run/` that are not marked, those from before this existed too.
   - The worker's tools (`internal/node/workertools`, `hypomnema-node mcp`) come in through `--mcp-config` with
-    `--strict-mcp-config`; AskUserQuestion is disallowed. They reach the runner only through a bridge directory beside
-    the journal (`internal/node/bridge`), so a question survives a daemon restart.
+    `--strict-mcp-config`; AskUserQuestion and the subagent tool (`Task`, `Agent`) are disallowed. They reach the
+    runner only through a bridge directory beside the journal (`internal/node/bridge`), so a question survives a
+    daemon restart.
     - `ask`: the runner submits the question, records the control plane's id, writes the answer for the waiting
       call, and acknowledges it. While it waits, the call sends `notifications/progress` every minute; tool calls may
       last 24 h (`MCP_TOOL_TIMEOUT`). A canceled call withdraws the question.

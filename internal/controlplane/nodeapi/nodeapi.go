@@ -388,8 +388,16 @@ func (c *session) handle(ctx context.Context, msg nodeproto.Message) error {
 		}
 
 		return c.send(ctx, nodeproto.TypeReportAck, c.srv.apply(ctx, c.nodeID, r))
+	case nodeproto.TypeItems:
+		var b nodeproto.Items
+		if err := json.Unmarshal(msg.Payload, &b); err != nil || b.DispatchID == "" {
+			return c.send(ctx, nodeproto.TypeError,
+				nodeproto.Error{Code: nodeproto.ErrorInvalid, Message: "invalid transcript items"})
+		}
+
+		return c.send(ctx, nodeproto.TypeItemsAck, c.srv.items(ctx, c.nodeID, b))
 	case nodeproto.TypeHeartbeatAck, nodeproto.TypeReportAck, nodeproto.TypeOffer, nodeproto.TypeStop,
-		nodeproto.TypeAnswer, nodeproto.TypeError:
+		nodeproto.TypeAnswer, nodeproto.TypeItemsAck, nodeproto.TypeError:
 		fallthrough
 	default:
 		return c.send(ctx, nodeproto.TypeError,

@@ -24,6 +24,7 @@ means something else is named here once and not used.
 | **Model gateway** | The control plane module model requests go through. Its native surface forwards a vendor CLI's traffic unchanged; its unified surface is an OpenAI-compatible API over the Model table. It picks the Account, and records usage per Dispatch | A Node's egress proxy |
 | **Model table** | The models the Model gateway serves, declared by the owner: a public name, what it can do (chat, images, speech), and its targets (provider and upstream model) in fallback order. A model that is not in it is refused | A provider's own model list |
 | **Gateway key** | A bearer key for the Model gateway: one per Dispatch (revoked when it ends), one for the coordinator, one per tool or machine of the owner, each with the models it may use | A Client token; an Account's credential |
+| **Transcript** | What a Worker said and did during one Dispatch, kept by the control plane as items in order: messages, reasoning, tool calls, their results and notices. The Node sends it from the Worker's journal | A Conversation, which is the CLI's own record on the Node; a Session |
 | **Session** | A vault credential session opened for one Dispatch and revoked when it closes | A CLI session or a chat; call those Conversation |
 | **Announce** | A Worker's final report to the Coordinator, with outcome and evidence | A chat message to the owner |
 | **Policy** | A rule that answers a tool call or request with ALLOW, DENY or ASK | A Gate |

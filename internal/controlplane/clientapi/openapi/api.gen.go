@@ -408,6 +408,33 @@ func (e TokenKind) Valid() bool {
 	}
 }
 
+// Defines values for TranscriptItemKind.
+const (
+	TranscriptItemKindMessage    TranscriptItemKind = "message"
+	TranscriptItemKindNotice     TranscriptItemKind = "notice"
+	TranscriptItemKindReasoning  TranscriptItemKind = "reasoning"
+	TranscriptItemKindToolCall   TranscriptItemKind = "tool_call"
+	TranscriptItemKindToolResult TranscriptItemKind = "tool_result"
+)
+
+// Valid indicates whether the value is a known member of the TranscriptItemKind enum.
+func (e TranscriptItemKind) Valid() bool {
+	switch e {
+	case TranscriptItemKindMessage:
+		return true
+	case TranscriptItemKindNotice:
+		return true
+	case TranscriptItemKindReasoning:
+		return true
+	case TranscriptItemKindToolCall:
+		return true
+	case TranscriptItemKindToolResult:
+		return true
+	default:
+		return false
+	}
+}
+
 // Account defines model for Account.
 type Account struct {
 	CoolingUntil *time.Time    `json:"cooling_until,omitempty"`
@@ -540,6 +567,8 @@ type ChatToolActivityPhase string
 
 // Dispatch defines model for Dispatch.
 type Dispatch struct {
+	// Activity One line about the newest thing the worker said or did.
+	Activity     *string   `json:"activity,omitempty"`
 	CreatedAt    time.Time `json:"created_at"`
 	Effort       *string   `json:"effort,omitempty"`
 	Epoch        int       `json:"epoch"`
@@ -912,6 +941,32 @@ type TaskStatus string
 // TokenKind defines model for TokenKind.
 type TokenKind string
 
+// TranscriptItem One entry of a worker's transcript. A message, reasoning or notice has text; a tool_call has call_id, tool and input; a tool_result has call_id, text and failed. The node cuts long text and input.
+type TranscriptItem struct {
+	// CallId Joins a tool_result to its tool_call.
+	CallId *string `json:"call_id,omitempty"`
+
+	// CreatedAt When the control plane received it.
+	CreatedAt time.Time               `json:"created_at"`
+	Failed    *bool                   `json:"failed,omitempty"`
+	Input     *map[string]interface{} `json:"input,omitempty"`
+	Kind      TranscriptItemKind      `json:"kind"`
+	Seq       int64                   `json:"seq"`
+	Text      *string                 `json:"text,omitempty"`
+	Tool      *string                 `json:"tool,omitempty"`
+}
+
+// TranscriptItemKind defines model for TranscriptItemKind.
+type TranscriptItemKind string
+
+// TranscriptItemList defines model for TranscriptItemList.
+type TranscriptItemList struct {
+	Data []TranscriptItem `json:"data"`
+
+	// HasMore More items lie beyond this page in the direction read.
+	HasMore bool `json:"has_more"`
+}
+
 // After defines model for After.
 type After = int64
 
@@ -955,6 +1010,19 @@ type StreamChatParams struct {
 
 	// LastEventID Takes precedence over after, as a reconnecting browser sends it.
 	LastEventID *int64 `json:"Last-Event-ID,omitempty"`
+}
+
+// ListDispatchItemsParams defines parameters for ListDispatchItems.
+type ListDispatchItemsParams struct {
+	// After The seq of the last event already read.
+	After *After `form:"after,omitempty" json:"after,omitempty"`
+
+	// Before Return the newest items with a seq below this one; after and wait are then ignored.
+	Before *int64 `form:"before,omitempty" json:"before,omitempty"`
+	Limit  *int   `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Wait Seconds to wait when no item follows the cursor yet; zero answers at once.
+	Wait *int `form:"wait,omitempty" json:"wait,omitempty"`
 }
 
 // ListEventsParams defines parameters for ListEvents.
@@ -1170,6 +1238,13 @@ type ClientInterface interface {
 	//
 	// Corresponds with GET /chats/{chat_id}/stream (the `StreamChat` operationId).
 	StreamChat(ctx context.Context, chatId ChatID, params *StreamChatParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListDispatchItems A worker's transcript during one Dispatch, oldest first; optionally wait for the next item
+	//
+	// What the worker said and did, as the node sent it. With after, the items that follow that seq; with before, the newest items older than it.
+	//
+	// Corresponds with GET /dispatches/{dispatch_id}/items (the `ListDispatchItems` operationId).
+	ListDispatchItems(ctx context.Context, dispatchId string, params *ListDispatchItemsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListEvents Events after a cursor, oldest first; optionally wait for the next one
 	//
@@ -1496,6 +1571,23 @@ func (c *Client) SendChatMessage(ctx context.Context, chatId ChatID, body SendCh
 // Corresponds with GET /chats/{chat_id}/stream (the `StreamChat` operationId).
 func (c *Client) StreamChat(ctx context.Context, chatId ChatID, params *StreamChatParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewStreamChatRequest(c.Server, chatId, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListDispatchItems A worker's transcript during one Dispatch, oldest first; optionally wait for the next item
+//
+// What the worker said and did, as the node sent it. With after, the items that follow that seq; with before, the newest items older than it.
+//
+// Corresponds with GET /dispatches/{dispatch_id}/items (the `ListDispatchItems` operationId).
+func (c *Client) ListDispatchItems(ctx context.Context, dispatchId string, params *ListDispatchItemsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListDispatchItemsRequest(c.Server, dispatchId, params)
 	if err != nil {
 		return nil, err
 	}
@@ -2372,6 +2464,103 @@ func NewStreamChatRequest(server string, chatId ChatID, params *StreamChatParams
 			req.Header.Set("Last-Event-ID", headerParam0)
 		}
 
+	}
+
+	return req, nil
+}
+
+// NewListDispatchItemsRequest constructs an http.Request for the ListDispatchItems method
+func NewListDispatchItemsRequest(server string, dispatchId string, params *ListDispatchItemsParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "dispatch_id", dispatchId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/dispatches/%s/items", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.After != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "after", *params.After, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: "int64"}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Before != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "before", *params.Before, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: "int64"}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Wait != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "wait", *params.Wait, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
 	}
 
 	return req, nil
@@ -3655,6 +3844,15 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /chats/{chat_id}/stream (the `StreamChat` operationId).
 	StreamChatWithResponse(ctx context.Context, chatId ChatID, params *StreamChatParams, reqEditors ...RequestEditorFn) (*StreamChatResponse, error)
 
+	// ListDispatchItemsWithResponse A worker's transcript during one Dispatch, oldest first; optionally wait for the next item
+	//
+	// What the worker said and did, as the node sent it. With after, the items that follow that seq; with before, the newest items older than it.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /dispatches/{dispatch_id}/items (the `ListDispatchItems` operationId).
+	ListDispatchItemsWithResponse(ctx context.Context, dispatchId string, params *ListDispatchItemsParams, reqEditors ...RequestEditorFn) (*ListDispatchItemsResponse, error)
+
 	// ListEventsWithResponse Events after a cursor, oldest first; optionally wait for the next one
 	//
 	// Returns a wrapper object for the known response body format(s).
@@ -4234,6 +4432,54 @@ func (r StreamChatResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r StreamChatResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListDispatchItemsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *TranscriptItemList
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListDispatchItemsResponse) GetJSON200() *TranscriptItemList {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListDispatchItemsResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListDispatchItemsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListDispatchItemsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListDispatchItemsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListDispatchItemsResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -5572,6 +5818,21 @@ func (c *ClientWithResponses) StreamChatWithResponse(ctx context.Context, chatId
 	return ParseStreamChatResponse(rsp)
 }
 
+// ListDispatchItemsWithResponse A worker's transcript during one Dispatch, oldest first; optionally wait for the next item
+//
+// What the worker said and did, as the node sent it. With after, the items that follow that seq; with before, the newest items older than it.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /dispatches/{dispatch_id}/items (the `ListDispatchItems` operationId).
+func (c *ClientWithResponses) ListDispatchItemsWithResponse(ctx context.Context, dispatchId string, params *ListDispatchItemsParams, reqEditors ...RequestEditorFn) (*ListDispatchItemsResponse, error) {
+	rsp, err := c.ListDispatchItems(ctx, dispatchId, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListDispatchItemsResponse(rsp)
+}
+
 // ListEventsWithResponse Events after a cursor, oldest first; optionally wait for the next one
 //
 // Returns a wrapper object for the known response body format(s).
@@ -6207,6 +6468,39 @@ func ParseStreamChatResponse(rsp *http.Response) (*StreamChatResponse, error) {
 	}
 
 	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListDispatchItemsResponse parses an HTTP response from a ListDispatchItemsWithResponse call
+func ParseListDispatchItemsResponse(rsp *http.Response) (*ListDispatchItemsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListDispatchItemsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest TranscriptItemList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
 		var dest Error
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
@@ -7070,6 +7364,9 @@ type ServerInterface interface {
 	// StreamChat A chat as Server-Sent Events, resumable with Last-Event-ID
 	// (GET /chats/{chat_id}/stream)
 	StreamChat(w http.ResponseWriter, r *http.Request, chatId ChatID, params StreamChatParams)
+	// ListDispatchItems A worker's transcript during one Dispatch, oldest first; optionally wait for the next item
+	// (GET /dispatches/{dispatch_id}/items)
+	ListDispatchItems(w http.ResponseWriter, r *http.Request, dispatchId string, params ListDispatchItemsParams)
 	// ListEvents Events after a cursor, oldest first; optionally wait for the next one
 	// (GET /events)
 	ListEvents(w http.ResponseWriter, r *http.Request, params ListEventsParams)
@@ -7417,6 +7714,87 @@ func (siw *ServerInterfaceWrapper) StreamChat(w http.ResponseWriter, r *http.Req
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.StreamChat(w, r, chatId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListDispatchItems operation middleware
+func (siw *ServerInterfaceWrapper) ListDispatchItems(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "dispatch_id" -------------
+	var dispatchId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "dispatch_id", r.PathValue("dispatch_id"), &dispatchId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "dispatch_id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListDispatchItemsParams
+
+	// ------------- Optional query parameter "after" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "after", r.URL.Query(), &params.After, runtime.BindQueryParameterOptions{Type: "integer", Format: "int64"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "after"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "after", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "before" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "before", r.URL.Query(), &params.Before, runtime.BindQueryParameterOptions{Type: "integer", Format: "int64"})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "before"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "before", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "wait" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "wait", r.URL.Query(), &params.Wait, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "wait"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "wait", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListDispatchItems(w, r, dispatchId, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -8398,6 +8776,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/tasks/{task_id}", wrapper.GetTask)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/tasks/{task_id}/cancel", wrapper.CancelTask)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/tasks/{task_id}/reopen", wrapper.ReopenTask)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/dispatches/{dispatch_id}/items", wrapper.ListDispatchItems)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/questions", wrapper.ListQuestions)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/questions/{question_id}", wrapper.GetQuestion)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/questions/{question_id}/answer", wrapper.AnswerQuestion)
@@ -8752,6 +9131,46 @@ type StreamChatdefaultJSONResponse struct {
 }
 
 func (response StreamChatdefaultJSONResponse) VisitStreamChatResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListDispatchItemsRequestObject struct {
+	DispatchId string `json:"dispatch_id"`
+	Params     ListDispatchItemsParams
+}
+
+type ListDispatchItemsResponseObject interface {
+	VisitListDispatchItemsResponse(w http.ResponseWriter) error
+}
+
+type ListDispatchItems200JSONResponse TranscriptItemList
+
+func (response ListDispatchItems200JSONResponse) VisitListDispatchItemsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListDispatchItemsdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListDispatchItemsdefaultJSONResponse) VisitListDispatchItemsResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -9808,6 +10227,9 @@ type StrictServerInterface interface {
 	// StreamChat A chat as Server-Sent Events, resumable with Last-Event-ID
 	// (GET /chats/{chat_id}/stream)
 	StreamChat(ctx context.Context, request StreamChatRequestObject) (StreamChatResponseObject, error)
+	// ListDispatchItems A worker's transcript during one Dispatch, oldest first; optionally wait for the next item
+	// (GET /dispatches/{dispatch_id}/items)
+	ListDispatchItems(ctx context.Context, request ListDispatchItemsRequestObject) (ListDispatchItemsResponseObject, error)
 	// ListEvents Events after a cursor, oldest first; optionally wait for the next one
 	// (GET /events)
 	ListEvents(ctx context.Context, request ListEventsRequestObject) (ListEventsResponseObject, error)
@@ -10137,6 +10559,33 @@ func (sh *strictHandler) StreamChat(w http.ResponseWriter, r *http.Request, chat
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(StreamChatResponseObject); ok {
 		if err := validResponse.VisitStreamChatResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListDispatchItems operation middleware
+func (sh *strictHandler) ListDispatchItems(w http.ResponseWriter, r *http.Request, dispatchId string, params ListDispatchItemsParams) {
+	var request ListDispatchItemsRequestObject
+
+	request.DispatchId = dispatchId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListDispatchItems(ctx, request.(ListDispatchItemsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListDispatchItems")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListDispatchItemsResponseObject); ok {
+		if err := validResponse.VisitListDispatchItemsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -10825,105 +11274,112 @@ func (sh *strictHandler) ReopenTask(w http.ResponseWriter, r *http.Request, task
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
-	"jbui375D7LluY4dzuokwG/FajLAb993j/w8A",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

@@ -85,6 +85,8 @@ func (r *fakeRunner) Answer(id string, q nodeproto.Question) {
 	r.answers[id] = append(r.answers[id], q)
 }
 
+func (r *fakeRunner) ItemsAcked(nodeproto.ItemsAck) {}
+
 func (r *fakeRunner) Asked(_, reportID, questionID string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

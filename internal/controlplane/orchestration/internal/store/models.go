@@ -96,6 +96,7 @@ type Dispatch struct {
 	Model            sql.NullString
 	Effort           sql.NullString
 	ProfileVersionID sql.NullString
+	Activity         sql.NullString
 }
 
 type DispatchEffect struct {
@@ -107,6 +108,14 @@ type DispatchEffect struct {
 	Payload    sql.NullString
 	CreatedAt  int64
 	UpdatedAt  int64
+}
+
+type DispatchItem struct {
+	DispatchID string
+	Seq        int64
+	Kind       string
+	Data       string
+	CreatedAt  int64
 }
 
 type DispatchResource struct {
