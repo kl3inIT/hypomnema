@@ -529,6 +529,74 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/GitHost" }
         default: { $ref: "#/components/responses/Error" }
+  /secrets:
+    get:
+      operationId: ListSecrets
+      summary: The vault's secrets, without their values; only the owner
+      responses:
+        "200":
+          description: The secrets.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SecretList" }
+        default: { $ref: "#/components/responses/Error" }
+  /secrets/{name}:
+    parameters:
+      - name: name
+        in: path
+        required: true
+        schema: { type: string, pattern: "^[a-z0-9][a-z0-9-]{0,62}$" }
+    put:
+      operationId: PutSecret
+      summary: Keep a value under a name, as a new secret or a new version of one; only the owner
+      description: >-
+        What uses the secret gets the new value. The value is never returned
+        by this operation. A token set is not replaced here: only a sign-in
+        produces one.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewSecretValue" }
+      responses:
+        "200":
+          description: The secret, without its value.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Secret" }
+        default: { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: DeleteSecret
+      summary: Remove a secret and every version of it; only the owner
+      description: Refused while a provider, an account or a Connection uses it.
+      responses:
+        "204":
+          description: The secret is removed.
+        default: { $ref: "#/components/responses/Error" }
+  /secrets/{name}/value:
+    parameters:
+      - name: name
+        in: path
+        required: true
+        schema: { type: string, pattern: "^[a-z0-9][a-z0-9-]{0,62}$" }
+    get:
+      operationId: GetSecretValue
+      summary: Read one secret's value; only the owner
+      description: >-
+        The one operation that returns a secret's value. A coordinator's token
+        is refused. Each read is recorded with the secret's name and the
+        token, never the value.
+      responses:
+        "200":
+          description: The value.
+          headers:
+            Cache-Control:
+              schema: { type: string }
+              description: Always `no-store`.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SecretValue" }
+        default: { $ref: "#/components/responses/Error" }
   /repos:
     get:
       operationId: ListRepos
@@ -1378,6 +1446,60 @@ components:
         data:
           type: array
           items: { $ref: "#/components/schemas/GitHost" }
+    Secret:
+      type: object
+      description: A secret of the vault, without its value.
+      required: [name, kind, version, used_by, key_missing, login_required, created_at, updated_at]
+      properties:
+        name: { type: string }
+        kind:
+          type: string
+          description: generic (one value) or oauth_token_set (a refresh token and what was issued for it).
+        version:
+          type: integer
+          description: Counts from 1 and grows each time the value is replaced.
+        metadata:
+          type: object
+          additionalProperties: { type: string }
+          description: Not secret; what helps to recognize the secret.
+        used_by:
+          type: array
+          items: { type: string }
+          description: What refers to the secret, such as "provider openai" or "connection github.com:work".
+        key_missing:
+          type: boolean
+          description: The root key it is sealed under is not in the keyring, so it cannot be read.
+        login_required:
+          type: boolean
+          description: A token set whose refresh token was refused for good.
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    SecretList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/Secret" }
+    SecretValue:
+      type: object
+      required: [name, values]
+      properties:
+        name: { type: string }
+        values:
+          type: object
+          additionalProperties: { type: string }
+          description: The secret's values by key; a generic secret has one, under "value".
+    NewSecretValue:
+      type: object
+      required: [value]
+      additionalProperties: false
+      properties:
+        value:
+          type: string
+          minLength: 1
+          maxLength: 65536
+          writeOnly: true
     NewGitHost:
       type: object
       required: [kind]

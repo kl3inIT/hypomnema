@@ -172,6 +172,57 @@ func (s *Service) ConnectionFor(ctx context.Context, host, path string) (Connect
 	return connectionFromRow(rows[0]), true, nil
 }
 
+// ConnectionsUsingSecret names the Connections whose credential is a vault
+// secret, so the vault can refuse to delete it and the owner can see what it
+// is for.
+func (s *Service) ConnectionsUsingSecret(ctx context.Context, secret string) ([]string, error) {
+	rows, err := s.read().ListConnectionsBySecret(ctx, secret)
+	if err != nil {
+		return nil, fmt.Errorf("listing the connections that use %q: %w", secret, err)
+	}
+
+	out := make([]string, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, "connection "+r.Integration+":"+r.Label)
+	}
+
+	return out, nil
+}
+
+// SecretRead is one time a secret's value was read: by which token, and
+// when. The value is never part of it.
+type SecretRead struct {
+	Secret string
+	// TokenID is the token that read it, or "host" for the command run on
+	// the control plane host.
+	TokenID string
+	At      time.Time
+}
+
+// RecordSecretRead writes that a token read a secret's value (issue #108),
+// as Infisical records a `get-secret` audit event. It is kept apart from the
+// event log, which every token reads.
+func (s *Service) RecordSecretRead(ctx context.Context, secret, tokenID string) error {
+	return s.write(ctx, func(q *store.Queries, now int64) error {
+		return q.InsertSecretRead(ctx, store.InsertSecretReadParams{Secret: secret, TokenID: tokenID, Now: now})
+	})
+}
+
+// SecretReads returns the latest reads of a secret's value, newest first.
+func (s *Service) SecretReads(ctx context.Context, secret string, limit int) ([]SecretRead, error) {
+	rows, err := s.read().ListSecretReads(ctx, store.ListSecretReadsParams{Secret: secret, Lim: int64(limit)})
+	if err != nil {
+		return nil, fmt.Errorf("listing the reads of secret %q: %w", secret, err)
+	}
+
+	out := make([]SecretRead, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, SecretRead{Secret: r.Secret, TokenID: r.TokenID, At: millis(r.CreatedAt)})
+	}
+
+	return out, nil
+}
+
 func connectionFromRow(r store.Connection) Connection {
 	return Connection{
 		Integration: r.Integration, Label: r.Label, Account: r.Account.String, Secret: r.Secret,

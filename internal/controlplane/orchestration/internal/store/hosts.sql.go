@@ -159,12 +159,61 @@ func (q *Queries) GetRepo(ctx context.Context, name string) (Repo, error) {
 	return i, err
 }
 
+const insertSecretRead = `-- name: InsertSecretRead :exec
+INSERT INTO secret_reads (secret, token_id, created_at) VALUES (?1, ?2, ?3)
+`
+
+type InsertSecretReadParams struct {
+	Secret  string
+	TokenID string
+	Now     int64
+}
+
+func (q *Queries) InsertSecretRead(ctx context.Context, arg InsertSecretReadParams) error {
+	_, err := q.db.ExecContext(ctx, insertSecretRead, arg.Secret, arg.TokenID, arg.Now)
+	return err
+}
+
 const listConnections = `-- name: ListConnections :many
 SELECT integration, label, account, secret, created_at, updated_at FROM connections ORDER BY integration, created_at, label
 `
 
 func (q *Queries) ListConnections(ctx context.Context) ([]Connection, error) {
 	rows, err := q.db.QueryContext(ctx, listConnections)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Connection{}
+	for rows.Next() {
+		var i Connection
+		if err := rows.Scan(
+			&i.Integration,
+			&i.Label,
+			&i.Account,
+			&i.Secret,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listConnectionsBySecret = `-- name: ListConnectionsBySecret :many
+SELECT integration, label, account, secret, created_at, updated_at FROM connections WHERE secret = ?1 ORDER BY integration, label
+`
+
+func (q *Queries) ListConnectionsBySecret(ctx context.Context, secret string) ([]Connection, error) {
+	rows, err := q.db.QueryContext(ctx, listConnectionsBySecret, secret)
 	if err != nil {
 		return nil, err
 	}
@@ -274,6 +323,43 @@ func (q *Queries) ListRepos(ctx context.Context) ([]Repo, error) {
 			&i.Base,
 			&i.CreatedAt,
 			&i.Connection,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listSecretReads = `-- name: ListSecretReads :many
+SELECT id, secret, token_id, created_at FROM secret_reads WHERE secret = ?1 ORDER BY id DESC LIMIT ?2
+`
+
+type ListSecretReadsParams struct {
+	Secret string
+	Lim    int64
+}
+
+func (q *Queries) ListSecretReads(ctx context.Context, arg ListSecretReadsParams) ([]SecretRead, error) {
+	rows, err := q.db.QueryContext(ctx, listSecretReads, arg.Secret, arg.Lim)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SecretRead{}
+	for rows.Next() {
+		var i SecretRead
+		if err := rows.Scan(
+			&i.ID,
+			&i.Secret,
+			&i.TokenID,
+			&i.CreatedAt,
 		); err != nil {
 			return nil, err
 		}

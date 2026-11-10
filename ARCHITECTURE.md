@@ -209,7 +209,19 @@ proxy, does not exist yet.
   After a refresh only the new version and the one before it are kept. Subscription accounts call it (below).
 - `Open` returns a value to callers inside the control plane: the model gateway, for a provider's key, the
   wiring that hands a git host's token to an offer, and subscription accounts, for a token set. No API,
-  coordinator or web package may import the vault (`depguard`), and the owner's commands never print a value.
+  coordinator or web package may import the vault (`depguard`).
+- The owner reads the vault through the client API
+  ([issue #108](https://github.com/kl3inIT/hypomnema/issues/108),
+  [decision](docs/decisions/2026-11-10-owner-reads-secret-values.md)): `GET /secrets` lists secrets without values
+  and with what uses each (a provider, a machine provider, an account, a Connection); `GET /secrets/{name}/value`
+  returns one secret's values, with `Cache-Control: no-store`; `PUT /secrets/{name}` keeps a value as a new generic
+  secret or a new version, which whatever uses the secret then gets; `DELETE` is refused while something uses it. A
+  token set is read but not typed over. All four are owner-only by the policy table; a coordinator's token is
+  refused, and nothing on a node has such an operation. The control plane's own wiring
+  (`internal/controlplane/ownersecrets.go`) stands between the API and the vault.
+- Each read of a value is a row of `secret_reads` (the secret's name and the token, or `host`; never the value). It
+  is not in the event log, which every token reads. Nothing shows these rows yet.
+- `hypomnema secrets show <name>` on the control plane host prints a value and records the read.
 - A provider names a secret as `vault:<name>` in its `api_key_ref`; nothing resolves that reference yet. Deleting a
   secret is refused while a provider or an account names it.
 - The tables `secrets`, `secret_versions` and `secret_refresh_leases` are in the one migration stream and are read and written only by this
