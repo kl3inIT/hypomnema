@@ -121,6 +121,15 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     for; it runs when asked, not on a timer, and destroys nothing.
   - Not built: other providers, and delivering the CLIs' logins to a new machine, which the owner still sets on
     it once.
+- A node updates itself (issue #69, after Nezha's agent, `cmd/agent/main.go`): the control plane names where
+  the node's releases are at each hello (`HYPOMNEMA_NODE_RELEASE_URL`, the latest GitHub release by default). A
+  node of a released version that systemd runs looks there 30 s after it starts and then at a random interval of
+  one to two days (`update_every_minutes` in its configuration sets another), and when the release is newer it
+  downloads it, requires the SHA-256 its manifest names and the version the binary itself reports, as the install
+  script does, renames it over its own binary and ends with a failure, which makes systemd start the new one.
+  It does not end while a terminal is open; workers are kept across the restart by their shims. A node built
+  from a commit, a node not run by systemd, and one with `disable_auto_update` in its configuration keep their
+  version.
 - A terminal on a node, from the web (issue #116, [research](docs/research/2026-11-10-web-terminal.md); after
   Coder's reconnecting PTY, read for behaviour and not copied since it is AGPL, and Nezha's IOStream):
   - The node keeps shells by session id (`internal/node/terminal`): the node user's own shell on a pseudo-terminal

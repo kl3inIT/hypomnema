@@ -216,6 +216,9 @@ type HelloResponse struct {
 	// Tools are the tools the node should have; it installs a missing one and
 	// says in its heartbeat what it has.
 	Tools []Tool `json:"tools,omitempty"`
+	// ReleaseURL is where the node's releases are: the manifests and binaries
+	// the install script downloads. A node that updates itself looks there.
+	ReleaseURL string `json:"release_url,omitempty"`
 }
 
 // HeartbeatAck answers a heartbeat with the interval to the next one.

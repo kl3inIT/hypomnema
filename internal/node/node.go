@@ -43,6 +43,12 @@ type Config struct {
 	Token string `json:"token"`
 	// WorktreeRoot is where the node makes its worktrees.
 	WorktreeRoot string `json:"worktree_root"`
+	// DisableAutoUpdate keeps the node at its version (Nezha's
+	// disable_auto_update). UpdateEveryMinutes sets how often it looks for a
+	// newer release (Nezha's self_update_period); zero is a random interval of
+	// one to two days.
+	DisableAutoUpdate  bool `json:"disable_auto_update,omitempty"`
+	UpdateEveryMinutes int  `json:"update_every_minutes,omitempty"`
 	// DisableTerminal turns off the terminal the owner opens from the web. It
 	// is set only here, on the machine: the control plane cannot turn it back
 	// on (Nezha's disable_command_execute).
@@ -235,7 +241,30 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 
 	go runner.Forward(ctx)
 
-	return d.Run(ctx)
+	// The node updates itself only where ending is a restart: under systemd, which sets INVOCATION_ID.
+	updater := Updater{Exe: exe, Version: platform.Version}
+	if cfg.DisableAutoUpdate || !updater.CanUpdate() || os.Getenv("INVOCATION_ID") == "" {
+		return d.Run(ctx)
+	}
+
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+
+	go func() {
+		busy := func() bool { return terminals != nil && terminals.Count() > 0 }
+		every := time.Duration(cfg.UpdateEveryMinutes) * time.Minute
+
+		if err := updater.UpdateLoop(ctx, d.ReleaseURL, busy, every, logger); errors.Is(err, ErrUpdated) {
+			cancel(ErrUpdated)
+		}
+	}()
+
+	err = d.Run(ctx)
+	if errors.Is(context.Cause(ctx), ErrUpdated) {
+		return ErrUpdated
+	}
+
+	return err
 }
 
 // Unit is a systemd user unit for the daemon. KillMode=process keeps workers

@@ -162,7 +162,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	integrations := integration.New(svc, secrets, platform.SystemClock{}, platform.NewID, integration.Google())
 
 	nodes := nodeapi.New(svc, logger).WithHostTokens(tokens.Token).WithModelKeys(workerKeys.Key).
-		WithTools(integrations.Tools)
+		WithTools(integrations.Tools).WithReleaseURL(cfg.NodeReleaseURL)
 	nodes.Register(mux)
 	modelgateway.NewServer(gateway, logger, modelgateway.Config{
 		Subscriptions: gatewayAccounts{subs: subscriptions}, CodexBaseURL: cfg.CodexBaseURL,
