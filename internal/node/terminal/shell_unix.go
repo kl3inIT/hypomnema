@@ -31,7 +31,8 @@ func StartShell(rows, cols uint16) (Shell, error) {
 		return nil, err
 	}
 
-	cmd := exec.Command(path, "-l") //nolint:gosec,noctx // G204: the user's own shell; it lives as long as its session, not a request
+	// The shell lives as long as its session, not a request, so it takes no context.
+	cmd := exec.Command(path, "-l") //nolint:gosec,noctx // G204: the user's own shell
 	cmd.Env = append(os.Environ(), "TERM=xterm-256color", "COLORTERM=truecolor")
 
 	if home, err := os.UserHomeDir(); err == nil {
