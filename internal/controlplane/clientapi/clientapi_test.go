@@ -740,6 +740,20 @@ func TestOnlyTheOwnerChangesProfiles(t *testing.T) {
 	require.Equal(t, http.StatusOK, list.StatusCode())
 	assert.Len(t, list.JSON200.Data, 4)
 
+	// Each worker's profile says whether a worker can start now; no node is connected here.
+	for _, p := range list.JSON200.Data {
+		if p.Runtime == "pi" {
+			assert.Nil(t, p.Available, p.Name)
+
+			continue
+		}
+
+		require.NotNil(t, p.Available, p.Name)
+		assert.False(t, *p.Available, p.Name)
+		require.NotNil(t, p.UnavailableReason, p.Name)
+		assert.Equal(t, openapi.NoNode, *p.UnavailableReason, p.Name)
+	}
+
 	models, err := laptop.ListModelsWithResponse(ctx)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, models.StatusCode())

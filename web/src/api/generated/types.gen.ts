@@ -719,6 +719,18 @@ export type Profile = {
   instruction?: string;
   source: string;
   created_at: string;
+  /**
+   * Whether a worker can start under the profile now: a connected, active node has its CLI, and its runtime has an account that is not cooling down (none is needed for a model the gateway serves). A node at its limit still counts, since the Task waits its turn. Given for a profile's current version; absent for the coordinator's runtime, which no node runs, and in a list of versions.
+   */
+  available?: boolean;
+  /**
+   * Why no worker can start, when `available` is false: no connected, active node has the CLI; the runtime has no active account on a node; or every account of the runtime cools down.
+   */
+  unavailable_reason?: 'no_node' | 'no_account' | 'accounts_cooling';
+  /**
+   * With `accounts_cooling`, when the first account is free again.
+   */
+  available_at?: string;
 };
 
 export type ProfileList = {

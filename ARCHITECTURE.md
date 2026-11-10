@@ -159,6 +159,13 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   A provider of kind `model_gateway` is the control plane's own model gateway (issue #107): `codex` can run against
   it, and a Task under it needs no account on a node. Its Conversation names `gateway` where an account's id would
   be, and a rate limit cools no account down: the gateway looks after its own accounts.
+  A profile's current version says whether a worker can start under it now (issue #139, as Omnigent's agent list
+  says `available_on_host`): `available`, and when not, `unavailable_reason` (`no_node`: no connected, active node
+  has its CLI; `no_account`: its runtime has no active account on a node; `accounts_cooling`, with `available_at`,
+  the time the first account is free). It is computed from the scheduler's own view of nodes and accounts when
+  the profile is read. A node at its limit still counts; a model the gateway serves needs no account, and the
+  state of the gateway's own accounts is not looked at; the coordinator's runtime, pi, has no answer. `profiles
+  list` shows it, and the coordinator skill tells the coordinator to read it before creating Tasks.
   The starting set: `implementer`, `reviewer`, `explorer` (told to change nothing; nothing enforces it yet) on
   Claude Code with its default model, and `coordinator` on pi; provider `claude-subscription`.
 - Scheduler: `Schedule` is one pass in one transaction, and `Loop` runs `Reap` and `Schedule` every 2 s and on each

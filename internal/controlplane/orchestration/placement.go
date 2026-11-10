@@ -129,18 +129,15 @@ func (n *nodeLoad) gitHosts() []string {
 // git host, now.
 func (p *placement) checkNode(id, runtime, host string) error {
 	n, ok := p.nodes[id]
+	if !ok {
+		return fmt.Errorf("%w: node %s", ErrNotFound, id)
+	}
+
+	if err := p.serves(n, runtime); err != nil {
+		return err
+	}
 
 	switch {
-	case !ok:
-		return fmt.Errorf("%w: node %s", ErrNotFound, id)
-	case NodeStatus(n.row.Status) != NodeActive:
-		return fmt.Errorf("%w: node %s is drained", ErrUnavailable, id)
-	case !p.connected(n):
-		return fmt.Errorf("%w: node %s is not connected", ErrUnavailable, id)
-	case n.row.UnavailableAt.Valid:
-		return fmt.Errorf("%w: node %s let its dispatches expire", ErrUnavailable, id)
-	case !n.offers(runtime):
-		return fmt.Errorf("%w: node %s has no %s", ErrUnavailable, id, runtime)
 	case !n.reaches(host):
 		return fmt.Errorf("%w: node %s does not reach %s", ErrUnavailable, id, host)
 	case n.active >= int(n.row.MaxDispatches):
@@ -177,6 +174,70 @@ func (p *placement) checkAccount(runtime, id string) error {
 	}
 
 	return nil
+}
+
+// serves says why a node runs no worker of the runtime, whatever its load
+// and whichever git host the work is on.
+func (p *placement) serves(n *nodeLoad, runtime string) error {
+	id := n.row.ID
+
+	switch {
+	case NodeStatus(n.row.Status) != NodeActive:
+		return fmt.Errorf("%w: node %s is drained", ErrUnavailable, id)
+	case !p.connected(n):
+		return fmt.Errorf("%w: node %s is not connected", ErrUnavailable, id)
+	case n.row.UnavailableAt.Valid:
+		return fmt.Errorf("%w: node %s let its dispatches expire", ErrUnavailable, id)
+	case !n.offers(runtime):
+		return fmt.Errorf("%w: node %s has no %s", ErrUnavailable, id, runtime)
+	}
+
+	return nil
+}
+
+// availability says whether a worker of the runtime can start now, as the
+// scheduler would find: a node that serves the runtime and has a worktree
+// root, then an account that is not cooling down, or none for a model the
+// gateway serves. A node at its limit still counts: the Task waits its turn.
+func (p *placement) availability(runtime string, gateway bool) Availability {
+	if !slices.ContainsFunc(p.order, func(n *nodeLoad) bool {
+		return p.serves(n, runtime) == nil && n.row.WorktreeRoot.String != ""
+	}) {
+		return Availability{Reason: ReasonNoNode}
+	}
+
+	if gateway {
+		return Availability{Available: true}
+	}
+
+	id, cooling := p.pickAccount(runtime)
+
+	switch {
+	case id != "":
+		return Availability{Available: true}
+	case !cooling:
+		return Availability{Reason: ReasonNoAccount}
+	}
+
+	var first int64
+
+	for k, until := range p.cooling {
+		if k[0] == runtime && p.checkAccountKnown(runtime, k[1]) && (first == 0 || until < first) {
+			first = until
+		}
+	}
+
+	at := millis(first)
+
+	return Availability{Reason: ReasonAccountsCooling, At: &at}
+}
+
+// checkAccountKnown reports whether an id is an active account of the
+// runtime that a node holds: the ones pickAccount looks at.
+func (p *placement) checkAccountKnown(runtime, id string) bool {
+	return slices.ContainsFunc(p.accounts, func(a store.Account) bool {
+		return a.ID == id && a.Runtime == runtime && AccountStatus(a.Status) == AccountActive && !a.SecretRef.Valid
+	})
 }
 
 // nodeReady reports whether a node can take a Dispatch of the runtime, on the git host, now.
