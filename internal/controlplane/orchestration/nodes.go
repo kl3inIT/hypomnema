@@ -126,8 +126,10 @@ type Account struct {
 	ExternalID string
 	Email      string
 	Plan       string
-	SecretRef  string
-	Refresh    AccountRefresh
+	// Project is the vendor's project the account works in, when it has one.
+	Project   string
+	SecretRef string
+	Refresh   AccountRefresh
 }
 
 // NodeToken is one credential of a node. It holds no secret.
