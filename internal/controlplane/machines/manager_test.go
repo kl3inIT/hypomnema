@@ -507,3 +507,35 @@ func TestStopAndStartAreAskedAgainUntilTheProviderActs(t *testing.T) {
 	require.NoError(t, w.mgr.Settle(t.Context()))
 	assert.False(t, w.cloud.off[n.ID])
 }
+
+// Scenario: the owner removes a machine that is stopped, or still being
+// stopped, while the provider is down. Its disk still costs money, so the
+// destroy is tried again like any other, and the machine is not asked to
+// stop once more instead.
+func TestRemovalOfAStoppedMachineIsTriedAgain(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t, publicURL)
+
+	off := w.ready("stopped")
+	_, err := w.mgr.Stop(t.Context(), off.ID)
+	require.NoError(t, err)
+
+	w.cloud.stopErr = errors.New("RequestLimitExceeded")
+
+	between := w.ready("stopping")
+	_, err = w.mgr.Stop(t.Context(), between.ID)
+	require.Error(t, err)
+
+	w.cloud.deleteErr = errors.New("RequestLimitExceeded")
+	require.Error(t, w.mgr.Remove(t.Context(), off.ID))
+	require.Error(t, w.mgr.Remove(t.Context(), between.ID))
+	assert.Equal(t, []string{"stopped", "stopping"}, w.listed())
+
+	w.cloud.deleteErr = nil
+	w.clock.now = w.clock.now.Add(time.Minute)
+	require.NoError(t, w.mgr.Settle(t.Context()))
+
+	assert.Empty(t, w.listed())
+	assert.Empty(t, w.cloud.machines)
+}

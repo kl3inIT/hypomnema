@@ -314,15 +314,18 @@ func (m *Manager) Settle(ctx context.Context) error {
 func (m *Manager) settle(ctx context.Context, n orchestration.Node) error {
 	now := m.clock.Now()
 
-	// A stop or a start is asked for again until it has happened: both are safe to repeat.
-	switch n.Machine.Power {
-	case orchestration.MachineStopping:
-		return m.stop(ctx, n)
-	case orchestration.MachineStarting:
-		return m.start(ctx, n)
-	case orchestration.MachineStopped:
-		return nil
-	default:
+	// A stop or a start is asked for again until it has happened: both are safe to repeat. A machine that is
+	// being destroyed is settled by its deletion, whatever its power was.
+	if n.Machine.State == orchestration.MachineReady {
+		switch n.Machine.Power {
+		case orchestration.MachineStopping:
+			return m.stop(ctx, n)
+		case orchestration.MachineStarting:
+			return m.start(ctx, n)
+		case orchestration.MachineStopped:
+			return nil
+		default:
+		}
 	}
 
 	switch n.Machine.State {
