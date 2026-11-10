@@ -415,6 +415,13 @@ func TestWorkerTextCannotDriveTheTerminal(t *testing.T) {
 
 	got := plain("ok\x1b[2J\x1b]0;title\x07\tdone\nnext\u009b31m\x7f")
 	assert.Equal(t, `ok\x1b[2J\x1b]0;title\a`+"\tdone\nnext"+`\u009b31m\x7f`, got)
+
+	// Every command prints through one place, so a result or a question is covered as a transcript is.
+	var out bytes.Buffer
+
+	e := &env{out: &out}
+	e.printf("%s (%d)\n", "done\x1b[31m", 3)
+	assert.Equal(t, `done\x1b[31m (3)`+"\n", out.String())
 }
 
 // Scenario: the owner watches a worker from a terminal, without the web. The

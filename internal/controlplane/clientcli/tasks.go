@@ -188,7 +188,7 @@ func tasksList(ctx context.Context, e *env, fs *flag.FlagSet) error {
 
 	return e.print(fs, resp.JSON200, func() {
 		for _, t := range resp.JSON200.Data {
-			e.printf("%s\t%s\t%s\t%s\n", t.Id, taskState(t.Status, t.BlockedReason), t.RunId, plain(taskLine(t)))
+			e.printf("%s\t%s\t%s\t%s\n", t.Id, taskState(t.Status, t.BlockedReason), t.RunId, taskLine(t))
 		}
 	})
 }
@@ -265,7 +265,7 @@ func tasksTranscript(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		for _, it := range resp.JSON200.Data {
 			after = it.Seq
 
-			if err := e.print(fs, it, func() { e.printf("%s\n", plain(itemLine(it))) }); err != nil {
+			if err := e.print(fs, it, func() { e.printf("%s\n", itemLine(it)) }); err != nil {
 				return err
 			}
 		}
