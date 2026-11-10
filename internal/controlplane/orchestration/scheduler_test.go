@@ -664,3 +664,79 @@ func TestAModelTheGatewayServesNeedsNoAccountOnANode(t *testing.T) {
 		"name: pi-worker\ndescription: d\nruntime: pi\nmodel: {provider: gateway, name: gpt-sol}\n")
 	require.ErrorIs(t, err, ErrInvalid)
 }
+
+// A profile says whether a worker can start under it now, by the scheduler's
+// own view: a node that has its CLI, then an account that is not cooling
+// down, or none for a model the gateway serves. The coordinator's profile
+// says nothing, since no node runs it.
+func TestProfilesSayWhetherAWorkerCanStartNow(t *testing.T) {
+	t.Parallel()
+
+	w := newSchedWorld(t)
+	ctx := t.Context()
+
+	_, err := w.s.ApplyProvider(ctx, "", "name: gateway\nkind: model_gateway\nmodels: [gpt-sol]\n")
+	require.NoError(t, err)
+	_, _, err = w.s.ApplyProfile(ctx, "",
+		"name: codex-worker\ndescription: d\nruntime: codex\nmodel: {provider: gateway, name: gpt-sol}\n")
+	require.NoError(t, err)
+	_, _, err = w.s.ApplyProfile(ctx, "", "name: codex-own\ndescription: d\nruntime: codex\n")
+	require.NoError(t, err)
+
+	availability := func() map[string]*Availability {
+		t.Helper()
+
+		profiles, err := w.s.ListProfiles(ctx)
+		require.NoError(t, err)
+
+		out := map[string]*Availability{}
+		for _, p := range profiles {
+			out[p.Name] = p.Availability
+		}
+
+		return out
+	}
+
+	got := availability()
+	assert.Equal(t, &Availability{Available: true}, got["implementer"], "node_a has claude and acct_1 is free")
+	assert.Equal(t, &Availability{Reason: ReasonNoNode}, got["codex-worker"], "no node has codex")
+	assert.Nil(t, got["coordinator"], "pi is not a worker's runtime")
+
+	w.addNode("node_codex", 1, "codex")
+
+	got = availability()
+	assert.Equal(t, &Availability{Available: true}, got["codex-worker"], "the gateway serves it: no account needed")
+	assert.Equal(t, &Availability{Reason: ReasonNoAccount}, got["codex-own"], "codex has no account on a node")
+
+	one, err := w.s.GetProfile(ctx, "codex-own")
+	require.NoError(t, err)
+	assert.Equal(t, &Availability{Reason: ReasonNoAccount}, one.Availability)
+
+	// A node at its limit still counts: the Task waits its turn.
+	w.tasks(NewTask{Ref: "g", Profile: "codex-worker", Spec: "g"}, NewTask{Ref: "c", Profile: "implementer", Spec: "c"})
+
+	created := w.schedule().Created
+	require.Len(t, created, 2)
+	assert.Equal(t, &Availability{Available: true}, availability()["codex-worker"], "node_codex runs 1 of 1")
+
+	// The only account of the runtime cools down until its limit resets.
+	var claude string
+
+	for _, id := range created {
+		if w.dispatchOf(id).NodeID == w.node.ID {
+			claude = id
+		}
+	}
+
+	resets := t0.Add(2 * time.Hour)
+	require.NoError(t, w.finish(w.begin(claude), Outcome{Class: FailureRateLimited, ResetsAt: &resets}))
+	assert.Equal(t, &Availability{Reason: ReasonAccountsCooling, At: &resets}, availability()["implementer"])
+
+	second := w.addAccount("claude", "acct_2")
+	assert.Equal(t, &Availability{Available: true}, availability()["implementer"], "acct_2 is free")
+	require.NoError(t, w.s.DisableAccount(ctx, second.ID))
+
+	// A drained node runs no new worker.
+	require.NoError(t, w.s.DrainNode(ctx, w.node.ID))
+	assert.Equal(t, &Availability{Reason: ReasonNoNode}, availability()["implementer"])
+}

@@ -1001,6 +1001,11 @@ func TestProfilesFromTheCLI(t *testing.T) {
 	coordinator.jsonCmd(t, &profiles, "", "profiles", "list")
 	assert.Len(t, profiles.Data, 4)
 
+	// The list says which profiles no worker can start under now, and why.
+	out, err = coordinator.cmd(t, "profiles", "list")
+	require.NoError(t, err)
+	assert.Contains(t, out, "cannot run now: no_node")
+
 	var models openapi.ModelList
 	coordinator.jsonCmd(t, &models, "", "models", "list")
 	assert.NotEmpty(t, models.Data)

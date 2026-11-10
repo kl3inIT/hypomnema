@@ -103,12 +103,24 @@ func (s *Server) ListModels(ctx context.Context, _ openapi.ListModelsRequestObje
 }
 
 func toProfile(p orchestration.Profile) openapi.Profile {
-	return openapi.Profile{
+	out := openapi.Profile{
 		Name: p.Name, Description: p.Description, VersionId: p.VersionID, Version: p.Version, Runtime: p.Runtime,
 		Provider: ptr(p.Provider),
 		Model:    ptr(p.Model), Effort: ptr(p.Effort), Instruction: ptr(p.Instruction), Source: p.Source,
 		CreatedAt: p.CreatedAt,
 	}
+
+	if a := p.Availability; a != nil {
+		out.Available = &a.Available
+		out.AvailableAt = a.At
+
+		if a.Reason != "" {
+			reason := openapi.ProfileUnavailableReason(a.Reason)
+			out.UnavailableReason = &reason
+		}
+	}
+
+	return out
 }
 
 func toProfileList(profiles []orchestration.Profile) openapi.ProfileList {

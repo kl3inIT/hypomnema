@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"time"
 
 	"go.yaml.in/yaml/v3"
 
@@ -25,9 +26,24 @@ func profilesList(ctx context.Context, e *env, fs *flag.FlagSet) error {
 
 	return e.print(fs, resp.JSON200, func() {
 		for _, p := range resp.JSON200.Data {
-			e.printf("%s\tv%d\t%s\t%s\n  %s\n", p.Name, p.Version, p.Runtime, modelOf(p), p.Description)
+			e.printf("%s\tv%d\t%s\t%s%s\n  %s\n", p.Name, p.Version, p.Runtime, modelOf(p), cannotRun(p), p.Description)
 		}
 	})
+}
+
+// cannotRun is why no worker can start under a profile now, for a line of
+// the list; empty when one can, or when the API does not say.
+func cannotRun(p openapi.Profile) string {
+	if p.Available == nil || *p.Available || p.UnavailableReason == nil {
+		return ""
+	}
+
+	out := "\tcannot run now: " + string(*p.UnavailableReason)
+	if p.AvailableAt != nil {
+		out += " until " + p.AvailableAt.UTC().Format(time.RFC3339)
+	}
+
+	return out
 }
 
 func modelOf(p openapi.Profile) string {
