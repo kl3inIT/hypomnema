@@ -4,7 +4,8 @@ Date: 2026-11-10. For issue #20 (the model gateway), step 4: a client sends an O
 gateway calls Google's Cloud Code backend (`v1internal:streamGenerateContent`) with an Antigravity account's access
 token and answers in the chat format. The backend serves Gemini, Claude and gpt-oss models in one Gemini-shaped format.
 
-Read by two Sonnet scouts in the clones under `.tmp/`: 9router-go at commit 64c156d and CLIProxyAPI at c5251b5. Paths
+Read by Sonnet scouts in the clones under `.tmp/`: first 9router-go at commit 64c156d and CLIProxyAPI at c5251b5
+(sections 1 to 5), then four more sources (section 6). Paths
 are in those repositories: `tr/` is 9router-go's `internal/translator/`, `chat/` its `internal/handlers/chat/`, `Req`
 and `Resp` are CLIProxyAPI's `internal/translator/antigravity/openai/chat-completions/antigravity_openai_request.go`
 and `…_response.go`, `Ex/` its `internal/runtime/executor/`. Login and refresh are in
@@ -100,10 +101,71 @@ The two lists differ and both change often: Gemini 4 and 3.x ids whose effort is
 backend for the account's own list with `fetchAvailableModels` (`{project}`), which also gives each model's remaining
 quota and reset time.
 
-## 6. Read for Hypomnema
+## 6. Four more sources
+
+Read the same day, after the owner asked whether two references were enough: 9router (JavaScript, the original of
+9router-go) at 1fe586b, omp's built-in `google-antigravity` provider at 660a31d, the community plugin
+opencode-antigravity-auth (MIT, 11k stars) at 05e600a, and Google's own open-source Gemini CLI at 1930f25, which calls
+the same backend. LiteLLM, Bifrost, new-api and opencode itself have no Antigravity subscription path: their
+mentions of the name are an agent type of Google's official API, a client's user agent in logs, and a link to the
+plugin.
+
+| | 9router-go | CLIProxyAPI | 9router | omp | opencode plugin | Gemini CLI (Google) |
+|---|---|---|---|---|---|---|
+| Tools renamed, decoys added | yes | no | off: "Antigravity cloaking disabled" (`open-sse/translator/index.js` L169-175) | no | no | |
+| `requestType: "agent"` | omitted | sent | omitted (`open-sse/executors/antigravity.js` L335-341) | omitted: "draws false 429" (`docs/provider-quirks.md` L314) | sent | the field does not exist (`code_assist/converter.ts` L33-51) |
+| An identity prompt injected | no | no (commented out) | no | no | yes: "You are Antigravity…" for every model (`src/constants.ts` L276-282) | |
+| Other agents' names rewritten in the system text | yes | optional word list | yes (`appConstants.js` L187-195) | no | no | |
+| A `functionCall` with no signature | default signature, or carried in the call id | sentinel `skip_thought_signature_validator`, and a replay cache | default signature, and a store | the sentinel, on the first call of a turn | the sentinel, on the first call of a turn | the same sentinel, on the first call of a turn (`utils/historyHardening.ts` L12, L227-240) |
+| A client that does not stream | `:generateContent` | `:generateContent`, except Claude and Gemini 3 Pro | | always streams | `:generateContent` | both |
+| Client version | constant | read from the IDE's update manifest | constant | read from the manifest before each request | read from the manifest at start | its own |
+| Chat host | daily | daily | daily | daily, then its sandbox | daily only: "mixing hosts can grant incompatible entitlements" | `cloudcode-pa` |
+| Project | first request, prod host | login, daily host | login, prod host | login, daily host; no fallback id | first use; falls back to a fixed or random id | `loadCodeAssist`, `onboardUser`, polled every 5 s (`code_assist/setup.ts`) |
+
+- **The sentinel is Google's own.** The Gemini CLI writes `skip_thought_signature_validator` on the first unsigned
+  `functionCall` of a model turn. Three of the others do the same.
+- **`loadCodeAssist` and tiers, from Google's client** (`code_assist/setup.ts` L167-359): the request carries
+  `metadata{ideType, platform, pluginType}`; the answer has `currentTier`, `allowedTiers` (one is `isDefault`),
+  `ineligibleTiers` and `cloudaicompanionProject`. With no current tier the default tier is onboarded, with no project
+  for the free tier ("Precondition Failed" otherwise), and the operation is polled until `done`. An ineligible tier
+  with `VALIDATION_REQUIRED` carries a `validationUrl` the user must visit.
+- **429, from Google's client** (`utils/googleQuotaErrors.ts` L229-483): `QUOTA_EXHAUSTED` is final for the
+  day; `RATE_LIMIT_EXCEEDED` is retried after `RetryInfo.retryDelay` unless it is over 5 minutes;
+  `MODEL_CAPACITY_EXHAUSTED` is final for that request; a daily quota id is final. omp and the plugin classify the
+  same way and add backoffs (omp `ai/src/error/rate-limit.ts` L17-22: quota 30 min, rate 30 s, capacity 45 s).
+- **A real project id matters.** 9router: real ids "significantly reduce the risk of being flagged by Google's
+  anti-abuse systems" (`open-sse/services/projectId.js` L5-7).
+- **Headers.** All send only the IDE's `User-Agent`. 9router and the plugin record that `X-Goog-Api-Client`,
+  `Client-Metadata` or `x-goog-user-project` on these calls caused refusals (plugin `CHANGELOG.md` 1.5.0, #410).
+
+## 7. What the vendor says, and what users report
+
+- **Google's terms for the Gemini CLI login**, in the Gemini CLI repository:
+  - `docs/resources/tos-privacy.md` L10-14: "Directly accessing the services powering Gemini CLI (for example, the
+    Gemini Code Assist service) using third-party software, tools, or services (for example, using OpenClaw with
+    Gemini CLI OAuth) is a violation of applicable terms and policies. Such actions may be grounds for suspension or
+    termination of your account."
+  - `docs/resources/faq.md` L11-18 says the same of Claude Code, OpenClaw and OpenCode, "may be grounds for immediate
+    suspension or termination of your account", and names the supported way: a Vertex AI or Google AI Studio API
+    key.
+  - These are about the Gemini CLI's login. Antigravity's own terms were not read; it uses the same backend.
+- **Enforcement exists.** The Gemini CLI turns a 403 with reason `TOS_VIOLATION` into an account-suspended error
+  with an appeal link (`utils/errors.ts` L212-229). 9router-go parks an account for 24 hours on that answer.
+- **The plugin's own warnings** (`docs/TROUBLESHOOTING.md` L206-278): accounts "soft-ban[ned]" or "shadow ban[ned]"
+  for long periods once flagged, new accounts limited at once, a tool's request pattern (many calls, retries,
+  parallel agents) triggering limits sooner than the IDE. Its advice: low volume, no bursts, one request at a time,
+  and an account that was first used in the IDE itself. Its changelog records jitter and a 90 % soft quota cap
+  "to prevent Google penalties".
+- 9router shows a risk notice before an Antigravity account is connected: "Account may be restricted or banned."
+- omp's documents carry no such warning.
+
+## 8. Read for Hypomnema
 
 - More of this adapter is specific to its vendor than Codex's: the schema cleaner, thought signatures, the project,
-  per-model limits.
-- The two references agree on the translation and disagree on `requestType`, on signatures and on disguise. The
-  common ground is CLIProxyAPI's plainer path: no renamed or decoy tools, the skip sentinel for signatures.
-- An account can be blocked for this use, and 9router-go carries the code that proves it happens.
+  per-model limits, a client version that must stay current.
+- Where the six differ, the majority and Google's own client point one way: no renamed or decoy tools, no injected
+  identity, no `requestType`, the skip sentinel for signatures, always a stream, the daily host, the project found at
+  login with no made-up fallback, the client version read from the update manifest.
+- Unlike Codex, the vendor states in writing that this use violates its terms and may end the account, and
+  suspensions are reported by users of every tool read here. The decision to build it is the owner's, made with
+  that in view; a Google account kept only for this bounds what can be lost.
