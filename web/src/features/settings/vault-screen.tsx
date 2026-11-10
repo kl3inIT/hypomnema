@@ -1,159 +1,337 @@
-import { Dialog } from "@base-ui/react/dialog"
+import { useForm } from "@tanstack/react-form"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import {
+  columnFilteringFeature,
+  createFilteredRowModel,
+  createSortedRowModel,
+  filterFn_includesString,
+  rowSortingFeature,
+  sortFn_alphanumeric,
+  tableFeatures,
+  useTable,
+  type Column,
+  type ColumnDef,
+} from "@tanstack/react-table"
+import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
   Check,
-  ChevronDown,
-  ChevronRight,
   Copy,
   Eye,
   EyeOff,
   KeyRound,
   Pencil,
+  Plus,
   Search,
   Trash2,
 } from "lucide-react"
-import { Fragment, useState } from "react"
+import { createContext, use, useMemo, useState, type ReactElement } from "react"
+import { z } from "zod"
 
 import "@/api/client"
 import { deleteSecret, getSecretValue, listSecrets, putSecret } from "@/api/generated/sdk.gen"
 import type { Secret } from "@/api/generated/types.gen"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty"
+import { FieldGroup } from "@/components/ui/field"
+import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group"
+import { Spinner } from "@/components/ui/spinner"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
 
+import { cn } from "@/lib/utils"
+
+import { ConfirmDialog, ErrorAlert, TextField } from "./settings-parts"
 import { SettingsPage } from "./settings-shell"
 import { errorText } from "./use-integrations"
 
 const secretsKey = ["secrets"] as const
 
-const inputClass = "h-9 rounded-md border border-input bg-background px-3 text-sm"
-const popupClass =
-  "fixed top-1/2 left-1/2 z-50 flex max-h-[calc(100svh-2rem)] w-[calc(100vw-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 flex-col gap-4 overflow-y-auto rounded-xl border bg-background p-5 outline-none"
-const backdropClass =
-  "fixed inset-0 z-40 bg-black/60 transition-opacity data-ending-style:opacity-0 data-starting-style:opacity-0"
-
 // A hidden value: a fixed run of asterisks, so its length says nothing (Infisical's HIDDEN_SECRET_VALUE).
-const hidden = "************************"
-
-// The values a token set is replaced with, as Omnara's edit dialog asks for its "complete replacement set".
-const tokenSetKeys = ["refresh_token", "access_token", "id_token"] as const
+const hidden = "************"
 
 function typeName(secret: Secret): string {
   return secret.kind === "oauth_token_set" ? "OAuth token set" : "Generic"
 }
 
-// VaultScreen is where the owner sees what the vault keeps and reads a value (issue #108).
+// Reveal is which values are shown: every row's, from the table's head, or a row's own.
+type Reveal = {
+  all: boolean
+  toggleAll: () => void
+  shown: (name: string) => boolean
+  toggle: (name: string) => void
+}
+
+const RevealContext = createContext<Reveal>({
+  all: false,
+  toggleAll: () => {},
+  shown: () => false,
+  toggle: () => {},
+})
+
+const features = tableFeatures({
+  columnFilteringFeature,
+  rowSortingFeature,
+  filteredRowModel: createFilteredRowModel(),
+  sortedRowModel: createSortedRowModel(),
+  filterFns: { includesString: filterFn_includesString },
+  sortFns: { alphanumeric: sortFn_alphanumeric },
+})
+
+type SecretColumn = Column<typeof features, Secret>
+
+// SortHead is a column's name as a button that sorts by it, as shadcn's data table has its headers.
+function SortHead({ column, label }: { column: SecretColumn; label: string }) {
+  const sorted = column.getIsSorted()
+  const Icon = sorted === "asc" ? ArrowUp : sorted === "desc" ? ArrowDown : ArrowUpDown
+
+  return (
+    // The button's padding is pulled back so its label lines up with the cells under it.
+    <span className="-ms-2.5 inline-flex">
+      <Button variant="ghost" size="sm" onClick={column.getToggleSortingHandler()}>
+        {label}
+        <Icon data-icon="inline-end" />
+      </Button>
+    </span>
+  )
+}
+
+const columns: ColumnDef<typeof features, Secret>[] = [
+  {
+    accessorKey: "name",
+    filterFn: "includesString",
+    header: ({ column }) => <SortHead column={column} label="Name" />,
+    cell: ({ row }) => (
+      <span className="block max-w-56 truncate font-medium" title={row.original.name}>
+        {row.original.name}
+      </span>
+    ),
+  },
+  {
+    id: "value",
+    enableSorting: false,
+    header: () => <ValueHead />,
+    cell: ({ row }) => <ValueCell secret={row.original} />,
+  },
+  {
+    id: "type",
+    enableSorting: false,
+    header: "Type",
+    cell: ({ row }) => <TypeCell secret={row.original} />,
+  },
+  {
+    accessorKey: "version",
+    enableSorting: false,
+    header: "Version",
+    cell: ({ row }) => <span className="tabular-nums">{row.original.version}</span>,
+  },
+  {
+    accessorKey: "updated_at",
+    header: ({ column }) => <SortHead column={column} label="Updated" />,
+    cell: ({ row }) => <UpdatedCell secret={row.original} />,
+  },
+  {
+    id: "actions",
+    enableSorting: false,
+    header: () => <span className="sr-only">Actions</span>,
+    cell: ({ row }) => <RowActions secret={row.original} />,
+  },
+]
+
+const sortable = new Set(["name", "updated_at"])
+
+// VaultScreen is where the owner sees what the vault keeps and reads a value (issue #108), as a data table on
+// the standard components (issue #123).
 //
 // From Infisical's secrets dashboard (MIT, Copyright (c) 2022 Infisical Inc.,
 // https://github.com/Infisical/infisical; frontend/src/pages/secret-manager/OverviewPage/components/SecretTableRow/,
 // docs/images/platform/project/secrets-dashboard-2.png): a table with a Name and a Value column, the value in its
 // row, hidden as asterisks; "Reveal Values" in the table's head for every row and an eye a row; a value fetched
 // only once it is revealed (`useGetSecretValue(..., { enabled: isVisible })`); a search box and the add button
-// above the table.
+// above the table. Infisical builds its tables on TanStack Table too.
 //
 // From Omnara's secrets list (Apache-2.0, https://github.com/omnara-ai/omnara;
 // frontend/apps/web/src/components/overview/SecretsSection.tsx, components/org/EditSecretDialog.tsx): the Type
-// column, a row that opens to its details (version, payload keys, created, updated), and an edit dialog where "a
-// new value replaces" a generic secret and a token set takes "the complete replacement set".
+// column, a secret's version and dates, sorting by a column, and an edit dialog where "a new value replaces" a
+// generic secret and a token set takes "the complete replacement set". Omnara shows the version and dates in a row
+// that opens; here they are columns (owner, 2026-11-10).
 //
-// Left out: Infisical's environments, folders, tags, comments and batch editing; Omnara's sorting, paging and
-// grants.
+// Left out: Infisical's environments, folders, tags, comments and batch editing; Omnara's paging and grants.
 export function VaultScreen() {
-  const [query, setQuery] = useState("")
   const [revealAll, setRevealAll] = useState(false)
+  const [revealed, setRevealed] = useState<ReadonlySet<string>>(new Set())
   const secrets = useQuery({
     queryKey: secretsKey,
     queryFn: async () => (await listSecrets()).data.data,
   })
 
-  const all = secrets.data ?? []
-  const shown = all.filter((s) => s.name.includes(query.trim().toLowerCase()))
+  const reveal = useMemo<Reveal>(
+    () => ({
+      all: revealAll,
+      toggleAll: () => setRevealAll((all) => !all),
+      shown: (name) => revealAll || revealed.has(name),
+      toggle: (name) =>
+        setRevealed((before) => {
+          const after = new Set(before)
+          if (!after.delete(name)) after.add(name)
+
+          return after
+        }),
+    }),
+    [revealAll, revealed],
+  )
 
   return (
     <SettingsPage
+      wide
       title="Vault"
       description="The secrets Hypomnema keeps. Only you can read a value here; agents never can."
       actions={<AddSecret />}
     >
-      {secrets.isPending && <p className="text-sm text-muted-foreground">Loading…</p>}
-      {secrets.error && (
-        <p role="alert" className="text-sm text-destructive">
-          {errorText(secrets.error)}
+      {secrets.isPending && (
+        <p className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Spinner />
+          Loading…
         </p>
       )}
-      {secrets.data && all.length === 0 && (
-        <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed px-4 py-10 text-center">
-          <KeyRound className="size-5 text-muted-foreground" aria-hidden />
-          <p className="text-sm font-medium">No secrets yet</p>
-          <p className="max-w-sm text-xs text-muted-foreground">
-            Add the API keys and credentials your providers and integrations use.
-          </p>
-        </div>
+      <ErrorAlert error={secrets.error} />
+      {secrets.data && secrets.data.length === 0 && (
+        <Empty>
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <KeyRound />
+            </EmptyMedia>
+            <EmptyTitle>No secrets yet</EmptyTitle>
+            <EmptyDescription>
+              Add the API keys and credentials your providers and integrations use.
+            </EmptyDescription>
+          </EmptyHeader>
+        </Empty>
       )}
-      {all.length > 0 && (
-        <div className="flex min-w-0 flex-col gap-3">
-          <label className="flex h-9 items-center gap-2 rounded-md border border-input bg-background px-3 text-sm">
-            <Search className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-            <span className="sr-only">Search secrets by name</span>
-            <input
-              type="search"
-              autoComplete="off"
-              placeholder="Search secrets by name…"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-muted-foreground"
-            />
-          </label>
-          <div className="relative max-w-full min-w-0 overflow-x-auto rounded-xl border bg-card">
-            <table className="w-full min-w-xl text-sm">
-              <thead className="border-b text-left text-muted-foreground">
-                <tr>
-                  <th className="w-8 py-2 ps-3">
-                    <span className="sr-only">Details</span>
-                  </th>
-                  <th className="px-2 py-2 font-medium">Name</th>
-                  <th className="w-full px-2 py-2 font-medium">
-                    <span className="flex items-center justify-between gap-2">
-                      Value
-                      <Button
-                        variant="ghost"
-                        size="xs"
-                        aria-pressed={revealAll}
-                        onClick={() => setRevealAll((r) => !r)}
-                      >
-                        {revealAll ? <EyeOff /> : <Eye />}
-                        {revealAll ? "Hide values" : "Reveal values"}
-                      </Button>
-                    </span>
-                  </th>
-                  <th className="px-2 py-2 font-medium">Type</th>
-                  <th className="w-28 py-2 pe-3">
-                    <span className="sr-only">Actions</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {shown.map((secret) => (
-                  <SecretRow key={secret.name} secret={secret} revealAll={revealAll} />
-                ))}
-                {shown.length === 0 && (
-                  <tr>
-                    <td colSpan={5} className="px-3 py-6 text-center text-muted-foreground">
-                      No secret matches “{query.trim()}”.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
+      {secrets.data && secrets.data.length > 0 && (
+        <RevealContext value={reveal}>
+          <SecretsTable secrets={secrets.data} />
+        </RevealContext>
       )}
     </SettingsPage>
   )
 }
 
-function SecretRow({ secret, revealAll }: { secret: Secret; revealAll: boolean }) {
-  const [revealed, setRevealed] = useState(false)
-  const [open, setOpen] = useState(false)
-  const shown = revealed || revealAll
+function SecretsTable({ secrets }: { secrets: Secret[] }) {
+  const table = useTable({
+    features,
+    columns,
+    data: secrets,
+    getRowId: (secret) => secret.name,
+    initialState: { sorting: [{ id: "name", desc: false }] },
+  })
+  const name = table.getColumn("name")
+  const query = (name?.getFilterValue() as string | undefined) ?? ""
+  const rows = table.getRowModel().rows
+
+  return (
+    <div className="flex min-w-0 flex-col gap-3">
+      <InputGroup>
+        <InputGroupAddon>
+          <Search />
+        </InputGroupAddon>
+        <InputGroupInput
+          type="search"
+          autoComplete="off"
+          aria-label="Search secrets by name"
+          placeholder="Search secrets by name…"
+          value={query}
+          onChange={(event) => name?.setFilterValue(event.target.value.trim().toLowerCase())}
+        />
+      </InputGroup>
+      <div className="min-w-0 overflow-hidden rounded-xl border bg-card">
+        <Table>
+          <TableHeader>
+            {table.getHeaderGroups().map((group) => (
+              <TableRow key={group.id}>
+                {group.headers.map((header) => {
+                  const sorted = header.column.getIsSorted()
+
+                  return (
+                    <TableHead
+                      key={header.id}
+                      aria-sort={
+                        sortable.has(header.column.id)
+                          ? sorted === "asc"
+                            ? "ascending"
+                            : sorted === "desc"
+                              ? "descending"
+                              : "none"
+                          : undefined
+                      }
+                    >
+                      <table.FlexRender header={header} />
+                    </TableHead>
+                  )
+                })}
+              </TableRow>
+            ))}
+          </TableHeader>
+          <TableBody>
+            {rows.map((row) => (
+              <TableRow key={row.id} aria-label={row.original.name}>
+                {row.getAllCells().map((cell) => (
+                  <TableCell key={cell.id}>
+                    <table.FlexRender cell={cell} />
+                  </TableCell>
+                ))}
+              </TableRow>
+            ))}
+            {rows.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={columns.length}>
+                  <p className="py-6 text-center text-muted-foreground">
+                    No secret matches “{query}”.
+                  </p>
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </div>
+    </div>
+  )
+}
+
+function ValueHead() {
+  const reveal = use(RevealContext)
+
+  return (
+    <span className="flex items-center justify-between gap-2">
+      Value
+      <Button variant="ghost" size="xs" aria-pressed={reveal.all} onClick={reveal.toggleAll}>
+        {reveal.all ? <EyeOff data-icon="inline-start" /> : <Eye data-icon="inline-start" />}
+        {reveal.all ? "Hide values" : "Reveal values"}
+      </Button>
+    </span>
+  )
+}
+
+function ValueCell({ secret }: { secret: Secret }) {
+  const shown = use(RevealContext).shown(secret.name)
 
   // The value is asked for only while it is shown, and is not kept once hidden.
   const value = useQuery({
@@ -165,89 +343,35 @@ function SecretRow({ secret, revealAll }: { secret: Secret; revealAll: boolean }
   })
   const entries = shown && value.data ? Object.entries(value.data) : []
 
+  if (!shown || value.isPending) {
+    return (
+      <span className="font-mono text-muted-foreground select-none" aria-hidden={!shown}>
+        {hidden}
+      </span>
+    )
+  }
+
+  if (value.error) {
+    return (
+      <span role="alert" className="text-destructive">
+        {errorText(value.error)}
+      </span>
+    )
+  }
+
+  // One line a value, as Infisical keeps a row's value on its line (SecretEditTableRow.tsx: `truncate`): a long
+  // one is cut with its whole text in its title, and is copied whole. A token set names each value before it.
   return (
-    <Fragment>
-      <tr aria-label={secret.name} className="align-top">
-        <td className="py-2 ps-3">
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            aria-expanded={open}
-            aria-label={open ? `Close ${secret.name}` : `Details of ${secret.name}`}
-            onClick={() => setOpen((o) => !o)}
-          >
-            {open ? <ChevronDown /> : <ChevronRight />}
-          </Button>
-        </td>
-        <td className="px-2 py-2.5 font-medium whitespace-nowrap">{secret.name}</td>
-        <td className="px-2 py-2.5 font-mono">
-          {!shown && (
-            <span className="text-muted-foreground select-none" aria-hidden>
-              {hidden}
-            </span>
-          )}
-          {shown && value.isPending && <span className="text-muted-foreground">{hidden}</span>}
-          {shown && value.error && (
-            <span role="alert" className="font-sans text-destructive">
-              {errorText(value.error)}
-            </span>
-          )}
-          {entries.map(([key, text]) => (
-            <SecretValue key={key} label={entries.length > 1 ? key : undefined} value={text} />
-          ))}
-        </td>
-        <td className="px-2 py-2.5 whitespace-nowrap text-muted-foreground">{typeName(secret)}</td>
-        <td className="py-2 pe-3">
-          <span className="flex justify-end gap-0.5">
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-pressed={shown}
-              aria-label={shown ? `Hide ${secret.name}` : `Reveal ${secret.name}`}
-              disabled={revealAll}
-              onClick={() => setRevealed((r) => !r)}
-            >
-              {shown ? <EyeOff /> : <Eye />}
-            </Button>
-            <EditSecret secret={secret} />
-            <RemoveSecret secret={secret} />
-          </span>
-        </td>
-      </tr>
-      {open && (
-        <tr>
-          <td colSpan={5} className="ps-11 pe-3 pt-0 pb-3">
-            <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1 text-xs">
-              <Detail label="Version" value={String(secret.version)} />
-              <Detail label="Created" value={new Date(secret.created_at).toLocaleString()} />
-              <Detail label="Updated" value={new Date(secret.updated_at).toLocaleString()} />
-              {secret.key_missing && (
-                <Detail
-                  label="Key"
-                  value="Its root key is not in the keyring, so it cannot be read."
-                />
-              )}
-              {secret.login_required && (
-                <Detail label="Sign-in" value="Refused; sign in again where it is used." />
-              )}
-            </dl>
-          </td>
-        </tr>
-      )}
-    </Fragment>
+    <span className="grid max-w-md grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1">
+      {entries.map(([key, text]) => (
+        <SecretValue key={key} label={entries.length > 1 ? key : undefined} value={text} />
+      ))}
+    </span>
   )
 }
 
-function Detail({ label, value }: { label: string; value: string }) {
-  return (
-    <>
-      <dt className="text-muted-foreground">{label}</dt>
-      <dd>{value}</dd>
-    </>
-  )
-}
-
-// SecretValue is one revealed value with a button that copies it.
+// SecretValue is one revealed value on its line: its key when the secret has several, the value, and a button
+// that copies it.
 function SecretValue({ label, value }: { label?: string; value: string }) {
   const [copied, setCopied] = useState(false)
 
@@ -261,13 +385,15 @@ function SecretValue({ label, value }: { label?: string; value: string }) {
   }
 
   return (
-    <span className="flex items-start gap-1.5">
-      <span className="min-w-0 flex-1">
-        {label && <span className="block font-sans text-xs text-muted-foreground">{label}</span>}
-        <output aria-label={label ?? "value"} className="block break-all whitespace-pre-wrap">
-          {value}
-        </output>
-      </span>
+    <>
+      {label && <span className="text-xs text-muted-foreground">{label}</span>}
+      <output
+        aria-label={label ?? "value"}
+        title={value}
+        className={cn("truncate font-mono", !label && "col-span-2")}
+      >
+        {value}
+      </output>
       <Button
         variant="ghost"
         size="icon-xs"
@@ -276,6 +402,93 @@ function SecretValue({ label, value }: { label?: string; value: string }) {
       >
         {copied ? <Check /> : <Copy />}
       </Button>
+    </>
+  )
+}
+
+function TypeCell({ secret }: { secret: Secret }) {
+  return (
+    <span className="flex flex-col items-start gap-1 text-muted-foreground">
+      {typeName(secret)}
+      {secret.login_required && (
+        <Badge variant="destructive" title="Refused; sign in again where it is used.">
+          Needs sign-in
+        </Badge>
+      )}
+      {secret.key_missing && (
+        <Badge
+          variant="destructive"
+          title="Its root key is not in the keyring, so it cannot be read."
+        >
+          Key missing
+        </Badge>
+      )}
+    </span>
+  )
+}
+
+const dayFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "medium" })
+const momentFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" })
+
+function UpdatedCell({ secret }: { secret: Secret }) {
+  const updated = new Date(secret.updated_at)
+  const created = new Date(secret.created_at)
+
+  return (
+    <time
+      dateTime={secret.updated_at}
+      className="text-muted-foreground"
+      title={`Updated ${momentFormat.format(updated)}; created ${momentFormat.format(created)}`}
+    >
+      {dayFormat.format(updated)}
+    </time>
+  )
+}
+
+function RowActions({ secret }: { secret: Secret }) {
+  const reveal = use(RevealContext)
+  const refresh = useRefreshSecrets()
+  const shown = reveal.shown(secret.name)
+
+  return (
+    <span className="flex justify-end gap-0.5">
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        aria-pressed={shown}
+        aria-label={shown ? `Hide ${secret.name}` : `Reveal ${secret.name}`}
+        disabled={reveal.all}
+        onClick={() => reveal.toggle(secret.name)}
+      >
+        {shown ? <EyeOff /> : <Eye />}
+      </Button>
+      <SecretDialog
+        trigger={
+          <Button variant="ghost" size="icon-sm" aria-label={`Edit ${secret.name}`}>
+            <Pencil />
+          </Button>
+        }
+        title={`Edit ${secret.name}`}
+        about={
+          secret.kind === "oauth_token_set"
+            ? "To update credentials, enter the complete replacement set."
+            : "Enter a new value to replace it."
+        }
+        secret={secret}
+        action="Save"
+      />
+      <ConfirmDialog
+        trigger={
+          <Button variant="ghost" size="icon-sm" aria-label={`Delete ${secret.name}`}>
+            <Trash2 />
+          </Button>
+        }
+        title={`Delete ${secret.name}?`}
+        consequence="Every version of it is removed. This cannot be undone."
+        action="Delete secret"
+        run={() => deleteSecret({ path: { name: secret.name } })}
+        onDone={refresh}
+      />
     </span>
   )
 }
@@ -286,6 +499,32 @@ function useRefreshSecrets() {
   return () => queryClient.invalidateQueries({ queryKey: secretsKey })
 }
 
+// What a secret's form holds. A new secret has a name and one value; a generic one is given a new value; a token
+// set its complete replacement set, as Omnara's edit dialog asks.
+const empty = { name: "", value: "", refresh_token: "", access_token: "", id_token: "" }
+
+const required = (what: string) => z.string().min(1, `${what} is required.`)
+
+// Every schema has the whole form's shape; each mode asks only for the fields it shows.
+const fields = z.object({
+  name: z.string(),
+  value: z.string(),
+  refresh_token: z.string(),
+  access_token: z.string(),
+  id_token: z.string(),
+})
+
+const schemas = {
+  add: fields.extend({
+    name: z
+      .string()
+      .regex(/^[a-z0-9][a-z0-9-]{0,62}$/, "Lower-case letters, digits and dashes, 63 at most."),
+    value: required("A value"),
+  }),
+  generic: fields.extend({ value: required("A value") }),
+  tokenSet: fields.extend({ refresh_token: required("The refresh token") }),
+}
+
 function SecretDialog({
   trigger,
   title,
@@ -293,7 +532,7 @@ function SecretDialog({
   secret,
   action,
 }: {
-  trigger: React.ReactElement
+  trigger: ReactElement
   title: string
   about: string
   secret?: Secret
@@ -301,21 +540,33 @@ function SecretDialog({
 }) {
   const refresh = useRefreshSecrets()
   const [open, setOpen] = useState(false)
-  const [name, setName] = useState("")
-  const [values, setValues] = useState<Record<string, string>>({})
-  const tokenSet = secret?.kind === "oauth_token_set"
-  const keys: readonly string[] = tokenSet ? tokenSetKeys : ["value"]
-  const called = secret?.name ?? name.trim()
-  const required = tokenSet ? "refresh_token" : "value"
-  const given = Object.fromEntries(Object.entries(values).filter(([, v]) => v !== ""))
+  const mode = !secret ? "add" : secret.kind === "oauth_token_set" ? "tokenSet" : "generic"
 
   const save = useMutation({
-    mutationFn: () =>
-      putSecret({
-        path: { name: called },
-        body: tokenSet ? { values: given } : { value: given.value ?? "" },
-      }),
-    onSuccess: async () => {
+    mutationFn: (value: typeof empty) => {
+      const name = secret?.name ?? value.name
+
+      if (mode !== "tokenSet") return putSecret({ path: { name }, body: { value: value.value } })
+
+      const { refresh_token, access_token, id_token } = value
+      const values = Object.fromEntries(
+        Object.entries({ refresh_token, access_token, id_token }).filter(([, v]) => v !== ""),
+      )
+
+      return putSecret({ path: { name }, body: { values } })
+    },
+  })
+
+  const form = useForm({
+    defaultValues: empty,
+    validators: { onSubmit: schemas[mode] },
+    onSubmit: async ({ value }) => {
+      try {
+        await save.mutateAsync(value)
+      } catch {
+        return // The dialog stays open and shows what the server refused.
+      }
+
       await refresh()
       change(false)
     },
@@ -324,159 +575,86 @@ function SecretDialog({
   function change(next: boolean) {
     setOpen(next)
     if (!next) {
-      setName("")
-      setValues({})
+      form.reset()
       save.reset()
     }
   }
 
   return (
-    <Dialog.Root open={open} onOpenChange={change}>
-      <Dialog.Trigger render={trigger} />
-      <Dialog.Portal>
-        <Dialog.Backdrop className={backdropClass} />
-        <Dialog.Popup className={popupClass}>
-          <form
-            autoComplete="off"
-            className="flex flex-col gap-4"
-            onSubmit={(event) => {
-              event.preventDefault()
-              save.mutate()
-            }}
-          >
-            <Dialog.Title className="text-sm font-medium">{title}</Dialog.Title>
-            <Dialog.Description className="text-sm text-muted-foreground">
-              {about}
-            </Dialog.Description>
-            {!secret && (
-              <div className="flex flex-col gap-1.5 text-sm">
-                <label htmlFor="secret-name">Name</label>
-                <input
-                  id="secret-name"
-                  required
-                  autoComplete="off"
-                  aria-describedby="secret-name-hint"
-                  placeholder="openai-key"
-                  value={name}
-                  onChange={(event) => setName(event.target.value)}
-                  className={inputClass}
-                />
-                <span id="secret-name-hint" className="text-xs text-muted-foreground">
-                  Lower-case letters, digits and dashes.
-                </span>
-              </div>
+    <Dialog open={open} onOpenChange={change}>
+      <DialogTrigger render={trigger} />
+      <DialogContent>
+        <form
+          autoComplete="off"
+          noValidate
+          className="flex flex-col gap-4"
+          onSubmit={(event) => {
+            event.preventDefault()
+            void form.handleSubmit()
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>{title}</DialogTitle>
+            <DialogDescription>{about}</DialogDescription>
+          </DialogHeader>
+          <FieldGroup>
+            {mode === "add" && (
+              <form.Field name="name">
+                {(field) => (
+                  <TextField
+                    field={field}
+                    label="Name"
+                    placeholder="openai-key"
+                    description="Lower-case letters, digits and dashes."
+                  />
+                )}
+              </form.Field>
             )}
-            {keys.map((key) => (
-              <label key={key} className="flex flex-col gap-1.5 text-sm">
-                {key === "value" ? "Value" : key}
-                <input
-                  required={key === required}
-                  type="password"
-                  autoComplete="off"
-                  placeholder={secret ? "••••••••••••" : undefined}
-                  value={values[key] ?? ""}
-                  onChange={(event) => setValues((v) => ({ ...v, [key]: event.target.value }))}
-                  className={inputClass}
-                />
-              </label>
-            ))}
-            {save.error && (
-              <p role="alert" className="text-sm text-destructive">
-                {errorText(save.error)}
-              </p>
+            {mode !== "tokenSet" && (
+              <form.Field name="value">
+                {(field) => (
+                  <TextField
+                    field={field}
+                    label="Value"
+                    secret
+                    placeholder={secret && "••••••••"}
+                  />
+                )}
+              </form.Field>
             )}
-            <div className="flex justify-end gap-2">
-              <Dialog.Close render={<Button variant="outline" />}>Cancel</Dialog.Close>
-              <Button type="submit" disabled={save.isPending || called === "" || !given[required]}>
-                {save.isPending ? "Saving…" : action}
-              </Button>
-            </div>
-          </form>
-        </Dialog.Popup>
-      </Dialog.Portal>
-    </Dialog.Root>
+            {mode === "tokenSet" &&
+              (["refresh_token", "access_token", "id_token"] as const).map((key) => (
+                <form.Field key={key} name={key}>
+                  {(field) => <TextField field={field} label={key} secret placeholder="••••••••" />}
+                </form.Field>
+              ))}
+          </FieldGroup>
+          <ErrorAlert error={save.error} />
+          <DialogFooter>
+            <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
+            <Button type="submit" disabled={save.isPending}>
+              {save.isPending && <Spinner data-icon="inline-start" />}
+              {action}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   )
 }
 
 function AddSecret() {
   return (
     <SecretDialog
-      trigger={<Button>Add secret</Button>}
+      trigger={
+        <Button>
+          <Plus data-icon="inline-start" />
+          Add secret
+        </Button>
+      }
       title="New secret"
       about="It is kept encrypted on the server. You can read it again here."
       action="Add"
     />
-  )
-}
-
-function EditSecret({ secret }: { secret: Secret }) {
-  return (
-    <SecretDialog
-      trigger={
-        <Button variant="ghost" size="icon-sm" aria-label={`Edit ${secret.name}`}>
-          <Pencil />
-        </Button>
-      }
-      title={`Edit ${secret.name}`}
-      about={
-        secret.kind === "oauth_token_set"
-          ? "To update credentials, enter the complete replacement set."
-          : "Enter a new value to replace it."
-      }
-      secret={secret}
-      action="Save"
-    />
-  )
-}
-
-function RemoveSecret({ secret }: { secret: Secret }) {
-  const refresh = useRefreshSecrets()
-  const [open, setOpen] = useState(false)
-  const remove = useMutation({
-    mutationFn: () => deleteSecret({ path: { name: secret.name } }),
-    onSuccess: async () => {
-      await refresh()
-      setOpen(false)
-    },
-  })
-
-  return (
-    <Dialog.Root
-      open={open}
-      onOpenChange={(next) => {
-        setOpen(next)
-        if (!next) remove.reset()
-      }}
-    >
-      <Dialog.Trigger
-        render={<Button variant="ghost" size="icon-sm" aria-label={`Delete ${secret.name}`} />}
-      >
-        <Trash2 />
-      </Dialog.Trigger>
-      <Dialog.Portal>
-        <Dialog.Backdrop className={backdropClass} />
-        <Dialog.Popup className={popupClass}>
-          <Dialog.Title className="text-sm font-medium">Delete {secret.name}?</Dialog.Title>
-          <Dialog.Description className="text-sm text-muted-foreground">
-            Every version of it is removed. This cannot be undone.
-          </Dialog.Description>
-          {remove.error && (
-            <p role="alert" className="text-sm text-destructive">
-              {errorText(remove.error)}
-            </p>
-          )}
-          <div className="flex justify-end gap-2">
-            <Dialog.Close render={<Button variant="outline" />}>Cancel</Dialog.Close>
-            <Button
-              variant="destructive"
-              disabled={remove.isPending}
-              onClick={() => remove.mutate()}
-            >
-              Delete secret
-            </Button>
-          </div>
-        </Dialog.Popup>
-      </Dialog.Portal>
-    </Dialog.Root>
   )
 }

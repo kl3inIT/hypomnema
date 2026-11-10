@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 
 import "@/api/client"
-import { listGitHosts, listRepos } from "@/api/generated/sdk.gen"
+import { listGitHosts, listIntegrations, listRepos } from "@/api/generated/sdk.gen"
 import type { GitHost } from "@/api/generated/types.gen"
 
 export const hostsKey = ["git-hosts"] as const
@@ -9,6 +9,16 @@ export const reposKey = ["repos"] as const
 
 export function useHosts() {
   return useQuery({ queryKey: hostsKey, queryFn: async () => (await listGitHosts()).data.data })
+}
+
+// The services that sign in with an account (issue #103): Google is the first.
+export const servicesKey = ["integrations"] as const
+
+export function useServices() {
+  return useQuery({
+    queryKey: servicesKey,
+    queryFn: async () => (await listIntegrations()).data.data,
+  })
 }
 
 export function useRepos() {

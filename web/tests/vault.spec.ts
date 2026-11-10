@@ -145,8 +145,7 @@ test("the owner reveals and hides secrets' values", async ({ page }) => {
   await expect(
     row(page, "google-work").getByRole("status", { name: "refresh_token" }),
   ).toContainText("1//0gExample")
-  await page.getByRole("button", { name: "Details of google-work" }).click()
-  await expect(page.getByText("Version")).toBeVisible()
+  await expect(page.getByRole("columnheader", { name: "Version" })).toBeVisible()
   expect(await fits(page)).toBe(true)
   await shot(page, "vault-revealed")
 
@@ -200,14 +199,14 @@ test("the owner adds, edits and deletes a secret", async ({ page }) => {
   await expect(dialog).toBeHidden()
 
   await row(page, "openai-key").getByRole("button", { name: "Delete openai-key" }).click()
-  dialog = page.getByRole("dialog")
+  dialog = page.getByRole("alertdialog")
   await dialog.getByRole("button", { name: "Delete secret" }).click()
   await expect(dialog.getByRole("alert")).toContainText("used by provider openai")
   await shot(page, "vault-delete-refused")
   await dialog.getByRole("button", { name: "Cancel" }).click()
 
   await row(page, "deploy-key").getByRole("button", { name: "Delete deploy-key" }).click()
-  await page.getByRole("dialog").getByRole("button", { name: "Delete secret" }).click()
+  await page.getByRole("alertdialog").getByRole("button", { name: "Delete secret" }).click()
   await expect(row(page, "deploy-key")).toHaveCount(0)
 
   expect(calls).toEqual([

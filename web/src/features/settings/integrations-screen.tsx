@@ -1,7 +1,8 @@
-import { Dialog } from "@base-ui/react/dialog"
+import { useForm } from "@tanstack/react-form"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { ExternalLink, GitPullRequestArrow } from "lucide-react"
+import { ExternalLink, Plus } from "lucide-react"
 import { useState, type ReactNode } from "react"
+import { z } from "zod"
 
 import "@/api/client"
 import {
@@ -11,31 +12,50 @@ import {
   putGitHostToken,
 } from "@/api/generated/sdk.gen"
 import type { GitHost, GitHostKind } from "@/api/generated/types.gen"
+import { GitHubIcon, GitLabIcon } from "@/components/icons/brand-icons"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { cn } from "@/lib/utils"
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card"
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
+import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
+import { Spinner } from "@/components/ui/spinner"
 
+import { ServiceCard } from "./service-cards"
+import { ConfirmDialog, ErrorAlert, TextField } from "./settings-parts"
 import { SettingsPage } from "./settings-shell"
 import {
-  errorText,
   hostName,
   hostOf,
   hostsKey,
   kindName,
   tokenHelp,
   useHosts,
+  useServices,
 } from "./use-integrations"
-
-const inputClass = "h-9 rounded-md border border-input bg-background px-3 text-sm"
-const popupClass =
-  "fixed top-1/2 left-1/2 z-50 flex max-h-[calc(100svh-2rem)] w-[calc(100vw-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 flex-col gap-4 overflow-y-auto rounded-xl border bg-background p-5 outline-none"
-const backdropClass =
-  "fixed inset-0 z-40 bg-black/60 transition-opacity data-ending-style:opacity-0 data-starting-style:opacity-0"
 
 // IntegrationsScreen is where the owner connects the services Hypomnema works with. Today those are the git hosts
 // workers push to and open pull requests on; a task tracker would be a second group, as Orca's Integrations pane
 // has "Review providers" and "Task providers" (src/renderer/src/components/settings/integrations/IntegrationsPane.tsx).
 export function IntegrationsScreen() {
   const hosts = useHosts()
+  const services = useServices()
 
   return (
     <SettingsPage
@@ -43,6 +63,20 @@ export function IntegrationsScreen() {
       description="The services Hypomnema works with, and the access it has to each."
       actions={<AddHost />}
     >
+      <section aria-labelledby="services" className="flex flex-col gap-3">
+        <div className="flex flex-col gap-1">
+          <h2 id="services" className="text-sm font-semibold text-foreground">
+            Services
+          </h2>
+          <p className="text-xs text-muted-foreground">
+            Accounts you sign in, for agents to work with on your behalf.
+          </p>
+        </div>
+        <ErrorAlert error={services.error} />
+        {services.data?.map((service) => (
+          <ServiceCard key={service.id} service={service} />
+        ))}
+      </section>
       <section aria-labelledby="git-hosts" className="flex flex-col gap-3">
         <div className="flex flex-col gap-1">
           <h2 id="git-hosts" className="text-sm font-semibold text-foreground">
@@ -52,12 +86,13 @@ export function IntegrationsScreen() {
             Where workers clone repositories, push their branches and open pull requests.
           </p>
         </div>
-        {hosts.isPending && <p className="text-sm text-muted-foreground">Loading…</p>}
-        {hosts.error && (
-          <p role="alert" className="text-sm text-destructive">
-            {errorText(hosts.error)}
+        {hosts.isPending && (
+          <p className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Spinner />
+            Loading…
           </p>
         )}
+        <ErrorAlert error={hosts.error} />
         {hosts.data?.map((host) => (
           <HostCard key={host.host} host={host} />
         ))}
@@ -66,99 +101,103 @@ export function IntegrationsScreen() {
   )
 }
 
-type Tone = "connected" | "attention"
+// HostIcon is the mark of what a host runs: GitHub's or GitLab's. A company's own server carries the mark of the
+// product it runs, as its address alone says nothing.
+function HostIcon({ host }: { host: GitHost }) {
+  const Icon = host.kind === "github" ? GitHubIcon : GitLabIcon
 
-const tones: Record<Tone, string> = {
-  connected: "border-done/30 bg-done-soft text-done",
-  attention: "border-needs-you/30 bg-needs-you-soft text-needs-you",
+  return <Icon className="size-6 shrink-0" />
 }
 
-// IntegrationCard is one service: what it is, the access Hypomnema has, the actions, and under a rule what is
-// still to do. Adapted from Orca's IntegrationCardShell and IntegrationCardDetails (MIT, Copyright (c) 2026
-// Lovecast Inc., https://github.com/stablyai/orca;
-// src/renderer/src/components/integrations/presentation/integration-card-shell.tsx).
-function IntegrationCard({
-  icon,
-  name,
-  description,
-  status,
-  tone,
-  actions,
-  children,
-}: {
-  icon: ReactNode
-  name: string
-  description: ReactNode
-  status: string
-  tone: Tone
-  actions?: ReactNode
-  children?: ReactNode
-}) {
+function HelpLink({ href }: { href: string }) {
   return (
-    <div className="rounded-xl border bg-card p-4" data-testid="integration-card">
-      <div className="flex flex-wrap items-start gap-3">
-        <span className="shrink-0 text-muted-foreground">{icon}</span>
-        <div className="min-w-0 flex-1 basis-64 space-y-0.5">
-          <p className="text-sm font-medium">{name}</p>
-          <p className="text-xs text-muted-foreground">{description}</p>
-        </div>
-        <div className="flex shrink-0 flex-wrap items-center gap-1.5 max-sm:basis-full">
-          {actions}
-          <span
-            className={cn(
-              "shrink-0 rounded-full border px-2.5 py-1 text-2xs font-medium",
-              tones[tone],
-            )}
-          >
-            {status}
-          </span>
-        </div>
-      </div>
-      {children && <div className="mt-4 space-y-2 border-t pt-4">{children}</div>}
-    </div>
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      className="inline-flex items-center gap-1 text-xs text-link hover:underline"
+    >
+      <ExternalLink className="size-3" aria-hidden />
+      How to create a token
+    </a>
   )
 }
 
 const lowerFirst = (text: string) => text.charAt(0).toLowerCase() + text.slice(1)
 
+// HostCard is one service: what it is, the access Hypomnema has, the actions, and what is still to do. The
+// arrangement is Orca's IntegrationCardShell and IntegrationCardDetails (MIT, Copyright (c) 2026 Lovecast Inc.,
+// https://github.com/stablyai/orca; src/renderer/src/components/integrations/presentation/integration-card-shell.tsx),
+// on the standard Card.
 function HostCard({ host }: { host: GitHost }) {
+  const refresh = useRefreshHosts()
   const help = tokenHelp(host)
 
   return (
-    <IntegrationCard
-      icon={<GitPullRequestArrow className="size-5" />}
-      name={hostName(host)}
-      description={
-        host.known ? `${host.host} · Pull requests` : `${kindName(host)} server · Pull requests`
-      }
-      status={host.has_token ? "Connected" : "No token"}
-      tone={host.has_token ? "connected" : "attention"}
-      actions={
-        <>
-          <SetToken host={host} />
-          {host.has_token && <RemoveToken host={host} />}
-          {!host.known && <RemoveHost host={host} />}
-        </>
-      }
-    >
+    <Card size="sm" data-testid="integration-card">
+      <CardHeader>
+        <CardTitle>
+          <span className="flex items-center gap-3">
+            <HostIcon host={host} />
+            <span className="flex flex-col gap-0.5">
+              <span>{hostName(host)}</span>
+              <CardDescription>
+                {host.known
+                  ? `${host.host} · Pull requests`
+                  : `${kindName(host)} server · Pull requests`}
+              </CardDescription>
+            </span>
+          </span>
+        </CardTitle>
+        <CardAction>
+          <span className="flex flex-wrap items-center justify-end gap-1.5">
+            <SetToken host={host} />
+            {host.has_token && (
+              <ConfirmDialog
+                trigger={
+                  <Button variant="ghost" size="sm">
+                    Remove token
+                  </Button>
+                }
+                title={`Remove the token of ${hostName(host)}?`}
+                consequence="Workers will use the login of the machine they run on, where it has one. Work already running keeps the token it started with."
+                action="Remove token"
+                run={() => deleteGitHostToken({ path: { host: host.host } })}
+                onDone={refresh}
+              />
+            )}
+            {!host.known && (
+              <ConfirmDialog
+                trigger={
+                  <Button variant="ghost" size="sm">
+                    Remove
+                  </Button>
+                }
+                title={`Remove ${host.host}?`}
+                consequence="Its token is removed with it. A host that an open Run or a registered repository is on cannot be removed."
+                action="Remove host"
+                run={() => deleteGitHost({ path: { host: host.host } })}
+                onDone={refresh}
+              />
+            )}
+            <Badge variant={host.has_token ? "success" : "warning"}>
+              {host.has_token ? "Connected" : "No token"}
+            </Badge>
+          </span>
+        </CardAction>
+      </CardHeader>
       {!host.has_token && (
-        <>
-          <p className="text-xs text-muted-foreground">
-            Without a token, workers use the login of the machine they run on, where it has one.
-          </p>
-          <p className="text-xs text-muted-foreground">To connect: {lowerFirst(help.needs)}</p>
-          <a
-            href={help.docs}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-1 text-xs text-link hover:underline"
-          >
-            <ExternalLink className="size-3" aria-hidden />
-            How to create a token
-          </a>
-        </>
+        <CardContent>
+          <div className="flex flex-col gap-2 border-t pt-3 text-xs text-muted-foreground">
+            <p>
+              Without a token, workers use the login of the machine they run on, where it has one.
+            </p>
+            <p>To connect: {lowerFirst(help.needs)}</p>
+            <HelpLink href={help.docs} />
+          </div>
+        </CardContent>
       )}
-    </IntegrationCard>
+    </Card>
   )
 }
 
@@ -168,18 +207,94 @@ function useRefreshHosts() {
   return () => queryClient.invalidateQueries({ queryKey: hostsKey })
 }
 
+// FormDialog is a dialog that holds one form: its title, what it is for, the fields, what the server refused, and
+// the two buttons.
+function FormDialog({
+  open,
+  onOpenChange,
+  trigger,
+  title,
+  about,
+  error,
+  pending,
+  action,
+  onSubmit,
+  children,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  trigger: ReactNode
+  title: string
+  about: string
+  error: unknown
+  pending: boolean
+  action: string
+  onSubmit: () => void
+  children: ReactNode
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      {trigger}
+      <DialogContent>
+        <form
+          autoComplete="off"
+          noValidate
+          className="flex flex-col gap-4"
+          onSubmit={(event) => {
+            event.preventDefault()
+            onSubmit()
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>{title}</DialogTitle>
+            <DialogDescription>{about}</DialogDescription>
+          </DialogHeader>
+          {children}
+          <ErrorAlert error={error} />
+          <DialogFooter>
+            <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
+            <Button type="submit" disabled={pending}>
+              {pending && <Spinner data-icon="inline-start" />}
+              {action}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+const tokenSchema = z.object({
+  token: z
+    .string()
+    .trim()
+    .min(1, "Paste the token.")
+    .regex(/^\S+$/, "A token is one line without spaces."),
+})
+
 // SetToken is the dialog that takes a host's token, as Orca's credential dialogs take one
 // (bitbucket-credentials-dialog.tsx): a password field, what the token needs, and where to make one. The token is
 // sent once and never shown again; it lives in this dialog only until it is sent.
 function SetToken({ host }: { host: GitHost }) {
   const refresh = useRefreshHosts()
   const [open, setOpen] = useState(false)
-  const [token, setToken] = useState("")
   const help = tokenHelp(host)
 
   const save = useMutation({
-    mutationFn: () => putGitHostToken({ path: { host: host.host }, body: { token: token.trim() } }),
-    onSuccess: async () => {
+    mutationFn: (token: string) =>
+      putGitHostToken({ path: { host: host.host }, body: { token: token.trim() } }),
+  })
+
+  const form = useForm({
+    defaultValues: { token: "" },
+    validators: { onSubmit: tokenSchema },
+    onSubmit: async ({ value }) => {
+      try {
+        await save.mutateAsync(value.token)
+      } catch {
+        return // The dialog stays open and shows what the server refused.
+      }
+
       await refresh()
       change(false)
     },
@@ -188,256 +303,148 @@ function SetToken({ host }: { host: GitHost }) {
   function change(next: boolean) {
     setOpen(next)
     if (!next) {
-      setToken("")
+      form.reset()
       save.reset()
     }
   }
 
   return (
-    <Dialog.Root open={open} onOpenChange={change}>
-      <Dialog.Trigger render={<Button variant="outline" size="sm" />}>
-        {host.has_token ? "Replace token" : "Add token"}
-      </Dialog.Trigger>
-      <Dialog.Portal>
-        <Dialog.Backdrop className={backdropClass} />
-        <Dialog.Popup className={popupClass}>
-          <form
-            className="flex flex-col gap-4"
-            onSubmit={(event) => {
-              event.preventDefault()
-              save.mutate()
-            }}
-          >
-            <Dialog.Title className="text-sm font-medium">
-              {host.has_token ? "Replace the token of" : "Add a token for"} {hostName(host)}
-            </Dialog.Title>
-            <Dialog.Description className="text-sm text-muted-foreground">
-              {help.needs} It is kept encrypted on the server and is not shown again.
-            </Dialog.Description>
-            <label className="flex flex-col gap-1.5 text-sm">
-              Access token
-              <input
-                required
-                type="password"
-                autoComplete="off"
-                value={token}
-                onChange={(event) => setToken(event.target.value)}
-                className={inputClass}
-              />
-            </label>
-            <a
-              href={help.docs}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center gap-1 text-xs text-link hover:underline"
-            >
-              <ExternalLink className="size-3" aria-hidden />
-              How to create a token
-            </a>
-            {save.error && (
-              <p role="alert" className="text-sm text-destructive">
-                {errorText(save.error)}
-              </p>
-            )}
-            <div className="flex justify-end gap-2">
-              <Dialog.Close render={<Button variant="outline" />}>Cancel</Dialog.Close>
-              <Button type="submit" disabled={save.isPending || token.trim() === ""}>
-                {save.isPending ? "Saving…" : "Save token"}
-              </Button>
-            </div>
-          </form>
-        </Dialog.Popup>
-      </Dialog.Portal>
-    </Dialog.Root>
-  )
-}
-
-// Confirm asks before something is taken away, and says what follows from it.
-function Confirm({
-  trigger,
-  title,
-  consequence,
-  action,
-  run,
-}: {
-  trigger: string
-  title: string
-  consequence: string
-  action: string
-  run: () => Promise<unknown>
-}) {
-  const refresh = useRefreshHosts()
-  const [open, setOpen] = useState(false)
-  const remove = useMutation({
-    mutationFn: run,
-    onSuccess: async () => {
-      await refresh()
-      setOpen(false)
-    },
-  })
-
-  return (
-    <Dialog.Root
+    <FormDialog
       open={open}
-      onOpenChange={(next) => {
-        setOpen(next)
-        if (!next) remove.reset()
-      }}
+      onOpenChange={change}
+      trigger={
+        <DialogTrigger render={<Button variant="outline" size="sm" />}>
+          {host.has_token ? "Replace token" : "Add token"}
+        </DialogTrigger>
+      }
+      title={`${host.has_token ? "Replace the token of" : "Add a token for"} ${hostName(host)}`}
+      about={`${help.needs} It is kept encrypted on the server; you can read it again in the Vault.`}
+      error={save.error}
+      pending={save.isPending}
+      action="Save token"
+      onSubmit={() => void form.handleSubmit()}
     >
-      <Dialog.Trigger render={<Button variant="ghost" size="sm" />}>{trigger}</Dialog.Trigger>
-      <Dialog.Portal>
-        <Dialog.Backdrop className={backdropClass} />
-        <Dialog.Popup className={popupClass}>
-          <Dialog.Title className="text-sm font-medium">{title}</Dialog.Title>
-          <Dialog.Description className="text-sm text-muted-foreground">
-            {consequence}
-          </Dialog.Description>
-          {remove.error && (
-            <p role="alert" className="text-sm text-destructive">
-              {errorText(remove.error)}
-            </p>
-          )}
-          <div className="flex justify-end gap-2">
-            <Dialog.Close render={<Button variant="outline" />}>Cancel</Dialog.Close>
-            <Button
-              variant="destructive"
-              disabled={remove.isPending}
-              onClick={() => remove.mutate()}
-            >
-              {action}
-            </Button>
-          </div>
-        </Dialog.Popup>
-      </Dialog.Portal>
-    </Dialog.Root>
+      <FieldGroup>
+        <form.Field name="token">
+          {(field) => <TextField field={field} label="Access token" secret />}
+        </form.Field>
+      </FieldGroup>
+      <HelpLink href={help.docs} />
+    </FormDialog>
   )
 }
 
-function RemoveToken({ host }: { host: GitHost }) {
-  return (
-    <Confirm
-      trigger="Remove token"
-      title={`Remove the token of ${hostName(host)}?`}
-      consequence="Workers will use the login of the machine they run on, where it has one. Work already running keeps the token it started with."
-      action="Remove token"
-      run={() => deleteGitHostToken({ path: { host: host.host } })}
-    />
-  )
-}
-
-function RemoveHost({ host }: { host: GitHost }) {
-  return (
-    <Confirm
-      trigger="Remove"
-      title={`Remove ${host.host}?`}
-      consequence="Its token is removed with it. A host that an open Run or a registered repository is on cannot be removed."
-      action="Remove host"
-      run={() => deleteGitHost({ path: { host: host.host } })}
-    />
-  )
-}
+const hostSchema = z.object({
+  address: z
+    .string()
+    .refine(
+      (typed) => hostOf(typed).includes("."),
+      "Give the server's name, or any URL copied from it.",
+    ),
+  kind: z.enum(["gitlab", "github"]),
+  token: z.string().regex(/^\S*$/, "A token is one line without spaces."),
+})
 
 // AddHost declares a company's git server: its address, what it runs, and its token if the owner has it at hand.
 function AddHost() {
   const refresh = useRefreshHosts()
   const [open, setOpen] = useState(false)
-  const [address, setAddress] = useState("")
-  const [kind, setKind] = useState<GitHostKind>("gitlab")
-  const [token, setToken] = useState("")
-  const host = hostOf(address)
 
   const add = useMutation({
-    mutationFn: async () => {
-      await putGitHost({ path: { host }, body: { kind } })
-      if (token.trim() !== "") {
-        await putGitHostToken({ path: { host }, body: { token: token.trim() } })
+    mutationFn: async (value: z.infer<typeof hostSchema>) => {
+      const host = hostOf(value.address)
+
+      await putGitHost({ path: { host }, body: { kind: value.kind } })
+      if (value.token.trim() !== "") {
+        await putGitHostToken({ path: { host }, body: { token: value.token.trim() } })
       }
     },
     // The host may have been declared even when its token was refused.
     onSettled: () => refresh(),
-    onSuccess: () => change(false),
+  })
+
+  const form = useForm({
+    defaultValues: { address: "", kind: "gitlab" as GitHostKind, token: "" },
+    validators: { onSubmit: hostSchema },
+    onSubmit: async ({ value }) => {
+      try {
+        await add.mutateAsync(value)
+      } catch {
+        return // The dialog stays open and shows what the server refused.
+      }
+
+      change(false)
+    },
   })
 
   function change(next: boolean) {
     setOpen(next)
     if (!next) {
-      setAddress("")
-      setKind("gitlab")
-      setToken("")
+      form.reset()
       add.reset()
     }
   }
 
   return (
-    <Dialog.Root open={open} onOpenChange={change}>
-      <Dialog.Trigger render={<Button />}>Add a git server</Dialog.Trigger>
-      <Dialog.Portal>
-        <Dialog.Backdrop className={backdropClass} />
-        <Dialog.Popup className={popupClass}>
-          <form
-            className="flex flex-col gap-4"
-            onSubmit={(event) => {
-              event.preventDefault()
-              add.mutate()
-            }}
-          >
-            <Dialog.Title className="text-sm font-medium">Add a git server</Dialog.Title>
-            <Dialog.Description className="text-sm text-muted-foreground">
-              A company&apos;s own GitLab or GitHub server. github.com and gitlab.com are already
-              here.
-            </Dialog.Description>
-            <div className="flex flex-col gap-1.5 text-sm">
-              <label htmlFor="host-address">Address</label>
-              <input
-                id="host-address"
-                required
-                autoComplete="off"
-                aria-describedby="host-address-hint"
-                placeholder="gitlab.company.example"
-                value={address}
-                onChange={(event) => setAddress(event.target.value)}
-                className={inputClass}
-              />
-              <span id="host-address-hint" className="text-xs text-muted-foreground">
-                Its name, or any URL copied from it.
-              </span>
-            </div>
-            <label className="flex flex-col gap-1.5 text-sm">
-              It runs
-              <select
-                value={kind}
-                onChange={(event) => setKind(event.target.value as GitHostKind)}
-                className={inputClass}
+    <FormDialog
+      open={open}
+      onOpenChange={change}
+      trigger={
+        <DialogTrigger
+          render={
+            <Button>
+              <Plus data-icon="inline-start" />
+              Add a git server
+            </Button>
+          }
+        />
+      }
+      title="Add a git server"
+      about="A company's own GitLab or GitHub server. github.com and gitlab.com are already here."
+      error={add.error}
+      pending={add.isPending}
+      action="Add"
+      onSubmit={() => void form.handleSubmit()}
+    >
+      <FieldGroup>
+        <form.Field name="address">
+          {(field) => (
+            <TextField
+              field={field}
+              label="Address"
+              placeholder="gitlab.company.example"
+              description="Its name, or any URL copied from it."
+            />
+          )}
+        </form.Field>
+        <form.Field name="kind">
+          {(field) => (
+            <Field>
+              <FieldLabel htmlFor={field.name}>It runs</FieldLabel>
+              <NativeSelect
+                id={field.name}
+                name={field.name}
+                value={field.state.value}
+                onBlur={field.handleBlur}
+                onChange={(event) => field.handleChange(event.target.value as GitHostKind)}
               >
-                <option value="gitlab">GitLab</option>
-                <option value="github">GitHub Enterprise</option>
-              </select>
-            </label>
-            <label className="flex flex-col gap-1.5 text-sm">
-              Access token
-              <input
-                type="password"
-                autoComplete="off"
-                placeholder="Optional; it can be added later"
-                value={token}
-                onChange={(event) => setToken(event.target.value)}
-                className={inputClass}
-              />
-            </label>
-            {add.error && (
-              <p role="alert" className="text-sm text-destructive">
-                {errorText(add.error)}
-              </p>
-            )}
-            <div className="flex justify-end gap-2">
-              <Dialog.Close render={<Button variant="outline" />}>Cancel</Dialog.Close>
-              <Button type="submit" disabled={add.isPending || host === ""}>
-                {add.isPending ? "Adding…" : "Add"}
-              </Button>
-            </div>
-          </form>
-        </Dialog.Popup>
-      </Dialog.Portal>
-    </Dialog.Root>
+                <NativeSelectOption value="gitlab">GitLab</NativeSelectOption>
+                <NativeSelectOption value="github">GitHub Enterprise</NativeSelectOption>
+              </NativeSelect>
+            </Field>
+          )}
+        </form.Field>
+        <form.Field name="token">
+          {(field) => (
+            <TextField
+              field={field}
+              label="Access token"
+              secret
+              placeholder="Optional; it can be added later"
+            />
+          )}
+        </form.Field>
+      </FieldGroup>
+    </FormDialog>
   )
 }

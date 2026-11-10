@@ -17,6 +17,7 @@ import type { Node } from "@/api/generated/types.gen"
 import { cn } from "@/lib/utils"
 import { MachineActions } from "./machine-actions"
 import { GpuRows, IndicatorDot, LoadDot, MachineProblem, Meter, StateText } from "./machine-cells"
+import { RuntimeList } from "./runtime-list"
 import {
   diskPercent,
   gpuTitle,
@@ -36,6 +37,8 @@ import {
 export type Column = {
   id: string
   name: string
+  // hint says what the column measures, for whoever points at its name.
+  hint?: string
   Icon?: LucideIcon
   cell: (node: Node) => ReactNode
   // has says whether the machine has this at all. Without it a card leaves the row out, and the table leaves the
@@ -71,6 +74,7 @@ export const columns: Column[] = [
   {
     id: "cpu",
     name: "CPU",
+    hint: "The share of all CPUs in use since the last heartbeat.",
     Icon: Cpu,
     cell: (node) =>
       node.stats ? (
@@ -82,6 +86,7 @@ export const columns: Column[] = [
   {
     id: "memory",
     name: "Memory",
+    hint: "Memory in use, of the machine's total.",
     Icon: MemoryStick,
     cell: (node) => {
       const value = memoryPercent(node)
@@ -100,6 +105,7 @@ export const columns: Column[] = [
   {
     id: "disk",
     name: "Disk",
+    hint: "Space used on the volume that holds the worktrees.",
     Icon: HardDrive,
     cell: (node) => {
       const value = diskPercent(node)
@@ -170,6 +176,7 @@ export const columns: Column[] = [
   {
     id: "load",
     name: "Load Avg",
+    hint: "The one-minute load average: how many processes are running or waiting for a CPU. Its colour compares it with the number of CPUs.",
     Icon: Hourglass,
     cell: (node) => {
       const load = loadPercent(node)
@@ -186,6 +193,7 @@ export const columns: Column[] = [
   {
     id: "dispatches",
     name: "Dispatches",
+    hint: "Work running on this machine now, of the most it takes at once.",
     Icon: ListChecks,
     cell: (node) => (
       <span className="whitespace-nowrap tabular-nums">
@@ -196,22 +204,14 @@ export const columns: Column[] = [
   {
     id: "runtimes",
     name: "Runtimes",
+    hint: "The agent CLIs found on this machine. Work for a runtime goes only to a machine that has it.",
     Icon: Bot,
-    cell: (node) =>
-      node.runtimes.length > 0 ? (
-        <span
-          className="truncate"
-          title={node.runtimes.map((r) => `${r.runtime} ${r.version}`.trim()).join(", ")}
-        >
-          {node.runtimes.map((r) => r.runtime).join(", ")}
-        </span>
-      ) : (
-        none
-      ),
+    cell: (node) => (node.runtimes.length > 0 ? <RuntimeList runtimes={node.runtimes} /> : none),
   },
   {
     id: "agent",
     name: "Agent",
+    hint: "The version of the Hypomnema node running on this machine, and its system.",
     Icon: Wifi,
     cell: (node) => {
       const { daemon_version, os, arch } = node.system ?? {}
@@ -224,6 +224,7 @@ export const columns: Column[] = [
   {
     id: "source",
     name: "Source",
+    hint: "Your own machine, or one created at a provider.",
     Icon: Cloud,
     cell: (node) =>
       node.machine ? (

@@ -724,19 +724,35 @@ Node (`internal/node`):
   Omnigent's; [research](docs/research/2026-11-10-menus-and-settings.md)). A section is listed once it has a page;
   on a phone the sections are a row of links under the header.
   - `/settings/integrations` (under Connections) lists the git hosts as cards after Orca's integration card (MIT):
-    name, a "Connected" or "No token" pill, and the actions. "Add token" / "Replace token" takes the token in a
+    the mark of what the host runs (GitHub's or GitLab's), its name, a "Connected" or "No token" badge, and the
+    actions. "Add token" / "Replace token" takes the token in a
     password field and sends it once; it is never read back. A company's server is added with its address (a name
     or a pasted URL), what it runs and, if wanted, its token. Removing a token or a declared server asks first.
   - `/settings/repositories` has no entry in the menu while its place is being decided (issue #44); it lists the registered repositories, adds one from its URL under a
     proposed name with an optional base branch, and removes one after a confirmation.
   - `/settings/vault` (under Connections, [issue #108](https://github.com/kl3inIT/hypomnema/issues/108)) is a
     table of the vault's secrets, after Infisical's secrets dashboard (MIT) and Omnara's secrets list
-    (Apache-2.0): Name, Value and Type, a search box above, and a row that opens to its version and dates. A
+    (Apache-2.0): Name, Value, Type, Version and Updated as columns, sorted by Name or Updated, with a search box
+    above. A
     value shows as asterisks and is not on the page until the owner reveals its row, or every row from the table's
     head: only then is `GET /secrets/{name}/value` called, and the value is dropped when hidden or the page is
     left. A token set shows each of its values. Edit replaces a generic secret's value, or a token set with its
     complete set; Delete says why when the server refuses. Add takes a name and a value in a password field.
-  - Both pages do only what `hosts ...` and `repos ...` do in the CLI.
+  - `/settings/integrations` also lists the services that sign in with an account, above the git hosts (step 4
+    of [issue #103](https://github.com/kl3inIT/hypomnema/issues/103)): Google's card with its accounts, each
+    with its email, what it may do and whether it needs a sign-in. "Add account" and "Sign in again" take a name
+    and, for each service, read and write, read only or not connected; then give a link to Google's page and take
+    the address the browser ended on. "Disconnect" asks first. A service without its OAuth client shows the
+    command that gives one; the client itself is given from the CLI only.
+  - Both pages do only what `hosts ...`, `repos ...` and `integrations ...` do in the CLI.
+  - The Settings screens are built on the standard components ([issue #123](https://github.com/kl3inIT/hypomnema/issues/123)):
+    every shadcn component of the project's style is in `web/src/components/ui`; a form is TanStack Form with a
+    zod schema, and says what is wrong when it is sent; the Vault's table is TanStack Table; a removal asks with
+    an alert dialog; what the server refused shows as an alert. The rules are in
+    [conventions](docs/conventions.md#web-client). The other screens are not moved yet.
+  - One `TooltipProvider` and one `Toaster` wrap the app (`web/src/main.tsx`). On the Machines page a column's
+    name says what it measures when pointed at, and a machine's runtimes are their marks with their names while
+    they fit on one line, and the marks alone when they do not.
 - `web/embed.go` embeds the build (`web/dist`) into `hypomnema`. `make build` builds the client first.
   - The control plane serves it with `internal/controlplane/webui`, after Omnara's `spa.go`:
     - files as they are, with a year's cache under `assets/`;

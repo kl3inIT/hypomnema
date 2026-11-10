@@ -154,7 +154,10 @@ test("the layout switches between cards and a table and is remembered", async ()
 
   const row = within(screen.getByRole("table")).getByRole("row", { name: /builder/ })
   expect(row).toHaveTextContent("1 of 4")
-  expect(row).toHaveTextContent("claude, codex")
+  // Each runtime is named beside its mark.
+  expect(within(row).getAllByTitle("Claude Code").length).toBeGreaterThan(0)
+  expect(within(row).getAllByTitle("Codex").length).toBeGreaterThan(0)
+  expect(row).toHaveTextContent("claudecodex")
   expect(row).toHaveTextContent("0.4.0 · linux/amd64")
   expect(screen.queryByRole("article")).not.toBeInTheDocument()
   expect(window.localStorage.getItem("hypomnema.machines.layout")).toBe("table")

@@ -1,21 +1,39 @@
-import { Dialog } from "@base-ui/react/dialog"
+import { useForm } from "@tanstack/react-form"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { FolderGit2 } from "lucide-react"
+import { FolderGit2, Plus } from "lucide-react"
 import { useState } from "react"
+import { z } from "zod"
 
 import "@/api/client"
 import { deleteRepo, putRepo } from "@/api/generated/sdk.gen"
 import type { Repo } from "@/api/generated/types.gen"
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty"
+import { FieldGroup } from "@/components/ui/field"
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemGroup,
+  ItemMedia,
+  ItemTitle,
+} from "@/components/ui/item"
+import { Spinner } from "@/components/ui/spinner"
 
+import { ConfirmDialog, ErrorAlert, TextField } from "./settings-parts"
 import { SettingsPage } from "./settings-shell"
-import { errorText, nameOf, reposKey, useRepos } from "./use-integrations"
-
-const inputClass = "h-9 rounded-md border border-input bg-background px-3 text-sm"
-const popupClass =
-  "fixed top-1/2 left-1/2 z-50 flex max-h-[calc(100svh-2rem)] w-[calc(100vw-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 flex-col gap-4 overflow-y-auto rounded-xl border bg-background p-5 outline-none"
-const backdropClass =
-  "fixed inset-0 z-40 bg-black/60 transition-opacity data-ending-style:opacity-0 data-starting-style:opacity-0"
+import { nameOf, reposKey, useRepos } from "./use-integrations"
 
 // RepositoriesScreen lists the repositories registered under a name, which a Run can then be started on by that
 // name. A list of rows with one action each, as t3code's and Orca's settings list their projects and repositories.
@@ -28,46 +46,35 @@ export function RepositoriesScreen() {
       description="Repositories registered under a short name, so that work can be given by that name."
       actions={<AddRepo />}
     >
-      {repos.isPending && <p className="text-sm text-muted-foreground">Loading…</p>}
-      {repos.error && (
-        <p role="alert" className="text-sm text-destructive">
-          {errorText(repos.error)}
+      {repos.isPending && (
+        <p className="flex items-center gap-2 text-sm text-muted-foreground">
+          <Spinner />
+          Loading…
         </p>
       )}
+      <ErrorAlert error={repos.error} />
       {repos.data?.length === 0 && (
-        <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed px-4 py-10 text-center">
-          <FolderGit2 className="size-5 text-muted-foreground" aria-hidden />
-          <p className="text-sm font-medium">No repositories yet</p>
-          <p className="max-w-sm text-xs text-muted-foreground">
-            A Run can always name a repository by its URL. Register the ones you use often to call
-            them by a short name.
-          </p>
-        </div>
+        <Empty>
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <FolderGit2 />
+            </EmptyMedia>
+            <EmptyTitle>No repositories yet</EmptyTitle>
+            <EmptyDescription>
+              A Run can always name a repository by its URL. Register the ones you use often to call
+              them by a short name.
+            </EmptyDescription>
+          </EmptyHeader>
+        </Empty>
       )}
       {repos.data && repos.data.length > 0 && (
-        <ul className="flex flex-col divide-y rounded-xl border bg-card">
+        <ItemGroup>
           {repos.data.map((repo) => (
             <RepoRow key={repo.name} repo={repo} />
           ))}
-        </ul>
+        </ItemGroup>
       )}
     </SettingsPage>
-  )
-}
-
-function RepoRow({ repo }: { repo: Repo }) {
-  return (
-    <li className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3">
-      <FolderGit2 className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-      <div className="min-w-0 flex-1 basis-56 space-y-0.5">
-        <p className="truncate text-sm font-medium">{repo.name}</p>
-        <p className="truncate text-xs text-muted-foreground">
-          {repo.host}/{repo.path}
-          {repo.base ? ` · starts from ${repo.base}` : ""}
-        </p>
-      </div>
-      <RemoveRepo repo={repo} />
-    </li>
   )
 }
 
@@ -77,74 +84,71 @@ function useRefreshRepos() {
   return () => queryClient.invalidateQueries({ queryKey: reposKey })
 }
 
-function RemoveRepo({ repo }: { repo: Repo }) {
+function RepoRow({ repo }: { repo: Repo }) {
   const refresh = useRefreshRepos()
-  const [open, setOpen] = useState(false)
-  const remove = useMutation({
-    mutationFn: () => deleteRepo({ path: { name: repo.name } }),
-    onSuccess: async () => {
-      await refresh()
-      setOpen(false)
-    },
-  })
 
   return (
-    <Dialog.Root
-      open={open}
-      onOpenChange={(next) => {
-        setOpen(next)
-        if (!next) remove.reset()
-      }}
-    >
-      <Dialog.Trigger
-        render={<Button variant="ghost" size="sm" aria-label={`Remove ${repo.name}`} />}
-      >
-        Remove
-      </Dialog.Trigger>
-      <Dialog.Portal>
-        <Dialog.Backdrop className={backdropClass} />
-        <Dialog.Popup className={popupClass}>
-          <Dialog.Title className="text-sm font-medium">Remove {repo.name}?</Dialog.Title>
-          <Dialog.Description className="text-sm text-muted-foreground">
-            Only the name is forgotten. The repository itself and the Runs on it are not touched.
-          </Dialog.Description>
-          {remove.error && (
-            <p role="alert" className="text-sm text-destructive">
-              {errorText(remove.error)}
-            </p>
-          )}
-          <div className="flex justify-end gap-2">
-            <Dialog.Close render={<Button variant="outline" />}>Cancel</Dialog.Close>
-            <Button
-              variant="destructive"
-              disabled={remove.isPending}
-              onClick={() => remove.mutate()}
-            >
-              Remove repository
+    <Item variant="outline">
+      <ItemMedia variant="icon">
+        <FolderGit2 />
+      </ItemMedia>
+      <ItemContent>
+        <ItemTitle>{repo.name}</ItemTitle>
+        <ItemDescription>
+          {repo.host}/{repo.path}
+          {repo.base ? ` · starts from ${repo.base}` : ""}
+        </ItemDescription>
+      </ItemContent>
+      <ItemActions>
+        <ConfirmDialog
+          trigger={
+            <Button variant="ghost" size="sm" aria-label={`Remove ${repo.name}`}>
+              Remove
             </Button>
-          </div>
-        </Dialog.Popup>
-      </Dialog.Portal>
-    </Dialog.Root>
+          }
+          title={`Remove ${repo.name}?`}
+          consequence="Only the name is forgotten. The repository itself and the Runs on it are not touched."
+          action="Remove repository"
+          run={() => deleteRepo({ path: { name: repo.name } })}
+          onDone={refresh}
+        />
+      </ItemActions>
+    </Item>
   )
 }
+
+const repoSchema = z.object({
+  repo: z.string().trim().min(1, "Give the repository's URL, or owner/name for one on GitHub."),
+  name: z.string().trim().min(1, "Give the name to call it by."),
+  base: z.string(),
+})
 
 // AddRepo registers a repository: where it is, the name to call it by, and the branch work starts from.
 function AddRepo() {
   const refresh = useRefreshRepos()
   const [open, setOpen] = useState(false)
-  const [repo, setRepo] = useState("")
-  const [name, setName] = useState<string | null>(null)
-  const [base, setBase] = useState("")
-  const called = name ?? nameOf(repo)
 
   const add = useMutation({
-    mutationFn: () =>
+    mutationFn: (value: z.infer<typeof repoSchema>) =>
       putRepo({
-        path: { name: called.trim() },
-        body: { repo: repo.trim(), ...(base.trim() ? { base: base.trim() } : {}) },
+        path: { name: value.name.trim() },
+        body: {
+          repo: value.repo.trim(),
+          ...(value.base.trim() ? { base: value.base.trim() } : {}),
+        },
       }),
-    onSuccess: async () => {
+  })
+
+  const form = useForm({
+    defaultValues: { repo: "", name: "", base: "" },
+    validators: { onSubmit: repoSchema },
+    onSubmit: async ({ value }) => {
+      try {
+        await add.mutateAsync(value)
+      } catch {
+        return // The dialog stays open and shows what the server refused.
+      }
+
       await refresh()
       change(false)
     },
@@ -153,81 +157,81 @@ function AddRepo() {
   function change(next: boolean) {
     setOpen(next)
     if (!next) {
-      setRepo("")
-      setName(null)
-      setBase("")
+      form.reset()
       add.reset()
     }
   }
 
   return (
-    <Dialog.Root open={open} onOpenChange={change}>
-      <Dialog.Trigger render={<Button />}>Add repository</Dialog.Trigger>
-      <Dialog.Portal>
-        <Dialog.Backdrop className={backdropClass} />
-        <Dialog.Popup className={popupClass}>
-          <form
-            className="flex flex-col gap-4"
-            onSubmit={(event) => {
-              event.preventDefault()
-              add.mutate()
-            }}
-          >
-            <Dialog.Title className="text-sm font-medium">Add a repository</Dialog.Title>
-            <div className="flex flex-col gap-1.5 text-sm">
-              <label htmlFor="repo-address">Repository</label>
-              <input
-                id="repo-address"
-                required
-                autoComplete="off"
-                aria-describedby="repo-address-hint"
-                placeholder="https://gitlab.company.example/team/app"
-                value={repo}
-                onChange={(event) => setRepo(event.target.value)}
-                className={inputClass}
-              />
-              <span id="repo-address-hint" className="text-xs text-muted-foreground">
-                Its URL, or owner/name for one on GitHub. A company&apos;s server is added under
-                Integrations first.
-              </span>
-            </div>
-            <label className="flex flex-col gap-1.5 text-sm">
-              Name
-              <input
-                required
-                autoComplete="off"
-                value={called}
-                onChange={(event) => setName(event.target.value)}
-                className={inputClass}
-              />
-            </label>
-            <label className="flex flex-col gap-1.5 text-sm">
-              Base branch
-              <input
-                autoComplete="off"
-                placeholder="The repository's default"
-                value={base}
-                onChange={(event) => setBase(event.target.value)}
-                className={inputClass}
-              />
-            </label>
-            {add.error && (
-              <p role="alert" className="text-sm text-destructive">
-                {errorText(add.error)}
-              </p>
-            )}
-            <div className="flex justify-end gap-2">
-              <Dialog.Close render={<Button variant="outline" />}>Cancel</Dialog.Close>
-              <Button
-                type="submit"
-                disabled={add.isPending || repo.trim() === "" || called.trim() === ""}
-              >
-                {add.isPending ? "Adding…" : "Add"}
-              </Button>
-            </div>
-          </form>
-        </Dialog.Popup>
-      </Dialog.Portal>
-    </Dialog.Root>
+    <Dialog open={open} onOpenChange={change}>
+      <DialogTrigger
+        render={
+          <Button>
+            <Plus data-icon="inline-start" />
+            Add repository
+          </Button>
+        }
+      />
+      <DialogContent>
+        <form
+          autoComplete="off"
+          noValidate
+          className="flex flex-col gap-4"
+          onSubmit={(event) => {
+            event.preventDefault()
+            void form.handleSubmit()
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>Add a repository</DialogTitle>
+            <DialogDescription>
+              Work can then be given on it by its name instead of its URL.
+            </DialogDescription>
+          </DialogHeader>
+          <FieldGroup>
+            <form.Field
+              name="repo"
+              listeners={{
+                // The name follows what is typed until the owner writes a name of his own.
+                onChange: ({ value }) => {
+                  if (!form.getFieldMeta("name")?.isDirty) {
+                    form.setFieldValue("name", nameOf(value), { dontUpdateMeta: true })
+                  }
+                },
+              }}
+            >
+              {(field) => (
+                <TextField
+                  field={field}
+                  label="Repository"
+                  placeholder="https://gitlab.company.example/team/app"
+                  description="Its URL, or owner/name for one on GitHub. A company's server is added under Integrations first."
+                />
+              )}
+            </form.Field>
+            <form.Field name="name">
+              {(field) => <TextField field={field} label="Name" />}
+            </form.Field>
+            <form.Field name="base">
+              {(field) => (
+                <TextField
+                  field={field}
+                  label="Base branch"
+                  placeholder="The repository's default"
+                />
+              )}
+            </form.Field>
+          </FieldGroup>
+          <ErrorAlert error={add.error} />
+          <DialogFooter>
+            <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
+            <Button type="submit" disabled={add.isPending}>
+              {add.isPending && <Spinner data-icon="inline-start" />}
+              Add
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   )
 }
