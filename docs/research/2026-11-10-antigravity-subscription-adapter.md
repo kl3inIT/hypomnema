@@ -148,7 +148,19 @@ plugin.
   - `docs/resources/faq.md` L11-18 says the same of Claude Code, OpenClaw and OpenCode, "may be grounds for immediate
     suspension or termination of your account", and names the supported way: a Vertex AI or Google AI Studio API
     key.
-  - These are about the Gemini CLI's login. Antigravity's own terms were not read; it uses the same backend.
+- **Antigravity's own terms**, fetched on 2026-11-10 (no date on the page):
+  - `https://antigravity.google/terms`, clause 6: "You must not abuse, harm, interfere with, or disrupt the Service.
+    This includes, but is not limited to, using the Service in connection with products not provided by us. Using
+    third party software, tools, or services to access the Service (e.g. using OpenClaw with Antigravity OAuth) is a
+    breach of this Agreement. Such actions may be grounds for suspension or termination of your Antigravity and/or
+    Gemini CLI accounts."
+  - `https://antigravity.google/docs/faq` repeats it for Claude Code, OpenClaw and OpenCode, recommends "a Gemini
+    Enterprise or Google AI Studio API key" for a third-party agent, and says wrapping the Antigravity CLI inside
+    another agent or rotating accounts "is not supported under consumer plans".
+- **OpenClaw removed it.** Its documentation (`docs/providers/google.md` L87-92, at d622a2b): "OpenClaw does not offer
+  new Gemini CLI OAuth or Antigravity OAuth setup. Google ended consumer Gemini CLI Login with Google access on June
+  18, 2026, and the Antigravity terms prohibit third-party tools from accessing the service through Antigravity OAuth.
+  Use an AI Studio API key or Vertex AI instead." Hermes has only a skill that drives the official Antigravity CLI.
 - **Enforcement exists.** The Gemini CLI turns a 403 with reason `TOS_VIOLATION` into an account-suspended error
   with an appeal link (`utils/errors.ts` L212-229). 9router-go parks an account for 24 hours on that answer.
 - **The plugin's own warnings** (`docs/TROUBLESHOOTING.md` L206-278): accounts "soft-ban[ned]" or "shadow ban[ned]"
@@ -166,6 +178,6 @@ plugin.
 - Where the six differ, the majority and Google's own client point one way: no renamed or decoy tools, no injected
   identity, no `requestType`, the skip sentinel for signatures, always a stream, the daily host, the project found at
   login with no made-up fallback, the client version read from the update manifest.
-- Unlike Codex, the vendor states in writing that this use violates its terms and may end the account, and
-  suspensions are reported by users of every tool read here. The decision to build it is the owner's, made with
+- Unlike Codex, the vendor's terms name this use as a breach that may end the account, one of the references
+  withdrew the feature for that reason, and suspensions are reported by users of the tools that kept it. The decision to build it is the owner's, made with
   that in view; a Google account kept only for this bounds what can be lost.
