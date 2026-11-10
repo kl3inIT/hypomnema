@@ -8,6 +8,9 @@ Each adapted file names its source.
   src/renderer/src/components/dashboard-popout), MIT.
 - The runtime marks (Claude, Codex, pi) are copied from OpenMausBot (https://github.com/milind-soni/OpenMausBot,
   src/components/ProviderIcons.tsx), Apache License 2.0.
+- The titles of a worker's tool calls and the line that says a group of them
+  (`src/features/board/tool-title.ts`) are adapted from Omnigent (https://github.com/omnigent-ai/omnigent,
+  web/src/lib/toolTitle.ts and toolValue.ts), Apache License 2.0. The file says what was changed.
 
 ## t3code
 
@@ -62,6 +65,12 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+## Omnigent
+
+Omnigent is licensed under the Apache License, Version 2.0 (http://www.apache.org/licenses/LICENSE-2.0), whose
+text is given under OpenMausBot below. Its repository carries no NOTICE file and no copyright line; the work is
+copyright its authors (https://github.com/omnigent-ai/omnigent).
 
 ## OpenMausBot
 

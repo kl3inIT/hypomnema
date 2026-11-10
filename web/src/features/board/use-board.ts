@@ -15,10 +15,19 @@ import { boardCards } from "./board-state"
 export const boardKey = ["board"] as const
 export const questionsKey = ["questions"] as const
 
+// whileWorking is how often the board is read again while a worker runs: what a worker does now changes
+// without an event.
+const whileWorking = 10_000
+
 // useBoard reads the work in flight: the Tasks (GET /tasks), the open questions, and the machines and profiles
 // that name a card's machine and runtime. LiveUpdates keeps them current.
 export function useBoard() {
-  const board = useQuery({ queryKey: boardKey, queryFn: async () => (await listTasks()).data })
+  const board = useQuery({
+    queryKey: boardKey,
+    queryFn: async () => (await listTasks()).data,
+    refetchInterval: (query) =>
+      query.state.data?.data.some((t) => t.status === "running") ? whileWorking : false,
+  })
   const questions = useQuery({
     queryKey: [...questionsKey, "open"],
     queryFn: async () => (await listQuestions({ query: { status: "open" } })).data.data,

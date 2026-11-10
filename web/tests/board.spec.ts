@@ -47,6 +47,59 @@ const tasks = [
   }),
   task("tsk_2", 2, "Decide whether /health needs a login"),
   task("tsk_3", 3, "Update ARCHITECTURE.md", { status: "pending" }),
+  task("tsk_4", 4, "Cover /health with an end-to-end test", {
+    latest_dispatch: {
+      id: "dsp_4",
+      task_id: "tsk_4",
+      node_id: "nod_1",
+      status: "running",
+      epoch: 1,
+      created_at: now,
+      updated_at: now,
+      started_at: now,
+      activity: "Bash: go test ./internal/e2e/",
+    },
+  }),
+]
+
+const item = (seq: number, m: object) => ({ seq, kind: "message", created_at: now, ...m })
+
+// What the worker of tsk_4 said and did so far.
+const transcript = [
+  item(1, { text: "I will look at the existing end-to-end tests first." }),
+  item(2, { kind: "tool_call", call_id: "c1", tool: "Grep", input: { pattern: "TestNode" } }),
+  item(3, { kind: "tool_result", call_id: "c1", text: "internal/e2e/node_test.go:264" }),
+  item(4, {
+    kind: "tool_call",
+    call_id: "c2",
+    tool: "Read",
+    input: { file_path: "internal/e2e/node_test.go" },
+  }),
+  item(5, { kind: "tool_result", call_id: "c2", text: "package e2e" }),
+  item(6, {
+    kind: "tool_call",
+    call_id: "c3",
+    tool: "Edit",
+    input: {
+      file_path: "internal/e2e/health_test.go",
+      old_string: "t.Skip()",
+      new_string: 'resp := get(t, "/health")\nrequire.Equal(t, 200, resp.StatusCode)',
+    },
+  }),
+  item(7, { kind: "tool_result", call_id: "c3", text: "edited" }),
+  item(8, {
+    kind: "tool_call",
+    call_id: "c4",
+    tool: "Bash",
+    input: { command: "go test ./internal/e2e/" },
+  }),
+  item(9, { kind: "tool_result", call_id: "c4", text: "FAIL TestHealth: got 404", failed: true }),
+  item(10, {
+    kind: "tool_call",
+    call_id: "c5",
+    tool: "Bash",
+    input: { command: "CGO_ENABLED=0 go build ./cmd/hypomnema" },
+  }),
 ]
 
 const asked = {
@@ -89,6 +142,11 @@ async function fakeServer(page: Page) {
         return json({ data: [run] })
       case `/runs/${run.id}`:
         return json({ ...run, tasks })
+      case "/dispatches/dsp_4/items":
+        if (url.searchParams.has("before")) return json({ data: transcript, has_more: false })
+        // Nothing follows: the wait ends empty.
+        await new Promise((resolve) => setTimeout(resolve, 2000))
+        return json({ data: [], has_more: false })
       case "/events/stream":
         return route.fulfill({ status: 200, contentType: "text/event-stream", body: ": hello\n\n" })
       case `/questions/${asked.id}/answer`:
@@ -143,4 +201,25 @@ test("a Run that asks comes first and is answered on its page", async ({ page })
   await page.getByText("Public", { exact: true }).click()
   await page.getByRole("button", { name: "Send answer" }).click()
   await expect.poll(() => answers).toEqual([{ option: 0 }])
+})
+
+// Scenario: a worker is running. Its card says what it does now; its Task opens at the transcript, where its
+// last steps are in view, and a failed step opens to what it printed.
+test("a running worker's transcript is read from its card", async ({ page }) => {
+  await fakeServer(page)
+  await page.goto("/board")
+
+  const working = page.getByRole("region", { name: "Working" })
+  await expect(working).toContainText("Bash: go test ./internal/e2e/")
+
+  await working.getByTestId("task-card").filter({ hasText: "Cover /health" }).click()
+  const log = page.getByRole("dialog").getByRole("log", { name: "Transcript" })
+  await expect(log).toContainText("I will look at the existing end-to-end tests first.")
+  await expect(log.getByRole("button", { name: /Read 1 file, ran 1 search/ })).toBeVisible()
+  await expect(
+    log.getByRole("button", { name: /Edit internal\/e2e\/health_test\.go/ }),
+  ).toContainText("+2 -1")
+
+  await log.getByRole("button", { name: /go test \.\/internal\/e2e\// }).click()
+  await expect(log).toContainText("FAIL TestHealth: got 404")
 })

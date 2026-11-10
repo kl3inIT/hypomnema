@@ -97,8 +97,8 @@ const blocked: Record<string, string> = {
   dependency_failed: "Waits: a Task it needs failed",
 }
 
-// Middle is the card's one line of state: the question, the failure, or what the worker does now. Until worker
-// sessions reach the server (issue #43), "now" is how long it has run and when it last gave a sign of life.
+// Middle is the card's one line of state: the question, the failure, or what the worker does now, which is the
+// newest line of its transcript (issue #43) and how long it has run.
 function Middle({ card }: { card: Card }) {
   const { task } = card
   const dispatch = task.latest_dispatch
@@ -156,9 +156,9 @@ function Middle({ card }: { card: Card }) {
 
   if (task.status === "running" && dispatch?.started_at) {
     return (
-      <span className="text-xs text-secondary-label">
-        <span className="live-tool-shine">Working</span> for {span(dispatch.started_at)}
-        {dispatch.progress_at && ` · last sign ${span(dispatch.progress_at)} ago`}
+      <span className="flex min-w-0 items-baseline gap-1 text-xs text-secondary-label">
+        <span className="min-w-0 live-tool-shine truncate">{dispatch.activity || "Working"}</span>
+        <span className="shrink-0 tabular-nums">· {span(dispatch.started_at)}</span>
       </span>
     )
   }
