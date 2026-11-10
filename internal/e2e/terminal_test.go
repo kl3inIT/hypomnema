@@ -28,6 +28,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/node/terminal"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
+	"github.com/kl3inIT/hypomnema/internal/shared/sqlite/sqlitetest"
 )
 
 // echoShell is a shell that greets, repeats what is typed, and ends when
@@ -89,10 +90,9 @@ type terminalWorld struct {
 func newTerminalWorld(t *testing.T, withTerminal bool) *terminalWorld {
 	t.Helper()
 
-	db, err := sqlite.Open(t.Context(), sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
+	db, err := sqlite.Open(t.Context(), sqlite.Config{Path: sqlitetest.Migrated(t, orchestration.Migrate)})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
-	require.NoError(t, orchestration.Migrate(t.Context(), db))
 
 	logger := slog.New(slog.DiscardHandler)
 	w := &terminalWorld{t: t, svc: orchestration.New(db, platform.SystemClock{}, platform.NewID)}

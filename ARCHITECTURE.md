@@ -858,5 +858,9 @@ and the node in the control plane binary.
   are skipped. A last job, `Required`, passes when none of them failed and is the one check to wait for. Chromium
   for the browser tests is cached by the Playwright version, as t3code's CI does. `make verify` is still the three
   Go targets in a row, for a laptop.
+- A test that needs a migrated database opens a copy of one: `internal/shared/sqlite/sqlitetest` runs the migrations
+  once in a test process and hands each test a copy of that file (issue #129, as Coder and Omnara copy a Postgres
+  template). Migrating took 1.5 s for each test under the race detector. Tests of the migrations themselves, and
+  the owner commands' tests, which migrate through the command, still migrate their own.
 - Dependabot (`.github/dependabot.yml`) proposes updates weekly for the Go modules (`/`, `/tools/ci`), the web
   client, pi (`deploy/coordinator`) and the GitHub Actions, with minor and patch updates grouped.
