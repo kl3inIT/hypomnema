@@ -69,6 +69,22 @@ func newGoogle(t *testing.T) *google {
 		mux.HandleFunc("POST /"+host+"/v1internal:loadCodeAssist", func(w http.ResponseWriter, r *http.Request) {
 			g.loadCodeAssist(w, r, host)
 		})
+		mux.HandleFunc("POST /"+host+"/v1internal:fetchAvailableModels", func(w http.ResponseWriter, r *http.Request) {
+			g.seen(r, host)
+
+			var in map[string]string
+			if json.NewDecoder(r.Body).Decode(&in) != nil || in["project"] != "bright-wave-1234" {
+				http.Error(w, `{"error":{"status":"INVALID_ARGUMENT"}}`, http.StatusBadRequest)
+
+				return
+			}
+
+			_, _ = io.WriteString(w, `{"models":{
+			  "gemini-3.8-flash-high":{"quotaInfo":{"remainingFraction":0.4,"resetTime":"2026-11-10T14:00:00Z"}},
+			  "claude-sonnet-5-5":{"quotaInfo":{"remainingFraction":1}},
+			  "chat_internal_probe":{"isInternal":true},
+			  "gpt-oss-120b-medium":{}}}`)
+		})
 		mux.HandleFunc("POST /"+host+"/v1internal:onboardUser", func(w http.ResponseWriter, r *http.Request) {
 			g.seen(r, host)
 			_, _ = io.WriteString(w, `{"name":"operations/onboard-1","done":false}`)
@@ -367,4 +383,24 @@ func TestAnAntigravityTokenIsRefreshedUntilGoogleRevokesIt(t *testing.T) {
 	_, err = unset.subs.Begin(t.Context(), "antigravity")
 	require.ErrorContains(t, err, "HYPOMNEMA_ANTIGRAVITY_CLIENT_SECRET")
 	assert.NotContains(t, err.Error(), ideSecret)
+}
+
+// Scenario: the owner asks which models Google serves the account. The
+// names are the backend's own, in order, with what is left of each quota and
+// when it is whole again; a model Google keeps for itself is not listed.
+func TestOwnerSeesTheModelsAnAccountIsServed(t *testing.T) {
+	t.Parallel()
+
+	w := newAntigravityWorld(t, ideSecret)
+
+	a, err := w.login()
+	require.NoError(t, err)
+
+	models, err := w.subs.Models(t.Context(), a.ID)
+	require.NoError(t, err)
+	assert.Equal(t, []subscription.ServedModel{
+		{Name: "claude-sonnet-5-5", Remaining: 1},
+		{Name: "gemini-3.8-flash-high", Remaining: 0.4, ResetsAt: time.Date(2026, 11, 10, 14, 0, 0, 0, time.UTC)},
+		{Name: "gpt-oss-120b-medium", Remaining: -1},
+	}, models)
 }

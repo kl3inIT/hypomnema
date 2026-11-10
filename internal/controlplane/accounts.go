@@ -22,7 +22,7 @@ import (
 // its tokens are in the vault and the control plane refreshes them.
 
 const accountsUsage = "accounts add <runtime> <label> | accounts login codex|antigravity [--label L] | " +
-	"accounts list | " +
+	"accounts list | accounts models <account> | " +
 	"accounts refresh <account> | accounts rm <account>"
 
 // maxPastedBytes bounds the address the owner pastes to finish a login.
@@ -64,6 +64,26 @@ func (o *owner) accounts(ctx context.Context, args []string) error {
 		}
 
 		o.printf("account %s refreshed; %s\n", a.ID, tokenEnd(a))
+
+		return nil
+	case len(args) == 2 && args[0] == "models":
+		models, err := o.subscriptions.Models(ctx, args[1])
+		if err != nil {
+			return err
+		}
+
+		for _, m := range models {
+			left, reset := "quota not given", ""
+			if m.Remaining >= 0 {
+				left = fmt.Sprintf("%d%% left", int(m.Remaining*100+0.5))
+			}
+
+			if !m.ResetsAt.IsZero() {
+				reset = "resets " + m.ResetsAt.UTC().Format(time.RFC3339)
+			}
+
+			o.printf("%s\t%s\t%s\n", m.Name, left, reset)
+		}
 
 		return nil
 	case len(args) == 2 && args[0] == "rm":
