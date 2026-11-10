@@ -90,8 +90,27 @@ var commands = []command{
 		run: tasksCreate,
 	},
 	{
+		name: "tasks list", summary: "the Tasks in flight, as the board shows them: every open Run's, and those just ended",
+		flags: func(fs *flag.FlagSet) {
+			fs.Duration("since", 0, "how far back ended Tasks of other Runs go (default 24h)")
+			fs.Int("limit", 0, "how many (default 200)")
+			jsonFlag(fs)
+		},
+		run: tasksList,
+	},
+	{
 		name: "tasks show", args: "<task_id>", min: 1, max: 1, summary: "a Task with its latest Dispatch and result",
 		flags: jsonFlag, run: tasksShow,
+	},
+	{
+		name: "tasks transcript", args: "<task_id>", min: 1, max: 1,
+		summary: "what the Task's worker said and did in its latest attempt",
+		flags: func(fs *flag.FlagSet) {
+			fs.Int64("after", 0, "only the items after this seq")
+			fs.Bool("follow", false, "keep printing items as the worker goes on, until it ends")
+			jsonFlag(fs)
+		},
+		run: tasksTranscript,
 	},
 	{
 		name: "tasks cancel", args: "<task_id>", min: 1, max: 1,

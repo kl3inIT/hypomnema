@@ -231,6 +231,9 @@ The owner's commands:
   - `runs wait <run>` returns when a Task of the Run ended or was blocked, a question reached the coordinator, an
     escalation came or the Run ended, with the cursor for the next wait and the next commands (`questions show`,
     `tasks show`, `runs finish` once every Task ended); it sends one request per 50 s while nothing happens.
+  - `tasks list` prints the board's Tasks (`GET /tasks`), a line a Task with what its worker does now or its
+    result. `tasks transcript <task>` prints the latest attempt's transcript, a line an item (`--after`,
+    `--json` for one item a line); `--follow` keeps printing until the worker has ended and nothing more comes.
 - `chat [message]` writes to pi and prints its replies and the tools it ran until it is idle (`--chat`, `--new`,
   `--text-file`); without a message it shows the chat. `chats` lists them. `runs create` sends `HYPOMNEMA_CHAT_ID`
   when pi's environment has it.

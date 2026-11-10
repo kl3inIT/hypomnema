@@ -6,7 +6,10 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"strconv"
 	"strings"
+	"time"
+	"unicode"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
 )
@@ -159,4 +162,185 @@ func tasksReopen(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	}
 
 	return e.print(fs, resp.JSON200, func() { e.printf("task %s is %s\n", resp.JSON200.Id, resp.JSON200.Status) })
+}
+
+// tasksList prints the board: GET /tasks.
+func tasksList(ctx context.Context, e *env, fs *flag.FlagSet) error {
+	params := &openapi.ListTasksParams{}
+
+	if d, _ := time.ParseDuration(str(fs, "since")); d > 0 {
+		since := time.Now().Add(-d)
+		params.Since = &since
+	}
+
+	if n := number(fs, "limit"); n > 0 {
+		params.Limit = &n
+	}
+
+	resp, err := e.api.ListTasksWithResponse(ctx, params)
+	if err != nil {
+		return fmt.Errorf("listing tasks: %w", err)
+	}
+
+	if resp.JSON200 == nil {
+		return apiError("listing tasks", resp.StatusCode(), resp.JSONDefault)
+	}
+
+	return e.print(fs, resp.JSON200, func() {
+		for _, t := range resp.JSON200.Data {
+			e.printf("%s\t%s\t%s\t%s\n", t.Id, taskState(t.Status, t.BlockedReason), t.RunId, taskLine(t))
+		}
+	})
+}
+
+// taskLine is what a card says of a Task: what its worker does now, else its result, else its spec.
+func taskLine(t openapi.TaskDetail) string {
+	if d := t.LatestDispatch; d != nil {
+		if t.Status == openapi.TaskStatusRunning && val(d.Activity) != "" {
+			return firstLine(val(d.Activity))
+		}
+
+		if d.Result != nil {
+			line := firstLine(d.Result.Summary)
+			for _, ev := range d.Result.Evidence {
+				line += "  " + ev.Ref
+			}
+
+			return line
+		}
+	}
+
+	return firstLine(t.Spec)
+}
+
+// followWait is how long one request waits for the next item of a transcript,
+// in seconds. It is short because the wait does not end when the worker does:
+// the end is seen at the next round.
+const followWait = 5
+
+// tasksTranscript prints the transcript of a Task's latest Dispatch, a line an
+// item, and with --follow keeps going until the worker has ended and nothing
+// more comes. With --json it prints one item a line.
+func tasksTranscript(ctx context.Context, e *env, fs *flag.FlagSet) error {
+	t, err := getTask(ctx, e, fs.Arg(0))
+	if err != nil {
+		return err
+	}
+
+	if t.LatestDispatch == nil {
+		return fmt.Errorf("task %s has not started: it has no transcript yet", t.Id)
+	}
+
+	id := t.LatestDispatch.Id
+	after, _ := strconv.ParseInt(str(fs, "after"), 10, 64)
+	follow := boolean(fs, "follow")
+
+	for {
+		params := &openapi.ListDispatchItemsParams{After: &after}
+
+		ended := !follow
+		if follow {
+			// Read the status before the items: an empty page after a settled Dispatch is then the end.
+			now, err := getTask(ctx, e, t.Id)
+			if err != nil {
+				return err
+			}
+
+			ended = now.LatestDispatch == nil || now.LatestDispatch.Id != id || now.LatestDispatch.SettledAt != nil
+			if !ended {
+				wait := followWait
+				params.Wait = &wait
+			}
+		}
+
+		resp, err := e.api.ListDispatchItemsWithResponse(ctx, id, params)
+		if err != nil {
+			return fmt.Errorf("reading the transcript: %w", err)
+		}
+
+		if resp.JSON200 == nil {
+			return apiError("reading the transcript", resp.StatusCode(), resp.JSONDefault)
+		}
+
+		for _, it := range resp.JSON200.Data {
+			after = it.Seq
+
+			if err := e.print(fs, it, func() { e.printf("%s\n", itemLine(it)) }); err != nil {
+				return err
+			}
+		}
+
+		if resp.JSON200.HasMore {
+			continue
+		}
+
+		if ended && len(resp.JSON200.Data) == 0 || !follow {
+			return nil
+		}
+	}
+}
+
+// plain makes text from a worker safe to print on a terminal: a control
+// character other than a newline or a tab is shown as its escape (`\x1b`), so
+// a worker's output cannot move the cursor, recolour or rewrite what the
+// owner reads. So are the characters that are not seen but change what is
+// read: format characters (the direction overrides, zero-width marks) and the
+// Unicode line and paragraph separators. JSON output needs none of this: it
+// escapes them itself.
+func plain(s string) string {
+	var b strings.Builder
+
+	for _, r := range s {
+		hidden := unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || r == '\u2028' || r == '\u2029'
+		if r != '\n' && r != '\t' && hidden {
+			b.WriteString(strings.Trim(strconv.QuoteRuneToASCII(r), "'"))
+
+			continue
+		}
+
+		b.WriteRune(r)
+	}
+
+	return b.String()
+}
+
+// itemHints are the inputs that say what a tool call is about, in the order tried.
+var itemHints = []string{"command", "file_path", "path", "pattern", "url", "query", "description", "summary", "text"}
+
+// itemLine is one item of a transcript in one line: what the worker said, the
+// tool it called and on what, or the start of what the tool answered.
+func itemLine(it openapi.TranscriptItem) string {
+	switch it.Kind {
+	case openapi.TranscriptItemKindToolCall:
+		line := "> " + val(it.Tool)
+
+		for _, key := range itemHints {
+			if hint, ok := val(it.Input)[key].(string); ok && strings.TrimSpace(hint) != "" {
+				return line + ": " + firstLine(hint)
+			}
+		}
+
+		return line
+	case openapi.TranscriptItemKindToolResult:
+		line := "  = " + firstLine(val(it.Text))
+		if val(it.Failed) {
+			line += " [failed]"
+		}
+
+		return line
+	case openapi.TranscriptItemKindReasoning:
+		return "(thinking) " + firstLine(val(it.Text))
+	case openapi.TranscriptItemKindNotice:
+		return "! " + continued(val(it.Text))
+	case openapi.TranscriptItemKindMessage:
+		return continued(val(it.Text))
+	default:
+		return continued(val(it.Text))
+	}
+}
+
+// continued marks every line of a text after its first, so a line a worker
+// wrote inside a message cannot pass for an item of its own (a call, a result).
+func continued(s string) string {
+	return strings.ReplaceAll(strings.TrimRight(s, "\n"), "\n", "\n| ")
 }

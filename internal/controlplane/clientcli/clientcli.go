@@ -260,7 +260,16 @@ func key(fs *flag.FlagSet) *string {
 	return &k
 }
 
+// printf prints text for a person. Every string it is given may come from a
+// worker, a coordinator or a model (a question, a result, a transcript), so
+// each goes through plain: such text is shown, never obeyed by the terminal.
 func (e *env) printf(format string, a ...any) {
+	for i, v := range a {
+		if s, ok := v.(string); ok {
+			a[i] = plain(s)
+		}
+	}
+
 	_, _ = fmt.Fprintf(e.out, format, a...)
 }
 

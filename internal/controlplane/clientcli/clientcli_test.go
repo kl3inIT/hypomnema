@@ -408,6 +408,113 @@ func (wk *worker) succeed(t *testing.T, w *world) {
 	}))
 }
 
+// A worker's output may hold terminal escapes; printed as text they are shown,
+// not obeyed. Newlines and tabs stay.
+func TestWorkerTextCannotDriveTheTerminal(t *testing.T) {
+	t.Parallel()
+
+	got := plain("ok\x1b[2J\x1b]0;title\x07\tdone\nnext\u009b31m\x7f")
+	assert.Equal(t, `ok\x1b[2J\x1b]0;title\a`+"\tdone\nnext"+`\u009b31m\x7f`, got)
+
+	// What is not seen but changes what is read: a direction override, a zero-width space, a line separator.
+	assert.Equal(t, `a\u202eb\u200bc\u2028d`, plain("a\u202eb\u200bc\u2028d"))
+	assert.Equal(t, "Tiếng Việt có dấu", plain("Tiếng Việt có dấu"))
+
+	// A line inside a message cannot pass for a call or a result of its own.
+	text := "Done.\n> Bash: rm -rf /\n  = ok"
+	assert.Equal(t, "Done.\n| > Bash: rm -rf /\n|   = ok",
+		itemLine(openapi.TranscriptItem{Kind: openapi.TranscriptItemKindMessage, Text: &text}))
+
+	// Every command prints through one place, so a result or a question is covered as a transcript is.
+	var out bytes.Buffer
+
+	e := &env{out: &out}
+	e.printf("%s (%d)\n", "done\x1b[31m", 3)
+	assert.Equal(t, `done\x1b[31m (3)`+"\n", out.String())
+}
+
+// Scenario: the owner watches a worker from a terminal, without the web. The
+// list says what the worker does now; the transcript prints what it said and
+// did, a line an item; following it prints each new item and ends once the
+// worker has finished and nothing more comes.
+func TestAWorkerIsWatchedFromTheTerminal(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	w.login(t, bearertoken.Owner)
+
+	var run openapi.Run
+	w.jsonCmd(t, &run, "", "runs", "create", "--repo", "kl3inIT/demo", "add a health page")
+
+	var tasks openapi.TaskList
+	w.jsonCmd(t, &tasks, "", "tasks", "create", run.Id, "--spec", "add GET /health")
+	task := tasks.Data[0].Id
+
+	_, err := w.cmd(t, "tasks", "transcript", task)
+	require.ErrorContains(t, err, "has not started")
+
+	wk := startWorker(t, w)
+	node, dispatch := wk.call.NodeID, wk.call.DispatchID
+	add := func(items ...orchestration.Item) {
+		t.Helper()
+
+		_, err := w.svc.AddItems(t.Context(), node, dispatch, items)
+		require.NoError(t, err)
+	}
+
+	add(
+		orchestration.Item{Seq: 1, Kind: orchestration.ItemMessage, Text: "I will add the handler."},
+		orchestration.Item{
+			Seq: 2, Kind: orchestration.ItemToolCall, CallID: "c1", Tool: "Bash",
+			Input: json.RawMessage(`{"command":"go test ./...\necho done"}`),
+		},
+		orchestration.Item{Seq: 3, Kind: orchestration.ItemToolResult, CallID: "c1", Text: "FAIL\nTestHealth", Failed: true},
+	)
+
+	out, err := w.cmd(t, "tasks", "list")
+	require.NoError(t, err)
+	assert.Contains(t, out, task+"\trunning\t"+run.Id+"\tBash: go test ./...")
+
+	out, err = w.cmd(t, "tasks", "transcript", task)
+	require.NoError(t, err)
+	assert.Equal(t, "I will add the handler.\n> Bash: go test ./...\n  = FAIL [failed]\n", out)
+
+	out, err = w.cmd(t, "tasks", "transcript", task, "--after", "2", "--json")
+	require.NoError(t, err)
+
+	var item openapi.TranscriptItem
+	require.NoError(t, json.Unmarshal([]byte(out), &item), out)
+	assert.Equal(t, int64(3), item.Seq)
+
+	var followed syncBuffer
+
+	done := make(chan error, 1)
+
+	go func() {
+		done <- Command(t.Context(), w.home, []string{"tasks", "transcript", task, "--after", "3", "--follow"},
+			strings.NewReader(""), &followed)
+	}()
+
+	time.Sleep(200 * time.Millisecond)
+	add(orchestration.Item{Seq: 4, Kind: orchestration.ItemMessage, Text: "All tests pass now."})
+	require.Eventually(t, func() bool { return strings.Contains(followed.String(), "All tests pass now.") },
+		5*time.Second, 20*time.Millisecond, "a new item is printed while the worker runs")
+
+	wk.succeed(t, w)
+
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("following did not end when the worker finished")
+	}
+
+	out, err = w.cmd(t, "tasks", "list")
+	require.NoError(t, err)
+	assert.Contains(t, out,
+		task+"\tsucceeded\t"+run.Id+"\tadded GET /health  https://github.com/kl3inIT/demo/pull/7")
+}
+
 // Scenario: the owner reads the skill from the binary and installs it for
 // Claude Code and for pi and Codex. A second install changes nothing; a
 // copy the owner edited is left alone unless --force, which keeps a backup.
