@@ -1,6 +1,7 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "plugins": ["react", "typescript", "oxc", "jsx-a11y", "import", "vitest"],
+  "jsPlugins": ["@shadcn/lint"],
   "ignorePatterns": [
     "dist/**",
     "src/routeTree.gen.ts",
@@ -9,12 +10,19 @@
   ],
   "rules": {
     "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
+    "react/only-export-components": [
+      "warn",
+      {
+        "allowConstantExport": true
+      }
+    ]
   },
   "overrides": [
     {
       "files": ["src/routes/**", "src/components/theme-provider.tsx"],
-      "rules": { "react/only-export-components": "off" }
+      "rules": {
+        "react/only-export-components": "off"
+      }
     }
   ]
 }

@@ -8,6 +8,7 @@ and [docs/conventions.md](../../docs/conventions.md#agent-skills). Licenses are 
 |---|---|---|---|
 | [samber/cc-skills-golang](https://github.com/samber/cc-skills-golang) | `bb1d43d` (2026-11-01) | MIT | `golang-code-style`, `golang-naming`, `golang-error-handling`, `golang-concurrency`, `golang-context`, `golang-safety`, `golang-structs-interfaces`, `golang-data-structures`, `golang-design-patterns`, `golang-modernize`, `golang-testing`, `golang-database`, `golang-security`, `golang-observability`, `golang-performance`, `golang-lint`, `golang-continuous-integration`, `golang-dependency-management`, `golang-troubleshooting`, `golang-stretchr-testify` |
 | [can1357/oh-my-pi](https://github.com/can1357/oh-my-pi) (`.omp/skills`) | `b5a6b2f` (2026-11-07) | MIT | `system-prompts`, `tool-prompt-optimization` |
+| [shadcn-ui/ui](https://github.com/shadcn-ui/ui) (`skills/shadcn`), the official skill of https://ui.shadcn.com/docs/skills | `8ab2771` (2026-11-08), copied 2026-11-10 | MIT | `shadcn` |
 
 Removed on 2026-11-07 with the switch to SQLite (issue #15): testcontainers/claude-skills `testcontainers-go` and
 timescale/pg-aiguide `design-postgres-tables`, `postgres-database-migration`.
@@ -18,6 +19,11 @@ github/awesome-copilot, obra/superpowers and the skills in genie and companion, 
 owner's own skills (`code-review`, `test-audit`, `ship-branch`, `research-then-decide`).
 
 ## Where the repository wins
+
+- `shadcn`: it runs `shadcn info --json` and may add components with the CLI. The web client's components are on
+  Base UI (`web/components.json`, style `base-nova`), `web/src/components/ui` is not linted, and what a screen is
+  built from follows the references' code first (`AGENTS.md`). Its `migrate-radix-to-base` sibling is left out: the
+  client is already on Base UI.
 
 - `golang-lint`: the repository's `.golangci.yml` (Omnara's curated set) applies, not the configuration this skill
   recommends.

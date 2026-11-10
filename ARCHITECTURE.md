@@ -386,6 +386,9 @@ and the node in the control plane binary.
   `openapi-check` (generated client API code matches `api/openapi.yaml`), `migration-check` (migrations already on
   `origin/main` are unchanged), unit tests and race tests.
 - Tests that need a database open a real file in a temporary directory; no containers.
+- `make web-doctor`: React Doctor's report on the web client (pinned, local checks only: no score API, crash
+  reports or dependency lookups; `web/doctor.config.json`). It is read, not a gate. Oxlint loads `@shadcn/lint`
+  (`jsPlugins` in `web/.oxlintrc.json`); none of its rules is enabled yet.
 - `make web-check`: oxlint, oxfmt, `tsc -b` and vitest for the web client; `make web-e2e`: Playwright on the
   production build, at a phone's and a desktop's size.
 - CI (`.github/workflows/ci.yml`) runs `make verify` and `govulncheck`, and in a second job `make web-check` and
