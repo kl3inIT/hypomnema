@@ -21,8 +21,9 @@ type Secrets interface {
 	List(ctx context.Context) ([]SecretInfo, error)
 	// Value opens one secret: its values by key.
 	Value(ctx context.Context, name string) (map[string]string, error)
-	// Put keeps a value under a name, as a new secret or a new version.
-	Put(ctx context.Context, name, value string) (SecretInfo, error)
+	// Put keeps values under a name, as a new generic secret or a new
+	// version of a secret of any kind.
+	Put(ctx context.Context, name string, values map[string]string) (SecretInfo, error)
 	Delete(ctx context.Context, name string) error
 }
 
@@ -122,7 +123,18 @@ func (s *Server) PutSecret(ctx context.Context, req openapi.PutSecretRequestObje
 		return nil, errNoSecrets
 	}
 
-	i, err := s.secrets.Put(ctx, req.Name, val(req.Body.Value))
+	values := map[string]string{}
+	if req.Body.Values != nil {
+		values = *req.Body.Values
+	} else if v := val(req.Body.Value); v != "" {
+		values["value"] = v
+	}
+
+	if len(values) == 0 {
+		return nil, fmt.Errorf("%w: give a value", orchestration.ErrInvalid)
+	}
+
+	i, err := s.secrets.Put(ctx, req.Name, values)
 	if err != nil {
 		return nil, err
 	}

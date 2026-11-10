@@ -502,8 +502,14 @@ export type SecretValue = {
   };
 };
 
+/**
+ * Either `value`, for a generic secret, or `values`, the complete set of a token set.
+ */
 export type NewSecretValue = {
-  value: string;
+  value?: string;
+  values?: {
+    [key: string]: string;
+  };
 };
 
 export type NewGitHost = {
