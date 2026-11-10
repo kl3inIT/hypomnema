@@ -6,6 +6,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/node/statedb"
 	"github.com/kl3inIT/hypomnema/internal/node/worktree"
+	"github.com/kl3inIT/hypomnema/internal/shared/githost"
 )
 
 // recoveryNote is the orchestration core's RecoveryNote: the previous
@@ -19,7 +20,7 @@ const rules = "\nRules:\n" +
 	"- When a decision is not yours to make, call the `ask` tool and wait for the answer. " +
 	"Never use AskUserQuestion; no one reads it.\n" +
 	"- When the work is done, call the `finish` tool exactly once with a short summary and the evidence " +
-	"(the pull request as owner/repo#N), then end your turn. A task ended without `finish` counts as failed.\n" +
+	"(the pull request as its URL), then end your turn. A task ended without `finish` counts as failed.\n" +
 	"- If the owner must decide before the work goes on (such as whether to merge), " +
 	"pass that question as `gate` to `finish` instead of waiting.\n" +
 	"- Do not start subagents, and do not work outside this directory.\n"
@@ -40,9 +41,9 @@ func Prompt(d statedb.Dispatch) string {
 	if o.Repo != "" {
 		fmt.Fprintf(&b, "Work only in this directory, a git worktree of %s on branch %s, started from %s. ",
 			o.Repo, worktree.Branch(o.TaskID), o.Base)
-		// gh does not find the branch's remote in a worktree of the node's mirror, so --head names it.
-		fmt.Fprintf(&b, "Commit your work, push the branch, and open a pull request with "+
-			"`gh pr create --base %s --head %s`.\n", o.Base, worktree.Branch(o.TaskID))
+		// The command is the host's (internal/shared/githost): gh on GitHub, glab on GitLab.
+		fmt.Fprintf(&b, "Commit your work, push the branch, and open a pull request with `%s`.\n",
+			openCommand(o.RepoKind, o.Base, worktree.Branch(o.TaskID)))
 	} else {
 		b.WriteString("Work only in this directory.\n")
 	}
@@ -63,6 +64,17 @@ func Prompt(d statedb.Dispatch) string {
 	}
 
 	return b.String()
+}
+
+// openCommand is the host's command to open a pull request; an offer from
+// before hosts existed names no kind and means GitHub.
+func openCommand(kind, base, branch string) string {
+	adapter, ok := githost.For(githost.Kind(kind))
+	if !ok {
+		adapter, _ = githost.For(githost.GitHub)
+	}
+
+	return adapter.OpenCommand(base, branch)
 }
 
 func gate(d statedb.Dispatch) string {

@@ -109,9 +109,21 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   `<worktree root>/<run>/<task>`. A Task with no node or no account for 5 min is escalated once (`unplaceable`), and
   a rate limit over an hour that leaves its runtime with no free account is escalated (`account_cooling`).
 
-- Runs name the repository their workers work in (`owner/name`) and its base branch (default `main`), and the
-  coordinator token that coordinates them, if a coordinator created them. Runs are listed newest first, a page at a
-  time.
+- Runs name the repository their workers work in and its base branch (default `main`), and the coordinator token
+  that coordinates them, if a coordinator created them. Runs are listed newest first, a page at a time.
+- A repository is a git host and a path (issue #44; `internal/shared/githost`,
+  [research](docs/research/2026-11-10-git-hosts-and-personal-work.md)).
+  - A Run is given `owner/name` (GitHub, as before), the URL of a repository, git's `user@host:path`, or the name
+    of a registered repository; it keeps the host and the path. A Run from before hosts existed is on `github.com`.
+  - Hosts are of two kinds, `github` and `gitlab`, one adapter each: the clone URL, the command that opens a pull
+    request, the request's URL, and reading a request from a worker's evidence. `github.com` and `gitlab.com` are
+    known; the owner declares a company's server with its kind, and a Run on a host that is not known is refused
+    with the command that declares it. A declared host is forgotten only when no open Run and no registered
+    repository is on it.
+  - A repository can be registered under a short name with the base branch its Runs start from.
+  - A host's token is not kept yet: git on a node still uses the node user's own logins, so a GitLab repository
+    works only where that user is logged in to its host. Which nodes reach which host is not known to placement
+    yet.
 - Client tokens: kind `owner` or `coordinator`, in Omnara's format (`hyp_<kind>_v1_`, 43 Base62 characters and a
   CRC32 checksum, checked before the database is read; `internal/controlplane/bearertoken`). Shown once; only the
   SHA-256 is stored; a revoked token no longer authenticates.
@@ -244,6 +256,10 @@ The owner's commands:
     (several Tasks with dependencies from one JSON file); `questions [show|forward]`. Each takes `--json`; long text
     comes from a file or `-` for standard input; flags may follow the arguments; a create takes `--key` so a create
     whose answer was lost can be repeated.
+  - `hosts list|add|rm` and `repos list|add|rm`: the git hosts a Run can be on and the repositories registered
+    under a name; every token reads them, only the owner's changes them. `hosts add` takes a host's name or a URL
+    copied from the browser (`--kind`, default `gitlab`); `repos add` takes `owner/name` or a URL (`--name`,
+    `--base`). `--repo` of `run` and `runs create` takes a registered name, `owner/name` or a URL.
   - `profiles list|show|versions|apply`, `providers list|apply` and `models list`; every token reads them, only the
     owner's applies a YAML file (the API's `PUT /profiles/{name}` and `PUT /providers/{name}`).
   - `runs wait <run>` returns when a Task of the Run ended or was blocked, a question reached the coordinator, an
@@ -322,15 +338,17 @@ Node (`internal/node`):
   - Every permission prompt is allowed and logged (`node.tool_allowed`). The node's machine or user is the boundary
     ([research](docs/research/2026-11-08-worker-permissions.md)).
   - The first turn, after Orca's preamble, has:
-    - the Task's spec, the repository and branch, and the instruction to open a pull request with
-      `gh pr create --base <base> --head <branch>` (without `--head`, `gh` does not find the branch in a worktree
-      of the mirror);
+    - the Task's spec, the repository and branch, and the instruction to open a pull request with the host's
+      command: `gh pr create --base <base> --head <branch>` (without `--head`, `gh` does not find the branch in a
+      worktree of the mirror) or `glab mr create --target-branch <base> --source-branch <branch> --yes`;
     - `ask` instead of guessing, `finish` exactly once (with a Gate for decisions the owner must make), and no
       subagents;
     - the recovery note and a resolved Gate.
 - Worktrees (`internal/node/worktree`): a bare mirror per repository under the node's home, fetched into
   `origin/*` before each new worktree. `git worktree add -b hyp/<task>` from `origin/<base>`, or from the existing
-  branch on a retry; reused while it exists. Git uses the node user's own credentials.
+  branch on a retry; reused while it exists. Git uses the node user's own credentials. The offer names the
+  repository's host and kind; the node checks them and the path before git sees them, and clones from the host's
+  address. A GitHub mirror stays under `repos/<owner>/<name>.git`; another host's is under `repos/_hosts/<host>/`.
 - There is no vault, permission rule or mailbox yet.
 
 ## Web client
@@ -356,7 +374,8 @@ Node (`internal/node`):
     kanban (MIT). Needs you holds an open question to the owner, a failure in an open Run, a stop for a decision
     and a missing login. Rows per Run or per repository and a repository filter are kept in the URL. A card shows
     the runtime's mark (from OpenMausBot, Apache 2.0), the Task, its Run, what its worker does now (the Dispatch's
-    `activity`) and how long it has run, the machine, the model and the pull request (a worker reports it as `owner/repo#N`, linked on GitHub). While a worker runs the
+    `activity`) and how long it has run, the machine, the model and the pull request (a worker reports its URL; `owner/repo#N` from earlier workers is
+    linked on GitHub; a GitLab merge request reads as a pull request with its number). While a worker runs the
     board is read again every 10 s, since its activity changes without an event. On a phone the columns stack,
     Needs you first.
   - A card opens the Task over the page, as Omnigent opens a session over its canvas (`?task=` in the URL; Escape
@@ -426,6 +445,7 @@ internal/node/workertools the worker's MCP server: ask and finish
 internal/node/worktree    bare mirrors and git worktrees per Task
 internal/controlplane/coordinator  the supervisor of pi, the coordinator: one pi in RPC mode per chat
 internal/controlplane/orchestration  Runs, Tasks, Dispatches, Conversations, questions, events, nodes, accounts, the scheduler; migrations; queries generated by sqlc (internal/store)
+internal/shared/githost   git hosts: how a repository is named, and each kind's clone URL, command and links
 internal/shared/nodeproto the wire protocol between a node and the control plane
 internal/shared/platform  environment settings, slog logger, HTTP server and probes, version, clock, ids
 internal/shared/sqlite    SQLite opening, pragmas and file permissions

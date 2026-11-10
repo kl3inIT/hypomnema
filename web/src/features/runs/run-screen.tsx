@@ -5,7 +5,7 @@ import { ChevronRight, GitPullRequest, MessageCircleQuestion } from "lucide-reac
 import "@/api/client"
 import { cancelRun, finishRun, getRun, listQuestions } from "@/api/generated/sdk.gen"
 import type { Question, RunDetail, TaskDetail } from "@/api/generated/types.gen"
-import { firstLine, pullRequest } from "@/features/board/board-state"
+import { firstLine, pullRequest, repoLabel } from "@/features/board/board-state"
 import { QuestionForm } from "@/features/board/question-form"
 import { PageHeader } from "@/features/shell/app-shell"
 import { since } from "@/lib/time"
@@ -143,7 +143,7 @@ function Overview({ run }: { run: RunDetail }) {
         </span>
         {run.repo && (
           <span className="inline-flex h-6 items-center rounded-md bg-foreground/5 px-2 font-mono">
-            {run.repo}
+            {repoLabel(run)}
           </span>
         )}
         {run.base && (

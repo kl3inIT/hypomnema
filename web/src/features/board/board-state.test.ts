@@ -2,7 +2,15 @@ import { expect, test } from "vitest"
 
 import type { Dispatch } from "@/api/generated/types.gen"
 
-import { boardCards, byColumn, evidenceLink, lanes, pullRequest, safeLink } from "./board-state"
+import {
+  boardCards,
+  byColumn,
+  evidenceLink,
+  lanes,
+  pullRequest,
+  repoLabel,
+  safeLink,
+} from "./board-state"
 import { board, question, run, task } from "./fixtures"
 
 const open = run("run_1")
@@ -153,6 +161,38 @@ test("a pull request given as owner/repo#N is linked", () => {
   expect(evidenceLink("commit", "kl3inIT/hypomnema#78")).toBeUndefined()
   expect(evidenceLink("pull_request", "kl3inIT/hypomnema#78/../x")).toBeUndefined()
   expect(evidenceLink("pull_request", "javascript:alert(1)#1")).toBeUndefined()
+})
+
+// Scenario: a worker on the company's GitLab reports its merge request by its URL. It reads as a pull request
+// with its number, and its Run's repository shows its host; a repository on github.com shows as before.
+test("a GitLab merge request reads as a pull request", () => {
+  const t = task("t", "run_1", {
+    latest_dispatch: dispatch({
+      status: "succeeded",
+      result: {
+        summary: "done",
+        evidence: [
+          {
+            kind: "pull_request",
+            ref: "https://gitlab.company.example/team/platform/api/-/merge_requests/12",
+          },
+        ],
+      },
+    }),
+  })
+
+  expect(pullRequest(t)).toEqual({
+    url: "https://gitlab.company.example/team/platform/api/-/merge_requests/12",
+    label: "PR #12",
+  })
+  expect(repoLabel({ repo: "team/platform/api", repo_host: "gitlab.company.example" })).toBe(
+    "gitlab.company.example/team/platform/api",
+  )
+  expect(repoLabel({ repo: "kl3inIT/hypomnema", repo_host: "github.com" })).toBe(
+    "kl3inIT/hypomnema",
+  )
+  expect(repoLabel({ repo: "kl3inIT/hypomnema" })).toBe("kl3inIT/hypomnema")
+  expect(repoLabel({})).toBe("")
 })
 
 // Scenario: a worker reports a link that would run script or is not a link; it is never made a link.

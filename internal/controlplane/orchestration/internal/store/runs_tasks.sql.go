@@ -39,7 +39,7 @@ func (q *Queries) CountUnfinishedTasks(ctx context.Context, arg CountUnfinishedT
 }
 
 const getRun = `-- name: GetRun :one
-SELECT id, objective, status, created_by, created_at, updated_at, finished_at, repo, base, coordinator_token_id, chat_id FROM runs WHERE id = ?1
+SELECT id, objective, status, created_by, created_at, updated_at, finished_at, repo, base, coordinator_token_id, chat_id, repo_host FROM runs WHERE id = ?1
 `
 
 func (q *Queries) GetRun(ctx context.Context, id string) (Run, error) {
@@ -57,6 +57,7 @@ func (q *Queries) GetRun(ctx context.Context, id string) (Run, error) {
 		&i.Base,
 		&i.CoordinatorTokenID,
 		&i.ChatID,
+		&i.RepoHost,
 	)
 	return i, err
 }
@@ -91,9 +92,9 @@ func (q *Queries) GetTask(ctx context.Context, id string) (Task, error) {
 }
 
 const insertRun = `-- name: InsertRun :exec
-INSERT INTO runs (id, objective, status, created_by, repo, base, coordinator_token_id, chat_id, created_at,
-                  updated_at)
-VALUES (?1, ?2, 'open', ?3, ?4, ?5, ?6, ?7, ?8, ?8)
+INSERT INTO runs (id, objective, status, created_by, repo, repo_host, base, coordinator_token_id, chat_id,
+                  created_at, updated_at)
+VALUES (?1, ?2, 'open', ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9)
 `
 
 type InsertRunParams struct {
@@ -101,6 +102,7 @@ type InsertRunParams struct {
 	Objective          string
 	CreatedBy          string
 	Repo               sql.NullString
+	RepoHost           sql.NullString
 	Base               sql.NullString
 	CoordinatorTokenID sql.NullString
 	ChatID             sql.NullString
@@ -113,6 +115,7 @@ func (q *Queries) InsertRun(ctx context.Context, arg InsertRunParams) error {
 		arg.Objective,
 		arg.CreatedBy,
 		arg.Repo,
+		arg.RepoHost,
 		arg.Base,
 		arg.CoordinatorTokenID,
 		arg.ChatID,
@@ -298,7 +301,7 @@ func (q *Queries) ListDependents(ctx context.Context, taskID string) ([]ListDepe
 }
 
 const listRuns = `-- name: ListRuns :many
-SELECT id, objective, status, created_by, created_at, updated_at, finished_at, repo, base, coordinator_token_id, chat_id FROM runs
+SELECT id, objective, status, created_by, created_at, updated_at, finished_at, repo, base, coordinator_token_id, chat_id, repo_host FROM runs
 WHERE (CAST(?1 AS TEXT) = '' OR status = ?1)
   AND (CAST(?2 AS INTEGER) = 0 OR created_at < ?3 OR (created_at = ?3 AND id < ?4))
 ORDER BY created_at DESC, id DESC
@@ -341,6 +344,7 @@ func (q *Queries) ListRuns(ctx context.Context, arg ListRunsParams) ([]Run, erro
 			&i.Base,
 			&i.CoordinatorTokenID,
 			&i.ChatID,
+			&i.RepoHost,
 		); err != nil {
 			return nil, err
 		}

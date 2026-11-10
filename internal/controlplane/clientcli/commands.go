@@ -20,7 +20,7 @@ var commands = []command{
 		name: "run", args: "<objective>", min: 1, max: -1,
 		summary: "create a Run with one Task and follow it until the Task ends",
 		flags: func(fs *flag.FlagSet) {
-			fs.String("repo", "", "repository the work happens in, owner/name")
+			fs.String("repo", "", "repository the work happens in: a registered name, owner/name, or its URL")
 			fs.String("base", "", "branch the worktree starts from (default main)")
 			fs.String("profile", "", "profile of the Task (default implementer)")
 			fs.String("runtime", "", "runtime, instead of the profile's")
@@ -32,7 +32,7 @@ var commands = []command{
 	{
 		name: "runs create", args: "[objective]", max: -1, summary: "create a Run; a coordinator token coordinates it",
 		flags: func(fs *flag.FlagSet) {
-			fs.String("repo", "", "repository the work happens in, owner/name")
+			fs.String("repo", "", "repository the work happens in: a registered name, owner/name, or its URL")
 			fs.String("base", "", "branch the worktrees start from (default main)")
 			fs.String("objective-file", "", "read the objective from this file, or - for standard input")
 			fs.String("key", "", "idempotency key; repeat a create whose result was lost with the same key")
@@ -162,6 +162,40 @@ var commands = []command{
 	{
 		name: "chats", summary: "the chats with the coordinator, the most recently active first",
 		flags: jsonFlag, run: chatsList,
+	},
+	{
+		name: "hosts list", summary: "the git hosts a Run can be on", flags: jsonFlag, run: hostsList,
+	},
+	{
+		name: "hosts add", args: "<host>", min: 1, max: 1,
+		summary: "declare a company's git server, by its name or URL (owner)",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("kind", "gitlab", "github or gitlab")
+			jsonFlag(fs)
+		},
+		run: hostsAdd,
+	},
+	{
+		name: "hosts rm", args: "<host>", min: 1, max: 1,
+		summary: "forget a declared host that no open Run or registered repository is on (owner)",
+		flags:   jsonFlag, run: hostsRemove,
+	},
+	{
+		name: "repos list", summary: "the repositories registered under a name", flags: jsonFlag, run: reposList,
+	},
+	{
+		name: "repos add", args: "<repo>", min: 1, max: 1,
+		summary: "register a repository (owner/name or its URL) under a name a Run can use (owner)",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("name", "", "the name (default: the last part of its path)")
+			fs.String("base", "", "branch worktrees start from when a Run names none")
+			jsonFlag(fs)
+		},
+		run: reposAdd,
+	},
+	{
+		name: "repos rm", args: "<name>", min: 1, max: 1, summary: "forget a registered repository (owner)",
+		flags: jsonFlag, run: reposRemove,
 	},
 	{
 		name: "profiles list", summary: "the profiles Tasks can name, at their current versions",

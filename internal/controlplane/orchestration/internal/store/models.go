@@ -182,6 +182,12 @@ type GatewayUsage struct {
 	CreatedAt        int64
 }
 
+type GitHost struct {
+	Host      string
+	Kind      string
+	CreatedAt int64
+}
+
 type Model struct {
 	Provider string
 	Name     string
@@ -283,6 +289,14 @@ type Receipt struct {
 	CreatedAt   int64
 }
 
+type Repo struct {
+	Name      string
+	Host      string
+	Path      string
+	Base      sql.NullString
+	CreatedAt int64
+}
+
 type Run struct {
 	ID                 string
 	Objective          string
@@ -295,6 +309,7 @@ type Run struct {
 	Base               sql.NullString
 	CoordinatorTokenID sql.NullString
 	ChatID             sql.NullString
+	RepoHost           sql.NullString
 }
 
 type Secret struct {

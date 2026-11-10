@@ -1,8 +1,10 @@
 // Package worktree makes a Dispatch's working copy (issue #32): a git
 // worktree on its own branch, from a bare mirror the node keeps per
 // repository, as Orca (src/main/git/worktrees/creation/worktree-add.ts) and
-// Omnigent (omnigent/host/git_worktree.py) do. Git authenticates with the
-// node user's own credentials (`gh auth setup-git`) until the vault exists.
+// Omnigent (omnigent/host/git_worktree.py) do. The repository is on a git
+// host of a kind (internal/shared/githost, issue #44). Git authenticates with
+// the node user's own credentials (`gh auth setup-git`) until the vault hands
+// a host's token to a Dispatch.
 package worktree
 
 import (
@@ -14,17 +16,48 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-)
 
-// GitHubURL is the default clone URL for owner/name.
-const GitHubURL = "https://github.com/%s.git"
+	"github.com/kl3inIT/hypomnema/internal/shared/githost"
+)
 
 // Maker makes worktrees under Root.
 type Maker struct {
-	// Root holds the mirrors (Root/repos/owner/name.git); worktrees go where the control plane says.
+	// Root holds the mirrors (Root/repos/...); worktrees go where the control plane says.
 	Root string
-	// URL turns owner/name into a clone URL; GitHubURL when empty.
+	// URL replaces the host's clone URL in tests: a format with one %s, the repository's path.
 	URL string
+}
+
+// Source is the repository a worktree is made from.
+type Source struct {
+	Repo githost.Repo
+	// URL is where git fetches it from.
+	URL string
+}
+
+// SourceOf is the repository an offer names. An empty host and kind are
+// github.com, as offers were before hosts existed. It refuses a host, a kind or
+// a path that cannot be one, so nothing an offer carries reaches git unchecked.
+func SourceOf(host, kind, path string) (Source, error) {
+	if host == "" {
+		host = githost.GitHubHost
+	}
+
+	if kind == "" {
+		kind = string(githost.GitHub)
+	}
+
+	adapter, ok := githost.For(githost.Kind(kind))
+	if !ok {
+		return Source{}, fmt.Errorf("this node does not know hosts of kind %q", kind)
+	}
+
+	repo, err := githost.Parse("https://" + host + "/" + path)
+	if err != nil {
+		return Source{}, err
+	}
+
+	return Source{Repo: repo, URL: adapter.CloneURL(repo)}, nil
 }
 
 // Branch is the branch a Task's worktree works on.
@@ -32,7 +65,7 @@ func Branch(taskID string) string { return "hyp/" + taskID }
 
 // Ensure makes the worktree at path on the Task's branch, starting from base,
 // or reuses it when it exists (a continued Conversation).
-func (m Maker) Ensure(ctx context.Context, repo, base, taskID, path string) error {
+func (m Maker) Ensure(ctx context.Context, src Source, base, taskID, path string) error {
 	if !filepath.IsAbs(path) {
 		return fmt.Errorf("the worktree %q is not absolute", path)
 	}
@@ -41,7 +74,7 @@ func (m Maker) Ensure(ctx context.Context, repo, base, taskID, path string) erro
 		return nil
 	}
 
-	mirror, err := m.mirror(ctx, repo)
+	mirror, err := m.mirror(ctx, src)
 	if err != nil {
 		return err
 	}
@@ -61,8 +94,8 @@ func (m Maker) Ensure(ctx context.Context, repo, base, taskID, path string) erro
 }
 
 // Remove removes a worktree; its branch stays.
-func (m Maker) Remove(ctx context.Context, repo, path string) error {
-	mirror := m.mirrorPath(repo)
+func (m Maker) Remove(ctx context.Context, src Source, path string) error {
+	mirror := m.mirrorPath(src.Repo)
 	if _, err := os.Stat(mirror); err != nil {
 		return os.RemoveAll(path)
 	}
@@ -74,47 +107,48 @@ func (m Maker) Remove(ctx context.Context, repo, path string) error {
 	return nil
 }
 
-func (m Maker) mirrorPath(repo string) string {
-	owner, name, _ := strings.Cut(repo, "/")
+// mirrorPath is where a repository's bare mirror is kept: under its path for
+// github.com, as before hosts existed, and under its host for another host.
+func (m Maker) mirrorPath(r githost.Repo) string {
+	path := filepath.FromSlash(r.Path) + ".git"
+	if r.Host == githost.GitHubHost {
+		return filepath.Join(m.Root, "repos", path)
+	}
 
-	return filepath.Join(m.Root, "repos", owner, name+".git")
+	// An owner on GitHub cannot be named "_hosts"; a port's colon is not a file name everywhere.
+	return filepath.Join(m.Root, "repos", "_hosts", strings.ReplaceAll(r.Host, ":", "_"), path)
 }
 
 // mirror clones the repository bare the first time, then fetches its
 // branches as origin/*, so the base is current.
-func (m Maker) mirror(ctx context.Context, repo string) (string, error) {
-	owner, name, ok := strings.Cut(repo, "/")
-	if !ok || owner == "" || name == "" || strings.ContainsAny(repo, " \\") || strings.Contains(name, "/") {
-		return "", fmt.Errorf("repository %q is not owner/name", repo)
+func (m Maker) mirror(ctx context.Context, src Source) (string, error) {
+	if src.Repo.Path == "" || src.URL == "" {
+		return "", errors.New("the offer names no repository")
 	}
 
-	path := m.mirrorPath(repo)
-	url := fmt.Sprintf(m.urlTemplate(), repo)
+	path := m.mirrorPath(src.Repo)
+
+	url := src.URL
+	if m.URL != "" {
+		url = fmt.Sprintf(m.URL, src.Repo.Path)
+	}
 
 	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			return "", fmt.Errorf("making %s: %w", filepath.Dir(path), err)
 		}
 
-		if err := git(ctx, "", "clone", "--bare", url, path); err != nil {
+		if err := git(ctx, "", "clone", "--bare", "--", url, path); err != nil {
 			return "", err
 		}
 	}
 
 	// Into remote-tracking refs: a branch checked out in a worktree must not be overwritten.
-	if err := git(ctx, path, "fetch", "--prune", url, "+refs/heads/*:refs/remotes/origin/*"); err != nil {
+	if err := git(ctx, path, "fetch", "--prune", "--", url, "+refs/heads/*:refs/remotes/origin/*"); err != nil {
 		return "", err
 	}
 
 	return path, nil
-}
-
-func (m Maker) urlTemplate() string {
-	if m.URL != "" {
-		return m.URL
-	}
-
-	return GitHubURL
 }
 
 func git(ctx context.Context, dir string, args ...string) error {

@@ -10,7 +10,14 @@ import { cancelTask, forwardQuestion, getRun, getTask, reopenTask } from "@/api/
 import type { Dispatch } from "@/api/generated/types.gen"
 import { since, span } from "@/lib/time"
 
-import { boardCards, firstLine, evidenceLink, pullRequest, type Card } from "./board-state"
+import {
+  boardCards,
+  firstLine,
+  evidenceLink,
+  pullRequest,
+  repoLabel,
+  type Card,
+} from "./board-state"
 import { QuestionForm } from "./question-form"
 import { RuntimeMark } from "./runtime-mark"
 import { Transcript } from "./transcript"
@@ -103,7 +110,7 @@ function PanelBody({ taskId }: { taskId: string }) {
             >
               {firstLine(run.objective, 60)}
             </Link>
-            {run.repo && <Chip mono>{run.repo}</Chip>}
+            {run.repo && <Chip mono>{repoLabel(run)}</Chip>}
             {card.node && <Chip>{card.node}</Chip>}
             {(dispatch?.model || task.model) && <Chip>{dispatch?.model || task.model}</Chip>}
             <Chip>{task.profile}</Chip>

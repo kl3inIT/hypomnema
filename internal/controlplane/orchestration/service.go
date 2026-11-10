@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
+	"github.com/kl3inIT/hypomnema/internal/shared/githost"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 )
 
@@ -73,15 +74,6 @@ func (s *Service) CreateRunOnce(ctx context.Context, o Once, nr NewRun) (Run, er
 		return Run{}, fmt.Errorf("%w: a run needs an objective and its creator", ErrInvalid)
 	}
 
-	if nr.Repo != "" && !validRepo(nr.Repo) {
-		return Run{}, fmt.Errorf("%w: repository %q is not owner/name", ErrInvalid, nr.Repo)
-	}
-
-	base := ""
-	if nr.Repo != "" {
-		base = or(nr.Base, DefaultBase)
-	}
-
 	var id string
 
 	err := s.write(ctx, func(q *store.Queries, now int64) error {
@@ -94,10 +86,25 @@ func (s *Service) CreateRunOnce(ctx context.Context, o Once, nr NewRun) (Run, er
 				}
 			}
 
+			var (
+				repo githost.Repo
+				base string
+			)
+
+			if nr.Repo != "" {
+				resolved, registeredBase, err := s.resolveRepo(ctx, q, nr.Repo)
+				if err != nil {
+					return "", err
+				}
+
+				repo, base = resolved, or(nr.Base, or(registeredBase, DefaultBase))
+			}
+
 			id := s.newID("run")
 
 			if err := q.InsertRun(ctx, store.InsertRunParams{
-				ID: id, Objective: objective, CreatedBy: createdBy, Repo: nullString(nr.Repo), Base: nullString(base),
+				ID: id, Objective: objective, CreatedBy: createdBy, Repo: nullString(repo.Path),
+				RepoHost: nullString(repo.Host), Base: nullString(base),
 				CoordinatorTokenID: nullString(nr.CoordinatorTokenID), ChatID: nullString(nr.ChatID), Now: now,
 			}); err != nil {
 				return "", fmt.Errorf("inserting run: %w", err)
@@ -770,7 +777,8 @@ func optionalTime(v sql.NullInt64) *time.Time {
 func runFromRow(r store.Run) Run {
 	return Run{
 		ID: r.ID, Objective: r.Objective, Status: RunStatus(r.Status), CreatedBy: r.CreatedBy,
-		Repo: r.Repo.String, Base: r.Base.String, CoordinatorTokenID: r.CoordinatorTokenID.String, ChatID: r.ChatID.String,
+		Repo: r.Repo.String, RepoHost: repoHost(r), Base: r.Base.String,
+		CoordinatorTokenID: r.CoordinatorTokenID.String, ChatID: r.ChatID.String,
 		CreatedAt: millis(r.CreatedAt), UpdatedAt: millis(r.UpdatedAt), FinishedAt: optionalTime(r.FinishedAt),
 	}
 }
@@ -786,20 +794,12 @@ func taskFromRow(t store.Task) Task {
 	}
 }
 
-// validRepo reports whether s is owner/name with GitHub's characters.
-func validRepo(s string) bool {
-	owner, name, ok := strings.Cut(s, "/")
-	if !ok || owner == "" || name == "" || strings.Contains(name, "/") {
-		return false
+// repoHost is the host of a Run's repository: github.com for a Run from
+// before hosts existed, none for a Run without a repository.
+func repoHost(r store.Run) string {
+	if !r.Repo.Valid || r.Repo.String == "" {
+		return ""
 	}
 
-	for _, r := range owner + name {
-		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_', r == '.':
-		default:
-			return false
-		}
-	}
-
-	return name != "." && name != ".."
+	return or(r.RepoHost.String, githost.GitHubHost)
 }

@@ -349,6 +349,82 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/NodeList" }
         default: { $ref: "#/components/responses/Error" }
+  /hosts:
+    get:
+      operationId: ListGitHosts
+      summary: The git hosts a Run can be on; github.com and gitlab.com are always among them
+      responses:
+        "200":
+          description: The hosts.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GitHostList" }
+        default: { $ref: "#/components/responses/Error" }
+  /hosts/{host}:
+    parameters:
+      - name: host
+        in: path
+        required: true
+        description: The host's name, with its port when it has one.
+        schema: { type: string, minLength: 3, maxLength: 255 }
+    put:
+      operationId: PutGitHost
+      summary: Declare a company's git server and its kind; only the owner
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewGitHost" }
+      responses:
+        "200":
+          description: The host.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GitHost" }
+        default: { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: DeleteGitHost
+      summary: Forget a declared host; refused while an open Run or a registered repository is on it
+      responses:
+        "204":
+          description: The host is forgotten.
+        default: { $ref: "#/components/responses/Error" }
+  /repos:
+    get:
+      operationId: ListRepos
+      summary: The repositories registered under a name
+      responses:
+        "200":
+          description: The repositories.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RepoList" }
+        default: { $ref: "#/components/responses/Error" }
+  /repos/{name}:
+    parameters:
+      - $ref: "#/components/parameters/Name"
+    put:
+      operationId: PutRepo
+      summary: Register a repository under a name, or change what the name means; only the owner
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewRepo" }
+      responses:
+        "200":
+          description: The repository.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Repo" }
+        default: { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: DeleteRepo
+      summary: Forget a registered repository; Runs that named it keep their host and path
+      responses:
+        "204":
+          description: The repository is forgotten.
+        default: { $ref: "#/components/responses/Error" }
   /accounts:
     get:
       operationId: ListAccounts
@@ -665,7 +741,10 @@ components:
         created_by: { type: string }
         repo:
           type: string
-          description: The repository workers work in, owner/name.
+          description: The path of the repository workers work in on its host; owner/name on github.com.
+        repo_host:
+          type: string
+          description: The git host the repository is on; present when the Run has a repository.
         base: { type: string }
         coordinator_token_id:
           type: string
@@ -703,7 +782,11 @@ components:
         objective: { type: string, minLength: 1, maxLength: 20000 }
         repo:
           type: string
-          pattern: "^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$"
+          minLength: 1
+          maxLength: 500
+          description: >-
+            A registered repository's name, owner/name on GitHub, or the URL of
+            a repository on a known host.
         base: { type: string, minLength: 1, maxLength: 255 }
         chat_id:
           type: string
@@ -1028,6 +1111,61 @@ components:
           type: number
           description: The one-minute load average; zero where the system has none.
         at: { type: string, format: date-time }
+    GitHostKind:
+      type: string
+      enum: [github, gitlab]
+    GitHost:
+      type: object
+      required: [host, kind, known]
+      properties:
+        host: { type: string }
+        kind: { $ref: "#/components/schemas/GitHostKind" }
+        known:
+          type: boolean
+          description: True for github.com and gitlab.com, which need no declaration.
+        created_at: { type: string, format: date-time }
+    GitHostList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/GitHost" }
+    NewGitHost:
+      type: object
+      required: [kind]
+      additionalProperties: false
+      properties:
+        kind: { $ref: "#/components/schemas/GitHostKind" }
+    Repo:
+      type: object
+      required: [name, host, path, created_at]
+      properties:
+        name: { type: string }
+        host: { type: string }
+        path: { type: string }
+        base:
+          type: string
+          description: The branch worktrees start from when a Run names none.
+        created_at: { type: string, format: date-time }
+    RepoList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/Repo" }
+    NewRepo:
+      type: object
+      required: [repo]
+      additionalProperties: false
+      properties:
+        repo:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: owner/name on GitHub, or the URL of a repository on a known host.
+        base: { type: string, minLength: 1, maxLength: 255 }
     NodeList:
       type: object
       required: [data]

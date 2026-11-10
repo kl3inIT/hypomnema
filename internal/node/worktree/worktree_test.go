@@ -53,7 +53,10 @@ func TestWorktreeIsMadeReusedAndRemade(t *testing.T) {
 	m := Maker{Root: filepath.Join(dir, "node"), URL: filepath.ToSlash(filepath.Join(dir, "origin")) + "/%s"}
 	path := filepath.Join(dir, "wt", "run_1", "tsk_1")
 
-	require.NoError(t, m.Ensure(t.Context(), "kl3inIT/second-bite", "main", "tsk_1", path))
+	repo, err := SourceOf("", "", "kl3inIT/second-bite")
+	require.NoError(t, err)
+
+	require.NoError(t, m.Ensure(t.Context(), repo, "main", "tsk_1", path))
 	assert.Equal(t, "hyp/tsk_1", run(t, path, "rev-parse", "--abbrev-ref", "HEAD"))
 	assert.FileExists(t, filepath.Join(path, "README.md"))
 
@@ -61,15 +64,50 @@ func TestWorktreeIsMadeReusedAndRemade(t *testing.T) {
 	run(t, path, "add", "login.go")
 	run(t, path, "-c", "user.name=t", "-c", "user.email=t@example.com", "commit", "-q", "-m", "login")
 
-	require.NoError(t, m.Ensure(t.Context(), "kl3inIT/second-bite", "main", "tsk_1", path), "a continued Conversation")
+	require.NoError(t, m.Ensure(t.Context(), repo, "main", "tsk_1", path), "a continued Conversation")
 	assert.FileExists(t, filepath.Join(path, "login.go"))
 
-	require.NoError(t, m.Remove(t.Context(), "kl3inIT/second-bite", path))
+	require.NoError(t, m.Remove(t.Context(), repo, path))
 	assert.NoDirExists(t, path)
 
-	require.NoError(t, m.Ensure(t.Context(), "kl3inIT/second-bite", "main", "tsk_1", path), "a retry")
+	require.NoError(t, m.Ensure(t.Context(), repo, "main", "tsk_1", path), "a retry")
 	assert.FileExists(t, filepath.Join(path, "login.go"), "the branch keeps the earlier commit")
 
-	require.ErrorContains(t, m.Ensure(t.Context(), "not a repo", "main", "tsk_2", filepath.Join(dir, "x")),
-		"not owner/name")
+	assert.DirExists(t, filepath.Join(dir, "node", "repos", "kl3inIT", "second-bite.git"),
+		"a GitHub mirror stays where it was before hosts existed")
+
+	require.ErrorContains(t, m.Ensure(t.Context(), Source{}, "main", "tsk_2", filepath.Join(dir, "x")),
+		"names no repository")
+}
+
+// An offer names its repository's host and kind. Each kind is cloned from its
+// own address; an offer from before hosts existed is GitHub; what cannot be a
+// repository, or is of a kind this node does not know, never reaches git.
+func TestAnOffersRepositoryIsCheckedBeforeGitSeesIt(t *testing.T) {
+	t.Parallel()
+
+	old, err := SourceOf("", "", "kl3inIT/hypomnema")
+	require.NoError(t, err)
+	assert.Equal(t, "https://github.com/kl3inIT/hypomnema.git", old.URL)
+
+	own, err := SourceOf("gitlab.company.example:8443", "gitlab", "team/platform/api")
+	require.NoError(t, err)
+	assert.Equal(t, "https://gitlab.company.example:8443/team/platform/api.git", own.URL)
+
+	m := Maker{Root: "/srv/node"}
+	assert.Equal(t, filepath.Join("/srv/node", "repos", "kl3inIT", "hypomnema.git"), m.mirrorPath(old.Repo))
+	assert.Equal(t,
+		filepath.Join("/srv/node", "repos", "_hosts", "gitlab.company.example_8443", "team", "platform", "api.git"),
+		m.mirrorPath(own.Repo))
+
+	for name, bad := range map[string][3]string{
+		"a kind this node does not know": {"bitbucket.org", "bitbucket", "team/app"},
+		"a path that is an option":       {"gitlab.com", "gitlab", "team/--upload-pack=sh"},
+		"a path that climbs out":         {"gitlab.com", "gitlab", "../../etc"},
+		"a host that is not one":         {"gitlab.com/x?y", "gitlab", "team/app"},
+		"no path":                        {"gitlab.com", "gitlab", ""},
+	} {
+		_, err := SourceOf(bad[0], bad[1], bad[2])
+		assert.Error(t, err, name)
+	}
 }
