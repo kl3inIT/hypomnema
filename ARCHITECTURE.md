@@ -264,11 +264,25 @@ Node (`internal/node`):
   - `/board`: the Tasks in flight in three columns, Needs you, Working and Done (the last 24 h), after Orca's agent
     kanban (MIT). Needs you holds an open question to the owner, a failure in an open Run, a stop for a decision
     and a missing login. Rows per Run or per repository and a repository filter are kept in the URL. A card shows
-    the runtime's mark (from OpenMausBot, Apache 2.0), the Task, its Run, how long it has run and its last sign of
-    life, the machine, the model and the pull request. On a phone the columns stack, Needs you first.
+    the runtime's mark (from OpenMausBot, Apache 2.0), the Task, its Run, what its worker does now (the Dispatch's
+    `activity`) and how long it has run, the machine, the model and the pull request. While a worker runs the
+    board is read again every 10 s, since its activity changes without an event. On a phone the columns stack,
+    Needs you first.
   - A card opens the Task over the page, as Omnigent opens a session over its canvas (`?task=` in the URL; Escape
-    closes it): the question to answer, start again or cancel, the result and the Task. The worker's own session is
-    not shown until it reaches the server (#43).
+    closes it): the question to answer, start again or cancel, the result, the Task and the worker's transcript.
+  - The transcript (issue #43; [research](docs/research/2026-11-10-worker-sessions.md)) is read from its end, 100
+    items a page with "Load earlier", and followed by waiting on `GET /dispatches/{id}/items`.
+    - The worker's messages are prose. Its thoughts and tool calls between two messages are one group: a line
+      that says the calls in words ("Ran 1 shell command, read 2 files") and opens into one row a call. While the
+      worker runs, the last 3 steps of its newest group stay out of the fold.
+    - A row is a verb and what the call is about; a shell call is its command; an edit shows the lines it added
+      and removed and opens to them; a tool with no title of its own is named from its name, with its MCP server
+      as a tag. Titles, categories and the group's line are adapted from Omnigent (`tool-title.ts`, Apache 2.0).
+    - A row opens to the result, 80 lines or 12 000 characters until "Show all".
+    - A worker that succeeded folds to "Worked for 12m" and its last message, as t3code folds a finished turn; a
+      failed or stopped one stays open.
+    - The panel opens at a running worker's newest step and follows it until the reader scrolls away
+      (`use-stick-to-bottom`); with a question, or for a finished Task, it opens at the top.
   - Questions are answered as in t3code's pending-input panel: options as radios that 1 to 9 pick, text where the
     option takes it, Enter sends. A question to pi is shown, and the owner can take it over (forward).
   - `/runs` lists the Runs, those that ask the owner first; `/runs/{id}` shows the objective, the open questions

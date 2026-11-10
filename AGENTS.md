@@ -37,6 +37,10 @@
   moving parts, failure modes, state that must stay consistent, what has to be operated, and how hard the result is
   to understand and change. "Less code" alone never justifies departing from what the references do (owner,
   2026-11-08).
+- An HTML prototype is only a prototype: it shows a direction to choose, drawn before the references' code is
+  read closely. What is built follows the references' components and behaviour, read in their code; a component
+  whose license allows it is copied or adapted, with its notice, rather than written again from the prototype.
+  Where the prototype and the references differ, the references win (owner, 2026-11-10).
 - Before a spike or prototype, search the cloned references for the same mechanism. If a reference already does it,
   read its code as the specification and test only what is specific to this environment (accounts, versions,
   servers).
