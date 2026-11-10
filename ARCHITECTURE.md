@@ -540,10 +540,11 @@ Since 2026-11-09, on the owner's tailnet (Tailscale); nothing is public:
   listening on `127.0.0.1:18990`. Tailscale runs without root (userspace networking, tmux `hyp-ts`, state in
   `~/hypomnema-cp/tailscale`) and `tailscale serve` publishes it to the tailnet as
   `https://hypomnema.taild3b6dc.ts.net`.
-- Model gateway, since 2026-11-10: the vault's root key is in `~/hypomnema-cp/env`; the secret `ninerouter` holds
-  the key of 9router, which runs on the same machine and serves the owner's Codex subscription; provider
-  `ninerouter` names it as `vault:ninerouter`; the gateway serves the model `gpt-6.1-sol` from it. pi calls the
-  gateway with its own key (provider `gateway`, profile `coordinator`), no longer 9router itself.
+- Model gateway, since 2026-11-10: the vault's root key is in `~/hypomnema-cp/env`. The owner's Codex account is
+  logged in on the control plane, and the gateway serves the model `gpt-6.1-sol` from `codex-subscription` first.
+  Its second target, kept for a while, is `ninerouter`: 9router on the same machine, which holds a login of the same
+  subscription and whose key is the secret `ninerouter`. pi calls the gateway with its own key (provider `gateway`,
+  profile `coordinator`), no longer 9router itself.
 - Node: aioffice-app, user `hypnode`, `~/bin/hypomnema-node`, tmux session `hyp-node`, pointed at that URL; the
   machine joined the tailnet as `aioffice-node`. The earlier control plane there (`~ubuntu/hypomnema-cp`) is
   stopped and kept for rollback.
