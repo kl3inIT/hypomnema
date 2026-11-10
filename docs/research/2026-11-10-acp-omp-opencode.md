@@ -42,3 +42,21 @@ All three keep the connection in the process that drives the agent.
 - Hypomnema's workers run under a shim so that they outlive the daemon; a connection held by a library would not, so
   the few messages are written to the shim and read from its journal, in the references' order and with their answers.
 - Advertising no forms keeps omp's own `ask` out, beside the tools server's (Orca's comment).
+
+## 4. Tried, the same day
+
+On the owner's node stc-hy-app, each CLI as its installer installs it, one turn against Hypomnema's gateway (model
+`gpt-6.1-sol`, the chat route), with the node's tools server passed in `session/new` and the files of section 1:
+
+- **omp 18.18.6**: `initialize` answers protocol 1 with `loadSession` and the session capabilities `close`, `fork`,
+  `list`, `resume`. With `tools.xdev: false` the tool `finish` was called as a plain tool; no permission was asked;
+  the result carried `stopReason: end_turn` and `usage`. The session is a `.jsonl` file under `--session-dir`.
+- **opencode 2.2.7**: the same answers, with `additionalDirectories` and `delete` among the session capabilities.
+  With the version 2 configuration of section 1, `execute` denied, the tool was offered as `hypomnema_finish`,
+  plain; no permission was asked; the result also carried `thoughtTokens`.
+
+Which opencode: `https://opencode.ai/install` installs version 1 (1.19.5, its last release, 2026-10-28);
+version 2 is installed from `https://opencode.ai/v2/install`, the address the repository's README gives, and has had
+eight releases since 2026-10-27 (2.2.7 on 2026-11-10). Version 1 also has an `acp` command and ran the same turn with
+its own configuration form (`provider.<id>` with `npm: "@ai-sdk/openai-compatible"`, `options`, `permission`); it is
+not what Hypomnema uses.
