@@ -76,7 +76,12 @@ func (s *Service) scheduleTask(ctx context.Context, q *store.Queries, now int64,
 		return err
 	}
 
-	spec, reason, err := placeTask(ctx, q, p, task, r.runtime)
+	host, err := runHost(ctx, q, task.RunID)
+	if err != nil {
+		return err
+	}
+
+	spec, reason, err := placeTask(ctx, q, p, task, r.runtime, host)
 	if err != nil {
 		return err
 	}
@@ -98,7 +103,7 @@ func (s *Service) scheduleTask(ctx context.Context, q *store.Queries, now int64,
 // placeTask chooses where a ready Task runs. It returns no spec when the Task
 // must wait, with the reason to escalate if the wait lasts ("" for one that
 // resolves by itself, such as a cooling account).
-func placeTask(ctx context.Context, q *store.Queries, p *placement, task store.Task, runtime string,
+func placeTask(ctx context.Context, q *store.Queries, p *placement, task store.Task, runtime, host string,
 ) (*DispatchSpec, string, error) {
 	conv, open, err := openConversation(ctx, q, task.ID)
 	if err != nil {
@@ -106,7 +111,7 @@ func placeTask(ctx context.Context, q *store.Queries, p *placement, task store.T
 	}
 
 	if open {
-		if !p.nodeReady(conv.NodeID, conv.Runtime) {
+		if !p.nodeReady(conv.NodeID, conv.Runtime, host) {
 			return nil, ReasonNoNode, nil
 		}
 
@@ -120,8 +125,12 @@ func placeTask(ctx context.Context, q *store.Queries, p *placement, task store.T
 		return &DispatchSpec{Continue: true}, "", nil
 	}
 
-	n := p.pickNode(runtime)
+	n := p.pickNode(runtime, host)
 	if runtime == "" || n == nil {
+		if !p.anyReaches(host) {
+			return nil, ReasonNoNodeReaches + host, nil
+		}
+
 		return nil, ReasonNoNode, nil
 	}
 
@@ -138,6 +147,16 @@ func placeTask(ctx context.Context, q *store.Queries, p *placement, task store.T
 		NodeID: n.row.ID, Worktree: path.Join(n.row.WorktreeRoot.String, task.RunID, task.ID),
 		Runtime: runtime, AccountRef: account,
 	}, "", nil
+}
+
+// runHost is the git host of a Run's repository, "" for a Run without one.
+func runHost(ctx context.Context, q *store.Queries, runID string) (string, error) {
+	run, err := q.GetRun(ctx, runID)
+	if err != nil {
+		return "", notFound(err, "run", runID)
+	}
+
+	return run.RepoHost.String, nil
 }
 
 // unplaceable escalates a Task that has waited UnplaceableAfter for a node or

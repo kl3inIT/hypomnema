@@ -289,6 +289,62 @@ func TestDispatchRunsOverTheSocket(t *testing.T) {
 	assert.Equal(t, orchestration.TaskSucceeded, p.taskStatus(task.ID))
 }
 
+// Scenario: the control plane names its git hosts at hello and with every
+// heartbeat's answer; the node says in its heartbeat which it reaches, and a
+// Task on a host it does not reach is not given to it until it does.
+func TestANodeIsAskedWhichGitHostsItReaches(t *testing.T) {
+	t.Parallel()
+
+	p := newPlane(t)
+
+	_, err := p.svc.AddGitHost(t.Context(), "gitlab.company.example", "gitlab")
+	require.NoError(t, err)
+
+	status, hello := p.hello(p.token)
+	require.Equal(t, http.StatusOK, status)
+	assert.Equal(t, []string{"github.com", "gitlab.com", "gitlab.company.example"}, hello.GitHosts)
+
+	conn := p.connect()
+
+	none := []string{}
+	p.send(conn, nodeproto.TypeHeartbeat, nodeproto.Heartbeat{Reaches: &none})
+
+	var ack nodeproto.HeartbeatAck
+	require.NoError(t, json.Unmarshal(p.next(conn, nodeproto.TypeHeartbeatAck).Payload, &ack))
+	assert.Equal(t, hello.GitHosts, ack.GitHosts)
+
+	run, err := p.svc.CreateRun(t.Context(), orchestration.NewRun{
+		Objective: "add Google login", CreatedBy: "owner", Repo: "kl3inIT/second-bite",
+	})
+	require.NoError(t, err)
+
+	_, err = p.svc.CreateTasks(t.Context(), run.ID, []orchestration.NewTask{
+		{Ref: "a", Profile: "implementer", Spec: "add the Google login button"},
+	})
+	require.NoError(t, err)
+
+	sch, err := p.svc.Schedule(t.Context())
+	require.NoError(t, err)
+	assert.Empty(t, sch.Created, "the node reaches no host: the Task waits")
+
+	github := []string{"github.com"}
+	p.send(conn, nodeproto.TypeHeartbeat, nodeproto.Heartbeat{Reaches: &github})
+	p.next(conn, nodeproto.TypeHeartbeatAck)
+
+	sch, err = p.svc.Schedule(t.Context())
+	require.NoError(t, err)
+	assert.Len(t, sch.Created, 1, "it reaches github.com now")
+
+	// A heartbeat that says nothing about hosts leaves what the node said.
+	p.send(conn, nodeproto.TypeHeartbeat, nodeproto.Heartbeat{})
+	p.next(conn, nodeproto.TypeHeartbeatAck)
+
+	nodes, err := p.svc.ListNodes(t.Context())
+	require.NoError(t, err)
+	require.Len(t, nodes, 1)
+	assert.Equal(t, []string{"github.com"}, nodes[0].GitHosts)
+}
+
 // Scenario: the owner gave github.com a token. The offer of a Task on GitHub
 // carries it, read as the offer is sent; a host without a token, or a control
 // plane that keeps none, sends the offer without one.

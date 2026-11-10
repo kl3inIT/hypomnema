@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -83,7 +84,10 @@ type Node struct {
 	MaxDispatches int
 	WorktreeRoot  string
 	Runtimes      []RuntimeInfo
-	System        SystemInfo
+	// GitHosts are the git hosts the node reached when it last tried; nil for
+	// a node that has not said, which is taken to reach every host.
+	GitHosts []string
+	System   SystemInfo
 	// Stats is the node's latest measurement; nil until it has sent one.
 	Stats *SystemStats
 	// Machine is set for a node created at a provider; nil for one the owner installed.
@@ -407,6 +411,42 @@ func (s *Service) NodeStats(ctx context.Context, nodeID string, st SystemStats) 
 			MemoryUsedBytes: validInt(st.MemoryUsedBytes), DiskUsedBytes: validInt(st.DiskUsedBytes),
 			Load1: sql.NullFloat64{Float64: st.Load1, Valid: true}, Now: validInt(now), ID: nodeID,
 		})
+
+		return oneRow(n, err, "node", nodeID)
+	})
+}
+
+// MaxNodeGitHosts bounds what one node may report.
+const MaxNodeGitHosts = 256
+
+// NodeReaches records the git hosts a node reached when it last tried,
+// replacing what it said before. Placement gives a Task on a host only to a
+// node that reaches it.
+func (s *Service) NodeReaches(ctx context.Context, nodeID string, hosts []string) error {
+	if len(hosts) > MaxNodeGitHosts {
+		return fmt.Errorf("%w: more than %d git hosts", ErrInvalid, MaxNodeGitHosts)
+	}
+
+	clean := make([]string, 0, len(hosts))
+
+	for _, h := range hosts {
+		if h == "" || len(h) > 253 {
+			return fmt.Errorf("%w: a git host's name", ErrInvalid)
+		}
+
+		clean = append(clean, strings.ToLower(h))
+	}
+
+	slices.Sort(clean)
+	clean = slices.Compact(clean)
+
+	raw, err := json.Marshal(clean)
+	if err != nil {
+		return fmt.Errorf("encoding the git hosts of node %s: %w", nodeID, err)
+	}
+
+	return s.write(ctx, func(q *store.Queries, _ int64) error {
+		n, err := q.SetNodeGitHosts(ctx, store.SetNodeGitHostsParams{GitHosts: nullString(string(raw)), ID: nodeID})
 
 		return oneRow(n, err, "node", nodeID)
 	})

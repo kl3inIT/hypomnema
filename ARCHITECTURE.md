@@ -166,7 +166,15 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     itself can read it: this stands in for the vault's credential sessions and the node's proxy
     ([issue #66](https://github.com/kl3inIT/hypomnema/issues/66)), with which a worker would never see it.
   - A host without a token works as before: git and the host's tool use the node user's own logins.
-  - Which nodes reach which host is not known to placement yet.
+  - A node says which hosts it reaches. The control plane names the hosts it knows in the answer to hello and to
+    every heartbeat; the node tries each when the list changes and every minute (an HTTPS request with no
+    credential, through the environment's proxy; any answer counts, and so does a certificate the machine does not
+    trust, so that git says why it fails there) and puts the hosts it reached in its heartbeat. They are kept on
+    the node's row (`nodes.git_hosts`, `git_hosts` in the API), replaced by each report.
+  - Placement gives a Task on a host only to a node that reaches it. When no connected, active node does, the Task
+    waits, and after `UnplaceableAfter` the escalation says `no_node_reaches:<host>`. A node that has not said
+    (one from before nodes tried hosts) is taken to reach every host; a Run without a repository runs anywhere.
+    The control plane never calls a git host itself.
 - Client tokens: kind `owner` or `coordinator`, in Omnara's format (`hyp_<kind>_v1_`, 43 Base62 characters and a
   CRC32 checksum, checked before the database is read; `internal/controlplane/bearertoken`). Shown once; only the
   SHA-256 is stored; a revoked token no longer authenticates.
