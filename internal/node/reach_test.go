@@ -27,7 +27,7 @@ func TestReachHost(t *testing.T) {
 		"the host answered: git says why it fails there")
 
 	// A port that was just closed: nothing listens on it.
-	l, err := net.Listen("tcp", "127.0.0.1:0")
+	l, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 
 	gone := l.Addr().String()
