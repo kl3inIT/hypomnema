@@ -7,6 +7,7 @@ SQLC = CGO_ENABLED=0 $(CI_TOOL) github.com/sqlc-dev/sqlc/cmd/sqlc
 OAPI_CODEGEN = $(CI_TOOL) github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen
 OPENAPI_GEN := internal/controlplane/clientapi/openapi
 MIGRATIONS := internal/controlplane/orchestration/migrations
+SQLC_OUT := internal/controlplane/orchestration/internal/store internal/controlplane/vault/internal/store
 MODULE := github.com/kl3inIT/hypomnema
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS := -s -w -X $(MODULE)/internal/shared/platform.Version=$(VERSION)
@@ -49,8 +50,8 @@ sqlc-generate: ## Regenerate the typed queries from the migrations and queries
 
 sqlc-check: ## Fail when the generated queries are not what sqlc would generate
 	$(SQLC) generate
-	@git diff --exit-code -- internal/controlplane/orchestration/internal/store
-	@test -z "$$(git status --porcelain -- internal/controlplane/orchestration/internal/store)" || \
+	@git diff --exit-code -- $(SQLC_OUT)
+	@test -z "$$(git status --porcelain -- $(SQLC_OUT))" || \
 		{ echo 'sqlc generated files that are not committed'; exit 1; }
 
 openapi-generate: ## Regenerate the client API's types, server and client from api/openapi.yaml

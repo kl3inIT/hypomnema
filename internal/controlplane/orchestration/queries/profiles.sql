@@ -51,3 +51,6 @@ SELECT v.* FROM profiles p JOIN profile_versions v ON v.id = p.current_version_i
 
 -- name: ListProfileVersions :many
 SELECT * FROM profile_versions WHERE profile = @profile ORDER BY version DESC;
+
+-- name: ListProviderNamesByKeyRef :many
+SELECT name FROM providers WHERE api_key_ref = @api_key_ref ORDER BY name;
