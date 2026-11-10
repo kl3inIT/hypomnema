@@ -71,8 +71,9 @@ func validItemKind(k ItemKind) bool {
 
 // AddItems stores the next items of a Dispatch's transcript, sent by the node
 // that runs it, and returns the newest seq held. Items already held are
-// ignored. It takes items in any status of the Dispatch: the last ones arrive
-// after the worker ended.
+// ignored. It takes items in any status of the Dispatch and at any epoch,
+// the one node write that is not fenced (docs/conventions.md, Fencing): the
+// last ones arrive after the worker ended, and they change no state.
 func (s *Service) AddItems(ctx context.Context, nodeID, dispatchID string, items []Item) (int64, error) {
 	if len(items) > ItemBatchMax {
 		return 0, fmt.Errorf("%w: a batch holds at most %d items", ErrInvalid, ItemBatchMax)
