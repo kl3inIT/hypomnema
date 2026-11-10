@@ -488,7 +488,7 @@ Node (`internal/node`):
     name, a "Connected" or "No token" pill, and the actions. "Add token" / "Replace token" takes the token in a
     password field and sends it once; it is never read back. A company's server is added with its address (a name
     or a pasted URL), what it runs and, if wanted, its token. Removing a token or a declared server asks first.
-  - `/settings/repositories` (under Code) lists the registered repositories, adds one from its URL under a
+  - `/settings/repositories` has no entry in the menu while its place is being decided (issue #44); it lists the registered repositories, adds one from its URL under a
     proposed name with an optional base branch, and removes one after a confirmation.
   - Both pages do only what `hosts ...` and `repos ...` do in the CLI.
 - `web/embed.go` embeds the build (`web/dist`) into `hypomnema`. `make build` builds the client first.

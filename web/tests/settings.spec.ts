@@ -163,12 +163,11 @@ test("the owner adds and removes a company's git server", async ({ page }) => {
   ])
 })
 
-// Scenario: no repository is registered. The owner goes to Repositories, registers one from its URL under the
+// Scenario: no repository is registered. The owner opens the Repositories page (it has no entry in the menu yet), registers one from its URL under the
 // proposed name, and removes it.
 test("the owner registers and removes a repository", async ({ page }) => {
   const calls = await fakeServer(page)
-  await page.goto("/settings/integrations")
-  await page.getByRole("link", { name: "Repositories" }).click()
+  await page.goto("/settings/repositories")
 
   await expect(page.getByText("No repositories yet")).toBeVisible()
   await shot(page, "repositories-empty")
