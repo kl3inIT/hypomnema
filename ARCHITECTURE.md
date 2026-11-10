@@ -425,6 +425,17 @@ Node (`internal/node`):
   confirmation; a refusal shows the server's message. "Add machine" takes a name and an optional limit, then shows
   the node's token and the install line once, each with a copy button; the token is kept only while that dialog is
   open.
+- Settings (issue #44): one "Settings" entry at the sidebar's foot leads to `/settings`, where the sidebar's body
+  gives way to the settings sections under headings, with a way back (the headings are t3code's, the swap is
+  Omnigent's; [research](docs/research/2026-11-10-menus-and-settings.md)). A section is listed once it has a page;
+  on a phone the sections are a row of links under the header.
+  - `/settings/integrations` (under Connections) lists the git hosts as cards after Orca's integration card (MIT):
+    name, a "Connected" or "No token" pill, and the actions. "Add token" / "Replace token" takes the token in a
+    password field and sends it once; it is never read back. A company's server is added with its address (a name
+    or a pasted URL), what it runs and, if wanted, its token. Removing a token or a declared server asks first.
+  - `/settings/repositories` (under Code) lists the registered repositories, adds one from its URL under a
+    proposed name with an optional base branch, and removes one after a confirmation.
+  - Both pages do only what `hosts ...` and `repos ...` do in the CLI.
 - `web/embed.go` embeds the build (`web/dist`) into `hypomnema`. `make build` builds the client first.
   - The control plane serves it with `internal/controlplane/webui`, after Omnara's `spa.go`:
     - files as they are, with a year's cache under `assets/`;

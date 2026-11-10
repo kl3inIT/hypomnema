@@ -1,0 +1,110 @@
+import { Link } from "@tanstack/react-router"
+import { ArrowLeft, FolderGit2, Plug, type LucideIcon } from "lucide-react"
+import type { ReactNode } from "react"
+
+import { PageHeader } from "@/features/shell/app-shell"
+import { cn } from "@/lib/utils"
+
+// Settings is what the owner sets up once, kept apart from the places of daily work. The references whose sidebar
+// lists sessions put setup behind one entry at its foot and, inside, sections under headings one level deep, a
+// route a section (docs/research/2026-11-10-menus-and-settings.md): the headings are t3code's
+// (components/settings/settingsSearch.ts SETTINGS_NAV_GROUPS), and the sidebar's body gives way to the sections
+// with a way back as Omnigent's does (web/src/shell/settingsNav.tsx). A section appears here once it has a page.
+type Section = {
+  to: "/settings/repositories" | "/settings/integrations"
+  label: string
+  icon: LucideIcon
+}
+
+const groups: { heading: string; sections: Section[] }[] = [
+  {
+    heading: "Code",
+    sections: [{ to: "/settings/repositories", label: "Repositories", icon: FolderGit2 }],
+  },
+  {
+    heading: "Connections",
+    sections: [{ to: "/settings/integrations", label: "Integrations", icon: Plug }],
+  },
+]
+
+const rowClass =
+  "flex h-8 items-center gap-2 rounded-lg px-2.5 text-sm font-medium text-muted-foreground/80 hover:bg-sidebar-row-hover hover:text-foreground [&.active]:bg-sidebar-row-active [&.active]:text-foreground"
+
+// SettingsSidebar stands where the app's sidebar stands while the owner is in Settings.
+export function SettingsSidebar() {
+  return (
+    <aside className="hidden h-full w-64 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground md:flex">
+      <div className="flex h-(--workspace-topbar-height) shrink-0 items-center px-3.5">
+        <span className="text-sm font-semibold tracking-tight">Settings</span>
+      </div>
+      <nav
+        aria-label="Settings"
+        className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-2"
+      >
+        <Link to="/" className={rowClass}>
+          <ArrowLeft className="size-4" />
+          Back to app
+        </Link>
+        {groups.map((group) => (
+          <div key={group.heading} className="flex flex-col gap-px">
+            <p className="px-2.5 pb-1 text-xs font-medium text-muted-foreground">{group.heading}</p>
+            {group.sections.map((section) => (
+              <Link key={section.to} to={section.to} className={rowClass}>
+                <section.icon className="size-4" />
+                {section.label}
+              </Link>
+            ))}
+          </div>
+        ))}
+      </nav>
+    </aside>
+  )
+}
+
+// SettingsPage is one section's page. On a phone, where the sidebar hides, the sections are a row of links under
+// the header.
+export function SettingsPage({
+  title,
+  description,
+  actions,
+  children,
+}: {
+  title: string
+  description: string
+  actions?: ReactNode
+  children: ReactNode
+}) {
+  return (
+    <main className="flex min-w-0 flex-1 flex-col">
+      <PageHeader title={title}>
+        <div className="ms-auto flex items-center gap-2">{actions}</div>
+      </PageHeader>
+      <nav
+        aria-label="Settings sections"
+        className="flex shrink-0 gap-1 overflow-x-auto px-3 pb-2 md:hidden"
+      >
+        {groups
+          .flatMap((group) => group.sections)
+          .map((section) => (
+            <Link
+              key={section.to}
+              to={section.to}
+              className={cn(
+                "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-sm text-muted-foreground",
+                "[&.active]:bg-foreground/9 [&.active]:text-foreground",
+              )}
+            >
+              <section.icon className="size-4" />
+              {section.label}
+            </Link>
+          ))}
+      </nav>
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-8 sm:px-5">
+        <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 pt-2">
+          <p className="text-sm text-muted-foreground">{description}</p>
+          {children}
+        </div>
+      </div>
+    </main>
+  )
+}

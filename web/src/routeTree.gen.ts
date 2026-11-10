@@ -15,6 +15,9 @@ import { Route as MachinesRouteImport } from './routes/machines'
 import { Route as ChatsChatIdRouteImport } from './routes/chats.$chatId'
 import { Route as RunsIndexRouteImport } from './routes/runs.index'
 import { Route as RunsRunIdRouteImport } from './routes/runs.$runId'
+import { Route as SettingsIndexRouteImport } from './routes/settings.index'
+import { Route as SettingsIntegrationsRouteImport } from './routes/settings.integrations'
+import { Route as SettingsRepositoriesRouteImport } from './routes/settings.repositories'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -46,6 +49,21 @@ const RunsRunIdRoute = RunsRunIdRouteImport.update({
   path: '/runs/$runId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SettingsIndexRoute = SettingsIndexRouteImport.update({
+  id: '/settings/',
+  path: '/settings/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SettingsIntegrationsRoute = SettingsIntegrationsRouteImport.update({
+  id: '/settings/integrations',
+  path: '/settings/integrations',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SettingsRepositoriesRoute = SettingsRepositoriesRouteImport.update({
+  id: '/settings/repositories',
+  path: '/settings/repositories',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -53,7 +71,10 @@ export interface FileRoutesByFullPath {
   '/machines': typeof MachinesRoute
   '/chats/$chatId': typeof ChatsChatIdRoute
   '/runs/$runId': typeof RunsRunIdRoute
+  '/settings/integrations': typeof SettingsIntegrationsRoute
+  '/settings/repositories': typeof SettingsRepositoriesRoute
   '/runs/': typeof RunsIndexRoute
+  '/settings/': typeof SettingsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -61,7 +82,10 @@ export interface FileRoutesByTo {
   '/machines': typeof MachinesRoute
   '/chats/$chatId': typeof ChatsChatIdRoute
   '/runs/$runId': typeof RunsRunIdRoute
+  '/settings/integrations': typeof SettingsIntegrationsRoute
+  '/settings/repositories': typeof SettingsRepositoriesRoute
   '/runs': typeof RunsIndexRoute
+  '/settings': typeof SettingsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -70,14 +94,34 @@ export interface FileRoutesById {
   '/machines': typeof MachinesRoute
   '/chats/$chatId': typeof ChatsChatIdRoute
   '/runs/$runId': typeof RunsRunIdRoute
+  '/settings/integrations': typeof SettingsIntegrationsRoute
+  '/settings/repositories': typeof SettingsRepositoriesRoute
   '/runs/': typeof RunsIndexRoute
+  '/settings/': typeof SettingsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
-    '/' | '/board' | '/machines' | '/chats/$chatId' | '/runs/$runId' | '/runs/'
+    | '/'
+    | '/board'
+    | '/machines'
+    | '/chats/$chatId'
+    | '/runs/$runId'
+    | '/settings/integrations'
+    | '/settings/repositories'
+    | '/runs/'
+    | '/settings/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/board' | '/machines' | '/chats/$chatId' | '/runs/$runId' | '/runs'
+  to:
+    | '/'
+    | '/board'
+    | '/machines'
+    | '/chats/$chatId'
+    | '/runs/$runId'
+    | '/settings/integrations'
+    | '/settings/repositories'
+    | '/runs'
+    | '/settings'
   id:
     | '__root__'
     | '/'
@@ -85,7 +129,10 @@ export interface FileRouteTypes {
     | '/machines'
     | '/chats/$chatId'
     | '/runs/$runId'
+    | '/settings/integrations'
+    | '/settings/repositories'
     | '/runs/'
+    | '/settings/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -94,7 +141,10 @@ export interface RootRouteChildren {
   MachinesRoute: typeof MachinesRoute
   ChatsChatIdRoute: typeof ChatsChatIdRoute
   RunsRunIdRoute: typeof RunsRunIdRoute
+  SettingsIntegrationsRoute: typeof SettingsIntegrationsRoute
+  SettingsRepositoriesRoute: typeof SettingsRepositoriesRoute
   RunsIndexRoute: typeof RunsIndexRoute
+  SettingsIndexRoute: typeof SettingsIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -141,6 +191,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RunsRunIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/settings/': {
+      id: '/settings/'
+      path: '/settings'
+      fullPath: '/settings/'
+      preLoaderRoute: typeof SettingsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/settings/integrations': {
+      id: '/settings/integrations'
+      path: '/settings/integrations'
+      fullPath: '/settings/integrations'
+      preLoaderRoute: typeof SettingsIntegrationsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/settings/repositories': {
+      id: '/settings/repositories'
+      path: '/settings/repositories'
+      fullPath: '/settings/repositories'
+      preLoaderRoute: typeof SettingsRepositoriesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -150,7 +221,10 @@ const rootRouteChildren: RootRouteChildren = {
   MachinesRoute: MachinesRoute,
   ChatsChatIdRoute: ChatsChatIdRoute,
   RunsRunIdRoute: RunsRunIdRoute,
+  SettingsIntegrationsRoute: SettingsIntegrationsRoute,
+  SettingsRepositoriesRoute: SettingsRepositoriesRoute,
   RunsIndexRoute: RunsIndexRoute,
+  SettingsIndexRoute: SettingsIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

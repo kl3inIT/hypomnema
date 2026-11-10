@@ -1,5 +1,14 @@
 import { Link } from "@tanstack/react-router"
-import { CircleDashed, KanbanSquare, ListTree, LogOut, Menu, Server, SquarePen } from "lucide-react"
+import {
+  CircleDashed,
+  KanbanSquare,
+  ListTree,
+  LogOut,
+  Menu,
+  Server,
+  Settings,
+  SquarePen,
+} from "lucide-react"
 import type { ReactNode } from "react"
 
 import "@/api/client"
@@ -83,10 +92,21 @@ export function AppSidebar({ currentChat }: { currentChat?: string }) {
         <Places />
         <ChatList current={currentChat} />
       </div>
-      <div className="p-2">
+      <div className="flex flex-col gap-px p-2">
+        <SettingsLink />
         <SignOut />
       </div>
     </aside>
+  )
+}
+
+// SettingsLink is the one way to everything the owner sets up, at the sidebar's foot.
+export function SettingsLink() {
+  return (
+    <Link to="/settings" className={placeClass}>
+      <Settings className="size-4" />
+      Settings
+    </Link>
   )
 }
 
