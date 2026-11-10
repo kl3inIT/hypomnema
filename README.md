@@ -42,6 +42,13 @@ to its question, its result and the worker's transcript.
 
 A node runs the workers. Do this on the machine that will run them, with the control plane already serving.
 
+The short way, once a release exists: steps 1 and 2 below, then on the control plane run
+`hypomnema nodes add <name>` and, on the machine, the line it prints
+(`curl -fsSL https://<control plane>/install/node.sh | sh`), pasting the token when asked. That does steps 3, 4 and
+6; step 5 is still by hand. Set `HYPOMNEMA_PUBLIC_URL` on the control plane to the URL nodes reach it at.
+
+By hand:
+
 1. Create a dedicated user without sudo, and work as that user:
    `sudo adduser --disabled-password hypnode && sudo -iu hypnode`
 2. Install Claude Code and make sure `claude` is on that user's PATH (`claude --version`).

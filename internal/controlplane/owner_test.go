@@ -42,10 +42,12 @@ func TestOwnerSetsUpANodeAndAnAccount(t *testing.T) {
 	t.Parallel()
 
 	cfg := migratedConfig(t)
+	cfg.PublicURL = "https://hyp.example"
 
 	out, err := command(t, cfg, "nodes", "add", "zm", "--max", "3")
 	require.NoError(t, err)
 	assert.Contains(t, out, "up to 3 Dispatches")
+	assert.Contains(t, out, "curl -fsSL https://hyp.example/install/node.sh | sh")
 	assert.Regexp(t, `(?m)^hyn_[A-Za-z0-9_-]+$`, out)
 
 	out, err = command(t, cfg, "nodes", "list")

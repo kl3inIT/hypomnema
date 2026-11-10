@@ -65,19 +65,24 @@ func StatePath(home string) string { return filepath.Join(home, "state.db") }
 // Init writes the configuration. The token is read from tokenFile, so it
 // never appears on a command line or in shell history.
 func Init(home, rawURL, tokenFile, worktreeRoot string) error {
-	u, err := url.Parse(rawURL)
-	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
-		return fmt.Errorf("the control plane URL %q must be http(s)://host", rawURL)
-	}
-
 	raw, err := os.ReadFile(tokenFile) //nolint:gosec // the owner names the file holding the token
 	if err != nil {
 		return fmt.Errorf("reading the token file: %w", err)
 	}
 
-	token := strings.TrimSpace(string(raw))
+	return Configure(home, rawURL, strings.TrimSpace(string(raw)), worktreeRoot)
+}
+
+// Configure writes the configuration with the token given. An existing
+// configuration keeps its accounts.
+func Configure(home, rawURL, token, worktreeRoot string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
+		return fmt.Errorf("the control plane URL %q must be http(s)://host", rawURL)
+	}
+
 	if !strings.HasPrefix(token, "hyn_") {
-		return errors.New("the token file does not hold a node token (hyn_…)")
+		return errors.New("that does not hold a node token (hyn_…)")
 	}
 
 	if worktreeRoot == "" {
@@ -297,6 +302,7 @@ func Check(ctx context.Context, home string, stdout io.Writer) error {
 
 	d := daemon.New(daemon.Config{
 		URL: cfg.URL, Token: cfg.Token, WorktreeRoot: cfg.WorktreeRoot, Version: platform.Version, Runtimes: runtimes,
+		System: DetectSystem(ctx, cfg.WorktreeRoot),
 	}, db, nil, slog.New(slog.DiscardHandler))
 
 	nodeID, err := d.Hello(ctx)

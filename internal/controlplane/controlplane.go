@@ -13,6 +13,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strings"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/coordinator"
@@ -43,6 +44,13 @@ type Config struct {
 	// comma-separated list of id:base64 entries) and
 	// HYPOMNEMA_VAULT_ACTIVE_KEY_ID; nil: the vault is not configured.
 	VaultKeys *vault.Keyring
+	// PublicURL is the control plane's URL as nodes reach it, from
+	// HYPOMNEMA_PUBLIC_URL; empty: the install script names the host it was
+	// asked at.
+	PublicURL string
+	// NodeReleaseURL is where the install script downloads the node from,
+	// from HYPOMNEMA_NODE_RELEASE_URL; empty: the latest GitHub release.
+	NodeReleaseURL string
 }
 
 // LoadConfig reads the configuration and reports every problem at once.
@@ -52,6 +60,9 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 		HTTPAddr: env.String(envPrefix+"_HTTP_ADDR", "127.0.0.1:8080"),
 		Log:      env.Log(envPrefix),
 		Database: sqlite.FromEnv(env, envPrefix),
+
+		PublicURL:      strings.TrimSuffix(env.String(envPrefix+"_PUBLIC_URL", ""), "/"),
+		NodeReleaseURL: env.String(envPrefix+"_NODE_RELEASE_URL", ""),
 	}
 
 	var cmdErr error
@@ -114,6 +125,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	mux := http.NewServeMux()
 	platform.RegisterHealth(mux, sqlite.Ready(db), logger)
 	nodeapi.New(svc, logger).Register(mux)
+	mux.Handle("GET "+nodeapi.PathInstallScript, nodeapi.InstallScript(cfg.PublicURL, cfg.NodeReleaseURL))
 
 	gateway := modelgateway.New(db, platform.SystemClock{}, platform.NewID, gatewayProviders(svc))
 	modelgateway.NewServer(gateway, logger).Register(mux)

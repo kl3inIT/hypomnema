@@ -11,6 +11,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/nodeapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
@@ -51,6 +52,8 @@ func Command(ctx context.Context, cfg Config, args []string, stdin io.Reader, st
 
 	svc := orchestration.New(db, platform.SystemClock{}, platform.NewID)
 	o := &owner{
+		publicURL: cfg.PublicURL,
+
 		svc:     svc,
 		vault:   vault.New(db, platform.SystemClock{}, platform.NewID, cfg.VaultKeys, svc.ProvidersUsingKeyRef),
 		gateway: modelgateway.New(db, platform.SystemClock{}, platform.NewID, gatewayProviders(svc)),
@@ -75,11 +78,13 @@ func Command(ctx context.Context, cfg Config, args []string, stdin io.Reader, st
 }
 
 type owner struct {
-	svc     *orchestration.Service
-	vault   *vault.Service
-	gateway *modelgateway.Service
-	in      io.Reader
-	out     io.Writer
+	// publicURL is the control plane's URL as nodes reach it; empty when not configured.
+	publicURL string
+	svc       *orchestration.Service
+	vault     *vault.Service
+	gateway   *modelgateway.Service
+	in        io.Reader
+	out       io.Writer
 }
 
 func (o *owner) printf(format string, a ...any) {
@@ -103,6 +108,8 @@ func (o *owner) nodes(ctx context.Context, args []string) error {
 
 		o.printf("node %s (%s), up to %d Dispatches\n", n.Name, n.ID, n.MaxDispatches)
 		o.printf("token, shown only now; put it in the node's configuration and nowhere else:\n%s\n", token)
+		o.printf("to install the node, run this on the machine and paste the token when asked:\n  %s\n",
+			installCommand(o.publicURL))
 
 		return nil
 	case len(args) == 1 && args[0] == "list":
@@ -210,6 +217,15 @@ func (o *owner) nodeTokens(ctx context.Context, args []string) error {
 	default:
 		return ErrUsage
 	}
+}
+
+// installCommand is the line that installs a node from this control plane.
+func installCommand(publicURL string) string {
+	if publicURL == "" {
+		publicURL = "https://<this control plane>"
+	}
+
+	return "curl -fsSL " + publicURL + nodeapi.PathInstallScript + " | sh"
 }
 
 // node finds a node by its id or its name.
