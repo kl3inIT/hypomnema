@@ -64,6 +64,8 @@ var policies = map[string]policy{
 	"ListGitHosts":        {},
 	"PutGitHost":          {scope: scopeOwner},
 	"DeleteGitHost":       {scope: scopeOwner},
+	"PutGitHostToken":     {scope: scopeOwner},
+	"DeleteGitHostToken":  {scope: scopeOwner},
 	"ListRepos":           {},
 	"PutRepo":             {scope: scopeOwner},
 	"DeleteRepo":          {scope: scopeOwner},

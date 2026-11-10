@@ -13,6 +13,7 @@
 package githost
 
 import (
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/url"
@@ -148,6 +149,10 @@ type Adapter interface {
 	OpenCommand(base, branch string) string
 	// RequestURL is the page of the repository's pull request number n.
 	RequestURL(r Repo, n int) string
+	// Env is the environment that lets git and the host's CLI act on host
+	// with token: nothing is written to disk, and nothing is in a command's
+	// arguments. It is empty for an empty token.
+	Env(host, token string) []string
 	// splitRequest reads the repository's path and the pull request's
 	// number from the path of a request's URL.
 	splitRequest(path string) (repo string, n int, ok bool)
@@ -179,6 +184,22 @@ func (github) RequestURL(r Repo, n int) string {
 	return "https://" + r.Host + "/" + r.Path + "/pull/" + strconv.Itoa(n)
 }
 
+// Env gives gh its token (GH_TOKEN on github.com, GH_ENTERPRISE_TOKEN with
+// GH_HOST elsewhere, as `gh help environment` says) and git the same token
+// over HTTPS, as the user x-access-token.
+func (github) Env(host, token string) []string {
+	if token == "" {
+		return nil
+	}
+
+	env := gitAuth(host, "x-access-token", token)
+	if host == GitHubHost {
+		return append(env, "GH_TOKEN="+token)
+	}
+
+	return append(env, "GH_ENTERPRISE_TOKEN="+token, "GH_HOST="+host)
+}
+
 var githubRequest = regexp.MustCompile(`^(.+)/pull/([0-9]+)(/.*)?$`)
 
 func (github) splitRequest(path string) (string, int, bool) { return split(githubRequest, path) }
@@ -195,9 +216,32 @@ func (gitlab) RequestURL(r Repo, n int) string {
 	return "https://" + r.Host + "/" + r.Path + "/-/merge_requests/" + strconv.Itoa(n)
 }
 
+// Env gives glab its token and host (GITLAB_TOKEN, GITLAB_HOST) and git the
+// same token over HTTPS, as the user oauth2.
+func (gitlab) Env(host, token string) []string {
+	if token == "" {
+		return nil
+	}
+
+	return append(gitAuth(host, "oauth2", token), "GITLAB_TOKEN="+token, "GITLAB_HOST="+host)
+}
+
 var gitlabRequest = regexp.MustCompile(`^(.+)/-/merge_requests/([0-9]+)(/.*)?$`)
 
 func (gitlab) splitRequest(path string) (string, int, bool) { return split(gitlabRequest, path) }
+
+// gitAuth makes git send user and token to host and to no other, through
+// configuration given in the environment (GIT_CONFIG_COUNT, git 2.31): an
+// http.<url>.extraheader for https://host/ only.
+func gitAuth(host, user, token string) []string {
+	basic := base64.StdEncoding.EncodeToString([]byte(user + ":" + token))
+
+	return []string{
+		"GIT_CONFIG_COUNT=1",
+		"GIT_CONFIG_KEY_0=http.https://" + host + "/.extraheader",
+		"GIT_CONFIG_VALUE_0=Authorization: Basic " + basic,
+	}
+}
 
 func split(re *regexp.Regexp, path string) (string, int, bool) {
 	m := re.FindStringSubmatch(strings.Trim(path, "/"))

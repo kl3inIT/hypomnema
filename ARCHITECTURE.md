@@ -122,9 +122,20 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     with the command that declares it. A declared host is forgotten only when no open Run and no registered
     repository is on it.
   - A repository can be registered under a short name with the base branch its Runs start from.
-  - A host's token is not kept yet: git on a node still uses the node user's own logins, so a GitLab repository
-    works only where that user is logged in to its host. Which nodes reach which host is not known to placement
-    yet.
+  - A host can have a token, given by the owner (`PUT /hosts/{host}/token`, `hosts token set <host> --token-file`).
+    It is a secret in the vault (`git-host-<host>`); the host's record only names it, and the API never returns
+    it. The control plane's own wiring (`internal/controlplane/hosttokens.go`) stands between the vault and the
+    two APIs, which may not open a secret.
+  - The token reaches a worker with its offer: the node API reads it from the vault as it sends the offer, and
+    orchestration never holds it. The node gives it to that Dispatch only, as environment: git sends it to that
+    host alone (an `http.https://<host>/.extraheader` through `GIT_CONFIG_COUNT`), `gh` reads `GH_TOKEN` (or
+    `GH_ENTERPRISE_TOKEN` with `GH_HOST`), `glab` reads `GITLAB_TOKEN` and `GITLAB_HOST`. It is in no command's
+    arguments and no clone URL. On the node it is in the offer kept in the node's state database until the
+    Dispatch ends, and in the worker's spec file until the worker starts, as the Claude token is. The worker
+    itself can read it: this stands in for the vault's credential sessions and the node's proxy
+    ([issue #66](https://github.com/kl3inIT/hypomnema/issues/66)), with which a worker would never see it.
+  - A host without a token works as before: git and the host's tool use the node user's own logins.
+  - Which nodes reach which host is not known to placement yet.
 - Client tokens: kind `owner` or `coordinator`, in Omnara's format (`hyp_<kind>_v1_`, 43 Base62 characters and a
   CRC32 checksum, checked before the database is read; `internal/controlplane/bearertoken`). Shown once; only the
   SHA-256 is stored; a revoked token no longer authenticates.
@@ -151,8 +162,9 @@ proxy, does not exist yet.
   version the secret has moved past gets the newer set without an exchange. A failure that may pass keeps the token
   set and frees the lease; a rejection for good marks the secret as needing a new login until the owner rotates it.
   After a refresh only the new version and the one before it are kept. Nothing calls `Refresh` yet.
-- `Open` returns a value to callers inside the control plane: the model gateway, for a provider's key. No API, coordinator or web
-  package may import the vault (`depguard`), and the owner's commands never print a value.
+- `Open` returns a value to callers inside the control plane: the model gateway, for a provider's key, and the
+  wiring that hands a git host's token to an offer. No API, coordinator or web package may import the vault
+  (`depguard`), and the owner's commands never print a value.
 - A provider names a secret as `vault:<name>` in its `api_key_ref`; nothing resolves that reference yet. Deleting a
   secret is refused while a provider names it.
 - The tables `secrets`, `secret_versions` and `secret_refresh_leases` are in the one migration stream and are read and written only by this
@@ -259,10 +271,11 @@ The owner's commands:
     (several Tasks with dependencies from one JSON file); `questions [show|forward]`. Each takes `--json`; long text
     comes from a file or `-` for standard input; flags may follow the arguments; a create takes `--key` so a create
     whose answer was lost can be repeated.
-  - `hosts list|add|rm` and `repos list|add|rm`: the git hosts a Run can be on and the repositories registered
-    under a name; every token reads them, only the owner's changes them. `hosts add` takes a host's name or a URL
-    copied from the browser (`--kind`, default `gitlab`); `repos add` takes `owner/name` or a URL (`--name`,
-    `--base`). `--repo` of `run` and `runs create` takes a registered name, `owner/name` or a URL.
+  - `hosts list|add|rm`, `hosts token set|rm` and `repos list|add|rm`: the git hosts a Run can be on, their
+    tokens, and the repositories registered under a name; every token reads them, only the owner's changes them.
+    `hosts add` takes a host's name or a URL copied from the browser (`--kind`, default `gitlab`); `hosts token
+    set` reads the token from `--token-file` (or `-`), never from an argument; `repos add` takes `owner/name` or a
+    URL (`--name`, `--base`). `--repo` of `run` and `runs create` takes a registered name, `owner/name` or a URL.
   - `profiles list|show|versions|apply`, `providers list|apply` and `models list`; every token reads them, only the
     owner's applies a YAML file (the API's `PUT /profiles/{name}` and `PUT /providers/{name}`).
   - `runs wait <run>` returns when a Task of the Run ended or was blocked, a question reached the coordinator, an

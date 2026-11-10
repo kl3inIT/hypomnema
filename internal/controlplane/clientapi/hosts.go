@@ -2,6 +2,7 @@ package clientapi
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
@@ -13,7 +14,7 @@ import (
 // not here: a secret's value never passes through this API (issue #66).
 
 func toGitHost(h orchestration.GitHost) openapi.GitHost {
-	out := openapi.GitHost{Host: h.Host, Kind: openapi.GitHostKind(h.Kind), Known: h.Known}
+	out := openapi.GitHost{Host: h.Host, Kind: openapi.GitHostKind(h.Kind), Known: h.Known, HasToken: h.HasToken()}
 	if !h.Known {
 		out.CreatedAt = &h.CreatedAt
 	}
@@ -55,11 +56,59 @@ func (s *Server) PutGitHost(ctx context.Context, req openapi.PutGitHostRequestOb
 // DeleteGitHost forgets a declared host.
 func (s *Server) DeleteGitHost(ctx context.Context, req openapi.DeleteGitHostRequestObject,
 ) (openapi.DeleteGitHostResponseObject, error) {
-	if err := s.svc.RemoveGitHost(ctx, req.Host); err != nil {
+	// Its token goes with it; without a place for tokens there is none to remove.
+	remove := s.svc.RemoveGitHost
+	if s.hostTokens != nil {
+		remove = s.hostTokens.Remove
+	}
+
+	if err := remove(ctx, req.Host); err != nil {
 		return nil, err
 	}
 
 	return openapi.DeleteGitHost204Response{}, nil
+}
+
+// errNoHostTokens answers when the control plane wired no place for tokens.
+var errNoHostTokens = fmt.Errorf("%w: this control plane keeps no git host tokens", orchestration.ErrUnavailable)
+
+// PutGitHostToken keeps a token for a host. The token is not logged and is
+// not in the answer.
+func (s *Server) PutGitHostToken(ctx context.Context, req openapi.PutGitHostTokenRequestObject,
+) (openapi.PutGitHostTokenResponseObject, error) {
+	if s.hostTokens == nil {
+		return nil, errNoHostTokens
+	}
+
+	if err := s.hostTokens.Set(ctx, req.Host, val(req.Body.Token)); err != nil {
+		return nil, err
+	}
+
+	h, err := s.svc.GitHostOf(ctx, req.Host)
+	if err != nil {
+		return nil, err
+	}
+
+	return openapi.PutGitHostToken200JSONResponse(toGitHost(h)), nil
+}
+
+// DeleteGitHostToken forgets a host's token.
+func (s *Server) DeleteGitHostToken(ctx context.Context, req openapi.DeleteGitHostTokenRequestObject,
+) (openapi.DeleteGitHostTokenResponseObject, error) {
+	if s.hostTokens == nil {
+		return nil, errNoHostTokens
+	}
+
+	if err := s.hostTokens.Clear(ctx, req.Host); err != nil {
+		return nil, err
+	}
+
+	h, err := s.svc.GitHostOf(ctx, req.Host)
+	if err != nil {
+		return nil, err
+	}
+
+	return openapi.DeleteGitHostToken200JSONResponse(toGitHost(h)), nil
 }
 
 // ListRepos returns the registered repositories.

@@ -29,3 +29,11 @@ SELECT * FROM repos ORDER BY name;
 
 -- name: DeleteRepo :execrows
 DELETE FROM repos WHERE name = @name;
+
+-- name: SetGitHostTokenSecret :exec
+-- A known host has no row until it gets a token.
+INSERT INTO git_hosts (host, kind, token_secret, created_at) VALUES (@host, @kind, @token_secret, @now)
+ON CONFLICT (host) DO UPDATE SET token_secret = excluded.token_secret;
+
+-- name: ClearGitHostTokenSecret :exec
+UPDATE git_hosts SET token_secret = NULL WHERE host = @host;

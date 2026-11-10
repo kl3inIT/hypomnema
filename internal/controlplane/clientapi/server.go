@@ -48,6 +48,25 @@ type Server struct {
 	heartbeat time.Duration
 	// coordinator reports whether pi works on a chat; nil when none runs.
 	coordinator Coordinator
+	// hostTokens keeps git hosts' tokens; nil when the control plane wired none.
+	hostTokens HostTokens
+}
+
+// HostTokens is how the API has a git host's token kept. The API hands a token
+// over and never gets one back: a secret's value is opened only by the control
+// plane's own wiring (issue #66).
+type HostTokens interface {
+	Set(ctx context.Context, host, token string) error
+	Clear(ctx context.Context, host string) error
+	// Remove forgets a declared host and its token.
+	Remove(ctx context.Context, host string) error
+}
+
+// WithHostTokens sets where git hosts' tokens are kept.
+func (s *Server) WithHostTokens(h HostTokens) *Server {
+	s.hostTokens = h
+
+	return s
 }
 
 // Coordinator is what the API asks of the coordinator's supervisor.
