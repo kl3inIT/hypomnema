@@ -171,6 +171,15 @@ func (o *owner) secretsList(ctx context.Context) error {
 			key += " (not in the keyring: cannot be opened)"
 		}
 
+		state := ""
+
+		switch {
+		case s.LoginRequired:
+			state = "login required"
+		case s.AccessTokenExpiresAt != nil:
+			state = "access token until " + s.AccessTokenExpiresAt.Format(time.RFC3339)
+		}
+
 		meta := make([]string, 0, len(s.Metadata))
 		for k, v := range s.Metadata {
 			meta = append(meta, k+"="+v)
@@ -178,8 +187,8 @@ func (o *owner) secretsList(ctx context.Context) error {
 
 		slices.Sort(meta)
 
-		o.printf("%s\t%s\tv%d\t%s\t%s\t%s\n", s.Name, s.Kind, s.Version, key,
-			s.UpdatedAt.Format(time.RFC3339), strings.Join(meta, " "))
+		o.printf("%s\t%s\tv%d\t%s\t%s\t%s\t%s\n", s.Name, s.Kind, s.Version, key,
+			s.UpdatedAt.Format(time.RFC3339), strings.Join(meta, " "), state)
 	}
 
 	return nil

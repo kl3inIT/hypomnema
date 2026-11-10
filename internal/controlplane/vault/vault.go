@@ -22,6 +22,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/vault/internal/store"
@@ -45,6 +46,16 @@ var (
 	// ErrTampered: the stored version does not authenticate: it was changed,
 	// moved to another secret, or a root key has the right id and the wrong bytes.
 	ErrTampered = errors.New("the stored secret does not authenticate")
+	// ErrLoginRequired: the provider refused the token set's refresh token for
+	// good; the owner logs in again and rotates the secret.
+	ErrLoginRequired = errors.New("the login is no longer accepted; log in again")
+	// ErrLoginRejected is what a RefreshFunc wraps when the provider refused
+	// the refresh token for good (reused, expired, revoked), as opposed to a
+	// failure that may pass.
+	ErrLoginRejected = errors.New("the provider rejected the refresh token")
+	// ErrRefreshFailed: the refresh did not complete and may be tried again;
+	// the stored token set is unchanged.
+	ErrRefreshFailed = errors.New("the refresh did not complete")
 )
 
 // Kind is what a secret holds.
@@ -100,8 +111,25 @@ type Secret struct {
 	// opened until it is put back.
 	KeyID      string
 	KeyMissing bool
-	CreatedAt  time.Time
-	UpdatedAt  time.Time
+	// AccessTokenExpiresAt is when a token set's access token ends, if known.
+	AccessTokenExpiresAt *time.Time
+	// LoginRequired says the provider refused the refresh token for good.
+	LoginRequired bool
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
+}
+
+// Opened is a secret's value with what a caller needs to use and refresh it.
+type Opened struct {
+	Payload Payload
+	// Version is the version the payload is; a caller that finds it stale
+	// names it to Refresh.
+	Version int
+	// AccessTokenExpiresAt is when a token set's access token ends, if known.
+	AccessTokenExpiresAt *time.Time
+	// LoginRequired says the refresh token is dead; the access token may
+	// still work until it ends.
+	LoginRequired bool
 }
 
 // NewSecret is what the owner gives to create a secret.
@@ -126,6 +154,11 @@ type Service struct {
 	newID     func(prefix string) string
 	keyring   *Keyring
 	referrers Referrers
+
+	// refreshing holds the refresh running for each secret in this process,
+	// so callers that arrive meanwhile share its result.
+	mu         sync.Mutex
+	refreshing map[string]*refreshCall
 }
 
 // New returns a Service over an opened, migrated database. A nil keyring
@@ -134,7 +167,10 @@ type Service struct {
 func New(
 	db *sql.DB, clock platform.Clock, newID func(prefix string) string, keyring *Keyring, referrers Referrers,
 ) *Service {
-	return &Service{db: db, clock: clock, newID: newID, keyring: keyring, referrers: referrers}
+	return &Service{
+		db: db, clock: clock, newID: newID, keyring: keyring, referrers: referrers,
+		refreshing: map[string]*refreshCall{},
+	}
 }
 
 // write runs fn in one transaction, as orchestration does: the connection
@@ -196,7 +232,7 @@ func (s *Service) Create(ctx context.Context, n NewSecret) (Secret, error) {
 			return fmt.Errorf("storing secret %q: %w", n.Name, err)
 		}
 
-		return insertVersion(ctx, q, id, sealedVersion, now)
+		return insertVersion(ctx, q, id, sealedVersion, nil, now)
 	})
 	if err != nil {
 		return Secret{}, fmt.Errorf("creating a secret: %w", err)
@@ -206,7 +242,8 @@ func (s *Service) Create(ctx context.Context, n NewSecret) (Secret, error) {
 }
 
 // Rotate stores a new value as the secret's next version, which becomes the
-// one in use. Earlier versions stay, encrypted.
+// one in use. Earlier versions stay, encrypted. For a token set it is how a
+// new login is recorded, and it clears the mark of a login that is required.
 func (s *Service) Rotate(ctx context.Context, name string, p Payload) (Secret, error) {
 	if s.keyring == nil {
 		return Secret{}, ErrNotConfigured
@@ -231,7 +268,7 @@ func (s *Service) Rotate(ctx context.Context, name string, p Payload) (Secret, e
 			return err
 		}
 
-		if err := insertVersion(ctx, q, id, sealedVersion, now); err != nil {
+		if err := insertVersion(ctx, q, id, sealedVersion, nil, now); err != nil {
 			return err
 		}
 
@@ -321,27 +358,34 @@ func (s *Service) List(ctx context.Context) ([]Secret, error) {
 
 // Open returns a secret's value, for callers inside the control plane that
 // must send it to its provider. The caller keeps it out of logs and errors.
-func (s *Service) Open(ctx context.Context, name string) (Payload, error) {
+func (s *Service) Open(ctx context.Context, name string) (Opened, error) {
 	if s.keyring == nil {
-		return nil, ErrNotConfigured
+		return Opened{}, ErrNotConfigured
 	}
 
 	row, current, err := currentVersion(ctx, store.New(s.db), name)
 	if err != nil {
-		return nil, err
+		return Opened{}, err
 	}
 
+	return s.openVersion(row, current)
+}
+
+func (s *Service) openVersion(row store.Secret, current store.SecretVersion) (Opened, error) {
 	stored, err := sealedFromRow(current)
 	if err != nil {
-		return nil, err
+		return Opened{}, err
 	}
 
 	p, err := open(s.keyring, identityOf(current, Kind(row.Kind)), stored)
 	if err != nil {
-		return nil, fmt.Errorf("opening secret %q: %w", name, err)
+		return Opened{}, fmt.Errorf("opening secret %q: %w", row.Name, err)
 	}
 
-	return p, nil
+	return Opened{
+		Payload: p, Version: int(current.VersionNumber),
+		AccessTokenExpiresAt: optionalTime(current.AccessTokenExpiresAt), LoginRequired: row.LoginRequiredAt.Valid,
+	}, nil
 }
 
 // Rewrap wraps the data key of every version under the active root key and
@@ -404,8 +448,10 @@ func (s *Service) describe(row store.Secret, current store.SecretVersion) (Secre
 	return Secret{
 		ID: row.ID, Name: row.Name, Kind: Kind(row.Kind), Metadata: metadata,
 		Version: int(current.VersionNumber), KeyID: current.KeyID,
-		KeyMissing: s.keyring != nil && !s.keyring.has(current.KeyID),
-		CreatedAt:  time.UnixMilli(row.CreatedAt).UTC(), UpdatedAt: time.UnixMilli(row.UpdatedAt).UTC(),
+		KeyMissing:           s.keyring != nil && !s.keyring.has(current.KeyID),
+		AccessTokenExpiresAt: optionalTime(current.AccessTokenExpiresAt),
+		LoginRequired:        row.LoginRequiredAt.Valid,
+		CreatedAt:            time.UnixMilli(row.CreatedAt).UTC(), UpdatedAt: time.UnixMilli(row.UpdatedAt).UTC(),
 	}, nil
 }
 
@@ -423,7 +469,26 @@ func currentVersion(ctx context.Context, q *store.Queries, name string) (store.S
 	return row, current, nil
 }
 
-func insertVersion(ctx context.Context, q *store.Queries, id identity, s sealed, now int64) error {
+func optionalTime(v sql.NullInt64) *time.Time {
+	if !v.Valid {
+		return nil
+	}
+
+	t := time.UnixMilli(v.Int64).UTC()
+
+	return &t
+}
+
+// insertVersion stores a sealed version; expires is when a token set's access
+// token ends, nil when unknown.
+func insertVersion(
+	ctx context.Context, q *store.Queries, id identity, s sealed, expires *time.Time, now int64,
+) error {
+	var expiresAt sql.NullInt64
+	if expires != nil {
+		expiresAt = sql.NullInt64{Int64: expires.UnixMilli(), Valid: true}
+	}
+
 	keys, err := json.Marshal(s.PayloadKeys)
 	if err != nil {
 		return fmt.Errorf("encoding the payload's key names: %w", err)
@@ -432,7 +497,8 @@ func insertVersion(ctx context.Context, q *store.Queries, id identity, s sealed,
 	if err := q.InsertSecretVersion(ctx, store.InsertSecretVersionParams{
 		ID: id.VersionID, SecretID: id.SecretID, VersionNumber: id.VersionNumber, PayloadKeys: string(keys),
 		EncryptionScheme: schemeEnvelopeV1, KeyID: s.KeyID, EncryptedDek: s.WrappedKey,
-		EncryptedDekNonce: s.WrappedNonce, Nonce: s.Nonce, Ciphertext: s.Ciphertext, Now: now,
+		EncryptedDekNonce: s.WrappedNonce, Nonce: s.Nonce, Ciphertext: s.Ciphertext,
+		AccessTokenExpiresAt: expiresAt, Now: now,
 	}); err != nil {
 		return fmt.Errorf("storing version %d: %w", id.VersionNumber, err)
 	}

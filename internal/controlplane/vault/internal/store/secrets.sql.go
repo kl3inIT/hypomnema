@@ -10,6 +10,20 @@ import (
 	"database/sql"
 )
 
+const deleteExpiredSecretRefreshLease = `-- name: DeleteExpiredSecretRefreshLease :exec
+DELETE FROM secret_refresh_leases WHERE secret_id = ?1 AND expires_at <= ?2
+`
+
+type DeleteExpiredSecretRefreshLeaseParams struct {
+	SecretID string
+	Now      int64
+}
+
+func (q *Queries) DeleteExpiredSecretRefreshLease(ctx context.Context, arg DeleteExpiredSecretRefreshLeaseParams) error {
+	_, err := q.db.ExecContext(ctx, deleteExpiredSecretRefreshLease, arg.SecretID, arg.Now)
+	return err
+}
+
 const deleteSecret = `-- name: DeleteSecret :exec
 DELETE FROM secrets WHERE id = ?1
 `
@@ -19,8 +33,22 @@ func (q *Queries) DeleteSecret(ctx context.Context, id string) error {
 	return err
 }
 
+const deleteSecretVersionsBefore = `-- name: DeleteSecretVersionsBefore :exec
+DELETE FROM secret_versions WHERE secret_id = ?1 AND version_number < ?2
+`
+
+type DeleteSecretVersionsBeforeParams struct {
+	SecretID      string
+	VersionNumber int64
+}
+
+func (q *Queries) DeleteSecretVersionsBefore(ctx context.Context, arg DeleteSecretVersionsBeforeParams) error {
+	_, err := q.db.ExecContext(ctx, deleteSecretVersionsBefore, arg.SecretID, arg.VersionNumber)
+	return err
+}
+
 const getSecretByName = `-- name: GetSecretByName :one
-SELECT id, name, kind, metadata, current_version_id, created_at, updated_at FROM secrets WHERE name = ?1
+SELECT id, name, kind, metadata, current_version_id, created_at, updated_at, login_required_at FROM secrets WHERE name = ?1
 `
 
 func (q *Queries) GetSecretByName(ctx context.Context, name string) (Secret, error) {
@@ -34,6 +62,23 @@ func (q *Queries) GetSecretByName(ctx context.Context, name string) (Secret, err
 		&i.CurrentVersionID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.LoginRequiredAt,
+	)
+	return i, err
+}
+
+const getSecretRefreshLease = `-- name: GetSecretRefreshLease :one
+SELECT secret_id, owner_token, expected_version_id, expires_at FROM secret_refresh_leases WHERE secret_id = ?1
+`
+
+func (q *Queries) GetSecretRefreshLease(ctx context.Context, secretID string) (SecretRefreshLease, error) {
+	row := q.db.QueryRowContext(ctx, getSecretRefreshLease, secretID)
+	var i SecretRefreshLease
+	err := row.Scan(
+		&i.SecretID,
+		&i.OwnerToken,
+		&i.ExpectedVersionID,
+		&i.ExpiresAt,
 	)
 	return i, err
 }
@@ -88,25 +133,53 @@ func (q *Queries) InsertSecret(ctx context.Context, arg InsertSecretParams) erro
 	return err
 }
 
+const insertSecretRefreshLease = `-- name: InsertSecretRefreshLease :execrows
+INSERT INTO secret_refresh_leases (secret_id, owner_token, expected_version_id, expires_at)
+VALUES (?1, ?2, ?3, ?4)
+ON CONFLICT (secret_id) DO NOTHING
+`
+
+type InsertSecretRefreshLeaseParams struct {
+	SecretID          string
+	OwnerToken        string
+	ExpectedVersionID string
+	ExpiresAt         int64
+}
+
+// Run after DeleteExpiredSecretRefreshLease in one transaction: no row inserted means the lease is held.
+func (q *Queries) InsertSecretRefreshLease(ctx context.Context, arg InsertSecretRefreshLeaseParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, insertSecretRefreshLease,
+		arg.SecretID,
+		arg.OwnerToken,
+		arg.ExpectedVersionID,
+		arg.ExpiresAt,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const insertSecretVersion = `-- name: InsertSecretVersion :exec
 INSERT INTO secret_versions (id, secret_id, version_number, payload_keys, encryption_scheme, key_id, encrypted_dek,
-                             encrypted_dek_nonce, nonce, ciphertext, created_at)
+                             encrypted_dek_nonce, nonce, ciphertext, access_token_expires_at, created_at)
 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7,
-        ?8, ?9, ?10, ?11)
+        ?8, ?9, ?10, ?11, ?12)
 `
 
 type InsertSecretVersionParams struct {
-	ID                string
-	SecretID          string
-	VersionNumber     int64
-	PayloadKeys       string
-	EncryptionScheme  string
-	KeyID             string
-	EncryptedDek      []byte
-	EncryptedDekNonce []byte
-	Nonce             []byte
-	Ciphertext        []byte
-	Now               int64
+	ID                   string
+	SecretID             string
+	VersionNumber        int64
+	PayloadKeys          string
+	EncryptionScheme     string
+	KeyID                string
+	EncryptedDek         []byte
+	EncryptedDekNonce    []byte
+	Nonce                []byte
+	Ciphertext           []byte
+	AccessTokenExpiresAt sql.NullInt64
+	Now                  int64
 }
 
 func (q *Queries) InsertSecretVersion(ctx context.Context, arg InsertSecretVersionParams) error {
@@ -121,6 +194,7 @@ func (q *Queries) InsertSecretVersion(ctx context.Context, arg InsertSecretVersi
 		arg.EncryptedDekNonce,
 		arg.Nonce,
 		arg.Ciphertext,
+		arg.AccessTokenExpiresAt,
 		arg.Now,
 	)
 	return err
@@ -185,7 +259,7 @@ func (q *Queries) ListSecretVersions(ctx context.Context) ([]ListSecretVersionsR
 }
 
 const listSecrets = `-- name: ListSecrets :many
-SELECT id, name, kind, metadata, current_version_id, created_at, updated_at FROM secrets ORDER BY name
+SELECT id, name, kind, metadata, current_version_id, created_at, updated_at, login_required_at FROM secrets ORDER BY name
 `
 
 func (q *Queries) ListSecrets(ctx context.Context) ([]Secret, error) {
@@ -205,6 +279,7 @@ func (q *Queries) ListSecrets(ctx context.Context) ([]Secret, error) {
 			&i.CurrentVersionID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.LoginRequiredAt,
 		); err != nil {
 			return nil, err
 		}
@@ -217,6 +292,20 @@ func (q *Queries) ListSecrets(ctx context.Context) ([]Secret, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const releaseSecretRefreshLease = `-- name: ReleaseSecretRefreshLease :exec
+DELETE FROM secret_refresh_leases WHERE secret_id = ?1 AND owner_token = ?2
+`
+
+type ReleaseSecretRefreshLeaseParams struct {
+	SecretID   string
+	OwnerToken string
+}
+
+func (q *Queries) ReleaseSecretRefreshLease(ctx context.Context, arg ReleaseSecretRefreshLeaseParams) error {
+	_, err := q.db.ExecContext(ctx, releaseSecretRefreshLease, arg.SecretID, arg.OwnerToken)
+	return err
 }
 
 const rewrapSecretVersion = `-- name: RewrapSecretVersion :exec
@@ -243,7 +332,8 @@ func (q *Queries) RewrapSecretVersion(ctx context.Context, arg RewrapSecretVersi
 }
 
 const setCurrentSecretVersion = `-- name: SetCurrentSecretVersion :exec
-UPDATE secrets SET current_version_id = ?1, updated_at = ?2 WHERE id = ?3
+UPDATE secrets SET current_version_id = ?1, login_required_at = NULL, updated_at = ?2
+WHERE id = ?3
 `
 
 type SetCurrentSecretVersionParams struct {
@@ -254,5 +344,19 @@ type SetCurrentSecretVersionParams struct {
 
 func (q *Queries) SetCurrentSecretVersion(ctx context.Context, arg SetCurrentSecretVersionParams) error {
 	_, err := q.db.ExecContext(ctx, setCurrentSecretVersion, arg.CurrentVersionID, arg.Now, arg.ID)
+	return err
+}
+
+const setSecretLoginRequired = `-- name: SetSecretLoginRequired :exec
+UPDATE secrets SET login_required_at = ?1, updated_at = ?1 WHERE id = ?2
+`
+
+type SetSecretLoginRequiredParams struct {
+	Now sql.NullInt64
+	ID  string
+}
+
+func (q *Queries) SetSecretLoginRequired(ctx context.Context, arg SetSecretLoginRequiredParams) error {
+	_, err := q.db.ExecContext(ctx, setSecretLoginRequired, arg.Now, arg.ID)
 	return err
 }

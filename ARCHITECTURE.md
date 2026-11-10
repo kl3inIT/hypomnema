@@ -125,11 +125,18 @@ proxy, does not exist yet.
   and deleted, nothing is sealed or opened, and no path stores a value in the clear. A version sealed under a key
   that is not in the keyring is listed as such and left untouched. `Rewrap` wraps every data key under the active
   root key without decrypting a value, and changes nothing when one version cannot be unwrapped.
+- `Refresh` replaces a token set through a function that asks the provider, one refresher at a time: callers in
+  the process share one exchange; across processes a lease row (`secret_refresh_leases`, about 2.5 min) names the
+  refresher and the version it read, and the result is stored only while the secret is still at that version. The
+  exchange and the write go on when the caller stops waiting, and the write is retried. A caller that names a
+  version the secret has moved past gets the newer set without an exchange. A failure that may pass keeps the token
+  set and frees the lease; a rejection for good marks the secret as needing a new login until the owner rotates it.
+  After a refresh only the new version and the one before it are kept. Nothing calls `Refresh` yet.
 - `Open` returns a value to callers inside the control plane; nothing calls it yet. No API, coordinator or web
   package may import the vault (`depguard`), and the owner's commands never print a value.
 - A provider names a secret as `vault:<name>` in its `api_key_ref`; nothing resolves that reference yet. Deleting a
   secret is refused while a provider names it.
-- The tables `secrets` and `secret_versions` are in the one migration stream and are read and written only by this
+- The tables `secrets`, `secret_versions` and `secret_refresh_leases` are in the one migration stream and are read and written only by this
   package, through its own generated queries.
 
 Node API (`internal/controlplane/nodeapi`, protocol in `internal/shared/nodeproto`, after Omnara's daemon protocol):
