@@ -455,6 +455,17 @@ func (s *Server) ListMachineProviders(ctx context.Context, _ openapi.ListMachine
 	return openapi.ListMachineProviders200JSONResponse{Data: out}, nil
 }
 
+// UpdateNode renames a node.
+func (s *Server) UpdateNode(ctx context.Context, req openapi.UpdateNodeRequestObject,
+) (openapi.UpdateNodeResponseObject, error) {
+	n, err := s.svc.RenameNode(ctx, req.NodeId, req.Body.Name)
+	if err != nil {
+		return nil, err
+	}
+
+	return openapi.UpdateNode200JSONResponse(toNode(n)), nil
+}
+
 // RemoveNode takes a node out of the registry.
 func (s *Server) RemoveNode(ctx context.Context, req openapi.RemoveNodeRequestObject,
 ) (openapi.RemoveNodeResponseObject, error) {

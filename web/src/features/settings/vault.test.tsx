@@ -155,18 +155,35 @@ test("every value is revealed and hidden from the table's head", async () => {
   expect(document.body).not.toHaveTextContent("sk-live-key")
 })
 
-// Scenario: the owner looks for a secret by name, and opens a row to see its version and dates.
-test("the table is searched by name and a row opens to its details", async () => {
+// Scenario: the owner looks for a secret by name, reads its version in its row, and sorts the table.
+test("the table is searched by name, shows each version and sorts by a column", async () => {
   const user = userEvent.setup()
   vault(two())
   await open()
   await row("openai-key")
 
+  const names = () =>
+    screen
+      .getAllByRole("row")
+      .slice(1)
+      .map((r) => r.getAttribute("aria-label"))
+
+  expect(names()).toEqual(["conn-github-com-work", "openai-key"])
+  expect(screen.getByRole("columnheader", { name: "Name" })).toHaveAttribute(
+    "aria-sort",
+    "ascending",
+  )
+
+  await user.click(screen.getByRole("button", { name: "Name" }))
+  expect(names()).toEqual(["openai-key", "conn-github-com-work"])
+
+  const version = screen.getAllByRole("columnheader").findIndex((h) => h.textContent === "Version")
+  expect(within(await row("conn-github-com-work")).getAllByRole("cell")[version]).toHaveTextContent(
+    "2",
+  )
+
   await user.type(screen.getByRole("searchbox", { name: "Search secrets by name" }), "github")
   expect(screen.queryByRole("row", { name: "openai-key" })).toBeNull()
-
-  await user.click(screen.getByRole("button", { name: "Details of conn-github-com-work" }))
-  expect(screen.getByText("Version").nextElementSibling).toHaveTextContent("2")
 
   await user.clear(screen.getByRole("searchbox", { name: "Search secrets by name" }))
   await user.type(screen.getByRole("searchbox", { name: "Search secrets by name" }), "nothing")
@@ -194,7 +211,12 @@ test("a token set shows each value and is replaced as a set", async () => {
   await user.click(within(google).getByRole("button", { name: "Edit google-work" }))
   const dialog = within(await screen.findByRole("dialog"))
   expect(dialog.getByText(/complete replacement set/)).toBeInTheDocument()
-  expect(dialog.getByRole("button", { name: "Save" })).toBeDisabled()
+
+  // A set without its refresh token is not sent: the form says what is missing.
+  await user.click(dialog.getByRole("button", { name: "Save" }))
+  expect(await dialog.findByRole("alert")).toHaveTextContent("The refresh token is required.")
+  expect(requests.filter((r) => r.call.startsWith("PUT"))).toEqual([])
+
   await user.type(dialog.getByLabelText("refresh_token"), "rt-2")
   await user.click(dialog.getByRole("button", { name: "Save" }))
   await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
@@ -226,6 +248,18 @@ test("the owner adds, edits and deletes a secret", async () => {
   await user.click(screen.getByRole("button", { name: "Add secret" }))
   let dialog = within(await screen.findByRole("dialog"))
   expect(dialog.getByLabelText("Value")).toHaveAttribute("type", "password")
+
+  // A name the vault would refuse is caught before anything is sent.
+  await user.type(dialog.getByLabelText("Name"), "OpenAI Key")
+  await user.type(dialog.getByLabelText("Value"), "sk-first")
+  await user.click(dialog.getByRole("button", { name: "Add" }))
+  expect(await dialog.findByRole("alert")).toHaveTextContent(
+    "Lower-case letters, digits and dashes",
+  )
+  expect(requests).toEqual([])
+  await user.clear(dialog.getByLabelText("Name"))
+  await user.clear(dialog.getByLabelText("Value"))
+
   await user.type(dialog.getByLabelText("Name"), "openai-key")
   await user.type(dialog.getByLabelText("Value"), "sk-first")
   await user.click(dialog.getByRole("button", { name: "Add" }))
@@ -243,16 +277,16 @@ test("the owner adds, edits and deletes a secret", async () => {
       name: "Delete conn-github-com-work",
     }),
   )
-  dialog = within(await screen.findByRole("dialog"))
+  dialog = within(await screen.findByRole("alertdialog"))
   await user.click(dialog.getByRole("button", { name: "Delete secret" }))
   expect(await dialog.findByRole("alert")).toHaveTextContent("used by connection github.com:work")
   await user.click(dialog.getByRole("button", { name: "Cancel" }))
-  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
+  await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument())
 
   await user.click(
     within(await row("openai-key")).getByRole("button", { name: "Delete openai-key" }),
   )
-  dialog = within(await screen.findByRole("dialog"))
+  dialog = within(await screen.findByRole("alertdialog"))
   await user.click(dialog.getByRole("button", { name: "Delete secret" }))
   await waitFor(() => expect(screen.queryByRole("row", { name: "openai-key" })).toBeNull())
 

@@ -70,11 +70,14 @@ export function SettingsPage({
   title,
   description,
   actions,
+  wide,
   children,
 }: {
   title: string
   description: string
   actions?: ReactNode
+  // wide gives the page the room a table needs.
+  wide?: boolean
   children: ReactNode
 }) {
   return (
@@ -103,7 +106,12 @@ export function SettingsPage({
         </nav>
       )}
       <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-8 sm:px-5">
-        <div className="mx-auto flex w-full max-w-3xl min-w-0 flex-col gap-5 pt-2">
+        <div
+          className={cn(
+            "mx-auto flex w-full min-w-0 flex-col gap-5 pt-2",
+            wide ? "max-w-5xl" : "max-w-3xl",
+          )}
+        >
           <p className="text-sm text-muted-foreground">{description}</p>
           {children}
         </div>
