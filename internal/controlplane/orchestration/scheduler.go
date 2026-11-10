@@ -81,7 +81,7 @@ func (s *Service) scheduleTask(ctx context.Context, q *store.Queries, now int64,
 		return err
 	}
 
-	spec, reason, err := placeTask(ctx, q, p, task, r.runtime, host)
+	spec, reason, err := placeTask(ctx, q, p, task, r, host)
 	if err != nil {
 		return err
 	}
@@ -103,8 +103,10 @@ func (s *Service) scheduleTask(ctx context.Context, q *store.Queries, now int64,
 // placeTask chooses where a ready Task runs. It returns no spec when the Task
 // must wait, with the reason to escalate if the wait lasts ("" for one that
 // resolves by itself, such as a cooling account).
-func placeTask(ctx context.Context, q *store.Queries, p *placement, task store.Task, runtime, host string,
+func placeTask(ctx context.Context, q *store.Queries, p *placement, task store.Task, r resolved, host string,
 ) (*DispatchSpec, string, error) {
+	runtime := r.runtime
+
 	conv, open, err := openConversation(ctx, q, task.ID)
 	if err != nil {
 		return nil, "", err
@@ -134,7 +136,11 @@ func placeTask(ctx context.Context, q *store.Queries, p *placement, task store.T
 		return nil, ReasonNoNode, nil
 	}
 
-	account, cooling := p.pickAccount(runtime)
+	// A model the gateway serves needs no account on a node (issue #107).
+	account, cooling := GatewayAccountRef, false
+	if !r.gateway {
+		account, cooling = p.pickAccount(runtime)
+	}
 
 	switch {
 	case cooling && account == "":

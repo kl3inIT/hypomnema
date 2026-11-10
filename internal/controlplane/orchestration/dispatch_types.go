@@ -84,6 +84,9 @@ const (
 const RecoveryNote = "The previous attempt was interrupted. Check the outcome of any interrupted operation " +
 	"before repeating it."
 
+// Settled reports whether the Dispatch has ended for good.
+func (d Dispatch) Settled() bool { return d.Status.settled() }
+
 // Dispatch is one attempt at a Task, on one node, inside one Conversation.
 type Dispatch struct {
 	ID             string

@@ -105,7 +105,11 @@ type Offer struct {
 	RepoKind string `json:"repo_kind,omitempty"`
 	// RepoToken is the host's token for this Dispatch. Orchestration never
 	// fills it: the node API does, from the vault, as it sends the offer.
-	RepoToken      string `json:"repo_token,omitempty"`
+	RepoToken string `json:"repo_token,omitempty"`
+	// ModelKey is the model gateway's key for this Dispatch, when the gateway
+	// serves its model. Orchestration never fills it: the node API does, as
+	// it sends the offer.
+	ModelKey       string `json:"model_key,omitempty"`
 	Base           string `json:"base,omitempty"`
 	ConversationID string `json:"conversation_id"`
 	Worktree       string `json:"worktree"`

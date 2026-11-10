@@ -91,9 +91,11 @@ type Key struct {
 	ID   string
 	Name string
 	// Models are the public names the key may use; AllModels is every one.
-	Models    []string
-	CreatedAt time.Time
-	RevokedAt *time.Time
+	Models []string
+	// DispatchID is set on a key made for one Dispatch.
+	DispatchID string
+	CreatedAt  time.Time
+	RevokedAt  *time.Time
 }
 
 // Allows reports whether the key may use a model.
@@ -339,6 +341,55 @@ func (s *Service) AddKey(ctx context.Context, name string, models []string) (Key
 		}
 	}
 
+	return s.addKey(ctx, name, models, "")
+}
+
+// AddDispatchKey makes the key a Dispatch's worker calls the gateway with,
+// good for one model, and returns its secret. A key made earlier for the
+// Dispatch stops working: an offer sent again carries a new one.
+func (s *Service) AddDispatchKey(ctx context.Context, dispatchID, model string) (string, error) {
+	if dispatchID == "" || !modelNamePattern.MatchString(model) {
+		return "", fmt.Errorf("%w: a dispatch's key needs the dispatch and its model", ErrInvalid)
+	}
+
+	// The name is only for the owner's list; the dispatch is what finds the key.
+	name := strings.ToLower(strings.ReplaceAll(s.newID("dispatch"), "_", "-"))
+
+	_, secret, err := s.addKey(ctx, name, []string{model}, dispatchID)
+
+	return secret, err
+}
+
+// RevokeDispatchKeys stops every key of a Dispatch from working; none is no error.
+func (s *Service) RevokeDispatchKeys(ctx context.Context, dispatchID string) error {
+	return s.write(ctx, func(q *store.Queries, now int64) error {
+		_, err := q.RevokeGatewayKeysOfDispatch(ctx, store.RevokeGatewayKeysOfDispatchParams{
+			Now: sql.NullInt64{Int64: now, Valid: true}, DispatchID: sql.NullString{String: dispatchID, Valid: true},
+		})
+		if err != nil {
+			return fmt.Errorf("revoking the keys of dispatch %s: %w", dispatchID, err)
+		}
+
+		return nil
+	})
+}
+
+// DispatchesWithKeys lists the Dispatches that have a key that still works.
+func (s *Service) DispatchesWithKeys(ctx context.Context) ([]string, error) {
+	rows, err := store.New(s.db).ListDispatchesWithGatewayKeys(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("listing the dispatches with keys: %w", err)
+	}
+
+	out := make([]string, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, r.String)
+	}
+
+	return out, nil
+}
+
+func (s *Service) addKey(ctx context.Context, name string, models []string, dispatchID string) (Key, string, error) {
 	secret, err := bearertoken.Generate(bearertoken.Gateway)
 	if err != nil {
 		return Key{}, "", err
@@ -352,8 +403,17 @@ func (s *Service) AddKey(ctx context.Context, name string, models []string) (Key
 	id := s.newID("gwk")
 
 	err = s.write(ctx, func(q *store.Queries, now int64) error {
+		if dispatchID != "" {
+			if _, err := q.RevokeGatewayKeysOfDispatch(ctx, store.RevokeGatewayKeysOfDispatchParams{
+				Now: sql.NullInt64{Int64: now, Valid: true}, DispatchID: sql.NullString{String: dispatchID, Valid: true},
+			}); err != nil {
+				return fmt.Errorf("revoking the earlier keys of dispatch %s: %w", dispatchID, err)
+			}
+		}
+
 		if err := q.InsertGatewayKey(ctx, store.InsertGatewayKeyParams{
-			ID: id, Name: name, KeyHash: bearertoken.Hash(secret), Models: string(encoded), Now: now,
+			ID: id, Name: name, KeyHash: bearertoken.Hash(secret), Models: string(encoded),
+			DispatchID: sql.NullString{String: dispatchID, Valid: dispatchID != ""}, Now: now,
 		}); err != nil {
 			return fmt.Errorf("%w: storing key %q: %w", ErrConflict, name, err)
 		}
@@ -466,7 +526,10 @@ func keyFromRow(r store.GatewayKey) (Key, error) {
 		return Key{}, fmt.Errorf("decoding the models of key %s: %w", r.ID, err)
 	}
 
-	k := Key{ID: r.ID, Name: r.Name, Models: models, CreatedAt: time.UnixMilli(r.CreatedAt).UTC()}
+	k := Key{
+		ID: r.ID, Name: r.Name, Models: models, DispatchID: r.DispatchID.String,
+		CreatedAt: time.UnixMilli(r.CreatedAt).UTC(),
+	}
 
 	if r.RevokedAt.Valid {
 		t := time.UnixMilli(r.RevokedAt.Int64).UTC()

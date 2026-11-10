@@ -615,3 +615,52 @@ func TestMigrationKeepsProvidersAndWhatNamesThem(t *testing.T) {
 	_, err = s.ApplyProvider(ctx, "", "name: odd\nkind: telepathy\nmodels: [m]\n")
 	require.ErrorIs(t, err, ErrInvalid)
 }
+
+// Scenario: a profile whose model the model gateway serves. Its Task runs on
+// a node that has the CLI although no account of that runtime exists
+// anywhere; the Conversation names the gateway where an account would be. A
+// rate limit cools no account down, since the gateway looks after its own.
+func TestAModelTheGatewayServesNeedsNoAccountOnANode(t *testing.T) {
+	t.Parallel()
+
+	w := newSchedWorld(t)
+	w.addNode("node_codex", 2, "codex")
+
+	_, err := w.s.ApplyProvider(t.Context(), "", "name: gateway\nkind: model_gateway\nmodels: [gpt-sol]\n")
+	require.NoError(t, err)
+	_, _, err = w.s.ApplyProfile(t.Context(), "",
+		"name: codex-worker\ndescription: d\nruntime: codex\nmodel: {provider: gateway, name: gpt-sol}\n")
+	require.NoError(t, err)
+	_, _, err = w.s.ApplyProfile(t.Context(), "", "name: codex-own\ndescription: d\nruntime: codex\n")
+	require.NoError(t, err)
+
+	w.tasks(
+		NewTask{Ref: "g", Profile: "codex-worker", Spec: "g"},
+		NewTask{Ref: "o", Profile: "codex-own", Spec: "o"},
+	)
+
+	created := w.schedule().Created
+	require.Len(t, created, 1, "a codex worker that logs in itself still needs an account on a node")
+
+	d := w.dispatchOf(created[0])
+	assert.Equal(t, "g", w.task(d.TaskID).Spec)
+	assert.Equal(t, "gpt-sol", d.Model)
+	assert.Equal(t, GatewayAccountRef, w.conversation(d.ConversationID).AccountRef)
+
+	before := w.lastSeq()
+	resets := t0.Add(2 * time.Hour)
+	require.NoError(t, w.finish(w.begin(created[0]), Outcome{Class: FailureRateLimited, ResetsAt: &resets}))
+	assert.NotContains(t, w.events(before, EventFilter{}), "escalation g account_cooling")
+
+	accounts, err := w.s.ListAccounts(t.Context())
+	require.NoError(t, err)
+
+	for _, a := range accounts {
+		assert.Nil(t, a.CoolingUntil, a.Label)
+	}
+
+	// pi runs on the control plane with a key of its own, not under a Dispatch.
+	_, _, err = w.s.ApplyProfile(t.Context(), "",
+		"name: pi-worker\ndescription: d\nruntime: pi\nmodel: {provider: gateway, name: gpt-sol}\n")
+	require.ErrorIs(t, err, ErrInvalid)
+}
