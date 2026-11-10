@@ -147,7 +147,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	mux := http.NewServeMux()
 	platform.RegisterHealth(mux, sqlite.Ready(db), logger)
 	secrets := vault.New(db, platform.SystemClock{}, platform.NewID, cfg.VaultKeys, secretReferrers(svc))
-	tokens := hostTokens{svc: svc, vault: secrets}
+	tokens := connections{svc: svc, vault: secrets}
 	machineMgr := machineManager(svc, secrets, cfg.PublicURL, logger)
 
 	nodeapi.New(svc, logger).WithHostTokens(tokens.Token).Register(mux)

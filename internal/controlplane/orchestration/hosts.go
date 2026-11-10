@@ -23,14 +23,14 @@ type GitHost struct {
 	Kind githost.Kind
 	// Known is true for github.com and gitlab.com, which need no declaration.
 	Known bool
-	// TokenSecret names the vault secret that holds the host's token; empty
-	// when the host has none. The token itself is never here.
-	TokenSecret string
+	// Connections are the labels of the host's Connections, oldest first;
+	// empty when the owner gave it none.
+	Connections []string
 	CreatedAt   time.Time
 }
 
-// HasToken says whether the owner gave the host a token.
-func (h GitHost) HasToken() bool { return h.TokenSecret != "" }
+// HasToken says whether the owner gave the host a Connection.
+func (h GitHost) HasToken() bool { return len(h.Connections) > 0 }
 
 // Repo is a repository registered under a name.
 type Repo struct {
@@ -38,8 +38,11 @@ type Repo struct {
 	Host string
 	Path string
 	// Base is the branch worktrees start from when a Run names none.
-	Base      string
-	CreatedAt time.Time
+	Base string
+	// Connection is the label of the host's Connection work on it uses;
+	// empty for the host's only one.
+	Connection string
+	CreatedAt  time.Time
 }
 
 var repoNamePattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,62}$`)
@@ -63,20 +66,22 @@ func (s *Service) AddGitHost(ctx context.Context, host string, kind githost.Kind
 		return GitHost{}, fmt.Errorf("declaring host %s: %w", host, err)
 	}
 
-	return gitHostOf(ctx, s.read(), host)
+	return s.GitHostOf(ctx, host)
 }
 
 // RemoveGitHost forgets a declared host. It is refused while an open Run or a
-// registered repository is on it, and while it still has a token: the vault
-// holds that, so whoever removes a host removes its token first.
+// registered repository is on it, and while it still has a Connection: the
+// vault holds its credential, so whoever removes a host removes those first.
 func (s *Service) RemoveGitHost(ctx context.Context, host string) error {
 	if _, known := githost.KnownKind(host); known {
 		return fmt.Errorf("%w: %s is always known", ErrInvalid, host)
 	}
 
 	return s.write(ctx, func(q *store.Queries, _ int64) error {
-		if row, err := q.GetGitHost(ctx, host); err == nil && row.TokenSecret.Valid {
-			return fmt.Errorf("%w: %s still has a token", ErrConflict, host)
+		if rows, err := q.ListConnectionsOf(ctx, host); err != nil {
+			return fmt.Errorf("listing the connections of %s: %w", host, err)
+		} else if len(rows) > 0 {
+			return fmt.Errorf("%w: %s still has %d connections", ErrConflict, host, len(rows))
 		}
 
 		runs, err := q.CountOpenRunsOnHost(ctx, nullString(host))
@@ -114,69 +119,70 @@ func (s *Service) ListGitHosts(ctx context.Context) ([]GitHost, error) {
 		return nil, fmt.Errorf("listing hosts: %w", err)
 	}
 
+	conns, err := s.read().ListConnections(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("listing connections: %w", err)
+	}
+
 	out := []GitHost{
 		{Host: githost.GitHubHost, Kind: githost.GitHub, Known: true},
 		{Host: githost.GitLabHost, Kind: githost.GitLab, Known: true},
 	}
 
 	for _, r := range rows {
-		// A known host has a row only to name its token.
+		// A row of a known host is left from when it named the host's token.
 		if _, known := githost.KnownKind(r.Host); known {
-			for i := range out {
-				if out[i].Host == r.Host {
-					out[i].TokenSecret = r.TokenSecret.String
-				}
-			}
-
 			continue
 		}
 
 		out = append(out, gitHostFromRow(r))
 	}
 
+	for i := range out {
+		for _, c := range conns {
+			if c.Integration == out[i].Host {
+				out[i].Connections = append(out[i].Connections, c.Label)
+			}
+		}
+	}
+
 	return out, nil
 }
 
 func gitHostFromRow(r store.GitHost) GitHost {
-	return GitHost{
-		Host: r.Host, Kind: githost.Kind(r.Kind), TokenSecret: r.TokenSecret.String, CreatedAt: millis(r.CreatedAt),
-	}
+	return GitHost{Host: r.Host, Kind: githost.Kind(r.Kind), CreatedAt: millis(r.CreatedAt)}
 }
 
-// GitHostOf returns a host a Run can be on, with the name of its token's
-// secret; ErrInvalid for a host that is not known.
+// GitHostOf returns a host a Run can be on, with the labels of its
+// Connections; ErrInvalid for a host that is not known.
 func (s *Service) GitHostOf(ctx context.Context, host string) (GitHost, error) {
-	return gitHostOf(ctx, s.read(), host)
-}
+	q := s.read()
 
-// SetGitHostTokenSecret records which vault secret holds a host's token; an
-// empty name records that it has none. The host must be known.
-func (s *Service) SetGitHostTokenSecret(ctx context.Context, host, secret string) error {
-	return s.write(ctx, func(q *store.Queries, now int64) error {
-		h, err := gitHostOf(ctx, q, host)
-		if err != nil {
-			return err
-		}
-
-		if secret == "" {
-			return q.ClearGitHostTokenSecret(ctx, host)
-		}
-
-		return q.SetGitHostTokenSecret(ctx, store.SetGitHostTokenSecretParams{
-			Host: host, Kind: string(h.Kind), TokenSecret: nullString(secret), Now: now,
-		})
-	})
-}
-
-// gitHostOf returns a host a Run can be on; ErrInvalid names the command that
-// declares one that is not known.
-func gitHostOf(ctx context.Context, q *store.Queries, host string) (GitHost, error) {
-	row, err := q.GetGitHost(ctx, host)
-
-	if kind, ok := githost.KnownKind(host); ok {
-		// A known host has a row only to name its token.
-		return GitHost{Host: host, Kind: kind, Known: true, TokenSecret: row.TokenSecret.String}, nil
+	h, err := gitHostOf(ctx, q, host)
+	if err != nil {
+		return GitHost{}, err
 	}
+
+	rows, err := q.ListConnectionsOf(ctx, host)
+	if err != nil {
+		return GitHost{}, fmt.Errorf("listing the connections of %s: %w", host, err)
+	}
+
+	for _, r := range rows {
+		h.Connections = append(h.Connections, r.Label)
+	}
+
+	return h, nil
+}
+
+// gitHostOf returns a host a Run can be on, without its Connections;
+// ErrInvalid names the command that declares one that is not known.
+func gitHostOf(ctx context.Context, q *store.Queries, host string) (GitHost, error) {
+	if kind, ok := githost.KnownKind(host); ok {
+		return GitHost{Host: host, Kind: kind, Known: true}, nil
+	}
+
+	row, err := q.GetGitHost(ctx, host)
 
 	if errors.Is(err, sql.ErrNoRows) {
 		return GitHost{}, fmt.Errorf("%w: the host %s is not known; declare it with `hypomnema hosts add %s --kind gitlab`",
@@ -199,8 +205,9 @@ func (s *Service) KindOfHost(ctx context.Context, host string) (githost.Kind, bo
 
 // AddRepo registers a repository under a name, or changes what the name means.
 // The repository is given as a Run takes it: owner/name or a URL on a host
-// that is known.
-func (s *Service) AddRepo(ctx context.Context, name, repo, base string) (Repo, error) {
+// that is known. connection, when given, is the label of the host's Connection
+// work on it uses.
+func (s *Service) AddRepo(ctx context.Context, name, repo, base, connection string) (Repo, error) {
 	if !repoNamePattern.MatchString(name) {
 		return Repo{}, fmt.Errorf("%w: a repository's name is lower-case letters, digits, dots and dashes", ErrInvalid)
 	}
@@ -215,8 +222,20 @@ func (s *Service) AddRepo(ctx context.Context, name, repo, base string) (Repo, e
 			return err
 		}
 
+		if connection != "" {
+			_, err := q.GetConnection(ctx, store.GetConnectionParams{Integration: parsed.Host, Label: connection})
+			if errors.Is(err, sql.ErrNoRows) {
+				return fmt.Errorf("%w: %s has no connection %s", ErrInvalid, parsed.Host, connection)
+			}
+
+			if err != nil {
+				return fmt.Errorf("reading connection %s:%s: %w", parsed.Host, connection, err)
+			}
+		}
+
 		return q.UpsertRepo(ctx, store.UpsertRepoParams{
-			Name: name, Host: parsed.Host, Path: parsed.Path, Base: nullString(base), Now: now,
+			Name: name, Host: parsed.Host, Path: parsed.Path, Base: nullString(base),
+			Connection: nullString(connection), Now: now,
 		})
 	})
 	if err != nil {
@@ -264,7 +283,10 @@ func (s *Service) ListRepos(ctx context.Context) ([]Repo, error) {
 }
 
 func repoFromRow(r store.Repo) Repo {
-	return Repo{Name: r.Name, Host: r.Host, Path: r.Path, Base: r.Base.String, CreatedAt: millis(r.CreatedAt)}
+	return Repo{
+		Name: r.Name, Host: r.Host, Path: r.Path, Base: r.Base.String, Connection: r.Connection.String,
+		CreatedAt: millis(r.CreatedAt),
+	}
 }
 
 // resolveRepo turns what a Run was given into a host, a path and the base its

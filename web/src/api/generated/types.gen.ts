@@ -435,9 +435,13 @@ export type GitHost = {
   host: string;
   kind: GitHostKind;
   /**
-   * Whether the owner gave the host a token. Without one a worker uses the logins of the node's own user.
+   * Whether the host has a Connection. Without one a worker uses the logins of the node's own user.
    */
   has_token: boolean;
+  /**
+   * The labels of the host's Connections, oldest first. A token is never here.
+   */
+  connections: Array<string>;
   /**
    * True for github.com and gitlab.com, which need no declaration.
    */
@@ -468,6 +472,10 @@ export type Repo = {
    * The branch worktrees start from when a Run names none.
    */
   base?: string;
+  /**
+   * The label of the host's Connection work on it uses; absent for the host's only one.
+   */
+  connection?: string;
   created_at: string;
 };
 
@@ -481,6 +489,10 @@ export type NewRepo = {
    */
   repo: string;
   base?: string;
+  /**
+   * The label of a Connection of the repository's host.
+   */
+  connection?: string;
 };
 
 export type NodeList = {
@@ -1529,6 +1541,62 @@ export type PutGitHostTokenResponses = {
 };
 
 export type PutGitHostTokenResponse = PutGitHostTokenResponses[keyof PutGitHostTokenResponses];
+
+export type DeleteGitHostConnectionData = {
+  body?: never;
+  path: {
+    host: string;
+    label: string;
+  };
+  query?: never;
+  url: '/hosts/{host}/connections/{label}';
+};
+
+export type DeleteGitHostConnectionErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type DeleteGitHostConnectionError = DeleteGitHostConnectionErrors[keyof DeleteGitHostConnectionErrors];
+
+export type DeleteGitHostConnectionResponses = {
+  /**
+   * The host, without the Connection.
+   */
+  200: GitHost;
+};
+
+export type DeleteGitHostConnectionResponse = DeleteGitHostConnectionResponses[keyof DeleteGitHostConnectionResponses];
+
+export type PutGitHostConnectionData = {
+  body: NewGitHostToken;
+  path: {
+    host: string;
+    label: string;
+  };
+  query?: never;
+  url: '/hosts/{host}/connections/{label}';
+};
+
+export type PutGitHostConnectionErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type PutGitHostConnectionError = PutGitHostConnectionErrors[keyof PutGitHostConnectionErrors];
+
+export type PutGitHostConnectionResponses = {
+  /**
+   * The host, with the Connection.
+   */
+  200: GitHost;
+};
+
+export type PutGitHostConnectionResponse = PutGitHostConnectionResponses[keyof PutGitHostConnectionResponses];
 
 export type ListReposData = {
   body?: never;

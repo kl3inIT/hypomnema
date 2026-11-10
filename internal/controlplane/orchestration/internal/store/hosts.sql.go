@@ -10,13 +10,22 @@ import (
 	"database/sql"
 )
 
-const clearGitHostTokenSecret = `-- name: ClearGitHostTokenSecret :exec
-UPDATE git_hosts SET token_secret = NULL WHERE host = ?1
+const connectionOfRepo = `-- name: ConnectionOfRepo :one
+SELECT connection FROM repos
+WHERE host = ?1 AND path = ?2 AND connection IS NOT NULL ORDER BY name LIMIT 1
 `
 
-func (q *Queries) ClearGitHostTokenSecret(ctx context.Context, host string) error {
-	_, err := q.db.ExecContext(ctx, clearGitHostTokenSecret, host)
-	return err
+type ConnectionOfRepoParams struct {
+	Host string
+	Path string
+}
+
+// The Connection a repository registered at this host and path names; several names may register one repository.
+func (q *Queries) ConnectionOfRepo(ctx context.Context, arg ConnectionOfRepoParams) (sql.NullString, error) {
+	row := q.db.QueryRowContext(ctx, connectionOfRepo, arg.Host, arg.Path)
+	var connection sql.NullString
+	err := row.Scan(&connection)
+	return connection, err
 }
 
 const countOpenRunsOnHost = `-- name: CountOpenRunsOnHost :one
@@ -39,6 +48,39 @@ func (q *Queries) CountReposOnHost(ctx context.Context, host string) (int64, err
 	var count int64
 	err := row.Scan(&count)
 	return count, err
+}
+
+const countReposUsingConnection = `-- name: CountReposUsingConnection :one
+SELECT count(*) FROM repos WHERE host = ?1 AND connection = ?2
+`
+
+type CountReposUsingConnectionParams struct {
+	Host       string
+	Connection sql.NullString
+}
+
+func (q *Queries) CountReposUsingConnection(ctx context.Context, arg CountReposUsingConnectionParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countReposUsingConnection, arg.Host, arg.Connection)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const deleteConnection = `-- name: DeleteConnection :execrows
+DELETE FROM connections WHERE integration = ?1 AND label = ?2
+`
+
+type DeleteConnectionParams struct {
+	Integration string
+	Label       string
+}
+
+func (q *Queries) DeleteConnection(ctx context.Context, arg DeleteConnectionParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteConnection, arg.Integration, arg.Label)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const deleteGitHost = `-- name: DeleteGitHost :execrows
@@ -65,24 +107,42 @@ func (q *Queries) DeleteRepo(ctx context.Context, name string) (int64, error) {
 	return result.RowsAffected()
 }
 
+const getConnection = `-- name: GetConnection :one
+SELECT integration, label, account, secret, created_at, updated_at FROM connections WHERE integration = ?1 AND label = ?2
+`
+
+type GetConnectionParams struct {
+	Integration string
+	Label       string
+}
+
+func (q *Queries) GetConnection(ctx context.Context, arg GetConnectionParams) (Connection, error) {
+	row := q.db.QueryRowContext(ctx, getConnection, arg.Integration, arg.Label)
+	var i Connection
+	err := row.Scan(
+		&i.Integration,
+		&i.Label,
+		&i.Account,
+		&i.Secret,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const getGitHost = `-- name: GetGitHost :one
-SELECT host, kind, created_at, token_secret FROM git_hosts WHERE host = ?1
+SELECT host, kind, created_at FROM git_hosts WHERE host = ?1
 `
 
 func (q *Queries) GetGitHost(ctx context.Context, host string) (GitHost, error) {
 	row := q.db.QueryRowContext(ctx, getGitHost, host)
 	var i GitHost
-	err := row.Scan(
-		&i.Host,
-		&i.Kind,
-		&i.CreatedAt,
-		&i.TokenSecret,
-	)
+	err := row.Scan(&i.Host, &i.Kind, &i.CreatedAt)
 	return i, err
 }
 
 const getRepo = `-- name: GetRepo :one
-SELECT name, host, path, base, created_at FROM repos WHERE name = ?1
+SELECT name, host, path, base, created_at, connection FROM repos WHERE name = ?1
 `
 
 func (q *Queries) GetRepo(ctx context.Context, name string) (Repo, error) {
@@ -94,28 +154,31 @@ func (q *Queries) GetRepo(ctx context.Context, name string) (Repo, error) {
 		&i.Path,
 		&i.Base,
 		&i.CreatedAt,
+		&i.Connection,
 	)
 	return i, err
 }
 
-const listGitHosts = `-- name: ListGitHosts :many
-SELECT host, kind, created_at, token_secret FROM git_hosts ORDER BY host
+const listConnections = `-- name: ListConnections :many
+SELECT integration, label, account, secret, created_at, updated_at FROM connections ORDER BY integration, created_at, label
 `
 
-func (q *Queries) ListGitHosts(ctx context.Context) ([]GitHost, error) {
-	rows, err := q.db.QueryContext(ctx, listGitHosts)
+func (q *Queries) ListConnections(ctx context.Context) ([]Connection, error) {
+	rows, err := q.db.QueryContext(ctx, listConnections)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []GitHost{}
+	items := []Connection{}
 	for rows.Next() {
-		var i GitHost
+		var i Connection
 		if err := rows.Scan(
-			&i.Host,
-			&i.Kind,
+			&i.Integration,
+			&i.Label,
+			&i.Account,
+			&i.Secret,
 			&i.CreatedAt,
-			&i.TokenSecret,
+			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -130,8 +193,69 @@ func (q *Queries) ListGitHosts(ctx context.Context) ([]GitHost, error) {
 	return items, nil
 }
 
+const listConnectionsOf = `-- name: ListConnectionsOf :many
+SELECT integration, label, account, secret, created_at, updated_at FROM connections WHERE integration = ?1 ORDER BY created_at, label
+`
+
+func (q *Queries) ListConnectionsOf(ctx context.Context, integration string) ([]Connection, error) {
+	rows, err := q.db.QueryContext(ctx, listConnectionsOf, integration)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Connection{}
+	for rows.Next() {
+		var i Connection
+		if err := rows.Scan(
+			&i.Integration,
+			&i.Label,
+			&i.Account,
+			&i.Secret,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listGitHosts = `-- name: ListGitHosts :many
+SELECT host, kind, created_at FROM git_hosts ORDER BY host
+`
+
+func (q *Queries) ListGitHosts(ctx context.Context) ([]GitHost, error) {
+	rows, err := q.db.QueryContext(ctx, listGitHosts)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GitHost{}
+	for rows.Next() {
+		var i GitHost
+		if err := rows.Scan(&i.Host, &i.Kind, &i.CreatedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRepos = `-- name: ListRepos :many
-SELECT name, host, path, base, created_at FROM repos ORDER BY name
+SELECT name, host, path, base, created_at, connection FROM repos ORDER BY name
 `
 
 func (q *Queries) ListRepos(ctx context.Context) ([]Repo, error) {
@@ -149,6 +273,7 @@ func (q *Queries) ListRepos(ctx context.Context) ([]Repo, error) {
 			&i.Path,
 			&i.Base,
 			&i.CreatedAt,
+			&i.Connection,
 		); err != nil {
 			return nil, err
 		}
@@ -163,24 +288,27 @@ func (q *Queries) ListRepos(ctx context.Context) ([]Repo, error) {
 	return items, nil
 }
 
-const setGitHostTokenSecret = `-- name: SetGitHostTokenSecret :exec
-INSERT INTO git_hosts (host, kind, token_secret, created_at) VALUES (?1, ?2, ?3, ?4)
-ON CONFLICT (host) DO UPDATE SET token_secret = excluded.token_secret
+const upsertConnection = `-- name: UpsertConnection :exec
+INSERT INTO connections (integration, label, account, secret, created_at, updated_at)
+VALUES (?1, ?2, ?3, ?4, ?5, ?5)
+ON CONFLICT (integration, label) DO UPDATE
+SET account = excluded.account, secret = excluded.secret, updated_at = excluded.updated_at
 `
 
-type SetGitHostTokenSecretParams struct {
-	Host        string
-	Kind        string
-	TokenSecret sql.NullString
+type UpsertConnectionParams struct {
+	Integration string
+	Label       string
+	Account     sql.NullString
+	Secret      string
 	Now         int64
 }
 
-// A known host has no row until it gets a token.
-func (q *Queries) SetGitHostTokenSecret(ctx context.Context, arg SetGitHostTokenSecretParams) error {
-	_, err := q.db.ExecContext(ctx, setGitHostTokenSecret,
-		arg.Host,
-		arg.Kind,
-		arg.TokenSecret,
+func (q *Queries) UpsertConnection(ctx context.Context, arg UpsertConnectionParams) error {
+	_, err := q.db.ExecContext(ctx, upsertConnection,
+		arg.Integration,
+		arg.Label,
+		arg.Account,
+		arg.Secret,
 		arg.Now,
 	)
 	return err
@@ -203,16 +331,19 @@ func (q *Queries) UpsertGitHost(ctx context.Context, arg UpsertGitHostParams) er
 }
 
 const upsertRepo = `-- name: UpsertRepo :exec
-INSERT INTO repos (name, host, path, base, created_at) VALUES (?1, ?2, ?3, ?4, ?5)
-ON CONFLICT (name) DO UPDATE SET host = excluded.host, path = excluded.path, base = excluded.base
+INSERT INTO repos (name, host, path, base, connection, created_at)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+ON CONFLICT (name) DO UPDATE
+SET host = excluded.host, path = excluded.path, base = excluded.base, connection = excluded.connection
 `
 
 type UpsertRepoParams struct {
-	Name string
-	Host string
-	Path string
-	Base sql.NullString
-	Now  int64
+	Name       string
+	Host       string
+	Path       string
+	Base       sql.NullString
+	Connection sql.NullString
+	Now        int64
 }
 
 func (q *Queries) UpsertRepo(ctx context.Context, arg UpsertRepoParams) error {
@@ -221,6 +352,7 @@ func (q *Queries) UpsertRepo(ctx context.Context, arg UpsertRepoParams) error {
 		arg.Host,
 		arg.Path,
 		arg.Base,
+		arg.Connection,
 		arg.Now,
 	)
 	return err

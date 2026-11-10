@@ -177,7 +177,7 @@ var commands = []command{
 	},
 	{
 		name: "hosts token set", args: "<host>", min: 1, max: 1,
-		summary: "keep a token for a git host, read from a file; it replaces the one the host had (owner)",
+		summary: "the same as `integrations connect <host>` with the label default (owner)",
 		flags: func(fs *flag.FlagSet) {
 			fs.String("token-file", "", "the file holding the token, or - for standard input")
 			jsonFlag(fs)
@@ -185,13 +185,33 @@ var commands = []command{
 		run: hostsTokenSet,
 	},
 	{
-		name: "hosts token rm", args: "<host>", min: 1, max: 1, summary: "forget a git host's token (owner)",
-		flags: jsonFlag, run: hostsTokenRemove,
+		name: "hosts token rm", args: "<host>", min: 1, max: 1,
+		summary: "the same as `integrations disconnect <host>:default` (owner)",
+		flags:   jsonFlag, run: hostsTokenRemove,
 	},
 	{
 		name: "hosts rm", args: "<host>", min: 1, max: 1,
 		summary: "forget a declared host and its token; no open Run or registered repository may be on it (owner)",
 		flags:   jsonFlag, run: hostsRemove,
+	},
+	{
+		name: "integrations list", summary: "the services Hypomnema works with and the accounts connected to each",
+		flags: jsonFlag, run: integrationsList,
+	},
+	{
+		name: "integrations connect", args: "<integration>", min: 1, max: 1,
+		summary: "connect an account of a git host with a token read from a file, under a label (owner)",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("label", "default", "the name of this account, such as work")
+			fs.String("token-file", "", "the file holding the token, or - for standard input")
+			jsonFlag(fs)
+		},
+		run: integrationsConnect,
+	},
+	{
+		name: "integrations disconnect", args: "<integration>:<label>", min: 1, max: 1,
+		summary: "forget a connected account and its token (owner)",
+		flags:   jsonFlag, run: integrationsDisconnect,
 	},
 	{
 		name: "repos list", summary: "the repositories registered under a name", flags: jsonFlag, run: reposList,
@@ -202,6 +222,7 @@ var commands = []command{
 		flags: func(fs *flag.FlagSet) {
 			fs.String("name", "", "the name (default: the last part of its path)")
 			fs.String("base", "", "branch worktrees start from when a Run names none")
+			fs.String("connection", "", "the label of the host's connected account work on it uses")
 			jsonFlag(fs)
 		},
 		run: reposAdd,

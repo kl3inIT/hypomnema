@@ -55,14 +55,15 @@ type Server struct {
 	hostTokens HostTokens
 }
 
-// HostTokens is how the API has a git host's token kept. The API hands a token
-// over and never gets one back: a secret's value is opened only by the control
-// plane's own wiring (issue #66).
+// HostTokens is how the API has a Connection's token kept (issue #103). The
+// API hands a token over and never gets one back: a secret's value is opened
+// only by the control plane's own wiring (issue #66).
 type HostTokens interface {
-	Set(ctx context.Context, host, token string) error
-	Clear(ctx context.Context, host string) error
-	// Remove forgets a declared host and its token.
-	Remove(ctx context.Context, host string) error
+	// Connect keeps a token as a Connection of a git host, replacing the one it had.
+	Connect(ctx context.Context, integration, label, token string) error
+	Disconnect(ctx context.Context, integration, label string) error
+	// RemoveHost forgets a declared host and its Connections.
+	RemoveHost(ctx context.Context, host string) error
 }
 
 // WithHostTokens sets where git hosts' tokens are kept.

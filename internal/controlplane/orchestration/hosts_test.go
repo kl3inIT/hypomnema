@@ -82,7 +82,7 @@ func TestAHostInUseIsNotForgotten(t *testing.T) {
 	run, err := w.runOn("https://gitlab.company.example/team/app", "")
 	require.NoError(t, err)
 
-	_, err = w.s.AddRepo(ctx, "app", "https://gitlab.company.example/team/app", "develop")
+	_, err = w.s.AddRepo(ctx, "app", "https://gitlab.company.example/team/app", "develop", "")
 	require.NoError(t, err)
 
 	require.ErrorIs(t, w.s.RemoveGitHost(ctx, "gitlab.company.example"), ErrConflict)
@@ -107,18 +107,18 @@ func TestARunNamesARegisteredRepository(t *testing.T) {
 	w := newWorld(t)
 	ctx := t.Context()
 
-	_, err := w.s.AddRepo(ctx, "api", "https://gitlab.company.example/team/platform/api", "develop")
+	_, err := w.s.AddRepo(ctx, "api", "https://gitlab.company.example/team/platform/api", "develop", "")
 	require.ErrorIs(t, err, ErrInvalid, "a repository on a host that is not known")
 
 	_, err = w.s.AddGitHost(ctx, "gitlab.company.example", githost.GitLab)
 	require.NoError(t, err)
 
-	api, err := w.s.AddRepo(ctx, "api", "https://gitlab.company.example/team/platform/api", "develop")
+	api, err := w.s.AddRepo(ctx, "api", "https://gitlab.company.example/team/platform/api", "develop", "")
 	require.NoError(t, err)
 	assert.Equal(t, [4]string{"api", "gitlab.company.example", "team/platform/api", "develop"},
 		[4]string{api.Name, api.Host, api.Path, api.Base})
 
-	_, err = w.s.AddRepo(ctx, "hypomnema", "kl3inIT/hypomnema", "")
+	_, err = w.s.AddRepo(ctx, "hypomnema", "kl3inIT/hypomnema", "", "")
 	require.NoError(t, err)
 
 	run, err := w.runOn("api", "")
@@ -142,7 +142,7 @@ func TestARunNamesARegisteredRepository(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, repos, 2)
 
-	_, err = w.s.AddRepo(ctx, "Not A Name", "kl3inIT/hypomnema", "")
+	_, err = w.s.AddRepo(ctx, "Not A Name", "kl3inIT/hypomnema", "", "")
 	require.ErrorIs(t, err, ErrInvalid)
 	require.ErrorIs(t, w.s.RemoveRepo(ctx, "missing"), ErrNotFound)
 }

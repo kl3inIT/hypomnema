@@ -354,8 +354,8 @@ func TestAnOfferCarriesItsHostsToken(t *testing.T) {
 	p := newPlane(t)
 
 	asked := make(chan string, 4)
-	p.api.WithHostTokens(func(_ context.Context, host string) (string, bool) {
-		asked <- host
+	p.api.WithHostTokens(func(_ context.Context, host, path string) (string, bool) {
+		asked <- host + " " + path
 
 		return "ghp_for_this_dispatch", host == "github.com"
 	})
@@ -365,7 +365,7 @@ func TestAnOfferCarriesItsHostsToken(t *testing.T) {
 
 	var offer nodeproto.Offer
 	require.NoError(t, json.Unmarshal(p.next(conn, nodeproto.TypeOffer).Payload, &offer))
-	assert.Equal(t, "github.com", <-asked)
+	assert.Equal(t, "github.com kl3inIT/second-bite", <-asked, "asked by host and repository")
 	assert.Equal(t, [3]string{"github.com", "github", "ghp_for_this_dispatch"},
 		[3]string{offer.RepoHost, offer.RepoKind, offer.RepoToken})
 
@@ -375,7 +375,7 @@ func TestAnOfferCarriesItsHostsToken(t *testing.T) {
 	assert.Empty(t, stored.Offers[0].RepoToken, "orchestration never holds the token")
 
 	// Another connection of the node is told again; a host that has no token gives an offer without one.
-	p.api.WithHostTokens(func(context.Context, string) (string, bool) { return "", false })
+	p.api.WithHostTokens(func(context.Context, string, string) (string, bool) { return "", false })
 
 	again := p.connect()
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -416,7 +417,7 @@ type keptTokens struct {
 	got map[string]string
 }
 
-func (k *keptTokens) Set(ctx context.Context, host, token string) error {
+func (k *keptTokens) Connect(ctx context.Context, host, label, token string) error {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 
@@ -424,26 +425,119 @@ func (k *keptTokens) Set(ctx context.Context, host, token string) error {
 		k.got = map[string]string{}
 	}
 
-	k.got[host] = token
+	k.got[host+":"+label] = token
 
-	return k.svc.SetGitHostTokenSecret(ctx, host, "kept")
+	_, err := k.svc.SetConnection(ctx, host, label, "", "kept")
+
+	return err
 }
 
-func (k *keptTokens) Clear(ctx context.Context, host string) error {
+func (k *keptTokens) Disconnect(ctx context.Context, host, label string) error {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 
-	delete(k.got, host)
-
-	return k.svc.SetGitHostTokenSecret(ctx, host, "")
-}
-
-func (k *keptTokens) Remove(ctx context.Context, host string) error {
-	if err := k.Clear(ctx, host); err != nil {
+	if _, err := k.svc.RemoveConnection(ctx, host, label); err != nil && !errors.Is(err, orchestration.ErrNotFound) {
 		return err
 	}
 
+	delete(k.got, host+":"+label)
+
+	return nil
+}
+
+func (k *keptTokens) RemoveHost(ctx context.Context, host string) error {
+	h, err := k.svc.GitHostOf(ctx, host)
+	if err != nil {
+		return err
+	}
+
+	for _, label := range h.Connections {
+		if err := k.Disconnect(ctx, host, label); err != nil {
+			return err
+		}
+	}
+
 	return k.svc.RemoveGitHost(ctx, host)
+}
+
+// Scenario: the owner connects two accounts of github.com, registers a
+// repository with one of them, and sees both; the account a repository uses
+// cannot be disconnected until the repository names another or is forgotten.
+// A token is never an argument and never printed.
+func TestSeveralAccountsOfAHostFromTheCLI(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	w.login(t, bearertoken.Owner)
+
+	out, err := w.cmd(t, "integrations", "list")
+	require.NoError(t, err)
+	assert.Equal(t, "github.com\tgithub\tnot connected\ngitlab.com\tgitlab\tnot connected\n", out)
+
+	_, err = w.cmd(t, "integrations", "connect", "github.com", "--label", "work")
+	require.ErrorContains(t, err, "--token-file")
+
+	out, err = w.cmdIn(t, "ghp_personal\n", "integrations", "connect", "https://github.com/", "--label", "personal",
+		"--token-file", "-")
+	require.NoError(t, err)
+	assert.Equal(t, "github.com:personal is connected\n", out)
+
+	_, err = w.cmdIn(t, "ghp_work\n", "integrations", "connect", "github.com", "--label", "work", "--token-file", "-")
+	require.NoError(t, err)
+
+	_, err = w.cmdIn(t, "ghp_x\n", "integrations", "connect", "github.com", "--label", "My Work", "--token-file", "-")
+	require.Error(t, err, "a label is lower-case letters, digits and dashes")
+
+	out, err = w.cmd(t, "integrations", "list")
+	require.NoError(t, err)
+	assert.Equal(t, "github.com\tgithub\tpersonal,work\ngitlab.com\tgitlab\tnot connected\n", out)
+
+	out, err = w.cmd(t, "integrations", "list", "--json")
+	require.NoError(t, err)
+	assert.NotContains(t, out, "ghp_", "the API never returns a token")
+
+	_, err = w.cmd(t, "repos", "add", "acme/shop", "--connection", "nobody")
+	require.Error(t, err, "a repository names a connection its host has")
+
+	_, err = w.cmd(t, "repos", "add", "acme/shop", "--connection", "work")
+	require.NoError(t, err)
+
+	out, err = w.cmd(t, "repos", "list")
+	require.NoError(t, err)
+	assert.Equal(t, "shop\tacme/shop\t\twork\n", out)
+
+	_, err = w.cmd(t, "integrations", "disconnect", "github.com")
+	require.ErrorContains(t, err, "<integration>:<label>")
+
+	_, err = w.cmd(t, "integrations", "disconnect", "github.com:work")
+	require.Error(t, err, "a repository still uses it")
+
+	out, err = w.cmd(t, "integrations", "disconnect", "github.com:personal")
+	require.NoError(t, err)
+	assert.Equal(t, "github.com:personal is forgotten\n", out)
+
+	_, err = w.cmd(t, "repos", "rm", "shop")
+	require.NoError(t, err)
+
+	_, err = w.cmd(t, "integrations", "disconnect", "github.com:work")
+	require.NoError(t, err)
+
+	// The older commands act on the connection "default".
+	_, err = w.cmdIn(t, "ghp_default\n", "hosts", "token", "set", "github.com", "--token-file", "-")
+	require.NoError(t, err)
+
+	out, err = w.cmd(t, "integrations", "list")
+	require.NoError(t, err)
+	assert.Contains(t, out, "github.com\tgithub\tdefault\n")
+
+	w.login(t, bearertoken.Coordinator)
+
+	out, err = w.cmd(t, "integrations", "list")
+	require.NoError(t, err, "a coordinator sees which accounts exist")
+	assert.Contains(t, out, "default")
+
+	_, err = w.cmdIn(t, "ghp_x", "integrations", "connect", "github.com", "--label", "mine", "--token-file", "-")
+	require.Error(t, err, "only the owner connects an account")
 }
 
 // Scenario: the owner gives a git host its token from a file, sees which hosts
@@ -526,7 +620,7 @@ func TestHostsAndRepositoriesFromTheCLI(t *testing.T) {
 	out, err = w.cmd(t, "repos", "list")
 	require.NoError(t, err)
 	assert.Equal(t,
-		"hyp\tkl3inIT/hypomnema\t\nplatform-api\thttps://gitlab.company.example/team/Platform-API\tdevelop\n", out)
+		"hyp\tkl3inIT/hypomnema\t\t\nplatform-api\thttps://gitlab.company.example/team/Platform-API\tdevelop\t\n", out)
 
 	var run openapi.Run
 	w.jsonCmd(t, &run, "", "runs", "create", "--repo", "platform-api", "ship it")

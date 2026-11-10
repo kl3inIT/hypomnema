@@ -113,6 +113,80 @@ func hostsTokenRemove(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	return e.print(fs, resp.JSON200, func() { e.printf("host %s has no token\n", host) })
 }
 
+// integrationsList shows each Integration with its Connections. Today an
+// Integration is a git host (issue #103).
+func integrationsList(ctx context.Context, e *env, fs *flag.FlagSet) error {
+	resp, err := e.api.ListGitHostsWithResponse(ctx)
+	if err != nil {
+		return fmt.Errorf("listing integrations: %w", err)
+	}
+
+	if resp.JSON200 == nil {
+		return apiError("listing integrations", resp.StatusCode(), resp.JSONDefault)
+	}
+
+	return e.print(fs, resp.JSON200, func() {
+		for _, h := range resp.JSON200.Data {
+			connected := "not connected"
+			if len(h.Connections) > 0 {
+				connected = strings.Join(h.Connections, ",")
+			}
+
+			e.printf("%s\t%s\t%s\n", h.Host, h.Kind, connected)
+		}
+	})
+}
+
+// integrationsConnect sends a token read from a file, as a Connection under
+// a label. The token is never an argument: arguments show in the shell's
+// history and in the process list.
+func integrationsConnect(ctx context.Context, e *env, fs *flag.FlagSet) error {
+	host, label := hostOf(fs.Arg(0)), str(fs, "label")
+
+	file := str(fs, "token-file")
+	if file == "" {
+		return errors.New("pass --token-file with the file holding the token, or - to read it from standard input")
+	}
+
+	token, err := e.read(file)
+	if err != nil {
+		return err
+	}
+
+	token = strings.TrimSpace(token)
+
+	resp, err := e.api.PutGitHostConnectionWithResponse(ctx, host, label, openapi.NewGitHostToken{Token: &token})
+	if err != nil {
+		return fmt.Errorf("connecting %s:%s: %w", host, label, err)
+	}
+
+	if resp.JSON200 == nil {
+		return apiError("connecting "+host+":"+label, resp.StatusCode(), resp.JSONDefault)
+	}
+
+	return e.print(fs, resp.JSON200, func() { e.printf("%s:%s is connected\n", host, label) })
+}
+
+func integrationsDisconnect(ctx context.Context, e *env, fs *flag.FlagSet) error {
+	given, label, ok := strings.Cut(fs.Arg(0), ":")
+	if !ok || label == "" {
+		return errors.New("name the account as <integration>:<label>, such as github.com:work")
+	}
+
+	host := hostOf(given)
+
+	resp, err := e.api.DeleteGitHostConnectionWithResponse(ctx, host, label)
+	if err != nil {
+		return fmt.Errorf("disconnecting %s:%s: %w", host, label, err)
+	}
+
+	if resp.JSON200 == nil {
+		return apiError("disconnecting "+host+":"+label, resp.StatusCode(), resp.JSONDefault)
+	}
+
+	return e.print(fs, resp.JSON200, func() { e.printf("%s:%s is forgotten\n", host, label) })
+}
+
 func hostsRemove(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	host := hostOf(fs.Arg(0))
 
@@ -140,7 +214,8 @@ func reposList(ctx context.Context, e *env, fs *flag.FlagSet) error {
 
 	return e.print(fs, resp.JSON200, func() {
 		for _, r := range resp.JSON200.Data {
-			e.printf("%s\t%s\t%s\n", r.Name, githost.Repo{Host: r.Host, Path: r.Path}.String(), val(r.Base))
+			e.printf("%s\t%s\t%s\t%s\n", r.Name, githost.Repo{Host: r.Host, Path: r.Path}.String(), val(r.Base),
+				val(r.Connection))
 		}
 	})
 }
@@ -159,7 +234,9 @@ func reposAdd(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		name = strings.ToLower(parsed.Path[strings.LastIndex(parsed.Path, "/")+1:])
 	}
 
-	resp, err := e.api.PutRepoWithResponse(ctx, name, openapi.NewRepo{Repo: repo, Base: optional(fs, "base")})
+	resp, err := e.api.PutRepoWithResponse(ctx, name, openapi.NewRepo{
+		Repo: repo, Base: optional(fs, "base"), Connection: optional(fs, "connection"),
+	})
 	if err != nil {
 		return fmt.Errorf("registering repository %s: %w", name, err)
 	}
