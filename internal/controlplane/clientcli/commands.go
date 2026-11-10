@@ -26,6 +26,7 @@ var commands = []command{
 			fs.String("runtime", "", "runtime, instead of the profile's")
 			fs.String("model", "", "model, instead of the profile's")
 			fs.Bool("detach", false, "create the Run and return without following it")
+			fs.String("use", "", "accounts the workers may use, as integration:label separated by commas, such as google:work")
 		},
 		run: ownerRun,
 	},
@@ -36,6 +37,7 @@ var commands = []command{
 			fs.String("base", "", "branch the worktrees start from (default main)")
 			fs.String("objective-file", "", "read the objective from this file, or - for standard input")
 			fs.String("key", "", "idempotency key; repeat a create whose result was lost with the same key")
+			fs.String("use", "", "accounts the workers may use, as integration:label separated by commas, such as google:work")
 			jsonFlag(fs)
 		},
 		run: runsCreate,
@@ -210,6 +212,11 @@ var commands = []command{
 			jsonFlag(fs)
 		},
 		run: integrationsConnect,
+	},
+	{
+		name: "integrations chats", args: "<integration>:<label> on|off", min: 2, max: 2,
+		summary: "let the coordinator use an account in chats, and give it to its Runs, or stop it (owner)",
+		flags:   jsonFlag, run: integrationsChats,
 	},
 	{
 		name: "integrations client set", args: "<integration>", min: 1, max: 1,

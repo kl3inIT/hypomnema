@@ -649,6 +649,11 @@ type ChatToolActivity struct {
 // ChatToolActivityPhase defines model for ChatToolActivity.Phase.
 type ChatToolActivityPhase string
 
+// ConnectionUse defines model for ConnectionUse.
+type ConnectionUse struct {
+	Chats bool `json:"chats"`
+}
+
 // CreatedNode defines model for CreatedNode.
 type CreatedNode struct {
 	Node Node `json:"node"`
@@ -785,7 +790,10 @@ type Integration struct {
 // IntegrationConnection One account of an Integration the owner signed in, under a label.
 type IntegrationConnection struct {
 	// Account The account's own name at the service, such as its email.
-	Account     string    `json:"account"`
+	Account string `json:"account"`
+
+	// Chats Whether the coordinator may use the Connection in chats, and so give it to a Run. Off until the owner turns it on.
+	Chats       bool      `json:"chats"`
 	CreatedAt   time.Time `json:"created_at"`
 	Integration string    `json:"integration"`
 	Label       string    `json:"label"`
@@ -913,6 +921,9 @@ type NewRun struct {
 
 	// Repo A registered repository's name, owner/name on GitHub, or the URL of a repository on a known host.
 	Repo *string `json:"repo,omitempty"`
+
+	// Uses The Connections the Run's workers may use, each as integration:label, such as google:work. None by default. A coordinator may give only Connections the owner allowed for chats.
+	Uses *[]string `json:"uses,omitempty"`
 }
 
 // NewSecretValue Either `value`, for a generic secret, or `values`, the complete set of a token set.
@@ -1199,6 +1210,9 @@ type Run struct {
 	RepoHost  *string   `json:"repo_host,omitempty"`
 	Status    RunStatus `json:"status"`
 	UpdatedAt time.Time `json:"updated_at"`
+
+	// Uses The Connections the Run's workers may use, each as integration:label.
+	Uses *[]string `json:"uses,omitempty"`
 }
 
 // RunDetail defines model for RunDetail.
@@ -1224,6 +1238,9 @@ type RunDetail struct {
 	Status    RunStatus    `json:"status"`
 	Tasks     []TaskDetail `json:"tasks"`
 	UpdatedAt time.Time    `json:"updated_at"`
+
+	// Uses The Connections the Run's workers may use, each as integration:label.
+	Uses *[]string `json:"uses,omitempty"`
 }
 
 // RunList defines model for RunList.
@@ -1544,6 +1561,9 @@ type PutGitHostTokenJSONRequestBody = NewGitHostToken
 // PutIntegrationClientJSONRequestBody defines body for PutIntegrationClient for application/json ContentType.
 type PutIntegrationClientJSONRequestBody = NewIntegrationClient
 
+// PatchIntegrationConnectionJSONRequestBody defines body for PatchIntegrationConnection for application/json ContentType.
+type PatchIntegrationConnectionJSONRequestBody = ConnectionUse
+
 // BeginIntegrationSignInJSONRequestBody defines body for BeginIntegrationSignIn for application/json ContentType.
 type BeginIntegrationSignInJSONRequestBody = NewSignIn
 
@@ -1839,6 +1859,24 @@ type ClientInterface interface {
 	//
 	// Corresponds with DELETE /integrations/{integration}/connections/{label} (the `DeleteIntegrationConnection` operationId).
 	DeleteIntegrationConnection(ctx context.Context, integration IntegrationID, label string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PatchIntegrationConnectionWithBody Say whether the coordinator may use a Connection in chats; only the owner
+	//
+	// A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PATCH /integrations/{integration}/connections/{label} (the `PatchIntegrationConnection` operationId).
+	PatchIntegrationConnectionWithBody(ctx context.Context, integration IntegrationID, label string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PatchIntegrationConnection Say whether the coordinator may use a Connection in chats; only the owner
+	//
+	// A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PATCH /integrations/{integration}/connections/{label} (the `PatchIntegrationConnection` operationId).
+	PatchIntegrationConnection(ctx context.Context, integration IntegrationID, label string, body PatchIntegrationConnectionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// BeginIntegrationSignInWithBody Start signing an account in, as a Connection under a label; only the owner
 	//
@@ -2638,6 +2676,44 @@ func (c *Client) PutIntegrationClient(ctx context.Context, integration Integrati
 // Corresponds with DELETE /integrations/{integration}/connections/{label} (the `DeleteIntegrationConnection` operationId).
 func (c *Client) DeleteIntegrationConnection(ctx context.Context, integration IntegrationID, label string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewDeleteIntegrationConnectionRequest(c.Server, integration, label)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PatchIntegrationConnectionWithBody Say whether the coordinator may use a Connection in chats; only the owner
+//
+// A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PATCH /integrations/{integration}/connections/{label} (the `PatchIntegrationConnection` operationId).
+func (c *Client) PatchIntegrationConnectionWithBody(ctx context.Context, integration IntegrationID, label string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPatchIntegrationConnectionRequestWithBody(c.Server, integration, label, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PatchIntegrationConnection Say whether the coordinator may use a Connection in chats; only the owner
+//
+// A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PATCH /integrations/{integration}/connections/{label} (the `PatchIntegrationConnection` operationId).
+func (c *Client) PatchIntegrationConnection(ctx context.Context, integration IntegrationID, label string, body PatchIntegrationConnectionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPatchIntegrationConnectionRequest(c.Server, integration, label, body)
 	if err != nil {
 		return nil, err
 	}
@@ -4650,6 +4726,60 @@ func NewDeleteIntegrationConnectionRequest(server string, integration Integratio
 	return req, nil
 }
 
+// NewPatchIntegrationConnectionRequest calls the generic PatchIntegrationConnection builder with application/json body
+func NewPatchIntegrationConnectionRequest(server string, integration IntegrationID, label string, body PatchIntegrationConnectionJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPatchIntegrationConnectionRequestWithBody(server, integration, label, "application/json", bodyReader)
+}
+
+// NewPatchIntegrationConnectionRequestWithBody constructs an http.Request for the PatchIntegrationConnection method, with any body, and a specified content type
+func NewPatchIntegrationConnectionRequestWithBody(server string, integration IntegrationID, label string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "integration", integration, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "label", label, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/integrations/%s/connections/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPatch, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
 // NewBeginIntegrationSignInRequest calls the generic BeginIntegrationSignIn builder with application/json body
 func NewBeginIntegrationSignInRequest(server string, integration IntegrationID, body BeginIntegrationSignInJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -6623,6 +6753,24 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with DELETE /integrations/{integration}/connections/{label} (the `DeleteIntegrationConnection` operationId).
 	DeleteIntegrationConnectionWithResponse(ctx context.Context, integration IntegrationID, label string, reqEditors ...RequestEditorFn) (*DeleteIntegrationConnectionResponse, error)
 
+	// PatchIntegrationConnectionWithBodyWithResponse Say whether the coordinator may use a Connection in chats; only the owner
+	//
+	// A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PATCH /integrations/{integration}/connections/{label} (the `PatchIntegrationConnection` operationId).
+	PatchIntegrationConnectionWithBodyWithResponse(ctx context.Context, integration IntegrationID, label string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PatchIntegrationConnectionResponse, error)
+
+	// PatchIntegrationConnectionWithResponse Say whether the coordinator may use a Connection in chats; only the owner
+	//
+	// A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PATCH /integrations/{integration}/connections/{label} (the `PatchIntegrationConnection` operationId).
+	PatchIntegrationConnectionWithResponse(ctx context.Context, integration IntegrationID, label string, body PatchIntegrationConnectionJSONRequestBody, reqEditors ...RequestEditorFn) (*PatchIntegrationConnectionResponse, error)
+
 	// BeginIntegrationSignInWithBodyWithResponse Start signing an account in, as a Connection under a label; only the owner
 	//
 	// Answers with a link the owner opens in a browser on any machine. After consent the browser ends on an address that does not load; that address completes the sign-in. A label that exists is signed in again and takes the new services.
@@ -8012,6 +8160,54 @@ func (r DeleteIntegrationConnectionResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r DeleteIntegrationConnectionResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type PatchIntegrationConnectionResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *IntegrationConnection
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r PatchIntegrationConnectionResponse) GetJSON200() *IntegrationConnection {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r PatchIntegrationConnectionResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r PatchIntegrationConnectionResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r PatchIntegrationConnectionResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PatchIntegrationConnectionResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r PatchIntegrationConnectionResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -10450,6 +10646,36 @@ func (c *ClientWithResponses) DeleteIntegrationConnectionWithResponse(ctx contex
 	return ParseDeleteIntegrationConnectionResponse(rsp)
 }
 
+// PatchIntegrationConnectionWithBodyWithResponse Say whether the coordinator may use a Connection in chats; only the owner
+//
+// A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PATCH /integrations/{integration}/connections/{label} (the `PatchIntegrationConnection` operationId).
+func (c *ClientWithResponses) PatchIntegrationConnectionWithBodyWithResponse(ctx context.Context, integration IntegrationID, label string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PatchIntegrationConnectionResponse, error) {
+	rsp, err := c.PatchIntegrationConnectionWithBody(ctx, integration, label, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePatchIntegrationConnectionResponse(rsp)
+}
+
+// PatchIntegrationConnectionWithResponse Say whether the coordinator may use a Connection in chats; only the owner
+//
+// A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PATCH /integrations/{integration}/connections/{label} (the `PatchIntegrationConnection` operationId).
+func (c *ClientWithResponses) PatchIntegrationConnectionWithResponse(ctx context.Context, integration IntegrationID, label string, body PatchIntegrationConnectionJSONRequestBody, reqEditors ...RequestEditorFn) (*PatchIntegrationConnectionResponse, error) {
+	rsp, err := c.PatchIntegrationConnection(ctx, integration, label, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePatchIntegrationConnectionResponse(rsp)
+}
+
 // BeginIntegrationSignInWithBodyWithResponse Start signing an account in, as a Connection under a label; only the owner
 //
 // Answers with a link the owner opens in a browser on any machine. After consent the browser ends on an address that does not load; that address completes the sign-in. A label that exists is signed in again and takes the new services.
@@ -11854,6 +12080,39 @@ func ParseDeleteIntegrationConnectionResponse(rsp *http.Response) (*DeleteIntegr
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest Disconnected
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePatchIntegrationConnectionResponse parses an HTTP response from a PatchIntegrationConnectionWithResponse call
+func ParsePatchIntegrationConnectionResponse(rsp *http.Response) (*PatchIntegrationConnectionResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PatchIntegrationConnectionResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest IntegrationConnection
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -13381,6 +13640,9 @@ type ServerInterface interface {
 	// DeleteIntegrationConnection Forget a Connection and its tokens; only the owner
 	// (DELETE /integrations/{integration}/connections/{label})
 	DeleteIntegrationConnection(w http.ResponseWriter, r *http.Request, integration IntegrationID, label string)
+	// PatchIntegrationConnection Say whether the coordinator may use a Connection in chats; only the owner
+	// (PATCH /integrations/{integration}/connections/{label})
+	PatchIntegrationConnection(w http.ResponseWriter, r *http.Request, integration IntegrationID, label string)
 	// BeginIntegrationSignIn Start signing an account in, as a Connection under a label; only the owner
 	// (POST /integrations/{integration}/sign-ins)
 	BeginIntegrationSignIn(w http.ResponseWriter, r *http.Request, integration IntegrationID)
@@ -14291,6 +14553,41 @@ func (siw *ServerInterfaceWrapper) DeleteIntegrationConnection(w http.ResponseWr
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.DeleteIntegrationConnection(w, r, integration, label)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PatchIntegrationConnection operation middleware
+func (siw *ServerInterfaceWrapper) PatchIntegrationConnection(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "integration" -------------
+	var integration IntegrationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "integration", r.PathValue("integration"), &integration, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integration", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "label" -------------
+	var label string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "label", r.PathValue("label"), &label, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "label", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PatchIntegrationConnection(w, r, integration, label)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -15595,6 +15892,7 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/integrations/{integration}/sign-ins", wrapper.BeginIntegrationSignIn)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/integrations/{integration}/sign-ins/{sign_in_id}", wrapper.CompleteIntegrationSignIn)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/integrations/{integration}/connections/{label}", wrapper.DeleteIntegrationConnection)
+	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/integrations/{integration}/connections/{label}", wrapper.PatchIntegrationConnection)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/secrets", wrapper.ListSecrets)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/secrets/{name}", wrapper.DeleteSecret)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/secrets/{name}", wrapper.PutSecret)
@@ -16485,6 +16783,47 @@ type DeleteIntegrationConnectiondefaultJSONResponse struct {
 }
 
 func (response DeleteIntegrationConnectiondefaultJSONResponse) VisitDeleteIntegrationConnectionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PatchIntegrationConnectionRequestObject struct {
+	Integration IntegrationID `json:"integration"`
+	Label       string        `json:"label"`
+	Body        *PatchIntegrationConnectionJSONRequestBody
+}
+
+type PatchIntegrationConnectionResponseObject interface {
+	VisitPatchIntegrationConnectionResponse(w http.ResponseWriter) error
+}
+
+type PatchIntegrationConnection200JSONResponse IntegrationConnection
+
+func (response PatchIntegrationConnection200JSONResponse) VisitPatchIntegrationConnectionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PatchIntegrationConnectiondefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response PatchIntegrationConnectiondefaultJSONResponse) VisitPatchIntegrationConnectionResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -18252,6 +18591,9 @@ type StrictServerInterface interface {
 	// DeleteIntegrationConnection Forget a Connection and its tokens; only the owner
 	// (DELETE /integrations/{integration}/connections/{label})
 	DeleteIntegrationConnection(ctx context.Context, request DeleteIntegrationConnectionRequestObject) (DeleteIntegrationConnectionResponseObject, error)
+	// PatchIntegrationConnection Say whether the coordinator may use a Connection in chats; only the owner
+	// (PATCH /integrations/{integration}/connections/{label})
+	PatchIntegrationConnection(ctx context.Context, request PatchIntegrationConnectionRequestObject) (PatchIntegrationConnectionResponseObject, error)
 	// BeginIntegrationSignIn Start signing an account in, as a Connection under a label; only the owner
 	// (POST /integrations/{integration}/sign-ins)
 	BeginIntegrationSignIn(ctx context.Context, request BeginIntegrationSignInRequestObject) (BeginIntegrationSignInResponseObject, error)
@@ -19001,6 +19343,40 @@ func (sh *strictHandler) DeleteIntegrationConnection(w http.ResponseWriter, r *h
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(DeleteIntegrationConnectionResponseObject); ok {
 		if err := validResponse.VisitDeleteIntegrationConnectionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PatchIntegrationConnection operation middleware
+func (sh *strictHandler) PatchIntegrationConnection(w http.ResponseWriter, r *http.Request, integration IntegrationID, label string) {
+	var request PatchIntegrationConnectionRequestObject
+
+	request.Integration = integration
+	request.Label = label
+
+	var body PatchIntegrationConnectionJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PatchIntegrationConnection(ctx, request.(PatchIntegrationConnectionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PatchIntegrationConnection")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PatchIntegrationConnectionResponseObject); ok {
+		if err := validResponse.VisitPatchIntegrationConnectionResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -20202,201 +20578,205 @@ func (sh *strictHandler) ReopenTask(w http.ResponseWriter, r *http.Request, task
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
-	"y5kzzDvbTs4mIdsF6eL/DQA=",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

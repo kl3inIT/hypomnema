@@ -86,6 +86,7 @@ var policies = map[string]policy{
 	"BeginIntegrationSignIn":      {scope: scopeOwner},
 	"CompleteIntegrationSignIn":   {scope: scopeOwner},
 	"DeleteIntegrationConnection": {scope: scopeOwner},
+	"PatchIntegrationConnection":  {scope: scopeOwner},
 	"ListRepos":                   {},
 	"PutRepo":                     {scope: scopeOwner},
 	"DeleteRepo":                  {scope: scopeOwner},

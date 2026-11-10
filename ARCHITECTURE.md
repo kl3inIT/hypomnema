@@ -220,8 +220,7 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       which may be less than was asked. Signing a label in again replaces its tokens and services.
     - `integration.Service.Token` gives a Connection's access token and refreshes it first when under two
       minutes are left, through the vault's lease. A refresh Google refuses for good marks the Connection as
-      needing a sign-in (`sign_in_required`). Nothing calls `Token` yet: no worker or coordinator is handed a
-      Google token yet.
+      needing a sign-in (`sign_in_required`).
     - An Integration declares the command-line tool its skill calls, pinned to one version with a release file
       and its SHA-256 for each system: Google's is `gws` 0.22.5 (`github.com/googleworkspace/cli`) for Linux on
       amd64 and arm64. Once the Integration has a Connection, the control plane names the tool to every node of
@@ -229,8 +228,40 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       HTTPS, installs nothing when the checksum differs, and unpacks the command to
       `~/.hypomnema-node/tools/<name>/<version>/<name>`; it tries a failed install again every 5 minutes. Its
       heartbeat says what it has or why an install failed, kept in `nodes.tools` and shown as `tools` on a node
-      in the client API. Nothing uses an installed tool yet: no Task is placed by it, and it is on no worker's
-      `PATH`.
+      in the client API.
+    - **Agents use an account only when the owner says so** (step 3 of issue #103), in one of two ways. A Run is
+      given Connections when it is created (`runs create --use google:work`, `uses` on a Run); its workers may use
+      those and no other. The coordinator may use, in any chat, the Connections the owner switched on for chats
+      (`integrations chats google:work on`, "Use in chats" on the account in Settings), and may give a Run only
+      those.
+    - **One way for every agent to call a tool** (`internal/shared/agenttool`, in both binaries). A script named
+      after the tool (`gws`) is first on the agent's `PATH`; it runs `hypomnema tool gws` or
+      `hypomnema-node tool gws`, the launcher. On every call the launcher asks the control plane's agent API
+      (`internal/controlplane/agentapi`: `GET /agent/v1/connections`, `POST /agent/v1/token`) which accounts the
+      agent may use and for a fresh access token of one, sets the tool's variable (`GOOGLE_WORKSPACE_CLI_TOKEN`)
+      and runs the real tool. `--account <label>` names one of several and never reaches the tool. Only the
+      access token, good for about an hour, leaves the control plane; it is in the tool's process and nowhere
+      else. This stands in for the node's proxy of the conventions, which is not built: until it is, nothing but
+      the skill's rule stops an agent with a writing account from sending mail.
+    - **Who an agent is decides what it gets.** A worker presents its Dispatch's own key (`agent_sessions`,
+      migration 00037): made by the node API as the offer is sent, for the Run's Connections, and revoked when the
+      Dispatch settles, as its model gateway key is. The coordinator presents its coordinator token and gets the
+      Connections allowed for chats. An owner's token gets every Connection. Each token handed out is logged with
+      who got it, never the token.
+    - **A Task goes to a node that has the tool.** A Run that uses a Google account is placed only on a node
+      that reported `gws` installed; while none has, the Task waits with `no_node_has_tool:gws`.
+    - **On a node**, for a Dispatch with Connections, the runner writes the script and the skill's guide under the
+      node's home (`tools/bin`, `skills/google-workspace`) and adds to the worker's environment the scripts'
+      directory on `PATH`, the control plane's address, the Dispatch's key, and where the guide is; the worker's
+      first message names the accounts, the command and the guide. **On the control plane's machine**,
+      `deploy/coordinator/setup-coordinator.sh` installs the tools for the coordinator's user
+      (`hypomnema tool install`), `hypomnema-pi` puts the scripts on pi's `PATH`, and the launcher uses the token
+      pi is logged in with.
+    - **The skill** (`internal/shared/agenttool/skills/google-workspace`) is taken from the Google Workspace
+      CLI's skills (Apache-2.0) and Hermes' references (MIT), each file naming its source and what was changed:
+      Gmail, Calendar and Drive commands, the mail search operators and a morning brief. Its guide replaces the
+      tool's own sign-in with Hypomnema's, and tells the agent to get the owner's yes before anything that
+      writes. `hypomnema skills install` installs its stub beside the coordinator's.
     - `integrations disconnect google:work` asks Google to revoke the tokens, then forgets the Connection and its
       secret; the answer says when Google could not be asked.
     - `GET /integrations` lists these Integrations with their Connections for every token; a token or a client

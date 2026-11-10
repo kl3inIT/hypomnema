@@ -127,7 +127,9 @@ func (n *nodeLoad) gitHosts() []string {
 
 // checkNode says why a node cannot take a Dispatch of the runtime, on the
 // git host, now.
-func (p *placement) checkNode(id, runtime, host string) error {
+func (p *placement) checkNode(id, runtime string, w where) error {
+	host := w.host
+
 	n, ok := p.nodes[id]
 
 	switch {
@@ -143,6 +145,8 @@ func (p *placement) checkNode(id, runtime, host string) error {
 		return fmt.Errorf("%w: node %s has no %s", ErrUnavailable, id, runtime)
 	case !n.reaches(host):
 		return fmt.Errorf("%w: node %s does not reach %s", ErrUnavailable, id, host)
+	case n.lacks(w.tools) != "":
+		return fmt.Errorf("%w: node %s has no %s", ErrUnavailable, id, n.lacks(w.tools))
 	case n.active >= int(n.row.MaxDispatches):
 		return fmt.Errorf("%w: node %s runs %d of %d", ErrUnavailable, id, n.active, n.row.MaxDispatches)
 	}
@@ -180,8 +184,48 @@ func (p *placement) checkAccount(runtime, id string) error {
 }
 
 // nodeReady reports whether a node can take a Dispatch of the runtime, on the git host, now.
-func (p *placement) nodeReady(id, runtime, host string) bool {
-	return p.checkNode(id, runtime, host) == nil
+func (p *placement) nodeReady(id, runtime string, w where) bool {
+	return p.checkNode(id, runtime, w) == nil
+}
+
+// where is what a Run's work needs of the node it goes to: a route to its
+// git host, and the tools its Connections are called with.
+type where struct {
+	host  string
+	tools []string
+}
+
+// lacks names the first of the tools the node has not installed, "" when it
+// has them all. A node that has not said what it has, has none.
+func (n *nodeLoad) lacks(tools []string) string {
+	for _, tool := range tools {
+		if !slices.ContainsFunc(n.tools, func(t NodeTool) bool { return t.Name == tool && t.Version != "" }) {
+			return tool
+		}
+	}
+
+	return ""
+}
+
+// anyHas reports whether a connected, active node has every one of the tools.
+func (p *placement) anyHas(tools []string) (missing string) {
+	for _, n := range p.order {
+		if NodeStatus(n.row.Status) != NodeActive || !p.connected(n) {
+			continue
+		}
+
+		if n.lacks(tools) == "" {
+			return ""
+		}
+
+		missing = n.lacks(tools)
+	}
+
+	if missing == "" && len(tools) > 0 {
+		missing = tools[0]
+	}
+
+	return missing
 }
 
 // anyReaches reports whether a connected, active node reaches the git host.
@@ -202,7 +246,7 @@ func (p *placement) accountUsable(runtime, id string) (usable, cooling bool) {
 // pickNode is the least loaded node that can take a new Conversation of the
 // runtime on the git host, ties by id (inferred: Coder does no balancing, Orca
 // takes the first free terminal; no reference places work by git host).
-func (p *placement) pickNode(runtime, host string) *nodeLoad {
+func (p *placement) pickNode(runtime string, host where) *nodeLoad {
 	var best *nodeLoad
 
 	for _, n := range p.order {

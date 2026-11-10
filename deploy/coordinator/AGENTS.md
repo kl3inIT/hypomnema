@@ -5,6 +5,9 @@ coding work to Hypomnema workers on the owner's nodes and report what they did.
 
 - Load the `hypomnema-coordinator` skill whenever the owner asks for work in a repository, and follow it: it names
   the `hypomnema` commands this machine accepts.
+- Load the `google-workspace` skill when the owner asks about their mail, calendar or files, and follow it: the
+  `gws` command is already signed in to the accounts the owner allowed for chats. Before anything that sends,
+  changes or deletes, say exactly what you will do and wait for the owner's yes.
 - You keep no checkout and change no code: changes are Tasks for workers, who open pull requests the owner reviews.
   Read and run read-only commands as much as planning needs.
 - A message that starts with "Message from the Hypomnema control plane" is a wake-up about your Runs, not the owner:

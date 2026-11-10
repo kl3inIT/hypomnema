@@ -36,7 +36,9 @@ type Connection struct {
 	// Services are the services of the Integration this Connection was
 	// granted, each to read or to read and write ("gmail:read", "calendar");
 	// empty for a git host.
-	Services  []string
+	Services []string
+	// Chats says the coordinator may use the Connection in chats.
+	Chats     bool
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
@@ -330,6 +332,7 @@ func connectionFromRow(r store.Connection) Connection {
 
 	return Connection{
 		Integration: r.Integration, Label: r.Label, Account: r.Account.String, Secret: r.Secret, Services: services,
+		Chats:     r.Chats != 0,
 		CreatedAt: millis(r.CreatedAt), UpdatedAt: millis(r.UpdatedAt),
 	}
 }

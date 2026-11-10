@@ -21,6 +21,8 @@ type Integrations interface {
 	Begin(ctx context.Context, id, label string, services []string) (integration.SignIn, error)
 	Complete(ctx context.Context, id, signInID, pasted string) (integration.Connection, error)
 	Disconnect(ctx context.Context, id, label string) (revoked bool, err error)
+	// SetChats says whether the coordinator may use a Connection in chats.
+	SetChats(ctx context.Context, id, label string, allowed bool) (integration.Connection, error)
 }
 
 // WithIntegrations sets the service that signs accounts in.
@@ -36,7 +38,7 @@ var errNoIntegrations = fmt.Errorf("%w: this control plane signs no accounts in"
 func toIntegrationConnection(c integration.Connection) openapi.IntegrationConnection {
 	out := openapi.IntegrationConnection{
 		Integration: c.Integration, Label: c.Label, Account: c.Account, Services: make([]string, 0, len(c.Grants)),
-		SignInRequired: c.SignInRequired, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt,
+		SignInRequired: c.SignInRequired, Chats: c.Chats, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt,
 	}
 	for _, g := range c.Grants {
 		out.Services = append(out.Services, g.String())
@@ -142,6 +144,22 @@ func (s *Server) CompleteIntegrationSignIn(ctx context.Context, req openapi.Comp
 	}
 
 	return openapi.CompleteIntegrationSignIn200JSONResponse(toIntegrationConnection(conn)), nil
+}
+
+// PatchIntegrationConnection says whether the coordinator may use a
+// Connection in chats.
+func (s *Server) PatchIntegrationConnection(ctx context.Context, req openapi.PatchIntegrationConnectionRequestObject,
+) (openapi.PatchIntegrationConnectionResponseObject, error) {
+	if s.integrations == nil {
+		return nil, errNoIntegrations
+	}
+
+	conn, err := s.integrations.SetChats(ctx, req.Integration, req.Label, req.Body.Chats)
+	if err != nil {
+		return nil, err
+	}
+
+	return openapi.PatchIntegrationConnection200JSONResponse(toIntegrationConnection(conn)), nil
 }
 
 // DeleteIntegrationConnection forgets a Connection and its tokens.

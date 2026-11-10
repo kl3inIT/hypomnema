@@ -22,6 +22,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/integration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
+	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 )
@@ -554,7 +555,7 @@ func TestNodesAreToldToHaveTheToolOfAConnectedIntegration(t *testing.T) {
 
 	assert.Empty(t, w.svc.Tools(ctx, "windows", "amd64"), "no release for that system")
 
-	for system, release := range integration.Google().Tool.Releases {
+	for system, release := range agenttool.GoogleWorkspaceCLI().Releases {
 		assert.Regexp(t, "^[0-9a-f]{64}$", release.SHA256, system)
 		assert.Regexp(t, "^https://github.com/googleworkspace/cli/releases/download/v", release.URL, system)
 	}

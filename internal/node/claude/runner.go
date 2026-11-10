@@ -38,6 +38,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/node/shim"
 	"github.com/kl3inIT/hypomnema/internal/node/statedb"
 	"github.com/kl3inIT/hypomnema/internal/node/worktree"
+	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
 )
 
@@ -76,7 +77,9 @@ type Runner struct {
 	// Exe is the node binary, run as `Exe shim --dir D`.
 	Exe string
 	// Claude is the claude binary.
-	Claude    string
+	Claude string
+	// URL is the control plane's base URL, where a worker's tools ask for a token.
+	URL       string
 	Worktrees worktree.Maker
 	Accounts  map[string]Account
 	// Env is added to each worker's environment (tests).
@@ -215,7 +218,13 @@ func (rn *Runner) Start(ctx context.Context, d statedb.Dispatch, r daemon.Report
 		return fmt.Errorf("clearing %s: %w", dir, err)
 	}
 
-	spec := shim.Spec{Argv: argv, Env: append(rn.env(configDir, string(token)), hostEnv...), Dir: o.Worktree}
+	toolEnv, err := agenttool.ForDispatch(rn.Home, rn.Exe, rn.URL, o.Uses, o.AgentKey)
+	if err != nil {
+		return err
+	}
+
+	env := append(append(rn.env(configDir, string(token)), hostEnv...), toolEnv...)
+	spec := shim.Spec{Argv: argv, Env: env, Dir: o.Worktree}
 	if err := shim.WriteSpec(dir, spec); err != nil {
 		return err
 	}

@@ -716,6 +716,24 @@ paths:
         in: path
         required: true
         schema: { type: string, pattern: "^[a-z0-9][a-z0-9-]{0,30}$" }
+    patch:
+      operationId: PatchIntegrationConnection
+      summary: Say whether the coordinator may use a Connection in chats; only the owner
+      description: >-
+        A Connection is used by no agent until the owner says so. Allowed for chats, the coordinator may use it in
+        any chat and give it to the Runs it creates. A Run the owner creates names its Connections itself.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ConnectionUse" }
+      responses:
+        "200":
+          description: The Connection.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/IntegrationConnection" }
+        default: { $ref: "#/components/responses/Error" }
     delete:
       operationId: DeleteIntegrationConnection
       summary: Forget a Connection and its tokens; only the owner
@@ -1181,6 +1199,10 @@ components:
           description: The chat whose coordinator created the Run.
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+        uses:
+          type: array
+          items: { type: string }
+          description: The Connections the Run's workers may use, each as integration:label.
         finished_at: { type: string, format: date-time }
     RunDetail:
       allOf:
@@ -1219,6 +1241,13 @@ components:
           type: string
           minLength: 1
           description: The chat whose coordinator creates it; that chat is woken by the Run's events.
+        uses:
+          type: array
+          maxItems: 16
+          items: { type: string, pattern: "^[a-z][a-z0-9-]{0,30}:[a-z0-9][a-z0-9-]{0,30}$" }
+          description: >-
+            The Connections the Run's workers may use, each as integration:label, such as google:work. None by
+            default. A coordinator may give only Connections the owner allowed for chats.
     TaskStatus:
       type: string
       enum: [pending, ready, running, blocked, succeeded, failed, canceled]
@@ -1816,7 +1845,7 @@ components:
     IntegrationConnection:
       type: object
       description: One account of an Integration the owner signed in, under a label.
-      required: [integration, label, account, services, sign_in_required, created_at, updated_at]
+      required: [integration, label, account, services, sign_in_required, chats, created_at, updated_at]
       properties:
         integration: { type: string }
         label: { type: string }
@@ -1832,8 +1861,19 @@ components:
         sign_in_required:
           type: boolean
           description: The service refused the Connection's refresh token for good; sign in again.
+        chats:
+          type: boolean
+          description: >-
+            Whether the coordinator may use the Connection in chats, and so give it to a Run. Off until the owner
+            turns it on.
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+    ConnectionUse:
+      type: object
+      required: [chats]
+      additionalProperties: false
+      properties:
+        chats: { type: boolean }
     NewIntegrationClient:
       type: object
       required: [client_id, client_secret]

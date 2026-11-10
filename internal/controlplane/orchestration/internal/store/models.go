@@ -33,6 +33,15 @@ type AccountCooldown struct {
 	Reason     string
 }
 
+type AgentSession struct {
+	ID         string
+	KeyHash    string
+	DispatchID string
+	Uses       string
+	CreatedAt  int64
+	RevokedAt  sql.NullInt64
+}
+
 type Chat struct {
 	ID        string
 	Title     string
@@ -68,6 +77,7 @@ type Connection struct {
 	CreatedAt   int64
 	UpdatedAt   int64
 	Services    sql.NullString
+	Chats       int64
 }
 
 type Conversation struct {
@@ -364,6 +374,7 @@ type Run struct {
 	CoordinatorTokenID sql.NullString
 	ChatID             sql.NullString
 	RepoHost           sql.NullString
+	Uses               sql.NullString
 }
 
 type Secret struct {

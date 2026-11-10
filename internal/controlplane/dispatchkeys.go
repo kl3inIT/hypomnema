@@ -24,6 +24,21 @@ type dispatchKeys struct {
 	logger  *slog.Logger
 }
 
+// AgentKey returns a new key to the agent API for a Dispatch, good for the
+// Connections its Run may use (issue #103).
+func (d dispatchKeys) AgentKey(ctx context.Context, dispatchID string, uses []string) (string, bool) {
+	secret, err := d.svc.AddAgentSession(ctx, dispatchID, uses)
+	if err != nil {
+		d.logger.ErrorContext(ctx, "making a dispatch's agent key",
+			slog.String("event", "controlplane.agent_key_failed"), slog.String("dispatch_id", dispatchID),
+			slog.String("error", err.Error()))
+
+		return "", false
+	}
+
+	return secret, true
+}
+
 // Key returns a new key for a Dispatch, good for its model only.
 func (d dispatchKeys) Key(ctx context.Context, dispatchID, model string) (string, bool) {
 	secret, err := d.gateway.AddDispatchKey(ctx, dispatchID, model)
@@ -69,20 +84,52 @@ func (d dispatchKeys) sweep(ctx context.Context) {
 		return
 	}
 
-	for _, id := range ids {
-		dispatch, err := d.svc.GetDispatch(ctx, id)
-		if err != nil && !errors.Is(err, orchestration.ErrNotFound) {
-			continue
-		}
+	d.sweepAgentKeys(ctx)
 
-		// A Dispatch that is gone has no worker left to use the key either.
-		if err == nil && !dispatch.Settled() {
+	for _, id := range ids {
+		if !d.ended(ctx, id) {
 			continue
 		}
 
 		if err := d.gateway.RevokeDispatchKeys(ctx, id); err != nil && ctx.Err() == nil {
 			d.logger.ErrorContext(ctx, "revoking a dispatch's gateway keys",
 				slog.String("event", "controlplane.dispatch_key_revoke_failed"), slog.String("dispatch_id", id),
+				slog.String("error", err.Error()))
+		}
+	}
+}
+
+// ended reports whether a Dispatch settled or is gone: either way no worker
+// is left to use its keys.
+func (d dispatchKeys) ended(ctx context.Context, id string) bool {
+	dispatch, err := d.svc.GetDispatch(ctx, id)
+	if err != nil {
+		return errors.Is(err, orchestration.ErrNotFound)
+	}
+
+	return dispatch.Settled()
+}
+
+// sweepAgentKeys revokes the agent API keys of Dispatches that ended.
+func (d dispatchKeys) sweepAgentKeys(ctx context.Context) {
+	ids, err := d.svc.DispatchesWithAgentSessions(ctx)
+	if err != nil {
+		if ctx.Err() == nil {
+			d.logger.ErrorContext(ctx, "listing dispatches with agent keys",
+				slog.String("event", "controlplane.agent_keys_failed"), slog.String("error", err.Error()))
+		}
+
+		return
+	}
+
+	for _, id := range ids {
+		if !d.ended(ctx, id) {
+			continue
+		}
+
+		if err := d.svc.RevokeAgentSessions(ctx, id); err != nil && ctx.Err() == nil {
+			d.logger.ErrorContext(ctx, "revoking a dispatch's agent keys",
+				slog.String("event", "controlplane.agent_key_revoke_failed"), slog.String("dispatch_id", id),
 				slog.String("error", err.Error()))
 		}
 	}

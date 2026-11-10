@@ -20,7 +20,9 @@ func ownerRun(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		return fmt.Errorf("%w: hypomnema run --repo owner/name <objective>", ErrUsage)
 	}
 
-	run, err := createRun(ctx, e, openapi.NewRun{Objective: objective, Repo: &repo, Base: optional(fs, "base")}, key(fs))
+	run, err := createRun(ctx, e, openapi.NewRun{
+		Objective: objective, Repo: &repo, Base: optional(fs, "base"), Uses: uses(fs),
+	}, key(fs))
 	if err != nil {
 		return err
 	}

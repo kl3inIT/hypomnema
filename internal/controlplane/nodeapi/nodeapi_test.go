@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
@@ -667,4 +668,103 @@ func TestANodeIsToldWhichToolsToHave(t *testing.T) {
 	nodes, err = p.svc.ListNodes(t.Context())
 	require.NoError(t, err)
 	assert.Equal(t, []orchestration.NodeTool{{Name: "gws", Version: "0.22.5"}}, nodes[0].Tools)
+}
+
+// Scenario: the owner gives a Run his work Google account. Its Task waits
+// while no node has Google's tool; once the node says it installed it, the
+// Task is offered, and the offer names the account and carries this
+// Dispatch's own key, which orchestration never holds. A Run cannot be given
+// an account that does not exist, and a coordinator can give only an account
+// the owner allowed for chats.
+func TestARunsAccountsReachItsWorkerWithAKeyOfItsOwn(t *testing.T) {
+	t.Parallel()
+
+	p := newPlane(t)
+	ctx := t.Context()
+
+	p.api.WithAgentKeys(func(ctx context.Context, dispatchID string, uses []string) (string, bool) {
+		key, err := p.svc.AddAgentSession(ctx, dispatchID, uses)
+
+		return key, err == nil
+	})
+
+	_, err := p.svc.SaveServiceConnection(ctx, orchestration.Connection{
+		Integration: "google", Label: "work", Account: "owner@example.com", Secret: "conn-google-work",
+		Services: []string{"gmail:read"},
+	})
+	require.NoError(t, err)
+
+	_, err = p.svc.CreateRun(ctx, orchestration.NewRun{
+		Objective: "o", CreatedBy: "owner", Uses: []string{"google:nobody"},
+	})
+	require.ErrorIs(t, err, orchestration.ErrNotFound)
+
+	pi, _, err := p.svc.AddToken(ctx, "pi", bearertoken.Coordinator)
+	require.NoError(t, err)
+
+	_, err = p.svc.CreateRun(ctx, orchestration.NewRun{
+		Objective: "o", CreatedBy: "pi", CoordinatorTokenID: pi.ID, Uses: []string{"google:work"},
+	})
+	require.ErrorIs(t, err, orchestration.ErrInvalid, "the coordinator may not use it, so it cannot pass it on")
+
+	_, err = p.svc.SetConnectionChats(ctx, "google", "work", true)
+	require.NoError(t, err)
+
+	_, err = p.svc.CreateRun(ctx, orchestration.NewRun{
+		Objective: "o", CreatedBy: "pi", CoordinatorTokenID: pi.ID, Uses: []string{"google:work"},
+	})
+	require.NoError(t, err)
+
+	run, err := p.svc.CreateRun(ctx, orchestration.NewRun{
+		Objective: "what needs an answer in my mail today", CreatedBy: "owner", Uses: []string{"google:work"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"google:work"}, run.Uses)
+
+	_, err = p.svc.CreateTasks(ctx, run.ID, []orchestration.NewTask{
+		{Ref: "a", Profile: "implementer", Spec: "list today's unread mail"},
+	})
+	require.NoError(t, err)
+
+	conn := p.connect()
+
+	sch, err := p.svc.Schedule(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, sch.Created, "no node has gws yet: the Task waits")
+
+	failed := []nodeproto.ToolState{{Name: "gws", Error: "fetching tool gws 0.22.5: status 503"}}
+	p.send(conn, nodeproto.TypeHeartbeat, nodeproto.Heartbeat{Tools: &failed})
+	p.next(conn, nodeproto.TypeHeartbeatAck)
+
+	sch, err = p.svc.Schedule(ctx)
+	require.NoError(t, err)
+	assert.Empty(t, sch.Created, "a failed install is not the tool")
+
+	installed := []nodeproto.ToolState{{Name: "gws", Version: "0.22.5"}}
+	p.send(conn, nodeproto.TypeHeartbeat, nodeproto.Heartbeat{Tools: &installed})
+	p.next(conn, nodeproto.TypeHeartbeatAck)
+
+	sch, err = p.svc.Schedule(ctx)
+	require.NoError(t, err)
+	require.Len(t, sch.Created, 1)
+
+	var offer nodeproto.Offer
+	require.NoError(t, json.Unmarshal(p.next(conn, nodeproto.TypeOffer).Payload, &offer))
+	assert.Equal(t, []string{"google:work"}, offer.Uses)
+	require.NotEmpty(t, offer.AgentKey)
+
+	session, err := p.svc.AgentSessionOf(ctx, offer.AgentKey)
+	require.NoError(t, err)
+	assert.Equal(t, offer.DispatchID, session.DispatchID)
+	assert.Equal(t, []string{"google:work"}, session.Uses)
+
+	stored, err := p.svc.NodePending(ctx, p.node.ID)
+	require.NoError(t, err)
+	assert.Empty(t, stored.Offers[0].AgentKey, "orchestration never holds the key")
+
+	// When the Dispatch is over its key stops working.
+	require.NoError(t, p.svc.RevokeAgentSessions(ctx, offer.DispatchID))
+
+	_, err = p.svc.AgentSessionOf(ctx, offer.AgentKey)
+	require.ErrorIs(t, err, orchestration.ErrNotFound)
 }

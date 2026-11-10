@@ -109,12 +109,17 @@ type Offer struct {
 	// ModelKey is the model gateway's key for this Dispatch, when the gateway
 	// serves its model. Orchestration never fills it: the node API does, as
 	// it sends the offer.
-	ModelKey       string `json:"model_key,omitempty"`
-	Base           string `json:"base,omitempty"`
-	ConversationID string `json:"conversation_id"`
-	Worktree       string `json:"worktree"`
-	Runtime        string `json:"runtime"`
-	AccountRef     string `json:"account_ref"`
+	ModelKey string `json:"model_key,omitempty"`
+	// Uses are the Connections the Run's workers may use; AgentKey is this
+	// Dispatch's own key to ask for their tokens. Orchestration never fills
+	// the key: the node API does, as it sends the offer.
+	Uses           []string `json:"uses,omitempty"`
+	AgentKey       string   `json:"agent_key,omitempty"`
+	Base           string   `json:"base,omitempty"`
+	ConversationID string   `json:"conversation_id"`
+	Worktree       string   `json:"worktree"`
+	Runtime        string   `json:"runtime"`
+	AccountRef     string   `json:"account_ref"`
 	// CLISessionRef is set when the Dispatch continues a Conversation.
 	CLISessionRef string `json:"cli_session_ref,omitempty"`
 	Model         string `json:"model,omitempty"`
@@ -226,6 +231,6 @@ func offerOf(ctx context.Context, q *store.Queries, d store.Dispatch) (Offer, er
 		Repo: run.Repo.String, RepoHost: host, RepoKind: kind,
 		Base: run.Base.String, ConversationID: conv.ID, Worktree: conv.Worktree,
 		Runtime: conv.Runtime, AccountRef: conv.AccountRef, CLISessionRef: conv.CliSessionRef.String,
-		Model: d.Model.String, Effort: d.Effort.String,
+		Model: d.Model.String, Effort: d.Effort.String, Uses: splitUses(run.Uses),
 	}, nil
 }

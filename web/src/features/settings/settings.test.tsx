@@ -84,6 +84,7 @@ function server(
         account: "owner@example.com",
         services: signIn?.services ?? [],
         sign_in_required: false,
+        chats: false,
         created_at: now,
         updated_at: now,
       }
@@ -93,6 +94,19 @@ function server(
       }))
 
       return json(connection)
+    }
+
+    if (kind === "integrations" && sub === "connections" && request.method === "PATCH") {
+      const label = path.split("/")[4]
+      const asked = body as unknown as { chats: boolean }
+      services = services.map((i) => ({
+        ...i,
+        connections: i.connections.map((c) =>
+          c.label === label ? { ...c, chats: asked.chats } : c,
+        ),
+      }))
+
+      return json(services[0]?.connections.find((c) => c.label === label))
     }
 
     if (kind === "integrations" && sub === "connections") {
@@ -383,7 +397,23 @@ test("the owner signs a Google account in and disconnects it", async () => {
   expect(account.queryByText("Drive")).not.toBeInTheDocument()
   expect((await card()).getByText("Connected")).toBeInTheDocument()
 
-  await user.click(account.getByRole("button", { name: "Disconnect work" }))
+  // No agent uses the account until the owner says so.
+  const chats = account.getByRole("switch", { name: "Use in chats" })
+  expect(chats).not.toBeChecked()
+  await user.click(chats)
+  await waitFor(() =>
+    expect(
+      within(screen.getByLabelText("Google account work")).getByRole("switch", {
+        name: "Use in chats",
+      }),
+    ).toBeChecked(),
+  )
+
+  await user.click(
+    within(screen.getByLabelText("Google account work")).getByRole("button", {
+      name: "Disconnect work",
+    }),
+  )
   const confirm = within(await screen.findByRole("alertdialog"))
   expect(confirm.getByText(/asked to end Hypomnema's access/)).toBeInTheDocument()
   await user.click(confirm.getByRole("button", { name: "Disconnect" }))
@@ -398,6 +428,7 @@ test("the owner signs a Google account in and disconnects it", async () => {
       call: "POST /integrations/google/sign-ins/signin-1",
       body: { callback: "http://localhost:1/?state=s&code=c" },
     },
+    { call: "PATCH /integrations/google/connections/work", body: { chats: true } },
     { call: "DELETE /integrations/google/connections/work", body: undefined },
   ])
 })
@@ -428,6 +459,7 @@ test("a service says what it still needs", async () => {
             account: "owner@example.com",
             services: ["gmail:read"],
             sign_in_required: true,
+            chats: false,
             created_at: now,
             updated_at: now,
           },
