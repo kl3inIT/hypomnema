@@ -349,6 +349,57 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/NodeList" }
         default: { $ref: "#/components/responses/Error" }
+    post:
+      operationId: CreateNode
+      summary: Add a node; its token is in this answer and nowhere else (owner only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewNode" }
+      responses:
+        "201":
+          description: The node and its first token.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CreatedNode" }
+        default: { $ref: "#/components/responses/Error" }
+  /nodes/{node_id}:
+    parameters:
+      - $ref: "#/components/parameters/NodeID"
+    delete:
+      operationId: RemoveNode
+      summary: Remove a node that runs no Dispatch; its tokens stop working (owner only)
+      responses:
+        "204":
+          description: Removed.
+        default: { $ref: "#/components/responses/Error" }
+  /nodes/{node_id}/drain:
+    parameters:
+      - $ref: "#/components/parameters/NodeID"
+    post:
+      operationId: DrainNode
+      summary: Stop new work on a node; what it runs goes on (owner only)
+      responses:
+        "200":
+          description: The node.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Node" }
+        default: { $ref: "#/components/responses/Error" }
+  /nodes/{node_id}/resume:
+    parameters:
+      - $ref: "#/components/parameters/NodeID"
+    post:
+      operationId: ResumeNode
+      summary: Let a node take new work again (owner only)
+      responses:
+        "200":
+          description: The node.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Node" }
+        default: { $ref: "#/components/responses/Error" }
   /accounts:
     get:
       operationId: ListAccounts
@@ -585,6 +636,11 @@ components:
       schema: { type: string, minLength: 1, maxLength: 63 }
     ChatID:
       name: chat_id
+      in: path
+      required: true
+      schema: { type: string, minLength: 1 }
+    NodeID:
+      name: node_id
       in: path
       required: true
       schema: { type: string, minLength: 1 }
@@ -1011,6 +1067,25 @@ components:
           type: integer
           format: int64
           description: The size of the volume that holds the worktree root.
+    NewNode:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 64 }
+        max_dispatches:
+          type: integer
+          minimum: 1
+          maximum: 64
+          description: Dispatches the node runs at once; left out, the default.
+    CreatedNode:
+      type: object
+      required: [node, token]
+      properties:
+        node: { $ref: "#/components/schemas/Node" }
+        token:
+          type: string
+          description: The node's token. It is shown only here; only its hash is kept.
     NodeStats:
       type: object
       description: The node's latest measurement, sent with its heartbeat. Left out until it has sent one.

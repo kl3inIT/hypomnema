@@ -322,6 +322,22 @@ export type NodeSystem = {
   disk_bytes?: number;
 };
 
+export type NewNode = {
+  name: string;
+  /**
+   * Dispatches the node runs at once; left out, the default.
+   */
+  max_dispatches?: number;
+};
+
+export type CreatedNode = {
+  node: Node;
+  /**
+   * The node's token. It is shown only here; only its hash is kept.
+   */
+  token: string;
+};
+
 /**
  * The node's latest measurement, sent with its heartbeat. Left out until it has sent one.
  */
@@ -534,6 +550,8 @@ export type ChatMessageList = {
 export type Name = string;
 
 export type ChatId = string;
+
+export type NodeId = string;
 
 export type RunId = string;
 
@@ -1116,6 +1134,112 @@ export type ListNodesResponses = {
 };
 
 export type ListNodesResponse = ListNodesResponses[keyof ListNodesResponses];
+
+export type CreateNodeData = {
+  body: NewNode;
+  path?: never;
+  query?: never;
+  url: '/nodes';
+};
+
+export type CreateNodeErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type CreateNodeError = CreateNodeErrors[keyof CreateNodeErrors];
+
+export type CreateNodeResponses = {
+  /**
+   * The node and its first token.
+   */
+  201: CreatedNode;
+};
+
+export type CreateNodeResponse = CreateNodeResponses[keyof CreateNodeResponses];
+
+export type RemoveNodeData = {
+  body?: never;
+  path: {
+    node_id: string;
+  };
+  query?: never;
+  url: '/nodes/{node_id}';
+};
+
+export type RemoveNodeErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type RemoveNodeError = RemoveNodeErrors[keyof RemoveNodeErrors];
+
+export type RemoveNodeResponses = {
+  /**
+   * Removed.
+   */
+  204: void;
+};
+
+export type RemoveNodeResponse = RemoveNodeResponses[keyof RemoveNodeResponses];
+
+export type DrainNodeData = {
+  body?: never;
+  path: {
+    node_id: string;
+  };
+  query?: never;
+  url: '/nodes/{node_id}/drain';
+};
+
+export type DrainNodeErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type DrainNodeError = DrainNodeErrors[keyof DrainNodeErrors];
+
+export type DrainNodeResponses = {
+  /**
+   * The node.
+   */
+  200: Node;
+};
+
+export type DrainNodeResponse = DrainNodeResponses[keyof DrainNodeResponses];
+
+export type ResumeNodeData = {
+  body?: never;
+  path: {
+    node_id: string;
+  };
+  query?: never;
+  url: '/nodes/{node_id}/resume';
+};
+
+export type ResumeNodeErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ResumeNodeError = ResumeNodeErrors[keyof ResumeNodeErrors];
+
+export type ResumeNodeResponses = {
+  /**
+   * The node.
+   */
+  200: Node;
+};
+
+export type ResumeNodeResponse = ResumeNodeResponses[keyof ResumeNodeResponses];
 
 export type ListAccountsData = {
   body?: never;

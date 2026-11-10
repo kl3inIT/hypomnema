@@ -939,3 +939,56 @@ func TestStreamChatShowsPiLive(t *testing.T) {
 		// Drain until the server ends the stream.
 	}
 }
+
+// Scenario: the owner manages nodes from the web. Adding one answers with a
+// token that authenticates the node; draining, resuming and removing it show
+// in the list. A coordinator token reads the nodes and changes none.
+func TestOnlyTheOwnerChangesNodes(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+	owner, _ := w.token("web", bearertoken.Owner)
+	laptop, _ := w.token("laptop", bearertoken.Coordinator)
+
+	refused, err := laptop.CreateNodeWithResponse(ctx, openapi.NewNode{Name: "zm"})
+	require.NoError(t, err)
+	assert.Equal(t, openapi.Forbidden, errorCode(t, refused.Body, refused.StatusCode(), http.StatusForbidden))
+
+	limit := 3
+	created, err := owner.CreateNodeWithResponse(ctx, openapi.NewNode{Name: "zm", MaxDispatches: &limit})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, created.StatusCode(), string(created.Body))
+	assert.Equal(t, 3, created.JSON201.Node.MaxDispatches)
+
+	node, err := w.svc.AuthenticateNode(ctx, created.JSON201.Token)
+	require.NoError(t, err)
+	assert.Equal(t, created.JSON201.Node.Id, node.ID)
+
+	drained, err := owner.DrainNodeWithResponse(ctx, node.ID)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, drained.StatusCode(), string(drained.Body))
+	assert.Equal(t, openapi.NodeStatusDrained, drained.JSON200.Status)
+
+	resumed, err := owner.ResumeNodeWithResponse(ctx, node.ID)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resumed.StatusCode(), string(resumed.Body))
+	assert.Equal(t, openapi.NodeStatusActive, resumed.JSON200.Status)
+
+	blocked, err := laptop.RemoveNodeWithResponse(ctx, node.ID)
+	require.NoError(t, err)
+	assert.Equal(t, openapi.Forbidden, errorCode(t, blocked.Body, blocked.StatusCode(), http.StatusForbidden))
+
+	removed, err := owner.RemoveNodeWithResponse(ctx, node.ID)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusNoContent, removed.StatusCode(), string(removed.Body))
+
+	list, err := laptop.ListNodesWithResponse(ctx)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, list.StatusCode())
+	assert.Empty(t, list.JSON200.Data)
+
+	again, err := owner.RemoveNodeWithResponse(ctx, node.ID)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusNotFound, again.StatusCode())
+}

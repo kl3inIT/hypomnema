@@ -565,6 +565,14 @@ type ChatToolActivity struct {
 // ChatToolActivityPhase defines model for ChatToolActivity.Phase.
 type ChatToolActivityPhase string
 
+// CreatedNode defines model for CreatedNode.
+type CreatedNode struct {
+	Node Node `json:"node"`
+
+	// Token The node's token. It is shown only here; only its hash is kept.
+	Token string `json:"token"`
+}
+
 // Dispatch defines model for Dispatch.
 type Dispatch struct {
 	// Activity One line about the newest thing the worker said or did.
@@ -670,6 +678,13 @@ type NewChat struct {
 // NewChatMessage defines model for NewChatMessage.
 type NewChatMessage struct {
 	Text string `json:"text"`
+}
+
+// NewNode defines model for NewNode.
+type NewNode struct {
+	// MaxDispatches Dispatches the node runs at once; left out, the default.
+	MaxDispatches *int   `json:"max_dispatches,omitempty"`
+	Name          string `json:"name"`
 }
 
 // NewRun defines model for NewRun.
@@ -1012,6 +1027,9 @@ type IdempotencyKey = string
 // Name defines model for Name.
 type Name = string
 
+// NodeID defines model for NodeID.
+type NodeID = string
+
 // QuestionID defines model for QuestionID.
 type QuestionID = string
 
@@ -1122,6 +1140,9 @@ type CreateChatJSONRequestBody = NewChat
 
 // SendChatMessageJSONRequestBody defines body for SendChatMessage for application/json ContentType.
 type SendChatMessageJSONRequestBody = NewChatMessage
+
+// CreateNodeJSONRequestBody defines body for CreateNode for application/json ContentType.
+type CreateNodeJSONRequestBody = NewNode
 
 // ApplyProfileJSONRequestBody defines body for ApplyProfile for application/json ContentType.
 type ApplyProfileJSONRequestBody = Source
@@ -1305,6 +1326,35 @@ type ClientInterface interface {
 	//
 	// Corresponds with GET /nodes (the `ListNodes` operationId).
 	ListNodes(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateNodeWithBody Add a node; its token is in this answer and nowhere else (owner only)
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /nodes (the `CreateNode` operationId).
+	CreateNodeWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// CreateNode Add a node; its token is in this answer and nowhere else (owner only)
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /nodes (the `CreateNode` operationId).
+	CreateNode(ctx context.Context, body CreateNodeJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RemoveNode Remove a node that runs no Dispatch; its tokens stop working (owner only)
+	//
+	// Corresponds with DELETE /nodes/{node_id} (the `RemoveNode` operationId).
+	RemoveNode(ctx context.Context, nodeId NodeID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DrainNode Stop new work on a node; what it runs goes on (owner only)
+	//
+	// Corresponds with POST /nodes/{node_id}/drain (the `DrainNode` operationId).
+	DrainNode(ctx context.Context, nodeId NodeID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ResumeNode Let a node take new work again (owner only)
+	//
+	// Corresponds with POST /nodes/{node_id}/resume (the `ResumeNode` operationId).
+	ResumeNode(ctx context.Context, nodeId NodeID, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListProfiles Every profile, at its current version
 	//
@@ -1698,6 +1748,85 @@ func (c *Client) ListModels(ctx context.Context, reqEditors ...RequestEditorFn) 
 // Corresponds with GET /nodes (the `ListNodes` operationId).
 func (c *Client) ListNodes(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewListNodesRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateNodeWithBody Add a node; its token is in this answer and nowhere else (owner only)
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /nodes (the `CreateNode` operationId).
+func (c *Client) CreateNodeWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateNodeRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// CreateNode Add a node; its token is in this answer and nowhere else (owner only)
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /nodes (the `CreateNode` operationId).
+func (c *Client) CreateNode(ctx context.Context, body CreateNodeJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewCreateNodeRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RemoveNode Remove a node that runs no Dispatch; its tokens stop working (owner only)
+//
+// Corresponds with DELETE /nodes/{node_id} (the `RemoveNode` operationId).
+func (c *Client) RemoveNode(ctx context.Context, nodeId NodeID, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRemoveNodeRequest(c.Server, nodeId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DrainNode Stop new work on a node; what it runs goes on (owner only)
+//
+// Corresponds with POST /nodes/{node_id}/drain (the `DrainNode` operationId).
+func (c *Client) DrainNode(ctx context.Context, nodeId NodeID, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDrainNodeRequest(c.Server, nodeId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ResumeNode Let a node take new work again (owner only)
+//
+// Corresponds with POST /nodes/{node_id}/resume (the `ResumeNode` operationId).
+func (c *Client) ResumeNode(ctx context.Context, nodeId NodeID, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewResumeNodeRequest(c.Server, nodeId)
 	if err != nil {
 		return nil, err
 	}
@@ -2875,6 +3004,148 @@ func NewListNodesRequest(server string) (*http.Request, error) {
 	return req, nil
 }
 
+// NewCreateNodeRequest calls the generic CreateNode builder with application/json body
+func NewCreateNodeRequest(server string, body CreateNodeJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewCreateNodeRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewCreateNodeRequestWithBody constructs an http.Request for the CreateNode method, with any body, and a specified content type
+func NewCreateNodeRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/nodes")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewRemoveNodeRequest constructs an http.Request for the RemoveNode method
+func NewRemoveNodeRequest(server string, nodeId NodeID) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "node_id", nodeId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/nodes/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewDrainNodeRequest constructs an http.Request for the DrainNode method
+func NewDrainNodeRequest(server string, nodeId NodeID) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "node_id", nodeId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/nodes/%s/drain", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewResumeNodeRequest constructs an http.Request for the ResumeNode method
+func NewResumeNodeRequest(server string, nodeId NodeID) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "node_id", nodeId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/nodes/%s/resume", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewListProfilesRequest constructs an http.Request for the ListProfiles method
 func NewListProfilesRequest(server string) (*http.Request, error) {
 	var err error
@@ -3923,6 +4194,41 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /nodes (the `ListNodes` operationId).
 	ListNodesWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListNodesResponse, error)
 
+	// CreateNodeWithBodyWithResponse Add a node; its token is in this answer and nowhere else (owner only)
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /nodes (the `CreateNode` operationId).
+	CreateNodeWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateNodeResponse, error)
+
+	// CreateNodeWithResponse Add a node; its token is in this answer and nowhere else (owner only)
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /nodes (the `CreateNode` operationId).
+	CreateNodeWithResponse(ctx context.Context, body CreateNodeJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateNodeResponse, error)
+
+	// RemoveNodeWithResponse Remove a node that runs no Dispatch; its tokens stop working (owner only)
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with DELETE /nodes/{node_id} (the `RemoveNode` operationId).
+	RemoveNodeWithResponse(ctx context.Context, nodeId NodeID, reqEditors ...RequestEditorFn) (*RemoveNodeResponse, error)
+
+	// DrainNodeWithResponse Stop new work on a node; what it runs goes on (owner only)
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /nodes/{node_id}/drain (the `DrainNode` operationId).
+	DrainNodeWithResponse(ctx context.Context, nodeId NodeID, reqEditors ...RequestEditorFn) (*DrainNodeResponse, error)
+
+	// ResumeNodeWithResponse Let a node take new work again (owner only)
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /nodes/{node_id}/resume (the `ResumeNode` operationId).
+	ResumeNodeWithResponse(ctx context.Context, nodeId NodeID, reqEditors ...RequestEditorFn) (*ResumeNodeResponse, error)
+
 	// ListProfilesWithResponse Every profile, at its current version
 	//
 	// Returns a wrapper object for the known response body format(s).
@@ -4746,6 +5052,191 @@ func (r ListNodesResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r ListNodesResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type CreateNodeResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON201 the response for an HTTP 201 `application/json` response
+	JSON201 *CreatedNode
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON201 returns the response for an HTTP 201 `application/json` response
+func (r CreateNodeResponse) GetJSON201() *CreatedNode {
+	return r.JSON201
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r CreateNodeResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r CreateNodeResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r CreateNodeResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r CreateNodeResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r CreateNodeResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type RemoveNodeResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r RemoveNodeResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r RemoveNodeResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r RemoveNodeResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RemoveNodeResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r RemoveNodeResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type DrainNodeResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Node
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r DrainNodeResponse) GetJSON200() *Node {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r DrainNodeResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r DrainNodeResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r DrainNodeResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DrainNodeResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DrainNodeResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ResumeNodeResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Node
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ResumeNodeResponse) GetJSON200() *Node {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ResumeNodeResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ResumeNodeResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ResumeNodeResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ResumeNodeResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ResumeNodeResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -5933,6 +6424,71 @@ func (c *ClientWithResponses) ListNodesWithResponse(ctx context.Context, reqEdit
 	return ParseListNodesResponse(rsp)
 }
 
+// CreateNodeWithBodyWithResponse Add a node; its token is in this answer and nowhere else (owner only)
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /nodes (the `CreateNode` operationId).
+func (c *ClientWithResponses) CreateNodeWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*CreateNodeResponse, error) {
+	rsp, err := c.CreateNodeWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateNodeResponse(rsp)
+}
+
+// CreateNodeWithResponse Add a node; its token is in this answer and nowhere else (owner only)
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /nodes (the `CreateNode` operationId).
+func (c *ClientWithResponses) CreateNodeWithResponse(ctx context.Context, body CreateNodeJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateNodeResponse, error) {
+	rsp, err := c.CreateNode(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCreateNodeResponse(rsp)
+}
+
+// RemoveNodeWithResponse Remove a node that runs no Dispatch; its tokens stop working (owner only)
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with DELETE /nodes/{node_id} (the `RemoveNode` operationId).
+func (c *ClientWithResponses) RemoveNodeWithResponse(ctx context.Context, nodeId NodeID, reqEditors ...RequestEditorFn) (*RemoveNodeResponse, error) {
+	rsp, err := c.RemoveNode(ctx, nodeId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRemoveNodeResponse(rsp)
+}
+
+// DrainNodeWithResponse Stop new work on a node; what it runs goes on (owner only)
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /nodes/{node_id}/drain (the `DrainNode` operationId).
+func (c *ClientWithResponses) DrainNodeWithResponse(ctx context.Context, nodeId NodeID, reqEditors ...RequestEditorFn) (*DrainNodeResponse, error) {
+	rsp, err := c.DrainNode(ctx, nodeId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDrainNodeResponse(rsp)
+}
+
+// ResumeNodeWithResponse Let a node take new work again (owner only)
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /nodes/{node_id}/resume (the `ResumeNode` operationId).
+func (c *ClientWithResponses) ResumeNodeWithResponse(ctx context.Context, nodeId NodeID, reqEditors ...RequestEditorFn) (*ResumeNodeResponse, error) {
+	rsp, err := c.ResumeNode(ctx, nodeId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseResumeNodeResponse(rsp)
+}
+
 // ListProfilesWithResponse Every profile, at its current version
 //
 // Returns a wrapper object for the known response body format(s).
@@ -6704,6 +7260,134 @@ func ParseListNodesResponse(rsp *http.Response) (*ListNodesResponse, error) {
 	return response, nil
 }
 
+// ParseCreateNodeResponse parses an HTTP response from a CreateNodeWithResponse call
+func ParseCreateNodeResponse(rsp *http.Response) (*CreateNodeResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &CreateNodeResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 201:
+		var dest CreatedNode
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON201 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseRemoveNodeResponse parses an HTTP response from a RemoveNodeWithResponse call
+func ParseRemoveNodeResponse(rsp *http.Response) (*RemoveNodeResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RemoveNodeResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDrainNodeResponse parses an HTTP response from a DrainNodeWithResponse call
+func ParseDrainNodeResponse(rsp *http.Response) (*DrainNodeResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DrainNodeResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Node
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseResumeNodeResponse parses an HTTP response from a ResumeNodeWithResponse call
+func ParseResumeNodeResponse(rsp *http.Response) (*ResumeNodeResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ResumeNodeResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Node
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseListProfilesResponse parses an HTTP response from a ListProfilesWithResponse call
 func ParseListProfilesResponse(rsp *http.Response) (*ListProfilesResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -7415,6 +8099,18 @@ type ServerInterface interface {
 	// ListNodes The machines that run workers
 	// (GET /nodes)
 	ListNodes(w http.ResponseWriter, r *http.Request)
+	// CreateNode Add a node; its token is in this answer and nowhere else (owner only)
+	// (POST /nodes)
+	CreateNode(w http.ResponseWriter, r *http.Request)
+	// RemoveNode Remove a node that runs no Dispatch; its tokens stop working (owner only)
+	// (DELETE /nodes/{node_id})
+	RemoveNode(w http.ResponseWriter, r *http.Request, nodeId NodeID)
+	// DrainNode Stop new work on a node; what it runs goes on (owner only)
+	// (POST /nodes/{node_id}/drain)
+	DrainNode(w http.ResponseWriter, r *http.Request, nodeId NodeID)
+	// ResumeNode Let a node take new work again (owner only)
+	// (POST /nodes/{node_id}/resume)
+	ResumeNode(w http.ResponseWriter, r *http.Request, nodeId NodeID)
 	// ListProfiles Every profile, at its current version
 	// (GET /profiles)
 	ListProfiles(w http.ResponseWriter, r *http.Request)
@@ -8035,6 +8731,98 @@ func (siw *ServerInterfaceWrapper) ListNodes(w http.ResponseWriter, r *http.Requ
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListNodes(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// CreateNode operation middleware
+func (siw *ServerInterfaceWrapper) CreateNode(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.CreateNode(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RemoveNode operation middleware
+func (siw *ServerInterfaceWrapper) RemoveNode(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "node_id" -------------
+	var nodeId NodeID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "node_id", r.PathValue("node_id"), &nodeId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "node_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RemoveNode(w, r, nodeId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DrainNode operation middleware
+func (siw *ServerInterfaceWrapper) DrainNode(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "node_id" -------------
+	var nodeId NodeID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "node_id", r.PathValue("node_id"), &nodeId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "node_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DrainNode(w, r, nodeId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ResumeNode operation middleware
+func (siw *ServerInterfaceWrapper) ResumeNode(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "node_id" -------------
+	var nodeId NodeID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "node_id", r.PathValue("node_id"), &nodeId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "node_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ResumeNode(w, r, nodeId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -8817,6 +9605,10 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/events", wrapper.ListEvents)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/events/stream", wrapper.StreamEvents)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/nodes", wrapper.ListNodes)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/nodes", wrapper.CreateNode)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/nodes/{node_id}", wrapper.RemoveNode)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/nodes/{node_id}/drain", wrapper.DrainNode)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/nodes/{node_id}/resume", wrapper.ResumeNode)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/accounts", wrapper.ListAccounts)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/profiles", wrapper.ListProfiles)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/profiles/{name}", wrapper.GetProfile)
@@ -9425,6 +10217,156 @@ type ListNodesdefaultJSONResponse struct {
 }
 
 func (response ListNodesdefaultJSONResponse) VisitListNodesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateNodeRequestObject struct {
+	Body *CreateNodeJSONRequestBody
+}
+
+type CreateNodeResponseObject interface {
+	VisitCreateNodeResponse(w http.ResponseWriter) error
+}
+
+type CreateNode201JSONResponse CreatedNode
+
+func (response CreateNode201JSONResponse) VisitCreateNodeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(201)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type CreateNodedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response CreateNodedefaultJSONResponse) VisitCreateNodeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveNodeRequestObject struct {
+	NodeId NodeID `json:"node_id"`
+}
+
+type RemoveNodeResponseObject interface {
+	VisitRemoveNodeResponse(w http.ResponseWriter) error
+}
+
+type RemoveNode204Response struct {
+}
+
+func (response RemoveNode204Response) VisitRemoveNodeResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type RemoveNodedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response RemoveNodedefaultJSONResponse) VisitRemoveNodeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DrainNodeRequestObject struct {
+	NodeId NodeID `json:"node_id"`
+}
+
+type DrainNodeResponseObject interface {
+	VisitDrainNodeResponse(w http.ResponseWriter) error
+}
+
+type DrainNode200JSONResponse Node
+
+func (response DrainNode200JSONResponse) VisitDrainNodeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DrainNodedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response DrainNodedefaultJSONResponse) VisitDrainNodeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResumeNodeRequestObject struct {
+	NodeId NodeID `json:"node_id"`
+}
+
+type ResumeNodeResponseObject interface {
+	VisitResumeNodeResponse(w http.ResponseWriter) error
+}
+
+type ResumeNode200JSONResponse Node
+
+func (response ResumeNode200JSONResponse) VisitResumeNodeResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResumeNodedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ResumeNodedefaultJSONResponse) VisitResumeNodeResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -10278,6 +11220,18 @@ type StrictServerInterface interface {
 	// ListNodes The machines that run workers
 	// (GET /nodes)
 	ListNodes(ctx context.Context, request ListNodesRequestObject) (ListNodesResponseObject, error)
+	// CreateNode Add a node; its token is in this answer and nowhere else (owner only)
+	// (POST /nodes)
+	CreateNode(ctx context.Context, request CreateNodeRequestObject) (CreateNodeResponseObject, error)
+	// RemoveNode Remove a node that runs no Dispatch; its tokens stop working (owner only)
+	// (DELETE /nodes/{node_id})
+	RemoveNode(ctx context.Context, request RemoveNodeRequestObject) (RemoveNodeResponseObject, error)
+	// DrainNode Stop new work on a node; what it runs goes on (owner only)
+	// (POST /nodes/{node_id}/drain)
+	DrainNode(ctx context.Context, request DrainNodeRequestObject) (DrainNodeResponseObject, error)
+	// ResumeNode Let a node take new work again (owner only)
+	// (POST /nodes/{node_id}/resume)
+	ResumeNode(ctx context.Context, request ResumeNodeRequestObject) (ResumeNodeResponseObject, error)
 	// ListProfiles Every profile, at its current version
 	// (GET /profiles)
 	ListProfiles(ctx context.Context, request ListProfilesRequestObject) (ListProfilesResponseObject, error)
@@ -10743,6 +11697,115 @@ func (sh *strictHandler) ListNodes(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListNodesResponseObject); ok {
 		if err := validResponse.VisitListNodesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// CreateNode operation middleware
+func (sh *strictHandler) CreateNode(w http.ResponseWriter, r *http.Request) {
+	var request CreateNodeRequestObject
+
+	var body CreateNodeJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.CreateNode(ctx, request.(CreateNodeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "CreateNode")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(CreateNodeResponseObject); ok {
+		if err := validResponse.VisitCreateNodeResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RemoveNode operation middleware
+func (sh *strictHandler) RemoveNode(w http.ResponseWriter, r *http.Request, nodeId NodeID) {
+	var request RemoveNodeRequestObject
+
+	request.NodeId = nodeId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RemoveNode(ctx, request.(RemoveNodeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RemoveNode")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RemoveNodeResponseObject); ok {
+		if err := validResponse.VisitRemoveNodeResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DrainNode operation middleware
+func (sh *strictHandler) DrainNode(w http.ResponseWriter, r *http.Request, nodeId NodeID) {
+	var request DrainNodeRequestObject
+
+	request.NodeId = nodeId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DrainNode(ctx, request.(DrainNodeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DrainNode")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DrainNodeResponseObject); ok {
+		if err := validResponse.VisitDrainNodeResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ResumeNode operation middleware
+func (sh *strictHandler) ResumeNode(w http.ResponseWriter, r *http.Request, nodeId NodeID) {
+	var request ResumeNodeRequestObject
+
+	request.NodeId = nodeId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ResumeNode(ctx, request.(ResumeNodeRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ResumeNode")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ResumeNodeResponseObject); ok {
+		if err := validResponse.VisitResumeNodeResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -11307,117 +12370,122 @@ func (sh *strictHandler) ReopenTask(w http.ResponseWriter, r *http.Request, task
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,
