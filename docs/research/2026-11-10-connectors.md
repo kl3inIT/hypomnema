@@ -51,6 +51,32 @@ How the agent CLIs take an MCP server: pi over stdio or streamable HTTP, `pi mcp
   prefers "a programmatic path (shell, filesystem, git, HTTP, existing CLIs)" for its own features (agent).
 - Lark: no reference uses `lark-cli` or a Lark MCP server; OpenClaw and Hermes call the official SDK (agent).
 
+## Onyx's Craft Apps: a service with no MCP server
+
+Read after the owner pointed at it (clone `.tmp/onyx`, 2026-11-10; `documentation/admins/plugins/craft_apps.mdx`,
+`documentation/security/architecture/craft.mdx`, `backend/onyx/external_apps/`, `backend/onyx/sandbox_proxy/`).
+
+- "A Craft App is a catalog of API endpoints for one application, such as Slack or Gmail. Each user connects their
+  own account." Built in: Slack, Gmail, Google Calendar, Google Drive, Notion, Linear, GitHub, HubSpot, Zendesk. No
+  Lark.
+- **The agent calls the service's own HTTP API** from its sandbox, taught by a skill; no MCP server is involved.
+  "The sandbox receives placeholder values for credentials that Onyx manages"; the sandbox's only way out is the
+  **sandbox proxy**, which "matches the URL and action, applies its policy, then injects organization or user
+  credentials". Raw credentials are in Onyx's storage "and briefly in proxy memory".
+- **A built-in App is data, not a client**: a list of actions, each a name and the HTTP routes that are that action
+  (`providers/gmail.py`: `gmail.messages.read` is `GET /gmail/v1/users/{userId}/messages` and one message;
+  `gmail.messages.send`, `gmail.drafts.create`, ...), with a default policy.
+- **Policy per action**: auto-approve, ask, disabled. Ask parks the request at the proxy, before the credential is
+  added, until the user answers on an approval card (once, or for the session). The strictest matching policy
+  wins; a request to a built-in App that matches no action asks.
+- **A custom App** covers "a public HTTP API that no built-in App covers": URL patterns and a credential, no
+  action catalog, and every request asks.
+- A scheduled task has nobody to ask: its owner chooses the Apps and which actions it may do without asking; a run
+  that reaches an action that asks stops and waits.
+- Onyx keeps both doors and says when to use which: an App when one exists; an MCP server, which "Onyx calls ... for
+  the agent", when none does or when chat needs the tools too. In both the sandbox never holds the credential.
+- The same idea is Infisical's Agent Vault and OpenClaw's egress proxy above.
+
 ## For Hypomnema
 
 Inference, not read in any reference:
