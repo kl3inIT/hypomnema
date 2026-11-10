@@ -1,5 +1,6 @@
 import {
   Bot,
+  Cloud,
   Cpu,
   HardDrive,
   Hourglass,
@@ -13,7 +14,7 @@ import type { ReactNode } from "react"
 
 import type { Node } from "@/api/generated/types.gen"
 import { MachineActions } from "./machine-actions"
-import { IndicatorDot, LoadDot, Meter, StateText } from "./machine-cells"
+import { IndicatorDot, LoadDot, MachineProblem, Meter, StateText } from "./machine-cells"
 import { diskPercent, loadPercent, memoryPercent, usedOfTotal } from "./machines-state"
 
 // The columns of the Machines page, after Beszel's systems-table (MIT, Copyright (c) 2024 henrygd,
@@ -44,6 +45,7 @@ export const columns: Column[] = [
           {node.name}
         </span>
         <StateText node={node} />
+        <MachineProblem node={node} className="max-w-64 truncate" />
       </span>
     ),
   },
@@ -147,6 +149,25 @@ export const columns: Column[] = [
 
       return text ? <span className="whitespace-nowrap tabular-nums">{text}</span> : none
     },
+  },
+  {
+    id: "source",
+    name: "Source",
+    Icon: Cloud,
+    cell: (node) =>
+      node.machine ? (
+        <span
+          className="flex flex-wrap items-baseline gap-x-1.5"
+          title={`Created at a provider: ${node.machine.size} in ${node.machine.region}`}
+        >
+          <span className="whitespace-nowrap">{node.machine.size}</span>
+          <span className="text-xs whitespace-nowrap text-muted-foreground">
+            {node.machine.region}
+          </span>
+        </span>
+      ) : (
+        <span className="whitespace-nowrap text-muted-foreground">Your own</span>
+      ),
   },
   {
     id: "actions",

@@ -143,7 +143,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	sup := coordinator.New(svc, coordinator.Config{Command: cfg.CoordinatorCommand, Logger: logger})
 
 	api := clientapi.New(svc, logger, ctx.Done()).WithCoordinator(sup).WithHostTokens(tokens).
-		WithNodeRemover(machineMgr.Remove)
+		WithMachines(machineMgr)
 	if err := api.Register(mux); err != nil {
 		return err
 	}

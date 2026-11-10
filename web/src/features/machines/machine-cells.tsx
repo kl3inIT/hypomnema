@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils"
 
 import {
   decimal,
+  machineProblem,
   machineState,
   meterTone,
   stateNames,
@@ -21,6 +22,10 @@ const stateDots: Record<MachineState, string> = {
   online: "bg-done",
   drained: "bg-needs-you",
   offline: "bg-failed",
+  creating: "bg-running animate-pulse",
+  create_failed: "bg-failed",
+  removing: "bg-queued animate-pulse",
+  remove_failed: "bg-failed",
 }
 
 const toneColors: Record<MeterTone, string> = {
@@ -51,6 +56,18 @@ export function StateText({ node }: { node: Node }) {
       {stateNames[state]}
       {state === "offline" &&
         (node.last_seen_at ? ` · seen ${since(node.last_seen_at)}` : " · never seen")}
+    </span>
+  )
+}
+
+// MachineProblem says why a provider's machine was not created or not destroyed; nothing for any other machine.
+export function MachineProblem({ node, className }: { node: Node; className?: string }) {
+  const problem = machineProblem(node)
+  if (!problem) return null
+
+  return (
+    <span className={cn("text-xs font-normal text-destructive", className)} title={problem}>
+      {problem}
     </span>
   )
 }

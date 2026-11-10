@@ -3,10 +3,12 @@ package clientapi
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/machines"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 )
 
@@ -348,18 +350,77 @@ func (s *Server) ListNodes(ctx context.Context, _ openapi.ListNodesRequestObject
 // CreateNode adds a node and answers with its first token, shown only here.
 func (s *Server) CreateNode(ctx context.Context, req openapi.CreateNodeRequestObject,
 ) (openapi.CreateNodeResponseObject, error) {
+	if provider := val(req.Body.Provider); provider != "" {
+		return s.createMachine(ctx, provider, req.Body)
+	}
+
+	if val(req.Body.Region) != "" || val(req.Body.Size) != "" {
+		return nil, fmt.Errorf("%w: a region or a size needs a provider", orchestration.ErrInvalid)
+	}
+
 	n, token, err := s.svc.AddNode(ctx, req.Body.Name, val(req.Body.MaxDispatches))
 	if err != nil {
 		return nil, err
 	}
 
-	return openapi.CreateNode201JSONResponse{Node: toNode(n), Token: token}, nil
+	return openapi.CreateNode201JSONResponse{Node: toNode(n), Token: &token}, nil
+}
+
+// createMachine asks a provider for the node's machine. When the provider
+// refuses after the node was recorded, the node is answered as it is listed:
+// failed, with the reason.
+func (s *Server) createMachine(ctx context.Context, provider string, body *openapi.NewNode,
+) (openapi.CreateNodeResponseObject, error) {
+	if s.machines == nil {
+		return nil, fmt.Errorf("%w: this control plane creates no machines", orchestration.ErrInvalid)
+	}
+
+	n, err := s.machines.Create(ctx, machines.NewMachine{
+		Name: body.Name, Provider: provider, Region: val(body.Region), Size: val(body.Size),
+		MaxDispatches: val(body.MaxDispatches),
+	})
+	if err != nil && n.Machine == nil {
+		return nil, err
+	}
+
+	return openapi.CreateNode201JSONResponse{Node: toNode(n)}, nil
+}
+
+// ListMachineProviders returns the machine providers, which hold no secret,
+// each with how many machines it has.
+func (s *Server) ListMachineProviders(ctx context.Context, _ openapi.ListMachineProvidersRequestObject,
+) (openapi.ListMachineProvidersResponseObject, error) {
+	providers, err := s.svc.ListMachineProviders(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]openapi.MachineProvider, 0, len(providers))
+
+	for _, p := range providers {
+		nodes, err := s.svc.ListMachinesOfProvider(ctx, p.ID)
+		if err != nil {
+			return nil, err
+		}
+
+		out = append(out, openapi.MachineProvider{
+			Id: p.ID, Name: p.Name, Kind: openapi.MachineProviderKind(p.Kind), Region: p.Region, Size: p.Size,
+			MaxMachines: p.MaxMachines, Machines: len(nodes),
+		})
+	}
+
+	return openapi.ListMachineProviders200JSONResponse{Data: out}, nil
 }
 
 // RemoveNode takes a node out of the registry.
 func (s *Server) RemoveNode(ctx context.Context, req openapi.RemoveNodeRequestObject,
 ) (openapi.RemoveNodeResponseObject, error) {
-	if err := s.removeNode(ctx, req.NodeId); err != nil {
+	remove := s.svc.RemoveNode
+	if s.machines != nil {
+		remove = s.machines.Remove
+	}
+
+	if err := remove(ctx, req.NodeId); err != nil {
 		return nil, err
 	}
 

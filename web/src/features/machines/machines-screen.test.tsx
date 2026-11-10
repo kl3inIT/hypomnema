@@ -9,7 +9,7 @@ import { render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, expect, test, vi } from "vitest"
 
-import type { Node } from "@/api/generated/types.gen"
+import type { MachineProvider, Node } from "@/api/generated/types.gen"
 
 import { node, used } from "./fixtures"
 import { MachinesScreen } from "./machines-screen"
@@ -27,15 +27,20 @@ const json = (body: unknown, status = 200) =>
     headers: { "Content-Type": "application/json" },
   })
 
-// The server: the nodes, and one answer per changing request ("POST /nodes", "DELETE /nodes/n1"); it keeps the
-// requests it got.
-function nodesServer(nodes: Node[], answers: Record<string, () => Response> = {}) {
+// The server: the nodes, the machine providers, and one answer per changing request ("POST /nodes",
+// "DELETE /nodes/n1"); it keeps the changing requests it got.
+function nodesServer(
+  nodes: Node[],
+  answers: Record<string, () => Response> = {},
+  providers: MachineProvider[] = [],
+) {
   const requests: { call: string; body: unknown }[] = []
 
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
     const request = input as Request
     const call = `${request.method} ${new URL(request.url).pathname.replace("/api/v1", "")}`
     if (call === "GET /nodes") return json({ data: nodes })
+    if (call === "GET /machine-providers") return json({ data: providers })
 
     requests.push({
       call,
@@ -232,4 +237,119 @@ test("without machines the page offers to add one", async () => {
 
   expect(await screen.findByText(/No machines yet/)).toBeInTheDocument()
   expect(screen.getAllByRole("button", { name: "Add machine" }).length).toBeGreaterThan(0)
+})
+
+const aws = (machines: number): MachineProvider => ({
+  id: "mpr_1",
+  name: "aws",
+  kind: "aws",
+  region: "ap-southeast-1",
+  size: "t3.medium",
+  max_machines: 2,
+  machines,
+})
+
+const atAws = (state: NonNullable<Node["machine"]>["state"], error?: string): Partial<Node> => ({
+  connected: false,
+  system: undefined,
+  stats: undefined,
+  last_seen_at: undefined,
+  runtimes: [],
+  machine: { provider_id: "mpr_1", region: "ap-southeast-1", size: "t3.medium", state, error },
+})
+
+// Scenario: machines created at a provider that are not ready yet. One still being created is not called
+// offline; one the provider refused says why; one whose removal failed stays listed with the reason. The header
+// counts them apart from the machines that are simply online or offline.
+test("a provider's machine says where it is until it is ready", async () => {
+  nodesServer([
+    node("fresh", atAws("provisioning")),
+    node("refused", atAws("provision_failed", "VcpuLimitExceeded")),
+    node("stuck", atAws("delete_failed", "RequestLimitExceeded")),
+    node("ready", { machine: { ...atAws("ready").machine! } }),
+  ])
+  await open()
+
+  const fresh = await machine("fresh")
+  expect(fresh).toHaveTextContent("Creating")
+  expect(fresh).not.toHaveTextContent("Offline")
+  expect(fresh).toHaveTextContent("t3.mediumap-southeast-1")
+
+  expect(await machine("refused")).toHaveTextContent("Not created")
+  expect(await machine("refused")).toHaveTextContent("VcpuLimitExceeded")
+  expect(await machine("stuck")).toHaveTextContent("Not removed")
+  expect(await machine("stuck")).toHaveTextContent("RequestLimitExceeded")
+  expect(await machine("ready")).toHaveTextContent("Online")
+
+  expect(screen.getByText("1 online · 1 creating · 1 not created · 1 not removed")).toBeVisible()
+})
+
+// Scenario: the server has a machine provider. The owner picks it in the dialog, sees what a machine there will
+// be, and creates one: the request names the provider, and the dialog says the machine is being created and
+// shows no token, because the machine gets its own.
+test("a new machine is created at a provider", async () => {
+  const user = userEvent.setup()
+  const requests = nodesServer(
+    [node("builder")],
+    { "POST /nodes": () => json({ node: node("build-1", atAws("provisioning")) }, 201) },
+    [aws(1)],
+  )
+  await open()
+
+  await user.click(screen.getByRole("button", { name: "Add machine" }))
+  const dialog = await screen.findByRole("dialog")
+  const choice = await within(dialog).findByRole("radio", { name: "A new machine at aws" })
+  expect(choice).toHaveAccessibleDescription("t3.medium in ap-southeast-1 · 1 of 2 machines")
+  expect(within(dialog).getByRole("radio", { name: "A machine of your own" })).toBeChecked()
+
+  await user.click(choice)
+  await user.type(within(dialog).getByLabelText("Name"), "build-1")
+  await user.click(within(dialog).getByRole("button", { name: "Create" }))
+
+  expect(await within(dialog).findByText("build-1 is being created")).toBeVisible()
+  expect(within(dialog).queryByLabelText("Token")).not.toBeInTheDocument()
+  expect(requests).toEqual([{ call: "POST /nodes", body: { name: "build-1", provider: "aws" } }])
+})
+
+// Scenario: the provider refuses the machine, or already has as many as it may. A refusal is shown in the
+// provider's words with what to do next; at the limit nothing can be asked for.
+test("a refused machine says why, and a provider at its limit creates none", async () => {
+  const user = userEvent.setup()
+  nodesServer(
+    [node("builder")],
+    {
+      "POST /nodes": () =>
+        json({ node: node("build-1", atAws("provision_failed", "VcpuLimitExceeded")) }, 201),
+    },
+    [aws(1), { ...aws(2), id: "mpr_2", name: "aws-full" }],
+  )
+  await open()
+
+  await user.click(screen.getByRole("button", { name: "Add machine" }))
+  const dialog = await screen.findByRole("dialog")
+  await user.type(within(dialog).getByLabelText("Name"), "build-1")
+
+  await user.click(await within(dialog).findByRole("radio", { name: "A new machine at aws-full" }))
+  expect(dialog).toHaveTextContent("aws-full is at its limit of 2 machines")
+  expect(within(dialog).getByRole("button", { name: "Create" })).toBeDisabled()
+
+  await user.click(within(dialog).getByRole("radio", { name: "A new machine at aws" }))
+  await user.click(within(dialog).getByRole("button", { name: "Create" }))
+
+  expect(await within(dialog).findByRole("alert")).toHaveTextContent("VcpuLimitExceeded")
+  expect(dialog).toHaveTextContent("build-1 was not created")
+})
+
+// Scenario: removing a provider's machine destroys it, and the confirmation says so.
+test("removing a provider's machine warns that it is destroyed", async () => {
+  const user = userEvent.setup()
+  nodesServer([node("build-1", { machine: { ...atAws("ready").machine! } })])
+  await open()
+
+  await user.click(await screen.findByRole("button", { name: "Actions for build-1" }))
+  await user.click(await screen.findByRole("menuitem", { name: "Remove" }))
+
+  expect(await screen.findByRole("alertdialog")).toHaveTextContent(
+    "Its machine is destroyed at the provider",
+  )
 })

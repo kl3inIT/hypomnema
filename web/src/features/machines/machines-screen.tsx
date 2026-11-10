@@ -5,7 +5,7 @@ import { PageHeader } from "@/features/shell/app-shell"
 import { cn } from "@/lib/utils"
 
 import { AddMachine } from "./add-machine"
-import { IndicatorDot, StateText } from "./machine-cells"
+import { IndicatorDot, MachineProblem, StateText } from "./machine-cells"
 import { columns } from "./machines-columns"
 import { summary } from "./machines-state"
 import { useMachines } from "./use-machines"
@@ -160,6 +160,10 @@ function MachineCard({ node }: { node: Node }) {
         <StateText node={node} />
         {actions?.cell(node)}
       </header>
+      <MachineProblem
+        node={node}
+        className="block border-b border-border/60 px-5 py-2 break-words"
+      />
       <dl
         className="grid gap-2.5 px-5 pt-3.5 pb-4 text-sm"
         style={{ gridTemplateColumns: "24px minmax(80px, max-content) minmax(0, 1fr)" }}
