@@ -97,26 +97,23 @@ func prepareOmp(l launch) ([]string, []string, error) {
 
 // prepareOpencode names the gateway in a configuration file of the
 // Conversation's own (OPENCODE_CONFIG), away from the user's and the
-// project's, with its data under the same directory. Every action is
-// allowed but `execute`, the tool that would hide the tools server's tools
-// behind code: denied, they are plain tools (opencode core/src/tool.ts).
+// project's, with its data under the same directory. The file has the form
+// opencode 1 reads, which is what opencode's installer installs (1.19.5 on
+// 2026-11-10) and which opencode 2 still reads: a provider through
+// @ai-sdk/openai-compatible. Editing, the shell and fetching are allowed, so
+// that nothing is asked.
 func prepareOpencode(l launch) ([]string, []string, error) {
-	model := map[string]any{
-		"capabilities": map[string]any{"tools": true, "input": []string{"text"}, "output": []string{"text"}},
-		"limit":        map[string]any{"context": contextWindow, "output": maxOutput},
-	}
-
 	config, err := json.MarshalIndent(map[string]any{
-		"model": providerID + "/" + l.Model,
-		"providers": map[string]any{providerID: map[string]any{
-			"package":  "@opencode/ai/providers/openai-compatible",
-			"settings": map[string]any{"baseURL": l.URL, "apiKey": "{env:" + keyVariable + "}"},
-			"models":   map[string]any{l.Model: model},
+		"$schema": "https://opencode.ai/config.json",
+		"model":   providerID + "/" + l.Model,
+		"provider": map[string]any{providerID: map[string]any{
+			"npm": "@ai-sdk/openai-compatible", "name": "Hypomnema",
+			"options": map[string]any{"baseURL": l.URL, "apiKey": "{env:" + keyVariable + "}"},
+			"models": map[string]any{l.Model: map[string]any{
+				"name": l.Model, "limit": map[string]any{"context": contextWindow, "output": maxOutput},
+			}},
 		}},
-		"permissions": []map[string]string{
-			{"action": "*", "resource": "*", "effect": "allow"},
-			{"action": "execute", "resource": "*", "effect": "deny"},
-		},
+		"permission": map[string]string{"edit": "allow", "bash": "allow", "webfetch": "allow"},
 	}, "", "  ")
 	if err != nil {
 		return nil, nil, fmt.Errorf("encoding opencode's configuration: %w", err)

@@ -359,8 +359,8 @@ func TestOmpThroughTheGateway(t *testing.T) {
 
 // Scenario: an opencode worker. Its configuration is a file of the
 // Conversation's own, away from the user's and the project's, that names
-// the gateway with the key as an environment variable's name, allows every
-// action and denies the tool that would hide the tools server's tools.
+// the gateway with the key as an environment variable's name, in the form
+// opencode 1 reads, and allows editing, the shell and fetching.
 func TestOpencodeThroughTheGateway(t *testing.T) {
 	t.Parallel()
 
@@ -378,11 +378,12 @@ func TestOpencodeThroughTheGateway(t *testing.T) {
 	require.NoError(t, err)
 
 	var config struct {
-		Model     string `json:"model"`
-		Providers map[string]struct {
-			Settings map[string]string `json:"settings"`
-		} `json:"providers"`
-		Permissions []map[string]string `json:"permissions"`
+		Model    string `json:"model"`
+		Provider map[string]struct {
+			NPM     string            `json:"npm"`
+			Options map[string]string `json:"options"`
+		} `json:"provider"`
+		Permission map[string]string `json:"permission"`
 	}
 	require.NoError(t, json.Unmarshal(raw, &config))
 
@@ -390,8 +391,9 @@ func TestOpencodeThroughTheGateway(t *testing.T) {
 	//nolint:gosec // G101: the name of an environment variable, not a credential
 	assert.Equal(t, map[string]string{
 		"baseURL": "https://hypomnema.example/v1", "apiKey": "{env:HYPOMNEMA_MODEL_KEY}",
-	}, config.Providers["hypomnema"].Settings)
-	assert.Contains(t, config.Permissions, map[string]string{"action": "execute", "resource": "*", "effect": "deny"})
+	}, config.Provider["hypomnema"].Options)
+	assert.Equal(t, "@ai-sdk/openai-compatible", config.Provider["hypomnema"].NPM)
+	assert.Equal(t, map[string]string{"edit": "allow", "bash": "allow", "webfetch": "allow"}, config.Permission)
 }
 
 // Scenario: a follow-up Dispatch of a Conversation. The agent resumes its
