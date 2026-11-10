@@ -301,7 +301,8 @@ func (g *rig) dispatch(id string) statedb.Dispatch {
 		ID: id, State: statedb.StateAccepted, Epoch: 1,
 		Offer: nodeproto.Offer{
 			DispatchID: id, TaskID: "tsk_1", RunID: "run_1", Profile: "implementer", Spec: "add the Google login button",
-			Worktree: g.worktree, Runtime: "claude", AccountRef: "acc_1", Model: "opus",
+			Worktree: g.worktree, Runtime: "claude", AccountRef: "acc_1",
+			Model: "opus", Effort: "xhigh",
 		},
 		Accepted: &nodeproto.Accepted{Epoch: 1},
 	}
@@ -359,6 +360,7 @@ func TestWorkerRunsToSuccess(t *testing.T) {
 	assert.Contains(t, g.file("prompt.txt"), "add the Google login button")
 	assert.Contains(t, g.file("argv.txt"), "--permission-prompt-tool stdio")
 	assert.Contains(t, g.file("argv.txt"), "--model opus")
+	assert.Contains(t, g.file("argv.txt"), "--effort xhigh")
 	assert.Contains(t, g.file("argv.txt"), "--disallowedTools AskUserQuestion,Task,Agent",
 		"a worker cannot ask outside ask or start subagents")
 	assert.Equal(t, "sk-ant-oat01-test", g.file("token.txt"))
