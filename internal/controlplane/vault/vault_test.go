@@ -88,13 +88,13 @@ func TestASecretIsStoredEncryptedAndOpensToItsValue(t *testing.T) {
 
 	p, err := v.Open(t.Context(), "router")
 	require.NoError(t, err)
-	assert.Equal(t, apiKey, p[vault.KeyValue])
+	assert.Equal(t, apiKey, p.Payload[vault.KeyValue])
 
 	for _, table := range []string{"secrets", "secret_versions"} {
 		assert.NotContains(t, dump(t, db, table), apiKey, "table %s", table)
 	}
 
-	assert.NotContains(t, fmt.Sprintf("%v %s %+v", p, p, p), apiKey, "a payload must not format as its value")
+	assert.NotContains(t, fmt.Sprintf("%v %s %+v", p, p.Payload, p), apiKey, "a payload must not format as its value")
 }
 
 // dump returns every column of every row of a table as text.
@@ -178,7 +178,7 @@ func TestAChangedOrMovedVersionDoesNotOpen(t *testing.T) {
 
 			p, err := v.Open(t.Context(), "router")
 			require.ErrorIs(t, err, vault.ErrTampered)
-			assert.Nil(t, p)
+			assert.Empty(t, p.Payload)
 			assert.NotContains(t, err.Error(), apiKey)
 		})
 	}
@@ -208,7 +208,7 @@ func TestRotateMakesANewVersionTheOneInUse(t *testing.T) {
 
 	p, err := v.Open(t.Context(), "router")
 	require.NoError(t, err)
-	assert.Equal(t, "second", p[vault.KeyValue])
+	assert.Equal(t, "second", p.Payload[vault.KeyValue])
 
 	listed, err := v.List(t.Context())
 	require.NoError(t, err)
@@ -248,7 +248,7 @@ func TestRewrapMovesEveryVersionUnderTheActiveKey(t *testing.T) {
 	onlyNew := newVault(db, keyring(t, "k2", k2), nil)
 	p, err := onlyNew.Open(t.Context(), "router")
 	require.NoError(t, err)
-	assert.Equal(t, apiKey, p[vault.KeyValue])
+	assert.Equal(t, apiKey, p.Payload[vault.KeyValue])
 }
 
 func column(t *testing.T, db *sql.DB, name string) []string {
@@ -305,7 +305,7 @@ func TestAMissingRootKeyIsReportedAndNothingIsRewritten(t *testing.T) {
 
 	p, err := newVault(db, keyring(t, "k2", k1, k2), nil).Open(t.Context(), "router")
 	require.NoError(t, err)
-	assert.Equal(t, apiKey, p[vault.KeyValue])
+	assert.Equal(t, apiKey, p.Payload[vault.KeyValue])
 }
 
 // Scenario: a root key has the right id and the wrong bytes (a mistyped

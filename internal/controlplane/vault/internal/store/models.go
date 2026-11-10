@@ -16,6 +16,14 @@ type Secret struct {
 	CurrentVersionID string
 	CreatedAt        int64
 	UpdatedAt        int64
+	LoginRequiredAt  sql.NullInt64
+}
+
+type SecretRefreshLease struct {
+	SecretID          string
+	OwnerToken        string
+	ExpectedVersionID string
+	ExpiresAt         int64
 }
 
 type SecretVersion struct {
