@@ -10,6 +10,9 @@
 //	hypomnema nodes token add <node> <name>    one more token for a node; printed once
 //	hypomnema nodes token list <node>
 //	hypomnema nodes token revoke <token id>
+//	hypomnema machines providers add <name> --kind aws --key vault:<secret> --region R --size S [--max N] [--option name=value]…
+//	hypomnema machines providers list | rm <name> | check <name>
+//	hypomnema machines create <name> --provider P [--region R] [--size S] [--max N]   a node on a new machine
 //	hypomnema accounts add <runtime> <label>   record an account whose CLI is logged in on a node (no secret)
 //	hypomnema accounts login codex [--label L] log a subscription in here; its tokens go to the vault
 //	hypomnema accounts list
@@ -60,7 +63,7 @@ import (
 )
 
 var errUsage = errors.New("usage: hypomnema migrate | serve | version | " +
-	"nodes add|list|drain|resume|rm|token | accounts add|login|list|refresh|rm | " +
+	"nodes add|list|drain|resume|rm|token | machines providers|create | accounts add|login|list|refresh|rm | " +
 	"tokens add|list|revoke | secrets keygen|add|list|rotate|rm|rewrap | gateway models|keys … | login --url URL --token-file FILE | run --repo owner/name <objective> | " +
 	"runs … | tasks … | questions … | whoami | skills get|install | " +
 	"answer <question> <answer> | questions")

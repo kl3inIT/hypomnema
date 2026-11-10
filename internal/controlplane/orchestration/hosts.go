@@ -22,9 +22,15 @@ type GitHost struct {
 	Host string
 	Kind githost.Kind
 	// Known is true for github.com and gitlab.com, which need no declaration.
-	Known     bool
-	CreatedAt time.Time
+	Known bool
+	// TokenSecret names the vault secret that holds the host's token; empty
+	// when the host has none. The token itself is never here.
+	TokenSecret string
+	CreatedAt   time.Time
 }
+
+// HasToken says whether the owner gave the host a token.
+func (h GitHost) HasToken() bool { return h.TokenSecret != "" }
 
 // Repo is a repository registered under a name.
 type Repo struct {
@@ -61,9 +67,18 @@ func (s *Service) AddGitHost(ctx context.Context, host string, kind githost.Kind
 }
 
 // RemoveGitHost forgets a declared host. It is refused while an open Run or a
-// registered repository is on it.
+// registered repository is on it, and while it still has a token: the vault
+// holds that, so whoever removes a host removes its token first.
 func (s *Service) RemoveGitHost(ctx context.Context, host string) error {
+	if _, known := githost.KnownKind(host); known {
+		return fmt.Errorf("%w: %s is always known", ErrInvalid, host)
+	}
+
 	return s.write(ctx, func(q *store.Queries, _ int64) error {
+		if row, err := q.GetGitHost(ctx, host); err == nil && row.TokenSecret.Valid {
+			return fmt.Errorf("%w: %s still has a token", ErrConflict, host)
+		}
+
 		runs, err := q.CountOpenRunsOnHost(ctx, nullString(host))
 		if err != nil {
 			return fmt.Errorf("counting the runs on %s: %w", host, err)
@@ -105,24 +120,64 @@ func (s *Service) ListGitHosts(ctx context.Context) ([]GitHost, error) {
 	}
 
 	for _, r := range rows {
+		// A known host has a row only to name its token.
 		if _, known := githost.KnownKind(r.Host); known {
+			for i := range out {
+				if out[i].Host == r.Host {
+					out[i].TokenSecret = r.TokenSecret.String
+				}
+			}
+
 			continue
 		}
 
-		out = append(out, GitHost{Host: r.Host, Kind: githost.Kind(r.Kind), CreatedAt: millis(r.CreatedAt)})
+		out = append(out, gitHostFromRow(r))
 	}
 
 	return out, nil
 }
 
+func gitHostFromRow(r store.GitHost) GitHost {
+	return GitHost{
+		Host: r.Host, Kind: githost.Kind(r.Kind), TokenSecret: r.TokenSecret.String, CreatedAt: millis(r.CreatedAt),
+	}
+}
+
+// GitHostOf returns a host a Run can be on, with the name of its token's
+// secret; ErrInvalid for a host that is not known.
+func (s *Service) GitHostOf(ctx context.Context, host string) (GitHost, error) {
+	return gitHostOf(ctx, s.read(), host)
+}
+
+// SetGitHostTokenSecret records which vault secret holds a host's token; an
+// empty name records that it has none. The host must be known.
+func (s *Service) SetGitHostTokenSecret(ctx context.Context, host, secret string) error {
+	return s.write(ctx, func(q *store.Queries, now int64) error {
+		h, err := gitHostOf(ctx, q, host)
+		if err != nil {
+			return err
+		}
+
+		if secret == "" {
+			return q.ClearGitHostTokenSecret(ctx, host)
+		}
+
+		return q.SetGitHostTokenSecret(ctx, store.SetGitHostTokenSecretParams{
+			Host: host, Kind: string(h.Kind), TokenSecret: nullString(secret), Now: now,
+		})
+	})
+}
+
 // gitHostOf returns a host a Run can be on; ErrInvalid names the command that
 // declares one that is not known.
 func gitHostOf(ctx context.Context, q *store.Queries, host string) (GitHost, error) {
+	row, err := q.GetGitHost(ctx, host)
+
 	if kind, ok := githost.KnownKind(host); ok {
-		return GitHost{Host: host, Kind: kind, Known: true}, nil
+		// A known host has a row only to name its token.
+		return GitHost{Host: host, Kind: kind, Known: true, TokenSecret: row.TokenSecret.String}, nil
 	}
 
-	row, err := q.GetGitHost(ctx, host)
 	if errors.Is(err, sql.ErrNoRows) {
 		return GitHost{}, fmt.Errorf("%w: the host %s is not known; declare it with `hypomnema hosts add %s --kind gitlab`",
 			ErrInvalid, host, host)
@@ -132,7 +187,7 @@ func gitHostOf(ctx context.Context, q *store.Queries, host string) (GitHost, err
 		return GitHost{}, fmt.Errorf("reading host %s: %w", host, err)
 	}
 
-	return GitHost{Host: row.Host, Kind: githost.Kind(row.Kind), CreatedAt: millis(row.CreatedAt)}, nil
+	return gitHostFromRow(row), nil
 }
 
 // KindOfHost says the kind of a host a Run can be on, and false for another.

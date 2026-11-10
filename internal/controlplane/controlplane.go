@@ -128,10 +128,13 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 
 	mux := http.NewServeMux()
 	platform.RegisterHealth(mux, sqlite.Ready(db), logger)
-	nodeapi.New(svc, logger).Register(mux)
+	secrets := vault.New(db, platform.SystemClock{}, platform.NewID, cfg.VaultKeys, secretReferrers(svc))
+	tokens := hostTokens{svc: svc, vault: secrets}
+	machineMgr := machineManager(svc, secrets, cfg.PublicURL, logger)
+
+	nodeapi.New(svc, logger).WithHostTokens(tokens.Token).Register(mux)
 	mux.Handle("GET "+nodeapi.PathInstallScript, nodeapi.InstallScript(cfg.PublicURL, cfg.NodeReleaseURL))
 
-	secrets := vault.New(db, platform.SystemClock{}, platform.NewID, cfg.VaultKeys, secretReferrers(svc))
 	subscriptions := newSubscriptions(cfg, svc, secrets, logger)
 	gateway := modelgateway.New(db, platform.SystemClock{}, platform.NewID, gatewayProviders(svc),
 		gatewaySecrets(secrets))
@@ -139,7 +142,9 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 
 	sup := coordinator.New(svc, coordinator.Config{Command: cfg.CoordinatorCommand, Logger: logger})
 
-	if err := clientapi.New(svc, logger, ctx.Done()).WithCoordinator(sup).Register(mux); err != nil {
+	api := clientapi.New(svc, logger, ctx.Done()).WithCoordinator(sup).WithHostTokens(tokens).
+		WithNodeRemover(machineMgr.Remove)
+	if err := api.Register(mux); err != nil {
 		return err
 	}
 
@@ -164,6 +169,14 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		}
 	}()
 
+	machinesDone := make(chan struct{})
+
+	go func() {
+		defer close(machinesDone)
+
+		machineMgr.Loop(ctx)
+	}()
+
 	// Tokens of the accounts logged in here are replaced before they end.
 	refreshDone := make(chan struct{})
 
@@ -185,6 +198,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 
 	cancel(nil)
 	<-loopDone
+	<-machinesDone
 	<-refreshDone
 	<-supDone
 

@@ -27,24 +27,6 @@ const accountsUsage = "accounts add <runtime> <label> | accounts login codex [--
 // maxPastedBytes bounds the address the owner pastes to finish a login.
 const maxPastedBytes = 16 * 1024
 
-// secretReferrers names what still uses a secret: the providers and the
-// accounts that name it.
-func secretReferrers(svc *orchestration.Service) vault.Referrers {
-	return func(ctx context.Context, ref string) ([]string, error) {
-		providers, err := svc.ProvidersUsingKeyRef(ctx, ref)
-		if err != nil {
-			return nil, err
-		}
-
-		accounts, err := svc.AccountsUsingSecretRef(ctx, ref)
-		if err != nil {
-			return nil, err
-		}
-
-		return append(providers, accounts...), nil
-	}
-}
-
 // newSubscriptions returns the service that logs subscription accounts in and
 // refreshes them, with every vendor there is.
 func newSubscriptions(

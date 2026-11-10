@@ -142,7 +142,7 @@ func toNode(n orchestration.Node) openapi.Node {
 	return openapi.Node{
 		Id: n.ID, Name: n.Name, Status: openapi.NodeStatus(n.Status), MaxDispatches: n.MaxDispatches,
 		WorktreeRoot: ptr(n.WorktreeRoot), Runtimes: runtimes, System: toNodeSystem(n.System),
-		Stats: toNodeStats(n.Stats), LastSeenAt: n.LastSeenAt,
+		Stats: toNodeStats(n.Stats), Machine: toNodeMachine(n.Machine), LastSeenAt: n.LastSeenAt,
 		UnavailableAt: n.UnavailableAt, Connected: n.Connected, Active: n.Active, CreatedAt: n.CreatedAt,
 	}
 }
@@ -156,6 +156,18 @@ func toNodeSystem(s orchestration.SystemInfo) *openapi.NodeSystem {
 	return &openapi.NodeSystem{
 		DaemonVersion: ptr(s.DaemonVersion), Os: ptr(s.OS), Arch: ptr(s.Arch), Cpus: ptr(s.CPUs),
 		MemoryBytes: ptr(s.MemoryBytes), DiskBytes: ptr(s.DiskBytes),
+	}
+}
+
+// toNodeMachine is nil for a node the owner installed.
+func toNodeMachine(m *orchestration.Machine) *openapi.NodeMachine {
+	if m == nil {
+		return nil
+	}
+
+	return &openapi.NodeMachine{
+		ProviderId: m.ProviderID, ResourceId: ptr(m.ResourceID), Region: m.Region, Size: m.Size,
+		State: openapi.NodeMachineState(m.State), Error: ptr(m.Error),
 	}
 }
 

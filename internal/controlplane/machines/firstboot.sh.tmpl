@@ -1,0 +1,45 @@
+#!/bin/sh
+# First boot of a Hypomnema machine (issue #69, step 3). cloud-init runs this once, as root. It makes the user
+# the node runs as, installs git and the agent CLIs, and runs the node's install script as that user with the
+# node's token, as Coder's templates start their agent from user data and Omnara's managed launcher runs its
+# installer with the API URL and the machine token.
+set -u
+
+user=hypomnema
+log() { printf '%s\n' "hypomnema first boot: $*"; }
+
+id "$user" >/dev/null 2>&1 || useradd --create-home --shell /bin/bash "$user" || { log "cannot add the user"; exit 1; }
+
+# The CLIs are a convenience: a failure here leaves a node that reports none, which the owner sees.
+export DEBIAN_FRONTEND=noninteractive
+if command -v apt-get >/dev/null 2>&1; then
+  apt-get update -y && apt-get install -y git curl ca-certificates nodejs npm || log "installing packages failed"
+fi
+if command -v npm >/dev/null 2>&1; then
+  npm install --global @anthropic-ai/claude-code @openai/codex || log "installing the agent CLIs failed"
+fi
+
+# The node is a service of the user, so the user's manager must run without a login.
+loginctl enable-linger "$user" || log "enabling lingering failed"
+uid=$(id -u "$user")
+systemctl start "user@$uid.service" || log "starting the user's manager failed"
+tries=0
+while [ ! -S "/run/user/$uid/bus" ] && [ "$tries" -lt 30 ]; do
+  sleep 1
+  tries=$((tries + 1))
+done
+
+# The token goes through the environment, never a command line.
+HYPOMNEMA_NODE_TOKEN={{shellQuote .Token}}
+XDG_RUNTIME_DIR="/run/user/$uid"
+DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$uid/bus"
+export HYPOMNEMA_NODE_TOKEN XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS
+
+cd "/home/$user" || exit 1
+if sudo -H -u "$user" --preserve-env=HYPOMNEMA_NODE_TOKEN,XDG_RUNTIME_DIR,DBUS_SESSION_BUS_ADDRESS \
+  sh -c 'curl --fail --silent --show-error --location --proto "=https" "$1" | sh' sh {{shellQuote .InstallURL}}; then
+  log "the node is installed"
+else
+  log "installing the node failed"
+  exit 1
+fi

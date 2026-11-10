@@ -8,7 +8,7 @@ statement true or false.
 
 | Binary | Commands | What it does today |
 |---|---|---|
-| `cmd/hypomnema` (control plane) | `migrate`, `serve`, `version`, `nodes add\|list\|drain\|resume\|rm`, `nodes token add\|list\|revoke`, `accounts add\|login\|list\|refresh\|rm`, `tokens add\|list\|revoke`, `secrets keygen\|add\|list\|rotate\|rm\|rewrap`, `gateway models\|keys`, `login`, `run`, `answer`, `questions` | `migrate` brings the database schema up to the binary's version; `serve` refuses any other schema, then serves `/livez`, `/readyz`, the node API, the client API, the model gateway and the web client, and runs the scheduler loop and the refresh of subscription tokens; the other commands are the owner's (below) |
+| `cmd/hypomnema` (control plane) | `migrate`, `serve`, `version`, `nodes add\|list\|drain\|resume\|rm`, `nodes token add\|list\|revoke`, `machines providers add\|list\|rm\|check`, `machines create`, `accounts add\|login\|list\|refresh\|rm`, `tokens add\|list\|revoke`, `secrets keygen\|add\|list\|rotate\|rm\|rewrap`, `gateway models\|keys`, `login`, `run`, `answer`, `questions` | `migrate` brings the database schema up to the binary's version; `serve` refuses any other schema, then serves `/livez`, `/readyz`, the node API, the client API, the model gateway and the web client, and runs the scheduler loop; the other commands are the owner's (below) |
 | `cmd/hypomnema-node` (node) | `install`, `init`, `check`, `accounts set`, `run`, `service`, `shim`, `mcp`, `version` | `install --url` puts the node on the machine (below); `init --url --token-file` writes the node's configuration; `check` says hello once and lists the CLIs it found; `accounts set` records where an account's Claude token is; `run` runs the daemon with the Claude runner; `service` prints a systemd user unit; `shim` runs one worker and `mcp` serves its tools (both started for a worker, not by hand) |
 
 Configuration comes from the environment: `HYPOMNEMA_HTTP_ADDR` (default `127.0.0.1:8080`),
@@ -85,6 +85,35 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   disabled) are kept here with no secret value. One the owner logged in on the control plane (below) also has the
   vendor's id of the account, its email and plan, the name of the vault secret holding its tokens, and how its
   refreshes went; placement leaves these alone, since no node holds their tokens.
+- Machines created at a provider (issue #69, step 3; `orchestration/machines.go` keeps the record,
+  `internal/controlplane/machines` calls the provider, after Omnara's `internal/machinepool`). One kind exists, `aws`
+  (EC2); [setup](deploy/machines/aws.md).
+  - A machine provider (`machine_providers`) has a name, a kind, the vault secret that holds its key, a default
+    region and size, a limit on machines (3 by default) and the options its kind takes. The vault refuses to delete
+    a secret one names, and a provider with a machine that is not removed is not removed.
+  - A node created at a provider records the provider, the provider's id for the machine, its region and size, and
+    a machine state: `provisioning`, `ready`, `provision_failed`, `deleting`, `delete_failed`. A node the owner
+    installed has none. `GET /nodes` shows it as `machine`.
+  - Create: the region, the size and the public URL are checked first; then the node and its token are written in
+    one transaction, refused at the provider's limit; then the provider is asked for one machine named after the
+    node, with a first-boot script (cloud-init user data) that makes a `hypomnema` user without sudo, installs git
+    and the Claude Code and Codex CLIs, and runs the install script of `GET /install/node.sh` with the token. The
+    node's hello makes the machine `ready`. A refused create leaves the node `provision_failed` with the reason;
+    so does no hello within 10 minutes, and a hello after that still makes it `ready`.
+  - On AWS the instance is the newest Ubuntu 24.04 image of Canonical for the size's architecture, tagged with
+    the provider's and the node's ids, with instance metadata readable only through IMDSv2 from the instance
+    itself, because the script holds the token. A repeated create finds the instance by its tags, and the token's
+    id is the request's client token, so one node never has two instances.
+  - Remove (`nodes rm`, `DELETE /nodes/{node_id}`): the node is drained and its tokens revoked, the machine is
+    destroyed at the provider, and only then is the node `deleted`. A failed destroy leaves it listed as
+    `delete_failed` and is tried again after 30 s, doubling to an hour, until it works.
+  - While the server runs, every 30 s a pass settles what is left between: a create that was cut short is looked
+    up at the provider after 2 minutes and taken up or marked failed, a machine that never said hello is marked
+    failed, and a due destroy is tried again. Nothing is created or destroyed without the owner asking.
+  - `machines providers check <name>` proves the key works and lists the provider's machines that no node stands
+    for; it runs when asked, not on a timer, and destroys nothing.
+  - Not built: creating a machine from the web or the client API (the CLI only), other providers, and delivering
+    the CLIs' logins and git's credentials to a new machine, which the owner still sets on it once.
 - Chats (`orchestration/chats.go`, issue #41 PR 3, after Omnara;
   [research](docs/research/2026-11-09-chat-storage.md)): the owner's conversations with pi. Every message is kept
   (`owner`, `coordinator`, `tool`, `system`; replies and tools with JSON `parts`); owner messages and wake-ups wait
@@ -124,9 +153,20 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     with the command that declares it. A declared host is forgotten only when no open Run and no registered
     repository is on it.
   - A repository can be registered under a short name with the base branch its Runs start from.
-  - A host's token is not kept yet: git on a node still uses the node user's own logins, so a GitLab repository
-    works only where that user is logged in to its host. Which nodes reach which host is not known to placement
-    yet.
+  - A host can have a token, given by the owner (`PUT /hosts/{host}/token`, `hosts token set <host> --token-file`).
+    It is a secret in the vault (`git-host-<host>`); the host's record only names it, and the API never returns
+    it. The control plane's own wiring (`internal/controlplane/hosttokens.go`) stands between the vault and the
+    two APIs, which may not open a secret.
+  - The token reaches a worker with its offer: the node API reads it from the vault as it sends the offer, and
+    orchestration never holds it. The node gives it to that Dispatch only, as environment: git sends it to that
+    host alone (an `http.https://<host>/.extraheader` through `GIT_CONFIG_COUNT`), `gh` reads `GH_TOKEN` (or
+    `GH_ENTERPRISE_TOKEN` with `GH_HOST`), `glab` reads `GITLAB_TOKEN` and `GITLAB_HOST`. It is in no command's
+    arguments and no clone URL. On the node it is in the offer kept in the node's state database until the
+    Dispatch ends, and in the worker's spec file until the worker starts, as the Claude token is. The worker
+    itself can read it: this stands in for the vault's credential sessions and the node's proxy
+    ([issue #66](https://github.com/kl3inIT/hypomnema/issues/66)), with which a worker would never see it.
+  - A host without a token works as before: git and the host's tool use the node user's own logins.
+  - Which nodes reach which host is not known to placement yet.
 - Client tokens: kind `owner` or `coordinator`, in Omnara's format (`hyp_<kind>_v1_`, 43 Base62 characters and a
   CRC32 checksum, checked before the database is read; `internal/controlplane/bearertoken`). Shown once; only the
   SHA-256 is stored; a revoked token no longer authenticates.
@@ -153,9 +193,9 @@ proxy, does not exist yet.
   version the secret has moved past gets the newer set without an exchange. A failure that may pass keeps the token
   set and frees the lease; a rejection for good marks the secret as needing a new login until the owner rotates it.
   After a refresh only the new version and the one before it are kept. Subscription accounts call it (below).
-- `Open` returns a value to callers inside the control plane: the model gateway, for a provider's key, and
-  subscription accounts, for a token set. No API, coordinator or web
-  package may import the vault (`depguard`), and the owner's commands never print a value.
+- `Open` returns a value to callers inside the control plane: the model gateway, for a provider's key, the
+  wiring that hands a git host's token to an offer, and subscription accounts, for a token set. No API,
+  coordinator or web package may import the vault (`depguard`), and the owner's commands never print a value.
 - A provider names a secret as `vault:<name>` in its `api_key_ref`; nothing resolves that reference yet. Deleting a
   secret is refused while a provider or an account names it.
 - The tables `secrets`, `secret_versions` and `secret_refresh_leases` are in the one migration stream and are read and written only by this
@@ -261,6 +301,10 @@ The owner's commands:
     machine; `nodes drain|resume|rm <node>` take the node's id or name;
   - `nodes token add <node> <name>` prints one more token once; `nodes token list <node>` and
     `nodes token revoke <id>`. A node connected with a revoked token is refused at its next heartbeat;
+  - `machines providers add <name> --kind aws --key vault:<secret> --region R --size S [--max N]
+    [--option name=value]…`, `machines providers list`, `machines providers rm|check <name>` and
+    `machines create <name> --provider P [--region R] [--size S] [--max N]` manage provider machines; a machine
+    is removed with `nodes rm`;
   - `accounts add <runtime> <label>` records an account whose CLI is logged in on a node; `accounts login codex
     [--label L]` logs a subscription in here, printing a link and a code and waiting, or asking for the pasted
     address; `accounts list` shows each with the state of its tokens; `accounts refresh <account>` and
@@ -282,10 +326,11 @@ The owner's commands:
     (several Tasks with dependencies from one JSON file); `questions [show|forward]`. Each takes `--json`; long text
     comes from a file or `-` for standard input; flags may follow the arguments; a create takes `--key` so a create
     whose answer was lost can be repeated.
-  - `hosts list|add|rm` and `repos list|add|rm`: the git hosts a Run can be on and the repositories registered
-    under a name; every token reads them, only the owner's changes them. `hosts add` takes a host's name or a URL
-    copied from the browser (`--kind`, default `gitlab`); `repos add` takes `owner/name` or a URL (`--name`,
-    `--base`). `--repo` of `run` and `runs create` takes a registered name, `owner/name` or a URL.
+  - `hosts list|add|rm`, `hosts token set|rm` and `repos list|add|rm`: the git hosts a Run can be on, their
+    tokens, and the repositories registered under a name; every token reads them, only the owner's changes them.
+    `hosts add` takes a host's name or a URL copied from the browser (`--kind`, default `gitlab`); `hosts token
+    set` reads the token from `--token-file` (or `-`), never from an argument; `repos add` takes `owner/name` or a
+    URL (`--name`, `--base`). `--repo` of `run` and `runs create` takes a registered name, `owner/name` or a URL.
   - `profiles list|show|versions|apply`, `providers list|apply` and `models list`; every token reads them, only the
     owner's applies a YAML file (the API's `PUT /profiles/{name}` and `PUT /providers/{name}`).
   - `runs wait <run>` returns when a Task of the Run ended or was blocked, a question reached the coordinator, an
@@ -435,6 +480,17 @@ Node (`internal/node`):
   confirmation; a refusal shows the server's message. "Add machine" takes a name and an optional limit, then shows
   the node's token and the install line once, each with a copy button; the token is kept only while that dialog is
   open.
+- Settings (issue #44): one "Settings" entry at the sidebar's foot leads to `/settings`, where the sidebar's body
+  gives way to the settings sections under headings, with a way back (the headings are t3code's, the swap is
+  Omnigent's; [research](docs/research/2026-11-10-menus-and-settings.md)). A section is listed once it has a page;
+  on a phone the sections are a row of links under the header.
+  - `/settings/integrations` (under Connections) lists the git hosts as cards after Orca's integration card (MIT):
+    name, a "Connected" or "No token" pill, and the actions. "Add token" / "Replace token" takes the token in a
+    password field and sends it once; it is never read back. A company's server is added with its address (a name
+    or a pasted URL), what it runs and, if wanted, its token. Removing a token or a declared server asks first.
+  - `/settings/repositories` (under Code) lists the registered repositories, adds one from its URL under a
+    proposed name with an optional base branch, and removes one after a confirmation.
+  - Both pages do only what `hosts ...` and `repos ...` do in the CLI.
 - `web/embed.go` embeds the build (`web/dist`) into `hypomnema`. `make build` builds the client first.
   - The control plane serves it with `internal/controlplane/webui`, after Omnara's `spa.go`:
     - files as they are, with a year's cache under `assets/`;
@@ -484,7 +540,8 @@ internal/node/statedb     the node's SQLite state: Dispatches held and the repor
 internal/node/workertools the worker's MCP server: ask and finish
 internal/node/worktree    bare mirrors and git worktrees per Task
 internal/controlplane/coordinator  the supervisor of pi, the coordinator: one pi in RPC mode per chat
-internal/controlplane/orchestration  Runs, Tasks, Dispatches, Conversations, questions, events, nodes, accounts, the scheduler; migrations; queries generated by sqlc (internal/store)
+internal/controlplane/machines  machines created at a provider: the Provider interface, the AWS (EC2) provider, the first-boot script, create, remove and the pass that settles what is left between
+internal/controlplane/orchestration  Runs, Tasks, Dispatches, Conversations, questions, events, nodes, accounts, machine providers, the scheduler; migrations; queries generated by sqlc (internal/store)
 internal/controlplane/subscription  subscription accounts: a vendor's login and refresh, tokens kept in the vault
 internal/shared/githost   git hosts: how a repository is named, and each kind's clone URL, command and links
 internal/shared/nodeproto the wire protocol between a node and the control plane

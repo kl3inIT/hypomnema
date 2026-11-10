@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/machines"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/nodeapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
@@ -61,6 +62,7 @@ func Command(ctx context.Context, cfg Config, args []string, stdin io.Reader, st
 		vault:         secrets,
 		vaultReady:    cfg.VaultKeys != nil,
 		subscriptions: newSubscriptions(cfg, svc, secrets, slog.New(slog.DiscardHandler)),
+		machines:      machineManager(svc, secrets, cfg.PublicURL, platform.NewLogger(io.Discard, cfg.Log, binary)),
 		gateway: modelgateway.New(db, platform.SystemClock{}, platform.NewID, gatewayProviders(svc),
 			gatewaySecrets(secrets)),
 		in:  stdin,
@@ -78,6 +80,8 @@ func Command(ctx context.Context, cfg Config, args []string, stdin io.Reader, st
 		return o.secrets(ctx, args[1:])
 	case "gateway":
 		return o.gatewayCommand(ctx, args[1:])
+	case "machines":
+		return o.machinesCommand(ctx, args[1:])
 	default:
 		return ErrUsage
 	}
@@ -91,6 +95,7 @@ type owner struct {
 	// vaultReady says the vault has its root key and can seal a secret.
 	vaultReady    bool
 	subscriptions *subscription.Service
+	machines      *machines.Manager
 	gateway       *modelgateway.Service
 	in            io.Reader
 	out           io.Writer
@@ -133,6 +138,10 @@ func (o *owner) nodes(ctx context.Context, args []string) error {
 				state = "connected"
 			}
 
+			if n.Machine != nil && n.Machine.State != orchestration.MachineReady {
+				state = machineState(n.Machine)
+			}
+
 			o.printf("%s\t%s\t%s\t%s\t%d/%d\t%s\t%s\n", n.ID, n.Name, n.Status, state, n.Active, n.MaxDispatches,
 				runtimes(n.Runtimes), system(n.System))
 		}
@@ -150,7 +159,7 @@ func (o *owner) nodes(ctx context.Context, args []string) error {
 		case "resume":
 			change, done = o.svc.ResumeNode, "resumed"
 		case "rm":
-			change, done = o.svc.RemoveNode, "removed; its tokens no longer work"
+			change, done = o.machines.Remove, "removed; its tokens no longer work"
 		}
 
 		if err := change(ctx, n.ID); err != nil {
