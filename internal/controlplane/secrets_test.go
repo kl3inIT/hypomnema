@@ -118,7 +118,7 @@ func TestOwnerKeepsAProviderKeyInTheVault(t *testing.T) {
 
 	p, err := vault.New(db, platform.SystemClock{}, platform.NewID, both.VaultKeys, nil).Open(t.Context(), "router")
 	require.NoError(t, err)
-	assert.Equal(t, "sk-live-second-value", p[vault.KeyValue])
+	assert.Equal(t, "sk-live-second-value", p.Payload[vault.KeyValue])
 
 	_, err = svc.ApplyProvider(t.Context(), "",
 		"name: router\nkind: openai_compatible\nbase_url: https://router.example/v1\n"+
