@@ -176,7 +176,12 @@ type Offer struct {
 	// host one: git, gh and glab of this worker use it, and nothing else. The
 	// node keeps it with the offer until the Dispatch ends. It stands in for
 	// the vault's credential sessions until they exist (issue #44).
-	RepoToken      string `json:"repo_token,omitempty"`
+	RepoToken string `json:"repo_token,omitempty"`
+	// ModelKey is the model gateway's key for this Dispatch, when AccountRef
+	// is "gateway": the worker's CLI calls <control plane URL>/v1 with it, for
+	// the offer's Model only. It is made as the offer is sent and revoked when
+	// the Dispatch settles; the node keeps it with the offer until then.
+	ModelKey       string `json:"model_key,omitempty"`
 	Base           string `json:"base,omitempty"`
 	ConversationID string `json:"conversation_id"`
 	Worktree       string `json:"worktree"`

@@ -255,3 +255,56 @@ func TestListModelsOverHTTP(t *testing.T) {
 	assert.Equal(t, http.StatusUnauthorized, status)
 	assert.Contains(t, body, `"code":"invalid_api_key"`)
 }
+
+// Scenario: a Dispatch's worker gets a key of its own. It opens the gateway
+// for the Dispatch's model and no other; an offer sent again brings a new key
+// and the old one stops; when the Dispatch settles none of its keys works,
+// and the owner's keys are untouched.
+func TestADispatchHasAKeyOfItsOwn(t *testing.T) {
+	t.Parallel()
+
+	g := newGateway(t)
+	ctx := t.Context()
+
+	_, owner, err := g.AddKey(ctx, "pi", nil)
+	require.NoError(t, err)
+
+	first, err := g.AddDispatchKey(ctx, "dsp_1", "gpt-sol")
+	require.NoError(t, err)
+
+	k, err := g.Authenticate(ctx, first)
+	require.NoError(t, err)
+	assert.Equal(t, "dsp_1", k.DispatchID)
+	assert.True(t, k.Allows("gpt-sol"))
+	assert.False(t, k.Allows("small"))
+
+	second, err := g.AddDispatchKey(ctx, "dsp_1", "gpt-sol")
+	require.NoError(t, err)
+	assert.NotEqual(t, first, second)
+
+	_, err = g.Authenticate(ctx, first)
+	require.ErrorIs(t, err, modelgateway.ErrUnauthorized, "only the key of the last offer works")
+
+	_, err = g.AddDispatchKey(ctx, "dsp_2", "small")
+	require.NoError(t, err)
+
+	with, err := g.DispatchesWithKeys(ctx)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []string{"dsp_1", "dsp_2"}, with)
+
+	require.NoError(t, g.RevokeDispatchKeys(ctx, "dsp_1"))
+	require.NoError(t, g.RevokeDispatchKeys(ctx, "dsp_1"), "revoking again is no error")
+
+	_, err = g.Authenticate(ctx, second)
+	require.ErrorIs(t, err, modelgateway.ErrUnauthorized)
+
+	with, err = g.DispatchesWithKeys(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"dsp_2"}, with)
+
+	_, err = g.Authenticate(ctx, owner)
+	require.NoError(t, err)
+
+	_, err = g.AddDispatchKey(ctx, "dsp_3", "")
+	require.ErrorIs(t, err, modelgateway.ErrInvalid, "a key is for one model")
+}

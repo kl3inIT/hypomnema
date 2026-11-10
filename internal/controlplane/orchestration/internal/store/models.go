@@ -158,12 +158,13 @@ type Event struct {
 }
 
 type GatewayKey struct {
-	ID        string
-	Name      string
-	KeyHash   string
-	Models    string
-	CreatedAt int64
-	RevokedAt sql.NullInt64
+	ID         string
+	Name       string
+	KeyHash    string
+	Models     string
+	CreatedAt  int64
+	RevokedAt  sql.NullInt64
+	DispatchID sql.NullString
 }
 
 type GatewayModel struct {

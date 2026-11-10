@@ -142,6 +142,10 @@ func (p *placement) checkNode(id, runtime, host string) error {
 
 // checkAccount says why an account cannot take a Dispatch of the runtime now.
 func (p *placement) checkAccount(runtime, id string) error {
+	if id == GatewayAccountRef {
+		return nil // the gateway serves the model; its accounts are its own to choose and to cool down
+	}
+
 	i := slices.IndexFunc(p.accounts, func(a store.Account) bool { return a.ID == id })
 	if i < 0 {
 		return fmt.Errorf("%w: account %s", ErrNotFound, id)

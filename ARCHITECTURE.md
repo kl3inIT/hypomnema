@@ -136,6 +136,9 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   created: a known runtime (`claude`, `codex`, `pi`), an effort from `low` to `max`, and a model a provider of a
   kind that runtime can use offers (found from the model when the provider is not named). A provider change that
   would leave a profile's model or runtime unserved is refused. A Task names a profile, `implementer` by default.
+  A provider of kind `model_gateway` is the control plane's own model gateway (issue #107): `codex` can run against
+  it, and a Task under it needs no account on a node. Its Conversation names `gateway` where an account's id would
+  be, and a rate limit cools no account down: the gateway looks after its own accounts.
   The starting set: `implementer`, `reviewer`, `explorer` (told to change nothing; nothing enforces it yet) on
   Claude Code with its default model, and `coordinator` on pi; provider `claude-subscription`.
 - Scheduler: `Schedule` is one pass in one transaction, and `Loop` runs `Reap` and `Schedule` every 2 s and on each
@@ -144,7 +147,8 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   by position; the runtime, model and effort are the Task's own or its profile's current version, and the Dispatch
   records the model, the effort and that version; its worker gets the version's instruction after the built-in rules. An open Conversation continues only on its node, once that node is active, connected, not
   unavailable and below its limit; a new one goes to the least loaded such node that has the runtime and a worktree
-  root, ties by id, with the first active account of the runtime that is not cooling down, in
+  root, ties by id, with the first active account of the runtime that is not cooling down (none for a model the
+  gateway serves), in
   `<worktree root>/<run>/<task>`. A Task with no node or no account for 5 min is escalated once (`unplaceable`), and
   a rate limit over an hour that leaves its runtime with no free account is escalated (`account_cooling`).
 
@@ -299,6 +303,10 @@ subscriptions. The Claude subscription, other provider formats and other capabil
 - A gateway key (`hyp_gateway_v1_…`, the client tokens' format) is shown once and kept as its SHA-256, with the
   public model names it may use (`*`: every model). It is not a client token: the client API refuses it, and
   `tokens add` cannot make one.
+- A Dispatch whose model the gateway serves gets a key of its own (issue #107, as the git host's token travels):
+  made as its offer is sent to the node, good for the Dispatch's model only, carried in the offer (`model_key`). An
+  offer sent again carries a new key and the earlier one stops. The control plane revokes a Dispatch's keys when the
+  Dispatch settles, looked for at every commit of orchestration and every minute. No runner uses the key yet.
 - `GET /v1/models` with `Authorization: Bearer <key>` answers OpenAI's list shape with the models the key may use;
   errors are OpenAI's `{"error": {message, type, code}}`, 401 without a valid key.
 - `POST /v1/chat/completions` forwards the request to the model's first target, as 9router-go does: the body is
