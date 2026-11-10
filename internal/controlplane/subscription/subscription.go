@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"time"
 
@@ -118,6 +119,9 @@ type Vendor interface {
 	Identify(tokens vault.Payload) (Identity, error)
 	// RefreshLead is how long before its end an access token is replaced.
 	RefreshLead() time.Duration
+	// RefreshSpacing is the pause between the refreshes of two accounts in
+	// one pass, so they do not reach the vendor together.
+	RefreshSpacing() time.Duration
 }
 
 // Accounts is what the service needs of the store of accounts
@@ -164,13 +168,17 @@ type Service struct {
 	clock    platform.Clock
 	logger   *slog.Logger
 	vendors  map[string]Vendor
+	// after is time.After outside tests: the pause between two refreshes.
+	after func(time.Duration) <-chan time.Time
 }
 
 // New returns a Service over the accounts, the vault and the vendors.
 func New(
 	accounts Accounts, v *vault.Service, clock platform.Clock, logger *slog.Logger, vendors ...Vendor,
 ) *Service {
-	s := &Service{accounts: accounts, vault: v, clock: clock, logger: logger, vendors: map[string]Vendor{}}
+	s := &Service{
+		accounts: accounts, vault: v, clock: clock, logger: logger, vendors: map[string]Vendor{}, after: time.After,
+	}
 	for _, vendor := range vendors {
 		s.vendors[vendor.Runtime()] = vendor
 	}
@@ -320,9 +328,9 @@ func (s *Service) Refresh(ctx context.Context, id string) (Account, error) {
 }
 
 // Token returns a valid access token of the first account of a runtime that
-// can be used: active, logged in here, and not waiting for a usage limit. A
-// token about to end is refreshed first.
-func (s *Service) Token(ctx context.Context, runtime string) (Token, error) {
+// can be used: active, logged in here, not waiting for a usage limit, and not
+// among skip. A token about to end is refreshed first.
+func (s *Service) Token(ctx context.Context, runtime string, skip ...string) (Token, error) {
 	accounts, err := s.List(ctx)
 	if err != nil {
 		return Token{}, err
@@ -331,7 +339,8 @@ func (s *Service) Token(ctx context.Context, runtime string) (Token, error) {
 	var free *time.Time
 
 	for _, a := range accounts {
-		if a.Runtime != runtime || a.Status != orchestration.AccountActive || a.State != StateActive {
+		if a.Runtime != runtime || a.Status != orchestration.AccountActive || a.State != StateActive ||
+			slices.Contains(skip, a.ID) {
 			continue
 		}
 
@@ -432,6 +441,25 @@ func cmpState(state State) string {
 	return string(state)
 }
 
+// Quota is what is left of an account's quota for each model, from 0 to 1,
+// as far as its vendor says.
+func (s *Service) Quota(ctx context.Context, id string) (map[string]float64, error) {
+	models, err := s.Models(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	left := map[string]float64{}
+
+	for _, m := range models {
+		if m.Remaining >= 0 {
+			left[m.Name] = m.Remaining
+		}
+	}
+
+	return left, nil
+}
+
 // CoolDown keeps an account out of use until its usage limit ends.
 func (s *Service) CoolDown(ctx context.Context, runtime, accountID string, until time.Time, reason string) error {
 	return s.accounts.CoolAccount(ctx, runtime, accountID, until, reason)
@@ -467,6 +495,7 @@ func (s *Service) RefreshDue(ctx context.Context) error {
 	var failed []error
 
 	now := s.clock.Now()
+	refreshed := false
 
 	for _, a := range accounts {
 		vendor, ok := s.vendors[a.Runtime]
@@ -481,6 +510,18 @@ func (s *Service) RefreshDue(ctx context.Context) error {
 		if a.Refresh.RetryAt != nil && now.Before(*a.Refresh.RetryAt) {
 			continue
 		}
+
+		// Accounts are refreshed one after another with a pause between
+		// them, as 9router-go's background refresh does.
+		if refreshed {
+			select {
+			case <-ctx.Done():
+				return errors.Join(append(failed, ctx.Err())...)
+			case <-s.after(vendor.RefreshSpacing()):
+			}
+		}
+
+		refreshed = true
 
 		if err := s.refresh(ctx, a, 0); err != nil {
 			failed = append(failed, err)

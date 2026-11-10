@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
@@ -73,13 +72,17 @@ func (e *CoolingError) Error() string {
 // control plane; the wiring gives the subscription service's.
 type Subscriptions interface {
 	// Token returns a valid access token of the first account of a runtime
-	// that can be used; ErrNoAccount or a *CoolingError when none can.
-	Token(ctx context.Context, runtime string) (AccountToken, error)
+	// that can be used and is not among skip; ErrNoAccount or a *CoolingError
+	// when none can.
+	Token(ctx context.Context, runtime string, skip ...string) (AccountToken, error)
 	// TokenAfterRefusal refreshes an account whose token the vendor refused
 	// and returns the new one.
 	TokenAfterRefusal(ctx context.Context, refused AccountToken) (AccountToken, error)
 	// CoolDown keeps an account out of use until its usage limit ends.
 	CoolDown(ctx context.Context, runtime, accountID string, until time.Time, reason string) error
+	// Quota asks the vendor what is left of an account's quota for each
+	// model, from 0 to 1; a model the vendor gives no quota for is absent.
+	Quota(ctx context.Context, accountID string) (map[string]float64, error)
 }
 
 // codexSubscription serves chat from the Codex backend.
@@ -92,20 +95,6 @@ func (codexSubscription) do(ctx context.Context, s *Server, call chatCall) (*htt
 		return nil, fmt.Errorf("%w: provider %q has no accounts to run under", ErrNoAccount, call.upstream.Provider)
 	}
 
-	token, err := s.accounts.Token(ctx, codexRuntime)
-
-	var cooling *CoolingError
-	if errors.As(err, &cooling) {
-		return codexRefusal(&codex.Failure{
-			Status: http.StatusTooManyRequests, Type: "usage_limit_reached", Code: "usage_limit_reached",
-			Message: "the Codex subscription's usage limit is reached", ResetsAt: cooling.Until,
-		}, s.svc.clock.Now()), nil
-	}
-
-	if err != nil {
-		return nil, fmt.Errorf("provider %q: %w", call.upstream.Provider, err)
-	}
-
 	built, err := codex.BuildRequest(call.req.raw, codex.Options{
 		Model: call.upstream.Model, CacheKey: cacheKey(call.keyID),
 	})
@@ -116,29 +105,38 @@ func (codexSubscription) do(ctx context.Context, s *Server, call chatCall) (*htt
 		}, s.svc.clock.Now()), nil
 	}
 
-	resp, err := s.codexPost(ctx, token, built)
-	if err != nil {
-		return nil, err
-	}
-
-	// A token the backend refuses is refreshed once, and the request sent again.
-	if resp.StatusCode == http.StatusUnauthorized {
-		drain(resp)
-
-		if token, err = s.accounts.TokenAfterRefusal(ctx, token); err != nil {
-			return nil, fmt.Errorf("provider %q: %w", call.upstream.Provider, err)
-		}
-
-		if resp, err = s.codexPost(ctx, token, built); err != nil {
+	resp, err := s.underAccounts(ctx, codexRuntime, nil, func(token AccountToken) (*http.Response, error) {
+		resp, err := s.codexPost(ctx, token, built)
+		if err != nil {
 			return nil, err
 		}
+
+		// A token the backend refuses is refreshed once, and the request sent again.
+		if resp.StatusCode == http.StatusUnauthorized {
+			drain(resp)
+
+			if token, err = s.accounts.TokenAfterRefusal(ctx, token); err != nil {
+				return nil, err
+			}
+
+			if resp, err = s.codexPost(ctx, token, built); err != nil {
+				return nil, err
+			}
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			return s.codexRefused(ctx, token, resp), nil
+		}
+
+		s.accountState.served(token.AccountID)
+
+		return s.codexAnswer(ctx, call, token, built, resp), nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("provider %q: %w", call.upstream.Provider, err)
 	}
 
-	if resp.StatusCode != http.StatusOK {
-		return s.codexRefused(ctx, token, resp), nil
-	}
-
-	return s.codexAnswer(ctx, call, token, built, resp), nil
+	return resp, nil
 }
 
 // codexPost sends a built request under an account, as the Codex CLI would.
@@ -174,8 +172,8 @@ func (s *Server) codexPost(ctx context.Context, token AccountToken, built codex.
 }
 
 // codexRefused passes on a request the backend refused: its status and its
-// body, as 9router-go does. A usage limit also cools the account down until
-// the time the backend names.
+// body, as 9router-go does. The account cools down for as long as the kind of
+// failure calls for (accounts.go).
 func (s *Server) codexRefused(ctx context.Context, token AccountToken, resp *http.Response) *http.Response {
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBytes))
 	_ = resp.Body.Close()
@@ -198,16 +196,8 @@ func (s *Server) codexRefused(ctx context.Context, token AccountToken, resp *htt
 }
 
 func (s *Server) codexCool(ctx context.Context, token AccountToken, failure *codex.Failure) {
-	if failure.Status != http.StatusTooManyRequests || failure.ResetsAt.IsZero() {
-		return
-	}
-
-	err := s.accounts.CoolDown(context.WithoutCancel(ctx), codexRuntime, token.AccountID, failure.ResetsAt, "usage limit")
-	if err != nil {
-		s.logger.ErrorContext(ctx, "cooling a Codex account down",
-			slog.String("event", "modelgateway.codex_cooldown_failed"), slog.String("account_id", token.AccountID),
-			slog.String("error", err.Error()))
-	}
+	s.cool(ctx, codexRuntime, token, failure.Status, failure.Type == "usage_limit_reached", failure.ResetsAt,
+		"usage limit")
 }
 
 // codexAnswer turns the backend's event stream into the answer.
