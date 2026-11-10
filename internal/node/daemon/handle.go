@@ -67,6 +67,8 @@ func (d *Daemon) handle(ctx context.Context, msg nodeproto.Message) error {
 			slog.String("event", "node.server_error"), slog.String("code", e.Code), slog.String("message", e.Message))
 
 		return nil
+	case nodeproto.TypeTerminalOpen:
+		return d.openTerminal(msg.Payload)
 	case nodeproto.TypeHeartbeat, nodeproto.TypeReport, nodeproto.TypeItems, nodeproto.TypeHeartbeatAck:
 		fallthrough
 	default:

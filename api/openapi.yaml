@@ -430,6 +430,27 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Node" }
         default: { $ref: "#/components/responses/Error" }
+  /nodes/{node_id}/terminal:
+    parameters:
+      - $ref: "#/components/parameters/NodeID"
+    post:
+      operationId: OpenNodeTerminal
+      summary: >-
+        A ticket for a terminal on a node (owner only). The ticket opens the WebSocket
+        `/api/v1/terminals/{ticket}` once, within a short time; there the client sends JSON, `{data}` for what
+        is typed and `{height, width}` for a resize, and receives the shell's bytes in binary frames
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewTerminal" }
+      responses:
+        "201":
+          description: The ticket.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TerminalTicket" }
+        default: { $ref: "#/components/responses/Error" }
   /nodes/{node_id}/stop:
     parameters:
       - $ref: "#/components/parameters/NodeID"
@@ -1475,10 +1496,33 @@ components:
         last_seen_at: { type: string, format: date-time }
         unavailable_at: { type: string, format: date-time }
         connected: { type: boolean }
+        terminal:
+          type: boolean
+          description: >-
+            The node said at its last connect that it opens a terminal when asked. Left out for a node whose
+            version has none or whose own configuration turned it off.
         active:
           type: integer
           description: Its Dispatches that have not settled.
         created_at: { type: string, format: date-time }
+    NewTerminal:
+      type: object
+      additionalProperties: false
+      required: [session_id]
+      properties:
+        session_id:
+          type: string
+          minLength: 8
+          maxLength: 64
+          description: >-
+            The session, a UUID the client makes and keeps. The same id returns to the same shell while the node
+            keeps it: five minutes after the last connection left.
+    TerminalTicket:
+      type: object
+      required: [ticket, expires_at]
+      properties:
+        ticket: { type: string }
+        expires_at: { type: string, format: date-time }
     NodeMachine:
       type: object
       description: >-

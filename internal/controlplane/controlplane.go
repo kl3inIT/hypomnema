@@ -159,7 +159,8 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		gatewaySecrets(secrets))
 	workerKeys := dispatchKeys{gateway: gateway, svc: svc, logger: logger}
 
-	nodeapi.New(svc, logger).WithHostTokens(tokens.Token).WithModelKeys(workerKeys.Key).Register(mux)
+	nodes := nodeapi.New(svc, logger).WithHostTokens(tokens.Token).WithModelKeys(workerKeys.Key)
+	nodes.Register(mux)
 	modelgateway.NewServer(gateway, logger, modelgateway.Config{
 		Subscriptions: gatewayAccounts{subs: subscriptions}, CodexBaseURL: cfg.CodexBaseURL,
 		AntigravityBaseURL: cfg.AntigravityBaseURL,
@@ -168,7 +169,8 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	sup := coordinator.New(svc, coordinator.Config{Command: cfg.CoordinatorCommand, Logger: logger})
 
 	api := clientapi.New(svc, logger, ctx.Done()).WithCoordinator(sup).WithHostTokens(tokens).
-		WithMachines(machineMgr).WithSecrets(ownerSecrets{vault: secrets, referrers: referrers}).
+		WithMachines(machineMgr).WithTerminals(nodeTerminals(nodes)).
+		WithSecrets(ownerSecrets{vault: secrets, referrers: referrers}).
 		WithIntegrations(integration.New(svc, secrets, platform.SystemClock{}, platform.NewID, integration.Google()))
 	if err := api.Register(mux); err != nil {
 		return err
@@ -243,4 +245,17 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	}
 
 	return serveErr
+}
+
+// nodeTerminals lets the client API reach a node for a terminal through the
+// node API, which holds the nodes' connections.
+func nodeTerminals(nodes *nodeapi.Server) clientapi.Terminals {
+	return func(ctx context.Context, nodeID, sessionID string, rows, cols int) (clientapi.TerminalEnd, error) {
+		end, err := nodes.OpenTerminal(ctx, nodeID, sessionID, rows, cols)
+		if err != nil {
+			return nil, err
+		}
+
+		return end, nil
+	}
 }

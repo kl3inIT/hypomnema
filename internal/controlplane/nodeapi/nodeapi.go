@@ -41,11 +41,13 @@ type Server struct {
 
 	mu       sync.Mutex
 	sessions map[string]*session
+	// streams are the terminal connections nodes have been asked to open, by stream id.
+	streams map[string]*pendingStream
 }
 
 // New returns a Server over the orchestration service.
 func New(svc *orchestration.Service, logger *slog.Logger) *Server {
-	return &Server{svc: svc, logger: logger, sessions: map[string]*session{}}
+	return &Server{svc: svc, logger: logger, sessions: map[string]*session{}, streams: map[string]*pendingStream{}}
 }
 
 // WithHostTokens sets where an offer's git host token comes from.
@@ -66,6 +68,7 @@ func (s *Server) WithModelKeys(key func(ctx context.Context, dispatchID, model s
 func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST "+nodeproto.PathHello, s.hello)
 	mux.HandleFunc("GET "+nodeproto.PathSocket, s.socket)
+	mux.HandleFunc("GET "+nodeproto.PathTerminal, s.terminal)
 }
 
 // authenticate returns the node a request's bearer token belongs to, and the token's id.
@@ -108,7 +111,7 @@ func (s *Server) hello(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	hello := orchestration.Hello{WorktreeRoot: req.WorktreeRoot, System: orchestration.SystemInfo{
+	hello := orchestration.Hello{WorktreeRoot: req.WorktreeRoot, Terminal: req.Terminal, System: orchestration.SystemInfo{
 		DaemonVersion: req.DaemonVersion, OS: req.System.OS, Arch: req.System.Arch, CPUs: req.System.CPUs,
 		MemoryBytes: req.System.MemoryBytes, DiskBytes: req.System.DiskBytes,
 	}}

@@ -489,3 +489,34 @@ test("a stopped machine says what it costs and is started from its card", async 
     expect(requests).toEqual([{ call: "POST /nodes/build-1/start", body: undefined }]),
   )
 })
+
+// Scenario: the owner opens a terminal from a machine's menu. A connected machine whose node opens terminals has
+// a link to its terminal page, in a new tab; a machine that is offline, or whose node has no terminal, has the
+// item switched off with the reason, so it is not a link that would only fail.
+test("a machine's menu opens its terminal when it can", async () => {
+  const user = userEvent.setup()
+  nodesServer([
+    node("ready", { terminal: true }),
+    node("old"),
+    node("away", { terminal: true, connected: false }),
+  ])
+  await open()
+
+  await user.click(await screen.findByRole("button", { name: "Actions for ready" }))
+  const item = await screen.findByRole("menuitem", { name: "Terminal" })
+  expect(item).toHaveAttribute("href", "/machines/ready/terminal")
+  expect(item).toHaveAttribute("target", "_blank")
+  await user.keyboard("{Escape}")
+
+  await user.click(screen.getByRole("button", { name: "Actions for old" }))
+  const off = await screen.findByRole("menuitem", { name: /Terminal/ })
+  expect(off).toHaveAttribute("aria-disabled", "true")
+  expect(off).toHaveTextContent("Its node opens no terminal")
+  expect(off).not.toHaveAttribute("href")
+  await user.keyboard("{Escape}")
+
+  await user.click(screen.getByRole("button", { name: "Actions for away" }))
+  expect(await screen.findByRole("menuitem", { name: /Terminal/ })).toHaveTextContent(
+    "The machine is not connected.",
+  )
+})

@@ -25,6 +25,7 @@ import (
 	"github.com/coder/websocket/wsjson"
 
 	"github.com/kl3inIT/hypomnema/internal/node/statedb"
+	"github.com/kl3inIT/hypomnema/internal/node/terminal"
 	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 )
@@ -93,6 +94,8 @@ type Config struct {
 	Stats func(ctx context.Context) *nodeproto.SystemStats
 	// Reach reports whether this machine reaches a git host; nil: the node says nothing about hosts.
 	Reach func(ctx context.Context, host string) bool
+	// Terminal holds the shells opened from the web; nil: this node opens none.
+	Terminal *terminal.Manager
 }
 
 // Daemon is one node's connection.
@@ -112,6 +115,8 @@ type Daemon struct {
 	known     map[string]bool // Dispatches the Runner has this process
 	// hosts knows which git hosts this machine reaches; nil when the node does not try.
 	hosts *hostWatch
+	// base is Run's context, for what outlives one socket: a terminal's connection.
+	base context.Context //nolint:containedctx // set once by Run, read by goroutines Run owns
 }
 
 // New returns a Daemon.
@@ -131,6 +136,7 @@ func New(cfg Config, db *statedb.DB, runner Runner, logger *slog.Logger) *Daemon
 
 // Run keeps the node connected until ctx ends or the token is refused.
 func (d *Daemon) Run(ctx context.Context) error {
+	d.base = ctx
 	wait := backoffMin
 
 	if d.hosts != nil {
@@ -211,7 +217,7 @@ func (d *Daemon) Hello(ctx context.Context) (string, error) {
 func (d *Daemon) hello(ctx context.Context, claims []nodeproto.Claim) (nodeproto.HelloResponse, error) {
 	body, err := json.Marshal(nodeproto.HelloRequest{
 		InstanceID: d.instance, DaemonVersion: d.cfg.Version, WorktreeRoot: d.cfg.WorktreeRoot,
-		Runtimes: d.cfg.Runtimes, System: d.cfg.System, Claims: claims,
+		Runtimes: d.cfg.Runtimes, System: d.cfg.System, Claims: claims, Terminal: d.cfg.Terminal != nil,
 	})
 	if err != nil {
 		return nodeproto.HelloResponse{}, fmt.Errorf("encoding hello: %w", err)

@@ -318,10 +318,26 @@ export type Node = {
   unavailable_at?: string;
   connected: boolean;
   /**
+   * The node said at its last connect that it opens a terminal when asked. Left out for a node whose version has none or whose own configuration turned it off.
+   */
+  terminal?: boolean;
+  /**
    * Its Dispatches that have not settled.
    */
   active: number;
   created_at: string;
+};
+
+export type NewTerminal = {
+  /**
+   * The session, a UUID the client makes and keeps. The same id returns to the same shell while the node keeps it: five minutes after the last connection left.
+   */
+  session_id: string;
+};
+
+export type TerminalTicket = {
+  ticket: string;
+  expires_at: string;
 };
 
 /**
@@ -1578,6 +1594,33 @@ export type DrainNodeResponses = {
 };
 
 export type DrainNodeResponse = DrainNodeResponses[keyof DrainNodeResponses];
+
+export type OpenNodeTerminalData = {
+  body: NewTerminal;
+  path: {
+    node_id: string;
+  };
+  query?: never;
+  url: '/nodes/{node_id}/terminal';
+};
+
+export type OpenNodeTerminalErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type OpenNodeTerminalError = OpenNodeTerminalErrors[keyof OpenNodeTerminalErrors];
+
+export type OpenNodeTerminalResponses = {
+  /**
+   * The ticket.
+   */
+  201: TerminalTicket;
+};
+
+export type OpenNodeTerminalResponse = OpenNodeTerminalResponses[keyof OpenNodeTerminalResponses];
 
 export type StopNodeMachineData = {
   body?: never;

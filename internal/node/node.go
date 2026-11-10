@@ -23,6 +23,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/node/claude"
 	"github.com/kl3inIT/hypomnema/internal/node/daemon"
 	"github.com/kl3inIT/hypomnema/internal/node/statedb"
+	"github.com/kl3inIT/hypomnema/internal/node/terminal"
 	"github.com/kl3inIT/hypomnema/internal/node/worktree"
 	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
@@ -41,6 +42,10 @@ type Config struct {
 	Token string `json:"token"`
 	// WorktreeRoot is where the node makes its worktrees.
 	WorktreeRoot string `json:"worktree_root"`
+	// DisableTerminal turns off the terminal the owner opens from the web. It
+	// is set only here, on the machine: the control plane cannot turn it back
+	// on (Nezha's disable_command_execute).
+	DisableTerminal bool `json:"disable_terminal,omitempty"`
 	// Accounts maps an account id of the control plane to where its
 	// credentials are on this node, until the vault exists. Only the file's
 	// path is here, never the token.
@@ -198,11 +203,19 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 	logger.InfoContext(ctx, "node starting", slog.String("event", "node.starting"), slog.String("url", cfg.URL),
 		slog.Int("runtimes", len(runtimes)), slog.Int("accounts", len(cfg.Accounts)))
 
+	// The shells the owner opens from the web end with the node.
+	var terminals *terminal.Manager
+	if terminal.Supported() && !cfg.DisableTerminal {
+		terminals = terminal.New(terminal.Options{})
+		defer terminals.Close()
+	}
+
 	d := daemon.New(daemon.Config{
 		URL: cfg.URL, Token: cfg.Token, WorktreeRoot: cfg.WorktreeRoot, Version: platform.Version, Runtimes: runtimes,
-		System: DetectSystem(ctx, cfg.WorktreeRoot),
-		Stats:  func(ctx context.Context) *nodeproto.SystemStats { return MeasureSystem(ctx, cfg.WorktreeRoot) },
-		Reach:  ReachHost,
+		System:   DetectSystem(ctx, cfg.WorktreeRoot),
+		Stats:    func(ctx context.Context) *nodeproto.SystemStats { return MeasureSystem(ctx, cfg.WorktreeRoot) },
+		Reach:    ReachHost,
+		Terminal: terminals,
 	}, db, runner, logger)
 
 	// Workers' transcripts go to the control plane beside their reports (issue #43).

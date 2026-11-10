@@ -72,6 +72,17 @@ export function machineNote(node: Node) {
   }
 }
 
+// noTerminal is why a machine's terminal cannot be opened now, or undefined when it can: the machine must be
+// connected, and its node must have said that it opens one.
+export function noTerminal(node: Node) {
+  if (!node.connected) return "The machine is not connected."
+  if (!node.terminal) {
+    return "Its node opens no terminal: it is an older version, or its own configuration turned it off."
+  }
+
+  return undefined
+}
+
 // machineProblem is why a provider's machine was not created, destroyed, stopped or started, in the provider's
 // words.
 export function machineProblem(node: Node) {
