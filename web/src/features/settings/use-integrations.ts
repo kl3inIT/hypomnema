@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query"
 import "@/api/client"
 import { listGitHosts, listIntegrations, listRepos } from "@/api/generated/sdk.gen"
 import type { GitHost } from "@/api/generated/types.gen"
+import { toast } from "@/components/ui/toast"
 
 export const hostsKey = ["git-hosts"] as const
 export const reposKey = ["repos"] as const
@@ -79,4 +80,10 @@ export function errorText(error: unknown) {
   }
 
   return "The server refused. Try again."
+}
+
+// said tells the owner, in a toast, that a change he made was done. Omnigent, Orca, Infisical and Coder confirm a
+// change the same way (sonner); this is the toast of the project's own component style.
+export function said(what: string) {
+  toast.add({ title: what, type: "success" })
 }

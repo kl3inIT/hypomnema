@@ -155,6 +155,7 @@ test("the owner adds, resumes and fails to remove a machine", async ({ page }) =
   await page.getByRole("button", { name: "Add machine" }).click()
   const dialog = page.getByRole("dialog")
   await dialog.getByLabel("Name").fill("new-box")
+  await shot(page, "machines-add")
   await dialog.getByRole("button", { name: "Add" }).click()
   await expect(dialog.getByLabel("Token", { exact: true })).toHaveText("hnt_shown_once")
   await expect(dialog.getByLabel("Install line", { exact: true })).toHaveText(

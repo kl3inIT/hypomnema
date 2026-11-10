@@ -764,7 +764,16 @@ Node (`internal/node`):
     every shadcn component of the project's style is in `web/src/components/ui`; a form is TanStack Form with a
     zod schema, and says what is wrong when it is sent; the Vault's table is TanStack Table; a removal asks with
     an alert dialog; what the server refused shows as an alert. The rules are in
-    [conventions](docs/conventions.md#web-client). The other screens are not moved yet.
+    [conventions](docs/conventions.md#web-client).
+  - The other screens use the standard components where a control is an ordinary one
+    ([issue #131](https://github.com/kl3inIT/hypomnema/issues/131)): the Board's repository select, the buttons of
+    a Task's panel and of a Run, the sign-in form, the Add machine dialog. Left as they are, each for a stated
+    reason in that issue: the chat, the question form, a Task's card and a Run's rows, a transcript's rows, the
+    Machines cards, table, switch and menu, the Board's "Group by" switch, the Task panel as a side panel.
+  - A change the owner made in Settings that succeeded says so in a toast (`said` in
+    `web/src/features/settings/use-integrations.ts`).
+  - The build runs the React Compiler (`babel-plugin-react-compiler` through `@rolldown/plugin-babel`,
+    `web/vite.config.ts`); the unit tests do not, the scenarios in `web/tests` run the built client.
   - One `TooltipProvider` and one `Toaster` wrap the app (`web/src/main.tsx`). On the Machines page a column's
     name says what it measures when pointed at, and a machine's runtimes are their marks with their names while
     they fit on one line, and the marks alone when they do not.

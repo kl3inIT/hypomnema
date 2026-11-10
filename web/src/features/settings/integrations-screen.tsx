@@ -45,6 +45,7 @@ import {
   hostOf,
   hostsKey,
   kindName,
+  said,
   tokenHelp,
   useHosts,
   useServices,
@@ -164,6 +165,7 @@ function HostCard({ host }: { host: GitHost }) {
                 action="Remove token"
                 run={() => deleteGitHostToken({ path: { host: host.host } })}
                 onDone={refresh}
+                done={`The token of ${hostName(host)} was removed`}
               />
             )}
             {!host.known && (
@@ -178,6 +180,7 @@ function HostCard({ host }: { host: GitHost }) {
                 action="Remove host"
                 run={() => deleteGitHost({ path: { host: host.host } })}
                 onDone={refresh}
+                done={`${host.host} was removed`}
               />
             )}
             <Badge variant={host.has_token ? "success" : "warning"}>
@@ -297,6 +300,7 @@ function SetToken({ host }: { host: GitHost }) {
 
       await refresh()
       change(false)
+      said(`The token of ${hostName(host)} was saved`)
     },
   })
 
@@ -374,6 +378,7 @@ function AddHost() {
       }
 
       change(false)
+      said(`${hostOf(value.address)} was added`)
     },
   })
 
