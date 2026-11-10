@@ -17,6 +17,12 @@ Each adapted file names its source.
 - The titles of a worker's tool calls and the line that says a group of them
   (`src/features/board/tool-title.ts`) are adapted from Omnigent (https://github.com/omnigent-ai/omnigent,
   web/src/lib/toolTitle.ts and toolValue.ts), Apache License 2.0. The file says what was changed.
+- The Agents pages (`src/features/agents`) are adapted from Omnara (https://github.com/omnara-ai/omnara,
+  frontend/apps/web/src/components/agents: the profile cards, the Builder and YAML editor, the model field with its
+  effort), from Omnigent (web/src/pages/settings/CustomAgentConfigForm.tsx and SettingsHarnessesSection.tsx: the
+  name that cannot change, the description, the words that say whether an agent can run) and from OpenMausBot
+  (src/components/bot-settings/HistorySection.tsx: the list of versions), all Apache License 2.0. Each file says
+  what was changed.
 
 ## t3code
 
@@ -103,6 +109,12 @@ SOFTWARE.
 Omnigent is licensed under the Apache License, Version 2.0 (http://www.apache.org/licenses/LICENSE-2.0), whose
 text is given under OpenMausBot below. Its repository carries no NOTICE file and no copyright line; the work is
 copyright its authors (https://github.com/omnigent-ai/omnigent).
+
+## Omnara
+
+Omnara is licensed under the Apache License, Version 2.0 (http://www.apache.org/licenses/LICENSE-2.0), whose
+text is given under OpenMausBot below. Its repository carries no NOTICE file; the work is copyright its authors
+(https://github.com/omnara-ai/omnara).
 
 ## OpenMausBot
 
