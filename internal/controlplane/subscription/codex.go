@@ -93,6 +93,10 @@ func (c *Codex) Runtime() string { return codexRuntime }
 // RefreshLead implements Vendor.
 func (c *Codex) RefreshLead() time.Duration { return codexRefreshLead }
 
+// RefreshSpacing implements Vendor: 9router-go's pause between two accounts
+// (internal/proxy/oauth/background.go).
+func (c *Codex) RefreshSpacing() time.Duration { return 1500 * time.Millisecond }
+
 // Begin implements Vendor: a device code, or the browser login whose address
 // the owner pastes back when the server offers no device code.
 func (c *Codex) Begin(ctx context.Context) (*Attempt, error) {

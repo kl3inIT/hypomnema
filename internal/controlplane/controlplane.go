@@ -146,8 +146,9 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 
 	mux := http.NewServeMux()
 	platform.RegisterHealth(mux, sqlite.Ready(db), logger)
-	secrets := vault.New(db, platform.SystemClock{}, platform.NewID, cfg.VaultKeys, secretReferrers(svc))
-	tokens := hostTokens{svc: svc, vault: secrets}
+	referrers := secretReferrers(svc)
+	secrets := vault.New(db, platform.SystemClock{}, platform.NewID, cfg.VaultKeys, referrers)
+	tokens := connections{svc: svc, vault: secrets}
 	machineMgr := machineManager(svc, secrets, cfg.PublicURL, logger)
 
 	nodeapi.New(svc, logger).WithHostTokens(tokens.Token).Register(mux)
@@ -164,7 +165,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	sup := coordinator.New(svc, coordinator.Config{Command: cfg.CoordinatorCommand, Logger: logger})
 
 	api := clientapi.New(svc, logger, ctx.Done()).WithCoordinator(sup).WithHostTokens(tokens).
-		WithMachines(machineMgr)
+		WithMachines(machineMgr).WithSecrets(ownerSecrets{vault: secrets, referrers: referrers})
 	if err := api.Register(mux); err != nil {
 		return err
 	}

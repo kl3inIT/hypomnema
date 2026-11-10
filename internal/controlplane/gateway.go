@@ -48,8 +48,14 @@ func gatewaySecrets(v *vault.Service) modelgateway.Secrets {
 // in on the control plane.
 type gatewayAccounts struct{ subs *subscription.Service }
 
-func (g gatewayAccounts) Token(ctx context.Context, runtime string) (modelgateway.AccountToken, error) {
-	return accountToken(g.subs.Token(ctx, runtime))
+func (g gatewayAccounts) Token(
+	ctx context.Context, runtime string, skip ...string,
+) (modelgateway.AccountToken, error) {
+	return accountToken(g.subs.Token(ctx, runtime, skip...))
+}
+
+func (g gatewayAccounts) Quota(ctx context.Context, accountID string) (map[string]float64, error) {
+	return g.subs.Quota(ctx, accountID)
 }
 
 func (g gatewayAccounts) TokenAfterRefusal(

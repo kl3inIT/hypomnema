@@ -45,6 +45,8 @@ type Server struct {
 	// of Antigravity accounts while the gateway runs.
 	antigravityURL string
 	antigravity    *antigravityState
+	// accountState is what is remembered of every built-in provider's accounts.
+	accountState *accountState
 }
 
 // NewServer returns the gateway's HTTP API over a Service.
@@ -72,6 +74,7 @@ func NewServer(svc *Service, logger *slog.Logger, cfg Config) *Server {
 		accounts: cfg.Subscriptions, codexURL: strings.TrimRight(cfg.CodexBaseURL, "/"),
 		antigravityURL: strings.TrimRight(cfg.AntigravityBaseURL, "/"),
 		antigravity:    newAntigravityState(cfg.AntigravityManifestURL, svc.clock.Now),
+		accountState:   newAccountState(),
 	}
 }
 

@@ -50,7 +50,8 @@ func machineConnect(secrets *vault.Service) machines.Connect {
 }
 
 // secretReferrers names everything that still names a vault secret: the
-// model providers, the machine providers and the accounts logged in here.
+// model providers, the machine providers, the accounts logged in here and the
+// Connections.
 func secretReferrers(svc *orchestration.Service) vault.Referrers {
 	return func(ctx context.Context, ref string) ([]string, error) {
 		models, err := svc.ProvidersUsingKeyRef(ctx, ref)
@@ -68,7 +69,17 @@ func secretReferrers(svc *orchestration.Service) vault.Referrers {
 			return nil, err
 		}
 
-		return slices.Concat(models, machineProviders, accounts), nil
+		// A Connection names its secret plainly, the others by a reference.
+		var connections []string
+
+		if name, ok := vault.NameFromRef(ref); ok {
+			connections, err = svc.ConnectionsUsingSecret(ctx, name)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		return slices.Concat(models, machineProviders, accounts, connections), nil
 	}
 }
 

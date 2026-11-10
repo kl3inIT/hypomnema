@@ -43,6 +43,9 @@ type google struct {
 	dailyRefuses bool
 	// revoked makes the refresh token refused for good.
 	revoked bool
+	// user is who logs in next: Google's id and the email.
+	user  string
+	email string
 
 	issued     int
 	operations int
@@ -54,12 +57,16 @@ type google struct {
 func newGoogle(t *testing.T) *google {
 	t.Helper()
 
-	g := &google{t: t, project: "bright-wave-1234"}
+	g := &google{t: t, project: "bright-wave-1234", user: "1122334455", email: googleEmail}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /token", g.token)
 	mux.HandleFunc("GET /userinfo", func(w http.ResponseWriter, r *http.Request) {
 		g.seen(r, "")
-		_, _ = fmt.Fprintf(w, `{"id":"1122334455","email":%q}`, googleEmail)
+
+		g.mu.Lock()
+		defer g.mu.Unlock()
+
+		_, _ = fmt.Fprintf(w, `{"id":%q,"email":%q}`, g.user, g.email)
 	})
 	mux.HandleFunc("GET /manifest.yml", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = io.WriteString(w, "version: 2.31.4\nfiles:\n  - url: Antigravity.zip\n")
@@ -68,6 +75,22 @@ func newGoogle(t *testing.T) *google {
 	for _, host := range []string{"daily", "prod"} {
 		mux.HandleFunc("POST /"+host+"/v1internal:loadCodeAssist", func(w http.ResponseWriter, r *http.Request) {
 			g.loadCodeAssist(w, r, host)
+		})
+		mux.HandleFunc("POST /"+host+"/v1internal:fetchAvailableModels", func(w http.ResponseWriter, r *http.Request) {
+			g.seen(r, host)
+
+			var in map[string]string
+			if json.NewDecoder(r.Body).Decode(&in) != nil || in["project"] != "bright-wave-1234" {
+				http.Error(w, `{"error":{"status":"INVALID_ARGUMENT"}}`, http.StatusBadRequest)
+
+				return
+			}
+
+			_, _ = io.WriteString(w, `{"models":{
+			  "gemini-3.8-flash-high":{"quotaInfo":{"remainingFraction":0.4,"resetTime":"2026-11-10T14:00:00Z"}},
+			  "claude-sonnet-5-5":{"quotaInfo":{"remainingFraction":1}},
+			  "chat_internal_probe":{"isInternal":true},
+			  "gpt-oss-120b-medium":{}}}`)
 		})
 		mux.HandleFunc("POST /"+host+"/v1internal:onboardUser", func(w http.ResponseWriter, r *http.Request) {
 			g.seen(r, host)
@@ -367,4 +390,57 @@ func TestAnAntigravityTokenIsRefreshedUntilGoogleRevokesIt(t *testing.T) {
 	_, err = unset.subs.Begin(t.Context(), "antigravity")
 	require.ErrorContains(t, err, "HYPOMNEMA_ANTIGRAVITY_CLIENT_SECRET")
 	assert.NotContains(t, err.Error(), ideSecret)
+}
+
+// Scenario: the owner asks which models Google serves the account. The
+// names are the backend's own, in order, with what is left of each quota and
+// when it is whole again; a model Google keeps for itself is not listed.
+func TestOwnerSeesTheModelsAnAccountIsServed(t *testing.T) {
+	t.Parallel()
+
+	w := newAntigravityWorld(t, ideSecret)
+
+	a, err := w.login()
+	require.NoError(t, err)
+
+	models, err := w.subs.Models(t.Context(), a.ID)
+	require.NoError(t, err)
+	assert.Equal(t, []subscription.ServedModel{
+		{Name: "claude-sonnet-5-5", Remaining: 1},
+		{Name: "gemini-3.8-flash-high", Remaining: 0.4, ResetsAt: time.Date(2026, 11, 10, 14, 0, 0, 0, time.UTC)},
+		{Name: "gpt-oss-120b-medium", Remaining: -1},
+	}, models)
+}
+
+// Scenario: two Antigravity accounts' tokens are due together. They are
+// refreshed one after the other with twelve seconds between them, not at the
+// same moment.
+func TestAccountsAreRefreshedOneAfterAnother(t *testing.T) {
+	t.Parallel()
+
+	w := newAntigravityWorld(t, ideSecret)
+
+	_, err := w.login()
+	require.NoError(t, err)
+
+	w.google.set(func(g *google) { g.user, g.email = "99", "second@gmail.example" })
+
+	_, err = w.login()
+	require.NoError(t, err)
+
+	var pauses []time.Duration
+
+	w.subs.RefreshWithoutWaiting(&pauses)
+	w.clock.advance(45 * time.Minute)
+	require.NoError(t, w.subs.RefreshDue(t.Context()))
+
+	assert.Equal(t, []time.Duration{12 * time.Second}, pauses)
+
+	all, err := w.subs.List(t.Context())
+	require.NoError(t, err)
+	require.Len(t, all, 2)
+
+	for _, a := range all {
+		assert.Equal(t, t0.Add(45*time.Minute+3599*time.Second), *a.AccessTokenExpiresAt, a.Label)
+	}
 }

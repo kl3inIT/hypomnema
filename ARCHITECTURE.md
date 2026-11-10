@@ -159,11 +159,17 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     with the command that declares it. A declared host is forgotten only when no open Run and no registered
     repository is on it.
   - A repository can be registered under a short name with the base branch its Runs start from.
-  - A host can have a token, given by the owner (`PUT /hosts/{host}/token`, `hosts token set <host> --token-file`).
-    It is a secret in the vault (`git-host-<host>`); the host's record only names it, and the API never returns
-    it. The control plane's own wiring (`internal/controlplane/hosttokens.go`) stands between the vault and the
-    two APIs, which may not open a secret.
-  - The token reaches a worker with its offer: the node API reads it from the vault as it sends the offer, and
+  - A host is an Integration, and the owner connects accounts of it: each is a Connection with a label
+    (`PUT /hosts/{host}/connections/{label}`, `integrations connect <host> --label work --token-file`), kept in
+    the `connections` table ([issue #103](https://github.com/kl3inIT/hypomnema/issues/103)). Its token is a secret
+    in the vault (`conn-<host>-<label>`); the Connection only names it, and the API returns labels, never a token.
+    The control plane's own wiring (`internal/controlplane/hosttokens.go`) stands between the vault and the two
+    APIs, which may not open a secret. `hosts token set|rm` and `/hosts/{host}/token` act on the Connection
+    `default`, which is also what a host's single token of before became.
+  - Work on a repository uses the Connection its registered repository names (`repos add --connection`), else
+    the host's only one; with several and none named it gets no token, and falls back to the node user's logins.
+    A Connection a registered repository names cannot be removed.
+  - The token reaches a worker with its offer: the node API asks for it by host and repository as it sends the offer, and
     orchestration never holds it. The node gives it to that Dispatch only, as environment: git sends it to that
     host alone (an `http.https://<host>/.extraheader` through `GIT_CONFIG_COUNT`), `gh` reads `GH_TOKEN` (or
     `GH_ENTERPRISE_TOKEN` with `GH_HOST`), `glab` reads `GITLAB_TOKEN` and `GITLAB_HOST`. It is in no command's
@@ -209,7 +215,19 @@ proxy, does not exist yet.
   After a refresh only the new version and the one before it are kept. Subscription accounts call it (below).
 - `Open` returns a value to callers inside the control plane: the model gateway, for a provider's key, the
   wiring that hands a git host's token to an offer, and subscription accounts, for a token set. No API,
-  coordinator or web package may import the vault (`depguard`), and the owner's commands never print a value.
+  coordinator or web package may import the vault (`depguard`).
+- The owner reads the vault through the client API
+  ([issue #108](https://github.com/kl3inIT/hypomnema/issues/108),
+  [decision](docs/decisions/2026-11-10-owner-reads-secret-values.md)): `GET /secrets` lists secrets without values
+  and with what uses each (a provider, a machine provider, an account, a Connection); `GET /secrets/{name}/value`
+  returns one secret's values, with `Cache-Control: no-store`; `PUT /secrets/{name}` keeps a value as a new generic
+  secret or a new version, which whatever uses the secret then gets; a token set is replaced with its complete
+  set, as in Omnara's edit; `DELETE` is refused while something uses it. All four are owner-only by the policy table; a coordinator's token is
+  refused, and nothing on a node has such an operation. The control plane's own wiring
+  (`internal/controlplane/ownersecrets.go`) stands between the API and the vault.
+- Each read of a value is a row of `secret_reads` (the secret's name and the token, or `host`; never the value). It
+  is not in the event log, which every token reads. Nothing shows these rows yet.
+- `hypomnema secrets show <name>` on the control plane host prints a value and records the read.
 - A provider names a secret as `vault:<name>` in its `api_key_ref`; nothing resolves that reference yet. Deleting a
   secret is refused while a provider or an account names it.
 - The tables `secrets`, `secret_versions` and `secret_refresh_leases` are in the one migration stream and are read and written only by this
@@ -240,7 +258,8 @@ plane, which keeps their tokens fresh. The gateway's Codex provider runs under t
   `oauth_token_set`, named after the account, with the time the access token ends.
 - `serve` looks every 5 minutes for access tokens that end within the vendor's lead (Codex: 30 minutes) and
   refreshes them through the vault's `Refresh`; Antigravity's lead is 30 minutes too, and Google keeps the refresh
-  token as it is. A refusal for good (401, or an error code such as `invalid_grant` or
+  token as it is. Two accounts due in one pass are refreshed one after the other, 1.5 seconds apart, 12 for
+  Antigravity (9router-go). A refusal for good (401, or an error code such as `invalid_grant` or
   `refresh_token_reused`) marks the account as needing a new login and is not tried again. Any other failure keeps
   the tokens and is tried again after 5 minutes, doubling up to a day; its reason is recorded with the status and
   error code only.
@@ -276,9 +295,23 @@ subscriptions. The Claude subscription, other provider formats and other capabil
   migration and has an adapter of its own, which translates both ways and handles everything specific to its vendor;
   the answer it returns is already in OpenAI's chat format, so failover, the stream's end and the usage record work
   the same for both.
+- A built-in provider runs under the accounts of its kind logged in on the control plane, several when there are
+  several ([research](docs/research/2026-11-10-several-accounts.md); every rule is one a reference has):
+  - Accounts are taken in their order, the first that can serve until it fails (9router-go's default).
+  - Inside one request the next account is tried when one answers 401 (after one refresh of its tokens), 402, 403,
+    429, 502, 503 or 504, each account once and only before anything was sent to the client (9router-go, CLIProxyAPI).
+    When none serves, the client gets the last refusal; when none could even be tried, a 429 with `Retry-After` to
+    the time the first is free (CLIProxyAPI).
+  - A failure cools the account down, with 9router-go's numbers: until the reset the provider names, at most 2 hours;
+    1 hour for a quota that is used up with no reset named; 2 seconds, doubling with each failure in a row up to 5
+    minutes, after a rate limit or an overload (the count is in memory and an answer clears it); 2 minutes after a
+    401, 402 or 403; 30 seconds after another 5xx.
+  - An Antigravity account with a tenth or less of a model's quota left is used after the others, not refused (omp's
+    reserve, at opencode-antigravity-auth's 90 %). The quota is asked of Google after a successful request, at most
+    every 15 minutes per account, and trusted for 30; an account whose quota is not known is used.
 - `codex-subscription` (kind `codex_subscription`, after 9router-go, CLIProxyAPI and the Codex CLI;
   [research](docs/research/2026-11-10-codex-subscription-adapter.md)) is the first built-in provider. It runs under
-  the first active Codex account logged in on the control plane that is not cooling down.
+  the Codex accounts logged in on the control plane (above).
   - `modelgateway/codex` holds the translation, with no network in it. A chat body becomes a Responses body: system
     and developer messages become `instructions`, a tool call and its result become items tied by a call id, tools
     are flattened and not strict unless the client says so, `response_format` becomes `text.format`,
@@ -304,7 +337,7 @@ subscriptions. The Claude subscription, other provider formats and other capabil
     read from the backend, a choice among several accounts beyond the first that is free.
 - `antigravity-subscription` (kind `antigravity_subscription`, after six implementations and Google's own client;
   [research](docs/research/2026-11-10-antigravity-subscription-adapter.md)) serves Gemini, Claude and gpt-oss models
-  from the first Antigravity account that can be used. Antigravity's terms name this use as a breach that may end the
+  from the Antigravity accounts logged in on the control plane (above). Antigravity's terms name this use as a breach that may end the
   account; the owner chose to build it knowing that, and the provider adds nothing to pass for the IDE beyond its
   user agent: tools keep their names, no tool or prompt is added, no `requestType` is sent.
   - `modelgateway/antigravity` holds the translation. A chat body becomes
@@ -326,8 +359,10 @@ subscriptions. The Claude subscription, other provider formats and other capabil
   - An account Google suspended for its terms is taken out of use for a day, one Google wants verified for ten
     minutes; the cooldown's reason, with Google's link, shows in `accounts list`, and the request is answered 503
     so the model's next target serves it.
-  - Not built: real thought signatures kept across turns, images by URL, Google search as a tool, the account's own
-    list of models read from the backend, several accounts rotated.
+  - The models the provider is seeded with are names read in the references; the ones Google serves an account are
+    what `accounts models` lists, and the owner applies the provider again with those when they differ.
+  - Not built: real thought signatures kept across turns, images by URL, Google search as a tool, the provider's
+    models kept in step with the account's by itself, several accounts rotated.
 - Each request served is one row of `gateway_usage`: the key, the model, the target of the last attempt, how many
   were tried, the outcome (`ok`, `upstream_error`, `transport_error`, `truncated`, `client_gone`), the provider's
   status, the duration, and the tokens the provider reported (prompt, completion, cached, reasoning; the largest
@@ -396,7 +431,8 @@ The owner's commands:
     is removed with `nodes rm`;
   - `accounts add <runtime> <label>` records an account whose CLI is logged in on a node; `accounts login codex|antigravity
     [--label L]` logs a subscription in here, printing a link and a code and waiting, or asking for the pasted
-    address; `accounts list` shows each with the state of its tokens; `accounts refresh <account>` and
+    address; `accounts list` shows each with the state of its tokens; `accounts models <account>` asks the vendor which
+    models it serves the account, with what is left of each quota (Antigravity only); `accounts refresh <account>` and
     `accounts rm <account>` (which removes the tokens too) are for those logged in here;
   - `tokens add <name> [--kind owner|coordinator]` prints a client token once; `tokens list` and
     `tokens revoke <id>`;
@@ -415,8 +451,9 @@ The owner's commands:
     (several Tasks with dependencies from one JSON file); `questions [show|forward]`. Each takes `--json`; long text
     comes from a file or `-` for standard input; flags may follow the arguments; a create takes `--key` so a create
     whose answer was lost can be repeated.
-  - `hosts list|add|rm`, `hosts token set|rm` and `repos list|add|rm`: the git hosts a Run can be on, their
-    tokens, and the repositories registered under a name; every token reads them, only the owner's changes them.
+  - `hosts list|add|rm`, `integrations list|connect|disconnect` (and the older `hosts token set|rm`) and
+    `repos list|add|rm`: the git hosts a Run can be on, the accounts connected to each, and the repositories
+    registered under a name; every token reads them, only the owner's changes them.
     `hosts add` takes a host's name or a URL copied from the browser (`--kind`, default `gitlab`); `hosts token
     set` reads the token from `--token-file` (or `-`), never from an argument; `repos add` takes `owner/name` or a
     URL (`--name`, `--base`). `--repo` of `run` and `runs create` takes a registered name, `owner/name` or a URL.
@@ -588,6 +625,13 @@ Node (`internal/node`):
     or a pasted URL), what it runs and, if wanted, its token. Removing a token or a declared server asks first.
   - `/settings/repositories` has no entry in the menu while its place is being decided (issue #44); it lists the registered repositories, adds one from its URL under a
     proposed name with an optional base branch, and removes one after a confirmation.
+  - `/settings/vault` (under Connections, [issue #108](https://github.com/kl3inIT/hypomnema/issues/108)) is a
+    table of the vault's secrets, after Infisical's secrets dashboard (MIT) and Omnara's secrets list
+    (Apache-2.0): Name, Value and Type, a search box above, and a row that opens to its version and dates. A
+    value shows as asterisks and is not on the page until the owner reveals its row, or every row from the table's
+    head: only then is `GET /secrets/{name}/value` called, and the value is dropped when hidden or the page is
+    left. A token set shows each of its values. Edit replaces a generic secret's value, or a token set with its
+    complete set; Delete says why when the server refuses. Add takes a name and a value in a password field.
   - Both pages do only what `hosts ...` and `repos ...` do in the CLI.
 - `web/embed.go` embeds the build (`web/dist`) into `hypomnema`. `make build` builds the client first.
   - The control plane serves it with `internal/controlplane/webui`, after Omnara's `spa.go`:
@@ -611,6 +655,10 @@ Since 2026-11-09, on the owner's tailnet (Tailscale); nothing is public:
   Its second target, kept for a while, is `ninerouter`: 9router on the same machine, which holds a login of the same
   subscription and whose key is the secret `ninerouter`. pi calls the gateway with its own key (provider `gateway`,
   profile `coordinator`), no longer 9router itself.
+- An Antigravity account of the owner's is logged in too, since 2026-11-10; the OAuth secret of the IDE's client is
+  in `~/hypomnema-cp/env`. Provider `antigravity-subscription` was applied again there with the models Google
+  serves that account (`accounts models`): Gemini 2.5, 3 and 3.8, `claude-sonnet-4-6`, `claude-opus-4-6-thinking`,
+  `gpt-oss-120b-medium`. No gateway model is served from it until the owner declares one.
 - Node: aioffice-app, user `hypnode`, `~/bin/hypomnema-node`, tmux session `hyp-node`, pointed at that URL; the
   machine joined the tailnet as `aioffice-node`. The earlier control plane there (`~ubuntu/hypomnema-cp`) is
   stopped and kept for rollback.

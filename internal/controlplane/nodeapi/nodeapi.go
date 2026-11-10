@@ -34,7 +34,7 @@ type Server struct {
 	// hostToken returns the token of a git host for a Dispatch; nil when the
 	// control plane wired none. The node API may not open a secret itself
 	// (issue #66).
-	hostToken func(ctx context.Context, host string) (string, bool)
+	hostToken func(ctx context.Context, host, path string) (string, bool)
 
 	mu       sync.Mutex
 	sessions map[string]*session
@@ -46,7 +46,7 @@ func New(svc *orchestration.Service, logger *slog.Logger) *Server {
 }
 
 // WithHostTokens sets where an offer's git host token comes from.
-func (s *Server) WithHostTokens(token func(ctx context.Context, host string) (string, bool)) *Server {
+func (s *Server) WithHostTokens(token func(ctx context.Context, host, path string) (string, bool)) *Server {
 	s.hostToken = token
 
 	return s
@@ -358,7 +358,7 @@ func (c *session) push(ctx context.Context) error {
 
 		// The token is read when the offer is sent and is kept nowhere in the control plane but the vault.
 		if c.srv.hostToken != nil && o.RepoHost != "" {
-			if token, ok := c.srv.hostToken(ctx, o.RepoHost); ok {
+			if token, ok := c.srv.hostToken(ctx, o.RepoHost, o.Repo); ok {
 				o.RepoToken = token
 			}
 		}

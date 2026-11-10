@@ -439,9 +439,13 @@ export type GitHost = {
   host: string;
   kind: GitHostKind;
   /**
-   * Whether the owner gave the host a token. Without one a worker uses the logins of the node's own user.
+   * Whether the host has a Connection. Without one a worker uses the logins of the node's own user.
    */
   has_token: boolean;
+  /**
+   * The labels of the host's Connections, oldest first. A token is never here.
+   */
+  connections: Array<string>;
   /**
    * True for github.com and gitlab.com, which need no declaration.
    */
@@ -451,6 +455,65 @@ export type GitHost = {
 
 export type GitHostList = {
   data: Array<GitHost>;
+};
+
+/**
+ * A secret of the vault, without its value.
+ */
+export type Secret = {
+  name: string;
+  /**
+   * generic (one value) or oauth_token_set (a refresh token and what was issued for it).
+   */
+  kind: string;
+  /**
+   * Counts from 1 and grows each time the value is replaced.
+   */
+  version: number;
+  /**
+   * Not secret; what helps to recognize the secret.
+   */
+  metadata?: {
+    [key: string]: string;
+  };
+  /**
+   * What refers to the secret, such as "provider openai" or "connection github.com:work".
+   */
+  used_by: Array<string>;
+  /**
+   * The root key it is sealed under is not in the keyring, so it cannot be read.
+   */
+  key_missing: boolean;
+  /**
+   * A token set whose refresh token was refused for good.
+   */
+  login_required: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type SecretList = {
+  data: Array<Secret>;
+};
+
+export type SecretValue = {
+  name: string;
+  /**
+   * The secret's values by key; a generic secret has one, under "value".
+   */
+  values: {
+    [key: string]: string;
+  };
+};
+
+/**
+ * Either `value`, for a generic secret, or `values`, the complete set of a token set.
+ */
+export type NewSecretValue = {
+  value?: string;
+  values?: {
+    [key: string]: string;
+  };
 };
 
 export type NewGitHost = {
@@ -472,6 +535,10 @@ export type Repo = {
    * The branch worktrees start from when a Run names none.
    */
   base?: string;
+  /**
+   * The label of the host's Connection work on it uses; absent for the host's only one.
+   */
+  connection?: string;
   created_at: string;
 };
 
@@ -485,6 +552,10 @@ export type NewRepo = {
    */
   repo: string;
   base?: string;
+  /**
+   * The label of a Connection of the repository's host.
+   */
+  connection?: string;
 };
 
 export type NodeList = {
@@ -1587,6 +1658,168 @@ export type PutGitHostTokenResponses = {
 };
 
 export type PutGitHostTokenResponse = PutGitHostTokenResponses[keyof PutGitHostTokenResponses];
+
+export type DeleteGitHostConnectionData = {
+  body?: never;
+  path: {
+    host: string;
+    label: string;
+  };
+  query?: never;
+  url: '/hosts/{host}/connections/{label}';
+};
+
+export type DeleteGitHostConnectionErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type DeleteGitHostConnectionError = DeleteGitHostConnectionErrors[keyof DeleteGitHostConnectionErrors];
+
+export type DeleteGitHostConnectionResponses = {
+  /**
+   * The host, without the Connection.
+   */
+  200: GitHost;
+};
+
+export type DeleteGitHostConnectionResponse = DeleteGitHostConnectionResponses[keyof DeleteGitHostConnectionResponses];
+
+export type PutGitHostConnectionData = {
+  body: NewGitHostToken;
+  path: {
+    host: string;
+    label: string;
+  };
+  query?: never;
+  url: '/hosts/{host}/connections/{label}';
+};
+
+export type PutGitHostConnectionErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type PutGitHostConnectionError = PutGitHostConnectionErrors[keyof PutGitHostConnectionErrors];
+
+export type PutGitHostConnectionResponses = {
+  /**
+   * The host, with the Connection.
+   */
+  200: GitHost;
+};
+
+export type PutGitHostConnectionResponse = PutGitHostConnectionResponses[keyof PutGitHostConnectionResponses];
+
+export type ListSecretsData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/secrets';
+};
+
+export type ListSecretsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListSecretsError = ListSecretsErrors[keyof ListSecretsErrors];
+
+export type ListSecretsResponses = {
+  /**
+   * The secrets.
+   */
+  200: SecretList;
+};
+
+export type ListSecretsResponse = ListSecretsResponses[keyof ListSecretsResponses];
+
+export type DeleteSecretData = {
+  body?: never;
+  path: {
+    name: string;
+  };
+  query?: never;
+  url: '/secrets/{name}';
+};
+
+export type DeleteSecretErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type DeleteSecretError = DeleteSecretErrors[keyof DeleteSecretErrors];
+
+export type DeleteSecretResponses = {
+  /**
+   * The secret is removed.
+   */
+  204: void;
+};
+
+export type DeleteSecretResponse = DeleteSecretResponses[keyof DeleteSecretResponses];
+
+export type PutSecretData = {
+  body: NewSecretValue;
+  path: {
+    name: string;
+  };
+  query?: never;
+  url: '/secrets/{name}';
+};
+
+export type PutSecretErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type PutSecretError = PutSecretErrors[keyof PutSecretErrors];
+
+export type PutSecretResponses = {
+  /**
+   * The secret, without its value.
+   */
+  200: Secret;
+};
+
+export type PutSecretResponse = PutSecretResponses[keyof PutSecretResponses];
+
+export type GetSecretValueData = {
+  body?: never;
+  path: {
+    name: string;
+  };
+  query?: never;
+  url: '/secrets/{name}/value';
+};
+
+export type GetSecretValueErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GetSecretValueError = GetSecretValueErrors[keyof GetSecretValueErrors];
+
+export type GetSecretValueResponses = {
+  /**
+   * The value.
+   */
+  200: SecretValue;
+};
+
+export type GetSecretValueResponse = GetSecretValueResponses[keyof GetSecretValueResponses];
 
 export type ListReposData = {
   body?: never;

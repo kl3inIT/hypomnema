@@ -17,6 +17,7 @@
 //	hypomnema accounts add <runtime> <label>   record an account whose CLI is logged in on a node (no secret)
 //	hypomnema accounts login codex|antigravity [--label L]   log a subscription in here; its tokens go to the vault
 //	hypomnema accounts list
+//	hypomnema accounts models <account>        the models the vendor serves the account, with the quota left
 //	hypomnema accounts refresh|rm <account>    refresh the tokens now, or remove the account and its tokens
 //	hypomnema tokens add <name> [--kind owner|coordinator]   make a client API token; prints it once
 //	hypomnema tokens list
@@ -24,6 +25,7 @@
 //	hypomnema secrets keygen [id]              print a new root key for the vault (HYPOMNEMA_VAULT_KEYS)
 //	hypomnema secrets add <name> --from-file FILE|- [--kind generic|oauth_token_set] [--meta key=value]…
 //	hypomnema secrets list                     names, kinds, versions and key ids; never a value
+//	hypomnema secrets show <name>              print one secret's value; the read is recorded
 //	hypomnema secrets rotate <name> --from-file FILE|-
 //	hypomnema secrets rm <name>                refused while a provider or an account names the secret
 //	hypomnema secrets rewrap                   wrap every data key under the active root key

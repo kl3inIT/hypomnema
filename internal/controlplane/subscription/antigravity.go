@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -121,6 +122,10 @@ func (a *Antigravity) Runtime() string { return antigravityRuntime }
 
 // RefreshLead implements Vendor.
 func (a *Antigravity) RefreshLead() time.Duration { return antigravityRefreshLead }
+
+// RefreshSpacing implements Vendor: 9router-go's longer pause for the
+// providers it calls sensitive (internal/proxy/oauth/background.go).
+func (a *Antigravity) RefreshSpacing() time.Duration { return 12 * time.Second }
 
 // Identify implements Vendor. A Google token set does not say whose it is:
 // the account keeps what its login found.
@@ -281,6 +286,62 @@ func (a *Antigravity) token(ctx context.Context, doing string, form url.Values) 
 	}
 
 	return tokens, nil
+}
+
+// Models implements ModelLister: the models the backend serves this account,
+// with each one's remaining quota (fetchAvailableModels, as 9router-go's
+// handlers/chat/antigravity_quota.go and CLIProxyAPI's sdk/auth/antigravity_models.go
+// read it). The names are the ones a request must carry.
+func (a *Antigravity) Models(ctx context.Context, token Token) ([]ServedModel, error) {
+	var (
+		answer struct {
+			Models map[string]struct {
+				IsInternal bool `json:"isInternal"`
+				QuotaInfo  *struct {
+					RemainingFraction *float64 `json:"remainingFraction"`
+					ResetTime         string   `json:"resetTime"`
+				} `json:"quotaInfo"`
+			} `json:"models"`
+		}
+		failed []error
+	)
+
+	for _, host := range a.opt.CodeAssistHosts {
+		address := strings.TrimRight(host, "/") + "/" + cloudcode.APIVersion + ":fetchAvailableModels"
+
+		err := a.call(ctx, http.MethodPost, address, token.AccessToken, map[string]string{"project": token.Project}, &answer)
+		if err != nil {
+			failed = append(failed, err)
+
+			continue
+		}
+
+		models := make([]ServedModel, 0, len(answer.Models))
+
+		for name, info := range answer.Models {
+			if info.IsInternal {
+				continue
+			}
+
+			model := ServedModel{Name: name, Remaining: -1}
+
+			if q := info.QuotaInfo; q != nil {
+				if q.RemainingFraction != nil {
+					model.Remaining = *q.RemainingFraction
+				}
+
+				model.ResetsAt, _ = time.Parse(time.RFC3339, q.ResetTime)
+			}
+
+			models = append(models, model)
+		}
+
+		slices.SortFunc(models, func(x, y ServedModel) int { return strings.Compare(x.Name, y.Name) })
+
+		return models, nil
+	}
+
+	return nil, fmt.Errorf("asking which models the account is served: %w", errors.Join(failed...))
 }
 
 // codeAssist is what loadCodeAssist says of an account.

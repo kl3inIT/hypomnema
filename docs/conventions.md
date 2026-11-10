@@ -198,8 +198,11 @@ The three boundaries that matter:
   node that needs it (it requires `bubblewrap` and, on Ubuntu, an AppArmor profile), and a disposable cloud sandbox
   per Dispatch, as Omnara's pools, for work from untrusted sources. Flags that disable a CLI's own permission checks
   are allowed only inside such a sandbox.
-- The vault is a secret manager the owner manages (create, list without values, rotate by version, delete refused
-  while in use), encrypted as Omnara's `internal/secrets`: a data key per secret version, wrapped by a root key chosen
+- The vault is a secret manager the owner manages (create, list without values, read one value at a time, rotate
+  by version, delete refused while in use). Only the owner's token reads a value, and each read is recorded; a
+  coordinator, a worker and a node have no operation that returns one
+  ([decision](decisions/2026-11-10-owner-reads-secret-values.md), which replaced "values are never read back" on
+  2026-11-10). It is encrypted as Omnara's `internal/secrets`: a data key per secret version, wrapped by a root key chosen
   by ID from a keyring, with the secret's identity as associated data. The root key comes from the environment of the
   control plane host, with an offline backup and a rotation procedure that rewraps data keys.
 - Workers get credentials as Infisical's Agent Vault does: the control plane opens a session per Dispatch with the

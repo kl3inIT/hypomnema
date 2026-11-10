@@ -23,7 +23,8 @@ import (
 const maxSecretFileBytes = 1 << 20
 
 const secretsUsage = "secrets keygen [id] | secrets add <name> --from-file FILE|- [--kind generic|oauth_token_set] " +
-	"[--meta key=value]… | secrets list | secrets rotate <name> --from-file FILE|- | secrets rm <name> | " +
+	"[--meta key=value]… | secrets list | secrets show <name> | secrets rotate <name> --from-file FILE|- | " +
+	"secrets rm <name> | " +
 	"secrets rewrap"
 
 // secretsKeygen prints a new root key as an entry for HYPOMNEMA_VAULT_KEYS.
@@ -61,6 +62,8 @@ func (o *owner) secrets(ctx context.Context, args []string) error {
 		return o.secretsRotate(ctx, args[1], args[2:])
 	case len(args) == 1 && args[0] == "list":
 		return o.secretsList(ctx)
+	case len(args) == 2 && args[0] == "show":
+		return o.secretsShow(ctx, args[1])
 	case len(args) == 2 && args[0] == "rm":
 		if err := o.vault.Delete(ctx, args[1]); err != nil {
 			return err
@@ -155,6 +158,36 @@ func (o *owner) secretsRotate(ctx context.Context, name string, args []string) e
 	}
 
 	o.printf("secret %s is now at version %d\n", s.Name, s.Version)
+
+	return nil
+}
+
+// secretsShow prints one secret's value, as a secret manager's client does
+// (issue #108): a generic secret's value on a line, a token set as JSON. The
+// read is recorded as it is through the API, by "host": this command runs on
+// the control plane host with no token.
+func (o *owner) secretsShow(ctx context.Context, name string) error {
+	opened, err := o.vault.Open(ctx, name)
+	if err != nil {
+		return err
+	}
+
+	if err := o.svc.RecordSecretRead(ctx, name, "host"); err != nil {
+		return err
+	}
+
+	if value, ok := opened.Payload[vault.KeyValue]; ok && len(opened.Payload) == 1 {
+		o.printf("%s\n", value)
+
+		return nil
+	}
+
+	raw, err := json.MarshalIndent(opened.Payload, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encoding secret %q: %w", name, err)
+	}
+
+	o.printf("%s\n", raw)
 
 	return nil
 }

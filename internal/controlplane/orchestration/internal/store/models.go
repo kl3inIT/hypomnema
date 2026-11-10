@@ -60,6 +60,15 @@ type ClientToken struct {
 	RevokedAt sql.NullInt64
 }
 
+type Connection struct {
+	Integration string
+	Label       string
+	Account     sql.NullString
+	Secret      string
+	CreatedAt   int64
+	UpdatedAt   int64
+}
+
 type Conversation struct {
 	ID            string
 	TaskID        string
@@ -191,10 +200,9 @@ type GatewayUsage struct {
 }
 
 type GitHost struct {
-	Host        string
-	Kind        string
-	CreatedAt   int64
-	TokenSecret sql.NullString
+	Host      string
+	Kind      string
+	CreatedAt int64
 }
 
 type MachineProvider struct {
@@ -322,11 +330,12 @@ type Receipt struct {
 }
 
 type Repo struct {
-	Name      string
-	Host      string
-	Path      string
-	Base      sql.NullString
-	CreatedAt int64
+	Name       string
+	Host       string
+	Path       string
+	Base       sql.NullString
+	CreatedAt  int64
+	Connection sql.NullString
 }
 
 type Run struct {
@@ -353,6 +362,13 @@ type Secret struct {
 	CreatedAt        int64
 	UpdatedAt        int64
 	LoginRequiredAt  sql.NullInt64
+}
+
+type SecretRead struct {
+	ID        int64
+	Secret    string
+	TokenID   string
+	CreatedAt int64
 }
 
 type SecretRefreshLease struct {

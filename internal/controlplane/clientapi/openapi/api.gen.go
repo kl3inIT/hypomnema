@@ -734,9 +734,11 @@ type Evidence struct {
 
 // GitHost defines model for GitHost.
 type GitHost struct {
-	CreatedAt *time.Time `json:"created_at,omitempty"`
+	// Connections The labels of the host's Connections, oldest first. A token is never here.
+	Connections []string   `json:"connections"`
+	CreatedAt   *time.Time `json:"created_at,omitempty"`
 
-	// HasToken Whether the owner gave the host a token. Without one a worker uses the logins of the node's own user.
+	// HasToken Whether the host has a Connection. Without one a worker uses the logins of the node's own user.
 	HasToken bool        `json:"has_token"`
 	Host     string      `json:"host"`
 	Kind     GitHostKind `json:"kind"`
@@ -840,6 +842,9 @@ type NewNode struct {
 type NewRepo struct {
 	Base *string `json:"base,omitempty"`
 
+	// Connection The label of a Connection of the repository's host.
+	Connection *string `json:"connection,omitempty"`
+
 	// Repo owner/name on GitHub, or the URL of a repository on a known host.
 	Repo string `json:"repo"`
 }
@@ -854,6 +859,12 @@ type NewRun struct {
 
 	// Repo A registered repository's name, owner/name on GitHub, or the URL of a repository on a known host.
 	Repo *string `json:"repo,omitempty"`
+}
+
+// NewSecretValue Either `value`, for a generic secret, or `values`, the complete set of a token set.
+type NewSecretValue struct {
+	Value  *string            `json:"value,omitempty"`
+	Values *map[string]string `json:"values,omitempty"`
 }
 
 // NewTask defines model for NewTask.
@@ -1046,11 +1057,14 @@ type QuestionStatus string
 // Repo defines model for Repo.
 type Repo struct {
 	// Base The branch worktrees start from when a Run names none.
-	Base      *string   `json:"base,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
-	Host      string    `json:"host"`
-	Name      string    `json:"name"`
-	Path      string    `json:"path"`
+	Base *string `json:"base,omitempty"`
+
+	// Connection The label of the host's Connection work on it uses; absent for the host's only one.
+	Connection *string   `json:"connection,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+	Host       string    `json:"host"`
+	Name       string    `json:"name"`
+	Path       string    `json:"path"`
 }
 
 // RepoList defines model for RepoList.
@@ -1123,6 +1137,44 @@ type Runtime struct {
 	Path    string `json:"path"`
 	Runtime string `json:"runtime"`
 	Version string `json:"version"`
+}
+
+// Secret A secret of the vault, without its value.
+type Secret struct {
+	CreatedAt time.Time `json:"created_at"`
+
+	// KeyMissing The root key it is sealed under is not in the keyring, so it cannot be read.
+	KeyMissing bool `json:"key_missing"`
+
+	// Kind generic (one value) or oauth_token_set (a refresh token and what was issued for it).
+	Kind string `json:"kind"`
+
+	// LoginRequired A token set whose refresh token was refused for good.
+	LoginRequired bool `json:"login_required"`
+
+	// Metadata Not secret; what helps to recognize the secret.
+	Metadata  *map[string]string `json:"metadata,omitempty"`
+	Name      string             `json:"name"`
+	UpdatedAt time.Time          `json:"updated_at"`
+
+	// UsedBy What refers to the secret, such as "provider openai" or "connection github.com:work".
+	UsedBy []string `json:"used_by"`
+
+	// Version Counts from 1 and grows each time the value is replaced.
+	Version int `json:"version"`
+}
+
+// SecretList defines model for SecretList.
+type SecretList struct {
+	Data []Secret `json:"data"`
+}
+
+// SecretValue defines model for SecretValue.
+type SecretValue struct {
+	Name string `json:"name"`
+
+	// Values The secret's values by key; a generic secret has one, under "value".
+	Values map[string]string `json:"values"`
 }
 
 // Source defines model for Source.
@@ -1354,6 +1406,9 @@ type SendChatMessageJSONRequestBody = NewChatMessage
 // PutGitHostJSONRequestBody defines body for PutGitHost for application/json ContentType.
 type PutGitHostJSONRequestBody = NewGitHost
 
+// PutGitHostConnectionJSONRequestBody defines body for PutGitHostConnection for application/json ContentType.
+type PutGitHostConnectionJSONRequestBody = NewGitHostToken
+
 // PutGitHostTokenJSONRequestBody defines body for PutGitHostToken for application/json ContentType.
 type PutGitHostTokenJSONRequestBody = NewGitHostToken
 
@@ -1377,6 +1432,9 @@ type CreateRunJSONRequestBody = NewRun
 
 // CreateTasksJSONRequestBody defines body for CreateTasks for application/json ContentType.
 type CreateTasksJSONRequestBody = NewTasks
+
+// PutSecretJSONRequestBody defines body for PutSecret for application/json ContentType.
+type PutSecretJSONRequestBody = NewSecretValue
 
 // RequestEditorFn is the function signature for the RequestEditor callback function
 type RequestEditorFn func(ctx context.Context, req *http.Request) error
@@ -1555,23 +1613,48 @@ type ClientInterface interface {
 	// Corresponds with PUT /hosts/{host} (the `PutGitHost` operationId).
 	PutGitHost(ctx context.Context, host string, body PutGitHostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// DeleteGitHostToken Forget a git host's token; only the owner
+	// DeleteGitHostConnection Forget a Connection of a git host and its token; only the owner
+	//
+	// Refused while a registered repository names the Connection.
+	//
+	// Corresponds with DELETE /hosts/{host}/connections/{label} (the `DeleteGitHostConnection` operationId).
+	DeleteGitHostConnection(ctx context.Context, host string, label string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PutGitHostConnectionWithBody Keep a token as a Connection of a git host, under a label; only the owner
+	//
+	// A Connection is one account of the host. The token goes into the vault and is never returned; it replaces the token the Connection had. Work on a repository uses the Connection its registered repository names, else the host's only one.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PUT /hosts/{host}/connections/{label} (the `PutGitHostConnection` operationId).
+	PutGitHostConnectionWithBody(ctx context.Context, host string, label string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PutGitHostConnection Keep a token as a Connection of a git host, under a label; only the owner
+	//
+	// A Connection is one account of the host. The token goes into the vault and is never returned; it replaces the token the Connection had. Work on a repository uses the Connection its registered repository names, else the host's only one.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PUT /hosts/{host}/connections/{label} (the `PutGitHostConnection` operationId).
+	PutGitHostConnection(ctx context.Context, host string, label string, body PutGitHostConnectionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DeleteGitHostToken Forget the git host's Connection "default"; only the owner
 	//
 	// Corresponds with DELETE /hosts/{host}/token (the `DeleteGitHostToken` operationId).
 	DeleteGitHostToken(ctx context.Context, host string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// PutGitHostTokenWithBody Keep a token for a git host, replacing the one it had; only the owner
+	// PutGitHostTokenWithBody Keep a token as the git host's Connection "default"; only the owner
 	//
-	// The token goes into the vault and is never returned. A worker of a Run on this host gets it for its git, gh and glab.
+	// The form of before a host could have several Connections. The token goes into the vault and is never returned. A worker of a Run on this host gets it for its git, gh and glab.
 	//
 	// Takes any type of body and a specified content type.
 	//
 	// Corresponds with PUT /hosts/{host}/token (the `PutGitHostToken` operationId).
 	PutGitHostTokenWithBody(ctx context.Context, host string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// PutGitHostToken Keep a token for a git host, replacing the one it had; only the owner
+	// PutGitHostToken Keep a token as the git host's Connection "default"; only the owner
 	//
-	// The token goes into the vault and is never returned. A worker of a Run on this host gets it for its git, gh and glab.
+	// The form of before a host could have several Connections. The token goes into the vault and is never returned. A worker of a Run on this host gets it for its git, gh and glab.
 	//
 	// Takes a body of the `application/json` content type.
 	//
@@ -1785,6 +1868,43 @@ type ClientInterface interface {
 	//
 	// Corresponds with POST /runs/{run_id}/tasks (the `CreateTasks` operationId).
 	CreateTasks(ctx context.Context, runId RunID, params *CreateTasksParams, body CreateTasksJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListSecrets The vault's secrets, without their values; only the owner
+	//
+	// Corresponds with GET /secrets (the `ListSecrets` operationId).
+	ListSecrets(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DeleteSecret Remove a secret and every version of it; only the owner
+	//
+	// Refused while a provider, an account or a Connection uses it.
+	//
+	// Corresponds with DELETE /secrets/{name} (the `DeleteSecret` operationId).
+	DeleteSecret(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PutSecretWithBody Keep a value under a name, as a new secret or a new version of one; only the owner
+	//
+	// What uses the secret gets the new value. The value is never returned by this operation. A new secret is generic and takes `value`. A token set is replaced with its complete set in `values`, as Omnara's edit.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PUT /secrets/{name} (the `PutSecret` operationId).
+	PutSecretWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PutSecret Keep a value under a name, as a new secret or a new version of one; only the owner
+	//
+	// What uses the secret gets the new value. The value is never returned by this operation. A new secret is generic and takes `value`. A token set is replaced with its complete set in `values`, as Omnara's edit.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PUT /secrets/{name} (the `PutSecret` operationId).
+	PutSecret(ctx context.Context, name string, body PutSecretJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetSecretValue Read one secret's value; only the owner
+	//
+	// The one operation that returns a secret's value. A coordinator's token is refused. Each read is recorded with the secret's name and the token, never the value.
+	//
+	// Corresponds with GET /secrets/{name}/value (the `GetSecretValue` operationId).
+	GetSecretValue(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListTasks The Tasks a board shows, most recently changed first
 	//
@@ -2082,7 +2202,62 @@ func (c *Client) PutGitHost(ctx context.Context, host string, body PutGitHostJSO
 	return c.Client.Do(req)
 }
 
-// DeleteGitHostToken Forget a git host's token; only the owner
+// DeleteGitHostConnection Forget a Connection of a git host and its token; only the owner
+//
+// Refused while a registered repository names the Connection.
+//
+// Corresponds with DELETE /hosts/{host}/connections/{label} (the `DeleteGitHostConnection` operationId).
+func (c *Client) DeleteGitHostConnection(ctx context.Context, host string, label string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteGitHostConnectionRequest(c.Server, host, label)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PutGitHostConnectionWithBody Keep a token as a Connection of a git host, under a label; only the owner
+//
+// A Connection is one account of the host. The token goes into the vault and is never returned; it replaces the token the Connection had. Work on a repository uses the Connection its registered repository names, else the host's only one.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PUT /hosts/{host}/connections/{label} (the `PutGitHostConnection` operationId).
+func (c *Client) PutGitHostConnectionWithBody(ctx context.Context, host string, label string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPutGitHostConnectionRequestWithBody(c.Server, host, label, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PutGitHostConnection Keep a token as a Connection of a git host, under a label; only the owner
+//
+// A Connection is one account of the host. The token goes into the vault and is never returned; it replaces the token the Connection had. Work on a repository uses the Connection its registered repository names, else the host's only one.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PUT /hosts/{host}/connections/{label} (the `PutGitHostConnection` operationId).
+func (c *Client) PutGitHostConnection(ctx context.Context, host string, label string, body PutGitHostConnectionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPutGitHostConnectionRequest(c.Server, host, label, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DeleteGitHostToken Forget the git host's Connection "default"; only the owner
 //
 // Corresponds with DELETE /hosts/{host}/token (the `DeleteGitHostToken` operationId).
 func (c *Client) DeleteGitHostToken(ctx context.Context, host string, reqEditors ...RequestEditorFn) (*http.Response, error) {
@@ -2097,9 +2272,9 @@ func (c *Client) DeleteGitHostToken(ctx context.Context, host string, reqEditors
 	return c.Client.Do(req)
 }
 
-// PutGitHostTokenWithBody Keep a token for a git host, replacing the one it had; only the owner
+// PutGitHostTokenWithBody Keep a token as the git host's Connection "default"; only the owner
 //
-// The token goes into the vault and is never returned. A worker of a Run on this host gets it for its git, gh and glab.
+// The form of before a host could have several Connections. The token goes into the vault and is never returned. A worker of a Run on this host gets it for its git, gh and glab.
 //
 // Takes any type of body and a specified content type.
 //
@@ -2116,9 +2291,9 @@ func (c *Client) PutGitHostTokenWithBody(ctx context.Context, host string, conte
 	return c.Client.Do(req)
 }
 
-// PutGitHostToken Keep a token for a git host, replacing the one it had; only the owner
+// PutGitHostToken Keep a token as the git host's Connection "default"; only the owner
 //
-// The token goes into the vault and is never returned. A worker of a Run on this host gets it for its git, gh and glab.
+// The form of before a host could have several Connections. The token goes into the vault and is never returned. A worker of a Run on this host gets it for its git, gh and glab.
 //
 // Takes a body of the `application/json` content type.
 //
@@ -2693,6 +2868,93 @@ func (c *Client) CreateTasksWithBody(ctx context.Context, runId RunID, params *C
 // Corresponds with POST /runs/{run_id}/tasks (the `CreateTasks` operationId).
 func (c *Client) CreateTasks(ctx context.Context, runId RunID, params *CreateTasksParams, body CreateTasksJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewCreateTasksRequest(c.Server, runId, params, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListSecrets The vault's secrets, without their values; only the owner
+//
+// Corresponds with GET /secrets (the `ListSecrets` operationId).
+func (c *Client) ListSecrets(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListSecretsRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DeleteSecret Remove a secret and every version of it; only the owner
+//
+// Refused while a provider, an account or a Connection uses it.
+//
+// Corresponds with DELETE /secrets/{name} (the `DeleteSecret` operationId).
+func (c *Client) DeleteSecret(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteSecretRequest(c.Server, name)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PutSecretWithBody Keep a value under a name, as a new secret or a new version of one; only the owner
+//
+// What uses the secret gets the new value. The value is never returned by this operation. A new secret is generic and takes `value`. A token set is replaced with its complete set in `values`, as Omnara's edit.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PUT /secrets/{name} (the `PutSecret` operationId).
+func (c *Client) PutSecretWithBody(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPutSecretRequestWithBody(c.Server, name, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PutSecret Keep a value under a name, as a new secret or a new version of one; only the owner
+//
+// What uses the secret gets the new value. The value is never returned by this operation. A new secret is generic and takes `value`. A token set is replaced with its complete set in `values`, as Omnara's edit.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PUT /secrets/{name} (the `PutSecret` operationId).
+func (c *Client) PutSecret(ctx context.Context, name string, body PutSecretJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPutSecretRequest(c.Server, name, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetSecretValue Read one secret's value; only the owner
+//
+// The one operation that returns a secret's value. A coordinator's token is refused. Each read is recorded with the secret's name and the token, never the value.
+//
+// Corresponds with GET /secrets/{name}/value (the `GetSecretValue` operationId).
+func (c *Client) GetSecretValue(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetSecretValueRequest(c.Server, name)
 	if err != nil {
 		return nil, err
 	}
@@ -3543,6 +3805,101 @@ func NewPutGitHostRequestWithBody(server string, host string, contentType string
 	}
 
 	operationPath := fmt.Sprintf("/hosts/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewDeleteGitHostConnectionRequest constructs an http.Request for the DeleteGitHostConnection method
+func NewDeleteGitHostConnectionRequest(server string, host string, label string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "host", host, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "label", label, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/hosts/%s/connections/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewPutGitHostConnectionRequest calls the generic PutGitHostConnection builder with application/json body
+func NewPutGitHostConnectionRequest(server string, host string, label string, body PutGitHostConnectionJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPutGitHostConnectionRequestWithBody(server, host, label, "application/json", bodyReader)
+}
+
+// NewPutGitHostConnectionRequestWithBody constructs an http.Request for the PutGitHostConnection method, with any body, and a specified content type
+func NewPutGitHostConnectionRequestWithBody(server string, host string, label string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "host", host, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "label", label, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/hosts/%s/connections/%s", pathParam0, pathParam1)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -4787,6 +5144,148 @@ func NewCreateTasksRequestWithBody(server string, runId RunID, params *CreateTas
 	return req, nil
 }
 
+// NewListSecretsRequest constructs an http.Request for the ListSecrets method
+func NewListSecretsRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/secrets")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewDeleteSecretRequest constructs an http.Request for the DeleteSecret method
+func NewDeleteSecretRequest(server string, name string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "name", name, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/secrets/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewPutSecretRequest calls the generic PutSecret builder with application/json body
+func NewPutSecretRequest(server string, name string, body PutSecretJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPutSecretRequestWithBody(server, name, "application/json", bodyReader)
+}
+
+// NewPutSecretRequestWithBody constructs an http.Request for the PutSecret method, with any body, and a specified content type
+func NewPutSecretRequestWithBody(server string, name string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "name", name, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/secrets/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewGetSecretValueRequest constructs an http.Request for the GetSecretValue method
+func NewGetSecretValueRequest(server string, name string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "name", name, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/secrets/%s/value", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewListTasksRequest constructs an http.Request for the ListTasks method
 func NewListTasksRequest(server string, params *ListTasksParams) (*http.Request, error) {
 	var err error
@@ -5124,25 +5623,52 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with PUT /hosts/{host} (the `PutGitHost` operationId).
 	PutGitHostWithResponse(ctx context.Context, host string, body PutGitHostJSONRequestBody, reqEditors ...RequestEditorFn) (*PutGitHostResponse, error)
 
-	// DeleteGitHostTokenWithResponse Forget a git host's token; only the owner
+	// DeleteGitHostConnectionWithResponse Forget a Connection of a git host and its token; only the owner
+	//
+	// Refused while a registered repository names the Connection.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with DELETE /hosts/{host}/connections/{label} (the `DeleteGitHostConnection` operationId).
+	DeleteGitHostConnectionWithResponse(ctx context.Context, host string, label string, reqEditors ...RequestEditorFn) (*DeleteGitHostConnectionResponse, error)
+
+	// PutGitHostConnectionWithBodyWithResponse Keep a token as a Connection of a git host, under a label; only the owner
+	//
+	// A Connection is one account of the host. The token goes into the vault and is never returned; it replaces the token the Connection had. Work on a repository uses the Connection its registered repository names, else the host's only one.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /hosts/{host}/connections/{label} (the `PutGitHostConnection` operationId).
+	PutGitHostConnectionWithBodyWithResponse(ctx context.Context, host string, label string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutGitHostConnectionResponse, error)
+
+	// PutGitHostConnectionWithResponse Keep a token as a Connection of a git host, under a label; only the owner
+	//
+	// A Connection is one account of the host. The token goes into the vault and is never returned; it replaces the token the Connection had. Work on a repository uses the Connection its registered repository names, else the host's only one.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /hosts/{host}/connections/{label} (the `PutGitHostConnection` operationId).
+	PutGitHostConnectionWithResponse(ctx context.Context, host string, label string, body PutGitHostConnectionJSONRequestBody, reqEditors ...RequestEditorFn) (*PutGitHostConnectionResponse, error)
+
+	// DeleteGitHostTokenWithResponse Forget the git host's Connection "default"; only the owner
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with DELETE /hosts/{host}/token (the `DeleteGitHostToken` operationId).
 	DeleteGitHostTokenWithResponse(ctx context.Context, host string, reqEditors ...RequestEditorFn) (*DeleteGitHostTokenResponse, error)
 
-	// PutGitHostTokenWithBodyWithResponse Keep a token for a git host, replacing the one it had; only the owner
+	// PutGitHostTokenWithBodyWithResponse Keep a token as the git host's Connection "default"; only the owner
 	//
-	// The token goes into the vault and is never returned. A worker of a Run on this host gets it for its git, gh and glab.
+	// The form of before a host could have several Connections. The token goes into the vault and is never returned. A worker of a Run on this host gets it for its git, gh and glab.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with PUT /hosts/{host}/token (the `PutGitHostToken` operationId).
 	PutGitHostTokenWithBodyWithResponse(ctx context.Context, host string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutGitHostTokenResponse, error)
 
-	// PutGitHostTokenWithResponse Keep a token for a git host, replacing the one it had; only the owner
+	// PutGitHostTokenWithResponse Keep a token as the git host's Connection "default"; only the owner
 	//
-	// The token goes into the vault and is never returned. A worker of a Run on this host gets it for its git, gh and glab.
+	// The form of before a host could have several Connections. The token goes into the vault and is never returned. A worker of a Run on this host gets it for its git, gh and glab.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
@@ -5400,6 +5926,49 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with POST /runs/{run_id}/tasks (the `CreateTasks` operationId).
 	CreateTasksWithResponse(ctx context.Context, runId RunID, params *CreateTasksParams, body CreateTasksJSONRequestBody, reqEditors ...RequestEditorFn) (*CreateTasksResponse, error)
+
+	// ListSecretsWithResponse The vault's secrets, without their values; only the owner
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /secrets (the `ListSecrets` operationId).
+	ListSecretsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListSecretsResponse, error)
+
+	// DeleteSecretWithResponse Remove a secret and every version of it; only the owner
+	//
+	// Refused while a provider, an account or a Connection uses it.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with DELETE /secrets/{name} (the `DeleteSecret` operationId).
+	DeleteSecretWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*DeleteSecretResponse, error)
+
+	// PutSecretWithBodyWithResponse Keep a value under a name, as a new secret or a new version of one; only the owner
+	//
+	// What uses the secret gets the new value. The value is never returned by this operation. A new secret is generic and takes `value`. A token set is replaced with its complete set in `values`, as Omnara's edit.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /secrets/{name} (the `PutSecret` operationId).
+	PutSecretWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutSecretResponse, error)
+
+	// PutSecretWithResponse Keep a value under a name, as a new secret or a new version of one; only the owner
+	//
+	// What uses the secret gets the new value. The value is never returned by this operation. A new secret is generic and takes `value`. A token set is replaced with its complete set in `values`, as Omnara's edit.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /secrets/{name} (the `PutSecret` operationId).
+	PutSecretWithResponse(ctx context.Context, name string, body PutSecretJSONRequestBody, reqEditors ...RequestEditorFn) (*PutSecretResponse, error)
+
+	// GetSecretValueWithResponse Read one secret's value; only the owner
+	//
+	// The one operation that returns a secret's value. A coordinator's token is refused. Each read is recorded with the secret's name and the token, never the value.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /secrets/{name}/value (the `GetSecretValue` operationId).
+	GetSecretValueWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetSecretValueResponse, error)
 
 	// ListTasksWithResponse The Tasks a board shows, most recently changed first
 	//
@@ -6070,6 +6639,102 @@ func (r PutGitHostResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r PutGitHostResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type DeleteGitHostConnectionResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *GitHost
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r DeleteGitHostConnectionResponse) GetJSON200() *GitHost {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r DeleteGitHostConnectionResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r DeleteGitHostConnectionResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteGitHostConnectionResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteGitHostConnectionResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DeleteGitHostConnectionResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type PutGitHostConnectionResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *GitHost
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r PutGitHostConnectionResponse) GetJSON200() *GitHost {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r PutGitHostConnectionResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r PutGitHostConnectionResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r PutGitHostConnectionResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PutGitHostConnectionResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r PutGitHostConnectionResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -7557,6 +8222,198 @@ func (r CreateTasksResponse) ContentType() string {
 	return ""
 }
 
+type ListSecretsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *SecretList
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListSecretsResponse) GetJSON200() *SecretList {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListSecretsResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListSecretsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListSecretsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListSecretsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListSecretsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type DeleteSecretResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r DeleteSecretResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r DeleteSecretResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteSecretResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteSecretResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DeleteSecretResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type PutSecretResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Secret
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r PutSecretResponse) GetJSON200() *Secret {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r PutSecretResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r PutSecretResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r PutSecretResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PutSecretResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r PutSecretResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+// GetSecretValueResponse200Headers the declared response headers of an HTTP 200 response for GetSecretValue
+type GetSecretValueResponse200Headers struct {
+	CacheControl *string
+}
+
+type GetSecretValueResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *SecretValue
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+	// Headers200 the parsed response headers for an HTTP 200 response
+	Headers200 *GetSecretValueResponse200Headers
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetSecretValueResponse) GetJSON200() *SecretValue {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r GetSecretValueResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r GetSecretValueResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetSecretValueResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetSecretValueResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetSecretValueResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type ListTasksResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -7976,7 +8833,52 @@ func (c *ClientWithResponses) PutGitHostWithResponse(ctx context.Context, host s
 	return ParsePutGitHostResponse(rsp)
 }
 
-// DeleteGitHostTokenWithResponse Forget a git host's token; only the owner
+// DeleteGitHostConnectionWithResponse Forget a Connection of a git host and its token; only the owner
+//
+// Refused while a registered repository names the Connection.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with DELETE /hosts/{host}/connections/{label} (the `DeleteGitHostConnection` operationId).
+func (c *ClientWithResponses) DeleteGitHostConnectionWithResponse(ctx context.Context, host string, label string, reqEditors ...RequestEditorFn) (*DeleteGitHostConnectionResponse, error) {
+	rsp, err := c.DeleteGitHostConnection(ctx, host, label, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteGitHostConnectionResponse(rsp)
+}
+
+// PutGitHostConnectionWithBodyWithResponse Keep a token as a Connection of a git host, under a label; only the owner
+//
+// A Connection is one account of the host. The token goes into the vault and is never returned; it replaces the token the Connection had. Work on a repository uses the Connection its registered repository names, else the host's only one.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /hosts/{host}/connections/{label} (the `PutGitHostConnection` operationId).
+func (c *ClientWithResponses) PutGitHostConnectionWithBodyWithResponse(ctx context.Context, host string, label string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutGitHostConnectionResponse, error) {
+	rsp, err := c.PutGitHostConnectionWithBody(ctx, host, label, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePutGitHostConnectionResponse(rsp)
+}
+
+// PutGitHostConnectionWithResponse Keep a token as a Connection of a git host, under a label; only the owner
+//
+// A Connection is one account of the host. The token goes into the vault and is never returned; it replaces the token the Connection had. Work on a repository uses the Connection its registered repository names, else the host's only one.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /hosts/{host}/connections/{label} (the `PutGitHostConnection` operationId).
+func (c *ClientWithResponses) PutGitHostConnectionWithResponse(ctx context.Context, host string, label string, body PutGitHostConnectionJSONRequestBody, reqEditors ...RequestEditorFn) (*PutGitHostConnectionResponse, error) {
+	rsp, err := c.PutGitHostConnection(ctx, host, label, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePutGitHostConnectionResponse(rsp)
+}
+
+// DeleteGitHostTokenWithResponse Forget the git host's Connection "default"; only the owner
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -7989,9 +8891,9 @@ func (c *ClientWithResponses) DeleteGitHostTokenWithResponse(ctx context.Context
 	return ParseDeleteGitHostTokenResponse(rsp)
 }
 
-// PutGitHostTokenWithBodyWithResponse Keep a token for a git host, replacing the one it had; only the owner
+// PutGitHostTokenWithBodyWithResponse Keep a token as the git host's Connection "default"; only the owner
 //
-// The token goes into the vault and is never returned. A worker of a Run on this host gets it for its git, gh and glab.
+// The form of before a host could have several Connections. The token goes into the vault and is never returned. A worker of a Run on this host gets it for its git, gh and glab.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
@@ -8004,9 +8906,9 @@ func (c *ClientWithResponses) PutGitHostTokenWithBodyWithResponse(ctx context.Co
 	return ParsePutGitHostTokenResponse(rsp)
 }
 
-// PutGitHostTokenWithResponse Keep a token for a git host, replacing the one it had; only the owner
+// PutGitHostTokenWithResponse Keep a token as the git host's Connection "default"; only the owner
 //
-// The token goes into the vault and is never returned. A worker of a Run on this host gets it for its git, gh and glab.
+// The form of before a host could have several Connections. The token goes into the vault and is never returned. A worker of a Run on this host gets it for its git, gh and glab.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
@@ -8487,6 +9389,79 @@ func (c *ClientWithResponses) CreateTasksWithResponse(ctx context.Context, runId
 	return ParseCreateTasksResponse(rsp)
 }
 
+// ListSecretsWithResponse The vault's secrets, without their values; only the owner
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /secrets (the `ListSecrets` operationId).
+func (c *ClientWithResponses) ListSecretsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListSecretsResponse, error) {
+	rsp, err := c.ListSecrets(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListSecretsResponse(rsp)
+}
+
+// DeleteSecretWithResponse Remove a secret and every version of it; only the owner
+//
+// Refused while a provider, an account or a Connection uses it.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with DELETE /secrets/{name} (the `DeleteSecret` operationId).
+func (c *ClientWithResponses) DeleteSecretWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*DeleteSecretResponse, error) {
+	rsp, err := c.DeleteSecret(ctx, name, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteSecretResponse(rsp)
+}
+
+// PutSecretWithBodyWithResponse Keep a value under a name, as a new secret or a new version of one; only the owner
+//
+// What uses the secret gets the new value. The value is never returned by this operation. A new secret is generic and takes `value`. A token set is replaced with its complete set in `values`, as Omnara's edit.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /secrets/{name} (the `PutSecret` operationId).
+func (c *ClientWithResponses) PutSecretWithBodyWithResponse(ctx context.Context, name string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutSecretResponse, error) {
+	rsp, err := c.PutSecretWithBody(ctx, name, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePutSecretResponse(rsp)
+}
+
+// PutSecretWithResponse Keep a value under a name, as a new secret or a new version of one; only the owner
+//
+// What uses the secret gets the new value. The value is never returned by this operation. A new secret is generic and takes `value`. A token set is replaced with its complete set in `values`, as Omnara's edit.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /secrets/{name} (the `PutSecret` operationId).
+func (c *ClientWithResponses) PutSecretWithResponse(ctx context.Context, name string, body PutSecretJSONRequestBody, reqEditors ...RequestEditorFn) (*PutSecretResponse, error) {
+	rsp, err := c.PutSecret(ctx, name, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePutSecretResponse(rsp)
+}
+
+// GetSecretValueWithResponse Read one secret's value; only the owner
+//
+// The one operation that returns a secret's value. A coordinator's token is refused. Each read is recorded with the secret's name and the token, never the value.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /secrets/{name}/value (the `GetSecretValue` operationId).
+func (c *ClientWithResponses) GetSecretValueWithResponse(ctx context.Context, name string, reqEditors ...RequestEditorFn) (*GetSecretValueResponse, error) {
+	rsp, err := c.GetSecretValue(ctx, name, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetSecretValueResponse(rsp)
+}
+
 // ListTasksWithResponse The Tasks a board shows, most recently changed first
 //
 // Every Task of an open Run, and the Tasks of other Runs that changed at or after since, with their latest Dispatch and the Runs they belong to. One call fills a board of the work in flight.
@@ -8957,6 +9932,72 @@ func ParsePutGitHostResponse(rsp *http.Response) (*PutGitHostResponse, error) {
 	}
 
 	response := &PutGitHostResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest GitHost
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDeleteGitHostConnectionResponse parses an HTTP response from a DeleteGitHostConnectionWithResponse call
+func ParseDeleteGitHostConnectionResponse(rsp *http.Response) (*DeleteGitHostConnectionResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteGitHostConnectionResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest GitHost
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePutGitHostConnectionResponse parses an HTTP response from a PutGitHostConnectionWithResponse call
+func ParsePutGitHostConnectionResponse(rsp *http.Response) (*PutGitHostConnectionResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PutGitHostConnectionResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
@@ -10003,6 +11044,147 @@ func ParseCreateTasksResponse(rsp *http.Response) (*CreateTasksResponse, error) 
 	return response, nil
 }
 
+// ParseListSecretsResponse parses an HTTP response from a ListSecretsWithResponse call
+func ParseListSecretsResponse(rsp *http.Response) (*ListSecretsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListSecretsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest SecretList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDeleteSecretResponse parses an HTTP response from a DeleteSecretWithResponse call
+func ParseDeleteSecretResponse(rsp *http.Response) (*DeleteSecretResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteSecretResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePutSecretResponse parses an HTTP response from a PutSecretWithResponse call
+func ParsePutSecretResponse(rsp *http.Response) (*PutSecretResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PutSecretResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Secret
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetSecretValueResponse parses an HTTP response from a GetSecretValueWithResponse call
+func ParseGetSecretValueResponse(rsp *http.Response) (*GetSecretValueResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetSecretValueResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest SecretValue
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	switch {
+	case rsp.StatusCode == 200:
+		var headers GetSecretValueResponse200Headers
+		if values := rsp.Header.Values("Cache-Control"); len(values) > 0 {
+			var value string
+			if err := runtime.BindStyledParameterWithOptions("simple", "Cache-Control", values[0], &value, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			}
+			headers.CacheControl = &value
+		}
+		response.Headers200 = &headers
+	}
+
+	return response, nil
+}
+
 // ParseListTasksResponse parses an HTTP response from a ListTasksWithResponse call
 func ParseListTasksResponse(rsp *http.Response) (*ListTasksResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -10179,10 +11361,16 @@ type ServerInterface interface {
 	// PutGitHost Declare a company's git server and its kind; only the owner
 	// (PUT /hosts/{host})
 	PutGitHost(w http.ResponseWriter, r *http.Request, host string)
-	// DeleteGitHostToken Forget a git host's token; only the owner
+	// DeleteGitHostConnection Forget a Connection of a git host and its token; only the owner
+	// (DELETE /hosts/{host}/connections/{label})
+	DeleteGitHostConnection(w http.ResponseWriter, r *http.Request, host string, label string)
+	// PutGitHostConnection Keep a token as a Connection of a git host, under a label; only the owner
+	// (PUT /hosts/{host}/connections/{label})
+	PutGitHostConnection(w http.ResponseWriter, r *http.Request, host string, label string)
+	// DeleteGitHostToken Forget the git host's Connection "default"; only the owner
 	// (DELETE /hosts/{host}/token)
 	DeleteGitHostToken(w http.ResponseWriter, r *http.Request, host string)
-	// PutGitHostToken Keep a token for a git host, replacing the one it had; only the owner
+	// PutGitHostToken Keep a token as the git host's Connection "default"; only the owner
 	// (PUT /hosts/{host}/token)
 	PutGitHostToken(w http.ResponseWriter, r *http.Request, host string)
 	// ListMachineProviders The providers a machine can be created at (owner only)
@@ -10272,6 +11460,18 @@ type ServerInterface interface {
 	// CreateTasks Add Tasks to an open Run, with their dependencies
 	// (POST /runs/{run_id}/tasks)
 	CreateTasks(w http.ResponseWriter, r *http.Request, runId RunID, params CreateTasksParams)
+	// ListSecrets The vault's secrets, without their values; only the owner
+	// (GET /secrets)
+	ListSecrets(w http.ResponseWriter, r *http.Request)
+	// DeleteSecret Remove a secret and every version of it; only the owner
+	// (DELETE /secrets/{name})
+	DeleteSecret(w http.ResponseWriter, r *http.Request, name string)
+	// PutSecret Keep a value under a name, as a new secret or a new version of one; only the owner
+	// (PUT /secrets/{name})
+	PutSecret(w http.ResponseWriter, r *http.Request, name string)
+	// GetSecretValue Read one secret's value; only the owner
+	// (GET /secrets/{name}/value)
+	GetSecretValue(w http.ResponseWriter, r *http.Request, name string)
 	// ListTasks The Tasks a board shows, most recently changed first
 	// (GET /tasks)
 	ListTasks(w http.ResponseWriter, r *http.Request, params ListTasksParams)
@@ -10868,6 +12068,76 @@ func (siw *ServerInterfaceWrapper) PutGitHost(w http.ResponseWriter, r *http.Req
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.PutGitHost(w, r, host)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteGitHostConnection operation middleware
+func (siw *ServerInterfaceWrapper) DeleteGitHostConnection(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "host" -------------
+	var host string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "host", r.PathValue("host"), &host, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "host", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "label" -------------
+	var label string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "label", r.PathValue("label"), &label, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "label", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteGitHostConnection(w, r, host, label)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PutGitHostConnection operation middleware
+func (siw *ServerInterfaceWrapper) PutGitHostConnection(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "host" -------------
+	var host string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "host", r.PathValue("host"), &host, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "host", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "label" -------------
+	var label string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "label", r.PathValue("label"), &label, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "label", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PutGitHostConnection(w, r, host, label)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -11705,6 +12975,98 @@ func (siw *ServerInterfaceWrapper) CreateTasks(w http.ResponseWriter, r *http.Re
 	handler.ServeHTTP(w, r)
 }
 
+// ListSecrets operation middleware
+func (siw *ServerInterfaceWrapper) ListSecrets(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListSecrets(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteSecret operation middleware
+func (siw *ServerInterfaceWrapper) DeleteSecret(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", r.PathValue("name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteSecret(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PutSecret operation middleware
+func (siw *ServerInterfaceWrapper) PutSecret(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", r.PathValue("name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PutSecret(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetSecretValue operation middleware
+func (siw *ServerInterfaceWrapper) GetSecretValue(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", r.PathValue("name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetSecretValue(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
 // ListTasks operation middleware
 func (siw *ServerInterfaceWrapper) ListTasks(w http.ResponseWriter, r *http.Request) {
 
@@ -11980,6 +13342,12 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/hosts/{host}", wrapper.PutGitHost)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/hosts/{host}/token", wrapper.DeleteGitHostToken)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/hosts/{host}/token", wrapper.PutGitHostToken)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/hosts/{host}/connections/{label}", wrapper.DeleteGitHostConnection)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/hosts/{host}/connections/{label}", wrapper.PutGitHostConnection)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/secrets", wrapper.ListSecrets)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/secrets/{name}", wrapper.DeleteSecret)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/secrets/{name}", wrapper.PutSecret)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/secrets/{name}/value", wrapper.GetSecretValue)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/repos", wrapper.ListRepos)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/repos/{name}", wrapper.DeleteRepo)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/repos/{name}", wrapper.PutRepo)
@@ -12588,6 +13956,87 @@ type PutGitHostdefaultJSONResponse struct {
 }
 
 func (response PutGitHostdefaultJSONResponse) VisitPutGitHostResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteGitHostConnectionRequestObject struct {
+	Host  string `json:"host"`
+	Label string `json:"label"`
+}
+
+type DeleteGitHostConnectionResponseObject interface {
+	VisitDeleteGitHostConnectionResponse(w http.ResponseWriter) error
+}
+
+type DeleteGitHostConnection200JSONResponse GitHost
+
+func (response DeleteGitHostConnection200JSONResponse) VisitDeleteGitHostConnectionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteGitHostConnectiondefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response DeleteGitHostConnectiondefaultJSONResponse) VisitDeleteGitHostConnectionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutGitHostConnectionRequestObject struct {
+	Host  string `json:"host"`
+	Label string `json:"label"`
+	Body  *PutGitHostConnectionJSONRequestBody
+}
+
+type PutGitHostConnectionResponseObject interface {
+	VisitPutGitHostConnectionResponse(w http.ResponseWriter) error
+}
+
+type PutGitHostConnection200JSONResponse GitHost
+
+func (response PutGitHostConnection200JSONResponse) VisitPutGitHostConnectionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutGitHostConnectiondefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response PutGitHostConnectiondefaultJSONResponse) VisitPutGitHostConnectionResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -13811,6 +15260,166 @@ func (response CreateTasksdefaultJSONResponse) VisitCreateTasksResponse(w http.R
 	return err
 }
 
+type ListSecretsRequestObject struct {
+}
+
+type ListSecretsResponseObject interface {
+	VisitListSecretsResponse(w http.ResponseWriter) error
+}
+
+type ListSecrets200JSONResponse SecretList
+
+func (response ListSecrets200JSONResponse) VisitListSecretsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSecretsdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListSecretsdefaultJSONResponse) VisitListSecretsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteSecretRequestObject struct {
+	Name string `json:"name"`
+}
+
+type DeleteSecretResponseObject interface {
+	VisitDeleteSecretResponse(w http.ResponseWriter) error
+}
+
+type DeleteSecret204Response struct {
+}
+
+func (response DeleteSecret204Response) VisitDeleteSecretResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteSecretdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response DeleteSecretdefaultJSONResponse) VisitDeleteSecretResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutSecretRequestObject struct {
+	Name string `json:"name"`
+	Body *PutSecretJSONRequestBody
+}
+
+type PutSecretResponseObject interface {
+	VisitPutSecretResponse(w http.ResponseWriter) error
+}
+
+type PutSecret200JSONResponse Secret
+
+func (response PutSecret200JSONResponse) VisitPutSecretResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutSecretdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response PutSecretdefaultJSONResponse) VisitPutSecretResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSecretValueRequestObject struct {
+	Name string `json:"name"`
+}
+
+type GetSecretValueResponseObject interface {
+	VisitGetSecretValueResponse(w http.ResponseWriter) error
+}
+
+type GetSecretValue200ResponseHeaders struct {
+	CacheControl *string
+}
+
+type GetSecretValue200JSONResponse struct {
+	Body    SecretValue
+	Headers GetSecretValue200ResponseHeaders
+}
+
+func (response GetSecretValue200JSONResponse) VisitGetSecretValueResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if response.Headers.CacheControl != nil {
+		w.Header().Set("Cache-Control", fmt.Sprint(*response.Headers.CacheControl))
+	}
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSecretValuedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetSecretValuedefaultJSONResponse) VisitGetSecretValueResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListTasksRequestObject struct {
 	Params ListTasksParams
 }
@@ -14011,10 +15620,16 @@ type StrictServerInterface interface {
 	// PutGitHost Declare a company's git server and its kind; only the owner
 	// (PUT /hosts/{host})
 	PutGitHost(ctx context.Context, request PutGitHostRequestObject) (PutGitHostResponseObject, error)
-	// DeleteGitHostToken Forget a git host's token; only the owner
+	// DeleteGitHostConnection Forget a Connection of a git host and its token; only the owner
+	// (DELETE /hosts/{host}/connections/{label})
+	DeleteGitHostConnection(ctx context.Context, request DeleteGitHostConnectionRequestObject) (DeleteGitHostConnectionResponseObject, error)
+	// PutGitHostConnection Keep a token as a Connection of a git host, under a label; only the owner
+	// (PUT /hosts/{host}/connections/{label})
+	PutGitHostConnection(ctx context.Context, request PutGitHostConnectionRequestObject) (PutGitHostConnectionResponseObject, error)
+	// DeleteGitHostToken Forget the git host's Connection "default"; only the owner
 	// (DELETE /hosts/{host}/token)
 	DeleteGitHostToken(ctx context.Context, request DeleteGitHostTokenRequestObject) (DeleteGitHostTokenResponseObject, error)
-	// PutGitHostToken Keep a token for a git host, replacing the one it had; only the owner
+	// PutGitHostToken Keep a token as the git host's Connection "default"; only the owner
 	// (PUT /hosts/{host}/token)
 	PutGitHostToken(ctx context.Context, request PutGitHostTokenRequestObject) (PutGitHostTokenResponseObject, error)
 	// ListMachineProviders The providers a machine can be created at (owner only)
@@ -14104,6 +15719,18 @@ type StrictServerInterface interface {
 	// CreateTasks Add Tasks to an open Run, with their dependencies
 	// (POST /runs/{run_id}/tasks)
 	CreateTasks(ctx context.Context, request CreateTasksRequestObject) (CreateTasksResponseObject, error)
+	// ListSecrets The vault's secrets, without their values; only the owner
+	// (GET /secrets)
+	ListSecrets(ctx context.Context, request ListSecretsRequestObject) (ListSecretsResponseObject, error)
+	// DeleteSecret Remove a secret and every version of it; only the owner
+	// (DELETE /secrets/{name})
+	DeleteSecret(ctx context.Context, request DeleteSecretRequestObject) (DeleteSecretResponseObject, error)
+	// PutSecret Keep a value under a name, as a new secret or a new version of one; only the owner
+	// (PUT /secrets/{name})
+	PutSecret(ctx context.Context, request PutSecretRequestObject) (PutSecretResponseObject, error)
+	// GetSecretValue Read one secret's value; only the owner
+	// (GET /secrets/{name}/value)
+	GetSecretValue(ctx context.Context, request GetSecretValueRequestObject) (GetSecretValueResponseObject, error)
 	// ListTasks The Tasks a board shows, most recently changed first
 	// (GET /tasks)
 	ListTasks(ctx context.Context, request ListTasksRequestObject) (ListTasksResponseObject, error)
@@ -14532,6 +16159,67 @@ func (sh *strictHandler) PutGitHost(w http.ResponseWriter, r *http.Request, host
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(PutGitHostResponseObject); ok {
 		if err := validResponse.VisitPutGitHostResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteGitHostConnection operation middleware
+func (sh *strictHandler) DeleteGitHostConnection(w http.ResponseWriter, r *http.Request, host string, label string) {
+	var request DeleteGitHostConnectionRequestObject
+
+	request.Host = host
+	request.Label = label
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteGitHostConnection(ctx, request.(DeleteGitHostConnectionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteGitHostConnection")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteGitHostConnectionResponseObject); ok {
+		if err := validResponse.VisitDeleteGitHostConnectionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PutGitHostConnection operation middleware
+func (sh *strictHandler) PutGitHostConnection(w http.ResponseWriter, r *http.Request, host string, label string) {
+	var request PutGitHostConnectionRequestObject
+
+	request.Host = host
+	request.Label = label
+
+	var body PutGitHostConnectionJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PutGitHostConnection(ctx, request.(PutGitHostConnectionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PutGitHostConnection")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PutGitHostConnectionResponseObject); ok {
+		if err := validResponse.VisitPutGitHostConnectionResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -15386,6 +17074,115 @@ func (sh *strictHandler) CreateTasks(w http.ResponseWriter, r *http.Request, run
 	}
 }
 
+// ListSecrets operation middleware
+func (sh *strictHandler) ListSecrets(w http.ResponseWriter, r *http.Request) {
+	var request ListSecretsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListSecrets(ctx, request.(ListSecretsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListSecrets")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListSecretsResponseObject); ok {
+		if err := validResponse.VisitListSecretsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteSecret operation middleware
+func (sh *strictHandler) DeleteSecret(w http.ResponseWriter, r *http.Request, name string) {
+	var request DeleteSecretRequestObject
+
+	request.Name = name
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteSecret(ctx, request.(DeleteSecretRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteSecret")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteSecretResponseObject); ok {
+		if err := validResponse.VisitDeleteSecretResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PutSecret operation middleware
+func (sh *strictHandler) PutSecret(w http.ResponseWriter, r *http.Request, name string) {
+	var request PutSecretRequestObject
+
+	request.Name = name
+
+	var body PutSecretJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PutSecret(ctx, request.(PutSecretRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PutSecret")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PutSecretResponseObject); ok {
+		if err := validResponse.VisitPutSecretResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetSecretValue operation middleware
+func (sh *strictHandler) GetSecretValue(w http.ResponseWriter, r *http.Request, name string) {
+	var request GetSecretValueRequestObject
+
+	request.Name = name
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetSecretValue(ctx, request.(GetSecretValueRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetSecretValue")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetSecretValueResponseObject); ok {
+		if err := validResponse.VisitGetSecretValueResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ListTasks operation middleware
 func (sh *strictHandler) ListTasks(w http.ResponseWriter, r *http.Request, params ListTasksParams) {
 	var request ListTasksRequestObject
@@ -15495,149 +17292,167 @@ func (sh *strictHandler) ReopenTask(w http.ResponseWriter, r *http.Request, task
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
+	"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",
+	"twg9V7/GwbzTTXFenPJWnGIDlrf3/38A",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,
