@@ -1,6 +1,7 @@
 import { Meter as BaseMeter } from "@base-ui/react/meter"
+import type { ReactNode } from "react"
 
-import type { Node } from "@/api/generated/types.gen"
+import type { Node, NodeGpu } from "@/api/generated/types.gen"
 import { since } from "@/lib/time"
 import { cn } from "@/lib/utils"
 
@@ -118,5 +119,37 @@ export function Meter({
         />
       </BaseMeter.Track>
     </BaseMeter.Root>
+  )
+}
+
+// GpuRows is one line a GPU: its index when the machine has several, its meter, and what `after` gives.
+export function GpuRows({
+  node,
+  children,
+}: {
+  node: Node
+  children: (gpu: NodeGpu) => { meter: ReactNode; after?: ReactNode }
+}) {
+  const gpus = node.stats?.gpus ?? []
+  if (gpus.length === 0) return <span className="text-muted-foreground">—</span>
+
+  return (
+    <span className="flex w-full min-w-0 flex-col gap-1.5 py-1">
+      {gpus.map((gpu) => {
+        const { meter, after } = children(gpu)
+
+        return (
+          <span key={gpu.index} className="flex w-full min-w-0 items-center gap-2">
+            {gpus.length > 1 && (
+              <span className="w-2 shrink-0 text-xs text-muted-foreground tabular-nums">
+                {gpu.index}
+              </span>
+            )}
+            {meter}
+            {after}
+          </span>
+        )
+      })}
+    </span>
   )
 }

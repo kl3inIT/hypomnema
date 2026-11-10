@@ -484,7 +484,7 @@ func (c *session) stats(ctx context.Context, payload json.RawMessage) {
 	if err == nil && hb.Stats != nil {
 		err = c.srv.svc.NodeStats(ctx, c.nodeID, orchestration.SystemStats{
 			CPUPercent: hb.Stats.CPUPercent, MemoryUsedBytes: hb.Stats.MemoryUsedBytes,
-			DiskUsedBytes: hb.Stats.DiskUsedBytes, Load1: hb.Stats.Load1,
+			DiskUsedBytes: hb.Stats.DiskUsedBytes, Load1: hb.Stats.Load1, GPUs: gpusOf(hb.Stats.GPUs),
 		})
 	}
 
@@ -533,4 +533,17 @@ func (c *session) handle(ctx context.Context, msg nodeproto.Message) error {
 		return c.send(ctx, nodeproto.TypeError,
 			nodeproto.Error{Code: nodeproto.ErrorInvalid, Message: "unexpected message " + string(msg.Type)})
 	}
+}
+
+// gpusOf is a heartbeat's GPUs as the registry keeps them.
+func gpusOf(gpus []nodeproto.GPUStats) []orchestration.GPUStats {
+	out := make([]orchestration.GPUStats, 0, len(gpus))
+	for _, g := range gpus {
+		out = append(out, orchestration.GPUStats{
+			Index: g.Index, Name: g.Name, UsagePercent: g.UsagePercent, MemoryUsedBytes: g.MemoryUsedBytes,
+			MemoryTotalBytes: g.MemoryTotalBytes, TemperatureCelsius: g.TemperatureCelsius, PowerWatts: g.PowerWatts,
+		})
+	}
+
+	return out
 }

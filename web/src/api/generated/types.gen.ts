@@ -474,7 +474,27 @@ export type NodeStats = {
    * The one-minute load average; zero where the system has none.
    */
   load1: number;
+  /**
+   * The machine's GPUs, by index. Left out for a machine that has none or whose node reads none.
+   */
+  gpus?: Array<NodeGpu>;
   at: string;
+};
+
+/**
+ * One GPU's latest measurement, as Beszel's GPUData.
+ */
+export type NodeGpu = {
+  index: number;
+  name: string;
+  /**
+   * How busy the GPU is, 0 to 100.
+   */
+  usage_percent: number;
+  memory_used_bytes: number;
+  memory_total_bytes: number;
+  temperature_celsius?: number;
+  power_watts?: number;
 };
 
 export type GitHostKind = 'github' | 'gitlab';
