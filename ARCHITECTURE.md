@@ -507,6 +507,8 @@ The owner's commands:
 - On the server, with the same database as `serve`:
   - `nodes add <name>` prints the node's token once, and the line that installs the node; `nodes list` shows each node's state, load, CLIs and
     machine; `nodes drain|resume|rm <node>` take the node's id or name;
+  - `nodes rename <node> <new name>` gives a node another name (`PATCH /nodes/{node_id}`, owner only): its id, its
+    tokens and what it runs stay, and the name of another node that is not removed is refused;
   - `nodes token add <node> <name>` prints one more token once; `nodes token list <node>` and
     `nodes token revoke <id>`. A node connected with a revoked token is refused at its next heartbeat;
   - `machines providers add <name> --kind aws --key vault:<secret> --region R --size S [--max N]
@@ -708,8 +710,8 @@ Node (`internal/node`):
   id in its address (`?reconnect=`), so a reload returns to the same shell. A dropped connection is said above
   the terminal and tried again by itself; a shell that ended offers a new session; a node without a terminal has
   the item switched off with the reason. `GET /nodes` is read again every 5 s while the tab is
-  visible, since no event says a measurement changed. A machine's menu drains or resumes it and removes it after a
-  confirmation; a refusal shows the server's message. Where the server has machine providers, "Add machine" first asks where: a machine of the owner's own, or a
+  visible, since no event says a measurement changed. A machine's menu renames it (a dialog that starts from its name; only the
+  name changes), drains or resumes it and removes it after a confirmation; a refusal shows the server's message. Where the server has machine providers, "Add machine" first asks where: a machine of the owner's own, or a
   new one at a provider, shown with its size, region and how many machines it has of its limit; a new one takes
   a size and a region, each the provider's default when left empty, is created at once and needs no token, and a
   provider at its limit creates none. A machine that was not created is removed from its own card, behind the
