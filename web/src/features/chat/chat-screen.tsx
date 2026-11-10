@@ -3,7 +3,14 @@ import { useNavigate } from "@tanstack/react-router"
 
 import "@/api/client"
 import { abortChat, createChat, getChat, sendChatMessage } from "@/api/generated/sdk.gen"
-import { AppSidebar, ChatList, PageHeader, Places, SignOut } from "@/features/shell/app-shell"
+import {
+  AppSidebar,
+  ChatList,
+  PageHeader,
+  Places,
+  SettingsLink,
+  SignOut,
+} from "@/features/shell/app-shell"
 import { chatsKey } from "@/features/shell/chats"
 
 import { Composer } from "./composer"
@@ -58,7 +65,8 @@ function NewChat() {
           <div className="w-full max-w-(--chat-content-max-width) md:hidden">
             <Places />
             <ChatList label="Recent chats" />
-            <div className="mt-2">
+            <div className="mt-2 flex flex-col gap-px">
+              <SettingsLink />
               <SignOut />
             </div>
           </div>
