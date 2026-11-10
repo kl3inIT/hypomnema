@@ -33,6 +33,9 @@
 - Before proposing a default or a rule (security posture, tool access, spawn policy, isolation, layout), read how the
   references do it and start from their common default; show the comparison with paths and depart only with a stated
   reason. Mark what no reference does as inference.
+- Do not invent logic. Every decision, in a design, an issue or a reply to the owner, says in its own column or line
+  which reference it is learned from ("From", "Học từ"). A piece of logic that no reference has is left out, not
+  kept with a label, unless the owner asked for it; then the line names the owner and the date (owner, 2026-11-10).
 - When comparing options, the amount of code to write is not a cost: agents write it. Weigh complexity instead:
   moving parts, failure modes, state that must stay consistent, what has to be operated, and how hard the result is
   to understand and change. "Less code" alone never justifies departing from what the references do (owner,
