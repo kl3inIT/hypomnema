@@ -124,8 +124,9 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 
 	mux := http.NewServeMux()
 	platform.RegisterHealth(mux, sqlite.Ready(db), logger)
-	secrets := vault.New(db, platform.SystemClock{}, platform.NewID, cfg.VaultKeys, svc.ProvidersUsingKeyRef)
+	secrets := vault.New(db, platform.SystemClock{}, platform.NewID, cfg.VaultKeys, secretReferrers(svc))
 	tokens := hostTokens{svc: svc, vault: secrets}
+	machineMgr := machineManager(svc, secrets, cfg.PublicURL, logger)
 
 	nodeapi.New(svc, logger).WithHostTokens(tokens.Token).Register(mux)
 	mux.Handle("GET "+nodeapi.PathInstallScript, nodeapi.InstallScript(cfg.PublicURL, cfg.NodeReleaseURL))
@@ -136,7 +137,8 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 
 	sup := coordinator.New(svc, coordinator.Config{Command: cfg.CoordinatorCommand, Logger: logger})
 
-	api := clientapi.New(svc, logger, ctx.Done()).WithCoordinator(sup).WithHostTokens(tokens)
+	api := clientapi.New(svc, logger, ctx.Done()).WithCoordinator(sup).WithHostTokens(tokens).
+		WithNodeRemover(machineMgr.Remove)
 	if err := api.Register(mux); err != nil {
 		return err
 	}
@@ -162,6 +164,14 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		}
 	}()
 
+	machinesDone := make(chan struct{})
+
+	go func() {
+		defer close(machinesDone)
+
+		machineMgr.Loop(ctx)
+	}()
+
 	supDone := make(chan struct{})
 
 	go func() {
@@ -174,6 +184,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 
 	cancel(nil)
 	<-loopDone
+	<-machinesDone
 	<-supDone
 
 	if cause := context.Cause(ctx); cause != nil && !errors.Is(cause, context.Canceled) {

@@ -189,34 +189,55 @@ type GitHost struct {
 	TokenSecret sql.NullString
 }
 
+type MachineProvider struct {
+	ID          string
+	Name        string
+	Kind        string
+	KeyRef      string
+	Region      string
+	Size        string
+	MaxMachines int64
+	Options     string
+	CreatedAt   int64
+	UpdatedAt   int64
+}
+
 type Model struct {
 	Provider string
 	Name     string
 }
 
 type Node struct {
-	ID              string
-	Name            string
-	Status          string
-	MaxDispatches   int64
-	WorktreeRoot    sql.NullString
-	Runtimes        string
-	DaemonVersion   sql.NullString
-	Os              sql.NullString
-	Arch            sql.NullString
-	Cpus            sql.NullInt64
-	MemoryBytes     sql.NullInt64
-	DiskBytes       sql.NullInt64
-	LastSeenAt      sql.NullInt64
-	UnavailableAt   sql.NullInt64
-	DeletedAt       sql.NullInt64
-	CreatedAt       int64
-	UpdatedAt       int64
-	CpuPercent      sql.NullFloat64
-	MemoryUsedBytes sql.NullInt64
-	DiskUsedBytes   sql.NullInt64
-	Load1           sql.NullFloat64
-	StatsAt         sql.NullInt64
+	ID                 string
+	Name               string
+	Status             string
+	MaxDispatches      int64
+	WorktreeRoot       sql.NullString
+	Runtimes           string
+	DaemonVersion      sql.NullString
+	Os                 sql.NullString
+	Arch               sql.NullString
+	Cpus               sql.NullInt64
+	MemoryBytes        sql.NullInt64
+	DiskBytes          sql.NullInt64
+	LastSeenAt         sql.NullInt64
+	UnavailableAt      sql.NullInt64
+	DeletedAt          sql.NullInt64
+	CreatedAt          int64
+	UpdatedAt          int64
+	CpuPercent         sql.NullFloat64
+	MemoryUsedBytes    sql.NullInt64
+	DiskUsedBytes      sql.NullInt64
+	Load1              sql.NullFloat64
+	StatsAt            sql.NullInt64
+	ProviderID         sql.NullString
+	ProviderResourceID sql.NullString
+	Region             sql.NullString
+	Size               sql.NullString
+	MachineState       sql.NullString
+	MachineError       sql.NullString
+	MachineAttempts    int64
+	MachineRetryAt     sql.NullInt64
 }
 
 type NodeToken struct {

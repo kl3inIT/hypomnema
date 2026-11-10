@@ -8,7 +8,7 @@ statement true or false.
 
 | Binary | Commands | What it does today |
 |---|---|---|
-| `cmd/hypomnema` (control plane) | `migrate`, `serve`, `version`, `nodes add\|list\|drain\|resume\|rm`, `nodes token add\|list\|revoke`, `accounts add\|list`, `tokens add\|list\|revoke`, `secrets keygen\|add\|list\|rotate\|rm\|rewrap`, `gateway models\|keys`, `login`, `run`, `answer`, `questions` | `migrate` brings the database schema up to the binary's version; `serve` refuses any other schema, then serves `/livez`, `/readyz`, the node API, the client API, the model gateway and the web client, and runs the scheduler loop; the other commands are the owner's (below) |
+| `cmd/hypomnema` (control plane) | `migrate`, `serve`, `version`, `nodes add\|list\|drain\|resume\|rm`, `nodes token add\|list\|revoke`, `machines providers add\|list\|rm\|check`, `machines create`, `accounts add\|list`, `tokens add\|list\|revoke`, `secrets keygen\|add\|list\|rotate\|rm\|rewrap`, `gateway models\|keys`, `login`, `run`, `answer`, `questions` | `migrate` brings the database schema up to the binary's version; `serve` refuses any other schema, then serves `/livez`, `/readyz`, the node API, the client API, the model gateway and the web client, and runs the scheduler loop; the other commands are the owner's (below) |
 | `cmd/hypomnema-node` (node) | `install`, `init`, `check`, `accounts set`, `run`, `service`, `shim`, `mcp`, `version` | `install --url` puts the node on the machine (below); `init --url --token-file` writes the node's configuration; `check` says hello once and lists the CLIs it found; `accounts set` records where an account's Claude token is; `run` runs the daemon with the Claude runner; `service` prints a systemd user unit; `shim` runs one worker and `mcp` serves its tools (both started for a worker, not by hand) |
 
 Configuration comes from the environment: `HYPOMNEMA_HTTP_ADDR` (default `127.0.0.1:8080`),
@@ -83,6 +83,35 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   a resume. A removed node is kept as `deleted`: its tokens are revoked, it is no longer listed or placed on, and
   its name is free; one that still runs a Dispatch is not removed. Accounts (runtime, label, position, active or
   disabled) are kept here with no secret value.
+- Machines created at a provider (issue #69, step 3; `orchestration/machines.go` keeps the record,
+  `internal/controlplane/machines` calls the provider, after Omnara's `internal/machinepool`). One kind exists, `aws`
+  (EC2); [setup](deploy/machines/aws.md).
+  - A machine provider (`machine_providers`) has a name, a kind, the vault secret that holds its key, a default
+    region and size, a limit on machines (3 by default) and the options its kind takes. The vault refuses to delete
+    a secret one names, and a provider with a machine that is not removed is not removed.
+  - A node created at a provider records the provider, the provider's id for the machine, its region and size, and
+    a machine state: `provisioning`, `ready`, `provision_failed`, `deleting`, `delete_failed`. A node the owner
+    installed has none. `GET /nodes` shows it as `machine`.
+  - Create: the region, the size and the public URL are checked first; then the node and its token are written in
+    one transaction, refused at the provider's limit; then the provider is asked for one machine named after the
+    node, with a first-boot script (cloud-init user data) that makes a `hypomnema` user without sudo, installs git
+    and the Claude Code and Codex CLIs, and runs the install script of `GET /install/node.sh` with the token. The
+    node's hello makes the machine `ready`. A refused create leaves the node `provision_failed` with the reason;
+    so does no hello within 10 minutes, and a hello after that still makes it `ready`.
+  - On AWS the instance is the newest Ubuntu 24.04 image of Canonical for the size's architecture, tagged with
+    the provider's and the node's ids, with instance metadata readable only through IMDSv2 from the instance
+    itself, because the script holds the token. A repeated create finds the instance by its tags, and the token's
+    id is the request's client token, so one node never has two instances.
+  - Remove (`nodes rm`, `DELETE /nodes/{node_id}`): the node is drained and its tokens revoked, the machine is
+    destroyed at the provider, and only then is the node `deleted`. A failed destroy leaves it listed as
+    `delete_failed` and is tried again after 30 s, doubling to an hour, until it works.
+  - While the server runs, every 30 s a pass settles what is left between: a create that was cut short is looked
+    up at the provider after 2 minutes and taken up or marked failed, a machine that never said hello is marked
+    failed, and a due destroy is tried again. Nothing is created or destroyed without the owner asking.
+  - `machines providers check <name>` proves the key works and lists the provider's machines that no node stands
+    for; it runs when asked, not on a timer, and destroys nothing.
+  - Not built: creating a machine from the web or the client API (the CLI only), other providers, and delivering
+    the CLIs' logins and git's credentials to a new machine, which the owner still sets on it once.
 - Chats (`orchestration/chats.go`, issue #41 PR 3, after Omnara;
   [research](docs/research/2026-11-09-chat-storage.md)): the owner's conversations with pi. Every message is kept
   (`owner`, `coordinator`, `tool`, `system`; replies and tools with JSON `parts`); owner messages and wake-ups wait
@@ -253,6 +282,10 @@ The owner's commands:
     machine; `nodes drain|resume|rm <node>` take the node's id or name;
   - `nodes token add <node> <name>` prints one more token once; `nodes token list <node>` and
     `nodes token revoke <id>`. A node connected with a revoked token is refused at its next heartbeat;
+  - `machines providers add <name> --kind aws --key vault:<secret> --region R --size S [--max N]
+    [--option name=value]…`, `machines providers list`, `machines providers rm|check <name>` and
+    `machines create <name> --provider P [--region R] [--size S] [--max N]` manage provider machines; a machine
+    is removed with `nodes rm`;
   - `accounts add <runtime> <label>` records an account;
   - `tokens add <name> [--kind owner|coordinator]` prints a client token once; `tokens list` and
     `tokens revoke <id>`;
@@ -485,7 +518,8 @@ internal/node/statedb     the node's SQLite state: Dispatches held and the repor
 internal/node/workertools the worker's MCP server: ask and finish
 internal/node/worktree    bare mirrors and git worktrees per Task
 internal/controlplane/coordinator  the supervisor of pi, the coordinator: one pi in RPC mode per chat
-internal/controlplane/orchestration  Runs, Tasks, Dispatches, Conversations, questions, events, nodes, accounts, the scheduler; migrations; queries generated by sqlc (internal/store)
+internal/controlplane/machines  machines created at a provider: the Provider interface, the AWS (EC2) provider, the first-boot script, create, remove and the pass that settles what is left between
+internal/controlplane/orchestration  Runs, Tasks, Dispatches, Conversations, questions, events, nodes, accounts, machine providers, the scheduler; migrations; queries generated by sqlc (internal/store)
 internal/shared/githost   git hosts: how a repository is named, and each kind's clone URL, command and links
 internal/shared/nodeproto the wire protocol between a node and the control plane
 internal/shared/platform  environment settings, slog logger, HTTP server and probes, version, clock, ids

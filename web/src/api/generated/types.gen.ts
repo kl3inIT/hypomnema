@@ -304,6 +304,7 @@ export type Node = {
   runtimes: Array<Runtime>;
   system?: NodeSystem;
   stats?: NodeStats;
+  machine?: NodeMachine;
   last_seen_at?: string;
   unavailable_at?: string;
   connected: boolean;
@@ -312,6 +313,27 @@ export type Node = {
    */
   active: number;
   created_at: string;
+};
+
+/**
+ * Set for a node whose machine was created at a provider; left out for one the owner installed. Removing the node destroys the machine.
+ */
+export type NodeMachine = {
+  provider_id: string;
+  /**
+   * The provider's id for the machine, once the provider has answered.
+   */
+  resource_id?: string;
+  region: string;
+  size: string;
+  /**
+   * provisioning until the node says hello; provision_failed when the provider refused or the node never did; deleting and delete_failed while the machine is destroyed, which is tried again until it is.
+   */
+  state: 'provisioning' | 'ready' | 'provision_failed' | 'deleting' | 'delete_failed';
+  /**
+   * Why the last step failed.
+   */
+  error?: string;
 };
 
 /**
