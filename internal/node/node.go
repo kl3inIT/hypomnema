@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kl3inIT/hypomnema/internal/node/acp"
 	"github.com/kl3inIT/hypomnema/internal/node/claude"
 	"github.com/kl3inIT/hypomnema/internal/node/codex"
 	"github.com/kl3inIT/hypomnema/internal/node/daemon"
@@ -31,7 +32,7 @@ import (
 )
 
 // Runtimes the node looks for on its PATH, by CLI name (Orca local-agent-cli-presence.ts).
-var knownRuntimes = []string{"claude", "codex"}
+var knownRuntimes = append([]string{"claude", "codex"}, acp.Runtimes()...)
 
 const versionTimeout = 10 * time.Second
 
@@ -200,8 +201,11 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 	runtimes := DetectRuntimes(ctx)
 
 	claudePath, codexPath := "", ""
+	paths := map[string]string{}
 
 	for _, r := range runtimes {
+		paths[r.Runtime] = r.Path
+
 		switch r.Runtime {
 		case "claude":
 			claudePath = r.Path
@@ -231,6 +235,22 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 		defer terminals.Close()
 	}
 
+	// The agents that speak ACP share one runner (issue #107).
+	acpRunner := &acp.Runner{
+		Home: home, Exe: exe, Paths: paths, URL: cfg.URL, Logger: logger, Worktrees: worktree.Maker{Root: home},
+	}
+
+	all := runners{}
+	for _, runtime := range acp.Runtimes() {
+		all[runtime] = acpRunner
+	}
+
+	all["claude"] = runner
+	// A Codex worker's model comes from the control plane's gateway (issue #107).
+	all["codex"] = &codex.Runner{
+		Home: home, Exe: exe, Codex: codexPath, URL: cfg.URL, Logger: logger, Worktrees: worktree.Maker{Root: home},
+	}
+
 	d := daemon.New(daemon.Config{
 		URL: cfg.URL, Token: cfg.Token, WorktreeRoot: cfg.WorktreeRoot, Version: platform.Version, Runtimes: runtimes,
 		System:      DetectSystem(ctx, cfg.WorktreeRoot),
@@ -238,13 +258,7 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 		Reach:       ReachHost,
 		InstallTool: ToolInstaller{Home: home}.Install,
 		Terminal:    terminals,
-	}, db, runners{
-		"claude": runner,
-		// A Codex worker's model comes from the control plane's gateway (issue #107).
-		"codex": &codex.Runner{
-			Home: home, Exe: exe, Codex: codexPath, URL: cfg.URL, Logger: logger, Worktrees: worktree.Maker{Root: home},
-		},
-	}, logger)
+	}, db, all, logger)
 
 	// Workers' transcripts go to the control plane beside their reports (issue #43).
 	runner.Send = d.SendItems

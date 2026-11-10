@@ -57,6 +57,9 @@ var runtimeProviders = map[string][]string{
 	"claude": {ProviderClaudeSubscription, ProviderAnthropic},
 	"codex":  {ProviderCodexSubscription, ProviderOpenAICompatible, ProviderModelGateway},
 	"pi":     {ProviderAnthropic, ProviderOpenAICompatible},
+	// omp and opencode are workers whose model the gateway serves (issue #107).
+	"omp":      {ProviderModelGateway},
+	"opencode": {ProviderModelGateway},
 }
 
 // Efforts lists the reasoning efforts a profile or a Task may name.
