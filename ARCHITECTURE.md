@@ -687,10 +687,11 @@ the internet, so that a machine created at a provider can install the node from 
 - Machines at AWS, since 2026-11-10: the provider `aws` (`ap-southeast-1`, `t3.medium`, up to 3 machines), its
   key in the vault as `aws`.
 - Model gateway, since 2026-11-10: the vault's root key is in `~/hypomnema-cp/env`. The owner's Codex account is
-  logged in on the control plane, and the gateway serves the model `gpt-6.1-sol` from `codex-subscription` first.
-  Its second target, kept for a while, is `ninerouter`: 9router on the same machine, which holds a login of the same
-  subscription and whose key is the secret `ninerouter`. pi calls the gateway with its own key (provider `gateway`,
-  profile `coordinator`), no longer 9router itself.
+  logged in on the control plane, and the gateway serves the model `gpt-6.1-sol` from `codex-subscription` only.
+  Until 2026-11-10 its second target was `ninerouter`, 9router on the same machine; the gateway no longer calls it.
+  The provider `ninerouter` and its key, the secret `ninerouter`, are still stored and used by nothing: a provider
+  cannot be removed yet, and version 3 of the profile `coordinator` names it. pi calls the gateway with its own key
+  (provider `gateway`, profile `coordinator`).
 - An Antigravity account of the owner's is logged in too, since 2026-11-10; the OAuth secret of the IDE's client is
   in `~/hypomnema-cp/env`. Provider `antigravity-subscription` was applied again there with the models Google
   serves that account (`accounts models`): Gemini 2.5, 3 and 3.8, `claude-sonnet-4-6`, `claude-opus-4-6-thinking`,
