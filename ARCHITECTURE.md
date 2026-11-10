@@ -600,6 +600,12 @@ Node (`internal/node`):
     or a pasted URL), what it runs and, if wanted, its token. Removing a token or a declared server asks first.
   - `/settings/repositories` has no entry in the menu while its place is being decided (issue #44); it lists the registered repositories, adds one from its URL under a
     proposed name with an optional base branch, and removes one after a confirmation.
+  - `/settings/vault` (under Connections, [issue #108](https://github.com/kl3inIT/hypomnema/issues/108)) lists the
+    vault's secrets with their kind, version, when they changed and what uses them. A value is not on the page
+    until the owner reveals that secret: only then is `GET /secrets/{name}/value` called, and the value is dropped
+    when it is hidden or the page is left, as Infisical's secrets dashboard does (MIT). A token set shows each of
+    its values; a generic secret can be replaced; a removal the server refuses says why. Add takes a name and a
+    value in a password field.
   - Both pages do only what `hosts ...` and `repos ...` do in the CLI.
 - `web/embed.go` embeds the build (`web/dist`) into `hypomnema`. `make build` builds the client first.
   - The control plane serves it with `internal/controlplane/webui`, after Omnara's `spa.go`:

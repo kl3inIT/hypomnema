@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router"
-import { ArrowLeft, Plug, type LucideIcon } from "lucide-react"
+import { ArrowLeft, KeyRound, Plug, type LucideIcon } from "lucide-react"
 import type { ReactNode } from "react"
 
 import { PageHeader } from "@/features/shell/app-shell"
@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils"
 // Repositories has a page (/settings/repositories) but no entry: what a registered repository is, and whether it
 // belongs here or in the app's sidebar as a project, is being decided (issue #44, owner, 2026-11-10).
 type Section = {
-  to: "/settings/repositories" | "/settings/integrations"
+  to: "/settings/repositories" | "/settings/integrations" | "/settings/vault"
   label: string
   icon: LucideIcon
 }
@@ -21,7 +21,10 @@ type Section = {
 const groups: { heading: string; sections: Section[] }[] = [
   {
     heading: "Connections",
-    sections: [{ to: "/settings/integrations", label: "Integrations", icon: Plug }],
+    sections: [
+      { to: "/settings/integrations", label: "Integrations", icon: Plug },
+      { to: "/settings/vault", label: "Vault", icon: KeyRound },
+    ],
   },
 ]
 

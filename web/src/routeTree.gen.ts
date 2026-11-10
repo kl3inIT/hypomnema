@@ -18,6 +18,7 @@ import { Route as RunsRunIdRouteImport } from './routes/runs.$runId'
 import { Route as SettingsIndexRouteImport } from './routes/settings.index'
 import { Route as SettingsIntegrationsRouteImport } from './routes/settings.integrations'
 import { Route as SettingsRepositoriesRouteImport } from './routes/settings.repositories'
+import { Route as SettingsVaultRouteImport } from './routes/settings.vault'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -64,6 +65,11 @@ const SettingsRepositoriesRoute = SettingsRepositoriesRouteImport.update({
   path: '/settings/repositories',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SettingsVaultRoute = SettingsVaultRouteImport.update({
+  id: '/settings/vault',
+  path: '/settings/vault',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -73,6 +79,7 @@ export interface FileRoutesByFullPath {
   '/runs/$runId': typeof RunsRunIdRoute
   '/settings/integrations': typeof SettingsIntegrationsRoute
   '/settings/repositories': typeof SettingsRepositoriesRoute
+  '/settings/vault': typeof SettingsVaultRoute
   '/runs/': typeof RunsIndexRoute
   '/settings/': typeof SettingsIndexRoute
 }
@@ -84,6 +91,7 @@ export interface FileRoutesByTo {
   '/runs/$runId': typeof RunsRunIdRoute
   '/settings/integrations': typeof SettingsIntegrationsRoute
   '/settings/repositories': typeof SettingsRepositoriesRoute
+  '/settings/vault': typeof SettingsVaultRoute
   '/runs': typeof RunsIndexRoute
   '/settings': typeof SettingsIndexRoute
 }
@@ -96,6 +104,7 @@ export interface FileRoutesById {
   '/runs/$runId': typeof RunsRunIdRoute
   '/settings/integrations': typeof SettingsIntegrationsRoute
   '/settings/repositories': typeof SettingsRepositoriesRoute
+  '/settings/vault': typeof SettingsVaultRoute
   '/runs/': typeof RunsIndexRoute
   '/settings/': typeof SettingsIndexRoute
 }
@@ -109,6 +118,7 @@ export interface FileRouteTypes {
     | '/runs/$runId'
     | '/settings/integrations'
     | '/settings/repositories'
+    | '/settings/vault'
     | '/runs/'
     | '/settings/'
   fileRoutesByTo: FileRoutesByTo
@@ -120,6 +130,7 @@ export interface FileRouteTypes {
     | '/runs/$runId'
     | '/settings/integrations'
     | '/settings/repositories'
+    | '/settings/vault'
     | '/runs'
     | '/settings'
   id:
@@ -131,6 +142,7 @@ export interface FileRouteTypes {
     | '/runs/$runId'
     | '/settings/integrations'
     | '/settings/repositories'
+    | '/settings/vault'
     | '/runs/'
     | '/settings/'
   fileRoutesById: FileRoutesById
@@ -143,6 +155,7 @@ export interface RootRouteChildren {
   RunsRunIdRoute: typeof RunsRunIdRoute
   SettingsIntegrationsRoute: typeof SettingsIntegrationsRoute
   SettingsRepositoriesRoute: typeof SettingsRepositoriesRoute
+  SettingsVaultRoute: typeof SettingsVaultRoute
   RunsIndexRoute: typeof RunsIndexRoute
   SettingsIndexRoute: typeof SettingsIndexRoute
 }
@@ -212,6 +225,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsRepositoriesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/settings/vault': {
+      id: '/settings/vault'
+      path: '/settings/vault'
+      fullPath: '/settings/vault'
+      preLoaderRoute: typeof SettingsVaultRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -223,6 +243,7 @@ const rootRouteChildren: RootRouteChildren = {
   RunsRunIdRoute: RunsRunIdRoute,
   SettingsIntegrationsRoute: SettingsIntegrationsRoute,
   SettingsRepositoriesRoute: SettingsRepositoriesRoute,
+  SettingsVaultRoute: SettingsVaultRoute,
   RunsIndexRoute: RunsIndexRoute,
   SettingsIndexRoute: SettingsIndexRoute,
 }
