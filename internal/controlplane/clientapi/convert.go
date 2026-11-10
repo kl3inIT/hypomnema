@@ -140,7 +140,8 @@ func toNode(n orchestration.Node) openapi.Node {
 
 	return openapi.Node{
 		Id: n.ID, Name: n.Name, Status: openapi.NodeStatus(n.Status), MaxDispatches: n.MaxDispatches,
-		WorktreeRoot: ptr(n.WorktreeRoot), Runtimes: runtimes, System: toNodeSystem(n.System), Stats: toNodeStats(n.Stats), LastSeenAt: n.LastSeenAt,
+		WorktreeRoot: ptr(n.WorktreeRoot), Runtimes: runtimes, System: toNodeSystem(n.System),
+		Stats: toNodeStats(n.Stats), LastSeenAt: n.LastSeenAt,
 		UnavailableAt: n.UnavailableAt, Connected: n.Connected, Active: n.Active, CreatedAt: n.CreatedAt,
 	}
 }
