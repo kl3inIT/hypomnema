@@ -78,7 +78,8 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   (path and version), its worktree root, and what it is: its version, OS, architecture, CPU count, memory, and the
   size of the volume that holds the worktree root. It is connected while heard from within 30 s (any node call
   counts). With each heartbeat it sends what it measured: CPU in use since the heartbeat before, memory in use, the
-  worktree volume's use and the one-minute load average; only the latest measurement is kept, with its time
+  worktree volume's use, the one-minute load average and, on a machine with NVIDIA GPUs, each GPU's use, memory,
+  temperature and power (read with `nvidia-smi` once a heartbeat, after Beszel's agent); only the latest measurement is kept, with its time
   (`GET /nodes` shows it as `stats`). A node can be drained and resumed; three expiries in a row mark it unavailable until its next hello or
   a resume. A removed node is kept as `deleted`: its tokens are revoked, it is no longer listed or placed on, and
   its name is free; one that still runs a Dispatch is not removed. Accounts (runtime, label, position, active or
@@ -121,6 +122,15 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     for; it runs when asked, not on a timer, and destroys nothing.
   - Not built: other providers, and delivering the CLIs' logins to a new machine, which the owner still sets on
     it once.
+- A node updates itself (issue #69, after Nezha's agent, `cmd/agent/main.go`): the control plane names where
+  the node's releases are at each hello (`HYPOMNEMA_NODE_RELEASE_URL`, the latest GitHub release by default). A
+  node of a released version that systemd runs looks there 30 s after it starts and then at a random interval of
+  one to two days (`update_every_minutes` in its configuration sets another), and when the release is newer it
+  downloads it, requires the SHA-256 its manifest names and the version the binary itself reports, as the install
+  script does, renames it over its own binary and ends with a failure, which makes systemd start the new one.
+  It does not end while a terminal is open; workers are kept across the restart by their shims. A node built
+  from a commit, a node not run by systemd, and one with `disable_auto_update` in its configuration keep their
+  version.
 - A terminal on a node, from the web (issue #116, [research](docs/research/2026-11-10-web-terminal.md); after
   Coder's reconnecting PTY, read for behaviour and not copied since it is AGPL, and Nezha's IOStream):
   - The node keeps shells by session id (`internal/node/terminal`): the node user's own shell on a pseudo-terminal
@@ -153,12 +163,19 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   new immutable version and points the name at it; the same source returns the current version. Providers (kind
   `anthropic`, `openai_compatible`, `claude_subscription` or `codex_subscription`, base URL, the name of where the
   API key is kept, never the key) list the models they offer. A profile and a new Task are checked when applied or
-  created: a known runtime (`claude`, `codex`, `pi`), an effort from `low` to `max`, and a model a provider of a
+  created: a known runtime (`claude`, `codex`, `pi`, `omp`, `opencode`), an effort from `low` to `max`, and a model a provider of a
   kind that runtime can use offers (found from the model when the provider is not named). A provider change that
   would leave a profile's model or runtime unserved is refused. A Task names a profile, `implementer` by default.
   A provider of kind `model_gateway` is the control plane's own model gateway (issue #107): `codex` can run against
   it, and a Task under it needs no account on a node. Its Conversation names `gateway` where an account's id would
   be, and a rate limit cools no account down: the gateway looks after its own accounts.
+  A profile's current version says whether a worker can start under it now (issue #139, as Omnigent's agent list
+  says `available_on_host`): `available`, and when not, `unavailable_reason` (`no_node`: no connected, active node
+  has its CLI; `no_account`: its runtime has no active account on a node; `accounts_cooling`, with `available_at`,
+  the time the first account is free). It is computed from the scheduler's own view of nodes and accounts when
+  the profile is read. A node at its limit still counts; a model the gateway serves needs no account, and the
+  state of the gateway's own accounts is not looked at; the coordinator's runtime, pi, has no answer. `profiles
+  list` shows it, and the coordinator skill tells the coordinator to read it before creating Tasks.
   The starting set: `implementer`, `reviewer`, `explorer` (told to change nothing; nothing enforces it yet) on
   Claude Code with its default model, and `coordinator` on pi; provider `claude-subscription`.
 - Scheduler: `Schedule` is one pass in one transaction, and `Loop` runs `Reap` and `Schedule` every 2 s and on each
@@ -588,7 +605,7 @@ The owner's commands:
 Node (`internal/node`):
 - `init` writes `~/.hypomnema-node/config.json` (mode 0600, directory 0700) with the control plane's URL, the token
   read from a file, and the worktree root.
-- At connect the node finds `claude` and `codex` on its PATH and reads their `--version`.
+- At connect the node finds `claude`, `codex`, `omp` and `opencode` on its PATH and reads their `--version`.
 - The daemon has a runner per runtime and gives a Dispatch to the runner of its offer's runtime (issue #107).
 - A Codex worker (`internal/node/codex`; [research](docs/research/2026-11-10-codex-responses-passthrough.md)) has
   no login on the node: its model comes from the control plane's gateway under the offer's key. One turn is one
@@ -599,6 +616,16 @@ Node (`internal/node`):
   `conversations/<conversation>/codex` under the node's home, so a follow-up Dispatch continues with
   `exec resume <thread id>`. The thread id of `thread.started` is the session; the outcome is `finish`'s report,
   or else what `turn.failed` said. A stop kills the process. A Codex worker's transcript is not sent yet.
+- omp and opencode workers (`internal/node/acp`; [research](docs/research/2026-11-10-acp-omp-opencode.md)) share one
+  runner that speaks the Agent Client Protocol, and their model comes from the gateway too. Each is an entry of a
+  table: the command (`omp acp`, `opencode acp`) and the configuration written under
+  `conversations/<conversation>/<runtime>` before a turn, which names the gateway with the key as an environment
+  variable's name (omp: `models.yml` and `config.yml` in its agent directory; opencode: a configuration file of its
+  own, away from the user's and the project's). A turn is `initialize`, `session/new` with the tools server as an
+  MCP server (or `session/resume`, else `session/load`, for a follow-up; a session that is gone starts anew),
+  `session/prompt`, then the agent's input is closed. The messages are written to the shim and read from its
+  journal, so a turn survives the daemon; no ACP library holds the connection. A permission request is answered
+  with the option that allows. Not verified against the real CLIs yet, and no node has them installed by design.
 - The daemon (`internal/node/daemon`) says hello claiming the Dispatches it holds and applies each disposition, then
   holds the socket:
   - heartbeats every 10 s (or as the control plane says), a WebSocket ping every 20 s;
@@ -722,8 +749,9 @@ Node (`internal/node`):
 - The machines (issue #69): `/machines` lists the nodes after Beszel's systems table (MIT), as cards (Grid, the
   default) or a Table, both from one column definition; the choice is kept in `localStorage`. A machine shows its
   state (Online, Drained, or Offline with when it was last seen), meters for CPU, memory and disk that turn amber
-  from 65 % and red from 90 % and are grey while it is not connected, its load average, its Dispatches against its
-  limit, its runtimes, its daemon version and platform, and its source: "Your own", or the size and region of a
+  from 65 % and red from 90 % and are grey while it is not connected, its load average, each of its GPUs when it has any (use with
+  temperature, and memory, with the same meters; the table has the GPU columns only when a machine has one), its
+  Dispatches against its limit, its runtimes, its daemon version and platform, and its source: "Your own", or the size and region of a
   machine created at a provider. Such a machine that is not ready says Creating, Not created, Removing or Not
   removed instead, with the provider's reason for a failure; one that is turned off says Stopping, Stopped or
   Starting, and a stopped one says that its disk is still billed and is started from its card. A machine that is on
@@ -773,7 +801,16 @@ Node (`internal/node`):
     every shadcn component of the project's style is in `web/src/components/ui`; a form is TanStack Form with a
     zod schema, and says what is wrong when it is sent; the Vault's table is TanStack Table; a removal asks with
     an alert dialog; what the server refused shows as an alert. The rules are in
-    [conventions](docs/conventions.md#web-client). The other screens are not moved yet.
+    [conventions](docs/conventions.md#web-client).
+  - The other screens use the standard components where a control is an ordinary one
+    ([issue #131](https://github.com/kl3inIT/hypomnema/issues/131)): the Board's repository select, the buttons of
+    a Task's panel and of a Run, the sign-in form, the Add machine dialog. Left as they are, each for a stated
+    reason in that issue: the chat, the question form, a Task's card and a Run's rows, a transcript's rows, the
+    Machines cards, table, switch and menu, the Board's "Group by" switch, the Task panel as a side panel.
+  - A change the owner made in Settings that succeeded says so in a toast (`said` in
+    `web/src/features/settings/use-integrations.ts`).
+  - The build runs the React Compiler (`babel-plugin-react-compiler` through `@rolldown/plugin-babel`,
+    `web/vite.config.ts`); the unit tests do not, the scenarios in `web/tests` run the built client.
   - One `TooltipProvider` and one `Toaster` wrap the app (`web/src/main.tsx`). On the Machines page a column's
     name says what it measures when pointed at, and a machine's runtimes are their marks with their names while
     they fit on one line, and the marks alone when they do not.
@@ -832,6 +869,7 @@ internal/node             package node: configuration, CLI detection, init, chec
 internal/node/bridge      the mailbox between a worker's tools and the runner: questions, answers, the final report
 internal/node/claude      the Claude Code runner: worker environment, stream-JSON, journal reading, outcome
 internal/node/codex       the Codex CLI runner: the gateway as its provider, `exec --json`, journal reading, outcome
+internal/node/acp         the ACP runner for omp and opencode: each CLI's configuration, the conversation, outcome
 internal/node/daemon      the node's connection: hello, socket, offers, outbox, Runner interface
 internal/node/shim        one worker kept across daemon restarts: journal, input socket, exit file
 internal/node/statedb     the node's SQLite state: Dispatches held and the report outbox
@@ -882,5 +920,9 @@ and the node in the control plane binary.
   are skipped. A last job, `Required`, passes when none of them failed and is the one check to wait for. Chromium
   for the browser tests is cached by the Playwright version, as t3code's CI does. `make verify` is still the three
   Go targets in a row, for a laptop.
+- A test that needs a migrated database opens a copy of one: `internal/shared/sqlite/sqlitetest` runs the migrations
+  once in a test process and hands each test a copy of that file (issue #129, as Coder and Omnara copy a Postgres
+  template). Migrating took 1.5 s for each test under the race detector. Tests of the migrations themselves, and
+  the owner commands' tests, which migrate through the command, still migrate their own.
 - Dependabot (`.github/dependabot.yml`) proposes updates weekly for the Go modules (`/`, `/tools/ci`), the web
   client, pi (`deploy/coordinator`) and the GitHub Actions, with minor and patch updates grouped.

@@ -24,6 +24,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
+	"github.com/kl3inIT/hypomnema/internal/shared/sqlite/sqlitetest"
 )
 
 const wait = 5 * time.Second
@@ -145,10 +146,9 @@ type world struct {
 func newWorld(t *testing.T) *world {
 	t.Helper()
 
-	db, err := sqlite.Open(t.Context(), sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
+	db, err := sqlite.Open(t.Context(), sqlite.Config{Path: sqlitetest.Migrated(t, orchestration.Migrate)})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
-	require.NoError(t, orchestration.Migrate(t.Context(), db))
 
 	svc := orchestration.New(db, platform.SystemClock{}, platform.NewID)
 
@@ -416,4 +416,52 @@ func TestDaemonStopsOnARefusedToken(t *testing.T) {
 	defer cancel()
 
 	require.ErrorIs(t, d.Run(ctx), daemon.ErrUnauthorized)
+}
+
+// Scenario: the control plane tells a node where its releases are. After
+// its hello the node knows the place a newer version of itself comes from,
+// which is the control plane's own setting and not something the node was
+// installed with.
+func TestHelloTellsTheNodeWhereItsReleasesAre(t *testing.T) {
+	t.Parallel()
+
+	db, err := sqlite.Open(t.Context(), sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	require.NoError(t, orchestration.Migrate(t.Context(), db))
+
+	svc := orchestration.New(db, platform.SystemClock{}, platform.NewID)
+
+	mux := http.NewServeMux()
+	nodeapi.New(svc, slog.New(slog.DiscardHandler)).WithReleaseURL("https://releases.example/node/").Register(mux)
+
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	_, token, err := svc.AddNode(t.Context(), "node_a", 2)
+	require.NoError(t, err)
+
+	state, err := statedb.Open(t.Context(), filepath.Join(t.TempDir(), "node", "state.db"), time.Now)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = state.Close() })
+
+	d := daemon.New(daemon.Config{URL: srv.URL, Token: token, WorktreeRoot: "/srv/wt", Version: "test"},
+		state, newFakeRunner(), slog.New(slog.DiscardHandler))
+	assert.Empty(t, d.ReleaseURL())
+
+	ctx, cancel := context.WithCancel(context.WithoutCancel(t.Context()))
+	done := make(chan error, 1)
+
+	go func() { done <- d.Run(ctx) }()
+
+	t.Cleanup(func() {
+		cancel()
+
+		if err := <-done; err != nil {
+			t.Logf("the node ended with: %v", err)
+		}
+	})
+
+	require.Eventually(t, func() bool { return d.ReleaseURL() == "https://releases.example/node" },
+		wait, 20*time.Millisecond)
 }

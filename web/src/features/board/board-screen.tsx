@@ -1,3 +1,4 @@
+import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
 import { cn } from "@/lib/utils"
 import { PageHeader } from "@/features/shell/app-shell"
 
@@ -34,6 +35,8 @@ export function BoardScreen({
       <PageHeader title="Board">
         <div className="ms-auto flex items-center gap-2 max-sm:ms-0 max-sm:w-full">
           <span className="text-xs text-muted-foreground max-sm:hidden">Group by</span>
+          {/* The same switch as the Machines page's Grid and Table: kept by hand, as that one is, because the
+              standard toggle group does not show which one is on as clearly. */}
           <fieldset className="m-0 inline-flex gap-0.5 rounded-lg border border-solid bg-muted p-0.5">
             <legend className="sr-only">Group by</legend>
             {(["status", "run", "repo"] as const).map((g) => (
@@ -48,17 +51,19 @@ export function BoardScreen({
               </button>
             ))}
           </fieldset>
-          <select
+          <NativeSelect
             aria-label="Repository"
+            size="sm"
             value={repo}
             onChange={(e) => onChange({ repo: e.target.value })}
-            className="h-8 rounded-lg border bg-muted px-2 text-xs max-sm:flex-1"
           >
-            <option value="">All repos</option>
+            <NativeSelectOption value="">All repos</NativeSelectOption>
             {known.map((r) => (
-              <option key={r}>{r}</option>
+              <NativeSelectOption key={r} value={r}>
+                {r}
+              </NativeSelectOption>
             ))}
-          </select>
+          </NativeSelect>
         </div>
       </PageHeader>
 

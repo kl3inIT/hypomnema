@@ -109,6 +109,21 @@ type SystemStats struct {
 	DiskUsedBytes int64 `json:"disk_used_bytes"`
 	// Load1 is the one-minute load average; zero where the system has none.
 	Load1 float64 `json:"load1"`
+	// GPUs are the machine's GPUs, by index; none for a machine without one.
+	GPUs []GPUStats `json:"gpus,omitempty"`
+}
+
+// GPUStats is what one GPU measured, after Beszel's GPUData.
+type GPUStats struct {
+	Index int    `json:"index"`
+	Name  string `json:"name"`
+	// UsagePercent is how busy the GPU is, 0 to 100.
+	UsagePercent     float64 `json:"usage_percent"`
+	MemoryUsedBytes  int64   `json:"memory_used_bytes"`
+	MemoryTotalBytes int64   `json:"memory_total_bytes"`
+	// TemperatureCelsius and PowerWatts are nil when the GPU does not say.
+	TemperatureCelsius *float64 `json:"temperature_celsius,omitempty"`
+	PowerWatts         *float64 `json:"power_watts,omitempty"`
 }
 
 // Heartbeat is the node's heartbeat. A node that measures nothing sends none.
@@ -216,6 +231,9 @@ type HelloResponse struct {
 	// Tools are the tools the node should have; it installs a missing one and
 	// says in its heartbeat what it has.
 	Tools []Tool `json:"tools,omitempty"`
+	// ReleaseURL is where the node's releases are: the manifests and binaries
+	// the install script downloads. A node that updates itself looks there.
+	ReleaseURL string `json:"release_url,omitempty"`
 }
 
 // HeartbeatAck answers a heartbeat with the interval to the next one.

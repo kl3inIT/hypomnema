@@ -163,7 +163,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		integration.Google(), integration.Lark())
 
 	nodes := nodeapi.New(svc, logger).WithHostTokens(tokens.Token).WithModelKeys(workerKeys.Key).
-		WithTools(integrations.Tools)
+		WithTools(integrations.Tools).WithReleaseURL(cfg.NodeReleaseURL)
 	nodes.Register(mux)
 	modelgateway.NewServer(gateway, logger, modelgateway.Config{
 		Subscriptions: gatewayAccounts{subs: subscriptions}, CodexBaseURL: cfg.CodexBaseURL,

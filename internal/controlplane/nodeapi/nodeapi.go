@@ -42,6 +42,9 @@ type Server struct {
 	// control plane wired none.
 	tools func(ctx context.Context, os, arch string) []nodeproto.Tool
 
+	// releaseURL is where a node finds its releases, sent at hello.
+	releaseURL string
+
 	mu       sync.Mutex
 	sessions map[string]*session
 	// streams are the terminal connections nodes have been asked to open, by stream id.
@@ -79,6 +82,17 @@ func (s *Server) toolsFor(ctx context.Context, os, arch string) []nodeproto.Tool
 // WithModelKeys sets where an offer's model gateway key comes from.
 func (s *Server) WithModelKeys(key func(ctx context.Context, dispatchID, model string) (string, bool)) *Server {
 	s.modelKey = key
+
+	return s
+}
+
+// WithReleaseURL sets where nodes find their releases; "" means DefaultReleaseURL.
+func (s *Server) WithReleaseURL(url string) *Server {
+	if url == "" {
+		url = DefaultReleaseURL
+	}
+
+	s.releaseURL = strings.TrimSuffix(url, "/")
 
 	return s
 }
@@ -162,6 +176,7 @@ func (s *Server) hello(w http.ResponseWriter, r *http.Request) {
 		HeartbeatAfterMs: nodeproto.HeartbeatEvery.Milliseconds(),
 		GitHosts:         s.gitHosts(r.Context()),
 		Tools:            s.toolsFor(r.Context(), req.System.OS, req.System.Arch),
+		ReleaseURL:       s.releaseURL,
 	}
 	for _, d := range dispositions {
 		resp.Dispositions = append(resp.Dispositions, nodeproto.Disposition{DispatchID: d.DispatchID, Kind: string(d.Kind)})
@@ -484,7 +499,7 @@ func (c *session) stats(ctx context.Context, payload json.RawMessage) {
 	if err == nil && hb.Stats != nil {
 		err = c.srv.svc.NodeStats(ctx, c.nodeID, orchestration.SystemStats{
 			CPUPercent: hb.Stats.CPUPercent, MemoryUsedBytes: hb.Stats.MemoryUsedBytes,
-			DiskUsedBytes: hb.Stats.DiskUsedBytes, Load1: hb.Stats.Load1,
+			DiskUsedBytes: hb.Stats.DiskUsedBytes, Load1: hb.Stats.Load1, GPUs: gpusOf(hb.Stats.GPUs),
 		})
 	}
 
@@ -533,4 +548,17 @@ func (c *session) handle(ctx context.Context, msg nodeproto.Message) error {
 		return c.send(ctx, nodeproto.TypeError,
 			nodeproto.Error{Code: nodeproto.ErrorInvalid, Message: "unexpected message " + string(msg.Type)})
 	}
+}
+
+// gpusOf is a heartbeat's GPUs as the registry keeps them.
+func gpusOf(gpus []nodeproto.GPUStats) []orchestration.GPUStats {
+	out := make([]orchestration.GPUStats, 0, len(gpus))
+	for _, g := range gpus {
+		out = append(out, orchestration.GPUStats{
+			Index: g.Index, Name: g.Name, UsagePercent: g.UsagePercent, MemoryUsedBytes: g.MemoryUsedBytes,
+			MemoryTotalBytes: g.MemoryTotalBytes, TemperatureCelsius: g.TemperatureCelsius, PowerWatts: g.PowerWatts,
+		})
+	}
+
+	return out
 }

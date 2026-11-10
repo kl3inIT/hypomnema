@@ -8,6 +8,7 @@ import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom"
 import "@/api/client"
 import { cancelTask, forwardQuestion, getRun, getTask, reopenTask } from "@/api/generated/sdk.gen"
 import type { Dispatch } from "@/api/generated/types.gen"
+import { Button } from "@/components/ui/button"
 import { since, span } from "@/lib/time"
 
 import {
@@ -202,14 +203,16 @@ function JumpToLatest() {
   if (isAtBottom) return null
 
   return (
-    <button
-      type="button"
-      aria-label="Jump to the latest"
-      className="absolute bottom-3 left-1/2 flex size-8 -translate-x-1/2 items-center justify-center rounded-full border bg-card text-muted-foreground shadow-xs hover:text-foreground"
-      onClick={() => void scrollToBottom()}
-    >
-      <ArrowDown className="size-4" />
-    </button>
+    <span className="absolute bottom-3 left-1/2 -translate-x-1/2">
+      <Button
+        variant="outline"
+        size="icon"
+        aria-label="Jump to the latest"
+        onClick={() => void scrollToBottom()}
+      >
+        <ArrowDown />
+      </Button>
+    </span>
   )
 }
 
@@ -270,14 +273,9 @@ function PiQuestion({ card }: { card: Card }) {
         Asked pi · {since(card.piQuestion?.created_at ?? "")}
       </p>
       <p className="my-1.5 text-sm leading-relaxed whitespace-pre-wrap">{card.piQuestion?.text}</p>
-      <button
-        type="button"
-        onClick={() => take.mutate()}
-        disabled={take.isPending}
-        className="h-8 rounded-lg border border-input px-3 text-sm hover:bg-accent disabled:opacity-50"
-      >
+      <Button variant="outline" onClick={() => take.mutate()} disabled={take.isPending}>
         Answer it myself
-      </button>
+      </Button>
     </div>
   )
 }
@@ -309,24 +307,14 @@ function Actions({ card }: { card: Card }) {
   return (
     <div className="flex flex-wrap items-center gap-2">
       {canReopen && (
-        <button
-          type="button"
-          onClick={() => reopen.mutate()}
-          disabled={reopen.isPending}
-          className="h-8 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-        >
+        <Button onClick={() => reopen.mutate()} disabled={reopen.isPending}>
           Start again
-        </button>
+        </Button>
       )}
       {canCancel && (
-        <button
-          type="button"
-          onClick={() => cancel.mutate()}
-          disabled={cancel.isPending}
-          className="h-8 rounded-lg border border-input px-3 text-sm text-destructive hover:bg-accent disabled:opacity-50"
-        >
+        <Button variant="destructive" onClick={() => cancel.mutate()} disabled={cancel.isPending}>
           Cancel Task
-        </button>
+        </Button>
       )}
       {error && <span className="text-xs text-destructive">Not done: try again.</span>}
     </div>

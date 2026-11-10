@@ -1700,7 +1700,25 @@ components:
         load1:
           type: number
           description: The one-minute load average; zero where the system has none.
+        gpus:
+          type: array
+          description: The machine's GPUs, by index. Left out for a machine that has none or whose node reads none.
+          items: { $ref: "#/components/schemas/NodeGPU" }
         at: { type: string, format: date-time }
+    NodeGPU:
+      type: object
+      description: One GPU's latest measurement, as Beszel's GPUData.
+      required: [index, name, usage_percent, memory_used_bytes, memory_total_bytes]
+      properties:
+        index: { type: integer }
+        name: { type: string }
+        usage_percent:
+          type: number
+          description: How busy the GPU is, 0 to 100.
+        memory_used_bytes: { type: integer, format: int64 }
+        memory_total_bytes: { type: integer, format: int64 }
+        temperature_celsius: { type: number }
+        power_watts: { type: number }
     GitHostKind:
       type: string
       enum: [github, gitlab]
@@ -1999,6 +2017,23 @@ components:
         instruction: { type: string }
         source: { type: string }
         created_at: { type: string, format: date-time }
+        available:
+          type: boolean
+          description: >-
+            Whether a worker can start under the profile now: a connected, active node has its CLI, and its runtime
+            has an account that is not cooling down (none is needed for a model the gateway serves). A node at its
+            limit still counts, since the Task waits its turn. Given for a profile's current version; absent for
+            the coordinator's runtime, which no node runs, and in a list of versions.
+        unavailable_reason:
+          type: string
+          enum: [no_node, no_account, accounts_cooling]
+          description: >-
+            Why no worker can start, when `available` is false: no connected, active node has the CLI; the runtime
+            has no active account on a node; or every account of the runtime cools down.
+        available_at:
+          type: string
+          format: date-time
+          description: With `accounts_cooling`, when the first account is free again.
     ProfileList:
       type: object
       required: [data]

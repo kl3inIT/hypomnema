@@ -30,6 +30,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
+	"github.com/kl3inIT/hypomnema/internal/shared/sqlite/sqlitetest"
 )
 
 // world is a control plane serving the client API, and a home for the CLI.
@@ -49,10 +50,9 @@ func newWorld(t *testing.T) *world {
 func newWorldWith(t *testing.T, coord clientapi.Coordinator, with ...func(*clientapi.Server)) *world {
 	t.Helper()
 
-	db, err := sqlite.Open(t.Context(), sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
+	db, err := sqlite.Open(t.Context(), sqlite.Config{Path: sqlitetest.Migrated(t, orchestration.Migrate)})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
-	require.NoError(t, orchestration.Migrate(t.Context(), db))
 
 	svc := orchestration.New(db, platform.SystemClock{}, platform.NewID)
 	stop := make(chan struct{})
@@ -999,6 +999,11 @@ func TestProfilesFromTheCLI(t *testing.T) {
 	var profiles openapi.ProfileList
 	coordinator.jsonCmd(t, &profiles, "", "profiles", "list")
 	assert.Len(t, profiles.Data, 4)
+
+	// The list says which profiles no worker can start under now, and why.
+	out, err = coordinator.cmd(t, "profiles", "list")
+	require.NoError(t, err)
+	assert.Contains(t, out, "cannot run now: no_node")
 
 	var models openapi.ModelList
 	coordinator.jsonCmd(t, &models, "", "models", "list")

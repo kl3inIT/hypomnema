@@ -121,6 +121,11 @@ export function loadPercent(node: Node) {
   return (100 * node.stats.load1) / (node.system?.cpus || 1)
 }
 
+// gpuTitle names a GPU and what it draws: "NVIDIA RTX 4090 · 312 W".
+export function gpuTitle(gpu: { name: string; power_watts?: number }) {
+  return gpu.power_watts === undefined ? gpu.name : `${gpu.name} · ${Math.round(gpu.power_watts)} W`
+}
+
 // decimal is Beszel's rule for a meter's number: one decimal from 10, two below.
 export function decimal(value: number) {
   return value.toFixed(value >= 10 ? 1 : 2)

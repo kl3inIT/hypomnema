@@ -474,7 +474,27 @@ export type NodeStats = {
    * The one-minute load average; zero where the system has none.
    */
   load1: number;
+  /**
+   * The machine's GPUs, by index. Left out for a machine that has none or whose node reads none.
+   */
+  gpus?: Array<NodeGpu>;
   at: string;
+};
+
+/**
+ * One GPU's latest measurement, as Beszel's GPUData.
+ */
+export type NodeGpu = {
+  index: number;
+  name: string;
+  /**
+   * How busy the GPU is, 0 to 100.
+   */
+  usage_percent: number;
+  memory_used_bytes: number;
+  memory_total_bytes: number;
+  temperature_celsius?: number;
+  power_watts?: number;
 };
 
 export type GitHostKind = 'github' | 'gitlab';
@@ -723,6 +743,18 @@ export type Profile = {
   instruction?: string;
   source: string;
   created_at: string;
+  /**
+   * Whether a worker can start under the profile now: a connected, active node has its CLI, and its runtime has an account that is not cooling down (none is needed for a model the gateway serves). A node at its limit still counts, since the Task waits its turn. Given for a profile's current version; absent for the coordinator's runtime, which no node runs, and in a list of versions.
+   */
+  available?: boolean;
+  /**
+   * Why no worker can start, when `available` is false: no connected, active node has the CLI; the runtime has no active account on a node; or every account of the runtime cools down.
+   */
+  unavailable_reason?: 'no_node' | 'no_account' | 'accounts_cooling';
+  /**
+   * With `accounts_cooling`, when the first account is free again.
+   */
+  available_at?: string;
 };
 
 export type ProfileList = {

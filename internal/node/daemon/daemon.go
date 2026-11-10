@@ -117,6 +117,8 @@ type Daemon struct {
 	known     map[string]bool // Dispatches the Runner has this process
 	// hosts knows which git hosts this machine reaches; nil when the node does not try.
 	hosts *hostWatch
+	// releaseURL is where the control plane said the node's releases are; "" until the first hello.
+	releaseURL string
 	// base is Run's context, for what outlives one socket: a terminal's connection.
 	base context.Context //nolint:containedctx // set once by Run, read by goroutines Run owns
 	// tools has the tools the control plane names installed; nil when the node installs none.
@@ -141,6 +143,14 @@ func New(cfg Config, db *statedb.DB, runner Runner, logger *slog.Logger) *Daemon
 		newID: platform.NewID, instance: platform.NewID("ins"),
 		ephemeral: map[string]nodeproto.Report{}, known: map[string]bool{},
 	}
+}
+
+// ReleaseURL is where the control plane said the node's releases are, "" before the first hello.
+func (d *Daemon) ReleaseURL() string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	return d.releaseURL
 }
 
 // Run keeps the node connected until ctx ends or the token is refused.
@@ -210,6 +220,10 @@ func (d *Daemon) connectOnce(ctx context.Context) (bool, error) {
 	if err := d.dispose(ctx, held, resp.Dispositions); err != nil {
 		return false, err
 	}
+
+	d.mu.Lock()
+	d.releaseURL = resp.ReleaseURL
+	d.mu.Unlock()
 
 	d.hosts.ask(resp.GitHosts)
 	d.tools.ask(resp.Tools)

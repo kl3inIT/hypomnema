@@ -75,7 +75,41 @@ type SystemStats struct {
 	DiskUsedBytes int64
 	// Load1 is the one-minute load average; zero where the system has none.
 	Load1 float64
-	At    time.Time
+	// GPUs are the machine's GPUs, by index; none for a machine without one.
+	GPUs []GPUStats
+	At   time.Time
+}
+
+// GPUStats is what one GPU measured.
+type GPUStats struct {
+	Index int    `json:"index"`
+	Name  string `json:"name"`
+	// UsagePercent is how busy the GPU is, 0 to 100.
+	UsagePercent     float64 `json:"usage_percent"`
+	MemoryUsedBytes  int64   `json:"memory_used_bytes"`
+	MemoryTotalBytes int64   `json:"memory_total_bytes"`
+	// TemperatureCelsius and PowerWatts are nil when the GPU did not say.
+	TemperatureCelsius *float64 `json:"temperature_celsius,omitempty"`
+	PowerWatts         *float64 `json:"power_watts,omitempty"`
+}
+
+// maxGPUs bounds what one node may report.
+const maxGPUs = 16
+
+// validGPUs says whether a node's GPUs can be true.
+func validGPUs(gpus []GPUStats) bool {
+	if len(gpus) > maxGPUs {
+		return false
+	}
+
+	for _, g := range gpus {
+		if g.Index < 0 || g.Name == "" || len(g.Name) > 128 || g.UsagePercent < 0 || g.UsagePercent > 100 ||
+			g.MemoryUsedBytes < 0 || g.MemoryTotalBytes < 0 {
+			return false
+		}
+	}
+
+	return true
 }
 
 // Node is one machine that runs workers.
@@ -448,15 +482,28 @@ func (s *Service) NodeHeartbeat(ctx context.Context, nodeID string) error {
 
 // NodeStats records what a node measured, replacing its last measurement.
 func (s *Service) NodeStats(ctx context.Context, nodeID string, st SystemStats) error {
-	if st.CPUPercent < 0 || st.CPUPercent > 100 || st.MemoryUsedBytes < 0 || st.DiskUsedBytes < 0 || st.Load1 < 0 {
+	if st.CPUPercent < 0 || st.CPUPercent > 100 || st.MemoryUsedBytes < 0 || st.DiskUsedBytes < 0 || st.Load1 < 0 ||
+		!validGPUs(st.GPUs) {
 		return fmt.Errorf("%w: a measurement out of range", ErrInvalid)
+	}
+
+	// A machine without a GPU keeps NULL, not an empty list.
+	var gpus sql.NullString
+
+	if len(st.GPUs) > 0 {
+		encoded, err := json.Marshal(st.GPUs)
+		if err != nil {
+			return fmt.Errorf("encoding GPUs: %w", err)
+		}
+
+		gpus = sql.NullString{String: string(encoded), Valid: true}
 	}
 
 	return s.write(ctx, func(q *store.Queries, now int64) error {
 		n, err := q.SetNodeStats(ctx, store.SetNodeStatsParams{
 			CpuPercent:      sql.NullFloat64{Float64: st.CPUPercent, Valid: true},
 			MemoryUsedBytes: validInt(st.MemoryUsedBytes), DiskUsedBytes: validInt(st.DiskUsedBytes),
-			Load1: sql.NullFloat64{Float64: st.Load1, Valid: true}, Now: validInt(now), ID: nodeID,
+			Load1: sql.NullFloat64{Float64: st.Load1, Valid: true}, Gpus: gpus, Now: validInt(now), ID: nodeID,
 		})
 
 		return oneRow(n, err, "node", nodeID)

@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kl3inIT/hypomnema/internal/node/acp"
 	"github.com/kl3inIT/hypomnema/internal/node/claude"
 	"github.com/kl3inIT/hypomnema/internal/node/codex"
 	"github.com/kl3inIT/hypomnema/internal/node/daemon"
@@ -31,7 +32,7 @@ import (
 )
 
 // Runtimes the node looks for on its PATH, by CLI name (Orca local-agent-cli-presence.ts).
-var knownRuntimes = []string{"claude", "codex"}
+var knownRuntimes = append([]string{"claude", "codex"}, acp.Runtimes()...)
 
 const versionTimeout = 10 * time.Second
 
@@ -43,6 +44,12 @@ type Config struct {
 	Token string `json:"token"`
 	// WorktreeRoot is where the node makes its worktrees.
 	WorktreeRoot string `json:"worktree_root"`
+	// DisableAutoUpdate keeps the node at its version (Nezha's
+	// disable_auto_update). UpdateEveryMinutes sets how often it looks for a
+	// newer release (Nezha's self_update_period); zero is a random interval of
+	// one to two days.
+	DisableAutoUpdate  bool `json:"disable_auto_update,omitempty"`
+	UpdateEveryMinutes int  `json:"update_every_minutes,omitempty"`
 	// DisableTerminal turns off the terminal the owner opens from the web. It
 	// is set only here, on the machine: the control plane cannot turn it back
 	// on (Nezha's disable_command_execute).
@@ -91,6 +98,14 @@ func Configure(home, rawURL, token, worktreeRoot string) error {
 		return errors.New("that does not hold a node token (hyn_…)")
 	}
 
+	// An install over a node that is already there changes where it connects and with what, and nothing else:
+	// what the machine's owner set in its configuration stays, the worktree root too unless another is named.
+	old, oldErr := LoadConfig(home)
+
+	if worktreeRoot == "" && oldErr == nil {
+		worktreeRoot = old.WorktreeRoot
+	}
+
 	if worktreeRoot == "" {
 		worktreeRoot = filepath.Join(home, "worktrees")
 	}
@@ -107,10 +122,12 @@ func Configure(home, rawURL, token, worktreeRoot string) error {
 		return fmt.Errorf("restricting %s: %w", home, err)
 	}
 
-	cfg := Config{URL: strings.TrimSuffix(rawURL, "/"), Token: token, WorktreeRoot: worktreeRoot}
-	if old, err := LoadConfig(home); err == nil {
-		cfg.Accounts = old.Accounts
+	cfg := Config{}
+	if oldErr == nil {
+		cfg = old
 	}
+
+	cfg.URL, cfg.Token, cfg.WorktreeRoot = strings.TrimSuffix(rawURL, "/"), token, worktreeRoot
 
 	return saveConfig(home, cfg)
 }
@@ -184,8 +201,11 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 	runtimes := DetectRuntimes(ctx)
 
 	claudePath, codexPath := "", ""
+	paths := map[string]string{}
 
 	for _, r := range runtimes {
+		paths[r.Runtime] = r.Path
+
 		switch r.Runtime {
 		case "claude":
 			claudePath = r.Path
@@ -215,6 +235,22 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 		defer terminals.Close()
 	}
 
+	// The agents that speak ACP share one runner (issue #107).
+	acpRunner := &acp.Runner{
+		Home: home, Exe: exe, Paths: paths, URL: cfg.URL, Logger: logger, Worktrees: worktree.Maker{Root: home},
+	}
+
+	all := runners{}
+	for _, runtime := range acp.Runtimes() {
+		all[runtime] = acpRunner
+	}
+
+	all["claude"] = runner
+	// A Codex worker's model comes from the control plane's gateway (issue #107).
+	all["codex"] = &codex.Runner{
+		Home: home, Exe: exe, Codex: codexPath, URL: cfg.URL, Logger: logger, Worktrees: worktree.Maker{Root: home},
+	}
+
 	d := daemon.New(daemon.Config{
 		URL: cfg.URL, Token: cfg.Token, WorktreeRoot: cfg.WorktreeRoot, Version: platform.Version, Runtimes: runtimes,
 		System:      DetectSystem(ctx, cfg.WorktreeRoot),
@@ -222,20 +258,37 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 		Reach:       ReachHost,
 		InstallTool: ToolInstaller{Home: home}.Install,
 		Terminal:    terminals,
-	}, db, runners{
-		"claude": runner,
-		// A Codex worker's model comes from the control plane's gateway (issue #107).
-		"codex": &codex.Runner{
-			Home: home, Exe: exe, Codex: codexPath, URL: cfg.URL, Logger: logger, Worktrees: worktree.Maker{Root: home},
-		},
-	}, logger)
+	}, db, all, logger)
 
 	// Workers' transcripts go to the control plane beside their reports (issue #43).
 	runner.Send = d.SendItems
 
 	go runner.Forward(ctx)
 
-	return d.Run(ctx)
+	// The node updates itself only where ending is a restart: under systemd, which sets INVOCATION_ID.
+	updater := Updater{Exe: exe, Version: platform.Version}
+	if cfg.DisableAutoUpdate || !updater.CanUpdate() || os.Getenv("INVOCATION_ID") == "" {
+		return d.Run(ctx)
+	}
+
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+
+	go func() {
+		busy := func() bool { return terminals != nil && terminals.Count() > 0 }
+		every := time.Duration(cfg.UpdateEveryMinutes) * time.Minute
+
+		if err := updater.UpdateLoop(ctx, d.ReleaseURL, busy, every, logger); errors.Is(err, ErrUpdated) {
+			cancel(ErrUpdated)
+		}
+	}()
+
+	err = d.Run(ctx)
+	if errors.Is(context.Cause(ctx), ErrUpdated) {
+		return ErrUpdated
+	}
+
+	return err
 }
 
 // Unit is a systemd user unit for the daemon. KillMode=process keeps workers

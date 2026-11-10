@@ -202,10 +202,35 @@ func toNodeStats(s *orchestration.SystemStats) *openapi.NodeStats {
 		return nil
 	}
 
-	return &openapi.NodeStats{
+	out := &openapi.NodeStats{
 		CpuPercent: float32(s.CPUPercent), MemoryUsedBytes: s.MemoryUsedBytes, DiskUsedBytes: s.DiskUsedBytes,
 		Load1: float32(s.Load1), At: s.At,
 	}
+
+	if len(s.GPUs) > 0 {
+		gpus := make([]openapi.NodeGPU, 0, len(s.GPUs))
+		for _, g := range s.GPUs {
+			gpus = append(gpus, openapi.NodeGPU{
+				Index: g.Index, Name: g.Name, UsagePercent: float32(g.UsagePercent),
+				MemoryUsedBytes: g.MemoryUsedBytes, MemoryTotalBytes: g.MemoryTotalBytes,
+				TemperatureCelsius: float32Ptr(g.TemperatureCelsius), PowerWatts: float32Ptr(g.PowerWatts),
+			})
+		}
+
+		out.Gpus = &gpus
+	}
+
+	return out
+}
+
+func float32Ptr(v *float64) *float32 {
+	if v == nil {
+		return nil
+	}
+
+	f := float32(*v)
+
+	return &f
 }
 
 func toAccount(a orchestration.Account) openapi.Account {

@@ -228,3 +228,63 @@ Profiles)" in Settings ([menus and settings](2026-11-10-menus-and-settings.md)).
 - Missing altogether: what can run now, told to the coordinator (Omnigent, t3code, OpenClaw, OpenMausBot); the
   page where profiles are managed; and OpenMausBot's rules for a report's evidence and for work that makes no
   progress.
+
+## 9. Evals, and Anthropic's own guidance (2026-11-10)
+
+### 9.1 How the references test a coordinator
+
+Read by one scout in openmausbot, buzz, omp, omnigent (its `tests/` from git, by file name and header only), orca,
+genie, openclaw, hermes-agent, t3code, openhands-sdk, pi and coder.
+
+| Kind | Who | How | In CI |
+|---|---|---|---|
+| A scripted or fake model | OpenMausBot (`evals/`, tiers 1 and 2; `server/runtime/scenarios.test.ts`, 55 tests with invariants), Omnigent (`tests/e2e/test_polly_e2e.py`, the model chosen per worker, `spawn_bounds`), OpenClaw (`qa/scenarios/agents/`, `subagent-handoff.yaml`), genie (`scripts/brainstorm-workflow-behavior.test.ts`) | Scripted turns; the test asserts the tool calls, the dispatch targets, the shape of the hand-off tree and the limits | Yes |
+| A guard on prompt and skill text | Orca (`src/cli/specs/bundled-guide-flags.test.ts`: every command in the guides parses), genie (`scripts/skills-lint.ts`, the `*-parity.test.ts` files), Hermes (`tests/ci/test_prompt_surface.py`: a committed snapshot of the system prompt and tools), Buzz and OpenMausBot (prompts pinned by sha256) | Deterministic | Yes |
+| Live models with cases | t3code (`evals/mcp-tool-use`: 188 cases, 37 on orchestration, about $9 a run on Sonnet), OpenMausBot (`evals/live/`, a judge whose rubric is pinned by sha256, `minScore` 0.75), Buzz (Harbor, k samples), OpenHands SDK (`tests/integration`, a judge) | By hand or behind a switch | No, for cost |
+| A labelled set for a classifier | OpenMausBot only (`server/decider/room-routing.eval.test.ts`: 53 messages, accuracy at least 0.85, at most 2 confident wrong picks, about $0.002 a run) | By hand | No |
+
+- OpenMausBot's `evals/live/scenarios/live-delegation-lane.json` gives a Chief "Do not do the micro-task yourself"
+  and requires its only tool call to be `coordinate_bots`, once.
+- t3code's rules for a prompt eval (`evals/README.md` L32-43): never copy the prompt into the eval; a case must fail
+  on the old text and pass on the new; a case fails when half or more of its samples fail; runs are compared with a
+  baseline.
+- No accuracy eval was found for Omnigent's `sys_advise_models` or omp's classifiers.
+- Hypomnema has the second kind (every command in the skill parses, after Orca) and neither of the others.
+
+### 9.2 Anthropic's guides on choosing and combining models
+
+Pointed out by the owner. Read through a fetch agent on 2026-11-10; of the second page only the first half came
+back verbatim, the rest as that agent's summary, marked (summary).
+
+[Choosing the right model](https://platform.claude.com/docs/en/about-claude/models/choosing-a-model):
+
+- The criteria are capabilities, speed, cost and effort: "Tuning effort is often a better lever than switching
+  models."
+- Two ways to start: efficiency-first (the smallest model, "Upgrade only if necessary for specific capability
+  gaps") or capability-first ("Consider increasing efficiency by lowering effort or downgrading models over time").
+- Its table gives the smallest model "subagent tasks" and high-volume work, and the larger ones complex agentic
+  coding and large refactors.
+- On deciding to upgrade: "Having a good evaluation set is the most important step in the process."
+
+[Optimizing for cost and intelligence](https://platform.claude.com/docs/en/about-claude/models/optimizing-for-cost-and-intelligence):
+
+- "High-volume work with outputs you can check: Try Claude Haiku 5.5 first."
+- "The work exceeds one context window: Split the work and hand the parts to lower-cost models." Delegation did not
+  pay for "one dependent chain" (summary).
+- "Run at low effort and re-run failures at high: in Anthropic's tests, about 40% lower cost than everything at
+  high, at the same pass rate."
+- "Compare on cost per completed task, not per token." A multi-model configuration "must beat the single model's
+  whole curve" (summary).
+- An advisor "can help only when your model consults it".
+
+What it means here (inference):
+
+- The effort is the first lever, which is what issue #127 made reach a Claude Code worker.
+- A cheap model for work whose result can be checked, and for exploring, agrees with omp, genie, Hermes, OpenClaw
+  and Coder (8.1).
+- "One dependent chain" not being worth splitting agrees with the guide's rule to keep steps that build on each
+  other in one Task.
+- New, and in no reference: a retry at a higher effort than the first attempt. Hypomnema already retries a failed
+  Task up to three times, at the same effort. Whether to raise it needs the cost figures of issue #22.
+- The figures are Anthropic's, measured through the API by price. Hypomnema's workers run on subscriptions, where
+  the cost is the plan's limits.

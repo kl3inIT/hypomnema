@@ -57,6 +57,9 @@ var runtimeProviders = map[string][]string{
 	"claude": {ProviderClaudeSubscription, ProviderAnthropic},
 	"codex":  {ProviderCodexSubscription, ProviderOpenAICompatible, ProviderModelGateway},
 	"pi":     {ProviderAnthropic, ProviderOpenAICompatible},
+	// omp and opencode are workers whose model the gateway serves (issue #107).
+	"omp":      {ProviderModelGateway},
+	"opencode": {ProviderModelGateway},
 }
 
 // Efforts lists the reasoning efforts a profile or a Task may name.
@@ -82,7 +85,25 @@ type Profile struct {
 	// Source is the YAML as applied.
 	Source    string
 	CreatedAt time.Time
+	// Availability says whether a worker can start under the profile now. It
+	// is set on a profile's current version only, and not for the
+	// coordinator's runtime, which no node runs.
+	Availability *Availability
 }
+
+// Availability is whether a worker can start now, and when not, why: no
+// connected, active node has the CLI (ReasonNoNode), the runtime has no
+// active account on a node (ReasonNoAccount), or every one cools down
+// (ReasonAccountsCooling, with the time the first is free).
+type Availability struct {
+	Available bool
+	Reason    string
+	At        *time.Time
+}
+
+// coordinatorRuntime is run by the control plane for the owner's chats; no
+// node has it and no Task is placed under it.
+const coordinatorRuntime = "pi"
 
 // Provider is a source of models, such as a subscription or an API.
 type Provider struct {
@@ -310,7 +331,46 @@ func (s *Service) GetProfile(ctx context.Context, name string) (Profile, error) 
 		return Profile{}, notFound(err, "profile", name)
 	}
 
-	return profileFromRow(row), nil
+	out := []Profile{profileFromRow(row)}
+	if err := s.withAvailability(ctx, out); err != nil {
+		return Profile{}, err
+	}
+
+	return out[0], nil
+}
+
+// withAvailability says of each profile whether a worker can start under it
+// now, from the scheduler's own view of the nodes and accounts (Omnigent's
+// agent list carries available_on_host and unavailable_reason the same way).
+func (s *Service) withAvailability(ctx context.Context, profiles []Profile) error {
+	q := s.read()
+
+	p, err := loadPlacement(ctx, q, s.clock.Now().UnixMilli())
+	if err != nil {
+		return err
+	}
+
+	for i, pr := range profiles {
+		if pr.Runtime == coordinatorRuntime {
+			continue
+		}
+
+		gateway := false
+
+		if pr.Provider != "" {
+			row, err := q.GetProvider(ctx, pr.Provider)
+			if err != nil {
+				return notFound(err, "provider", pr.Provider)
+			}
+
+			gateway = row.Kind == ProviderModelGateway
+		}
+
+		a := p.availability(pr.Runtime, gateway)
+		profiles[i].Availability = &a
+	}
+
+	return nil
 }
 
 // ListProfiles returns every profile's current version, by name.
@@ -323,6 +383,10 @@ func (s *Service) ListProfiles(ctx context.Context) ([]Profile, error) {
 	out := make([]Profile, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, profileFromRow(r))
+	}
+
+	if err := s.withAvailability(ctx, out); err != nil {
+		return nil, err
 	}
 
 	return out, nil
