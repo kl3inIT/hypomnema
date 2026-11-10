@@ -107,8 +107,29 @@ jobs:
             ~/.cache/go-build
           key: go-race-${{ runner.os }}-${{ hashFiles('go.sum', 'tools/ci/go.sum') }}
           restore-keys: go-race-${{ runner.os }}-
-      - name: make race
-        run: make race
+      - name: measure
+        run: |
+          nproc
+          go test -count=1 -run TestMeasureMigrate -v ./internal/controlplane/orchestration/ | grep -E "MEASURE|^ok"
+          CGO_ENABLED=1 go test -race -count=1 -run TestMeasureMigrate -v ./internal/controlplane/orchestration/ | grep -E "MEASURE|^ok"
+          CGO_ENABLED=1 go test -race -count=1 -json ./internal/controlplane/orchestration/ ./internal/controlplane/modelgateway/ ./internal/controlplane/clientapi/ > out.json || true
+          python3 - <<'EOF'
+          import json
+          tests=[]; pk={}
+          for l in open('out.json'):
+              try: e=json.loads(l)
+              except Exception: continue
+              if e.get('Action') in ('pass','fail') and 'Elapsed' in e:
+                  if e.get('Test'): tests.append((e['Elapsed'], e['Package'].split('/')[-1], e['Test']))
+                  else: pk[e['Package'].split('/')[-1]]=e['Elapsed']
+          print('packages', pk)
+          top=[t for t in tests if '/' not in t[2]]
+          for p in pk:
+              mine=[t for t in top if t[1]==p]
+              print(p, 'tests', len(mine), 'sum of test times', round(sum(t[0] for t in mine),1))
+          top.sort(reverse=True)
+          for t in top[:25]: print(t)
+          EOF
 
   web:
     name: Web
