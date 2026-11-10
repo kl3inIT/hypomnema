@@ -6,7 +6,7 @@
     "dist/**",
     "src/routeTree.gen.ts",
     "src/api/generated/**",
-    "src/components/ui/**"
+    "src/components/**"
   ],
   "rules": {
     "react/rules-of-hooks": "error",
@@ -15,11 +15,15 @@
       {
         "allowConstantExport": true
       }
-    ]
+    ],
+    "shadcn/no-raw-colors": "error",
+    "shadcn/no-restyle": "error",
+    "shadcn/no-unknown-classes": "error",
+    "shadcn/require-static-classes": "error"
   },
   "overrides": [
     {
-      "files": ["src/routes/**", "src/components/theme-provider.tsx"],
+      "files": ["src/routes/**"],
       "rules": {
         "react/only-export-components": "off"
       }
