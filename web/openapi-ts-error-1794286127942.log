@@ -1,0 +1,29 @@
+[2026-11-10T04:48:47.942Z] Error: Error parsing d:/Workspaces/hypomnema-69/api/openapi.yaml: duplicated mapping key (424:7)
+
+ 421 |             application/json:
+ 422 |               schema: { $ref: "#/comp ...
+ 423 |             schema: { $ref: "#/compon ...
+ 424 |       responses:
+-------------^
+ 425 |         "200":
+ 426 |           description: The host.
+Stack:
+ParserError: Error parsing d:/Workspaces/hypomnema-69/api/openapi.yaml: duplicated mapping key (424:7)
+
+ 421 |             application/json:
+ 422 |               schema: { $ref: "#/comp ...
+ 423 |             schema: { $ref: "#/compon ...
+ 424 |       responses:
+-------------^
+ 425 |         "200":
+ 426 |           description: The host.
+    at Object.handler (file:///D:/Workspaces/hypomnema-69/web/node_modules/.pnpm/@hey-api+json-schema-ref-parser@0.0.0-next-20260930190945/node_modules/@hey-api/json-schema-ref-parser/dist/index.mjs:1145:10)
+    at runNextPlugin (file:///D:/Workspaces/hypomnema-69/web/node_modules/.pnpm/@hey-api+json-schema-ref-parser@0.0.0-next-20260930190945/node_modules/@hey-api/json-schema-ref-parser/dist/index.mjs:1209:33)
+    at file:///D:/Workspaces/hypomnema-69/web/node_modules/.pnpm/@hey-api+json-schema-ref-parser@0.0.0-next-20260930190945/node_modules/@hey-api/json-schema-ref-parser/dist/index.mjs:1223:3
+    at new Promise (<anonymous>)
+    at run (file:///D:/Workspaces/hypomnema-69/web/node_modules/.pnpm/@hey-api+json-schema-ref-parser@0.0.0-next-20260930190945/node_modules/@hey-api/json-schema-ref-parser/dist/index.mjs:1204:9)
+    at parseFile (file:///D:/Workspaces/hypomnema-69/web/node_modules/.pnpm/@hey-api+json-schema-ref-parser@0.0.0-next-20260930190945/node_modules/@hey-api/json-schema-ref-parser/dist/index.mjs:1259:16)
+    at $RefParser.parse (file:///D:/Workspaces/hypomnema-69/web/node_modules/.pnpm/@hey-api+json-schema-ref-parser@0.0.0-next-20260930190945/node_modules/@hey-api/json-schema-ref-parser/dist/index.mjs:1733:31)
+    at async $RefParser.bundle (file:///D:/Workspaces/hypomnema-69/web/node_modules/.pnpm/@hey-api+json-schema-ref-parser@0.0.0-next-20260930190945/node_modules/@hey-api/json-schema-ref-parser/dist/index.mjs:1675:3)
+    at async createClient$1 (file:///D:/Workspaces/hypomnema-69/web/node_modules/.pnpm/@hey-api+openapi-ts@0.0.0-next-20260930190945_magicast@0.5.5/node_modules/@hey-api/openapi-ts/dist/src-DmQmx2Tp.mjs:116:9)
+    at async file:///D:/Workspaces/hypomnema-69/web/node_modules/.pnpm/@hey-api+openapi-ts@0.0.0-next-20260930190945_magicast@0.5.5/node_modules/@hey-api/openapi-ts/dist/src-DmQmx2Tp.mjs:230:12

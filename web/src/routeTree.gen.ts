@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as BoardRouteImport } from './routes/board'
+import { Route as MachinesRouteImport } from './routes/machines'
 import { Route as ChatsChatIdRouteImport } from './routes/chats.$chatId'
 import { Route as RunsIndexRouteImport } from './routes/runs.index'
 import { Route as RunsRunIdRouteImport } from './routes/runs.$runId'
@@ -23,6 +24,11 @@ const IndexRoute = IndexRouteImport.update({
 const BoardRoute = BoardRouteImport.update({
   id: '/board',
   path: '/board',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MachinesRoute = MachinesRouteImport.update({
+  id: '/machines',
+  path: '/machines',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ChatsChatIdRoute = ChatsChatIdRouteImport.update({
@@ -44,6 +50,7 @@ const RunsRunIdRoute = RunsRunIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/board': typeof BoardRoute
+  '/machines': typeof MachinesRoute
   '/chats/$chatId': typeof ChatsChatIdRoute
   '/runs/$runId': typeof RunsRunIdRoute
   '/runs/': typeof RunsIndexRoute
@@ -51,6 +58,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/board': typeof BoardRoute
+  '/machines': typeof MachinesRoute
   '/chats/$chatId': typeof ChatsChatIdRoute
   '/runs/$runId': typeof RunsRunIdRoute
   '/runs': typeof RunsIndexRoute
@@ -59,21 +67,31 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/board': typeof BoardRoute
+  '/machines': typeof MachinesRoute
   '/chats/$chatId': typeof ChatsChatIdRoute
   '/runs/$runId': typeof RunsRunIdRoute
   '/runs/': typeof RunsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/board' | '/chats/$chatId' | '/runs/$runId' | '/runs/'
+  fullPaths:
+    '/' | '/board' | '/machines' | '/chats/$chatId' | '/runs/$runId' | '/runs/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/board' | '/chats/$chatId' | '/runs/$runId' | '/runs'
-  id: '__root__' | '/' | '/board' | '/chats/$chatId' | '/runs/$runId' | '/runs/'
+  to: '/' | '/board' | '/machines' | '/chats/$chatId' | '/runs/$runId' | '/runs'
+  id:
+    | '__root__'
+    | '/'
+    | '/board'
+    | '/machines'
+    | '/chats/$chatId'
+    | '/runs/$runId'
+    | '/runs/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   BoardRoute: typeof BoardRoute
+  MachinesRoute: typeof MachinesRoute
   ChatsChatIdRoute: typeof ChatsChatIdRoute
   RunsRunIdRoute: typeof RunsRunIdRoute
   RunsIndexRoute: typeof RunsIndexRoute
@@ -93,6 +111,13 @@ declare module '@tanstack/react-router' {
       path: '/board'
       fullPath: '/board'
       preLoaderRoute: typeof BoardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/machines': {
+      id: '/machines'
+      path: '/machines'
+      fullPath: '/machines'
+      preLoaderRoute: typeof MachinesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/chats/$chatId': {
@@ -122,6 +147,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   BoardRoute: BoardRoute,
+  MachinesRoute: MachinesRoute,
   ChatsChatIdRoute: ChatsChatIdRoute,
   RunsRunIdRoute: RunsRunIdRoute,
   RunsIndexRoute: RunsIndexRoute,

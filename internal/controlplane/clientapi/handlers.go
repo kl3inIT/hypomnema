@@ -345,6 +345,57 @@ func (s *Server) ListNodes(ctx context.Context, _ openapi.ListNodesRequestObject
 	return out, nil
 }
 
+// CreateNode adds a node and answers with its first token, shown only here.
+func (s *Server) CreateNode(ctx context.Context, req openapi.CreateNodeRequestObject,
+) (openapi.CreateNodeResponseObject, error) {
+	n, token, err := s.svc.AddNode(ctx, req.Body.Name, val(req.Body.MaxDispatches))
+	if err != nil {
+		return nil, err
+	}
+
+	return openapi.CreateNode201JSONResponse{Node: toNode(n), Token: token}, nil
+}
+
+// RemoveNode takes a node out of the registry.
+func (s *Server) RemoveNode(ctx context.Context, req openapi.RemoveNodeRequestObject,
+) (openapi.RemoveNodeResponseObject, error) {
+	if err := s.svc.RemoveNode(ctx, req.NodeId); err != nil {
+		return nil, err
+	}
+
+	return openapi.RemoveNode204Response{}, nil
+}
+
+// DrainNode stops new work on a node.
+func (s *Server) DrainNode(ctx context.Context, req openapi.DrainNodeRequestObject,
+) (openapi.DrainNodeResponseObject, error) {
+	if err := s.svc.DrainNode(ctx, req.NodeId); err != nil {
+		return nil, err
+	}
+
+	n, err := s.svc.GetNode(ctx, req.NodeId)
+	if err != nil {
+		return nil, err
+	}
+
+	return openapi.DrainNode200JSONResponse(toNode(n)), nil
+}
+
+// ResumeNode lets a node take new work again.
+func (s *Server) ResumeNode(ctx context.Context, req openapi.ResumeNodeRequestObject,
+) (openapi.ResumeNodeResponseObject, error) {
+	if err := s.svc.ResumeNode(ctx, req.NodeId); err != nil {
+		return nil, err
+	}
+
+	n, err := s.svc.GetNode(ctx, req.NodeId)
+	if err != nil {
+		return nil, err
+	}
+
+	return openapi.ResumeNode200JSONResponse(toNode(n)), nil
+}
+
 // ListAccounts returns the accounts, which hold no secret.
 func (s *Server) ListAccounts(ctx context.Context, _ openapi.ListAccountsRequestObject,
 ) (openapi.ListAccountsResponseObject, error) {

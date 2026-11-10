@@ -1,0 +1,117 @@
+import { AlertDialog } from "@base-ui/react/alert-dialog"
+import { Menu } from "@base-ui/react/menu"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { CirclePause, CirclePlay, Ellipsis, Trash2 } from "lucide-react"
+import { useState } from "react"
+
+import "@/api/client"
+import { drainNode, removeNode, resumeNode } from "@/api/generated/sdk.gen"
+import type { Node } from "@/api/generated/types.gen"
+import { Button } from "@/components/ui/button"
+
+import { errorText } from "./machines-state"
+import { nodesKey } from "./use-machines"
+
+const itemClass =
+  "flex cursor-default items-center gap-2.5 rounded-md px-2.5 py-1.5 text-sm outline-none select-none data-highlighted:bg-accent data-highlighted:text-accent-foreground"
+
+// MachineActions is a machine's menu, after Beszel's ActionsButton (MIT, Copyright (c) 2024 henrygd,
+// https://github.com/henrygd/beszel; internal/site/src/components/systems-table/systems-table-columns.tsx): Drain
+// or Resume where Beszel pauses, and Remove behind a confirmation. Changed: Base UI's Menu and AlertDialog; no
+// edit or copy items; a refused request shows the server's message.
+export function MachineActions({ node }: { node: Node }) {
+  const queryClient = useQueryClient()
+  const [removing, setRemoving] = useState(false)
+  const drained = node.status === "drained"
+
+  const toggle = useMutation({
+    mutationFn: async () =>
+      drained
+        ? await resumeNode({ path: { node_id: node.id } })
+        : await drainNode({ path: { node_id: node.id } }),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: nodesKey }),
+  })
+  const remove = useMutation({
+    mutationFn: async () => await removeNode({ path: { node_id: node.id } }),
+    onSuccess: async () => {
+      setRemoving(false)
+      await queryClient.invalidateQueries({ queryKey: nodesKey })
+    },
+  })
+
+  return (
+    <div className="flex items-center justify-end gap-2">
+      {toggle.error && (
+        <span role="alert" className="max-w-56 truncate text-xs font-normal text-destructive">
+          {errorText(toggle.error)}
+        </span>
+      )}
+      <Menu.Root>
+        <Menu.Trigger
+          render={<Button variant="ghost" size="icon-sm" aria-label={`Actions for ${node.name}`} />}
+        >
+          <Ellipsis />
+        </Menu.Trigger>
+        <Menu.Portal>
+          <Menu.Positioner align="end" sideOffset={4} className="z-50 outline-none">
+            <Menu.Popup className="min-w-36 rounded-lg border bg-popover p-1 text-popover-foreground shadow-md outline-none">
+              <Menu.Item className={itemClass} onClick={() => toggle.mutate()}>
+                {drained ? (
+                  <>
+                    <CirclePlay className="size-4" />
+                    Resume
+                  </>
+                ) : (
+                  <>
+                    <CirclePause className="size-4" />
+                    Drain
+                  </>
+                )}
+              </Menu.Item>
+              <Menu.Separator className="mx-1 my-1 h-px bg-border" />
+              <Menu.Item
+                className={itemClass}
+                onClick={() => {
+                  remove.reset()
+                  setRemoving(true)
+                }}
+              >
+                <Trash2 className="size-4" />
+                Remove
+              </Menu.Item>
+            </Menu.Popup>
+          </Menu.Positioner>
+        </Menu.Portal>
+      </Menu.Root>
+
+      <AlertDialog.Root open={removing} onOpenChange={setRemoving}>
+        <AlertDialog.Portal>
+          <AlertDialog.Backdrop className="fixed inset-0 z-40 bg-black/60 transition-opacity data-ending-style:opacity-0 data-starting-style:opacity-0" />
+          <AlertDialog.Popup className="fixed top-1/2 left-1/2 z-50 flex w-[calc(100vw-2rem)] max-w-sm -translate-x-1/2 -translate-y-1/2 flex-col gap-3 rounded-xl border bg-background p-5 text-start font-normal whitespace-normal outline-none">
+            <AlertDialog.Title className="text-sm font-medium">
+              Remove {node.name}?
+            </AlertDialog.Title>
+            <AlertDialog.Description className="text-sm text-muted-foreground">
+              Its tokens stop working and it can take no more work. This cannot be undone.
+            </AlertDialog.Description>
+            {remove.error && (
+              <p role="alert" className="text-sm text-destructive">
+                {errorText(remove.error)}
+              </p>
+            )}
+            <div className="flex justify-end gap-2 pt-1">
+              <AlertDialog.Close render={<Button variant="outline" />}>Cancel</AlertDialog.Close>
+              <Button
+                variant="destructive"
+                disabled={remove.isPending}
+                onClick={() => remove.mutate()}
+              >
+                {remove.isPending ? "Removing…" : "Remove"}
+              </Button>
+            </div>
+          </AlertDialog.Popup>
+        </AlertDialog.Portal>
+      </AlertDialog.Root>
+    </div>
+  )
+}

@@ -226,7 +226,9 @@ Client API (`internal/controlplane/clientapi`, contract `api/openapi.yaml`, afte
   open Run and other Runs' Tasks changed in the last 24 h, with their latest Dispatch, their Runs, and the newest
   event's seq to follow the stream from); read a worker's transcript (`GET /dispatches/{id}/items`: the items after a
   seq, or the newest ones before a seq, 100 a page; it can wait up to 50 s for the next item); list, show, answer
-  and forward questions; list events; list nodes and accounts. Creating a Run or Tasks takes an `Idempotency-Key`.
+  and forward questions; list events; list nodes and accounts; add a node (`POST /nodes`, which answers with
+  its token once), drain, resume and remove one (owner only; removing a node that still runs a Dispatch is a 409).
+  Creating a Run or Tasks takes an `Idempotency-Key`.
   A Dispatch carries `activity`, one line about the newest thing its worker said or did.
 - Events: a page after a cursor, which can wait up to 50 s for the next event (`wait`) instead of polling; and a
   stream of Server-Sent Events at `/api/v1/events/stream`, each with its seq as id, resumed with `Last-Event-ID`,
@@ -397,8 +399,18 @@ Node (`internal/node`):
     option takes it, Enter sends. A question to pi is shown, and the owner can take it over (forward).
   - `/runs` lists the Runs, those that ask the owner first; `/runs/{id}` shows the objective, the open questions
     answered in place, the Tasks and the answered questions; Finish and Cancel.
-  - The sidebar lists the places (New chat, Board with the count that needs the owner, Runs) above the chats.
+  - The sidebar lists the places (New chat, Board with the count that needs the owner, Runs, Machines) above the
+    chats.
     Every page follows `GET /events/stream` from the board's cursor and refreshes what an event may have changed.
+- The machines (issue #69): `/machines` lists the nodes after Beszel's systems table (MIT), as cards (Grid, the
+  default) or a Table, both from one column definition; the choice is kept in `localStorage`. A machine shows its
+  state (Online, Drained, or Offline with when it was last seen), meters for CPU, memory and disk that turn amber
+  from 65 % and red from 90 % and are grey while it is not connected, its load average, its Dispatches against its
+  limit, its runtimes and its daemon version and platform. `GET /nodes` is read again every 5 s while the tab is
+  visible, since no event says a measurement changed. A machine's menu drains or resumes it and removes it after a
+  confirmation; a refusal shows the server's message. "Add machine" takes a name and an optional limit, then shows
+  the node's token and the install line once, each with a copy button; the token is kept only while that dialog is
+  open.
 - `web/embed.go` embeds the build (`web/dist`) into `hypomnema`. `make build` builds the client first.
   - The control plane serves it with `internal/controlplane/webui`, after Omnara's `spa.go`:
     - files as they are, with a year's cache under `assets/`;
