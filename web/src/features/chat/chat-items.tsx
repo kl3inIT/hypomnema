@@ -74,10 +74,14 @@ function Meta({
         aria-label="Copy"
         className="inline-flex size-6 items-center justify-center rounded-md hover:bg-accent hover:text-foreground"
         onClick={() => {
-          void navigator.clipboard?.writeText(text).then(() => {
-            setCopied(true)
-            setTimeout(() => setCopied(false), 1500)
-          })
+          // A browser may refuse the clipboard (no permission, no focus); the button then stays as it is.
+          void navigator.clipboard
+            ?.writeText(text)
+            .then(() => {
+              setCopied(true)
+              setTimeout(() => setCopied(false), 1500)
+            })
+            .catch(() => undefined)
         }}
       >
         {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
