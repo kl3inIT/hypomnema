@@ -392,6 +392,7 @@ and the node in the control plane binary.
 - `make web-check`: oxlint, oxfmt, `tsc -b` and vitest for the web client; `make web-e2e`: Playwright on the
   production build, at a phone's and a desktop's size.
 - CI (`.github/workflows/ci.yml`) runs `make verify` and `govulncheck`, and in a second job `make web-check` and
-  `make web-e2e`, on every pull request and on `main`.
+  `make web-e2e`, on every pull request and on `main`. Chromium for the browser tests is cached by the Playwright
+  version, as t3code's CI does.
 - Dependabot (`.github/dependabot.yml`) proposes updates weekly for the Go modules (`/`, `/tools/ci`), the web
   client, pi (`deploy/coordinator`) and the GitHub Actions, with minor and patch updates grouped.
