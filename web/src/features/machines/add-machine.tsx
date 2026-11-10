@@ -26,6 +26,8 @@ export function AddMachine() {
   const [where, setWhere] = useState(own)
   const [name, setName] = useState("")
   const [max, setMax] = useState("")
+  const [region, setRegion] = useState("")
+  const [size, setSize] = useState("")
   const providers = useMachineProviders(open).data ?? []
   const provider = providers.find((p) => p.name === where)
   const full = provider !== undefined && provider.machines >= provider.max_machines
@@ -38,6 +40,8 @@ export function AddMachine() {
             name: name.trim(),
             ...(max ? { max_dispatches: Number(max) } : {}),
             ...(provider ? { provider: provider.name } : {}),
+            ...(provider && region.trim() ? { region: region.trim() } : {}),
+            ...(provider && size.trim() ? { size: size.trim() } : {}),
           },
         })
       ).data,
@@ -54,6 +58,8 @@ export function AddMachine() {
       setWhere(own)
       setName("")
       setMax("")
+      setRegion("")
+      setSize("")
       create.reset()
     }
   }
@@ -111,6 +117,35 @@ export function AddMachine() {
                   className={inputClass}
                 />
               </label>
+              {provider && (
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="flex min-w-0 flex-col gap-1.5 text-sm">
+                    Size
+                    <input
+                      autoComplete="off"
+                      spellCheck={false}
+                      placeholder={provider.size}
+                      value={size}
+                      onChange={(event) => setSize(event.target.value)}
+                      className={inputClass}
+                    />
+                  </label>
+                  <label className="flex min-w-0 flex-col gap-1.5 text-sm">
+                    Region
+                    <input
+                      autoComplete="off"
+                      spellCheck={false}
+                      placeholder={provider.region}
+                      value={region}
+                      onChange={(event) => setRegion(event.target.value)}
+                      className={inputClass}
+                    />
+                  </label>
+                  <span className="col-span-2 -mt-1.5 text-xs text-muted-foreground">
+                    The provider's own names, such as t3.large. Leave empty for the defaults shown.
+                  </span>
+                </div>
+              )}
               <label className="flex flex-col gap-1.5 text-sm">
                 Max Dispatches
                 <input

@@ -1,14 +1,16 @@
 import { useState } from "react"
 
 import type { Node } from "@/api/generated/types.gen"
+import { Button } from "@/components/ui/button"
 import { PageHeader } from "@/features/shell/app-shell"
 import { since } from "@/lib/time"
 import { cn } from "@/lib/utils"
 
 import { AddMachine } from "./add-machine"
+import { RemoveMachine } from "./machine-actions"
 import { IndicatorDot, MachineProblem, StateText } from "./machine-cells"
 import { columns } from "./machines-columns"
-import { machineNote, summary } from "./machines-state"
+import { machineNote, machineState, summary } from "./machines-state"
 import { useMachines } from "./use-machines"
 
 type Layout = "grid" | "table"
@@ -170,6 +172,9 @@ function MachineCard({ node }: { node: Node }) {
 // NotReady is the card of a provider's machine that has nothing to measure yet: why it failed, what happens next,
 // what was asked for and when.
 function NotReady({ node, note }: { node: Node; note: string }) {
+  const [removing, setRemoving] = useState(false)
+  const failed = machineState(node) === "create_failed"
+
   return (
     <div className="flex flex-col gap-2 px-5 pt-3.5 pb-4 text-sm">
       <MachineProblem node={node} className="text-sm break-words" />
@@ -178,6 +183,14 @@ function NotReady({ node, note }: { node: Node; note: string }) {
         <p className="text-xs text-muted-foreground">
           {node.machine.size} in {node.machine.region} · asked for {since(node.created_at)}
         </p>
+      )}
+      {failed && (
+        <div className="pt-1">
+          <Button variant="outline" size="sm" onClick={() => setRemoving(true)}>
+            Remove
+          </Button>
+          <RemoveMachine node={node} open={removing} onOpenChange={setRemoving} />
+        </div>
       )}
     </div>
   )
