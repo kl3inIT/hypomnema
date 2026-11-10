@@ -71,13 +71,15 @@ func (o ownerSecrets) Value(ctx context.Context, name string) (map[string]string
 	return opened.Payload, nil
 }
 
-// Put keeps a value under a name: a new generic secret, or a new version of
-// one. What uses the secret gets the new value, as Omnara's rotation. A token
-// set is not typed over: only a sign-in produces one.
-func (o ownerSecrets) Put(ctx context.Context, name, value string) (clientapi.SecretInfo, error) {
-	payload := vault.Payload{vault.KeyValue: value}
+// Put keeps values under a name: a new generic secret, or a new version of a
+// secret of its own kind. What uses the secret gets the new value, as
+// Omnara's rotation; a token set takes its complete replacement set, as
+// Omnara's edit does. The vault checks the values against the kind.
+func (o ownerSecrets) Put(ctx context.Context, name string, values map[string]string,
+) (clientapi.SecretInfo, error) {
+	payload := vault.Payload(values)
 
-	existing, err := o.vault.Get(ctx, name)
+	_, err := o.vault.Get(ctx, name)
 
 	var kept vault.Secret
 
@@ -86,9 +88,6 @@ func (o ownerSecrets) Put(ctx context.Context, name, value string) (clientapi.Se
 		kept, err = o.vault.Create(ctx, vault.NewSecret{Name: name, Kind: vault.KindGeneric, Payload: payload})
 	case err != nil:
 		return clientapi.SecretInfo{}, secretError(err)
-	case existing.Kind != vault.KindGeneric:
-		return clientapi.SecretInfo{}, fmt.Errorf(
-			"%w: %q is a token set; sign in again where it is used to replace it", orchestration.ErrInvalid, name)
 	default:
 		kept, err = o.vault.Rotate(ctx, name, payload)
 	}

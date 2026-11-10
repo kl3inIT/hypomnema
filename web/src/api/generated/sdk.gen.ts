@@ -360,7 +360,7 @@ export const deleteSecret = <ThrowOnError extends boolean = true>(options: Optio
 /**
  * Keep a value under a name, as a new secret or a new version of one; only the owner
  *
- * What uses the secret gets the new value. The value is never returned by this operation. A token set is not replaced here: only a sign-in produces one.
+ * What uses the secret gets the new value. The value is never returned by this operation. A new secret is generic and takes `value`. A token set is replaced with its complete set in `values`, as Omnara's edit.
  */
 export const putSecret = <ThrowOnError extends boolean = true>(options: Options<PutSecretData, ThrowOnError>): RequestResult<PutSecretResponses, PutSecretErrors, ThrowOnError> => (options.client ?? client).put<PutSecretResponses, PutSecretErrors, ThrowOnError>({
   security: [{ scheme: 'bearer', type: 'http' }],

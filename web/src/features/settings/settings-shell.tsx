@@ -103,7 +103,7 @@ export function SettingsPage({
         </nav>
       )}
       <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-8 sm:px-5">
-        <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 pt-2">
+        <div className="mx-auto flex w-full max-w-3xl min-w-0 flex-col gap-5 pt-2">
           <p className="text-sm text-muted-foreground">{description}</p>
           {children}
         </div>

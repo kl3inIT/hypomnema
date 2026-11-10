@@ -87,10 +87,10 @@ async function fakeServer(page: Page, start?: Secret[]) {
         return route.fulfill({ status: 204 })
       }
 
-      const body = request.postDataJSON() as { value: string }
+      const body = request.postDataJSON() as { value?: string; values?: Record<string, string> }
       const old = secrets.find((s) => s.name === name)
       const kept = secret(name, { ...old, version: (old?.version ?? 0) + 1 })
-      values[name] = { value: body.value }
+      values[name] = body.values ?? { value: body.value ?? "" }
       secrets = [...secrets.filter((s) => s.name !== name), kept]
 
       return json(kept)
@@ -113,25 +113,23 @@ async function fakeServer(page: Page, start?: Secret[]) {
   return calls
 }
 
-const row = (page: Page, name: string) => page.getByRole("listitem", { name })
+const row = (page: Page, name: string) => page.getByRole("row", { name, exact: true })
 
 const fits = (page: Page) =>
   page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
 
 // Scenario: the owner opens the Vault from Settings. No value is on the page or asked for until he reveals a
-// secret; a token set shows each of its values; hiding takes the value off the page.
-test("the owner reveals and hides a secret's value", async ({ page }) => {
+// row; a token set shows each of its values; hiding takes the value off the page; the table's head reveals all.
+test("the owner reveals and hides secrets' values", async ({ page }) => {
   const calls = await fakeServer(page)
   await page.goto("/settings/integrations")
   await page.getByRole("link", { name: "Vault" }).click()
 
   await expect(page.getByRole("heading", { name: "Vault" })).toBeVisible()
-  await expect(row(page, "conn-github-com-work")).toContainText(
-    "used by connection github.com:work",
-  )
-  await expect(row(page, "a-note-for-later")).toContainText("not used")
+  await expect(row(page, "google-work")).toContainText("OAuth token set")
   await expect(page.getByText("ghp_")).toHaveCount(0)
   expect(calls).toEqual([])
+  // The page itself does not scroll sideways: the table does, inside its box.
   expect(await fits(page)).toBe(true)
   await shot(page, "vault-list")
 
@@ -146,6 +144,8 @@ test("the owner reveals and hides a secret's value", async ({ page }) => {
   await expect(
     row(page, "google-work").getByRole("status", { name: "refresh_token" }),
   ).toContainText("1//0gExample")
+  await page.getByRole("button", { name: "Details of google-work" }).click()
+  await expect(page.getByText("Version")).toBeVisible()
   expect(await fits(page)).toBe(true)
   await shot(page, "vault-revealed")
 
@@ -157,10 +157,21 @@ test("the owner reveals and hides a secret's value", async ({ page }) => {
     "GET /secrets/conn-github-com-work/value",
     "GET /secrets/google-work/value",
   ])
+
+  await page.getByRole("button", { name: "Reveal values" }).click()
+  await expect(page.getByText("sk-live-0123456789abcdef")).toBeVisible()
+  await expect(page.getByText("the door code is 4812")).toBeVisible()
+  await shot(page, "vault-all-revealed")
+  await page.getByRole("button", { name: "Hide values" }).click()
+  await expect(page.getByText("sk-live-0123456789abcdef")).toHaveCount(0)
+
+  await page.getByRole("searchbox", { name: "Search secrets by name" }).fill("google")
+  await expect(row(page, "openai-key")).toHaveCount(0)
+  await expect(row(page, "google-work")).toBeVisible()
 })
 
-// Scenario: the owner adds a secret, replaces it, is refused when removing one in use, and removes his own.
-test("the owner adds, replaces and removes a secret", async ({ page }) => {
+// Scenario: the owner adds a secret, edits it, is refused when deleting one in use, and deletes his own.
+test("the owner adds, edits and deletes a secret", async ({ page }) => {
   const calls = await fakeServer(page)
   await page.goto("/settings/vault")
 
@@ -171,28 +182,37 @@ test("the owner adds, replaces and removes a secret", async ({ page }) => {
   await dialog.getByLabel("Value").fill("first")
   await shot(page, "vault-add")
   await dialog.getByRole("button", { name: "Add", exact: true }).click()
-  await expect(row(page, "deploy-key")).toContainText("version 1")
+  await expect(row(page, "deploy-key")).toBeVisible()
 
-  await row(page, "deploy-key").getByRole("button", { name: "Replace deploy-key" }).click()
+  await row(page, "deploy-key").getByRole("button", { name: "Edit deploy-key" }).click()
   dialog = page.getByRole("dialog")
   await dialog.getByLabel("Value").fill("second")
-  await dialog.getByRole("button", { name: "Replace", exact: true }).click()
-  await expect(row(page, "deploy-key")).toContainText("version 2")
+  await dialog.getByRole("button", { name: "Save", exact: true }).click()
+  await expect(dialog).toBeHidden()
 
-  await row(page, "openai-key").getByRole("button", { name: "Remove openai-key" }).click()
+  await row(page, "google-work").getByRole("button", { name: "Edit google-work" }).click()
   dialog = page.getByRole("dialog")
-  await dialog.getByRole("button", { name: "Remove secret" }).click()
-  await expect(dialog.getByRole("alert")).toContainText("the secret is in use")
-  await shot(page, "vault-remove-refused")
+  await expect(dialog).toContainText("complete replacement set")
+  await dialog.getByLabel("refresh_token").fill("1//new")
+  await shot(page, "vault-edit-token-set")
+  await dialog.getByRole("button", { name: "Save", exact: true }).click()
+  await expect(dialog).toBeHidden()
+
+  await row(page, "openai-key").getByRole("button", { name: "Delete openai-key" }).click()
+  dialog = page.getByRole("dialog")
+  await dialog.getByRole("button", { name: "Delete secret" }).click()
+  await expect(dialog.getByRole("alert")).toContainText("used by provider openai")
+  await shot(page, "vault-delete-refused")
   await dialog.getByRole("button", { name: "Cancel" }).click()
 
-  await row(page, "deploy-key").getByRole("button", { name: "Remove deploy-key" }).click()
-  await page.getByRole("dialog").getByRole("button", { name: "Remove secret" }).click()
+  await row(page, "deploy-key").getByRole("button", { name: "Delete deploy-key" }).click()
+  await page.getByRole("dialog").getByRole("button", { name: "Delete secret" }).click()
   await expect(row(page, "deploy-key")).toHaveCount(0)
 
   expect(calls).toEqual([
     "PUT /secrets/deploy-key",
     "PUT /secrets/deploy-key",
+    "PUT /secrets/google-work",
     "DELETE /secrets/openai-key",
     "DELETE /secrets/deploy-key",
   ])
@@ -203,6 +223,6 @@ test("an empty vault says what it is for", async ({ page }) => {
   await fakeServer(page, [])
   await page.goto("/settings/vault")
 
-  await expect(page.getByText("The vault is empty")).toBeVisible()
+  await expect(page.getByText("No secrets yet")).toBeVisible()
   await shot(page, "vault-empty")
 })

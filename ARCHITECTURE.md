@@ -215,8 +215,8 @@ proxy, does not exist yet.
   [decision](docs/decisions/2026-11-10-owner-reads-secret-values.md)): `GET /secrets` lists secrets without values
   and with what uses each (a provider, a machine provider, an account, a Connection); `GET /secrets/{name}/value`
   returns one secret's values, with `Cache-Control: no-store`; `PUT /secrets/{name}` keeps a value as a new generic
-  secret or a new version, which whatever uses the secret then gets; `DELETE` is refused while something uses it. A
-  token set is read but not typed over. All four are owner-only by the policy table; a coordinator's token is
+  secret or a new version, which whatever uses the secret then gets; a token set is replaced with its complete
+  set, as in Omnara's edit; `DELETE` is refused while something uses it. All four are owner-only by the policy table; a coordinator's token is
   refused, and nothing on a node has such an operation. The control plane's own wiring
   (`internal/controlplane/ownersecrets.go`) stands between the API and the vault.
 - Each read of a value is a row of `secret_reads` (the secret's name and the token, or `host`; never the value). It
@@ -600,12 +600,13 @@ Node (`internal/node`):
     or a pasted URL), what it runs and, if wanted, its token. Removing a token or a declared server asks first.
   - `/settings/repositories` has no entry in the menu while its place is being decided (issue #44); it lists the registered repositories, adds one from its URL under a
     proposed name with an optional base branch, and removes one after a confirmation.
-  - `/settings/vault` (under Connections, [issue #108](https://github.com/kl3inIT/hypomnema/issues/108)) lists the
-    vault's secrets with their kind, version, when they changed and what uses them. A value is not on the page
-    until the owner reveals that secret: only then is `GET /secrets/{name}/value` called, and the value is dropped
-    when it is hidden or the page is left, as Infisical's secrets dashboard does (MIT). A token set shows each of
-    its values; a generic secret can be replaced; a removal the server refuses says why. Add takes a name and a
-    value in a password field.
+  - `/settings/vault` (under Connections, [issue #108](https://github.com/kl3inIT/hypomnema/issues/108)) is a
+    table of the vault's secrets, after Infisical's secrets dashboard (MIT) and Omnara's secrets list
+    (Apache-2.0): Name, Value and Type, a search box above, and a row that opens to its version and dates. A
+    value shows as asterisks and is not on the page until the owner reveals its row, or every row from the table's
+    head: only then is `GET /secrets/{name}/value` called, and the value is dropped when hidden or the page is
+    left. A token set shows each of its values. Edit replaces a generic secret's value, or a token set with its
+    complete set; Delete says why when the server refuses. Add takes a name and a value in a password field.
   - Both pages do only what `hosts ...` and `repos ...` do in the CLI.
 - `web/embed.go` embeds the build (`web/dist`) into `hypomnema`. `make build` builds the client first.
   - The control plane serves it with `internal/controlplane/webui`, after Omnara's `spa.go`:

@@ -551,8 +551,8 @@ paths:
       summary: Keep a value under a name, as a new secret or a new version of one; only the owner
       description: >-
         What uses the secret gets the new value. The value is never returned
-        by this operation. A token set is not replaced here: only a sign-in
-        produces one.
+        by this operation. A new secret is generic and takes `value`. A token
+        set is replaced with its complete set in `values`, as Omnara's edit.
       requestBody:
         required: true
         content:
@@ -1492,13 +1492,17 @@ components:
           description: The secret's values by key; a generic secret has one, under "value".
     NewSecretValue:
       type: object
-      required: [value]
       additionalProperties: false
+      description: Either `value`, for a generic secret, or `values`, the complete set of a token set.
       properties:
         value:
           type: string
           minLength: 1
           maxLength: 65536
+          writeOnly: true
+        values:
+          type: object
+          additionalProperties: { type: string, maxLength: 65536 }
           writeOnly: true
     NewGitHost:
       type: object

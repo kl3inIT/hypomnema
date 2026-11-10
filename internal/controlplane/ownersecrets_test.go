@@ -265,9 +265,9 @@ func TestAConnectionsSecretIsShownWithWhatUsesIt(t *testing.T) {
 	assert.NotContains(t, a.names(), name, "disconnecting removes the secret")
 }
 
-// Scenario: a token set, which only a sign-in produces, is read but not typed
-// over.
-func TestATokenSetIsReadButNotTypedOver(t *testing.T) {
+// Scenario: a token set is read with each of its values, and replaced with
+// its complete set; a set without its refresh token is refused.
+func TestATokenSetIsReadAndReplacedAsASet(t *testing.T) {
 	t.Parallel()
 
 	a := newVaultAPI(t)
@@ -282,11 +282,23 @@ func TestATokenSetIsReadButNotTypedOver(t *testing.T) {
 	assert.Equal(t, map[string]any{"refresh_token": "rt-1", "access_token": "at-1"}, body["values"])
 
 	status, _, raw, _ := a.call(a.owner, http.MethodPut, "/secrets/google-work", map[string]string{"value": "typed"})
-	assert.Equal(t, http.StatusBadRequest, status, raw)
+	assert.Equal(t, http.StatusBadRequest, status, "a token set needs its refresh token: %s", raw)
 	assert.NotContains(t, raw, "rt-1")
+
+	status, body, _, _ = a.call(a.owner, http.MethodPut, "/secrets/google-work",
+		map[string]any{"values": map[string]string{"refresh_token": "rt-2"}})
+	require.Equal(t, http.StatusOK, status, body)
+	assert.Equal(t, "oauth_token_set", body["kind"])
+	assert.EqualValues(t, 2, body["version"])
+
+	_, body, _, _ = a.call(a.owner, http.MethodGet, "/secrets/google-work/value", nil)
+	assert.Equal(t, map[string]any{"refresh_token": "rt-2"}, body["values"])
+
+	status, _, _, _ = a.call(a.owner, http.MethodPut, "/secrets/empty", map[string]any{})
+	assert.Equal(t, http.StatusBadRequest, status, "a secret needs a value")
 
 	out.Reset()
 	require.NoError(t, Command(t.Context(), a.cfg, []string{"secrets", "show", "google-work"},
 		strings.NewReader(""), &out))
-	assert.JSONEq(t, `{"refresh_token":"rt-1","access_token":"at-1"}`, out.String())
+	assert.JSONEq(t, `{"refresh_token":"rt-2"}`, out.String())
 }
