@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // The gateway's HTTP API speaks OpenAI's shapes, so any OpenAI client works
@@ -13,20 +14,42 @@ import (
 // errors as {"error":{message,type,code}}, as 9router-go
 // (internal/handlerutil/response.go) and new-api (middleware/utils.go) do.
 
+// Config tunes the gateway's HTTP API; the zero value is the default.
+type Config struct {
+	// StreamIdleTimeout ends a stream whose provider sends nothing for this
+	// long; zero is DefaultStreamIdleTimeout.
+	StreamIdleTimeout time.Duration
+}
+
 // Server serves the gateway's HTTP API.
 type Server struct {
-	svc    *Service
-	logger *slog.Logger
+	svc         *Service
+	logger      *slog.Logger
+	client      *http.Client
+	idleTimeout time.Duration
 }
 
 // NewServer returns the gateway's HTTP API over a Service.
-func NewServer(svc *Service, logger *slog.Logger) *Server {
-	return &Server{svc: svc, logger: logger}
+func NewServer(svc *Service, logger *slog.Logger, cfg Config) *Server {
+	if cfg.StreamIdleTimeout <= 0 {
+		cfg.StreamIdleTimeout = DefaultStreamIdleTimeout
+	}
+
+	// No total timeout: a stream lasts as long as it sends. The wait for the
+	// provider's first answer is bounded, and the idle timeout covers the rest.
+	//nolint:forcetypeassert // the standard library's own type
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.ResponseHeaderTimeout = responseHeaderTimeout
+
+	return &Server{
+		svc: svc, logger: logger, client: &http.Client{Transport: transport}, idleTimeout: cfg.StreamIdleTimeout,
+	}
 }
 
 // Register adds the gateway's routes to a mux.
 func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/models", s.listModels)
+	mux.HandleFunc("POST /v1/chat/completions", s.chatCompletions)
 }
 
 type errorBody struct {

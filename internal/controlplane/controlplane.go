@@ -127,8 +127,10 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	nodeapi.New(svc, logger).Register(mux)
 	mux.Handle("GET "+nodeapi.PathInstallScript, nodeapi.InstallScript(cfg.PublicURL, cfg.NodeReleaseURL))
 
-	gateway := modelgateway.New(db, platform.SystemClock{}, platform.NewID, gatewayProviders(svc))
-	modelgateway.NewServer(gateway, logger).Register(mux)
+	secrets := vault.New(db, platform.SystemClock{}, platform.NewID, cfg.VaultKeys, svc.ProvidersUsingKeyRef)
+	gateway := modelgateway.New(db, platform.SystemClock{}, platform.NewID, gatewayProviders(svc),
+		gatewaySecrets(secrets))
+	modelgateway.NewServer(gateway, logger, modelgateway.Config{}).Register(mux)
 
 	sup := coordinator.New(svc, coordinator.Config{Command: cfg.CoordinatorCommand, Logger: logger})
 

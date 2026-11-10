@@ -144,6 +144,13 @@ type NewSecret struct {
 // kept, such as a provider's api_key_ref.
 func Ref(name string) string { return refPrefix + name }
 
+// NameFromRef returns the secret a reference made by Ref names.
+func NameFromRef(ref string) (string, bool) {
+	name, ok := strings.CutPrefix(ref, refPrefix)
+
+	return name, ok && name != ""
+}
+
 // Referrers lists what still refers to a secret, by the reference Ref gives.
 type Referrers func(ctx context.Context, ref string) ([]string, error)
 
