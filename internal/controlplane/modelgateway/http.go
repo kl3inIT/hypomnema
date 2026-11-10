@@ -82,6 +82,7 @@ func NewServer(svc *Service, logger *slog.Logger, cfg Config) *Server {
 func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/models", s.listModels)
 	mux.HandleFunc("POST /v1/chat/completions", s.chatCompletions)
+	mux.HandleFunc("POST /v1/responses", s.responses)
 }
 
 type errorBody struct {

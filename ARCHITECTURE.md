@@ -320,6 +320,20 @@ subscriptions. The Claude subscription, other provider formats and other capabil
   made as its offer is sent to the node, good for the Dispatch's model only, carried in the offer (`model_key`). An
   offer sent again carries a new key and the earlier one stops. The control plane revokes a Dispatch's keys when the
   Dispatch settles, looked for at every commit of orchestration and every minute. No runner uses the key yet.
+- `POST /v1/responses` (issue #107, after 9router-go;
+  [research](docs/research/2026-11-10-codex-responses-passthrough.md)) is for a client that speaks OpenAI's Responses
+  format, which the Codex CLI does and nothing else. It serves a model's `codex_subscription` targets only:
+  - The client's body is passed on, not translated (`modelgateway/codex`, `PassThrough`): the model's name at the
+    backend, `stream` on and `store` off, a string input as a user message, references to stored items and their ids
+    taken out, `service_tier` `fast` as `priority`, the lite shape for the models that take it, the client's session
+    as the prompt cache key when it names none, and only the fields the backend takes.
+  - None of the client's headers goes to the backend but its session (`session-id`, `session_id` or
+    `x-session-id`; one per gateway key without). The account, the Codex CLI's identity, a refused token, a usage
+    limit and the next account are the chat route's.
+  - The backend's event stream goes back line for line; the usage is read from `response.completed`. A refusal
+    keeps its status and body.
+  - Not served: a model with no Codex target (400 `model_not_served_here`), an answer that is not a stream (400),
+    `/v1/responses/compact`, a WebSocket.
 - `GET /v1/models` with `Authorization: Bearer <key>` answers OpenAI's list shape with the models the key may use;
   errors are OpenAI's `{"error": {message, type, code}}`, 401 without a valid key.
 - `POST /v1/chat/completions` forwards the request to the model's first target, as 9router-go does: the body is
