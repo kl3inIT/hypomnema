@@ -78,7 +78,8 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   (path and version), its worktree root, and what it is: its version, OS, architecture, CPU count, memory, and the
   size of the volume that holds the worktree root. It is connected while heard from within 30 s (any node call
   counts). With each heartbeat it sends what it measured: CPU in use since the heartbeat before, memory in use, the
-  worktree volume's use and the one-minute load average; only the latest measurement is kept, with its time
+  worktree volume's use, the one-minute load average and, on a machine with NVIDIA GPUs, each GPU's use, memory,
+  temperature and power (read with `nvidia-smi` once a heartbeat, after Beszel's agent); only the latest measurement is kept, with its time
   (`GET /nodes` shows it as `stats`). A node can be drained and resumed; three expiries in a row mark it unavailable until its next hello or
   a resume. A removed node is kept as `deleted`: its tokens are revoked, it is no longer listed or placed on, and
   its name is free; one that still runs a Dispatch is not removed. Accounts (runtime, label, position, active or
@@ -688,8 +689,9 @@ Node (`internal/node`):
 - The machines (issue #69): `/machines` lists the nodes after Beszel's systems table (MIT), as cards (Grid, the
   default) or a Table, both from one column definition; the choice is kept in `localStorage`. A machine shows its
   state (Online, Drained, or Offline with when it was last seen), meters for CPU, memory and disk that turn amber
-  from 65 % and red from 90 % and are grey while it is not connected, its load average, its Dispatches against its
-  limit, its runtimes, its daemon version and platform, and its source: "Your own", or the size and region of a
+  from 65 % and red from 90 % and are grey while it is not connected, its load average, each of its GPUs when it has any (use with
+  temperature, and memory, with the same meters; the table has the GPU columns only when a machine has one), its
+  Dispatches against its limit, its runtimes, its daemon version and platform, and its source: "Your own", or the size and region of a
   machine created at a provider. Such a machine that is not ready says Creating, Not created, Removing or Not
   removed instead, with the provider's reason for a failure; one that is turned off says Stopping, Stopped or
   Starting, and a stopped one says that its disk is still billed and is started from its card. A machine that is on

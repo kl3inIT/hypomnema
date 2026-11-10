@@ -162,3 +162,43 @@ func TestNodeStatsKeepTheLatestMeasurement(t *testing.T) {
 	require.ErrorIs(t, w.s.NodeStats(t.Context(), w.node.ID, SystemStats{CPUPercent: 140}), ErrInvalid)
 	require.ErrorIs(t, w.s.NodeStats(t.Context(), "nod_missing", SystemStats{}), ErrNotFound)
 }
+
+// Scenario: a node with two GPUs sends what they measured, then a machine
+// whose GPU went away sends none. The registry shows the GPUs of the latest
+// measurement, none once the node reports none, and refuses a GPU that
+// cannot be true.
+func TestNodeStatsKeepTheLatestGPUs(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	temp, power := 74.0, 312.5
+
+	gpus := []GPUStats{
+		{
+			Index: 0, Name: "GeForce RTX 4090", UsagePercent: 87, MemoryUsedBytes: 22 << 30, MemoryTotalBytes: 24 << 30,
+			TemperatureCelsius: &temp, PowerWatts: &power,
+		},
+		{Index: 1, Name: "RTX A6000", UsagePercent: 3, MemoryUsedBytes: 1 << 29, MemoryTotalBytes: 48 << 30},
+	}
+	require.NoError(t, w.s.NodeStats(t.Context(), w.node.ID, SystemStats{CPUPercent: 10, GPUs: gpus}))
+
+	got, err := w.s.GetNode(t.Context(), w.node.ID)
+	require.NoError(t, err)
+	require.NotNil(t, got.Stats)
+	assert.Equal(t, gpus, got.Stats.GPUs)
+
+	require.NoError(t, w.s.NodeStats(t.Context(), w.node.ID, SystemStats{CPUPercent: 10}))
+
+	got, err = w.s.GetNode(t.Context(), w.node.ID)
+	require.NoError(t, err)
+	assert.Empty(t, got.Stats.GPUs)
+
+	for _, bad := range []GPUStats{
+		{Index: 0, Name: "x", UsagePercent: 140},
+		{Index: 0, Name: "", UsagePercent: 10},
+		{Index: -1, Name: "x", UsagePercent: 10},
+		{Index: 0, Name: "x", UsagePercent: 10, MemoryUsedBytes: -1},
+	} {
+		require.ErrorIs(t, w.s.NodeStats(t.Context(), w.node.ID, SystemStats{GPUs: []GPUStats{bad}}), ErrInvalid)
+	}
+}

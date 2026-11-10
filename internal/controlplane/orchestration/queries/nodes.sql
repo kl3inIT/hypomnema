@@ -32,7 +32,7 @@ UPDATE nodes SET tools = @tools WHERE id = @id AND status <> 'deleted';
 -- name: SetNodeStats :execrows
 UPDATE nodes
 SET cpu_percent = @cpu_percent, memory_used_bytes = @memory_used_bytes, disk_used_bytes = @disk_used_bytes,
-    load1 = @load1, stats_at = @now
+    load1 = @load1, gpus = @gpus, stats_at = @now
 WHERE id = @id AND status <> 'deleted';
 
 -- name: SetNodeStatus :execrows

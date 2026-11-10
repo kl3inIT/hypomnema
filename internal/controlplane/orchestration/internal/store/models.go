@@ -268,6 +268,7 @@ type Node struct {
 	MachinePower       sql.NullString
 	Tools              sql.NullString
 	Terminal           int64
+	Gpus               sql.NullString
 }
 
 type NodeToken struct {
