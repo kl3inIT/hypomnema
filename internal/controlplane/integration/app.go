@@ -110,7 +110,9 @@ func (s *Service) mintAppToken(ctx context.Context, d Definition) (Token, error)
 		return Token{}, fmt.Errorf("%s refused the app's id and secret: status %d, code %d", d.Name, status, answer.Code)
 	}
 
-	token := Token{AccessToken: answer.Token, ExpiresAt: s.clock.Now().Add(secondsOf(answer.Expire))}
+	token := Token{
+		AccessToken: answer.Token, ExpiresAt: s.clock.Now().Add(secondsOf(answer.Expire)), ClientID: client.id,
+	}
 
 	s.mu.Lock()
 	s.appTokens[d.ID] = token

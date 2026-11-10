@@ -100,10 +100,16 @@ func (s *Service) CreateRunOnce(ctx context.Context, o Once, nr NewRun) (Run, er
 				repo, base = resolved, or(nr.Base, or(registeredBase, DefaultBase))
 			}
 
+			uses, err := runUses(ctx, q, nr.Uses, nr.CoordinatorTokenID != "")
+			if err != nil {
+				return "", err
+			}
+
 			id := s.newID("run")
 
 			if err := q.InsertRun(ctx, store.InsertRunParams{
-				ID: id, Objective: objective, CreatedBy: createdBy, Repo: nullString(repo.Path),
+				Uses: joinUses(uses),
+				ID:   id, Objective: objective, CreatedBy: createdBy, Repo: nullString(repo.Path),
 				RepoHost: nullString(repo.Host), Base: nullString(base),
 				CoordinatorTokenID: nullString(nr.CoordinatorTokenID), ChatID: nullString(nr.ChatID), Now: now,
 			}); err != nil {
@@ -778,7 +784,7 @@ func runFromRow(r store.Run) Run {
 	return Run{
 		ID: r.ID, Objective: r.Objective, Status: RunStatus(r.Status), CreatedBy: r.CreatedBy,
 		Repo: r.Repo.String, RepoHost: repoHost(r), Base: r.Base.String,
-		CoordinatorTokenID: r.CoordinatorTokenID.String, ChatID: r.ChatID.String,
+		CoordinatorTokenID: r.CoordinatorTokenID.String, ChatID: r.ChatID.String, Uses: splitUses(r.Uses),
 		CreatedAt: millis(r.CreatedAt), UpdatedAt: millis(r.UpdatedAt), FinishedAt: optionalTime(r.FinishedAt),
 	}
 }

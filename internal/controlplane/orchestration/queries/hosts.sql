@@ -39,6 +39,22 @@ ON CONFLICT (integration, label) DO UPDATE
 SET account = excluded.account, secret = excluded.secret, services = excluded.services,
     updated_at = excluded.updated_at;
 
+-- name: SetConnectionChats :execrows
+UPDATE connections SET chats = @chats, updated_at = @now WHERE integration = @integration AND label = @label;
+
+-- name: InsertAgentSession :exec
+INSERT INTO agent_sessions (id, key_hash, dispatch_id, uses, created_at)
+VALUES (@id, @key_hash, @dispatch_id, @uses, @now);
+
+-- name: GetAgentSessionByHash :one
+SELECT * FROM agent_sessions WHERE key_hash = @key_hash AND revoked_at IS NULL;
+
+-- name: RevokeAgentSessionsOfDispatch :execrows
+UPDATE agent_sessions SET revoked_at = @now WHERE dispatch_id = @dispatch_id AND revoked_at IS NULL;
+
+-- name: ListDispatchesWithAgentSessions :many
+SELECT DISTINCT dispatch_id FROM agent_sessions WHERE revoked_at IS NULL ORDER BY dispatch_id;
+
 -- name: UpsertIntegrationClient :exec
 INSERT INTO integration_clients (integration, client_id, secret, created_at, updated_at)
 VALUES (@integration, @client_id, @secret, @now, @now)

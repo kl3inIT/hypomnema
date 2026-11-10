@@ -35,6 +35,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/node"
 	"github.com/kl3inIT/hypomnema/internal/node/shim"
 	"github.com/kl3inIT/hypomnema/internal/node/workertools"
+	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 )
 
@@ -49,6 +50,12 @@ func main() {
 	stop()
 
 	if err != nil {
+		// A tool run through the launcher ends with the tool's own code and says nothing more.
+		var exit *agenttool.ExitError
+		if errors.As(err, &exit) {
+			os.Exit(exit.Code)
+		}
+
 		fmt.Fprintln(os.Stderr, "hypomnema-node:", err)
 		os.Exit(1)
 	}
@@ -164,6 +171,14 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		_, err = fmt.Fprintf(stdout, "account %s uses %s\n", args[2], *tokenFile)
 
 		return err
+	case "tool":
+		// What the script named after a tool runs for a worker (issue #103): the tool, with a fresh token of an
+		// account the worker's Run was given. The worker's environment says where and with which key.
+		if len(args) < 2 {
+			return errUsage
+		}
+
+		return agenttool.FromEnv().Run(ctx, args[1], args[2:])
 	case "shim", "mcp":
 		fs := flag.NewFlagSet(args[0], flag.ContinueOnError)
 		dir := fs.String("dir", "", "the worker's directory (shim) or bridge directory (mcp)")

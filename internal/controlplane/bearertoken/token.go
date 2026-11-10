@@ -28,10 +28,13 @@ const (
 	// Gateway is a key for the model gateway (issue #20), not for the client
 	// API: it calls models and nothing else.
 	Gateway Kind = "gateway"
+	// Session is a Dispatch's own key to the agent API (issue #103): it asks
+	// for a token of an account its Run was given, and nothing else.
+	Session Kind = "session"
 )
 
 // Kinds lists every kind.
-var Kinds = []Kind{Owner, Coordinator, Gateway}
+var Kinds = []Kind{Owner, Coordinator, Gateway, Session}
 
 // ClientKinds lists the kinds the client API accepts.
 var ClientKinds = []Kind{Owner, Coordinator}

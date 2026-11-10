@@ -14,6 +14,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 )
 
 // Skills, after Orca's (skills/orchestration, `orca skills get|install`): the
@@ -22,7 +24,61 @@ import (
 // commands this binary accepts. Rare branches are references loaded alone.
 
 //go:embed skills
-var skillFiles embed.FS
+var ownSkills embed.FS
+
+// skillFiles are the skills this binary ships: its own, and those of the
+// Integrations' tools, which a node's binary ships too
+// (internal/shared/agenttool).
+var skillFiles = skillSet{ownSkills, agenttool.Skills}
+
+// skillSet reads from the first of several trees that has a file.
+type skillSet []fs.ReadDirFS
+
+func (set skillSet) ReadFile(name string) ([]byte, error) {
+	for _, tree := range set {
+		if b, err := fs.ReadFile(tree, name); err == nil {
+			return b, nil
+		}
+	}
+
+	return nil, fmt.Errorf("%s: %w", name, fs.ErrNotExist)
+}
+
+func (set skillSet) Open(name string) (fs.File, error) {
+	for _, tree := range set {
+		if f, err := tree.Open(name); err == nil {
+			return f, nil
+		}
+	}
+
+	return nil, fmt.Errorf("%s: %w", name, fs.ErrNotExist)
+}
+
+// ReadDir lists a directory in every tree that has it.
+func (set skillSet) ReadDir(name string) ([]fs.DirEntry, error) {
+	var (
+		out   []fs.DirEntry
+		found bool
+	)
+
+	for _, tree := range set {
+		entries, err := tree.ReadDir(name)
+		if err != nil {
+			continue
+		}
+
+		found = true
+		out = append(out, entries...)
+	}
+
+	if !found {
+		return nil, fmt.Errorf("%s: %w", name, fs.ErrNotExist)
+	}
+
+	slices.SortFunc(out, func(a, b fs.DirEntry) int { return strings.Compare(a.Name(), b.Name()) })
+
+	return out, nil
+}
 
 // defaultSkill is the one skill shipped today.
 const defaultSkill = "hypomnema-coordinator"
@@ -34,6 +90,7 @@ const defaultSkill = "hypomnema-coordinator"
 // (TestShippedStubsAreReleased).
 var releasedStubs = map[string][]string{
 	"hypomnema-coordinator": {"a47e4460588d8d58dfc994b34b6aaf8cad11dd7ec13c9151d9188f2c2d587e2a"},
+	"google-workspace":      {"129a8091fdeb9d028e8b0550625f2efd54c3eb27b38eba618407d68b82fdd894"},
 }
 
 func skillsGet(_ context.Context, e *env, fset *flag.FlagSet) error {

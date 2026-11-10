@@ -19,6 +19,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/subscription"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
+	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 )
@@ -62,6 +63,7 @@ type Store interface {
 	ConnectionOf(ctx context.Context, integration, label string) (orchestration.Connection, error)
 	ConnectionsOf(ctx context.Context, integration string) ([]orchestration.Connection, error)
 	RemoveConnection(ctx context.Context, integration, label string) (orchestration.Connection, error)
+	SetConnectionChats(ctx context.Context, integration, label string, allowed bool) (orchestration.Connection, error)
 	SetIntegrationClient(ctx context.Context, integration, clientID, secret string) error
 	IntegrationClientOf(ctx context.Context, integration string) (orchestration.IntegrationClient, error)
 }
@@ -110,8 +112,10 @@ type Connection struct {
 	Grants  []Grant
 	// SignInRequired says the provider refused the refresh token for good.
 	SignInRequired bool
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	// Chats says the coordinator may use the Connection in chats.
+	Chats     bool
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // Integration is a Definition with what the owner set up for it.
@@ -192,7 +196,8 @@ func (s *Service) List(ctx context.Context) ([]Integration, error) {
 // the Connection until there is one.
 func (s *Service) view(ctx context.Context, d Definition, c orchestration.Connection) Connection {
 	out := Connection{
-		Integration: c.Integration, Label: c.Label, Account: c.Account, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt,
+		Integration: c.Integration, Label: c.Label, Account: c.Account, Chats: c.Chats,
+		CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt,
 	}
 
 	// What is stored was checked when it was written; a service since removed from the catalog is left out.
@@ -429,12 +434,30 @@ func (s *Service) save(
 	return s.view(ctx, d, saved), nil
 }
 
+// SetChats says whether the coordinator may use a Connection in chats.
+func (s *Service) SetChats(ctx context.Context, integration, label string, allowed bool) (Connection, error) {
+	d, err := s.definition(integration)
+	if err != nil {
+		return Connection{}, err
+	}
+
+	changed, err := s.store.SetConnectionChats(ctx, d.ID, label, allowed)
+	if err != nil {
+		return Connection{}, err
+	}
+
+	return s.view(ctx, d, changed), nil
+}
+
 // Token is a Connection's access token, for a caller inside the control plane
 // that hands it on. The caller keeps it out of logs and errors.
 type Token struct {
 	AccessToken string
 	// ExpiresAt is when it ends; zero when the provider did not say.
 	ExpiresAt time.Time
+	// ClientID is the app's id, for an Integration that is an app: its tool
+	// will not run on a token without it. Not a secret.
+	ClientID string
 }
 
 // Token returns a Connection's access token, refreshed first when it has
@@ -727,18 +750,20 @@ func randomBytes(n int) []byte {
 }
 
 // Tools are the tools a node of a system is told to have: the tool of each
-// Integration that has a Connection, when it has a release for that system.
-// An Integration nobody signed in to asks nothing of a node. A list that
-// cannot be read is left out: the node keeps what it has.
+// Integration that has a Connection (internal/shared/agenttool), when it has
+// a release for that system. An Integration nobody signed in to asks nothing
+// of a node. A list that cannot be read is left out: the node keeps what it
+// has.
 func (s *Service) Tools(ctx context.Context, os, arch string) []nodeproto.Tool {
 	var out []nodeproto.Tool
 
 	for _, d := range s.defs {
-		if d.Tool == nil {
+		def, ok := agenttool.Of(d.ID)
+		if !ok {
 			continue
 		}
 
-		release, ok := d.Tool.Releases[os+"/"+arch]
+		tool, ok := def.For(os, arch)
 		if !ok {
 			continue
 		}
@@ -748,9 +773,7 @@ func (s *Service) Tools(ctx context.Context, os, arch string) []nodeproto.Tool {
 			continue
 		}
 
-		out = append(out, nodeproto.Tool{
-			Name: d.Tool.Name, Version: d.Tool.Version, URL: release.URL, SHA256: release.SHA256, Binary: release.Binary,
-		})
+		out = append(out, tool)
 	}
 
 	return out

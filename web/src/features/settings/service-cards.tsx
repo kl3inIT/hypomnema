@@ -9,6 +9,7 @@ import {
   beginIntegrationSignIn,
   completeIntegrationSignIn,
   deleteIntegrationConnection,
+  patchIntegrationConnection,
   putIntegrationConnection,
 } from "@/api/generated/sdk.gen"
 import type { Integration, IntegrationConnection, SignIn } from "@/api/generated/types.gen"
@@ -59,6 +60,7 @@ import {
 } from "@/components/ui/item"
 import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
 import { Spinner } from "@/components/ui/spinner"
+import { Switch } from "@/components/ui/switch"
 
 import { ConfirmDialog, ErrorAlert, TextField } from "./settings-parts"
 import { said, servicesKey } from "./use-integrations"
@@ -215,6 +217,7 @@ function AccountRow({
         </ItemDescription>
       </ItemContent>
       <ItemActions>
+        <ChatsSwitch service={service} connection={connection} />
         {!app && (
           <SignInDialog
             service={service}
@@ -333,6 +336,48 @@ function ConnectAppDialog({ service, trigger }: { service: Integration; trigger:
         </form>
       </DialogContent>
     </Dialog>
+  )
+}
+
+// ChatsSwitch is the owner's say on whether the coordinator may use an account: off until he turns it on. On, pi
+// may use it in any chat and give it to the Runs it creates (issue #103). No agent uses an account by default.
+function ChatsSwitch({
+  service,
+  connection,
+}: {
+  service: Integration
+  connection: IntegrationConnection
+}) {
+  const refresh = useRefreshServices()
+  const id = `chats-${service.id}-${connection.label}`
+
+  const change = useMutation({
+    mutationFn: (chats: boolean) =>
+      patchIntegrationConnection({
+        path: { integration: service.id, label: connection.label },
+        body: { chats },
+      }),
+    onSuccess: async (_, chats) => {
+      await refresh()
+      said(
+        chats
+          ? `pi may use ${connection.label} in chats`
+          : `pi may no longer use ${connection.label}`,
+      )
+    },
+  })
+
+  return (
+    <span className="flex items-center gap-2 text-xs text-muted-foreground">
+      <label htmlFor={id}>Use in chats</label>
+      <Switch
+        id={id}
+        size="sm"
+        checked={connection.chats}
+        disabled={change.isPending}
+        onCheckedChange={(next) => change.mutate(next)}
+      />
+    </span>
   )
 }
 

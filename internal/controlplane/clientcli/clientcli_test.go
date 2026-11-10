@@ -798,7 +798,8 @@ func TestSkillsGetAndInstall(t *testing.T) { //nolint:paralleltest // replaces u
 
 	out, err = w.cmd(t, "skills", "install")
 	require.NoError(t, err)
-	assert.Equal(t, 2, strings.Count(out, "installed"), out)
+	// One stub a skill, for each of the two agents' folders.
+	assert.Equal(t, 2*len(skillNames()), strings.Count(out, "installed"), out)
 
 	claude := filepath.Join(home, ".claude", "skills", "hypomnema-coordinator", "SKILL.md")
 	agents := filepath.Join(home, ".agents", "skills", "hypomnema-coordinator", "SKILL.md")
@@ -806,7 +807,7 @@ func TestSkillsGetAndInstall(t *testing.T) { //nolint:paralleltest // replaces u
 
 	out, err = w.cmd(t, "skills", "install")
 	require.NoError(t, err)
-	assert.Equal(t, 2, strings.Count(out, "is current"), out)
+	assert.Equal(t, 2*len(skillNames()), strings.Count(out, "is current"), out)
 
 	require.NoError(t, os.WriteFile(claude, []byte("my own notes"), 0o600))
 
@@ -1206,6 +1207,21 @@ func (s *signIns) Complete(_ context.Context, _, id, pasted string) (integration
 	return c, nil
 }
 
+func (s *signIns) SetChats(_ context.Context, _, label string, allowed bool) (integration.Connection, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for i := range s.connections {
+		if s.connections[i].Label == label {
+			s.connections[i].Chats = allowed
+
+			return s.connections[i], nil
+		}
+	}
+
+	return integration.Connection{}, integration.ErrNotFound
+}
+
 func (s *signIns) Disconnect(_ context.Context, id, label string) (bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1331,11 +1347,22 @@ func TestSigningAGoogleAccountInFromTheCLI(t *testing.T) {
 		"--label", "personal", "--services", "drive")
 	require.NoError(t, err)
 
+	// No agent uses the account until the owner says so.
+	out, err = w.cmd(t, "integrations", "chats", "google:personal", "on")
+	require.NoError(t, err)
+	assert.Equal(t, "the coordinator may use google:personal in chats\n", out)
+
+	_, err = w.cmd(t, "integrations", "chats", "google:personal", "maybe")
+	require.ErrorContains(t, err, "on or off")
+
 	w.login(t, bearertoken.Coordinator)
 
 	out, err = w.cmd(t, "integrations", "list")
 	require.NoError(t, err)
-	assert.Contains(t, out, "personal (owner@example.com: drive)")
+	assert.Contains(t, out, "personal (owner@example.com: drive) chats")
+
+	_, err = w.cmd(t, "integrations", "chats", "google:personal", "off")
+	require.Error(t, err, "only the owner decides what the coordinator may use")
 
 	_, err = w.cmdIn(t, "http://localhost:1/?state=state-1&code=c\n", "integrations", "connect", "google",
 		"--label", "mine", "--services", "gmail")

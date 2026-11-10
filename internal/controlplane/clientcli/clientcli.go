@@ -338,6 +338,25 @@ func optional(fs *flag.FlagSet, name string) *string {
 	return nil
 }
 
+// uses reads --use: the accounts a Run's workers may use, as integration:label
+// separated by commas ("google:work,google:personal"). Nil when none is given.
+func uses(fs *flag.FlagSet) *[]string {
+	given := str(fs, "use")
+	if given == "" {
+		return nil
+	}
+
+	var out []string
+
+	for use := range strings.SplitSeq(given, ",") {
+		if use = strings.TrimSpace(use); use != "" {
+			out = append(out, use)
+		}
+	}
+
+	return &out
+}
+
 func boolean(fs *flag.FlagSet, name string) bool {
 	b, _ := strconv.ParseBool(str(fs, name))
 

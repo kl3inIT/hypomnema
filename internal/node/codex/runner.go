@@ -46,6 +46,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/node/shim"
 	"github.com/kl3inIT/hypomnema/internal/node/statedb"
 	"github.com/kl3inIT/hypomnema/internal/node/worktree"
+	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
 )
 
@@ -238,8 +239,14 @@ func (rn *Runner) Start(ctx context.Context, d statedb.Dispatch, r daemon.Report
 		return fmt.Errorf("clearing %s: %w", dir, err)
 	}
 
+	toolEnv, err := agenttool.ForDispatch(rn.Home, rn.Exe, rn.URL, o.Uses, o.AgentKey)
+	if err != nil {
+		return err
+	}
+
 	spec := shim.Spec{
-		Argv: rn.argv(o, dir, session), Env: append(rn.env(codexHome, o.ModelKey), hostEnv...), Dir: o.Worktree,
+		Argv: rn.argv(o, dir, session), Dir: o.Worktree,
+		Env: append(append(rn.env(codexHome, o.ModelKey), hostEnv...), toolEnv...),
 	}
 	if err := shim.WriteSpec(dir, spec); err != nil {
 		return err

@@ -55,9 +55,6 @@ type Definition struct {
 	Identity []string
 	// Services are the parts of the Integration a Connection can be granted.
 	Services []ServiceDef
-	// Tool is the command-line tool an agent calls the Integration with; nil
-	// when it has none.
-	Tool *ToolDef
 }
 
 // ServiceDef is one service of an Integration with its OAuth scopes.
@@ -229,7 +226,6 @@ func Google() Definition {
 		RevokeURL:   "https://oauth2.googleapis.com/revoke",
 		UserInfoURL: "https://www.googleapis.com/oauth2/v2/userinfo?alt=json",
 		Identity:    []string{scope + "userinfo.email"},
-		Tool:        googleWorkspaceCLI(),
 		Services: []ServiceDef{
 			{
 				Name: "gmail", Read: []string{scope + "gmail.readonly"},
@@ -239,56 +235,6 @@ func Google() Definition {
 			{Name: "drive", Read: []string{scope + "drive.readonly"}, Write: []string{scope + "drive"}},
 			{Name: "docs", Read: []string{scope + "documents.readonly"}, Write: []string{scope + "documents"}},
 			{Name: "sheets", Read: []string{scope + "spreadsheets.readonly"}, Write: []string{scope + "spreadsheets"}},
-		},
-	}
-}
-
-// ToolDef is the command-line tool an Integration's skill calls, pinned to
-// one version with a release file for each system a node can be. OpenClaw's
-// skills declare a tool the same way (requires.bins with an install recipe);
-// the pin and the checksum follow this repository's node release manifest
-// (version, url, sha256).
-type ToolDef struct {
-	// Name is the command: gws.
-	Name    string
-	Version string
-	// Releases is the release file of each system, by "os/arch".
-	Releases map[string]ToolRelease
-}
-
-// ToolRelease is one system's release file of a tool.
-type ToolRelease struct {
-	URL string
-	// SHA256 is the checksum the tool's publisher gives for the file.
-	SHA256 string
-	// Binary is the path of the command inside the file.
-	Binary string
-}
-
-// googleWorkspaceCLI is the Google Workspace CLI (github.com/googleworkspace/cli,
-// Apache-2.0), which Hermes' google-workspace skill uses. It is one static
-// binary; it reads a ready access token from GOOGLE_WORKSPACE_CLI_TOKEN on
-// every call. The checksums are the ones published beside each release file
-// (.sha256), read on 2026-11-10.
-func googleWorkspaceCLI() *ToolDef {
-	const (
-		version = "0.22.5"
-		release = "https://github.com/googleworkspace/cli/releases/download/v" + version + "/"
-	)
-
-	return &ToolDef{
-		Name: "gws", Version: version,
-		Releases: map[string]ToolRelease{
-			"linux/amd64": {
-				URL:    release + "google-workspace-cli-x86_64-unknown-linux-musl.tar.gz",
-				SHA256: "4db473dde4b1ab872e4ff35d769b0d4af1f1a6441a605e79d5cf8ada9c87e920",
-				Binary: "gws",
-			},
-			"linux/arm64": {
-				URL:    release + "google-workspace-cli-aarch64-unknown-linux-musl.tar.gz",
-				SHA256: "e700fe63524932b10ec2130b47ece90aa850e66005fe52ccfc4cf8767bf9919a",
-				Binary: "gws",
-			},
 		},
 	}
 }
@@ -314,34 +260,5 @@ func Lark() Definition {
 		Kind:        KindApp,
 		AppTokenURL: host + "/open-apis/auth/v3/tenant_access_token/internal",
 		AppInfoURL:  host + "/open-apis/bot/v3/info",
-		Tool:        larkCLI(),
-	}
-}
-
-// larkCLI is Lark's own command-line tool (github.com/larksuite/cli, MIT). It
-// reads a ready token from LARKSUITE_CLI_TENANT_ACCESS_TOKEN on every call,
-// and refuses to run with one unless LARKSUITE_CLI_APP_ID is set beside it
-// (tried on 2026-11-10, issue #135). The checksums are the ones of the
-// release's checksums.txt, read the same day and matched against the files.
-func larkCLI() *ToolDef {
-	const (
-		version = "1.0.100"
-		release = "https://github.com/larksuite/cli/releases/download/v" + version + "/lark-cli-" + version
-	)
-
-	return &ToolDef{
-		Name: "lark-cli", Version: version,
-		Releases: map[string]ToolRelease{
-			"linux/amd64": {
-				URL:    release + "-linux-amd64.tar.gz",
-				SHA256: "cd7363f731c9e5dd2becd909837922cffea8aad229d581a84eb13c6aa0ce6808",
-				Binary: "lark-cli",
-			},
-			"linux/arm64": {
-				URL:    release + "-linux-arm64.tar.gz",
-				SHA256: "166e95ffaec34f82123f50316480250329884c09e71a6f92313047e2c5c3fa5d",
-				Binary: "lark-cli",
-			},
-		},
 	}
 }

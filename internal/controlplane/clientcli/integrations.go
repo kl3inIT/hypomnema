@@ -64,6 +64,10 @@ func connectionNote(c openapi.IntegrationConnection) string {
 		note += " needs sign-in"
 	}
 
+	if c.Chats {
+		note += " chats"
+	}
+
 	return note
 }
 
@@ -227,6 +231,42 @@ func integrationsSignOut(ctx context.Context, e *env, fs *flag.FlagSet, id, labe
 
 		if !resp.JSON200.Revoked {
 			e.printf("the service could not be asked to end the access; remove it in the account's own settings\n")
+		}
+	})
+}
+
+// integrationsChats says whether the coordinator may use an account in chats.
+// No agent uses an account until the owner says so.
+func integrationsChats(ctx context.Context, e *env, fs *flag.FlagSet) error {
+	id, label, ok := strings.Cut(fs.Arg(0), ":")
+	if !ok || label == "" {
+		return errors.New("name the account as <integration>:<label>, such as google:work")
+	}
+
+	var allowed bool
+
+	switch fs.Arg(1) {
+	case "on":
+		allowed = true
+	case "off":
+	default:
+		return errors.New("say on or off")
+	}
+
+	resp, err := e.api.PatchIntegrationConnectionWithResponse(ctx, id, label, openapi.ConnectionUse{Chats: allowed})
+	if err != nil {
+		return fmt.Errorf("changing %s:%s: %w", id, label, err)
+	}
+
+	if resp.JSON200 == nil {
+		return apiError("changing "+id+":"+label, resp.StatusCode(), resp.JSONDefault)
+	}
+
+	return e.print(fs, resp.JSON200, func() {
+		if allowed {
+			e.printf("the coordinator may use %s:%s in chats\n", id, label)
+		} else {
+			e.printf("the coordinator may not use %s:%s\n", id, label)
 		}
 	})
 }

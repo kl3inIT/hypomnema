@@ -79,6 +79,11 @@ func main() {
 	stop()
 
 	if err != nil {
+		// A tool run through the launcher ends with the tool's own code and says nothing more.
+		if code, ok := exitCode(err); ok {
+			os.Exit(code)
+		}
+
 		fmt.Fprintln(os.Stderr, "hypomnema:", err)
 		os.Exit(1)
 	}
@@ -94,6 +99,10 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout 
 			"`hypomnema <command> --help` lists a command's flags.\n", errUsage, clientcli.Usage())
 
 		return err
+	}
+
+	if args[0] == "tool" {
+		return tool(ctx, args[1:], stdout)
 	}
 
 	if args[0] == "version" {

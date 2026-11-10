@@ -48,6 +48,11 @@ install -o root -g root -m 0755 "$src/hypomnema-pi" /usr/local/bin/hypomnema-pi
 install -o root -g root -m 0755 "$src/hypomnema" /usr/local/bin/hypomnema
 install -o coordinator -g coordinator -m 0600 "$src/AGENTS.md" "$home/agent/AGENTS.md"
 
+echo "== tools of the integrations"
+# The pinned tools (gws for Google), checked against their checksums, and the scripts pi calls them by. Installed as
+# the coordinator, under its own home, so that pi can read them and nothing else of the machine changes.
+sudo -u coordinator -H /usr/local/bin/hypomnema tool install --dir "$home"
+
 echo "== sudoers"
 rule=/etc/sudoers.d/hypomnema-coordinator
 printf '%s ALL=(coordinator) NOPASSWD: /usr/local/bin/hypomnema-pi\n' "$cp_user" > "$rule.new"

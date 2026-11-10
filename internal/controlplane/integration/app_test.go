@@ -170,6 +170,7 @@ func TestTheOwnerConnectsALarkAppAndItsTokenStaysFresh(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "t-1", token.AccessToken)
 	assert.Equal(t, t0.Add(2*time.Hour), token.ExpiresAt)
+	assert.Equal(t, appID, token.ClientID, "Lark's tool needs the app's id beside the token")
 
 	w.clock.advance(2*time.Hour - 3*time.Minute)
 
