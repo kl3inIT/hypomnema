@@ -40,7 +40,9 @@ func Prompt(d statedb.Dispatch) string {
 	if o.Repo != "" {
 		fmt.Fprintf(&b, "Work only in this directory, a git worktree of %s on branch %s, started from %s. ",
 			o.Repo, worktree.Branch(o.TaskID), o.Base)
-		b.WriteString("Commit your work, push the branch, and open a pull request with `gh pr create`.\n")
+		// gh does not find the branch's remote in a worktree of the node's mirror, so --head names it.
+		fmt.Fprintf(&b, "Commit your work, push the branch, and open a pull request with "+
+			"`gh pr create --base %s --head %s`.\n", o.Base, worktree.Branch(o.TaskID))
 	} else {
 		b.WriteString("Work only in this directory.\n")
 	}
