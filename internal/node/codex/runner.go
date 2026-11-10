@@ -588,7 +588,8 @@ func (rn *Runner) handle(ctx context.Context, j *job, line []byte) {
 		}
 	case "turn.completed":
 		j.mu.Lock()
-		j.done = true
+		// An error before this was one the CLI got over: it prints "Reconnecting…" as an error event.
+		j.done, j.failure = true, ""
 
 		if e.Usage != nil {
 			// Codex counts the cached part inside the input.
