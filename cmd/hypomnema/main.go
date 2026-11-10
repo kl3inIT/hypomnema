@@ -11,6 +11,12 @@
 //	hypomnema tokens add <name> [--kind owner|coordinator]   make a client API token; prints it once
 //	hypomnema tokens list
 //	hypomnema tokens revoke <token id>
+//	hypomnema secrets keygen [id]              print a new root key for the vault (HYPOMNEMA_VAULT_KEYS)
+//	hypomnema secrets add <name> --from-file FILE|- [--kind generic|oauth_token_set] [--meta key=value]…
+//	hypomnema secrets list                     names, kinds, versions and key ids; never a value
+//	hypomnema secrets rotate <name> --from-file FILE|-
+//	hypomnema secrets rm <name>                refused while a provider names the secret
+//	hypomnema secrets rewrap                   wrap every data key under the active root key
 //
 // Anywhere, over the client API (after login):
 //
@@ -43,7 +49,7 @@ import (
 )
 
 var errUsage = errors.New("usage: hypomnema migrate | serve | version | nodes add|list | accounts add|list | " +
-	"tokens add|list|revoke | login --url URL --token-file FILE | run --repo owner/name <objective> | " +
+	"tokens add|list|revoke | secrets keygen|add|list|rotate|rm|rewrap | login --url URL --token-file FILE | run --repo owner/name <objective> | " +
 	"runs … | tasks … | questions … | whoami | skills get|install | " +
 	"answer <question> <answer> | questions")
 
@@ -107,7 +113,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout 
 
 		return controlplane.Serve(ctx, cfg, stdout)
 	default:
-		err := controlplane.Command(ctx, cfg, args, stdout)
+		err := controlplane.Command(ctx, cfg, args, os.Stdin, stdout)
 		if errors.Is(err, controlplane.ErrUsage) {
 			return errors.Join(err, errUsage)
 		}

@@ -1,4 +1,5 @@
-# sqlc generates typed Go for the orchestration queries (docs/conventions.md, "Generated and tidy").
+# sqlc generates typed Go for the queries of each package that owns tables (docs/conventions.md, "Generated and
+# tidy"). Every package reads the one migration stream; each gets only the structs its queries use.
 version: "2"
 sql:
   - engine: sqlite
@@ -10,3 +11,13 @@ sql:
         out: internal/controlplane/orchestration/internal/store
         emit_empty_slices: true
         emit_result_struct_pointers: false
+  - engine: sqlite
+    schema: internal/controlplane/orchestration/migrations
+    queries: internal/controlplane/vault/queries
+    gen:
+      go:
+        package: store
+        out: internal/controlplane/vault/internal/store
+        emit_empty_slices: true
+        emit_result_struct_pointers: false
+        omit_unused_structs: true
