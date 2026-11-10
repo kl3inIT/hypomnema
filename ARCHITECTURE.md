@@ -163,7 +163,7 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   new immutable version and points the name at it; the same source returns the current version. Providers (kind
   `anthropic`, `openai_compatible`, `claude_subscription` or `codex_subscription`, base URL, the name of where the
   API key is kept, never the key) list the models they offer. A profile and a new Task are checked when applied or
-  created: a known runtime (`claude`, `codex`, `pi`), an effort from `low` to `max`, and a model a provider of a
+  created: a known runtime (`claude`, `codex`, `pi`, `omp`, `opencode`), an effort from `low` to `max`, and a model a provider of a
   kind that runtime can use offers (found from the model when the provider is not named). A provider change that
   would leave a profile's model or runtime unserved is refused. A Task names a profile, `implementer` by default.
   A provider of kind `model_gateway` is the control plane's own model gateway (issue #107): `codex` can run against
