@@ -3,9 +3,11 @@
 How the owner lets the control plane create EC2 instances as nodes (issue #69, step 3). What the control plane does
 with them is in [ARCHITECTURE.md](../../ARCHITECTURE.md); this page is the setup.
 
-Status: run for real on 2026-11-10 in `ap-southeast-1`: one `t3.medium` was created, installed itself, said hello
-after about four and a half minutes with both CLIs found, and was destroyed by `nodes rm`. That run used an
-administrator's key, so the narrow policy below has not been proven yet.
+Status: run for real on 2026-11-10 in `ap-southeast-1` with `t3.medium` machines, from the CLI and through the
+client API. A machine installs itself and says hello about 70 seconds after it is asked for, with both CLIs found.
+A stop takes about 30 seconds; after a start the node connects again by itself in about 20 seconds, with the same
+token. `nodes rm` destroys the instance. Those runs used an administrator's key, so the narrow policy below has
+not been proven yet.
 
 The control plane must be reachable from the internet over `https`: a new machine is outside any private network,
 and it downloads the install script from the control plane and then connects to it.

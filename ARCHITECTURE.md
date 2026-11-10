@@ -645,12 +645,17 @@ Node (`internal/node`):
 
 ## Where it runs
 
-Since 2026-11-09, on the owner's tailnet (Tailscale); nothing is public:
+Since 2026-11-09, on the owner's tailnet (Tailscale). Since 2026-11-10 the control plane is also reachable from
+the internet, so that a machine created at a provider can install the node from it and connect to it:
 
 - Control plane: zm, user `dat`, `~/hypomnema-cp` (binary, `env`, SQLite in `data/`), tmux session `hyp-cp`,
   listening on `127.0.0.1:18990`. Tailscale runs without root (userspace networking, tmux `hyp-ts`, state in
-  `~/hypomnema-cp/tailscale`) and `tailscale serve` publishes it to the tailnet as
-  `https://hypomnema.taild3b6dc.ts.net`.
+  `~/hypomnema-cp/tailscale`) and Tailscale Funnel publishes it to the internet as
+  `https://hypomnema.taild3b6dc.ts.net`, which is `HYPOMNEMA_PUBLIC_URL` in `env`. The client API still refuses a
+  call without a token. `tailscale funnel --https=443 off` makes it tailnet-only again, and then no machine can
+  be created at a provider.
+- Machines at AWS, since 2026-11-10: the provider `aws` (`ap-southeast-1`, `t3.medium`, up to 3 machines), its
+  key in the vault as `aws`.
 - Model gateway, since 2026-11-10: the vault's root key is in `~/hypomnema-cp/env`. The owner's Codex account is
   logged in on the control plane, and the gateway serves the model `gpt-6.1-sol` from `codex-subscription` first.
   Its second target, kept for a while, is `ninerouter`: 9router on the same machine, which holds a login of the same
