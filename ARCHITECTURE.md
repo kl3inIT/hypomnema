@@ -911,9 +911,11 @@ the internet, so that a machine created at a provider can install the node from 
   `gpt-oss-120b-medium`. No gateway model is served from it until the owner declares one.
 - Lark, since 2026-11-10: the owner's Lark app (Lark international) is the client of the Integration `lark`, its
   secret in the vault as `integration-lark-client`, and connected as `lark:work`. Nodes installed `lark-cli`
-  1.0.100 themselves. A worker cannot call it yet: a Run given `lark:work` on aioffice-app found no `lark-cli`
-  on its PATH, because the script a node writes for a tool comes from the tool catalog compiled into the node,
-  and the released node (v0.6.0) is older than Lark's entry. It needs a node release.
+  1.0.100 themselves. A worker calls it from node v0.6.1 on: a Run given `lark:work` on aioffice-app ran
+  `lark-cli whoami` and a call to Lark as the app, and found the guide. A node writes a tool's script from the
+  tool catalog compiled into it, so a new tool reaches workers with a node release; the other nodes take v0.6.1
+  at their next update check. The coordinator on zm has neither `lark-cli` nor the skill yet: its tools are
+  installed by `deploy/coordinator/setup-coordinator.sh`, which needs root.
 - Node: aioffice-app, user `hypnode`, `~/bin/hypomnema-node`, tmux session `hyp-node`, pointed at that URL; the
   machine joined the tailnet as `aioffice-node`. The earlier control plane there (`~ubuntu/hypomnema-cp`) is
   stopped and kept for rollback.
