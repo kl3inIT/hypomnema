@@ -106,22 +106,9 @@ func (codexSubscription) do(ctx context.Context, s *Server, call chatCall) (*htt
 	}
 
 	resp, err := s.underAccounts(ctx, codexRuntime, nil, func(token AccountToken) (*http.Response, error) {
-		resp, err := s.codexPost(ctx, token, built)
+		resp, err := s.codexCall(ctx, &token, built)
 		if err != nil {
 			return nil, err
-		}
-
-		// A token the backend refuses is refreshed once, and the request sent again.
-		if resp.StatusCode == http.StatusUnauthorized {
-			drain(resp)
-
-			if token, err = s.accounts.TokenAfterRefusal(ctx, token); err != nil {
-				return nil, err
-			}
-
-			if resp, err = s.codexPost(ctx, token, built); err != nil {
-				return nil, err
-			}
 		}
 
 		if resp.StatusCode != http.StatusOK {
@@ -137,6 +124,24 @@ func (codexSubscription) do(ctx context.Context, s *Server, call chatCall) (*htt
 	}
 
 	return resp, nil
+}
+
+// codexCall sends a built request under an account. A token the backend
+// refuses is refreshed once and the request sent again; token is then the
+// new one.
+func (s *Server) codexCall(ctx context.Context, token *AccountToken, built codex.Request) (*http.Response, error) {
+	resp, err := s.codexPost(ctx, *token, built)
+	if err != nil || resp.StatusCode != http.StatusUnauthorized {
+		return resp, err
+	}
+
+	drain(resp)
+
+	if *token, err = s.accounts.TokenAfterRefusal(ctx, *token); err != nil {
+		return nil, err
+	}
+
+	return s.codexPost(ctx, *token, built)
 }
 
 // codexPost sends a built request under an account, as the Codex CLI would.
