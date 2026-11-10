@@ -36,10 +36,20 @@ Two deployables, all Go:
 - **Credentials are per Dispatch.** The node's proxy attaches credentials from a vault session opened for one
   Dispatch and revoked when it closes, as Infisical's Agent Vault. The vault lives in the control plane; it moves to
   its own host only when the control plane has to run somewhere less trusted.
-- **Every model request goes through one model gateway** in the control plane, which forwards subscription traffic
-  unchanged, injects API keys, pins one account per session for the prompt cache, and records usage per Dispatch. The
-  control plane manages the accounts: a Claude subscription only through Claude Code with a `claude setup-token` token
-  from the vault; a Codex subscription through `codex app-server` with tokens the control plane refreshes.
+- **Model requests go through one model gateway** in the control plane, with two surfaces
+  ([design](https://github.com/kl3inIT/hypomnema/issues/20), revised 2026-11-10). The native surface forwards a
+  vendor CLI's traffic unchanged (Claude Code, Codex), so the prompt cache survives. The unified surface is an
+  OpenAI-compatible API for pi, other workers and the owner's own tools: a declared model table, one adapter per
+  kind of provider, translation through one hub format when the upstream speaks another format, an account pinned
+  per session, and usage recorded per Dispatch. A worker whose CLI talks to its vendor with its own login and cannot
+  be given a base URL is the exception.
+- **One store of accounts, two uses.** The owner adds an API key or a subscription (Claude, Codex, Antigravity) once
+  in the web client; the secret is kept by the vault, and only the control plane refreshes a subscription's refresh
+  token. An account can be handed to workers that run a vendor CLI directly (Claude Code with a `claude setup-token`
+  token, Codex through `codex app-server` with tokens the control plane refreshes), served by the gateway through an
+  adapter that builds the request as the vendor's client does, or both. The owner is the only user and accepts that
+  a vendor may block an account used this way; until 2026-11-10 the intent was that a Claude subscription is used
+  only by Claude Code and that the gateway never builds a request with a subscription.
 - **One machine is enough to start**, with three OS users that each hold only their own: `hypomnema` (control plane
   and vault, the root key), `coordinator` (pi with all its tools, a filtered environment and its own directory), `agent`
   (a node running workers). More machines only add nodes. The coordinator spawns workers by itself within hard limits, as
