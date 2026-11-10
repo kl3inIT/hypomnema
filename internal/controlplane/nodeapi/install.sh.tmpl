@@ -1,0 +1,116 @@
+#!/bin/sh
+# Installs the Hypomnema node on this machine (issue #69, step 1b). Served by the control plane; after Omnara's
+# installer (internal/httpapi/omnarad.sh.tmpl, Apache-2.0): it downloads the release manifest for this platform,
+# then the binary the manifest names, checks the binary's SHA-256 and version against the manifest, and hands
+# over to `hypomnema-node install`, which asks for the node token (or reads HYPOMNEMA_NODE_TOKEN), writes the
+# configuration and starts the service.
+set -eu
+umask 077
+
+default_release_url={{shellQuote .ReleaseURL}}
+default_url={{shellQuote .URL}}
+
+die() {
+  printf '%s\n' "hypomnema-node installer: $*" >&2
+  exit 1
+}
+
+# https only; plain http is for a control plane or a release mirror on this machine.
+is_allowed_url() {
+  case "$1" in
+    *[!A-Za-z0-9._~:/%+-]*) return 1 ;;
+  esac
+  case "$1" in
+    https://?*) return 0 ;;
+    http://localhost|http://localhost[:/]*|http://127.0.0.1|http://127.0.0.1[:/]*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+detect_platform() {
+  platform_os=$(uname -s) || die "unable to detect the operating system"
+  platform_arch=$(uname -m) || die "unable to detect the architecture"
+  case "$platform_os" in
+    Linux) platform_os=linux ;;
+    Darwin) platform_os=darwin ;;
+    *) die "unsupported operating system: $platform_os" ;;
+  esac
+  case "$platform_arch" in
+    x86_64|amd64) platform_arch=amd64 ;;
+    arm64|aarch64) platform_arch=arm64 ;;
+    *) die "unsupported architecture: $platform_arch" ;;
+  esac
+}
+
+download_file() {
+  command -v curl >/dev/null 2>&1 || die "curl is required"
+  case "$1" in
+    https://*) proto='=https' ;;
+    *) proto='=http' ;;
+  esac
+  curl --fail --silent --show-error --location --max-filesize "$3" --connect-timeout 15 --max-time 300 \
+    --proto "$proto" --proto-redir '=https' --output "$2" "$1" || die "unable to download $1"
+}
+
+# The manifest is three lines, each exactly once: version=, url=, sha256=.
+parse_manifest() {
+  manifest_version= manifest_url= manifest_sha256=
+  versions=0 urls=0 shas=0
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      version=*) manifest_version=${line#version=}; versions=$((versions + 1)) ;;
+      url=*) manifest_url=${line#url=}; urls=$((urls + 1)) ;;
+      sha256=*) manifest_sha256=${line#sha256=}; shas=$((shas + 1)) ;;
+      '') ;;
+      *) die "the release manifest has a line that is not understood" ;;
+    esac
+  done < "$manifest_path"
+  [ "$versions" -eq 1 ] && [ -n "$manifest_version" ] || die "the release manifest must name exactly one version"
+  [ "$urls" -eq 1 ] || die "the release manifest must name exactly one url"
+  [ "$shas" -eq 1 ] || die "the release manifest must name exactly one sha256"
+  is_allowed_url "$manifest_url" || die "the release manifest's url is not allowed"
+  case "$manifest_sha256" in
+    *[!0-9a-f]*) die "the release manifest's sha256 is not lower-case hex" ;;
+  esac
+  [ ${#manifest_sha256} -eq 64 ] || die "the release manifest's sha256 is not 64 characters"
+}
+
+checksum() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sum=$(sha256sum "$1") || die "unable to checksum the download"
+  elif command -v shasum >/dev/null 2>&1; then
+    sum=$(shasum -a 256 "$1") || die "unable to checksum the download"
+  else
+    die "sha256sum or shasum is required to verify the download"
+  fi
+  printf '%s\n' "${sum%% *}"
+}
+
+cleanup() {
+  status=$?
+  trap - 0
+  [ -z "$staging_dir" ] || rm -rf "$staging_dir" || true
+  exit "$status"
+}
+
+url=${HYPOMNEMA_URL:-$default_url}
+release_url=${HYPOMNEMA_NODE_RELEASE_URL:-$default_release_url}
+is_allowed_url "$url" || die "the control plane URL is not allowed: $url"
+is_allowed_url "$release_url" || die "the release URL is not allowed: $release_url"
+detect_platform
+
+staging_dir=$(mktemp -d "${TMPDIR:-/tmp}/hypomnema-node-install.XXXXXX") || die "unable to make a staging directory"
+trap cleanup 0
+trap 'exit 1' HUP INT TERM
+manifest_path=$staging_dir/manifest
+staged=$staging_dir/hypomnema-node
+
+download_file "${release_url%/}/$platform_os-$platform_arch.txt" "$manifest_path" 65536
+parse_manifest
+download_file "$manifest_url" "$staged" 268435456
+[ "$(checksum "$staged")" = "$manifest_sha256" ] || die "the download's checksum does not match the release manifest"
+chmod 0700 "$staged"
+staged_version=$("$staged" version) || die "the downloaded binary does not run on this machine"
+[ "$staged_version" = "$manifest_version" ] || die "the downloaded binary is not the version the manifest names"
+
+"$staged" install --url "$url" "$@"

@@ -9,7 +9,7 @@ statement true or false.
 | Binary | Commands | What it does today |
 |---|---|---|
 | `cmd/hypomnema` (control plane) | `migrate`, `serve`, `version`, `nodes add\|list\|drain\|resume\|rm`, `nodes token add\|list\|revoke`, `accounts add\|list`, `tokens add\|list\|revoke`, `secrets keygen\|add\|list\|rotate\|rm\|rewrap`, `login`, `run`, `answer`, `questions` | `migrate` brings the database schema up to the binary's version; `serve` refuses any other schema, then serves `/livez`, `/readyz`, the node API, the client API and the web client, and runs the scheduler loop; the other commands are the owner's (below) |
-| `cmd/hypomnema-node` (node) | `init`, `check`, `accounts set`, `run`, `service`, `shim`, `mcp`, `version` | `init --url --token-file` writes the node's configuration; `check` says hello once and lists the CLIs it found; `accounts set` records where an account's Claude token is; `run` runs the daemon with the Claude runner; `service` prints a systemd user unit; `shim` runs one worker and `mcp` serves its tools (both started for a worker, not by hand) |
+| `cmd/hypomnema-node` (node) | `install`, `init`, `check`, `accounts set`, `run`, `service`, `shim`, `mcp`, `version` | `install --url` puts the node on the machine (below); `init --url --token-file` writes the node's configuration; `check` says hello once and lists the CLIs it found; `accounts set` records where an account's Claude token is; `run` runs the daemon with the Claude runner; `service` prints a systemd user unit; `shim` runs one worker and `mcp` serves its tools (both started for a worker, not by hand) |
 
 Configuration comes from the environment: `HYPOMNEMA_HTTP_ADDR` (default `127.0.0.1:8080`),
 `HYPOMNEMA_DATABASE_PATH` (required, absolute), `HYPOMNEMA_LOG_LEVEL`, `HYPOMNEMA_LOG_FORMAT` (`json` or `text`),
@@ -148,6 +148,16 @@ Node API (`internal/controlplane/nodeapi`, protocol in `internal/shared/nodeprot
   version and machine (measured with gopsutil, as Nezha's and Beszel's agents) and the Dispatches it still holds. Each of those is answered `retain` (still its own at that epoch), `reattach` (marked
   unknown while it was away) or `release`.
 - It then holds one WebSocket at `/node/v1/socket` with JSON `{type, payload}` frames of at most 1 MiB.
+- Installing a node (after Omnara's `GET /install/omnarad.sh` and `omnarad install`): the control plane serves a
+  shell script at `GET /install/node.sh`, which holds no secret. It names the control plane (`HYPOMNEMA_PUBLIC_URL`,
+  or the host it was asked at) and where releases are (`HYPOMNEMA_NODE_RELEASE_URL`, by default the latest GitHub
+  release). On the machine it downloads the manifest for the platform (`<os>-<arch>.txt`: version, url, sha256),
+  then the binary, refuses one whose SHA-256 or version differs from the manifest or whose URL is not https, and
+  runs `hypomnema-node install`. That copies the binary into the node's home, takes the token from
+  `HYPOMNEMA_NODE_TOKEN` or asks for it on the terminal, writes the configuration, says hello once, and on Linux
+  installs and starts a systemd user unit. Linux and macOS, amd64 and arm64.
+- Releases: a tag `v*` runs `.github/workflows/release.yml`, which builds the node for those four platforms with
+  their manifests (`make release-node`) and publishes them as a GitHub release.
 - The control plane offers the node its queued Dispatches with what it needs (Task, repository, worktree, runtime,
   account, model), sends stops and answers, and acknowledges every heartbeat and report. Each is sent once per
   connection, and again after a reconnect. It looks again on every commit and every 30 s.
@@ -178,7 +188,7 @@ Client API (`internal/controlplane/clientapi`, contract `api/openapi.yaml`, afte
 
 The owner's commands:
 - On the server, with the same database as `serve`:
-  - `nodes add <name>` prints the node's token once; `nodes list` shows each node's state, load, CLIs and
+  - `nodes add <name>` prints the node's token once, and the line that installs the node; `nodes list` shows each node's state, load, CLIs and
     machine; `nodes drain|resume|rm <node>` take the node's id or name;
   - `nodes token add <node> <name>` prints one more token once; `nodes token list <node>` and
     `nodes token revoke <id>`. A node connected with a revoked token is refused at its next heartbeat;

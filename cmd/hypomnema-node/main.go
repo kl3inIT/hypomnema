@@ -1,6 +1,10 @@
 // Command hypomnema-node runs on every machine that does work. It dials out
 // to the control plane; nothing connects to it.
 //
+//	hypomnema-node install --url URL [--home DIR] [--worktree-root DIR] [--no-start]
+//	                        install on this machine: copy the binary into the home, ask for the node
+//	                        token (or read HYPOMNEMA_NODE_TOKEN), write the configuration, say hello,
+//	                        and start a systemd user unit (run by the install script)
 //	hypomnema-node init --url URL --token-file FILE [--home DIR] [--worktree-root DIR]
 //	                        write the configuration (the token is read from FILE)
 //	hypomnema-node check [--home DIR]
@@ -34,7 +38,8 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 )
 
-var errUsage = errors.New("usage: hypomnema-node init --url URL --token-file FILE [--home DIR] " +
+var errUsage = errors.New("usage: hypomnema-node install --url URL [--home DIR] [--worktree-root DIR] " +
+	"[--no-start] | init --url URL --token-file FILE [--home DIR] " +
 	"[--worktree-root DIR] | check | accounts set <account id> --token-file FILE | run | service | version")
 
 func main() {
@@ -59,6 +64,30 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		_, err := fmt.Fprintln(stdout, platform.Version)
 
 		return err
+	case "install":
+		fs := flag.NewFlagSet("install", flag.ContinueOnError)
+		url := fs.String("url", "", "the control plane's URL")
+		home := fs.String("home", "", "the node's home (default ~/.hypomnema-node)")
+		root := fs.String("worktree-root", "", "where worktrees are made (default <home>/worktrees)")
+		noStart := fs.Bool("no-start", false, "install the binary and the configuration only")
+
+		if err := fs.Parse(args[1:]); err != nil || *url == "" || fs.NArg() != 0 {
+			return errUsage
+		}
+
+		dir, err := homeDir(*home)
+		if err != nil {
+			return err
+		}
+
+		exe, err := os.Executable()
+		if err != nil {
+			return err
+		}
+
+		return node.Install(ctx, node.InstallOptions{
+			Home: dir, URL: *url, WorktreeRoot: *root, Exe: exe, Token: os.Getenv(node.TokenEnv), NoStart: *noStart,
+		}, stdout)
 	case "init":
 		fs := flag.NewFlagSet("init", flag.ContinueOnError)
 		url := fs.String("url", "", "the control plane's URL")
