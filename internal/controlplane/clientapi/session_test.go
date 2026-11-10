@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/cookiejar"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -239,4 +240,35 @@ func TestWrongPasswordsLockTheAddress(t *testing.T) {
 
 	advance(121 * time.Second)
 	assert.Equal(t, http.StatusNoContent, b.signIn(userName, userPassword).status)
+}
+
+// Scenario: someone guessing passwords through the proxy sends a different
+// made-up address with each try. The proxy appends the real one after it, and
+// that is the one counted: the fifth try is locked all the same.
+func TestAMadeUpForwardedAddressDoesNotEscapeTheLock(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	_, err := w.svc.AddUser(t.Context(), userName, userPassword)
+	require.NoError(t, err)
+
+	try := func(madeUp string) int {
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, w.url+BasePath+"/session",
+			strings.NewReader(`{"username":"`+userName+`","password":"not the password"}`))
+		require.NoError(t, err)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Forwarded-For", madeUp+", 100.64.0.7")
+
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		require.NoError(t, resp.Body.Close())
+
+		return resp.StatusCode
+	}
+
+	for i := range 4 {
+		assert.Equal(t, http.StatusUnauthorized, try("203.0.113."+strconv.Itoa(i+1)))
+	}
+
+	assert.Equal(t, http.StatusTooManyRequests, try("203.0.113.99"))
 }
