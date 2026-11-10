@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/nodeapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
@@ -27,7 +28,7 @@ import (
 // ErrUsage marks a command line that is wrong.
 var ErrUsage = errors.New("usage")
 
-// Command runs one owner command: nodes, accounts, tokens or secrets. stdin
+// Command runs one owner command: nodes, accounts, tokens, secrets or gateway. stdin
 // is where `secrets add --from-file -` reads a value.
 func Command(ctx context.Context, cfg Config, args []string, stdin io.Reader, stdout io.Writer) error {
 	if len(args) == 0 {
@@ -53,10 +54,11 @@ func Command(ctx context.Context, cfg Config, args []string, stdin io.Reader, st
 	o := &owner{
 		publicURL: cfg.PublicURL,
 
-		svc:   svc,
-		vault: vault.New(db, platform.SystemClock{}, platform.NewID, cfg.VaultKeys, svc.ProvidersUsingKeyRef),
-		in:    stdin,
-		out:   stdout,
+		svc:     svc,
+		vault:   vault.New(db, platform.SystemClock{}, platform.NewID, cfg.VaultKeys, svc.ProvidersUsingKeyRef),
+		gateway: modelgateway.New(db, platform.SystemClock{}, platform.NewID, gatewayProviders(svc)),
+		in:      stdin,
+		out:     stdout,
 	}
 
 	switch args[0] {
@@ -68,6 +70,8 @@ func Command(ctx context.Context, cfg Config, args []string, stdin io.Reader, st
 		return o.tokens(ctx, args[1:])
 	case "secrets":
 		return o.secrets(ctx, args[1:])
+	case "gateway":
+		return o.gatewayCommand(ctx, args[1:])
 	default:
 		return ErrUsage
 	}
@@ -78,6 +82,7 @@ type owner struct {
 	publicURL string
 	svc       *orchestration.Service
 	vault     *vault.Service
+	gateway   *modelgateway.Service
 	in        io.Reader
 	out       io.Writer
 }

@@ -139,6 +139,30 @@ type Event struct {
 	CreatedAt  int64
 }
 
+type GatewayKey struct {
+	ID        string
+	Name      string
+	KeyHash   string
+	Models    string
+	CreatedAt int64
+	RevokedAt sql.NullInt64
+}
+
+type GatewayModel struct {
+	Name       string
+	Capability string
+	Source     string
+	CreatedAt  int64
+	UpdatedAt  int64
+}
+
+type GatewayModelTarget struct {
+	Model         string
+	Position      int64
+	Provider      string
+	UpstreamModel string
+}
+
 type Model struct {
 	Provider string
 	Name     string

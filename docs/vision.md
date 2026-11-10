@@ -5,13 +5,20 @@ Intent, not fact. What exists is in [ARCHITECTURE.md](../ARCHITECTURE.md); the e
 
 ## Goal
 
-A personal software factory for one owner: one coordinator, many hands.
+A personal factory for one owner: one coordinator, many hands. It builds the owner's software and also does the
+owner's own work that is not code, such as reading mail, looking something up or preparing a document. Until
+2026-11-10 the goal was a software factory only.
 
 - The owner assigns work from a phone or a laptop through a web chat first; Telegram and a Flutter app later.
-- A coordinator plans the work, splits it into tasks, and dispatches them to coding agents.
+- A coordinator plans the work, splits it into tasks, and dispatches them to agents.
 - The agents are the vendor CLIs, Claude Code and Codex, running on many machines across many clouds: VPS, EC2,
   Kubernetes, disposable sandboxes.
-- Work ends in a pull request that passes CI. The owner approves the plan and the merge.
+- Work on code ends in a pull request that passes CI. The owner approves the plan and the merge.
+- Other work is the same kind of task, as in OpenClaw, Hermes and Omnigent: no repository, other tools, and a report
+  to the owner with what it produced instead of a pull request
+  ([research](research/2026-11-10-git-hosts-and-personal-work.md)).
+- Repositories are on GitHub today. Another git host is meant to be one adapter, found from the repository's URL,
+  as Orca, t3code and Omnigent have one a host; nothing else should know the host.
 - One shared memory (MemoryOS) and one personal OS (Northstar), both over MCP; one vault for every secret.
 
 ## Target architecture
@@ -73,5 +80,6 @@ in the research, including [workers, accounts and the gateway](research/2026-11-
 ## Build order
 
 One piece at a time, each usable on its own: spikes; a skeleton of the two deployables on one machine; the first
-merged PR from a web chat message; a second cloud; task graphs and review stations; machine pools, Telegram and mobile.
+merged PR from a web chat message; a second cloud; task graphs and review stations; machine pools, Telegram and mobile;
+the owner's personal work (accounts for mail and the like through the vault, tools per profile, work on a schedule).
 Each step is a GitHub issue.

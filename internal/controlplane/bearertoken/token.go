@@ -25,10 +25,16 @@ const (
 	Owner Kind = "owner"
 	// Coordinator may change its own Runs and read the rest.
 	Coordinator Kind = "coordinator"
+	// Gateway is a key for the model gateway (issue #20), not for the client
+	// API: it calls models and nothing else.
+	Gateway Kind = "gateway"
 )
 
 // Kinds lists every kind.
-var Kinds = []Kind{Owner, Coordinator}
+var Kinds = []Kind{Owner, Coordinator, Gateway}
+
+// ClientKinds lists the kinds the client API accepts.
+var ClientKinds = []Kind{Owner, Coordinator}
 
 const (
 	alphabet       = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
