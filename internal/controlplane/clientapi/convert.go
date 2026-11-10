@@ -144,6 +144,7 @@ func toNode(n orchestration.Node) openapi.Node {
 		WorktreeRoot: ptr(n.WorktreeRoot), Runtimes: runtimes, System: toNodeSystem(n.System),
 		Stats: toNodeStats(n.Stats), Machine: toNodeMachine(n.Machine), LastSeenAt: n.LastSeenAt,
 		UnavailableAt: n.UnavailableAt, Connected: n.Connected, Active: n.Active, CreatedAt: n.CreatedAt,
+		Terminal: ptr(n.Terminal),
 		GitHosts: gitHostsOf(n.GitHosts), Tools: nodeToolsOf(n.Tools),
 	}
 }

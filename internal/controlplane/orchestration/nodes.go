@@ -50,6 +50,8 @@ type Hello struct {
 	WorktreeRoot string
 	Runtimes     []RuntimeInfo
 	System       SystemInfo
+	// Terminal says the node opens a terminal when asked.
+	Terminal bool
 }
 
 // SystemInfo is what a node is: its daemon and its machine. A zero field was
@@ -93,6 +95,8 @@ type Node struct {
 	System SystemInfo
 	// Stats is the node's latest measurement; nil until it has sent one.
 	Stats *SystemStats
+	// Terminal says the node said at its last hello that it opens a terminal when asked.
+	Terminal bool
 	// Machine is set for a node created at a provider; nil for one the owner installed.
 	Machine    *Machine
 	LastSeenAt *time.Time
@@ -378,11 +382,17 @@ func (s *Service) NodeHello(ctx context.Context, nodeID string, h Hello) error {
 	}
 
 	return s.write(ctx, func(q *store.Queries, now int64) error {
+		var terminal int64
+		if h.Terminal {
+			terminal = 1
+		}
+
 		n, err := q.NodeHello(ctx, store.NodeHelloParams{
 			Now: now, WorktreeRoot: nullString(h.WorktreeRoot), Runtimes: string(runtimes),
 			DaemonVersion: nullString(h.System.DaemonVersion), Os: nullString(h.System.OS),
 			Arch: nullString(h.System.Arch), Cpus: nullPositive(int64(h.System.CPUs)),
-			MemoryBytes: nullPositive(h.System.MemoryBytes), DiskBytes: nullPositive(h.System.DiskBytes), ID: nodeID,
+			MemoryBytes: nullPositive(h.System.MemoryBytes), DiskBytes: nullPositive(h.System.DiskBytes),
+			Terminal: terminal, ID: nodeID,
 		})
 
 		return oneRow(n, err, "node", nodeID)
