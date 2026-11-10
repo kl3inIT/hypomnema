@@ -16,6 +16,7 @@
 //	hypomnema accounts add <runtime> <label>   record an account whose CLI is logged in on a node (no secret)
 //	hypomnema accounts login codex|antigravity [--label L]   log a subscription in here; its tokens go to the vault
 //	hypomnema accounts list
+//	hypomnema accounts models <account>        the models the vendor serves the account, with the quota left
 //	hypomnema accounts refresh|rm <account>    refresh the tokens now, or remove the account and its tokens
 //	hypomnema tokens add <name> [--kind owner|coordinator]   make a client API token; prints it once
 //	hypomnema tokens list

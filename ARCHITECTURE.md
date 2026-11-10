@@ -320,8 +320,10 @@ subscriptions. The Claude subscription, other provider formats and other capabil
   - An account Google suspended for its terms is taken out of use for a day, one Google wants verified for ten
     minutes; the cooldown's reason, with Google's link, shows in `accounts list`, and the request is answered 503
     so the model's next target serves it.
-  - Not built: real thought signatures kept across turns, images by URL, Google search as a tool, the account's own
-    list of models read from the backend, several accounts rotated.
+  - The models the provider is seeded with are names read in the references; the ones Google serves an account are
+    what `accounts models` lists, and the owner applies the provider again with those when they differ.
+  - Not built: real thought signatures kept across turns, images by URL, Google search as a tool, the provider's
+    models kept in step with the account's by itself, several accounts rotated.
 - Each request served is one row of `gateway_usage`: the key, the model, the target of the last attempt, how many
   were tried, the outcome (`ok`, `upstream_error`, `transport_error`, `truncated`, `client_gone`), the provider's
   status, the duration, and the tokens the provider reported (prompt, completion, cached, reasoning; the largest
@@ -390,7 +392,8 @@ The owner's commands:
     is removed with `nodes rm`;
   - `accounts add <runtime> <label>` records an account whose CLI is logged in on a node; `accounts login codex|antigravity
     [--label L]` logs a subscription in here, printing a link and a code and waiting, or asking for the pasted
-    address; `accounts list` shows each with the state of its tokens; `accounts refresh <account>` and
+    address; `accounts list` shows each with the state of its tokens; `accounts models <account>` asks the vendor which
+    models it serves the account, with what is left of each quota (Antigravity only); `accounts refresh <account>` and
     `accounts rm <account>` (which removes the tokens too) are for those logged in here;
   - `tokens add <name> [--kind owner|coordinator]` prints a client token once; `tokens list` and
     `tokens revoke <id>`;

@@ -375,6 +375,63 @@ func (s *Service) TokenAfterRefusal(ctx context.Context, refused Token) (Token, 
 	return s.tokenOf(ctx, a.Account)
 }
 
+// ServedModel is a model a vendor serves an account, with what is left of
+// its quota when the vendor says.
+type ServedModel struct {
+	Name string
+	// Remaining is the part of the model's quota that is left, from 0 to 1;
+	// negative when the vendor did not say.
+	Remaining float64
+	// ResetsAt is when the quota is whole again; zero when not known.
+	ResetsAt time.Time
+}
+
+// ModelLister is a Vendor that can say which models it serves an account.
+type ModelLister interface {
+	Models(ctx context.Context, token Token) ([]ServedModel, error)
+}
+
+// ErrNoModelList is returned for an account whose vendor lists no models.
+var ErrNoModelList = errors.New("this kind of account does not list its models")
+
+// Models asks the vendor which models it serves an account, by name.
+func (s *Service) Models(ctx context.Context, id string) ([]ServedModel, error) {
+	a, err := s.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	lister, ok := s.vendors[a.Runtime].(ModelLister)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrNoModelList, a.Runtime)
+	}
+
+	if a.State != StateActive {
+		return nil, fmt.Errorf("%w: account %s is %s", ErrNoTokens, id, cmpState(a.State))
+	}
+
+	if a.AccessTokenExpiresAt != nil && a.AccessTokenExpiresAt.Sub(s.clock.Now()) < useLead {
+		if err := s.refresh(ctx, a, 0); err != nil {
+			return nil, err
+		}
+	}
+
+	token, err := s.tokenOf(ctx, a.Account)
+	if err != nil {
+		return nil, err
+	}
+
+	return lister.Models(ctx, token)
+}
+
+func cmpState(state State) string {
+	if state == "" {
+		return "not logged in here"
+	}
+
+	return string(state)
+}
+
 // CoolDown keeps an account out of use until its usage limit ends.
 func (s *Service) CoolDown(ctx context.Context, runtime, accountID string, until time.Time, reason string) error {
 	return s.accounts.CoolAccount(ctx, runtime, accountID, until, reason)
