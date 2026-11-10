@@ -29,8 +29,10 @@ type nodeLoad struct {
 	runtimes []RuntimeInfo
 	// hosts are the git hosts the node reached; said is false for a node that
 	// never reported, which is taken to reach every host.
-	hosts  []string
-	said   bool
+	hosts []string
+	said  bool
+	// tools is what the node has of the tools it was told to have; nil when it has not said.
+	tools  []NodeTool
 	active int
 }
 
@@ -71,6 +73,14 @@ func loadPlacement(ctx context.Context, q *store.Queries, now int64) (*placement
 			if err := json.Unmarshal([]byte(row.GitHosts.String), &n.hosts); err != nil {
 				return nil, fmt.Errorf("decoding the git hosts of node %s: %w", row.ID, err)
 			}
+		}
+
+		if row.Tools.Valid {
+			if err := json.Unmarshal([]byte(row.Tools.String), &n.tools); err != nil {
+				return nil, fmt.Errorf("decoding the tools of node %s: %w", row.ID, err)
+			}
+
+			n.tools = nonNil(n.tools)
 		}
 
 		p.nodes[row.ID] = n
@@ -249,6 +259,7 @@ func (p *placement) nodeOut(n *nodeLoad) Node {
 		Stats: stats, Machine: machineOut(n.row),
 		ID: n.row.ID, Name: n.row.Name, Status: NodeStatus(n.row.Status), MaxDispatches: int(n.row.MaxDispatches),
 		WorktreeRoot: n.row.WorktreeRoot.String, Runtimes: nonNil(n.runtimes), GitHosts: n.gitHosts(),
+		Tools: n.tools,
 		System: SystemInfo{
 			DaemonVersion: n.row.DaemonVersion.String, OS: n.row.Os.String, Arch: n.row.Arch.String,
 			CPUs: int(n.row.Cpus.Int64), MemoryBytes: n.row.MemoryBytes.Int64, DiskBytes: n.row.DiskBytes.Int64,

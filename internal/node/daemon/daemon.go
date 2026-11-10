@@ -96,6 +96,8 @@ type Config struct {
 	Reach func(ctx context.Context, host string) bool
 	// Terminal holds the shells opened from the web; nil: this node opens none.
 	Terminal *terminal.Manager
+	// InstallTool has a tool the control plane named on this machine; nil: the node installs none.
+	InstallTool func(ctx context.Context, tool nodeproto.Tool) error
 }
 
 // Daemon is one node's connection.
@@ -117,6 +119,8 @@ type Daemon struct {
 	hosts *hostWatch
 	// base is Run's context, for what outlives one socket: a terminal's connection.
 	base context.Context //nolint:containedctx // set once by Run, read by goroutines Run owns
+	// tools has the tools the control plane names installed; nil when the node installs none.
+	tools *toolWatch
 }
 
 // New returns a Daemon.
@@ -126,9 +130,14 @@ func New(cfg Config, db *statedb.DB, runner Runner, logger *slog.Logger) *Daemon
 		hosts = newHostWatch(cfg.Reach)
 	}
 
+	var tools *toolWatch
+	if cfg.InstallTool != nil {
+		tools = newToolWatch(cfg.InstallTool)
+	}
+
 	return &Daemon{
-		hosts: hosts,
-		cfg:   cfg, db: db, runner: runner, logger: logger, http: &http.Client{Timeout: 30 * time.Second},
+		hosts: hosts, tools: tools,
+		cfg: cfg, db: db, runner: runner, logger: logger, http: &http.Client{Timeout: 30 * time.Second},
 		newID: platform.NewID, instance: platform.NewID("ins"),
 		ephemeral: map[string]nodeproto.Report{}, known: map[string]bool{},
 	}
@@ -141,6 +150,10 @@ func (d *Daemon) Run(ctx context.Context) error {
 
 	if d.hosts != nil {
 		go d.hosts.run(ctx)
+	}
+
+	if d.tools != nil {
+		go d.tools.run(ctx)
 	}
 
 	for {
@@ -199,6 +212,7 @@ func (d *Daemon) connectOnce(ctx context.Context) (bool, error) {
 	}
 
 	d.hosts.ask(resp.GitHosts)
+	d.tools.ask(resp.Tools)
 
 	return d.session(ctx, time.Duration(resp.HeartbeatAfterMs)*time.Millisecond)
 }
@@ -415,6 +429,7 @@ func (d *Daemon) loop(ctx context.Context, in <-chan nodeproto.Message, errs <-c
 					}
 
 					d.hosts.ask(ack.GitHosts)
+					d.tools.ask(ack.Tools)
 				}
 
 				continue
@@ -468,12 +483,12 @@ func (d *Daemon) setOut(out chan nodeproto.Message) {
 // replayed).
 // heartbeat is the heartbeat message, with the machine's measurement when there is one.
 func (d *Daemon) heartbeat(ctx context.Context) nodeproto.Message {
-	hb := nodeproto.Heartbeat{Reaches: d.hosts.said()}
+	hb := nodeproto.Heartbeat{Reaches: d.hosts.said(), Tools: d.tools.said()}
 	if d.cfg.Stats != nil {
 		hb.Stats = d.cfg.Stats(ctx)
 	}
 
-	if hb.Stats != nil || hb.Reaches != nil {
+	if hb.Stats != nil || hb.Reaches != nil || hb.Tools != nil {
 		if msg, err := nodeproto.Encode(nodeproto.TypeHeartbeat, hb); err == nil {
 			return msg
 		}

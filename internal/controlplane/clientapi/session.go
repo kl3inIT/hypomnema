@@ -70,10 +70,14 @@ func newCaller(r *http.Request) caller {
 		host = r.RemoteAddr
 	}
 
-	// A proxy on this machine (tailscale serve) names the browser's address.
+	// A proxy on this machine (tailscale serve) names the browser's address:
+	// the last one of X-Forwarded-For, which the proxy itself appended. The
+	// ones before it came with the request and can be made up, so a guesser
+	// cannot leave its lock by sending another.
 	if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
-		if first, _, _ := strings.Cut(r.Header.Get("X-Forwarded-For"), ","); strings.TrimSpace(first) != "" {
-			host = strings.TrimSpace(first)
+		forwarded := strings.Split(r.Header.Get("X-Forwarded-For"), ",")
+		if last := strings.TrimSpace(forwarded[len(forwarded)-1]); last != "" {
+			host = last
 		}
 	}
 

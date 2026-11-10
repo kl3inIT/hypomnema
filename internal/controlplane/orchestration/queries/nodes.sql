@@ -26,6 +26,9 @@ UPDATE nodes SET last_seen_at = CAST(@now AS INTEGER) WHERE id = @id;
 -- name: SetNodeGitHosts :execrows
 UPDATE nodes SET git_hosts = @git_hosts WHERE id = @id AND status <> 'deleted';
 
+-- name: SetNodeTools :execrows
+UPDATE nodes SET tools = @tools WHERE id = @id AND status <> 'deleted';
+
 -- name: SetNodeStats :execrows
 UPDATE nodes
 SET cpu_percent = @cpu_percent, memory_used_bytes = @memory_used_bytes, disk_used_bytes = @disk_used_bytes,

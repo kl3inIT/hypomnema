@@ -117,6 +117,36 @@ type Heartbeat struct {
 	// Reaches lists the git hosts the node reached when it last tried, of
 	// those the control plane named. Nil is a node that has not tried yet.
 	Reaches *[]string `json:"reaches,omitempty"`
+	// Tools lists the tools the control plane named, each with the version
+	// the node has or why it could not install it. Nil is a node that has
+	// not tried yet.
+	Tools *[]ToolState `json:"tools,omitempty"`
+}
+
+// Tool is a command-line tool the control plane tells a node to have, for
+// this node's system: one release file, pinned by its checksum (issue #103).
+// The node installs it itself, under its own home; a worker never installs
+// one.
+type Tool struct {
+	// Name is the command: gws.
+	Name    string `json:"name"`
+	Version string `json:"version"`
+	// URL is the release file, a .tar.gz, fetched over HTTPS.
+	URL string `json:"url"`
+	// SHA256 is the checksum of that file, in hex. A file that does not match
+	// is not unpacked.
+	SHA256 string `json:"sha256"`
+	// Binary is the path of the command inside the file.
+	Binary string `json:"binary"`
+}
+
+// ToolState is what a node has of one Tool.
+type ToolState struct {
+	Name string `json:"name"`
+	// Version is the version installed; empty when the install failed.
+	Version string `json:"version,omitempty"`
+	// Error says why the install failed.
+	Error string `json:"error,omitempty"`
 }
 
 // Claim is a Dispatch the node still holds when it connects.
@@ -183,6 +213,9 @@ type HelloResponse struct {
 	// GitHosts are the git hosts the control plane knows; the node tries each
 	// and says in its heartbeat which it reaches.
 	GitHosts []string `json:"git_hosts,omitempty"`
+	// Tools are the tools the node should have; it installs a missing one and
+	// says in its heartbeat what it has.
+	Tools []Tool `json:"tools,omitempty"`
 }
 
 // HeartbeatAck answers a heartbeat with the interval to the next one.
@@ -190,6 +223,8 @@ type HeartbeatAck struct {
 	HeartbeatAfterMs int64 `json:"heartbeat_after_ms"`
 	// GitHosts are the git hosts the control plane knows now.
 	GitHosts []string `json:"git_hosts,omitempty"`
+	// Tools are the tools the node should have now.
+	Tools []Tool `json:"tools,omitempty"`
 }
 
 // Offer is a queued Dispatch for the node, with what it needs to prepare it.

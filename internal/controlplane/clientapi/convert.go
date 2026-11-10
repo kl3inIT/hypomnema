@@ -145,12 +145,25 @@ func toNode(n orchestration.Node) openapi.Node {
 		Stats: toNodeStats(n.Stats), Machine: toNodeMachine(n.Machine), LastSeenAt: n.LastSeenAt,
 		UnavailableAt: n.UnavailableAt, Connected: n.Connected, Active: n.Active, CreatedAt: n.CreatedAt,
 		Terminal: ptr(n.Terminal),
-		GitHosts: gitHostsOf(n.GitHosts),
+		GitHosts: gitHostsOf(n.GitHosts), Tools: nodeToolsOf(n.Tools),
 	}
 }
 
 // gitHostsOf is nil for a node that has not said which hosts it reaches, and
 // a list, empty or not, for one that has.
+func nodeToolsOf(tools []orchestration.NodeTool) *[]openapi.NodeTool {
+	if tools == nil {
+		return nil
+	}
+
+	out := make([]openapi.NodeTool, 0, len(tools))
+	for _, t := range tools {
+		out = append(out, openapi.NodeTool{Name: t.Name, Version: ptr(t.Version), Error: ptr(t.Error)})
+	}
+
+	return &out
+}
+
 func gitHostsOf(hosts []string) *[]string {
 	if hosts == nil {
 		return nil

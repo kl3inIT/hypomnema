@@ -89,7 +89,10 @@ type Node struct {
 	// GitHosts are the git hosts the node reached when it last tried; nil for
 	// a node that has not said, which is taken to reach every host.
 	GitHosts []string
-	System   SystemInfo
+	// Tools is what the node has of the tools it was told to have; nil for a
+	// node that has not said.
+	Tools  []NodeTool
+	System SystemInfo
 	// Stats is the node's latest measurement; nil until it has sent one.
 	Stats *SystemStats
 	// Terminal says the node said at its last hello that it opens a terminal when asked.
@@ -461,6 +464,56 @@ func (s *Service) NodeReaches(ctx context.Context, nodeID string, hosts []string
 
 	return s.write(ctx, func(q *store.Queries, _ int64) error {
 		n, err := q.SetNodeGitHosts(ctx, store.SetNodeGitHostsParams{GitHosts: nullString(string(raw)), ID: nodeID})
+
+		return oneRow(n, err, "node", nodeID)
+	})
+}
+
+// NodeTool is what a node has of one tool the control plane named (issue
+// #103): the version installed, or why the install failed.
+type NodeTool struct {
+	Name    string `json:"name"`
+	Version string `json:"version,omitempty"`
+	Error   string `json:"error,omitempty"`
+}
+
+const (
+	// MaxNodeTools bounds what one node may report.
+	MaxNodeTools = 64
+	// maxNodeToolError bounds the reason of a failed install as stored.
+	maxNodeToolError = 500
+)
+
+// NodeTools records what a node has of the tools it was told to have,
+// replacing what it said before.
+func (s *Service) NodeTools(ctx context.Context, nodeID string, tools []NodeTool) error {
+	if len(tools) > MaxNodeTools {
+		return fmt.Errorf("%w: more than %d tools", ErrInvalid, MaxNodeTools)
+	}
+
+	clean := make([]NodeTool, 0, len(tools))
+
+	for _, t := range tools {
+		if t.Name == "" || len(t.Name) > 64 || len(t.Version) > 64 {
+			return fmt.Errorf("%w: a tool's name or version", ErrInvalid)
+		}
+
+		if len(t.Error) > maxNodeToolError {
+			t.Error = t.Error[:maxNodeToolError]
+		}
+
+		clean = append(clean, t)
+	}
+
+	slices.SortFunc(clean, func(a, b NodeTool) int { return strings.Compare(a.Name, b.Name) })
+
+	raw, err := json.Marshal(clean)
+	if err != nil {
+		return fmt.Errorf("encoding the tools of node %s: %w", nodeID, err)
+	}
+
+	return s.write(ctx, func(q *store.Queries, _ int64) error {
+		n, err := q.SetNodeTools(ctx, store.SetNodeToolsParams{Tools: nullString(string(raw)), ID: nodeID})
 
 		return oneRow(n, err, "node", nodeID)
 	})
