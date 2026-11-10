@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/kl3inIT/hypomnema/internal/controlplane/agentapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/coordinator"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/integration"
@@ -162,8 +163,14 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	integrations := integration.New(svc, secrets, platform.SystemClock{}, platform.NewID, integration.Google())
 
 	nodes := nodeapi.New(svc, logger).WithHostTokens(tokens.Token).WithModelKeys(workerKeys.Key).
-		WithTools(integrations.Tools).WithReleaseURL(cfg.NodeReleaseURL)
+		WithAgentKeys(workerKeys.AgentKey).WithTools(integrations.Tools).WithReleaseURL(cfg.NodeReleaseURL)
 	nodes.Register(mux)
+	// One API for every agent's tools: a worker with its Dispatch's key, the coordinator with its token.
+	agentapi.New(svc, func(ctx context.Context, id, label string) (agentapi.Token, error) {
+		token, err := integrations.Token(ctx, id, label)
+
+		return agentapi.Token{AccessToken: token.AccessToken, ExpiresAt: token.ExpiresAt}, err
+	}, logger).Register(mux)
 	modelgateway.NewServer(gateway, logger, modelgateway.Config{
 		Subscriptions: gatewayAccounts{subs: subscriptions}, CodexBaseURL: cfg.CodexBaseURL,
 		AntigravityBaseURL: cfg.AntigravityBaseURL,

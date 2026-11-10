@@ -35,9 +35,17 @@ func toRun(r orchestration.Run) openapi.Run {
 	return openapi.Run{
 		Id: r.ID, Objective: r.Objective, Status: openapi.RunStatus(r.Status), CreatedBy: r.CreatedBy,
 		Repo: ptr(r.Repo), RepoHost: ptr(r.RepoHost), Base: ptr(r.Base),
-		CoordinatorTokenId: ptr(r.CoordinatorTokenID), ChatId: ptr(r.ChatID),
+		CoordinatorTokenId: ptr(r.CoordinatorTokenID), ChatId: ptr(r.ChatID), Uses: usesOf(r.Uses),
 		CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, FinishedAt: r.FinishedAt,
 	}
+}
+
+func usesOf(uses []string) *[]string {
+	if len(uses) == 0 {
+		return nil
+	}
+
+	return &uses
 }
 
 func toTask(t orchestration.Task) openapi.Task {

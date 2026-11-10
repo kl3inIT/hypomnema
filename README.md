@@ -40,7 +40,10 @@ To connect a Google account (Gmail, Calendar, Drive, Docs, Sheets), as Hermes' g
    a browser on any machine, sign in, and paste back the address the browser ends on (a page that does not load).
    A service alone may read and write; with `:read` it may only read.
 
-No worker is handed a Google token yet ([issue #103](https://github.com/kl3inIT/hypomnema/issues/103), step 3).
+No agent uses an account until you say so. To let pi use it in chats, and give it to the Runs it starts:
+`hypomnema integrations chats google:work on` (or "Use in chats" on the account in Settings). To give it to a Run
+you start yourself: `hypomnema runs create --use google:work ...`. The agent calls Google with the `gws` command,
+which Hypomnema installs and signs in on every call.
 
 To let your own agent (Claude Code, Codex or pi) coordinate workers, log in with a `coordinator` token and run
 `hypomnema skills install`. It installs the coordinator skill into `~/.claude/skills` and `~/.agents/skills`; then

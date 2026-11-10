@@ -270,15 +270,21 @@ type Offer struct {
 	// is "gateway": the worker's CLI calls <control plane URL>/v1 with it, for
 	// the offer's Model only. It is made as the offer is sent and revoked when
 	// the Dispatch settles; the node keeps it with the offer until then.
-	ModelKey       string `json:"model_key,omitempty"`
-	Base           string `json:"base,omitempty"`
-	ConversationID string `json:"conversation_id"`
-	Worktree       string `json:"worktree"`
-	Runtime        string `json:"runtime"`
-	AccountRef     string `json:"account_ref"`
-	CLISessionRef  string `json:"cli_session_ref,omitempty"`
-	Model          string `json:"model,omitempty"`
-	Effort         string `json:"effort,omitempty"`
+	ModelKey string `json:"model_key,omitempty"`
+	// Uses are the Connections the Run's workers may use ("google:work");
+	// AgentKey is this Dispatch's own key to the control plane's agent API,
+	// with which the tool launcher asks for a token of one of them. It is
+	// revoked when the Dispatch settles.
+	Uses           []string `json:"uses,omitempty"`
+	AgentKey       string   `json:"agent_key,omitempty"`
+	Base           string   `json:"base,omitempty"`
+	ConversationID string   `json:"conversation_id"`
+	Worktree       string   `json:"worktree"`
+	Runtime        string   `json:"runtime"`
+	AccountRef     string   `json:"account_ref"`
+	CLISessionRef  string   `json:"cli_session_ref,omitempty"`
+	Model          string   `json:"model,omitempty"`
+	Effort         string   `json:"effort,omitempty"`
 }
 
 // Stop asks the node to stop a Dispatch's worker.

@@ -54,7 +54,9 @@ type Run struct {
 	// empty when the owner created it.
 	CoordinatorTokenID string
 	// ChatID is the chat whose coordinator created the Run, if any.
-	ChatID     string
+	ChatID string
+	// Uses are the Connections the Run's workers may use ("google:work").
+	Uses       []string
 	CreatedAt  time.Time
 	UpdatedAt  time.Time
 	FinishedAt *time.Time
@@ -109,6 +111,8 @@ type NewRun struct {
 	CoordinatorTokenID string
 	// ChatID names the chat whose coordinator creates it, if any.
 	ChatID string
+	// Uses are the Connections the Run's workers may use ("google:work").
+	Uses []string
 }
 
 // RunFilter selects Runs; empty fields match everything.

@@ -103,7 +103,7 @@ func (s *Service) scheduleTask(ctx context.Context, q *store.Queries, now int64,
 // placeTask chooses where a ready Task runs. It returns no spec when the Task
 // must wait, with the reason to escalate if the wait lasts ("" for one that
 // resolves by itself, such as a cooling account).
-func placeTask(ctx context.Context, q *store.Queries, p *placement, task store.Task, r resolved, host string,
+func placeTask(ctx context.Context, q *store.Queries, p *placement, task store.Task, r resolved, host where,
 ) (*DispatchSpec, string, error) {
 	runtime := r.runtime
 
@@ -129,8 +129,12 @@ func placeTask(ctx context.Context, q *store.Queries, p *placement, task store.T
 
 	n := p.pickNode(runtime, host)
 	if runtime == "" || n == nil {
-		if !p.anyReaches(host) {
-			return nil, ReasonNoNodeReaches + host, nil
+		if !p.anyReaches(host.host) {
+			return nil, ReasonNoNodeReaches + host.host, nil
+		}
+
+		if missing := p.anyHas(host.tools); missing != "" {
+			return nil, ReasonNoNodeHasTool + missing, nil
 		}
 
 		return nil, ReasonNoNode, nil
@@ -155,14 +159,16 @@ func placeTask(ctx context.Context, q *store.Queries, p *placement, task store.T
 	}, "", nil
 }
 
-// runHost is the git host of a Run's repository, "" for a Run without one.
-func runHost(ctx context.Context, q *store.Queries, runID string) (string, error) {
+// runHost is what a Run's work needs of a node: the git host of its
+// repository, "" for a Run without one, and the tools its Connections are
+// called with.
+func runHost(ctx context.Context, q *store.Queries, runID string) (where, error) {
 	run, err := q.GetRun(ctx, runID)
 	if err != nil {
-		return "", notFound(err, "run", runID)
+		return where{}, notFound(err, "run", runID)
 	}
 
-	return run.RepoHost.String, nil
+	return where{host: run.RepoHost.String, tools: toolsOf(splitUses(run.Uses))}, nil
 }
 
 // unplaceable escalates a Task that has waited UnplaceableAfter for a node or

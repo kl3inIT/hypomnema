@@ -283,6 +283,9 @@ const (
 	ReasonAccountsCooling = "accounts_cooling"
 	// ReasonNoNodeReaches is followed by the git host: "no_node_reaches:gitlab.company.example".
 	ReasonNoNodeReaches = "no_node_reaches:"
+	// ReasonNoNodeHasTool is followed by the tool: "no_node_has_tool:gws". The
+	// Run uses an account whose tool no connected node has installed yet.
+	ReasonNoNodeHasTool = "no_node_has_tool:"
 )
 
 // Escalation is one thing the reaper or the scheduler found.

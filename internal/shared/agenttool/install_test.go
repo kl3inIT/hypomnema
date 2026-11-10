@@ -1,4 +1,4 @@
-package node
+package agenttool
 
 import (
 	"archive/tar"

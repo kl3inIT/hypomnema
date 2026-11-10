@@ -52,7 +52,7 @@ func (s *Server) CreateRun(ctx context.Context, req openapi.CreateRunRequestObje
 
 	nr := orchestration.NewRun{
 		Objective: req.Body.Objective, CreatedBy: tok.Name, Repo: val(req.Body.Repo), Base: val(req.Body.Base),
-		ChatID: val(req.Body.ChatId),
+		ChatID: val(req.Body.ChatId), Uses: val(req.Body.Uses),
 	}
 	if tok.Kind == bearertoken.Coordinator {
 		nr.CoordinatorTokenID = tok.ID

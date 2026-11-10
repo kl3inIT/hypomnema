@@ -42,8 +42,10 @@ done
 home=/home/coordinator/.hypomnema-coordinator
 cd "$home/work"
 
+# The tools of the integrations (gws for Google) are first on pi's PATH as scripts that run them through
+# `hypomnema tool`, which gets a fresh token for each call with pi's own coordinator token (issue #103).
 exec env -i \
   HOME=/home/coordinator USER=coordinator LOGNAME=coordinator LANG=C.UTF-8 TERM=dumb \
-  PATH="/opt/hypomnema-node/bin:$home/pi/node_modules/.bin:/usr/local/bin:/usr/bin:/bin" \
-  PI_CODING_AGENT_DIR="$home/agent" HYPOMNEMA_CHAT_ID="$chat" \
+  PATH="$home/tools/bin:/opt/hypomnema-node/bin:$home/pi/node_modules/.bin:/usr/local/bin:/usr/bin:/bin" \
+  PI_CODING_AGENT_DIR="$home/agent" HYPOMNEMA_CHAT_ID="$chat" HYPOMNEMA_TOOLS_HOME="$home" \
   pi --mode rpc --session-dir "$home/sessions" --session-id "$chat" "$@"

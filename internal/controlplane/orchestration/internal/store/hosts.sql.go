@@ -107,8 +107,26 @@ func (q *Queries) DeleteRepo(ctx context.Context, name string) (int64, error) {
 	return result.RowsAffected()
 }
 
+const getAgentSessionByHash = `-- name: GetAgentSessionByHash :one
+SELECT id, key_hash, dispatch_id, uses, created_at, revoked_at FROM agent_sessions WHERE key_hash = ?1 AND revoked_at IS NULL
+`
+
+func (q *Queries) GetAgentSessionByHash(ctx context.Context, keyHash string) (AgentSession, error) {
+	row := q.db.QueryRowContext(ctx, getAgentSessionByHash, keyHash)
+	var i AgentSession
+	err := row.Scan(
+		&i.ID,
+		&i.KeyHash,
+		&i.DispatchID,
+		&i.Uses,
+		&i.CreatedAt,
+		&i.RevokedAt,
+	)
+	return i, err
+}
+
 const getConnection = `-- name: GetConnection :one
-SELECT integration, label, account, secret, created_at, updated_at, services FROM connections WHERE integration = ?1 AND label = ?2
+SELECT integration, label, account, secret, created_at, updated_at, services, chats FROM connections WHERE integration = ?1 AND label = ?2
 `
 
 type GetConnectionParams struct {
@@ -127,6 +145,7 @@ func (q *Queries) GetConnection(ctx context.Context, arg GetConnectionParams) (C
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Services,
+		&i.Chats,
 	)
 	return i, err
 }
@@ -177,6 +196,30 @@ func (q *Queries) GetRepo(ctx context.Context, name string) (Repo, error) {
 	return i, err
 }
 
+const insertAgentSession = `-- name: InsertAgentSession :exec
+INSERT INTO agent_sessions (id, key_hash, dispatch_id, uses, created_at)
+VALUES (?1, ?2, ?3, ?4, ?5)
+`
+
+type InsertAgentSessionParams struct {
+	ID         string
+	KeyHash    string
+	DispatchID string
+	Uses       string
+	Now        int64
+}
+
+func (q *Queries) InsertAgentSession(ctx context.Context, arg InsertAgentSessionParams) error {
+	_, err := q.db.ExecContext(ctx, insertAgentSession,
+		arg.ID,
+		arg.KeyHash,
+		arg.DispatchID,
+		arg.Uses,
+		arg.Now,
+	)
+	return err
+}
+
 const insertSecretRead = `-- name: InsertSecretRead :exec
 INSERT INTO secret_reads (secret, token_id, created_at) VALUES (?1, ?2, ?3)
 `
@@ -193,7 +236,7 @@ func (q *Queries) InsertSecretRead(ctx context.Context, arg InsertSecretReadPara
 }
 
 const listConnections = `-- name: ListConnections :many
-SELECT integration, label, account, secret, created_at, updated_at, services FROM connections ORDER BY integration, created_at, label
+SELECT integration, label, account, secret, created_at, updated_at, services, chats FROM connections ORDER BY integration, created_at, label
 `
 
 func (q *Queries) ListConnections(ctx context.Context) ([]Connection, error) {
@@ -213,6 +256,7 @@ func (q *Queries) ListConnections(ctx context.Context) ([]Connection, error) {
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.Services,
+			&i.Chats,
 		); err != nil {
 			return nil, err
 		}
@@ -228,7 +272,7 @@ func (q *Queries) ListConnections(ctx context.Context) ([]Connection, error) {
 }
 
 const listConnectionsBySecret = `-- name: ListConnectionsBySecret :many
-SELECT integration, label, account, secret, created_at, updated_at, services FROM connections WHERE secret = ?1 ORDER BY integration, label
+SELECT integration, label, account, secret, created_at, updated_at, services, chats FROM connections WHERE secret = ?1 ORDER BY integration, label
 `
 
 func (q *Queries) ListConnectionsBySecret(ctx context.Context, secret string) ([]Connection, error) {
@@ -248,6 +292,7 @@ func (q *Queries) ListConnectionsBySecret(ctx context.Context, secret string) ([
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.Services,
+			&i.Chats,
 		); err != nil {
 			return nil, err
 		}
@@ -263,7 +308,7 @@ func (q *Queries) ListConnectionsBySecret(ctx context.Context, secret string) ([
 }
 
 const listConnectionsOf = `-- name: ListConnectionsOf :many
-SELECT integration, label, account, secret, created_at, updated_at, services FROM connections WHERE integration = ?1 ORDER BY created_at, label
+SELECT integration, label, account, secret, created_at, updated_at, services, chats FROM connections WHERE integration = ?1 ORDER BY created_at, label
 `
 
 func (q *Queries) ListConnectionsOf(ctx context.Context, integration string) ([]Connection, error) {
@@ -283,10 +328,38 @@ func (q *Queries) ListConnectionsOf(ctx context.Context, integration string) ([]
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.Services,
+			&i.Chats,
 		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDispatchesWithAgentSessions = `-- name: ListDispatchesWithAgentSessions :many
+SELECT DISTINCT dispatch_id FROM agent_sessions WHERE revoked_at IS NULL ORDER BY dispatch_id
+`
+
+func (q *Queries) ListDispatchesWithAgentSessions(ctx context.Context) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listDispatchesWithAgentSessions)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var dispatch_id string
+		if err := rows.Scan(&dispatch_id); err != nil {
+			return nil, err
+		}
+		items = append(items, dispatch_id)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
@@ -426,6 +499,47 @@ func (q *Queries) ListSecretReads(ctx context.Context, arg ListSecretReadsParams
 		return nil, err
 	}
 	return items, nil
+}
+
+const revokeAgentSessionsOfDispatch = `-- name: RevokeAgentSessionsOfDispatch :execrows
+UPDATE agent_sessions SET revoked_at = ?1 WHERE dispatch_id = ?2 AND revoked_at IS NULL
+`
+
+type RevokeAgentSessionsOfDispatchParams struct {
+	Now        sql.NullInt64
+	DispatchID string
+}
+
+func (q *Queries) RevokeAgentSessionsOfDispatch(ctx context.Context, arg RevokeAgentSessionsOfDispatchParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, revokeAgentSessionsOfDispatch, arg.Now, arg.DispatchID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const setConnectionChats = `-- name: SetConnectionChats :execrows
+UPDATE connections SET chats = ?1, updated_at = ?2 WHERE integration = ?3 AND label = ?4
+`
+
+type SetConnectionChatsParams struct {
+	Chats       int64
+	Now         int64
+	Integration string
+	Label       string
+}
+
+func (q *Queries) SetConnectionChats(ctx context.Context, arg SetConnectionChatsParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setConnectionChats,
+		arg.Chats,
+		arg.Now,
+		arg.Integration,
+		arg.Label,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const upsertConnection = `-- name: UpsertConnection :exec

@@ -50,6 +50,10 @@ export type Run = {
   chat_id?: string;
   created_at: string;
   updated_at: string;
+  /**
+   * The Connections the Run's workers may use, each as integration:label.
+   */
+  uses?: Array<string>;
   finished_at?: string;
 };
 
@@ -76,6 +80,10 @@ export type NewRun = {
    * The chat whose coordinator creates it; that chat is woken by the Run's events.
    */
   chat_id?: string;
+  /**
+   * The Connections the Run's workers may use, each as integration:label, such as google:work. None by default. A coordinator may give only Connections the owner allowed for chats.
+   */
+  uses?: Array<string>;
 };
 
 export type TaskStatus = 'pending' | 'ready' | 'running' | 'blocked' | 'succeeded' | 'failed' | 'canceled';
@@ -619,8 +627,16 @@ export type IntegrationConnection = {
    * The service refused the Connection's refresh token for good; sign in again.
    */
   sign_in_required: boolean;
+  /**
+   * Whether the coordinator may use the Connection in chats, and so give it to a Run. Off until the owner turns it on.
+   */
+  chats: boolean;
   created_at: string;
   updated_at: string;
+};
+
+export type ConnectionUse = {
+  chats: boolean;
 };
 
 export type NewIntegrationClient = {
@@ -2114,6 +2130,34 @@ export type DeleteIntegrationConnectionResponses = {
 };
 
 export type DeleteIntegrationConnectionResponse = DeleteIntegrationConnectionResponses[keyof DeleteIntegrationConnectionResponses];
+
+export type PatchIntegrationConnectionData = {
+  body: ConnectionUse;
+  path: {
+    integration: string;
+    label: string;
+  };
+  query?: never;
+  url: '/integrations/{integration}/connections/{label}';
+};
+
+export type PatchIntegrationConnectionErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type PatchIntegrationConnectionError = PatchIntegrationConnectionErrors[keyof PatchIntegrationConnectionErrors];
+
+export type PatchIntegrationConnectionResponses = {
+  /**
+   * The Connection.
+   */
+  200: IntegrationConnection;
+};
+
+export type PatchIntegrationConnectionResponse = PatchIntegrationConnectionResponses[keyof PatchIntegrationConnectionResponses];
 
 export type ListSecretsData = {
   body?: never;

@@ -38,6 +38,9 @@ type Server struct {
 	// modelKey makes the model gateway's key for a Dispatch; nil when the
 	// control plane wired none.
 	modelKey func(ctx context.Context, dispatchID, model string) (string, bool)
+	// agentKey makes a Dispatch's own key to the agent API, for the
+	// Connections its Run may use; nil when the control plane wired none.
+	agentKey func(ctx context.Context, dispatchID string, uses []string) (string, bool)
 	// tools names the tools a node of a system should have; nil when the
 	// control plane wired none.
 	tools func(ctx context.Context, os, arch string) []nodeproto.Tool
@@ -77,6 +80,14 @@ func (s *Server) toolsFor(ctx context.Context, os, arch string) []nodeproto.Tool
 	}
 
 	return s.tools(ctx, os, arch)
+}
+
+// WithAgentKeys sets where an offer's key to the agent API comes from.
+func (s *Server) WithAgentKeys(key func(ctx context.Context, dispatchID string, uses []string) (string, bool),
+) *Server {
+	s.agentKey = key
+
+	return s
 }
 
 // WithModelKeys sets where an offer's model gateway key comes from.
@@ -418,6 +429,13 @@ func (c *session) push(ctx context.Context) error {
 		if c.srv.modelKey != nil && o.AccountRef == orchestration.GatewayAccountRef {
 			if key, ok := c.srv.modelKey(ctx, o.DispatchID, o.Model); ok {
 				o.ModelKey = key
+			}
+		}
+
+		// And the key with which the worker's tools ask for a token of the accounts its Run was given.
+		if c.srv.agentKey != nil && len(o.Uses) > 0 {
+			if key, ok := c.srv.agentKey(ctx, o.DispatchID, o.Uses); ok {
+				o.AgentKey = key
 			}
 		}
 

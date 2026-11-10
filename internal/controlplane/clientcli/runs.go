@@ -41,6 +41,7 @@ func runsCreate(ctx context.Context, e *env, fs *flag.FlagSet) error {
 
 	run, err := createRun(ctx, e, openapi.NewRun{
 		Objective: objective, Repo: optional(fs, "repo"), Base: optional(fs, "base"), ChatId: chatOfThisAgent(),
+		Uses: uses(fs),
 	}, key(fs))
 	if err != nil {
 		return err

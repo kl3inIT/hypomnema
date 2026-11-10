@@ -32,6 +32,7 @@ async function fakeServer(page: Page, start: { hosts?: Host[]; repos?: Repo[] } 
       account: "owner@example.com",
       services: ["gmail:read", "calendar"],
       sign_in_required: false,
+      chats: true,
       created_at: now,
       updated_at: now,
     },
@@ -84,10 +85,24 @@ async function fakeServer(page: Page, start: { hosts?: Host[]; repos?: Repo[] } 
         })
       }
 
-      const added = { ...accounts[0]!, label: asked?.label ?? "", services: asked?.services ?? [] }
+      const added = {
+        ...accounts[0]!,
+        label: asked?.label ?? "",
+        services: asked?.services ?? [],
+        chats: false,
+      }
       accounts = [...accounts.filter((a) => a.label !== added.label), added]
 
       return json(added)
+    }
+
+    if (kind === "integrations" && sub === "connections" && request.method() === "PATCH") {
+      const asked = request.postDataJSON() as { chats: boolean }
+      accounts = accounts.map((a) =>
+        a.label === path.split("/")[4] ? { ...a, chats: asked.chats } : a,
+      )
+
+      return json(accounts.find((a) => a.label === path.split("/")[4]))
     }
 
     if (kind === "integrations" && sub === "connections") {

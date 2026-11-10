@@ -6,6 +6,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/node/statedb"
 	"github.com/kl3inIT/hypomnema/internal/node/worktree"
+	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 	"github.com/kl3inIT/hypomnema/internal/shared/githost"
 )
 
@@ -49,6 +50,8 @@ func Prompt(d statedb.Dispatch) string {
 	}
 
 	b.WriteString(rules)
+	// The accounts the Run was given, and the command each is used with (issue #103).
+	b.WriteString(agenttool.Brief(o.Uses))
 
 	// The profile's instruction comes after the rules it may not override.
 	if s := strings.TrimSpace(o.Instruction); s != "" {
