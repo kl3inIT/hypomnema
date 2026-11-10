@@ -163,7 +163,7 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   new immutable version and points the name at it; the same source returns the current version. Providers (kind
   `anthropic`, `openai_compatible`, `claude_subscription` or `codex_subscription`, base URL, the name of where the
   API key is kept, never the key) list the models they offer. A profile and a new Task are checked when applied or
-  created: a known runtime (`claude`, `codex`, `pi`), an effort from `low` to `max`, and a model a provider of a
+  created: a known runtime (`claude`, `codex`, `pi`, `omp`, `opencode`), an effort from `low` to `max`, and a model a provider of a
   kind that runtime can use offers (found from the model when the provider is not named). A provider change that
   would leave a profile's model or runtime unserved is refused. A Task names a profile, `implementer` by default.
   A provider of kind `model_gateway` is the control plane's own model gateway (issue #107): `codex` can run against
@@ -580,7 +580,7 @@ The owner's commands:
 Node (`internal/node`):
 - `init` writes `~/.hypomnema-node/config.json` (mode 0600, directory 0700) with the control plane's URL, the token
   read from a file, and the worktree root.
-- At connect the node finds `claude` and `codex` on its PATH and reads their `--version`.
+- At connect the node finds `claude`, `codex`, `omp` and `opencode` on its PATH and reads their `--version`.
 - The daemon has a runner per runtime and gives a Dispatch to the runner of its offer's runtime (issue #107).
 - A Codex worker (`internal/node/codex`; [research](docs/research/2026-11-10-codex-responses-passthrough.md)) has
   no login on the node: its model comes from the control plane's gateway under the offer's key. One turn is one
@@ -591,6 +591,16 @@ Node (`internal/node`):
   `conversations/<conversation>/codex` under the node's home, so a follow-up Dispatch continues with
   `exec resume <thread id>`. The thread id of `thread.started` is the session; the outcome is `finish`'s report,
   or else what `turn.failed` said. A stop kills the process. A Codex worker's transcript is not sent yet.
+- omp and opencode workers (`internal/node/acp`; [research](docs/research/2026-11-10-acp-omp-opencode.md)) share one
+  runner that speaks the Agent Client Protocol, and their model comes from the gateway too. Each is an entry of a
+  table: the command (`omp acp`, `opencode acp`) and the configuration written under
+  `conversations/<conversation>/<runtime>` before a turn, which names the gateway with the key as an environment
+  variable's name (omp: `models.yml` and `config.yml` in its agent directory; opencode: a configuration file of its
+  own, away from the user's and the project's). A turn is `initialize`, `session/new` with the tools server as an
+  MCP server (or `session/resume`, else `session/load`, for a follow-up; a session that is gone starts anew),
+  `session/prompt`, then the agent's input is closed. The messages are written to the shim and read from its
+  journal, so a turn survives the daemon; no ACP library holds the connection. A permission request is answered
+  with the option that allows. Not verified against the real CLIs yet, and no node has them installed by design.
 - The daemon (`internal/node/daemon`) says hello claiming the Dispatches it holds and applies each disposition, then
   holds the socket:
   - heartbeats every 10 s (or as the control plane says), a WebSocket ping every 20 s;
@@ -832,6 +842,7 @@ internal/node             package node: configuration, CLI detection, init, chec
 internal/node/bridge      the mailbox between a worker's tools and the runner: questions, answers, the final report
 internal/node/claude      the Claude Code runner: worker environment, stream-JSON, journal reading, outcome
 internal/node/codex       the Codex CLI runner: the gateway as its provider, `exec --json`, journal reading, outcome
+internal/node/acp         the ACP runner for omp and opencode: each CLI's configuration, the conversation, outcome
 internal/node/daemon      the node's connection: hello, socket, offers, outbox, Runner interface
 internal/node/shim        one worker kept across daemon restarts: journal, input socket, exit file
 internal/node/statedb     the node's SQLite state: Dispatches held and the report outbox
