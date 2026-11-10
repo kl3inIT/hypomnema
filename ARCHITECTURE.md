@@ -96,8 +96,9 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     installed has none. `GET /nodes` shows it as `machine`.
   - Create: the region, the size and the public URL are checked first; then the node and its token are written in
     one transaction, refused at the provider's limit; then the provider is asked for one machine named after the
-    node, with a first-boot script (cloud-init user data) that makes a `hypomnema` user without sudo, installs git
-    and the Claude Code and Codex CLIs, and runs the install script of `GET /install/node.sh` with the token. The
+    node, with a first-boot script (cloud-init user data) that makes a `hypomnema` user without sudo, installs git,
+    Node.js 22 from nodejs.org (one archive, checked against its published checksum) and the Claude Code and Codex
+    CLIs, and runs the install script of `GET /install/node.sh` with the token. The
     node's hello makes the machine `ready`. A refused create leaves the node `provision_failed` with the reason;
     so does no hello within 10 minutes, and a hello after that still makes it `ready`.
   - On AWS the instance is the newest Ubuntu 24.04 image of Canonical for the size's architecture, tagged with

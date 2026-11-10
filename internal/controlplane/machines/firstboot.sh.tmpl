@@ -13,10 +13,34 @@ id "$user" >/dev/null 2>&1 || useradd --create-home --shell /bin/bash "$user" ||
 # The CLIs are a convenience: a failure here leaves a node that reports none, which the owner sees.
 export DEBIAN_FRONTEND=noninteractive
 if command -v apt-get >/dev/null 2>&1; then
-  apt-get update -y && apt-get install -y git curl ca-certificates nodejs npm || log "installing packages failed"
+  apt-get update -y && apt-get install -y git curl ca-certificates || log "installing packages failed"
 fi
-if command -v npm >/dev/null 2>&1; then
+
+# Node.js for the agent CLIs comes from nodejs.org as one archive, checked against the checksum published beside
+# it. Ubuntu's nodejs and npm packages bring 565 others, which once took over ten minutes to download, and are a
+# version older than Claude Code asks for.
+install_node() {
+  case "$(uname -m)" in
+    x86_64) node_arch=x64 ;;
+    aarch64) node_arch=arm64 ;;
+    *) return 1 ;;
+  esac
+  node_base=https://nodejs.org/dist/latest-v22.x
+  node_sums=$(curl --fail --silent --show-error --location --proto "=https" "$node_base/SHASUMS256.txt") || return 1
+  node_line=$(printf '%s\n' "$node_sums" | grep "linux-$node_arch\.tar\.gz\$" | head -n 1)
+  node_sum=${node_line%% *}
+  node_file=${node_line##* }
+  [ -n "$node_sum" ] && [ -n "$node_file" ] || return 1
+  curl --fail --silent --show-error --location --proto "=https" --output "/tmp/$node_file" "$node_base/$node_file" || return 1
+  printf '%s  %s\n' "$node_sum" "/tmp/$node_file" | sha256sum --check --status || return 1
+  tar -xzf "/tmp/$node_file" -C /usr/local --strip-components=1 || return 1
+  rm -f "/tmp/$node_file"
+}
+
+if install_node; then
   npm install --global @anthropic-ai/claude-code @openai/codex || log "installing the agent CLIs failed"
+else
+  log "installing Node.js failed"
 fi
 
 # The node is a service of the user, so the user's manager must run without a login.
