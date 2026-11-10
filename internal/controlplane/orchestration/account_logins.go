@@ -160,3 +160,18 @@ func (s *Service) AccountsUsingSecretRef(ctx context.Context, ref string) ([]str
 
 	return out, nil
 }
+
+// CoolAccount keeps an account out of use until a usage limit ends, as a
+// rate-limited Dispatch does for the account it ran under. A cooldown already
+// set to end later stays.
+func (s *Service) CoolAccount(ctx context.Context, runtime, id string, until time.Time, reason string) error {
+	return s.write(ctx, func(q *store.Queries, _ int64) error {
+		if err := q.UpsertCooldown(ctx, store.UpsertCooldownParams{
+			Runtime: runtime, AccountRef: id, Until: until.UnixMilli(), Reason: reason,
+		}); err != nil {
+			return fmt.Errorf("cooling account %s down: %w", id, err)
+		}
+
+		return nil
+	})
+}

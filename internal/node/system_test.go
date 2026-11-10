@@ -1,6 +1,7 @@
 package node
 
 import (
+	"path/filepath"
 	"runtime"
 	"testing"
 
@@ -34,5 +35,20 @@ func TestMeasureSystemReadsTheMachinesLoad(t *testing.T) {
 		assert.Positive(t, got.DiskUsedBytes)
 		assert.GreaterOrEqual(t, got.CPUPercent, 0.0)
 		assert.LessOrEqual(t, got.CPUPercent, 100.0)
+	}
+}
+
+// Scenario: a machine that has run no Task yet, so its worktree root is not
+// made. The node still reports the disk the root will be on, in its hello and
+// in each heartbeat.
+func TestDiskIsReadBeforeTheWorktreeRootExists(t *testing.T) {
+	t.Parallel()
+
+	root := filepath.Join(t.TempDir(), "not", "made", "yet")
+
+	assert.Positive(t, DetectSystem(t.Context(), root).DiskBytes)
+
+	if got := MeasureSystem(t.Context(), root); assert.NotNil(t, got) {
+		assert.Positive(t, got.DiskUsedBytes)
 	}
 }

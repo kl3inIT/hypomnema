@@ -19,6 +19,11 @@ type Config struct {
 	// StreamIdleTimeout ends a stream whose provider sends nothing for this
 	// long; zero is DefaultStreamIdleTimeout.
 	StreamIdleTimeout time.Duration
+	// Subscriptions gives the built-in providers the accounts logged in on
+	// the control plane; nil: those providers answer that they have none.
+	Subscriptions Subscriptions
+	// CodexBaseURL is the Codex backend; empty: ChatGPT's. Tests name their own.
+	CodexBaseURL string
 }
 
 // Server serves the gateway's HTTP API.
@@ -27,6 +32,8 @@ type Server struct {
 	logger      *slog.Logger
 	client      *http.Client
 	idleTimeout time.Duration
+	accounts    Subscriptions
+	codexURL    string
 }
 
 // NewServer returns the gateway's HTTP API over a Service.
@@ -41,8 +48,13 @@ func NewServer(svc *Service, logger *slog.Logger, cfg Config) *Server {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.ResponseHeaderTimeout = responseHeaderTimeout
 
+	if cfg.CodexBaseURL == "" {
+		cfg.CodexBaseURL = codexBaseURL
+	}
+
 	return &Server{
 		svc: svc, logger: logger, client: &http.Client{Transport: transport}, idleTimeout: cfg.StreamIdleTimeout,
+		accounts: cfg.Subscriptions, codexURL: strings.TrimRight(cfg.CodexBaseURL, "/"),
 	}
 }
 

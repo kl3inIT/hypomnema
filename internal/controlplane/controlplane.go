@@ -54,6 +54,9 @@ type Config struct {
 	// CodexIssuer is the authorization server Codex accounts log in at, from
 	// HYPOMNEMA_CODEX_ISSUER; empty: OpenAI's. Tests name their own.
 	CodexIssuer string
+	// CodexBaseURL is the backend the gateway serves a Codex subscription
+	// from, from HYPOMNEMA_CODEX_BASE_URL; empty: ChatGPT's. Tests name their own.
+	CodexBaseURL string
 }
 
 // LoadConfig reads the configuration and reports every problem at once.
@@ -67,6 +70,7 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 		PublicURL:      strings.TrimSuffix(env.String(envPrefix+"_PUBLIC_URL", ""), "/"),
 		NodeReleaseURL: env.String(envPrefix+"_NODE_RELEASE_URL", ""),
 		CodexIssuer:    env.String(envPrefix+"_CODEX_ISSUER", ""),
+		CodexBaseURL:   env.String(envPrefix+"_CODEX_BASE_URL", ""),
 	}
 
 	var cmdErr error
@@ -138,7 +142,9 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	subscriptions := newSubscriptions(cfg, svc, secrets, logger)
 	gateway := modelgateway.New(db, platform.SystemClock{}, platform.NewID, gatewayProviders(svc),
 		gatewaySecrets(secrets))
-	modelgateway.NewServer(gateway, logger, modelgateway.Config{}).Register(mux)
+	modelgateway.NewServer(gateway, logger, modelgateway.Config{
+		Subscriptions: gatewayAccounts{subs: subscriptions}, CodexBaseURL: cfg.CodexBaseURL,
+	}).Register(mux)
 
 	sup := coordinator.New(svc, coordinator.Config{Command: cfg.CoordinatorCommand, Logger: logger})
 
