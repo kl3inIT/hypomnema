@@ -40,3 +40,14 @@ SELECT * FROM gateway_keys ORDER BY name;
 
 -- name: RevokeGatewayKey :execrows
 UPDATE gateway_keys SET revoked_at = @now WHERE id = @id AND revoked_at IS NULL;
+
+-- name: InsertGatewayUsage :exec
+INSERT INTO gateway_usage (id, key_id, model, provider, upstream_model, stream, attempts, outcome, status,
+                           prompt_tokens, completion_tokens, cached_tokens, reasoning_tokens, estimated, duration_ms,
+                           created_at)
+VALUES (@id, @key_id, @model, @provider, @upstream_model, @stream, @attempts, @outcome, @status,
+        @prompt_tokens, @completion_tokens, @cached_tokens, @reasoning_tokens, @estimated, @duration_ms, @now);
+
+-- name: ListGatewayUsage :many
+SELECT u.*, k.name AS key_name FROM gateway_usage u JOIN gateway_keys k ON k.id = u.key_id
+ORDER BY u.created_at DESC, u.id DESC LIMIT @row_limit;

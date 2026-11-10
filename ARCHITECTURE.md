@@ -138,7 +138,7 @@ proxy, does not exist yet.
   version the secret has moved past gets the newer set without an exchange. A failure that may pass keeps the token
   set and frees the lease; a rejection for good marks the secret as needing a new login until the owner rotates it.
   After a refresh only the new version and the one before it are kept. Nothing calls `Refresh` yet.
-- `Open` returns a value to callers inside the control plane; nothing calls it yet. No API, coordinator or web
+- `Open` returns a value to callers inside the control plane: the model gateway, for a provider's key. No API, coordinator or web
   package may import the vault (`depguard`), and the owner's commands never print a value.
 - A provider names a secret as `vault:<name>` in its `api_key_ref`; nothing resolves that reference yet. Deleting a
   secret is refused while a provider names it.
@@ -146,8 +146,8 @@ proxy, does not exist yet.
   package, through its own generated queries.
 
 The model gateway (`internal/controlplane/modelgateway`, issue #20,
-[decision](docs/decisions/2026-11-10-model-gateway.md)) so far holds its model table, its keys and one endpoint; it
-does not serve a model yet.
+[decision](docs/decisions/2026-11-10-model-gateway.md)) serves chat from OpenAI-compatible providers to clients that
+speak OpenAI's API. Subscriptions, other provider formats and other capabilities do not exist yet.
 - A model is a YAML document: a public `name`, a `capability` (`chat`, the only one), and `targets` (a provider and
   the model's name there) in the order tried. Applying a name again replaces it. A target must name a provider of a
   kind the gateway has an adapter for (`openai_compatible`) and a model that provider offers, so a model that cannot
@@ -157,9 +157,25 @@ does not serve a model yet.
   `tokens add` cannot make one.
 - `GET /v1/models` with `Authorization: Bearer <key>` answers OpenAI's list shape with the models the key may use;
   errors are OpenAI's `{"error": {message, type, code}}`, 401 without a valid key.
-- The tables `gateway_models`, `gateway_model_targets` and `gateway_keys` are in the one migration stream and are
-  read and written only by this package, through its own generated queries. Providers are read through
-  orchestration.
+- `POST /v1/chat/completions` forwards the request to the model's first target, as 9router-go does: the body is
+  read as a map of its top-level keys, the model's name is replaced by the provider's and everything else goes
+  through, each value as the bytes the client sent. The client's headers are not forwarded; the provider's key comes
+  from the vault, so a provider served by the gateway names it as `vault:<name>`. Bodies are limited to 10 MiB.
+- A stream is asked for its usage (`stream_options.include_usage`) whether or not the client asked, and the
+  usage-only frame is kept from a client that did not. Data lines are passed on as the provider sent them;
+  comments are not. A stream whose provider sends nothing for 5 min, or that ends without a finish reason or its end
+  mark, ends with an error event (`upstream_truncated`) instead of looking whole.
+- The next target is tried when one gives no answer, or answers 429 or 5xx, and only while nothing was sent to the
+  client. Any other answer of a provider reaches the client with its status and body. When no target can be reached
+  the answer is 502; the gateway's own refusals are 401 (key), 403 (the key may not use the model), 400 (the model
+  is not declared, or the body is wrong) and 413.
+- Each request served is one row of `gateway_usage`: the key, the model, the target of the last attempt, how many
+  were tried, the outcome (`ok`, `upstream_error`, `transport_error`, `truncated`, `client_gone`), the provider's
+  status, the duration, and the tokens the provider reported (prompt, completion, cached, reasoning; the largest
+  seen in a stream). When it reported none they are bytes divided by four and marked as estimated.
+- The tables `gateway_models`, `gateway_model_targets`, `gateway_keys` and `gateway_usage` are in the one migration
+  stream and are read and written only by this package, through its own generated queries. Providers are read
+  through orchestration and keys through the vault.
 
 Node API (`internal/controlplane/nodeapi`, protocol in `internal/shared/nodeproto`, after Omnara's daemon protocol):
 - A node registers with `POST /node/v1/hello` and its bearer token. It sends its CLIs, its worktree root, its
@@ -218,7 +234,7 @@ The owner's commands:
     `secrets rewrap` manage the vault's secrets. A value is read from a file or standard input and never printed;
   - `gateway models apply FILE`, `gateway models list`, `gateway models rm <name>` manage the gateway's model
     table; `gateway keys add <name> [--models a,b]` prints a gateway key once, with `gateway keys list` and
-    `gateway keys revoke <id>`.
+    `gateway keys revoke <id>`; `gateway usage [--limit N]` lists the latest requests it served.
 - From any machine, over the client API (`internal/controlplane/clientcli`):
   - `login --url URL --token-file FILE` checks the token and keeps both in `~/.hypomnema/client.json` (0600);
   - `run --repo owner/name <objective>` creates a Run with one Task and prints its events (and any question to the

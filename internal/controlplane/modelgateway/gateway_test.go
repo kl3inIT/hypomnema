@@ -57,7 +57,7 @@ func newGateway(t *testing.T) *modelgateway.Service {
 		}
 
 		return modelgateway.ProviderInfo{Name: p.Name, Kind: p.Kind, BaseURL: p.BaseURL, Models: p.Models}, nil
-	})
+	}, func(context.Context, string) (string, error) { return "", nil })
 }
 
 const solModel = "name: gpt-sol\ntargets:\n  - provider: router\n    model: cx/gpt-6.1-sol\n"
@@ -208,7 +208,8 @@ func TestListModelsOverHTTP(t *testing.T) {
 	require.NoError(t, err)
 
 	mux := http.NewServeMux()
-	modelgateway.NewServer(g, platform.NewLogger(t.Output(), platform.LogConfig{}, "test")).Register(mux)
+	modelgateway.NewServer(g, platform.NewLogger(t.Output(), platform.LogConfig{}, "test"),
+		modelgateway.Config{}).Register(mux)
 
 	get := func(key string) (int, string) {
 		req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/v1/models", nil)
