@@ -119,6 +119,8 @@ type Dispatch struct {
 	Effort string
 	// ProfileVersionID is the profile version it ran with; empty before profiles.
 	ProfileVersionID string
+	// Activity is one line about the newest thing the worker said or did.
+	Activity string
 }
 
 // Conversation is the worker's CLI session for one Task: one node, worktree,

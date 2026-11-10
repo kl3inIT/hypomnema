@@ -162,6 +162,42 @@ export type Dispatch = {
    * Set while the worker waits for an answer.
    */
   waiting_since?: string;
+  /**
+   * One line about the newest thing the worker said or did.
+   */
+  activity?: string;
+};
+
+export type TranscriptItemKind = 'message' | 'reasoning' | 'tool_call' | 'tool_result' | 'notice';
+
+/**
+ * One entry of a worker's transcript. A message, reasoning or notice has text; a tool_call has call_id, tool and input; a tool_result has call_id, text and failed. The node cuts long text and input.
+ */
+export type TranscriptItem = {
+  seq: number;
+  kind: TranscriptItemKind;
+  text?: string;
+  /**
+   * Joins a tool_result to its tool_call.
+   */
+  call_id?: string;
+  tool?: string;
+  input?: {
+    [key: string]: unknown;
+  };
+  failed?: boolean;
+  /**
+   * When the control plane received it.
+   */
+  created_at: string;
+};
+
+export type TranscriptItemList = {
+  data: Array<TranscriptItem>;
+  /**
+   * More items lie beyond this page in the direction read.
+   */
+  has_more: boolean;
 };
 
 export type DispatchResult = {
@@ -791,6 +827,47 @@ export type ReopenTaskResponses = {
 };
 
 export type ReopenTaskResponse = ReopenTaskResponses[keyof ReopenTaskResponses];
+
+export type ListDispatchItemsData = {
+  body?: never;
+  path: {
+    dispatch_id: string;
+  };
+  query?: {
+    /**
+     * The seq of the last event already read.
+     */
+    after?: number;
+    /**
+     * Return the newest items with a seq below this one; after and wait are then ignored.
+     */
+    before?: number;
+    limit?: number;
+    /**
+     * Seconds to wait when no item follows the cursor yet; zero answers at once.
+     */
+    wait?: number;
+  };
+  url: '/dispatches/{dispatch_id}/items';
+};
+
+export type ListDispatchItemsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListDispatchItemsError = ListDispatchItemsErrors[keyof ListDispatchItemsErrors];
+
+export type ListDispatchItemsResponses = {
+  /**
+   * One page of items.
+   */
+  200: TranscriptItemList;
+};
+
+export type ListDispatchItemsResponse = ListDispatchItemsResponses[keyof ListDispatchItemsResponses];
 
 export type ListQuestionsData = {
   body?: never;

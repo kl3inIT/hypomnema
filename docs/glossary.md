@@ -22,6 +22,7 @@ means something else is named here once and not used.
 | **Client API** | The control plane's one API, `/api/v1`, described by `api/openapi.yaml`, which the web client, the `hypomnema` CLI and coordinators call with a Client token | The node API (nodes only); the Model gateway |
 | **Client token** | A bearer token for the Client API, of kind `owner` (everything) or `coordinator` (its own Runs, and reading the rest); shown once, stored as a hash | A node's token (`hyn_`); an Account's credential |
 | **Model gateway** | The control plane module every model request goes through: forwards subscription traffic, injects API keys, records usage per Dispatch | A Node's egress proxy |
+| **Transcript** | What a Worker said and did during one Dispatch, kept by the control plane as items in order: messages, reasoning, tool calls, their results and notices. The Node sends it from the Worker's journal | A Conversation, which is the CLI's own record on the Node; a Session |
 | **Session** | A vault credential session opened for one Dispatch and revoked when it closes | A CLI session or a chat; call those Conversation |
 | **Announce** | A Worker's final report to the Coordinator, with outcome and evidence | A chat message to the owner |
 | **Policy** | A rule that answers a tool call or request with ALLOW, DENY or ASK | A Gate |

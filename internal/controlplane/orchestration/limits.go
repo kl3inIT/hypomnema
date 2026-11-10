@@ -36,6 +36,10 @@ const (
 	// ReceiptRetention and ReceiptKeep bound the receipts kept (Orca).
 	ReceiptRetention = 30 * 24 * time.Hour
 	ReceiptKeep      = 10000
+	// ItemRetention: a Dispatch's transcript items are dropped this long after it
+	// settled (OpenClaw's pruneAfter of 30 days, applied to items; the Task,
+	// its result and its evidence stay).
+	ItemRetention = 30 * 24 * time.Hour
 	// ReminderFirst and ReminderEvery: an open question to the owner is
 	// escalated after ReminderFirst, then every ReminderEvery (inferred; no
 	// reference reminds). A Gate never expires (Orca, Omnara).

@@ -56,6 +56,11 @@ const (
 	// toolTimeout is the hard limit on one tool call, so an ask can wait a day
 	// (spike 2: the default is about 27.8 h; set explicitly).
 	toolTimeout = 24 * time.Hour
+	// disallowedTools are the tools a worker does not get: questions go through
+	// ask, and a worker does not start subagents (the tool is Task in older
+	// Claude Code, Agent in newer). The list keeps it, not the instructions
+	// (docs/research/2026-11-09-agent-roles-and-tool-limits.md).
+	disallowedTools = "AskUserQuestion,Task,Agent"
 )
 
 // Account is how the node runs Claude under one account until the vault
@@ -77,9 +82,15 @@ type Runner struct {
 	// Env is added to each worker's environment (tests).
 	Env    []string
 	Logger *slog.Logger
+	// Send sends a batch of a worker's transcript to the control plane; it
+	// reports false when the batch could not be sent now. Nil sends nothing.
+	Send func(nodeproto.Items) bool
 
 	mu   sync.Mutex
 	jobs map[string]*job
+
+	smu         sync.Mutex
+	transcripts map[string]*transcript
 }
 
 var _ daemon.Runner = (*Runner)(nil)
@@ -175,7 +186,7 @@ func (rn *Runner) Start(ctx context.Context, d statedb.Dispatch, r daemon.Report
 	dir := rn.dir(d.ID)
 	argv := []string{rn.Claude, "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
 		"--permission-mode", "manual", "--permission-prompt-tool", "stdio",
-		"--mcp-config", filepath.Join(dir, mcpFile), "--strict-mcp-config", "--disallowedTools", "AskUserQuestion"}
+		"--mcp-config", filepath.Join(dir, mcpFile), "--strict-mcp-config", "--disallowedTools", disallowedTools}
 	if session != "" {
 		argv = append(argv, "--resume", session)
 	}
@@ -294,6 +305,8 @@ func (rn *Runner) watch(ctx context.Context, id, dir string, pid int, started bo
 		return nil
 	}
 
+	rn.follow(id, dir)
+
 	go rn.tail(ctx, j)
 
 	return nil
@@ -339,6 +352,8 @@ func (rn *Runner) Release(id string) {
 	if pid, err := shim.PID(dir); err == nil {
 		_ = shim.Kill(pid)
 	}
+
+	rn.unfollow(id)
 
 	_ = os.RemoveAll(dir)
 }

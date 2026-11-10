@@ -45,6 +45,7 @@ var policies = map[string]policy{
 	"CreateTasks":         {scope: scopeRun},
 	"ListTasks":           {},
 	"GetTask":             {},
+	"ListDispatchItems":   {long: true},
 	"CancelTask":          {scope: scopeTask},
 	"ReopenTask":          {scope: scopeTask},
 	"ListQuestions":       {},

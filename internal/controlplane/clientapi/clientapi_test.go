@@ -554,6 +554,84 @@ func TestListEventsWaitsForTheNextEvent(t *testing.T) {
 	}
 }
 
+// Scenario: the owner opens a running worker's Task on the web. The page
+// reads the transcript's newest items, then waits for the next one, which comes
+// as soon as the node sends it; the board's Task says what the worker does.
+func TestAWorkersTranscriptIsReadAndFollowed(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	c, _ := w.token("web", bearertoken.Owner)
+	ctx := t.Context()
+	run := w.createRun(c, "add a login")
+	wk := w.workers[w.askFromAWorker(c, run.Id, "which port?", orchestration.AddressOwner)]
+	node, dispatch := wk.call.NodeID, wk.call.DispatchID
+
+	_, err := w.svc.AddItems(ctx, node, dispatch, []orchestration.Item{
+		{Seq: 1, Kind: orchestration.ItemMessage, Text: "Reading the server."},
+		{
+			Seq: 2, Kind: orchestration.ItemToolCall, CallID: "call_1", Tool: "Read",
+			Input: json.RawMessage(`{"file_path":"server.go"}`),
+		},
+		{Seq: 3, Kind: orchestration.ItemToolResult, CallID: "call_1", Text: "package main", Failed: true},
+	})
+	require.NoError(t, err)
+
+	two, before := 2, int64(4)
+	newest, err := c.ListDispatchItemsWithResponse(ctx, dispatch,
+		&openapi.ListDispatchItemsParams{Before: &before, Limit: &two})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, newest.StatusCode(), string(newest.Body))
+	require.Len(t, newest.JSON200.Data, 2)
+	assert.True(t, newest.JSON200.HasMore)
+
+	call, result := newest.JSON200.Data[0], newest.JSON200.Data[1]
+	assert.Equal(t, int64(2), call.Seq)
+	assert.Equal(t, openapi.TranscriptItemKind("tool_call"), call.Kind)
+	assert.Equal(t, "Read", val(call.Tool))
+	assert.Equal(t, map[string]any{"file_path": "server.go"}, val(call.Input))
+	assert.Equal(t, "call_1", val(result.CallId))
+	assert.True(t, val(result.Failed))
+	assert.Equal(t, "package main", val(result.Text))
+
+	after, waitLong := int64(3), 30
+	done := make(chan *openapi.ListDispatchItemsResponse, 1)
+
+	go func() {
+		resp, err := c.ListDispatchItemsWithResponse(context.WithoutCancel(ctx), dispatch,
+			&openapi.ListDispatchItemsParams{After: &after, Wait: &waitLong})
+		assert.NoError(t, err)
+		done <- resp
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+
+	_, err = w.svc.AddItems(ctx, node, dispatch, []orchestration.Item{
+		{
+			Seq: 4, Kind: orchestration.ItemToolCall, CallID: "call_2", Tool: "Bash",
+			Input: json.RawMessage(`{"command":"go test ./..."}`),
+		},
+	})
+	require.NoError(t, err)
+
+	select {
+	case resp := <-done:
+		require.Len(t, resp.JSON200.Data, 1)
+		assert.Equal(t, int64(4), resp.JSON200.Data[0].Seq)
+	case <-time.After(5 * time.Second):
+		t.Fatal("the wait did not end when an item came")
+	}
+
+	board, err := c.ListTasksWithResponse(ctx, nil)
+	require.NoError(t, err)
+	require.Len(t, board.JSON200.Data, 1)
+	assert.Equal(t, "Bash: go test ./...", val(board.JSON200.Data[0].LatestDispatch.Activity))
+
+	missing, err := c.ListDispatchItemsWithResponse(ctx, "dsp_missing", nil)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusNotFound, missing.StatusCode())
+}
+
 // The stream sends the events after Last-Event-ID, then new ones as they
 // are committed, with heartbeats in between; it ends when the server stops.
 func TestStreamEventsResumesAndFollows(t *testing.T) {

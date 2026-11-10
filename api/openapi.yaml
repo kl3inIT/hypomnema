@@ -183,6 +183,39 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Task" }
         default: { $ref: "#/components/responses/Error" }
+  /dispatches/{dispatch_id}/items:
+    parameters:
+      - name: dispatch_id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      operationId: ListDispatchItems
+      summary: A worker's transcript during one Dispatch, oldest first; optionally wait for the next item
+      description: >-
+        What the worker said and did, as the node sent it. With after, the
+        items that follow that seq; with before, the newest items older than
+        it.
+      parameters:
+        - $ref: "#/components/parameters/After"
+        - name: before
+          in: query
+          description: Return the newest items with a seq below this one; after and wait are then ignored.
+          schema: { type: integer, format: int64, minimum: 1 }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 500 }
+        - name: wait
+          in: query
+          description: Seconds to wait when no item follows the cursor yet; zero answers at once.
+          schema: { type: integer, minimum: 0, maximum: 50 }
+      responses:
+        "200":
+          description: One page of items.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TranscriptItemList" }
+        default: { $ref: "#/components/responses/Error" }
   /questions:
     get:
       operationId: ListQuestions
@@ -797,6 +830,45 @@ components:
           type: string
           format: date-time
           description: Set while the worker waits for an answer.
+        activity:
+          type: string
+          description: One line about the newest thing the worker said or did.
+    TranscriptItemKind:
+      type: string
+      enum: [message, reasoning, tool_call, tool_result, notice]
+    TranscriptItem:
+      type: object
+      required: [seq, kind, created_at]
+      description: >-
+        One entry of a worker's transcript. A message, reasoning or notice has
+        text; a tool_call has call_id, tool and input; a tool_result has
+        call_id, text and failed. The node cuts long text and input.
+      properties:
+        seq: { type: integer, format: int64 }
+        kind: { $ref: "#/components/schemas/TranscriptItemKind" }
+        text: { type: string }
+        call_id:
+          type: string
+          description: Joins a tool_result to its tool_call.
+        tool: { type: string }
+        input:
+          type: object
+          additionalProperties: true
+        failed: { type: boolean }
+        created_at:
+          type: string
+          format: date-time
+          description: When the control plane received it.
+    TranscriptItemList:
+      type: object
+      required: [data, has_more]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/TranscriptItem" }
+        has_more:
+          type: boolean
+          description: More items lie beyond this page in the direction read.
     DispatchResult:
       type: object
       required: [summary, evidence]
