@@ -205,6 +205,12 @@ func (rn *Runner) Start(ctx context.Context, d statedb.Dispatch, r daemon.Report
 		argv = append(argv, "--model", o.Model)
 	}
 
+	// The profile's effort, in Claude Code's own names, which are the same
+	// five (OpenMausBot's and t3code's drivers pass it the same way).
+	if o.Effort != "" {
+		argv = append(argv, "--effort", o.Effort)
+	}
+
 	if err := os.RemoveAll(dir); err != nil {
 		return fmt.Errorf("clearing %s: %w", dir, err)
 	}

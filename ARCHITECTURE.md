@@ -558,7 +558,11 @@ The owner's commands:
   when pi's environment has it.
 - The coordinator skill (`internal/controlplane/clientcli/skills`, after Orca's
   [decision](docs/decisions/2026-11-09-coordinator-cli-and-skill.md)): `skills get hypomnema-coordinator` prints
-  the guide compiled into the binary, `--reference recovery` one reference; `skills install` writes the stub
+  the guide compiled into the binary, `--reference <name>` one reference (`recovery`, `investigate`). The guide
+  says how to choose a profile ([research](docs/research/2026-11-10-coordinator-routing-and-capabilities.md)): by
+  its description, then by runtime (Claude Code for work across many files, Codex for a narrow change); a question
+  that changes nothing goes to `explorer` Tasks; the model is the profile's unless the owner names one; and a
+  profile or model that cannot be served is reported, not replaced. `skills install` writes the stub
   `SKILL.md` to `~/.claude/skills` and `~/.agents/skills`, replacing a copy only when it matches a released stub
   (otherwise only with `--force`, keeping a backup). Tests check that every command in the skill parses and that the
   stub and guide share their frontmatter.
@@ -589,7 +593,7 @@ Node (`internal/node`):
 - Workers (`internal/node/claude`) are Claude Code under a shim (`internal/node/shim`):
   - The daemon starts `hypomnema-node shim --dir run/<dispatch>` in its own session. The shim runs `claude -p` with
     bidirectional stream-JSON and host permission prompts (`--resume` when the Conversation continues, `--model`
-    when set).
+    and `--effort` when set).
   - The worker gets a clean environment: PATH, HOME and the locale, plus the account's token
     (`CLAUDE_CODE_OAUTH_TOKEN`, read from the file named in the node's configuration) and its own
     `CLAUDE_CONFIG_DIR`. The spec holding them is deleted once the worker runs.

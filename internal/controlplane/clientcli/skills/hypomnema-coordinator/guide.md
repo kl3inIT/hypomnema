@@ -36,9 +36,8 @@ commands to run next. `hypomnema <command> --help` lists a command's flags; a fl
    hypomnema tasks create <run_id> --file <tasks.json> --key <new key> --json
    ```
    The file is `{"tasks": [{"ref": "api", "profile": "implementer", "spec": "...", "depends_on": []}]}`. A profile
-   sets the runtime, model and instructions a worker runs with; `implementer` is the default, and
-   `hypomnema profiles list --json` shows the others with what each is for; choose by that description. Leave the model
-   to the profile unless the owner asks for one; `hypomnema models list --json` shows what `model` may name. Text
+   sets the runtime, model and instructions a worker runs with; `implementer` is the default, and "Choosing a
+   profile" below says how to pick another. Text
    goes through a file, or `-` for standard input, because shell quoting can change it; check the specs in the
    output.
 3. Wait (below), handle what the wait returns, and wait again until every Task has ended: succeeded, failed or
@@ -50,6 +49,21 @@ commands to run next. `hypomnema <command> --help` lists a command's flags; a fl
 A key is any string unique to that create, such as `health-run-1`. When a create gets no answer (a timeout, a
 dropped connection), run it again with the same `--key`: the control plane returns the first result instead of
 creating a second Run or second Tasks.
+
+## Choosing a profile
+
+`hypomnema profiles list --json` shows each profile with its `description`, its `runtime` (`claude` is Claude Code,
+`codex` is Codex) and its model.
+
+- Choose by the description first: it says what the profile is for.
+- When two profiles fit a change and differ in runtime, give work across many files, a refactor or writing tests to
+  the one on Claude Code, and a narrow, well-scoped change to the one on Codex.
+- A question about the code that changes nothing is for `explorer` Tasks: load the `investigate` reference.
+- Leave the model to the profile. Name a `model` on a Task only when the owner asks for one;
+  `hypomnema models list --json` shows what it may name.
+- When a create is refused because a profile or a model cannot be served, or an escalation says a Task has no node
+  or no account to run on, tell the owner what is missing and stop there for that Task. Do not move it to another
+  profile or model on your own: which worker and which model do the owner's work is the owner's choice.
 
 ## Task specs
 
@@ -111,6 +125,7 @@ A worker's report is a claim; the Task's record and its evidence are what count.
   missing. `gh pr checks <url>` shows whether the checks ran.
 - `failed` or `blocked`: load the `recovery` reference before acting.
 - Report a failed, blocked or canceled Task as exactly that, with what is left.
+- Never merge a pull request: it is what the worker delivers, and the owner reviews and merges it.
 
 ## Proof
 
@@ -123,3 +138,4 @@ when its spec turns out wrong and a corrected Task will replace it; the `recover
 | When | Load |
 |---|---|
 | A Task failed or is blocked, a Task needs cancelling or replacing, or the owner asks to retry or stop work | `hypomnema skills get hypomnema-coordinator --reference recovery` |
+| The owner asks how the code works, why something fails, or for an audit or a comparison, and nothing is to change | `hypomnema skills get hypomnema-coordinator --reference investigate` |
