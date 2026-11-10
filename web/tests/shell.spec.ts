@@ -1,5 +1,7 @@
 import { expect, test, type Page } from "@playwright/test"
 
+import { shot } from "./shot.js"
+
 // The built app against a fake client API (page.route), on a phone and a desktop.
 
 const chat = {
@@ -152,5 +154,6 @@ test("a wrong password is refused", async ({ page }) => {
   await page.getByRole("button", { name: "Sign in" }).click()
 
   await expect(page.getByRole("alert")).toContainText("The name or the password is wrong.")
+  await shot(page, "sign-in-refused")
   await expect(page.getByLabel("Password")).toBeVisible()
 })

@@ -5,6 +5,7 @@ import { ChevronRight, GitPullRequest, MessageCircleQuestion } from "lucide-reac
 import "@/api/client"
 import { cancelRun, finishRun, getRun, listQuestions } from "@/api/generated/sdk.gen"
 import type { Question, RunDetail, TaskDetail } from "@/api/generated/types.gen"
+import { Button } from "@/components/ui/button"
 import { firstLine, pullRequest, repoLabel } from "@/features/board/board-state"
 import { QuestionForm } from "@/features/board/question-form"
 import { PageHeader } from "@/features/shell/app-shell"
@@ -69,23 +70,21 @@ export function RunScreen({
       >
         {r?.status === "open" && (
           <div className="ms-auto flex gap-1.5">
-            <button
-              type="button"
+            <Button
+              variant="outline"
               disabled={!allEnded || finish.isPending}
               title={allEnded ? undefined : "Every Task must end first"}
               onClick={() => finish.mutate()}
-              className="h-8 rounded-lg border border-input px-3 text-sm hover:bg-accent disabled:opacity-40"
             >
               Finish Run
-            </button>
-            <button
-              type="button"
+            </Button>
+            <Button
+              variant="destructive"
               disabled={cancel.isPending}
               onClick={() => cancel.mutate()}
-              className="h-8 rounded-lg border border-input px-3 text-sm text-destructive hover:bg-accent disabled:opacity-40"
             >
               Cancel
-            </button>
+            </Button>
           </div>
         )}
       </PageHeader>

@@ -170,7 +170,7 @@ test("the owner opens Settings and gives a host its token", async ({ page }) => 
   await shot(page, "integrations-list")
 
   await card(page, "GitLab").getByRole("button", { name: "Add token" }).click()
-  const dialog = page.getByRole("dialog")
+  const dialog = page.locator("[data-slot=dialog-content]")
   await expect(dialog.getByLabel("Access token")).toHaveAttribute("type", "password")
   await dialog.getByLabel("Access token").fill("glpat-typed")
   await shot(page, "integrations-token-dialog")
@@ -189,7 +189,7 @@ test("the owner adds and removes a company's git server", async ({ page }) => {
   await page.goto("/settings/integrations")
 
   await page.getByRole("button", { name: "Add a git server" }).click()
-  const dialog = page.getByRole("dialog")
+  const dialog = page.locator("[data-slot=dialog-content]")
   await dialog.getByLabel("Address").fill("https://refused.example/team/app")
   await shot(page, "integrations-add-server")
   await dialog.getByRole("button", { name: "Add", exact: true }).click()
@@ -222,7 +222,7 @@ test("the owner registers and removes a repository", async ({ page }) => {
   await shot(page, "repositories-empty")
 
   await page.getByRole("button", { name: "Add repository" }).click()
-  const dialog = page.getByRole("dialog")
+  const dialog = page.locator("[data-slot=dialog-content]")
   await dialog.getByLabel("Repository").fill("https://git.company.example/team/app.git")
   await expect(dialog.getByLabel("Name")).toHaveValue("app")
   await dialog.getByLabel("Base branch").fill("develop")
@@ -253,7 +253,7 @@ test("the owner signs a second Google account in and disconnects the first", asy
   expect(await fits(page)).toBe(true)
 
   await google.getByRole("button", { name: "Add account" }).click()
-  const dialog = page.getByRole("dialog")
+  const dialog = page.locator("[data-slot=dialog-content]")
   await dialog.getByLabel("Name").fill("work")
   await dialog.getByLabel("Gmail").selectOption("Read only")
   await dialog.getByLabel("Sheets").selectOption("Not connected")

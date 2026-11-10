@@ -1,5 +1,7 @@
 import { expect, test, type Page } from "@playwright/test"
 
+import { shot } from "./shot.js"
+
 // The board, a Task's panel and the Runs pages, built, against a fake client API, on a phone and a desktop.
 
 const now = new Date().toISOString()
@@ -169,6 +171,7 @@ test("the owner answers a worker from the board", async ({ page }) => {
   await expect(needsYou.getByTestId("task-card")).toHaveCount(1)
   await expect(needsYou).toContainText("Should /health be public")
   await expect(page.getByRole("region", { name: "Done" })).toContainText("PR #63")
+  await shot(page, "board")
 
   await needsYou.getByTestId("task-card").click()
   const panel = page.getByRole("dialog")
@@ -194,7 +197,11 @@ test("a Run that asks comes first and is answered on its page", async ({ page })
 
   const first = page.getByRole("region", { name: "Needs you" })
   await expect(first).toContainText("Add a /health page")
+  await shot(page, "runs")
   await first.getByRole("link").click()
+  await page.waitForURL(/\/runs\/.+/)
+  await expect(page.getByRole("button", { name: "Finish Run" })).toBeVisible()
+  await shot(page, "run")
 
   await expect(page.getByRole("region", { name: "Tasks" })).toContainText("Waiting for you")
   await page.getByText("Public", { exact: true }).click()
@@ -214,6 +221,7 @@ test("a running worker's transcript is read from its card", async ({ page }) => 
   await working.getByTestId("task-card").filter({ hasText: "Cover /health" }).click()
   const log = page.getByRole("dialog").getByRole("log", { name: "Transcript" })
   await expect(log).toContainText("I will look at the existing end-to-end tests first.")
+  await shot(page, "task-panel")
   await expect(log.getByRole("button", { name: /Read 1 file, ran 1 search/ })).toBeVisible()
   await expect(
     log.getByRole("button", { name: /Edit internal\/e2e\/health_test\.go/ }),

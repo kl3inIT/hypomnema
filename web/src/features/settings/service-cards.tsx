@@ -59,7 +59,7 @@ import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
 import { Spinner } from "@/components/ui/spinner"
 
 import { ConfirmDialog, ErrorAlert, TextField } from "./settings-parts"
-import { servicesKey } from "./use-integrations"
+import { said, servicesKey } from "./use-integrations"
 
 // The services that sign in with an account (issue #103, step 4): Google is the first. A card a service, as the
 // git hosts have theirs, with the accounts the owner signed in under it.
@@ -225,6 +225,7 @@ function AccountRow({
             })
           }
           onDone={refresh}
+          done={`${connection.label} was disconnected`}
         />
       </ItemActions>
     </Item>
@@ -329,6 +330,7 @@ function SignInDialog({
 
       await refresh()
       change(false)
+      said(`${service.name} account ${start.state.values.label} is connected`)
     },
   })
 

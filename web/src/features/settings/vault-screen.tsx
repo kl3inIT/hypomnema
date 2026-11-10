@@ -61,7 +61,7 @@ import { cn } from "@/lib/utils"
 
 import { ConfirmDialog, ErrorAlert, TextField } from "./settings-parts"
 import { SettingsPage } from "./settings-shell"
-import { errorText } from "./use-integrations"
+import { errorText, said } from "./use-integrations"
 
 const secretsKey = ["secrets"] as const
 
@@ -379,6 +379,7 @@ function SecretValue({ label, value }: { label?: string; value: string }) {
     try {
       await navigator.clipboard.writeText(value)
       setCopied(true)
+      said(label ? `${label} copied` : "Value copied")
     } catch {
       // No clipboard (an insecure page): the value stays selectable.
     }
@@ -488,6 +489,7 @@ function RowActions({ secret }: { secret: Secret }) {
         action="Delete secret"
         run={() => deleteSecret({ path: { name: secret.name } })}
         onDone={refresh}
+        done={`${secret.name} was deleted`}
       />
     </span>
   )
@@ -569,6 +571,7 @@ function SecretDialog({
 
       await refresh()
       change(false)
+      said(secret ? `${secret.name} was updated` : `${value.name} was added`)
     },
   })
 

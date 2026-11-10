@@ -80,6 +80,9 @@ state and a confirmation, and more than two primitives. [Issue #123](https://git
 adds the primitives and moves Settings onto them; the rules are in
 [conventions](../conventions.md#web-client).
 
+Adopted in [issue #131](https://github.com/kl3inIT/hypomnema/issues/131): the toast for a change that succeeded, and
+the React Compiler in the build.
+
 Not adopted, with the reason: zustand (nothing shares client state that TanStack Query does not hold); Storybook
 and pictures compared in CI (three references and two; the scenarios in `web/tests` already take pictures of each
 state); a toast library (the Base UI style of shadcn has its own `toast`, to be used when a screen needs one).

@@ -1,4 +1,3 @@
-import { Dialog } from "@base-ui/react/dialog"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { Check, Copy } from "lucide-react"
 import { useId, useState } from "react"
@@ -6,12 +5,23 @@ import { useId, useState } from "react"
 import "@/api/client"
 import { createNode } from "@/api/generated/sdk.gen"
 import type { CreatedNode, Node } from "@/api/generated/types.gen"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
+import { Field, FieldDescription, FieldLabel } from "@/components/ui/field"
+import { Input } from "@/components/ui/input"
 
 import { errorText, machineProblem } from "./machines-state"
 import { nodesKey, providersKey, useMachineProviders } from "./use-machines"
-
-const inputClass = "h-9 rounded-md border border-input bg-background px-3 text-sm"
 
 // own is the choice of a machine the owner installs the node on; any other choice is a provider's name.
 const own = ""
@@ -65,130 +75,132 @@ export function AddMachine() {
   }
 
   return (
-    <Dialog.Root open={open} onOpenChange={change}>
-      <Dialog.Trigger render={<Button />}>Add machine</Dialog.Trigger>
-      <Dialog.Portal>
-        <Dialog.Backdrop className="fixed inset-0 z-40 bg-black/60 transition-opacity data-ending-style:opacity-0 data-starting-style:opacity-0" />
-        <Dialog.Popup className="fixed top-1/2 left-1/2 z-50 flex max-h-[calc(100svh-2rem)] w-[calc(100vw-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 flex-col gap-4 overflow-y-auto rounded-xl border bg-background p-5 outline-none">
-          {create.data ? (
-            create.data.node.machine ? (
-              <Requested node={create.data.node} />
-            ) : (
-              <Created created={create.data} />
-            )
+    <Dialog open={open} onOpenChange={change}>
+      <DialogTrigger render={<Button />}>Add machine</DialogTrigger>
+      <DialogContent>
+        {create.data ? (
+          create.data.node.machine ? (
+            <Requested node={create.data.node} />
           ) : (
-            <form
-              className="flex flex-col gap-4"
-              onSubmit={(event) => {
-                event.preventDefault()
-                create.mutate()
-              }}
-            >
-              <Dialog.Title className="text-sm font-medium">Add a machine</Dialog.Title>
-              {providers.length > 0 && (
-                <fieldset className="flex flex-col gap-1.5 text-sm">
-                  <legend className="mb-1.5">Where</legend>
+            <Created created={create.data} />
+          )
+        ) : (
+          <form
+            className="flex flex-col gap-4"
+            onSubmit={(event) => {
+              event.preventDefault()
+              create.mutate()
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>Add a machine</DialogTitle>
+            </DialogHeader>
+            {providers.length > 0 && (
+              <fieldset className="flex flex-col gap-1.5 text-sm">
+                <legend className="mb-1.5">Where</legend>
+                <Choice
+                  value={own}
+                  chosen={where}
+                  onChoose={setWhere}
+                  title="A machine of your own"
+                  detail="You run one install line on it."
+                />
+                {providers.map((p) => (
                   <Choice
-                    value={own}
+                    key={p.id}
+                    value={p.name}
                     chosen={where}
                     onChoose={setWhere}
-                    title="A machine of your own"
-                    detail="You run one install line on it."
+                    title={`A new machine at ${p.name}`}
+                    detail={`${p.size} in ${p.region} · ${p.machines} of ${p.max_machines} machines`}
                   />
-                  {providers.map((p) => (
-                    <Choice
-                      key={p.id}
-                      value={p.name}
-                      chosen={where}
-                      onChoose={setWhere}
-                      title={`A new machine at ${p.name}`}
-                      detail={`${p.size} in ${p.region} · ${p.machines} of ${p.max_machines} machines`}
-                    />
-                  ))}
-                </fieldset>
-              )}
-              <label className="flex flex-col gap-1.5 text-sm">
-                Name
-                <input
-                  required
-                  autoComplete="off"
-                  value={name}
-                  onChange={(event) => setName(event.target.value)}
-                  className={inputClass}
-                />
-              </label>
-              {provider && (
+                ))}
+              </fieldset>
+            )}
+            <Field>
+              <FieldLabel htmlFor="machine-name">Name</FieldLabel>
+              <Input
+                id="machine-name"
+                required
+                autoComplete="off"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+              />
+            </Field>
+            {provider && (
+              <Field>
                 <div className="grid grid-cols-2 gap-3">
-                  <label className="flex min-w-0 flex-col gap-1.5 text-sm">
-                    Size
-                    <input
+                  <Field>
+                    <FieldLabel htmlFor="machine-size">Size</FieldLabel>
+                    <Input
+                      id="machine-size"
                       autoComplete="off"
                       spellCheck={false}
                       placeholder={provider.size}
                       value={size}
                       onChange={(event) => setSize(event.target.value)}
-                      className={inputClass}
                     />
-                  </label>
-                  <label className="flex min-w-0 flex-col gap-1.5 text-sm">
-                    Region
-                    <input
+                  </Field>
+                  <Field>
+                    <FieldLabel htmlFor="machine-region">Region</FieldLabel>
+                    <Input
+                      id="machine-region"
                       autoComplete="off"
                       spellCheck={false}
                       placeholder={provider.region}
                       value={region}
                       onChange={(event) => setRegion(event.target.value)}
-                      className={inputClass}
                     />
-                  </label>
-                  <span className="col-span-2 -mt-1.5 text-xs text-muted-foreground">
-                    The provider's own names, such as t3.large. Leave empty for the defaults shown.
-                  </span>
+                  </Field>
                 </div>
-              )}
-              <label className="flex flex-col gap-1.5 text-sm">
-                Max Dispatches
-                <input
-                  type="number"
-                  min={1}
-                  step={1}
-                  inputMode="numeric"
-                  placeholder="Default"
-                  value={max}
-                  onChange={(event) => setMax(event.target.value)}
-                  className={inputClass}
-                />
-                <span className="text-xs text-muted-foreground">
-                  How many Dispatches it runs at once. Leave empty for the default.
-                </span>
-              </label>
-              {provider && !full && (
-                <p className="text-xs text-muted-foreground">
-                  The provider bills for the machine from now until you remove it.
-                </p>
-              )}
-              {full && (
-                <p className="text-sm text-muted-foreground">
-                  {provider.name} is at its limit of {provider.max_machines} machines. Remove one
-                  first.
-                </p>
-              )}
-              {create.error && (
-                <p role="alert" className="text-sm text-destructive">
-                  {errorText(create.error)}
-                </p>
-              )}
-              <div className="flex justify-end gap-2">
-                <Dialog.Close render={<Button variant="outline" />}>Cancel</Dialog.Close>
-                <Button type="submit" disabled={create.isPending || name.trim() === "" || full}>
-                  {submitText(provider !== undefined, create.isPending)}
-                </Button>
-              </div>
-            </form>
-          )}
-        </Dialog.Popup>
-      </Dialog.Portal>
-    </Dialog.Root>
+                <FieldDescription>
+                  The provider&apos;s own names, such as t3.large. Leave empty for the defaults
+                  shown.
+                </FieldDescription>
+              </Field>
+            )}
+            <Field>
+              <FieldLabel htmlFor="machine-max">Max Dispatches</FieldLabel>
+              <Input
+                id="machine-max"
+                type="number"
+                min={1}
+                step={1}
+                inputMode="numeric"
+                placeholder="Default"
+                value={max}
+                onChange={(event) => setMax(event.target.value)}
+              />
+              <FieldDescription>
+                How many Dispatches it runs at once. Leave empty for the default.
+              </FieldDescription>
+            </Field>
+            {provider && !full && (
+              <p className="text-xs text-muted-foreground">
+                The provider bills for the machine from now until you remove it.
+              </p>
+            )}
+            {full && (
+              <p className="text-sm text-muted-foreground">
+                {provider.name} is at its limit of {provider.max_machines} machines. Remove one
+                first.
+              </p>
+            )}
+            {create.error && (
+              <Alert variant="destructive">
+                <AlertDescription>{errorText(create.error)}</AlertDescription>
+              </Alert>
+            )}
+            <DialogFooter>
+              <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
+              <Button type="submit" disabled={create.isPending || name.trim() === "" || full}>
+                {submitText(provider !== undefined, create.isPending)}
+              </Button>
+            </DialogFooter>
+          </form>
+        )}
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -244,27 +256,27 @@ function Requested({ node }: { node: Node }) {
 
   return (
     <>
-      <Dialog.Title className="text-sm font-medium">
+      <DialogTitle>
         {problem ? `${node.name} was not created` : `${node.name} is being created`}
-      </Dialog.Title>
+      </DialogTitle>
       {problem ? (
         <>
           <p role="alert" className="text-sm break-words text-destructive">
             {problem}
           </p>
-          <Dialog.Description className="text-sm text-muted-foreground">
+          <DialogDescription>
             It is listed as not created. Remove it there, then try again.
-          </Dialog.Description>
+          </DialogDescription>
         </>
       ) : (
-        <Dialog.Description className="text-sm text-muted-foreground">
+        <DialogDescription>
           The machine installs the node itself and comes online in about five minutes. Until then it
           is listed as creating.
-        </Dialog.Description>
+        </DialogDescription>
       )}
-      <div className="flex justify-end">
-        <Dialog.Close render={<Button />}>Done</Dialog.Close>
-      </div>
+      <DialogFooter>
+        <DialogClose render={<Button />}>Done</DialogClose>
+      </DialogFooter>
     </>
   )
 }
@@ -274,16 +286,16 @@ function Created({ created }: { created: CreatedNode }) {
 
   return (
     <>
-      <Dialog.Title className="text-sm font-medium">{created.node.name} was added</Dialog.Title>
-      <Dialog.Description className="text-sm text-muted-foreground">
+      <DialogTitle>{created.node.name} was added</DialogTitle>
+      <DialogDescription>
         Run the install line on the machine and paste the token when it asks. The token is not shown
         again: copy it now.
-      </Dialog.Description>
+      </DialogDescription>
       <Copyable label="Token" value={created.token ?? ""} />
       <Copyable label="Install line" value={install} />
-      <div className="flex justify-end">
-        <Dialog.Close render={<Button />}>Done</Dialog.Close>
-      </div>
+      <DialogFooter>
+        <DialogClose render={<Button />}>Done</DialogClose>
+      </DialogFooter>
     </>
   )
 }

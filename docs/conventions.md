@@ -258,6 +258,10 @@ How the references keep a UI consistent is in
   maker (owner, 2026-11-10). A generic icon is for what has none.
 - **A shared component is made when a second screen needs it**, not before (Coder). What Settings shares is in
   `web/src/features/settings/settings-parts.tsx`.
+- **What is its own design stays its own**: a control that is not an ordinary button, input, select or dialog (a
+  card that is pressed, a row that opens, the chat's composer, a switch whose state the primitive shows less
+  clearly) is not forced into a primitive. The reason is written where it is kept (owner, 2026-11-10).
+- **A change that succeeded says so** in a toast (Omnigent, Orca, Infisical, Coder).
 - **A UI change is looked at** on a desktop and a phone before its pull request, in pictures taken by its
   scenario in `web/tests` (t3code, Omnigent).
 
