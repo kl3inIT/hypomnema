@@ -36,13 +36,14 @@ Two deployables, all Go:
 - **Credentials are per Dispatch.** The node's proxy attaches credentials from a vault session opened for one
   Dispatch and revoked when it closes, as Infisical's Agent Vault. The vault lives in the control plane; it moves to
   its own host only when the control plane has to run somewhere less trusted.
-- **Model requests go through one model gateway** in the control plane, with two surfaces
-  ([design](https://github.com/kl3inIT/hypomnema/issues/20), revised 2026-11-10). The native surface forwards a
-  vendor CLI's traffic unchanged (Claude Code, Codex), so the prompt cache survives. The unified surface is an
-  OpenAI-compatible API for pi, other workers and the owner's own tools: a declared model table, one adapter per
-  kind of provider, translation through one hub format when the upstream speaks another format, an account pinned
-  per session, and usage recorded per Dispatch. A worker whose CLI talks to its vendor with its own login and cannot
-  be given a base URL is the exception.
+- **A worker that is a vendor's CLI talks to its vendor directly** (Claude Code, Codex), with its subscription and
+  a token the control plane hands it for the Dispatch, as Orca, Omnigent and OpenHands run theirs. Its usage comes
+  from the CLI's own report, and the account's quota from the vendor's usage endpoint. Until 2026-11-10 the intent
+  was that this traffic also passed through the gateway.
+- **One model gateway** in the control plane serves everything else: pi, workers that are not a vendor's CLI and the
+  owner's own tools ([design](https://github.com/kl3inIT/hypomnema/issues/20)). It is an OpenAI-compatible API over a
+  declared model table, with one adapter per kind of provider, translation through one hub format when the upstream
+  speaks another, an account pinned per session, and usage recorded per key.
 - **One store of accounts, two uses.** The owner adds an API key or a subscription (Claude, Codex, Antigravity) once
   in the web client; the secret is kept by the vault, and only the control plane refreshes a subscription's refresh
   token. An account can be handed to workers that run a vendor CLI directly (Claude Code with a `claude setup-token`
