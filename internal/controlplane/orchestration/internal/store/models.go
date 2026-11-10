@@ -67,6 +67,7 @@ type Connection struct {
 	Secret      string
 	CreatedAt   int64
 	UpdatedAt   int64
+	Services    sql.NullString
 }
 
 type Conversation struct {
@@ -203,6 +204,14 @@ type GitHost struct {
 	Host      string
 	Kind      string
 	CreatedAt int64
+}
+
+type IntegrationClient struct {
+	Integration string
+	ClientID    string
+	Secret      string
+	CreatedAt   int64
+	UpdatedAt   int64
 }
 
 type MachineProvider struct {

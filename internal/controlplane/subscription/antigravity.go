@@ -161,7 +161,7 @@ func (a *Antigravity) Begin(context.Context) (*Attempt, error) {
 				return Login{}, errors.New("the login was started too long ago; start it again")
 			}
 
-			code, err := callbackCode(pasted, state)
+			code, err := CallbackCode(pasted, state)
 			if err != nil {
 				return Login{}, err
 			}

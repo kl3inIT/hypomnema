@@ -29,6 +29,19 @@ The current deployment is described in [ARCHITECTURE.md](ARCHITECTURE.md#where-i
    connected with `hypomnema integrations connect <host> --label <name> --token-file <file>` (a token that can push branches and open
    pull requests on the repositories workers work in).
 
+To connect a Google account (Gmail, Calendar, Drive, Docs, Sheets), as Hermes' google-workspace skill sets one up:
+
+1. In the [Google Cloud console](https://console.cloud.google.com/), create a project, enable the Gmail, Google
+   Calendar and Google Drive APIs (and Docs and Sheets when wanted), and configure the OAuth consent screen as
+   External with yourself as a test user. While it is in "Testing", Google ends a sign-in after 7 days.
+2. Create an OAuth client of type "Desktop app" and download its JSON file. Keep the file out of Git.
+3. `hypomnema integrations client set google --client-file <file>`: the client's secret goes into the vault.
+4. `hypomnema integrations connect google --label work --services gmail:read,calendar`: open the link it prints in
+   a browser on any machine, sign in, and paste back the address the browser ends on (a page that does not load).
+   A service alone may read and write; with `:read` it may only read.
+
+No worker is handed a Google token yet ([issue #103](https://github.com/kl3inIT/hypomnema/issues/103), step 3).
+
 To let your own agent (Claude Code, Codex or pi) coordinate workers, log in with a `coordinator` token and run
 `hypomnema skills install`. It installs the coordinator skill into `~/.claude/skills` and `~/.agents/skills`; then
 ask the agent to give the work to Hypomnema workers.

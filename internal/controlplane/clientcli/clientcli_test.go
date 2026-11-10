@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -25,6 +26,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/coordinator"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/integration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
@@ -44,7 +46,7 @@ func newWorld(t *testing.T) *world {
 }
 
 // newWorldWith serves the API with a coordinator, or none when nil.
-func newWorldWith(t *testing.T, coord clientapi.Coordinator) *world {
+func newWorldWith(t *testing.T, coord clientapi.Coordinator, with ...func(*clientapi.Server)) *world {
 	t.Helper()
 
 	db, err := sqlite.Open(t.Context(), sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
@@ -60,6 +62,10 @@ func newWorldWith(t *testing.T, coord clientapi.Coordinator) *world {
 	srv := clientapi.New(svc, slog.New(slog.DiscardHandler), stop).WithHostTokens(&keptTokens{svc: svc})
 	if coord != nil {
 		srv.WithCoordinator(coord)
+	}
+
+	for _, option := range with {
+		option(srv)
 	}
 
 	require.NoError(t, srv.Register(mux))
@@ -1105,4 +1111,157 @@ func TestRunsCreatedByPiRecordItsChat(t *testing.T) { //nolint:paralleltest // s
 	var run openapi.Run
 	w.jsonCmd(t, &run, "", "runs", "create", "--repo", "kl3inIT/demo", "health page")
 	assert.Equal(t, chat.ID, val(run.ChatId))
+}
+
+// signIns stands in for the service that signs accounts in: one Integration,
+// google, whose sign-in is completed by any address that carries its state.
+type signIns struct {
+	mu          sync.Mutex
+	clientID    string
+	secret      string
+	state       string
+	asked       []string
+	label       string
+	connections []integration.Connection
+}
+
+func (s *signIns) List(context.Context) ([]integration.Integration, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	return []integration.Integration{{
+		Definition: integration.Google(), ClientID: s.clientID, Connections: slices.Clone(s.connections),
+	}}, nil
+}
+
+func (s *signIns) SetClient(_ context.Context, _, clientID, clientSecret string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.clientID, s.secret = clientID, clientSecret
+
+	return nil
+}
+
+func (s *signIns) Begin(_ context.Context, _, label string, services []string) (integration.SignIn, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.state, s.label, s.asked = "state-1", label, services
+
+	return integration.SignIn{
+		ID: "signin-1", URL: "https://accounts.example/auth?state=state-1", ExpiresIn: 30 * time.Minute,
+	}, nil
+}
+
+func (s *signIns) Complete(_ context.Context, _, id, pasted string) (integration.Connection, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if id != "signin-1" || !strings.Contains(pasted, "state="+s.state) {
+		return integration.Connection{}, integration.ErrSignInFailed
+	}
+
+	grants, err := integration.Google().ParseGrants(s.asked)
+	if err != nil {
+		return integration.Connection{}, err
+	}
+
+	c := integration.Connection{
+		Integration: integration.GoogleID, Label: s.label, Account: "owner@example.com", Grants: grants,
+	}
+	s.connections = append(s.connections, c)
+
+	return c, nil
+}
+
+func (s *signIns) Disconnect(_ context.Context, _, label string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for i, c := range s.connections {
+		if c.Label == label {
+			s.connections = slices.Delete(s.connections, i, i+1)
+
+			return false, nil
+		}
+	}
+
+	return false, integration.ErrNotFound
+}
+
+// Scenario: the owner gives Hypomnema the Google client from the file Google
+// gave him, signs his work account in by pasting the address the browser
+// ended on, sees it beside the git hosts, and disconnects it. The client's
+// secret is read from the file and never printed; a coordinator can see the
+// account but cannot sign one in.
+func TestSigningAGoogleAccountInFromTheCLI(t *testing.T) {
+	t.Parallel()
+
+	google := &signIns{}
+	w := newWorldWith(t, nil, func(s *clientapi.Server) { s.WithIntegrations(google) })
+	w.login(t, bearertoken.Owner)
+
+	out, err := w.cmd(t, "integrations", "list")
+	require.NoError(t, err)
+	assert.Contains(t, out, "google\toauth\tno OAuth client\n")
+
+	_, err = w.cmd(t, "integrations", "client", "set", "google")
+	require.ErrorContains(t, err, "--client-file")
+
+	_, err = w.cmdIn(t, "not json", "integrations", "client", "set", "google", "--client-file", "-")
+	require.ErrorContains(t, err, "not JSON")
+
+	const clientFile = `{"installed":{"client_id":"1234.apps.example","client_secret":"GOCSPX-never-printed",` +
+		`"redirect_uris":["http://localhost"]}}`
+
+	out, err = w.cmdIn(t, clientFile, "integrations", "client", "set", "google", "--client-file", "-", "--json")
+	require.NoError(t, err)
+	assert.Contains(t, out, "1234.apps.example")
+	assert.NotContains(t, out, "GOCSPX")
+	assert.Equal(t, "GOCSPX-never-printed", google.secret)
+
+	_, err = w.cmdIn(t, "\n", "integrations", "connect", "google", "--label", "work", "--services", "gmail:read")
+	require.ErrorContains(t, err, "no address was pasted")
+
+	_, err = w.cmdIn(t, "http://localhost:1/?state=another&code=c\n", "integrations", "connect", "google", "--label",
+		"work", "--services", "gmail:read")
+	require.Error(t, err, "an address of another sign-in completes nothing")
+
+	out, err = w.cmdIn(t, "http://localhost:1/?state=state-1&code=c\n", "integrations", "connect", "google",
+		"--label", "work", "--services", "gmail:read,calendar")
+	require.NoError(t, err)
+	assert.Contains(t, out, "https://accounts.example/auth?state=state-1")
+	assert.Contains(t, out, "google:work is connected as owner@example.com, with gmail:read,calendar\n")
+
+	out, err = w.cmd(t, "integrations", "list")
+	require.NoError(t, err)
+	assert.Contains(t, out, "github.com\tgithub\tnot connected\n")
+	assert.Contains(t, out, "google\toauth\twork (owner@example.com: gmail:read,calendar)\n")
+
+	out, err = w.cmd(t, "integrations", "disconnect", "google:work")
+	require.NoError(t, err)
+	assert.Equal(t, "google:work is forgotten\nthe service could not be asked to end the access; remove it in the "+
+		"account's own settings\n", out)
+
+	_, err = w.cmd(t, "integrations", "disconnect", "google:work")
+	require.Error(t, err, "it is gone")
+
+	_, err = w.cmdIn(t, "http://localhost:1/?state=state-1&code=c\n", "integrations", "connect", "google",
+		"--label", "personal", "--services", "drive")
+	require.NoError(t, err)
+
+	w.login(t, bearertoken.Coordinator)
+
+	out, err = w.cmd(t, "integrations", "list")
+	require.NoError(t, err)
+	assert.Contains(t, out, "personal (owner@example.com: drive)")
+
+	_, err = w.cmdIn(t, "http://localhost:1/?state=state-1&code=c\n", "integrations", "connect", "google",
+		"--label", "mine", "--services", "gmail")
+	require.Error(t, err, "only the owner signs an account in")
+
+	_, err = w.cmd(t, "integrations", "disconnect", "google:personal")
+	require.Error(t, err, "only the owner disconnects")
+	assert.Len(t, google.connections, 1)
 }
