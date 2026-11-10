@@ -27,7 +27,9 @@ export function effortLabel(effort: string) {
   return efforts.find((e) => e.value === effort)?.label ?? effort
 }
 
-export type Standing = { tone: "good" | "warn"; text: string }
+// short is the state in a word or two, for a card's header; text says it in full.
+// short is the state in a word or two, for a card's header; text says it in full.
+export type Standing = { tone: "good" | "warn"; short: string; text: string }
 
 const clock = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" })
 
@@ -35,24 +37,25 @@ const clock = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-d
 // the coordinator's, has no standing.
 export function standing(profile: Profile): Standing | null {
   if (profile.available === undefined) return null
-  if (profile.available) return { tone: "good", text: "Can run now" }
+  if (profile.available) return { tone: "good", short: "Ready", text: "Can run now" }
 
   const runtime = runtimeName(profile.runtime)
 
   switch (profile.unavailable_reason) {
     case "no_node":
-      return { tone: "warn", text: `No machine online has ${runtime}` }
+      return { tone: "warn", short: "No machine", text: `No machine online has ${runtime}` }
     case "no_account":
-      return { tone: "warn", text: `No ${runtime} account` }
+      return { tone: "warn", short: "No account", text: `No ${runtime} account` }
     case "accounts_cooling":
       return {
         tone: "warn",
+        short: "Waiting",
         text: profile.available_at
           ? `${runtime} accounts wait until ${clock.format(new Date(profile.available_at))}`
           : `${runtime} accounts wait for their limit`,
       }
     default:
-      return { tone: "warn", text: "Cannot run now" }
+      return { tone: "warn", short: "Cannot run", text: "Cannot run now" }
   }
 }
 

@@ -1,4 +1,5 @@
 import { Link } from "@tanstack/react-router"
+import { Box, Brain, CircleAlert, CircleCheck, History } from "lucide-react"
 import { useState } from "react"
 
 import type { Profile } from "@/api/generated/types.gen"
@@ -23,13 +24,12 @@ function readLayout(): Layout {
   }
 }
 
-// AgentsScreen lists the profiles the coordinator chooses from (issue #142). The cards are Omnara's
+// AgentsScreen lists the profiles the coordinator chooses from (issue #142), as cards or a table with the Machines
+// page's switch. Whether a worker can start under a profile now is said in words, as Omnigent says a harness's
+// state (Apache License 2.0, https://github.com/omnigent-ai/omnigent; web/src/pages/settings/
+// SettingsHarnessesSection.tsx). The list, its loading, error and empty states follow Omnara's
 // (Apache License 2.0, https://github.com/omnara-ai/omnara; frontend/apps/web/src/components/agents/
-// AgentProfilesSection.tsx and AgentCardList.tsx): the name as a link that covers the card, the model under it, and
-// a foot strip with "Version N". Changed: a profile's description is on the card, since the coordinator chooses by
-// it; the foot says whether a worker can start now, in Omnigent's coloured words (web/src/pages/settings/
-// SettingsHarnessesSection.tsx), where Omnara has cost and instances; no search, sort or Launch. The Grid and
-// Table switch is the Machines page's.
+// AgentProfilesSection.tsx, AgentCardList.tsx); the card itself is the Machines page's (owner, 2026-11-11).
 export function AgentsScreen() {
   const profiles = useProfiles()
   const [layout, setLayout] = useState<Layout>(readLayout)
@@ -89,7 +89,7 @@ export function AgentsScreen() {
             aria-label="Loading"
           >
             {[0, 1, 2].map((i) => (
-              <div key={i} className="h-[7.25rem] animate-pulse rounded-xl bg-muted" />
+              <div key={i} className="h-56 animate-pulse rounded-xl bg-muted" />
             ))}
           </div>
         ) : list.length === 0 ? (
@@ -135,41 +135,120 @@ export function StandingText({ profile, className }: { profile: Profile; classNa
   )
 }
 
+// The dot's colour for a profile's standing, as the Machines page's status dot; a profile with no standing, the
+// coordinator's, has a quiet one.
+function StandingDot({ profile }: { profile: Profile }) {
+  const s = standing(profile)
+
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "size-2 shrink-0 rounded-full",
+        s === null ? "bg-muted-foreground/40" : s.tone === "good" ? "bg-done" : "bg-needs-you",
+      )}
+    />
+  )
+}
+
+// AgentCard is the Machines page's card (machines-screen.tsx, after Beszel's SystemCard): a header with the status
+// dot, the name and the state in words, then the description and one row a fact, each with its icon and its name.
+// The name is a link that covers the card, as Omnara's.
 function AgentCard({ profile }: { profile: Profile }) {
+  const s = standing(profile)
+  const rows = [
+    ...(s
+      ? [
+          {
+            name: "Now",
+            icon:
+              s.tone === "good" ? (
+                <CircleCheck className="size-4 text-done" aria-hidden />
+              ) : (
+                <CircleAlert className="size-4 text-needs-you" aria-hidden />
+              ),
+            value: (
+              <span className={s.tone === "good" ? undefined : "text-needs-you"}>{s.text}</span>
+            ),
+          },
+        ]
+      : []),
+    {
+      name: "Runs on",
+      icon: <RuntimeMark runtime={profile.runtime} className="size-4" />,
+      value: runtimeName(profile.runtime),
+    },
+    {
+      name: "Model",
+      icon: <Box className="size-4 text-muted-foreground" aria-hidden />,
+      value: (
+        <>
+          <span className="shrink-0 font-mono text-xs">{modelLine(profile)}</span>
+          {profile.provider && (
+            <span className="ms-1.5 truncate text-xs text-muted-foreground">
+              ({profile.provider})
+            </span>
+          )}
+        </>
+      ),
+    },
+    {
+      name: "Effort",
+      icon: <Brain className="size-4 text-muted-foreground" aria-hidden />,
+      value: profile.effort ? effortLabel(profile.effort) : "Default",
+    },
+    {
+      name: "Version",
+      icon: <History className="size-4 text-muted-foreground" aria-hidden />,
+      value: (
+        <>
+          {profile.version}
+          <span className="ms-1.5 text-xs text-muted-foreground">
+            saved {since(profile.created_at)}
+          </span>
+        </>
+      ),
+    },
+  ]
+
   return (
     <article
       data-testid="agent"
       aria-label={profile.name}
       className="relative flex w-full flex-col overflow-hidden rounded-xl border bg-card text-card-foreground hover:border-foreground/25"
     >
-      <div className="flex flex-1 items-start gap-3 px-4 pt-3.5 pb-3">
-        <RuntimeMark runtime={profile.runtime} className="mt-0.5 size-5 shrink-0" />
-        <div className="flex min-w-0 flex-1 flex-col gap-1">
-          <h2 className="truncate text-sm font-medium">
-            <Link
-              to="/agents/$name"
-              params={{ name: profile.name }}
-              className="outline-none after:absolute after:inset-0 after:rounded-xl focus-visible:after:ring-2 focus-visible:after:ring-ring"
-            >
-              {profile.name}
-            </Link>
-          </h2>
-          <p className="line-clamp-2 text-sm text-muted-foreground">
-            {profile.description || "No description."}
-          </p>
-          <p className="truncate pt-0.5 text-xs text-muted-foreground">
-            <span className="font-mono">{modelLine(profile)}</span>
-            {profile.provider && <> · {profile.provider}</>}
-            {profile.effort && <> · {effortLabel(profile.effort)}</>}
-          </p>
-        </div>
-      </div>
-      <footer className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border/60 bg-muted/30 px-4 py-2 text-xs text-muted-foreground">
-        <span className="whitespace-nowrap">
-          Version {profile.version} · {since(profile.created_at)}
-        </span>
-        <StandingText profile={profile} className="ms-auto" />
-      </footer>
+      <header className="flex items-center gap-2 border-b border-border/60 bg-muted/30 px-4 py-2">
+        <h2 className="flex min-w-0 flex-1 items-center gap-2.5 text-sm font-semibold">
+          <StandingDot profile={profile} />
+          <Link
+            to="/agents/$name"
+            params={{ name: profile.name }}
+            className="truncate outline-none after:absolute after:inset-0 after:rounded-xl focus-visible:after:ring-2 focus-visible:after:ring-ring"
+          >
+            {profile.name}
+          </Link>
+        </h2>
+        {s && (
+          <span className="text-xs font-normal whitespace-nowrap text-muted-foreground">
+            {s.short}
+          </span>
+        )}
+      </header>
+      <p className="line-clamp-3 px-5 pt-3.5 text-sm text-foreground/85">
+        {profile.description || "No description."}
+      </p>
+      <dl
+        className="grid gap-2.5 px-5 pt-3.5 pb-4 text-sm"
+        style={{ gridTemplateColumns: "24px minmax(64px, max-content) minmax(0, 1fr)" }}
+      >
+        {rows.map((row) => (
+          <div key={row.name} className="col-span-3 grid grid-cols-subgrid items-center">
+            <span className="flex items-center">{row.icon}</span>
+            <dt className="pe-3 text-muted-foreground">{row.name}:</dt>
+            <dd className="flex min-w-0 items-baseline">{row.value}</dd>
+          </div>
+        ))}
+      </dl>
     </article>
   )
 }
@@ -218,14 +297,14 @@ function AgentsTable({ profiles }: { profiles: Profile[] }) {
               <td className="px-3 py-2.5 whitespace-nowrap">
                 <span className="font-mono text-xs">{modelLine(profile)}</span>
                 {profile.provider && (
-                  <span className="text-xs text-muted-foreground"> · {profile.provider}</span>
+                  <span className="ms-1.5 text-xs text-muted-foreground">({profile.provider})</span>
                 )}
               </td>
               <td className="px-3 py-2.5 whitespace-nowrap">
                 {profile.effort ? effortLabel(profile.effort) : "Default"}
               </td>
               <td className="px-3 py-2.5 whitespace-nowrap text-muted-foreground">
-                {profile.version} · {since(profile.created_at)}
+                {profile.version}, {since(profile.created_at)}
               </td>
             </tr>
           ))}

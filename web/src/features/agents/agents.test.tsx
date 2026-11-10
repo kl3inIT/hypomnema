@@ -138,8 +138,9 @@ test("a card says what the agent runs on and whether it can run now", async () =
 
   const implementer = await agent("implementer")
   expect(implementer).toHaveTextContent("What implementer is for.")
-  expect(implementer).toHaveTextContent("opus · claude-subscription · Extra High")
-  expect(implementer).toHaveTextContent("Version 1")
+  expect(implementer).toHaveTextContent("Model:opus(claude-subscription)")
+  expect(implementer).toHaveTextContent("Effort:Extra High")
+  expect(implementer).toHaveTextContent("Version:1saved 2h ago")
   expect(implementer).toHaveTextContent("Can run now")
 
   expect(await agent("codex-implementer")).toHaveTextContent("No machine online has Codex")
