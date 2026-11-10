@@ -191,7 +191,16 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     - `integration.Service.Token` gives a Connection's access token and refreshes it first when under two
       minutes are left, through the vault's lease. A refresh Google refuses for good marks the Connection as
       needing a sign-in (`sign_in_required`). Nothing calls `Token` yet: no worker or coordinator is handed a
-      Google token until step 3.
+      Google token yet.
+    - An Integration declares the command-line tool its skill calls, pinned to one version with a release file
+      and its SHA-256 for each system: Google's is `gws` 0.22.5 (`github.com/googleworkspace/cli`) for Linux on
+      amd64 and arm64. Once the Integration has a Connection, the control plane names the tool to every node of
+      such a system at hello and with each heartbeat's answer (`nodeproto.Tool`). The node fetches the file over
+      HTTPS, installs nothing when the checksum differs, and unpacks the command to
+      `~/.hypomnema-node/tools/<name>/<version>/<name>`; it tries a failed install again every 5 minutes. Its
+      heartbeat says what it has or why an install failed, kept in `nodes.tools` and shown as `tools` on a node
+      in the client API. Nothing uses an installed tool yet: no Task is placed by it, and it is on no worker's
+      `PATH`.
     - `integrations disconnect google:work` asks Google to revoke the tokens, then forgets the Connection and its
       secret; the answer says when Google could not be asked.
     - `GET /integrations` lists these Integrations with their Connections for every token; a token or a client

@@ -1471,6 +1471,12 @@ components:
           description: >-
             The git hosts the node reached when it last tried. Absent for a node that has not said, which is taken
             to reach every host. A Task on a host goes only to a node that reaches it.
+        tools:
+          type: array
+          items: { $ref: "#/components/schemas/NodeTool" }
+          description: >-
+            What the node has of the tools the control plane told it to have, such as gws for Google. Absent for a
+            node that has not said.
         machine: { $ref: "#/components/schemas/NodeMachine" }
         last_seen_at: { type: string, format: date-time }
         unavailable_at: { type: string, format: date-time }
@@ -1507,6 +1513,18 @@ components:
         error:
           type: string
           description: Why the last step failed.
+    NodeTool:
+      type: object
+      description: A command-line tool a node installed for an Integration, or why it could not.
+      required: [name]
+      properties:
+        name: { type: string }
+        version:
+          type: string
+          description: The version installed; absent when the install failed.
+        error:
+          type: string
+          description: Why the install failed.
     NodeSystem:
       type: object
       description: What the node said about itself at its last connect. A field it could not find is left out.

@@ -313,6 +313,10 @@ export type Node = {
    * The git hosts the node reached when it last tried. Absent for a node that has not said, which is taken to reach every host. A Task on a host goes only to a node that reaches it.
    */
   git_hosts?: Array<string>;
+  /**
+   * What the node has of the tools the control plane told it to have, such as gws for Google. Absent for a node that has not said.
+   */
+  tools?: Array<NodeTool>;
   machine?: NodeMachine;
   last_seen_at?: string;
   unavailable_at?: string;
@@ -345,6 +349,21 @@ export type NodeMachine = {
   power?: 'stopping' | 'stopped' | 'starting';
   /**
    * Why the last step failed.
+   */
+  error?: string;
+};
+
+/**
+ * A command-line tool a node installed for an Integration, or why it could not.
+ */
+export type NodeTool = {
+  name: string;
+  /**
+   * The version installed; absent when the install failed.
+   */
+  version?: string;
+  /**
+   * Why the install failed.
    */
   error?: string;
 };
