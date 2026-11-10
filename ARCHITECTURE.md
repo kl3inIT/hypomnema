@@ -240,7 +240,8 @@ plane, which keeps their tokens fresh. The gateway's Codex provider runs under t
   `oauth_token_set`, named after the account, with the time the access token ends.
 - `serve` looks every 5 minutes for access tokens that end within the vendor's lead (Codex: 30 minutes) and
   refreshes them through the vault's `Refresh`; Antigravity's lead is 30 minutes too, and Google keeps the refresh
-  token as it is. A refusal for good (401, or an error code such as `invalid_grant` or
+  token as it is. Two accounts due in one pass are refreshed one after the other, 1.5 seconds apart, 12 for
+  Antigravity (9router-go). A refusal for good (401, or an error code such as `invalid_grant` or
   `refresh_token_reused`) marks the account as needing a new login and is not tried again. Any other failure keeps
   the tokens and is tried again after 5 minutes, doubling up to a day; its reason is recorded with the status and
   error code only.
@@ -276,9 +277,23 @@ subscriptions. The Claude subscription, other provider formats and other capabil
   migration and has an adapter of its own, which translates both ways and handles everything specific to its vendor;
   the answer it returns is already in OpenAI's chat format, so failover, the stream's end and the usage record work
   the same for both.
+- A built-in provider runs under the accounts of its kind logged in on the control plane, several when there are
+  several ([research](docs/research/2026-11-10-several-accounts.md); every rule is one a reference has):
+  - Accounts are taken in their order, the first that can serve until it fails (9router-go's default).
+  - Inside one request the next account is tried when one answers 401 (after one refresh of its tokens), 402, 403,
+    429, 502, 503 or 504, each account once and only before anything was sent to the client (9router-go, CLIProxyAPI).
+    When none serves, the client gets the last refusal; when none could even be tried, a 429 with `Retry-After` to
+    the time the first is free (CLIProxyAPI).
+  - A failure cools the account down, with 9router-go's numbers: until the reset the provider names, at most 2 hours;
+    1 hour for a quota that is used up with no reset named; 2 seconds, doubling with each failure in a row up to 5
+    minutes, after a rate limit or an overload (the count is in memory and an answer clears it); 2 minutes after a
+    401, 402 or 403; 30 seconds after another 5xx.
+  - An Antigravity account with a tenth or less of a model's quota left is used after the others, not refused (omp's
+    reserve, at opencode-antigravity-auth's 90 %). The quota is asked of Google after a successful request, at most
+    every 15 minutes per account, and trusted for 30; an account whose quota is not known is used.
 - `codex-subscription` (kind `codex_subscription`, after 9router-go, CLIProxyAPI and the Codex CLI;
   [research](docs/research/2026-11-10-codex-subscription-adapter.md)) is the first built-in provider. It runs under
-  the first active Codex account logged in on the control plane that is not cooling down.
+  the Codex accounts logged in on the control plane (above).
   - `modelgateway/codex` holds the translation, with no network in it. A chat body becomes a Responses body: system
     and developer messages become `instructions`, a tool call and its result become items tied by a call id, tools
     are flattened and not strict unless the client says so, `response_format` becomes `text.format`,
@@ -304,7 +319,7 @@ subscriptions. The Claude subscription, other provider formats and other capabil
     read from the backend, a choice among several accounts beyond the first that is free.
 - `antigravity-subscription` (kind `antigravity_subscription`, after six implementations and Google's own client;
   [research](docs/research/2026-11-10-antigravity-subscription-adapter.md)) serves Gemini, Claude and gpt-oss models
-  from the first Antigravity account that can be used. Antigravity's terms name this use as a breach that may end the
+  from the Antigravity accounts logged in on the control plane (above). Antigravity's terms name this use as a breach that may end the
   account; the owner chose to build it knowing that, and the provider adds nothing to pass for the IDE beyond its
   user agent: tools keep their names, no tool or prompt is added, no `requestType` is sent.
   - `modelgateway/antigravity` holds the translation. A chat body becomes

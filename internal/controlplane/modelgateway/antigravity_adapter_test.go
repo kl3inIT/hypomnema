@@ -25,8 +25,10 @@ type googleAccount struct {
 	accounts
 }
 
-func (a *googleAccount) Token(ctx context.Context, runtime string) (modelgateway.AccountToken, error) {
-	token, err := a.accounts.Token(ctx, runtime)
+func (a *googleAccount) Token(
+	ctx context.Context, runtime string, skip ...string,
+) (modelgateway.AccountToken, error) {
+	token, err := a.accounts.Token(ctx, runtime, skip...)
 	token.Project = "bright-wave-1234"
 
 	return token, err
@@ -323,5 +325,53 @@ func TestAnAccountRunsThreeRequestsAtOnce(t *testing.T) {
 	running.Wait()
 
 	status, _, body = g.call(t, g.key, askFlash+`}`)
+	assert.Equal(t, http.StatusOK, status, body)
+}
+
+// Scenario: two Antigravity accounts, the first with a twentieth of its
+// quota for the model left. Until the gateway has read the quota the first
+// account serves; a successful request makes it ask, once; from then on the
+// second account serves that model while it can, and the first is kept for
+// when it cannot. A single account near its quota is still used.
+func TestAnAccountNearItsQuotaIsUsedLast(t *testing.T) {
+	t.Parallel()
+
+	backend, got := cloudCode(t, stream(geminiEvents...))
+	subs := &googleAccount{accounts: accounts{
+		ids:   []string{"acc_1", "acc_2"},
+		quota: map[string]map[string]float64{"acc_1": {"gemini-3.8-flash-high": 0.05}, "acc_2": {}},
+	}}
+	g := newAntigravityGateway(t, backend, subs)
+
+	status, _, body := g.call(t, g.key, askFlash+`}`)
+	require.Equal(t, http.StatusOK, status, body)
+
+	sentHeaders, _ := got.last(t)
+	assert.Equal(t, "Bearer access-0", sentHeaders.Get("Authorization"))
+	require.Eventually(t, func() bool { return subs.asked("acc_1") == 1 }, 5*time.Second, 10*time.Millisecond)
+
+	// The reading is stored just after it is asked for.
+	require.Eventually(t, func() bool {
+		g.call(t, g.key, askFlash+`}`)
+		h, _ := got.last(t)
+
+		return h.Get("Authorization") == "Bearer acc_2-access-0"
+	}, 5*time.Second, 20*time.Millisecond)
+
+	for range 3 {
+		g.call(t, g.key, askFlash+`}`)
+	}
+
+	assert.Equal(t, 1, subs.asked("acc_1"), "a quota is read at most every fifteen minutes")
+
+	alone := &googleAccount{accounts: accounts{
+		quota: map[string]map[string]float64{"acc_1": {"gemini-3.8-flash-high": 0}},
+	}}
+	single := newAntigravityGateway(t, backend, alone)
+
+	single.call(t, single.key, askFlash+`}`)
+	require.Eventually(t, func() bool { return alone.asked("acc_1") == 1 }, 5*time.Second, 10*time.Millisecond)
+
+	status, _, body = single.call(t, single.key, askFlash+`}`)
 	assert.Equal(t, http.StatusOK, status, body)
 }
