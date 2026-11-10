@@ -62,6 +62,9 @@ type ec2API interface {
 	) (*ec2.DescribeInstancesOutput, error)
 	TerminateInstances(context.Context, *ec2.TerminateInstancesInput, ...func(*ec2.Options),
 	) (*ec2.TerminateInstancesOutput, error)
+	StopInstances(context.Context, *ec2.StopInstancesInput, ...func(*ec2.Options)) (*ec2.StopInstancesOutput, error)
+	StartInstances(context.Context, *ec2.StartInstancesInput, ...func(*ec2.Options),
+	) (*ec2.StartInstancesOutput, error)
 }
 
 type awsProvider struct {
@@ -282,6 +285,55 @@ func (p *awsProvider) Delete(ctx context.Context, region, nodeID string) error {
 	}
 
 	return nil
+}
+
+func (p *awsProvider) Stop(ctx context.Context, region, nodeID string) error {
+	c := p.client(region)
+
+	ids, err := p.instanceIDs(ctx, c, nodeID)
+	if err != nil {
+		return err
+	}
+
+	if _, err := c.StopInstances(ctx, &ec2.StopInstancesInput{InstanceIds: ids}); err != nil {
+		return fmt.Errorf("stopping %s: %w", strings.Join(ids, ", "), awsReason(err))
+	}
+
+	return nil
+}
+
+func (p *awsProvider) Start(ctx context.Context, region, nodeID string) error {
+	c := p.client(region)
+
+	ids, err := p.instanceIDs(ctx, c, nodeID)
+	if err != nil {
+		return err
+	}
+
+	if _, err := c.StartInstances(ctx, &ec2.StartInstancesInput{InstanceIds: ids}); err != nil {
+		return fmt.Errorf("starting %s: %w", strings.Join(ids, ", "), awsReason(err))
+	}
+
+	return nil
+}
+
+// instanceIDs returns the node's instances, which a stop or a start needs to exist.
+func (p *awsProvider) instanceIDs(ctx context.Context, c ec2API, nodeID string) ([]string, error) {
+	found, err := p.list(ctx, c, types.Filter{Name: aws.String("tag:" + awsTagNode), Values: []string{nodeID}})
+	if err != nil {
+		return nil, err
+	}
+
+	if len(found) == 0 {
+		return nil, errors.New("the provider has no machine for this node")
+	}
+
+	ids := make([]string, 0, len(found))
+	for _, r := range found {
+		ids = append(ids, r.ID)
+	}
+
+	return ids, nil
 }
 
 func (p *awsProvider) List(ctx context.Context, region string) ([]Resource, error) {

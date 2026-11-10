@@ -26,6 +26,8 @@ type fakeEC2 struct {
 	runs       []*ec2.RunInstancesInput
 	runErr     error
 	terminated []string
+	stopped    []string
+	started    []string
 }
 
 func (f *fakeEC2) DescribeInstanceTypes(context.Context, *ec2.DescribeInstanceTypesInput, ...func(*ec2.Options),
@@ -65,6 +67,20 @@ func (f *fakeEC2) TerminateInstances(_ context.Context, in *ec2.TerminateInstanc
 	f.terminated = append(f.terminated, in.InstanceIds...)
 
 	return &ec2.TerminateInstancesOutput{}, nil
+}
+
+func (f *fakeEC2) StopInstances(_ context.Context, in *ec2.StopInstancesInput, _ ...func(*ec2.Options),
+) (*ec2.StopInstancesOutput, error) {
+	f.stopped = append(f.stopped, in.InstanceIds...)
+
+	return &ec2.StopInstancesOutput{}, nil
+}
+
+func (f *fakeEC2) StartInstances(_ context.Context, in *ec2.StartInstancesInput, _ ...func(*ec2.Options),
+) (*ec2.StartInstancesOutput, error) {
+	f.started = append(f.started, in.InstanceIds...)
+
+	return &ec2.StartInstancesOutput{}, nil
 }
 
 func newTestAWS(t *testing.T, f *fakeEC2, options map[string]string) Provider {
@@ -263,4 +279,26 @@ func TestAWSRefusesAKeyOrOptionsItCannotUse(t *testing.T) {
 	} {
 		require.ErrorIs(t, ValidateAWSOptions(options), orchestration.ErrInvalid, options)
 	}
+}
+
+// Scenario: a node's machine is stopped and started. EC2 is asked about the
+// node's instance, found by its tags as for a removal; and a node that has
+// no instance is an error, since nothing would be turned off or on.
+func TestAWSStopsAndStartsTheNodesInstance(t *testing.T) {
+	t.Parallel()
+
+	f := &fakeEC2{instances: []types.Instance{{InstanceId: aws.String("i-1")}}}
+	p := newTestAWS(t, f, nil)
+
+	require.NoError(t, p.Stop(t.Context(), "ap-southeast-1", "nod_1"))
+	require.NoError(t, p.Start(t.Context(), "ap-southeast-1", "nod_1"))
+	assert.Equal(t, []string{"i-1"}, f.stopped)
+	assert.Equal(t, []string{"i-1"}, f.started)
+	assert.Equal(t, []string{"nod_1"}, filterValues(f.listIn[0].Filters)["tag:"+awsTagNode])
+	assert.Contains(t, filterValues(f.listIn[1].Filters)["instance-state-name"], "stopped",
+		"a stopped instance must be found to be started")
+
+	f.instances = nil
+	require.ErrorContains(t, p.Stop(t.Context(), "ap-southeast-1", "nod_1"), "no machine for this node")
+	require.ErrorContains(t, p.Start(t.Context(), "ap-southeast-1", "nod_1"), "no machine for this node")
 }

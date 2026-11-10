@@ -56,6 +56,12 @@ type Provider interface {
 	Find(ctx context.Context, region, nodeID string) (Resource, bool, error)
 	// Delete destroys the node's machine. A machine already gone is not an error.
 	Delete(ctx context.Context, region, nodeID string) error
+	// Stop turns the node's machine off, keeping its disk. A machine already
+	// off is not an error; one that does not exist is.
+	Stop(ctx context.Context, region, nodeID string) error
+	// Start turns the node's machine on. A machine already on is not an
+	// error; one that does not exist is.
+	Start(ctx context.Context, region, nodeID string) error
 	// List returns every machine in the region that this provider record created.
 	List(ctx context.Context, region string) ([]Resource, error)
 }

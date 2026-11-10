@@ -52,10 +52,29 @@ UPDATE nodes SET updated_at = @now, status = 'deleted', deleted_at = @now, machi
 WHERE id = @id AND machine_state IN ('deleting', 'delete_failed');
 
 -- name: ListUnsettledMachines :many
--- Machines the control plane still owes a step: waited for, or being destroyed.
+-- Machines the control plane still owes a step: waited for, being destroyed, or between on and off.
 SELECT * FROM nodes
-WHERE status <> 'deleted' AND machine_state IN ('provisioning', 'deleting', 'delete_failed')
+WHERE status <> 'deleted'
+  AND (machine_state IN ('provisioning', 'deleting', 'delete_failed') OR machine_power IN ('stopping', 'starting'))
 ORDER BY created_at, id;
 
 -- name: ListLiveMachinesOfProvider :many
 SELECT * FROM nodes WHERE provider_id = @provider_id AND status <> 'deleted' ORDER BY created_at, id;
+
+-- name: StopMachine :execrows
+-- A ready machine that is on takes no more work and is to be stopped.
+UPDATE nodes SET updated_at = @now, status = 'drained', machine_power = 'stopping', machine_error = NULL
+WHERE id = @id AND status <> 'deleted' AND machine_state = 'ready' AND machine_power IS NULL;
+
+-- name: MachineStopped :execrows
+UPDATE nodes SET updated_at = @now, machine_power = 'stopped', machine_error = NULL
+WHERE id = @id AND machine_power = 'stopping';
+
+-- name: StartMachine :execrows
+-- A stopped machine is to be started and takes work again once its node says hello.
+UPDATE nodes SET updated_at = @now, status = 'active', machine_power = 'starting', machine_error = NULL
+WHERE id = @id AND status <> 'deleted' AND machine_state = 'ready' AND machine_power = 'stopped';
+
+-- name: SetMachinePowerError :execrows
+UPDATE nodes SET updated_at = @now, machine_error = @error
+WHERE id = @id AND machine_power IN ('stopping', 'starting');

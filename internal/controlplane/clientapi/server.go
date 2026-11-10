@@ -105,6 +105,10 @@ type Machines interface {
 	Create(ctx context.Context, n machines.NewMachine) (orchestration.Node, error)
 	// Remove removes any node; a provider's machine is destroyed with it.
 	Remove(ctx context.Context, nodeID string) error
+	// Stop and Start turn a provider's machine off and on. A node returned
+	// with an error is still between the two, and the step is asked again.
+	Stop(ctx context.Context, nodeID string) (orchestration.Node, error)
+	Start(ctx context.Context, nodeID string) (orchestration.Node, error)
 }
 
 // WithMachines sets the manager of provider machines.

@@ -85,7 +85,7 @@ func secretReferrers(svc *orchestration.Service) vault.Referrers {
 
 const machinesUsage = "machines providers add <name> --kind aws --key vault:<secret> --region R --size S " +
 	"[--max N] [--option name=value]... | machines providers list | machines providers rm|check <name> | " +
-	"machines create <name> --provider P [--region R] [--size S] [--max N]"
+	"machines create <name> --provider P [--region R] [--size S] [--max N] | machines stop|start <node>"
 
 // machinesCommand is the owner's commands for provider machines. A machine
 // is removed as any node is, with `nodes rm`.
@@ -117,6 +117,24 @@ func (o *owner) machinesCommand(ctx context.Context, args []string) error {
 		}
 
 		o.printf("it installs itself and says hello within %s; `nodes list` shows it\n", machines.HelloTimeout)
+
+		return nil
+	case len(args) == 2 && (args[0] == "stop" || args[0] == "start"):
+		n, err := o.node(ctx, args[1])
+		if err != nil {
+			return err
+		}
+
+		change, done := o.machines.Stop, "stopped: it keeps its disk and costs no compute"
+		if args[0] == "start" {
+			change, done = o.machines.Start, "starting: it takes work again once its node connects"
+		}
+
+		if _, err := change(ctx, n.ID); err != nil {
+			return err
+		}
+
+		o.printf("node %s (%s) %s\n", n.Name, n.ID, done)
 
 		return nil
 	default:
@@ -232,13 +250,19 @@ func (o *owner) addMachineProvider(ctx context.Context, name string, args []stri
 	return nil
 }
 
-// machineState is a machine's state with why it failed, for one line.
+// machineState is a machine's state, or its power when it is not on, with
+// why the last step failed, for one line.
 func machineState(m *orchestration.Machine) string {
-	if m.Error == "" {
-		return string(m.State)
+	state := string(m.State)
+	if m.Power != "" {
+		state = string(m.Power)
 	}
 
-	return string(m.State) + ": " + m.Error
+	if m.Error == "" {
+		return state
+	}
+
+	return state + ": " + m.Error
 }
 
 func optionList(options map[string]string) string {

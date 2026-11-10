@@ -26,6 +26,9 @@ const stateDots: Record<MachineState, string> = {
   create_failed: "bg-failed",
   removing: "bg-queued animate-pulse",
   remove_failed: "bg-failed",
+  stopping: "bg-queued animate-pulse",
+  stopped: "bg-muted-foreground/50",
+  starting: "bg-running animate-pulse",
 }
 
 const toneColors: Record<MeterTone, string> = {

@@ -416,3 +416,76 @@ test("a machine that was not created is removed from its card", async () => {
     expect(requests).toEqual([{ call: "DELETE /nodes/refused", body: undefined }]),
   )
 })
+
+const on = (m: Partial<NonNullable<Node["machine"]>> = {}): Partial<Node> => ({
+  machine: {
+    provider_id: "mpr_1",
+    region: "ap-southeast-1",
+    size: "t3.medium",
+    state: "ready",
+    ...m,
+  },
+})
+
+// Scenario: the owner turns a provider's machine off to stop paying for it. A machine that is on offers "Stop
+// machine" in its menu; a machine of the owner's own does not, since nothing here can turn it off. A refusal,
+// here because it still runs a Dispatch, is shown.
+test("a provider's machine is stopped from its menu", async () => {
+  const user = userEvent.setup()
+  const requests = nodesServer([node("build-1", on()), node("mine")], {
+    "POST /nodes/build-1/stop": () =>
+      json({ code: "conflict", message: "node build-1 still runs 1 Dispatches" }, 409),
+  })
+  await open()
+
+  await user.click(await screen.findByRole("button", { name: "Actions for mine" }))
+  expect(await screen.findByRole("menuitem", { name: "Drain" })).toBeVisible()
+  expect(screen.queryByRole("menuitem", { name: "Stop machine" })).toBeNull()
+  await user.keyboard("{Escape}")
+
+  await user.click(screen.getByRole("button", { name: "Actions for build-1" }))
+  await user.click(await screen.findByRole("menuitem", { name: "Stop machine" }))
+
+  expect(await within(await machine("build-1")).findByRole("alert")).toHaveTextContent(
+    "still runs 1 Dispatches",
+  )
+  expect(requests).toEqual([{ call: "POST /nodes/build-1/stop", body: undefined }])
+})
+
+// Scenario: a stopped machine. Its card says it is off, that its disk is still billed and that nothing on it is
+// lost, instead of calling it offline, and starts it with one button; its menu offers Start in place of Resume.
+test("a stopped machine says what it costs and is started from its card", async () => {
+  const user = userEvent.setup()
+  const requests = nodesServer(
+    [
+      node("build-1", {
+        ...on({ power: "stopped" }),
+        status: "drained",
+        connected: false,
+        stats: undefined,
+      }),
+    ],
+    {
+      "POST /nodes/build-1/start": () =>
+        json(node("build-1", { ...on({ power: "starting" }), connected: false })),
+    },
+  )
+  await open()
+
+  const card = await machine("build-1")
+  expect(card).toHaveTextContent("Stopped")
+  expect(card).not.toHaveTextContent("Offline")
+  expect(card).toHaveTextContent("bills for its disk, not for the machine")
+  expect(screen.getByText("1 stopped")).toBeVisible()
+
+  await user.click(screen.getByRole("button", { name: "Actions for build-1" }))
+  expect(await screen.findByRole("menuitem", { name: "Start machine" })).toBeVisible()
+  expect(screen.queryByRole("menuitem", { name: "Resume" })).toBeNull()
+  expect(screen.queryByRole("menuitem", { name: "Stop machine" })).toBeNull()
+  await user.keyboard("{Escape}")
+
+  await user.click(within(card).getByRole("button", { name: "Start" }))
+  await vi.waitFor(() =>
+    expect(requests).toEqual([{ call: "POST /nodes/build-1/start", body: undefined }]),
+  )
+})

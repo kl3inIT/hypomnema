@@ -14,7 +14,7 @@ and it downloads the install script from the control plane and then connects to 
 
 Create an IAM user with an access key and this policy. Replace `PROVIDER_ID` with the id that
 `hypomnema machines providers add` prints (`mpr_…`), so the key can destroy only instances this control plane made.
-The policy follows the sample in Coder's `examples/templates/aws-linux/README.md`, narrowed to the five calls made.
+The policy follows the sample in Coder's `examples/templates/aws-linux/README.md`, narrowed to the calls made.
 
 ```json
 {
@@ -35,9 +35,9 @@ The policy follows the sample in Coder's `examples/templates/aws-linux/README.md
       "Condition": { "StringEquals": { "ec2:CreateAction": "RunInstances" } }
     },
     {
-      "Sid": "DestroyOnlyItsOwn",
+      "Sid": "StopStartAndDestroyOnlyItsOwn",
       "Effect": "Allow",
-      "Action": "ec2:TerminateInstances",
+      "Action": ["ec2:TerminateInstances", "ec2:StopInstances", "ec2:StartInstances"],
       "Resource": "arn:aws:ec2:*:*:instance/*",
       "Condition": { "StringEquals": { "aws:ResourceTag/hypomnema-provider": "PROVIDER_ID" } }
     }
@@ -77,6 +77,8 @@ hypomnema machines providers check aws
 ```sh
 hypomnema machines create build-1 --provider aws     # region and size as the provider's, or --region, --size
 hypomnema nodes list                                 # provisioning, then connected
+hypomnema machines stop build-1                      # turns the instance off; its disk is kept and billed
+hypomnema machines start build-1                     # turns it on; the node connects again by itself
 hypomnema nodes rm build-1                           # destroys the instance, then forgets the node
 ```
 
