@@ -121,6 +121,8 @@ func (p *placement) checkAccount(runtime, id string) error {
 		return fmt.Errorf("%w: account %s is for %s, not %s", ErrInvalid, id, a.Runtime, runtime)
 	case AccountStatus(a.Status) != AccountActive:
 		return fmt.Errorf("%w: account %s is disabled", ErrUnavailable, id)
+	case a.SecretRef.Valid:
+		return fmt.Errorf("%w: account %s was logged in on the control plane; no node has it", ErrInvalid, id)
 	}
 
 	if until, ok := p.cooling[[2]string{runtime, id}]; ok {
@@ -160,11 +162,11 @@ func (p *placement) pickNode(runtime string) *nodeLoad {
 	return best
 }
 
-// pickAccount is the first active account of the runtime, by position, that
-// is not cooling down. cooling reports whether one exists but cools.
+// pickAccount is the first active account of the runtime a node holds, by
+// position, that is not cooling down. cooling reports whether one exists but cools.
 func (p *placement) pickAccount(runtime string) (id string, cooling bool) {
 	for _, a := range p.accounts {
-		if a.Runtime != runtime || AccountStatus(a.Status) != AccountActive {
+		if a.Runtime != runtime || AccountStatus(a.Status) != AccountActive || a.SecretRef.Valid {
 			continue
 		}
 
@@ -214,6 +216,10 @@ func (p *placement) nodeOut(n *nodeLoad) Node {
 func (p *placement) accountOut(a store.Account) Account {
 	out := Account{
 		ID: a.ID, Runtime: a.Runtime, Label: a.Label, Status: AccountStatus(a.Status), Position: int(a.Position),
+		ExternalID: a.ExternalID.String, Email: a.Email.String, Plan: a.Plan.String, SecretRef: a.SecretRef.String,
+		Refresh: AccountRefresh{
+			Failures: int(a.RefreshFailures), RetryAt: optionalTime(a.RefreshRetryAt), Error: a.RefreshError.String,
+		},
 	}
 
 	if until, ok := p.cooling[[2]string{a.Runtime, a.ID}]; ok {

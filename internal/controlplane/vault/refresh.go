@@ -40,7 +40,7 @@ const (
 	saveRetry = 250 * time.Millisecond
 )
 
-// Refreshed is what a provider gave for a refresh token.
+// Refreshed is what a provider gave for a refresh token, or for a login.
 type Refreshed struct {
 	// Payload is the whole new token set. A provider that did not send a new
 	// refresh token keeps the old one: the RefreshFunc copies it over.
@@ -259,10 +259,7 @@ func (s *Service) saveRefreshed(ctx context.Context, c *claim, r Refreshed) (Ope
 		return Opened{}, errors.Join(err, s.releaseLease(ctx, c))
 	}
 
-	var expires *time.Time
-	if !r.AccessTokenExpiresAt.IsZero() {
-		expires = &r.AccessTokenExpiresAt
-	}
+	expires := knownTime(r.AccessTokenExpiresAt)
 
 	for {
 		err := s.write(ctx, func(q *store.Queries, now int64) error {

@@ -81,13 +81,38 @@ SELECT * FROM accounts WHERE id = @id;
 -- name: ListAccounts :many
 SELECT * FROM accounts ORDER BY runtime, position, id;
 
+-- name: GetAccountByExternalID :one
+SELECT * FROM accounts WHERE runtime = @runtime AND external_id = @external_id;
+
+-- name: InsertLoginAccount :exec
+INSERT INTO accounts (id, runtime, label, status, position, external_id, email, plan, secret_ref, created_at,
+                      updated_at)
+VALUES (@id, @runtime, @label, 'active',
+        (SELECT coalesce(max(position), 0) + 1 FROM accounts WHERE runtime = @runtime),
+        @external_id, @email, @plan, @secret_ref, @now, @now);
+
+-- name: SetAccountIdentity :execrows
+UPDATE accounts SET updated_at = @now, email = @email, plan = @plan WHERE id = @id;
+
+-- name: SetAccountRefresh :execrows
+UPDATE accounts
+SET updated_at = @now, refresh_failures = @refresh_failures, refresh_retry_at = @refresh_retry_at,
+    refresh_error = @refresh_error
+WHERE id = @id;
+
+-- name: DeleteLoginAccount :execrows
+DELETE FROM accounts WHERE id = @id AND secret_ref IS NOT NULL;
+
+-- name: ListAccountLabelsBySecretRef :many
+SELECT runtime, label FROM accounts WHERE secret_ref = @secret_ref ORDER BY runtime, label;
+
 -- name: SetAccountStatus :execrows
 UPDATE accounts SET updated_at = @now, status = @status WHERE id = @id;
 
 -- name: CountAccountsFreeAfter :one
--- Active accounts of a runtime with no cooldown lasting past @after.
+-- Active accounts of a runtime that a worker can run under, with no cooldown lasting past @after.
 SELECT count(*) FROM accounts a
-WHERE a.runtime = @runtime AND a.status = 'active'
+WHERE a.runtime = @runtime AND a.status = 'active' AND a.secret_ref IS NULL
   AND NOT EXISTS (SELECT 1 FROM account_cooldowns c
                   WHERE c.runtime = a.runtime AND c.account_ref = a.id AND c.until > @after);
 

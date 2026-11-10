@@ -512,3 +512,41 @@ func TestMigrationMovesCooldownsToAccounts(t *testing.T) {
 	require.NoError(t, rows.Err())
 	assert.Equal(t, []string{"claude/acct_1@00.300", "codex/acct_2@00.200"}, got)
 }
+
+// Scenario: the owner logged a Claude subscription in on the control plane.
+// No node holds its tokens, so a Task waits rather than start under it, and
+// starts once an account a node holds is free. A second login of the same
+// vendor account keeps the one account.
+func TestAnAccountLoggedInOnTheControlPlaneIsNotGivenToWorkers(t *testing.T) {
+	t.Parallel()
+
+	w := newSchedWorld(t)
+	require.NoError(t, w.s.DisableAccount(t.Context(), w.account.ID))
+
+	login := AccountLogin{Runtime: "claude", ExternalID: "org-1", Email: "owner@example.com", Plan: "max"}
+	ref := func(id string) string { return "vault:account-" + id }
+
+	logged, err := w.s.SaveAccountLogin(t.Context(), login, ref)
+	require.NoError(t, err)
+	assert.Equal(t, "owner@example.com", logged.Label)
+	assert.Equal(t, "vault:account-"+logged.ID, logged.SecretRef)
+
+	w.tasks(specs(1)...)
+	assert.Empty(t, w.schedule().Created)
+
+	require.NoError(t, w.s.EnableAccount(t.Context(), w.account.ID))
+
+	created := w.schedule().Created
+	require.Len(t, created, 1)
+	assert.Equal(t, w.account.ID, w.conversation(w.dispatchOf(created[0]).ConversationID).AccountRef)
+
+	login.Plan = "pro"
+	again, err := w.s.SaveAccountLogin(t.Context(), login, ref)
+	require.NoError(t, err)
+	assert.Equal(t, logged.ID, again.ID)
+	assert.Equal(t, "pro", again.Plan)
+
+	users, err := w.s.AccountsUsingSecretRef(t.Context(), logged.SecretRef)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"account claude/owner@example.com"}, users)
+}

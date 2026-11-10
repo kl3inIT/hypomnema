@@ -51,6 +51,9 @@ type Config struct {
 	// NodeReleaseURL is where the install script downloads the node from,
 	// from HYPOMNEMA_NODE_RELEASE_URL; empty: the latest GitHub release.
 	NodeReleaseURL string
+	// CodexIssuer is the authorization server Codex accounts log in at, from
+	// HYPOMNEMA_CODEX_ISSUER; empty: OpenAI's. Tests name their own.
+	CodexIssuer string
 }
 
 // LoadConfig reads the configuration and reports every problem at once.
@@ -63,6 +66,7 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 
 		PublicURL:      strings.TrimSuffix(env.String(envPrefix+"_PUBLIC_URL", ""), "/"),
 		NodeReleaseURL: env.String(envPrefix+"_NODE_RELEASE_URL", ""),
+		CodexIssuer:    env.String(envPrefix+"_CODEX_ISSUER", ""),
 	}
 
 	var cmdErr error
@@ -127,7 +131,8 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	nodeapi.New(svc, logger).Register(mux)
 	mux.Handle("GET "+nodeapi.PathInstallScript, nodeapi.InstallScript(cfg.PublicURL, cfg.NodeReleaseURL))
 
-	secrets := vault.New(db, platform.SystemClock{}, platform.NewID, cfg.VaultKeys, svc.ProvidersUsingKeyRef)
+	secrets := vault.New(db, platform.SystemClock{}, platform.NewID, cfg.VaultKeys, secretReferrers(svc))
+	subscriptions := newSubscriptions(cfg, svc, secrets, logger)
 	gateway := modelgateway.New(db, platform.SystemClock{}, platform.NewID, gatewayProviders(svc),
 		gatewaySecrets(secrets))
 	modelgateway.NewServer(gateway, logger, modelgateway.Config{}).Register(mux)
@@ -159,6 +164,15 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		}
 	}()
 
+	// Tokens of the accounts logged in here are replaced before they end.
+	refreshDone := make(chan struct{})
+
+	go func() {
+		defer close(refreshDone)
+
+		subscriptions.Loop(ctx)
+	}()
+
 	supDone := make(chan struct{})
 
 	go func() {
@@ -171,6 +185,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 
 	cancel(nil)
 	<-loopDone
+	<-refreshDone
 	<-supDone
 
 	if cause := context.Cause(ctx); cause != nil && !errors.Is(cause, context.Canceled) {

@@ -9,13 +9,20 @@ import (
 )
 
 type Account struct {
-	ID        string
-	Runtime   string
-	Label     string
-	Status    string
-	Position  int64
-	CreatedAt int64
-	UpdatedAt int64
+	ID              string
+	Runtime         string
+	Label           string
+	Status          string
+	Position        int64
+	CreatedAt       int64
+	UpdatedAt       int64
+	ExternalID      sql.NullString
+	Email           sql.NullString
+	Plan            sql.NullString
+	SecretRef       sql.NullString
+	RefreshFailures int64
+	RefreshRetryAt  sql.NullInt64
+	RefreshError    sql.NullString
 }
 
 type AccountCooldown struct {

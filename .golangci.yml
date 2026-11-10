@@ -131,7 +131,7 @@ linters:
             - "!**/*_test.go"
           deny:
             - pkg: github.com/kl3inIT/hypomnema/internal/controlplane/vault
-              desc: a secret's value is opened only by the control plane's own wiring and the model gateway, never by an API, a coordinator or the web client (issue #66)
+              desc: a secret's value is opened only by the control plane's own wiring, the model gateway and subscription accounts, never by an API, a coordinator or the web client (issue #66)
         shared_depends_on_no_tree:
           list-mode: lax
           files: ["**/internal/shared/**"]
