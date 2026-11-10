@@ -598,6 +598,8 @@ The owner's commands:
     reads its token from the vault as it sends an offer (`account_token`), and the Claude Code runner starts the
     worker under it, with the account's own `CLAUDE_CONFIG_DIR`. The node keeps the token with the offer until the
     Dispatch ends. An account logged in on the control plane for the gateway is still not given to a worker.
+  - `accounts disable <account>` keeps placement off an account, and `accounts enable <account>` lets it be used
+    again; neither touches its token.
   - `accounts add <runtime> <label>` records an account whose CLI is logged in on a node; `accounts login codex|antigravity
     [--label L]` logs a subscription in here, printing a link and a code and waiting, or asking for the pasted
     address; `accounts list` shows each with the state of its tokens; `accounts models <account>` asks the vendor which

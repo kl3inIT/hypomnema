@@ -83,6 +83,21 @@ func TestOwnerGivesTheControlPlaneAClaudeToken(t *testing.T) {
 	_, ok = tokens.Token(t.Context(), onNode.ID)
 	assert.False(t, ok, "an account a node holds has no token here")
 
+	// The owner turns an account off and on: placement passes a disabled one over.
+	out, err = run("", "accounts", "disable", onNode.ID)
+	require.NoError(t, err)
+	assert.Contains(t, out, "disabled")
+
+	out, err = run("", "accounts", "list")
+	require.NoError(t, err)
+	assert.Contains(t, out, "claude\ton a node\tdisabled")
+
+	_, err = run("", "accounts", "enable", onNode.ID)
+	require.NoError(t, err)
+
+	_, err = run("", "accounts", "disable", "acc_nobody")
+	require.ErrorIs(t, err, orchestration.ErrNotFound)
+
 	_, err = run("", "secrets", "rm", accountSecretName(id))
 	require.Error(t, err, "the vault keeps a secret an account names")
 
