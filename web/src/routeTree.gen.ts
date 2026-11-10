@@ -12,6 +12,9 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as BoardRouteImport } from './routes/board'
 import { Route as MachinesRouteImport } from './routes/machines'
+import { Route as AgentsIndexRouteImport } from './routes/agents.index'
+import { Route as AgentsNameRouteImport } from './routes/agents.$name'
+import { Route as AgentsNewRouteImport } from './routes/agents.new'
 import { Route as ChatsChatIdRouteImport } from './routes/chats.$chatId'
 import { Route as RunsIndexRouteImport } from './routes/runs.index'
 import { Route as RunsRunIdRouteImport } from './routes/runs.$runId'
@@ -34,6 +37,21 @@ const BoardRoute = BoardRouteImport.update({
 const MachinesRoute = MachinesRouteImport.update({
   id: '/machines',
   path: '/machines',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AgentsIndexRoute = AgentsIndexRouteImport.update({
+  id: '/agents/',
+  path: '/agents/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AgentsNameRoute = AgentsNameRouteImport.update({
+  id: '/agents/$name',
+  path: '/agents/$name',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AgentsNewRoute = AgentsNewRouteImport.update({
+  id: '/agents/new',
+  path: '/agents/new',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ChatsChatIdRoute = ChatsChatIdRouteImport.update({
@@ -81,11 +99,14 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/board': typeof BoardRoute
   '/machines': typeof MachinesRoute
+  '/agents/$name': typeof AgentsNameRoute
+  '/agents/new': typeof AgentsNewRoute
   '/chats/$chatId': typeof ChatsChatIdRoute
   '/runs/$runId': typeof RunsRunIdRoute
   '/settings/integrations': typeof SettingsIntegrationsRoute
   '/settings/repositories': typeof SettingsRepositoriesRoute
   '/settings/vault': typeof SettingsVaultRoute
+  '/agents/': typeof AgentsIndexRoute
   '/runs/': typeof RunsIndexRoute
   '/settings/': typeof SettingsIndexRoute
   '/machines/$nodeId/terminal': typeof MachinesNodeIdTerminalRoute
@@ -94,11 +115,14 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/board': typeof BoardRoute
   '/machines': typeof MachinesRoute
+  '/agents/$name': typeof AgentsNameRoute
+  '/agents/new': typeof AgentsNewRoute
   '/chats/$chatId': typeof ChatsChatIdRoute
   '/runs/$runId': typeof RunsRunIdRoute
   '/settings/integrations': typeof SettingsIntegrationsRoute
   '/settings/repositories': typeof SettingsRepositoriesRoute
   '/settings/vault': typeof SettingsVaultRoute
+  '/agents': typeof AgentsIndexRoute
   '/runs': typeof RunsIndexRoute
   '/settings': typeof SettingsIndexRoute
   '/machines/$nodeId/terminal': typeof MachinesNodeIdTerminalRoute
@@ -108,11 +132,14 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/board': typeof BoardRoute
   '/machines': typeof MachinesRoute
+  '/agents/$name': typeof AgentsNameRoute
+  '/agents/new': typeof AgentsNewRoute
   '/chats/$chatId': typeof ChatsChatIdRoute
   '/runs/$runId': typeof RunsRunIdRoute
   '/settings/integrations': typeof SettingsIntegrationsRoute
   '/settings/repositories': typeof SettingsRepositoriesRoute
   '/settings/vault': typeof SettingsVaultRoute
+  '/agents/': typeof AgentsIndexRoute
   '/runs/': typeof RunsIndexRoute
   '/settings/': typeof SettingsIndexRoute
   '/machines_/$nodeId/terminal': typeof MachinesNodeIdTerminalRoute
@@ -123,11 +150,14 @@ export interface FileRouteTypes {
     | '/'
     | '/board'
     | '/machines'
+    | '/agents/$name'
+    | '/agents/new'
     | '/chats/$chatId'
     | '/runs/$runId'
     | '/settings/integrations'
     | '/settings/repositories'
     | '/settings/vault'
+    | '/agents/'
     | '/runs/'
     | '/settings/'
     | '/machines/$nodeId/terminal'
@@ -136,11 +166,14 @@ export interface FileRouteTypes {
     | '/'
     | '/board'
     | '/machines'
+    | '/agents/$name'
+    | '/agents/new'
     | '/chats/$chatId'
     | '/runs/$runId'
     | '/settings/integrations'
     | '/settings/repositories'
     | '/settings/vault'
+    | '/agents'
     | '/runs'
     | '/settings'
     | '/machines/$nodeId/terminal'
@@ -149,11 +182,14 @@ export interface FileRouteTypes {
     | '/'
     | '/board'
     | '/machines'
+    | '/agents/$name'
+    | '/agents/new'
     | '/chats/$chatId'
     | '/runs/$runId'
     | '/settings/integrations'
     | '/settings/repositories'
     | '/settings/vault'
+    | '/agents/'
     | '/runs/'
     | '/settings/'
     | '/machines_/$nodeId/terminal'
@@ -163,11 +199,14 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   BoardRoute: typeof BoardRoute
   MachinesRoute: typeof MachinesRoute
+  AgentsNameRoute: typeof AgentsNameRoute
+  AgentsNewRoute: typeof AgentsNewRoute
   ChatsChatIdRoute: typeof ChatsChatIdRoute
   RunsRunIdRoute: typeof RunsRunIdRoute
   SettingsIntegrationsRoute: typeof SettingsIntegrationsRoute
   SettingsRepositoriesRoute: typeof SettingsRepositoriesRoute
   SettingsVaultRoute: typeof SettingsVaultRoute
+  AgentsIndexRoute: typeof AgentsIndexRoute
   RunsIndexRoute: typeof RunsIndexRoute
   SettingsIndexRoute: typeof SettingsIndexRoute
   MachinesNodeIdTerminalRoute: typeof MachinesNodeIdTerminalRoute
@@ -194,6 +233,27 @@ declare module '@tanstack/react-router' {
       path: '/machines'
       fullPath: '/machines'
       preLoaderRoute: typeof MachinesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/agents/': {
+      id: '/agents/'
+      path: '/agents'
+      fullPath: '/agents/'
+      preLoaderRoute: typeof AgentsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/agents/$name': {
+      id: '/agents/$name'
+      path: '/agents/$name'
+      fullPath: '/agents/$name'
+      preLoaderRoute: typeof AgentsNameRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/agents/new': {
+      id: '/agents/new'
+      path: '/agents/new'
+      fullPath: '/agents/new'
+      preLoaderRoute: typeof AgentsNewRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/chats/$chatId': {
@@ -259,11 +319,14 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   BoardRoute: BoardRoute,
   MachinesRoute: MachinesRoute,
+  AgentsNameRoute: AgentsNameRoute,
+  AgentsNewRoute: AgentsNewRoute,
   ChatsChatIdRoute: ChatsChatIdRoute,
   RunsRunIdRoute: RunsRunIdRoute,
   SettingsIntegrationsRoute: SettingsIntegrationsRoute,
   SettingsRepositoriesRoute: SettingsRepositoriesRoute,
   SettingsVaultRoute: SettingsVaultRoute,
+  AgentsIndexRoute: AgentsIndexRoute,
   RunsIndexRoute: RunsIndexRoute,
   SettingsIndexRoute: SettingsIndexRoute,
   MachinesNodeIdTerminalRoute: MachinesNodeIdTerminalRoute,

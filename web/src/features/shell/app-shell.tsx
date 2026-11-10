@@ -1,5 +1,6 @@
 import { Link } from "@tanstack/react-router"
 import {
+  Bot,
   CircleDashed,
   KanbanSquare,
   ListTree,
@@ -23,7 +24,7 @@ import { useChats } from "./chats"
 
 // The app's frame, as t3code's (MIT, Copyright (c) 2026 T3 Tools Inc., https://github.com/pingdotgg/t3code;
 // components/ui/sidebar.tsx, sidebar/SidebarThreadRow.tsx): a full-height sidebar with the places (a new chat, the
-// board with what waits for the owner, the Runs, the machines) and the chats, and a quiet 52px header over each page. On a phone
+// board with what waits for the owner, the Runs, the agents, the machines) and the chats, and a quiet 52px header over each page. On a phone
 // the sidebar hides; the header's menu leads to the start page, which lists the same places.
 
 // LiveUpdates keeps every page current from the event stream, from the board's cursor.
@@ -68,6 +69,13 @@ export function Places() {
       >
         <ListTree className="size-4" />
         Runs
+      </Link>
+      <Link
+        to="/agents"
+        className={cn(placeClass, "[&.active]:bg-sidebar-row-active [&.active]:text-foreground")}
+      >
+        <Bot className="size-4" />
+        Agents
       </Link>
       <Link
         to="/machines"

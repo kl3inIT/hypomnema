@@ -692,6 +692,16 @@ Node (`internal/node`):
   pasted an owner token that the browser kept in `localStorage`, as OpenClaw's control UI does.
 - The API client is generated from `api/openapi.yaml` by `@hey-api/openapi-ts` into `src/api/generated` (as Omnara;
   its `next` build, since the release needs TypeScript 5's compiler API); `make web-api-check` fails when it is stale.
+- Agents (issue #142, after Omnara's agent profiles, Omnigent's custom agents and OpenMausBot's history; in the
+  main sidebar between Runs and Machines): `/agents` lists the profiles as cards or a table, each with its
+  description, runtime, model, effort, version and whether a worker can start under it now, in words; it is read
+  again every 10 s. `/agents/$name` shows one profile: a builder (the name, which cannot change, the description,
+  the runtime, a model from `GET /models` grouped by provider with its effort, the instructions) and the YAML as
+  text, saved with `PUT /profiles/{name}` as a new version, a refusal shown in the server's words; and its
+  versions, each opening to its source, an earlier one restored by applying its source again. `/agents/new` makes
+  a profile with the same builder. The builder writes the YAML and does not read it back, so YAML edits are
+  discarded, after a question, on the way back to the builder; leaving with unsaved changes asks first. Not there:
+  deleting a profile (the API has none), and a check that nobody else saved meanwhile.
 - Chats with pi (issue #41 PR 4, after Omnara; learned from assistant-ui, ai-elements and pi-web): a list of chats
   beside the open one. A chat follows `GET /chats/{id}/stream`: kept messages, then pi's live frames, reopened after
   the last kept message when the server ends it. pi's thoughts and tools between replies form one line that opens,
