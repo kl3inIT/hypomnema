@@ -58,7 +58,8 @@ func MeasureGPUs(ctx context.Context) []nodeproto.GPUStats {
 	ctx, cancel := context.WithTimeout(ctx, gpuReadTimeout)
 	defer cancel()
 
-	out, err := exec.CommandContext(ctx, path, nvidiaSmiArgs...).Output() //nolint:gosec // G204: the nvidia-smi found on PATH, fixed arguments
+	// The nvidia-smi found on PATH, with fixed arguments.
+	out, err := exec.CommandContext(ctx, path, nvidiaSmiArgs...).Output() //nolint:gosec // G204
 	if err != nil {
 		return nil
 	}
