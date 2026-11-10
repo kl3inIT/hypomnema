@@ -393,6 +393,10 @@ export type GitHost = {
   host: string;
   kind: GitHostKind;
   /**
+   * Whether the owner gave the host a token. Without one a worker uses the logins of the node's own user.
+   */
+  has_token: boolean;
+  /**
    * True for github.com and gitlab.com, which need no declaration.
    */
   known: boolean;
@@ -405,6 +409,13 @@ export type GitHostList = {
 
 export type NewGitHost = {
   kind: GitHostKind;
+};
+
+export type NewGitHostToken = {
+  /**
+   * An access token of the host that can push branches and open pull requests.
+   */
+  token: string;
 };
 
 export type Repo = {
@@ -1397,6 +1408,60 @@ export type PutGitHostResponses = {
 };
 
 export type PutGitHostResponse = PutGitHostResponses[keyof PutGitHostResponses];
+
+export type DeleteGitHostTokenData = {
+  body?: never;
+  path: {
+    host: string;
+  };
+  query?: never;
+  url: '/hosts/{host}/token';
+};
+
+export type DeleteGitHostTokenErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type DeleteGitHostTokenError = DeleteGitHostTokenErrors[keyof DeleteGitHostTokenErrors];
+
+export type DeleteGitHostTokenResponses = {
+  /**
+   * The host, now without a token.
+   */
+  200: GitHost;
+};
+
+export type DeleteGitHostTokenResponse = DeleteGitHostTokenResponses[keyof DeleteGitHostTokenResponses];
+
+export type PutGitHostTokenData = {
+  body: NewGitHostToken;
+  path: {
+    host: string;
+  };
+  query?: never;
+  url: '/hosts/{host}/token';
+};
+
+export type PutGitHostTokenErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type PutGitHostTokenError = PutGitHostTokenErrors[keyof PutGitHostTokenErrors];
+
+export type PutGitHostTokenResponses = {
+  /**
+   * The host, now with a token.
+   */
+  200: GitHost;
+};
+
+export type PutGitHostTokenResponse = PutGitHostTokenResponses[keyof PutGitHostTokenResponses];
 
 export type ListReposData = {
   body?: never;

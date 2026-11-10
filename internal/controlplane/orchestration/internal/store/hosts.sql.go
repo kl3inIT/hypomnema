@@ -10,6 +10,15 @@ import (
 	"database/sql"
 )
 
+const clearGitHostTokenSecret = `-- name: ClearGitHostTokenSecret :exec
+UPDATE git_hosts SET token_secret = NULL WHERE host = ?1
+`
+
+func (q *Queries) ClearGitHostTokenSecret(ctx context.Context, host string) error {
+	_, err := q.db.ExecContext(ctx, clearGitHostTokenSecret, host)
+	return err
+}
+
 const countOpenRunsOnHost = `-- name: CountOpenRunsOnHost :one
 SELECT count(*) FROM runs WHERE status = 'open' AND repo IS NOT NULL AND coalesce(repo_host, 'github.com') = ?1
 `
@@ -57,13 +66,18 @@ func (q *Queries) DeleteRepo(ctx context.Context, name string) (int64, error) {
 }
 
 const getGitHost = `-- name: GetGitHost :one
-SELECT host, kind, created_at FROM git_hosts WHERE host = ?1
+SELECT host, kind, created_at, token_secret FROM git_hosts WHERE host = ?1
 `
 
 func (q *Queries) GetGitHost(ctx context.Context, host string) (GitHost, error) {
 	row := q.db.QueryRowContext(ctx, getGitHost, host)
 	var i GitHost
-	err := row.Scan(&i.Host, &i.Kind, &i.CreatedAt)
+	err := row.Scan(
+		&i.Host,
+		&i.Kind,
+		&i.CreatedAt,
+		&i.TokenSecret,
+	)
 	return i, err
 }
 
@@ -85,7 +99,7 @@ func (q *Queries) GetRepo(ctx context.Context, name string) (Repo, error) {
 }
 
 const listGitHosts = `-- name: ListGitHosts :many
-SELECT host, kind, created_at FROM git_hosts ORDER BY host
+SELECT host, kind, created_at, token_secret FROM git_hosts ORDER BY host
 `
 
 func (q *Queries) ListGitHosts(ctx context.Context) ([]GitHost, error) {
@@ -97,7 +111,12 @@ func (q *Queries) ListGitHosts(ctx context.Context) ([]GitHost, error) {
 	items := []GitHost{}
 	for rows.Next() {
 		var i GitHost
-		if err := rows.Scan(&i.Host, &i.Kind, &i.CreatedAt); err != nil {
+		if err := rows.Scan(
+			&i.Host,
+			&i.Kind,
+			&i.CreatedAt,
+			&i.TokenSecret,
+		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -142,6 +161,29 @@ func (q *Queries) ListRepos(ctx context.Context) ([]Repo, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const setGitHostTokenSecret = `-- name: SetGitHostTokenSecret :exec
+INSERT INTO git_hosts (host, kind, token_secret, created_at) VALUES (?1, ?2, ?3, ?4)
+ON CONFLICT (host) DO UPDATE SET token_secret = excluded.token_secret
+`
+
+type SetGitHostTokenSecretParams struct {
+	Host        string
+	Kind        string
+	TokenSecret sql.NullString
+	Now         int64
+}
+
+// A known host has no row until it gets a token.
+func (q *Queries) SetGitHostTokenSecret(ctx context.Context, arg SetGitHostTokenSecretParams) error {
+	_, err := q.db.ExecContext(ctx, setGitHostTokenSecret,
+		arg.Host,
+		arg.Kind,
+		arg.TokenSecret,
+		arg.Now,
+	)
+	return err
 }
 
 const upsertGitHost = `-- name: UpsertGitHost :exec

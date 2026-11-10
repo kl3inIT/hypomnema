@@ -30,7 +30,12 @@ func hostsList(ctx context.Context, e *env, fs *flag.FlagSet) error {
 				note = "known"
 			}
 
-			e.printf("%s\t%s\t%s\n", h.Host, string(h.Kind), note)
+			token := "no token"
+			if h.HasToken {
+				token = "token"
+			}
+
+			e.printf("%s\t%s\t%s\t%s\n", h.Host, string(h.Kind), note, token)
 		}
 	})
 }
@@ -62,6 +67,50 @@ func hostOf(s string) string {
 	host, _, _ := strings.Cut(s, "/")
 
 	return strings.ToLower(host)
+}
+
+// hostsTokenSet sends a token read from a file. The token is never an
+// argument: arguments show in the shell's history and in the process list.
+func hostsTokenSet(ctx context.Context, e *env, fs *flag.FlagSet) error {
+	host := hostOf(fs.Arg(0))
+
+	file := str(fs, "token-file")
+	if file == "" {
+		return errors.New("pass --token-file with the file holding the token, or - to read it from standard input")
+	}
+
+	token, err := e.read(file)
+	if err != nil {
+		return err
+	}
+
+	token = strings.TrimSpace(token)
+
+	resp, err := e.api.PutGitHostTokenWithResponse(ctx, host, openapi.NewGitHostToken{Token: &token})
+	if err != nil {
+		return fmt.Errorf("keeping the token of %s: %w", host, err)
+	}
+
+	if resp.JSON200 == nil {
+		return apiError("keeping the token of "+host, resp.StatusCode(), resp.JSONDefault)
+	}
+
+	return e.print(fs, resp.JSON200, func() { e.printf("host %s has a token\n", host) })
+}
+
+func hostsTokenRemove(ctx context.Context, e *env, fs *flag.FlagSet) error {
+	host := hostOf(fs.Arg(0))
+
+	resp, err := e.api.DeleteGitHostTokenWithResponse(ctx, host)
+	if err != nil {
+		return fmt.Errorf("forgetting the token of %s: %w", host, err)
+	}
+
+	if resp.JSON200 == nil {
+		return apiError("forgetting the token of "+host, resp.StatusCode(), resp.JSONDefault)
+	}
+
+	return e.print(fs, resp.JSON200, func() { e.printf("host %s has no token\n", host) })
 }
 
 func hostsRemove(ctx context.Context, e *env, fs *flag.FlagSet) error {

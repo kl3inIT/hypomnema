@@ -124,18 +124,21 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 
 	mux := http.NewServeMux()
 	platform.RegisterHealth(mux, sqlite.Ready(db), logger)
-	nodeapi.New(svc, logger).Register(mux)
+	secrets := vault.New(db, platform.SystemClock{}, platform.NewID, cfg.VaultKeys, secretReferrers(svc))
+	tokens := hostTokens{svc: svc, vault: secrets}
+	machineMgr := machineManager(svc, secrets, cfg.PublicURL, logger)
+
+	nodeapi.New(svc, logger).WithHostTokens(tokens.Token).Register(mux)
 	mux.Handle("GET "+nodeapi.PathInstallScript, nodeapi.InstallScript(cfg.PublicURL, cfg.NodeReleaseURL))
 
-	secrets := vault.New(db, platform.SystemClock{}, platform.NewID, cfg.VaultKeys, secretReferrers(svc))
-	machineMgr := machineManager(svc, secrets, cfg.PublicURL, logger)
 	gateway := modelgateway.New(db, platform.SystemClock{}, platform.NewID, gatewayProviders(svc),
 		gatewaySecrets(secrets))
 	modelgateway.NewServer(gateway, logger, modelgateway.Config{}).Register(mux)
 
 	sup := coordinator.New(svc, coordinator.Config{Command: cfg.CoordinatorCommand, Logger: logger})
 
-	api := clientapi.New(svc, logger, ctx.Done()).WithCoordinator(sup).WithNodeRemover(machineMgr.Remove)
+	api := clientapi.New(svc, logger, ctx.Done()).WithCoordinator(sup).WithHostTokens(tokens).
+		WithNodeRemover(machineMgr.Remove)
 	if err := api.Register(mux); err != nil {
 		return err
 	}

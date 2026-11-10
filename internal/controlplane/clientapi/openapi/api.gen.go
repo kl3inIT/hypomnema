@@ -698,9 +698,12 @@ type Evidence struct {
 
 // GitHost defines model for GitHost.
 type GitHost struct {
-	CreatedAt *time.Time  `json:"created_at,omitempty"`
-	Host      string      `json:"host"`
-	Kind      GitHostKind `json:"kind"`
+	CreatedAt *time.Time `json:"created_at,omitempty"`
+
+	// HasToken Whether the owner gave the host a token. Without one a worker uses the logins of the node's own user.
+	HasToken bool        `json:"has_token"`
+	Host     string      `json:"host"`
+	Kind     GitHostKind `json:"kind"`
 
 	// Known True for github.com and gitlab.com, which need no declaration.
 	Known bool `json:"known"`
@@ -746,6 +749,12 @@ type NewChatMessage struct {
 // NewGitHost defines model for NewGitHost.
 type NewGitHost struct {
 	Kind GitHostKind `json:"kind"`
+}
+
+// NewGitHostToken defines model for NewGitHostToken.
+type NewGitHostToken struct {
+	// Token An access token of the host that can push branches and open pull requests.
+	Token *string `json:"token,omitempty"`
 }
 
 // NewNode defines model for NewNode.
@@ -1264,6 +1273,9 @@ type SendChatMessageJSONRequestBody = NewChatMessage
 // PutGitHostJSONRequestBody defines body for PutGitHost for application/json ContentType.
 type PutGitHostJSONRequestBody = NewGitHost
 
+// PutGitHostTokenJSONRequestBody defines body for PutGitHostToken for application/json ContentType.
+type PutGitHostTokenJSONRequestBody = NewGitHostToken
+
 // CreateNodeJSONRequestBody defines body for CreateNode for application/json ContentType.
 type CreateNodeJSONRequestBody = NewNode
 
@@ -1461,6 +1473,29 @@ type ClientInterface interface {
 	//
 	// Corresponds with PUT /hosts/{host} (the `PutGitHost` operationId).
 	PutGitHost(ctx context.Context, host string, body PutGitHostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DeleteGitHostToken Forget a git host's token; only the owner
+	//
+	// Corresponds with DELETE /hosts/{host}/token (the `DeleteGitHostToken` operationId).
+	DeleteGitHostToken(ctx context.Context, host string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PutGitHostTokenWithBody Keep a token for a git host, replacing the one it had; only the owner
+	//
+	// The token goes into the vault and is never returned. A worker of a Run on this host gets it for its git, gh and glab.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PUT /hosts/{host}/token (the `PutGitHostToken` operationId).
+	PutGitHostTokenWithBody(ctx context.Context, host string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PutGitHostToken Keep a token for a git host, replacing the one it had; only the owner
+	//
+	// The token goes into the vault and is never returned. A worker of a Run on this host gets it for its git, gh and glab.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PUT /hosts/{host}/token (the `PutGitHostToken` operationId).
+	PutGitHostToken(ctx context.Context, host string, body PutGitHostTokenJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// GetMe The token making the request
 	//
@@ -1941,6 +1976,59 @@ func (c *Client) PutGitHostWithBody(ctx context.Context, host string, contentTyp
 // Corresponds with PUT /hosts/{host} (the `PutGitHost` operationId).
 func (c *Client) PutGitHost(ctx context.Context, host string, body PutGitHostJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewPutGitHostRequest(c.Server, host, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DeleteGitHostToken Forget a git host's token; only the owner
+//
+// Corresponds with DELETE /hosts/{host}/token (the `DeleteGitHostToken` operationId).
+func (c *Client) DeleteGitHostToken(ctx context.Context, host string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteGitHostTokenRequest(c.Server, host)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PutGitHostTokenWithBody Keep a token for a git host, replacing the one it had; only the owner
+//
+// The token goes into the vault and is never returned. A worker of a Run on this host gets it for its git, gh and glab.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PUT /hosts/{host}/token (the `PutGitHostToken` operationId).
+func (c *Client) PutGitHostTokenWithBody(ctx context.Context, host string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPutGitHostTokenRequestWithBody(c.Server, host, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PutGitHostToken Keep a token for a git host, replacing the one it had; only the owner
+//
+// The token goes into the vault and is never returned. A worker of a Run on this host gets it for its git, gh and glab.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PUT /hosts/{host}/token (the `PutGitHostToken` operationId).
+func (c *Client) PutGitHostToken(ctx context.Context, host string, body PutGitHostTokenJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPutGitHostTokenRequest(c.Server, host, body)
 	if err != nil {
 		return nil, err
 	}
@@ -3314,6 +3402,87 @@ func NewPutGitHostRequestWithBody(server string, host string, contentType string
 	}
 
 	operationPath := fmt.Sprintf("/hosts/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewDeleteGitHostTokenRequest constructs an http.Request for the DeleteGitHostToken method
+func NewDeleteGitHostTokenRequest(server string, host string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "host", host, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/hosts/%s/token", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewPutGitHostTokenRequest calls the generic PutGitHostToken builder with application/json body
+func NewPutGitHostTokenRequest(server string, host string, body PutGitHostTokenJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPutGitHostTokenRequestWithBody(server, host, "application/json", bodyReader)
+}
+
+// NewPutGitHostTokenRequestWithBody constructs an http.Request for the PutGitHostToken method, with any body, and a specified content type
+func NewPutGitHostTokenRequestWithBody(server string, host string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "host", host, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/hosts/%s/token", pathParam0)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -4719,6 +4888,31 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with PUT /hosts/{host} (the `PutGitHost` operationId).
 	PutGitHostWithResponse(ctx context.Context, host string, body PutGitHostJSONRequestBody, reqEditors ...RequestEditorFn) (*PutGitHostResponse, error)
 
+	// DeleteGitHostTokenWithResponse Forget a git host's token; only the owner
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with DELETE /hosts/{host}/token (the `DeleteGitHostToken` operationId).
+	DeleteGitHostTokenWithResponse(ctx context.Context, host string, reqEditors ...RequestEditorFn) (*DeleteGitHostTokenResponse, error)
+
+	// PutGitHostTokenWithBodyWithResponse Keep a token for a git host, replacing the one it had; only the owner
+	//
+	// The token goes into the vault and is never returned. A worker of a Run on this host gets it for its git, gh and glab.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /hosts/{host}/token (the `PutGitHostToken` operationId).
+	PutGitHostTokenWithBodyWithResponse(ctx context.Context, host string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutGitHostTokenResponse, error)
+
+	// PutGitHostTokenWithResponse Keep a token for a git host, replacing the one it had; only the owner
+	//
+	// The token goes into the vault and is never returned. A worker of a Run on this host gets it for its git, gh and glab.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /hosts/{host}/token (the `PutGitHostToken` operationId).
+	PutGitHostTokenWithResponse(ctx context.Context, host string, body PutGitHostTokenJSONRequestBody, reqEditors ...RequestEditorFn) (*PutGitHostTokenResponse, error)
+
 	// GetMeWithResponse The token making the request
 	//
 	// Returns a wrapper object for the known response body format(s).
@@ -5619,6 +5813,102 @@ func (r PutGitHostResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r PutGitHostResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type DeleteGitHostTokenResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *GitHost
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r DeleteGitHostTokenResponse) GetJSON200() *GitHost {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r DeleteGitHostTokenResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r DeleteGitHostTokenResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteGitHostTokenResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteGitHostTokenResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DeleteGitHostTokenResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type PutGitHostTokenResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *GitHost
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r PutGitHostTokenResponse) GetJSON200() *GitHost {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r PutGitHostTokenResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r PutGitHostTokenResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r PutGitHostTokenResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PutGitHostTokenResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r PutGitHostTokenResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -7285,6 +7575,49 @@ func (c *ClientWithResponses) PutGitHostWithResponse(ctx context.Context, host s
 	return ParsePutGitHostResponse(rsp)
 }
 
+// DeleteGitHostTokenWithResponse Forget a git host's token; only the owner
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with DELETE /hosts/{host}/token (the `DeleteGitHostToken` operationId).
+func (c *ClientWithResponses) DeleteGitHostTokenWithResponse(ctx context.Context, host string, reqEditors ...RequestEditorFn) (*DeleteGitHostTokenResponse, error) {
+	rsp, err := c.DeleteGitHostToken(ctx, host, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteGitHostTokenResponse(rsp)
+}
+
+// PutGitHostTokenWithBodyWithResponse Keep a token for a git host, replacing the one it had; only the owner
+//
+// The token goes into the vault and is never returned. A worker of a Run on this host gets it for its git, gh and glab.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /hosts/{host}/token (the `PutGitHostToken` operationId).
+func (c *ClientWithResponses) PutGitHostTokenWithBodyWithResponse(ctx context.Context, host string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutGitHostTokenResponse, error) {
+	rsp, err := c.PutGitHostTokenWithBody(ctx, host, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePutGitHostTokenResponse(rsp)
+}
+
+// PutGitHostTokenWithResponse Keep a token for a git host, replacing the one it had; only the owner
+//
+// The token goes into the vault and is never returned. A worker of a Run on this host gets it for its git, gh and glab.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /hosts/{host}/token (the `PutGitHostToken` operationId).
+func (c *ClientWithResponses) PutGitHostTokenWithResponse(ctx context.Context, host string, body PutGitHostTokenJSONRequestBody, reqEditors ...RequestEditorFn) (*PutGitHostTokenResponse, error) {
+	rsp, err := c.PutGitHostToken(ctx, host, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePutGitHostTokenResponse(rsp)
+}
+
 // GetMeWithResponse The token making the request
 //
 // Returns a wrapper object for the known response body format(s).
@@ -8184,6 +8517,72 @@ func ParsePutGitHostResponse(rsp *http.Response) (*PutGitHostResponse, error) {
 	}
 
 	response := &PutGitHostResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest GitHost
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDeleteGitHostTokenResponse parses an HTTP response from a DeleteGitHostTokenWithResponse call
+func ParseDeleteGitHostTokenResponse(rsp *http.Response) (*DeleteGitHostTokenResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteGitHostTokenResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest GitHost
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePutGitHostTokenResponse parses an HTTP response from a PutGitHostTokenWithResponse call
+func ParsePutGitHostTokenResponse(rsp *http.Response) (*PutGitHostTokenResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PutGitHostTokenResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
@@ -9241,6 +9640,12 @@ type ServerInterface interface {
 	// PutGitHost Declare a company's git server and its kind; only the owner
 	// (PUT /hosts/{host})
 	PutGitHost(w http.ResponseWriter, r *http.Request, host string)
+	// DeleteGitHostToken Forget a git host's token; only the owner
+	// (DELETE /hosts/{host}/token)
+	DeleteGitHostToken(w http.ResponseWriter, r *http.Request, host string)
+	// PutGitHostToken Keep a token for a git host, replacing the one it had; only the owner
+	// (PUT /hosts/{host}/token)
+	PutGitHostToken(w http.ResponseWriter, r *http.Request, host string)
 	// GetMe The token making the request
 	// (GET /me)
 	GetMe(w http.ResponseWriter, r *http.Request)
@@ -9915,6 +10320,58 @@ func (siw *ServerInterfaceWrapper) PutGitHost(w http.ResponseWriter, r *http.Req
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.PutGitHost(w, r, host)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteGitHostToken operation middleware
+func (siw *ServerInterfaceWrapper) DeleteGitHostToken(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "host" -------------
+	var host string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "host", r.PathValue("host"), &host, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "host", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteGitHostToken(w, r, host)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PutGitHostToken operation middleware
+func (siw *ServerInterfaceWrapper) PutGitHostToken(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "host" -------------
+	var host string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "host", r.PathValue("host"), &host, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "host", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PutGitHostToken(w, r, host)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -10904,6 +11361,8 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/hosts", wrapper.ListGitHosts)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/hosts/{host}", wrapper.DeleteGitHost)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/hosts/{host}", wrapper.PutGitHost)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/hosts/{host}/token", wrapper.DeleteGitHostToken)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/hosts/{host}/token", wrapper.PutGitHostToken)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/repos", wrapper.ListRepos)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/repos/{name}", wrapper.DeleteRepo)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/repos/{name}", wrapper.PutRepo)
@@ -11512,6 +11971,85 @@ type PutGitHostdefaultJSONResponse struct {
 }
 
 func (response PutGitHostdefaultJSONResponse) VisitPutGitHostResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteGitHostTokenRequestObject struct {
+	Host string `json:"host"`
+}
+
+type DeleteGitHostTokenResponseObject interface {
+	VisitDeleteGitHostTokenResponse(w http.ResponseWriter) error
+}
+
+type DeleteGitHostToken200JSONResponse GitHost
+
+func (response DeleteGitHostToken200JSONResponse) VisitDeleteGitHostTokenResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteGitHostTokendefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response DeleteGitHostTokendefaultJSONResponse) VisitDeleteGitHostTokenResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutGitHostTokenRequestObject struct {
+	Host string `json:"host"`
+	Body *PutGitHostTokenJSONRequestBody
+}
+
+type PutGitHostTokenResponseObject interface {
+	VisitPutGitHostTokenResponse(w http.ResponseWriter) error
+}
+
+type PutGitHostToken200JSONResponse GitHost
+
+func (response PutGitHostToken200JSONResponse) VisitPutGitHostTokenResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutGitHostTokendefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response PutGitHostTokendefaultJSONResponse) VisitPutGitHostTokenResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -12740,6 +13278,12 @@ type StrictServerInterface interface {
 	// PutGitHost Declare a company's git server and its kind; only the owner
 	// (PUT /hosts/{host})
 	PutGitHost(ctx context.Context, request PutGitHostRequestObject) (PutGitHostResponseObject, error)
+	// DeleteGitHostToken Forget a git host's token; only the owner
+	// (DELETE /hosts/{host}/token)
+	DeleteGitHostToken(ctx context.Context, request DeleteGitHostTokenRequestObject) (DeleteGitHostTokenResponseObject, error)
+	// PutGitHostToken Keep a token for a git host, replacing the one it had; only the owner
+	// (PUT /hosts/{host}/token)
+	PutGitHostToken(ctx context.Context, request PutGitHostTokenRequestObject) (PutGitHostTokenResponseObject, error)
 	// GetMe The token making the request
 	// (GET /me)
 	GetMe(ctx context.Context, request GetMeRequestObject) (GetMeResponseObject, error)
@@ -13246,6 +13790,65 @@ func (sh *strictHandler) PutGitHost(w http.ResponseWriter, r *http.Request, host
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(PutGitHostResponseObject); ok {
 		if err := validResponse.VisitPutGitHostResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteGitHostToken operation middleware
+func (sh *strictHandler) DeleteGitHostToken(w http.ResponseWriter, r *http.Request, host string) {
+	var request DeleteGitHostTokenRequestObject
+
+	request.Host = host
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteGitHostToken(ctx, request.(DeleteGitHostTokenRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteGitHostToken")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteGitHostTokenResponseObject); ok {
+		if err := validResponse.VisitDeleteGitHostTokenResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PutGitHostToken operation middleware
+func (sh *strictHandler) PutGitHostToken(w http.ResponseWriter, r *http.Request, host string) {
+	var request PutGitHostTokenRequestObject
+
+	request.Host = host
+
+	var body PutGitHostTokenJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PutGitHostToken(ctx, request.(PutGitHostTokenRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PutGitHostToken")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PutGitHostTokenResponseObject); ok {
+		if err := validResponse.VisitPutGitHostTokenResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -14074,136 +14677,140 @@ func (sh *strictHandler) ReopenTask(w http.ResponseWriter, r *http.Request, task
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
-	"1w8IPZeB72BOb3bKznkjzrGF3If7/x0A",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

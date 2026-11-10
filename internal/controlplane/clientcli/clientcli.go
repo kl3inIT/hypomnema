@@ -121,18 +121,13 @@ func Command(ctx context.Context, home string, args []string, in io.Reader, out 
 // find returns the command args select and the arguments after its name. A
 // two-word name wins over a one-word one.
 func find(args []string) (*command, []string) {
-	if len(args) >= 2 {
-		for i := range commands {
-			if commands[i].name == args[0]+" "+args[1] {
-				return &commands[i], args[2:]
-			}
-		}
-	}
+	// The longest name wins: "hosts token set" before "hosts token".
+	for n := min(len(args), 3); n >= 1; n-- {
+		name := strings.Join(args[:n], " ")
 
-	if len(args) >= 1 {
 		for i := range commands {
-			if commands[i].name == args[0] {
-				return &commands[i], args[1:]
+			if commands[i].name == name {
+				return &commands[i], args[n:]
 			}
 		}
 	}

@@ -32,6 +32,7 @@ import (
 type plane struct {
 	t       *testing.T
 	svc     *orchestration.Service
+	api     *Server
 	srv     *httptest.Server
 	node    orchestration.Node
 	token   string
@@ -54,7 +55,8 @@ func newPlane(t *testing.T) *plane {
 	require.NoError(t, err)
 
 	mux := http.NewServeMux()
-	New(svc, slog.New(slog.DiscardHandler)).Register(mux)
+	api := New(svc, slog.New(slog.DiscardHandler))
+	api.Register(mux)
 
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
@@ -65,7 +67,7 @@ func newPlane(t *testing.T) *plane {
 	acc, err := svc.AddAccount(t.Context(), "claude", "acct_1")
 	require.NoError(t, err)
 
-	return &plane{t: t, svc: svc, srv: srv, node: n, token: token, account: acc}
+	return &plane{t: t, svc: svc, api: api, srv: srv, node: n, token: token, account: acc}
 }
 
 func (p *plane) hello(token string, claims ...nodeproto.Claim) (int, nodeproto.HelloResponse) {
@@ -285,6 +287,46 @@ func TestDispatchRunsOverTheSocket(t *testing.T) {
 	})
 	require.Equal(t, nodeproto.AckCommitted, ack.Status, ack.Error)
 	assert.Equal(t, orchestration.TaskSucceeded, p.taskStatus(task.ID))
+}
+
+// Scenario: the owner gave github.com a token. The offer of a Task on GitHub
+// carries it, read as the offer is sent; a host without a token, or a control
+// plane that keeps none, sends the offer without one.
+func TestAnOfferCarriesItsHostsToken(t *testing.T) {
+	t.Parallel()
+
+	p := newPlane(t)
+
+	asked := make(chan string, 4)
+	p.api.WithHostTokens(func(_ context.Context, host string) (string, bool) {
+		asked <- host
+
+		return "ghp_for_this_dispatch", host == "github.com"
+	})
+
+	conn := p.connect()
+	p.task()
+
+	var offer nodeproto.Offer
+	require.NoError(t, json.Unmarshal(p.next(conn, nodeproto.TypeOffer).Payload, &offer))
+	assert.Equal(t, "github.com", <-asked)
+	assert.Equal(t, [3]string{"github.com", "github", "ghp_for_this_dispatch"},
+		[3]string{offer.RepoHost, offer.RepoKind, offer.RepoToken})
+
+	stored, err := p.svc.NodePending(t.Context(), p.node.ID)
+	require.NoError(t, err)
+	require.Len(t, stored.Offers, 1)
+	assert.Empty(t, stored.Offers[0].RepoToken, "orchestration never holds the token")
+
+	// Another connection of the node is told again; a host that has no token gives an offer without one.
+	p.api.WithHostTokens(func(context.Context, string) (string, bool) { return "", false })
+
+	again := p.connect()
+
+	var second nodeproto.Offer
+	require.NoError(t, json.Unmarshal(p.next(again, nodeproto.TypeOffer).Payload, &second))
+	assert.Equal(t, offer.DispatchID, second.DispatchID)
+	assert.Empty(t, second.RepoToken)
 }
 
 // Scenario: the node sends a running worker's transcript. Each batch is

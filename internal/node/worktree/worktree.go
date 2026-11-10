@@ -33,12 +33,15 @@ type Source struct {
 	Repo githost.Repo
 	// URL is where git fetches it from.
 	URL string
+	// Env lets git and the host's CLI act with the host's token; empty when
+	// the offer carried none, and the node user's own logins are used.
+	Env []string
 }
 
 // SourceOf is the repository an offer names. An empty host and kind are
 // github.com, as offers were before hosts existed. It refuses a host, a kind or
 // a path that cannot be one, so nothing an offer carries reaches git unchecked.
-func SourceOf(host, kind, path string) (Source, error) {
+func SourceOf(host, kind, path, token string) (Source, error) {
 	if host == "" {
 		host = githost.GitHubHost
 	}
@@ -57,7 +60,7 @@ func SourceOf(host, kind, path string) (Source, error) {
 		return Source{}, err
 	}
 
-	return Source{Repo: repo, URL: adapter.CloneURL(repo)}, nil
+	return Source{Repo: repo, URL: adapter.CloneURL(repo), Env: adapter.Env(repo.Host, token)}, nil
 }
 
 // Branch is the branch a Task's worktree works on.
@@ -85,12 +88,12 @@ func (m Maker) Ensure(ctx context.Context, src Source, base, taskID, path string
 
 	branch := Branch(taskID)
 
-	if git(ctx, mirror, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch) == nil {
+	if git(ctx, mirror, nil, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch) == nil {
 		// A retry: the branch keeps what the earlier attempt committed.
-		return git(ctx, mirror, "worktree", "add", path, branch)
+		return git(ctx, mirror, nil, "worktree", "add", path, branch)
 	}
 
-	return git(ctx, mirror, "worktree", "add", "--no-track", "-b", branch, path, "refs/remotes/origin/"+base)
+	return git(ctx, mirror, nil, "worktree", "add", "--no-track", "-b", branch, path, "refs/remotes/origin/"+base)
 }
 
 // Remove removes a worktree; its branch stays.
@@ -100,7 +103,7 @@ func (m Maker) Remove(ctx context.Context, src Source, path string) error {
 		return os.RemoveAll(path)
 	}
 
-	if err := git(ctx, mirror, "worktree", "remove", "--force", path); err != nil {
+	if err := git(ctx, mirror, nil, "worktree", "remove", "--force", path); err != nil {
 		return errors.Join(err, os.RemoveAll(path))
 	}
 
@@ -138,20 +141,22 @@ func (m Maker) mirror(ctx context.Context, src Source) (string, error) {
 			return "", fmt.Errorf("making %s: %w", filepath.Dir(path), err)
 		}
 
-		if err := git(ctx, "", "clone", "--bare", "--", url, path); err != nil {
+		if err := git(ctx, "", src.Env, "clone", "--bare", "--", url, path); err != nil {
 			return "", err
 		}
 	}
 
 	// Into remote-tracking refs: a branch checked out in a worktree must not be overwritten.
-	if err := git(ctx, path, "fetch", "--prune", "--", url, "+refs/heads/*:refs/remotes/origin/*"); err != nil {
+	if err := git(ctx, path, src.Env, "fetch", "--prune", "--", url, "+refs/heads/*:refs/remotes/origin/*"); err != nil {
 		return "", err
 	}
 
 	return path, nil
 }
 
-func git(ctx context.Context, dir string, args ...string) error {
+// git runs git in dir with env added to the node's own. The error names the
+// arguments and what git printed; a token is in neither, only in env.
+func git(ctx context.Context, dir string, env []string, args ...string) error {
 	if dir != "" {
 		args = append([]string{"-C", dir}, args...)
 	}
@@ -160,7 +165,7 @@ func git(ctx context.Context, dir string, args ...string) error {
 
 	cmd := exec.CommandContext(ctx, "git", args...) //nolint:gosec // git with this package's own subcommands
 	cmd.Stderr = &stderr
-	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0")
+	cmd.Env = append(append(os.Environ(), "GIT_TERMINAL_PROMPT=0"), env...)
 
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))

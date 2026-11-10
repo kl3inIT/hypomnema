@@ -440,6 +440,40 @@ paths:
         "204":
           description: The host is forgotten.
         default: { $ref: "#/components/responses/Error" }
+  /hosts/{host}/token:
+    parameters:
+      - name: host
+        in: path
+        required: true
+        schema: { type: string, minLength: 3, maxLength: 255 }
+    put:
+      operationId: PutGitHostToken
+      summary: Keep a token for a git host, replacing the one it had; only the owner
+      description: >-
+        The token goes into the vault and is never returned. A worker of a Run
+        on this host gets it for its git, gh and glab.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewGitHostToken" }
+      responses:
+        "200":
+          description: The host, now with a token.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GitHost" }
+        default: { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: DeleteGitHostToken
+      summary: Forget a git host's token; only the owner
+      responses:
+        "200":
+          description: The host, now without a token.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GitHost" }
+        default: { $ref: "#/components/responses/Error" }
   /repos:
     get:
       operationId: ListRepos
@@ -1214,10 +1248,15 @@ components:
       enum: [github, gitlab]
     GitHost:
       type: object
-      required: [host, kind, known]
+      required: [host, kind, known, has_token]
       properties:
         host: { type: string }
         kind: { $ref: "#/components/schemas/GitHostKind" }
+        has_token:
+          type: boolean
+          description: >-
+            Whether the owner gave the host a token. Without one a worker uses
+            the logins of the node's own user.
         known:
           type: boolean
           description: True for github.com and gitlab.com, which need no declaration.
@@ -1235,6 +1274,17 @@ components:
       additionalProperties: false
       properties:
         kind: { $ref: "#/components/schemas/GitHostKind" }
+    NewGitHostToken:
+      type: object
+      required: [token]
+      additionalProperties: false
+      properties:
+        token:
+          type: string
+          minLength: 1
+          maxLength: 4096
+          writeOnly: true
+          description: An access token of the host that can push branches and open pull requests.
     Repo:
       type: object
       required: [name, host, path, created_at]

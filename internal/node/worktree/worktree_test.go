@@ -53,7 +53,7 @@ func TestWorktreeIsMadeReusedAndRemade(t *testing.T) {
 	m := Maker{Root: filepath.Join(dir, "node"), URL: filepath.ToSlash(filepath.Join(dir, "origin")) + "/%s"}
 	path := filepath.Join(dir, "wt", "run_1", "tsk_1")
 
-	repo, err := SourceOf("", "", "kl3inIT/second-bite")
+	repo, err := SourceOf("", "", "kl3inIT/second-bite", "")
 	require.NoError(t, err)
 
 	require.NoError(t, m.Ensure(t.Context(), repo, "main", "tsk_1", path))
@@ -86,11 +86,11 @@ func TestWorktreeIsMadeReusedAndRemade(t *testing.T) {
 func TestAnOffersRepositoryIsCheckedBeforeGitSeesIt(t *testing.T) {
 	t.Parallel()
 
-	old, err := SourceOf("", "", "kl3inIT/hypomnema")
+	old, err := SourceOf("", "", "kl3inIT/hypomnema", "")
 	require.NoError(t, err)
 	assert.Equal(t, "https://github.com/kl3inIT/hypomnema.git", old.URL)
 
-	own, err := SourceOf("gitlab.company.example:8443", "gitlab", "team/platform/api")
+	own, err := SourceOf("gitlab.company.example:8443", "gitlab", "team/platform/api", "")
 	require.NoError(t, err)
 	assert.Equal(t, "https://gitlab.company.example:8443/team/platform/api.git", own.URL)
 
@@ -100,6 +100,14 @@ func TestAnOffersRepositoryIsCheckedBeforeGitSeesIt(t *testing.T) {
 		filepath.Join("/srv/node", "repos", "_hosts", "gitlab.company.example_8443", "team", "platform", "api.git"),
 		m.mirrorPath(own.Repo))
 
+	assert.Empty(t, own.Env, "without a token the node user's own logins are used")
+
+	with, err := SourceOf("gitlab.company.example", "gitlab", "team/app", "glpat-x")
+	require.NoError(t, err)
+	assert.Contains(t, with.Env, "GITLAB_TOKEN=glpat-x")
+	assert.Contains(t, with.Env, "GIT_CONFIG_KEY_0=http.https://gitlab.company.example/.extraheader")
+	assert.NotContains(t, with.URL, "glpat-x", "the token is never part of the address")
+
 	for name, bad := range map[string][3]string{
 		"a kind this node does not know": {"bitbucket.org", "bitbucket", "team/app"},
 		"a path that is an option":       {"gitlab.com", "gitlab", "team/--upload-pack=sh"},
@@ -107,7 +115,7 @@ func TestAnOffersRepositoryIsCheckedBeforeGitSeesIt(t *testing.T) {
 		"a host that is not one":         {"gitlab.com/x?y", "gitlab", "team/app"},
 		"no path":                        {"gitlab.com", "gitlab", ""},
 	} {
-		_, err := SourceOf(bad[0], bad[1], bad[2])
+		_, err := SourceOf(bad[0], bad[1], bad[2], "")
 		assert.Error(t, err, name)
 	}
 }
