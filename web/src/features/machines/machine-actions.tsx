@@ -1,4 +1,5 @@
 import { AlertDialog } from "@base-ui/react/alert-dialog"
+import { Dialog } from "@base-ui/react/dialog"
 import { Menu } from "@base-ui/react/menu"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
@@ -6,6 +7,7 @@ import {
   CirclePause,
   CirclePlay,
   Ellipsis,
+  Pencil,
   Power,
   PowerOff,
   SquareTerminal,
@@ -14,7 +16,7 @@ import {
 import { useState } from "react"
 
 import "@/api/client"
-import { drainNode, removeNode, resumeNode } from "@/api/generated/sdk.gen"
+import { drainNode, removeNode, resumeNode, updateNode } from "@/api/generated/sdk.gen"
 import type { Node } from "@/api/generated/types.gen"
 import { Button } from "@/components/ui/button"
 
@@ -32,6 +34,7 @@ const itemClass =
 export function MachineActions({ node }: { node: Node }) {
   const queryClient = useQueryClient()
   const [removing, setRemoving] = useState(false)
+  const [renaming, setRenaming] = useState(false)
   const drained = node.status === "drained"
 
   const toggle = useMutation({
@@ -88,6 +91,10 @@ export function MachineActions({ node }: { node: Node }) {
                   Stop machine
                 </Menu.Item>
               )}
+              <Menu.Item className={itemClass} onClick={() => setRenaming(true)}>
+                <Pencil className="size-4" />
+                Rename
+              </Menu.Item>
               {unreachable === undefined ? (
                 <Menu.Item
                   className={itemClass}
@@ -127,6 +134,7 @@ export function MachineActions({ node }: { node: Node }) {
       </Menu.Root>
 
       <RemoveMachine node={node} open={removing} onOpenChange={setRemoving} />
+      {renaming && <RenameMachine node={node} onClose={() => setRenaming(false)} />}
     </div>
   )
 }
@@ -185,5 +193,66 @@ export function RemoveMachine({
         </AlertDialog.Popup>
       </AlertDialog.Portal>
     </AlertDialog.Root>
+  )
+}
+
+// RenameMachine is the dialog that gives a machine another name, where Beszel's Edit opens its system dialog.
+// Only the name changes: the machine keeps its token and what it runs. A refusal, such as a name another machine
+// has, shows the server's message and keeps the dialog open.
+function RenameMachine({ node, onClose }: { node: Node; onClose: () => void }) {
+  const queryClient = useQueryClient()
+  const [name, setName] = useState(node.name)
+  const rename = useMutation({
+    mutationFn: async () =>
+      await updateNode({ path: { node_id: node.id }, body: { name: name.trim() } }),
+    onSuccess: async () => {
+      onClose()
+      await queryClient.invalidateQueries({ queryKey: nodesKey })
+    },
+  })
+  const unchanged = name.trim() === "" || name.trim() === node.name
+
+  return (
+    <Dialog.Root open onOpenChange={(open) => !open && onClose()}>
+      <Dialog.Portal>
+        <Dialog.Backdrop className="fixed inset-0 z-40 bg-black/60 transition-opacity data-ending-style:opacity-0 data-starting-style:opacity-0" />
+        <Dialog.Popup className="fixed top-1/2 left-1/2 z-50 flex w-[calc(100vw-2rem)] max-w-sm -translate-x-1/2 -translate-y-1/2 flex-col gap-4 rounded-xl border bg-background p-5 text-start font-normal whitespace-normal outline-none">
+          <form
+            className="flex flex-col gap-4"
+            onSubmit={(event) => {
+              event.preventDefault()
+              if (!unchanged) rename.mutate()
+            }}
+          >
+            <Dialog.Title className="text-sm font-medium">Rename {node.name}</Dialog.Title>
+            <label className="flex flex-col gap-1.5 text-sm">
+              Name
+              <input
+                required
+                maxLength={64}
+                autoComplete="off"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+              />
+              <span className="text-xs text-muted-foreground">
+                Only the name changes. The machine keeps its token and what it runs.
+              </span>
+            </label>
+            {rename.error && (
+              <p role="alert" className="text-sm text-destructive">
+                {errorText(rename.error)}
+              </p>
+            )}
+            <div className="flex justify-end gap-2">
+              <Dialog.Close render={<Button variant="outline" />}>Cancel</Dialog.Close>
+              <Button type="submit" disabled={rename.isPending || unchanged}>
+                {rename.isPending ? "Renaming…" : "Rename"}
+              </Button>
+            </div>
+          </form>
+        </Dialog.Popup>
+      </Dialog.Portal>
+    </Dialog.Root>
   )
 }

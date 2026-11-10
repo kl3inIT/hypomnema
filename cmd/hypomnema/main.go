@@ -7,6 +7,7 @@
 //	hypomnema nodes add <name> [--max N]       register a node; prints its token once
 //	hypomnema nodes list
 //	hypomnema nodes drain|resume|rm <node>     stop new work on it, take work again, or remove it
+//	hypomnema nodes rename <node> <new name>   give it another name; nothing else about it changes
 //	hypomnema nodes token add <node> <name>    one more token for a node; printed once
 //	hypomnema nodes token list <node>
 //	hypomnema nodes token revoke <token id>
@@ -66,7 +67,7 @@ import (
 )
 
 var errUsage = errors.New("usage: hypomnema migrate | serve | version | " +
-	"nodes add|list|drain|resume|rm|token | machines providers|create | accounts add|login|list|refresh|rm | " +
+	"nodes add|list|drain|resume|rm|rename|token | machines providers|create | accounts add|login|list|refresh|rm | " +
 	"tokens add|list|revoke | users add|passwd|list | secrets keygen|add|list|rotate|rm|rewrap | gateway models|keys … | login --url URL --token-file FILE | run --repo owner/name <objective> | " +
 	"runs … | tasks … | questions … | whoami | skills get|install | " +
 	"answer <question> <answer> | questions")
