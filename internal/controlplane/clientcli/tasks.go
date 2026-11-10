@@ -283,12 +283,16 @@ func tasksTranscript(ctx context.Context, e *env, fs *flag.FlagSet) error {
 // plain makes text from a worker safe to print on a terminal: a control
 // character other than a newline or a tab is shown as its escape (`\x1b`), so
 // a worker's output cannot move the cursor, recolour or rewrite what the
-// owner reads. JSON output needs none of this: it escapes them itself.
+// owner reads. So are the characters that are not seen but change what is
+// read: format characters (the direction overrides, zero-width marks) and the
+// Unicode line and paragraph separators. JSON output needs none of this: it
+// escapes them itself.
 func plain(s string) string {
 	var b strings.Builder
 
 	for _, r := range s {
-		if r != '\n' && r != '\t' && unicode.IsControl(r) {
+		hidden := unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || r == '\u2028' || r == '\u2029'
+		if r != '\n' && r != '\t' && hidden {
 			b.WriteString(strings.Trim(strconv.QuoteRuneToASCII(r), "'"))
 
 			continue
@@ -327,10 +331,16 @@ func itemLine(it openapi.TranscriptItem) string {
 	case openapi.TranscriptItemKindReasoning:
 		return "(thinking) " + firstLine(val(it.Text))
 	case openapi.TranscriptItemKindNotice:
-		return "! " + val(it.Text)
+		return "! " + continued(val(it.Text))
 	case openapi.TranscriptItemKindMessage:
-		return val(it.Text)
+		return continued(val(it.Text))
 	default:
-		return val(it.Text)
+		return continued(val(it.Text))
 	}
+}
+
+// continued marks every line of a text after its first, so a line a worker
+// wrote inside a message cannot pass for an item of its own (a call, a result).
+func continued(s string) string {
+	return strings.ReplaceAll(strings.TrimRight(s, "\n"), "\n", "\n| ")
 }

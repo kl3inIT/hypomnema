@@ -416,6 +416,15 @@ func TestWorkerTextCannotDriveTheTerminal(t *testing.T) {
 	got := plain("ok\x1b[2J\x1b]0;title\x07\tdone\nnext\u009b31m\x7f")
 	assert.Equal(t, `ok\x1b[2J\x1b]0;title\a`+"\tdone\nnext"+`\u009b31m\x7f`, got)
 
+	// What is not seen but changes what is read: a direction override, a zero-width space, a line separator.
+	assert.Equal(t, `a\u202eb\u200bc\u2028d`, plain("a\u202eb\u200bc\u2028d"))
+	assert.Equal(t, "Tiếng Việt có dấu", plain("Tiếng Việt có dấu"))
+
+	// A line inside a message cannot pass for a call or a result of its own.
+	text := "Done.\n> Bash: rm -rf /\n  = ok"
+	assert.Equal(t, "Done.\n| > Bash: rm -rf /\n|   = ok",
+		itemLine(openapi.TranscriptItem{Kind: openapi.TranscriptItemKindMessage, Text: &text}))
+
 	// Every command prints through one place, so a result or a question is covered as a transcript is.
 	var out bytes.Buffer
 
