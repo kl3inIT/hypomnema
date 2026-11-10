@@ -95,6 +95,7 @@ func sessionSecret(r *http.Request) string {
 }
 
 func cookieFor(c caller, secret string, expires time.Time) *string {
+	//nolint:gosec // G124: Secure follows the connection, as Omnigent's cookie does; plain HTTP is a loopback or a test.
 	cookie := http.Cookie{
 		Name: sessionCookie, Value: secret, Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode,
 		Secure: c.secure, Expires: expires,

@@ -125,7 +125,8 @@ func (s *Service) SetUserPassword(ctx context.Context, name, password string) er
 			return notFound(err, "user", name)
 		}
 
-		if _, err := q.SetUserPassword(ctx, store.SetUserPasswordParams{PasswordHash: hash, Now: now, Name: name}); err != nil {
+		_, err = q.SetUserPassword(ctx, store.SetUserPasswordParams{PasswordHash: hash, Now: now, Name: name})
+		if err != nil {
 			return fmt.Errorf("storing the password of %s: %w", name, err)
 		}
 
