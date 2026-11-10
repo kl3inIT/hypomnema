@@ -21,7 +21,8 @@ import (
 // CLI was logged in on a node, or logged in here (issue #20, step 2): then
 // its tokens are in the vault and the control plane refreshes them.
 
-const accountsUsage = "accounts add <runtime> <label> | accounts login codex [--label L] | accounts list | " +
+const accountsUsage = "accounts add <runtime> <label> | accounts login codex|antigravity [--label L] | " +
+	"accounts list | " +
 	"accounts refresh <account> | accounts rm <account>"
 
 // maxPastedBytes bounds the address the owner pastes to finish a login.
@@ -34,7 +35,8 @@ func newSubscriptions(
 ) *subscription.Service {
 	clock := platform.SystemClock{}
 
-	return subscription.New(svc, secrets, clock, logger, subscription.NewCodex(cfg.CodexIssuer, clock))
+	return subscription.New(svc, secrets, clock, logger,
+		subscription.NewCodex(cfg.CodexIssuer, clock), subscription.NewAntigravity(cfg.Antigravity, clock))
 }
 
 func (o *owner) accounts(ctx context.Context, args []string) error {
@@ -138,6 +140,9 @@ func (o *owner) accountsList(ctx context.Context) error {
 		cooling := ""
 		if a.CoolingUntil != nil {
 			cooling = "cooling until " + a.CoolingUntil.Format(time.RFC3339)
+			if a.CoolingReason != "" {
+				cooling += " (" + a.CoolingReason + ")"
+			}
 		}
 
 		// An account whose CLI was logged in on a node has no more to show.

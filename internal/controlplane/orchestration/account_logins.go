@@ -28,6 +28,8 @@ type AccountLogin struct {
 	ExternalID string
 	Email      string
 	Plan       string
+	// Project is the vendor's project the account works in, when it has one.
+	Project string
 	// Label names the account to the owner; empty means the email.
 	Label string
 }
@@ -66,8 +68,8 @@ func (s *Service) SaveAccountLogin(
 		if err == nil {
 			id = row.ID
 
-			n, err := q.SetAccountIdentity(ctx, store.SetAccountIdentityParams{
-				Now: now, Email: nullString(in.Email), Plan: nullString(in.Plan), ID: id,
+			n, err := q.SetAccountLogin(ctx, store.SetAccountLoginParams{
+				Now: now, Email: nullString(in.Email), Plan: nullString(in.Plan), Project: nullString(in.Project), ID: id,
 			})
 
 			return oneRow(n, err, "account", id)
@@ -81,7 +83,8 @@ func (s *Service) SaveAccountLogin(
 
 		if err := q.InsertLoginAccount(ctx, store.InsertLoginAccountParams{
 			ID: id, Runtime: in.Runtime, Label: in.Label, ExternalID: nullString(in.ExternalID),
-			Email: nullString(in.Email), Plan: nullString(in.Plan), SecretRef: nullString(secretRef(id)), Now: now,
+			Email: nullString(in.Email), Plan: nullString(in.Plan), Project: nullString(in.Project),
+			SecretRef: nullString(secretRef(id)), Now: now,
 		}); err != nil {
 			return fmt.Errorf("%w: inserting account %s/%s: %w", ErrConflict, in.Runtime, in.Label, err)
 		}

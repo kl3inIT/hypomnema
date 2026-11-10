@@ -12,3 +12,13 @@ func (c *Codex) PollWithoutWaiting() {
 		return now
 	}
 }
+
+// PollWithoutWaiting makes the wait for a new project's operation end at once.
+func (a *Antigravity) PollWithoutWaiting() {
+	a.after = func(time.Duration) <-chan time.Time {
+		now := make(chan time.Time)
+		close(now)
+
+		return now
+	}
+}

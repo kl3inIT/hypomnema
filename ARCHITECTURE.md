@@ -220,25 +220,39 @@ Codex CLI; [research](docs/research/2026-11-10-subscription-login-and-refresh.md
 plane, which keeps their tokens fresh. The gateway's Codex provider runs under them (below).
 
 - One `Vendor` per kind of subscription starts a login, exchanges a refresh token and reads who a token set belongs
-  to. Only Codex exists: a device code (a link and a one-time code, 15 minutes), or, when OpenAI offers this client
+  to. Two exist, Codex and Antigravity. Codex: a device code (a link and a one-time code, 15 minutes), or, when OpenAI offers this client
   none, the browser login whose loopback address the owner pastes back, checked against the state and the PKCE
   verifier the control plane kept.
+- Antigravity (after CLIProxyAPI, omp and Google's Gemini CLI;
+  [research](docs/research/2026-11-10-antigravity-subscription-adapter.md)): Google's consent page for the
+  Antigravity IDE's client, whose loopback address the owner pastes back. The login then reads the account's email
+  and finds the Cloud Code project it works in (`loadCodeAssist`), asking Google to make one for the default tier
+  when there is none (`onboardUser`, followed until done); a login with no project fails, and an account Google wants
+  verified first is not created and the owner is given Google's link. The daily Cloud Code host is asked first, then
+  the other. Google is called with the IDE's user agent only, at the version read from the IDE's update manifest
+  (`internal/controlplane/cloudcode`). The client's OAuth secret comes from `HYPOMNEMA_ANTIGRAVITY_CLIENT_SECRET` and
+  is not in the source; without it no Antigravity account can be logged in or refreshed. Antigravity's terms name
+  access through other software as a breach that may end the account; the owner chose to build this knowing it.
+  The gateway's Antigravity provider runs under such an account (below).
 - A login makes an account, or gives new tokens to the account that already has the vendor's id (Codex: the
-  ChatGPT account id, read with the email and the plan from the id token). The tokens are a vault secret of kind
+  ChatGPT account id, read with the email and the plan from the id token; Antigravity: Google's id of the user, with
+  the tier as the plan and the project). The tokens are a vault secret of kind
   `oauth_token_set`, named after the account, with the time the access token ends.
 - `serve` looks every 5 minutes for access tokens that end within the vendor's lead (Codex: 30 minutes) and
-  refreshes them through the vault's `Refresh`. A refusal for good (401, or an error code such as `invalid_grant` or
+  refreshes them through the vault's `Refresh`; Antigravity's lead is 30 minutes too, and Google keeps the refresh
+  token as it is. A refusal for good (401, or an error code such as `invalid_grant` or
   `refresh_token_reused`) marks the account as needing a new login and is not tried again. Any other failure keeps
   the tokens and is tried again after 5 minutes, doubling up to a day; its reason is recorded with the status and
   error code only.
 
 The model gateway (`internal/controlplane/modelgateway`, issue #20,
 [decision](docs/decisions/2026-11-10-model-gateway.md)) serves chat to clients that speak OpenAI's API, from
-OpenAI-compatible providers the owner declares and from the owner's Codex subscription, a built-in provider. Other
-subscriptions, other provider formats and other capabilities do not exist yet.
+OpenAI-compatible providers the owner declares and from two built-in providers, the owner's Codex and Antigravity
+subscriptions. The Claude subscription, other provider formats and other capabilities do not exist yet.
 - A model is a YAML document: a public `name`, a `capability` (`chat`, the only one), and `targets` (a provider and
   the model's name there) in the order tried. Applying a name again replaces it. A target must name a provider of a
-  kind the gateway has an adapter for (`openai_compatible`, `codex_subscription`) and a model that provider offers, so a model that cannot
+  kind the gateway has an adapter for (`openai_compatible`, `codex_subscription`, `antigravity_subscription`) and
+  a model that provider offers, so a model that cannot
   be served is refused when applied.
 - A gateway key (`hyp_gateway_v1_…`, the client tokens' format) is shown once and kept as its SHA-256, with the
   public model names it may use (`*`: every model). It is not a client token: the client API refuses it, and
@@ -288,6 +302,32 @@ subscriptions, other provider formats and other capabilities do not exist yet.
     ends as a cut one.
   - Not built: reasoning carried from one turn to the next, hosted tools (web search, images), the list of models
     read from the backend, a choice among several accounts beyond the first that is free.
+- `antigravity-subscription` (kind `antigravity_subscription`, after six implementations and Google's own client;
+  [research](docs/research/2026-11-10-antigravity-subscription-adapter.md)) serves Gemini, Claude and gpt-oss models
+  from the first Antigravity account that can be used. Antigravity's terms name this use as a breach that may end the
+  account; the owner chose to build it knowing that, and the provider adds nothing to pass for the IDE beyond its
+  user agent: tools keep their names, no tool or prompt is added, no `requestType` is sent.
+  - `modelgateway/antigravity` holds the translation. A chat body becomes
+    `{project, model, userAgent, requestId, request}` with the conversation in Gemini's shape: system messages as
+    the instruction, a tool call as a `functionCall` part and its result as a `functionResponse` part of a user turn
+    with the call's id and name, turns of one role merged, the user speaking first and last. The first call of a
+    model turn carries `skip_thought_signature_validator`, the word Google's own client writes where a thought
+    signature is missing, since a chat client sends none back. Tool schemas are cleaned of what Gemini refuses, and
+    a tool with no parameter gets one. Function names are made to fit and mapped back. A Gemini model's
+    `reasoning_effort` becomes a thinking level; the output limit is capped at 64000.
+  - The call goes to `daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent`, always as a stream, with
+    the account's token and project and the IDE's user agent (`internal/controlplane/cloudcode`).
+  - The backend's chunks become chat chunks: text, thoughts as `reasoning_content`, each tool call whole, then the
+    finish reason and the usage, which counts thought tokens as output.
+  - An account runs at most 3 requests at once; one more gets a 429 at once. A quota that is used up makes that model
+    of that account wait until the reset Google names (half an hour when it names none), a rate limit as long as
+    Google asks; meanwhile the model is not sent to the backend, and other models are. No capacity at Google makes
+    nothing wait. These waits are in memory. A 401 refreshes the tokens once.
+  - An account Google suspended for its terms is taken out of use for a day, one Google wants verified for ten
+    minutes; the cooldown's reason, with Google's link, shows in `accounts list`, and the request is answered 503
+    so the model's next target serves it.
+  - Not built: real thought signatures kept across turns, images by URL, Google search as a tool, the account's own
+    list of models read from the backend, several accounts rotated.
 - Each request served is one row of `gateway_usage`: the key, the model, the target of the last attempt, how many
   were tried, the outcome (`ok`, `upstream_error`, `transport_error`, `truncated`, `client_gone`), the provider's
   status, the duration, and the tokens the provider reported (prompt, completion, cached, reasoning; the largest
@@ -354,7 +394,7 @@ The owner's commands:
     [--option name=value]…`, `machines providers list`, `machines providers rm|check <name>` and
     `machines create <name> --provider P [--region R] [--size S] [--max N]` manage provider machines; a machine
     is removed with `nodes rm`;
-  - `accounts add <runtime> <label>` records an account whose CLI is logged in on a node; `accounts login codex
+  - `accounts add <runtime> <label>` records an account whose CLI is logged in on a node; `accounts login codex|antigravity
     [--label L]` logs a subscription in here, printing a link and a code and waiting, or asking for the pasted
     address; `accounts list` shows each with the state of its tokens; `accounts refresh <account>` and
     `accounts rm <account>` (which removes the tokens too) are for those logged in here;
@@ -598,9 +638,11 @@ internal/node/shim        one worker kept across daemon restarts: journal, input
 internal/node/statedb     the node's SQLite state: Dispatches held and the report outbox
 internal/node/workertools the worker's MCP server: ask and finish
 internal/node/worktree    bare mirrors and git worktrees per Task
+internal/controlplane/cloudcode  what is presented to Google's Cloud Code backend: its hosts, the Antigravity IDE's user agent and version
 internal/controlplane/coordinator  the supervisor of pi, the coordinator: one pi in RPC mode per chat
 internal/controlplane/machines  machines created at a provider: the Provider interface, the AWS (EC2) provider, the first-boot script, create, remove and the pass that settles what is left between
 internal/controlplane/orchestration  Runs, Tasks, Dispatches, Conversations, questions, events, nodes, accounts, machine providers, the scheduler; migrations; queries generated by sqlc (internal/store)
+internal/controlplane/modelgateway/antigravity  the Antigravity subscription's formats: chat to Gemini's shape and back, the schema cleaner
 internal/controlplane/modelgateway/codex  the Codex subscription's formats: chat to Responses and back
 internal/controlplane/subscription  subscription accounts: a vendor's login and refresh, tokens kept in the vault
 internal/shared/githost   git hosts: how a repository is named, and each kind's clone URL, command and links

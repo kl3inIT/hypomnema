@@ -170,7 +170,7 @@ func (q *Queries) DeleteNode(ctx context.Context, arg DeleteNodeParams) (int64, 
 }
 
 const getAccount = `-- name: GetAccount :one
-SELECT id, runtime, label, status, position, created_at, updated_at, external_id, email, "plan", secret_ref, refresh_failures, refresh_retry_at, refresh_error FROM accounts WHERE id = ?1
+SELECT id, runtime, label, status, position, created_at, updated_at, external_id, email, "plan", secret_ref, refresh_failures, refresh_retry_at, refresh_error, project FROM accounts WHERE id = ?1
 `
 
 func (q *Queries) GetAccount(ctx context.Context, id string) (Account, error) {
@@ -191,12 +191,13 @@ func (q *Queries) GetAccount(ctx context.Context, id string) (Account, error) {
 		&i.RefreshFailures,
 		&i.RefreshRetryAt,
 		&i.RefreshError,
+		&i.Project,
 	)
 	return i, err
 }
 
 const getAccountByExternalID = `-- name: GetAccountByExternalID :one
-SELECT id, runtime, label, status, position, created_at, updated_at, external_id, email, "plan", secret_ref, refresh_failures, refresh_retry_at, refresh_error FROM accounts WHERE runtime = ?1 AND external_id = ?2
+SELECT id, runtime, label, status, position, created_at, updated_at, external_id, email, "plan", secret_ref, refresh_failures, refresh_retry_at, refresh_error, project FROM accounts WHERE runtime = ?1 AND external_id = ?2
 `
 
 type GetAccountByExternalIDParams struct {
@@ -222,6 +223,7 @@ func (q *Queries) GetAccountByExternalID(ctx context.Context, arg GetAccountByEx
 		&i.RefreshFailures,
 		&i.RefreshRetryAt,
 		&i.RefreshError,
+		&i.Project,
 	)
 	return i, err
 }
@@ -334,11 +336,11 @@ func (q *Queries) InsertAccount(ctx context.Context, arg InsertAccountParams) er
 }
 
 const insertLoginAccount = `-- name: InsertLoginAccount :exec
-INSERT INTO accounts (id, runtime, label, status, position, external_id, email, plan, secret_ref, created_at,
-                      updated_at)
+INSERT INTO accounts (id, runtime, label, status, position, external_id, email, plan, project, secret_ref,
+                      created_at, updated_at)
 VALUES (?1, ?2, ?3, 'active',
         (SELECT coalesce(max(position), 0) + 1 FROM accounts WHERE runtime = ?2),
-        ?4, ?5, ?6, ?7, ?8, ?8)
+        ?4, ?5, ?6, ?7, ?8, ?9, ?9)
 `
 
 type InsertLoginAccountParams struct {
@@ -348,6 +350,7 @@ type InsertLoginAccountParams struct {
 	ExternalID sql.NullString
 	Email      sql.NullString
 	Plan       sql.NullString
+	Project    sql.NullString
 	SecretRef  sql.NullString
 	Now        int64
 }
@@ -360,6 +363,7 @@ func (q *Queries) InsertLoginAccount(ctx context.Context, arg InsertLoginAccount
 		arg.ExternalID,
 		arg.Email,
 		arg.Plan,
+		arg.Project,
 		arg.SecretRef,
 		arg.Now,
 	)
@@ -444,7 +448,7 @@ func (q *Queries) ListAccountLabelsBySecretRef(ctx context.Context, secretRef sq
 }
 
 const listAccounts = `-- name: ListAccounts :many
-SELECT id, runtime, label, status, position, created_at, updated_at, external_id, email, "plan", secret_ref, refresh_failures, refresh_retry_at, refresh_error FROM accounts ORDER BY runtime, position, id
+SELECT id, runtime, label, status, position, created_at, updated_at, external_id, email, "plan", secret_ref, refresh_failures, refresh_retry_at, refresh_error, project FROM accounts ORDER BY runtime, position, id
 `
 
 func (q *Queries) ListAccounts(ctx context.Context) ([]Account, error) {
@@ -471,6 +475,7 @@ func (q *Queries) ListAccounts(ctx context.Context) ([]Account, error) {
 			&i.RefreshFailures,
 			&i.RefreshRetryAt,
 			&i.RefreshError,
+			&i.Project,
 		); err != nil {
 			return nil, err
 		}
@@ -766,6 +771,33 @@ func (q *Queries) SetAccountIdentity(ctx context.Context, arg SetAccountIdentity
 		arg.Now,
 		arg.Email,
 		arg.Plan,
+		arg.ID,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const setAccountLogin = `-- name: SetAccountLogin :execrows
+UPDATE accounts SET updated_at = ?1, email = ?2, plan = ?3, project = ?4 WHERE id = ?5
+`
+
+type SetAccountLoginParams struct {
+	Now     int64
+	Email   sql.NullString
+	Plan    sql.NullString
+	Project sql.NullString
+	ID      string
+}
+
+// A new login of an account: who it is now, and the project it works in.
+func (q *Queries) SetAccountLogin(ctx context.Context, arg SetAccountLoginParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setAccountLogin,
+		arg.Now,
+		arg.Email,
+		arg.Plan,
+		arg.Project,
 		arg.ID,
 	)
 	if err != nil {

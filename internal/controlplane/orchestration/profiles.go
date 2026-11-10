@@ -37,6 +37,9 @@ const (
 	ProviderOpenAICompatible   = "openai_compatible"
 	ProviderClaudeSubscription = "claude_subscription"
 	ProviderCodexSubscription  = "codex_subscription"
+	// ProviderAntigravitySubscription is served by the model gateway only: no
+	// worker's CLI runs under an Antigravity account.
+	ProviderAntigravitySubscription = "antigravity_subscription"
 )
 
 // runtimeProviders lists, per runtime, the provider kinds it can run against.
@@ -394,7 +397,10 @@ func (s *Service) ApplyProvider(ctx context.Context, name, source string) (Provi
 }
 
 func validProvider(in providerSource) error {
-	kinds := []string{ProviderAnthropic, ProviderOpenAICompatible, ProviderClaudeSubscription, ProviderCodexSubscription}
+	kinds := []string{
+		ProviderAnthropic, ProviderOpenAICompatible, ProviderClaudeSubscription, ProviderCodexSubscription,
+		ProviderAntigravitySubscription,
+	}
 
 	switch {
 	case !namePattern.MatchString(in.Name):

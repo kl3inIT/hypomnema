@@ -106,8 +106,11 @@ func TestOwnerLogsACodexSubscriptionInAndRemovesIt(t *testing.T) {
 
 	assert.NotContains(t, printed.String(), "never-printed")
 
-	_, err = run("accounts", "login", "antigravity")
+	_, err = run("accounts", "login", "claude")
 	require.ErrorIs(t, err, subscription.ErrUnknownVendor)
+
+	_, err = run("accounts", "login", "antigravity")
+	require.ErrorContains(t, err, "HYPOMNEMA_ANTIGRAVITY_CLIENT_SECRET")
 
 	_, err = run("accounts", "login")
 	require.ErrorIs(t, err, ErrUsage)

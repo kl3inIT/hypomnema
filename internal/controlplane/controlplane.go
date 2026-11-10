@@ -20,6 +20,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/nodeapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/subscription"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/webui"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
@@ -57,6 +58,15 @@ type Config struct {
 	// CodexBaseURL is the backend the gateway serves a Codex subscription
 	// from, from HYPOMNEMA_CODEX_BASE_URL; empty: ChatGPT's. Tests name their own.
 	CodexBaseURL string
+	// AntigravityBaseURL is the Cloud Code host the gateway serves an
+	// Antigravity subscription from, from HYPOMNEMA_ANTIGRAVITY_BASE_URL;
+	// empty: Google's daily host. Tests name their own.
+	AntigravityBaseURL string
+	// Antigravity configures the Antigravity login: the OAuth secret of the
+	// IDE's client, from HYPOMNEMA_ANTIGRAVITY_CLIENT_SECRET, which is never
+	// in the source; empty: no Antigravity account can be logged in or
+	// refreshed. Tests set its addresses.
+	Antigravity subscription.AntigravityOptions
 }
 
 // LoadConfig reads the configuration and reports every problem at once.
@@ -67,10 +77,14 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 		Log:      env.Log(envPrefix),
 		Database: sqlite.FromEnv(env, envPrefix),
 
-		PublicURL:      strings.TrimSuffix(env.String(envPrefix+"_PUBLIC_URL", ""), "/"),
-		NodeReleaseURL: env.String(envPrefix+"_NODE_RELEASE_URL", ""),
-		CodexIssuer:    env.String(envPrefix+"_CODEX_ISSUER", ""),
-		CodexBaseURL:   env.String(envPrefix+"_CODEX_BASE_URL", ""),
+		PublicURL:          strings.TrimSuffix(env.String(envPrefix+"_PUBLIC_URL", ""), "/"),
+		NodeReleaseURL:     env.String(envPrefix+"_NODE_RELEASE_URL", ""),
+		CodexIssuer:        env.String(envPrefix+"_CODEX_ISSUER", ""),
+		CodexBaseURL:       env.String(envPrefix+"_CODEX_BASE_URL", ""),
+		AntigravityBaseURL: env.String(envPrefix+"_ANTIGRAVITY_BASE_URL", ""),
+		Antigravity: subscription.AntigravityOptions{
+			ClientSecret: env.String(envPrefix+"_ANTIGRAVITY_CLIENT_SECRET", ""),
+		},
 	}
 
 	var cmdErr error
@@ -144,6 +158,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		gatewaySecrets(secrets))
 	modelgateway.NewServer(gateway, logger, modelgateway.Config{
 		Subscriptions: gatewayAccounts{subs: subscriptions}, CodexBaseURL: cfg.CodexBaseURL,
+		AntigravityBaseURL: cfg.AntigravityBaseURL,
 	}).Register(mux)
 
 	sup := coordinator.New(svc, coordinator.Config{Command: cfg.CoordinatorCommand, Logger: logger})

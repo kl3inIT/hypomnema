@@ -90,3 +90,106 @@ Inference, not read in any reference:
   egress proxy, or keeps today's handing of a token as environment.
 - "Everything the owner can do is a CLI command" is about operating Hypomnema (`hypomnema connectors add`), not
   about how an agent reaches a service.
+
+## Second pass: how an agent calls a service, and what the server must do (2026-11-10)
+
+Asked by the owner after he pointed out that the credential path (a proxy on the node, a vault Session per
+Dispatch) was decided on 2026-11-07 ([conventions](../conventions.md#data-and-security)); the open question is
+CLI or MCP and how they combine. Four sub-agents read; a line marked "(agent)" was not opened again.
+
+### A service usually has a CLI, and the CLI covers more than its MCP server
+
+| Service | CLI | MCP server | Takes a ready token from the environment |
+|---|---|---|---|
+| GitHub, GitLab | `gh`, `glab` | GitHub's hosted server | `GH_TOKEN`, `GITLAB_TOKEN` (in use, PR #90) |
+| Lark / Feishu | `larksuite/cli` (`lark-cli`): official, MIT, "200+ curated commands, 26 AI Agent Skills" (its README) | `larksuite/lark-openapi-mcp`: official, "currently in Beta stage"; no file upload or download, no direct editing of documents (agent) | `LARKSUITE_CLI_TENANT_ACCESS_TOKEN`, `LARKSUITE_CLI_USER_ACCESS_TOKEN` (agent) |
+| Gmail, Drive, Calendar, Docs, Sheets | `googleworkspace/cli` (`gws`): Apache-2.0, "not an officially supported Google product", commands built at run time from Google's Discovery Service, "100+ Agent Skills" (its README). `openclaw/gogcli` (`gog`): MIT, OpenClaw's own | Google-hosted `gmailmcp`, `drivemcp`, `calendarmcp.googleapis.com`, Developer Preview (agent) | `GOOGLE_WORKSPACE_CLI_TOKEN`, "highest priority" (its README) |
+
+- **OpenClaw's bundled skills are almost all a CLI each** (`skills/*/SKILL.md`, `requires.bins`): `gh` (GitHub),
+  `gog` (Google Workspace), `himalaya` (IMAP and SMTP mail), `ntn` (Notion), `obsidian`, `xurl` (X), `op`
+  (1Password), `curl` with `jq` (Trello's REST API), `mcporter` (calls MCP servers from the shell), and
+  `claude`, `codex`, `opencode` as background coding workers. Lark is the exception: tool functions in a plugin.
+- **Hermes' skills** name `gws` (Google Workspace, with its own Python client as the fallback), `himalaya`, `gh`,
+  `xurl`, `obsidian`, and `claude` and `codex` as workers (`skills/**/SKILL.md`).
+- Companion, which uses Google's Gmail MCP server, is limited to six read and draft tools (agent).
+- Lark's own guide for embedding its CLI in a platform compiles a credential provider into a wrapper binary, so
+  the app secret is in the CLI's process on the agent's machine (agent). That is against "workers never hold a raw
+  secret"; the environment token with a placeholder is the form that fits the proxy.
+- Not known until tried: whether `lark-cli` and `gws` honour `HTTPS_PROXY` and a CA bundle; whether Lark's DPoP
+  (on by default "for new local credentials") applies to a token from the environment.
+
+### An MCP server goes through the same proxy
+
+Infisical: "You add the MCP server to your agent with its real URL and no credentials. When the agent connects to
+the server, the proxy attaches the service's credential" (`mcp-servers.mdx`); the proxy also refuses a `tools/call`
+that is not allowed and removes it from `tools/list` (agent). Onyx's proxy parses the JSON-RPC body, makes each
+tool an action with a policy, forwards plumbing methods, and denies what it cannot classify
+(`sandbox_proxy/mcp_jsonrpc.py`, agent). No second gateway is needed for MCP.
+
+### What the server must do for each service (official docs, read by a sub-agent)
+
+| Service | Kept on the server | Minted, and how often | On the wire | Fits a proxy that sets a header |
+|---|---|---|---|---|
+| Lark, as the app | app id and secret | tenant access token, at most 2 h | `Authorization: Bearer` to `open.larksuite.com` / `open.feishu.cn` | Yes |
+| Lark, as a user (mail, own drive, own calendar) | plus the user's refresh token, **single use**: each refresh returns a new one that must be stored | user access token, about 2 h | the same | Yes |
+| Gmail, Drive | OAuth client and refresh token; a project left in "Testing" loses its refresh token after 7 days; `gmail.readonly`, `gmail.modify` and full `drive` are restricted scopes | access token, about 1 h | `Authorization: Bearer`; a send carries the whole message in the body (base64url MIME), so an approval can show it | Yes; uploads are a path on the same host |
+| Microsoft Graph | client and refresh token (90 days, replaced on each use) | access token, 60 to 90 min | `Authorization: Bearer` | Yes, except large uploads: another host, and the header must not be sent |
+| IMAP, SMTP | | | SASL inside a TCP protocol, not HTTP | **No** |
+| GitHub | a fine-grained token, or an App's key for 1 h installation tokens | | Bearer for the API; the token as the password for git over HTTPS | Yes; git needs Basic built from the token (done in PR #90) |
+| GitLab | a project or group token (`api` for merge requests; `write_repository` is git only) | | `PRIVATE-TOKEN` or Bearer; git as above | Yes |
+
+Mail fits the proxy through a provider's HTTP API (Gmail, Graph, Lark Mail), not through IMAP: `himalaya`, which
+OpenClaw and Hermes use, cannot go through it.
+
+### Onyx's proxy, in detail (agent, `backend/onyx/sandbox_proxy/`; MIT, not under an `ee` directory)
+
+- mitmproxy as a library with one addon (`addons/gate.py`, 1418 lines); its own service.
+- Refresh is lazy: at injection, when the token has under 120 s left, under a lock; `invalid_grant` disconnects the
+  App. Their recorded decision: "A scheduled refresh job is not needed".
+- An App is rows of data: URL patterns, a header template (`Authorization: Bearer {access_token}`), and a catalog
+  of actions (`RestRoute(method, path)` with `{name}` segments, or a GraphQL operation). Only headers are set;
+  what the agent sent in that header is overwritten.
+- Ask: the request is held open up to 180 s; an approval row keeps the actions and the request body; the card
+  shows a decoded body (a Gmail send as To, Subject, Body, attachment names); the answers are approve once,
+  approve for the session, reject; after approval the request is evaluated again before the credential is added;
+  every error fails closed. A request to a built-in App that matches no action always asks.
+- A skill a service (`skills/builtin/gmail/`: a 167-line `SKILL.md` and a helper script that sends no
+  `Authorization` header), pushed to the sandbox only for Apps the user has connected.
+- A known issue they list: responses are not scrubbed, so an API that echoes request headers returns the
+  credential.
+- Why not only MCP, in their words: "The proxy sees every request regardless of the tool or language the agent
+  uses, and secrets never enter the sandbox. The cost: the proxy sees all sandbox HTTPS in plaintext."
+
+### Other proxies (agent)
+
+- Infisical: Bearer, Basic or a custom header; placeholder substitution in path, query, headers or body; methods
+  and path prefixes per service; HTTP/1.1 only; no approval of a single request; OAuth refresh only for MCP
+  services.
+- OpenClaw: a placeholder is the secret itself, encrypted (`oc-sent-v2...end`) and bound to exact hosts; the proxy
+  covers only processes the gateway runs: "remote `node` exec receive neither proxy variables nor sentinels".
+- Codex has its own loopback proxy with hooks that inject headers, and a credential masking feature still under
+  development.
+- OpenMausBot holds a send for up to 9 minutes behind an "Ask every time" card; Omnigent parks a tool call on a
+  policy that answers ask, and evaluates again with the reviewed arguments on the retry.
+- Approval of a single call exists in Onyx, OpenMausBot, Omnigent and Codex; not in Infisical or OpenClaw's proxy.
+
+### Agent CLIs (official docs, agent)
+
+- Claude Code honours `HTTPS_PROXY`, `HTTP_PROXY`, `NO_PROXY` and `NODE_EXTRA_CA_CERTS`; no SOCKS. A PreToolUse
+  hook that times out does not block the call, so it is not a gate.
+- An HTTP MCP server is given per run: Claude Code `--mcp-config` with `--strict-mcp-config`; Codex
+  `[mcp_servers.<name>] url`, `-c key=value`; pi `mcp.json` (`packages/coding-agent/docs/mcp.md`).
+- Skills: `~/.claude/skills/<name>/SKILL.md` or the project's `.claude/skills`.
+
+## What follows for Hypomnema (inference)
+
+- An integration is one thing with one credential path (the proxy and a Session) and one or more faces the agent
+  calls it through: a skill with the service's CLI, a skill with the service's HTTP API, or an MCP server. A git
+  host is an integration of this kind.
+- A CLI with its skill is the default face: it exists for the services asked for (git hosts, Lark, Google), covers
+  more than the MCP server does, and its skill is loaded only when used. An MCP server is declared for a service
+  that has nothing better.
+- The control plane does what no agent may: the OAuth flow, storing a rotated refresh token, minting Lark's and
+  GitHub App tokens. The vault's refresh lease (issue #66) is what a single-use refresh token needs.
+- The proxy needs, beyond what the conventions record: an action catalog per integration, an answer of ask that
+  holds the request and shows its decoded body, and the handling of MCP calls by tool.
