@@ -507,6 +507,8 @@ The owner's commands:
 - On the server, with the same database as `serve`:
   - `nodes add <name>` prints the node's token once, and the line that installs the node; `nodes list` shows each node's state, load, CLIs and
     machine; `nodes drain|resume|rm <node>` take the node's id or name;
+  - `nodes rename <node> <new name>` gives a node another name (`PATCH /nodes/{node_id}`, owner only): its id, its
+    tokens and what it runs stay, and the name of another node that is not removed is refused;
   - `nodes token add <node> <name>` prints one more token once; `nodes token list <node>` and
     `nodes token revoke <id>`. A node connected with a revoked token is refused at its next heartbeat;
   - `machines providers add <name> --kind aws --key vault:<secret> --region R --size S [--max N]
@@ -556,7 +558,11 @@ The owner's commands:
   when pi's environment has it.
 - The coordinator skill (`internal/controlplane/clientcli/skills`, after Orca's
   [decision](docs/decisions/2026-11-09-coordinator-cli-and-skill.md)): `skills get hypomnema-coordinator` prints
-  the guide compiled into the binary, `--reference recovery` one reference; `skills install` writes the stub
+  the guide compiled into the binary, `--reference <name>` one reference (`recovery`, `investigate`). The guide
+  says how to choose a profile ([research](docs/research/2026-11-10-coordinator-routing-and-capabilities.md)): by
+  its description, then by runtime (Claude Code for work across many files, Codex for a narrow change); a question
+  that changes nothing goes to `explorer` Tasks; the model is the profile's unless the owner names one; and a
+  profile or model that cannot be served is reported, not replaced. `skills install` writes the stub
   `SKILL.md` to `~/.claude/skills` and `~/.agents/skills`, replacing a copy only when it matches a released stub
   (otherwise only with `--force`, keeping a backup). Tests check that every command in the skill parses and that the
   stub and guide share their frontmatter.
@@ -587,7 +593,7 @@ Node (`internal/node`):
 - Workers (`internal/node/claude`) are Claude Code under a shim (`internal/node/shim`):
   - The daemon starts `hypomnema-node shim --dir run/<dispatch>` in its own session. The shim runs `claude -p` with
     bidirectional stream-JSON and host permission prompts (`--resume` when the Conversation continues, `--model`
-    when set).
+    and `--effort` when set).
   - The worker gets a clean environment: PATH, HOME and the locale, plus the account's token
     (`CLAUDE_CODE_OAUTH_TOKEN`, read from the file named in the node's configuration) and its own
     `CLAUDE_CONFIG_DIR`. The spec holding them is deleted once the worker runs.
@@ -708,8 +714,8 @@ Node (`internal/node`):
   id in its address (`?reconnect=`), so a reload returns to the same shell. A dropped connection is said above
   the terminal and tried again by itself; a shell that ended offers a new session; a node without a terminal has
   the item switched off with the reason. `GET /nodes` is read again every 5 s while the tab is
-  visible, since no event says a measurement changed. A machine's menu drains or resumes it and removes it after a
-  confirmation; a refusal shows the server's message. Where the server has machine providers, "Add machine" first asks where: a machine of the owner's own, or a
+  visible, since no event says a measurement changed. A machine's menu renames it (a dialog that starts from its name; only the
+  name changes), drains or resumes it and removes it after a confirmation; a refusal shows the server's message. Where the server has machine providers, "Add machine" first asks where: a machine of the owner's own, or a
   new one at a provider, shown with its size, region and how many machines it has of its limit; a new one takes
   a size and a region, each the provider's default when left empty, is created at once and needs no token, and a
   provider at its limit creates none. A machine that was not created is removed from its own card, behind the
@@ -858,8 +864,12 @@ and the node in the control plane binary.
   yet. Both tools leave the primitives alone (`web/src/components`: shadcn's components and theme provider).
 - `make web-check`: oxlint, oxfmt, `tsc -b` and vitest for the web client; `make web-e2e`: Playwright on the
   production build, at a phone's and a desktop's size.
-- CI (`.github/workflows/ci.yml`) runs `make verify` and `govulncheck`, and in a second job `make web-check` and
-  `make web-e2e`, on every pull request and on `main`. Chromium for the browser tests is cached by the Playwright
-  version, as t3code's CI does.
+- CI (`.github/workflows/ci.yml`; [research](docs/research/2026-11-10-ci-and-tests.md)) runs on every pull request
+  and on `main`, as jobs side by side: `Static` (`make verify-static` and `govulncheck`), `Unit` (`make unit`),
+  `Race` (`make race`) and `Web` (`make web-check`, `make web-e2e`). Each Go job keeps its own build cache. A first
+  job, `Changes`, finds whether anything but documentation changed (`docs/**`, `*.md`); when nothing did, the four
+  are skipped. A last job, `Required`, passes when none of them failed and is the one check to wait for. Chromium
+  for the browser tests is cached by the Playwright version, as t3code's CI does. `make verify` is still the three
+  Go targets in a row, for a laptop.
 - Dependabot (`.github/dependabot.yml`) proposes updates weekly for the Go modules (`/`, `/tools/ci`), the web
   client, pi (`deploy/coordinator`) and the GitHub Actions, with minor and patch updates grouped.

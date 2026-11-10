@@ -782,7 +782,7 @@ func TestSkillsGetAndInstall(t *testing.T) { //nolint:paralleltest // replaces u
 
 	out, err = w.cmd(t, "skills", "get", "hypomnema-coordinator", "--references")
 	require.NoError(t, err)
-	assert.Equal(t, "recovery\n", out)
+	assert.Equal(t, "investigate\nrecovery\n", out)
 
 	out, err = w.cmd(t, "skills", "get", "hypomnema-coordinator", "--reference", "recovery")
 	require.NoError(t, err)
