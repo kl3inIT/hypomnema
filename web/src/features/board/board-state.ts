@@ -169,9 +169,17 @@ export function pullRequest(task: TaskDetail): { url: string; label: string } | 
   const url = evidenceLink("pull_request", ref)
   if (!url) return undefined
 
-  const n = /\/pull\/(\d+)/.exec(new URL(url).pathname)?.[1]
+  // GitHub's /pull/N and GitLab's /-/merge_requests/N; both are a pull request here (docs/glossary.md).
+  const n = /\/(?:pull|merge_requests)\/(\d+)/.exec(new URL(url).pathname)?.[1]
 
   return { url, label: n ? `PR #${n}` : "PR" }
+}
+
+// repoLabel is a Run's repository as it is shown: its path, with its host in front when that is not github.com.
+export function repoLabel(run: { repo?: string; repo_host?: string }): string {
+  if (!run.repo) return ""
+
+  return run.repo_host && run.repo_host !== "github.com" ? `${run.repo_host}/${run.repo}` : run.repo
 }
 
 // A pull request as a worker reports it (its instructions ask for owner/repo#N): the repositories are GitHub's.

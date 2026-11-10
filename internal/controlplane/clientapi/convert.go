@@ -34,7 +34,8 @@ func val[T any](p *T) T {
 func toRun(r orchestration.Run) openapi.Run {
 	return openapi.Run{
 		Id: r.ID, Objective: r.Objective, Status: openapi.RunStatus(r.Status), CreatedBy: r.CreatedBy,
-		Repo: ptr(r.Repo), Base: ptr(r.Base), CoordinatorTokenId: ptr(r.CoordinatorTokenID), ChatId: ptr(r.ChatID),
+		Repo: ptr(r.Repo), RepoHost: ptr(r.RepoHost), Base: ptr(r.Base),
+		CoordinatorTokenId: ptr(r.CoordinatorTokenID), ChatId: ptr(r.ChatID),
 		CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt, FinishedAt: r.FinishedAt,
 	}
 }

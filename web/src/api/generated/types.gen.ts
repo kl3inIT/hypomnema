@@ -27,9 +27,13 @@ export type Run = {
   status: RunStatus;
   created_by: string;
   /**
-   * The repository workers work in, owner/name.
+   * The path of the repository workers work in on its host; owner/name on github.com.
    */
   repo?: string;
+  /**
+   * The git host the repository is on; present when the Run has a repository.
+   */
+  repo_host?: string;
   base?: string;
   /**
    * The coordinator token that coordinates the Run; absent when the owner created it.
@@ -58,6 +62,9 @@ export type RunList = {
 
 export type NewRun = {
   objective: string;
+  /**
+   * A registered repository's name, owner/name on GitHub, or the URL of a repository on a known host.
+   */
   repo?: string;
   base?: string;
   /**
@@ -322,22 +329,6 @@ export type NodeSystem = {
   disk_bytes?: number;
 };
 
-export type NewNode = {
-  name: string;
-  /**
-   * Dispatches the node runs at once; left out, the default.
-   */
-  max_dispatches?: number;
-};
-
-export type CreatedNode = {
-  node: Node;
-  /**
-   * The node's token. It is shown only here; only its hash is kept.
-   */
-  token: string;
-};
-
 /**
  * The node's latest measurement, sent with its heartbeat. Left out until it has sent one.
  */
@@ -356,6 +347,49 @@ export type NodeStats = {
    */
   load1: number;
   at: string;
+};
+
+export type GitHostKind = 'github' | 'gitlab';
+
+export type GitHost = {
+  host: string;
+  kind: GitHostKind;
+  /**
+   * True for github.com and gitlab.com, which need no declaration.
+   */
+  known: boolean;
+  created_at?: string;
+};
+
+export type GitHostList = {
+  data: Array<GitHost>;
+};
+
+export type NewGitHost = {
+  kind: GitHostKind;
+};
+
+export type Repo = {
+  name: string;
+  host: string;
+  path: string;
+  /**
+   * The branch worktrees start from when a Run names none.
+   */
+  base?: string;
+  created_at: string;
+};
+
+export type RepoList = {
+  data: Array<Repo>;
+};
+
+export type NewRepo = {
+  /**
+   * owner/name on GitHub, or the URL of a repository on a known host.
+   */
+  repo: string;
+  base?: string;
 };
 
 export type NodeList = {
@@ -550,8 +584,6 @@ export type ChatMessageList = {
 export type Name = string;
 
 export type ChatId = string;
-
-export type NodeId = string;
 
 export type RunId = string;
 
@@ -1135,111 +1167,169 @@ export type ListNodesResponses = {
 
 export type ListNodesResponse = ListNodesResponses[keyof ListNodesResponses];
 
-export type CreateNodeData = {
-  body: NewNode;
+export type ListGitHostsData = {
+  body?: never;
   path?: never;
   query?: never;
-  url: '/nodes';
+  url: '/hosts';
 };
 
-export type CreateNodeErrors = {
+export type ListGitHostsErrors = {
   /**
    * An error.
    */
   default: Error;
 };
 
-export type CreateNodeError = CreateNodeErrors[keyof CreateNodeErrors];
+export type ListGitHostsError = ListGitHostsErrors[keyof ListGitHostsErrors];
 
-export type CreateNodeResponses = {
+export type ListGitHostsResponses = {
   /**
-   * The node and its first token.
+   * The hosts.
    */
-  201: CreatedNode;
+  200: GitHostList;
 };
 
-export type CreateNodeResponse = CreateNodeResponses[keyof CreateNodeResponses];
+export type ListGitHostsResponse = ListGitHostsResponses[keyof ListGitHostsResponses];
 
-export type RemoveNodeData = {
+export type DeleteGitHostData = {
   body?: never;
   path: {
-    node_id: string;
+    /**
+     * The host's name, with its port when it has one.
+     */
+    host: string;
   };
   query?: never;
-  url: '/nodes/{node_id}';
+  url: '/hosts/{host}';
 };
 
-export type RemoveNodeErrors = {
+export type DeleteGitHostErrors = {
   /**
    * An error.
    */
   default: Error;
 };
 
-export type RemoveNodeError = RemoveNodeErrors[keyof RemoveNodeErrors];
+export type DeleteGitHostError = DeleteGitHostErrors[keyof DeleteGitHostErrors];
 
-export type RemoveNodeResponses = {
+export type DeleteGitHostResponses = {
   /**
-   * Removed.
+   * The host is forgotten.
    */
   204: void;
 };
 
-export type RemoveNodeResponse = RemoveNodeResponses[keyof RemoveNodeResponses];
+export type DeleteGitHostResponse = DeleteGitHostResponses[keyof DeleteGitHostResponses];
 
-export type DrainNodeData = {
-  body?: never;
+export type PutGitHostData = {
+  body: NewGitHost;
   path: {
-    node_id: string;
+    /**
+     * The host's name, with its port when it has one.
+     */
+    host: string;
   };
   query?: never;
-  url: '/nodes/{node_id}/drain';
+  url: '/hosts/{host}';
 };
 
-export type DrainNodeErrors = {
+export type PutGitHostErrors = {
   /**
    * An error.
    */
   default: Error;
 };
 
-export type DrainNodeError = DrainNodeErrors[keyof DrainNodeErrors];
+export type PutGitHostError = PutGitHostErrors[keyof PutGitHostErrors];
 
-export type DrainNodeResponses = {
+export type PutGitHostResponses = {
   /**
-   * The node.
+   * The host.
    */
-  200: Node;
+  200: GitHost;
 };
 
-export type DrainNodeResponse = DrainNodeResponses[keyof DrainNodeResponses];
+export type PutGitHostResponse = PutGitHostResponses[keyof PutGitHostResponses];
 
-export type ResumeNodeData = {
+export type ListReposData = {
   body?: never;
-  path: {
-    node_id: string;
-  };
+  path?: never;
   query?: never;
-  url: '/nodes/{node_id}/resume';
+  url: '/repos';
 };
 
-export type ResumeNodeErrors = {
+export type ListReposErrors = {
   /**
    * An error.
    */
   default: Error;
 };
 
-export type ResumeNodeError = ResumeNodeErrors[keyof ResumeNodeErrors];
+export type ListReposError = ListReposErrors[keyof ListReposErrors];
 
-export type ResumeNodeResponses = {
+export type ListReposResponses = {
   /**
-   * The node.
+   * The repositories.
    */
-  200: Node;
+  200: RepoList;
 };
 
-export type ResumeNodeResponse = ResumeNodeResponses[keyof ResumeNodeResponses];
+export type ListReposResponse = ListReposResponses[keyof ListReposResponses];
+
+export type DeleteRepoData = {
+  body?: never;
+  path: {
+    name: string;
+  };
+  query?: never;
+  url: '/repos/{name}';
+};
+
+export type DeleteRepoErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type DeleteRepoError = DeleteRepoErrors[keyof DeleteRepoErrors];
+
+export type DeleteRepoResponses = {
+  /**
+   * The repository is forgotten.
+   */
+  204: void;
+};
+
+export type DeleteRepoResponse = DeleteRepoResponses[keyof DeleteRepoResponses];
+
+export type PutRepoData = {
+  body: NewRepo;
+  path: {
+    name: string;
+  };
+  query?: never;
+  url: '/repos/{name}';
+};
+
+export type PutRepoErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type PutRepoError = PutRepoErrors[keyof PutRepoErrors];
+
+export type PutRepoResponses = {
+  /**
+   * The repository.
+   */
+  200: Repo;
+};
+
+export type PutRepoResponse = PutRepoResponses[keyof PutRepoResponses];
 
 export type ListAccountsData = {
   body?: never;

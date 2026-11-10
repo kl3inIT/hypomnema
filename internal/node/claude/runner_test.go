@@ -503,6 +503,12 @@ func TestPromptCarriesTheGateAndTheRecoveryNote(t *testing.T) {
 	assert.Contains(t, p, "branch hyp/tsk_1")
 	assert.Contains(t, p, "gh pr create --base main --head hyp/tsk_1",
 		"gh does not find the branch in a worktree of the mirror without --head")
+	assert.Contains(t, p, "the pull request as its URL", "a URL names the host; owner/repo#N does not")
+
+	d.Offer.RepoHost, d.Offer.RepoKind = "gitlab.company.example", "gitlab"
+	assert.Contains(t, Prompt(d), "glab mr create --target-branch main --source-branch hyp/tsk_1 --yes",
+		"a worker on GitLab opens its request with GitLab's own tool")
+	d.Offer.RepoHost, d.Offer.RepoKind = "", ""
 	assert.Contains(t, p, "outcome is unknown")
 	assert.Contains(t, p, "DECISION GATE RESOLVED. You asked: PR #7 is green. Merge it?\nThe answer: merge")
 	assert.NotContains(t, p, "For this kind of task", "no instruction, no section")

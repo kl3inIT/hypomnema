@@ -4,7 +4,7 @@ import { Link } from "@tanstack/react-router"
 import "@/api/client"
 import { listRuns } from "@/api/generated/sdk.gen"
 import type { Run } from "@/api/generated/types.gen"
-import { firstLine, type Card } from "@/features/board/board-state"
+import { firstLine, repoLabel, type Card } from "@/features/board/board-state"
 import { useBoard } from "@/features/board/use-board"
 import { PageHeader } from "@/features/shell/app-shell"
 import { since } from "@/lib/time"
@@ -92,7 +92,7 @@ function RunRow({ run, cards }: { run: Run; cards?: Card[] }) {
     >
       <span className="truncate text-sm text-foreground/90">{firstLine(run.objective)}</span>
       <span className="flex min-w-0 items-center gap-1.5 text-2xs text-muted-foreground">
-        {run.repo && <span className="truncate font-mono">{run.repo}</span>}
+        {run.repo && <span className="truncate font-mono">{repoLabel(run)}</span>}
         {cards && cards.length > 0 && (
           <span className="shrink-0">
             · {done}/{cards.length} Tasks done

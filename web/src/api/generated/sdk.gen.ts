@@ -2,7 +2,7 @@
 
 import type { Client, ClientMeta, Options as Options2, RequestResult, ServerSentEventsResult, TDataShape } from './client';
 import { client } from './client.gen';
-import type { AbortChatData, AbortChatErrors, AbortChatResponses, AnswerQuestionData, AnswerQuestionErrors, AnswerQuestionResponses, ApplyProfileData, ApplyProfileErrors, ApplyProfileResponses, ApplyProviderData, ApplyProviderErrors, ApplyProviderResponses, CancelRunData, CancelRunErrors, CancelRunResponses, CancelTaskData, CancelTaskErrors, CancelTaskResponses, CreateChatData, CreateChatErrors, CreateChatResponses, CreateNodeData, CreateNodeErrors, CreateNodeResponses, CreateRunData, CreateRunErrors, CreateRunResponses, CreateTasksData, CreateTasksErrors, CreateTasksResponses, DrainNodeData, DrainNodeErrors, DrainNodeResponses, FinishRunData, FinishRunErrors, FinishRunResponses, ForwardQuestionData, ForwardQuestionErrors, ForwardQuestionResponses, GetChatData, GetChatErrors, GetChatResponses, GetMeData, GetMeErrors, GetMeResponses, GetProfileData, GetProfileErrors, GetProfileResponses, GetQuestionData, GetQuestionErrors, GetQuestionResponses, GetRunData, GetRunErrors, GetRunResponses, GetTaskData, GetTaskErrors, GetTaskResponses, ListAccountsData, ListAccountsErrors, ListAccountsResponses, ListChatMessagesData, ListChatMessagesErrors, ListChatMessagesResponses, ListChatsData, ListChatsErrors, ListChatsResponses, ListDispatchItemsData, ListDispatchItemsErrors, ListDispatchItemsResponses, ListEventsData, ListEventsErrors, ListEventsResponses, ListModelsData, ListModelsErrors, ListModelsResponses, ListNodesData, ListNodesErrors, ListNodesResponses, ListProfilesData, ListProfilesErrors, ListProfilesResponses, ListProfileVersionsData, ListProfileVersionsErrors, ListProfileVersionsResponses, ListProvidersData, ListProvidersErrors, ListProvidersResponses, ListQuestionsData, ListQuestionsErrors, ListQuestionsResponses, ListRunsData, ListRunsErrors, ListRunsResponses, ListTasksData, ListTasksErrors, ListTasksResponses, RemoveNodeData, RemoveNodeErrors, RemoveNodeResponses, ReopenTaskData, ReopenTaskErrors, ReopenTaskResponses, ResumeNodeData, ResumeNodeErrors, ResumeNodeResponses, SendChatMessageData, SendChatMessageErrors, SendChatMessageResponses, StreamChatData, StreamChatErrors, StreamChatResponse, StreamChatResponses, StreamEventsData, StreamEventsErrors, StreamEventsResponse, StreamEventsResponses } from './types.gen';
+import type { AbortChatData, AbortChatErrors, AbortChatResponses, AnswerQuestionData, AnswerQuestionErrors, AnswerQuestionResponses, ApplyProfileData, ApplyProfileErrors, ApplyProfileResponses, ApplyProviderData, ApplyProviderErrors, ApplyProviderResponses, CancelRunData, CancelRunErrors, CancelRunResponses, CancelTaskData, CancelTaskErrors, CancelTaskResponses, CreateChatData, CreateChatErrors, CreateChatResponses, CreateRunData, CreateRunErrors, CreateRunResponses, CreateTasksData, CreateTasksErrors, CreateTasksResponses, DeleteGitHostData, DeleteGitHostErrors, DeleteGitHostResponses, DeleteRepoData, DeleteRepoErrors, DeleteRepoResponses, FinishRunData, FinishRunErrors, FinishRunResponses, ForwardQuestionData, ForwardQuestionErrors, ForwardQuestionResponses, GetChatData, GetChatErrors, GetChatResponses, GetMeData, GetMeErrors, GetMeResponses, GetProfileData, GetProfileErrors, GetProfileResponses, GetQuestionData, GetQuestionErrors, GetQuestionResponses, GetRunData, GetRunErrors, GetRunResponses, GetTaskData, GetTaskErrors, GetTaskResponses, ListAccountsData, ListAccountsErrors, ListAccountsResponses, ListChatMessagesData, ListChatMessagesErrors, ListChatMessagesResponses, ListChatsData, ListChatsErrors, ListChatsResponses, ListDispatchItemsData, ListDispatchItemsErrors, ListDispatchItemsResponses, ListEventsData, ListEventsErrors, ListEventsResponses, ListGitHostsData, ListGitHostsErrors, ListGitHostsResponses, ListModelsData, ListModelsErrors, ListModelsResponses, ListNodesData, ListNodesErrors, ListNodesResponses, ListProfilesData, ListProfilesErrors, ListProfilesResponses, ListProfileVersionsData, ListProfileVersionsErrors, ListProfileVersionsResponses, ListProvidersData, ListProvidersErrors, ListProvidersResponses, ListQuestionsData, ListQuestionsErrors, ListQuestionsResponses, ListReposData, ListReposErrors, ListReposResponses, ListRunsData, ListRunsErrors, ListRunsResponses, ListTasksData, ListTasksErrors, ListTasksResponses, PutGitHostData, PutGitHostErrors, PutGitHostResponses, PutRepoData, PutRepoErrors, PutRepoResponses, ReopenTaskData, ReopenTaskErrors, ReopenTaskResponses, SendChatMessageData, SendChatMessageErrors, SendChatMessageResponses, StreamChatData, StreamChatErrors, StreamChatResponse, StreamChatResponses, StreamEventsData, StreamEventsErrors, StreamEventsResponse, StreamEventsResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
   /**
@@ -208,11 +208,29 @@ export const listNodes = <ThrowOnError extends boolean = true>(options?: Options
 });
 
 /**
- * Add a node; its token is in this answer and nowhere else (owner only)
+ * The git hosts a Run can be on; github.com and gitlab.com are always among them
  */
-export const createNode = <ThrowOnError extends boolean = true>(options: Options<CreateNodeData, ThrowOnError>): RequestResult<CreateNodeResponses, CreateNodeErrors, ThrowOnError> => (options.client ?? client).post<CreateNodeResponses, CreateNodeErrors, ThrowOnError>({
+export const listGitHosts = <ThrowOnError extends boolean = true>(options?: Options<ListGitHostsData, ThrowOnError>): RequestResult<ListGitHostsResponses, ListGitHostsErrors, ThrowOnError> => (options?.client ?? client).get<ListGitHostsResponses, ListGitHostsErrors, ThrowOnError>({
   security: [{ scheme: 'bearer', type: 'http' }],
-  url: '/nodes',
+  url: '/hosts',
+  ...options
+});
+
+/**
+ * Forget a declared host; refused while an open Run or a registered repository is on it
+ */
+export const deleteGitHost = <ThrowOnError extends boolean = true>(options: Options<DeleteGitHostData, ThrowOnError>): RequestResult<DeleteGitHostResponses, DeleteGitHostErrors, ThrowOnError> => (options.client ?? client).delete<DeleteGitHostResponses, DeleteGitHostErrors, ThrowOnError>({
+  security: [{ scheme: 'bearer', type: 'http' }],
+  url: '/hosts/{host}',
+  ...options
+});
+
+/**
+ * Declare a company's git server and its kind; only the owner
+ */
+export const putGitHost = <ThrowOnError extends boolean = true>(options: Options<PutGitHostData, ThrowOnError>): RequestResult<PutGitHostResponses, PutGitHostErrors, ThrowOnError> => (options.client ?? client).put<PutGitHostResponses, PutGitHostErrors, ThrowOnError>({
+  security: [{ scheme: 'bearer', type: 'http' }],
+  url: '/hosts/{host}',
   ...options,
   headers: {
     'Content-Type': 'application/json',
@@ -221,30 +239,34 @@ export const createNode = <ThrowOnError extends boolean = true>(options: Options
 });
 
 /**
- * Remove a node that runs no Dispatch; its tokens stop working (owner only)
+ * The repositories registered under a name
  */
-export const removeNode = <ThrowOnError extends boolean = true>(options: Options<RemoveNodeData, ThrowOnError>): RequestResult<RemoveNodeResponses, RemoveNodeErrors, ThrowOnError> => (options.client ?? client).delete<RemoveNodeResponses, RemoveNodeErrors, ThrowOnError>({
+export const listRepos = <ThrowOnError extends boolean = true>(options?: Options<ListReposData, ThrowOnError>): RequestResult<ListReposResponses, ListReposErrors, ThrowOnError> => (options?.client ?? client).get<ListReposResponses, ListReposErrors, ThrowOnError>({
   security: [{ scheme: 'bearer', type: 'http' }],
-  url: '/nodes/{node_id}',
+  url: '/repos',
   ...options
 });
 
 /**
- * Stop new work on a node; what it runs goes on (owner only)
+ * Forget a registered repository; Runs that named it keep their host and path
  */
-export const drainNode = <ThrowOnError extends boolean = true>(options: Options<DrainNodeData, ThrowOnError>): RequestResult<DrainNodeResponses, DrainNodeErrors, ThrowOnError> => (options.client ?? client).post<DrainNodeResponses, DrainNodeErrors, ThrowOnError>({
+export const deleteRepo = <ThrowOnError extends boolean = true>(options: Options<DeleteRepoData, ThrowOnError>): RequestResult<DeleteRepoResponses, DeleteRepoErrors, ThrowOnError> => (options.client ?? client).delete<DeleteRepoResponses, DeleteRepoErrors, ThrowOnError>({
   security: [{ scheme: 'bearer', type: 'http' }],
-  url: '/nodes/{node_id}/drain',
+  url: '/repos/{name}',
   ...options
 });
 
 /**
- * Let a node take new work again (owner only)
+ * Register a repository under a name, or change what the name means; only the owner
  */
-export const resumeNode = <ThrowOnError extends boolean = true>(options: Options<ResumeNodeData, ThrowOnError>): RequestResult<ResumeNodeResponses, ResumeNodeErrors, ThrowOnError> => (options.client ?? client).post<ResumeNodeResponses, ResumeNodeErrors, ThrowOnError>({
+export const putRepo = <ThrowOnError extends boolean = true>(options: Options<PutRepoData, ThrowOnError>): RequestResult<PutRepoResponses, PutRepoErrors, ThrowOnError> => (options.client ?? client).put<PutRepoResponses, PutRepoErrors, ThrowOnError>({
   security: [{ scheme: 'bearer', type: 'http' }],
-  url: '/nodes/{node_id}/resume',
-  ...options
+  url: '/repos/{name}',
+  ...options,
+  headers: {
+    'Content-Type': 'application/json',
+    ...options.headers
+  }
 });
 
 /**

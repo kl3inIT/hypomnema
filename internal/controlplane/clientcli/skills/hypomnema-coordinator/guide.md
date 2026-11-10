@@ -29,6 +29,8 @@ commands to run next. `hypomnema <command> --help` lists a command's flags; a fl
    ```text
    hypomnema runs create --repo <owner/name> --objective-file <file> --key <new key> --json
    ```
+   `--repo` also takes the URL of a repository on GitLab, or a name from `hypomnema repos list --json`. When the
+   create answers that a host is not known, tell the owner the command it names; only the owner declares a host.
 2. Write every Task you already know to a file and create them in one call:
    ```text
    hypomnema tasks create <run_id> --file <tasks.json> --key <new key> --json

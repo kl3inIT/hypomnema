@@ -51,14 +51,16 @@ func Command(ctx context.Context, cfg Config, args []string, stdin io.Reader, st
 	}
 
 	svc := orchestration.New(db, platform.SystemClock{}, platform.NewID)
+	secrets := vault.New(db, platform.SystemClock{}, platform.NewID, cfg.VaultKeys, svc.ProvidersUsingKeyRef)
 	o := &owner{
 		publicURL: cfg.PublicURL,
 
-		svc:     svc,
-		vault:   vault.New(db, platform.SystemClock{}, platform.NewID, cfg.VaultKeys, svc.ProvidersUsingKeyRef),
-		gateway: modelgateway.New(db, platform.SystemClock{}, platform.NewID, gatewayProviders(svc)),
-		in:      stdin,
-		out:     stdout,
+		svc:   svc,
+		vault: secrets,
+		gateway: modelgateway.New(db, platform.SystemClock{}, platform.NewID, gatewayProviders(svc),
+			gatewaySecrets(secrets)),
+		in:  stdin,
+		out: stdout,
 	}
 
 	switch args[0] {

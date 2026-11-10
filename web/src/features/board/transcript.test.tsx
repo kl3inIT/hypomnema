@@ -81,7 +81,8 @@ test("a running worker's transcript shows its last steps, which open", async () 
   await user.click(edit)
   expect(within(log).getByText("- return 404")).toBeInTheDocument()
   expect(within(log).getByText("+ return 200")).toBeInTheDocument()
-})
+  // The first test to draw a message also loads the Markdown renderer, which is slow on a busy machine.
+}, 15_000)
 
 // Scenario: the worker goes on while the owner watches: what the node sends next appears without a reload.
 test("new items appear as they come", async () => {

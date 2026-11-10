@@ -25,6 +25,7 @@
 //	hypomnema gateway models list | rm <name>
 //	hypomnema gateway keys add <name> [--models a,b]   make a gateway key; prints it once
 //	hypomnema gateway keys list | revoke <key id>
+//	hypomnema gateway usage [--limit N]         the latest requests the gateway served
 //
 // Anywhere, over the client API (after login):
 //

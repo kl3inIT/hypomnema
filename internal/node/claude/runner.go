@@ -166,7 +166,12 @@ func (rn *Runner) Start(ctx context.Context, d statedb.Dispatch, r daemon.Report
 	}
 
 	if o.Repo != "" {
-		if err := rn.Worktrees.Ensure(ctx, o.Repo, o.Base, o.TaskID, o.Worktree); err != nil {
+		src, err := worktree.SourceOf(o.RepoHost, o.RepoKind, o.Repo)
+		if err != nil {
+			return err
+		}
+
+		if err := rn.Worktrees.Ensure(ctx, src, o.Base, o.TaskID, o.Worktree); err != nil {
 			return err
 		}
 	} else if err := os.MkdirAll(o.Worktree, 0o700); err != nil {

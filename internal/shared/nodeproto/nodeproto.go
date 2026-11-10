@@ -156,9 +156,14 @@ type Offer struct {
 	RunID      string `json:"run_id"`
 	Profile    string `json:"profile"`
 	// Instruction is the profile's, added to the worker's built-in instructions.
-	Instruction    string `json:"instruction,omitempty"`
-	Spec           string `json:"spec"`
-	Repo           string `json:"repo,omitempty"`
+	Instruction string `json:"instruction,omitempty"`
+	Spec        string `json:"spec"`
+	Repo        string `json:"repo,omitempty"`
+	// RepoHost and RepoKind say where Repo is and how that host is used
+	// (internal/shared/githost); empty from a control plane from before hosts
+	// existed, which means github.com.
+	RepoHost       string `json:"repo_host,omitempty"`
+	RepoKind       string `json:"repo_kind,omitempty"`
 	Base           string `json:"base,omitempty"`
 	ConversationID string `json:"conversation_id"`
 	Worktree       string `json:"worktree"`
