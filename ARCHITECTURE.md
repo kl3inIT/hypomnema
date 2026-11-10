@@ -292,8 +292,12 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       catalog beside `gws` (`internal/shared/agenttool`) and installed and launched the same way. It will not run
       on a token alone, so the agent API's answer also carries the app's id, and the launcher sets
       `LARKSUITE_CLI_TENANT_ACCESS_TOKEN`, `LARKSUITE_CLI_APP_ID` and `LARKSUITE_CLI_BRAND=lark` for it.
-    - It has no skill yet: an agent is told the command is on its PATH and has the tool's own `--help`.
-      Not tried: the launcher with the real `lark-cli` on a node.
+    - **Its skill** (`internal/shared/agenttool/skills/lark`) is one guide, adapted from `lark-cli`'s
+      `lark-shared` skill (MIT): the command is already signed in, acts as the app and never as a person, an
+      empty answer may mean the app was not given the thing, nothing is written without the owner's yes, and
+      `lark-cli auth`, `config`, `profile` and `update` are never run. It has no references of its own: for each
+      kind of work it names the guide `lark-cli` carries itself (`lark-cli skills read lark-doc`), which matches
+      the installed version. It reaches a worker and the coordinator as Google's does.
     - `integrations disconnect lark:work` forgets the Connection and keeps the app's id and secret.
     - Only Lark international (`open.larksuite.com`) is declared; Feishu is not. A person's own sign-in (their
       mail, calendar and drive) is not built: a Connection acts as the app.
