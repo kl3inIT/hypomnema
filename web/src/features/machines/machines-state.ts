@@ -2,11 +2,30 @@ import type { Node } from "@/api/generated/types.gen"
 
 // What the Machines page says about a node, worked out from GET /nodes.
 
-export type MachineState = "online" | "drained" | "offline"
+export type MachineState =
+  | "online"
+  | "drained"
+  | "offline"
+  | "creating"
+  | "create_failed"
+  | "removing"
+  | "remove_failed"
 
-// machineState: a connected node takes work (online) or was drained by the owner; a node that is not connected is
-// offline whatever its status.
+// What a provider's machine is doing, when that says more than its connection: being created, not created, being
+// destroyed, or not destroyed yet.
+const providerStates: Partial<Record<NonNullable<Node["machine"]>["state"], MachineState>> = {
+  provisioning: "creating",
+  provision_failed: "create_failed",
+  deleting: "removing",
+  delete_failed: "remove_failed",
+}
+
+// machineState: a provider's machine that is not ready says where it is; otherwise a connected node takes work
+// (online) or was drained by the owner, and a node that is not connected is offline whatever its status.
 export function machineState(node: Node): MachineState {
+  const provider = node.machine && providerStates[node.machine.state]
+  if (provider) return provider
+
   if (!node.connected) return "offline"
 
   return node.status === "drained" ? "drained" : "online"
@@ -16,6 +35,34 @@ export const stateNames: Record<MachineState, string> = {
   online: "Online",
   drained: "Drained",
   offline: "Offline",
+  creating: "Creating",
+  create_failed: "Not created",
+  removing: "Removing",
+  remove_failed: "Not removed",
+}
+
+// machineNote is what the page says in place of measurements for a provider's machine that is not ready: what is
+// happening and what the owner can do. Undefined for a machine that is ready, or the owner's own.
+export function machineNote(node: Node) {
+  switch (machineState(node)) {
+    case "creating":
+      return "It installs the node itself and comes online about five minutes after it was asked for."
+    case "create_failed":
+      return "Nothing runs for it. Remove it, then add it again."
+    case "removing":
+      return "Its machine is being destroyed at the provider."
+    case "remove_failed":
+      return "Its machine may still run and cost money. Destroying it is tried again until it works."
+    default:
+      return undefined
+  }
+}
+
+// machineProblem is why a provider's machine was not created or not destroyed, in the provider's words.
+export function machineProblem(node: Node) {
+  const state = machineState(node)
+
+  return state === "create_failed" || state === "remove_failed" ? node.machine?.error : undefined
 }
 
 export type MeterTone = "good" | "warn" | "crit"
@@ -65,10 +112,10 @@ export function usedOfTotal(used: number | undefined, total: number | undefined)
 
 // summary counts the machines by state, leaving out a state no machine is in: "3 online · 1 offline".
 export function summary(nodes: Node[]) {
-  return (["online", "drained", "offline"] as const)
+  return (Object.keys(stateNames) as MachineState[])
     .map((state) => ({ state, count: nodes.filter((n) => machineState(n) === state).length }))
     .filter((s) => s.count > 0)
-    .map((s) => `${s.count} ${s.state}`)
+    .map((s) => `${s.count} ${stateNames[s.state].toLowerCase()}`)
     .join(" · ")
 }
 

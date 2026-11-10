@@ -3,11 +3,13 @@ package machines
 import (
 	"context"
 	"encoding/base64"
+	"fmt"
 	"testing"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/aws/smithy-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -22,6 +24,7 @@ type fakeEC2 struct {
 	imageIn    *ec2.DescribeImagesInput
 	listIn     []*ec2.DescribeInstancesInput
 	runs       []*ec2.RunInstancesInput
+	runErr     error
 	terminated []string
 }
 
@@ -42,6 +45,10 @@ func (f *fakeEC2) DescribeImages(_ context.Context, in *ec2.DescribeImagesInput,
 func (f *fakeEC2) RunInstances(_ context.Context, in *ec2.RunInstancesInput, _ ...func(*ec2.Options),
 ) (*ec2.RunInstancesOutput, error) {
 	f.runs = append(f.runs, in)
+
+	if f.runErr != nil {
+		return nil, f.runErr
+	}
 
 	return &ec2.RunInstancesOutput{Instances: []types.Instance{{InstanceId: aws.String("i-new")}}}, nil
 }
@@ -174,6 +181,26 @@ func TestAWSCreateTakesUpAnInstanceItAlreadyMade(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "i-first", id)
 	assert.Empty(t, f.runs)
+}
+
+// Scenario: AWS refuses the instance. The reason kept for the owner is AWS's
+// code and message, not the SDK's operation, status and request id.
+func TestAWSRefusalIsToldInAWSsWords(t *testing.T) {
+	t.Parallel()
+
+	f := &fakeEC2{
+		images: []types.Image{{ImageId: aws.String("ami-1"), CreationDate: aws.String("2026-10-20T00:00:00.000Z")}},
+		runErr: &smithy.OperationError{
+			ServiceID: "EC2", OperationName: "RunInstances",
+			Err: fmt.Errorf("https response error StatusCode: 400, RequestID: 5f1c, %w", &smithy.GenericAPIError{
+				Code: "VcpuLimitExceeded", Message: "You have requested more vCPU capacity than your limit allows.",
+			}),
+		},
+	}
+
+	_, err := newTestAWS(t, f, nil).Create(t.Context(), spec)
+	require.EqualError(t, err,
+		"creating the instance: VcpuLimitExceeded: You have requested more vCPU capacity than your limit allows.")
 }
 
 // Scenario: a node's machine is destroyed. Only instances this provider

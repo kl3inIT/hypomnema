@@ -25,6 +25,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/coordinator"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/machines"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 )
 
@@ -48,8 +49,8 @@ type Server struct {
 	heartbeat time.Duration
 	// coordinator reports whether pi works on a chat; nil when none runs.
 	coordinator Coordinator
-	// removeNode removes a node; a provider's machine is destroyed with it.
-	removeNode func(ctx context.Context, nodeID string) error
+	// machines creates and removes provider machines; nil when the control plane wired none.
+	machines Machines
 	// hostTokens keeps git hosts' tokens; nil when the control plane wired none.
 	hostTokens HostTokens
 }
@@ -91,13 +92,21 @@ func (s *Server) WithCoordinator(c Coordinator) *Server {
 // New returns a Server. Long requests end when stop is closed, so a shutdown
 // does not wait for them.
 func New(svc *orchestration.Service, logger *slog.Logger, stop <-chan struct{}) *Server {
-	return &Server{svc: svc, logger: logger, stop: stop, heartbeat: heartbeatEvery, removeNode: svc.RemoveNode}
+	return &Server{svc: svc, logger: logger, stop: stop, heartbeat: heartbeatEvery}
 }
 
-// WithNodeRemover sets how a node is removed, for the control plane that
-// also destroys a provider's machine.
-func (s *Server) WithNodeRemover(remove func(ctx context.Context, nodeID string) error) *Server {
-	s.removeNode = remove
+// Machines is what the API asks of the manager of provider machines.
+type Machines interface {
+	// Create asks a provider for a machine. A node returned with an error is
+	// listed as failed, with the reason.
+	Create(ctx context.Context, n machines.NewMachine) (orchestration.Node, error)
+	// Remove removes any node; a provider's machine is destroyed with it.
+	Remove(ctx context.Context, nodeID string) error
+}
+
+// WithMachines sets the manager of provider machines.
+func (s *Server) WithMachines(m Machines) *Server {
+	s.machines = m
 
 	return s
 }

@@ -351,7 +351,9 @@ paths:
         default: { $ref: "#/components/responses/Error" }
     post:
       operationId: CreateNode
-      summary: Add a node; its token is in this answer and nowhere else (owner only)
+      summary: >-
+        Add a node (owner only). Without a provider its token is in this answer and nowhere else; with one, a
+        machine is created at the provider and installs the node itself
       requestBody:
         required: true
         content:
@@ -363,6 +365,17 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/CreatedNode" }
+        default: { $ref: "#/components/responses/Error" }
+  /machine-providers:
+    get:
+      operationId: ListMachineProviders
+      summary: The providers a machine can be created at (owner only)
+      responses:
+        "200":
+          description: The machine providers, by name. None holds a secret.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MachineProviderList" }
         default: { $ref: "#/components/responses/Error" }
   /nodes/{node_id}:
     parameters:
@@ -1224,14 +1237,59 @@ components:
           minimum: 1
           maximum: 64
           description: Dispatches the node runs at once; left out, the default.
+        provider:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: >-
+            A machine provider's name. With it a machine is created at the provider; left out, the owner
+            installs the node on a machine of their own.
+        region:
+          type: string
+          maxLength: 64
+          description: With a provider, where the machine is; left out, the provider's default.
+        size:
+          type: string
+          maxLength: 64
+          description: With a provider, the machine's size; left out, the provider's default.
     CreatedNode:
       type: object
-      required: [node, token]
+      required: [node]
       properties:
         node: { $ref: "#/components/schemas/Node" }
         token:
           type: string
-          description: The node's token. It is shown only here; only its hash is kept.
+          description: >-
+            The node's token, for a node the owner installs. It is shown only here; only its hash is kept. Left
+            out for a provider's machine, which gets its token at first boot.
+    MachineProvider:
+      type: object
+      required: [id, name, kind, region, size, max_machines, machines]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        kind:
+          type: string
+          enum: [aws]
+        region:
+          type: string
+          description: The region a machine gets when none is named.
+        size:
+          type: string
+          description: The size a machine gets when none is named.
+        max_machines:
+          type: integer
+          description: How many of its machines may exist at once.
+        machines:
+          type: integer
+          description: Its machines that have not been removed.
+    MachineProviderList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/MachineProvider" }
     NodeStats:
       type: object
       description: The node's latest measurement, sent with its heartbeat. Left out until it has sent one.

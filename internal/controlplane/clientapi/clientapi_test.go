@@ -30,6 +30,8 @@ import (
 type world struct {
 	t   *testing.T
 	svc *orchestration.Service
+	// srv is the server under test, for a test that wires more into it.
+	srv *Server
 	url string
 	// stop is the server's shutdown signal.
 	stop chan struct{}
@@ -67,7 +69,7 @@ func newWorld(t *testing.T) *world {
 		}
 	})
 
-	return &world{t: t, svc: svc, url: hs.URL, stop: stop, workers: map[string]*worker{}, pi: pi}
+	return &world{t: t, svc: svc, srv: srv, url: hs.URL, stop: stop, workers: map[string]*worker{}, pi: pi}
 }
 
 // token adds a token and returns a client that sends it.
@@ -962,7 +964,9 @@ func TestOnlyTheOwnerChangesNodes(t *testing.T) {
 	require.Equal(t, http.StatusCreated, created.StatusCode(), string(created.Body))
 	assert.Equal(t, 3, created.JSON201.Node.MaxDispatches)
 
-	node, err := w.svc.AuthenticateNode(ctx, created.JSON201.Token)
+	require.NotNil(t, created.JSON201.Token)
+
+	node, err := w.svc.AuthenticateNode(ctx, *created.JSON201.Token)
 	require.NoError(t, err)
 	assert.Equal(t, created.JSON201.Node.Id, node.ID)
 

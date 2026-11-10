@@ -112,8 +112,8 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     failed, and a due destroy is tried again. Nothing is created or destroyed without the owner asking.
   - `machines providers check <name>` proves the key works and lists the provider's machines that no node stands
     for; it runs when asked, not on a timer, and destroys nothing.
-  - Not built: creating a machine from the web or the client API (the CLI only), other providers, and delivering
-    the CLIs' logins and git's credentials to a new machine, which the owner still sets on it once.
+  - Not built: other providers, choosing a region or size on the web (the API and the CLI take them), and
+    delivering the CLIs' logins to a new machine, which the owner still sets on it once.
 - Chats (`orchestration/chats.go`, issue #41 PR 3, after Omnara;
   [research](docs/research/2026-11-09-chat-storage.md)): the owner's conversations with pi. Every message is kept
   (`owner`, `coordinator`, `tool`, `system`; replies and tools with JSON `parts`); owner messages and wake-ups wait
@@ -328,7 +328,10 @@ Client API (`internal/controlplane/clientapi`, contract `api/openapi.yaml`, afte
   event's seq to follow the stream from); read a worker's transcript (`GET /dispatches/{id}/items`: the items after a
   seq, or the newest ones before a seq, 100 a page; it can wait up to 50 s for the next item); list, show, answer
   and forward questions; list events; list nodes and accounts; add a node (`POST /nodes`, which answers with
-  its token once), drain, resume and remove one (owner only; removing a node that still runs a Dispatch is a 409).
+  its token once; with a `provider` it creates a machine there instead and answers with no token, and a create the
+  provider refused is answered as the failed node), list the machine providers with how many machines each has
+  (`GET /machine-providers`), drain, resume and remove a node (owner only; removing a node that still runs a
+  Dispatch is a 409).
   Creating a Run or Tasks takes an `Idempotency-Key`.
   A Dispatch carries `activity`, one line about the newest thing its worker said or did.
 - Events: a page after a cursor, which can wait up to 50 s for the next event (`wait`) instead of polling; and a
@@ -515,9 +518,14 @@ Node (`internal/node`):
   default) or a Table, both from one column definition; the choice is kept in `localStorage`. A machine shows its
   state (Online, Drained, or Offline with when it was last seen), meters for CPU, memory and disk that turn amber
   from 65 % and red from 90 % and are grey while it is not connected, its load average, its Dispatches against its
-  limit, its runtimes and its daemon version and platform. `GET /nodes` is read again every 5 s while the tab is
+  limit, its runtimes, its daemon version and platform, and its source: "Your own", or the size and region of a
+  machine created at a provider. Such a machine that is not ready says Creating, Not created, Removing or Not
+  removed instead, with the provider's reason for a failure. `GET /nodes` is read again every 5 s while the tab is
   visible, since no event says a measurement changed. A machine's menu drains or resumes it and removes it after a
-  confirmation; a refusal shows the server's message. "Add machine" takes a name and an optional limit, then shows
+  confirmation; a refusal shows the server's message. Where the server has machine providers, "Add machine" first asks where: a machine of the owner's own, or a
+  new one at a provider, shown with its size, region and how many machines it has of its limit; a new one is
+  created at once and needs no token, and a provider at its limit creates none. For a machine of the owner's own,
+  "Add machine" takes a name and an optional limit, then shows
   the node's token and the install line once, each with a copy button; the token is kept only while that dialog is
   open.
 - Settings (issue #44): one "Settings" entry at the sidebar's foot leads to `/settings`, where the sidebar's body

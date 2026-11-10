@@ -361,14 +361,52 @@ export type NewNode = {
    * Dispatches the node runs at once; left out, the default.
    */
   max_dispatches?: number;
+  /**
+   * A machine provider's name. With it a machine is created at the provider; left out, the owner installs the node on a machine of their own.
+   */
+  provider?: string;
+  /**
+   * With a provider, where the machine is; left out, the provider's default.
+   */
+  region?: string;
+  /**
+   * With a provider, the machine's size; left out, the provider's default.
+   */
+  size?: string;
 };
 
 export type CreatedNode = {
   node: Node;
   /**
-   * The node's token. It is shown only here; only its hash is kept.
+   * The node's token, for a node the owner installs. It is shown only here; only its hash is kept. Left out for a provider's machine, which gets its token at first boot.
    */
-  token: string;
+  token?: string;
+};
+
+export type MachineProvider = {
+  id: string;
+  name: string;
+  kind: 'aws';
+  /**
+   * The region a machine gets when none is named.
+   */
+  region: string;
+  /**
+   * The size a machine gets when none is named.
+   */
+  size: string;
+  /**
+   * How many of its machines may exist at once.
+   */
+  max_machines: number;
+  /**
+   * Its machines that have not been removed.
+   */
+  machines: number;
+};
+
+export type MachineProviderList = {
+  data: Array<MachineProvider>;
 };
 
 /**
@@ -1246,6 +1284,31 @@ export type CreateNodeResponses = {
 };
 
 export type CreateNodeResponse = CreateNodeResponses[keyof CreateNodeResponses];
+
+export type ListMachineProvidersData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/machine-providers';
+};
+
+export type ListMachineProvidersErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListMachineProvidersError = ListMachineProvidersErrors[keyof ListMachineProvidersErrors];
+
+export type ListMachineProvidersResponses = {
+  /**
+   * The machine providers, by name. None holds a secret.
+   */
+  200: MachineProviderList;
+};
+
+export type ListMachineProvidersResponse = ListMachineProvidersResponses[keyof ListMachineProvidersResponses];
 
 export type RemoveNodeData = {
   body?: never;

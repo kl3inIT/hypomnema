@@ -92,7 +92,9 @@ export function MachineActions({ node }: { node: Node }) {
               Remove {node.name}?
             </AlertDialog.Title>
             <AlertDialog.Description className="text-sm text-muted-foreground">
-              Its tokens stop working and it can take no more work. This cannot be undone.
+              {node.machine
+                ? "Its machine is destroyed at the provider, with everything on it. This cannot be undone."
+                : "Its tokens stop working and it can take no more work. This cannot be undone."}
             </AlertDialog.Description>
             {remove.error && (
               <p role="alert" className="text-sm text-destructive">
