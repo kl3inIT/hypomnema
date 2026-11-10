@@ -105,6 +105,9 @@ type SystemStats struct {
 // Heartbeat is the node's heartbeat. A node that measures nothing sends none.
 type Heartbeat struct {
 	Stats *SystemStats `json:"stats,omitempty"`
+	// Reaches lists the git hosts the node reached when it last tried, of
+	// those the control plane named. Nil is a node that has not tried yet.
+	Reaches *[]string `json:"reaches,omitempty"`
 }
 
 // Claim is a Dispatch the node still holds when it connects.
@@ -141,11 +144,16 @@ type HelloResponse struct {
 	NodeID           string        `json:"node_id"`
 	Dispositions     []Disposition `json:"dispositions"`
 	HeartbeatAfterMs int64         `json:"heartbeat_after_ms"`
+	// GitHosts are the git hosts the control plane knows; the node tries each
+	// and says in its heartbeat which it reaches.
+	GitHosts []string `json:"git_hosts,omitempty"`
 }
 
 // HeartbeatAck answers a heartbeat with the interval to the next one.
 type HeartbeatAck struct {
 	HeartbeatAfterMs int64 `json:"heartbeat_after_ms"`
+	// GitHosts are the git hosts the control plane knows now.
+	GitHosts []string `json:"git_hosts,omitempty"`
 }
 
 // Offer is a queued Dispatch for the node, with what it needs to prepare it.

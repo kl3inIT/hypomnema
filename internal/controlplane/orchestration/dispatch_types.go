@@ -275,6 +275,8 @@ const (
 const (
 	ReasonNoNode    = "no_node"
 	ReasonNoAccount = "no_account"
+	// ReasonNoNodeReaches is followed by the git host: "no_node_reaches:gitlab.company.example".
+	ReasonNoNodeReaches = "no_node_reaches:"
 )
 
 // Escalation is one thing the reaper or the scheduler found.

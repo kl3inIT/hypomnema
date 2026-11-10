@@ -57,21 +57,49 @@ type upstream struct {
 	APIKey   string
 }
 
-// chatAdapter builds the request a kind of provider takes for a chat body in
-// OpenAI's format. One exists per provider kind; a kind whose format differs
-// will translate here.
+// chatCall is one chat request on its way to one upstream.
+type chatCall struct {
+	upstream upstream
+	// req is the client's request.
+	req chatRequest
+	// keyID is the gateway key the client used.
+	keyID string
+	// model is the name the client knows the model by.
+	model string
+}
+
+// chatAdapter serves a chat request from one kind of provider and answers in
+// OpenAI's chat format, whatever the provider speaks: the status and the body
+// of what it returns are what the client gets, a stream as OpenAI's chunks.
+// One exists per provider kind. A kind that is data only (openai_compatible)
+// passes both ways through; a built-in kind translates and handles what is
+// specific to its vendor.
 type chatAdapter interface {
-	request(ctx context.Context, u upstream, body []byte, stream bool) (*http.Request, error)
+	// declared says the provider names a base URL and a key of its own.
+	declared() bool
+	do(ctx context.Context, s *Server, call chatCall) (*http.Response, error)
 }
 
 // chatAdapters are the provider kinds the gateway can serve chat from.
-var chatAdapters = map[string]chatAdapter{"openai_compatible": openAICompatible{}}
+var chatAdapters = map[string]chatAdapter{
+	"openai_compatible":  openAICompatible{},
+	"codex_subscription": codexSubscription{},
+}
 
 // openAICompatible serves any provider that takes OpenAI's chat format at
 // <base URL>/chat/completions with a bearer key.
 type openAICompatible struct{}
 
-func (openAICompatible) request(ctx context.Context, u upstream, body []byte, stream bool) (*http.Request, error) {
+func (openAICompatible) declared() bool { return true }
+
+func (openAICompatible) do(ctx context.Context, s *Server, call chatCall) (*http.Response, error) {
+	u := call.upstream
+
+	body, err := call.req.forUpstream(u.Model)
+	if err != nil {
+		return nil, err
+	}
+
 	url := strings.TrimRight(u.BaseURL, "/") + "/chat/completions"
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
@@ -83,13 +111,18 @@ func (openAICompatible) request(ctx context.Context, u upstream, body []byte, st
 	req.Header.Set("Authorization", "Bearer "+u.APIKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	if stream {
+	if call.req.stream {
 		req.Header.Set("Accept", "text/event-stream")
 	} else {
 		req.Header.Set("Accept", "application/json")
 	}
 
-	return req, nil
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("calling provider %q: %w", u.Provider, err)
+	}
+
+	return resp, nil
 }
 
 // chatRequest is a chat completions body as the client sent it.
@@ -185,6 +218,10 @@ func (s *Service) upstreamFor(ctx context.Context, t Target) (upstream, chatAdap
 	switch {
 	case !ok:
 		return upstream{}, nil, fmt.Errorf("provider %q is of kind %s, which the gateway does not serve", p.Name, p.Kind)
+	case !adapter.declared():
+		// A built-in provider has its address in its adapter and its
+		// credentials in the accounts logged in on the control plane.
+		return upstream{Provider: p.Name, Kind: p.Kind, Model: t.UpstreamModel}, adapter, nil
 	case p.BaseURL == "":
 		return upstream{}, nil, fmt.Errorf("provider %q has no base_url", p.Name)
 	case p.APIKeyRef == "":
@@ -254,7 +291,7 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	record := Usage{KeyID: key.ID, Model: model.Name, Stream: req.stream}
-	s.serveChat(w, r, req, model, &record)
+	s.serveChat(w, r, req, model, key.ID, &record)
 	record.Duration = s.svc.clock.Now().Sub(started)
 
 	// The client may be gone by now; the record is kept all the same.
@@ -267,13 +304,15 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 // serveChat tries the model's targets in order until one gives an answer to
 // pass on, and fills the record. The next target is tried only while nothing
 // has been sent to the client, as every reference does.
-func (s *Server) serveChat(w http.ResponseWriter, r *http.Request, req chatRequest, model Model, record *Usage) {
+func (s *Server) serveChat(
+	w http.ResponseWriter, r *http.Request, req chatRequest, model Model, keyID string, record *Usage,
+) {
 	for i, target := range model.Targets {
 		last := i == len(model.Targets)-1
 		record.Attempts, record.Provider, record.UpstreamModel = i+1, target.Provider, target.UpstreamModel
 		record.Status = 0
 
-		resp, err := s.send(r.Context(), req, target)
+		resp, err := s.send(r.Context(), chatCall{req: req, keyID: keyID, model: model.Name}, target)
 		if err != nil {
 			if r.Context().Err() != nil {
 				record.Outcome = OutcomeClientGone
@@ -310,28 +349,17 @@ func (s *Server) serveChat(w http.ResponseWriter, r *http.Request, req chatReque
 		fmt.Sprintf("no provider of model %q could be reached", model.Name))
 }
 
-func (s *Server) send(ctx context.Context, req chatRequest, target Target) (*http.Response, error) {
+// send makes one attempt at one target and returns the answer in OpenAI's
+// chat format.
+func (s *Server) send(ctx context.Context, call chatCall, target Target) (*http.Response, error) {
 	u, adapter, err := s.svc.upstreamFor(ctx, target)
 	if err != nil {
 		return nil, err
 	}
 
-	body, err := req.forUpstream(u.Model)
-	if err != nil {
-		return nil, err
-	}
+	call.upstream = u
 
-	httpReq, err := adapter.request(ctx, u, body, req.stream)
-	if err != nil {
-		return nil, err
-	}
-
-	resp, err := s.client.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("calling provider %q: %w", u.Provider, err)
-	}
-
-	return resp, nil
+	return adapter.do(ctx, s, call)
 }
 
 // relay passes a provider's answer to the client and fills the record.

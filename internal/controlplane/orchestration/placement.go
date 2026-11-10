@@ -25,7 +25,11 @@ type placement struct {
 type nodeLoad struct {
 	row      store.Node
 	runtimes []RuntimeInfo
-	active   int
+	// hosts are the git hosts the node reached; said is false for a node that
+	// never reported, which is taken to reach every host.
+	hosts  []string
+	said   bool
+	active int
 }
 
 func loadPlacement(ctx context.Context, q *store.Queries, now int64) (*placement, error) {
@@ -59,6 +63,13 @@ func loadPlacement(ctx context.Context, q *store.Queries, now int64) (*placement
 			return nil, fmt.Errorf("decoding the runtimes of node %s: %w", row.ID, err)
 		}
 
+		if row.GitHosts.Valid {
+			n.said = true
+			if err := json.Unmarshal([]byte(row.GitHosts.String), &n.hosts); err != nil {
+				return nil, fmt.Errorf("decoding the git hosts of node %s: %w", row.ID, err)
+			}
+		}
+
 		p.nodes[row.ID] = n
 		p.order = append(p.order, n)
 	}
@@ -85,8 +96,24 @@ func (n *nodeLoad) offers(runtime string) bool {
 	return slices.ContainsFunc(n.runtimes, func(r RuntimeInfo) bool { return r.Runtime == runtime })
 }
 
-// checkNode says why a node cannot take a Dispatch of the runtime now.
-func (p *placement) checkNode(id, runtime string) error {
+// reaches reports whether work on a git host can run on the node. A Run with
+// no repository has no host and runs anywhere.
+func (n *nodeLoad) reaches(host string) bool {
+	return host == "" || !n.said || slices.Contains(n.hosts, host)
+}
+
+// gitHosts is what the node said it reaches: nil when it has not said.
+func (n *nodeLoad) gitHosts() []string {
+	if !n.said {
+		return nil
+	}
+
+	return nonNil(n.hosts)
+}
+
+// checkNode says why a node cannot take a Dispatch of the runtime, on the
+// git host, now.
+func (p *placement) checkNode(id, runtime, host string) error {
 	n, ok := p.nodes[id]
 
 	switch {
@@ -100,6 +127,8 @@ func (p *placement) checkNode(id, runtime string) error {
 		return fmt.Errorf("%w: node %s let its dispatches expire", ErrUnavailable, id)
 	case !n.offers(runtime):
 		return fmt.Errorf("%w: node %s has no %s", ErrUnavailable, id, runtime)
+	case !n.reaches(host):
+		return fmt.Errorf("%w: node %s does not reach %s", ErrUnavailable, id, host)
 	case n.active >= int(n.row.MaxDispatches):
 		return fmt.Errorf("%w: node %s runs %d of %d", ErrUnavailable, id, n.active, n.row.MaxDispatches)
 	}
@@ -132,8 +161,17 @@ func (p *placement) checkAccount(runtime, id string) error {
 	return nil
 }
 
-// nodeReady reports whether a node can take a Dispatch of the runtime now.
-func (p *placement) nodeReady(id, runtime string) bool { return p.checkNode(id, runtime) == nil }
+// nodeReady reports whether a node can take a Dispatch of the runtime, on the git host, now.
+func (p *placement) nodeReady(id, runtime, host string) bool {
+	return p.checkNode(id, runtime, host) == nil
+}
+
+// anyReaches reports whether a connected, active node reaches the git host.
+func (p *placement) anyReaches(host string) bool {
+	return slices.ContainsFunc(p.order, func(n *nodeLoad) bool {
+		return NodeStatus(n.row.Status) == NodeActive && p.connected(n) && n.reaches(host)
+	})
+}
 
 // accountUsable reports whether an account can take a Dispatch now, and
 // whether it only waits for a cooldown to end.
@@ -144,13 +182,13 @@ func (p *placement) accountUsable(runtime, id string) (usable, cooling bool) {
 }
 
 // pickNode is the least loaded node that can take a new Conversation of the
-// runtime, ties by id (inferred: Coder does no balancing, Orca takes the
-// first free terminal).
-func (p *placement) pickNode(runtime string) *nodeLoad {
+// runtime on the git host, ties by id (inferred: Coder does no balancing, Orca
+// takes the first free terminal; no reference places work by git host).
+func (p *placement) pickNode(runtime, host string) *nodeLoad {
 	var best *nodeLoad
 
 	for _, n := range p.order {
-		if !p.nodeReady(n.row.ID, runtime) || !n.row.WorktreeRoot.Valid || n.row.WorktreeRoot.String == "" {
+		if !p.nodeReady(n.row.ID, runtime, host) || !n.row.WorktreeRoot.Valid || n.row.WorktreeRoot.String == "" {
 			continue
 		}
 
@@ -202,7 +240,7 @@ func (p *placement) nodeOut(n *nodeLoad) Node {
 	return Node{
 		Stats: stats, Machine: machineOut(n.row),
 		ID: n.row.ID, Name: n.row.Name, Status: NodeStatus(n.row.Status), MaxDispatches: int(n.row.MaxDispatches),
-		WorktreeRoot: n.row.WorktreeRoot.String, Runtimes: nonNil(n.runtimes),
+		WorktreeRoot: n.row.WorktreeRoot.String, Runtimes: nonNil(n.runtimes), GitHosts: n.gitHosts(),
 		System: SystemInfo{
 			DaemonVersion: n.row.DaemonVersion.String, OS: n.row.Os.String, Arch: n.row.Arch.String,
 			CPUs: int(n.row.Cpus.Int64), MemoryBytes: n.row.MemoryBytes.Int64, DiskBytes: n.row.DiskBytes.Int64,

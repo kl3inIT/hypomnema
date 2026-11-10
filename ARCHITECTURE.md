@@ -166,7 +166,15 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     itself can read it: this stands in for the vault's credential sessions and the node's proxy
     ([issue #66](https://github.com/kl3inIT/hypomnema/issues/66)), with which a worker would never see it.
   - A host without a token works as before: git and the host's tool use the node user's own logins.
-  - Which nodes reach which host is not known to placement yet.
+  - A node says which hosts it reaches. The control plane names the hosts it knows in the answer to hello and to
+    every heartbeat; the node tries each when the list changes and every minute (an HTTPS request with no
+    credential, through the environment's proxy; any answer counts, and so does a certificate the machine does not
+    trust, so that git says why it fails there) and puts the hosts it reached in its heartbeat. They are kept on
+    the node's row (`nodes.git_hosts`, `git_hosts` in the API), replaced by each report.
+  - Placement gives a Task on a host only to a node that reaches it. When no connected, active node does, the Task
+    waits, and after `UnplaceableAfter` the escalation says `no_node_reaches:<host>`. A node that has not said
+    (one from before nodes tried hosts) is taken to reach every host; a Run without a repository runs anywhere.
+    The control plane never calls a git host itself.
 - Client tokens: kind `owner` or `coordinator`, in Omnara's format (`hyp_<kind>_v1_`, 43 Base62 characters and a
   CRC32 checksum, checked before the database is read; `internal/controlplane/bearertoken`). Shown once; only the
   SHA-256 is stored; a revoked token no longer authenticates.
@@ -203,7 +211,7 @@ proxy, does not exist yet.
 
 Subscription accounts (`internal/controlplane/subscription`, issue #20 step 2, after CLIProxyAPI, 9router-go and the
 Codex CLI; [research](docs/research/2026-11-10-subscription-login-and-refresh.md)) are logged in once on the control
-plane, which keeps their tokens fresh. Nothing uses the tokens yet: the gateway's adapters come next.
+plane, which keeps their tokens fresh. The gateway's Codex provider runs under them (below).
 
 - One `Vendor` per kind of subscription starts a login, exchanges a refresh token and reads who a token set belongs
   to. Only Codex exists: a device code (a link and a one-time code, 15 minutes), or, when OpenAI offers this client
@@ -219,11 +227,12 @@ plane, which keeps their tokens fresh. Nothing uses the tokens yet: the gateway'
   error code only.
 
 The model gateway (`internal/controlplane/modelgateway`, issue #20,
-[decision](docs/decisions/2026-11-10-model-gateway.md)) serves chat from OpenAI-compatible providers to clients that
-speak OpenAI's API. Subscriptions, other provider formats and other capabilities do not exist yet.
+[decision](docs/decisions/2026-11-10-model-gateway.md)) serves chat to clients that speak OpenAI's API, from
+OpenAI-compatible providers the owner declares and from the owner's Codex subscription, a built-in provider. Other
+subscriptions, other provider formats and other capabilities do not exist yet.
 - A model is a YAML document: a public `name`, a `capability` (`chat`, the only one), and `targets` (a provider and
   the model's name there) in the order tried. Applying a name again replaces it. A target must name a provider of a
-  kind the gateway has an adapter for (`openai_compatible`) and a model that provider offers, so a model that cannot
+  kind the gateway has an adapter for (`openai_compatible`, `codex_subscription`) and a model that provider offers, so a model that cannot
   be served is refused when applied.
 - A gateway key (`hyp_gateway_v1_…`, the client tokens' format) is shown once and kept as its SHA-256, with the
   public model names it may use (`*`: every model). It is not a client token: the client API refuses it, and
@@ -242,6 +251,37 @@ speak OpenAI's API. Subscriptions, other provider formats and other capabilities
   client. Any other answer of a provider reaches the client with its status and body. When no target can be reached
   the answer is 502; the gateway's own refusals are 401 (key), 403 (the key may not use the model), 400 (the model
   is not declared, or the body is wrong) and 413.
+- A provider is of one of two sorts. An `openai_compatible` one is data the owner declares (a base URL, a key in the
+  vault, its models), and its adapter passes the request and the answer through. A built-in one is seeded by a
+  migration and has an adapter of its own, which translates both ways and handles everything specific to its vendor;
+  the answer it returns is already in OpenAI's chat format, so failover, the stream's end and the usage record work
+  the same for both.
+- `codex-subscription` (kind `codex_subscription`, after 9router-go, CLIProxyAPI and the Codex CLI;
+  [research](docs/research/2026-11-10-codex-subscription-adapter.md)) is the first built-in provider. It runs under
+  the first active Codex account logged in on the control plane that is not cooling down.
+  - `modelgateway/codex` holds the translation, with no network in it. A chat body becomes a Responses body: system
+    and developer messages become `instructions`, a tool call and its result become items tied by a call id, tools
+    are flattened and not strict unless the client says so, `response_format` becomes `text.format`,
+    `reasoning_effort` becomes `reasoning.effort` with a summary asked for. Only what the backend takes is sent:
+    sampling settings, token limits, `user`, `metadata` and `stream_options` are left out. Tool names and call ids
+    are made to fit the backend (64 bytes, a narrow alphabet) and the names are mapped back in the answer. The
+    models `gpt-6.1-sol`, `gpt-6-sol` and `gpt-6-luna` take the "lite" shape the Codex CLI sends them: tools and
+    instructions at the head of the input, one tool call at a time, reasoning over every turn with no summary.
+  - The call goes to `chatgpt.com/backend-api/codex/responses`, always as a stream, with the account's access token
+    and ChatGPT account id, the Codex CLI's `originator`, `User-Agent` and `version` (constants that need upkeep), and
+    a session and prompt cache key that are the client's `prompt_cache_key` or one derived from the gateway key.
+  - The backend's events become chat chunks: text, the reasoning summary as `reasoning_content`, tool calls by
+    index with their arguments sent once, then the finish reason (`tool_calls`, `stop`, or `length` for an answer
+    cut at the token limit) and the usage in a chunk of its own. A client that did not ask for a stream gets the
+    whole answer as one completion.
+  - A 401 refreshes the account's tokens once, through the vault, and the request is sent again. A usage limit
+    (`usage_limit_reached`) cools the account down until the time the backend names, as a worker's rate limit does,
+    and the client, or the model's next target, gets a 429 with `Retry-After`; while every account cools the backend
+    is not called. Any other refusal reaches the client with the backend's status and body. An error inside the
+    stream before anything was shown becomes an error status, so the next target can be tried; after, the stream
+    ends as a cut one.
+  - Not built: reasoning carried from one turn to the next, hosted tools (web search, images), the list of models
+    read from the backend, a choice among several accounts beyond the first that is free.
 - Each request served is one row of `gateway_usage`: the key, the model, the target of the last attempt, how many
   were tried, the outcome (`ok`, `upstream_error`, `transport_error`, `truncated`, `client_gone`), the provider's
   status, the duration, and the tokens the provider reported (prompt, completion, cached, reasoning; the largest
@@ -516,10 +556,11 @@ Since 2026-11-09, on the owner's tailnet (Tailscale); nothing is public:
   listening on `127.0.0.1:18990`. Tailscale runs without root (userspace networking, tmux `hyp-ts`, state in
   `~/hypomnema-cp/tailscale`) and `tailscale serve` publishes it to the tailnet as
   `https://hypomnema.taild3b6dc.ts.net`.
-- Model gateway, since 2026-11-10: the vault's root key is in `~/hypomnema-cp/env`; the secret `ninerouter` holds
-  the key of 9router, which runs on the same machine and serves the owner's Codex subscription; provider
-  `ninerouter` names it as `vault:ninerouter`; the gateway serves the model `gpt-6.1-sol` from it. pi calls the
-  gateway with its own key (provider `gateway`, profile `coordinator`), no longer 9router itself.
+- Model gateway, since 2026-11-10: the vault's root key is in `~/hypomnema-cp/env`. The owner's Codex account is
+  logged in on the control plane, and the gateway serves the model `gpt-6.1-sol` from `codex-subscription` first.
+  Its second target, kept for a while, is `ninerouter`: 9router on the same machine, which holds a login of the same
+  subscription and whose key is the secret `ninerouter`. pi calls the gateway with its own key (provider `gateway`,
+  profile `coordinator`), no longer 9router itself.
 - Node: aioffice-app, user `hypnode`, `~/bin/hypomnema-node`, tmux session `hyp-node`, pointed at that URL; the
   machine joined the tailnet as `aioffice-node`. The earlier control plane there (`~ubuntu/hypomnema-cp`) is
   stopped and kept for rollback.
@@ -550,6 +591,7 @@ internal/node/worktree    bare mirrors and git worktrees per Task
 internal/controlplane/coordinator  the supervisor of pi, the coordinator: one pi in RPC mode per chat
 internal/controlplane/machines  machines created at a provider: the Provider interface, the AWS (EC2) provider, the first-boot script, create, remove and the pass that settles what is left between
 internal/controlplane/orchestration  Runs, Tasks, Dispatches, Conversations, questions, events, nodes, accounts, machine providers, the scheduler; migrations; queries generated by sqlc (internal/store)
+internal/controlplane/modelgateway/codex  the Codex subscription's formats: chat to Responses and back
 internal/controlplane/subscription  subscription accounts: a vendor's login and refresh, tokens kept in the vault
 internal/shared/githost   git hosts: how a repository is named, and each kind's clone URL, command and links
 internal/shared/nodeproto the wire protocol between a node and the control plane

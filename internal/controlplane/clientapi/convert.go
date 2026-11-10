@@ -144,7 +144,18 @@ func toNode(n orchestration.Node) openapi.Node {
 		WorktreeRoot: ptr(n.WorktreeRoot), Runtimes: runtimes, System: toNodeSystem(n.System),
 		Stats: toNodeStats(n.Stats), Machine: toNodeMachine(n.Machine), LastSeenAt: n.LastSeenAt,
 		UnavailableAt: n.UnavailableAt, Connected: n.Connected, Active: n.Active, CreatedAt: n.CreatedAt,
+		GitHosts: gitHostsOf(n.GitHosts),
 	}
+}
+
+// gitHostsOf is nil for a node that has not said which hosts it reaches, and
+// a list, empty or not, for one that has.
+func gitHostsOf(hosts []string) *[]string {
+	if hosts == nil {
+		return nil
+	}
+
+	return &hosts
 }
 
 // toNodeSystem is nil until the node has said what it is.
