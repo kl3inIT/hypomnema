@@ -130,7 +130,8 @@ Client API (`internal/controlplane/clientapi`, contract `api/openapi.yaml`, afte
 - Every request carries a client token (`Authorization: Bearer`); without a valid one the answer is 401.
 - Each operation has a policy. Every token reads everything and may create a Run; a Run created with a coordinator
   token is coordinated by it. Changing a Run, its Tasks or its questions needs the owner, or the Run's coordinator
-  (403 otherwise). An answer is recorded as the owner's or the coordinator's by the token's kind.
+  (403 otherwise), and so does reading a worker's transcript. An answer is recorded as the owner's or the
+  coordinator's by the token's kind.
 - Operations: who am I; list, create, show (with each Task's latest Dispatch), finish and cancel Runs; create Tasks
   with dependencies; show, cancel and reopen a Task; list the Tasks a board shows (`GET /tasks`: every Task of an
   open Run and other Runs' Tasks changed in the last 24 h, with their latest Dispatch, their Runs, and the newest

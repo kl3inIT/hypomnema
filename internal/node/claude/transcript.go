@@ -32,6 +32,9 @@ const (
 	resendAfter = 15 * time.Second
 	// scanBytes bounds the journal read in one step.
 	scanBytes = 4 << 20
+	// lineBytes bounds one journal line held in memory; a longer one is passed
+	// over with a notice, since its items would be cut to far less anyway.
+	lineBytes = 4 << 20
 	// sentFile holds the cursor: the journal offset and the last seq acknowledged.
 	sentFile = "sent"
 	// sentDone marks a transcript the control plane has whole, or refused.
@@ -231,7 +234,7 @@ func readBatch(dir string, offset, seq int64) ([]nodeproto.Item, int64, error) {
 	)
 
 	for len(batch) < nodeproto.MaxBatchItems && read < scanBytes {
-		raw, err := br.ReadBytes('\n')
+		raw, n, err := readLine(br)
 		if errors.Is(err, io.EOF) {
 			// A partial line waits for the rest.
 			break
@@ -242,6 +245,12 @@ func readBatch(dir string, offset, seq int64) ([]nodeproto.Item, int64, error) {
 		}
 
 		items := itemsOf(raw)
+		if raw == nil {
+			items = []nodeproto.Item{{
+				Kind: nodeproto.ItemNotice, Text: fmt.Sprintf("[a line of %d bytes of the worker's output was not kept]", n),
+			}}
+		}
+
 		bytes := 0
 
 		for _, it := range items {
@@ -266,8 +275,37 @@ func readBatch(dir string, offset, seq int64) ([]nodeproto.Item, int64, error) {
 		}
 
 		size += bytes
-		read += len(raw)
+		read += n
 	}
 
 	return batch, offset + int64(read), nil
+}
+
+// readLine reads the next whole line and its length. A line longer than
+// lineBytes is read past without being held: it comes back nil with its
+// length. io.EOF means the last line is not whole yet.
+func readLine(br *bufio.Reader) ([]byte, int, error) {
+	var (
+		line []byte
+		n    int
+	)
+
+	for {
+		part, err := br.ReadSlice('\n')
+		n += len(part)
+
+		if n <= lineBytes {
+			line = append(line, part...)
+		} else {
+			line = nil
+		}
+
+		switch {
+		case err == nil:
+			return line, n, nil
+		case errors.Is(err, bufio.ErrBufferFull):
+		default:
+			return nil, n, err
+		}
+	}
 }

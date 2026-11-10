@@ -630,6 +630,12 @@ func TestAWorkersTranscriptIsReadAndFollowed(t *testing.T) {
 	missing, err := c.ListDispatchItemsWithResponse(ctx, "dsp_missing", nil)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusNotFound, missing.StatusCode())
+
+	// The transcript holds what the worker's tools printed: a coordinator reads only its own Runs'.
+	stranger, _ := w.token("laptop", bearertoken.Coordinator)
+	refused, err := stranger.ListDispatchItemsWithResponse(ctx, dispatch, nil)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, refused.StatusCode(), string(refused.Body))
 }
 
 // The stream sends the events after Last-Event-ID, then new ones as they

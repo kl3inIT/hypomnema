@@ -13,10 +13,11 @@ import (
 // Who may call what (issue #41, section 3). Every token reads everything and
 // may create a Run; a coordinator token creates the Runs it coordinates. A
 // change to a Run, its Tasks or its questions needs the owner or the Run's
-// coordinator. Omnara keeps one policy per operationId the same way
+// coordinator. So does reading a worker's transcript (issue #43): it holds
+// what the worker's tools printed, as a chat holds what the owner wrote. Omnara keeps one policy per operationId the same way
 // (openapi_policies.go).
 
-// scope says which Run an operation changes.
+// scope says which Run an operation changes, or reads in the transcript's case.
 type scope int
 
 const (
@@ -25,6 +26,7 @@ const (
 	scopeRun
 	scopeTask
 	scopeQuestion
+	scopeDispatch
 	// scopeOwner: only the owner's tokens.
 	scopeOwner
 )
@@ -45,7 +47,7 @@ var policies = map[string]policy{
 	"CreateTasks":         {scope: scopeRun},
 	"ListTasks":           {},
 	"GetTask":             {},
-	"ListDispatchItems":   {long: true},
+	"ListDispatchItems":   {scope: scopeDispatch, long: true},
 	"CancelTask":          {scope: scopeTask},
 	"ReopenTask":          {scope: scopeTask},
 	"ListQuestions":       {},
@@ -122,6 +124,13 @@ func (s *Server) runOf(ctx context.Context, sc scope, request any) (string, erro
 		return s.runOfQuestion(ctx, r.QuestionId)
 	case openapi.ForwardQuestionRequestObject:
 		return s.runOfQuestion(ctx, r.QuestionId)
+	case openapi.ListDispatchItemsRequestObject:
+		d, err := s.svc.GetDispatch(ctx, r.DispatchId)
+		if err != nil {
+			return "", err
+		}
+
+		return s.runOfTask(ctx, d.TaskID)
 	default:
 		return "", fmt.Errorf("scope %d: no run for a %T", sc, request)
 	}

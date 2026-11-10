@@ -327,3 +327,22 @@ func TestARefusedTranscriptIsNotSentAgain(t *testing.T) {
 
 	assert.Len(t, s.p.sent(), 1)
 }
+
+// Scenario: a worker prints one line far larger than the node keeps in
+// memory. The transcript says a line was left out and goes on with the next.
+func TestAHugeLineIsPassedOver(t *testing.T) {
+	t.Parallel()
+
+	s := newSender(t)
+	huge := `{"type":"assistant","message":{"content":[{"type":"text","text":"` + strings.Repeat("x", lineBytes) + `"}]}}`
+	s.journal(huge+"\n", assistant(t, map[string]any{"type": "text", "text": "after"}))
+	s.rn.follow("dsp_1", s.dir)
+	s.tick()
+	s.ack(1)
+
+	sent := s.p.sent()
+	require.Len(t, sent, 2)
+	assert.Equal(t, nodeproto.ItemNotice, sent[0].Items[0].Kind)
+	assert.Contains(t, sent[0].Items[0].Text, "was not kept")
+	assert.Equal(t, "after", sent[1].Items[0].Text)
+}
