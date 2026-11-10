@@ -251,6 +251,8 @@ How the references keep a UI consistent is in
 - **Every view has its loading, error and empty state** (Coder).
 - **Icons** are lucide's. A brand's mark, which lucide does not carry, is an SVG component in
   `web/src/components/icons` (Orca, Omnigent).
+- **A thing that has a logo is shown with it** beside its name: a git host, a runtime, a service, a model's
+  maker (owner, 2026-11-10). A generic icon is for what has none.
 - **A shared component is made when a second screen needs it**, not before (Coder). What Settings shares is in
   `web/src/features/settings/settings-parts.tsx`.
 - **A UI change is looked at** on a desktop and a phone before its pull request, in pictures taken by its

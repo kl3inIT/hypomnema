@@ -16,6 +16,7 @@ import type { Node } from "@/api/generated/types.gen"
 import { MachineActions } from "./machine-actions"
 import { IndicatorDot, LoadDot, MachineProblem, Meter, StateText } from "./machine-cells"
 import { diskPercent, loadPercent, memoryPercent, usedOfTotal } from "./machines-state"
+import { RuntimeMark } from "@/features/board/runtime-mark"
 
 // The columns of the Machines page, after Beszel's systems-table (MIT, Copyright (c) 2024 henrygd,
 // https://github.com/henrygd/beszel; internal/site/src/components/systems-table/systems-table-columns.tsx): one
@@ -128,11 +129,17 @@ export const columns: Column[] = [
     Icon: Bot,
     cell: (node) =>
       node.runtimes.length > 0 ? (
+        // Each runtime with its mark, as the board shows a worker's runtime (owner, 2026-11-10).
         <span
-          className="truncate"
+          className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1"
           title={node.runtimes.map((r) => `${r.runtime} ${r.version}`.trim()).join(", ")}
         >
-          {node.runtimes.map((r) => r.runtime).join(", ")}
+          {node.runtimes.map((r) => (
+            <span key={r.runtime} className="inline-flex items-center gap-1.5 whitespace-nowrap">
+              <RuntimeMark runtime={r.runtime} />
+              {r.runtime}
+            </span>
+          ))}
         </span>
       ) : (
         none

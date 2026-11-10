@@ -36,6 +36,16 @@ const node = (id: string, name: string, m: object = {}) => ({
   ...m,
 })
 
+// shot keeps a picture for the owner to look at when UI_CHECK names a folder; a normal run takes none.
+async function shot(page: Page, name: string) {
+  const dir = process.env.UI_CHECK
+  if (!dir) return
+
+  const size = page.viewportSize()
+  const device = size && size.width < 600 ? "phone" : "desktop"
+  await page.screenshot({ path: `${dir}/${name}-${device}.png` })
+}
+
 async function fakeServer(page: Page) {
   let nodes = [
     node("nod_1", "aioffice-app"),
@@ -122,9 +132,11 @@ test("the machines show as cards and as a table", async ({ page }) => {
   await expect(page.getByRole("article", { name: "old-laptop" })).toContainText(
     "Offline · seen 2d ago",
   )
+  await shot(page, "machines-grid")
 
   await page.getByRole("button", { name: "table" }).click()
   await expect(page.getByRole("row", { name: /gpu-box/ })).toContainText("Drained")
+  await shot(page, "machines-table")
   // The page itself does not scroll sideways: the table does, inside its box.
   expect(await page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")).toBe(
     true,
