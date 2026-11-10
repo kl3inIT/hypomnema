@@ -1,6 +1,7 @@
 -- name: InsertRun :exec
-INSERT INTO runs (id, objective, status, created_by, repo, base, coordinator_token_id, created_at, updated_at)
-VALUES (@id, @objective, 'open', @created_by, @repo, @base, @coordinator_token_id, @now, @now);
+INSERT INTO runs (id, objective, status, created_by, repo, base, coordinator_token_id, chat_id, created_at,
+                  updated_at)
+VALUES (@id, @objective, 'open', @created_by, @repo, @base, @coordinator_token_id, @chat_id, @now, @now);
 
 -- name: GetRun :one
 SELECT * FROM runs WHERE id = @id;
@@ -22,9 +23,9 @@ WHERE id = @id AND status = @from_status;
 SELECT CAST(coalesce(max(position), 0) + 1 AS INTEGER) AS next FROM tasks WHERE run_id = @run_id;
 
 -- name: InsertTask :exec
-INSERT INTO tasks (id, run_id, position, role, spec, runtime, model, effort, status, blocked_reason,
+INSERT INTO tasks (id, run_id, position, profile, spec, runtime, model, effort, status, blocked_reason,
                    created_at, updated_at)
-VALUES (@id, @run_id, @position, @role, @spec, @runtime, @model, @effort, @status, @blocked_reason, @now, @now);
+VALUES (@id, @run_id, @position, @profile, @spec, @runtime, @model, @effort, @status, @blocked_reason, @now, @now);
 
 -- name: InsertTaskDep :exec
 INSERT INTO task_deps (task_id, depends_on) VALUES (@task_id, @depends_on);
@@ -34,6 +35,13 @@ SELECT * FROM tasks WHERE id = @id;
 
 -- name: ListTasksByRun :many
 SELECT * FROM tasks WHERE run_id = @run_id ORDER BY position;
+
+-- name: ListBoardTasks :many
+-- Every Task of an open Run, and the other Runs' Tasks changed at or after since; most recently changed first.
+SELECT * FROM tasks
+WHERE tasks.run_id IN (SELECT r.id FROM runs r WHERE r.status = 'open') OR tasks.updated_at >= @since
+ORDER BY tasks.updated_at DESC, tasks.id DESC
+LIMIT @lim;
 
 -- name: TransitionTask :execrows
 UPDATE tasks

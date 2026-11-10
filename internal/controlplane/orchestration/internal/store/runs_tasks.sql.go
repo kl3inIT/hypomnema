@@ -39,7 +39,7 @@ func (q *Queries) CountUnfinishedTasks(ctx context.Context, arg CountUnfinishedT
 }
 
 const getRun = `-- name: GetRun :one
-SELECT id, objective, status, created_by, created_at, updated_at, finished_at, repo, base, coordinator_token_id FROM runs WHERE id = ?1
+SELECT id, objective, status, created_by, created_at, updated_at, finished_at, repo, base, coordinator_token_id, chat_id FROM runs WHERE id = ?1
 `
 
 func (q *Queries) GetRun(ctx context.Context, id string) (Run, error) {
@@ -56,12 +56,13 @@ func (q *Queries) GetRun(ctx context.Context, id string) (Run, error) {
 		&i.Repo,
 		&i.Base,
 		&i.CoordinatorTokenID,
+		&i.ChatID,
 	)
 	return i, err
 }
 
 const getTask = `-- name: GetTask :one
-SELECT id, run_id, position, role, spec, runtime, model, effort, status, blocked_reason, failure_count, result, created_at, updated_at, finished_at, not_before, cancel_requested_at FROM tasks WHERE id = ?1
+SELECT id, run_id, position, profile, spec, runtime, model, effort, status, blocked_reason, failure_count, result, created_at, updated_at, finished_at, not_before, cancel_requested_at FROM tasks WHERE id = ?1
 `
 
 func (q *Queries) GetTask(ctx context.Context, id string) (Task, error) {
@@ -71,7 +72,7 @@ func (q *Queries) GetTask(ctx context.Context, id string) (Task, error) {
 		&i.ID,
 		&i.RunID,
 		&i.Position,
-		&i.Role,
+		&i.Profile,
 		&i.Spec,
 		&i.Runtime,
 		&i.Model,
@@ -90,8 +91,9 @@ func (q *Queries) GetTask(ctx context.Context, id string) (Task, error) {
 }
 
 const insertRun = `-- name: InsertRun :exec
-INSERT INTO runs (id, objective, status, created_by, repo, base, coordinator_token_id, created_at, updated_at)
-VALUES (?1, ?2, 'open', ?3, ?4, ?5, ?6, ?7, ?7)
+INSERT INTO runs (id, objective, status, created_by, repo, base, coordinator_token_id, chat_id, created_at,
+                  updated_at)
+VALUES (?1, ?2, 'open', ?3, ?4, ?5, ?6, ?7, ?8, ?8)
 `
 
 type InsertRunParams struct {
@@ -101,6 +103,7 @@ type InsertRunParams struct {
 	Repo               sql.NullString
 	Base               sql.NullString
 	CoordinatorTokenID sql.NullString
+	ChatID             sql.NullString
 	Now                int64
 }
 
@@ -112,13 +115,14 @@ func (q *Queries) InsertRun(ctx context.Context, arg InsertRunParams) error {
 		arg.Repo,
 		arg.Base,
 		arg.CoordinatorTokenID,
+		arg.ChatID,
 		arg.Now,
 	)
 	return err
 }
 
 const insertTask = `-- name: InsertTask :exec
-INSERT INTO tasks (id, run_id, position, role, spec, runtime, model, effort, status, blocked_reason,
+INSERT INTO tasks (id, run_id, position, profile, spec, runtime, model, effort, status, blocked_reason,
                    created_at, updated_at)
 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?11)
 `
@@ -127,7 +131,7 @@ type InsertTaskParams struct {
 	ID            string
 	RunID         string
 	Position      int64
-	Role          string
+	Profile       string
 	Spec          string
 	Runtime       sql.NullString
 	Model         sql.NullString
@@ -142,7 +146,7 @@ func (q *Queries) InsertTask(ctx context.Context, arg InsertTaskParams) error {
 		arg.ID,
 		arg.RunID,
 		arg.Position,
-		arg.Role,
+		arg.Profile,
 		arg.Spec,
 		arg.Runtime,
 		arg.Model,
@@ -166,6 +170,60 @@ type InsertTaskDepParams struct {
 func (q *Queries) InsertTaskDep(ctx context.Context, arg InsertTaskDepParams) error {
 	_, err := q.db.ExecContext(ctx, insertTaskDep, arg.TaskID, arg.DependsOn)
 	return err
+}
+
+const listBoardTasks = `-- name: ListBoardTasks :many
+SELECT id, run_id, position, profile, spec, runtime, model, effort, status, blocked_reason, failure_count, result, created_at, updated_at, finished_at, not_before, cancel_requested_at FROM tasks
+WHERE tasks.run_id IN (SELECT r.id FROM runs r WHERE r.status = 'open') OR tasks.updated_at >= ?1
+ORDER BY tasks.updated_at DESC, tasks.id DESC
+LIMIT ?2
+`
+
+type ListBoardTasksParams struct {
+	Since int64
+	Lim   int64
+}
+
+// Every Task of an open Run, and the other Runs' Tasks changed at or after since; most recently changed first.
+func (q *Queries) ListBoardTasks(ctx context.Context, arg ListBoardTasksParams) ([]Task, error) {
+	rows, err := q.db.QueryContext(ctx, listBoardTasks, arg.Since, arg.Lim)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []Task{}
+	for rows.Next() {
+		var i Task
+		if err := rows.Scan(
+			&i.ID,
+			&i.RunID,
+			&i.Position,
+			&i.Profile,
+			&i.Spec,
+			&i.Runtime,
+			&i.Model,
+			&i.Effort,
+			&i.Status,
+			&i.BlockedReason,
+			&i.FailureCount,
+			&i.Result,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.FinishedAt,
+			&i.NotBefore,
+			&i.CancelRequestedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listDependencyStates = `-- name: ListDependencyStates :many
@@ -240,7 +298,7 @@ func (q *Queries) ListDependents(ctx context.Context, taskID string) ([]ListDepe
 }
 
 const listRuns = `-- name: ListRuns :many
-SELECT id, objective, status, created_by, created_at, updated_at, finished_at, repo, base, coordinator_token_id FROM runs
+SELECT id, objective, status, created_by, created_at, updated_at, finished_at, repo, base, coordinator_token_id, chat_id FROM runs
 WHERE (CAST(?1 AS TEXT) = '' OR status = ?1)
   AND (CAST(?2 AS INTEGER) = 0 OR created_at < ?3 OR (created_at = ?3 AND id < ?4))
 ORDER BY created_at DESC, id DESC
@@ -282,6 +340,7 @@ func (q *Queries) ListRuns(ctx context.Context, arg ListRunsParams) ([]Run, erro
 			&i.Repo,
 			&i.Base,
 			&i.CoordinatorTokenID,
+			&i.ChatID,
 		); err != nil {
 			return nil, err
 		}
@@ -297,7 +356,7 @@ func (q *Queries) ListRuns(ctx context.Context, arg ListRunsParams) ([]Run, erro
 }
 
 const listTasksByRun = `-- name: ListTasksByRun :many
-SELECT id, run_id, position, role, spec, runtime, model, effort, status, blocked_reason, failure_count, result, created_at, updated_at, finished_at, not_before, cancel_requested_at FROM tasks WHERE run_id = ?1 ORDER BY position
+SELECT id, run_id, position, profile, spec, runtime, model, effort, status, blocked_reason, failure_count, result, created_at, updated_at, finished_at, not_before, cancel_requested_at FROM tasks WHERE run_id = ?1 ORDER BY position
 `
 
 func (q *Queries) ListTasksByRun(ctx context.Context, runID string) ([]Task, error) {
@@ -313,7 +372,7 @@ func (q *Queries) ListTasksByRun(ctx context.Context, runID string) ([]Task, err
 			&i.ID,
 			&i.RunID,
 			&i.Position,
-			&i.Role,
+			&i.Profile,
 			&i.Spec,
 			&i.Runtime,
 			&i.Model,

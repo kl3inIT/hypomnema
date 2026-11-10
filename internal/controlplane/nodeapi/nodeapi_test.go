@@ -47,8 +47,11 @@ func newPlane(t *testing.T) *plane {
 	t.Cleanup(func() { _ = db.Close() })
 	require.NoError(t, orchestration.Migrate(t.Context(), db))
 
-	svc := orchestration.New(db, platform.SystemClock{}, platform.NewID,
-		orchestration.WithRoles(map[string]orchestration.Role{"implement": {Runtime: "claude", Model: "opus"}}))
+	svc := orchestration.New(db, platform.SystemClock{}, platform.NewID)
+
+	_, _, err = svc.ApplyProfile(t.Context(), "",
+		"name: implementer\ndescription: d\nruntime: claude\nmodel: {name: opus}\n")
+	require.NoError(t, err)
 
 	mux := http.NewServeMux()
 	New(svc, slog.New(slog.DiscardHandler)).Register(mux)
@@ -192,7 +195,7 @@ func (p *plane) task() orchestration.Task {
 	require.NoError(p.t, err)
 
 	tasks, err := p.svc.CreateTasks(p.t.Context(), run.ID, []orchestration.NewTask{
-		{Ref: "a", Role: "implement", Spec: "add the Google login button"},
+		{Ref: "a", Profile: "implementer", Spec: "add the Google login button"},
 	})
 	require.NoError(p.t, err)
 
@@ -282,6 +285,52 @@ func TestDispatchRunsOverTheSocket(t *testing.T) {
 	})
 	require.Equal(t, nodeproto.AckCommitted, ack.Status, ack.Error)
 	assert.Equal(t, orchestration.TaskSucceeded, p.taskStatus(task.ID))
+}
+
+// Scenario: the node sends a running worker's transcript. Each batch is
+// answered with the newest item held, a batch sent again changes nothing, and
+// a batch for a Dispatch the node does not have is refused for good.
+func TestTranscriptItemsAreStoredAndAcknowledged(t *testing.T) {
+	t.Parallel()
+
+	p := newPlane(t)
+	conn := p.connect()
+	p.task()
+
+	var offer nodeproto.Offer
+	require.NoError(t, json.Unmarshal(p.next(conn, nodeproto.TypeOffer).Payload, &offer))
+	accept := nodeproto.Report{ReportID: "rep_accept", Kind: nodeproto.ReportAccept, DispatchID: offer.DispatchID}
+	require.Equal(t, nodeproto.AckCommitted, p.report(conn, accept).Status)
+
+	items := func(b nodeproto.Items) nodeproto.ItemsAck {
+		p.send(conn, nodeproto.TypeItems, b)
+
+		var ack nodeproto.ItemsAck
+		require.NoError(t, json.Unmarshal(p.next(conn, nodeproto.TypeItemsAck).Payload, &ack))
+
+		return ack
+	}
+
+	batch := nodeproto.Items{DispatchID: offer.DispatchID, Items: []nodeproto.Item{
+		{Seq: 1, Kind: nodeproto.ItemMessage, Text: "Adding the button."},
+		{
+			Seq: 2, Kind: nodeproto.ItemToolCall, CallID: "call_1", Tool: "Write",
+			Input: json.RawMessage(`{"file_path":"login.tsx"}`),
+		},
+	}}
+	want := nodeproto.ItemsAck{DispatchID: offer.DispatchID, Seq: 2, Status: nodeproto.AckCommitted}
+
+	assert.Equal(t, want, items(batch))
+	assert.Equal(t, want, items(batch), "a batch sent again is acknowledged the same")
+
+	page, err := p.svc.ListItems(t.Context(), offer.DispatchID, 0, 0, 0)
+	require.NoError(t, err)
+	require.Len(t, page.Items, 2)
+	assert.Equal(t, "Adding the button.", page.Items[0].Text)
+	assert.Equal(t, "Write", page.Items[1].Tool)
+
+	refused := items(nodeproto.Items{DispatchID: "dsp_missing", Items: batch.Items})
+	assert.Equal(t, nodeproto.AckRejected, refused.Status)
 }
 
 // Scenario: a worker asks the owner and waits. The answer is pushed as soon

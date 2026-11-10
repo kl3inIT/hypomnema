@@ -23,8 +23,6 @@ type Service struct {
 	random func() float64
 	// notify wakes event readers after each commit.
 	notify *notifier
-	// roles are the role defaults (WithRoles).
-	roles map[string]Role
 }
 
 // New returns a Service over an opened, migrated database. The clock and id
@@ -90,11 +88,17 @@ func (s *Service) CreateRunOnce(ctx context.Context, o Once, nr NewRun) (Run, er
 		var err error
 
 		id, err = once(ctx, q, now, o, "runs.create", nr, func() (string, error) {
+			if nr.ChatID != "" {
+				if _, err := q.GetChat(ctx, nr.ChatID); err != nil {
+					return "", notFound(err, "chat", nr.ChatID)
+				}
+			}
+
 			id := s.newID("run")
 
 			if err := q.InsertRun(ctx, store.InsertRunParams{
 				ID: id, Objective: objective, CreatedBy: createdBy, Repo: nullString(nr.Repo), Base: nullString(base),
-				CoordinatorTokenID: nullString(nr.CoordinatorTokenID), Now: now,
+				CoordinatorTokenID: nullString(nr.CoordinatorTokenID), ChatID: nullString(nr.ChatID), Now: now,
 			}); err != nil {
 				return "", fmt.Errorf("inserting run: %w", err)
 			}
@@ -273,7 +277,15 @@ func (s *Service) insertTasks(ctx context.Context, q *store.Queries, now int64, 
 	status := map[string]depState{}
 
 	for i, nt := range tasks {
+		if nt.Profile == "" {
+			nt.Profile = DefaultProfile
+		}
+
 		if err := validNewTask(nt, byRef); err != nil {
+			return nil, err
+		}
+
+		if err := checkTaskProfile(ctx, q, nt); err != nil {
 			return nil, err
 		}
 
@@ -286,7 +298,7 @@ func (s *Service) insertTasks(ctx context.Context, q *store.Queries, now int64, 
 		st, reason := initialStatus(deps, status)
 
 		if err := q.InsertTask(ctx, store.InsertTaskParams{
-			ID: id, RunID: runID, Position: position + int64(i), Role: nt.Role, Spec: nt.Spec,
+			ID: id, RunID: runID, Position: position + int64(i), Profile: nt.Profile, Spec: nt.Spec,
 			Runtime: nullString(nt.Runtime), Model: nullString(nt.Model), Effort: nullString(nt.Effort),
 			Status: string(st), BlockedReason: nullString(string(reason)), Now: now,
 		}); err != nil {
@@ -320,8 +332,8 @@ func validNewTask(nt NewTask, byRef map[string]string) error {
 		return fmt.Errorf("%w: a task needs a ref", ErrInvalid)
 	case byRef[nt.Ref] != "":
 		return fmt.Errorf("%w: ref %q is used twice", ErrInvalid, nt.Ref)
-	case strings.TrimSpace(nt.Role) == "" || strings.TrimSpace(nt.Spec) == "":
-		return fmt.Errorf("%w: task %q needs a role and a spec", ErrInvalid, nt.Ref)
+	case strings.TrimSpace(nt.Spec) == "":
+		return fmt.Errorf("%w: task %q needs a spec", ErrInvalid, nt.Ref)
 	default:
 		return nil
 	}
@@ -405,6 +417,32 @@ func (s *Service) ListTasks(ctx context.Context, runID string) ([]Task, error) {
 	rows, err := s.read().ListTasksByRun(ctx, runID)
 	if err != nil {
 		return nil, fmt.Errorf("listing tasks: %w", err)
+	}
+
+	out := make([]Task, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, taskFromRow(r))
+	}
+
+	return out, nil
+}
+
+// BoardLimitMax caps the Tasks one ListBoardTasks returns.
+const BoardLimitMax = 500
+
+// ListBoardTasks returns every Task of an open Run and the other Runs' Tasks
+// changed at or after since, most recently changed first: what a board of the
+// work in flight shows (Orca's agent dashboard, Omnara's agents list).
+func (s *Service) ListBoardTasks(ctx context.Context, since time.Time, limit int) ([]Task, error) {
+	if limit <= 0 {
+		limit = 200
+	}
+
+	rows, err := s.read().ListBoardTasks(ctx, store.ListBoardTasksParams{
+		Since: since.UnixMilli(), Lim: int64(min(limit, BoardLimitMax)),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("listing board tasks: %w", err)
 	}
 
 	out := make([]Task, 0, len(rows))
@@ -732,14 +770,14 @@ func optionalTime(v sql.NullInt64) *time.Time {
 func runFromRow(r store.Run) Run {
 	return Run{
 		ID: r.ID, Objective: r.Objective, Status: RunStatus(r.Status), CreatedBy: r.CreatedBy,
-		Repo: r.Repo.String, Base: r.Base.String, CoordinatorTokenID: r.CoordinatorTokenID.String,
+		Repo: r.Repo.String, Base: r.Base.String, CoordinatorTokenID: r.CoordinatorTokenID.String, ChatID: r.ChatID.String,
 		CreatedAt: millis(r.CreatedAt), UpdatedAt: millis(r.UpdatedAt), FinishedAt: optionalTime(r.FinishedAt),
 	}
 }
 
 func taskFromRow(t store.Task) Task {
 	return Task{
-		ID: t.ID, RunID: t.RunID, Position: int(t.Position), Role: t.Role, Spec: t.Spec,
+		ID: t.ID, RunID: t.RunID, Position: int(t.Position), Profile: t.Profile, Spec: t.Spec,
 		Runtime: t.Runtime.String, Model: t.Model.String, Effort: t.Effort.String,
 		Status: TaskStatus(t.Status), BlockedReason: BlockedReason(t.BlockedReason.String),
 		FailureCount: int(t.FailureCount), Result: t.Result.String,

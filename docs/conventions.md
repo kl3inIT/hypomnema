@@ -126,7 +126,10 @@ The three boundaries that matter:
   orchestration database; `FOR UPDATE SKIP LOCKED` belongs to many writer processes on PostgreSQL). Claiming takes a
   lease with a heartbeat. A worker or node that lost its lease cannot write; a reaper releases expired leases.
 - **Fencing**: every Dispatch has an `epoch`. Every write from a node is a compare-and-swap on
-  `(dispatch_id, epoch, state)`; a stale epoch is refused.
+  `(dispatch_id, epoch, state)`; a stale epoch is refused. A Transcript's items are the one exception: they are
+  taken from the Dispatch's node at any epoch and in any state, because the last items arrive after the Dispatch
+  settled, and they change no state. An item is the journal's line under its number, the same at every epoch, and a
+  number already held is ignored.
 - **Unknown is a state**: `start_unknown`, `stop_unknown` and similar states exist wherever an outcome cannot be
   proven. Silence or a timeout never proves that a process exited.
 - **Replay policy**: every effect with consequences outside the control plane (push, opening a PR, a merge request, a

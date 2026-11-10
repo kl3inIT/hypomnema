@@ -76,6 +76,8 @@ type Runner interface {
 	Answer(id string, q nodeproto.Question)
 	// Asked tells the worker the id of the question it asked with reportID.
 	Asked(id, reportID, questionID string)
+	// ItemsAcked passes on the control plane's answer to a transcript batch sent with SendItems.
+	ItemsAcked(ack nodeproto.ItemsAck)
 }
 
 // Config is what the daemon needs to reach its control plane.
@@ -432,23 +434,42 @@ func (d *Daemon) setOut(out chan nodeproto.Message) {
 	d.out = out
 }
 
-// send queues a message on the current session; while disconnected it is
-// dropped (durable reports are in the outbox and replayed).
-func (d *Daemon) send(msg nodeproto.Message) {
+// send queues a message on the current session and reports whether it did;
+// while disconnected it is dropped (durable reports are in the outbox and
+// replayed).
+func (d *Daemon) send(msg nodeproto.Message) bool {
 	d.mu.Lock()
 	out := d.out
 	d.mu.Unlock()
 
 	if out == nil {
-		return
+		return false
 	}
 
 	select {
 	case out <- msg:
+		return true
 	default:
 		d.logger.Warn("send queue full; dropping a message",
 			slog.String("event", "node.send_dropped"), slog.String("type", string(msg.Type)))
+
+		return false
 	}
+}
+
+// SendItems sends a batch of a worker's transcript (issue #43) and reports
+// whether it was queued. Nothing keeps it: the Runner sends it again until
+// ItemsAcked says the control plane has it.
+func (d *Daemon) SendItems(b nodeproto.Items) bool {
+	msg, err := nodeproto.Encode(nodeproto.TypeItems, b)
+	if err != nil || len(msg.Payload) > nodeproto.MaxMessageBytes-1024 {
+		d.logger.Warn("a transcript batch cannot be sent",
+			slog.String("event", "node.items_unsendable"), slog.String("dispatch_id", b.DispatchID))
+
+		return false
+	}
+
+	return d.send(msg)
 }
 
 func (d *Daemon) sendReport(r nodeproto.Report) {

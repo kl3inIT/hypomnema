@@ -18,14 +18,12 @@ import (
 // real SQLite with a fake clock; a node is connected when it was heard from
 // within NodeOfflineAfter of that clock.
 
-// newSchedWorld is a world whose implementer role runs on Claude.
+// newSchedWorld is a world whose implementer profile runs on Claude, as
+// the starting set has it.
 func newSchedWorld(t *testing.T) *world {
 	t.Helper()
 
-	w := newWorld(t)
-	w.s.roles = map[string]Role{"implement": {Runtime: "claude"}}
-
-	return w
+	return newWorld(t)
 }
 
 func (w *world) schedule() Scheduled {
@@ -64,7 +62,7 @@ func specs(n int) []NewTask {
 	out := make([]NewTask, 0, n)
 	for i := range n {
 		s := string(rune('a' + i))
-		out = append(out, NewTask{Ref: s, Role: "implement", Spec: s})
+		out = append(out, NewTask{Ref: s, Profile: "implementer", Spec: s})
 	}
 
 	return out
@@ -108,9 +106,9 @@ func TestSchedulerTakesTheOldestRunFirst(t *testing.T) {
 
 	w := newSchedWorld(t)
 	w.tasks(
-		NewTask{Ref: "x", Role: "implement", Spec: "x", Runtime: "codex"},
-		NewTask{Ref: "y", Role: "implement", Spec: "y"},
-		NewTask{Ref: "z", Role: "implement", Spec: "z"},
+		NewTask{Ref: "x", Profile: "implementer", Spec: "x", Runtime: "codex"},
+		NewTask{Ref: "y", Profile: "implementer", Spec: "y"},
+		NewTask{Ref: "z", Profile: "implementer", Spec: "z"},
 	)
 
 	w.advance(time.Second)
@@ -119,9 +117,9 @@ func TestSchedulerTakesTheOldestRunFirst(t *testing.T) {
 	later, err := w.s.CreateRun(t.Context(), NewRun{Objective: "a later objective", CreatedBy: "owner"})
 	require.NoError(t, err)
 	_, err = w.s.CreateTasks(t.Context(), later.ID, []NewTask{
-		{Ref: "p", Role: "implement", Spec: "p"},
-		{Ref: "q", Role: "implement", Spec: "q"},
-		{Ref: "r", Role: "implement", Spec: "r"},
+		{Ref: "p", Profile: "implementer", Spec: "p"},
+		{Ref: "q", Profile: "implementer", Spec: "q"},
+		{Ref: "r", Profile: "implementer", Spec: "r"},
 	})
 	require.NoError(t, err)
 
@@ -251,7 +249,7 @@ func TestAccountsAreTakenInOrderAndCoolingOnesSkipped(t *testing.T) {
 	assert.Equal(t, resets, *accounts[0].CoolingUntil)
 
 	// The other two Tasks are still queued on acct_1; a new Task goes to acct_2.
-	more := w.tasks(NewTask{Ref: "n", Role: "implement", Spec: "n"})[0]
+	more := w.tasks(NewTask{Ref: "n", Profile: "implementer", Spec: "n"})[0]
 	next := w.schedule().Created
 	require.Len(t, next, 1)
 	d := w.dispatchOf(next[0])
@@ -262,7 +260,7 @@ func TestAccountsAreTakenInOrderAndCoolingOnesSkipped(t *testing.T) {
 	require.NoError(t, w.finish(w.begin(next[0]), Outcome{Class: FailureRateLimited, ResetsAt: &resets}))
 	assert.Contains(t, w.events(before, EventFilter{}), "escalation n account_cooling")
 
-	w.tasks(NewTask{Ref: "w", Role: "implement", Spec: "w"})
+	w.tasks(NewTask{Ref: "w", Profile: "implementer", Spec: "w"})
 	assert.Empty(t, w.schedule().Created, "every account cools")
 
 	w.advance(UnplaceableAfter)
@@ -273,29 +271,36 @@ func TestAccountsAreTakenInOrderAndCoolingOnesSkipped(t *testing.T) {
 	assert.Empty(t, out.Escalations, "waiting for a reset resolves by itself")
 }
 
-// Scenario: role defaults. A Task's own runtime, model and effort win over
-// its role's; the Dispatch records what it was asked to run with.
-func TestTaskValuesWinOverRoleDefaults(t *testing.T) {
+// Scenario: profile defaults. A Task's own runtime, model and effort win
+// over its profile's; the Dispatch records what it ran with and the profile
+// version.
+func TestTaskValuesWinOverProfileDefaults(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
-	w.s.roles = map[string]Role{"implement": {Runtime: "claude", Model: "opus", Effort: "high"}}
+	implementer, _, err := w.s.ApplyProfile(t.Context(), "",
+		"name: implementer\ndescription: d\nruntime: claude\nmodel: {name: opus, effort: high}\n")
+	require.NoError(t, err)
+	_, _, err = w.s.ApplyProfile(t.Context(), "", "name: reviewer\ndescription: d\nruntime: codex\n")
+	require.NoError(t, err)
+
 	w.tasks(
-		NewTask{Ref: "a", Role: "implement", Spec: "a"},
-		NewTask{Ref: "b", Role: "implement", Spec: "b", Model: "sonnet"},
-		NewTask{Ref: "c", Role: "review", Spec: "c"},
+		NewTask{Ref: "a", Profile: "implementer", Spec: "a"},
+		NewTask{Ref: "b", Profile: "implementer", Spec: "b", Model: "sonnet"},
+		NewTask{Ref: "c", Profile: "reviewer", Spec: "c"},
 	)
 
 	created := w.schedule().Created
-	require.Len(t, created, 2, "the review role has no runtime")
+	require.Len(t, created, 2, "the reviewer runs on codex, which no node has")
 
-	got := map[string][2]string{}
+	got := map[string][3]string{}
 	for _, id := range created {
 		d := w.dispatchOf(id)
-		got[w.task(d.TaskID).Spec] = [2]string{d.Model, d.Effort}
+		got[w.task(d.TaskID).Spec] = [3]string{d.Model, d.Effort, d.ProfileVersionID}
 	}
 
-	assert.Equal(t, map[string][2]string{"a": {"opus", "high"}, "b": {"sonnet", "high"}}, got)
+	v := implementer.VersionID
+	assert.Equal(t, map[string][3]string{"a": {"opus", "high", v}, "b": {"sonnet", "high", v}}, got)
 }
 
 // Scenario: a ready Task no node can run. After UnplaceableAfter the owner is
@@ -305,12 +310,12 @@ func TestUnplaceableTaskIsEscalatedOnce(t *testing.T) {
 	t.Parallel()
 
 	w := newSchedWorld(t)
-	w.tasks(NewTask{Ref: "a", Role: "implement", Spec: "a", Runtime: "codex"})
-	w.addAccount("gemini", "acct_g")
-	w.tasks(NewTask{Ref: "g", Role: "implement", Spec: "g", Runtime: "gemini"})
-	w.addNode("node_g", 1, "gemini")
+	w.tasks(NewTask{Ref: "a", Profile: "implementer", Spec: "a", Runtime: "codex"})
+	w.addAccount("pi", "acct_g")
+	w.tasks(NewTask{Ref: "g", Profile: "implementer", Spec: "g", Runtime: "pi"})
+	w.addNode("node_g", 1, "pi")
 
-	require.NoError(t, w.s.DisableAccount(t.Context(), mustAccount(t, w, "gemini")))
+	require.NoError(t, w.s.DisableAccount(t.Context(), mustAccount(t, w, "pi")))
 
 	assert.Empty(t, w.schedule().Escalations, "not yet")
 

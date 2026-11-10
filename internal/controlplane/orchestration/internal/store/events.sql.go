@@ -40,6 +40,17 @@ func (q *Queries) InsertEvent(ctx context.Context, arg InsertEventParams) error 
 	return err
 }
 
+const lastEventSeq = `-- name: LastEventSeq :one
+SELECT CAST(coalesce(max(seq), 0) AS INTEGER) AS seq FROM events
+`
+
+func (q *Queries) LastEventSeq(ctx context.Context) (int64, error) {
+	row := q.db.QueryRowContext(ctx, lastEventSeq)
+	var seq int64
+	err := row.Scan(&seq)
+	return seq, err
+}
+
 const listEvents = `-- name: ListEvents :many
 SELECT seq, kind, run_id, task_id, dispatch_id, question_id, node_id, payload, created_at FROM events
 WHERE seq > ?1

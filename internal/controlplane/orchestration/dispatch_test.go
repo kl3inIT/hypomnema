@@ -272,7 +272,7 @@ func TestEveryDispatchTransitionPair(t *testing.T) {
 				continue
 			}
 
-			task := w.tasks(NewTask{Ref: "x", Role: "implement", Spec: fmt.Sprintf("%s-%s", from, to)})[0]
+			task := w.tasks(NewTask{Ref: "x", Profile: "implementer", Spec: fmt.Sprintf("%s-%s", from, to)})[0]
 			d := w.dispatch(task.ID)
 
 			unknown := from == DispatchUnknown || from == DispatchStopUnknown
@@ -318,8 +318,8 @@ func TestDispatchRunsToSuccess(t *testing.T) {
 
 	w := newWorld(t)
 	tasks := w.tasks(
-		NewTask{Ref: "api", Role: "implement", Spec: "api"},
-		NewTask{Ref: "review", Role: "review", Spec: "review", DependsOn: []string{"api"}},
+		NewTask{Ref: "api", Profile: "implementer", Spec: "api"},
+		NewTask{Ref: "review", Profile: "reviewer", Spec: "review", DependsOn: []string{"api"}},
 	)
 
 	d := w.dispatch(tasks[0].ID)
@@ -361,7 +361,7 @@ func TestAcceptLosesToExpiryAtTheSameInstant(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
-	tasks := w.tasks(NewTask{Ref: "a", Role: "implement", Spec: "a"}, NewTask{Ref: "b", Role: "implement", Spec: "b"})
+	tasks := w.tasks(NewTask{Ref: "a", Spec: "a"}, NewTask{Ref: "b", Spec: "b"})
 	late := w.dispatch(tasks[0].ID)
 	early := w.dispatch(tasks[1].ID)
 
@@ -387,7 +387,7 @@ func TestLostLeaseMakesTheOutcomeUnknown(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
-	task := w.tasks(NewTask{Ref: "a", Role: "implement", Spec: "a"})[0]
+	task := w.tasks(NewTask{Ref: "a", Profile: "implementer", Spec: "a"})[0]
 	d, c := w.start(task.ID)
 
 	stale := c
@@ -419,7 +419,7 @@ func TestSameEpochReportSettlesAnUnknownDispatch(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
-	task := w.tasks(NewTask{Ref: "a", Role: "implement", Spec: "a"})[0]
+	task := w.tasks(NewTask{Ref: "a", Profile: "implementer", Spec: "a"})[0]
 	d, c := w.start(task.ID)
 	w.loseLease()
 
@@ -440,7 +440,7 @@ func TestReattachRecoversASleepingNode(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
-	task := w.tasks(NewTask{Ref: "a", Role: "implement", Spec: "a"})[0]
+	task := w.tasks(NewTask{Ref: "a", Profile: "implementer", Spec: "a"})[0]
 	d, c := w.start(task.ID)
 	w.loseLease()
 
@@ -473,7 +473,7 @@ func TestReattachIsRefusedOnceTheOutcomeIsSettled(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
-	task := w.tasks(NewTask{Ref: "a", Role: "implement", Spec: "a"})[0]
+	task := w.tasks(NewTask{Ref: "a", Profile: "implementer", Spec: "a"})[0]
 	d, c := w.start(task.ID)
 	w.loseLease()
 
@@ -511,7 +511,7 @@ func TestProcessThatExitsWithoutAReportIsUnknown(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
-	task := w.tasks(NewTask{Ref: "a", Role: "implement", Spec: "a"})[0]
+	task := w.tasks(NewTask{Ref: "a", Profile: "implementer", Spec: "a"})[0]
 	d, c := w.start(task.ID)
 
 	require.NoError(t, w.s.ReportExited(t.Context(), w.again(c)))
@@ -532,8 +532,8 @@ func TestCancelWaitsForTheConfirmedStop(t *testing.T) {
 
 	w := newWorld(t)
 	tasks := w.tasks(
-		NewTask{Ref: "a", Role: "implement", Spec: "a"},
-		NewTask{Ref: "b", Role: "review", Spec: "b", DependsOn: []string{"a"}},
+		NewTask{Ref: "a", Profile: "implementer", Spec: "a"},
+		NewTask{Ref: "b", Profile: "reviewer", Spec: "b", DependsOn: []string{"a"}},
 	)
 	d, c := w.start(tasks[0].ID)
 
@@ -560,8 +560,8 @@ func TestExitDuringAStopConfirmsIt(t *testing.T) {
 
 	w := newWorld(t)
 	tasks := w.tasks(
-		NewTask{Ref: "a", Role: "implement", Spec: "a"},
-		NewTask{Ref: "b", Role: "review", Spec: "b", DependsOn: []string{"a"}},
+		NewTask{Ref: "a", Profile: "implementer", Spec: "a"},
+		NewTask{Ref: "b", Profile: "reviewer", Spec: "b", DependsOn: []string{"a"}},
 	)
 	_, c := w.start(tasks[0].ID)
 
@@ -577,7 +577,7 @@ func TestUnconfirmedStopBecomesStopUnknown(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
-	tasks := w.tasks(NewTask{Ref: "a", Role: "implement", Spec: "a"}, NewTask{Ref: "b", Role: "implement", Spec: "b"})
+	tasks := w.tasks(NewTask{Ref: "a", Spec: "a"}, NewTask{Ref: "b", Spec: "b"})
 	ignored, c := w.start(tasks[0].ID)
 	silent, _ := w.start(tasks[1].ID)
 
@@ -604,7 +604,7 @@ func TestCancelOfAQueuedDispatchIsImmediate(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
-	task := w.tasks(NewTask{Ref: "a", Role: "implement", Spec: "a"})[0]
+	task := w.tasks(NewTask{Ref: "a", Profile: "implementer", Spec: "a"})[0]
 	d := w.dispatch(task.ID)
 
 	require.NoError(t, w.s.CancelTask(t.Context(), task.ID))
@@ -622,9 +622,9 @@ func TestCancelRunStopsEveryRunningDispatch(t *testing.T) {
 
 	w := newWorld(t)
 	tasks := w.tasks(
-		NewTask{Ref: "a", Role: "implement", Spec: "a"},
-		NewTask{Ref: "b", Role: "implement", Spec: "b"},
-		NewTask{Ref: "c", Role: "review", Spec: "c", DependsOn: []string{"a"}},
+		NewTask{Ref: "a", Profile: "implementer", Spec: "a"},
+		NewTask{Ref: "b", Profile: "implementer", Spec: "b"},
+		NewTask{Ref: "c", Profile: "reviewer", Spec: "c", DependsOn: []string{"a"}},
 	)
 	da, ca := w.start(tasks[0].ID)
 	db, cb := w.start(tasks[1].ID)
@@ -647,8 +647,8 @@ func TestThirdCountedFailureTripsTheBreaker(t *testing.T) {
 
 	w := newWorld(t)
 	tasks := w.tasks(
-		NewTask{Ref: "a", Role: "implement", Spec: "a"},
-		NewTask{Ref: "b", Role: "review", Spec: "b", DependsOn: []string{"a"}},
+		NewTask{Ref: "a", Profile: "implementer", Spec: "a"},
+		NewTask{Ref: "b", Profile: "reviewer", Spec: "b", DependsOn: []string{"a"}},
 	)
 	a := tasks[0].ID
 
@@ -686,9 +686,9 @@ func TestRateLimitIsNotCountedAndCoolsTheAccount(t *testing.T) {
 
 	w := newWorld(t)
 	tasks := w.tasks(
-		NewTask{Ref: "a", Role: "implement", Spec: "a"},
-		NewTask{Ref: "b", Role: "implement", Spec: "b"},
-		NewTask{Ref: "c", Role: "implement", Spec: "c"},
+		NewTask{Ref: "a", Profile: "implementer", Spec: "a"},
+		NewTask{Ref: "b", Profile: "implementer", Spec: "b"},
+		NewTask{Ref: "c", Profile: "implementer", Spec: "c"},
 	)
 	resets := t0.Add(10 * time.Minute)
 
@@ -717,7 +717,7 @@ func TestExpiriesInARowMakeTheNodeUnavailable(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
-	task := w.tasks(NewTask{Ref: "a", Role: "implement", Spec: "a"})[0]
+	task := w.tasks(NewTask{Ref: "a", Profile: "implementer", Spec: "a"})[0]
 
 	for i := range ExpiriesBeforeUnavailable {
 		w.dispatch(task.ID)
@@ -742,7 +742,7 @@ func TestNeedsAuthIsNeverRetried(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
-	task := w.tasks(NewTask{Ref: "a", Role: "implement", Spec: "a"})[0]
+	task := w.tasks(NewTask{Ref: "a", Profile: "implementer", Spec: "a"})[0]
 
 	w.failOnce(task.ID, FailureNeedsAuth)
 	assert.Equal(t, "blocked:needs_auth", w.statuses()["a"])
@@ -762,7 +762,7 @@ func TestRepeatedCallsReturnTheSameReceipt(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
-	task := w.tasks(NewTask{Ref: "a", Role: "implement", Spec: "a"})[0]
+	task := w.tasks(NewTask{Ref: "a", Profile: "implementer", Spec: "a"})[0]
 	d := w.dispatch(task.ID)
 
 	first := w.call(d, 0)
@@ -795,7 +795,7 @@ func TestContinuingAConversation(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
-	tasks := w.tasks(NewTask{Ref: "a", Role: "implement", Spec: "a"}, NewTask{Ref: "b", Role: "implement", Spec: "b"})
+	tasks := w.tasks(NewTask{Ref: "a", Spec: "a"}, NewTask{Ref: "b", Spec: "b"})
 	first := w.failOnce(tasks[0].ID, FailureWorkerError)
 	w.advance(BackoffBase)
 
@@ -825,7 +825,7 @@ func TestStallAndOverrunAreEscalatedNotKilled(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
-	task := w.tasks(NewTask{Ref: "a", Role: "implement", Spec: "a"})[0]
+	task := w.tasks(NewTask{Ref: "a", Profile: "implementer", Spec: "a"})[0]
 	d, c := w.start(task.ID)
 
 	keepAlive := func(total time.Duration) {
@@ -861,7 +861,7 @@ func TestAbandonListsWhatMayRemain(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
-	task := w.tasks(NewTask{Ref: "a", Role: "implement", Spec: "a"})[0]
+	task := w.tasks(NewTask{Ref: "a", Profile: "implementer", Spec: "a"})[0]
 	d, c := w.start(task.ID)
 	ctx := t.Context()
 

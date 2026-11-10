@@ -10,3 +10,6 @@ WHERE seq > @after
   AND (CAST(@task_id AS TEXT) = '' OR task_id = @task_id)
 ORDER BY seq
 LIMIT @lim;
+
+-- name: LastEventSeq :one
+SELECT CAST(coalesce(max(seq), 0) AS INTEGER) AS seq FROM events;

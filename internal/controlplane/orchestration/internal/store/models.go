@@ -25,6 +25,24 @@ type AccountCooldown struct {
 	Reason     string
 }
 
+type Chat struct {
+	ID        string
+	Title     string
+	CreatedAt int64
+	UpdatedAt int64
+}
+
+type ChatMessage struct {
+	Seq         int64
+	ChatID      string
+	Role        string
+	Text        string
+	Parts       sql.NullString
+	EventSeq    sql.NullInt64
+	DeliveredAt sql.NullInt64
+	CreatedAt   int64
+}
+
 type ClientToken struct {
 	ID        string
 	Name      string
@@ -49,34 +67,36 @@ type Conversation struct {
 }
 
 type Dispatch struct {
-	ID              string
-	TaskID          string
-	ConversationID  string
-	NodeID          string
-	Status          string
-	Epoch           int64
-	FailureClass    sql.NullString
-	UnknownCause    sql.NullString
-	Recovery        int64
-	ProcessRef      sql.NullString
-	Result          sql.NullString
-	ResetsAt        sql.NullInt64
-	CreatedAt       int64
-	UpdatedAt       int64
-	AcceptedAt      sql.NullInt64
-	StartedAt       sql.NullInt64
-	LeaseExpiresAt  sql.NullInt64
-	ProgressAt      sql.NullInt64
-	StopRequestedAt sql.NullInt64
-	StopAckedAt     sql.NullInt64
-	StalledAt       sql.NullInt64
-	OverrunAt       sql.NullInt64
-	SettledAt       sql.NullInt64
-	WaitingSince    sql.NullInt64
-	WaitedMs        int64
-	GateQuestionID  sql.NullString
-	Model           sql.NullString
-	Effort          sql.NullString
+	ID               string
+	TaskID           string
+	ConversationID   string
+	NodeID           string
+	Status           string
+	Epoch            int64
+	FailureClass     sql.NullString
+	UnknownCause     sql.NullString
+	Recovery         int64
+	ProcessRef       sql.NullString
+	Result           sql.NullString
+	ResetsAt         sql.NullInt64
+	CreatedAt        int64
+	UpdatedAt        int64
+	AcceptedAt       sql.NullInt64
+	StartedAt        sql.NullInt64
+	LeaseExpiresAt   sql.NullInt64
+	ProgressAt       sql.NullInt64
+	StopRequestedAt  sql.NullInt64
+	StopAckedAt      sql.NullInt64
+	StalledAt        sql.NullInt64
+	OverrunAt        sql.NullInt64
+	SettledAt        sql.NullInt64
+	WaitingSince     sql.NullInt64
+	WaitedMs         int64
+	GateQuestionID   sql.NullString
+	Model            sql.NullString
+	Effort           sql.NullString
+	ProfileVersionID sql.NullString
+	Activity         sql.NullString
 }
 
 type DispatchEffect struct {
@@ -88,6 +108,14 @@ type DispatchEffect struct {
 	Payload    sql.NullString
 	CreatedAt  int64
 	UpdatedAt  int64
+}
+
+type DispatchItem struct {
+	DispatchID string
+	Seq        int64
+	Kind       string
+	Data       string
+	CreatedAt  int64
 }
 
 type DispatchResource struct {
@@ -111,6 +139,11 @@ type Event struct {
 	CreatedAt  int64
 }
 
+type Model struct {
+	Provider string
+	Name     string
+}
+
 type Node struct {
 	ID            string
 	Name          string
@@ -123,6 +156,38 @@ type Node struct {
 	UnavailableAt sql.NullInt64
 	CreatedAt     int64
 	UpdatedAt     int64
+}
+
+type Profile struct {
+	Name             string
+	CurrentVersionID string
+	CreatedAt        int64
+	UpdatedAt        int64
+}
+
+type ProfileVersion struct {
+	ID          string
+	Profile     string
+	Version     int64
+	Source      string
+	Digest      string
+	Runtime     string
+	Provider    sql.NullString
+	Model       sql.NullString
+	Effort      sql.NullString
+	Instruction sql.NullString
+	CreatedAt   int64
+	Description string
+}
+
+type Provider struct {
+	Name      string
+	Kind      string
+	BaseUrl   sql.NullString
+	ApiKeyRef sql.NullString
+	Source    string
+	CreatedAt int64
+	UpdatedAt int64
 }
 
 type Question struct {
@@ -165,13 +230,47 @@ type Run struct {
 	Repo               sql.NullString
 	Base               sql.NullString
 	CoordinatorTokenID sql.NullString
+	ChatID             sql.NullString
+}
+
+type Secret struct {
+	ID               string
+	Name             string
+	Kind             string
+	Metadata         string
+	CurrentVersionID string
+	CreatedAt        int64
+	UpdatedAt        int64
+	LoginRequiredAt  sql.NullInt64
+}
+
+type SecretRefreshLease struct {
+	SecretID          string
+	OwnerToken        string
+	ExpectedVersionID string
+	ExpiresAt         int64
+}
+
+type SecretVersion struct {
+	ID                   string
+	SecretID             string
+	VersionNumber        int64
+	PayloadKeys          string
+	EncryptionScheme     string
+	KeyID                string
+	EncryptedDek         []byte
+	EncryptedDekNonce    []byte
+	Nonce                []byte
+	Ciphertext           []byte
+	AccessTokenExpiresAt sql.NullInt64
+	CreatedAt            int64
 }
 
 type Task struct {
 	ID                string
 	RunID             string
 	Position          int64
-	Role              string
+	Profile           string
 	Spec              string
 	Runtime           sql.NullString
 	Model             sql.NullString

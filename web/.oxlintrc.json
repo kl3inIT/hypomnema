@@ -1,15 +1,32 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "plugins": ["react", "typescript", "oxc", "jsx-a11y", "import", "vitest"],
-  "ignorePatterns": ["dist/**", "src/routeTree.gen.ts", "src/components/ui/**"],
+  "jsPlugins": ["@shadcn/lint"],
+  "ignorePatterns": [
+    "dist/**",
+    "src/routeTree.gen.ts",
+    "src/api/generated/**",
+    "src/components/**"
+  ],
   "rules": {
     "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
+    "react/only-export-components": [
+      "warn",
+      {
+        "allowConstantExport": true
+      }
+    ],
+    "shadcn/no-raw-colors": "error",
+    "shadcn/no-restyle": "error",
+    "shadcn/no-unknown-classes": "error",
+    "shadcn/require-static-classes": "error"
   },
   "overrides": [
     {
-      "files": ["src/routes/**", "src/components/theme-provider.tsx"],
-      "rules": { "react/only-export-components": "off" }
+      "files": ["src/routes/**"],
+      "rules": {
+        "react/only-export-components": "off"
+      }
     }
   ]
 }

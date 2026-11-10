@@ -15,8 +15,10 @@ import (
 	"net/http"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/coordinator"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/nodeapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/webui"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
@@ -33,18 +35,13 @@ type Config struct {
 	HTTPAddr string
 	Log      platform.LogConfig
 	Database sqlite.Config
-	// Roles are the role defaults, from HYPOMNEMA_ROLES as JSON, for example
-	// {"implement": {"runtime": "claude", "model": "opus"}}.
-	Roles map[string]orchestration.Role
-}
-
-// defaultRoles: an implementer runs on Claude Code unless configured.
-const defaultRoles = `{"implement": {"runtime": "claude"}}`
-
-type roleConfig struct {
-	Runtime string `json:"runtime"`
-	Model   string `json:"model"`
-	Effort  string `json:"effort"`
+	// CoordinatorCommand starts pi for a chat id appended to it, from
+	// HYPOMNEMA_COORDINATOR_COMMAND as a JSON array; empty: no coordinator.
+	CoordinatorCommand []string
+	// VaultKeys holds the vault's root keys, from HYPOMNEMA_VAULT_KEYS (a
+	// comma-separated list of id:base64 entries) and
+	// HYPOMNEMA_VAULT_ACTIVE_KEY_ID; nil: the vault is not configured.
+	VaultKeys *vault.Keyring
 }
 
 // LoadConfig reads the configuration and reports every problem at once.
@@ -56,28 +53,21 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 		Database: sqlite.FromEnv(env, envPrefix),
 	}
 
-	roles, rolesErr := parseRoles(env.String(envPrefix+"_ROLES", defaultRoles))
-	cfg.Roles = roles
+	var cmdErr error
+	if raw := env.String(envPrefix+"_COORDINATOR_COMMAND", ""); raw != "" {
+		if err := json.Unmarshal([]byte(raw), &cfg.CoordinatorCommand); err != nil || len(cfg.CoordinatorCommand) == 0 {
+			cmdErr = fmt.Errorf("%s_COORDINATOR_COMMAND is not a JSON array of strings", envPrefix)
+		}
+	}
 
-	if err := errors.Join(env.Err(), rolesErr); err != nil {
+	keys, keysErr := vault.ParseKeyring(getenv(envPrefix+"_VAULT_KEYS"), getenv(envPrefix+"_VAULT_ACTIVE_KEY_ID"))
+	cfg.VaultKeys = keys
+
+	if err := errors.Join(env.Err(), cmdErr, keysErr); err != nil {
 		return Config{}, fmt.Errorf("configuration: %w", err)
 	}
 
 	return cfg, nil
-}
-
-func parseRoles(raw string) (map[string]orchestration.Role, error) {
-	var in map[string]roleConfig
-	if err := json.Unmarshal([]byte(raw), &in); err != nil {
-		return nil, fmt.Errorf("%s_ROLES is not a JSON object of roles: %w", envPrefix, err)
-	}
-
-	out := make(map[string]orchestration.Role, len(in))
-	for name, r := range in {
-		out[name] = orchestration.Role(r)
-	}
-
-	return out, nil
 }
 
 // Migrate brings the database schema up to this binary's version.
@@ -114,7 +104,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		return err
 	}
 
-	svc := orchestration.New(db, platform.SystemClock{}, platform.NewID, orchestration.WithRoles(cfg.Roles))
+	svc := orchestration.New(db, platform.SystemClock{}, platform.NewID)
 
 	// The scheduler runs while the server does; if it fails, the server stops.
 	ctx, cancel := context.WithCancelCause(ctx)
@@ -124,7 +114,9 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	platform.RegisterHealth(mux, sqlite.Ready(db), logger)
 	nodeapi.New(svc, logger).Register(mux)
 
-	if err := clientapi.New(svc, logger, ctx.Done()).Register(mux); err != nil {
+	sup := coordinator.New(svc, coordinator.Config{Command: cfg.CoordinatorCommand, Logger: logger})
+
+	if err := clientapi.New(svc, logger, ctx.Done()).WithCoordinator(sup).Register(mux); err != nil {
 		return err
 	}
 
@@ -149,10 +141,19 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		}
 	}()
 
+	supDone := make(chan struct{})
+
+	go func() {
+		defer close(supDone)
+
+		_ = sup.Run(ctx)
+	}()
+
 	serveErr := platform.Serve(ctx, ln, mux, logger)
 
 	cancel(nil)
 	<-loopDone
+	<-supDone
 
 	if cause := context.Cause(ctx); cause != nil && !errors.Is(cause, context.Canceled) {
 		return errors.Join(serveErr, cause)

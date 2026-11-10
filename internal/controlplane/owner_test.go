@@ -5,6 +5,7 @@ import (
 	"io"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -29,7 +30,7 @@ func command(t *testing.T, cfg Config, args ...string) (string, error) {
 	t.Helper()
 
 	var out bytes.Buffer
-	err := Command(t.Context(), cfg, args, &out)
+	err := Command(t.Context(), cfg, args, strings.NewReader(""), &out)
 
 	return out.String(), err
 }

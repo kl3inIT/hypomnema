@@ -94,7 +94,7 @@ func TestEveryTaskTransitionPair(t *testing.T) {
 				t.Parallel()
 				assert.Equal(t, allowed[[2]TaskStatus{from, to}], canTask(from, to))
 
-				tasks, err := s.CreateTasks(t.Context(), run.ID, []NewTask{{Ref: "x", Role: "implement", Spec: "x"}})
+				tasks, err := s.CreateTasks(t.Context(), run.ID, []NewTask{{Ref: "x", Profile: "implementer", Spec: "x"}})
 				require.NoError(t, err)
 
 				id := tasks[0].ID
@@ -127,9 +127,9 @@ func TestTaskBecomesReadyWhenAllDependenciesSucceed(t *testing.T) {
 
 	w := newWorld(t)
 	tasks := w.tasks(
-		NewTask{Ref: "api", Role: "implement", Spec: "api"},
-		NewTask{Ref: "ui", Role: "implement", Spec: "ui"},
-		NewTask{Ref: "review", Role: "review", Spec: "review", DependsOn: []string{"api", "ui"}},
+		NewTask{Ref: "api", Profile: "implementer", Spec: "api"},
+		NewTask{Ref: "ui", Profile: "implementer", Spec: "ui"},
+		NewTask{Ref: "review", Profile: "reviewer", Spec: "review", DependsOn: []string{"api", "ui"}},
 	)
 	assert.Equal(t, map[string]string{"api": "ready:", "ui": "ready:", "review": "pending:"}, w.statuses())
 
@@ -152,10 +152,10 @@ func TestFailureBlocksEveryDependentTransitively(t *testing.T) {
 
 	w := newWorld(t)
 	tasks := w.tasks(
-		NewTask{Ref: "a", Role: "implement", Spec: "a"},
-		NewTask{Ref: "b", Role: "implement", Spec: "b", DependsOn: []string{"a"}},
-		NewTask{Ref: "c", Role: "review", Spec: "c", DependsOn: []string{"b"}},
-		NewTask{Ref: "d", Role: "implement", Spec: "d"},
+		NewTask{Ref: "a", Profile: "implementer", Spec: "a"},
+		NewTask{Ref: "b", Profile: "implementer", Spec: "b", DependsOn: []string{"a"}},
+		NewTask{Ref: "c", Profile: "reviewer", Spec: "c", DependsOn: []string{"b"}},
+		NewTask{Ref: "d", Profile: "implementer", Spec: "d"},
 	)
 
 	w.failForGood(tasks[0].ID)
@@ -166,7 +166,7 @@ func TestFailureBlocksEveryDependentTransitively(t *testing.T) {
 
 	// A Task added later on top of a dead branch starts blocked.
 	later, err := w.s.CreateTasks(t.Context(), w.run.ID, []NewTask{
-		{Ref: "e", Role: "implement", Spec: "e", DependsOn: []string{tasks[2].ID}},
+		{Ref: "e", Profile: "implementer", Spec: "e", DependsOn: []string{tasks[2].ID}},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, TaskBlocked, later[0].Status)
@@ -181,18 +181,18 @@ func TestCreateTasksRefusesBadDependenciesAtomically(t *testing.T) {
 	run := newRun(t, s)
 	other := newRun(t, s)
 
-	foreign, err := s.CreateTasks(t.Context(), other.ID, []NewTask{{Ref: "f", Role: "implement", Spec: "f"}})
+	foreign, err := s.CreateTasks(t.Context(), other.ID, []NewTask{{Ref: "f", Profile: "implementer", Spec: "f"}})
 	require.NoError(t, err)
 
 	cases := map[string][]NewTask{
 		"forward reference": {
-			{Ref: "a", Role: "implement", Spec: "a", DependsOn: []string{"b"}},
-			{Ref: "b", Role: "implement", Spec: "b"},
+			{Ref: "a", Profile: "implementer", Spec: "a", DependsOn: []string{"b"}},
+			{Ref: "b", Profile: "implementer", Spec: "b"},
 		},
-		"another run's task": {{Ref: "a", Role: "implement", Spec: "a", DependsOn: []string{foreign[0].ID}}},
-		"duplicate ref":      {{Ref: "a", Role: "implement", Spec: "a"}, {Ref: "a", Role: "implement", Spec: "b"}},
-		"missing spec":       {{Ref: "a", Role: "implement"}},
-		"self reference":     {{Ref: "a", Role: "implement", Spec: "a", DependsOn: []string{"a"}}},
+		"another run's task": {{Ref: "a", Profile: "implementer", Spec: "a", DependsOn: []string{foreign[0].ID}}},
+		"duplicate ref":      {{Ref: "a", Profile: "implementer", Spec: "a"}, {Ref: "a", Profile: "implementer", Spec: "b"}},
+		"missing spec":       {{Ref: "a", Profile: "implementer"}},
+		"self reference":     {{Ref: "a", Profile: "implementer", Spec: "a", DependsOn: []string{"a"}}},
 	}
 
 	for name, batch := range cases {
@@ -216,9 +216,9 @@ func TestCancelRunCancelsUnfinishedTasks(t *testing.T) {
 
 	w := newWorld(t)
 	tasks := w.tasks(
-		NewTask{Ref: "done", Role: "implement", Spec: "done"},
-		NewTask{Ref: "next", Role: "review", Spec: "next", DependsOn: []string{"done"}},
-		NewTask{Ref: "other", Role: "implement", Spec: "other"},
+		NewTask{Ref: "done", Profile: "implementer", Spec: "done"},
+		NewTask{Ref: "next", Profile: "reviewer", Spec: "next", DependsOn: []string{"done"}},
+		NewTask{Ref: "other", Profile: "implementer", Spec: "other"},
 	)
 
 	w.succeed(tasks[0].ID, "ok")
@@ -234,7 +234,7 @@ func TestCancelRunCancelsUnfinishedTasks(t *testing.T) {
 	require.NotNil(t, got.FinishedAt)
 	assert.Equal(t, t0.Add(time.Minute), *got.FinishedAt)
 
-	_, err = w.s.CreateTasks(t.Context(), w.run.ID, []NewTask{{Ref: "x", Role: "implement", Spec: "x"}})
+	_, err = w.s.CreateTasks(t.Context(), w.run.ID, []NewTask{{Ref: "x", Profile: "implementer", Spec: "x"}})
 	require.ErrorIs(t, err, ErrConflict)
 	require.ErrorIs(t, w.s.CancelRun(t.Context(), w.run.ID), ErrConflict)
 }
@@ -244,7 +244,7 @@ func TestFinishRunNeedsEveryTaskEnded(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
-	tasks := w.tasks(NewTask{Ref: "a", Role: "implement", Spec: "a"})
+	tasks := w.tasks(NewTask{Ref: "a", Profile: "implementer", Spec: "a"})
 	require.ErrorIs(t, w.s.FinishRun(t.Context(), w.run.ID), ErrConflict)
 
 	w.succeed(tasks[0].ID, "ok")
@@ -257,8 +257,8 @@ func TestOperationsReportNotFoundAndConflict(t *testing.T) {
 
 	w := newWorld(t)
 	tasks := w.tasks(
-		NewTask{Ref: "a", Role: "implement", Spec: "a"},
-		NewTask{Ref: "b", Role: "implement", Spec: "b", DependsOn: []string{"a"}},
+		NewTask{Ref: "a", Profile: "implementer", Spec: "a"},
+		NewTask{Ref: "b", Profile: "implementer", Spec: "b", DependsOn: []string{"a"}},
 	)
 
 	_, err := w.create(tasks[1].ID, w.spec())
@@ -267,7 +267,7 @@ func TestOperationsReportNotFoundAndConflict(t *testing.T) {
 	require.ErrorIs(t, err, ErrNotFound)
 	_, err = w.s.GetRun(t.Context(), "run_missing")
 	require.ErrorIs(t, err, ErrNotFound)
-	_, err = w.s.CreateTasks(t.Context(), "run_missing", []NewTask{{Ref: "a", Role: "implement", Spec: "a"}})
+	_, err = w.s.CreateTasks(t.Context(), "run_missing", []NewTask{{Ref: "a", Profile: "implementer", Spec: "a"}})
 	require.ErrorIs(t, err, ErrNotFound)
 	_, err = w.s.CreateRun(t.Context(), NewRun{Objective: " ", CreatedBy: "owner"})
 	require.ErrorIs(t, err, ErrInvalid)

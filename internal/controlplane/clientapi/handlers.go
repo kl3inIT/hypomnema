@@ -3,6 +3,7 @@ package clientapi
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
@@ -49,6 +50,7 @@ func (s *Server) CreateRun(ctx context.Context, req openapi.CreateRunRequestObje
 
 	nr := orchestration.NewRun{
 		Objective: req.Body.Objective, CreatedBy: tok.Name, Repo: val(req.Body.Repo), Base: val(req.Body.Base),
+		ChatID: val(req.Body.ChatId),
 	}
 	if tok.Kind == bearertoken.Coordinator {
 		nr.CoordinatorTokenID = tok.ID
@@ -85,7 +87,7 @@ func (s *Server) GetRun(ctx context.Context, req openapi.GetRunRequestObject) (o
 	r := toRun(run)
 	out := openapi.GetRun200JSONResponse{
 		Id: r.Id, Objective: r.Objective, Status: r.Status, CreatedBy: r.CreatedBy, Repo: r.Repo, Base: r.Base,
-		CoordinatorTokenId: r.CoordinatorTokenId, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
+		CoordinatorTokenId: r.CoordinatorTokenId, ChatId: r.ChatId, CreatedAt: r.CreatedAt, UpdatedAt: r.UpdatedAt,
 		FinishedAt: r.FinishedAt, Tasks: make([]openapi.TaskDetail, 0, len(tasks)),
 	}
 
@@ -178,6 +180,59 @@ func (s *Server) GetTask(ctx context.Context, req openapi.GetTaskRequestObject) 
 	}
 
 	return openapi.GetTask200JSONResponse(detail), nil
+}
+
+// boardWindow is how far back a board looks for Tasks of Runs no longer open.
+const boardWindow = 24 * time.Hour
+
+// ListTasks returns the Tasks a board shows, with their latest Dispatch and
+// their Runs.
+func (s *Server) ListTasks(ctx context.Context, req openapi.ListTasksRequestObject,
+) (openapi.ListTasksResponseObject, error) {
+	since := time.Now().Add(-boardWindow)
+	if req.Params.Since != nil {
+		since = *req.Params.Since
+	}
+
+	// Read first, so an event between it and the snapshot is followed, not lost.
+	after, err := s.svc.LastEventSeq(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	tasks, err := s.svc.ListBoardTasks(ctx, since, val(req.Params.Limit))
+	if err != nil {
+		return nil, err
+	}
+
+	out := openapi.ListTasks200JSONResponse{
+		Data: make([]openapi.TaskDetail, 0, len(tasks)), Runs: []openapi.Run{}, After: after,
+	}
+	seen := map[string]bool{}
+
+	for _, t := range tasks {
+		detail, err := s.taskDetail(ctx, t)
+		if err != nil {
+			return nil, err
+		}
+
+		out.Data = append(out.Data, detail)
+
+		if seen[t.RunID] {
+			continue
+		}
+
+		seen[t.RunID] = true
+
+		run, err := s.svc.GetRun(ctx, t.RunID)
+		if err != nil {
+			return nil, err
+		}
+
+		out.Runs = append(out.Runs, toRun(run))
+	}
+
+	return out, nil
 }
 
 // CancelTask cancels a Task.

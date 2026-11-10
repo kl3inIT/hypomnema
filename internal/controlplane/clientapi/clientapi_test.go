@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/coordinator"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
@@ -33,6 +35,8 @@ type world struct {
 	stop chan struct{}
 	// workers are the Dispatches a test drives, by the id of a question they asked.
 	workers map[string]*worker
+	// pi plays the coordinator's supervisor.
+	pi *fakeCoordinator
 }
 
 func newWorld(t *testing.T) *world {
@@ -43,11 +47,11 @@ func newWorld(t *testing.T) *world {
 	t.Cleanup(func() { _ = db.Close() })
 	require.NoError(t, orchestration.Migrate(t.Context(), db))
 
-	svc := orchestration.New(db, platform.SystemClock{}, platform.NewID,
-		orchestration.WithRoles(map[string]orchestration.Role{"implement": {Runtime: "claude"}}))
+	svc := orchestration.New(db, platform.SystemClock{}, platform.NewID)
 
 	stop := make(chan struct{})
-	srv := New(svc, slog.New(slog.DiscardHandler), stop)
+	pi := &fakeCoordinator{live: make(chan coordinator.Frame, 16)}
+	srv := New(svc, slog.New(slog.DiscardHandler), stop).WithCoordinator(pi)
 	srv.heartbeat = 50 * time.Millisecond
 
 	mux := http.NewServeMux()
@@ -63,7 +67,7 @@ func newWorld(t *testing.T) *world {
 		}
 	})
 
-	return &world{t: t, svc: svc, url: hs.URL, stop: stop, workers: map[string]*worker{}}
+	return &world{t: t, svc: svc, url: hs.URL, stop: stop, workers: map[string]*worker{}, pi: pi}
 }
 
 // token adds a token and returns a client that sends it.
@@ -223,8 +227,8 @@ func TestACoordinatorChangesOnlyItsOwnRuns(t *testing.T) {
 	assert.Equal(t, "laptop", run.CreatedBy)
 
 	tasks, err := laptop.CreateTasksWithResponse(ctx, run.Id, nil, openapi.NewTasks{Tasks: []openapi.NewTask{
-		{Ref: "a", Role: "implement", Spec: "write the handler"},
-		{Ref: "b", Role: "implement", Spec: "write its test", DependsOn: &[]string{"a"}},
+		{Ref: "a", Spec: "write the handler"},
+		{Ref: "b", Spec: "write its test", DependsOn: &[]string{"a"}},
 	}})
 	require.NoError(t, err)
 	require.Equal(t, http.StatusCreated, tasks.StatusCode(), string(tasks.Body))
@@ -242,7 +246,7 @@ func TestACoordinatorChangesOnlyItsOwnRuns(t *testing.T) {
 	assert.Equal(t, openapi.Forbidden, errorCode(t, cancel.Body, cancel.StatusCode(), http.StatusForbidden))
 
 	more, err := other.CreateTasksWithResponse(ctx, run.Id, nil, openapi.NewTasks{Tasks: []openapi.NewTask{
-		{Ref: "c", Role: "implement", Spec: "x"},
+		{Ref: "c", Spec: "x"},
 	}})
 	require.NoError(t, err)
 	assert.Equal(t, openapi.Forbidden, errorCode(t, more.Body, more.StatusCode(), http.StatusForbidden))
@@ -329,6 +333,56 @@ func TestListRunsPages(t *testing.T) {
 	assert.Equal(t, openapi.InvalidRequest, errorCode(t, resp.Body, resp.StatusCode(), http.StatusBadRequest))
 }
 
+// Scenario: a board asks for the work in flight. It gets every Task of an
+// open Run, and a canceled Run's Tasks only while they are recent, each Run
+// once.
+func TestListTasksFillsABoard(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	c, _ := w.token("web", bearertoken.Owner)
+	ctx := t.Context()
+
+	open := w.createRun(c, "open")
+	closed := w.createRun(c, "closed")
+
+	for _, r := range []openapi.Run{open, closed} {
+		resp, err := c.CreateTasksWithResponse(ctx, r.Id, &openapi.CreateTasksParams{}, openapi.NewTasks{
+			Tasks: []openapi.NewTask{{Ref: "a", Spec: r.Objective + " a"}, {Ref: "b", Spec: r.Objective + " b"}},
+		})
+		require.NoError(t, err)
+		require.Equal(t, http.StatusCreated, resp.StatusCode(), string(resp.Body))
+	}
+
+	cancel, err := c.CancelRunWithResponse(ctx, closed.Id)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, cancel.StatusCode(), string(cancel.Body))
+
+	board, err := c.ListTasksWithResponse(ctx, &openapi.ListTasksParams{})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, board.StatusCode(), string(board.Body))
+	assert.Len(t, board.JSON200.Data, 4, "a canceled Run's Tasks show while they are recent")
+	assert.ElementsMatch(t, []string{"open", "closed"}, objectives(board.JSON200.Runs), "each Run once")
+
+	events, err := c.ListEventsWithResponse(ctx, &openapi.ListEventsParams{After: &board.JSON200.After})
+	require.NoError(t, err)
+	assert.Empty(t, events.JSON200.Data, "after is the newest event when the board was read")
+	assert.Positive(t, board.JSON200.After)
+
+	later := time.Now().Add(time.Hour)
+	board, err = c.ListTasksWithResponse(ctx, &openapi.ListTasksParams{Since: &later})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, board.StatusCode(), string(board.Body))
+
+	specs := []string{}
+	for _, task := range board.JSON200.Data {
+		specs = append(specs, task.Spec)
+	}
+
+	assert.ElementsMatch(t, []string{"open a", "open b"}, specs, "an open Run's Tasks always show")
+	assert.Equal(t, []string{"open"}, objectives(board.JSON200.Runs))
+}
+
 func objectives(runs []openapi.Run) []string {
 	out := make([]string, 0, len(runs))
 	for _, r := range runs {
@@ -409,7 +463,7 @@ func (w *world) askFromAWorker(c *openapi.ClientWithResponses, runID, text strin
 	}))
 
 	tasks, err := c.CreateTasksWithResponse(ctx, runID, nil, openapi.NewTasks{Tasks: []openapi.NewTask{
-		{Ref: "a", Role: "implement", Spec: "work"},
+		{Ref: "a", Spec: "work"},
 	}})
 	require.NoError(w.t, err)
 	require.Equal(w.t, http.StatusCreated, tasks.StatusCode(), string(tasks.Body))
@@ -500,6 +554,90 @@ func TestListEventsWaitsForTheNextEvent(t *testing.T) {
 	}
 }
 
+// Scenario: the owner opens a running worker's Task on the web. The page
+// reads the transcript's newest items, then waits for the next one, which comes
+// as soon as the node sends it; the board's Task says what the worker does.
+func TestAWorkersTranscriptIsReadAndFollowed(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	c, _ := w.token("web", bearertoken.Owner)
+	ctx := t.Context()
+	run := w.createRun(c, "add a login")
+	wk := w.workers[w.askFromAWorker(c, run.Id, "which port?", orchestration.AddressOwner)]
+	node, dispatch := wk.call.NodeID, wk.call.DispatchID
+
+	_, err := w.svc.AddItems(ctx, node, dispatch, []orchestration.Item{
+		{Seq: 1, Kind: orchestration.ItemMessage, Text: "Reading the server."},
+		{
+			Seq: 2, Kind: orchestration.ItemToolCall, CallID: "call_1", Tool: "Read",
+			Input: json.RawMessage(`{"file_path":"server.go"}`),
+		},
+		{Seq: 3, Kind: orchestration.ItemToolResult, CallID: "call_1", Text: "package main", Failed: true},
+	})
+	require.NoError(t, err)
+
+	two, before := 2, int64(4)
+	newest, err := c.ListDispatchItemsWithResponse(ctx, dispatch,
+		&openapi.ListDispatchItemsParams{Before: &before, Limit: &two})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, newest.StatusCode(), string(newest.Body))
+	require.Len(t, newest.JSON200.Data, 2)
+	assert.True(t, newest.JSON200.HasMore)
+
+	call, result := newest.JSON200.Data[0], newest.JSON200.Data[1]
+	assert.Equal(t, int64(2), call.Seq)
+	assert.Equal(t, openapi.TranscriptItemKind("tool_call"), call.Kind)
+	assert.Equal(t, "Read", val(call.Tool))
+	assert.Equal(t, map[string]any{"file_path": "server.go"}, val(call.Input))
+	assert.Equal(t, "call_1", val(result.CallId))
+	assert.True(t, val(result.Failed))
+	assert.Equal(t, "package main", val(result.Text))
+
+	after, waitLong := int64(3), 30
+	done := make(chan *openapi.ListDispatchItemsResponse, 1)
+
+	go func() {
+		resp, err := c.ListDispatchItemsWithResponse(context.WithoutCancel(ctx), dispatch,
+			&openapi.ListDispatchItemsParams{After: &after, Wait: &waitLong})
+		assert.NoError(t, err)
+		done <- resp
+	}()
+
+	time.Sleep(100 * time.Millisecond)
+
+	_, err = w.svc.AddItems(ctx, node, dispatch, []orchestration.Item{
+		{
+			Seq: 4, Kind: orchestration.ItemToolCall, CallID: "call_2", Tool: "Bash",
+			Input: json.RawMessage(`{"command":"go test ./..."}`),
+		},
+	})
+	require.NoError(t, err)
+
+	select {
+	case resp := <-done:
+		require.Len(t, resp.JSON200.Data, 1)
+		assert.Equal(t, int64(4), resp.JSON200.Data[0].Seq)
+	case <-time.After(5 * time.Second):
+		t.Fatal("the wait did not end when an item came")
+	}
+
+	board, err := c.ListTasksWithResponse(ctx, nil)
+	require.NoError(t, err)
+	require.Len(t, board.JSON200.Data, 1)
+	assert.Equal(t, "Bash: go test ./...", val(board.JSON200.Data[0].LatestDispatch.Activity))
+
+	missing, err := c.ListDispatchItemsWithResponse(ctx, "dsp_missing", nil)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusNotFound, missing.StatusCode())
+
+	// The transcript holds what the worker's tools printed: a coordinator reads only its own Runs'.
+	stranger, _ := w.token("laptop", bearertoken.Coordinator)
+	refused, err := stranger.ListDispatchItemsWithResponse(ctx, dispatch, nil)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, refused.StatusCode(), string(refused.Body))
+}
+
 // The stream sends the events after Last-Event-ID, then new ones as they
 // are committed, with heartbeats in between; it ends when the server stops.
 func TestStreamEventsResumesAndFollows(t *testing.T) {
@@ -582,4 +720,222 @@ func bearerOf(t *testing.T, w *world, name string) string {
 	require.NoError(t, err)
 
 	return secret
+}
+
+// Scenario: a coordinator reads the profiles, providers and models to choose
+// from, but only the owner changes them. Applying the same source twice
+// makes one version; a name that differs from the path is refused.
+func TestOnlyTheOwnerChangesProfiles(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	laptop, _ := w.token("laptop", bearertoken.Coordinator)
+	owner, _ := w.token("web", bearertoken.Owner)
+	ctx := t.Context()
+
+	list, err := laptop.ListProfilesWithResponse(ctx)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, list.StatusCode())
+	assert.Len(t, list.JSON200.Data, 4)
+
+	models, err := laptop.ListModelsWithResponse(ctx)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, models.StatusCode())
+	assert.NotEmpty(t, models.JSON200.Data)
+
+	body := openapi.Source{Source: "name: reviewer\ndescription: d\nruntime: claude\nmodel: {name: opus, effort: max}\n"}
+
+	refused, err := laptop.ApplyProfileWithResponse(ctx, "reviewer", body)
+	require.NoError(t, err)
+	assert.Equal(t, openapi.Forbidden, errorCode(t, refused.Body, refused.StatusCode(), http.StatusForbidden))
+
+	created, err := owner.ApplyProfileWithResponse(ctx, "reviewer", body)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, created.StatusCode(), string(created.Body))
+	assert.Equal(t, 3, created.JSON201.Version)
+
+	same, err := owner.ApplyProfileWithResponse(ctx, "reviewer", body)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, same.StatusCode())
+	assert.Equal(t, created.JSON201.VersionId, same.JSON200.VersionId)
+
+	wrong, err := owner.ApplyProfileWithResponse(ctx, "explorer", body)
+	require.NoError(t, err)
+	assert.Equal(t, openapi.InvalidRequest, errorCode(t, wrong.Body, wrong.StatusCode(), http.StatusBadRequest))
+
+	provider, err := laptop.ApplyProviderWithResponse(ctx, "router",
+		openapi.Source{Source: "name: router\nkind: openai_compatible\nmodels: [m1]\n"})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, provider.StatusCode())
+}
+
+// fakeCoordinator says pi runs and is never working; a test sends live
+// frames on live and reads which chats were stopped.
+type fakeCoordinator struct {
+	live    chan coordinator.Frame
+	aborted atomic.Value
+}
+
+func (*fakeCoordinator) Enabled() bool         { return true }
+func (*fakeCoordinator) Working(_ string) bool { return false }
+
+func (f *fakeCoordinator) Watch(_ string) (<-chan coordinator.Frame, func()) {
+	return f.live, func() {}
+}
+
+func (f *fakeCoordinator) Abort(_ context.Context, chatID string) error {
+	f.aborted.Store(chatID)
+
+	return nil
+}
+
+// Scenario: the owner chats with pi from the web. Only the owner's token
+// reads or writes chats; a message read with wait arrives as it is kept; a
+// Run created from the chat records it.
+func TestOnlyTheOwnerChats(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	owner, _ := w.token("web", bearertoken.Owner)
+	pi, _ := w.token("pi", bearertoken.Coordinator)
+	ctx := t.Context()
+
+	created, err := owner.CreateChatWithResponse(ctx, openapi.NewChat{})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, created.StatusCode(), string(created.Body))
+	chat := created.JSON201
+	assert.True(t, chat.Coordinator)
+	assert.False(t, chat.Working)
+
+	refused, err := pi.ListChatsWithResponse(ctx, nil)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, refused.StatusCode(), "a coordinator token does not read the owner's chats")
+
+	sent, err := owner.SendChatMessageWithResponse(ctx, chat.Id, openapi.NewChatMessage{Text: "add a health page"})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, sent.StatusCode())
+	assert.Equal(t, openapi.ChatRoleOwner, sent.JSON201.Role)
+	assert.Nil(t, sent.JSON201.DeliveredAt)
+
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		_, _ = w.svc.AddChatMessage(context.WithoutCancel(ctx), chat.Id, orchestration.ChatCoordinator, "On it.")
+	}()
+
+	wait := 5
+	after := sent.JSON201.Seq
+
+	page, err := owner.ListChatMessagesWithResponse(ctx, chat.Id,
+		&openapi.ListChatMessagesParams{After: &after, Wait: &wait})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, page.StatusCode())
+	require.Len(t, page.JSON200.Data, 1, "the wait returns the reply as it is kept")
+	assert.Equal(t, "On it.", page.JSON200.Data[0].Text)
+	assert.Equal(t, page.JSON200.Data[0].Seq, page.JSON200.NextAfter)
+
+	run, err := pi.CreateRunWithResponse(ctx, nil, openapi.NewRun{Objective: "health page", ChatId: &chat.Id})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, run.StatusCode(), string(run.Body))
+	assert.Equal(t, chat.Id, val(run.JSON201.ChatId))
+
+	unknown := "cht_none"
+	missing, err := pi.CreateRunWithResponse(ctx, nil, openapi.NewRun{Objective: "x", ChatId: &unknown})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusNotFound, missing.StatusCode())
+}
+
+// Scenario: the web opens a chat while pi answers. It gets pi's state, the
+// kept messages after its cursor with their seq as the id, pi's text as it is
+// written (no id: not kept), then the kept reply with its parts. Stop goes to
+// pi.
+func TestStreamChatShowsPiLive(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	owner, _ := w.token("web", bearertoken.Owner)
+	ctx := t.Context()
+
+	chat, err := w.svc.CreateChat(ctx, "")
+	require.NoError(t, err)
+
+	old, err := w.svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, "first")
+	require.NoError(t, err)
+	_, err = w.svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, "add a health page")
+	require.NoError(t, err)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, w.url+BasePath+"/chats/"+chat.ID+"/stream", nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+bearerOf(t, w, "stream"))
+	req.Header.Set("Last-Event-ID", strconv.FormatInt(old.Seq, 10))
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+
+	defer func() { _ = resp.Body.Close() }()
+
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	lines := make(chan string, 100)
+
+	go func() {
+		defer close(lines)
+
+		sc := bufio.NewScanner(resp.Body)
+		for sc.Scan() {
+			if l := sc.Text(); l != "" && !strings.HasPrefix(l, ":") {
+				lines <- l
+			}
+		}
+	}()
+
+	next := func() string {
+		t.Helper()
+
+		select {
+		case l, ok := <-lines:
+			require.True(t, ok, "the stream ended")
+
+			return l
+		case <-time.After(5 * time.Second):
+			t.Fatal("no frame in time")
+
+			return ""
+		}
+	}
+
+	assert.Equal(t, "event: state", next())
+	assert.JSONEq(t, `{"working":false}`, strings.TrimPrefix(next(), "data: "))
+	assert.Equal(t, "id: "+strconv.FormatInt(old.Seq+1, 10), next(), "resumes after Last-Event-ID")
+	assert.Equal(t, "event: message", next())
+	assert.Contains(t, next(), "add a health page")
+
+	w.pi.live <- coordinator.Frame{Event: coordinator.FrameDelta, Data: map[string]any{
+		"kind": "text", "index": 0, "delta": "On ",
+	}}
+	assert.Equal(t, "event: delta", next(), "a live frame has no id")
+	assert.JSONEq(t, `{"kind":"text","index":0,"delta":"On "}`, strings.TrimPrefix(next(), "data: "))
+
+	_, err = w.svc.AddChatMessageParts(ctx, chat.ID, orchestration.ChatCoordinator, "On it.",
+		json.RawMessage(`[{"type":"thinking","text":"plan"},{"type":"text","text":"On it."}]`))
+	require.NoError(t, err)
+
+	assert.True(t, strings.HasPrefix(next(), "id: "))
+	assert.Equal(t, "event: message", next())
+
+	var kept openapi.ChatMessage
+	require.NoError(t, json.Unmarshal([]byte(strings.TrimPrefix(next(), "data: ")), &kept))
+	assert.Equal(t, openapi.ChatRoleCoordinator, kept.Role)
+	require.NotNil(t, kept.Parts)
+	assert.Equal(t, "plan", val((*kept.Parts)[0].Text))
+
+	stopped, err := owner.AbortChatWithResponse(ctx, chat.ID)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusNoContent, stopped.StatusCode())
+	assert.Equal(t, chat.ID, w.pi.aborted.Load())
+
+	close(w.stop)
+
+	for range lines {
+		// Drain until the server ends the stream.
+	}
 }

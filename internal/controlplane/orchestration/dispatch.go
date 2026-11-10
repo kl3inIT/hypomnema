@@ -43,9 +43,12 @@ func (s *Service) CreateDispatch(ctx context.Context, taskID string, spec Dispat
 			return fmt.Errorf("%w: %d dispatches are active, the limit", ErrUnavailable, p.active)
 		}
 
-		_, model, effort := s.resolve(task)
+		r, err := resolve(ctx, q, task)
+		if err != nil {
+			return err
+		}
 
-		return s.createDispatch(ctx, q, now, id, task, spec, p, model, effort)
+		return s.createDispatch(ctx, q, now, id, task, spec, p, r)
 	})
 	if err != nil {
 		return Dispatch{}, fmt.Errorf("creating a dispatch: %w", err)
@@ -57,7 +60,7 @@ func (s *Service) CreateDispatch(ctx context.Context, taskID string, spec Dispat
 // createDispatch is CreateDispatch inside its transaction, shared with the
 // scheduler. The node and the account must be able to take it now.
 func (s *Service) createDispatch(ctx context.Context, q *store.Queries, now int64, id string, task store.Task,
-	spec DispatchSpec, p *placement, model, effort string,
+	spec DispatchSpec, p *placement, r resolved,
 ) error {
 	run, err := q.GetRun(ctx, task.RunID)
 	if err != nil {
@@ -85,7 +88,8 @@ func (s *Service) createDispatch(ctx context.Context, q *store.Queries, now int6
 
 	if err := q.InsertDispatch(ctx, store.InsertDispatchParams{
 		ID: id, TaskID: task.ID, ConversationID: conv, NodeID: node, Recovery: boolInt(recovery),
-		GateQuestionID: nullString(gate), Model: nullString(model), Effort: nullString(effort), Now: now,
+		GateQuestionID: nullString(gate), Model: nullString(r.model), Effort: nullString(r.effort),
+		ProfileVersionID: nullString(r.versionID), Now: now,
 	}); err != nil {
 		return fmt.Errorf("inserting dispatch: %w", err)
 	}
@@ -1138,6 +1142,11 @@ func reapHousekeeping(ctx context.Context, q *store.Queries, now int64) error {
 		return fmt.Errorf("trimming receipts: %w", err)
 	}
 
+	settledBefore := sql.NullInt64{Int64: now - ItemRetention.Milliseconds(), Valid: true}
+	if _, err := q.DeleteDispatchItemsSettledBefore(ctx, settledBefore); err != nil {
+		return fmt.Errorf("dropping old transcript items: %w", err)
+	}
+
 	return nil
 }
 
@@ -1336,7 +1345,8 @@ func dispatchFromRow(d store.Dispatch) (Dispatch, error) {
 		StalledAt: optionalTime(d.StalledAt), OverrunAt: optionalTime(d.OverrunAt),
 		SettledAt: optionalTime(d.SettledAt), WaitingSince: optionalTime(d.WaitingSince),
 		Waited: time.Duration(d.WaitedMs) * time.Millisecond, GateQuestionID: d.GateQuestionID.String,
-		Model: d.Model.String, Effort: d.Effort.String,
+		Model: d.Model.String, Effort: d.Effort.String, ProfileVersionID: d.ProfileVersionID.String,
+		Activity: d.Activity.String,
 	}
 
 	if d.Result.Valid {

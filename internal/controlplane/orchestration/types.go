@@ -51,9 +51,11 @@ type Run struct {
 	// CoordinatorTokenID is the coordinator token that coordinates the Run;
 	// empty when the owner created it.
 	CoordinatorTokenID string
-	CreatedAt          time.Time
-	UpdatedAt          time.Time
-	FinishedAt         *time.Time
+	// ChatID is the chat whose coordinator created the Run, if any.
+	ChatID     string
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+	FinishedAt *time.Time
 }
 
 // Task is one unit of work inside a Run.
@@ -61,7 +63,7 @@ type Task struct {
 	ID            string
 	RunID         string
 	Position      int
-	Role          string
+	Profile       string
 	Spec          string
 	Runtime       string
 	Model         string
@@ -81,11 +83,11 @@ type Task struct {
 
 // NewTask describes a Task to create. Ref names it within one CreateTasks
 // call; DependsOn lists Refs of earlier Tasks in the same call or ids of
-// Tasks already in the Run. Runtime, Model and Effort are optional; empty
-// means the role's default.
+// Tasks already in the Run. Profile defaults to DefaultProfile. Runtime,
+// Model and Effort are optional; empty means the profile's.
 type NewTask struct {
 	Ref       string
-	Role      string
+	Profile   string
 	Spec      string
 	Runtime   string
 	Model     string
@@ -101,6 +103,8 @@ type NewRun struct {
 	Repo               string
 	Base               string
 	CoordinatorTokenID string
+	// ChatID names the chat whose coordinator creates it, if any.
+	ChatID string
 }
 
 // RunFilter selects Runs; empty fields match everything.

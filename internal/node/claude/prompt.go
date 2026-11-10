@@ -35,7 +35,7 @@ func Prompt(d statedb.Dispatch) string {
 
 	b.WriteString("You are a worker dispatched by Hypomnema, a software factory. ")
 	b.WriteString("Carry out the task below on your own.\n\n")
-	fmt.Fprintf(&b, "Task (%s):\n%s\n\n", o.Role, o.Spec)
+	fmt.Fprintf(&b, "Task (%s):\n%s\n\n", o.Profile, o.Spec)
 
 	if o.Repo != "" {
 		fmt.Fprintf(&b, "Work only in this directory, a git worktree of %s on branch %s, started from %s. ",
@@ -46,6 +46,11 @@ func Prompt(d statedb.Dispatch) string {
 	}
 
 	b.WriteString(rules)
+
+	// The profile's instruction comes after the rules it may not override.
+	if s := strings.TrimSpace(o.Instruction); s != "" {
+		b.WriteString("\nFor this kind of task:\n" + s + "\n")
+	}
 
 	if d.Accepted != nil && d.Accepted.Recovery {
 		b.WriteString("\n" + recoveryNote + "\n")

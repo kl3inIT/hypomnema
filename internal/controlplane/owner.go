@@ -11,6 +11,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 )
@@ -18,16 +19,23 @@ import (
 // The owner's commands that run on the server: they open the same database as
 // `hypomnema serve`, whose writes SQLite serializes with theirs. Nodes,
 // accounts and client tokens are set up here, since a client needs a token
-// before it can call the client API. Everything else goes through that API
-// (internal/controlplane/clientcli).
+// before it can call the client API; so are the vault's secrets, whose values
+// are read from a file or standard input on this host and never travel through
+// a chat. Everything else goes through that API (internal/controlplane/clientcli).
 
 // ErrUsage marks a command line that is wrong.
 var ErrUsage = errors.New("usage")
 
-// Command runs one owner command: nodes, accounts or tokens.
-func Command(ctx context.Context, cfg Config, args []string, stdout io.Writer) error {
+// Command runs one owner command: nodes, accounts, tokens or secrets. stdin
+// is where `secrets add --from-file -` reads a value.
+func Command(ctx context.Context, cfg Config, args []string, stdin io.Reader, stdout io.Writer) error {
 	if len(args) == 0 {
 		return ErrUsage
+	}
+
+	// Making a root key needs no database: it is the first step of setting the vault up.
+	if len(args) >= 2 && args[0] == "secrets" && args[1] == "keygen" {
+		return secretsKeygen(args[2:], stdout)
 	}
 
 	db, err := sqlite.Open(ctx, cfg.Database)
@@ -40,9 +48,12 @@ func Command(ctx context.Context, cfg Config, args []string, stdout io.Writer) e
 		return err
 	}
 
+	svc := orchestration.New(db, platform.SystemClock{}, platform.NewID)
 	o := &owner{
-		svc: orchestration.New(db, platform.SystemClock{}, platform.NewID, orchestration.WithRoles(cfg.Roles)),
-		out: stdout,
+		svc:   svc,
+		vault: vault.New(db, platform.SystemClock{}, platform.NewID, cfg.VaultKeys, svc.ProvidersUsingKeyRef),
+		in:    stdin,
+		out:   stdout,
 	}
 
 	switch args[0] {
@@ -52,14 +63,18 @@ func Command(ctx context.Context, cfg Config, args []string, stdout io.Writer) e
 		return o.accounts(ctx, args[1:])
 	case "tokens":
 		return o.tokens(ctx, args[1:])
+	case "secrets":
+		return o.secrets(ctx, args[1:])
 	default:
 		return ErrUsage
 	}
 }
 
 type owner struct {
-	svc *orchestration.Service
-	out io.Writer
+	svc   *orchestration.Service
+	vault *vault.Service
+	in    io.Reader
+	out   io.Writer
 }
 
 func (o *owner) printf(format string, a ...any) {
@@ -119,6 +134,7 @@ func runtimes(rs []orchestration.RuntimeInfo) string {
 func (o *owner) accounts(ctx context.Context, args []string) error {
 	switch {
 	case len(args) == 3 && args[0] == "add":
+		//nolint:gosec // G602 false positive: this case holds only when len(args) == 3
 		a, err := o.svc.AddAccount(ctx, args[1], args[2])
 		if err != nil {
 			return err

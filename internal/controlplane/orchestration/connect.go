@@ -91,10 +91,12 @@ func disposition(ctx context.Context, q *store.Queries, nodeID string, c Claim) 
 
 // Offer is a queued Dispatch with what the node needs to prepare it.
 type Offer struct {
-	DispatchID     string `json:"dispatch_id"`
-	TaskID         string `json:"task_id"`
-	RunID          string `json:"run_id"`
-	Role           string `json:"role"`
+	DispatchID string `json:"dispatch_id"`
+	TaskID     string `json:"task_id"`
+	RunID      string `json:"run_id"`
+	Profile    string `json:"profile"`
+	// Instruction is the profile's, added to the worker's built-in instructions.
+	Instruction    string `json:"instruction,omitempty"`
 	Spec           string `json:"spec"`
 	Repo           string `json:"repo,omitempty"`
 	Base           string `json:"base,omitempty"`
@@ -185,8 +187,20 @@ func offerOf(ctx context.Context, q *store.Queries, d store.Dispatch) (Offer, er
 		return Offer{}, notFound(err, "conversation", d.ConversationID)
 	}
 
+	var instruction string
+
+	if d.ProfileVersionID.Valid {
+		v, err := q.GetProfileVersion(ctx, d.ProfileVersionID.String)
+		if err != nil {
+			return Offer{}, notFound(err, "profile version", d.ProfileVersionID.String)
+		}
+
+		instruction = v.Instruction.String
+	}
+
 	return Offer{
-		DispatchID: d.ID, TaskID: task.ID, RunID: run.ID, Role: task.Role, Spec: task.Spec,
+		DispatchID: d.ID, TaskID: task.ID, RunID: run.ID, Profile: task.Profile, Instruction: instruction,
+		Spec: task.Spec,
 		Repo: run.Repo.String, Base: run.Base.String, ConversationID: conv.ID, Worktree: conv.Worktree,
 		Runtime: conv.Runtime, AccountRef: conv.AccountRef, CLISessionRef: conv.CliSessionRef.String,
 		Model: d.Model.String, Effort: d.Effort.String,

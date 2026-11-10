@@ -40,6 +40,7 @@ type Type string
 const (
 	TypeHeartbeat Type = "heartbeat"
 	TypeReport    Type = "report"
+	TypeItems     Type = "transcript_items"
 )
 
 // Messages from the control plane.
@@ -49,6 +50,7 @@ const (
 	TypeOffer        Type = "dispatch_offer"
 	TypeStop         Type = "stop"
 	TypeAnswer       Type = "answer"
+	TypeItemsAck     Type = "transcript_items_ack"
 	TypeError        Type = "error"
 )
 
@@ -122,10 +124,12 @@ type HeartbeatAck struct {
 // Offer is a queued Dispatch for the node, with what it needs to prepare it.
 // The node accepts it with a report of kind accept.
 type Offer struct {
-	DispatchID     string `json:"dispatch_id"`
-	TaskID         string `json:"task_id"`
-	RunID          string `json:"run_id"`
-	Role           string `json:"role"`
+	DispatchID string `json:"dispatch_id"`
+	TaskID     string `json:"task_id"`
+	RunID      string `json:"run_id"`
+	Profile    string `json:"profile"`
+	// Instruction is the profile's, added to the worker's built-in instructions.
+	Instruction    string `json:"instruction,omitempty"`
 	Spec           string `json:"spec"`
 	Repo           string `json:"repo,omitempty"`
 	Base           string `json:"base,omitempty"`
@@ -323,4 +327,62 @@ type Beat struct {
 // Asked is the response to a question report.
 type Asked struct {
 	QuestionID string `json:"question_id"`
+}
+
+// A worker's transcript (issue #43): what it said and did, as items the node
+// sends in order while the worker runs and after. The node reads them from the
+// worker's journal with a cursor that moves when the control plane
+// acknowledges a batch, as Omnigent's forwarder
+// (omnigent/harnesses/claude_native/forwarder.py,
+// runner/transports/ws_tunnel/event_delivery.py at cf1021e).
+
+// Item kinds, the same for every runtime.
+const (
+	// ItemMessage is the worker's text.
+	ItemMessage = "message"
+	// ItemReasoning is its thinking, when the runtime gives it.
+	ItemReasoning = "reasoning"
+	// ItemToolCall is a tool it called: CallID, Tool and Input.
+	ItemToolCall = "tool_call"
+	// ItemToolResult is what the call answered: CallID, Text and Failed.
+	ItemToolResult = "tool_result"
+	// ItemNotice is something of the runtime, such as a rate limit.
+	ItemNotice = "notice"
+)
+
+// Bounds of a transcript batch. One batch is at most MaxBatchItems items and
+// MaxBatchBytes (Omnigent: 32 events, 256 KiB); the node cuts an item to
+// MaxItemBytes (inferred; Omnara keeps 50 KiB of a tool result inline).
+const (
+	MaxItemBytes  = 64 << 10
+	MaxBatchItems = 32
+	MaxBatchBytes = 256 << 10
+)
+
+// Item is one entry of a worker's transcript.
+type Item struct {
+	// Seq numbers a Dispatch's items from 1.
+	Seq    int64           `json:"seq"`
+	Kind   string          `json:"kind"`
+	Text   string          `json:"text,omitempty"`
+	CallID string          `json:"call_id,omitempty"`
+	Tool   string          `json:"tool,omitempty"`
+	Input  json.RawMessage `json:"input,omitempty"`
+	Failed bool            `json:"failed,omitempty"`
+}
+
+// Items is the payload of a transcript_items message: the next items of one
+// Dispatch, in order.
+type Items struct {
+	DispatchID string `json:"dispatch_id"`
+	Items      []Item `json:"items"`
+}
+
+// ItemsAck answers a transcript_items message. Seq is the newest item the
+// control plane holds for the Dispatch; Status is an acknowledgement status.
+type ItemsAck struct {
+	DispatchID string `json:"dispatch_id"`
+	Seq        int64  `json:"seq"`
+	Status     string `json:"status"`
+	Error      string `json:"error,omitempty"`
 }
