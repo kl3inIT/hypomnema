@@ -550,3 +550,68 @@ func TestAnAccountLoggedInOnTheControlPlaneIsNotGivenToWorkers(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"account claude/owner@example.com"}, users)
 }
+
+// Scenario: the database of a running control plane is migrated past the
+// rebuild of the providers table. The providers the owner declared, their
+// models, the profile that names one and the gateway model served from one
+// are all still there, and a provider of the new kind can be applied.
+func TestMigrationKeepsProvidersAndWhatNamesThem(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	db, err := sqlite.Open(ctx, sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	p, err := provider(db)
+	require.NoError(t, err)
+	_, err = p.UpTo(ctx, 26)
+	require.NoError(t, err)
+
+	_, err = db.ExecContext(ctx, `
+		INSERT INTO providers (name, kind, base_url, api_key_ref, source, created_at, updated_at)
+		VALUES ('router', 'openai_compatible', 'http://router/v1', 'vault:router', 'name: router', 5, 6);
+		INSERT INTO models (provider, name) VALUES ('router', 'cx/gpt');
+		INSERT INTO profile_versions (id, profile, version, source, digest, runtime, provider, model, created_at)
+		VALUES ('pfv_1', 'coordinator', 9, 'name: coordinator', 'd', 'pi', 'router', 'cx/gpt', 7);
+		INSERT INTO gateway_models (name, capability, source, created_at, updated_at)
+		VALUES ('gpt', 'chat', 'name: gpt', 1, 1);
+		INSERT INTO gateway_model_targets (model, position, provider, upstream_model) VALUES ('gpt', 1, 'router', 'cx/gpt');`)
+	require.NoError(t, err)
+
+	require.NoError(t, Migrate(ctx, db))
+	require.NoError(t, CheckSchema(ctx, db))
+
+	var broken int
+	require.NoError(t, db.QueryRowContext(ctx, "SELECT count(*) FROM pragma_foreign_key_check").Scan(&broken))
+	assert.Zero(t, broken)
+
+	s := New(db, &fakeClock{now: t0}, func(prefix string) string { return prefix + "_1" })
+
+	router, err := s.GetProvider(ctx, "router")
+	require.NoError(t, err)
+	assert.Equal(t, "http://router/v1", router.BaseURL)
+	assert.Equal(t, "vault:router", router.APIKeyRef)
+	assert.Equal(t, []string{"cx/gpt"}, router.Models)
+
+	claude, err := s.GetProvider(ctx, "claude-subscription")
+	require.NoError(t, err)
+	assert.Contains(t, claude.Models, "opus")
+
+	antigravity, err := s.GetProvider(ctx, "antigravity-subscription")
+	require.NoError(t, err)
+	assert.Equal(t, ProviderAntigravitySubscription, antigravity.Kind)
+	assert.Contains(t, antigravity.Models, "gemini-3.8-flash-high")
+
+	var named int
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT
+		(SELECT count(*) FROM profile_versions WHERE provider = 'router') +
+		(SELECT count(*) FROM gateway_model_targets WHERE provider = 'router')`).Scan(&named))
+	assert.Equal(t, 2, named)
+
+	_, err = s.ApplyProvider(ctx, "", "name: agy2\nkind: antigravity_subscription\nmodels: [m]\n")
+	require.NoError(t, err)
+
+	_, err = s.ApplyProvider(ctx, "", "name: odd\nkind: telepathy\nmodels: [m]\n")
+	require.ErrorIs(t, err, ErrInvalid)
+}

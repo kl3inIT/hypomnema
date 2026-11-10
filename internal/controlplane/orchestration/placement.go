@@ -20,6 +20,8 @@ type placement struct {
 	order    []*nodeLoad
 	accounts []store.Account
 	cooling  map[[2]string]int64
+	// reasons says why each cooling account cools.
+	reasons map[[2]string]string
 }
 
 type nodeLoad struct {
@@ -55,6 +57,7 @@ func loadPlacement(ctx context.Context, q *store.Queries, now int64) (*placement
 
 	p := &placement{
 		now: now, nodes: map[string]*nodeLoad{}, accounts: accounts, cooling: map[[2]string]int64{},
+		reasons: map[[2]string]string{},
 	}
 
 	for _, row := range nodes {
@@ -83,6 +86,7 @@ func loadPlacement(ctx context.Context, q *store.Queries, now int64) (*placement
 
 	for _, c := range cooldowns {
 		p.cooling[[2]string{c.Runtime, c.AccountRef}] = c.Until
+		p.reasons[[2]string{c.Runtime, c.AccountRef}] = c.Reason
 	}
 
 	return p, nil
@@ -264,6 +268,7 @@ func (p *placement) accountOut(a store.Account) Account {
 	if until, ok := p.cooling[[2]string{a.Runtime, a.ID}]; ok {
 		t := millis(until)
 		out.CoolingUntil = &t
+		out.CoolingReason = p.reasons[[2]string{a.Runtime, a.ID}]
 	}
 
 	return out

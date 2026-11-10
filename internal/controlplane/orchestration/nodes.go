@@ -121,6 +121,8 @@ type Account struct {
 	Position int
 	// CoolingUntil is set while a rate limit cools the account down.
 	CoolingUntil *time.Time
+	// CoolingReason says why: a rate limit, or what the gateway recorded.
+	CoolingReason string
 	// The rest is set for an account the owner logged in through the control
 	// plane (account_logins.go). SecretRef names the secret holding its tokens.
 	ExternalID string

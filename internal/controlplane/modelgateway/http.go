@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/kl3inIT/hypomnema/internal/controlplane/cloudcode"
 )
 
 // The gateway's HTTP API speaks OpenAI's shapes, so any OpenAI client works
@@ -24,6 +26,11 @@ type Config struct {
 	Subscriptions Subscriptions
 	// CodexBaseURL is the Codex backend; empty: ChatGPT's. Tests name their own.
 	CodexBaseURL string
+	// AntigravityBaseURL is the Cloud Code host Antigravity accounts are
+	// served from, and AntigravityManifestURL the IDE's update manifest;
+	// empty: Google's. Tests name their own.
+	AntigravityBaseURL     string
+	AntigravityManifestURL string
 }
 
 // Server serves the gateway's HTTP API.
@@ -34,6 +41,10 @@ type Server struct {
 	idleTimeout time.Duration
 	accounts    Subscriptions
 	codexURL    string
+	// antigravityURL is the Cloud Code host; antigravity, what is remembered
+	// of Antigravity accounts while the gateway runs.
+	antigravityURL string
+	antigravity    *antigravityState
 }
 
 // NewServer returns the gateway's HTTP API over a Service.
@@ -52,9 +63,15 @@ func NewServer(svc *Service, logger *slog.Logger, cfg Config) *Server {
 		cfg.CodexBaseURL = codexBaseURL
 	}
 
+	if cfg.AntigravityBaseURL == "" {
+		cfg.AntigravityBaseURL = cloudcode.DailyHost
+	}
+
 	return &Server{
 		svc: svc, logger: logger, client: &http.Client{Transport: transport}, idleTimeout: cfg.StreamIdleTimeout,
 		accounts: cfg.Subscriptions, codexURL: strings.TrimRight(cfg.CodexBaseURL, "/"),
+		antigravityURL: strings.TrimRight(cfg.AntigravityBaseURL, "/"),
+		antigravity:    newAntigravityState(cfg.AntigravityManifestURL, svc.clock.Now),
 	}
 }
 
