@@ -227,6 +227,40 @@ The three boundaries that matter:
 - Node and control plane share a resilience contract: dropped connections, restarts mid-Dispatch and duplicated
   messages are tested with a fault proxy.
 
+## Web client
+
+How the references keep a UI consistent is in
+[the research](research/2026-11-10-web-ui-practices.md); these are the rules taken from it (owner, 2026-11-10).
+
+- **The Machines page is the look to follow** (owner, 2026-11-10): a card a thing, with its state and a menu in
+  the card's head and its facts as rows of an icon, a label and a value; a meter where a value is a share; a
+  switch between the grid and a table. A new screen that lists things starts from it
+  (`web/src/features/machines`, after Beszel).
+- **Primitives first.** A screen is built from `web/src/components/ui`, added with the shadcn CLI. A raw
+  `<button>`, `<input>`, `<select>`, `<table>` or a dialog from Base UI directly is not styled to look like one
+  (Orca's style guide, t3code's web UI rules, Onyx).
+- **A primitive owns its look.** Pick a `variant` or a `size`; layout classes go on the parent. A treatment the
+  design needs becomes a variant in the primitive's own file. `shadcn/no-restyle` and `shadcn/no-raw-colors` fail
+  the lint otherwise (t3code, Orca, Coder).
+- **Colors are tokens** from `web/src/index.css`, never a Tailwind palette color or a `dark:` override (Orca, Coder,
+  Onyx).
+- **One way to build each thing.** A form is TanStack Form with a zod schema, its fields `Field` with `FieldError`
+  (Omnara's form library; every reference has one form convention). A table of records is TanStack Table on
+  `Table` (Onyx, Infisical). Nothing to show is `Empty`; something taken away is asked with `AlertDialog`; what the
+  server refused is an `Alert` with the server's words.
+- **Every view has its loading, error and empty state** (Coder).
+- **A label that is not plain to a newcomer explains itself when pointed at**, with a `Tooltip` (owner,
+  2026-11-10). A list that does not fit its line shows less of each item, with the rest in a tooltip, rather than
+  wrapping (Coder's `MCPServerIconStack`, Orca's `CrewAgentIcons`, Beszel).
+- **Icons** are lucide's. A brand's mark, which lucide does not carry, is an SVG component in
+  `web/src/components/icons` (Orca, Omnigent).
+- **A thing that has a logo is shown with it** beside its name: a git host, a runtime, a service, a model's
+  maker (owner, 2026-11-10). A generic icon is for what has none.
+- **A shared component is made when a second screen needs it**, not before (Coder). What Settings shares is in
+  `web/src/features/settings/settings-parts.tsx`.
+- **A UI change is looked at** on a desktop and a phone before its pull request, in pictures taken by its
+  scenario in `web/tests` (t3code, Omnigent).
+
 ## Go
 
 - One `go.mod` at the repository root; the Go version is pinned there. `golangci-lint` configuration in the root.
