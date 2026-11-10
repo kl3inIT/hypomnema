@@ -314,6 +314,11 @@ func (p *placement) nodeOut(n *nodeLoad) Node {
 			CPUPercent: n.row.CpuPercent.Float64, MemoryUsedBytes: n.row.MemoryUsedBytes.Int64,
 			DiskUsedBytes: n.row.DiskUsedBytes.Int64, Load1: n.row.Load1.Float64, At: millis(n.row.StatsAt.Int64),
 		}
+
+		// A list that does not decode is dropped: the rest of the measurement still stands.
+		if n.row.Gpus.Valid {
+			_ = json.Unmarshal([]byte(n.row.Gpus.String), &stats.GPUs)
+		}
 	}
 
 	return Node{

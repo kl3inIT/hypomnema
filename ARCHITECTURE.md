@@ -78,7 +78,8 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   (path and version), its worktree root, and what it is: its version, OS, architecture, CPU count, memory, and the
   size of the volume that holds the worktree root. It is connected while heard from within 30 s (any node call
   counts). With each heartbeat it sends what it measured: CPU in use since the heartbeat before, memory in use, the
-  worktree volume's use and the one-minute load average; only the latest measurement is kept, with its time
+  worktree volume's use, the one-minute load average and, on a machine with NVIDIA GPUs, each GPU's use, memory,
+  temperature and power (read with `nvidia-smi` once a heartbeat, after Beszel's agent); only the latest measurement is kept, with its time
   (`GET /nodes` shows it as `stats`). A node can be drained and resumed; three expiries in a row mark it unavailable until its next hello or
   a resume. A removed node is kept as `deleted`: its tokens are revoked, it is no longer listed or placed on, and
   its name is free; one that still runs a Dispatch is not removed. Accounts (runtime, label, position, active or
@@ -121,6 +122,15 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     for; it runs when asked, not on a timer, and destroys nothing.
   - Not built: other providers, and delivering the CLIs' logins to a new machine, which the owner still sets on
     it once.
+- A node updates itself (issue #69, after Nezha's agent, `cmd/agent/main.go`): the control plane names where
+  the node's releases are at each hello (`HYPOMNEMA_NODE_RELEASE_URL`, the latest GitHub release by default). A
+  node of a released version that systemd runs looks there 30 s after it starts and then at a random interval of
+  one to two days (`update_every_minutes` in its configuration sets another), and when the release is newer it
+  downloads it, requires the SHA-256 its manifest names and the version the binary itself reports, as the install
+  script does, renames it over its own binary and ends with a failure, which makes systemd start the new one.
+  It does not end while a terminal is open; workers are kept across the restart by their shims. A node built
+  from a commit, a node not run by systemd, and one with `disable_auto_update` in its configuration keep their
+  version.
 - A terminal on a node, from the web (issue #116, [research](docs/research/2026-11-10-web-terminal.md); after
   Coder's reconnecting PTY, read for behaviour and not copied since it is AGPL, and Nezha's IOStream):
   - The node keeps shells by session id (`internal/node/terminal`): the node user's own shell on a pseudo-terminal
@@ -711,8 +721,9 @@ Node (`internal/node`):
 - The machines (issue #69): `/machines` lists the nodes after Beszel's systems table (MIT), as cards (Grid, the
   default) or a Table, both from one column definition; the choice is kept in `localStorage`. A machine shows its
   state (Online, Drained, or Offline with when it was last seen), meters for CPU, memory and disk that turn amber
-  from 65 % and red from 90 % and are grey while it is not connected, its load average, its Dispatches against its
-  limit, its runtimes, its daemon version and platform, and its source: "Your own", or the size and region of a
+  from 65 % and red from 90 % and are grey while it is not connected, its load average, each of its GPUs when it has any (use with
+  temperature, and memory, with the same meters; the table has the GPU columns only when a machine has one), its
+  Dispatches against its limit, its runtimes, its daemon version and platform, and its source: "Your own", or the size and region of a
   machine created at a provider. Such a machine that is not ready says Creating, Not created, Removing or Not
   removed instead, with the provider's reason for a failure; one that is turned off says Stopping, Stopped or
   Starting, and a stopped one says that its disk is still billed and is started from its card. A machine that is on
@@ -760,7 +771,16 @@ Node (`internal/node`):
     every shadcn component of the project's style is in `web/src/components/ui`; a form is TanStack Form with a
     zod schema, and says what is wrong when it is sent; the Vault's table is TanStack Table; a removal asks with
     an alert dialog; what the server refused shows as an alert. The rules are in
-    [conventions](docs/conventions.md#web-client). The other screens are not moved yet.
+    [conventions](docs/conventions.md#web-client).
+  - The other screens use the standard components where a control is an ordinary one
+    ([issue #131](https://github.com/kl3inIT/hypomnema/issues/131)): the Board's repository select, the buttons of
+    a Task's panel and of a Run, the sign-in form, the Add machine dialog. Left as they are, each for a stated
+    reason in that issue: the chat, the question form, a Task's card and a Run's rows, a transcript's rows, the
+    Machines cards, table, switch and menu, the Board's "Group by" switch, the Task panel as a side panel.
+  - A change the owner made in Settings that succeeded says so in a toast (`said` in
+    `web/src/features/settings/use-integrations.ts`).
+  - The build runs the React Compiler (`babel-plugin-react-compiler` through `@rolldown/plugin-babel`,
+    `web/vite.config.ts`); the unit tests do not, the scenarios in `web/tests` run the built client.
   - One `TooltipProvider` and one `Toaster` wrap the app (`web/src/main.tsx`). On the Machines page a column's
     name says what it measures when pointed at, and a machine's runtimes are their marks with their names while
     they fit on one line, and the marks alone when they do not.

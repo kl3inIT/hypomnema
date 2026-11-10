@@ -176,7 +176,7 @@ test("the owner adds, edits and deletes a secret", async ({ page }) => {
   await page.goto("/settings/vault")
 
   await page.getByRole("button", { name: "Add secret" }).click()
-  let dialog = page.getByRole("dialog")
+  let dialog = page.locator("[data-slot=dialog-content]")
   await expect(dialog.getByLabel("Value")).toHaveAttribute("type", "password")
   await dialog.getByLabel("Name").fill("deploy-key")
   await dialog.getByLabel("Value").fill("first")
@@ -185,13 +185,13 @@ test("the owner adds, edits and deletes a secret", async ({ page }) => {
   await expect(row(page, "deploy-key")).toBeVisible()
 
   await row(page, "deploy-key").getByRole("button", { name: "Edit deploy-key" }).click()
-  dialog = page.getByRole("dialog")
+  dialog = page.locator("[data-slot=dialog-content]")
   await dialog.getByLabel("Value").fill("second")
   await dialog.getByRole("button", { name: "Save", exact: true }).click()
   await expect(dialog).toBeHidden()
 
   await row(page, "google-work").getByRole("button", { name: "Edit google-work" }).click()
-  dialog = page.getByRole("dialog")
+  dialog = page.locator("[data-slot=dialog-content]")
   await expect(dialog).toContainText("complete replacement set")
   await dialog.getByLabel("refresh_token").fill("1//new")
   await shot(page, "vault-edit-token-set")

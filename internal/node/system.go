@@ -58,6 +58,8 @@ func MeasureSystem(ctx context.Context, worktreeRoot string) *nodeproto.SystemSt
 		out.Load1 = max(l.Load1, 0)
 	}
 
+	out.GPUs = MeasureGPUs(ctx)
+
 	if !read {
 		return nil
 	}

@@ -250,7 +250,7 @@ func (q *Queries) GetLiveNodeTokenByHash(ctx context.Context, tokenHash string) 
 }
 
 const getNode = `-- name: GetNode :one
-SELECT id, name, status, max_dispatches, worktree_root, runtimes, daemon_version, os, arch, cpus, memory_bytes, disk_bytes, last_seen_at, unavailable_at, deleted_at, created_at, updated_at, cpu_percent, memory_used_bytes, disk_used_bytes, load1, stats_at, provider_id, provider_resource_id, region, size, machine_state, machine_error, machine_attempts, machine_retry_at, git_hosts, machine_power, tools, terminal FROM nodes WHERE id = ?1
+SELECT id, name, status, max_dispatches, worktree_root, runtimes, daemon_version, os, arch, cpus, memory_bytes, disk_bytes, last_seen_at, unavailable_at, deleted_at, created_at, updated_at, cpu_percent, memory_used_bytes, disk_used_bytes, load1, stats_at, provider_id, provider_resource_id, region, size, machine_state, machine_error, machine_attempts, machine_retry_at, git_hosts, machine_power, tools, terminal, gpus FROM nodes WHERE id = ?1
 `
 
 func (q *Queries) GetNode(ctx context.Context, id string) (Node, error) {
@@ -291,6 +291,7 @@ func (q *Queries) GetNode(ctx context.Context, id string) (Node, error) {
 		&i.MachinePower,
 		&i.Tools,
 		&i.Terminal,
+		&i.Gpus,
 	)
 	return i, err
 }
@@ -560,7 +561,7 @@ func (q *Queries) ListNodeTokens(ctx context.Context, nodeID string) ([]NodeToke
 }
 
 const listNodes = `-- name: ListNodes :many
-SELECT id, name, status, max_dispatches, worktree_root, runtimes, daemon_version, os, arch, cpus, memory_bytes, disk_bytes, last_seen_at, unavailable_at, deleted_at, created_at, updated_at, cpu_percent, memory_used_bytes, disk_used_bytes, load1, stats_at, provider_id, provider_resource_id, region, size, machine_state, machine_error, machine_attempts, machine_retry_at, git_hosts, machine_power, tools, terminal FROM nodes WHERE status <> 'deleted' ORDER BY name
+SELECT id, name, status, max_dispatches, worktree_root, runtimes, daemon_version, os, arch, cpus, memory_bytes, disk_bytes, last_seen_at, unavailable_at, deleted_at, created_at, updated_at, cpu_percent, memory_used_bytes, disk_used_bytes, load1, stats_at, provider_id, provider_resource_id, region, size, machine_state, machine_error, machine_attempts, machine_retry_at, git_hosts, machine_power, tools, terminal, gpus FROM nodes WHERE status <> 'deleted' ORDER BY name
 `
 
 // Every node that has not been removed.
@@ -608,6 +609,7 @@ func (q *Queries) ListNodes(ctx context.Context) ([]Node, error) {
 			&i.MachinePower,
 			&i.Tools,
 			&i.Terminal,
+			&i.Gpus,
 		); err != nil {
 			return nil, err
 		}
@@ -897,8 +899,8 @@ func (q *Queries) SetNodeGitHosts(ctx context.Context, arg SetNodeGitHostsParams
 const setNodeStats = `-- name: SetNodeStats :execrows
 UPDATE nodes
 SET cpu_percent = ?1, memory_used_bytes = ?2, disk_used_bytes = ?3,
-    load1 = ?4, stats_at = ?5
-WHERE id = ?6 AND status <> 'deleted'
+    load1 = ?4, gpus = ?5, stats_at = ?6
+WHERE id = ?7 AND status <> 'deleted'
 `
 
 type SetNodeStatsParams struct {
@@ -906,6 +908,7 @@ type SetNodeStatsParams struct {
 	MemoryUsedBytes sql.NullInt64
 	DiskUsedBytes   sql.NullInt64
 	Load1           sql.NullFloat64
+	Gpus            sql.NullString
 	Now             sql.NullInt64
 	ID              string
 }
@@ -916,6 +919,7 @@ func (q *Queries) SetNodeStats(ctx context.Context, arg SetNodeStatsParams) (int
 		arg.MemoryUsedBytes,
 		arg.DiskUsedBytes,
 		arg.Load1,
+		arg.Gpus,
 		arg.Now,
 		arg.ID,
 	)

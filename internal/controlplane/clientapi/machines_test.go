@@ -249,3 +249,50 @@ func TestOnlyTheOwnerRenamesANode(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, openapi.Conflict, errorCode(t, taken.Body, taken.StatusCode(), http.StatusConflict))
 }
+
+// Scenario: the Machines page reads a node whose machine has a GPU. The
+// node's stats carry the GPU with its use, memory, temperature and power; a
+// node without a GPU has no list at all.
+func TestNodeStatsShowItsGPUs(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+	owner, _ := w.token("web", bearertoken.Owner)
+
+	serving, _, err := w.svc.AddNode(ctx, "serving", 0)
+	require.NoError(t, err)
+
+	plain, _, err := w.svc.AddNode(ctx, "plain", 0)
+	require.NoError(t, err)
+
+	temp := 74.0
+
+	require.NoError(t, w.svc.NodeStats(ctx, serving.ID, orchestration.SystemStats{GPUs: []orchestration.GPUStats{{
+		Index: 0, Name: "GeForce RTX 4090", UsagePercent: 87, MemoryUsedBytes: 22 << 30, MemoryTotalBytes: 24 << 30,
+		TemperatureCelsius: &temp,
+	}}}))
+	require.NoError(t, w.svc.NodeStats(ctx, plain.ID, orchestration.SystemStats{CPUPercent: 5}))
+
+	list, err := owner.ListNodesWithResponse(ctx)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, list.StatusCode(), string(list.Body))
+
+	byName := map[string]openapi.Node{}
+	for _, n := range list.JSON200.Data {
+		byName[n.Name] = n
+	}
+
+	require.NotNil(t, byName["serving"].Stats.Gpus)
+
+	gpus := *byName["serving"].Stats.Gpus
+	require.Len(t, gpus, 1)
+	assert.Equal(t, "GeForce RTX 4090", gpus[0].Name)
+	assert.InDelta(t, 87, gpus[0].UsagePercent, 0)
+	assert.Equal(t, int64(24<<30), gpus[0].MemoryTotalBytes)
+	require.NotNil(t, gpus[0].TemperatureCelsius)
+	assert.InDelta(t, 74, *gpus[0].TemperatureCelsius, 0)
+	assert.Nil(t, gpus[0].PowerWatts)
+
+	assert.Nil(t, byName["plain"].Stats.Gpus)
+}

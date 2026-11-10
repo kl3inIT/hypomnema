@@ -19,7 +19,7 @@ import { Field, FieldDescription, FieldError, FieldLabel } from "@/components/ui
 import { Input } from "@/components/ui/input"
 import { Spinner } from "@/components/ui/spinner"
 
-import { errorText } from "./use-integrations"
+import { errorText, said } from "./use-integrations"
 
 // The pieces every Settings screen shares, built on the standard components (issue #123).
 
@@ -44,6 +44,7 @@ export function ConfirmDialog({
   action,
   run,
   onDone,
+  done,
 }: {
   trigger: ReactElement
   title: string
@@ -51,6 +52,8 @@ export function ConfirmDialog({
   action: string
   run: () => Promise<unknown>
   onDone: () => Promise<unknown> | void
+  // done is what a toast says once it is taken away.
+  done: string
 }) {
   const [open, setOpen] = useState(false)
   const remove = useMutation({
@@ -58,6 +61,7 @@ export function ConfirmDialog({
     onSuccess: async () => {
       await onDone()
       setOpen(false)
+      said(done)
     },
   })
 

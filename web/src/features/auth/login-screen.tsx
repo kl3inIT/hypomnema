@@ -1,10 +1,12 @@
 import { useState } from "react"
 
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
+import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
+import { Input } from "@/components/ui/input"
+import { Spinner } from "@/components/ui/spinner"
 
 import { signIn, SignInError } from "./session"
-
-const inputClass = "h-10 rounded-md border border-input bg-background px-3 text-sm"
 
 // The first visit, and any visit after the session ended: a user made on the server with
 // `hypomnema users add <name>` signs in with the name and the password.
@@ -33,37 +35,40 @@ export function LoginScreen() {
   return (
     <div className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center gap-4 p-6">
       <h1 className="text-lg font-medium">Sign in</h1>
-      <form className="flex flex-col gap-3" onSubmit={submit}>
-        <label className="flex flex-col gap-1.5 text-sm">
-          Username
-          <input
-            type="text"
-            name="username"
-            autoComplete="username"
-            autoCapitalize="none"
-            spellCheck={false}
-            value={username}
-            onChange={(event) => setUsername(event.target.value)}
-            className={inputClass}
-          />
-        </label>
-        <label className="flex flex-col gap-1.5 text-sm">
-          Password
-          <input
-            type="password"
-            name="password"
-            autoComplete="current-password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            className={inputClass}
-          />
-        </label>
+      <form className="flex flex-col gap-4" onSubmit={submit}>
+        <FieldGroup>
+          <Field>
+            <FieldLabel htmlFor="username">Username</FieldLabel>
+            <Input
+              id="username"
+              type="text"
+              name="username"
+              autoComplete="username"
+              autoCapitalize="none"
+              spellCheck={false}
+              value={username}
+              onChange={(event) => setUsername(event.target.value)}
+            />
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="password">Password</FieldLabel>
+            <Input
+              id="password"
+              type="password"
+              name="password"
+              autoComplete="current-password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+            />
+          </Field>
+        </FieldGroup>
         {error && (
-          <p role="alert" className="text-sm text-destructive">
-            {error}
-          </p>
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
         )}
         <Button type="submit" disabled={checking || username.trim() === "" || password === ""}>
+          {checking && <Spinner data-icon="inline-start" />}
           {checking ? "Signing in…" : "Sign in"}
         </Button>
       </form>

@@ -2,6 +2,7 @@ import {
   Bot,
   Cloud,
   Cpu,
+  Gpu,
   HardDrive,
   Hourglass,
   ListChecks,
@@ -13,10 +14,18 @@ import {
 import type { ReactNode } from "react"
 
 import type { Node } from "@/api/generated/types.gen"
+import { cn } from "@/lib/utils"
 import { MachineActions } from "./machine-actions"
-import { IndicatorDot, LoadDot, MachineProblem, Meter, StateText } from "./machine-cells"
+import { GpuRows, IndicatorDot, LoadDot, MachineProblem, Meter, StateText } from "./machine-cells"
 import { RuntimeList } from "./runtime-list"
-import { diskPercent, loadPercent, memoryPercent, usedOfTotal } from "./machines-state"
+import {
+  diskPercent,
+  gpuTitle,
+  loadPercent,
+  memoryPercent,
+  percent,
+  usedOfTotal,
+} from "./machines-state"
 
 // The columns of the Machines page, after Beszel's systems-table (MIT, Copyright (c) 2024 henrygd,
 // https://github.com/henrygd/beszel; internal/site/src/components/systems-table/systems-table-columns.tsx): one
@@ -32,7 +41,17 @@ export type Column = {
   hint?: string
   Icon?: LucideIcon
   cell: (node: Node) => ReactNode
+  // has says whether the machine has this at all. Without it a card leaves the row out, and the table leaves the
+  // column out when no machine has it: a machine without a GPU does not get empty GPU rows.
+  has?: (node: Node) => boolean
 }
+
+// shownColumns are the columns worth showing for these machines.
+export function shownColumns(nodes: Node[]) {
+  return columns.filter((column) => !column.has || nodes.some(column.has))
+}
+
+const hasGpu = (node: Node) => (node.stats?.gpus?.length ?? 0) > 0
 
 const none = <span className="text-muted-foreground">—</span>
 
@@ -101,6 +120,58 @@ export const columns: Column[] = [
         />
       )
     },
+  },
+  {
+    id: "gpu",
+    name: "GPU",
+    Icon: Gpu,
+    has: hasGpu,
+    cell: (node) => (
+      <GpuRows node={node}>
+        {(gpu) => ({
+          meter: (
+            <Meter
+              label={`GPU ${gpu.index}`}
+              value={gpu.usage_percent}
+              connected={node.connected}
+              title={gpuTitle(gpu)}
+            />
+          ),
+          after: gpu.temperature_celsius !== undefined && (
+            <span
+              className={cn(
+                "w-9 shrink-0 text-end text-xs whitespace-nowrap tabular-nums",
+                node.connected && gpu.temperature_celsius >= 85
+                  ? "text-destructive"
+                  : "text-muted-foreground",
+              )}
+            >
+              {Math.round(gpu.temperature_celsius)} °C
+            </span>
+          ),
+        })}
+      </GpuRows>
+    ),
+  },
+  {
+    id: "gpu_memory",
+    name: "GPU Mem",
+    Icon: MemoryStick,
+    has: hasGpu,
+    cell: (node) => (
+      <GpuRows node={node}>
+        {(gpu) => ({
+          meter: (
+            <Meter
+              label={`GPU ${gpu.index} memory`}
+              value={percent(gpu.memory_used_bytes, gpu.memory_total_bytes) ?? 0}
+              connected={node.connected}
+              title={usedOfTotal(gpu.memory_used_bytes, gpu.memory_total_bytes)}
+            />
+          ),
+        })}
+      </GpuRows>
+    ),
   },
   {
     id: "load",
