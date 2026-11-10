@@ -3,57 +3,79 @@ import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, expect, test, vi } from "vitest"
 
 import { LoginScreen } from "./login-screen"
-import { readToken, saveToken } from "./token"
+import { resetSession, useSession } from "./session"
 
-const me = (kind: string, status = 200) =>
+function State() {
+  return <output>{useSession()}</output>
+}
+
+const answer = (status: number, body?: object) =>
   vi.spyOn(globalThis, "fetch").mockResolvedValue(
-    new Response(
-      JSON.stringify(status === 200 ? { id: "tok_1", name: "web", kind } : { error: "no" }),
-      {
-        status,
-        headers: { "Content-Type": "application/json" },
-      },
-    ),
+    new Response(body ? JSON.stringify(body) : null, {
+      status,
+      headers: body ? { "Content-Type": "application/json" } : {},
+    }),
   )
 
-beforeEach(() => saveToken(null))
+async function fill(user: ReturnType<typeof userEvent.setup>, name: string, password: string) {
+  await user.type(screen.getByLabelText("Username"), name)
+  await user.type(screen.getByLabelText("Password"), password)
+  await user.click(screen.getByRole("button", { name: "Sign in" }))
+}
+
+beforeEach(() => resetSession())
 afterEach(() => vi.restoreAllMocks())
 
-// Scenario: the owner pastes an owner token; it is checked with the server and kept.
-test("an owner token is checked and kept", async () => {
+// Scenario: the owner signs in with the name and the password. They go to the server once, in the body; the page
+// keeps neither, and nothing is put in storage: the session is the server's cookie.
+test("a name and a password sign in", async () => {
   const user = userEvent.setup()
-  const fetch = me("owner")
-  render(<LoginScreen />)
+  const fetch = answer(204)
+  render(
+    <>
+      <LoginScreen />
+      <State />
+    </>,
+  )
 
-  await user.type(screen.getByLabelText("Owner token"), "secret-owner")
-  await user.click(screen.getByRole("button", { name: "Sign in" }))
+  await fill(user, "admin", "correct horse")
 
-  expect(readToken()).toBe("secret-owner")
+  expect(await screen.findByText("signed-in")).toBeInTheDocument()
+
   const request = fetch.mock.calls[0]?.[0] as Request
-  expect(request.headers.get("Authorization")).toBe("Bearer secret-owner")
+  expect(request.method).toBe("POST")
+  expect(new URL(request.url).pathname).toBe("/api/v1/session")
+  expect(await request.json()).toEqual({ username: "admin", password: "correct horse" })
+  expect(request.headers.get("Authorization")).toBeNull()
+  expect(window.localStorage.length).toBe(0)
 })
 
-// Scenario: a coordinator token, such as pi's, cannot open the owner's chats.
-test("a coordinator token is refused", async () => {
+// Scenario: a wrong password. The page says so without saying which of the two was wrong, and stays signed out.
+test("a wrong password is refused", async () => {
   const user = userEvent.setup()
-  me("coordinator")
-  render(<LoginScreen />)
+  answer(401, { code: "unauthorized", message: "the name or the password is wrong" })
+  render(
+    <>
+      <LoginScreen />
+      <State />
+    </>,
+  )
 
-  await user.type(screen.getByLabelText("Owner token"), "secret-pi")
-  await user.click(screen.getByRole("button", { name: "Sign in" }))
+  await fill(user, "admin", "nope")
 
-  expect(await screen.findByRole("alert")).toHaveTextContent("coordinator token")
-  expect(readToken()).toBeNull()
+  expect(await screen.findByRole("alert")).toHaveTextContent("The name or the password is wrong.")
+  expect(screen.getByText("signed-out")).toBeInTheDocument()
 })
 
-test("a token the server rejects is not kept", async () => {
+// Scenario: too many wrong tries. The page passes on how long the server says to wait.
+test("a locked address is told how long to wait", async () => {
   const user = userEvent.setup()
-  me("owner", 401)
+  answer(429, { code: "rate_limited", message: "too many wrong tries; try again in 30s" })
   render(<LoginScreen />)
 
-  await user.type(screen.getByLabelText("Owner token"), "wrong")
-  await user.click(screen.getByRole("button", { name: "Sign in" }))
+  await fill(user, "admin", "nope")
 
-  expect(await screen.findByRole("alert")).toHaveTextContent("did not accept")
-  expect(readToken()).toBeNull()
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "Too many wrong tries; try again in 30s.",
+  )
 })

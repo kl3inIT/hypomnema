@@ -26,7 +26,6 @@ async function fakeServer(page: Page, start: { hosts?: Host[]; repos?: Repo[] } 
   let repos = start.repos ?? []
   const calls: string[] = []
 
-  await page.addInitScript({ content: "localStorage.setItem('hypomnema.token', 'secret')" })
   await page.route("**/api/v1/**", async (route) => {
     const request = route.request()
     const path = decodeURIComponent(new URL(request.url()).pathname.replace("/api/v1", ""))
@@ -35,6 +34,8 @@ async function fakeServer(page: Page, start: { hosts?: Host[]; repos?: Repo[] } 
       route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) })
 
     if (request.method() !== "GET") calls.push(call)
+
+    if (path === "/me") return json({ id: "usr_1", name: "admin", kind: "owner" })
 
     const [, kind, name, sub] = path.split("/")
 

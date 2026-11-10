@@ -54,7 +54,8 @@ const frames = [
   'event: state\ndata: {"working":false}\n\n',
 ].join("")
 
-async function fakeServer(page: Page, token: { kind: string } | null) {
+// signedIn says whether the browser already has a session; password is the one the server takes.
+async function fakeServer(page: Page, signedIn: boolean, password = "correct horse") {
   const sent: string[] = []
 
   await page.route("**/api/v1/**", async (route) => {
@@ -63,7 +64,26 @@ async function fakeServer(page: Page, token: { kind: string } | null) {
     const json = (body: unknown, status = 200) =>
       route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) })
 
-    if (path === "/me") return token ? json({ id: "tok_1", name: "web", ...token }) : json({}, 401)
+    if (path === "/me") {
+      return signedIn
+        ? json({ id: "usr_1", name: "admin", kind: "owner" })
+        : json({ code: "unauthorized", message: "signing in is required" }, 401)
+    }
+    if (path === "/session" && route.request().method() === "POST") {
+      const body = route.request().postDataJSON() as { username: string; password: string }
+      if (body.username !== "admin" || body.password !== password) {
+        return json({ code: "unauthorized", message: "the name or the password is wrong" }, 401)
+      }
+
+      signedIn = true
+
+      return route.fulfill({ status: 204 })
+    }
+    if (path === "/session" && route.request().method() === "DELETE") {
+      signedIn = false
+
+      return route.fulfill({ status: 204 })
+    }
     if (path === "/chats" && route.request().method() === "GET") return json({ data: [chat] })
     if (path === "/chats" && route.request().method() === "POST") return json(chat, 201)
     if (path === `/chats/${chat.id}`) return json(chat)
@@ -81,24 +101,29 @@ async function fakeServer(page: Page, token: { kind: string } | null) {
   return sent
 }
 
-// Scenario: the first visit asks for an owner token, checks it, and opens the chat screen, dark by default.
-test("signing in with an owner token opens the chats", async ({ page }) => {
-  await fakeServer(page, { kind: "owner" })
+// Scenario: the first visit asks for the name and the password and opens the chat screen, dark by default. Nothing
+// is kept in the browser's storage. Signing out brings the sign-in screen back.
+test("signing in with a name and a password opens the chats", async ({ page }) => {
+  await fakeServer(page, false)
   await page.goto("/")
 
   await expect(page.locator("html")).toHaveClass(/dark/)
-  await page.getByLabel("Owner token").fill("secret")
+  await page.getByLabel("Username").fill("admin")
+  await page.getByLabel("Password").fill("correct horse")
   await page.getByRole("button", { name: "Sign in" }).click()
 
   await expect(page.getByRole("heading", { name: "What should be built?" })).toBeVisible()
   await expect(page.getByRole("textbox", { name: "Message" })).toBeVisible()
+  expect(await page.evaluate(`localStorage.getItem("hypomnema.token")`)).toBeNull()
+
+  await page.getByRole("button", { name: "Sign out" }).click()
+  await expect(page.getByLabel("Password")).toBeVisible()
 })
 
 // Scenario: the owner starts a chat; pi's work shows as one line that opens on its thought and the command with
 // its output, and its reply is rendered as markdown.
 test("a chat shows pi's work and reply", async ({ page }) => {
-  const sent = await fakeServer(page, { kind: "owner" })
-  await page.addInitScript({ content: `localStorage.setItem("hypomnema.token", "secret")` })
+  const sent = await fakeServer(page, true)
   await page.goto("/")
 
   await page.getByRole("textbox", { name: "Message" }).fill("add a health page")
@@ -117,13 +142,15 @@ test("a chat shows pi's work and reply", async ({ page }) => {
   await expect(log.locator("pre", { hasText: "[]" })).toBeVisible()
 })
 
-// Scenario: a coordinator token, such as pi's, is refused at sign-in.
-test("a coordinator token is refused", async ({ page }) => {
-  await fakeServer(page, { kind: "coordinator" })
+// Scenario: a wrong password is refused, and the sign-in screen stays.
+test("a wrong password is refused", async ({ page }) => {
+  await fakeServer(page, false)
   await page.goto("/")
 
-  await page.getByLabel("Owner token").fill("pi")
+  await page.getByLabel("Username").fill("admin")
+  await page.getByLabel("Password").fill("not it")
   await page.getByRole("button", { name: "Sign in" }).click()
 
-  await expect(page.getByRole("alert")).toContainText("coordinator token")
+  await expect(page.getByRole("alert")).toContainText("The name or the password is wrong.")
+  await expect(page.getByLabel("Password")).toBeVisible()
 })
