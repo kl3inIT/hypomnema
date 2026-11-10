@@ -352,27 +352,6 @@ paths:
     post:
       operationId: CreateNode
       summary: Add a node; its token is in this answer and nowhere else (owner only)
-  /hosts:
-    get:
-      operationId: ListGitHosts
-      summary: The git hosts a Run can be on; github.com and gitlab.com are always among them
-      responses:
-        "200":
-          description: The hosts.
-          content:
-            application/json:
-              schema: { $ref: "#/components/schemas/GitHostList" }
-        default: { $ref: "#/components/responses/Error" }
-  /hosts/{host}:
-    parameters:
-      - name: host
-        in: path
-        required: true
-        description: The host's name, with its port when it has one.
-        schema: { type: string, minLength: 3, maxLength: 255 }
-    put:
-      operationId: PutGitHost
-      summary: Declare a company's git server and its kind; only the owner
       requestBody:
         required: true
         content:
@@ -420,6 +399,32 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Node" }
+        default: { $ref: "#/components/responses/Error" }
+  /hosts:
+    get:
+      operationId: ListGitHosts
+      summary: The git hosts a Run can be on; github.com and gitlab.com are always among them
+      responses:
+        "200":
+          description: The hosts.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GitHostList" }
+        default: { $ref: "#/components/responses/Error" }
+  /hosts/{host}:
+    parameters:
+      - name: host
+        in: path
+        required: true
+        description: The host's name, with its port when it has one.
+        schema: { type: string, minLength: 3, maxLength: 255 }
+    put:
+      operationId: PutGitHost
+      summary: Declare a company's git server and its kind; only the owner
+      requestBody:
+        required: true
+        content:
+          application/json:
             schema: { $ref: "#/components/schemas/NewGitHost" }
       responses:
         "200":
