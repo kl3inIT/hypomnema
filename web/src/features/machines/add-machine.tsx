@@ -127,6 +127,11 @@ export function AddMachine() {
                   How many Dispatches it runs at once. Leave empty for the default.
                 </span>
               </label>
+              {provider && !full && (
+                <p className="text-xs text-muted-foreground">
+                  The provider bills for the machine from now until you remove it.
+                </p>
+              )}
               {full && (
                 <p className="text-sm text-muted-foreground">
                   {provider.name} is at its limit of {provider.max_machines} machines. Remove one

@@ -13,6 +13,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/aws/aws-sdk-go-v2/service/ec2/types"
+	"github.com/aws/smithy-go"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 )
@@ -144,7 +145,7 @@ func (p *awsProvider) image(ctx context.Context, c ec2API, size string) (types.I
 		InstanceTypes: []types.InstanceType{types.InstanceType(size)},
 	})
 	if err != nil {
-		return types.Image{}, fmt.Errorf("reading instance type %s: %w", size, err)
+		return types.Image{}, fmt.Errorf("reading instance type %s: %w", size, awsReason(err))
 	}
 
 	if len(sizes.InstanceTypes) == 0 || sizes.InstanceTypes[0].ProcessorInfo == nil {
@@ -165,7 +166,7 @@ func (p *awsProvider) image(ctx context.Context, c ec2API, size string) (types.I
 		},
 	})
 	if err != nil {
-		return types.Image{}, fmt.Errorf("finding the Ubuntu image: %w", err)
+		return types.Image{}, fmt.Errorf("finding the Ubuntu image: %w", awsReason(err))
 	}
 
 	if len(images.Images) == 0 {
@@ -236,7 +237,7 @@ func (p *awsProvider) Create(ctx context.Context, s Spec) (string, error) {
 
 	out, err := c.RunInstances(ctx, in)
 	if err != nil {
-		return "", fmt.Errorf("creating the instance: %w", err)
+		return "", fmt.Errorf("creating the instance: %w", awsReason(err))
 	}
 
 	if len(out.Instances) != 1 {
@@ -277,7 +278,7 @@ func (p *awsProvider) Delete(ctx context.Context, region, nodeID string) error {
 	}
 
 	if _, err := c.TerminateInstances(ctx, &ec2.TerminateInstancesInput{InstanceIds: ids}); err != nil {
-		return fmt.Errorf("terminating %s: %w", strings.Join(ids, ", "), err)
+		return fmt.Errorf("terminating %s: %w", strings.Join(ids, ", "), awsReason(err))
 	}
 
 	return nil
@@ -303,7 +304,7 @@ func (p *awsProvider) list(ctx context.Context, c ec2API, more ...types.Filter) 
 	for {
 		page, err := c.DescribeInstances(ctx, in)
 		if err != nil {
-			return nil, fmt.Errorf("listing instances: %w", err)
+			return nil, fmt.Errorf("listing instances: %w", awsReason(err))
 		}
 
 		for _, r := range page.Reservations {
@@ -318,6 +319,18 @@ func (p *awsProvider) list(ctx context.Context, c ec2API, more ...types.Filter) 
 
 		in.NextToken = page.NextToken
 	}
+}
+
+// awsReason is AWS's own code and message for a refused call, without the
+// SDK's operation, status and request id around them, which say nothing to
+// the owner who reads it on the Machines page. Any other error is kept.
+func awsReason(err error) error {
+	var refused smithy.APIError
+	if errors.As(err, &refused) {
+		return fmt.Errorf("%s: %s", refused.ErrorCode(), refused.ErrorMessage())
+	}
+
+	return err
 }
 
 func awsResource(i types.Instance) Resource {

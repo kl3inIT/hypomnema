@@ -273,12 +273,15 @@ test("a provider's machine says where it is until it is ready", async () => {
   const fresh = await machine("fresh")
   expect(fresh).toHaveTextContent("Creating")
   expect(fresh).not.toHaveTextContent("Offline")
-  expect(fresh).toHaveTextContent("t3.mediumap-southeast-1")
+  expect(fresh).toHaveTextContent("comes online about five minutes after it was asked for")
+  expect(fresh).toHaveTextContent("t3.medium in ap-southeast-1 · asked for")
+  expect(within(fresh).queryByText("CPU:")).not.toBeInTheDocument()
 
   expect(await machine("refused")).toHaveTextContent("Not created")
   expect(await machine("refused")).toHaveTextContent("VcpuLimitExceeded")
   expect(await machine("stuck")).toHaveTextContent("Not removed")
   expect(await machine("stuck")).toHaveTextContent("RequestLimitExceeded")
+  expect(await machine("stuck")).toHaveTextContent("may still run and cost money")
   expect(await machine("ready")).toHaveTextContent("Online")
 
   expect(screen.getByText("1 online · 1 creating · 1 not created · 1 not removed")).toBeVisible()
@@ -300,10 +303,14 @@ test("a new machine is created at a provider", async () => {
   const dialog = await screen.findByRole("dialog")
   const choice = await within(dialog).findByRole("radio", { name: "A new machine at aws" })
   expect(choice).toHaveAccessibleDescription("t3.medium in ap-southeast-1 · 1 of 2 machines")
+  expect(dialog).not.toHaveTextContent("bills for the machine")
   expect(within(dialog).getByRole("radio", { name: "A machine of your own" })).toBeChecked()
 
   await user.click(choice)
   await user.type(within(dialog).getByLabelText("Name"), "build-1")
+  expect(dialog).toHaveTextContent(
+    "The provider bills for the machine from now until you remove it.",
+  )
   await user.click(within(dialog).getByRole("button", { name: "Create" }))
 
   expect(await within(dialog).findByText("build-1 is being created")).toBeVisible()

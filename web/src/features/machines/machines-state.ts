@@ -41,6 +41,23 @@ export const stateNames: Record<MachineState, string> = {
   remove_failed: "Not removed",
 }
 
+// machineNote is what the page says in place of measurements for a provider's machine that is not ready: what is
+// happening and what the owner can do. Undefined for a machine that is ready, or the owner's own.
+export function machineNote(node: Node) {
+  switch (machineState(node)) {
+    case "creating":
+      return "It installs the node itself and comes online about five minutes after it was asked for."
+    case "create_failed":
+      return "Nothing runs for it. Remove it, then add it again."
+    case "removing":
+      return "Its machine is being destroyed at the provider."
+    case "remove_failed":
+      return "Its machine may still run and cost money. Destroying it is tried again until it works."
+    default:
+      return undefined
+  }
+}
+
 // machineProblem is why a provider's machine was not created or not destroyed, in the provider's words.
 export function machineProblem(node: Node) {
   const state = machineState(node)

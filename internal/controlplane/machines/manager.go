@@ -121,7 +121,7 @@ func (m *Manager) Create(ctx context.Context, n NewMachine) (orchestration.Node,
 		return err
 	})
 	if err != nil {
-		return m.failed(ctx, node, fmt.Errorf("machine provider %s: %w", rec.Name, err))
+		return m.failed(ctx, node, err)
 	}
 
 	// The machine exists from here on: a failure to record its id is settled by the loop, which finds it by its node.

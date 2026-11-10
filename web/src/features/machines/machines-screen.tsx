@@ -2,12 +2,13 @@ import { useState } from "react"
 
 import type { Node } from "@/api/generated/types.gen"
 import { PageHeader } from "@/features/shell/app-shell"
+import { since } from "@/lib/time"
 import { cn } from "@/lib/utils"
 
 import { AddMachine } from "./add-machine"
 import { IndicatorDot, MachineProblem, StateText } from "./machine-cells"
 import { columns } from "./machines-columns"
-import { summary } from "./machines-state"
+import { machineNote, summary } from "./machines-state"
 import { useMachines } from "./use-machines"
 
 type Layout = "grid" | "table"
@@ -145,6 +146,7 @@ function MachinesTable({ nodes }: { nodes: Node[] }) {
 // column: its icon, its name and its value.
 function MachineCard({ node }: { node: Node }) {
   const actions = columns.find((c) => c.id === "actions")
+  const note = machineNote(node)
 
   return (
     <article
@@ -160,10 +162,31 @@ function MachineCard({ node }: { node: Node }) {
         <StateText node={node} />
         {actions?.cell(node)}
       </header>
-      <MachineProblem
-        node={node}
-        className="block border-b border-border/60 px-5 py-2 break-words"
-      />
+      {note ? <NotReady node={node} note={note} /> : <Measurements node={node} />}
+    </article>
+  )
+}
+
+// NotReady is the card of a provider's machine that has nothing to measure yet: why it failed, what happens next,
+// what was asked for and when.
+function NotReady({ node, note }: { node: Node; note: string }) {
+  return (
+    <div className="flex flex-col gap-2 px-5 pt-3.5 pb-4 text-sm">
+      <MachineProblem node={node} className="text-sm break-words" />
+      <p className="text-muted-foreground">{note}</p>
+      {node.machine && (
+        <p className="text-xs text-muted-foreground">
+          {node.machine.size} in {node.machine.region} · asked for {since(node.created_at)}
+        </p>
+      )}
+    </div>
+  )
+}
+
+// Measurements is the card's rows: one a column, with its icon, its name and its value.
+function Measurements({ node }: { node: Node }) {
+  return (
+    <>
       <dl
         className="grid gap-2.5 px-5 pt-3.5 pb-4 text-sm"
         style={{ gridTemplateColumns: "24px minmax(80px, max-content) minmax(0, 1fr)" }}
@@ -184,7 +207,7 @@ function MachineCard({ node }: { node: Node }) {
           )
         })}
       </dl>
-    </article>
+    </>
   )
 }
 
