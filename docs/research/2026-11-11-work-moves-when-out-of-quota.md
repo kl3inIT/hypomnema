@@ -71,3 +71,36 @@ All inference, for the owner to decide.
   reference for continuing it under another CLI, and is a second step.
 - The coordinator's guide already tells the coordinator not to move a Task on its own; with a list the owner set,
   the scheduler would do it, and the references agree that this choice is the person's.
+
+## 4. Work already started (added later on 2026-11-11)
+
+Asked by the owner after the first step (issue #171) was built: how the references continue work that was under
+way when the limit came. Orca and OpenMausBot were read by the session; OpenClaw, Hermes, omp and t3code by a scout.
+
+A correction to section 2: OpenMausBot does move a turn that a usage limit refused. Its rule that an accepted
+prompt is not moved ("the engine might have performed actions") is for a start that failed or went silent
+(`docs/verification/automatic-recovery.md`). For a limit, `turnFailed` moves the thread to the first backup and
+sends the person's own message again there, with the thread's history (`server/quota-switch.ts` L150-190,
+L198-245): only the person's own request, never a routine's, a webhook's or a relayed one, and not when a question
+or a card waits in the thread. So issue #171, which moves only a Task with no Conversation, is stricter than
+OpenMausBot.
+
+| | What goes to the backup | What keeps work from being done twice | What the backup is told |
+|---|---|---|---|
+| OpenMausBot | The thread's own history, kept by the product, and the person's message sent again | Only the person's own request is sent again; a thread that is working, or holds a waiting question or card, is switched and nothing is resent | Nothing found for the model; the person reads "continuing on {name} after hitting the usage limit" |
+| OpenClaw | The saved transcript with finished tool results; ids and thinking reshaped for the provider (`replay-history.ts`) | A one-way flag per run: a tool with side effects, a spawned session or an async start makes the run unsafe to replay, and "model fallback still require[s] evidence that replaying the original attempt is safe" (`replay-state.ts` L21-51, `docs/concepts/model-failover.md` L471) | Nothing for the model |
+| Hermes | The whole message list, the client swapped in place; the prompt cache is lost | No gate; a tool result already in the history is not run again | The `Model:` and `Provider:` lines of the system prompt |
+| omp | The session's history, the failed assistant message dropped; signatures stripped across providers | "Safe only before committed text, images, tool calls, or server tools"; a tool batch runs again only when all of it failed (`turn-recovery.ts` L1580-1593, L209) | Nothing for the model. Per-call task workers run with fallback off (`task/executor.ts` L4935) |
+| Orca (by hand) | A new session of another CLI in the same workspace, with the path of the old transcript or a bounded copy of it, the last prompt and the last assistant message | The note: "Inspect the current repository state, including git status and the relevant files. Treat workspace files as authoritative if they differ from the transcript." | "Continue work from the prior Orca session… The prior provider session is read-only context… Briefly state where the previous session stopped. If work remains, continue it." (`agent-session-continuation.ts` L92-111) |
+| t3code | Nothing by itself: a thread that met a limit waits and is sent "Continue where you left off." after the reset, once (`UsageLimitRecoveryWorker.ts`). A switch by hand sends a summary within a budget and a tool to read the history; the worktree stays | The resume's command id makes it idempotent | "Context handoff (...): From thread X, runs a-b. Recover history with t3_thread_read…" (`ContextHandoffDelivery.ts` L45-53) |
+
+Two families. OpenClaw, Hermes and omp call a model's API themselves, so they pass the message list to another
+model inside one process. Orca and t3code drive whole CLIs, as Hypomnema does: a CLI's session cannot be given to
+another CLI, so the next one starts fresh in the same working directory with a note and a way to read what
+happened. OpenMausBot is between: it keeps the conversation itself and sends the request again.
+
+Read for Hypomnema (inference): a worker is a CLI, so the hand-over is Orca's and t3code's, a new Conversation in
+the same worktree with a note; the trigger and the resending of the Task's own spec are OpenMausBot's; the guard
+against doing work twice is OpenClaw's and omp's, applied to what cannot be seen in the worktree (a pull request
+already open, a write through the service proxy). A Conversation names one node and its worktree
+(`orchestration/dispatch_types.go`), so the backup can only run where that worktree is.
