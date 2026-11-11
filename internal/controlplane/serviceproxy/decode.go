@@ -181,6 +181,35 @@ func (d *decoder) file(label, name, mediaType string, data []byte) {
 // except what is made anew for every send or only describes the encoding.
 var mailHeaders = []string{"From", "To", "Cc", "Bcc", "Reply-To", "Subject", "In-Reply-To"}
 
+// addressHeaders are the headers that hold addresses, which are shown as a
+// person writes them.
+var addressHeaders = []string{"From", "To", "Cc", "Bcc", "Reply-To"}
+
+// addresses writes a list of addresses plainly: the address alone, or the
+// name and the address in brackets. A tool writes "<owner@example.com>" for
+// an address without a name. A value that is not a list of addresses is kept
+// as it is: it is shown as sent.
+func addresses(value string) string {
+	list, err := mail.ParseAddressList(value)
+	if err != nil || len(list) == 0 {
+		return value
+	}
+
+	out := make([]string, 0, len(list))
+
+	for _, a := range list {
+		if a.Name == "" {
+			out = append(out, a.Address)
+
+			continue
+		}
+
+		out = append(out, a.Name+" <"+a.Address+">")
+	}
+
+	return strings.Join(out, ", ")
+}
+
 var unshownHeaders = map[string]bool{
 	"Date": true, "Message-Id": true, "Mime-Version": true, "Content-Type": true,
 	"Content-Transfer-Encoding": true, "User-Agent": true,
@@ -205,6 +234,10 @@ func (d *decoder) message(raw []byte) {
 		for _, value := range msg.Header[name] {
 			if plain, err := words.DecodeHeader(value); err == nil {
 				value = plain
+			}
+
+			if slices.Contains(addressHeaders, name) {
+				value = addresses(value)
 			}
 
 			values = append(values, value)
