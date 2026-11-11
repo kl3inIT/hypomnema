@@ -662,6 +662,32 @@ func TestAMailsAddressesAreShownSoThatWhereItGoesCannotBeMisread(t *testing.T) {
 	assert.Equal(t, `Send mail: minh@example.com, lan@example.com ("Lan Pham")`, asked.Title)
 }
 
+// Scenario: two more ways a mail could hide where it goes. A mailbox name
+// that is quoted and holds a comma and a bracket is shown quoted whole, as
+// one address. A header that cannot be read as addresses at all is shown as
+// it was sent, undecoded, and said to be unreadable.
+func TestAnAddressThatCouldReadAsTwoOrNotAtAllIsShownForWhatItIs(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t, 100*time.Millisecond)
+	gmail := w.piTool("gmail.googleapis.com")
+
+	message := "From: <owner@example.com>\r\nTo: \"owner@example.com, <x\"@collector.example\r\n" +
+		"Cc: =?utf-8?q?owner=40example.com?= no address here\r\nSubject: Invoice\r\n\r\nPaid.\r\n"
+	body := "--b\r\nContent-Type: application/json\r\n\r\n{}\r\n--b\r\nContent-Type: message/rfc822\r\n\r\n" + message +
+		"\r\n--b--\r\n"
+
+	got := gmail.do(http.MethodPost, sendPath, "multipart/related; boundary=b", []byte(body))
+	require.Equal(t, http.StatusForbidden, got.Status)
+
+	asked := w.pending()
+	assert.Contains(t, asked.Payload,
+		orchestration.Field{Label: "To", Value: `"owner@example.com, <x@collector.example"`})
+	assert.Contains(t, asked.Payload, orchestration.Field{
+		Label: "Cc", Value: `not readable as addresses, shown as sent: "=?utf-8?q?owner=40example.com?= no address here"`,
+	})
+}
+
 // Scenario: the owner reads what agents may do with an account. Each
 // service's actions come from what only looks to what needs care, and what a
 // tool needs to run at all is not among them. A request is still matched to

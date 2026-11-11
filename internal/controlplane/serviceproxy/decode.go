@@ -11,8 +11,10 @@ import (
 	"mime/multipart"
 	"net/mail"
 	"net/url"
+	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -200,17 +202,28 @@ func addresses(value string) (shown string, ok bool) {
 	out := make([]string, 0, len(list))
 
 	for _, a := range list {
+		// An address made of ordinary characters is shown bare. Any other, such as one whose mailbox name is
+		// quoted and holds a comma or a bracket, is quoted whole, so that it cannot read as two addresses.
+		address := a.Address
+		if !plainAddress.MatchString(address) {
+			address = strconv.Quote(address)
+		}
+
 		if a.Name == "" {
-			out = append(out, a.Address)
+			out = append(out, address)
 
 			continue
 		}
 
-		out = append(out, fmt.Sprintf("%s (%q)", a.Address, a.Name))
+		out = append(out, fmt.Sprintf("%s (%q)", address, a.Name))
 	}
 
 	return strings.Join(out, ", "), true
 }
+
+// plainAddress matches an address whose mailbox name and domain hold only
+// characters that mean nothing in a list of addresses.
+var plainAddress = regexp.MustCompile("^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9.-]+$")
 
 var unshownHeaders = map[string]bool{
 	"Date": true, "Message-Id": true, "Mime-Version": true, "Content-Type": true,
@@ -235,8 +248,15 @@ func (d *decoder) message(raw []byte) {
 
 		for _, value := range msg.Header[name] {
 			// Addresses are read from the header as it was sent: decoding its words first would let a name
-			// that was written encoded turn into what looks like another address.
-			if shown, ok := addresses(value); ok && slices.Contains(addressHeaders, name) {
+			// that was written encoded turn into what looks like another address. One that cannot be read
+			// as addresses is shown as sent, undecoded, and said to be unreadable: the owner is not shown a
+			// guess at where the mail goes.
+			if slices.Contains(addressHeaders, name) {
+				shown, ok := addresses(value)
+				if !ok {
+					shown = "not readable as addresses, shown as sent: " + strconv.Quote(value)
+				}
+
 				values = append(values, shown)
 
 				continue
