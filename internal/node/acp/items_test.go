@@ -338,3 +338,51 @@ func TestAJournalIsForwardedAcrossARestart(t *testing.T) {
 	assert.JSONEq(t, `{"path":"a"}`, string(got[1].Input))
 	assert.Equal(t, "package a", got[2].Text)
 }
+
+// Scenario: opencode (2.2.7) ends a shell call as completed whatever its
+// command did, and says how the command ended in the raw output's metadata. A
+// command that exited with another code than zero, was killed or ran out of
+// time is a failed result, so the board marks it; one that exited with zero,
+// and a call with no metadata, is not.
+func TestAnOpencodeCommandThatDidNotExitCleanlyIsAFailedResult(t *testing.T) {
+	t.Parallel()
+
+	ending := func(id string, metadata map[string]any) string {
+		raw := map[string]any{}
+		if metadata != nil {
+			raw["metadata"] = metadata
+		}
+
+		return upd(t, "tool_call_update", map[string]any{
+			"toolCallId": id, "status": "completed", "rawInput": map[string]any{"command": "go version"},
+			"content": text("output"), "rawOutput": raw,
+		})
+	}
+
+	cases := []struct {
+		name     string
+		metadata map[string]any
+		failed   bool
+	}{
+		{"exit 127", map[string]any{"status": "exited", "truncated": false, "exit": 127}, true},
+		{"killed", map[string]any{"status": "exited", "truncated": false, "signal": "SIGKILL"}, true},
+		{"timed out", map[string]any{"status": "timeout", "truncated": false, "timeout": true}, true},
+		{"exit 0", map[string]any{"status": "exited", "truncated": false, "exit": 0}, false},
+		{"no metadata", nil, false},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, _ := feed(NewDecoder(),
+				upd(t, "tool_call", map[string]any{"toolCallId": "s1", "name": "bash", "kind": "execute", "status": "pending"}),
+				ending("s1", c.metadata),
+			)
+
+			result := got[1][len(got[1])-1]
+			require.Equal(t, nodeproto.ItemToolResult, result.Kind)
+			assert.Equal(t, c.failed, result.Failed)
+		})
+	}
+}
