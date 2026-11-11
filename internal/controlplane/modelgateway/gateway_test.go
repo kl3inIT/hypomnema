@@ -40,7 +40,11 @@ func newGateway(t *testing.T) *modelgateway.Service {
 		"base_url: https://router.example/v1\napi_key_ref: vault:router\nmodels: [cx/gpt-6.1-sol, small]\n")
 	require.NoError(t, err)
 
-	_, err = orch.ApplyProvider(t.Context(), "", "name: claude\nkind: claude_subscription\nmodels: [opus-x]\n")
+	// anthropic is a provider kind the gateway has no chat adapter for: a
+	// model that targets it cannot be served.
+	_, err = orch.ApplyProvider(t.Context(), "",
+		"name: anth\nkind: anthropic\nbase_url: https://api.anthropic.example/v1\napi_key_ref: vault:anth\n"+
+			"models: [opus-x]\n")
 	require.NoError(t, err)
 
 	n := 0
@@ -102,7 +106,7 @@ func TestAModelThatCannotBeServedIsRefused(t *testing.T) {
 	g := newGateway(t)
 
 	cases := map[string]string{
-		"a provider of a kind without an adapter": "name: m\ntargets: [{provider: claude, model: opus-x}]\n",
+		"a provider of a kind without an adapter": "name: m\ntargets: [{provider: anth, model: opus-x}]\n",
 		"a provider nobody applied":               "name: m\ntargets: [{provider: missing, model: small}]\n",
 		"a model the provider does not offer":     "name: m\ntargets: [{provider: router, model: large}]\n",
 		"no target":                               "name: m\ntargets: []\n",
