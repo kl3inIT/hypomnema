@@ -256,6 +256,15 @@ type LarkBotPerson struct {
 	CreatedAt int64
 }
 
+type LarkBotQuestion struct {
+	QuestionID string
+	CardID     string
+	MessageID  string
+	Seq        int64
+	ClosedAt   sql.NullInt64
+	CreatedAt  int64
+}
+
 type MachineProvider struct {
 	ID          string
 	Name        string

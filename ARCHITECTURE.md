@@ -331,8 +331,13 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       supervisor's live frames, and closed with the kept message. A kept coordinator message with nothing
       written live (a wake-up's answer) is a card of its own. The last message sent is recorded per chat, so a
       restart sends nothing twice.
-    - Not built: questions as cards with buttons (the app's card callback is not configured yet), groups, a web
-      page for the bot, several bots.
+    - A question for the owner is a card in his direct chat with the bot (`lark_bot_questions`): a button for
+      each option, or "Reply to this card to answer" for a question without options. Only a press by the
+      owner's `open_id` answers; another person is told so. His reply to the card is the answer in his own
+      words and does not go to the coordinator. Once the question is answered or canceled, here or on the web,
+      the card says how it ended and has no buttons. It needs the app's callback `card.action.trigger` over
+      the persistent connection, configured in Lark's console.
+    - Not built: an option that also takes text, groups, a web page for the bot, several bots.
   - The token reaches a worker with its offer: the node API asks for it by host and repository as it sends the offer, and
     orchestration never holds it. The node gives it to that Dispatch only, as environment: git sends it to that
     host alone (an `http.https://<host>/.extraheader` through `GIT_CONFIG_COUNT`), `gh` reads `GH_TOKEN` (or
@@ -954,9 +959,11 @@ the internet, so that a machine created at a provider can install the node from 
   tool catalog compiled into it, so a new tool reaches workers with a node release; the other nodes take v0.6.1
   at their next update check. The coordinator on zm has neither `lark-cli` nor the skill yet: its tools are
   installed by `deploy/coordinator/setup-coordinator.sh`, which needs root.
-- The Lark bot, since 2026-11-11: set up on zm with the owner's Lark app, mode `owner`, switched on; the
-  persistent connection opened at Lark. Not tried yet: a message from the owner through to the coordinator's
-  answer. The app has no card callback configured, which questions with buttons will need.
+- The Lark bot, since 2026-11-11: set up on zm with the owner's Lark app, mode `owner`, switched on, and
+  connected. The app's callback `card.action.trigger` was added over the persistent connection and released as
+  version 1.0.3 of the app. Tried: a worker's question with two options was answered by the owner nine seconds
+  after it was asked, and the worker went on with the option chosen. Not tried yet: a message from the owner
+  through to the coordinator's answer.
 - Nodes, since 2026-11-10, five: aioffice-app (user `hypnode`), and aioffice-serving, elitex, kdlstc-dev and
   stc-hy-app (user `hypomnema`, installed with the first-boot script, each reaching the control plane at its
   public URL). Each runs the node as a systemd user unit from `~/.hypomnema-node`, at v0.7.0 on 2026-11-11, and
