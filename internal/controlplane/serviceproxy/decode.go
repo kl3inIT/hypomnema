@@ -185,14 +185,16 @@ var mailHeaders = []string{"From", "To", "Cc", "Bcc", "Reply-To", "Subject", "In
 // person writes them.
 var addressHeaders = []string{"From", "To", "Cc", "Bcc", "Reply-To"}
 
-// addresses writes a list of addresses plainly: the address alone, or the
-// name and the address in brackets. A tool writes "<owner@example.com>" for
-// an address without a name. A value that is not a list of addresses is kept
-// as it is: it is shown as sent.
-func addresses(value string) string {
+// addresses writes a list of addresses so that where a mail goes cannot be
+// misread: the address first, as the service will use it, and then the name
+// it was given, quoted, so that a name written to look like an address stays
+// a name. A tool writes "<owner@example.com>" for an address without a name;
+// that is shown as the address alone. ok is false for a value that is not a
+// list of addresses, which is then shown as it was sent.
+func addresses(value string) (shown string, ok bool) {
 	list, err := mail.ParseAddressList(value)
 	if err != nil || len(list) == 0 {
-		return value
+		return "", false
 	}
 
 	out := make([]string, 0, len(list))
@@ -204,10 +206,10 @@ func addresses(value string) string {
 			continue
 		}
 
-		out = append(out, a.Name+" <"+a.Address+">")
+		out = append(out, fmt.Sprintf("%s (%q)", a.Address, a.Name))
 	}
 
-	return strings.Join(out, ", ")
+	return strings.Join(out, ", "), true
 }
 
 var unshownHeaders = map[string]bool{
@@ -232,12 +234,16 @@ func (d *decoder) message(raw []byte) {
 		values := make([]string, 0, len(msg.Header[name]))
 
 		for _, value := range msg.Header[name] {
-			if plain, err := words.DecodeHeader(value); err == nil {
-				value = plain
+			// Addresses are read from the header as it was sent: decoding its words first would let a name
+			// that was written encoded turn into what looks like another address.
+			if shown, ok := addresses(value); ok && slices.Contains(addressHeaders, name) {
+				values = append(values, shown)
+
+				continue
 			}
 
-			if slices.Contains(addressHeaders, name) {
-				value = addresses(value)
+			if plain, err := words.DecodeHeader(value); err == nil {
+				value = plain
 			}
 
 			values = append(values, value)

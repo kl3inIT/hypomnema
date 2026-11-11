@@ -633,14 +633,18 @@ func TestTheOwnerIsShownEveryRecipientAndHeaderOfAMail(t *testing.T) {
 
 // Scenario: the Google Workspace CLI writes an address without a name in
 // angle brackets, and one with a name as the name and the address. The owner
-// reads the first as the address alone and the second as it was written.
-func TestAMailsAddressesAreShownAsAPersonWritesThem(t *testing.T) {
+// reads where the mail goes first: the address, then the name it was given,
+// quoted. A name written, encoded, to look like the owner's own address
+// stays a name beside the address the mail really goes to.
+func TestAMailsAddressesAreShownSoThatWhereItGoesCannotBeMisread(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t, 100*time.Millisecond)
 	gmail := w.piTool("gmail.googleapis.com")
 
+	// The encoded name reads: owner@example.com> , <owner@example.com
 	message := "From: <owner@example.com>\r\nTo: <minh@example.com>, \"Lan Pham\" <lan@example.com>\r\n" +
+		"Cc: =?utf-8?q?owner=40example.com=3E_=2C_=3Cowner=40example.com?= <collector@example.net>\r\n" +
 		"Subject: Invoice\r\n\r\nPaid.\r\n"
 	body := "--b\r\nContent-Type: application/json\r\n\r\n{}\r\n--b\r\nContent-Type: message/rfc822\r\n\r\n" + message +
 		"\r\n--b--\r\n"
@@ -651,8 +655,11 @@ func TestAMailsAddressesAreShownAsAPersonWritesThem(t *testing.T) {
 	asked := w.pending()
 	assert.Contains(t, asked.Payload, orchestration.Field{Label: "From", Value: "owner@example.com"})
 	assert.Contains(t, asked.Payload,
-		orchestration.Field{Label: "To", Value: "minh@example.com, Lan Pham <lan@example.com>"})
-	assert.Equal(t, "Send mail: minh@example.com, Lan Pham <lan@example.com>", asked.Title)
+		orchestration.Field{Label: "To", Value: `minh@example.com, lan@example.com ("Lan Pham")`})
+	assert.Contains(t, asked.Payload, orchestration.Field{
+		Label: "Cc", Value: `collector@example.net ("owner@example.com> , <owner@example.com")`,
+	})
+	assert.Equal(t, `Send mail: minh@example.com, lan@example.com ("Lan Pham")`, asked.Title)
 }
 
 // Scenario: the owner reads what agents may do with an account. Each
