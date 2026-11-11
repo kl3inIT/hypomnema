@@ -937,7 +937,8 @@ the internet, so that a machine created at a provider can install the node from 
 - An Antigravity account of the owner's is logged in too, since 2026-11-10; the OAuth secret of the IDE's client is
   in `~/hypomnema-cp/env`. Provider `antigravity-subscription` was applied again there with the models Google
   serves that account (`accounts models`): Gemini 2.5, 3 and 3.8, `claude-sonnet-4-6`, `claude-opus-4-6-thinking`,
-  `gpt-oss-120b-medium`. No gateway model is served from it until the owner declares one.
+  `gpt-oss-120b-medium`. Since 2026-11-11 the gateway model `claude-sonnet` is served from it
+  (`claude-sonnet-4-6`); the profile `omp-claude` runs omp on it.
 - Lark, since 2026-11-10: the owner's Lark app (Lark international) is the client of the Integration `lark`, its
   secret in the vault as `integration-lark-client`, and connected as `lark:work`. Nodes installed `lark-cli`
   1.0.100 themselves. A worker calls it from node v0.6.1 on: a Run given `lark:work` on aioffice-app ran
@@ -945,9 +946,17 @@ the internet, so that a machine created at a provider can install the node from 
   tool catalog compiled into it, so a new tool reaches workers with a node release; the other nodes take v0.6.1
   at their next update check. The coordinator on zm has neither `lark-cli` nor the skill yet: its tools are
   installed by `deploy/coordinator/setup-coordinator.sh`, which needs root.
-- Node: aioffice-app, user `hypnode`, `~/bin/hypomnema-node`, tmux session `hyp-node`, pointed at that URL; the
-  machine joined the tailnet as `aioffice-node`. The earlier control plane there (`~ubuntu/hypomnema-cp`) is
-  stopped and kept for rollback.
+- Nodes, since 2026-11-10, five: aioffice-app (user `hypnode`), and aioffice-serving, elitex, kdlstc-dev and
+  stc-hy-app (user `hypomnema`, installed with the first-boot script, each reaching the control plane at its
+  public URL). Each runs the node as a systemd user unit from `~/.hypomnema-node`, at v0.7.0 on 2026-11-11, and
+  looks for a newer release every 60 minutes (`update_every_minutes` in its `config.json`; the default is one to
+  two days). All have Claude Code; the four new ones have the Codex CLI; stc-hy-app also has omp 18.18.6 and
+  opencode 2.2.7, installed by hand with their own installers and linked into `/usr/local/bin`. The earlier
+  control plane on aioffice-app (`~ubuntu/hypomnema-cp`) is stopped and kept for rollback.
+- Accounts, since 2026-11-11: every one is kept by the control plane. `claude kept` is a token sent to the node with
+  each Dispatch; the earlier `claude personal`, a token file on aioffice-app, is disabled. Workers under Codex, omp
+  and opencode run from the profiles `codex-worker`, `omp-worker`, `opencode-worker` and `omp-claude`, against the
+  provider `model-gateway`.
 - The owner's laptop joined as `laptop` and is logged in with a coordinator token; the coordinator skill is
   installed.
 - Each machine joins the tailnet once, approved in the owner's Tailscale account. There is no service manager yet:
