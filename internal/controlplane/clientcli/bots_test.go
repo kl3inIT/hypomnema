@@ -77,7 +77,8 @@ func TestBotsAndTheirMemoryFromTheCLI(t *testing.T) {
 	require.ErrorContains(t, err, "has a memory")
 
 	// The owner edits the memory by hand: the lines he gives are the memory.
-	out, err = w.cmdIn(t, "- Linh leads maps.\n\nMinh leads routing.\nLinh leads maps.\n", "memory", "set", "--bot", "vmap", "-")
+	out, err = w.cmdIn(t, "- Linh leads maps.\n\nMinh leads routing.\nLinh leads maps.\n",
+		"memory", "set", "--bot", "vmap", "-")
 	require.NoError(t, err)
 	assert.Contains(t, out, "- Linh leads maps.\n- Minh leads routing.\n")
 
