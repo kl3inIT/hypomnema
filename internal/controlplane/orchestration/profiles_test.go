@@ -1,6 +1,7 @@
 package orchestration
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -18,11 +19,26 @@ func TestTheStartingSetIsThere(t *testing.T) {
 	profiles, err := w.s.ListProfiles(ctx)
 	require.NoError(t, err)
 
+	// The seed, the seed with its description, and for the two that report in a set form, that form (issue #155).
+	versions := map[string]int{"coordinator": 2, "explorer": 3, "implementer": 2, "reviewer": 3}
+
 	names := map[string]string{}
 	for _, p := range profiles {
 		names[p.Name] = p.Runtime
 		assert.NotEmpty(t, p.Description, "%s says what it is for", p.Name)
-		assert.Equal(t, 2, p.Version, "%s: the seed, then the seed with its description", p.Name)
+		assert.Equal(t, versions[p.Name], p.Version, p.Name)
+
+		// A seeded row holds what applying its own source would store.
+		same, created, err := w.s.ApplyProfile(ctx, p.Name, p.Source)
+		require.NoError(t, err, p.Name)
+		assert.False(t, created, "%s: the digest is the source's", p.Name)
+		assert.Equal(t, p.VersionID, same.VersionID, p.Name)
+
+		copied, _, err := w.s.ApplyProfile(ctx, "",
+			strings.Replace(p.Source, "name: "+p.Name+"\n", "name: copy-"+p.Name+"\n", 1))
+		require.NoError(t, err, p.Name)
+		assert.Equal(t, []string{p.Description, p.Runtime, p.Model, p.Effort, p.Instruction},
+			[]string{copied.Description, copied.Runtime, copied.Model, copied.Effort, copied.Instruction}, p.Name)
 	}
 
 	assert.Equal(t, map[string]string{

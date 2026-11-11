@@ -176,8 +176,13 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   the profile is read. A node at its limit still counts; a model the gateway serves needs no account, and the
   state of the gateway's own accounts is not looked at; the coordinator's runtime, pi, has no answer. `profiles
   list` shows it, and the coordinator skill tells the coordinator to read it before creating Tasks.
-  The starting set: `implementer`, `reviewer`, `explorer` (told to change nothing; nothing enforces it yet) on
-  Claude Code with its default model, and `coordinator` on pi; provider `claude-subscription`.
+  The starting set: `implementer`, `reviewer` and `explorer` on Claude Code with its default model, and
+  `coordinator` on pi; provider `claude-subscription`. The reviewer (effort `high`) and the explorer say in their
+  instruction how to report (issue #155, after omp's `reviewer` and `scout`): the reviewer a verdict, `correct` or
+  `incorrect`, and findings with a priority P0 to P3, the file and the lines, only for what the change introduced;
+  the explorer an answer, the files that matter and the detail with `path:line`. Both are told to change nothing;
+  nothing enforces it. `deploy/profiles/` holds samples for profiles on Codex, whose model is a gateway model
+  named by the deployment.
 - Scheduler: `Schedule` is one pass in one transaction, and `Loop` runs `Reap` and `Schedule` every 2 s and on each
   commit signal. At most 4 Dispatches that have not settled exist at once, one waiting on a question included; the
   coordinator's `CreateDispatch` meets the same limit and checks. Ready Tasks of open Runs go oldest Run first, then
@@ -325,6 +330,38 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     - `integrations disconnect lark:work` forgets the Connection and keeps the app's id and secret.
     - Only Lark international (`open.larksuite.com`) is declared; Feishu is not. A person's own sign-in (their
       mail, calendar and drive) is not built: a Connection acts as the app.
+  - The Lark bot (`internal/controlplane/larkbot`, [issue #136](https://github.com/kl3inIT/hypomnema/issues/136))
+    is a Channel: a person's direct message to the bot at Lark becomes a message of a chat with the coordinator,
+    and what the coordinator says there goes back to Lark.
+    - It talks to Lark through Lark's Go SDK (`github.com/larksuite/oapi-sdk-go/v3`): events come over a
+      persistent connection the control plane opens, so nothing public is opened for it. Only Lark international
+      is served.
+    - `channels lark set --app-file FILE --owner EMAIL` (`PUT /channels/lark`) sets it up: the app's id, its
+      secret (the vault secret `lark-bot-app`, apart from the Lark Integration's), and the owner, whose email is
+      looked up at Lark with the app and kept as his `open_id`. A new bot is off and in mode `owner`.
+      `--mode owner|allowlist|everyone` and `--on`/`--off` change it; `channels lark allow|disallow <email>`
+      keep the allowlist; `channels lark show` says whether it is connected and why not. All are the owner's.
+    - A bot that is set up and on connects at start, or within half a minute of being set up. The SDK cannot
+      close a persistent connection: switching the bot off makes it take no message, and another app is used
+      from the control plane's next start.
+    - A message is taken when a person sent it in their direct chat with the bot, once (a row per Lark message
+      id, kept a day). The sender's organization must be the app's. The owner always may; others by the mode: the
+      people he added, or every member of the organization. A refusal, a message that is not text and a
+      coordinator that is not running are answered with a short notice. A group is not served.
+    - Each person's direct chat is one chat with the coordinator (`lark_bot_chats`). The owner's text is added
+      as it is; another person's is added under a line that names them and says approvals are the owner's. It
+      is an owner message in the record, so pi answers it as any other.
+    - The reply is a CardKit card: opened with the first text pi writes, updated at most twice a second from the
+      supervisor's live frames, and closed with the kept message. A kept coordinator message with nothing
+      written live (a wake-up's answer) is a card of its own. The last message sent is recorded per chat, so a
+      restart sends nothing twice.
+    - A question for the owner is a card in his direct chat with the bot (`lark_bot_questions`): a button for
+      each option, or "Reply to this card to answer" for a question without options. Only a press by the
+      owner's `open_id` answers; another person is told so. His reply to the card is the answer in his own
+      words and does not go to the coordinator. Once the question is answered or canceled, here or on the web,
+      the card says how it ended and has no buttons. It needs the app's callback `card.action.trigger` over
+      the persistent connection, configured in Lark's console.
+    - Not built: an option that also takes text, groups, a web page for the bot, several bots.
   - The token reaches a worker with its offer: the node API asks for it by host and repository as it sends the offer, and
     orchestration never holds it. The node gives it to that Dispatch only, as environment: git sends it to that
     host alone (an `http.https://<host>/.extraheader` through `GIT_CONFIG_COUNT`), `gh` reads `GH_TOKEN` (or
@@ -667,11 +704,14 @@ The owner's commands:
   when pi's environment has it.
 - The coordinator skill (`internal/controlplane/clientcli/skills`, after Orca's
   [decision](docs/decisions/2026-11-09-coordinator-cli-and-skill.md)): `skills get hypomnema-coordinator` prints
-  the guide compiled into the binary, `--reference <name>` one reference (`recovery`, `investigate`). The guide
-  says how to choose a profile ([research](docs/research/2026-11-10-coordinator-routing-and-capabilities.md)): by
-  its description, then by runtime (Claude Code for work across many files, Codex for a narrow change); a question
-  that changes nothing goes to `explorer` Tasks; the model is the profile's unless the owner names one; and a
-  profile or model that cannot be served is reported, not replaced. `skills install` writes the stub
+  the guide compiled into the binary, `--reference <name>` one reference (`recovery`, `investigate`, `review`).
+  The guide names no runtime and no vendor ([research](docs/research/2026-11-10-coordinator-routing-and-capabilities.md),
+  issue #155): a profile is chosen by its description, which the owner writes; a question that changes nothing
+  goes to a profile that reads and reports; a pull request is reviewed, when the owner asks or has said so as a
+  standing rule, by a profile whose description says it reviews that kind of change, given the pull request and
+  the spec only; findings that make a change incorrect are reported with an offer of a fix Task, two rounds at
+  most; the model is the profile's unless the owner names one; and a profile or model that cannot be served is
+  reported, not replaced. `skills install` writes the stub
   `SKILL.md` to `~/.claude/skills` and `~/.agents/skills`, replacing a copy only when it matches a released stub
   (otherwise only with `--force`, keeping a backup). Tests check that every command in the skill parses and that the
   stub and guide share their frontmatter.
@@ -943,6 +983,11 @@ the internet, so that a machine created at a provider can install the node from 
   tool catalog compiled into it, so a new tool reaches workers with a node release; the other nodes take v0.6.1
   at their next update check. The coordinator on zm has neither `lark-cli` nor the skill yet: its tools are
   installed by `deploy/coordinator/setup-coordinator.sh`, which needs root.
+- The Lark bot, since 2026-11-11: set up on zm with the owner's Lark app, mode `owner`, switched on, and
+  connected. The app's callback `card.action.trigger` was added over the persistent connection and released as
+  version 1.0.3 of the app. Tried: a worker's question with two options was answered by the owner nine seconds
+  after it was asked, and the worker went on with the option chosen. Not tried yet: a message from the owner
+  through to the coordinator's answer.
 - Nodes, since 2026-11-10, five: aioffice-app (user `hypnode`), and aioffice-serving, elitex, kdlstc-dev and
   stc-hy-app (user `hypomnema`, installed with the first-boot script, each reaching the control plane at its
   public URL). Each runs the node as a systemd user unit from `~/.hypomnema-node`, at v0.7.0 on 2026-11-11, and

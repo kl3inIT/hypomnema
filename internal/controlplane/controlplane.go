@@ -19,6 +19,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/coordinator"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/integration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/larkbot"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/nodeapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
@@ -199,10 +200,19 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 
 	sup := coordinator.New(svc, coordinator.Config{Command: cfg.CoordinatorCommand, Logger: logger})
 
+	// The Lark bot (issue #136): its settings read the app's secret from the vault, and the bot opens its
+	// connection through them.
+	var larkSettings *larkbot.Service
+
+	larkBot := larkbot.New(svc, sup, func(ctx context.Context, b orchestration.LarkBot) (larkbot.Lark, error) {
+		return larkSettings.Open(ctx, b)
+	}, logger)
+	larkSettings = larkbot.NewService(svc, secrets, larkBot, larkbot.Connect)
+
 	api := clientapi.New(svc, logger, ctx.Done()).WithCoordinator(sup).WithHostTokens(tokens).
 		WithMachines(machineMgr).WithTerminals(nodeTerminals(nodes)).
 		WithSecrets(ownerSecrets{vault: secrets, referrers: referrers}).
-		WithIntegrations(integrations).WithApprovals(proxy)
+		WithIntegrations(integrations).WithApprovals(proxy).WithLarkBot(larkSettings)
 	if err := api.Register(mux); err != nil {
 		return err
 	}
@@ -262,9 +272,18 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		_ = sup.Run(ctx)
 	}()
 
+	larkDone := make(chan struct{})
+
+	go func() {
+		defer close(larkDone)
+
+		_ = larkBot.Run(ctx)
+	}()
+
 	serveErr := platform.Serve(ctx, ln, mux, logger)
 
 	cancel(nil)
+	<-larkDone
 	<-loopDone
 	<-machinesDone
 	<-refreshDone
