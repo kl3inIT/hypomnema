@@ -782,7 +782,7 @@ func TestSkillsGetAndInstall(t *testing.T) { //nolint:paralleltest // replaces u
 
 	out, err = w.cmd(t, "skills", "get", "hypomnema-coordinator", "--references")
 	require.NoError(t, err)
-	assert.Equal(t, "investigate\nrecovery\n", out)
+	assert.Equal(t, "investigate\nrecovery\nreview\n", out)
 
 	out, err = w.cmd(t, "skills", "get", "hypomnema-coordinator", "--reference", "recovery")
 	require.NoError(t, err)
@@ -984,15 +984,15 @@ func TestProfilesFromTheCLI(t *testing.T) {
 
 	out, err := w.cmd(t, "profiles", "apply", file)
 	require.NoError(t, err)
-	assert.Contains(t, out, "profile reviewer: new version v3")
+	assert.Contains(t, out, "profile reviewer: new version v4")
 
 	out, err = w.cmd(t, "profiles", "apply", file)
 	require.NoError(t, err)
-	assert.Contains(t, out, "unchanged, still v3")
+	assert.Contains(t, out, "unchanged, still v4")
 
 	var versions openapi.ProfileList
 	w.jsonCmd(t, &versions, "", "profiles", "versions", "reviewer")
-	assert.Len(t, versions.Data, 3)
+	assert.Len(t, versions.Data, 4)
 
 	coordinator := &world{svc: w.svc, url: w.url, home: filepath.Join(t.TempDir(), "coordinator")}
 	coordinator.login(t, bearertoken.Coordinator)

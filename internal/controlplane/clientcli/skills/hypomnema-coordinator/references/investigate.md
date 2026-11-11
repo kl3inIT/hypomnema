@@ -5,8 +5,7 @@ at a file or two to scope the question is yours; a read across the repository is
 
 1. Split the question into Tasks with a narrow scope each, so each worker can answer shortly with evidence. For a
    question that is ambiguous or matters much, give two workers the same question from two angles.
-2. Create them in one call, in a Run on the repository, under a profile whose description says it reads and reports
-   (`explorer`):
+2. Create them in one call, in a Run on the repository, under a profile whose description says it reads and reports:
    ```text
    hypomnema tasks create <run_id> --file <tasks.json> --key <new key> --json
    ```
