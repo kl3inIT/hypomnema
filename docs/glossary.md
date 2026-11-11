@@ -34,4 +34,6 @@ means something else is named here once and not used.
 | **Session** | A vault credential session opened for one Dispatch and revoked when it closes | A CLI session or a chat; call those Conversation |
 | **Announce** | A Worker's final report to the Coordinator, with outcome and evidence | A chat message to the owner |
 | **Policy** | A rule that answers a tool call or request with ALLOW, DENY or ASK | A Gate |
+| **Approval** | The owner's answer to one request to a service that a Policy answered ASK: approve once, approve for the rest of the Run or the chat, or reject. It shows the request decoded, and stays open until answered (issue #154) | A Gate, which a Task waits on; a permission prompt of a runtime's own |
+| **Action** | One thing an agent can do with a service, as the owner names it (send mail, share a file): the requests that are it, and the answer it has for a Connection, which is allow, ask or never | A tool call; an API endpoint |
 | **Epoch** | A counter on a Dispatch; a write from a stale epoch is refused | A timestamp |
