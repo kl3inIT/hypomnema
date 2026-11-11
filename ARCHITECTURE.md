@@ -15,20 +15,22 @@ Configuration comes from the environment: `HYPOMNEMA_HTTP_ADDR` (default `127.0.
 `HYPOMNEMA_DATABASE_PATH` (required, absolute), `HYPOMNEMA_LOG_LEVEL`, `HYPOMNEMA_LOG_FORMAT` (`json` or `text`),
 and the vault's root keys: `HYPOMNEMA_VAULT_KEYS` (a comma-separated list of `id:base64` entries of 32 bytes) with
 `HYPOMNEMA_VAULT_ACTIVE_KEY_ID`, set together or not at all.
-Which runtime and model agents use is stored, as profiles (below), not configured.
+Which runtime and model workers use is stored, as profiles (below), and which model a Bot uses in the Bot, not
+configured.
 `HYPOMNEMA_COORDINATOR_COMMAND` (a JSON array) starts pi for a chat id appended to it; unset, chats keep their
 messages and nothing answers.
 
 The coordinator (`internal/controlplane/coordinator`, issue #41 PR 3): `serve` runs one `pi --mode rpc` per chat
-that has something for pi, with the `coordinator` profile's model (`--provider`, `--model`, `--thinking`), and stops
-it after 30 min idle by closing its stdin; it starts again with the same session id. pi's own retries are off. Owner
+that has something for pi, as the chat's Bot (`--bot`) with the Bot's model (`--provider`, `--model`, `--thinking`),
+and stops it after 30 min idle by closing its stdin; it starts again with the same session id. pi's own retries are off. Owner
 messages and wake-ups go as one `prompt`, or a follow-up while pi works, and are marked delivered once pi accepted
 them. pi's activity is kept and relayed as Omnara does (issue #41 PR 4): each assistant `message_end` is kept as
 the coordinator's message with its text and thinking as parts, and each finished tool call as a `tool` message with
 its arguments and result (at most 16 KiB). Text as pi writes it, tools starting and ending, and working or idle go to
 the chat's watchers from memory only and are never stored; `abort` stops pi's turn. On
 the server pi runs as the `coordinator` user through `deploy/coordinator/`: a root-owned launcher (`hypomnema-pi`,
-a clean environment, only a chat id and model flags), one sudoers rule limited to it, pi's instructions, a
+a clean environment, only a chat id, a Bot's name and model flags), one sudoers rule limited to it, the instructions
+every Bot gets, a
 `models.json` that names the model gateway (`/v1` of the control plane) and reads pi's gateway key from a 0600
 file, pi's version with its lockfile (`package.json`, which Dependabot
 updates; the setup installs it with `npm ci`), and the setup script the owner runs with sudo.
@@ -158,12 +160,40 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   Run records the chat whose pi created it (`runs.chat_id`), and each event of such a Run that needs a coordinator (a
   Task ended or was blocked, a question to the coordinator, an escalation, the Run ended) adds one wake-up to the chat,
   unique per event.
+- Bots (`orchestration/bots.go`, issue #169, after OpenMausBot's bot records and OpenClaw's `agents.entries`): a
+  Bot is a row with a name, a model (provider, name, effort, checked as a profile's is, for pi), a persona and a
+  memory. It is apart from the workers' profiles (owner, 2026-11-11). The Bot `coordinator` is always there: it is
+  what the profile `coordinator` was, and a chat that names no Bot talks with it. A chat records its Bot. A Bot with
+  chats or a memory is not removed, and `coordinator` never is; a Bot is not renamed. A provider change that would
+  leave a Bot's model unserved is refused, as for a profile.
+  - The persona is the owner's text of what the Bot is, without versions, as `SOUL.md` of OpenClaw and Hermes. How
+    to give work to workers is the persona of `coordinator`; the instructions every Bot gets
+    (`deploy/coordinator/AGENTS.md`) keep the skills, the wake-ups and the language.
+  - The memory is the Bot's entries, one line each, at most 2,200 characters in all (Hermes's limit), the same in
+    every chat with the Bot, whoever writes in it (one store per agent, as all three references have). It changes
+    through `POST /bots/{name}/memory` only: add, replace or remove the one entry that has a text. The change reads
+    the memory again inside its transaction, and one that would pass the limit is refused and changes nothing, as
+    Hermes's memory tool does (`tools/memory_tool_store.py`): the Bot makes room itself. The control plane keeps
+    the memory in its database, not as a file in the Bot's directory as the references do: the control plane's
+    user cannot read the `coordinator` user's home, and the owner reads the memory on the web. No journal, no undo.
+  - When pi starts for a chat the launcher makes the Bot's directory (`~/.hypomnema-coordinator/bots/<name>/`, pi's
+    working directory; for `coordinator` a link to the directory pi always worked in, so its chats go on), reads
+    `hypomnema bots prompt <name>` with pi's own token (the persona, the memory and how to change it) and gives it
+    to pi with `--append-system-prompt`. The memory is thus read once per pi process, as Hermes gives its memory
+    once per session; a change is in the prompt from pi's next start. pi's sessions stay in one directory for all
+    Bots. pi changes the memory with `hypomnema memory add|replace|remove`, which knows the Bot from
+    `HYPOMNEMA_BOT`. When the Bot cannot be read pi does not start.
+  - Every token reads Bots and changes a memory; only the owner makes, changes and removes a Bot (`hypomnema bots
+    list|show|set|rm`). Bots run as one server user with one token: a Bot's directory and memory are its own by
+    convention, not by a wall.
+  - Not built: a Lark Channel per Bot, the accounts and tools a Bot may use, MCP servers and pi extensions per
+    Bot, isolation between Bots, a Bot on another CLI than pi (issue #169).
 - Profiles (`orchestration/profiles.go`, issue #42, after Omnara's agent configs): a profile is a YAML document
   (`name`, `description` of what it is for, `runtime`, optional `model: {provider, name, effort}`, `instruction`). Applying a changed source makes a
   new immutable version and points the name at it; the same source returns the current version. Providers (kind
   `anthropic`, `openai_compatible`, `claude_subscription` or `codex_subscription`, base URL, the name of where the
   API key is kept, never the key) list the models they offer. A profile and a new Task are checked when applied or
-  created: a known runtime (`claude`, `codex`, `pi`, `omp`, `opencode`), an effort from `low` to `max`, and a model a provider of a
+  created: a known runtime (`claude`, `codex`, `omp`, `opencode`; `pi` is a Bot's and is refused), an effort from `low` to `max`, and a model a provider of a
   kind that runtime can use offers (found from the model when the provider is not named). A provider change that
   would leave a profile's model or runtime unserved is refused. A Task names a profile, `implementer` by default.
   A provider of kind `model_gateway` is the control plane's own model gateway (issue #107): `codex` can run against
@@ -174,13 +204,13 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   has its CLI; `no_account`: its runtime has no active account on a node; `accounts_cooling`, with `available_at`,
   the time the first account is free). It is computed from the scheduler's own view of nodes and accounts when
   the profile is read. A node at its limit still counts; a model the gateway serves needs no account, and the
-  state of the gateway's own accounts is not looked at; the coordinator's runtime, pi, has no answer. `profiles
+  state of the gateway's own accounts is not looked at. `profiles
   list` shows it, and the coordinator skill tells the coordinator to read it before creating Tasks.
   A profile may name up to five `fallbacks`, other workers' profiles in the owner's order (issue #171, after
   OpenMausBot's backups of a bot and OpenClaw's fallbacks of an agent;
   [research](docs/research/2026-11-11-work-moves-when-out-of-quota.md)); they are kept in the version.
-  The starting set: `implementer`, `reviewer` and `explorer` on Claude Code with its default model, and
-  `coordinator` on pi; provider `claude-subscription`. The reviewer (effort `high`) and the explorer say in their
+  The starting set: `implementer`, `reviewer` and `explorer` on Claude Code with its default model; provider
+  `claude-subscription`. The reviewer (effort `high`) and the explorer say in their
   instruction how to report (issue #155, after omp's `reviewer` and `scout`): the reviewer a verdict, `correct` or
   `incorrect`, and findings with a priority P0 to P3, the file and the lines, only for what the change introduced;
   the explorer an answer, the files that matter and the detail with `path:line`. Both are told to change nothing;
