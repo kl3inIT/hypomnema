@@ -68,8 +68,9 @@ var larkCatalog = sync.OnceValue(func() Catalog {
 	}
 
 	// lark-cli's list does not name every method its own commands call: sending a message is not in it. A
-	// request to a service's part of the API that the list does not name is that service's write, or its
-	// high-risk change when it deletes; a named method wins, since it names more of the path.
+	// request to a service's part of the API that the list does not name is that service's read when it is a
+	// GET, its high-risk change when it deletes, and its write otherwise; a named method wins, since it names
+	// more of the path.
 	for service, prefixes := range parts {
 		for _, prefix := range prefixes {
 			for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodPatch} {
@@ -79,6 +80,9 @@ var larkCatalog = sync.OnceValue(func() Catalog {
 
 			routes[service+"."+larkRisky] = append(routes[service+"."+larkRisky],
 				Route{Method: http.MethodDelete, Host: larkHost, Path: prefix + "/{rest...}"})
+			// And a GET it does not name is that service's read: listing chats is not in the list.
+			routes[service+"."+larkRead] = append(routes[service+"."+larkRead],
+				Route{Method: http.MethodGet, Host: larkHost, Path: prefix + "/{rest...}"})
 		}
 	}
 
@@ -86,7 +90,10 @@ var larkCatalog = sync.OnceValue(func() Catalog {
 
 	for _, s := range larkServices {
 		for _, a := range []Action{
-			{ID: "lark." + s.key + ".read", Name: "Read", Kind: Reads, Text: "What lark-cli marks as a read"},
+			{
+				ID: "lark." + s.key + ".read", Name: "Read", Kind: Reads,
+				Text: "What lark-cli marks as a read, and any GET it does not name",
+			},
 			{
 				ID: "lark." + s.key + ".write", Name: "Create or change", Kind: NeedsCare,
 				Text: "What lark-cli marks as a write, and what it does not name: sending, creating, editing",
@@ -105,11 +112,11 @@ var larkCatalog = sync.OnceValue(func() Catalog {
 		}
 	}
 
-	// A read lark-cli's catalog does not name, such as one made with `lark-cli api GET`: every GET the catalog
-	// does name is a read. Anything else it does not name asks, as any request that is no action.
+	// A read of a part of Lark that lark-cli's catalog does not have, such as a document's text: every GET the
+	// catalog does name is a read. Anything else it does not have asks, as any request that is no action.
 	c.Actions = append(c.Actions, Action{
 		ID: "lark.other.read", Service: "Everything else", Name: "Read", Kind: Reads,
-		Text:   "A GET that lark-cli's own list does not name; any other request it does not name asks",
+		Text:   "A GET to a part of Lark that lark-cli's own list does not have; any other request there asks",
 		Routes: []Route{{Method: http.MethodGet, Host: larkHost, Path: "/open-apis/{rest...}"}},
 	})
 
