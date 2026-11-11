@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	lark "github.com/larksuite/oapi-sdk-go/v3"
@@ -36,13 +37,33 @@ type sdk struct {
 	appID  string
 	secret string
 	api    *lark.Client
+
+	mu sync.Mutex
+	// seqs is the last sequence each card being written was updated with: Lark takes an update only with a
+	// higher one, and reopening a card's writing spends sequences its caller does not count.
+	seqs map[string]int
+}
+
+// next is the sequence of a card's next update: at least the caller's, and
+// above every one used.
+func (s *sdk) next(cardID string, seq int) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if last := s.seqs[cardID]; seq <= last {
+		seq = last + 1
+	}
+
+	s.seqs[cardID] = seq
+
+	return seq
 }
 
 // Connect returns Lark for an app. Only Lark international is served
 // (open.larksuite.com), as the Integration is.
 func Connect(appID, secret string) Lark {
 	return &sdk{
-		appID: appID, secret: secret,
+		appID: appID, secret: secret, seqs: map[string]int{},
 		// The SDK writes the address of a connection, which holds its ticket, at its info level.
 		api: lark.NewClient(appID, secret, lark.WithOpenBaseUrl(lark.LarkBaseUrl),
 			lark.WithLogLevel(larkcore.LogLevelError), lark.WithReqTimeout(sendTimeout)),
@@ -177,10 +198,23 @@ func (s *sdk) send(ctx context.Context, chatID, kind, content string) error {
 	return refused("sending to Lark", resp.Success(), resp.Code, resp.Msg)
 }
 
-func (s *sdk) OpenCard(ctx context.Context, chatID, text string) (string, error) {
+// streamingClosed is the code Lark answers a card's update with once its
+// writing has ended, as it does by itself after ten minutes (MemoryOS,
+// LarkReplyCard.STREAMING_CLOSED).
+const streamingClosed = 300309
+
+func (s *sdk) OpenCard(ctx context.Context, chatID, replyTo, text string) (string, error) {
 	card, err := json.Marshal(map[string]any{
 		"schema": "2.0",
-		"config": map[string]any{"streaming_mode": true, "summary": map[string]string{"content": summaryOf(text)}},
+		"config": map[string]any{
+			"streaming_mode": true, "update_multi": true,
+			"summary": map[string]string{"content": summaryOf(text)},
+			// How fast Lark types a change out: MemoryOS's setting, quicker than Lark's own.
+			"streaming_config": map[string]any{
+				"print_frequency_ms": map[string]int{"default": 30}, "print_step": map[string]int{"default": 2},
+				"print_strategy": "fast",
+			},
+		},
 		"body": map[string]any{"elements": []any{
 			map[string]string{"tag": "markdown", "element_id": answerElement, "content": text},
 		}},
@@ -210,18 +244,83 @@ func (s *sdk) OpenCard(ctx context.Context, chatID, text string) (string, error)
 		return "", err
 	}
 
-	return id, s.send(ctx, chatID, "interactive", string(content))
+	if replyTo == "" {
+		return id, s.send(ctx, chatID, "interactive", string(content))
+	}
+
+	// A reply quotes the person's message, as OpenClaw, Hermes and MemoryOS answer. When that message was
+	// withdrawn the card is sent on its own (Hermes).
+	resp, err := s.api.Im.V1.Message.Reply(ctx, larkim.NewReplyMessageReqBuilder().MessageId(replyTo).
+		Body(larkim.NewReplyMessageReqBodyBuilder().MsgType("interactive").Content(string(content)).
+			ReplyInThread(false).Build()).Build())
+	if err != nil || !resp.Success() {
+		return id, s.send(ctx, chatID, "interactive", string(content))
+	}
+
+	return id, nil
+}
+
+func (s *sdk) React(ctx context.Context, messageID, emoji string) (string, error) {
+	resp, err := s.api.Im.V1.MessageReaction.Create(ctx, larkim.NewCreateMessageReactionReqBuilder().
+		MessageId(messageID).Body(larkim.NewCreateMessageReactionReqBodyBuilder().
+		ReactionType(larkim.NewEmojiBuilder().EmojiType(emoji).Build()).Build()).Build())
+	if err != nil {
+		return "", fmt.Errorf("reacting to a message: %w", err)
+	}
+
+	if err := refused("reacting to a message", resp.Success(), resp.Code, resp.Msg); err != nil {
+		return "", err
+	}
+
+	if resp.Data == nil {
+		return "", nil
+	}
+
+	return deref(resp.Data.ReactionId), nil
+}
+
+func (s *sdk) Unreact(ctx context.Context, messageID, reactionID string) error {
+	resp, err := s.api.Im.V1.MessageReaction.Delete(ctx, larkim.NewDeleteMessageReactionReqBuilder().
+		MessageId(messageID).ReactionId(reactionID).Build())
+	if err != nil {
+		return fmt.Errorf("taking a reaction off a message: %w", err)
+	}
+
+	return refused("taking a reaction off a message", resp.Success(), resp.Code, resp.Msg)
 }
 
 func (s *sdk) UpdateCard(ctx context.Context, cardID, text string, seq int) error {
+	code, msg, err := s.content(ctx, cardID, text, s.next(cardID, seq))
+	if err != nil {
+		return err
+	}
+
+	// Lark ended the card's writing by itself: it is switched on again and the update is sent once more
+	// (MemoryOS).
+	if code == streamingClosed {
+		if err := s.streaming(ctx, cardID, true, "", s.next(cardID, 0)); err != nil {
+			return err
+		}
+
+		code, msg, err = s.content(ctx, cardID, text, s.next(cardID, 0))
+		if err != nil {
+			return err
+		}
+	}
+
+	return refused("updating a card", code == 0, code, msg)
+}
+
+// content replaces the text of the card's one element.
+func (s *sdk) content(ctx context.Context, cardID, text string, seq int) (code int, msg string, err error) {
 	resp, err := s.api.Cardkit.V1.CardElement.Content(ctx, larkcardkit.NewContentCardElementReqBuilder().
 		CardId(cardID).ElementId(answerElement).
 		Body(larkcardkit.NewContentCardElementReqBodyBuilder().Content(text).Sequence(seq).Build()).Build())
 	if err != nil {
-		return fmt.Errorf("updating a card: %w", err)
+		return 0, "", fmt.Errorf("updating a card: %w", err)
 	}
 
-	return refused("updating a card", resp.Success(), resp.Code, resp.Msg)
+	return resp.Code, resp.Msg, nil
 }
 
 func (s *sdk) CloseCard(ctx context.Context, cardID, text string, seq int) error {
@@ -229,20 +328,35 @@ func (s *sdk) CloseCard(ctx context.Context, cardID, text string, seq int) error
 		return err
 	}
 
-	settings, err := json.Marshal(map[string]any{
-		"config": map[string]any{"streaming_mode": false, "summary": map[string]string{"content": summaryOf(text)}},
-	})
+	err := s.streaming(ctx, cardID, false, summaryOf(text), s.next(cardID, 0))
+
+	s.mu.Lock()
+	delete(s.seqs, cardID)
+	s.mu.Unlock()
+
+	return err
+}
+
+// streaming switches a card's writing on or off; off, it also sets what a
+// chat list shows for the card.
+func (s *sdk) streaming(ctx context.Context, cardID string, on bool, summary string, seq int) error {
+	config := map[string]any{"streaming_mode": on, "update_multi": true}
+	if summary != "" {
+		config["summary"] = map[string]string{"content": summary}
+	}
+
+	settings, err := json.Marshal(map[string]any{"config": config})
 	if err != nil {
 		return err
 	}
 
 	resp, err := s.api.Cardkit.V1.Card.Settings(ctx, larkcardkit.NewSettingsCardReqBuilder().CardId(cardID).
-		Body(larkcardkit.NewSettingsCardReqBodyBuilder().Settings(string(settings)).Sequence(seq+1).Build()).Build())
+		Body(larkcardkit.NewSettingsCardReqBodyBuilder().Settings(string(settings)).Sequence(seq).Build()).Build())
 	if err != nil {
-		return fmt.Errorf("closing a card: %w", err)
+		return fmt.Errorf("changing a card's settings: %w", err)
 	}
 
-	return refused("closing a card", resp.Success(), resp.Code, resp.Msg)
+	return refused("changing a card's settings", resp.Success(), resp.Code, resp.Msg)
 }
 
 // cardJSON is a card that is not being written: a title, the text, a button
@@ -266,8 +380,10 @@ func cardJSON(card Card) (string, error) {
 	raw, err := json.Marshal(map[string]any{
 		"schema": "2.0",
 		"config": map[string]any{"summary": map[string]string{"content": summaryOf(card.Text)}},
-		"header": map[string]any{"title": map[string]string{"tag": "plain_text", "content": card.Title}},
-		"body":   map[string]any{"elements": elements},
+		"header": map[string]any{
+			"title": map[string]string{"tag": "plain_text", "content": card.Title}, "template": colorOf(card.Color),
+		},
+		"body": map[string]any{"elements": elements},
 	})
 
 	return string(raw), err
@@ -334,9 +450,22 @@ func (s *sdk) ReplaceCard(ctx context.Context, cardID string, card Card, seq int
 	return refused("replacing a card", resp.Success(), resp.Code, resp.Msg)
 }
 
-// summaryOf is what a chat list shows for a card: its first line, cut short.
+// colorOf is a header's color among the ones Lark has; blue when none was
+// asked for.
+func colorOf(color string) string {
+	switch color {
+	case "orange", "green", "red", "grey":
+		return color
+	}
+
+	return "blue"
+}
+
+// summaryOf is what a chat list shows for a card: its first line without its
+// Markdown, cut short (MemoryOS, LarkReplyCard.summary).
 func summaryOf(text string) string {
 	line, _, _ := strings.Cut(strings.TrimSpace(text), "\n")
+	line = strings.TrimSpace(markdownMarks.Replace(strings.TrimPrefix(line, "> ")))
 	if r := []rune(line); len(r) > 60 {
 		line = string(r[:60]) + "…"
 	}
@@ -387,6 +516,8 @@ func (s *sdk) NameOf(ctx context.Context, openID string) (string, error) {
 
 	return deref(resp.Data.User.Name), nil
 }
+
+var markdownMarks = strings.NewReplacer("*", "", "_", "", "`", "", "#", "", "[", "", "]", "")
 
 // refused turns an answer Lark gave with a code into an error that holds the
 // code and Lark's own short message, which names a missing scope.
