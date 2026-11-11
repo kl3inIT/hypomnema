@@ -328,6 +328,11 @@ var commands = []command{
 		name: "memory show", summary: "a bot's memory", flags: memoryFlags, run: memoryShow,
 	},
 	{
+		name: "memory set", args: "<file>", min: 1, max: 1,
+		summary: "replace a bot's whole memory with a file's lines, or - for standard input (owner)",
+		flags:   memoryFlags, run: memorySet,
+	},
+	{
 		name: "memory add", args: "<entry>", min: 1, max: 1, summary: "add one line to a bot's memory",
 		flags: memoryFlags, run: memoryChange(memoryAdd),
 	},

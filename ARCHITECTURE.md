@@ -170,12 +170,15 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     to give work to workers is the persona of `coordinator`; the instructions every Bot gets
     (`deploy/coordinator/AGENTS.md`) keep the skills, the wake-ups and the language.
   - The memory is the Bot's entries, one line each, at most 2,200 characters in all (Hermes's limit), the same in
-    every chat with the Bot, whoever writes in it (one store per agent, as all three references have). It changes
-    through `POST /bots/{name}/memory` only: add, replace or remove the one entry that has a text. The change reads
+    every chat with the Bot, whoever writes in it (one store per agent, as all three references have). The Bot
+    changes it through `POST /bots/{name}/memory`: add, replace or remove the one entry that has a text. The change reads
     the memory again inside its transaction, and one that would pass the limit is refused and changes nothing, as
     Hermes's memory tool does (`tools/memory_tool_store.py`): the Bot makes room itself. The control plane keeps
     the memory in its database, not as a file in the Bot's directory as the references do: the control plane's
-    user cannot read the `coordinator` user's home, and the owner reads the memory on the web. No journal, no undo.
+    user cannot read the `coordinator` user's home, and the owner reads the memory on the web. The owner edits it
+    by hand, as the owner of a reference's agent edits its memory file (owner, 2026-11-11): `PUT
+    /bots/{name}/memory` replaces the whole memory with his lines (empty lines and repeats dropped, the same
+    limit), from the Bot's page or `hypomnema memory set`. No journal, no undo.
   - When pi starts for a chat the launcher makes the Bot's directory (`~/.hypomnema-coordinator/bots/<name>/`, pi's
     working directory; for `coordinator` a link to the directory pi always worked in, so its chats go on), reads
     `hypomnema bots prompt <name>` with pi's own token (the persona, the memory and how to change it) and gives it
@@ -183,8 +186,8 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     once per session; a change is in the prompt from pi's next start. pi's sessions stay in one directory for all
     Bots. pi changes the memory with `hypomnema memory add|replace|remove`, which knows the Bot from
     `HYPOMNEMA_BOT`. When the Bot cannot be read pi does not start.
-  - Every token reads Bots and changes a memory; only the owner makes, changes and removes a Bot (`hypomnema bots
-    list|show|set|rm`). Bots run as one server user with one token: a Bot's directory and memory are its own by
+  - Every token reads Bots and changes a memory an entry at a time; only the owner makes, changes and removes a
+    Bot (`hypomnema bots list|show|set|rm`) and replaces a whole memory. Bots run as one server user with one token: a Bot's directory and memory are its own by
     convention, not by a wall.
   - Not built: a Lark Channel per Bot, the accounts and tools a Bot may use, MCP servers and pi extensions per
     Bot, isolation between Bots, a Bot on another CLI than pi (issue #169).

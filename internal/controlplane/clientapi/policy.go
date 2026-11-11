@@ -106,6 +106,7 @@ var policies = map[string]policy{
 	"PutBot":                      {scope: scopeOwner},
 	"DeleteBot":                   {scope: scopeOwner},
 	"ChangeBotMemory":             {},
+	"SetBotMemory":                {scope: scopeOwner},
 	"ListProfiles":                {},
 	"GetProfile":                  {},
 	"ListProfileVersions":         {},

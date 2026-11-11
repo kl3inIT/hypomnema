@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import "@/api/client"
-import { deleteBot, getBot, listBots, putBot } from "@/api/generated/sdk.gen"
+import { deleteBot, setBotMemory, getBot, listBots, putBot } from "@/api/generated/sdk.gen"
 import type { BotSettings } from "@/api/generated/types.gen"
 
 export const botsKey = ["bots"] as const
@@ -36,6 +36,21 @@ export function usePutBot() {
   return useMutation({
     mutationFn: async ({ name, settings }: { name: string; settings: BotSettings }) =>
       (await putBot({ path: { name }, body: settings })).data,
+    onSuccess: (bot) => {
+      queryClient.setQueryData([...botsKey, bot.name], bot)
+
+      return queryClient.invalidateQueries({ queryKey: botsKey })
+    },
+  })
+}
+
+// useSetBotMemory replaces a Bot's whole memory with the owner's text, a line an entry.
+export function useSetBotMemory() {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async ({ name, memory }: { name: string; memory: string }) =>
+      (await setBotMemory({ path: { name }, body: { memory } })).data,
     onSuccess: (bot) => {
       queryClient.setQueryData([...botsKey, bot.name], bot)
 

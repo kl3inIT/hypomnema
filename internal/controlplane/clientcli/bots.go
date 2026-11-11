@@ -258,6 +258,31 @@ func printMemory(e *env, b *openapi.Bot) {
 	}
 }
 
+// memorySet replaces a Bot's memory with a file's lines: the owner edits the
+// memory by hand.
+func memorySet(ctx context.Context, e *env, fs *flag.FlagSet) error {
+	name, err := memoryBot(fs)
+	if err != nil {
+		return err
+	}
+
+	text, err := e.read(fs.Arg(0))
+	if err != nil {
+		return err
+	}
+
+	resp, err := e.api.SetBotMemoryWithResponse(ctx, name, openapi.MemoryText{Memory: text})
+	if err != nil {
+		return fmt.Errorf("setting the memory of %s: %w", name, err)
+	}
+
+	if resp.JSON200 == nil {
+		return apiError("setting the memory of "+name, resp.StatusCode(), resp.JSONDefault)
+	}
+
+	return e.print(fs, resp.JSON200, func() { printMemory(e, resp.JSON200) })
+}
+
 // Kinds of a change of a Bot's memory, for the command table.
 const (
 	memoryAdd     = openapi.Add

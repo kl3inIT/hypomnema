@@ -74,6 +74,17 @@ func (s *Server) ChangeBotMemory(ctx context.Context, req openapi.ChangeBotMemor
 	return openapi.ChangeBotMemory200JSONResponse(toBot(b)), nil
 }
 
+// SetBotMemory replaces a Bot's memory with the owner's text.
+func (s *Server) SetBotMemory(ctx context.Context, req openapi.SetBotMemoryRequestObject,
+) (openapi.SetBotMemoryResponseObject, error) {
+	b, err := s.svc.SetBotMemory(ctx, req.Name, req.Body.Memory)
+	if err != nil {
+		return nil, err
+	}
+
+	return openapi.SetBotMemory200JSONResponse(toBot(b)), nil
+}
+
 func toBot(b orchestration.Bot) openapi.Bot {
 	return openapi.Bot{
 		Name: b.Name, Provider: ptr(b.Provider), Model: ptr(b.Model), Effort: ptr(b.Effort),

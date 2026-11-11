@@ -189,6 +189,39 @@ func (s *Service) ChangeBotMemory(ctx context.Context, name string, op MemoryOp)
 	return s.GetBot(ctx, name)
 }
 
+// SetBotMemory replaces a Bot's whole memory with the owner's text: he edits
+// it by hand, as the owner of an OpenClaw, Hermes or OpenMausBot agent edits
+// its memory file. Each line is an entry; empty lines and an entry given
+// twice are dropped. The limit holds here too, since the whole memory is in
+// pi's prompt.
+func (s *Service) SetBotMemory(ctx context.Context, name, text string) (Bot, error) {
+	var entries []string
+
+	for line := range strings.SplitSeq(text, "\n") {
+		entry := strings.Join(strings.Fields(strings.TrimPrefix(strings.TrimSpace(line), "- ")), " ")
+		if entry != "" && !slices.Contains(entries, entry) {
+			entries = append(entries, entry)
+		}
+	}
+
+	memory := strings.Join(entries, "\n")
+	if n := utf8.RuneCountInString(memory); n > MaxMemory {
+		return Bot{}, fmt.Errorf("%w: the memory would be %d characters, over its limit of %d", ErrInvalid, n, MaxMemory)
+	}
+
+	if err := s.write(ctx, func(q *store.Queries, now int64) error {
+		if _, err := q.GetBot(ctx, name); err != nil {
+			return notFound(err, "bot", name)
+		}
+
+		return q.SetBotMemory(ctx, store.SetBotMemoryParams{Name: name, Memory: memory, Now: now})
+	}); err != nil {
+		return Bot{}, fmt.Errorf("setting the memory of bot %s: %w", name, err)
+	}
+
+	return s.GetBot(ctx, name)
+}
+
 func memoryEntries(memory string) []string {
 	if memory == "" {
 		return nil

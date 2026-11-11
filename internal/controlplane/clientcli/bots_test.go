@@ -76,7 +76,15 @@ func TestBotsAndTheirMemoryFromTheCLI(t *testing.T) {
 	_, err = w.cmd(t, "bots", "rm", "vmap")
 	require.ErrorContains(t, err, "has a memory")
 
-	_, err = w.cmd(t, "memory", "remove", "--bot", "vmap", "Linh")
+	// The owner edits the memory by hand: the lines he gives are the memory.
+	out, err = w.cmdIn(t, "- Linh leads maps.\n\nMinh leads routing.\nLinh leads maps.\n", "memory", "set", "--bot", "vmap", "-")
+	require.NoError(t, err)
+	assert.Contains(t, out, "- Linh leads maps.\n- Minh leads routing.\n")
+
+	_, err = pi.cmdIn(t, "x\n", "memory", "set", "--bot", "vmap", "-")
+	require.ErrorContains(t, err, "forbidden", "a Bot changes its memory an entry at a time")
+
+	_, err = w.cmdIn(t, "", "memory", "set", "--bot", "vmap", "-")
 	require.NoError(t, err)
 
 	out, err = w.cmd(t, "bots", "rm", "vmap")

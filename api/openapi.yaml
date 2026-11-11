@@ -1094,6 +1094,24 @@ paths:
   /bots/{name}/memory:
     parameters:
       - $ref: "#/components/parameters/Name"
+    put:
+      operationId: SetBotMemory
+      summary: Replace a Bot's whole memory with the owner's text; only the owner
+      description: >-
+        Each line is an entry; empty lines and an entry given twice are
+        dropped. A text over the memory's limit is refused.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MemoryText" }
+      responses:
+        "200":
+          description: The Bot, with its memory as kept.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Bot" }
+        default: { $ref: "#/components/responses/Error" }
     post:
       operationId: ChangeBotMemory
       summary: Add, replace or remove one entry of a Bot's memory
@@ -2472,6 +2490,14 @@ components:
         model: { type: string }
         effort: { type: string }
         persona: { type: string }
+    MemoryText:
+      type: object
+      additionalProperties: false
+      required: [memory]
+      properties:
+        memory:
+          type: string
+          description: The entries, one per line.
     MemoryChange:
       type: object
       additionalProperties: false

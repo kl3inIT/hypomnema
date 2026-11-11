@@ -59,6 +59,25 @@ async function fakeServer(page: Page, start: Bot[] = [coordinator]) {
 
     if (request.method() !== "GET") calls.push({ call, body: request.postDataJSON() })
 
+    const memoryOf = /^\/bots\/([^/]+)\/memory$/.exec(path)
+    if (memoryOf && request.method() === "PUT") {
+      const { memory } = request.postDataJSON() as { memory: string }
+      const kept = memory
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .join("\n")
+
+      if (kept.length > 2200) {
+        return json({ code: "invalid", message: "the memory is over its limit of 2200" }, 422)
+      }
+
+      const stored = { ...bots.find((b) => b.name === memoryOf[1])!, memory: kept }
+      bots = [...bots.filter((b) => b.name !== memoryOf[1]), stored]
+
+      return json(stored)
+    }
+
     const one = /^\/bots\/([^/]+)$/.exec(path)
     const found = one && bots.find((b) => b.name === one[1])
 
@@ -208,7 +227,7 @@ test("a new Bot is made with a name, a model and a persona", async ({ page }) =>
   await expect(page).toHaveURL(/\/bots\/researcher$/)
   await expect(page.getByRole("heading", { name: "researcher", level: 2 })).toBeVisible()
   await expect(page.getByText("Bot · opus (claude-subscription)")).toBeVisible()
-  await expect(page.getByRole("region", { name: "Memory" })).toContainText("Nothing kept yet.")
+  await expect(page.getByRole("textbox", { name: "Memory" })).toHaveValue("")
   expect(calls.at(-1)).toEqual({
     call: "PUT /bots/researcher",
     body: {
@@ -231,16 +250,26 @@ test("a Bot shows its memory, takes a new persona and refuses to be removed", as
   await expect(page.getByLabel("Model")).toHaveValue("gateway/gpt-luna")
   await expect(page.getByRole("button", { name: "Save", exact: true })).toBeDisabled()
 
-  const memory = page.getByRole("region", { name: "Memory" })
+  // The memory is the Bot's own writing; the owner reads it and edits it by hand.
+  const memory = page.getByRole("form", { name: "Memory" })
   await expect(memory).toContainText("108 of 2,200 characters")
-  await expect(memory.getByRole("listitem")).toHaveText([
-    "The owner writes in Vietnamese and wants short answers.",
-    "Deploys go out on Fridays.",
-    "The staging server is zm.",
-  ])
-  await expect(memory.getByRole("textbox")).toHaveCount(0)
+  await expect(page.getByRole("textbox", { name: "Memory" })).toHaveValue(
+    "The owner writes in Vietnamese and wants short answers.\nDeploys go out on Fridays.\nThe staging server is zm.",
+  )
+  await expect(memory.getByRole("button", { name: "Save memory" })).toHaveCount(0)
   expect(await fits(page)).toBe(true)
   await shot(page, "bot")
+
+  await page
+    .getByRole("textbox", { name: "Memory" })
+    .fill("Deploys go out on Mondays.\n\nThe staging server is zm.")
+  await expect(memory).toContainText("52 of 2,200 characters")
+  await shot(page, "bot-memory-edited")
+  await memory.getByRole("button", { name: "Save memory" }).click()
+  await expect(page.getByRole("textbox", { name: "Memory" })).toHaveValue(
+    "Deploys go out on Mondays.\nThe staging server is zm.",
+  )
+  await expect(memory.getByRole("button", { name: "Save memory" })).toHaveCount(0)
 
   await page.getByLabel("Persona").fill("Plan the work and report in Vietnamese.")
   await page.getByRole("button", { name: "Save", exact: true }).click()
@@ -259,6 +288,10 @@ test("a Bot shows its memory, takes a new persona and refuses to be removed", as
   await expect(page.getByRole("heading", { name: "coordinator", level: 2 })).toBeVisible()
 
   expect(calls).toEqual([
+    {
+      call: "PUT /bots/coordinator/memory",
+      body: { memory: "Deploys go out on Mondays.\n\nThe staging server is zm." },
+    },
     {
       call: "PUT /bots/coordinator",
       body: {

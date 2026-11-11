@@ -27,7 +27,7 @@ import {
   settingsOf,
   type Draft,
 } from "./bots-state"
-import { botsKey, useBot, useBots, useDeleteBot, usePutBot } from "./use-bots"
+import { botsKey, useBot, useBots, useDeleteBot, usePutBot, useSetBotMemory } from "./use-bots"
 
 // Crumbs is the way back to the list, as the Agents pages' "Agents › name".
 function Crumbs({ here }: { here: string }) {
@@ -42,8 +42,8 @@ function Crumbs({ here }: { here: string }) {
   )
 }
 
-// BotScreen is one Bot (issue #169): its name and model, the form for its model and persona, its memory to read,
-// and its removal. The page is the Agents pages' profile page (features/agents/profile-screen.tsx).
+// BotScreen is one Bot (issue #169): its name and model, the form for its model and persona, its memory to read
+// and edit, and its removal. The page is the Agents pages' profile page (features/agents/profile-screen.tsx).
 export function BotScreen({ name }: { name: string }) {
   const bot = useBot(name)
   const models = useModels()
@@ -226,45 +226,98 @@ function BotForm({
   )
 }
 
-// Memory shows what the Bot keeps across chats, an entry a row. The owner reads it here; the Bot writes it.
+// Memory is what the Bot keeps across chats, an entry a line. The Bot writes it itself, an entry at a time; the
+// owner reads it here and edits it by hand, as the owner of an agent of OpenClaw, Hermes or OpenMausBot edits its
+// memory file.
 function Memory({ bot }: { bot: Bot }) {
-  // An entry has no id and two may say the same, so each is keyed by its text and how many times it came before.
-  const seen = new Map<string, number>()
-  const entries = memoryEntries(bot.memory).map((text) => {
-    const nth = seen.get(text) ?? 0
-    seen.set(text, nth + 1)
+  // base is the memory the server holds, as last read or saved; draft is what the owner sees and types.
+  const [base, setBase] = useState(bot.memory)
+  const [draft, setDraft] = useState(bot.memory)
+  const save = useSetBotMemory()
 
-    return { key: `${nth}:${text}`, text }
-  })
+  const dirty = draft !== base
+  // The Bot wrote its memory meanwhile: an untouched field follows it; one being edited is kept and says so.
+  const changedUnder = bot.memory !== base
+  if (changedUnder && !dirty) {
+    setBase(bot.memory)
+    setDraft(bot.memory)
+  }
+
+  const used = [...memoryEntries(draft).join("\n")].length
+  const over = used > bot.memory_limit
 
   return (
-    <section aria-labelledby="bot-memory" className="flex flex-col gap-2 border-t pt-4">
+    <form
+      aria-labelledby="bot-memory"
+      className="flex flex-col gap-2 border-t pt-4"
+      onSubmit={(event) => {
+        event.preventDefault()
+        save.mutate(
+          { name: bot.name, memory: draft },
+          {
+            onSuccess: (stored) => {
+              setBase(stored.memory)
+              setDraft(stored.memory)
+            },
+          },
+        )
+      }}
+    >
       <div className="flex flex-wrap items-baseline gap-x-3">
-        <h3 id="bot-memory" className="text-sm font-medium">
+        <label id="bot-memory" htmlFor="bot-memory-text" className="text-sm font-medium">
           Memory
-        </h3>
-        <span className="text-xs text-muted-foreground">{memoryLine(bot)}</span>
+        </label>
+        <span className={over ? "text-xs text-destructive" : "text-xs text-muted-foreground"}>
+          {dirty
+            ? `${used.toLocaleString("en-US")} of ${bot.memory_limit.toLocaleString("en-US")} characters`
+            : memoryLine(bot)}
+        </span>
       </div>
+      <Textarea
+        id="bot-memory-text"
+        rows={Math.min(12, Math.max(3, memoryEntries(draft).length + 1))}
+        placeholder="Nothing kept yet."
+        value={draft}
+        onChange={(event) => {
+          save.reset()
+          setDraft(event.target.value)
+        }}
+      />
       <p className="text-xs text-muted-foreground">
-        What the Bot keeps across its chats. It writes this itself; you read it here.
+        What the Bot keeps across its chats, one entry a line. It writes this itself; you can edit
+        it. The Bot sees a change from its next chat on.
       </p>
-      {entries.length === 0 ? (
-        <p className="rounded-lg border border-dashed px-3 py-4 text-center text-sm text-muted-foreground">
-          Nothing kept yet.
+      {changedUnder && dirty && (
+        <p className="text-xs text-muted-foreground">
+          The Bot changed its memory while you were editing. Saving replaces it with what is here.
         </p>
-      ) : (
-        <ul
-          aria-label="Memory entries"
-          className="flex flex-col divide-y rounded-lg border bg-card"
-        >
-          {entries.map((entry) => (
-            <li key={entry.key} className="px-3 py-2 text-sm break-words">
-              {entry.text}
-            </li>
-          ))}
-        </ul>
       )}
-    </section>
+      {save.error && (
+        <Alert variant="destructive">
+          <AlertDescription>{errorText(save.error)}</AlertDescription>
+        </Alert>
+      )}
+      {dirty && (
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {!save.isPending && (
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => {
+                save.reset()
+                setBase(bot.memory)
+                setDraft(bot.memory)
+              }}
+            >
+              Discard changes
+            </Button>
+          )}
+          <Button type="submit" disabled={save.isPending || over}>
+            {save.isPending ? "Saving…" : "Save memory"}
+          </Button>
+        </div>
+      )}
+    </form>
   )
 }
 

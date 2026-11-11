@@ -232,14 +232,13 @@ test("a Bot's persona is saved with its model, and its memory is read only", asy
   await vi.waitFor(() => expect(screen.getByLabelText("Model")).toHaveValue("gateway/gpt-luna"))
   expect(screen.getByRole("button", { name: "Save" })).toBeDisabled()
 
-  const memory = screen.getByRole("region", { name: "Memory" })
+  // The memory is the Bot's own writing, which the owner may edit; untouched, it offers nothing to save.
+  const memory = screen.getByRole("form", { name: "Memory" })
   expect(memory).toHaveTextContent("58 of 2,200 characters")
-  expect(
-    within(memory)
-      .getAllByRole("listitem")
-      .map((li) => li.textContent),
-  ).toEqual(["The owner writes in Vietnamese.", "Deploys go out on Fridays."])
-  expect(within(memory).queryByRole("textbox")).not.toBeInTheDocument()
+  expect(within(memory).getByRole("textbox")).toHaveValue(
+    "The owner writes in Vietnamese.\nDeploys go out on Fridays.",
+  )
+  expect(within(memory).queryByRole("button", { name: "Save memory" })).not.toBeInTheDocument()
 
   const persona = screen.getByLabelText("Persona")
   await user.clear(persona)

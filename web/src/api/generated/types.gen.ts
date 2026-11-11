@@ -931,6 +931,13 @@ export type BotSettings = {
   persona?: string;
 };
 
+export type MemoryText = {
+  /**
+   * The entries, one per line.
+   */
+  memory: string;
+};
+
 export type MemoryChange = {
   kind: 'add' | 'replace' | 'remove';
   /**
@@ -3000,6 +3007,33 @@ export type ChangeBotMemoryResponses = {
 };
 
 export type ChangeBotMemoryResponse = ChangeBotMemoryResponses[keyof ChangeBotMemoryResponses];
+
+export type SetBotMemoryData = {
+  body: MemoryText;
+  path: {
+    name: string;
+  };
+  query?: never;
+  url: '/bots/{name}/memory';
+};
+
+export type SetBotMemoryErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type SetBotMemoryError = SetBotMemoryErrors[keyof SetBotMemoryErrors];
+
+export type SetBotMemoryResponses = {
+  /**
+   * The Bot, with its memory as kept.
+   */
+  200: Bot;
+};
+
+export type SetBotMemoryResponse = SetBotMemoryResponses[keyof SetBotMemoryResponses];
 
 export type ListProfilesData = {
   body?: never;
