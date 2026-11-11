@@ -15,9 +15,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"log/slog"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
@@ -170,6 +172,10 @@ type Service struct {
 	vendors  map[string]Vendor
 	// after is time.After outside tests: the pause between two refreshes.
 	after func(time.Duration) <-chan time.Time
+	// rr is the round-robin cursor per runtime, for a request with no session;
+	// rrMu guards it.
+	rr   map[string]int
+	rrMu sync.Mutex
 }
 
 // New returns a Service over the accounts, the vault and the vendors.
@@ -178,6 +184,7 @@ func New(
 ) *Service {
 	s := &Service{
 		accounts: accounts, vault: v, clock: clock, logger: logger, vendors: map[string]Vendor{}, after: time.After,
+		rr: map[string]int{},
 	}
 	for _, vendor := range vendors {
 		s.vendors[vendor.Runtime()] = vendor
@@ -327,20 +334,44 @@ func (s *Service) Refresh(ctx context.Context, id string) (Account, error) {
 	return s.Get(ctx, id)
 }
 
-// Token returns a valid access token of the first account of a runtime that
-// can be used: active, logged in here, not waiting for a usage limit, and not
-// among skip. A token about to end is refreshed first.
-func (s *Service) Token(ctx context.Context, runtime string, skip ...string) (Token, error) {
+// Token returns a valid access token of an account of a runtime that can be
+// used: active, logged in here, not cooling, and not among skip. The accounts
+// are ordered so one conversation keeps one account and its prompt cache stays
+// warm (the cache is per account): a session picks a home account by a hash of
+// its id and probes to the next only while the home is cooling or skipped;
+// without a session accounts are taken round-robin to spread load. A token
+// about to end is refreshed first. (omp `select.ts`/`affinity.ts`, 9router-go
+// `session_affinity.go`, CLIProxyAPI `selector.go`.)
+func (s *Service) Token(ctx context.Context, runtime, session string, skip ...string) (Token, error) {
 	accounts, err := s.List(ctx)
 	if err != nil {
 		return Token{}, err
 	}
 
-	var free *time.Time
+	// Every account of the runtime logged in here, in a stable order, so the
+	// home a session hashes to does not move between its requests.
+	var ofRuntime []Account
 
 	for _, a := range accounts {
-		if a.Runtime != runtime || a.Status != orchestration.AccountActive || a.State != StateActive ||
-			slices.Contains(skip, a.ID) {
+		if a.Runtime == runtime && a.Status == orchestration.AccountActive && a.State == StateActive {
+			ofRuntime = append(ofRuntime, a)
+		}
+	}
+
+	if len(ofRuntime) == 0 {
+		return Token{}, fmt.Errorf("%w: %s", ErrNoAccount, runtime)
+	}
+
+	slices.SortFunc(ofRuntime, func(a, b Account) int { return strings.Compare(a.ID, b.ID) })
+
+	start := s.startIndex(runtime, session, len(ofRuntime), len(skip) == 0)
+
+	var free *time.Time
+
+	for i := range ofRuntime {
+		a := ofRuntime[(start+i)%len(ofRuntime)]
+
+		if slices.Contains(skip, a.ID) {
 			continue
 		}
 
@@ -366,6 +397,33 @@ func (s *Service) Token(ctx context.Context, runtime string, skip ...string) (To
 	}
 
 	return Token{}, fmt.Errorf("%w: %s", ErrNoAccount, runtime)
+}
+
+// startIndex is where to begin scanning a runtime's accounts. A session hashes
+// to a stable home, so every request of one conversation starts at the same
+// account. A request with no session takes the next round-robin slot, advanced
+// once per request (when nothing has been skipped yet) so a retry does not
+// rotate again; a retry then scans from the front, since skip already holds
+// what it tried.
+func (s *Service) startIndex(runtime, session string, n int, fresh bool) int {
+	if session != "" {
+		h := fnv.New32a()
+		_, _ = h.Write([]byte(session))
+
+		return int(h.Sum32() % uint32(n)) //nolint:gosec // an index in [0,n), not a size
+	}
+
+	if !fresh {
+		return 0
+	}
+
+	s.rrMu.Lock()
+	defer s.rrMu.Unlock()
+
+	start := s.rr[runtime] % n
+	s.rr[runtime] = (start + 1) % n
+
+	return start
 }
 
 // TokenAfterRefusal returns a new token for an account whose token the vendor

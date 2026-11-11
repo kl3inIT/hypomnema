@@ -2,6 +2,7 @@ package subscription_test
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -50,22 +51,25 @@ func newAnthropicOAuth(t *testing.T) *anthropicOAuth {
 		a.mu.Lock()
 		a.lastGrant = body["grant_type"]
 
-		var access, refresh string
+		var access, refresh, uuid, email string
 
 		switch body["grant_type"] {
 		case "authorization_code":
 			a.exchanges++
-			access, refresh = "sk-ant-oat-1", "sk-ant-ort-1"
+			// Each login is a distinct account, so a test can log in several.
+			access = fmt.Sprintf("sk-ant-oat-%d", a.exchanges)
+			refresh = fmt.Sprintf("sk-ant-ort-%d", a.exchanges)
+			uuid = fmt.Sprintf("acc-uuid-%d", a.exchanges)
+			email = fmt.Sprintf("owner-%d@example.com", a.exchanges)
 		case "refresh_token":
 			a.refreshes++
-			assert.Equal(t, "sk-ant-ort-1", body["refresh_token"], "the old refresh token is spent")
-			access, refresh = "sk-ant-oat-2", "sk-ant-ort-2"
+			access, refresh, uuid, email = "sk-ant-oat-2", "sk-ant-ort-2", "acc-uuid-1", "owner-1@example.com"
 		}
 		a.mu.Unlock()
 
 		writeJSON(w, map[string]any{
 			"access_token": access, "refresh_token": refresh, "expires_in": 3600,
-			"account":      map[string]string{"uuid": "acc-uuid-1", "email_address": "owner@example.com"},
+			"account":      map[string]string{"uuid": uuid, "email_address": email},
 			"organization": map[string]string{"name": "Max"},
 		})
 	})
@@ -161,12 +165,12 @@ func TestOwnerLogsAClaudeSubscriptionIn(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, "claude", a.Runtime)
-	assert.Equal(t, "owner@example.com", a.Label)
+	assert.Equal(t, "owner-1@example.com", a.Label)
 	assert.Equal(t, "acc-uuid-1", a.ExternalID)
 	assert.Equal(t, subscription.StateActive, a.State)
 	assert.Equal(t, t0.Add(3600*time.Second), *a.AccessTokenExpiresAt)
 
-	token, err := w.subs.Token(t.Context(), "claude")
+	token, err := w.subs.Token(t.Context(), "claude", "")
 	require.NoError(t, err)
 	assert.Equal(t, "sk-ant-oat-1", token.AccessToken)
 }
@@ -202,7 +206,79 @@ func TestAClaudeTokenIsRefreshed(t *testing.T) {
 	assert.Equal(t, 1, w.oauth.refreshes)
 	w.oauth.mu.Unlock()
 
-	token, err := w.subs.Token(t.Context(), "claude")
+	token, err := w.subs.Token(t.Context(), "claude", "")
 	require.NoError(t, err)
 	assert.Equal(t, "sk-ant-oat-2", token.AccessToken, "the refreshed access token")
+}
+
+// loginN logs n distinct accounts in and returns their ids.
+func (w *claudeWorld) loginN(n int) []string {
+	w.t.Helper()
+
+	ids := make([]string, 0, n)
+
+	for range n {
+		a, err := w.login()
+		require.NoError(w.t, err)
+		ids = append(ids, a.ID)
+	}
+
+	return ids
+}
+
+func (w *claudeWorld) account(session string, skip ...string) string {
+	w.t.Helper()
+
+	token, err := w.subs.Token(w.t.Context(), "claude", session, skip...)
+	require.NoError(w.t, err)
+
+	return token.AccountID
+}
+
+// Scenario: one conversation keeps one account across its requests, so the
+// account's prompt cache stays warm.
+func TestAClaudeSessionKeepsItsAccount(t *testing.T) {
+	t.Parallel()
+
+	w := newClaudeWorld(t)
+	w.loginN(3)
+
+	home := w.account("conversation-1")
+	assert.Equal(t, home, w.account("conversation-1"), "the same session returns the same account")
+	assert.Equal(t, home, w.account("conversation-1"), "and again")
+}
+
+// Scenario: requests with no session are spread round-robin over the accounts,
+// so no one account takes all the load.
+func TestClaudeAccountsRoundRobinWithoutASession(t *testing.T) {
+	t.Parallel()
+
+	w := newClaudeWorld(t)
+	ids := w.loginN(3)
+
+	seen := map[string]bool{}
+	for range ids {
+		seen[w.account("")] = true
+	}
+
+	assert.Len(t, seen, 3, "three requests reached three accounts")
+}
+
+// Scenario: while a session's home account is cooling, the session is served by
+// another; when the home recovers, the session returns to it (its cache again).
+func TestAClaudeSessionDetoursWhileItsHomeCools(t *testing.T) {
+	t.Parallel()
+
+	w := newClaudeWorld(t)
+	w.loginN(3)
+
+	home := w.account("conversation-1")
+
+	require.NoError(t, w.subs.CoolDown(t.Context(), "claude", home, w.clock.Now().Add(time.Hour), "test"))
+
+	detour := w.account("conversation-1")
+	assert.NotEqual(t, home, detour, "a cooling home is stepped over")
+
+	w.clock.advance(2 * time.Hour)
+	assert.Equal(t, home, w.account("conversation-1"), "the session returns home once it is free")
 }

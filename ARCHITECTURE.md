@@ -533,7 +533,11 @@ Claude subscriptions. Other provider formats and other capabilities do not exist
   the same for both.
 - A built-in provider runs under the accounts of its kind logged in on the control plane, several when there are
   several ([research](docs/research/2026-11-10-several-accounts.md); every rule is one a reference has):
-  - Accounts are taken in their order, the first that can serve until it fails (9router-go's default).
+  - A request's session (its prompt cache key) hashes to a home account and every request of that conversation
+    starts there, so the account's prompt cache stays warm (the cache is per account; omp `affinity.ts`, 9router-go
+    `session_affinity.go`, CLIProxyAPI `selector.go`). A cooling home is stepped over to the next account and
+    returned to once it is free. A request with no session takes the next account round-robin, to spread load. The
+    home is a hash over all the runtime's accounts sorted by id, so a cooldown is a detour, not a move.
   - Inside one request the next account is tried when one answers 401 (after one refresh of its tokens), 402, 403,
     429, 502, 503 or 504, each account once and only before anything was sent to the client (9router-go, CLIProxyAPI).
     When none serves, the client gets the last refusal; when none could even be tried, a 429 with `Retry-After` to
