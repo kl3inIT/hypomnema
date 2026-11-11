@@ -34,6 +34,14 @@ type AccountCooldown struct {
 	Reason     string
 }
 
+type ActionPolicy struct {
+	Integration string
+	Label       string
+	Action      string
+	Policy      string
+	UpdatedAt   int64
+}
+
 type AgentSession struct {
 	ID         string
 	KeyHash    string
@@ -41,6 +49,27 @@ type AgentSession struct {
 	Uses       string
 	CreatedAt  int64
 	RevokedAt  sql.NullInt64
+}
+
+type Approval struct {
+	ID          string
+	Integration string
+	Label       string
+	Action      string
+	ActionName  string
+	DispatchID  sql.NullString
+	TaskID      sql.NullString
+	RunID       sql.NullString
+	ChatID      sql.NullString
+	AskedBy     string
+	Title       string
+	Payload     string
+	MatchHash   string
+	Status      string
+	Scope       sql.NullString
+	UsedAt      sql.NullInt64
+	CreatedAt   int64
+	DecidedAt   sql.NullInt64
 }
 
 type Chat struct {
@@ -51,14 +80,15 @@ type Chat struct {
 }
 
 type ChatMessage struct {
-	Seq         int64
-	ChatID      string
-	Role        string
-	Text        string
-	Parts       sql.NullString
-	EventSeq    sql.NullInt64
-	DeliveredAt sql.NullInt64
-	CreatedAt   int64
+	Seq           int64
+	ChatID        string
+	Role          string
+	Text          string
+	Parts         sql.NullString
+	EventSeq      sql.NullInt64
+	DeliveredAt   sql.NullInt64
+	CreatedAt     int64
+	ToCoordinator int64
 }
 
 type ClientToken struct {
@@ -254,6 +284,15 @@ type LarkBotPerson struct {
 	Email     string
 	Name      string
 	CreatedAt int64
+}
+
+type LarkBotQuestion struct {
+	QuestionID string
+	CardID     string
+	MessageID  string
+	Seq        int64
+	ClosedAt   sql.NullInt64
+	CreatedAt  int64
 }
 
 type MachineProvider struct {

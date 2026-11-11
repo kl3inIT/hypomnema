@@ -176,20 +176,21 @@ func (s *Server) serveResponses(
 			return
 		}
 
-		resp, err := s.underAccounts(ctx, codexRuntime, nil, func(token AccountToken) (*http.Response, error) {
-			resp, err := s.codexCall(ctx, &token, built)
-			if err != nil {
-				return nil, err
-			}
+		resp, err := s.underAccounts(ctx, codexRuntime, built.CacheKey, nil,
+			func(token AccountToken) (*http.Response, error) {
+				resp, err := s.codexCall(ctx, &token, built)
+				if err != nil {
+					return nil, err
+				}
 
-			if resp.StatusCode != http.StatusOK {
-				return s.codexRefused(ctx, token, resp), nil
-			}
+				if resp.StatusCode != http.StatusOK {
+					return s.codexRefused(ctx, token, resp), nil
+				}
 
-			s.accountState.served(token.AccountID)
+				s.accountState.served(token.AccountID)
 
-			return resp, nil
-		})
+				return resp, nil
+			})
 		if err != nil {
 			if ctx.Err() != nil {
 				record.Outcome = OutcomeClientGone

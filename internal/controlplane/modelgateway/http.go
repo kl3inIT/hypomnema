@@ -26,6 +26,9 @@ type Config struct {
 	Subscriptions Subscriptions
 	// CodexBaseURL is the Codex backend; empty: ChatGPT's. Tests name their own.
 	CodexBaseURL string
+	// ClaudeBaseURL is the Anthropic Messages backend; empty: Anthropic's.
+	// Tests name their own.
+	ClaudeBaseURL string
 	// AntigravityBaseURL is the Cloud Code host Antigravity accounts are
 	// served from, and AntigravityManifestURL the IDE's update manifest;
 	// empty: Google's. Tests name their own.
@@ -41,6 +44,7 @@ type Server struct {
 	idleTimeout time.Duration
 	accounts    Subscriptions
 	codexURL    string
+	claudeURL   string
 	// antigravityURL is the Cloud Code host; antigravity, what is remembered
 	// of Antigravity accounts while the gateway runs.
 	antigravityURL string
@@ -65,6 +69,10 @@ func NewServer(svc *Service, logger *slog.Logger, cfg Config) *Server {
 		cfg.CodexBaseURL = codexBaseURL
 	}
 
+	if cfg.ClaudeBaseURL == "" {
+		cfg.ClaudeBaseURL = claudeBaseURL
+	}
+
 	if cfg.AntigravityBaseURL == "" {
 		cfg.AntigravityBaseURL = cloudcode.DailyHost
 	}
@@ -72,6 +80,7 @@ func NewServer(svc *Service, logger *slog.Logger, cfg Config) *Server {
 	return &Server{
 		svc: svc, logger: logger, client: &http.Client{Transport: transport}, idleTimeout: cfg.StreamIdleTimeout,
 		accounts: cfg.Subscriptions, codexURL: strings.TrimRight(cfg.CodexBaseURL, "/"),
+		claudeURL:      strings.TrimRight(cfg.ClaudeBaseURL, "/"),
 		antigravityURL: strings.TrimRight(cfg.AntigravityBaseURL, "/"),
 		antigravity:    newAntigravityState(cfg.AntigravityManifestURL, svc.clock.Now),
 		accountState:   newAccountState(),

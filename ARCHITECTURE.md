@@ -176,8 +176,13 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   the profile is read. A node at its limit still counts; a model the gateway serves needs no account, and the
   state of the gateway's own accounts is not looked at; the coordinator's runtime, pi, has no answer. `profiles
   list` shows it, and the coordinator skill tells the coordinator to read it before creating Tasks.
-  The starting set: `implementer`, `reviewer`, `explorer` (told to change nothing; nothing enforces it yet) on
-  Claude Code with its default model, and `coordinator` on pi; provider `claude-subscription`.
+  The starting set: `implementer`, `reviewer` and `explorer` on Claude Code with its default model, and
+  `coordinator` on pi; provider `claude-subscription`. The reviewer (effort `high`) and the explorer say in their
+  instruction how to report (issue #155, after omp's `reviewer` and `scout`): the reviewer a verdict, `correct` or
+  `incorrect`, and findings with a priority P0 to P3, the file and the lines, only for what the change introduced;
+  the explorer an answer, the files that matter and the detail with `path:line`. Both are told to change nothing;
+  nothing enforces it. `deploy/profiles/` holds samples for profiles on Codex, whose model is a gateway model
+  named by the deployment.
 - Scheduler: `Schedule` is one pass in one transaction, and `Loop` runs `Reap` and `Schedule` every 2 s and on each
   commit signal. At most 4 Dispatches that have not settled exist at once, one waiting on a question included; the
   coordinator's `CreateDispatch` meets the same limit and checks. Ready Tasks of open Runs go oldest Run first, then
@@ -244,12 +249,36 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     - **One way for every agent to call a tool** (`internal/shared/agenttool`, in both binaries). A script named
       after the tool (`gws`) is first on the agent's `PATH`; it runs `hypomnema tool gws` or
       `hypomnema-node tool gws`, the launcher. On every call the launcher asks the control plane's agent API
-      (`internal/controlplane/agentapi`: `GET /agent/v1/connections`, `POST /agent/v1/token`) which accounts the
-      agent may use and for a fresh access token of one, sets the tool's variable (`GOOGLE_WORKSPACE_CLI_TOKEN`)
-      and runs the real tool. `--account <label>` names one of several and never reaches the tool. Only the
-      access token, good for about an hour, leaves the control plane; it is in the tool's process and nowhere
-      else. This stands in for the node's proxy of the conventions, which is not built: until it is, nothing but
-      the skill's rule stops an agent with a writing account from sending mail.
+      (`internal/controlplane/agentapi`: `GET /agent/v1/connections`) which accounts the agent may use and runs
+      the real tool. `--account <label>` names one of several and never reaches the tool.
+    - **Google goes through the service proxy** (issue #154,
+      [decision](docs/decisions/2026-11-11-service-proxy-in-the-control-plane.md),
+      [research](docs/research/2026-11-11-service-proxy-and-approvals.md); `internal/controlplane/serviceproxy`).
+      The tool is given a placeholder where a token would be, a proxy on loopback and the proxy's certificate
+      (`GET /agent/v1/ca`). The launcher carries each connection the tool opens over a websocket to the control
+      plane (`GET /agent/v1/tunnel`), which decrypts it with a certificate authority of its own, made when it
+      starts and kept in memory. Each request is matched by method, host and path to an **action** of the
+      Integration's catalog (send mail, share a file; data, as Onyx's) and answered by that action's Policy for the
+      Connection: **allow** (reading, drafts, a new file), **ask** (what reaches other people or cannot be taken
+      back; and any request that matches no action), or **never**. Only then is the account's token added. No
+      token of a proxied Integration is handed to an agent. A request that the proxy and the service could read
+      differently is refused: another address, a path that climbs or hides a slash, a method override, a query
+      that does not parse strictly. What an agent may use is asked again for every request. Every request is
+      logged with the agent, the Connection, the action and the verdict. Lark still gets a token
+      (`POST /agent/v1/token`), as before.
+    - **An Approval** (migration 00039) is the owner's answer to a request that asked. The request is held up to
+      100 s; the Approval keeps who asked (a Dispatch with its Task and Run, or a chat), the action and the request
+      decoded for reading: a mail's recipients, subject and text, a file's name and size, a JSON body's values.
+      The owner approves once, approves the action for the rest of the Run or the chat, or rejects. An Approval
+      not answered in time stays open (owner, 2026-11-11): the tool is told it waits; a coordinator ends its turn
+      and a worker asks the owner and waits. When it is answered later, the coordinator is woken in its chat, or
+      the question the worker waits on is answered, and the repeat of the same request, recognized by its decoded
+      content and not its bytes, passes once. Only the owner's token lists and answers Approvals
+      (`GET /approvals`, `POST /approvals/{id}/decision`; `hypomnema approvals`) and sets an action's answer
+      (`.../connections/{label}/actions`; `hypomnema integrations actions`). On the web an Approval is a card
+      above the message box of the chat that asked, whose row in the sidebar says it needs the owner, and in the
+      Task of the worker that asked; an account on the Integrations page says what agents may do with it and
+      opens the list of actions.
     - **Who an agent is decides what it gets.** A worker presents its Dispatch's own key (`agent_sessions`,
       migration 00037): made by the node API as the offer is sent, for the Run's Connections, and revoked when the
       Dispatch settles, as its model gateway key is. The coordinator presents its coordinator token and gets the
@@ -326,8 +355,25 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       supervisor's live frames, and closed with the kept message. A kept coordinator message with nothing
       written live (a wake-up's answer) is a card of its own. The last message sent is recorded per chat, so a
       restart sends nothing twice.
-    - Not built: questions as cards with buttons (the app's card callback is not configured yet), groups, a web
-      page for the bot, several bots.
+    - A question for the owner is a card in his direct chat with the bot (`lark_bot_questions`): a button for
+      each option, or "Reply to this card to answer" for a question without options. Only a press by the
+      owner's `open_id` answers; another person is told so. His reply to the card is the answer in his own
+      words and does not go to the coordinator. Once the question is answered or canceled, here or on the web,
+      the card says how it ended and has no buttons. It needs the app's callback `card.action.trigger` over
+      the persistent connection, configured in Lark's console.
+    - On the web, `/settings/channels` (under Connections) has the bot's card: set it up or change its app
+      (the secret in a password field), switch it on and off, choose who may talk to it, add and remove people,
+      remove it; it says whether it is connected and why not. It does what `channels lark ...` does.
+    - What a person sees while the coordinator works: their message carries the emoji `Typing` until the reply
+      is there, and `CrossMark` when the model's call failed; the card answers that message (Lark shows it
+      quoted), shows the tool that is running (`⚡ name: arguments`) before and under the text, and ends with a
+      link to the same chat on the web when `HYPOMNEMA_PUBLIC_URL` is set. A message sent while a turn runs is
+      told it is queued. A reply longer than 8,000 characters goes on in further cards. Lark's mention tags in
+      a reply are written out, so nobody is notified. A card Lark stopped writing after ten minutes is switched
+      on again. `/new` gives the person's next message a new chat; `/stop` stops the turn that runs.
+    - A question's card is orange while it waits, green once answered, red when canceled.
+    - Not built: an option that also takes text, groups, several bots; a person's reaction as an answer; images
+      and voice.
   - The token reaches a worker with its offer: the node API asks for it by host and repository as it sends the offer, and
     orchestration never holds it. The node gives it to that Dispatch only, as environment: git sends it to that
     host alone (an `http.https://<host>/.extraheader` through `GIT_CONFIG_COUNT`), `gh` reads `GH_TOKEN` (or
@@ -401,7 +447,7 @@ Codex CLI; [research](docs/research/2026-11-10-subscription-login-and-refresh.md
 plane, which keeps their tokens fresh. The gateway's Codex provider runs under them (below).
 
 - One `Vendor` per kind of subscription starts a login, exchanges a refresh token and reads who a token set belongs
-  to. Two exist, Codex and Antigravity. Codex: a device code (a link and a one-time code, 15 minutes), or, when OpenAI offers this client
+  to. Three exist, Codex, Antigravity and Claude. Codex: a device code (a link and a one-time code, 15 minutes), or, when OpenAI offers this client
   none, the browser login whose loopback address the owner pastes back, checked against the state and the PKCE
   verifier the control plane kept.
 - Antigravity (after CLIProxyAPI, omp and Google's Gemini CLI;
@@ -415,11 +461,19 @@ plane, which keeps their tokens fresh. The gateway's Codex provider runs under t
   is not in the source; without it no Antigravity account can be logged in or refreshed. Antigravity's terms name
   access through other software as a breach that may end the account; the owner chose to build this knowing it.
   The gateway's Antigravity provider runs under such an account (below).
+- Claude (issue #20 step 5, after 9router-go and CLIProxyAPI;
+  [research](docs/research/2026-11-11-claude-subscription-at-a-gateway.md)): Claude Code's own OAuth client at
+  `claude.ai`, whose `code#state` the owner pastes back, checked against the state and the PKCE verifier kept. The
+  token is opaque, so who it belongs to is the login's to record (the account id, a derived one when the token
+  answer and the profile name none). Anthropic's terms forbid routing a subscription through other software; the
+  owner chose to build it for his own subscription and agents knowing that. The gateway's Claude provider runs under
+  such an account (below).
 - A login makes an account, or gives new tokens to the account that already has the vendor's id (Codex: the
   ChatGPT account id, read with the email and the plan from the id token; Antigravity: Google's id of the user, with
   the tier as the plan and the project). The tokens are a vault secret of kind
   `oauth_token_set`, named after the account, with the time the access token ends.
-- `serve` looks every 5 minutes for access tokens that end within the vendor's lead (Codex: 30 minutes) and
+- `serve` looks every 5 minutes for access tokens that end within the vendor's lead (Codex: 30 minutes, Claude: 4
+  hours) and
   refreshes them through the vault's `Refresh`; Antigravity's lead is 30 minutes too, and Google keeps the refresh
   token as it is. Two accounts due in one pass are refreshed one after the other, 1.5 seconds apart, 12 for
   Antigravity (9router-go). A refusal for good (401, or an error code such as `invalid_grant` or
@@ -429,11 +483,12 @@ plane, which keeps their tokens fresh. The gateway's Codex provider runs under t
 
 The model gateway (`internal/controlplane/modelgateway`, issue #20,
 [decision](docs/decisions/2026-11-10-model-gateway.md)) serves chat to clients that speak OpenAI's API, from
-OpenAI-compatible providers the owner declares and from two built-in providers, the owner's Codex and Antigravity
-subscriptions. The Claude subscription, other provider formats and other capabilities do not exist yet.
+OpenAI-compatible providers the owner declares and from three built-in providers, the owner's Codex, Antigravity and
+Claude subscriptions. Other provider formats and other capabilities do not exist yet.
 - A model is a YAML document: a public `name`, a `capability` (`chat`, the only one), and `targets` (a provider and
   the model's name there) in the order tried. Applying a name again replaces it. A target must name a provider of a
-  kind the gateway has an adapter for (`openai_compatible`, `codex_subscription`, `antigravity_subscription`) and
+  kind the gateway has an adapter for (`openai_compatible`, `codex_subscription`, `antigravity_subscription`,
+  `claude_subscription`) and
   a model that provider offers, so a model that cannot
   be served is refused when applied.
 - A gateway key (`hyp_gateway_v1_…`, the client tokens' format) is shown once and kept as its SHA-256, with the
@@ -478,7 +533,11 @@ subscriptions. The Claude subscription, other provider formats and other capabil
   the same for both.
 - A built-in provider runs under the accounts of its kind logged in on the control plane, several when there are
   several ([research](docs/research/2026-11-10-several-accounts.md); every rule is one a reference has):
-  - Accounts are taken in their order, the first that can serve until it fails (9router-go's default).
+  - A request's session (its prompt cache key) hashes to a home account and every request of that conversation
+    starts there, so the account's prompt cache stays warm (the cache is per account; omp `affinity.ts`, 9router-go
+    `session_affinity.go`, CLIProxyAPI `selector.go`). A cooling home is stepped over to the next account and
+    returned to once it is free. A request with no session takes the next account round-robin, to spread load. The
+    home is a hash over all the runtime's accounts sorted by id, so a cooldown is a detour, not a move.
   - Inside one request the next account is tried when one answers 401 (after one refresh of its tokens), 402, 403,
     429, 502, 503 or 504, each account once and only before anything was sent to the client (9router-go, CLIProxyAPI).
     When none serves, the client gets the last refusal; when none could even be tried, a 429 with `Retry-After` to
@@ -544,6 +603,31 @@ subscriptions. The Claude subscription, other provider formats and other capabil
     what `accounts models` lists, and the owner applies the provider again with those when they differ.
   - Not built: real thought signatures kept across turns, images by URL, Google search as a tool, the provider's
     models kept in step with the account's by itself, several accounts rotated.
+- `claude-subscription` (kind `claude_subscription`, after 9router-go and CLIProxyAPI;
+  [research](docs/research/2026-11-11-claude-subscription-at-a-gateway.md)) serves Claude models from the Claude
+  accounts logged in on the control plane (above). Anthropic forbids routing a subscription through other software
+  and reroutes a request that does not look like Claude Code's; the owner chose to build it knowing that, so the
+  provider dresses each request as Claude Code's, which is what makes it work at all.
+  - `modelgateway/claude` holds the translation. A chat body becomes an Anthropic Messages body: system messages
+    lifted out, a tool call and its result tied by a sanitized id, turns of one role merged, `reasoning_effort` a
+    thinking budget, `max_tokens` filled when absent.
+  - The disguise (9router-go `claude_cloaking.go`; CLIProxyAPI `checkSystemInstructions` for a client that is not
+    Claude Code): the request carries the `oauth-2025-04-20` beta on a Bearer token and Claude Code's identity
+    headers; the top-level system is made exactly Claude Code's — a billing block then the line "You are Claude Code,
+    Anthropic's official CLI for Claude." — and the client's own system text is moved under the first user turn as a
+    `<system-reminder>`, so Anthropic's classifier reads a Claude Code prefix; a `metadata.user_id` stable per token;
+    the client's tools renamed with an `_ide` suffix among the twenty Claude Code decoy tools, undone in the answer.
+  - Prompt caching, as the Codex adapter has it: the billing block's fingerprint is deterministic (CLIProxyAPI
+    `computeFingerprint`, not 9router-go's random build and body hash) so the prompt's top is byte-identical between
+    turns, and the cache breakpoints Claude Code sets go on — the system prefix, the last tool, the last message
+    (pi/omp `applyAnthropicCacheControl`). A probe (Claude Code's own `quota`/`ping` check) is left minimal, with no
+    decoys and no breakpoints.
+  - The call goes to `api.anthropic.com/v1/messages?beta=true`, always as a stream, with the account's token in the
+    Bearer header (never the api-key header), a refresh on a 401, a cooldown on a 429.
+  - The backend's Messages events become chat chunks: text, thinking as `reasoning_content`, each tool call with the
+    client's name again, then the finish reason and the usage, which counts cache reads as prompt tokens.
+  - Not built: uTLS fingerprinting, a signed `cch`, header order and casing forced over the wire, model-specific
+    thinking tables, several accounts rotated.
 - Each request served is one row of `gateway_usage`: the key, the model, the target of the last attempt, how many
   were tried, the outcome (`ok`, `upstream_error`, `transport_error`, `truncated`, `client_gone`), the provider's
   status, the duration, and the tokens the provider reported (prompt, completion, cached, reasoning; the largest
@@ -670,11 +754,14 @@ The owner's commands:
   when pi's environment has it.
 - The coordinator skill (`internal/controlplane/clientcli/skills`, after Orca's
   [decision](docs/decisions/2026-11-09-coordinator-cli-and-skill.md)): `skills get hypomnema-coordinator` prints
-  the guide compiled into the binary, `--reference <name>` one reference (`recovery`, `investigate`). The guide
-  says how to choose a profile ([research](docs/research/2026-11-10-coordinator-routing-and-capabilities.md)): by
-  its description, then by runtime (Claude Code for work across many files, Codex for a narrow change); a question
-  that changes nothing goes to `explorer` Tasks; the model is the profile's unless the owner names one; and a
-  profile or model that cannot be served is reported, not replaced. `skills install` writes the stub
+  the guide compiled into the binary, `--reference <name>` one reference (`recovery`, `investigate`, `review`).
+  The guide names no runtime and no vendor ([research](docs/research/2026-11-10-coordinator-routing-and-capabilities.md),
+  issue #155): a profile is chosen by its description, which the owner writes; a question that changes nothing
+  goes to a profile that reads and reports; a pull request is reviewed, when the owner asks or has said so as a
+  standing rule, by a profile whose description says it reviews that kind of change, given the pull request and
+  the spec only; findings that make a change incorrect are reported with an offer of a fix Task, two rounds at
+  most; the model is the profile's unless the owner names one; and a profile or model that cannot be served is
+  reported, not replaced. `skills install` writes the stub
   `SKILL.md` to `~/.claude/skills` and `~/.agents/skills`, replacing a copy only when it matches a released stub
   (otherwise only with `--force`, keeping a backup). Tests check that every command in the skill parses and that the
   stub and guide share their frontmatter.
@@ -959,6 +1046,11 @@ the internet, so that a machine created at a provider can install the node from 
   tool catalog compiled into it, so a new tool reaches workers with a node release; the other nodes take v0.6.1
   at their next update check. The coordinator on zm has neither `lark-cli` nor the skill yet: its tools are
   installed by `deploy/coordinator/setup-coordinator.sh`, which needs root.
+- The Lark bot, since 2026-11-11: set up on zm with the owner's Lark app, mode `owner`, switched on, and
+  connected. The app's callback `card.action.trigger` was added over the persistent connection and released as
+  version 1.0.3 of the app. Tried: a worker's question with two options was answered by the owner nine seconds
+  after it was asked, and the worker went on with the option chosen. Not tried yet: a message from the owner
+  through to the coordinator's answer.
 - Nodes, since 2026-11-10, five: aioffice-app (user `hypnode`), and aioffice-serving, elitex, kdlstc-dev and
   stc-hy-app (user `hypomnema`, installed with the first-boot script, each reaching the control plane at its
   public URL). Each runs the node as a systemd user unit from `~/.hypomnema-node`, at v0.7.0 on 2026-11-11, and

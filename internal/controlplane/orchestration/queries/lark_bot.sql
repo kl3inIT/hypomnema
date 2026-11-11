@@ -41,3 +41,22 @@ INSERT INTO lark_bot_messages (message_id, created_at) VALUES (@message_id, @now
 
 -- name: DeleteLarkBotMessagesBefore :exec
 DELETE FROM lark_bot_messages WHERE created_at < @before;
+
+-- name: InsertLarkBotQuestion :exec
+INSERT INTO lark_bot_questions (question_id, card_id, message_id, seq, created_at)
+VALUES (@question_id, @card_id, @message_id, 0, @now);
+
+-- name: GetLarkBotQuestion :one
+SELECT * FROM lark_bot_questions WHERE question_id = @question_id;
+
+-- name: GetLarkBotQuestionByMessage :one
+SELECT * FROM lark_bot_questions WHERE message_id = @message_id;
+
+-- name: ListOpenLarkBotQuestions :many
+SELECT * FROM lark_bot_questions WHERE closed_at IS NULL ORDER BY created_at, question_id;
+
+-- name: CloseLarkBotQuestion :exec
+UPDATE lark_bot_questions SET closed_at = @now, seq = @seq WHERE question_id = @question_id;
+
+-- name: ResetLarkBotChat :execrows
+UPDATE lark_bot_chats SET chat_id = @chat_id, sent_seq = 0 WHERE lark_chat_id = @lark_chat_id;

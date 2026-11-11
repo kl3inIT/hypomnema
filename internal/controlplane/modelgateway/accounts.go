@@ -93,7 +93,7 @@ func newAccountState() *accountState {
 // the client gets when none serves. usedLast, when given, says an account is
 // to be tried only after the others.
 func (s *Server) underAccounts(
-	ctx context.Context, runtime string, usedLast func(AccountToken) bool,
+	ctx context.Context, runtime, session string, usedLast func(AccountToken) bool,
 	attempt func(AccountToken) (*http.Response, error),
 ) (*http.Response, error) {
 	var (
@@ -119,7 +119,7 @@ func (s *Server) underAccounts(
 	}
 
 	for {
-		token, err := s.accounts.Token(ctx, runtime, tried...)
+		token, err := s.accounts.Token(ctx, runtime, session, tried...)
 		if err != nil {
 			stopping = err
 

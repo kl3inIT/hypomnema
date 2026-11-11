@@ -7,7 +7,23 @@ package store
 
 import (
 	"context"
+	"database/sql"
 )
+
+const closeLarkBotQuestion = `-- name: CloseLarkBotQuestion :exec
+UPDATE lark_bot_questions SET closed_at = ?1, seq = ?2 WHERE question_id = ?3
+`
+
+type CloseLarkBotQuestionParams struct {
+	Now        sql.NullInt64
+	Seq        int64
+	QuestionID string
+}
+
+func (q *Queries) CloseLarkBotQuestion(ctx context.Context, arg CloseLarkBotQuestionParams) error {
+	_, err := q.db.ExecContext(ctx, closeLarkBotQuestion, arg.Now, arg.Seq, arg.QuestionID)
+	return err
+}
 
 const deleteLarkBot = `-- name: DeleteLarkBot :exec
 DELETE FROM lark_bot WHERE id = 1
@@ -91,6 +107,42 @@ func (q *Queries) GetLarkBotPerson(ctx context.Context, openID string) (LarkBotP
 	return i, err
 }
 
+const getLarkBotQuestion = `-- name: GetLarkBotQuestion :one
+SELECT question_id, card_id, message_id, seq, closed_at, created_at FROM lark_bot_questions WHERE question_id = ?1
+`
+
+func (q *Queries) GetLarkBotQuestion(ctx context.Context, questionID string) (LarkBotQuestion, error) {
+	row := q.db.QueryRowContext(ctx, getLarkBotQuestion, questionID)
+	var i LarkBotQuestion
+	err := row.Scan(
+		&i.QuestionID,
+		&i.CardID,
+		&i.MessageID,
+		&i.Seq,
+		&i.ClosedAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getLarkBotQuestionByMessage = `-- name: GetLarkBotQuestionByMessage :one
+SELECT question_id, card_id, message_id, seq, closed_at, created_at FROM lark_bot_questions WHERE message_id = ?1
+`
+
+func (q *Queries) GetLarkBotQuestionByMessage(ctx context.Context, messageID string) (LarkBotQuestion, error) {
+	row := q.db.QueryRowContext(ctx, getLarkBotQuestionByMessage, messageID)
+	var i LarkBotQuestion
+	err := row.Scan(
+		&i.QuestionID,
+		&i.CardID,
+		&i.MessageID,
+		&i.Seq,
+		&i.ClosedAt,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
 const insertLarkBotChat = `-- name: InsertLarkBotChat :exec
 INSERT INTO lark_bot_chats (lark_chat_id, open_id, chat_id, sent_seq, created_at)
 VALUES (?1, ?2, ?3, 0, ?4)
@@ -128,6 +180,28 @@ func (q *Queries) InsertLarkBotMessage(ctx context.Context, arg InsertLarkBotMes
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const insertLarkBotQuestion = `-- name: InsertLarkBotQuestion :exec
+INSERT INTO lark_bot_questions (question_id, card_id, message_id, seq, created_at)
+VALUES (?1, ?2, ?3, 0, ?4)
+`
+
+type InsertLarkBotQuestionParams struct {
+	QuestionID string
+	CardID     string
+	MessageID  string
+	Now        int64
+}
+
+func (q *Queries) InsertLarkBotQuestion(ctx context.Context, arg InsertLarkBotQuestionParams) error {
+	_, err := q.db.ExecContext(ctx, insertLarkBotQuestion,
+		arg.QuestionID,
+		arg.CardID,
+		arg.MessageID,
+		arg.Now,
+	)
+	return err
 }
 
 const listLarkBotChats = `-- name: ListLarkBotChats :many
@@ -193,6 +267,57 @@ func (q *Queries) ListLarkBotPeople(ctx context.Context) ([]LarkBotPerson, error
 		return nil, err
 	}
 	return items, nil
+}
+
+const listOpenLarkBotQuestions = `-- name: ListOpenLarkBotQuestions :many
+SELECT question_id, card_id, message_id, seq, closed_at, created_at FROM lark_bot_questions WHERE closed_at IS NULL ORDER BY created_at, question_id
+`
+
+func (q *Queries) ListOpenLarkBotQuestions(ctx context.Context) ([]LarkBotQuestion, error) {
+	rows, err := q.db.QueryContext(ctx, listOpenLarkBotQuestions)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []LarkBotQuestion{}
+	for rows.Next() {
+		var i LarkBotQuestion
+		if err := rows.Scan(
+			&i.QuestionID,
+			&i.CardID,
+			&i.MessageID,
+			&i.Seq,
+			&i.ClosedAt,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const resetLarkBotChat = `-- name: ResetLarkBotChat :execrows
+UPDATE lark_bot_chats SET chat_id = ?1, sent_seq = 0 WHERE lark_chat_id = ?2
+`
+
+type ResetLarkBotChatParams struct {
+	ChatID     string
+	LarkChatID string
+}
+
+func (q *Queries) ResetLarkBotChat(ctx context.Context, arg ResetLarkBotChatParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, resetLarkBotChat, arg.ChatID, arg.LarkChatID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const setLarkBotChatSent = `-- name: SetLarkBotChatSent :exec

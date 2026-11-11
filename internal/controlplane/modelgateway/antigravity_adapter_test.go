@@ -26,9 +26,9 @@ type googleAccount struct {
 }
 
 func (a *googleAccount) Token(
-	ctx context.Context, runtime string, skip ...string,
+	ctx context.Context, runtime, session string, skip ...string,
 ) (modelgateway.AccountToken, error) {
-	token, err := a.accounts.Token(ctx, runtime, skip...)
+	token, err := a.accounts.Token(ctx, runtime, session, skip...)
 	token.Project = "bright-wave-1234"
 
 	return token, err

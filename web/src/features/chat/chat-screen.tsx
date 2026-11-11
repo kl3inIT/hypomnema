@@ -13,6 +13,8 @@ import {
 } from "@/features/shell/app-shell"
 import { chatsKey } from "@/features/shell/chats"
 
+import { PendingApprovals } from "@/features/approvals/approval-card"
+
 import { Composer } from "./composer"
 import { Conversation } from "./conversation"
 import { useChatStream } from "./use-chat-stream"
@@ -99,6 +101,10 @@ function OpenChat({ chatId }: { chatId: string }) {
         }
       />
       <div className="px-3 pb-[calc(env(safe-area-inset-bottom)+1rem)] sm:px-12 sm:pb-[calc(env(safe-area-inset-bottom)+1.25rem)]">
+        {/* What pi asked to do with an account and waits for: answered here, where it was asked. */}
+        <div className="mx-auto mb-3 w-full max-w-(--chat-content-max-width) empty:hidden">
+          <PendingApprovals chatId={chatId} />
+        </div>
         <Composer
           working={view.working}
           onSend={async (text) => {

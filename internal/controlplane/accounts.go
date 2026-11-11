@@ -22,7 +22,7 @@ import (
 // its tokens are in the vault and the control plane refreshes them.
 
 const accountsUsage = "accounts add <runtime> <label> [--token FILE|-] | " +
-	"accounts login codex|antigravity [--label L] | " +
+	"accounts login codex|antigravity|claude [--label L] | " +
 	"accounts list | accounts disable <account> | accounts enable <account> | accounts models <account> | " +
 	"accounts refresh <account> | accounts rm <account>"
 
@@ -37,7 +37,8 @@ func newSubscriptions(
 	clock := platform.SystemClock{}
 
 	return subscription.New(svc, secrets, clock, logger,
-		subscription.NewCodex(cfg.CodexIssuer, clock), subscription.NewAntigravity(cfg.Antigravity, clock))
+		subscription.NewCodex(cfg.CodexIssuer, clock), subscription.NewAntigravity(cfg.Antigravity, clock),
+		subscription.NewClaude(cfg.Claude, clock))
 }
 
 func (o *owner) accounts(ctx context.Context, args []string) error {

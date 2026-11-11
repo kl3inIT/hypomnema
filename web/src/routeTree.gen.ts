@@ -19,6 +19,7 @@ import { Route as ChatsChatIdRouteImport } from './routes/chats.$chatId'
 import { Route as RunsIndexRouteImport } from './routes/runs.index'
 import { Route as RunsRunIdRouteImport } from './routes/runs.$runId'
 import { Route as SettingsIndexRouteImport } from './routes/settings.index'
+import { Route as SettingsChannelsRouteImport } from './routes/settings.channels'
 import { Route as SettingsIntegrationsRouteImport } from './routes/settings.integrations'
 import { Route as SettingsRepositoriesRouteImport } from './routes/settings.repositories'
 import { Route as SettingsVaultRouteImport } from './routes/settings.vault'
@@ -74,6 +75,11 @@ const SettingsIndexRoute = SettingsIndexRouteImport.update({
   path: '/settings/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SettingsChannelsRoute = SettingsChannelsRouteImport.update({
+  id: '/settings/channels',
+  path: '/settings/channels',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SettingsIntegrationsRoute = SettingsIntegrationsRouteImport.update({
   id: '/settings/integrations',
   path: '/settings/integrations',
@@ -103,6 +109,7 @@ export interface FileRoutesByFullPath {
   '/agents/new': typeof AgentsNewRoute
   '/chats/$chatId': typeof ChatsChatIdRoute
   '/runs/$runId': typeof RunsRunIdRoute
+  '/settings/channels': typeof SettingsChannelsRoute
   '/settings/integrations': typeof SettingsIntegrationsRoute
   '/settings/repositories': typeof SettingsRepositoriesRoute
   '/settings/vault': typeof SettingsVaultRoute
@@ -119,6 +126,7 @@ export interface FileRoutesByTo {
   '/agents/new': typeof AgentsNewRoute
   '/chats/$chatId': typeof ChatsChatIdRoute
   '/runs/$runId': typeof RunsRunIdRoute
+  '/settings/channels': typeof SettingsChannelsRoute
   '/settings/integrations': typeof SettingsIntegrationsRoute
   '/settings/repositories': typeof SettingsRepositoriesRoute
   '/settings/vault': typeof SettingsVaultRoute
@@ -136,6 +144,7 @@ export interface FileRoutesById {
   '/agents/new': typeof AgentsNewRoute
   '/chats/$chatId': typeof ChatsChatIdRoute
   '/runs/$runId': typeof RunsRunIdRoute
+  '/settings/channels': typeof SettingsChannelsRoute
   '/settings/integrations': typeof SettingsIntegrationsRoute
   '/settings/repositories': typeof SettingsRepositoriesRoute
   '/settings/vault': typeof SettingsVaultRoute
@@ -154,6 +163,7 @@ export interface FileRouteTypes {
     | '/agents/new'
     | '/chats/$chatId'
     | '/runs/$runId'
+    | '/settings/channels'
     | '/settings/integrations'
     | '/settings/repositories'
     | '/settings/vault'
@@ -170,6 +180,7 @@ export interface FileRouteTypes {
     | '/agents/new'
     | '/chats/$chatId'
     | '/runs/$runId'
+    | '/settings/channels'
     | '/settings/integrations'
     | '/settings/repositories'
     | '/settings/vault'
@@ -186,6 +197,7 @@ export interface FileRouteTypes {
     | '/agents/new'
     | '/chats/$chatId'
     | '/runs/$runId'
+    | '/settings/channels'
     | '/settings/integrations'
     | '/settings/repositories'
     | '/settings/vault'
@@ -203,6 +215,7 @@ export interface RootRouteChildren {
   AgentsNewRoute: typeof AgentsNewRoute
   ChatsChatIdRoute: typeof ChatsChatIdRoute
   RunsRunIdRoute: typeof RunsRunIdRoute
+  SettingsChannelsRoute: typeof SettingsChannelsRoute
   SettingsIntegrationsRoute: typeof SettingsIntegrationsRoute
   SettingsRepositoriesRoute: typeof SettingsRepositoriesRoute
   SettingsVaultRoute: typeof SettingsVaultRoute
@@ -284,6 +297,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/settings/channels': {
+      id: '/settings/channels'
+      path: '/settings/channels'
+      fullPath: '/settings/channels'
+      preLoaderRoute: typeof SettingsChannelsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/settings/integrations': {
       id: '/settings/integrations'
       path: '/settings/integrations'
@@ -323,6 +343,7 @@ const rootRouteChildren: RootRouteChildren = {
   AgentsNewRoute: AgentsNewRoute,
   ChatsChatIdRoute: ChatsChatIdRoute,
   RunsRunIdRoute: RunsRunIdRoute,
+  SettingsChannelsRoute: SettingsChannelsRoute,
   SettingsIntegrationsRoute: SettingsIntegrationsRoute,
   SettingsRepositoriesRoute: SettingsRepositoriesRoute,
   SettingsVaultRoute: SettingsVaultRoute,
