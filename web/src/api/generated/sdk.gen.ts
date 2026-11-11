@@ -2,7 +2,7 @@
 
 import type { Client, ClientMeta, Options as Options2, RequestResult, ServerSentEventsResult, TDataShape } from './client';
 import { client } from './client.gen';
-import type { AbortChatData, AbortChatErrors, AbortChatResponses, AnswerQuestionData, AnswerQuestionErrors, AnswerQuestionResponses, ApplyProfileData, ApplyProfileErrors, ApplyProfileResponses, ApplyProviderData, ApplyProviderErrors, ApplyProviderResponses, BeginIntegrationSignInData, BeginIntegrationSignInErrors, BeginIntegrationSignInResponses, CancelRunData, CancelRunErrors, CancelRunResponses, CancelTaskData, CancelTaskErrors, CancelTaskResponses, CompleteIntegrationSignInData, CompleteIntegrationSignInErrors, CompleteIntegrationSignInResponses, CreateChatData, CreateChatErrors, CreateChatResponses, CreateNodeData, CreateNodeErrors, CreateNodeResponses, CreateRunData, CreateRunErrors, CreateRunResponses, CreateSessionData, CreateSessionErrors, CreateSessionResponses, CreateTasksData, CreateTasksErrors, CreateTasksResponses, DeleteGitHostConnectionData, DeleteGitHostConnectionErrors, DeleteGitHostConnectionResponses, DeleteGitHostData, DeleteGitHostErrors, DeleteGitHostResponses, DeleteGitHostTokenData, DeleteGitHostTokenErrors, DeleteGitHostTokenResponses, DeleteIntegrationConnectionData, DeleteIntegrationConnectionErrors, DeleteIntegrationConnectionResponses, DeleteRepoData, DeleteRepoErrors, DeleteRepoResponses, DeleteSecretData, DeleteSecretErrors, DeleteSecretResponses, DeleteSessionData, DeleteSessionErrors, DeleteSessionResponses, DrainNodeData, DrainNodeErrors, DrainNodeResponses, FinishRunData, FinishRunErrors, FinishRunResponses, ForwardQuestionData, ForwardQuestionErrors, ForwardQuestionResponses, GetChatData, GetChatErrors, GetChatResponses, GetMeData, GetMeErrors, GetMeResponses, GetProfileData, GetProfileErrors, GetProfileResponses, GetQuestionData, GetQuestionErrors, GetQuestionResponses, GetRunData, GetRunErrors, GetRunResponses, GetSecretValueData, GetSecretValueErrors, GetSecretValueResponses, GetTaskData, GetTaskErrors, GetTaskResponses, ListAccountsData, ListAccountsErrors, ListAccountsResponses, ListChatMessagesData, ListChatMessagesErrors, ListChatMessagesResponses, ListChatsData, ListChatsErrors, ListChatsResponses, ListDispatchItemsData, ListDispatchItemsErrors, ListDispatchItemsResponses, ListEventsData, ListEventsErrors, ListEventsResponses, ListGitHostsData, ListGitHostsErrors, ListGitHostsResponses, ListIntegrationsData, ListIntegrationsErrors, ListIntegrationsResponses, ListMachineProvidersData, ListMachineProvidersErrors, ListMachineProvidersResponses, ListModelsData, ListModelsErrors, ListModelsResponses, ListNodesData, ListNodesErrors, ListNodesResponses, ListProfilesData, ListProfilesErrors, ListProfilesResponses, ListProfileVersionsData, ListProfileVersionsErrors, ListProfileVersionsResponses, ListProvidersData, ListProvidersErrors, ListProvidersResponses, ListQuestionsData, ListQuestionsErrors, ListQuestionsResponses, ListReposData, ListReposErrors, ListReposResponses, ListRunsData, ListRunsErrors, ListRunsResponses, ListSecretsData, ListSecretsErrors, ListSecretsResponses, ListTasksData, ListTasksErrors, ListTasksResponses, OpenNodeTerminalData, OpenNodeTerminalErrors, OpenNodeTerminalResponses, PatchIntegrationConnectionData, PatchIntegrationConnectionErrors, PatchIntegrationConnectionResponses, PutGitHostConnectionData, PutGitHostConnectionErrors, PutGitHostConnectionResponses, PutGitHostData, PutGitHostErrors, PutGitHostResponses, PutGitHostTokenData, PutGitHostTokenErrors, PutGitHostTokenResponses, PutIntegrationClientData, PutIntegrationClientErrors, PutIntegrationClientResponses, PutIntegrationConnectionData, PutIntegrationConnectionErrors, PutIntegrationConnectionResponses, PutRepoData, PutRepoErrors, PutRepoResponses, PutSecretData, PutSecretErrors, PutSecretResponses, RemoveNodeData, RemoveNodeErrors, RemoveNodeResponses, ReopenTaskData, ReopenTaskErrors, ReopenTaskResponses, ResumeNodeData, ResumeNodeErrors, ResumeNodeResponses, SendChatMessageData, SendChatMessageErrors, SendChatMessageResponses, StartNodeMachineData, StartNodeMachineErrors, StartNodeMachineResponses, StopNodeMachineData, StopNodeMachineErrors, StopNodeMachineResponses, StreamChatData, StreamChatErrors, StreamChatResponse, StreamChatResponses, StreamEventsData, StreamEventsErrors, StreamEventsResponse, StreamEventsResponses, UpdateNodeData, UpdateNodeErrors, UpdateNodeResponses } from './types.gen';
+import type { AbortChatData, AbortChatErrors, AbortChatResponses, AnswerQuestionData, AnswerQuestionErrors, AnswerQuestionResponses, ApplyProfileData, ApplyProfileErrors, ApplyProfileResponses, ApplyProviderData, ApplyProviderErrors, ApplyProviderResponses, BeginIntegrationSignInData, BeginIntegrationSignInErrors, BeginIntegrationSignInResponses, CancelRunData, CancelRunErrors, CancelRunResponses, CancelTaskData, CancelTaskErrors, CancelTaskResponses, CompleteIntegrationSignInData, CompleteIntegrationSignInErrors, CompleteIntegrationSignInResponses, CreateChatData, CreateChatErrors, CreateChatResponses, CreateNodeData, CreateNodeErrors, CreateNodeResponses, CreateRunData, CreateRunErrors, CreateRunResponses, CreateSessionData, CreateSessionErrors, CreateSessionResponses, CreateTasksData, CreateTasksErrors, CreateTasksResponses, DecideApprovalData, DecideApprovalErrors, DecideApprovalResponses, DeleteGitHostConnectionData, DeleteGitHostConnectionErrors, DeleteGitHostConnectionResponses, DeleteGitHostData, DeleteGitHostErrors, DeleteGitHostResponses, DeleteGitHostTokenData, DeleteGitHostTokenErrors, DeleteGitHostTokenResponses, DeleteIntegrationConnectionData, DeleteIntegrationConnectionErrors, DeleteIntegrationConnectionResponses, DeleteRepoData, DeleteRepoErrors, DeleteRepoResponses, DeleteSecretData, DeleteSecretErrors, DeleteSecretResponses, DeleteSessionData, DeleteSessionErrors, DeleteSessionResponses, DrainNodeData, DrainNodeErrors, DrainNodeResponses, FinishRunData, FinishRunErrors, FinishRunResponses, ForwardQuestionData, ForwardQuestionErrors, ForwardQuestionResponses, GetChatData, GetChatErrors, GetChatResponses, GetMeData, GetMeErrors, GetMeResponses, GetProfileData, GetProfileErrors, GetProfileResponses, GetQuestionData, GetQuestionErrors, GetQuestionResponses, GetRunData, GetRunErrors, GetRunResponses, GetSecretValueData, GetSecretValueErrors, GetSecretValueResponses, GetTaskData, GetTaskErrors, GetTaskResponses, ListAccountsData, ListAccountsErrors, ListAccountsResponses, ListApprovalsData, ListApprovalsErrors, ListApprovalsResponses, ListChatMessagesData, ListChatMessagesErrors, ListChatMessagesResponses, ListChatsData, ListChatsErrors, ListChatsResponses, ListConnectionActionsData, ListConnectionActionsErrors, ListConnectionActionsResponses, ListDispatchItemsData, ListDispatchItemsErrors, ListDispatchItemsResponses, ListEventsData, ListEventsErrors, ListEventsResponses, ListGitHostsData, ListGitHostsErrors, ListGitHostsResponses, ListIntegrationsData, ListIntegrationsErrors, ListIntegrationsResponses, ListMachineProvidersData, ListMachineProvidersErrors, ListMachineProvidersResponses, ListModelsData, ListModelsErrors, ListModelsResponses, ListNodesData, ListNodesErrors, ListNodesResponses, ListProfilesData, ListProfilesErrors, ListProfilesResponses, ListProfileVersionsData, ListProfileVersionsErrors, ListProfileVersionsResponses, ListProvidersData, ListProvidersErrors, ListProvidersResponses, ListQuestionsData, ListQuestionsErrors, ListQuestionsResponses, ListReposData, ListReposErrors, ListReposResponses, ListRunsData, ListRunsErrors, ListRunsResponses, ListSecretsData, ListSecretsErrors, ListSecretsResponses, ListTasksData, ListTasksErrors, ListTasksResponses, OpenNodeTerminalData, OpenNodeTerminalErrors, OpenNodeTerminalResponses, PatchIntegrationConnectionData, PatchIntegrationConnectionErrors, PatchIntegrationConnectionResponses, PutGitHostConnectionData, PutGitHostConnectionErrors, PutGitHostConnectionResponses, PutGitHostData, PutGitHostErrors, PutGitHostResponses, PutGitHostTokenData, PutGitHostTokenErrors, PutGitHostTokenResponses, PutIntegrationClientData, PutIntegrationClientErrors, PutIntegrationClientResponses, PutIntegrationConnectionData, PutIntegrationConnectionErrors, PutIntegrationConnectionResponses, PutRepoData, PutRepoErrors, PutRepoResponses, PutSecretData, PutSecretErrors, PutSecretResponses, RemoveNodeData, RemoveNodeErrors, RemoveNodeResponses, ReopenTaskData, ReopenTaskErrors, ReopenTaskResponses, ResumeNodeData, ResumeNodeErrors, ResumeNodeResponses, SendChatMessageData, SendChatMessageErrors, SendChatMessageResponses, SetConnectionActionData, SetConnectionActionErrors, SetConnectionActionResponses, StartNodeMachineData, StartNodeMachineErrors, StartNodeMachineResponses, StopNodeMachineData, StopNodeMachineErrors, StopNodeMachineResponses, StreamChatData, StreamChatErrors, StreamChatResponse, StreamChatResponses, StreamEventsData, StreamEventsErrors, StreamEventsResponse, StreamEventsResponses, UpdateNodeData, UpdateNodeErrors, UpdateNodeResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
   /**
@@ -495,6 +495,56 @@ export const putIntegrationConnection = <ThrowOnError extends boolean = true>(op
   security: [{ scheme: 'bearer', type: 'http' }],
   url: '/integrations/{integration}/connections/{label}',
   ...options
+});
+
+/**
+ * What agents may do with a Connection, action by action; only the owner
+ *
+ * The actions of the Connection's Integration that go through the service proxy, each with the answer it has now and its default. An Integration that does not go through the proxy has none.
+ */
+export const listConnectionActions = <ThrowOnError extends boolean = true>(options: Options<ListConnectionActionsData, ThrowOnError>): RequestResult<ListConnectionActionsResponses, ListConnectionActionsErrors, ThrowOnError> => (options.client ?? client).get<ListConnectionActionsResponses, ListConnectionActionsErrors, ThrowOnError>({
+  security: [{ scheme: 'bearer', type: 'http' }],
+  url: '/integrations/{integration}/connections/{label}/actions',
+  ...options
+});
+
+/**
+ * Set the answer of one action of a Connection; only the owner
+ *
+ * allow runs the action on its own, ask holds each request for the owner's Approval, never refuses it. The change applies from the next request.
+ */
+export const setConnectionAction = <ThrowOnError extends boolean = true>(options: Options<SetConnectionActionData, ThrowOnError>): RequestResult<SetConnectionActionResponses, SetConnectionActionErrors, ThrowOnError> => (options.client ?? client).put<SetConnectionActionResponses, SetConnectionActionErrors, ThrowOnError>({
+  security: [{ scheme: 'bearer', type: 'http' }],
+  url: '/integrations/{integration}/connections/{label}/actions/{action}',
+  ...options,
+  headers: {
+    'Content-Type': 'application/json',
+    ...options.headers
+  }
+});
+
+/**
+ * The requests agents made that wait for, or had, the owner's answer; only the owner
+ */
+export const listApprovals = <ThrowOnError extends boolean = true>(options?: Options<ListApprovalsData, ThrowOnError>): RequestResult<ListApprovalsResponses, ListApprovalsErrors, ThrowOnError> => (options?.client ?? client).get<ListApprovalsResponses, ListApprovalsErrors, ThrowOnError>({
+  security: [{ scheme: 'bearer', type: 'http' }],
+  url: '/approvals',
+  ...options
+});
+
+/**
+ * Answer a request that waits for approval; only the owner
+ *
+ * The first answer wins; the same answer again returns the Approval. A request still held goes on at once. An agent whose request had ended is told, and its repeat of the same request passes once.
+ */
+export const decideApproval = <ThrowOnError extends boolean = true>(options: Options<DecideApprovalData, ThrowOnError>): RequestResult<DecideApprovalResponses, DecideApprovalErrors, ThrowOnError> => (options.client ?? client).post<DecideApprovalResponses, DecideApprovalErrors, ThrowOnError>({
+  security: [{ scheme: 'bearer', type: 'http' }],
+  url: '/approvals/{approval_id}/decision',
+  ...options,
+  headers: {
+    'Content-Type': 'application/json',
+    ...options.headers
+  }
 });
 
 /**

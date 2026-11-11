@@ -19,6 +19,8 @@ import {
   repoLabel,
   type Card,
 } from "./board-state"
+import { PendingApprovals } from "@/features/approvals/approval-card"
+
 import { QuestionForm } from "./question-form"
 import { RuntimeMark } from "./runtime-mark"
 import { Transcript } from "./transcript"
@@ -128,6 +130,7 @@ function PanelBody({ taskId }: { taskId: string }) {
             )}
           </div>
 
+          <PendingApprovals taskId={task.id} />
           {card.question && <QuestionForm question={card.question} />}
           {card.piQuestion && <PiQuestion card={card} />}
           <Actions card={card} />

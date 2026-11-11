@@ -62,6 +62,7 @@ import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
 import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
 
+import { AgentActions } from "./agent-actions"
 import { ConfirmDialog, ErrorAlert, TextField } from "./settings-parts"
 import { said, servicesKey } from "./use-integrations"
 
@@ -191,6 +192,22 @@ export function ServiceCard({ service }: { service: Integration }) {
 }
 
 function AccountRow({
+  service,
+  connection,
+}: {
+  service: Integration
+  connection: IntegrationConnection
+}) {
+  return (
+    <div className="flex flex-col gap-1">
+      <AccountItem service={service} connection={connection} />
+      <AgentActions service={service} connection={connection} />
+    </div>
+  )
+}
+
+// AccountItem is the account itself: who it is, what it was granted, and what the owner can do with it.
+function AccountItem({
   service,
   connection,
 }: {

@@ -9,7 +9,7 @@ import { render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, expect, test, vi } from "vitest"
 
-import type { GitHost, Integration, Repo } from "@/api/generated/types.gen"
+import type { ConnectionAction, GitHost, Integration, Repo } from "@/api/generated/types.gen"
 
 import { IntegrationsScreen } from "./integrations-screen"
 import { RepositoriesScreen } from "./repositories-screen"
@@ -46,6 +46,28 @@ function server(
   let services = start.services ?? []
   // The sign-in the owner started and has not completed: its label and what it asked for.
   let signIn: { label: string; services: string[] } | undefined
+  // What agents may do with a Google account, action by action; a service that does not go through the service
+  // proxy has no actions.
+  let actions: ConnectionAction[] = [
+    {
+      id: "gmail.read",
+      service: "Gmail",
+      name: "Read mail",
+      text: "List, search and read messages",
+      kind: "reads",
+      policy: "allow",
+      default: "allow",
+    },
+    {
+      id: "gmail.send",
+      service: "Gmail",
+      name: "Send mail",
+      text: "A new message, a reply or a draft",
+      kind: "needs_care",
+      policy: "ask",
+      default: "ask",
+    },
+  ]
   const requests: { call: string; body: unknown }[] = []
 
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
@@ -55,6 +77,9 @@ function server(
     if (call === "GET /hosts") return json({ data: hosts })
     if (call === "GET /repos") return json({ data: repos })
     if (call === "GET /integrations") return json({ data: services })
+    if (request.method === "GET" && path.endsWith("/actions")) {
+      return json({ data: path.startsWith("/integrations/google/") ? actions : [] })
+    }
 
     const body = (await request
       .clone()
@@ -65,6 +90,14 @@ function server(
     if (refuse[call]) return json({ code: "invalid", message: refuse[call] }, 422)
 
     const [, kind, name, sub] = path.split("/")
+    if (kind === "integrations" && path.includes("/actions/")) {
+      const id = path.split("/").at(-1)
+      const asked = body as unknown as { policy: ConnectionAction["policy"] }
+      actions = actions.map((a) => (a.id === id ? { ...a, policy: asked.policy } : a))
+
+      return json(actions.find((a) => a.id === id))
+    }
+
     if (kind === "integrations" && sub === "sign-ins") {
       const asked = body as unknown as { label: string; services: string[]; callback: string }
       if (path.endsWith("/sign-ins")) {
@@ -427,6 +460,30 @@ test("the owner signs a Google account in and disconnects it", async () => {
     ).toBeChecked(),
   )
 
+  // What agents may do with it, action by action: reading runs on its own, sending asks. The owner forbids
+  // sending, and the line under the account says so.
+  const may = await screen.findByRole("button", { name: "What agents may do with work" })
+  expect(may).toHaveTextContent("1 on their own · ask before 1")
+  await user.click(may)
+
+  const sheet = within(await screen.findByRole("dialog"))
+  expect(sheet.getByText("A new message, a reply or a draft")).toBeInTheDocument()
+  const send = within(sheet.getByRole("group", { name: "Send mail" }))
+  expect(send.getByRole("button", { name: "Ask" })).toHaveAttribute("aria-pressed", "true")
+  await user.click(send.getByRole("button", { name: "Never" }))
+  await waitFor(() =>
+    expect(
+      within(sheet.getByRole("group", { name: "Send mail" })).getByRole("button", {
+        name: "Never",
+      }),
+    ).toHaveAttribute("aria-pressed", "true"),
+  )
+  await user.keyboard("{Escape}")
+  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
+  expect(screen.getByRole("button", { name: "What agents may do with work" })).toHaveTextContent(
+    "1 on their own · never 1",
+  )
+
   await user.click(
     within(screen.getByLabelText("Google account work")).getByRole("button", {
       name: "Disconnect work",
@@ -447,6 +504,10 @@ test("the owner signs a Google account in and disconnects it", async () => {
       body: { callback: "http://localhost:1/?state=s&code=c" },
     },
     { call: "PATCH /integrations/google/connections/work", body: { chats: true } },
+    {
+      call: "PUT /integrations/google/connections/work/actions/gmail.send",
+      body: { policy: "never" },
+    },
     { call: "DELETE /integrations/google/connections/work", body: undefined },
   ])
 })

@@ -639,6 +639,85 @@ export type IntegrationConnection = {
   updated_at: string;
 };
 
+export type ActionPolicy = 'allow' | 'ask' | 'never';
+
+/**
+ * One thing an agent can do with a Connection, and the owner's answer to it.
+ */
+export type ConnectionAction = {
+  /**
+   * The action's name in commands, such as gmail.send.
+   */
+  id: string;
+  /**
+   * The part of the Integration it belongs to, such as Gmail.
+   */
+  service: string;
+  name: string;
+  text: string;
+  kind: 'reads' | 'changes' | 'needs_care';
+  policy: ActionPolicy;
+  default: ActionPolicy;
+};
+
+export type ConnectionActionList = {
+  data: Array<ConnectionAction>;
+};
+
+export type ActionPolicyChange = {
+  policy: ActionPolicy;
+};
+
+export type ApprovalStatus = 'pending' | 'approved' | 'rejected';
+
+export type ApprovalField = {
+  label: string;
+  value: string;
+};
+
+/**
+ * One request an agent made to a service that waits for the owner's answer, shown decoded. It is not a Gate.
+ */
+export type Approval = {
+  id: string;
+  integration: string;
+  label: string;
+  action: string;
+  action_name: string;
+  /**
+   * pi, worker or owner.
+   */
+  asked_by: string;
+  dispatch_id?: string;
+  task_id?: string;
+  run_id?: string;
+  chat_id?: string;
+  title: string;
+  payload: Array<ApprovalField>;
+  status: ApprovalStatus;
+  /**
+   * How far an approval reaches; absent until approved.
+   */
+  scope?: 'once' | 'session';
+  /**
+   * An approval for one request has run.
+   */
+  used: boolean;
+  created_at: string;
+  decided_at?: string;
+};
+
+export type ApprovalList = {
+  data: Array<Approval>;
+};
+
+export type ApprovalDecision = {
+  /**
+   * approve lets this one request run; approve_session also stops asking for the action for the rest of the Run or the chat that asked; reject refuses it.
+   */
+  decision: 'approve' | 'approve_session' | 'reject';
+};
+
 export type ConnectionUse = {
   chats: boolean;
 };
@@ -927,6 +1006,8 @@ export type NewIntegrationClientWritable = {
 };
 
 export type IntegrationId = string;
+
+export type ConnectionLabel = string;
 
 export type Name = string;
 
@@ -2190,6 +2271,119 @@ export type PutIntegrationConnectionResponses = {
 };
 
 export type PutIntegrationConnectionResponse = PutIntegrationConnectionResponses[keyof PutIntegrationConnectionResponses];
+
+export type ListConnectionActionsData = {
+  body?: never;
+  path: {
+    integration: string;
+    label: string;
+  };
+  query?: never;
+  url: '/integrations/{integration}/connections/{label}/actions';
+};
+
+export type ListConnectionActionsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListConnectionActionsError = ListConnectionActionsErrors[keyof ListConnectionActionsErrors];
+
+export type ListConnectionActionsResponses = {
+  /**
+   * The actions.
+   */
+  200: ConnectionActionList;
+};
+
+export type ListConnectionActionsResponse = ListConnectionActionsResponses[keyof ListConnectionActionsResponses];
+
+export type SetConnectionActionData = {
+  body: ActionPolicyChange;
+  path: {
+    integration: string;
+    label: string;
+    action: string;
+  };
+  query?: never;
+  url: '/integrations/{integration}/connections/{label}/actions/{action}';
+};
+
+export type SetConnectionActionErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type SetConnectionActionError = SetConnectionActionErrors[keyof SetConnectionActionErrors];
+
+export type SetConnectionActionResponses = {
+  /**
+   * The action with its answer.
+   */
+  200: ConnectionAction;
+};
+
+export type SetConnectionActionResponse = SetConnectionActionResponses[keyof SetConnectionActionResponses];
+
+export type ListApprovalsData = {
+  body?: never;
+  path?: never;
+  query?: {
+    status?: ApprovalStatus;
+    chat_id?: string;
+    task_id?: string;
+  };
+  url: '/approvals';
+};
+
+export type ListApprovalsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListApprovalsError = ListApprovalsErrors[keyof ListApprovalsErrors];
+
+export type ListApprovalsResponses = {
+  /**
+   * The Approvals, the newest first.
+   */
+  200: ApprovalList;
+};
+
+export type ListApprovalsResponse = ListApprovalsResponses[keyof ListApprovalsResponses];
+
+export type DecideApprovalData = {
+  body: ApprovalDecision;
+  path: {
+    approval_id: string;
+  };
+  query?: never;
+  url: '/approvals/{approval_id}/decision';
+};
+
+export type DecideApprovalErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type DecideApprovalError = DecideApprovalErrors[keyof DecideApprovalErrors];
+
+export type DecideApprovalResponses = {
+  /**
+   * The Approval as answered.
+   */
+  200: Approval;
+};
+
+export type DecideApprovalResponse = DecideApprovalResponses[keyof DecideApprovalResponses];
 
 export type ListSecretsData = {
   body?: never;
