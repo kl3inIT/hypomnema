@@ -37,6 +37,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/node/daemon"
 	"github.com/kl3inIT/hypomnema/internal/node/shim"
 	"github.com/kl3inIT/hypomnema/internal/node/statedb"
+	"github.com/kl3inIT/hypomnema/internal/node/transcript"
 	"github.com/kl3inIT/hypomnema/internal/node/worktree"
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
@@ -85,18 +86,10 @@ type Runner struct {
 	// Env is added to each worker's environment (tests).
 	Env    []string
 	Logger *slog.Logger
-	// Send sends a batch of a worker's transcript to the control plane; it
-	// reports false when the batch could not be sent now. Nil sends nothing.
-	Send func(nodeproto.Items) bool
 
 	mu   sync.Mutex
 	jobs map[string]*job
-
-	smu         sync.Mutex
-	transcripts map[string]*transcript
 }
-
-var _ daemon.Runner = (*Runner)(nil)
 
 type job struct {
 	id     string
@@ -236,6 +229,10 @@ func (rn *Runner) Start(ctx context.Context, d statedb.Dispatch, r daemon.Report
 		return err
 	}
 
+	if err := transcript.SetFormat(dir, Format); err != nil {
+		return err
+	}
+
 	if err := rn.writeMCPConfig(dir); err != nil {
 		return err
 	}
@@ -337,8 +334,6 @@ func (rn *Runner) watch(ctx context.Context, id, dir string, pid int, started bo
 		return nil
 	}
 
-	rn.follow(id, dir)
-
 	go rn.tail(ctx, j)
 
 	return nil
@@ -384,8 +379,6 @@ func (rn *Runner) Release(id string) {
 	if pid, err := shim.PID(dir); err == nil {
 		_ = shim.Kill(pid)
 	}
-
-	rn.unfollow(id)
 
 	_ = os.RemoveAll(dir)
 }
