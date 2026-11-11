@@ -1,6 +1,6 @@
 import { useBlocker } from "@tanstack/react-router"
 import { Brain, Trash2 } from "lucide-react"
-import { useRef, useState } from "react"
+import { lazy, Suspense, useRef, useState } from "react"
 
 import type { Model, Profile } from "@/api/generated/types.gen"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -23,6 +23,7 @@ import {
   NativeSelectOption,
 } from "@/components/ui/native-select"
 import { Textarea } from "@/components/ui/textarea"
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 
 import {
   efforts,
@@ -40,16 +41,22 @@ import { useApplyProfile, useProfiles } from "./use-profiles"
 
 type Mode = "builder" | "yaml"
 
+// noEffort stands for "the runtime's default" in the effort's group, whose values cannot be empty.
+const noEffort = "default"
+
+// Monaco is large, so it is fetched when the YAML tab first opens.
+const YamlEditor = lazy(() => import("./yaml-editor"))
+
 // ProfileEditor edits one profile, new or stored, and saves it as a version. It is Omnara's config editor
 // (Apache License 2.0, https://github.com/omnara-ai/omnara; frontend/apps/web/src/components/agents/
 // AgentConfigEditor.tsx, AgentConfigBasicForm.tsx, AgentConfigModelField.tsx, AgentProfileConfigEditor.tsx,
 // ConfirmDiscardYamlDialog.tsx): Builder and YAML as two pills, the effort joined to the model, "Save revision"
 // off until something changed, "Discard changes", and a question before YAML edits are thrown away. The name that
 // cannot change, the description and the runtime's select are Omnigent's form (Apache License 2.0,
-// https://github.com/omnigent-ai/omnigent; web/src/pages/settings/CustomAgentConfigForm.tsx). Changed: YAML is a
-// plain text field checked by the server, where Omnara has Monaco with a schema; the builder does not read YAML
-// back, so going back to it always discards YAML edits; every model is listed, and the server says which a
-// runtime cannot use.
+// https://github.com/omnigent-ai/omnigent; web/src/pages/settings/CustomAgentConfigForm.tsx). The effort is a row
+// of pills with "Default" first, as OpenMausBot's (Apache License 2.0, https://github.com/milind-soni/OpenMausBot;
+// src/components/ModelPicker.tsx, EffortRow). Changed: the builder does not read YAML back, so going back to it
+// always discards YAML edits; every model is listed, and the server says which a runtime cannot use.
 export function ProfileEditor({
   start,
   startSource,
@@ -155,21 +162,22 @@ export function ProfileEditor({
         <Builder draft={draft} set={set} models={models} renamable={!stored} />
       ) : (
         <Field>
-          <FieldLabel htmlFor="profile-yaml">Config (YAML)</FieldLabel>
-          <Textarea
-            id="profile-yaml"
-            spellCheck={false}
-            autoComplete="off"
-            code
-            rows={18}
-            value={shown}
-            onChange={(event) => {
-              apply.reset()
-              setYaml(event.target.value)
-            }}
-          />
+          <FieldLabel id="profile-yaml-label">Config (YAML)</FieldLabel>
+          <Suspense fallback={<div className="h-[26rem] animate-pulse rounded-lg bg-muted" />}>
+            <YamlEditor
+              id="profile-yaml"
+              label="Config (YAML)"
+              value={shown}
+              onChange={(next) => {
+                if (next === shown) return
+                apply.reset()
+                setYaml(next)
+              }}
+            />
+          </Suspense>
           <FieldDescription>
-            The document the server stores. It checks it when you save and says what is wrong.
+            The document the server stores. The editor marks what does not fit it as you type; the
+            server checks the rest when you save.
           </FieldDescription>
         </Field>
       )}
@@ -323,21 +331,30 @@ function Builder({
               </NativeSelectOptGroup>
             ))}
           </NativeSelect>
-          <span className="flex items-center gap-1.5">
-            <Brain className="size-4 text-muted-foreground" aria-hidden />
-            <NativeSelect
-              aria-label="Effort"
-              value={draft.effort}
-              onChange={(event) => set({ effort: event.target.value })}
-            >
-              <NativeSelectOption value="">Default</NativeSelectOption>
-              {efforts.map((e) => (
-                <NativeSelectOption key={e.value} value={e.value}>
-                  {e.label}
-                </NativeSelectOption>
-              ))}
-            </NativeSelect>
-          </span>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Brain className="size-4 text-muted-foreground" aria-hidden />
+          <ToggleGroup
+            variant="outline"
+            size="sm"
+            spacing={0}
+            aria-label="Effort"
+            value={[draft.effort || noEffort]}
+            onValueChange={(next) => {
+              const effort = next[0] as string | undefined
+              if (effort) set({ effort: effort === noEffort ? "" : effort })
+            }}
+          >
+            {[{ value: noEffort, label: "Default" }, ...efforts].map((e) => (
+              <ToggleGroupItem key={e.value} value={e.value}>
+                {(draft.effort || noEffort) === e.value ? (
+                  e.label
+                ) : (
+                  <span className="font-normal text-muted-foreground">{e.label}</span>
+                )}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
         </div>
         <FieldDescription>
           {known

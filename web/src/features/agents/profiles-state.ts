@@ -1,4 +1,5 @@
 import type { Model, Profile } from "@/api/generated/types.gen"
+import { since } from "@/lib/time"
 
 // What the Agents pages say about a profile, apart from how they draw it.
 
@@ -6,12 +7,20 @@ import type { Model, Profile } from "@/api/generated/types.gen"
 export function runtimeName(runtime: string) {
   if (runtime === "claude") return "Claude Code"
   if (runtime === "codex") return "Codex"
+  if (runtime === "opencode") return "OpenCode"
 
   return runtime
 }
 
-// The runtimes a profile may name; pi is the coordinator's.
-export const runtimes = ["claude", "codex", "pi"] as const
+// The runtimes a profile may name, as the server knows them (orchestration/profiles.go, runtimeProviders); pi is
+// the coordinator's.
+export const runtimes = ["claude", "codex", "omp", "opencode", "pi"] as const
+
+// savedAgo says how long ago a version was saved, or nothing for one with no time: the starting profiles were
+// inserted by migrations at time 0.
+export function savedAgo(profile: Pick<Profile, "created_at">) {
+  return new Date(profile.created_at).getTime() > 0 ? since(profile.created_at) : null
+}
 
 // The efforts a profile may name, as Omnara's model field words them (AgentConfigModelField.tsx: "xhigh" reads
 // "Extra High", the others are capitalized).

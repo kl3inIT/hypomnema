@@ -1,15 +1,16 @@
 import { Link } from "@tanstack/react-router"
-import { Box, Brain, CircleAlert, CircleCheck, History, LifeBuoy } from "lucide-react"
+import { Box, Brain, CircleAlert, CircleCheck, History, LifeBuoy, Search } from "lucide-react"
 import { useState } from "react"
 
 import type { Profile } from "@/api/generated/types.gen"
 import { Button, buttonVariants } from "@/components/ui/button"
+import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group"
 import { RuntimeMark } from "@/features/board/runtime-mark"
 import { PageHeader } from "@/features/shell/app-shell"
-import { since } from "@/lib/time"
 import { cn } from "@/lib/utils"
 
-import { effortLabel, modelLine, runtimeName, standing, summary } from "./profiles-state"
+import { AgentAvatar } from "./agent-avatar"
+import { effortLabel, modelLine, runtimeName, savedAgo, standing, summary } from "./profiles-state"
 import { useProfiles } from "./use-profiles"
 
 type Layout = "grid" | "table"
@@ -31,9 +32,16 @@ function readLayout(): Layout {
 // (Apache License 2.0, https://github.com/omnara-ai/omnara; frontend/apps/web/src/components/agents/
 // AgentProfilesSection.tsx, AgentCardList.tsx); the card itself is the Machines page's (owner, 2026-11-11).
 export function AgentsScreen() {
+  // The search over names and descriptions, and "No results." when it finds none, are Omnara's toolbar
+  // (components/data-table/ResourceListToolbar.tsx) and Omnigent's list (SettingsCustomAgentsSection.tsx).
   const profiles = useProfiles()
   const [layout, setLayout] = useState<Layout>(readLayout)
-  const list = profiles.data ?? []
+  const [query, setQuery] = useState("")
+  const all = profiles.data ?? []
+  const words = query.trim().toLowerCase()
+  const list = words
+    ? all.filter((p) => `${p.name} ${p.description}`.toLowerCase().includes(words))
+    : all
 
   function choose(next: Layout) {
     setLayout(next)
@@ -48,8 +56,8 @@ export function AgentsScreen() {
   return (
     <main className="flex min-w-0 flex-1 flex-col">
       <PageHeader title="Agents">
-        {list.length > 0 && (
-          <span className="text-xs whitespace-nowrap text-muted-foreground">{summary(list)}</span>
+        {all.length > 0 && (
+          <span className="text-xs whitespace-nowrap text-muted-foreground">{summary(all)}</span>
         )}
         <div className="ms-auto flex items-center gap-2">
           <fieldset className="m-0 inline-flex gap-0.5 rounded-lg border border-solid bg-muted p-0.5">
@@ -73,9 +81,28 @@ export function AgentsScreen() {
       </PageHeader>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-3 pt-1 pb-8 sm:px-5">
-        <p className="pb-3 text-xs text-muted-foreground">
-          The coordinator gives each Task to one of these, choosing by its description.
-        </p>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 pb-3">
+          <p className="min-w-0 flex-1 basis-64 text-xs text-muted-foreground">
+            The coordinator gives each Task to one of these, choosing by its description.
+          </p>
+          {all.length > 0 && (
+            <div className="w-full sm:w-64">
+              <InputGroup>
+                <InputGroupAddon>
+                  <Search />
+                </InputGroupAddon>
+                <InputGroupInput
+                  type="search"
+                  autoComplete="off"
+                  aria-label="Search agents"
+                  placeholder="Search agents by name…"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                />
+              </InputGroup>
+            </div>
+          )}
+        </div>
         {profiles.error ? (
           <div className="flex flex-col items-center gap-3 py-10 text-sm text-muted-foreground">
             <p>Couldn&apos;t load this list.</p>
@@ -92,6 +119,8 @@ export function AgentsScreen() {
               <div key={i} className="h-56 animate-pulse rounded-xl bg-muted" />
             ))}
           </div>
+        ) : all.length > 0 && list.length === 0 ? (
+          <p className="py-16 text-center text-sm text-muted-foreground">No results.</p>
         ) : list.length === 0 ? (
           <div className="mx-auto flex max-w-sm flex-col items-center gap-4 py-16 text-center">
             <p className="text-sm text-muted-foreground">
@@ -144,10 +173,23 @@ function StandingDot({ profile }: { profile: Profile }) {
     <span
       aria-hidden
       className={cn(
-        "size-2 shrink-0 rounded-full",
+        "size-1.5 shrink-0 rounded-full",
         s === null ? "bg-muted-foreground/40" : s.tone === "good" ? "bg-done" : "bg-needs-you",
       )}
     />
+  )
+}
+
+// Face is an agent's avatar with the mark of its CLI at the corner, as OpenMausBot badges a bot's avatar with its
+// provider (Apache License 2.0, https://github.com/milind-soni/OpenMausBot; src/components/BotModelBadge.tsx).
+function Face({ profile }: { profile: Profile }) {
+  return (
+    <span className="relative shrink-0">
+      <AgentAvatar name={profile.name} className="size-8" />
+      <span className="absolute -end-1 -bottom-0.5 flex size-4 items-center justify-center rounded-full bg-card ring-1 ring-border">
+        <RuntimeMark runtime={profile.runtime} className="size-2.5" />
+      </span>
+    </span>
   )
 }
 
@@ -212,9 +254,9 @@ function AgentCard({ profile }: { profile: Profile }) {
       value: (
         <>
           {profile.version}
-          <span className="ms-1.5 text-xs text-muted-foreground">
-            saved {since(profile.created_at)}
-          </span>
+          {savedAgo(profile) && (
+            <span className="ms-1.5 text-xs text-muted-foreground">saved {savedAgo(profile)}</span>
+          )}
         </>
       ),
     },
@@ -228,7 +270,7 @@ function AgentCard({ profile }: { profile: Profile }) {
     >
       <header className="flex items-center gap-2 border-b border-border/60 bg-muted/30 px-4 py-2">
         <h2 className="flex min-w-0 flex-1 items-center gap-2.5 text-sm font-semibold">
-          <StandingDot profile={profile} />
+          <Face profile={profile} />
           <Link
             to="/agents/$name"
             params={{ name: profile.name }}
@@ -238,7 +280,8 @@ function AgentCard({ profile }: { profile: Profile }) {
           </Link>
         </h2>
         {s && (
-          <span className="text-xs font-normal whitespace-nowrap text-muted-foreground">
+          <span className="flex items-center gap-1.5 text-xs font-normal whitespace-nowrap text-muted-foreground">
+            <StandingDot profile={profile} />
             {s.short}
           </span>
         )}
@@ -283,16 +326,21 @@ function AgentsTable({ profiles }: { profiles: Profile[] }) {
           {profiles.map((profile) => (
             <tr key={profile.name} data-testid="agent" className="border-b last:border-b-0">
               <td className="max-w-80 px-3 py-2.5">
-                <Link
-                  to="/agents/$name"
-                  params={{ name: profile.name }}
-                  className="font-medium hover:underline"
-                >
-                  {profile.name}
-                </Link>
-                <p className="truncate text-xs text-muted-foreground">
-                  {profile.description || "No description."}
-                </p>
+                <span className="flex min-w-0 items-center gap-2.5">
+                  <Face profile={profile} />
+                  <span className="min-w-0">
+                    <Link
+                      to="/agents/$name"
+                      params={{ name: profile.name }}
+                      className="font-medium hover:underline"
+                    >
+                      {profile.name}
+                    </Link>
+                    <span className="block truncate text-xs text-muted-foreground">
+                      {profile.description || "No description."}
+                    </span>
+                  </span>
+                </span>
               </td>
               <td className="px-3 py-2.5 text-xs whitespace-nowrap">
                 <StandingText profile={profile} />
@@ -313,7 +361,7 @@ function AgentsTable({ profiles }: { profiles: Profile[] }) {
                 {profile.effort ? effortLabel(profile.effort) : "Default"}
               </td>
               <td className="px-3 py-2.5 whitespace-nowrap text-muted-foreground">
-                {profile.version}, {since(profile.created_at)}
+                {[profile.version, savedAgo(profile)].filter(Boolean).join(", ")}
               </td>
             </tr>
           ))}

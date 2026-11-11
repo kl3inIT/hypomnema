@@ -924,12 +924,18 @@ Node (`internal/node`):
   main sidebar between Runs and Machines): `/agents` lists the profiles as cards or a table, each with its
   description, runtime, model, effort, version and whether a worker can start under it now, in words; it is read
   again every 10 s. `/agents/$name` shows one profile: a builder (the name, which cannot change, the description,
-  the runtime, a model from `GET /models` grouped by provider with its effort, the instructions) and the YAML as
-  text, saved with `PUT /profiles/{name}` as a new version, a refusal shown in the server's words; and its
+  the runtime, a model from `GET /models` grouped by provider, its effort as a row of choices, the instructions,
+  the fallbacks) and the YAML in Monaco with `monaco-yaml` (issue #177, as Omnara's editor): completion, hover and
+  marks against a schema of the profile document written in the client, fetched when the YAML tab first opens.
+  Both are saved with `PUT /profiles/{name}` as a new version, a refusal shown in the server's words; and its
   versions, each opening to its source, an earlier one restored by applying its source again. `/agents/new` makes
   a profile with the same builder. The builder writes the YAML and does not read it back, so YAML edits are
-  discarded, after a question, on the way back to the builder; leaving with unsaved changes asks first. Not there:
-  deleting a profile (the API has none), and a check that nobody else saved meanwhile.
+  discarded, after a question, on the way back to the builder; leaving with unsaved changes asks first. The list
+  is searched by name and description. An agent has an avatar (issue #177): one of OpenMausBot's ten mascot bodies
+  and ten of its colours with its idle eyes, drawn still, both chosen by a hash of the agent's name, so nothing is
+  stored; the mark of its CLI sits at the avatar's corner in the list. A version saved at time 0, as the starting
+  profiles' are, shows no age. Not there: deleting, renaming or duplicating a profile (the API has no delete), and
+  a check that nobody else saved meanwhile.
 - Chats with pi (issue #41 PR 4, after Omnara; learned from assistant-ui, ai-elements and pi-web): a list of chats
   beside the open one. A chat follows `GET /chats/{id}/stream`: kept messages, then pi's live frames, reopened after
   the last kept message when the server ends it. pi's thoughts and tools between replies form one line that opens,

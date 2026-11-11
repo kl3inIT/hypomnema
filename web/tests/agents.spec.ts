@@ -216,7 +216,9 @@ test("an agent opens to its builder, its YAML and its versions", async ({ page }
   await expect(page.getByText("Version 3 · Claude Code")).toBeVisible()
   await expect(page.getByLabel("Name")).toHaveAttribute("readonly", "")
   await expect(page.getByLabel("Model")).toHaveValue("claude-subscription/opus")
-  await expect(page.getByLabel("Effort")).toHaveValue("xhigh")
+  await expect(
+    page.getByRole("group", { name: "Effort" }).getByRole("button", { name: "Extra High" }),
+  ).toHaveAttribute("aria-pressed", "true")
   await expect(page.getByRole("button", { name: "Save revision" })).toBeDisabled()
   await shot(page, "agent-builder")
 
@@ -230,8 +232,16 @@ test("an agent opens to its builder, its YAML and its versions", async ({ page }
   await expect(page.getByRole("button", { name: "Save revision" })).toBeDisabled()
 
   await page.getByRole("button", { name: "YAML" }).click()
-  await expect(page.getByLabel("Config (YAML)")).toHaveValue(reviewerSource)
+  // The YAML is in an editor that knows the profile's shape: a key it does not have is marked as it is typed.
+  const yaml = page.getByTestId("yaml-editor")
+  await expect(yaml.locator(".view-lines")).toContainText(/name:\sreviewer/)
+  await expect(yaml.locator(".squiggly-error, .squiggly-warning")).toHaveCount(0)
   await shot(page, "agent-yaml")
+  await yaml.locator(".view-lines").click()
+  await page.keyboard.press("Control+End")
+  await page.keyboard.type("nope: 1")
+  await expect(yaml.locator(".squiggly-error, .squiggly-warning").first()).toBeVisible()
+  await shot(page, "agent-yaml-error")
 
   await page.getByRole("button", { name: "versions" }).click()
   await page.getByText("Version 2", { exact: true }).click()
@@ -268,7 +278,10 @@ test("a new agent is made from the builder", async ({ page }) => {
   await page.getByLabel("Description").fill("Reviews a change made on Claude Code, on Codex.")
   await page.getByLabel("Runs on").selectOption("codex")
   await page.getByLabel("Model").selectOption("gateway/gpt-sol")
-  await page.getByLabel("Effort").selectOption("xhigh")
+  await page
+    .getByRole("group", { name: "Effort" })
+    .getByRole("button", { name: "Extra High" })
+    .click()
   await shot(page, "agent-new")
 
   await page.getByRole("button", { name: "Create profile" }).click()
