@@ -46,6 +46,8 @@ you start yourself: `hypomnema runs create --use google:work ...`. The agent cal
 which Hypomnema installs and signs in on every call. The agent never holds the account's token: each request passes
 the control plane, which adds it.
 
+Lark works the same way, with `lark-cli` and `lark:<label>`.
+
 What an agent may do with an account is set action by action: `hypomnema integrations actions google:work` lists
 them, and `hypomnema integrations actions set google:work gmail.send never` changes one to `allow`, `ask` or
 `never` (or open the account's "Agents may" line in Settings). By default reading and drafts run on their own, and

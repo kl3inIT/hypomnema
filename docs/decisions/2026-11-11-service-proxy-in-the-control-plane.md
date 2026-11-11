@@ -50,6 +50,7 @@ Read again when the lock was to be built:
   without it within what could be told (about 0.3 s a request, the service's own time).
 - The control plane sees an Integration's requests in clear, as Onyx's proxy does.
 - When the control plane is down no agent reaches a service; it was already so for a token.
-- Git hosts and Lark still hand a token to the agent's tool, and move behind the proxy one by one.
+- Lark went behind the proxy the same day (issue #175). A git host does not go behind it (owner, 2026-11-11): a
+  worker's git work can be undone and is reviewed in a pull request, and no reference proxies git's own traffic.
 - The egress of a worker as a whole (deny by default, per Dispatch) is still not built; this record does not decide
   it.

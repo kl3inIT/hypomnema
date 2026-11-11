@@ -664,12 +664,14 @@ func clipTitle(s string) string {
 	return s[:cut] + "…"
 }
 
-// reply answers the tool itself, in the shape of a Google API error, which
-// its tools print as the message (tried with gws on 2026-11-11).
+// reply answers the tool itself, in a shape the tools print as the message:
+// the "error" object of a Google API error (tried with gws on 2026-11-11),
+// and beside it the "code" and "msg" of a Lark one.
 func (p *Proxy) reply(out io.Writer, status int, message string) error {
-	body, err := json.Marshal(map[string]any{"error": map[string]any{
-		"code": status, "message": message, "status": "PERMISSION_DENIED",
-	}})
+	body, err := json.Marshal(map[string]any{
+		"error": map[string]any{"code": status, "message": message, "status": "PERMISSION_DENIED"},
+		"code":  status, "msg": message,
+	})
 	if err != nil {
 		return err
 	}
