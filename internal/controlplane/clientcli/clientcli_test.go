@@ -1372,3 +1372,89 @@ func TestSigningAGoogleAccountInFromTheCLI(t *testing.T) {
 	require.Error(t, err, "only the owner disconnects")
 	assert.Len(t, google.connections, 1)
 }
+
+// decider answers Approvals as the service proxy does, without a proxy.
+// The world it answers in is made after it is wired, so it holds where the
+// world will be.
+type decider struct{ w **world }
+
+func (d decider) Decide(ctx context.Context, id string, approve bool, scope orchestration.ApprovalScope,
+) (orchestration.Approval, error) {
+	return (*d.w).svc.DecideApproval(ctx, id, approve, scope)
+}
+
+// Scenario: the owner looks at what agents may do with his Google account,
+// forbids sending, and answers a request that waits for him. The coordinator
+// can do none of it: an agent that could approve would not be asking.
+func TestTheOwnerSetsActionsAndAnswersApprovals(t *testing.T) {
+	t.Parallel()
+
+	var w *world
+
+	w = newWorldWith(t, nil, func(s *clientapi.Server) { s.WithApprovals(decider{w: &w}) })
+	ctx := t.Context()
+
+	_, err := w.svc.SaveServiceConnection(ctx, orchestration.Connection{
+		Integration: "google", Label: "work", Account: "owner@example.com", Secret: "conn-google-work",
+	})
+	require.NoError(t, err)
+
+	chat, err := w.svc.CreateChat(ctx, "Reply to the invoice")
+	require.NoError(t, err)
+
+	w.login(t, bearertoken.Owner)
+
+	out, err := w.cmd(t, "integrations", "actions", "google:work")
+	require.NoError(t, err)
+	assert.Contains(t, out, "gmail.send         ask    Gmail: Send mail\n")
+	assert.Contains(t, out, "gmail.read         allow  Gmail: Read mail\n")
+	assert.NotContains(t, out, "discovery", "what a tool needs to run at all is not the owner's to answer")
+
+	out, err = w.cmd(t, "integrations", "actions", "set", "google:work", "gmail.send", "never")
+	require.NoError(t, err)
+	assert.Equal(t, "gmail.send         never  Gmail: Send mail  (default ask)\n", out)
+
+	_, err = w.cmd(t, "integrations", "actions", "set", "google:work", "gmail.send", "sometimes")
+	require.ErrorContains(t, err, "allow, ask or never")
+
+	_, err = w.cmd(t, "integrations", "actions", "set", "google:work", "gmail.fly", "ask")
+	require.ErrorContains(t, err, "no action gmail.fly")
+
+	_, err = w.cmd(t, "integrations", "actions", "set", "google:other", "gmail.send", "ask")
+	require.Error(t, err, "an account that is not connected")
+
+	out, err = w.cmd(t, "approvals")
+	require.NoError(t, err)
+	assert.Equal(t, "nothing waits for your approval\n", out)
+
+	asked, granted, err := w.svc.AskApproval(ctx, orchestration.NewApproval{
+		Integration: "google", Label: "work", Action: "calendar.write", ActionName: "Create or change an event",
+		ChatID: chat.ID, AskedBy: "pi", Title: "Create or change an event: Review", MatchHash: "digest-1",
+		Payload: []orchestration.Field{{Label: "summary", Value: "Review"}, {Label: "notes", Value: "one\ntwo"}},
+	})
+	require.NoError(t, err)
+	require.False(t, granted)
+
+	out, err = w.cmd(t, "approvals")
+	require.NoError(t, err)
+	assert.Equal(t, asked.ID+"  pending  Create or change an event: Review\n"+
+		"  google:work · Create or change an event · asked by pi in chat "+chat.ID+"\n"+
+		"  summary: Review\n  notes: \n    one\n    two\n", out)
+
+	out, err = w.cmd(t, "approvals", "approve", asked.ID, "--session")
+	require.NoError(t, err)
+	assert.Contains(t, out, asked.ID+"  approved for the session  ")
+
+	_, err = w.cmd(t, "approvals", "reject", asked.ID)
+	require.Error(t, err, "the first answer stands")
+
+	w.login(t, bearertoken.Coordinator)
+
+	for _, args := range [][]string{
+		{"approvals"}, {"approvals", "approve", asked.ID}, {"integrations", "actions", "google:work"},
+		{"integrations", "actions", "set", "google:work", "gmail.send", "allow"},
+	} {
+		_, err = w.cmd(t, args...)
+		require.Error(t, err, "only the owner: %v", args)
+	}
+}

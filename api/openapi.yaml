@@ -765,6 +765,94 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Disconnected" }
         default: { $ref: "#/components/responses/Error" }
+  /integrations/{integration}/connections/{label}/actions:
+    parameters:
+      - $ref: "#/components/parameters/IntegrationID"
+      - $ref: "#/components/parameters/ConnectionLabel"
+    get:
+      operationId: ListConnectionActions
+      summary: What agents may do with a Connection, action by action; only the owner
+      description: >-
+        The actions of the Connection's Integration that go through the service proxy, each with the answer it
+        has now and its default. An Integration that does not go through the proxy has none.
+      responses:
+        "200":
+          description: The actions.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConnectionActionList" }
+        default: { $ref: "#/components/responses/Error" }
+  /integrations/{integration}/connections/{label}/actions/{action}:
+    parameters:
+      - $ref: "#/components/parameters/IntegrationID"
+      - $ref: "#/components/parameters/ConnectionLabel"
+      - name: action
+        in: path
+        required: true
+        schema: { type: string, pattern: "^[a-z][a-z0-9_.]{0,60}$" }
+    put:
+      operationId: SetConnectionAction
+      summary: Set the answer of one action of a Connection; only the owner
+      description: >-
+        allow runs the action on its own, ask holds each request for the owner's Approval, never refuses it. The
+        change applies from the next request.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ActionPolicyChange" }
+      responses:
+        "200":
+          description: The action with its answer.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConnectionAction" }
+        default: { $ref: "#/components/responses/Error" }
+  /approvals:
+    get:
+      operationId: ListApprovals
+      summary: The requests agents made that wait for, or had, the owner's answer; only the owner
+      parameters:
+        - name: status
+          in: query
+          schema: { $ref: "#/components/schemas/ApprovalStatus" }
+        - name: chat_id
+          in: query
+          schema: { type: string, maxLength: 64 }
+        - name: task_id
+          in: query
+          schema: { type: string, maxLength: 64 }
+      responses:
+        "200":
+          description: The Approvals, the newest first.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApprovalList" }
+        default: { $ref: "#/components/responses/Error" }
+  /approvals/{approval_id}/decision:
+    parameters:
+      - name: approval_id
+        in: path
+        required: true
+        schema: { type: string, maxLength: 64 }
+    post:
+      operationId: DecideApproval
+      summary: Answer a request that waits for approval; only the owner
+      description: >-
+        The first answer wins; the same answer again returns the Approval. A request still held goes on at once.
+        An agent whose request had ended is told, and its repeat of the same request passes once.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ApprovalDecision" }
+      responses:
+        "200":
+          description: The Approval as answered.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Approval" }
+        default: { $ref: "#/components/responses/Error" }
   /secrets:
     get:
       operationId: ListSecrets
@@ -1103,6 +1191,11 @@ components:
       in: path
       required: true
       schema: { type: string, pattern: "^[a-z][a-z0-9-]{0,30}$" }
+    ConnectionLabel:
+      name: label
+      in: path
+      required: true
+      schema: { type: string, pattern: "^[a-z0-9][a-z0-9-]{0,30}$" }
     Name:
       name: name
       in: path
@@ -1895,6 +1988,91 @@ components:
             turns it on.
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+    ActionPolicy:
+      type: string
+      enum: [allow, ask, never]
+    ConnectionAction:
+      type: object
+      description: One thing an agent can do with a Connection, and the owner's answer to it.
+      required: [id, service, name, text, kind, policy, default]
+      properties:
+        id: { type: string, description: "The action's name in commands, such as gmail.send." }
+        service: { type: string, description: "The part of the Integration it belongs to, such as Gmail." }
+        name: { type: string }
+        text: { type: string }
+        kind:
+          type: string
+          enum: [reads, changes, needs_care]
+        policy: { $ref: "#/components/schemas/ActionPolicy" }
+        default: { $ref: "#/components/schemas/ActionPolicy" }
+    ConnectionActionList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/ConnectionAction" }
+    ActionPolicyChange:
+      type: object
+      required: [policy]
+      additionalProperties: false
+      properties:
+        policy: { $ref: "#/components/schemas/ActionPolicy" }
+    ApprovalStatus:
+      type: string
+      enum: [pending, approved, rejected]
+    ApprovalField:
+      type: object
+      required: [label, value]
+      properties:
+        label: { type: string }
+        value: { type: string }
+    Approval:
+      type: object
+      description: >-
+        One request an agent made to a service that waits for the owner's answer, shown decoded. It is not a Gate.
+      required: [id, integration, label, action, action_name, asked_by, title, payload, status, used, created_at]
+      properties:
+        id: { type: string }
+        integration: { type: string }
+        label: { type: string }
+        action: { type: string }
+        action_name: { type: string }
+        asked_by: { type: string, description: "pi, worker or owner." }
+        dispatch_id: { type: string }
+        task_id: { type: string }
+        run_id: { type: string }
+        chat_id: { type: string }
+        title: { type: string }
+        payload:
+          type: array
+          items: { $ref: "#/components/schemas/ApprovalField" }
+        status: { $ref: "#/components/schemas/ApprovalStatus" }
+        scope:
+          type: string
+          enum: [once, session]
+          description: How far an approval reaches; absent until approved.
+        used: { type: boolean, description: "An approval for one request has run." }
+        created_at: { type: string, format: date-time }
+        decided_at: { type: string, format: date-time }
+    ApprovalList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/Approval" }
+    ApprovalDecision:
+      type: object
+      required: [decision]
+      additionalProperties: false
+      properties:
+        decision:
+          type: string
+          enum: [approve, approve_session, reject]
+          description: >-
+            approve lets this one request run; approve_session also stops asking for the action for the rest of
+            the Run or the chat that asked; reject refuses it.
     ConnectionUse:
       type: object
       required: [chats]

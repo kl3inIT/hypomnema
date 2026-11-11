@@ -63,6 +63,7 @@ type Server struct {
 	secrets Secrets
 	// integrations signs accounts in; nil when the control plane wired none.
 	integrations Integrations
+	approvals    Approvals
 }
 
 // HostTokens is how the API has a Connection's token kept (issue #103). The
