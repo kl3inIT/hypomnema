@@ -631,6 +631,61 @@ func TestTheOwnerIsShownEveryRecipientAndHeaderOfAMail(t *testing.T) {
 	}
 }
 
+// Scenario: the Google Workspace CLI writes an address without a name in
+// angle brackets, and one with a name as the name and the address. The owner
+// reads the first as the address alone and the second as it was written.
+func TestAMailsAddressesAreShownAsAPersonWritesThem(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t, 100*time.Millisecond)
+	gmail := w.piTool("gmail.googleapis.com")
+
+	message := "From: <owner@example.com>\r\nTo: <minh@example.com>, \"Lan Pham\" <lan@example.com>\r\n" +
+		"Subject: Invoice\r\n\r\nPaid.\r\n"
+	body := "--b\r\nContent-Type: application/json\r\n\r\n{}\r\n--b\r\nContent-Type: message/rfc822\r\n\r\n" + message +
+		"\r\n--b--\r\n"
+
+	got := gmail.do(http.MethodPost, sendPath, "multipart/related; boundary=b", []byte(body))
+	require.Equal(t, http.StatusForbidden, got.Status)
+
+	asked := w.pending()
+	assert.Contains(t, asked.Payload, orchestration.Field{Label: "From", Value: "owner@example.com"})
+	assert.Contains(t, asked.Payload,
+		orchestration.Field{Label: "To", Value: "minh@example.com, Lan Pham <lan@example.com>"})
+	assert.Equal(t, "Send mail: minh@example.com, Lan Pham <lan@example.com>", asked.Title)
+}
+
+// Scenario: the owner reads what agents may do with an account. Each
+// service's actions come from what only looks to what needs care, and what a
+// tool needs to run at all is not among them. A request is still matched to
+// the most specific action: sending is not taken for reading.
+func TestAnAccountsActionsAreListedFromReadingToWhatNeedsCare(t *testing.T) {
+	t.Parallel()
+
+	catalog, ok := serviceproxy.CatalogOf("google")
+	require.True(t, ok)
+
+	var gmail []string
+
+	for _, a := range catalog.Listed() {
+		assert.False(t, a.Plumbing)
+
+		if a.Service == "Gmail" {
+			gmail = append(gmail, a.ID)
+		}
+	}
+
+	assert.Equal(t, []string{"gmail.read", "gmail.draft", "gmail.send", "gmail.trash", "gmail.label"}, gmail)
+	assert.Equal(t, "Gmail", catalog.Listed()[0].Service)
+
+	assert.Equal(t, "gmail.send",
+		catalog.Match(http.MethodPost, "gmail.googleapis.com", "/upload/gmail/v1/users/me/messages/send").ID)
+	assert.Equal(t, "gmail.read",
+		catalog.Match(http.MethodGet, "gmail.googleapis.com", "/gmail/v1/users/me/messages/1a2b").ID)
+	assert.Equal(t, "google.unlisted",
+		catalog.Match(http.MethodPost, "gmail.googleapis.com", "/gmail/v1/users/me/settings/filters").ID)
+}
+
 // standIn makes this test binary stand in for gws: installed under its name,
 // it makes one request to Gmail the way a tool does, through the proxy and
 // with the certificate file its environment names, and prints the answer.

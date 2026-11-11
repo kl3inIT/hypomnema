@@ -1,7 +1,9 @@
 package serviceproxy
 
 import (
+	"cmp"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
@@ -101,15 +103,34 @@ func (c Catalog) Match(method, host, path string) Action {
 	return unlisted(c.Integration)
 }
 
-// Listed are the actions the owner sets an answer for.
+// Listed are the actions the owner sets an answer for, in the order he reads
+// them: service by service, and within a service from what only looks to
+// what needs care. Matching has its own order, the most specific first.
 func (c Catalog) Listed() []Action {
 	out := make([]Action, 0, len(c.Actions))
+	service := map[string]int{}
 
 	for _, a := range c.Actions {
-		if !a.Plumbing {
-			out = append(out, a)
+		if a.Plumbing {
+			continue
 		}
+
+		if _, seen := service[a.Service]; !seen {
+			service[a.Service] = len(service)
+		}
+
+		out = append(out, a)
 	}
+
+	rank := map[Kind]int{Reads: 0, Changes: 1, NeedsCare: 2}
+
+	slices.SortStableFunc(out, func(a, b Action) int {
+		if by := cmp.Compare(service[a.Service], service[b.Service]); by != 0 {
+			return by
+		}
+
+		return cmp.Compare(rank[a.Kind], rank[b.Kind])
+	})
 
 	return out
 }
