@@ -450,7 +450,7 @@ func (s *sdk) ReplaceCard(ctx context.Context, cardID string, card Card, seq int
 	return refused("replacing a card", resp.Success(), resp.Code, resp.Msg)
 }
 
-// colorOf is a header's colour among the ones Lark has; blue when none was
+// colorOf is a header's color among the ones Lark has; blue when none was
 // asked for.
 func colorOf(color string) string {
 	switch color {

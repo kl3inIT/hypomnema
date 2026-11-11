@@ -436,7 +436,10 @@ func newWorld(t *testing.T) *world {
 	keys, err := vault.ParseKeyring(entry, "k1")
 	require.NoError(t, err)
 
-	w := &world{t: t, path: path, lark: newLark(), pi: &pi{watchers: map[string][]chan coordinator.Frame{}, working: map[string]bool{}}}
+	w := &world{
+		t: t, path: path, lark: newLark(),
+		pi: &pi{watchers: map[string][]chan coordinator.Frame{}, working: map[string]bool{}},
+	}
 	w.orch = orchestration.New(db, platform.SystemClock{}, platform.NewID)
 	w.asks = &asking{Service: w.orch, questions: map[string]orchestration.Question{}}
 	// Any commit wakes the bot; a chat that is made and never used is one.
