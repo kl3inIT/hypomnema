@@ -57,7 +57,11 @@ adapter, ported from 9router-go (64c156d), the same way the Codex and Antigravit
   Code's own OAuth client (PKCE, pasted `code#state`), and the control plane refreshes the token.
 - A `modelgateway/claude` package: chat completions ⇄ Anthropic Messages, and the disguise of section 1 — the
   `oauth-2025-04-20` beta on a Bearer token, the billing system block, a `metadata.user_id`, client tools renamed
-  `_ide` with the twenty Claude Code decoy tools.
+  `_ide` with the twenty Claude Code decoy tools. Because the gateway's clients (omp, opencode, Codex) are not Claude
+  Code, the top-level system is made exactly Claude Code's — the billing block and the identity line "You are Claude
+  Code, Anthropic's official CLI for Claude." — and the client's own instructions are moved under the first user turn
+  as a `<system-reminder>`, so Anthropic's classifier reads a Claude Code prefix (CLIProxyAPI
+  `checkSystemInstructions`; 9router-go leaves them at the top because its clients already are Claude Code).
 - A `claude_subscription` gateway adapter (`claude_adapter.go`): the call itself, under the account logged in on the
   control plane, with a refresh on a refused token and a cooldown on a usage limit, as the Codex adapter does.
 

@@ -44,17 +44,30 @@ func TestBuildRequestDisguisesAsClaudeCode(t *testing.T) {
 	assert.Equal(t, "claude-sonnet-5-5", body["model"])
 	assert.Equal(t, true, body["stream"])
 
-	// The system is a list whose first block is the billing header.
+	// The top-level system is exactly Claude Code's: the billing header, then
+	// the Claude Code identity. The client's own system text is not here.
 	system, ok := body["system"].([]any)
 	require.True(t, ok, "system is a list")
-	require.NotEmpty(t, system)
+	require.Len(t, system, 2, "only the billing block and the identity")
 	first, ok := system[0].(map[string]any)
 	require.True(t, ok)
 	assert.Contains(t, first["text"], "x-anthropic-billing-header:")
 	assert.Contains(t, first["text"], "cc_entrypoint=sdk-cli")
-	last, ok := system[len(system)-1].(map[string]any)
+	identity, ok := system[1].(map[string]any)
 	require.True(t, ok)
-	assert.Equal(t, "Be brief.", last["text"], "the client's system text is kept")
+	assert.Equal(t, "You are Claude Code, Anthropic's official CLI for Claude.", identity["text"])
+
+	// The client's "Be brief." moved into the first user turn as a reminder.
+	messages, ok := body["messages"].([]any)
+	require.True(t, ok)
+	user, ok := messages[0].(map[string]any)
+	require.True(t, ok)
+	userBlocks, ok := user["content"].([]any)
+	require.True(t, ok)
+	reminder, ok := userBlocks[0].(map[string]any)
+	require.True(t, ok)
+	assert.Contains(t, reminder["text"], "<system-reminder>")
+	assert.Contains(t, reminder["text"], "Be brief.")
 
 	// metadata.user_id names a device, an account and the session.
 	meta, ok := body["metadata"].(map[string]any)
