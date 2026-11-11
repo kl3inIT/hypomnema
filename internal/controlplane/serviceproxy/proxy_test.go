@@ -791,6 +791,15 @@ func TestLarkGoesThroughTheProxyByLarkCLIsOwnRisks(t *testing.T) {
 
 	assert.Equal(t, map[string]bool{"lark.im.write": true, "lark.calendar.risky": true, "lark.unlisted": true}, actions)
 
+	// What is no action of the catalog says which request it is.
+	for _, a := range w.approvals(orchestration.ApprovalPending) {
+		if a.Action == "lark.unlisted" {
+			assert.Equal(t, "Something this list does not name: POST /open-apis/docx/v1/documents", a.Title)
+			assert.Equal(t, orchestration.Field{Label: "Request", Value: "POST /open-apis/docx/v1/documents"}, a.Payload[0])
+			assert.Contains(t, a.Payload, orchestration.Field{Label: "title", Value: "Notes"})
+		}
+	}
+
 	catalog, ok := serviceproxy.CatalogOf("lark")
 	require.True(t, ok)
 	assert.Equal(t, "lark.im.read",
@@ -798,6 +807,11 @@ func TestLarkGoesThroughTheProxyByLarkCLIsOwnRisks(t *testing.T) {
 		"a method the list names wins over the rest of its service")
 	assert.Equal(t, "lark.im.risky",
 		catalog.Match(http.MethodDelete, "open.larksuite.com", "/open-apis/im/v1/messages/om_1").ID)
+	assert.Equal(t, "lark.im.read", catalog.Match(http.MethodGet, "open.larksuite.com", "/open-apis/im/v1/chats").ID,
+		"a GET lark-cli's list does not name is its service's read")
+	assert.Equal(t, "lark.other.read",
+		catalog.Match(http.MethodGet, "open.larksuite.com", "/open-apis/docx/v1/documents/doc_1/raw_content").ID,
+		"and one to a part of Lark the list does not have is a read of everything else")
 	assert.Equal(t, "Messages", catalog.Listed()[0].Service)
 	assert.Equal(t, "lark.im.read", catalog.Listed()[0].ID)
 

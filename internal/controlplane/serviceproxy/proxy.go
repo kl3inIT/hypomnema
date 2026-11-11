@@ -353,14 +353,22 @@ func (p *Proxy) ask(ctx context.Context, req *http.Request, body []byte, action 
 ) (verdict, message string, err error) {
 	d := decode(req.Method, s.host, req.URL.Path, req.URL.RawQuery, req.Header.Get("Content-Type"), body)
 
+	asked := req.Method + " " + req.URL.Path
+
 	title := action.Name
 	if d.Subject != "" {
 		title += ": " + clipTitle(d.Subject)
 	}
 
 	fields := d.Fields
-	if len(fields) == 0 {
-		fields = []orchestration.Field{{Label: "Request", Value: req.Method + " " + req.URL.Path}}
+
+	// A request that is no action of the catalog has no name of its own to go by: the owner is told which
+	// request it is, in the title and as the first line. So is one with nothing to show.
+	if _, listed := s.catalog.Action(action.ID); !listed {
+		title = action.Name + ": " + clipTitle(asked)
+		fields = append([]orchestration.Field{{Label: "Request", Value: asked}}, fields...)
+	} else if len(fields) == 0 {
+		fields = []orchestration.Field{{Label: "Request", Value: asked}}
 	}
 
 	askedBy := "worker"
