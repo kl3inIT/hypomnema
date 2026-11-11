@@ -301,6 +301,33 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     - `integrations disconnect lark:work` forgets the Connection and keeps the app's id and secret.
     - Only Lark international (`open.larksuite.com`) is declared; Feishu is not. A person's own sign-in (their
       mail, calendar and drive) is not built: a Connection acts as the app.
+  - The Lark bot (`internal/controlplane/larkbot`, [issue #136](https://github.com/kl3inIT/hypomnema/issues/136))
+    is a Channel: a person's direct message to the bot at Lark becomes a message of a chat with the coordinator,
+    and what the coordinator says there goes back to Lark.
+    - It talks to Lark through Lark's Go SDK (`github.com/larksuite/oapi-sdk-go/v3`): events come over a
+      persistent connection the control plane opens, so nothing public is opened for it. Only Lark international
+      is served.
+    - `channels lark set --app-file FILE --owner EMAIL` (`PUT /channels/lark`) sets it up: the app's id, its
+      secret (the vault secret `lark-bot-app`, apart from the Lark Integration's), and the owner, whose email is
+      looked up at Lark with the app and kept as his `open_id`. A new bot is off and in mode `owner`.
+      `--mode owner|allowlist|everyone` and `--on`/`--off` change it; `channels lark allow|disallow <email>`
+      keep the allowlist; `channels lark show` says whether it is connected and why not. All are the owner's.
+    - A bot that is set up and on connects at start, or within half a minute of being set up. The SDK cannot
+      close a persistent connection: switching the bot off makes it take no message, and another app is used
+      from the control plane's next start.
+    - A message is taken when a person sent it in their direct chat with the bot, once (a row per Lark message
+      id, kept a day). The sender's organization must be the app's. The owner always may; others by the mode: the
+      people he added, or every member of the organization. A refusal, a message that is not text and a
+      coordinator that is not running are answered with a short notice. A group is not served.
+    - Each person's direct chat is one chat with the coordinator (`lark_bot_chats`). The owner's text is added
+      as it is; another person's is added under a line that names them and says approvals are the owner's. It
+      is an owner message in the record, so pi answers it as any other.
+    - The reply is a CardKit card: opened with the first text pi writes, updated at most twice a second from the
+      supervisor's live frames, and closed with the kept message. A kept coordinator message with nothing
+      written live (a wake-up's answer) is a card of its own. The last message sent is recorded per chat, so a
+      restart sends nothing twice.
+    - Not built: questions as cards with buttons (the app's card callback is not configured yet), groups, a web
+      page for the bot, several bots.
   - The token reaches a worker with its offer: the node API asks for it by host and repository as it sends the offer, and
     orchestration never holds it. The node gives it to that Dispatch only, as environment: git sends it to that
     host alone (an `http.https://<host>/.extraheader` through `GIT_CONFIG_COUNT`), `gh` reads `GH_TOKEN` (or
