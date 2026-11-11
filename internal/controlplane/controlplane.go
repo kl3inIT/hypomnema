@@ -221,7 +221,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 
 	larkBot := larkbot.New(svc, sup, func(ctx context.Context, b orchestration.LarkBot) (larkbot.Lark, error) {
 		return larkSettings.Open(ctx, b)
-	}, logger)
+	}, logger).WithWebURL(cfg.PublicURL)
 	larkSettings = larkbot.NewService(svc, secrets, larkBot, larkbot.Connect)
 
 	api := clientapi.New(svc, logger, ctx.Done()).WithCoordinator(sup).WithHostTokens(tokens).

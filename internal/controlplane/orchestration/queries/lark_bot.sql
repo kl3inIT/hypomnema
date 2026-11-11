@@ -57,3 +57,6 @@ SELECT * FROM lark_bot_questions WHERE closed_at IS NULL ORDER BY created_at, qu
 
 -- name: CloseLarkBotQuestion :exec
 UPDATE lark_bot_questions SET closed_at = @now, seq = @seq WHERE question_id = @question_id;
+
+-- name: ResetLarkBotChat :execrows
+UPDATE lark_bot_chats SET chat_id = @chat_id, sent_seq = 0 WHERE lark_chat_id = @lark_chat_id;

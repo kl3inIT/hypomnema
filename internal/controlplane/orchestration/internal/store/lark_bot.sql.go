@@ -303,6 +303,23 @@ func (q *Queries) ListOpenLarkBotQuestions(ctx context.Context) ([]LarkBotQuesti
 	return items, nil
 }
 
+const resetLarkBotChat = `-- name: ResetLarkBotChat :execrows
+UPDATE lark_bot_chats SET chat_id = ?1, sent_seq = 0 WHERE lark_chat_id = ?2
+`
+
+type ResetLarkBotChatParams struct {
+	ChatID     string
+	LarkChatID string
+}
+
+func (q *Queries) ResetLarkBotChat(ctx context.Context, arg ResetLarkBotChatParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, resetLarkBotChat, arg.ChatID, arg.LarkChatID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const setLarkBotChatSent = `-- name: SetLarkBotChatSent :exec
 UPDATE lark_bot_chats SET sent_seq = ?1 WHERE lark_chat_id = ?2 AND sent_seq < ?1
 `

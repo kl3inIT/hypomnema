@@ -364,7 +364,16 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     - On the web, `/settings/channels` (under Connections) has the bot's card: set it up or change its app
       (the secret in a password field), switch it on and off, choose who may talk to it, add and remove people,
       remove it; it says whether it is connected and why not. It does what `channels lark ...` does.
-    - Not built: an option that also takes text, groups, several bots.
+    - What a person sees while the coordinator works: their message carries the emoji `Typing` until the reply
+      is there, and `CrossMark` when the model's call failed; the card answers that message (Lark shows it
+      quoted), shows the tool that is running (`⚡ name: arguments`) before and under the text, and ends with a
+      link to the same chat on the web when `HYPOMNEMA_PUBLIC_URL` is set. A message sent while a turn runs is
+      told it is queued. A reply longer than 8,000 characters goes on in further cards. Lark's mention tags in
+      a reply are written out, so nobody is notified. A card Lark stopped writing after ten minutes is switched
+      on again. `/new` gives the person's next message a new chat; `/stop` stops the turn that runs.
+    - A question's card is orange while it waits, green once answered, red when canceled.
+    - Not built: an option that also takes text, groups, several bots; a person's reaction as an answer; images
+      and voice.
   - The token reaches a worker with its offer: the node API asks for it by host and repository as it sends the offer, and
     orchestration never holds it. The node gives it to that Dispatch only, as environment: git sends it to that
     host alone (an `http.https://<host>/.extraheader` through `GIT_CONFIG_COUNT`), `gh` reads `GH_TOKEN` (or

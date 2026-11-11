@@ -37,9 +37,11 @@ const (
 
 // card is a card the stand-in for Lark was asked to send.
 type card struct {
-	chat   string
-	text   string
-	closed bool
+	chat string
+	text string
+	// replyTo is the message the card answers, when it was sent as a reply.
+	replyTo string
+	closed  bool
 	// updates counts the times its text was replaced before it was closed.
 	updates int
 }
@@ -52,7 +54,9 @@ type lark struct {
 	take  func(larkbot.Message)
 	press func(larkbot.Press) string
 	// asked are the cards sent to a person, by card id, as they are now.
-	asked   map[string]larkbot.Card
+	asked map[string]larkbot.Card
+	// marks are the emoji on each message, in the order they were put.
+	marks   map[string][]string
 	refuse  error
 	notices []string
 	cards   map[string]*card
@@ -67,6 +71,7 @@ func newLark() *lark {
 	return &lark{
 		cards:  map[string]*card{},
 		asked:  map[string]larkbot.Card{},
+		marks:  map[string][]string{},
 		emails: map[string]string{"owner@example.com": ownerID, "linh@example.com": linhID},
 		names:  map[string]string{linhID: "Linh"},
 	}
@@ -136,12 +141,56 @@ func (l *lark) SendText(_ context.Context, chatID, text string) error {
 	return nil
 }
 
-func (l *lark) OpenCard(_ context.Context, chatID, text string) (string, error) {
+func (l *lark) React(_ context.Context, messageID, emoji string) (string, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	l.marks[messageID] = append(l.marks[messageID], emoji)
+
+	return emoji, nil
+}
+
+func (l *lark) Unreact(_ context.Context, messageID, reactionID string) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	for i, emoji := range l.marks[messageID] {
+		if emoji == reactionID {
+			l.marks[messageID] = append(l.marks[messageID][:i:i], l.marks[messageID][i+1:]...)
+
+			return nil
+		}
+	}
+
+	return errors.New("no such reaction")
+}
+
+// marked is the emoji on a message now.
+func (l *lark) marked(messageID string) []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	return append([]string{}, l.marks[messageID]...)
+}
+
+// cardAt is the n-th card sent, as it is now.
+func (l *lark) cardAt(n int) card {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	if n >= len(l.order) {
+		return card{}
+	}
+
+	return *l.cards[l.order[n]]
+}
+
+func (l *lark) OpenCard(_ context.Context, chatID, replyTo, text string) (string, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
 	id := fmt.Sprintf("card-%d", len(l.order)+1)
-	l.cards[id] = &card{chat: chatID, text: text}
+	l.cards[id] = &card{chat: chatID, text: text, replyTo: replyTo}
 	l.order = append(l.order, id)
 
 	return id, nil
@@ -219,6 +268,32 @@ type pi struct {
 	mu       sync.Mutex
 	off      bool
 	watchers map[string][]chan coordinator.Frame
+	// working are the chats pi works on; aborted the ones it was told to stop.
+	working map[string]bool
+	aborted []string
+}
+
+func (p *pi) Working(chatID string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return p.working[chatID]
+}
+
+func (p *pi) Abort(_ context.Context, chatID string) error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.aborted = append(p.aborted, chatID)
+	p.working[chatID] = false
+
+	return nil
+}
+
+func (p *pi) works(chatID string, working bool) {
+	p.mu.Lock()
+	p.working[chatID] = working
+	p.mu.Unlock()
 }
 
 func (p *pi) Enabled() bool {
@@ -333,8 +408,10 @@ func (a *asking) AnswerQuestion(_ context.Context, id string, by orchestration.A
 }
 
 type world struct {
-	t     *testing.T
-	path  string
+	t    *testing.T
+	path string
+	// web is the web client's address the bot is given, when it is given one.
+	web   string
 	orch  *orchestration.Service
 	asks  *asking
 	vault *vault.Service
@@ -359,7 +436,7 @@ func newWorld(t *testing.T) *world {
 	keys, err := vault.ParseKeyring(entry, "k1")
 	require.NoError(t, err)
 
-	w := &world{t: t, path: path, lark: newLark(), pi: &pi{watchers: map[string][]chan coordinator.Frame{}}}
+	w := &world{t: t, path: path, lark: newLark(), pi: &pi{watchers: map[string][]chan coordinator.Frame{}, working: map[string]bool{}}}
 	w.orch = orchestration.New(db, platform.SystemClock{}, platform.NewID)
 	w.asks = &asking{Service: w.orch, questions: map[string]orchestration.Question{}}
 	// Any commit wakes the bot; a chat that is made and never used is one.
@@ -388,7 +465,7 @@ func (w *world) start() {
 
 	w.bot = larkbot.New(w.asks, w.pi, func(ctx context.Context, b orchestration.LarkBot) (larkbot.Lark, error) {
 		return svc.Open(ctx, b)
-	}, logger)
+	}, logger).WithWebURL(w.web)
 	svc = larkbot.NewService(w.asks, w.vault, w.bot, connect)
 	w.svc = svc
 }
@@ -746,6 +823,7 @@ func TestTheOwnerAnswersAWorkersQuestionOnItsCard(t *testing.T) {
 
 		return c.Note == "Answered by the owner: Sign in"
 	}, eventual, tick)
+	require.Eventually(t, func() bool { return len(w.lark.noticed()) == 1 }, eventual, tick)
 	assert.Equal(t, []string{ownerDM + ": Answered."}, w.lark.noticed())
 
 	chats, err := w.orch.LarkBotChats(t.Context())
@@ -768,4 +846,129 @@ func TestTheOwnerAnswersAWorkersQuestionOnItsCard(t *testing.T) {
 
 		return c.Note == "Answered by the coordinator: Yes"
 	}, eventual, tick)
+}
+
+// Scenario: the owner asks for work and watches Lark while the coordinator
+// does it. His message is marked as being worked on; the reply is a card that
+// answers that message and first shows what tool is running, then the text;
+// it ends with a link to the same chat on the web, and the mark comes off. A
+// second message sent meanwhile is told it waits. When the model's call
+// fails, what was written stays with a line that says so and the message is
+// marked as failed.
+func TestTheOwnerSeesTheCoordinatorWork(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	w.web = "https://hyp.example/"
+	w.start()
+	w.setUp(orchestration.LarkBotOwner)
+
+	w.lark.say(direct("om_1", ownerDM, ownerID, "fix the login page"))
+	chat := w.chatOf(ownerDM)
+	require.Eventually(t, func() bool { return len(w.lark.marked("om_1")) == 1 }, eventual, tick)
+	assert.Equal(t, []string{"Typing"}, w.lark.marked("om_1"))
+
+	w.pi.works(chat, true)
+	w.pi.frame(chat, coordinator.FrameState, map[string]any{"working": true})
+	w.pi.frame(chat, coordinator.FrameTool, map[string]any{
+		"phase": "start", "id": "t1", "name": "bash", "args": map[string]any{"command": "hypomnema runs create"},
+	})
+	require.Eventually(t, func() bool { return len(w.lark.sent()) == 1 }, eventual, tick)
+	assert.Equal(t, "om_1", w.lark.cardAt(0).replyTo, "the card answers the message")
+	assert.Equal(t, `⚡ bash: {"command":"hypomnema runs create"}`, w.lark.cardAt(0).text)
+
+	w.lark.say(direct("om_2", ownerDM, ownerID, "and the logout page"))
+	require.Eventually(t, func() bool { return len(w.lark.noticed()) == 1 }, eventual, tick)
+	assert.Contains(t, w.lark.noticed()[0], "Queued")
+
+	w.pi.frame(chat, coordinator.FrameTool, map[string]any{"phase": "end", "id": "t1"})
+	w.pi.frame(chat, coordinator.FrameReset, nil)
+	w.pi.frame(chat, coordinator.FrameDelta, map[string]any{"kind": "text", "index": 0, "delta": "A worker has it."})
+
+	_, err := w.orch.AddChatMessage(t.Context(), chat, orchestration.ChatCoordinator, "A worker has it.")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return w.lark.cardAt(0).closed }, eventual, tick)
+	assert.Equal(t, "A worker has it.\n\n[Open in Hypomnema](https://hyp.example/chats/"+chat+")", w.lark.cardAt(0).text)
+	assert.Len(t, w.lark.sent(), 1, "the card that showed the tool is the card of the reply")
+	require.Eventually(t, func() bool { return len(w.lark.marked("om_1")) == 0 }, eventual, tick)
+	assert.Empty(t, w.lark.marked("om_2"), "nothing waits once the reply is there")
+
+	w.lark.say(direct("om_3", ownerDM, ownerID, "status?"))
+	require.Eventually(t, func() bool { return len(w.lark.marked("om_3")) == 1 }, eventual, tick)
+	w.pi.frame(chat, coordinator.FrameReset, nil)
+	w.pi.frame(chat, coordinator.FrameDelta, map[string]any{"kind": "text", "index": 0, "delta": "Looking"})
+
+	_, err = w.orch.AddChatMessage(t.Context(), chat, orchestration.ChatSystem, "pi's model call failed: overloaded")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return w.lark.cardAt(1).closed }, eventual, tick)
+	assert.Contains(t, w.lark.cardAt(1).text, "Looking\n\nThe coordinator could not answer this.")
+	require.Eventually(t, func() bool {
+		return assert.ObjectsAreEqual([]string{"CrossMark"}, w.lark.marked("om_3"))
+	}, eventual, tick)
+}
+
+// Scenario: the coordinator's reply is longer than a card holds and quotes a
+// document that mentions everyone. It goes on in a second card instead of
+// being lost, and the mention is written out so that nobody is notified.
+func TestALongReplyGoesOnInAnotherCardAndMentionsNobody(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	w.setUp(orchestration.LarkBotOwner)
+
+	w.lark.say(direct("om_1", ownerDM, ownerID, "summarize the handbook"))
+	chat := w.chatOf(ownerDM)
+
+	long := "<at id=all></at> read this.\n" + strings.Repeat("A line of the handbook.\n", 500)
+	_, err := w.orch.AddChatMessage(t.Context(), chat, orchestration.ChatCoordinator, long)
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool { return len(w.lark.sent()) == 2 && w.lark.cardAt(1).closed }, eventual, tick)
+	first, second := w.lark.cardAt(0).text, w.lark.cardAt(1).text
+	assert.True(t, strings.HasPrefix(first, "&lt;at id=all>&lt;/at> read this."), first[:40])
+	assert.LessOrEqual(t, len([]rune(first)), 8000)
+	assert.True(t, strings.HasSuffix(strings.TrimSpace(second), "A line of the handbook."))
+	whole := strings.ReplaceAll(strings.ReplaceAll(long, "<at", "&lt;at"), "</at", "&lt;/at")
+	assert.Equal(t, strings.TrimSpace(whole), strings.TrimSpace(first+"\n"+second),
+		"nothing of the reply is lost between the cards")
+}
+
+// Scenario: the owner stops the coordinator from Lark and starts over. /stop
+// stops the turn that runs in his chat and says so, or says nothing runs;
+// /new gives his next message a new chat with the coordinator, and the old
+// one stays.
+func TestTheOwnerStopsTheCoordinatorAndStartsOver(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	w.setUp(orchestration.LarkBotOwner)
+
+	w.lark.say(direct("om_1", ownerDM, ownerID, "refactor everything"))
+	first := w.chatOf(ownerDM)
+
+	w.lark.say(direct("om_2", ownerDM, ownerID, "/stop"))
+	require.Eventually(t, func() bool { return len(w.lark.noticed()) == 1 }, eventual, tick)
+	assert.Equal(t, ownerDM+": Nothing is running.", w.lark.noticed()[0])
+
+	w.pi.works(first, true)
+	w.lark.say(direct("om_3", ownerDM, ownerID, " /STOP "))
+	require.Eventually(t, func() bool { return len(w.lark.noticed()) == 2 }, eventual, tick)
+	assert.Equal(t, ownerDM+": Stopped.", w.lark.noticed()[1])
+	assert.Equal(t, []string{first}, w.pi.aborted)
+
+	w.lark.say(direct("om_4", ownerDM, ownerID, "/new"))
+	require.Eventually(t, func() bool { return len(w.lark.noticed()) == 3 }, eventual, tick)
+	assert.Equal(t, ownerDM+": A new conversation has started.", w.lark.noticed()[2])
+
+	w.lark.say(direct("om_5", ownerDM, ownerID, "something else"))
+
+	var second string
+
+	require.Eventually(t, func() bool {
+		second = w.chatOf(ownerDM)
+
+		return second != first && len(w.texts(second)) == 1
+	}, eventual, tick)
+	assert.Equal(t, []string{"owner: something else"}, w.texts(second))
+	assert.Equal(t, []string{"owner: refactor everything"}, w.texts(first), "the commands are not messages")
 }

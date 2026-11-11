@@ -252,6 +252,31 @@ func (s *Service) LarkBotChatFor(ctx context.Context, larkChatID, openID, title 
 	return LarkBotChat{LarkChatID: larkChatID, OpenID: openID, ChatID: chat.ID}, nil
 }
 
+// ResetLarkBotChat gives a Lark chat a new chat with the coordinator: the
+// person's /new. The chat it had stays, on the web. ErrNotFound when the Lark
+// chat has none yet.
+func (s *Service) ResetLarkBotChat(ctx context.Context, larkChatID, title string) (LarkBotChat, error) {
+	row, err := s.read().GetLarkBotChat(ctx, larkChatID)
+	if err != nil {
+		return LarkBotChat{}, notFound(err, "Lark chat", larkChatID)
+	}
+
+	chat, err := s.CreateChat(ctx, title)
+	if err != nil {
+		return LarkBotChat{}, err
+	}
+
+	if err := s.write(ctx, func(q *store.Queries, _ int64) error {
+		_, err := q.ResetLarkBotChat(ctx, store.ResetLarkBotChatParams{LarkChatID: larkChatID, ChatID: chat.ID})
+
+		return err
+	}); err != nil {
+		return LarkBotChat{}, fmt.Errorf("starting Lark chat %s over: %w", larkChatID, err)
+	}
+
+	return LarkBotChat{LarkChatID: larkChatID, OpenID: row.OpenID, ChatID: chat.ID}, nil
+}
+
 // LarkBotChats returns the Lark chats the bot answers in, oldest first.
 func (s *Service) LarkBotChats(ctx context.Context) ([]LarkBotChat, error) {
 	rows, err := s.read().ListLarkBotChats(ctx)
