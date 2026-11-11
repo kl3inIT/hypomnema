@@ -10,7 +10,7 @@ import (
 )
 
 const listQueuedDispatchesOfNode = `-- name: ListQueuedDispatchesOfNode :many
-SELECT id, task_id, conversation_id, node_id, status, epoch, failure_class, unknown_cause, recovery, process_ref, result, resets_at, created_at, updated_at, accepted_at, started_at, lease_expires_at, progress_at, stop_requested_at, stop_acked_at, stalled_at, overrun_at, settled_at, waiting_since, waited_ms, gate_question_id, model, effort, profile_version_id, activity FROM dispatches WHERE node_id = ?1 AND status = 'queued' ORDER BY created_at, id
+SELECT id, task_id, conversation_id, node_id, status, epoch, failure_class, unknown_cause, recovery, process_ref, result, resets_at, created_at, updated_at, accepted_at, started_at, lease_expires_at, progress_at, stop_requested_at, stop_acked_at, stalled_at, overrun_at, settled_at, waiting_since, waited_ms, gate_question_id, model, effort, profile_version_id, activity, fallback_for, fallback_until FROM dispatches WHERE node_id = ?1 AND status = 'queued' ORDER BY created_at, id
 `
 
 func (q *Queries) ListQueuedDispatchesOfNode(ctx context.Context, nodeID string) ([]Dispatch, error) {
@@ -53,6 +53,8 @@ func (q *Queries) ListQueuedDispatchesOfNode(ctx context.Context, nodeID string)
 			&i.Effort,
 			&i.ProfileVersionID,
 			&i.Activity,
+			&i.FallbackFor,
+			&i.FallbackUntil,
 		); err != nil {
 			return nil, err
 		}

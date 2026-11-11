@@ -759,7 +759,8 @@ func TestOnlyTheOwnerChangesProfiles(t *testing.T) {
 	require.Equal(t, http.StatusOK, models.StatusCode())
 	assert.NotEmpty(t, models.JSON200.Data)
 
-	body := openapi.Source{Source: "name: reviewer\ndescription: d\nruntime: claude\nmodel: {name: opus, effort: max}\n"}
+	body := openapi.Source{Source: "name: reviewer\ndescription: d\nruntime: claude\n" +
+		"model: {name: opus, effort: max}\nfallbacks: [explorer]\n"}
 
 	refused, err := laptop.ApplyProfileWithResponse(ctx, "reviewer", body)
 	require.NoError(t, err)
@@ -769,6 +770,7 @@ func TestOnlyTheOwnerChangesProfiles(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, http.StatusCreated, created.StatusCode(), string(created.Body))
 	assert.Equal(t, 4, created.JSON201.Version)
+	assert.Equal(t, []string{"explorer"}, created.JSON201.Fallbacks)
 
 	same, err := owner.ApplyProfileWithResponse(ctx, "reviewer", body)
 	require.NoError(t, err)

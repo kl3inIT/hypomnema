@@ -82,7 +82,12 @@ export type Draft = {
   model: string
   effort: string
   instruction: string
+  // fallbacks names, in order, the agents that take this one's Tasks while it is out of quota (issue #171).
+  fallbacks: string[]
 }
+
+// As many backups as OpenMausBot keeps for one bot (src/components/bot-panel/BackupAis.tsx, MAX_BACKUPS).
+export const maxFallbacks = 5
 
 export const emptyDraft: Draft = {
   name: "",
@@ -91,6 +96,7 @@ export const emptyDraft: Draft = {
   model: "",
   effort: "",
   instruction: "",
+  fallbacks: [],
 }
 
 export function draftOf(profile: Profile): Draft {
@@ -101,6 +107,7 @@ export function draftOf(profile: Profile): Draft {
     model: modelKey(profile.provider ?? "", profile.model ?? ""),
     effort: profile.effort ?? "",
     instruction: (profile.instruction ?? "").replace(/\s+$/, ""),
+    fallbacks: profile.fallbacks,
   }
 }
 
@@ -126,7 +133,8 @@ export function sameDraft(a: Draft, b: Draft) {
     a.runtime === b.runtime &&
     a.model === b.model &&
     a.effort === b.effort &&
-    a.instruction === b.instruction
+    a.instruction === b.instruction &&
+    a.fallbacks.join() === b.fallbacks.join()
   )
 }
 
@@ -168,8 +176,8 @@ function text(key: string, value: string, fold: boolean) {
   return `${key}: |\n${lines.map((l) => (l ? `  ${l}` : "")).join("\n")}\n`
 }
 
-// toYaml writes a draft as the YAML document the server stores (name, description, runtime, an optional model
-// and instruction).
+// toYaml writes a draft as the YAML document the server stores (name, description, runtime, an optional model,
+// instruction and list of fallbacks).
 export function toYaml(draft: Draft, models: Model[]) {
   let out = `name: ${scalar(draft.name.trim())}\n`
   out += text("description", draft.description.trim(), draft.description.trim().length > 80)
@@ -185,6 +193,7 @@ export function toYaml(draft: Draft, models: Model[]) {
 
   const instruction = draft.instruction.replace(/\s+$/, "")
   if (instruction) out += text("instruction", instruction, false)
+  if (draft.fallbacks.length > 0) out += `fallbacks: [${draft.fallbacks.map(scalar).join(", ")}]\n`
 
   return out
 }

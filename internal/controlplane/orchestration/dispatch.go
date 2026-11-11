@@ -89,7 +89,8 @@ func (s *Service) createDispatch(ctx context.Context, q *store.Queries, now int6
 	if err := q.InsertDispatch(ctx, store.InsertDispatchParams{
 		ID: id, TaskID: task.ID, ConversationID: conv, NodeID: node, Recovery: boolInt(recovery),
 		GateQuestionID: nullString(gate), Model: nullString(r.model), Effort: nullString(r.effort),
-		ProfileVersionID: nullString(r.versionID), Now: now,
+		ProfileVersionID: nullString(r.versionID), FallbackFor: nullString(r.fallbackFor),
+		FallbackUntil: sql.NullInt64{Int64: r.fallbackUntil, Valid: r.fallbackFor != ""}, Now: now,
 	}); err != nil {
 		return fmt.Errorf("inserting dispatch: %w", err)
 	}
@@ -98,7 +99,9 @@ func (s *Service) createDispatch(ctx context.Context, q *store.Queries, now int6
 
 	if err := emit(ctx, q, now, event{
 		kind: EventDispatchCreated, run: task.RunID, task: task.ID, dispatch: id, node: node,
-		payload: map[string]any{"conversation_id": conv, "recovery": recovery, "gate_question_id": gate},
+		payload: map[string]any{
+			"conversation_id": conv, "recovery": recovery, "gate_question_id": gate, "fallback_for": r.fallbackFor,
+		},
 	}); err != nil {
 		return err
 	}
@@ -1360,6 +1363,7 @@ func dispatchFromRow(d store.Dispatch) (Dispatch, error) {
 		SettledAt: optionalTime(d.SettledAt), WaitingSince: optionalTime(d.WaitingSince),
 		Waited: time.Duration(d.WaitedMs) * time.Millisecond, GateQuestionID: d.GateQuestionID.String,
 		Model: d.Model.String, Effort: d.Effort.String, ProfileVersionID: d.ProfileVersionID.String,
+		FallbackFor: d.FallbackFor.String, FallbackUntil: optionalTime(d.FallbackUntil),
 		Activity: d.Activity.String,
 	}
 

@@ -12,6 +12,7 @@ const profile = (name: string, m: object = {}) => ({
   version_id: `pfv_${name}`,
   version: 1,
   runtime: "claude",
+  fallbacks: [],
   source: `name: ${name}\nruntime: claude\n`,
   created_at: hours(30),
   available: true,
@@ -39,6 +40,7 @@ const reviewer = profile("reviewer", {
   available: false,
   unavailable_reason: "accounts_cooling",
   available_at: new Date(Date.now() + 95 * 60_000).toISOString(),
+  fallbacks: ["codex-implementer"],
 })
 
 const models = [
@@ -189,6 +191,10 @@ test("the agents show as cards and as a table, each saying whether it can run", 
   await expect(page.getByRole("article", { name: "implementer", exact: true })).toContainText(
     "Can run now",
   )
+  // The agent that takes its Tasks while it is out of quota (issue #171).
+  await expect(page.getByRole("article", { name: "reviewer" })).toContainText(
+    "Fallback:codex-implementer",
+  )
   await shot(page, "agents-grid")
 
   await page.getByRole("button", { name: "table" }).click()
@@ -213,6 +219,15 @@ test("an agent opens to its builder, its YAML and its versions", async ({ page }
   await expect(page.getByLabel("Effort")).toHaveValue("xhigh")
   await expect(page.getByRole("button", { name: "Save revision" })).toBeDisabled()
   await shot(page, "agent-builder")
+
+  // Its fallbacks, in order; another worker is added and the list is one longer.
+  await expect(page.getByLabel("Fallback 1")).toHaveValue("codex-implementer")
+  await page.getByLabel("Fallbacks", { exact: true }).selectOption("explorer")
+  await expect(page.getByLabel("Fallback 2")).toHaveValue("explorer")
+  await page.getByLabel("Fallback 2").scrollIntoViewIfNeeded()
+  await shot(page, "agent-fallbacks")
+  await page.getByRole("button", { name: "Remove fallback explorer" }).click()
+  await expect(page.getByRole("button", { name: "Save revision" })).toBeDisabled()
 
   await page.getByRole("button", { name: "YAML" }).click()
   await expect(page.getByLabel("Config (YAML)")).toHaveValue(reviewerSource)

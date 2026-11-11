@@ -156,6 +156,8 @@ type Dispatch struct {
 	Effort           sql.NullString
 	ProfileVersionID sql.NullString
 	Activity         sql.NullString
+	FallbackFor      sql.NullString
+	FallbackUntil    sql.NullInt64
 }
 
 type DispatchEffect struct {
@@ -381,6 +383,7 @@ type ProfileVersion struct {
 	Instruction sql.NullString
 	CreatedAt   int64
 	Description string
+	Fallbacks   string
 }
 
 type Provider struct {

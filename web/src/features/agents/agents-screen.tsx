@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router"
-import { Box, Brain, CircleAlert, CircleCheck, History } from "lucide-react"
+import { Box, Brain, CircleAlert, CircleCheck, History, LifeBuoy } from "lucide-react"
 import { useState } from "react"
 
 import type { Profile } from "@/api/generated/types.gen"
@@ -197,6 +197,15 @@ function AgentCard({ profile }: { profile: Profile }) {
       icon: <Brain className="size-4 text-muted-foreground" aria-hidden />,
       value: profile.effort ? effortLabel(profile.effort) : "Default",
     },
+    ...(profile.fallbacks.length > 0
+      ? [
+          {
+            name: "Fallback",
+            icon: <LifeBuoy className="size-4 text-muted-foreground" aria-hidden />,
+            value: <span className="truncate">{profile.fallbacks.join(", then ")}</span>,
+          },
+        ]
+      : []),
     {
       name: "Version",
       icon: <History className="size-4 text-muted-foreground" aria-hidden />,

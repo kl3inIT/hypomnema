@@ -1,10 +1,22 @@
-import { CircleAlert, GitPullRequest, MessageCircleQuestion } from "lucide-react"
+import { CircleAlert, GitPullRequest, LifeBuoy, MessageCircleQuestion } from "lucide-react"
 
 import { span } from "@/lib/time"
 import { cn } from "@/lib/utils"
 
 import { firstLine, pullRequest, type Card } from "./board-state"
 import { RuntimeMark } from "./runtime-mark"
+
+const clock = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" })
+
+// fallbackTitle says why a Task ran under a backup of its agent (issue #171), in one line as OpenMausBot's notice
+// does ("Codex reached its limit until 14:00, so Kai is using Claude meanwhile.").
+function fallbackTitle(dispatch: { fallback_for?: string; fallback_until?: string }) {
+  const until = dispatch.fallback_until
+    ? ` until ${clock.format(new Date(dispatch.fallback_until))}`
+    : ""
+
+  return `${dispatch.fallback_for} reached its limit${until}, so a fallback runs this Task`
+}
 
 // TaskCard is one worker's Task on the board, after Orca's AgentKanbanCard (MIT, Copyright (c) 2026 Lovecast Inc.,
 // https://github.com/stablyai/orca; components/dashboard-popout/AgentKanbanCard.tsx): what runs it and what it is
@@ -59,6 +71,12 @@ export function TaskCard({
           <span className="rounded-md bg-foreground/5 px-1.5 leading-[18px]">{card.node}</span>
         )}
         {(dispatch?.model || task.model) && <span>{dispatch?.model || task.model}</span>}
+        {dispatch?.fallback_for && (
+          <span className="inline-flex items-center gap-0.5" title={fallbackTitle(dispatch)}>
+            <LifeBuoy className="size-3" aria-hidden />
+            for {dispatch.fallback_for}
+          </span>
+        )}
         {pr && (
           <span className="inline-flex items-center gap-0.5 font-mono text-done">
             <GitPullRequest className="size-3" aria-hidden />
