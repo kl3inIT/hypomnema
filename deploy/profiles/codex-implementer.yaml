@@ -17,3 +17,9 @@ model:
   provider: <gateway provider>
   name: <gateway model>
   effort: high
+# Optional backups, off by default. `fallbacks` is an ordered list of other workers' profiles, tried in the order
+# written, with at most 5 entries. It applies only to a Task that has not started (it has no Conversation yet): a
+# Task already running stays on its own profile. To use it, remove the leading "# " and name profiles that exist
+# (`hypomnema profiles list`).
+# fallbacks:
+#   - implementer
