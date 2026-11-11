@@ -447,7 +447,7 @@ Codex CLI; [research](docs/research/2026-11-10-subscription-login-and-refresh.md
 plane, which keeps their tokens fresh. The gateway's Codex provider runs under them (below).
 
 - One `Vendor` per kind of subscription starts a login, exchanges a refresh token and reads who a token set belongs
-  to. Two exist, Codex and Antigravity. Codex: a device code (a link and a one-time code, 15 minutes), or, when OpenAI offers this client
+  to. Three exist, Codex, Antigravity and Claude. Codex: a device code (a link and a one-time code, 15 minutes), or, when OpenAI offers this client
   none, the browser login whose loopback address the owner pastes back, checked against the state and the PKCE
   verifier the control plane kept.
 - Antigravity (after CLIProxyAPI, omp and Google's Gemini CLI;
@@ -461,11 +461,19 @@ plane, which keeps their tokens fresh. The gateway's Codex provider runs under t
   is not in the source; without it no Antigravity account can be logged in or refreshed. Antigravity's terms name
   access through other software as a breach that may end the account; the owner chose to build this knowing it.
   The gateway's Antigravity provider runs under such an account (below).
+- Claude (issue #20 step 5, after 9router-go and CLIProxyAPI;
+  [research](docs/research/2026-11-11-claude-subscription-at-a-gateway.md)): Claude Code's own OAuth client at
+  `claude.ai`, whose `code#state` the owner pastes back, checked against the state and the PKCE verifier kept. The
+  token is opaque, so who it belongs to is the login's to record (the account id, a derived one when the token
+  answer and the profile name none). Anthropic's terms forbid routing a subscription through other software; the
+  owner chose to build it for his own subscription and agents knowing that. The gateway's Claude provider runs under
+  such an account (below).
 - A login makes an account, or gives new tokens to the account that already has the vendor's id (Codex: the
   ChatGPT account id, read with the email and the plan from the id token; Antigravity: Google's id of the user, with
   the tier as the plan and the project). The tokens are a vault secret of kind
   `oauth_token_set`, named after the account, with the time the access token ends.
-- `serve` looks every 5 minutes for access tokens that end within the vendor's lead (Codex: 30 minutes) and
+- `serve` looks every 5 minutes for access tokens that end within the vendor's lead (Codex: 30 minutes, Claude: 4
+  hours) and
   refreshes them through the vault's `Refresh`; Antigravity's lead is 30 minutes too, and Google keeps the refresh
   token as it is. Two accounts due in one pass are refreshed one after the other, 1.5 seconds apart, 12 for
   Antigravity (9router-go). A refusal for good (401, or an error code such as `invalid_grant` or
@@ -475,11 +483,12 @@ plane, which keeps their tokens fresh. The gateway's Codex provider runs under t
 
 The model gateway (`internal/controlplane/modelgateway`, issue #20,
 [decision](docs/decisions/2026-11-10-model-gateway.md)) serves chat to clients that speak OpenAI's API, from
-OpenAI-compatible providers the owner declares and from two built-in providers, the owner's Codex and Antigravity
-subscriptions. The Claude subscription, other provider formats and other capabilities do not exist yet.
+OpenAI-compatible providers the owner declares and from three built-in providers, the owner's Codex, Antigravity and
+Claude subscriptions. Other provider formats and other capabilities do not exist yet.
 - A model is a YAML document: a public `name`, a `capability` (`chat`, the only one), and `targets` (a provider and
   the model's name there) in the order tried. Applying a name again replaces it. A target must name a provider of a
-  kind the gateway has an adapter for (`openai_compatible`, `codex_subscription`, `antigravity_subscription`) and
+  kind the gateway has an adapter for (`openai_compatible`, `codex_subscription`, `antigravity_subscription`,
+  `claude_subscription`) and
   a model that provider offers, so a model that cannot
   be served is refused when applied.
 - A gateway key (`hyp_gateway_v1_…`, the client tokens' format) is shown once and kept as its SHA-256, with the
@@ -590,6 +599,31 @@ subscriptions. The Claude subscription, other provider formats and other capabil
     what `accounts models` lists, and the owner applies the provider again with those when they differ.
   - Not built: real thought signatures kept across turns, images by URL, Google search as a tool, the provider's
     models kept in step with the account's by itself, several accounts rotated.
+- `claude-subscription` (kind `claude_subscription`, after 9router-go and CLIProxyAPI;
+  [research](docs/research/2026-11-11-claude-subscription-at-a-gateway.md)) serves Claude models from the Claude
+  accounts logged in on the control plane (above). Anthropic forbids routing a subscription through other software
+  and reroutes a request that does not look like Claude Code's; the owner chose to build it knowing that, so the
+  provider dresses each request as Claude Code's, which is what makes it work at all.
+  - `modelgateway/claude` holds the translation. A chat body becomes an Anthropic Messages body: system messages
+    lifted out, a tool call and its result tied by a sanitized id, turns of one role merged, `reasoning_effort` a
+    thinking budget, `max_tokens` filled when absent.
+  - The disguise (9router-go `claude_cloaking.go`; CLIProxyAPI `checkSystemInstructions` for a client that is not
+    Claude Code): the request carries the `oauth-2025-04-20` beta on a Bearer token and Claude Code's identity
+    headers; the top-level system is made exactly Claude Code's — a billing block then the line "You are Claude Code,
+    Anthropic's official CLI for Claude." — and the client's own system text is moved under the first user turn as a
+    `<system-reminder>`, so Anthropic's classifier reads a Claude Code prefix; a `metadata.user_id` stable per token;
+    the client's tools renamed with an `_ide` suffix among the twenty Claude Code decoy tools, undone in the answer.
+  - Prompt caching, as the Codex adapter has it: the billing block's fingerprint is deterministic (CLIProxyAPI
+    `computeFingerprint`, not 9router-go's random build and body hash) so the prompt's top is byte-identical between
+    turns, and the cache breakpoints Claude Code sets go on — the system prefix, the last tool, the last message
+    (pi/omp `applyAnthropicCacheControl`). A probe (Claude Code's own `quota`/`ping` check) is left minimal, with no
+    decoys and no breakpoints.
+  - The call goes to `api.anthropic.com/v1/messages?beta=true`, always as a stream, with the account's token in the
+    Bearer header (never the api-key header), a refresh on a 401, a cooldown on a 429.
+  - The backend's Messages events become chat chunks: text, thinking as `reasoning_content`, each tool call with the
+    client's name again, then the finish reason and the usage, which counts cache reads as prompt tokens.
+  - Not built: uTLS fingerprinting, a signed `cch`, header order and casing forced over the wire, model-specific
+    thinking tables, several accounts rotated.
 - Each request served is one row of `gateway_usage`: the key, the model, the target of the last attempt, how many
   were tried, the outcome (`ok`, `upstream_error`, `transport_error`, `truncated`, `client_gone`), the provider's
   status, the duration, and the tokens the provider reported (prompt, completion, cached, reasoning; the largest
