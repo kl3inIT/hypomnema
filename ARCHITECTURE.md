@@ -176,8 +176,13 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   the profile is read. A node at its limit still counts; a model the gateway serves needs no account, and the
   state of the gateway's own accounts is not looked at; the coordinator's runtime, pi, has no answer. `profiles
   list` shows it, and the coordinator skill tells the coordinator to read it before creating Tasks.
-  The starting set: `implementer`, `reviewer`, `explorer` (told to change nothing; nothing enforces it yet) on
-  Claude Code with its default model, and `coordinator` on pi; provider `claude-subscription`.
+  The starting set: `implementer`, `reviewer` and `explorer` on Claude Code with its default model, and
+  `coordinator` on pi; provider `claude-subscription`. The reviewer (effort `high`) and the explorer say in their
+  instruction how to report (issue #155, after omp's `reviewer` and `scout`): the reviewer a verdict, `correct` or
+  `incorrect`, and findings with a priority P0 to P3, the file and the lines, only for what the change introduced;
+  the explorer an answer, the files that matter and the detail with `path:line`. Both are told to change nothing;
+  nothing enforces it. `deploy/profiles/` holds samples for profiles on Codex, whose model is a gateway model
+  named by the deployment.
 - Scheduler: `Schedule` is one pass in one transaction, and `Loop` runs `Reap` and `Schedule` every 2 s and on each
   commit signal. At most 4 Dispatches that have not settled exist at once, one waiting on a question included; the
   coordinator's `CreateDispatch` meets the same limit and checks. Ready Tasks of open Runs go oldest Run first, then
@@ -670,11 +675,14 @@ The owner's commands:
   when pi's environment has it.
 - The coordinator skill (`internal/controlplane/clientcli/skills`, after Orca's
   [decision](docs/decisions/2026-11-09-coordinator-cli-and-skill.md)): `skills get hypomnema-coordinator` prints
-  the guide compiled into the binary, `--reference <name>` one reference (`recovery`, `investigate`). The guide
-  says how to choose a profile ([research](docs/research/2026-11-10-coordinator-routing-and-capabilities.md)): by
-  its description, then by runtime (Claude Code for work across many files, Codex for a narrow change); a question
-  that changes nothing goes to `explorer` Tasks; the model is the profile's unless the owner names one; and a
-  profile or model that cannot be served is reported, not replaced. `skills install` writes the stub
+  the guide compiled into the binary, `--reference <name>` one reference (`recovery`, `investigate`, `review`).
+  The guide names no runtime and no vendor ([research](docs/research/2026-11-10-coordinator-routing-and-capabilities.md),
+  issue #155): a profile is chosen by its description, which the owner writes; a question that changes nothing
+  goes to a profile that reads and reports; a pull request is reviewed, when the owner asks or has said so as a
+  standing rule, by a profile whose description says it reviews that kind of change, given the pull request and
+  the spec only; findings that make a change incorrect are reported with an offer of a fix Task, two rounds at
+  most; the model is the profile's unless the owner names one; and a profile or model that cannot be served is
+  reported, not replaced. `skills install` writes the stub
   `SKILL.md` to `~/.claude/skills` and `~/.agents/skills`, replacing a copy only when it matches a released stub
   (otherwise only with `--force`, keeping a backup). Tests check that every command in the skill parses and that the
   stub and guide share their frontmatter.
