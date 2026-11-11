@@ -6,7 +6,9 @@ scouts in the clones under `.tmp/` (9router-go at 64c156d, CLIProxyAPI at c5251b
 d622a2b, hermes-agent at 022a144, omp at 660a31d, pi at 2a32a60, LiteLLM at 5103d8a, Bifrost at 03ead19, opencode at
 145e948, Omnigent at cf1021e) and, for Anthropic's own pages, by a web fetch on the same day. Nothing was run.
 
-**Outcome: step 5 is not built.** Section 3 is why. This note exists so the question is not researched again.
+**Outcome: the research recommended against building step 5 (section 3). The owner read this note and its terms, and
+decided to build it anyway for his own subscription, his own agents, and no one else (owner, 2026-11-11). The adapter
+is now built (section 4); this note keeps the rules and the risk on the record.**
 
 ## 1. How a program other than Claude Code uses the subscription
 
@@ -46,8 +48,28 @@ A gateway adapter for the subscription routes requests through a consumer subscr
 Code: both halves of the Usage Policy's sentence. The account at stake is the one every Claude Code worker runs
 under.
 
-## 4. What Hypomnema does instead
+## 4. What Hypomnema builds (owner, 2026-11-11)
 
-- Claude models at the gateway come from the Antigravity account (`claude-sonnet`), and can come from an Anthropic
-  API key: the provider kind `anthropic` exists.
-- Work that should use the Claude subscription is given to a Claude Code worker.
+The owner accepts the risk of section 3 — a vendor may block the account used this way — and chose to build the
+adapter, ported from 9router-go (64c156d), the same way the Codex and Antigravity subscriptions were built.
+
+- A `claude` subscription vendor (`internal/controlplane/subscription/claude.go`): the owner logs in with Claude
+  Code's own OAuth client (PKCE, pasted `code#state`), and the control plane refreshes the token.
+- A `modelgateway/claude` package: chat completions ⇄ Anthropic Messages, and the disguise of section 1 — the
+  `oauth-2025-04-20` beta on a Bearer token, the billing system block, a `metadata.user_id`, client tools renamed
+  `_ide` with the twenty Claude Code decoy tools. Because the gateway's clients (omp, opencode, Codex) are not Claude
+  Code, the top-level system is made exactly Claude Code's — the billing block and the identity line "You are Claude
+  Code, Anthropic's official CLI for Claude." — and the client's own instructions are moved under the first user turn
+  as a `<system-reminder>`, so Anthropic's classifier reads a Claude Code prefix (CLIProxyAPI
+  `checkSystemInstructions`; 9router-go leaves them at the top because its clients already are Claude Code).
+- A `claude_subscription` gateway adapter (`claude_adapter.go`): the call itself, under the account logged in on the
+  control plane, with a refresh on a refused token and a cooldown on a usage limit, as the Codex adapter does.
+- Prompt caching, as the Codex adapter has it with `prompt_cache_key`: the billing block's fingerprint is made
+  deterministic (CLIProxyAPI `computeFingerprint`, not 9router-go's random build and body hash) so the prefix is
+  byte-identical between turns, and the cache breakpoints Claude Code sets go on — the system prefix, the last tool
+  and the last message (pi/omp `applyAnthropicCacheControl`). Without this the subscription pays full input tokens
+  every turn. A probe (Claude Code's own `quota`/`ping` check) is left minimal — no decoys, no breakpoints.
+
+Alternatives that remain and need no disguise: Claude models at the gateway from the Antigravity account
+(`claude-sonnet`) or from an Anthropic API key (provider kind `anthropic`); and giving subscription work to a Claude
+Code worker (issue #150).

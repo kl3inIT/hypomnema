@@ -476,8 +476,16 @@ func (s *Service) tokenOf(ctx context.Context, a orchestration.Account) (Token, 
 		return Token{}, fmt.Errorf("opening the tokens of account %s: %w", a.ID, err)
 	}
 
+	// An OAuth login keeps the token under KeyAccessToken; an account added by
+	// hand with its own token (accounts add --token) keeps it under KeyValue.
+	// The gateway serves either, so a Claude token pasted in by hand works too.
+	access := opened.Payload[vault.KeyAccessToken]
+	if access == "" {
+		access = opened.Payload[vault.KeyValue]
+	}
+
 	return Token{
-		AccountID: a.ID, ExternalID: a.ExternalID, AccessToken: opened.Payload[vault.KeyAccessToken],
+		AccountID: a.ID, ExternalID: a.ExternalID, AccessToken: access,
 		Project: a.Project, Version: opened.Version,
 	}, nil
 }

@@ -62,6 +62,14 @@ type Config struct {
 	// CodexBaseURL is the backend the gateway serves a Codex subscription
 	// from, from HYPOMNEMA_CODEX_BASE_URL; empty: ChatGPT's. Tests name their own.
 	CodexBaseURL string
+	// ClaudeBaseURL is the Anthropic Messages backend the gateway serves a
+	// Claude subscription from, from HYPOMNEMA_CLAUDE_BASE_URL; empty:
+	// Anthropic's. Tests name their own.
+	ClaudeBaseURL string
+	// Claude configures the Claude login's OAuth hosts, from
+	// HYPOMNEMA_CLAUDE_AUTH_BASE / _TOKEN_BASE / _PROFILE_BASE; empty:
+	// Anthropic's. Tests name their own.
+	Claude subscription.ClaudeOptions
 	// AntigravityBaseURL is the Cloud Code host the gateway serves an
 	// Antigravity subscription from, from HYPOMNEMA_ANTIGRAVITY_BASE_URL;
 	// empty: Google's daily host. Tests name their own.
@@ -85,7 +93,13 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 		NodeReleaseURL:     env.String(envPrefix+"_NODE_RELEASE_URL", ""),
 		CodexIssuer:        env.String(envPrefix+"_CODEX_ISSUER", ""),
 		CodexBaseURL:       env.String(envPrefix+"_CODEX_BASE_URL", ""),
+		ClaudeBaseURL:      env.String(envPrefix+"_CLAUDE_BASE_URL", ""),
 		AntigravityBaseURL: env.String(envPrefix+"_ANTIGRAVITY_BASE_URL", ""),
+		Claude: subscription.ClaudeOptions{
+			AuthBase:    env.String(envPrefix+"_CLAUDE_AUTH_BASE", ""),
+			TokenBase:   env.String(envPrefix+"_CLAUDE_TOKEN_BASE", ""),
+			ProfileBase: env.String(envPrefix+"_CLAUDE_PROFILE_BASE", ""),
+		},
 		Antigravity: subscription.AntigravityOptions{
 			ClientSecret: env.String(envPrefix+"_ANTIGRAVITY_CLIENT_SECRET", ""),
 		},
@@ -195,6 +209,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	proxy.Register(mux)
 	modelgateway.NewServer(gateway, logger, modelgateway.Config{
 		Subscriptions: gatewayAccounts{subs: subscriptions}, CodexBaseURL: cfg.CodexBaseURL,
+		ClaudeBaseURL:      cfg.ClaudeBaseURL,
 		AntigravityBaseURL: cfg.AntigravityBaseURL,
 	}).Register(mux)
 
