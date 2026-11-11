@@ -64,6 +64,11 @@ adapter, ported from 9router-go (64c156d), the same way the Codex and Antigravit
   `checkSystemInstructions`; 9router-go leaves them at the top because its clients already are Claude Code).
 - A `claude_subscription` gateway adapter (`claude_adapter.go`): the call itself, under the account logged in on the
   control plane, with a refresh on a refused token and a cooldown on a usage limit, as the Codex adapter does.
+- Prompt caching, as the Codex adapter has it with `prompt_cache_key`: the billing block's fingerprint is made
+  deterministic (CLIProxyAPI `computeFingerprint`, not 9router-go's random build and body hash) so the prefix is
+  byte-identical between turns, and the cache breakpoints Claude Code sets go on — the system prefix, the last tool
+  and the last message (pi/omp `applyAnthropicCacheControl`). Without this the subscription pays full input tokens
+  every turn. A probe (Claude Code's own `quota`/`ping` check) is left minimal — no decoys, no breakpoints.
 
 Alternatives that remain and need no disguise: Claude models at the gateway from the Antigravity account
 (`claude-sonnet`) or from an Anthropic API key (provider kind `anthropic`); and giving subscription work to a Claude

@@ -131,10 +131,23 @@ func BuildRequest(chat []byte, opt Options) (Request, error) {
 		body["stop_sequences"] = stopSequences(in.Stop)
 	}
 
+	// A probe (Claude Code's own "quota"/"ping" check) stays minimal: no decoy
+	// tools, no cache breakpoints, only enough to be accepted (CLIProxyAPI
+	// isClaudeProbeOrHelperRequest).
+	probe := isProbe(in)
+
 	// The disguise: the client's tools become Claude Code's, then the billing
 	// block and the fake user id go on, over the body as it then stands.
-	cloakTools(body, names)
+	if !probe {
+		cloakTools(body, names)
+	}
+
 	cloak(body, opt.Token, opt.Session)
+
+	// The prompt-cache breakpoints go on last, over the final tools and system.
+	if !probe {
+		applyCache(body)
+	}
 
 	encoded, err := json.Marshal(body)
 	if err != nil {
@@ -142,6 +155,59 @@ func BuildRequest(chat []byte, opt Options) (Request, error) {
 	}
 
 	return Request{Body: encoded, Names: names, Session: opt.Session}, nil
+}
+
+// probeWords are the trivial one-word messages Claude Code sends to check a
+// key or quota, which should not be dressed up (CLIProxyAPI line 484).
+var probeWords = map[string]bool{"quota": true, "test": true, "ping": true, ".": true, "probe": true}
+
+// isProbe reports whether a request is one of Claude Code's own tiny checks: a
+// single user message of one trivial word, with no tools.
+func isProbe(in chatBody) bool {
+	if len(in.Tools) > 0 {
+		return false
+	}
+
+	seen := 0
+
+	var text string
+
+	for _, m := range in.Messages {
+		var msg struct {
+			Role    string          `json:"role"`
+			Content json.RawMessage `json:"content"`
+		}
+
+		if json.Unmarshal(m, &msg) != nil || msg.Role == "system" {
+			continue
+		}
+
+		seen++
+
+		if msg.Role == "user" {
+			text = probeText(msg.Content)
+		}
+	}
+
+	return seen == 1 && probeWords[strings.ToLower(strings.TrimSpace(text))]
+}
+
+// probeText reads a message's text, a string or the first text block.
+func probeText(content json.RawMessage) string {
+	var text string
+	if json.Unmarshal(content, &text) == nil {
+		return text
+	}
+
+	for _, b := range blocksOf(contentBlocks(content)) {
+		if block, ok := b.(item); ok && block["type"] == "text" {
+			if t, ok := block["text"].(string); ok {
+				return t
+			}
+		}
+	}
+
+	return ""
 }
 
 // maxTokens is the Messages API's required field: the client's, or its legacy

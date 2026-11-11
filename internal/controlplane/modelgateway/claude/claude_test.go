@@ -21,6 +21,98 @@ func decode(t *testing.T, built claude.Request) map[string]any {
 	return body
 }
 
+// cached reports whether a block carries an ephemeral cache_control.
+func cached(block any) bool {
+	b, ok := block.(map[string]any)
+	if !ok {
+		return false
+	}
+
+	cc, ok := b["cache_control"].(map[string]any)
+
+	return ok && cc["type"] == "ephemeral"
+}
+
+// lastOf returns the last element of a list value, or nil.
+func lastOf(t *testing.T, v any) any {
+	t.Helper()
+
+	list, ok := v.([]any)
+	require.True(t, ok)
+	require.NotEmpty(t, list)
+
+	return list[len(list)-1]
+}
+
+// Scenario: the billing block is the same across two requests of the same
+// conversation (so Anthropic's prompt cache can hit) and differs when the
+// conversation's first message differs; it carries no per-request cch or build.
+func TestBuildRequestBillingIsStableForCaching(t *testing.T) {
+	t.Parallel()
+
+	chat := `{"model":"m","messages":[{"role":"user","content":"explain the build cache please"}]}`
+
+	billingOf := func(c string) string {
+		built, err := claude.BuildRequest([]byte(c), claude.Options{Model: "claude-sonnet-5-5", Token: "tok"})
+		require.NoError(t, err)
+		body := decode(t, built)
+		system, ok := body["system"].([]any)
+		require.True(t, ok)
+		first, ok := system[0].(map[string]any)
+		require.True(t, ok)
+		text, ok := first["text"].(string)
+		require.True(t, ok)
+
+		return text
+	}
+
+	first := billingOf(chat)
+	assert.Equal(t, first, billingOf(chat), "the same conversation yields the same billing block")
+	assert.NotContains(t, first, "cch=", "no per-request body hash")
+
+	other := billingOf(`{"model":"m","messages":[{"role":"user","content":"a different opening message entirely"}]}`)
+	assert.NotEqual(t, first, other, "a different first message changes the fingerprint")
+}
+
+// Scenario: the prompt-cache breakpoints Claude Code sets are placed — on the
+// last system block, the last tool and the last message — so the subscription
+// does not pay full input tokens every turn.
+func TestBuildRequestPlacesCacheBreakpoints(t *testing.T) {
+	t.Parallel()
+
+	chat := `{"model":"m","messages":[{"role":"user","content":"hi"}],` +
+		`"tools":[{"type":"function","function":{"name":"read"}}]}`
+
+	built, err := claude.BuildRequest([]byte(chat), claude.Options{Model: "claude-sonnet-5-5", Token: "tok"})
+	require.NoError(t, err)
+
+	body := decode(t, built)
+	assert.True(t, cached(lastOf(t, body["system"])), "the system prefix is cached")
+	assert.True(t, cached(lastOf(t, body["tools"])), "the tool list is cached")
+
+	last, ok := lastOf(t, body["messages"]).(map[string]any)
+	require.True(t, ok)
+	content, ok := last["content"].([]any)
+	require.True(t, ok)
+	assert.True(t, cached(content[len(content)-1]), "the conversation so far is cached")
+}
+
+// Scenario: a probe (Claude Code's own "quota" check) stays minimal — no decoy
+// tools, no cache breakpoints — so a tiny key check is not dressed up.
+func TestBuildRequestLeavesAProbeMinimal(t *testing.T) {
+	t.Parallel()
+
+	built, err := claude.BuildRequest(
+		[]byte(`{"model":"m","messages":[{"role":"user","content":"quota"}]}`),
+		claude.Options{Model: "claude-sonnet-5-5", Token: "tok"})
+	require.NoError(t, err)
+
+	body := decode(t, built)
+	_, hasTools := body["tools"]
+	assert.False(t, hasTools, "a probe adds no decoy tools")
+	assert.False(t, cached(lastOf(t, body["system"])), "a probe is not cached")
+}
+
 // Scenario: a chat request with a system message, a user message and one tool
 // becomes a Messages body carrying Claude Code's disguise: the system message
 // is lifted and the billing block goes first, a metadata.user_id is added, and

@@ -4,9 +4,9 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"strings"
+	"unicode/utf16"
 )
 
 // The disguise that makes a request from the gateway pass for one from Claude
@@ -148,23 +148,15 @@ const claudeIdentity = "You are Claude Code, Anthropic's official CLI for Claude
 // system text moved under the first user turn as a system-reminder, and a
 // metadata.user_id.
 func cloak(body item, token, session string) {
-	// cch is the first five hex of the sha256 of the body before the block goes on.
-	before, err := json.Marshal(body)
-	if err != nil {
-		return
-	}
-
-	cchSum := sha256.Sum256(before)
-	cch := hex.EncodeToString(cchSum[:])[:5]
-
-	build := make([]byte, 2)
-	if _, err := rand.Read(build); err != nil {
-		build = []byte{0, 0}
-	}
-
+	// The billing fingerprint is deterministic so the top of the prompt does
+	// not change between two requests of the same conversation, which is what
+	// lets Anthropic's prompt cache hit (CLIProxyAPI generateBillingHeader /
+	// computeFingerprint). 9router-go's cc_version carries a random build and a
+	// cch hashed over the whole body, which change every turn and defeat the
+	// cache; neither is kept.
 	billing := item{"type": "text", "text": fmt.Sprintf(
-		"x-anthropic-billing-header: cc_version=%s.%s; cc_entrypoint=sdk-cli; cch=%s;",
-		CLIVersion, hex.EncodeToString(build)[:3], cch,
+		"x-anthropic-billing-header: cc_version=%s.%s; cc_entrypoint=sdk-cli;",
+		CLIVersion, billingFingerprint(firstUserText(body)),
 	)}
 	identity := item{"type": "text", "text": claudeIdentity}
 
@@ -194,6 +186,64 @@ func cloak(body item, token, session string) {
 	}
 
 	body["metadata"] = meta
+}
+
+// fingerprintSalt is the constant Claude Code's billing fingerprint is salted
+// with (CLIProxyAPI, recovered from the 2.1.x binaries).
+const fingerprintSalt = "59cf53e54c78"
+
+// billingFingerprint is the three hex of cc_version=<version>.<fingerprint>:
+// a hash over three fixed characters of the first user message and the version
+// (CLIProxyAPI computeFingerprint). It depends on almost nothing, so it holds
+// steady across a conversation and keeps the billing block byte-for-byte the
+// same, which the prompt cache needs.
+func billingFingerprint(messageText string) string {
+	units := utf16.Encode([]rune(messageText))
+
+	sampled := make([]uint16, 3)
+	for i, idx := range []int{4, 7, 20} {
+		sampled[i] = '0'
+		if idx < len(units) {
+			sampled[i] = units[idx]
+		}
+	}
+
+	sum := sha256.Sum256([]byte(fingerprintSalt + string(utf16.Decode(sampled)) + CLIVersion))
+
+	return hex.EncodeToString(sum[:])[:3]
+}
+
+// firstUserText is the text of the first user message, which the fingerprint
+// samples. It reads a string content or the first text block.
+func firstUserText(body item) string {
+	messages, ok := body["messages"].([]any)
+	if !ok {
+		return ""
+	}
+
+	for _, m := range messages {
+		msg, ok := m.(item)
+		if !ok || msg["role"] != "user" {
+			continue
+		}
+
+		switch content := msg["content"].(type) {
+		case string:
+			return content
+		case []any:
+			for _, b := range content {
+				if block, ok := b.(item); ok && block["type"] == "text" {
+					if text, ok := block["text"].(string); ok {
+						return text
+					}
+				}
+			}
+		}
+
+		return ""
+	}
+
+	return ""
 }
 
 // callerSystem reads the client's own system instructions, a string or text
