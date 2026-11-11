@@ -234,6 +234,38 @@ var commands = []command{
 		flags:   jsonFlag, run: integrationsDisconnect,
 	},
 	{
+		name: "channels lark show", summary: "the Lark bot, who may talk to it and whether it is connected (owner)",
+		flags: jsonFlag, run: larkBotShow,
+	},
+	{
+		name: "channels lark set",
+		summary: "set the Lark bot up or change it: its app from a JSON file with app_id and app_secret, the " +
+			"owner's email at Lark, who may talk to it, and whether it is on (owner)",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("app-file", "", "a JSON file with the app's app_id and app_secret, or - for standard input")
+			fs.String("owner", "", "the owner's email in the app's Lark organization, or his open_id")
+			fs.String("mode", "", "who may talk to the bot: owner, allowlist or everyone")
+			fs.Bool("on", false, "switch the bot on")
+			fs.Bool("off", false, "switch the bot off")
+			jsonFlag(fs)
+		},
+		run: larkBotSet,
+	},
+	{
+		name: "channels lark rm", summary: "forget the Lark bot and its app's secret (owner)",
+		flags: jsonFlag, run: larkBotRemove,
+	},
+	{
+		name: "channels lark allow", args: "<email or open_id>", min: 1, max: 1,
+		summary: "add someone who may talk to the Lark bot when its mode is allowlist (owner)",
+		flags:   jsonFlag, run: larkBotPersonAdd,
+	},
+	{
+		name: "channels lark disallow", args: "<email or open_id>", min: 1, max: 1,
+		summary: "take someone off the Lark bot's list (owner)",
+		flags:   jsonFlag, run: larkBotPersonRemove,
+	},
+	{
 		name: "repos list", summary: "the repositories registered under a name", flags: jsonFlag, run: reposList,
 	},
 	{

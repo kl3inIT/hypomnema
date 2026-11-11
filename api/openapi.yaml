@@ -765,6 +765,78 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Disconnected" }
         default: { $ref: "#/components/responses/Error" }
+  /channels/lark:
+    get:
+      operationId: GetLarkBot
+      summary: The Lark bot, who may talk to it and whether it is connected; only the owner
+      description: >-
+        The bot is a Channel: a person's direct message to it at Lark is a
+        message of a chat with the coordinator. The app's secret is never in
+        the answer.
+      responses:
+        "200":
+          description: The bot.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LarkBot" }
+        default: { $ref: "#/components/responses/Error" }
+    put:
+      operationId: PutLarkBot
+      summary: Set the Lark bot up, or change it; only the owner
+      description: >-
+        The first time it takes the app's id and secret and the owner's email
+        at Lark. After that a field left out keeps what the bot had. The secret
+        goes into the vault. The owner's email is looked up at Lark with the
+        app, which also shows the app's id and secret work. A new bot is off
+        and takes messages from its owner only. Another app is used from the
+        control plane's next start.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LarkBotSettings" }
+      responses:
+        "200":
+          description: The bot.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LarkBot" }
+        default: { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: DeleteLarkBot
+      summary: Forget the Lark bot and its app's secret; only the owner
+      responses:
+        "204": { description: The bot is forgotten. }
+        default: { $ref: "#/components/responses/Error" }
+  /channels/lark/people:
+    post:
+      operationId: AddLarkBotPerson
+      summary: Add someone who may talk to the Lark bot when its mode is allowlist; only the owner
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewLarkBotPerson" }
+      responses:
+        "200":
+          description: The person.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LarkBotPerson" }
+        default: { $ref: "#/components/responses/Error" }
+  /channels/lark/people/{person}:
+    parameters:
+      - name: person
+        in: path
+        required: true
+        description: The person's open_id at Lark, or the email they were added with.
+        schema: { type: string, minLength: 1, maxLength: 320 }
+    delete:
+      operationId: RemoveLarkBotPerson
+      summary: Take someone off the Lark bot's list; only the owner
+      responses:
+        "204": { description: The person is off the list. }
+        default: { $ref: "#/components/responses/Error" }
   /secrets:
     get:
       operationId: ListSecrets
@@ -1862,6 +1934,72 @@ components:
         connections:
           type: array
           items: { $ref: "#/components/schemas/IntegrationConnection" }
+    LarkBot:
+      type: object
+      description: The Lark bot as the owner set it up, and whether it is connected.
+      required: [app_id, mode, owner_open_id, enabled, connected, people, updated_at]
+      properties:
+        app_id: { type: string, description: The Lark app's id. Not secret. }
+        mode: { $ref: "#/components/schemas/LarkBotMode" }
+        owner_open_id: { type: string, description: The owner's id at Lark. }
+        enabled: { type: boolean, description: Whether the bot takes messages. }
+        connected:
+          type: boolean
+          description: Whether the persistent connection to Lark is open.
+        connected_app_id:
+          type: string
+          description: >-
+            The app the connection was opened as, when it is another than
+            app_id: the control plane must start again to use the new one.
+        last_error:
+          type: string
+          description: Why the last attempt to connect failed.
+        people:
+          type: array
+          items: { $ref: "#/components/schemas/LarkBotPerson" }
+        updated_at: { type: string, format: date-time }
+    LarkBotMode:
+      type: string
+      enum: [owner, allowlist, everyone]
+      description: >-
+        Who may talk to the bot: its owner only, the owner and the people he
+        added, or every member of the app's Lark organization. Someone of
+        another organization is refused in every mode.
+    LarkBotSettings:
+      type: object
+      additionalProperties: false
+      properties:
+        app_id: { type: string, minLength: 1, maxLength: 1024 }
+        app_secret:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          writeOnly: true
+        owner:
+          type: string
+          minLength: 1
+          maxLength: 320
+          description: The owner's email in the app's Lark organization, or his open_id.
+        mode: { $ref: "#/components/schemas/LarkBotMode" }
+        enabled: { type: boolean }
+    LarkBotPerson:
+      type: object
+      required: [open_id, email, name, created_at]
+      properties:
+        open_id: { type: string }
+        email: { type: string, description: The email they were added with; empty when added by open_id. }
+        name: { type: string, description: Their name at Lark, when the app may read it. }
+        created_at: { type: string, format: date-time }
+    NewLarkBotPerson:
+      type: object
+      required: [who]
+      additionalProperties: false
+      properties:
+        who:
+          type: string
+          minLength: 1
+          maxLength: 320
+          description: Their email in the app's Lark organization, or their open_id.
     IntegrationList:
       type: object
       required: [data]
