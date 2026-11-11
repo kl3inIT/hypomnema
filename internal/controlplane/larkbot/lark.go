@@ -11,6 +11,7 @@ import (
 	lark "github.com/larksuite/oapi-sdk-go/v3"
 	larkcore "github.com/larksuite/oapi-sdk-go/v3/core"
 	"github.com/larksuite/oapi-sdk-go/v3/event/dispatcher"
+	"github.com/larksuite/oapi-sdk-go/v3/event/dispatcher/callback"
 	larkcardkit "github.com/larksuite/oapi-sdk-go/v3/service/cardkit/v1"
 	larkcontact "github.com/larksuite/oapi-sdk-go/v3/service/contact/v3"
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
@@ -48,12 +49,24 @@ func Connect(appID, secret string) Lark {
 	}
 }
 
-func (s *sdk) Listen(ctx context.Context, take func(Message)) error {
+func (s *sdk) Listen(ctx context.Context, take func(Message), press func(Press) string) error {
 	handler := dispatcher.NewEventDispatcher("", "").
 		OnP2MessageReceiveV1(func(_ context.Context, e *larkim.P2MessageReceiveV1) error {
 			take(messageOf(e))
 
 			return nil
+		}).
+		// A press of a card's button (the callback card.action.trigger): what press answers is shown to who
+		// pressed, as a toast.
+		OnP2CardActionTrigger(func(_ context.Context, e *callback.CardActionTriggerEvent) (
+			*callback.CardActionTriggerResponse, error,
+		) {
+			said := press(pressOf(e))
+			if said == "" {
+				return &callback.CardActionTriggerResponse{}, nil
+			}
+
+			return &callback.CardActionTriggerResponse{Toast: &callback.Toast{Type: "info", Content: said}}, nil
 		}).
 		// Lark tells an app when its messages were read; nothing is done with it, and the SDK logs an event
 		// nobody handles as an error.
@@ -99,6 +112,7 @@ func messageOf(e *larkim.P2MessageReceiveV1) Message {
 		m.Text = textOf(deref(msg.Content))
 	}
 
+	m.ReplyTo = deref(msg.ParentId)
 	m.FromPerson = deref(sender.SenderType) == "user"
 	m.SenderOrg = deref(sender.TenantKey)
 
@@ -111,6 +125,29 @@ func messageOf(e *larkim.P2MessageReceiveV1) Message {
 	}
 
 	return m
+}
+
+// pressOf reads who pressed a card's button and what the button carries.
+func pressOf(e *callback.CardActionTriggerEvent) Press {
+	p := Press{Value: map[string]string{}}
+
+	if e == nil || e.Event == nil {
+		return p
+	}
+
+	if e.Event.Operator != nil {
+		p.Operator = e.Event.Operator.OpenID
+	}
+
+	if e.Event.Action != nil {
+		for k, v := range e.Event.Action.Value {
+			if text, ok := v.(string); ok {
+				p.Value[k] = text
+			}
+		}
+	}
+
+	return p
 }
 
 func deref(s *string) string {
@@ -206,6 +243,95 @@ func (s *sdk) CloseCard(ctx context.Context, cardID, text string, seq int) error
 	}
 
 	return refused("closing a card", resp.Success(), resp.Code, resp.Msg)
+}
+
+// cardJSON is a card that is not being written: a title, the text, a button
+// a choice and small print.
+func cardJSON(card Card) (string, error) {
+	elements := []any{map[string]string{"tag": "markdown", "content": card.Text}}
+
+	for _, b := range card.Buttons {
+		elements = append(elements, map[string]any{
+			"tag": "button", "text": map[string]string{"tag": "plain_text", "content": b.Label},
+			"behaviors": []any{map[string]any{"type": "callback", "value": b.Value}},
+		})
+	}
+
+	if card.Note != "" {
+		elements = append(elements, map[string]any{
+			"tag": "markdown", "content": card.Note, "text_size": "notation",
+		})
+	}
+
+	raw, err := json.Marshal(map[string]any{
+		"schema": "2.0",
+		"config": map[string]any{"summary": map[string]string{"content": summaryOf(card.Text)}},
+		"header": map[string]any{"title": map[string]string{"tag": "plain_text", "content": card.Title}},
+		"body":   map[string]any{"elements": elements},
+	})
+
+	return string(raw), err
+}
+
+func (s *sdk) SendCard(ctx context.Context, openID string, card Card) (cardID, messageID string, err error) {
+	data, err := cardJSON(card)
+	if err != nil {
+		return "", "", err
+	}
+
+	created, err := s.api.Cardkit.V1.Card.Create(ctx, larkcardkit.NewCreateCardReqBuilder().
+		Body(larkcardkit.NewCreateCardReqBodyBuilder().Type("card_json").Data(data).Build()).Build())
+	if err != nil {
+		return "", "", fmt.Errorf("creating a card: %w", err)
+	}
+
+	if err := refused("creating a card", created.Success(), created.Code, created.Msg); err != nil {
+		return "", "", err
+	}
+
+	if created.Data == nil || created.Data.CardId == nil {
+		return "", "", errors.New("creating a card: Lark gave no card id")
+	}
+
+	cardID = *created.Data.CardId
+
+	content, err := json.Marshal(map[string]any{"type": "card", "data": map[string]string{"card_id": cardID}})
+	if err != nil {
+		return "", "", err
+	}
+
+	sent, err := s.api.Im.V1.Message.Create(ctx, larkim.NewCreateMessageReqBuilder().ReceiveIdType("open_id").
+		Body(larkim.NewCreateMessageReqBodyBuilder().ReceiveId(openID).MsgType("interactive").
+			Content(string(content)).Build()).Build())
+	if err != nil {
+		return "", "", fmt.Errorf("sending a card: %w", err)
+	}
+
+	if err := refused("sending a card", sent.Success(), sent.Code, sent.Msg); err != nil {
+		return "", "", err
+	}
+
+	if sent.Data == nil || sent.Data.MessageId == nil {
+		return "", "", errors.New("sending a card: Lark gave no message id")
+	}
+
+	return cardID, *sent.Data.MessageId, nil
+}
+
+func (s *sdk) ReplaceCard(ctx context.Context, cardID string, card Card, seq int) error {
+	data, err := cardJSON(card)
+	if err != nil {
+		return err
+	}
+
+	resp, err := s.api.Cardkit.V1.Card.Update(ctx, larkcardkit.NewUpdateCardReqBuilder().CardId(cardID).
+		Body(larkcardkit.NewUpdateCardReqBodyBuilder().
+			Card(larkcardkit.NewCardBuilder().Type("card_json").Data(data).Build()).Sequence(seq).Build()).Build())
+	if err != nil {
+		return fmt.Errorf("replacing a card: %w", err)
+	}
+
+	return refused("replacing a card", resp.Success(), resp.Code, resp.Msg)
 }
 
 // summaryOf is what a chat list shows for a card: its first line, cut short.

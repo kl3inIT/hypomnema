@@ -42,14 +42,47 @@ type Message struct {
 	// app (Lark's tenant_key).
 	SenderOrg string
 	Org       string
+	// ReplyTo is the message this one replies to, when it is a reply.
+	ReplyTo string
+}
+
+// Press is a person pressing a button of a card.
+type Press struct {
+	// Operator is the open_id of who pressed.
+	Operator string
+	// Value is what the button carries.
+	Value map[string]string
+}
+
+// Card is a card that is not being written: a question with its choices, or
+// how it ended.
+type Card struct {
+	Title string
+	// Text is Markdown.
+	Text string
+	// Buttons are the choices; none on a card that can no longer be answered.
+	Buttons []Button
+	// Note is small print under the buttons.
+	Note string
+}
+
+// Button is one choice of a card.
+type Button struct {
+	Label string
+	Value map[string]string
 }
 
 // Lark is what the bot does at Lark. The SDK is behind it (lark.go).
 type Lark interface {
-	// Listen opens the persistent connection and gives each message to take.
-	// It returns when the connection cannot be opened; an open connection
-	// stays for the life of the process.
-	Listen(ctx context.Context, take func(Message)) error
+	// Listen opens the persistent connection and gives each message to take
+	// and each press of a card's button to press, whose answer is shown to
+	// who pressed. It returns when the connection cannot be opened; an open
+	// connection stays for the life of the process.
+	Listen(ctx context.Context, take func(Message), press func(Press) string) error
+	// SendCard sends a card to a person and returns its id and its message's.
+	SendCard(ctx context.Context, openID string, card Card) (cardID, messageID string, err error)
+	// ReplaceCard replaces a card sent with SendCard; seq rises with each call.
+	ReplaceCard(ctx context.Context, cardID string, card Card, seq int) error
 	// SendText sends a short notice to a chat.
 	SendText(ctx context.Context, chatID, text string) error
 	// OpenCard sends a card that is still being written and returns its id.
@@ -73,6 +106,15 @@ type Store interface {
 	LarkBotChatFor(ctx context.Context, larkChatID, openID, title string) (orchestration.LarkBotChat, error)
 	LarkBotChats(ctx context.Context) ([]orchestration.LarkBotChat, error)
 	MarkLarkBotSent(ctx context.Context, larkChatID string, seq int64) error
+	ListQuestions(ctx context.Context, f orchestration.QuestionFilter) ([]orchestration.Question, error)
+	GetQuestion(ctx context.Context, id string) (orchestration.Question, error)
+	AnswerQuestion(ctx context.Context, id string, by orchestration.Addressee, a orchestration.Answer,
+	) (orchestration.Question, error)
+	RecordLarkQuestionCard(ctx context.Context, c orchestration.LarkQuestionCard) error
+	LarkQuestionCardOf(ctx context.Context, questionID string) (orchestration.LarkQuestionCard, error)
+	LarkQuestionCardByMessage(ctx context.Context, messageID string) (orchestration.LarkQuestionCard, error)
+	OpenLarkQuestionCards(ctx context.Context) ([]orchestration.LarkQuestionCard, error)
+	CloseLarkQuestionCard(ctx context.Context, questionID string, seq int) error
 	AddChatMessage(ctx context.Context, chatID string, role orchestration.ChatRole, text string,
 	) (orchestration.ChatMessage, error)
 	ListChatMessages(ctx context.Context, chatID string, after int64, limit int) ([]orchestration.ChatMessage, error)
@@ -200,7 +242,7 @@ func (b *Bot) start(ctx context.Context) bool {
 
 	lark, err := b.open(ctx, bot)
 	if err == nil {
-		err = lark.Listen(ctx, func(m Message) { b.Take(ctx, m) })
+		err = lark.Listen(ctx, func(m Message) { b.Take(ctx, m) }, func(p Press) string { return b.Press(ctx, p) })
 	}
 
 	b.mu.Lock()
@@ -227,6 +269,8 @@ func (b *Bot) start(ctx context.Context) bool {
 	for _, c := range chats {
 		b.relayLocked(ctx, lark, c)
 	}
+
+	go b.questions(ctx, lark)
 
 	return true
 }
@@ -281,6 +325,15 @@ func (b *Bot) take(ctx context.Context, lark Lark, m Message) error {
 		b.notice(ctx, lark, m.ChatID, noticeTextOnly)
 
 		return nil
+	}
+
+	// The owner's reply to a question's card is his answer in his own words, not a message for the coordinator.
+	if m.Sender == bot.OwnerOpenID && m.ReplyTo != "" {
+		if card, err := b.store.LarkQuestionCardByMessage(ctx, m.ReplyTo); err == nil {
+			b.notice(ctx, lark, m.ChatID, b.answer(ctx, card.QuestionID, orchestration.Answer{Text: m.Text}))
+
+			return nil
+		}
 	}
 
 	text, title := m.Text, ""
@@ -584,4 +637,172 @@ func textOf(content string) string {
 	}
 
 	return parsed.Text
+}
+
+// A question for the owner is a card at Lark (issue #136), as OpenClaw's and
+// Hermes' approval cards are: each choice is a button, and a reply to the
+// card answers in the owner's own words. Only the owner's press counts, by
+// the open_id of who pressed (MemoryOS: the approver is checked by open_id).
+// A card says how its question ended, and then has no buttons.
+
+const (
+	answered      = "Answered."
+	onlyTheOwner  = "Only the owner answers this."
+	questionTitle = "A worker asks"
+	// buttonQuestion and buttonOption are what a choice's button carries.
+	buttonQuestion = "question"
+	buttonOption   = "option"
+)
+
+// questions sends the owner's open questions as cards and closes the cards
+// of questions that ended, on every change of the store.
+func (b *Bot) questions(ctx context.Context, lark Lark) {
+	wake := b.store.Subscribe(ctx)
+
+	for {
+		if err := b.syncQuestions(ctx, lark); err != nil && ctx.Err() == nil {
+			b.logger.WarnContext(ctx, "the owner's questions were not brought to Lark",
+				slog.String("event", "larkbot.questions_failed"), slog.Any("error", err))
+		}
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-wake:
+		}
+	}
+}
+
+func (b *Bot) syncQuestions(ctx context.Context, lark Lark) error {
+	bot, err := b.store.LarkBot(ctx)
+	if err != nil || !bot.Enabled {
+		// A bot that was switched off or removed sends nothing.
+		return nil
+	}
+
+	open, err := b.store.ListQuestions(ctx, orchestration.QuestionFilter{
+		AddressedTo: orchestration.AddressOwner, Status: orchestration.QuestionOpen,
+	})
+	if err != nil {
+		return err
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, sendTimeout)
+	defer cancel()
+
+	for _, q := range open {
+		if _, err := b.store.LarkQuestionCardOf(ctx, q.ID); !errors.Is(err, orchestration.ErrNotFound) {
+			continue
+		}
+
+		cardID, messageID, err := lark.SendCard(ctx, bot.OwnerOpenID, questionCard(q))
+		if err != nil {
+			return fmt.Errorf("sending question %s: %w", q.ID, err)
+		}
+
+		if err := b.store.RecordLarkQuestionCard(ctx, orchestration.LarkQuestionCard{
+			QuestionID: q.ID, CardID: cardID, MessageID: messageID,
+		}); err != nil {
+			return err
+		}
+	}
+
+	cards, err := b.store.OpenLarkQuestionCards(ctx)
+	if err != nil {
+		return err
+	}
+
+	for _, c := range cards {
+		q, err := b.store.GetQuestion(ctx, c.QuestionID)
+		if err != nil || q.Status == orchestration.QuestionOpen {
+			continue
+		}
+
+		if err := lark.ReplaceCard(ctx, c.CardID, endedCard(q), c.Seq+1); err != nil {
+			return fmt.Errorf("closing the card of question %s: %w", q.ID, err)
+		}
+
+		if err := b.store.CloseLarkQuestionCard(ctx, c.QuestionID, c.Seq+1); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// questionCard is a question as the owner sees it at Lark.
+func questionCard(q orchestration.Question) Card {
+	card := Card{Title: questionTitle, Text: q.Text}
+
+	for i, o := range q.Options {
+		card.Buttons = append(card.Buttons, Button{
+			Label: o.Label, Value: map[string]string{buttonQuestion: q.ID, buttonOption: fmt.Sprint(i)},
+		})
+	}
+
+	if len(q.Options) == 0 {
+		card.Note = "Reply to this card to answer."
+	}
+
+	return card
+}
+
+// endedCard is the card of a question that can no longer be answered: it
+// says why, as OpenMausBot's cards do.
+func endedCard(q orchestration.Question) Card {
+	card := Card{Title: questionTitle, Text: q.Text}
+
+	switch {
+	case q.Status == orchestration.QuestionCanceled:
+		card.Note = "Canceled: " + q.CancelReason
+	case q.Answer != nil:
+		var parts []string
+
+		if q.Answer.Option != nil && *q.Answer.Option >= 0 && *q.Answer.Option < len(q.Options) {
+			parts = append(parts, q.Options[*q.Answer.Option].Label)
+		}
+
+		if strings.TrimSpace(q.Answer.Text) != "" {
+			parts = append(parts, q.Answer.Text)
+		}
+
+		card.Note = fmt.Sprintf("Answered by the %s: %s", q.AnsweredBy, strings.Join(parts, " — "))
+	default:
+		card.Note = "Closed."
+	}
+
+	return card
+}
+
+// Press handles a press of a card's button and returns what the person who
+// pressed is told. It is called from the connection, which must answer Lark
+// within three seconds; an answer is one write.
+func (b *Bot) Press(ctx context.Context, p Press) string {
+	bot, err := b.store.LarkBot(ctx)
+	if err != nil || !bot.Enabled {
+		return ""
+	}
+
+	if p.Operator != bot.OwnerOpenID {
+		return onlyTheOwner
+	}
+
+	var option int
+	if _, err := fmt.Sscan(p.Value[buttonOption], &option); err != nil || p.Value[buttonQuestion] == "" {
+		return ""
+	}
+
+	return b.answer(ctx, p.Value[buttonQuestion], orchestration.Answer{Option: &option})
+}
+
+// answer records the owner's answer and returns what he is told.
+func (b *Bot) answer(ctx context.Context, questionID string, a orchestration.Answer) string {
+	if _, err := b.store.AnswerQuestion(ctx, questionID, orchestration.AddressOwner, a); err != nil {
+		b.logger.InfoContext(ctx, "an answer from Lark was not taken", slog.String("event", "larkbot.answer_refused"),
+			slog.String("question_id", questionID), slog.Any("error", err))
+
+		return "That answer was not taken: " + err.Error()
+	}
+
+	return answered
 }

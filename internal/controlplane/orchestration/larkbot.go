@@ -282,3 +282,88 @@ func (s *Service) MarkLarkBotSent(ctx context.Context, larkChatID string, seq in
 func larkBotChatFromRow(r store.LarkBotChat) LarkBotChat {
 	return LarkBotChat{LarkChatID: r.LarkChatID, OpenID: r.OpenID, ChatID: r.ChatID, SentSeq: r.SentSeq}
 }
+
+// LarkQuestionCard is the card at Lark that shows one of the owner's
+// questions.
+type LarkQuestionCard struct {
+	QuestionID string
+	CardID     string
+	// MessageID is the Lark message the card is; a reply to it answers the
+	// question in the owner's own words.
+	MessageID string
+	// Seq is the card's last update.
+	Seq int
+}
+
+// RecordLarkQuestionCard records the card a question was sent as.
+func (s *Service) RecordLarkQuestionCard(ctx context.Context, c LarkQuestionCard) error {
+	if err := s.write(ctx, func(q *store.Queries, now int64) error {
+		return q.InsertLarkBotQuestion(ctx, store.InsertLarkBotQuestionParams{
+			QuestionID: c.QuestionID, CardID: c.CardID, MessageID: c.MessageID, Now: now,
+		})
+	}); err != nil {
+		return fmt.Errorf("recording the Lark card of question %s: %w", c.QuestionID, err)
+	}
+
+	return nil
+}
+
+// LarkQuestionCardOf returns the card of a question; ErrNotFound when it was
+// sent as none.
+func (s *Service) LarkQuestionCardOf(ctx context.Context, questionID string) (LarkQuestionCard, error) {
+	row, err := s.read().GetLarkBotQuestion(ctx, questionID)
+	if err != nil {
+		return LarkQuestionCard{}, notFound(err, "Lark card of question", questionID)
+	}
+
+	return larkQuestionCardFromRow(row), nil
+}
+
+// LarkQuestionCardByMessage returns the card a Lark message is, while its
+// question can still be answered; ErrNotFound otherwise.
+func (s *Service) LarkQuestionCardByMessage(ctx context.Context, messageID string) (LarkQuestionCard, error) {
+	row, err := s.read().GetLarkBotQuestionByMessage(ctx, messageID)
+	if err != nil {
+		return LarkQuestionCard{}, notFound(err, "Lark question card", messageID)
+	}
+
+	if row.ClosedAt.Valid {
+		return LarkQuestionCard{}, fmt.Errorf("%w: the question of Lark card %s is closed", ErrNotFound, messageID)
+	}
+
+	return larkQuestionCardFromRow(row), nil
+}
+
+// OpenLarkQuestionCards returns the cards that still show a question as
+// open, oldest first.
+func (s *Service) OpenLarkQuestionCards(ctx context.Context) ([]LarkQuestionCard, error) {
+	rows, err := s.read().ListOpenLarkBotQuestions(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("listing the Lark question cards: %w", err)
+	}
+
+	out := make([]LarkQuestionCard, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, larkQuestionCardFromRow(r))
+	}
+
+	return out, nil
+}
+
+// CloseLarkQuestionCard records that a card was changed to say how its
+// question ended.
+func (s *Service) CloseLarkQuestionCard(ctx context.Context, questionID string, seq int) error {
+	if err := s.write(ctx, func(q *store.Queries, now int64) error {
+		return q.CloseLarkBotQuestion(ctx, store.CloseLarkBotQuestionParams{
+			QuestionID: questionID, Seq: int64(seq), Now: sql.NullInt64{Int64: now, Valid: true},
+		})
+	}); err != nil {
+		return fmt.Errorf("closing the Lark card of question %s: %w", questionID, err)
+	}
+
+	return nil
+}
+
+func larkQuestionCardFromRow(r store.LarkBotQuestion) LarkQuestionCard {
+	return LarkQuestionCard{QuestionID: r.QuestionID, CardID: r.CardID, MessageID: r.MessageID, Seq: int(r.Seq)}
+}
