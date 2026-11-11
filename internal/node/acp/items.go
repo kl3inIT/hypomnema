@@ -23,7 +23,9 @@ const Format = "acp"
 //   - `tool_call` names a call, with its input at once (omp) or empty until
 //     its first update (opencode); `tool_call_update` goes through in_progress
 //     to completed or failed and carries the output. One call is one item when
-//     its input is known, and its result is one when it ends;
+//     its input is known, and its result is one when it ends. opencode ends a
+//     shell call whose command did not exit cleanly as completed, and says how
+//     it ended in the raw output's metadata: that result is a failed one too;
 //   - the result of `session/prompt` says how the turn ended.
 //
 // Not items: usage, the commands the agent offers, session information, the plan.
@@ -59,6 +61,14 @@ type sessionUpdate struct {
 			Type string `json:"type"`
 			Text string `json:"text"`
 		} `json:"content"`
+		// Metadata is how opencode's shell tool says a command ended
+		// (packages/core/src/shell/result.ts metadata, sent on by
+		// packages/cli/src/acp/tool.ts completedToolUpdate).
+		Metadata struct {
+			Exit    *int   `json:"exit"`
+			Signal  string `json:"signal"`
+			Timeout bool   `json:"timeout"`
+		} `json:"metadata"`
 	} `json:"rawOutput"`
 }
 
@@ -223,7 +233,7 @@ func (d *decoder) onUpdate(index int, u sessionUpdate) []nodeproto.Item {
 
 		if ended {
 			out = append(out, nodeproto.Item{
-				Kind: nodeproto.ItemToolResult, CallID: u.ToolCallID, Text: output(u), Failed: u.Status == "failed",
+				Kind: nodeproto.ItemToolResult, CallID: u.ToolCallID, Text: output(u), Failed: failed(u),
 			})
 		}
 
@@ -322,4 +332,16 @@ func output(u sessionUpdate) string {
 	}
 
 	return strings.Join(parts, "\n")
+}
+
+// failed reports whether a call that ended did not do what it was asked: the
+// agent said so, or its command exited with another code than zero, was
+// killed by a signal or ran out of time. opencode reports those three as a
+// completed call (its notice in packages/core/src/shell/result.ts treats them
+// alike); a Codex command's exit code is read the same way (codex/items.go),
+// as t3code reads an ACP agent's (packages/provider-grok xaiAcpExtension.ts).
+func failed(u sessionUpdate) bool {
+	m := u.RawOutput.Metadata
+
+	return u.Status == "failed" || (m.Exit != nil && *m.Exit != 0) || m.Signal != "" || m.Timeout
 }
