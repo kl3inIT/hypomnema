@@ -1040,6 +1040,79 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/AccountList" }
         default: { $ref: "#/components/responses/Error" }
+  /bots:
+    get:
+      operationId: ListBots
+      summary: Every Bot, the oldest first
+      description: >-
+        A Bot is a long-lived agent of the control plane: its model, its
+        persona and its memory. It talks with people in chats and gives work
+        to workers. It is apart from a Profile, which is a worker's recipe.
+      responses:
+        "200":
+          description: The Bots.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BotList" }
+        default: { $ref: "#/components/responses/Error" }
+  /bots/{name}:
+    parameters:
+      - $ref: "#/components/parameters/Name"
+    get:
+      operationId: GetBot
+      summary: A Bot, with its persona and memory
+      responses:
+        "200":
+          description: The Bot.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Bot" }
+        default: { $ref: "#/components/responses/Error" }
+    put:
+      operationId: PutBot
+      summary: Make a Bot, or change its model and persona; only the owner
+      description: The Bot's memory stays as it is.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BotSettings" }
+      responses:
+        "200":
+          description: The Bot.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Bot" }
+        default: { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: DeleteBot
+      summary: Remove a Bot that has no chats and no memory; only the owner
+      description: The Bot `coordinator` is always there and is not removed.
+      responses:
+        "204": { description: The Bot is removed. }
+        default: { $ref: "#/components/responses/Error" }
+  /bots/{name}/memory:
+    parameters:
+      - $ref: "#/components/parameters/Name"
+    post:
+      operationId: ChangeBotMemory
+      summary: Add, replace or remove one entry of a Bot's memory
+      description: >-
+        The memory is the Bot's entries, one per line, the same in every chat
+        with it. A change that would pass the memory's limit is refused and
+        changes nothing: replace or remove entries first.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MemoryChange" }
+      responses:
+        "200":
+          description: The Bot, with its memory after the change.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Bot" }
+        default: { $ref: "#/components/responses/Error" }
   /profiles:
     get:
       operationId: ListProfiles
@@ -2365,6 +2438,52 @@ components:
           minLength: 1
           maxLength: 100000
           description: The YAML document; its name must equal the one in the path.
+    Bot:
+      type: object
+      required: [name, persona, memory, memory_limit, created_at, updated_at]
+      properties:
+        name: { type: string }
+        provider: { type: string }
+        model: { type: string }
+        effort: { type: string }
+        persona:
+          type: string
+          description: What the Bot is and how it behaves, written by the owner; pi gets it after its built-in instructions.
+        memory:
+          type: string
+          description: What the Bot keeps across chats, one entry per line.
+        memory_limit:
+          type: integer
+          description: The most characters the memory holds.
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    BotList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/Bot" }
+    BotSettings:
+      type: object
+      additionalProperties: false
+      properties:
+        provider: { type: string }
+        model: { type: string }
+        effort: { type: string }
+        persona: { type: string }
+    MemoryChange:
+      type: object
+      additionalProperties: false
+      required: [kind]
+      properties:
+        kind: { type: string, enum: [add, replace, remove] }
+        text:
+          type: string
+          description: The entry to add, or what replaces the entry found.
+        match:
+          type: string
+          description: Part of the one entry to replace or remove.
     Profile:
       type: object
       required: [name, description, version_id, version, runtime, fallbacks, source, created_at]
@@ -2396,7 +2515,7 @@ components:
             Whether a worker can start under the profile now: a connected, active node has its CLI, and its runtime
             has an account that is not cooling down (none is needed for a model the gateway serves). A node at its
             limit still counts, since the Task waits its turn. Given for a profile's current version; absent for
-            the coordinator's runtime, which no node runs, and in a list of versions.
+            a list of versions.
         unavailable_reason:
           type: string
           enum: [no_node, no_account, accounts_cooling]
@@ -2457,12 +2576,16 @@ components:
       additionalProperties: false
       properties:
         title: { type: string, maxLength: 200 }
+        bot:
+          type: string
+          description: The Bot the chat talks with; `coordinator` when left out.
     Chat:
       type: object
-      required: [id, title, working, coordinator, created_at, updated_at]
+      required: [id, title, bot, working, coordinator, created_at, updated_at]
       properties:
         id: { type: string }
         title: { type: string }
+        bot: { type: string, description: The Bot the chat talks with. }
         working:
           type: boolean
           description: The coordinator is working on a turn of this chat.

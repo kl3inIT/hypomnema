@@ -94,8 +94,7 @@ type Profile struct {
 	Source    string
 	CreatedAt time.Time
 	// Availability says whether a worker can start under the profile now. It
-	// is set on a profile's current version only, and not for the
-	// coordinator's runtime, which no node runs.
+	// is set on a profile's current version only.
 	Availability *Availability
 }
 
@@ -108,10 +107,6 @@ type Availability struct {
 	Reason    string
 	At        *time.Time
 }
-
-// coordinatorRuntime is run by the control plane for the owner's chats; no
-// node has it and no Task is placed under it.
-const coordinatorRuntime = "pi"
 
 // Provider is a source of models, such as a subscription or an API.
 type Provider struct {
@@ -195,6 +190,12 @@ func (s *Service) ApplyProfile(ctx context.Context, name, source string) (Profil
 		return Profile{}, false, fmt.Errorf("%w: a profile name is lowercase letters, digits and dashes", ErrInvalid)
 	}
 
+	// pi is run by the control plane for a Bot; no node has it and no Task is placed under it (issue #169).
+	if p.Runtime == botRuntime {
+		return Profile{}, false, fmt.Errorf("%w: runtime %s is a bot's, not a worker's; see `hypomnema bots`",
+			ErrInvalid, botRuntime)
+	}
+
 	if name != "" && name != p.Name {
 		return Profile{}, false, fmt.Errorf("%w: the source names profile %q, not %q", ErrInvalid, p.Name, name)
 	}
@@ -273,13 +274,9 @@ func (s *Service) ApplyProfile(ctx context.Context, name, source string) (Profil
 }
 
 // checkFallbacks checks the backups a profile names: each an existing
-// worker's profile, named once, and not the profile itself. The
-// coordinator's profile has none: no Task runs under it.
+// worker's profile, named once, and not the profile itself.
 func checkFallbacks(ctx context.Context, q *store.Queries, p Profile) error {
-	switch {
-	case len(p.Fallbacks) > 0 && p.Runtime == coordinatorRuntime:
-		return fmt.Errorf("%w: the coordinator's profile takes no fallbacks", ErrInvalid)
-	case len(p.Fallbacks) > MaxFallbacks:
+	if len(p.Fallbacks) > MaxFallbacks {
 		return fmt.Errorf("%w: a profile names at most %d fallbacks", ErrInvalid, MaxFallbacks)
 	}
 
@@ -291,13 +288,8 @@ func checkFallbacks(ctx context.Context, q *store.Queries, p Profile) error {
 			return fmt.Errorf("%w: fallback %q is named twice", ErrInvalid, name)
 		}
 
-		v, err := q.CurrentProfileVersion(ctx, name)
-		if err != nil {
+		if _, err := q.CurrentProfileVersion(ctx, name); err != nil {
 			return fmt.Errorf("fallback: %w", notFound(err, "profile", name))
-		}
-
-		if v.Runtime == coordinatorRuntime {
-			return fmt.Errorf("%w: fallback %q is the coordinator's profile, not a worker's", ErrInvalid, name)
 		}
 	}
 
@@ -397,10 +389,6 @@ func (s *Service) withAvailability(ctx context.Context, profiles []Profile) erro
 	}
 
 	for i, pr := range profiles {
-		if pr.Runtime == coordinatorRuntime {
-			continue
-		}
-
 		gateway := false
 
 		if pr.Provider != "" {
@@ -566,9 +554,29 @@ func looksLikeSecret(s string) bool {
 	return false
 }
 
-// providerStillServes checks that the current profile versions using a
-// provider keep their model and runtime after the change.
+// providerStillServes checks that the current profile versions and the Bots
+// using a provider keep their model and runtime after the change.
 func providerStillServes(ctx context.Context, q *store.Queries, in providerSource) error {
+	bots, err := q.ListBots(ctx)
+	if err != nil {
+		return fmt.Errorf("listing bots: %w", err)
+	}
+
+	for _, b := range bots {
+		if b.Provider.String != in.Name {
+			continue
+		}
+
+		if !slices.Contains(runtimeProviders[botRuntime], in.Kind) {
+			return fmt.Errorf("%w: bot %s runs %s on provider %s, which kind %s cannot serve", ErrConflict,
+				b.Name, botRuntime, in.Name, in.Kind)
+		}
+
+		if b.Model.Valid && !slices.Contains(in.Models, b.Model.String) {
+			return fmt.Errorf("%w: bot %s uses model %s of provider %s", ErrConflict, b.Name, b.Model.String, in.Name)
+		}
+	}
+
 	versions, err := q.ListCurrentProfileVersions(ctx)
 	if err != nil {
 		return fmt.Errorf("listing profiles: %w", err)

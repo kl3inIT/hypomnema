@@ -236,7 +236,7 @@ func (s *Service) LarkBotChatFor(ctx context.Context, larkChatID, openID, title 
 		return LarkBotChat{}, fmt.Errorf("reading Lark chat %s: %w", larkChatID, err)
 	}
 
-	chat, err := s.CreateChat(ctx, title)
+	chat, err := s.CreateChat(ctx, DefaultBot, title)
 	if err != nil {
 		return LarkBotChat{}, err
 	}
@@ -261,7 +261,7 @@ func (s *Service) ResetLarkBotChat(ctx context.Context, larkChatID, title string
 		return LarkBotChat{}, notFound(err, "Lark chat", larkChatID)
 	}
 
-	chat, err := s.CreateChat(ctx, title)
+	chat, err := s.CreateChat(ctx, DefaultBot, title)
 	if err != nil {
 		return LarkBotChat{}, err
 	}

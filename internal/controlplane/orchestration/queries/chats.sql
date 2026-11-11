@@ -1,5 +1,5 @@
 -- name: InsertChat :exec
-INSERT INTO chats (id, title, created_at, updated_at) VALUES (@id, @title, @now, @now);
+INSERT INTO chats (id, title, bot, created_at, updated_at) VALUES (@id, @title, @bot, @now, @now);
 
 -- name: GetChat :one
 SELECT * FROM chats WHERE id = @id;
@@ -62,3 +62,6 @@ UPDATE chats SET title = @title WHERE id = @id AND title = 'Chat';
 -- behind it: the owner answered an Approval (issue #154).
 INSERT INTO chat_messages (chat_id, role, text, to_coordinator, created_at)
 VALUES (@chat_id, 'system', @text, 1, @now);
+
+-- name: CountChatsOfBot :one
+SELECT count(*) FROM chats WHERE bot = @bot;

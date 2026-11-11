@@ -15,7 +15,7 @@ func TestOwnerMessagesWaitForPi(t *testing.T) {
 	w := newWorld(t)
 	ctx := t.Context()
 
-	chat, err := w.s.CreateChat(ctx, "")
+	chat, err := w.s.CreateChat(ctx, "", "")
 	require.NoError(t, err)
 	assert.Equal(t, "Chat", chat.Title)
 
@@ -65,7 +65,7 @@ func TestRunEventsWakeTheirChatOnce(t *testing.T) {
 	w := newSchedWorld(t)
 	ctx := t.Context()
 
-	chat, err := w.s.CreateChat(ctx, "health page")
+	chat, err := w.s.CreateChat(ctx, "", "health page")
 	require.NoError(t, err)
 
 	run, err := w.s.CreateRun(ctx, NewRun{Objective: "health page", CreatedBy: "pi", ChatID: chat.ID})
@@ -117,7 +117,7 @@ func TestAChatIsNamedByItsFirstMessage(t *testing.T) {
 	w := newWorld(t)
 	ctx := t.Context()
 
-	untitledChat, err := w.s.CreateChat(ctx, "")
+	untitledChat, err := w.s.CreateChat(ctx, "", "")
 	require.NoError(t, err)
 	assert.Equal(t, "Chat", untitledChat.Title)
 
@@ -130,7 +130,7 @@ func TestAChatIsNamedByItsFirstMessage(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "add a health page", got.Title, "the first message names it, once")
 
-	named, err := w.s.CreateChat(ctx, "release notes")
+	named, err := w.s.CreateChat(ctx, "", "release notes")
 	require.NoError(t, err)
 	_, err = w.s.AddChatMessage(ctx, named.ID, ChatOwner, "write them")
 	require.NoError(t, err)

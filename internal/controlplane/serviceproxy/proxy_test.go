@@ -113,7 +113,7 @@ func newWorld(t *testing.T, hold time.Duration) *world {
 	_, w.pi, err = w.svc.AddToken(ctx, "pi", bearertoken.Coordinator)
 	require.NoError(t, err)
 
-	chat, err := w.svc.CreateChat(ctx, "Reply to the invoice")
+	chat, err := w.svc.CreateChat(ctx, "", "Reply to the invoice")
 	require.NoError(t, err)
 
 	w.chat = chat.ID
@@ -476,7 +476,7 @@ func TestApprovingForTheSessionStopsAskingInThatChatOnly(t *testing.T) {
 	require.Equal(t, http.StatusOK, gmail.do(http.MethodPost, sendPath, contentType, body).Status)
 	assert.Empty(t, w.approvals(orchestration.ApprovalPending))
 
-	other, err := w.svc.CreateChat(ctx, "Another chat")
+	other, err := w.svc.CreateChat(ctx, "", "Another chat")
 	require.NoError(t, err)
 
 	elsewhere, refused := w.open(w.pi, "work", "gmail.googleapis.com", other.ID)

@@ -131,8 +131,19 @@ func (q *Queries) ChatsWithUndelivered(ctx context.Context) ([]string, error) {
 	return items, nil
 }
 
+const countChatsOfBot = `-- name: CountChatsOfBot :one
+SELECT count(*) FROM chats WHERE bot = ?1
+`
+
+func (q *Queries) CountChatsOfBot(ctx context.Context, bot string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countChatsOfBot, bot)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const getChat = `-- name: GetChat :one
-SELECT id, title, created_at, updated_at FROM chats WHERE id = ?1
+SELECT id, title, created_at, updated_at, bot FROM chats WHERE id = ?1
 `
 
 func (q *Queries) GetChat(ctx context.Context, id string) (Chat, error) {
@@ -143,22 +154,29 @@ func (q *Queries) GetChat(ctx context.Context, id string) (Chat, error) {
 		&i.Title,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Bot,
 	)
 	return i, err
 }
 
 const insertChat = `-- name: InsertChat :exec
-INSERT INTO chats (id, title, created_at, updated_at) VALUES (?1, ?2, ?3, ?3)
+INSERT INTO chats (id, title, bot, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?4)
 `
 
 type InsertChatParams struct {
 	ID    string
 	Title string
+	Bot   string
 	Now   int64
 }
 
 func (q *Queries) InsertChat(ctx context.Context, arg InsertChatParams) error {
-	_, err := q.db.ExecContext(ctx, insertChat, arg.ID, arg.Title, arg.Now)
+	_, err := q.db.ExecContext(ctx, insertChat,
+		arg.ID,
+		arg.Title,
+		arg.Bot,
+		arg.Now,
+	)
 	return err
 }
 
@@ -253,7 +271,7 @@ func (q *Queries) ListChatMessages(ctx context.Context, arg ListChatMessagesPara
 }
 
 const listChats = `-- name: ListChats :many
-SELECT id, title, created_at, updated_at FROM chats ORDER BY updated_at DESC, id LIMIT ?1
+SELECT id, title, created_at, updated_at, bot FROM chats ORDER BY updated_at DESC, id LIMIT ?1
 `
 
 func (q *Queries) ListChats(ctx context.Context, lim int64) ([]Chat, error) {
@@ -270,6 +288,7 @@ func (q *Queries) ListChats(ctx context.Context, lim int64) ([]Chat, error) {
 			&i.Title,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Bot,
 		); err != nil {
 			return nil, err
 		}

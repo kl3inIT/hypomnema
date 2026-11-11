@@ -607,7 +607,7 @@ func TestMigrationKeepsProvidersAndWhatNamesThem(t *testing.T) {
 	require.NoError(t, db.QueryRowContext(ctx, `SELECT
 		(SELECT count(*) FROM profile_versions WHERE provider = 'router') +
 		(SELECT count(*) FROM gateway_model_targets WHERE provider = 'router')`).Scan(&named))
-	assert.Equal(t, 2, named)
+	assert.Equal(t, 1, named, "the versions of pi's profile left with it when it became a Bot (00045)")
 
 	_, err = s.ApplyProvider(ctx, "", "name: agy2\nkind: antigravity_subscription\nmodels: [m]\n")
 	require.NoError(t, err)
@@ -888,7 +888,6 @@ func TestFallbacksNameOtherWorkerProfiles(t *testing.T) {
 
 	require.ErrorIs(t, apply("name: a\ndescription: d\nruntime: claude\nfallbacks: [a]\n"), ErrInvalid)
 	require.ErrorIs(t, apply("name: a\ndescription: d\nruntime: claude\nfallbacks: [missing]\n"), ErrNotFound)
-	require.ErrorIs(t, apply("name: a\ndescription: d\nruntime: claude\nfallbacks: [coordinator]\n"), ErrInvalid)
 	require.ErrorIs(t, apply("name: a\ndescription: d\nruntime: claude\nfallbacks: [reviewer, reviewer]\n"),
 		ErrInvalid)
 	require.ErrorIs(t, apply("name: lead\ndescription: d\nruntime: pi\nfallbacks: [reviewer]\n"), ErrInvalid)

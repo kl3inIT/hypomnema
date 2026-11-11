@@ -443,7 +443,7 @@ func newWorld(t *testing.T) *world {
 	w.orch = orchestration.New(db, platform.SystemClock{}, platform.NewID)
 	w.asks = &asking{Service: w.orch, questions: map[string]orchestration.Question{}}
 	// Any commit wakes the bot; a chat that is made and never used is one.
-	w.asks.changed = func() { _, _ = w.orch.CreateChat(context.Background(), "wake") }
+	w.asks.changed = func() { _, _ = w.orch.CreateChat(context.Background(), "", "wake") }
 	w.vault = vault.New(db, platform.SystemClock{}, platform.NewID, keys,
 		func(context.Context, string) ([]string, error) { return nil, nil })
 	w.start()
