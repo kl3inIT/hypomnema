@@ -11,6 +11,7 @@ import (
 	"mime/multipart"
 	"net/mail"
 	"net/url"
+	"slices"
 	"sort"
 	"strings"
 	"unicode/utf8"
@@ -174,9 +175,16 @@ func (d *decoder) file(label, name, mediaType string, data []byte) {
 	d.fields = append(d.fields, orchestration.Field{Label: label, Value: said})
 }
 
-// The headers of a message that say where it goes and what it is; Date and
-// Message-Id are made anew for every send and are left out.
+// The headers of a message that say where it goes and what it is, in the
+// order the owner reads them. Every other header is shown after them, under
+// its own name: nothing a message carries is left out of what is approved,
+// except what is made anew for every send or only describes the encoding.
 var mailHeaders = []string{"From", "To", "Cc", "Bcc", "Reply-To", "Subject", "In-Reply-To"}
+
+var unshownHeaders = map[string]bool{
+	"Date": true, "Message-Id": true, "Mime-Version": true, "Content-Type": true,
+	"Content-Transfer-Encoding": true, "User-Agent": true,
+}
 
 // message reads a mail as it will be sent.
 func (d *decoder) message(raw []byte) {
@@ -189,17 +197,42 @@ func (d *decoder) message(raw []byte) {
 
 	words := new(mime.WordDecoder)
 
-	for _, name := range mailHeaders {
-		value := msg.Header.Get(name)
-		if plain, err := words.DecodeHeader(value); err == nil {
-			value = plain
+	// A header written twice is shown whole: a service may send to every line of it, and the first alone
+	// would hide the rest.
+	header := func(name string) string {
+		values := make([]string, 0, len(msg.Header[name]))
+
+		for _, value := range msg.Header[name] {
+			if plain, err := words.DecodeHeader(value); err == nil {
+				value = plain
+			}
+
+			values = append(values, value)
 		}
 
-		d.show(name, value)
+		return strings.Join(values, ", ")
+	}
+
+	for _, name := range mailHeaders {
+		d.show(name, header(name))
 
 		if name == "To" && d.subject == "" {
-			d.subject = value
+			d.subject = header(name)
 		}
+	}
+
+	others := make([]string, 0, len(msg.Header))
+
+	for name := range msg.Header {
+		if !unshownHeaders[name] && !slices.Contains(mailHeaders, name) {
+			others = append(others, name)
+		}
+	}
+
+	sort.Strings(others)
+
+	for _, name := range others {
+		d.show(name, header(name))
 	}
 
 	body, err := io.ReadAll(msg.Body)

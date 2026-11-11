@@ -26,6 +26,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -141,6 +142,9 @@ func (p *Proxy) certificate(w http.ResponseWriter, _ *http.Request) {
 
 // session is one tunnel: who asks, for which Connection, to which host.
 type session struct {
+	// opened is the request that opened the tunnel; its credential is asked about again for every request
+	// that comes through.
+	opened      *http.Request
 	caller      Caller
 	integration string
 	label       string
@@ -162,7 +166,7 @@ func (p *Proxy) tunnel(w http.ResponseWriter, r *http.Request) {
 
 	query := r.URL.Query()
 	s := session{
-		caller: caller, integration: query.Get(agenttool.QueryIntegration), label: query.Get(agenttool.QueryLabel),
+		opened: r, caller: caller, integration: query.Get(agenttool.QueryIntegration), label: query.Get(agenttool.QueryLabel),
 	}
 
 	host, port, err := net.SplitHostPort(query.Get(agenttool.QueryHost))
@@ -262,6 +266,29 @@ func (p *Proxy) answer(ctx context.Context, out io.Writer, req *http.Request, s 
 
 	if len(body) > maxBody {
 		return p.reply(out, http.StatusRequestEntityTooLarge, "the request is larger than the proxy passes on") == nil
+	}
+
+	// A tunnel stays open for many requests. What the agent may use is asked for each of them, so that an
+	// account taken back, or a Dispatch that ended, stops at its next request and not when the tool closes.
+	may, err := p.cfg.Agents.May(ctx, s.opened, s.integration, s.label)
+	if err != nil || !may {
+		p.cfg.Logger.InfoContext(ctx, "a request through the service proxy",
+			slog.String("event", "serviceproxy.request"), slog.String("agent", s.caller.Name),
+			slog.String("connection", s.connection()), slog.String("verdict", "no longer given"))
+		_ = p.reply(out, http.StatusForbidden, "this agent may no longer use "+s.connection()+"; the request was not run")
+
+		return false
+	}
+
+	// A request is what it says it is in one way only. One written so that the proxy and the service could
+	// read it differently is refused: another host in its address, a path that does not stay where it
+	// starts, a header or a parameter that asks the service to treat it as another method.
+	if reason := malformed(req); reason != "" {
+		p.cfg.Logger.InfoContext(ctx, "a request through the service proxy",
+			slog.String("event", "serviceproxy.request"), slog.String("agent", s.caller.Name),
+			slog.String("connection", s.connection()), slog.String("verdict", "malformed: "+reason))
+
+		return p.reply(out, http.StatusForbidden, "Refused: "+reason+". The request was not run") == nil
 	}
 
 	action := s.catalog.Match(req.Method, s.host, req.URL.Path)
@@ -495,15 +522,19 @@ func (p *Proxy) Decide(ctx context.Context, id string, approve bool, scope orche
 // service's answer back.
 func (p *Proxy) forward(ctx context.Context, out io.Writer, req *http.Request, body []byte, action Action, s session,
 ) error {
-	// The host is one of the Integration's own, checked when the tunnel was opened; the path is the tool's.
-	//nolint:gosec // G704: the proxy's purpose is to send a tool's request on, to a host from a fixed catalog.
-	upstream, err := http.NewRequestWithContext(ctx, req.Method, "https://"+s.host+req.URL.RequestURI(),
-		bytes.NewReader(body))
-	if err != nil {
+	// The address is built from its parts: the host is the tunnel's, one of the Integration's own, whatever
+	// the request named; only the path and the query are the tool's, and malformed has checked them.
+	target := url.URL{
+		Scheme: "https", Host: s.host, Path: req.URL.Path, RawPath: req.URL.RawPath, RawQuery: req.URL.RawQuery,
+	}
+
+	upstream, err := http.NewRequestWithContext(ctx, req.Method, target.String(), bytes.NewReader(body))
+	if err != nil || upstream.URL.Host != s.host {
 		return p.reply(out, http.StatusBadGateway, "the request could not be sent on")
 	}
 
 	upstream.Header = req.Header.Clone()
+	upstream.Host = s.host
 	// What the tool sent as a credential is never passed on: it holds a placeholder.
 	upstream.Header.Del("Authorization")
 	upstream.Header.Del("Proxy-Authorization")
@@ -542,6 +573,54 @@ func (p *Proxy) forward(ctx context.Context, out io.Writer, req *http.Request, b
 	}
 
 	return resp.Write(out)
+}
+
+// overrides are the headers and parameters by which a service is asked to
+// treat a request as another method than the one it was sent with. Google's
+// APIs honor them; an action is recognized by the method, so they are not
+// passed on.
+var (
+	overrideHeaders = []string{"X-Http-Method-Override", "X-Http-Method", "X-Method-Override"}
+	overrideQueries = []string{"$httpMethod", "$method", "_method", "httpMethod"}
+)
+
+// malformed says why a request is not one the proxy sends on, or "" for one
+// that is.
+func malformed(req *http.Request) string {
+	u := req.URL
+
+	switch {
+	case u.Scheme != "" || u.Host != "" || u.User != nil || u.Opaque != "":
+		return "a request names its path only, not another address"
+	case !strings.HasPrefix(u.Path, "/"):
+		return "a request's path starts at the service's root"
+	}
+
+	for _, segment := range strings.Split(u.Path, "/")[1:] {
+		if segment == "." || segment == ".." || strings.ContainsAny(segment, "\\\x00") {
+			return "a request's path may not step out of where it starts"
+		}
+	}
+
+	// An encoded slash is one segment to the proxy and may be two to the service.
+	if raw := strings.ToLower(u.RawPath); strings.Contains(raw, "%2f") || strings.Contains(raw, "%5c") {
+		return "a request's path may not hide a slash"
+	}
+
+	for _, name := range overrideHeaders {
+		if req.Header.Get(name) != "" {
+			return "a request may not ask to be treated as another method (" + name + ")"
+		}
+	}
+
+	query := u.Query()
+	for _, name := range overrideQueries {
+		if query.Has(name) {
+			return "a request may not ask to be treated as another method (" + name + ")"
+		}
+	}
+
+	return ""
 }
 
 func rootCause(err error) string {
