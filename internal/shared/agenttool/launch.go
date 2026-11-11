@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"time"
 )
@@ -22,7 +23,26 @@ import (
 const (
 	PathConnections = "/agent/v1/connections"
 	PathToken       = "/agent/v1/token"
+	// PathTunnel carries a tool's connection to a service through the
+	// control plane's service proxy (issue #154); PathCA gives the
+	// certificate the tool must trust to talk to it.
+	PathTunnel = "/agent/v1/tunnel"
+	PathCA     = "/agent/v1/ca"
 )
+
+// The parameters of PathTunnel.
+const (
+	QueryIntegration = "integration"
+	QueryLabel       = "label"
+	QueryHost        = "host"
+	QueryChat        = "chat"
+)
+
+// Placeholder is what a tool is given in place of a token when its
+// Integration goes through the service proxy, for a tool that will not send
+// a request without one. The proxy puts the real token in its place;
+// anywhere else it opens nothing (Omnigent's oa_cred placeholder).
+const Placeholder = "hypomnema-placeholder"
 
 // The launcher's environment, set by whoever starts the agent.
 const (
@@ -32,6 +52,9 @@ const (
 	EnvKey = "HYPOMNEMA_AGENT_KEY"
 	// EnvTools is the directory the real tools are installed under.
 	EnvTools = "HYPOMNEMA_TOOLS_HOME"
+	// EnvChat is the chat a coordinator works in, so that what it asks the
+	// owner to approve is shown there.
+	EnvChat = "HYPOMNEMA_CHAT_ID"
 )
 
 // accountFlag names the account to act as when the agent may use several of
@@ -78,16 +101,18 @@ type Launcher struct {
 	Key string
 	// ToolsHome is the directory the real tools are installed under.
 	ToolsHome string
-	Client    *http.Client
-	Stdin     io.Reader
-	Stdout    io.Writer
-	Stderr    io.Writer
+	// Chat is the chat a coordinator works in; empty for a worker.
+	Chat   string
+	Client *http.Client
+	Stdin  io.Reader
+	Stdout io.Writer
+	Stderr io.Writer
 }
 
 // FromEnv is the launcher of an agent whose starter set the environment.
 func FromEnv() Launcher {
 	return Launcher{
-		URL: os.Getenv(EnvURL), Key: os.Getenv(EnvKey), ToolsHome: os.Getenv(EnvTools),
+		URL: os.Getenv(EnvURL), Key: os.Getenv(EnvKey), ToolsHome: os.Getenv(EnvTools), Chat: os.Getenv(EnvChat),
 		Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr,
 	}
 }
@@ -123,22 +148,48 @@ func (l Launcher) Run(ctx context.Context, name string, args []string) error {
 		if err != nil {
 			return err
 		}
-	}
-
-	var token TokenResponse
-	if err := l.call(fetchCtx, http.MethodPost, PathToken, TokenRequest{Integration: def.Integration, Label: label},
-		&token); err != nil {
-		return fmt.Errorf("getting a token for %s:%s: %w", def.Integration, label, err)
+	} else if def.Proxied {
+		// Without a token to ask for, the account is checked here, so that a wrong label is said in words and
+		// not found out by the tool's first request.
+		if err := l.given(fetchCtx, def, label); err != nil {
+			return err
+		}
 	}
 
 	//nolint:gosec // The pinned tool, installed by this machine's own installer.
 	cmd := exec.CommandContext(ctx, ToolPath(l.ToolsHome, def.Name, def.Version), rest...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = l.Stdin, l.Stdout, l.Stderr
 	cmd.Env = append(without(os.Environ(), EnvKey), def.Env...)
-	cmd.Env = append(cmd.Env, def.TokenEnv+"="+token.AccessToken)
 
-	if def.ClientEnv != "" && token.ClientID != "" {
-		cmd.Env = append(cmd.Env, def.ClientEnv+"="+token.ClientID)
+	if def.Proxied {
+		// The tool holds no token: its requests go through the control plane's proxy, which adds it.
+		env, refused, stop, err := l.bridge(fetchCtx, def, label)
+		if err != nil {
+			return err
+		}
+		defer stop()
+
+		// Said after the tool has ended, in the control plane's own words: the tool itself only knows that its
+		// proxy refused.
+		defer func() {
+			if reason := refused.said(); reason != "" && l.Stderr != nil {
+				_, _ = fmt.Fprintln(l.Stderr, "hypomnema: "+reason)
+			}
+		}()
+
+		cmd.Env = append(without(cmd.Env, proxyVariables...), env...)
+	} else {
+		var token TokenResponse
+		if err := l.call(fetchCtx, http.MethodPost, PathToken,
+			TokenRequest{Integration: def.Integration, Label: label}, &token); err != nil {
+			return fmt.Errorf("getting a token for %s:%s: %w", def.Integration, label, err)
+		}
+
+		cmd.Env = append(cmd.Env, def.TokenEnv+"="+token.AccessToken)
+
+		if def.ClientEnv != "" && token.ClientID != "" {
+			cmd.Env = append(cmd.Env, def.ClientEnv+"="+token.ClientID)
+		}
 	}
 
 	err = cmd.Run()
@@ -178,6 +229,21 @@ func account(args []string) (label string, rest []string, err error) {
 	}
 
 	return label, rest, nil
+}
+
+// given reports whether the agent may use the named account.
+func (l Launcher) given(ctx context.Context, def Def, label string) error {
+	var list ConnectionList
+	if err := l.call(ctx, http.MethodGet, PathConnections+"?integration="+url.QueryEscape(def.Integration), nil,
+		&list); err != nil {
+		return fmt.Errorf("asking which %s accounts this agent may use: %w", def.Integration, err)
+	}
+
+	if !slices.ContainsFunc(list.Data, func(c Connection) bool { return c.Label == label }) {
+		return fmt.Errorf("this agent was not given %s:%s", def.Integration, label)
+	}
+
+	return nil
 }
 
 // only is the one account of the tool's Integration the agent may use. With
@@ -268,13 +334,14 @@ func (l Launcher) call(ctx context.Context, method, path string, body, into any)
 	return nil
 }
 
-// without drops a variable from an environment: the tool has no use for the
+// without drops variables from an environment: the tool has no use for the
 // agent's credential.
-func without(env []string, name string) []string {
+func without(env []string, names ...string) []string {
 	out := make([]string, 0, len(env))
 
 	for _, kv := range env {
-		if !strings.HasPrefix(kv, name+"=") {
+		name, _, _ := strings.Cut(kv, "=")
+		if !slices.Contains(names, name) {
 			out = append(out, kv)
 		}
 	}

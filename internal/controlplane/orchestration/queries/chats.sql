@@ -21,16 +21,16 @@ SELECT * FROM chat_messages WHERE chat_id = @chat_id AND seq > @after ORDER BY s
 -- name: UndeliveredChatMessages :many
 -- Owner messages and wake-ups not yet given to pi, oldest first.
 SELECT * FROM chat_messages
-WHERE chat_id = @chat_id AND delivered_at IS NULL AND (role = 'owner' OR event_seq IS NOT NULL)
+WHERE chat_id = @chat_id AND delivered_at IS NULL AND (role = 'owner' OR event_seq IS NOT NULL OR to_coordinator = 1)
 ORDER BY seq;
 
 -- name: ChatsWithUndelivered :many
 SELECT DISTINCT chat_id FROM chat_messages
-WHERE delivered_at IS NULL AND (role = 'owner' OR event_seq IS NOT NULL);
+WHERE delivered_at IS NULL AND (role = 'owner' OR event_seq IS NOT NULL OR to_coordinator = 1);
 
 -- name: MarkChatMessagesDelivered :exec
 UPDATE chat_messages SET delivered_at = @now
-WHERE chat_id = @chat_id AND seq <= @upto AND delivered_at IS NULL AND (role = 'owner' OR event_seq IS NOT NULL);
+WHERE chat_id = @chat_id AND seq <= @upto AND delivered_at IS NULL AND (role = 'owner' OR event_seq IS NOT NULL OR to_coordinator = 1);
 
 -- name: ChatWokenAfter :one
 -- The last event this chat was woken for.
@@ -56,3 +56,9 @@ LIMIT @lim;
 -- name: TitleUntitledChat :exec
 -- A chat still under the default title takes one from its first owner message.
 UPDATE chats SET title = @title WHERE id = @id AND title = 'Chat';
+
+-- name: InsertChatNotice :exec
+-- A message of the control plane's own that the coordinator is given as a wake-up, though no event of a Run is
+-- behind it: the owner answered an Approval (issue #154).
+INSERT INTO chat_messages (chat_id, role, text, to_coordinator, created_at)
+VALUES (@chat_id, 'system', @text, 1, @now);

@@ -249,12 +249,36 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     - **One way for every agent to call a tool** (`internal/shared/agenttool`, in both binaries). A script named
       after the tool (`gws`) is first on the agent's `PATH`; it runs `hypomnema tool gws` or
       `hypomnema-node tool gws`, the launcher. On every call the launcher asks the control plane's agent API
-      (`internal/controlplane/agentapi`: `GET /agent/v1/connections`, `POST /agent/v1/token`) which accounts the
-      agent may use and for a fresh access token of one, sets the tool's variable (`GOOGLE_WORKSPACE_CLI_TOKEN`)
-      and runs the real tool. `--account <label>` names one of several and never reaches the tool. Only the
-      access token, good for about an hour, leaves the control plane; it is in the tool's process and nowhere
-      else. This stands in for the node's proxy of the conventions, which is not built: until it is, nothing but
-      the skill's rule stops an agent with a writing account from sending mail.
+      (`internal/controlplane/agentapi`: `GET /agent/v1/connections`) which accounts the agent may use and runs
+      the real tool. `--account <label>` names one of several and never reaches the tool.
+    - **Google goes through the service proxy** (issue #154,
+      [decision](docs/decisions/2026-11-11-service-proxy-in-the-control-plane.md),
+      [research](docs/research/2026-11-11-service-proxy-and-approvals.md); `internal/controlplane/serviceproxy`).
+      The tool is given a placeholder where a token would be, a proxy on loopback and the proxy's certificate
+      (`GET /agent/v1/ca`). The launcher carries each connection the tool opens over a websocket to the control
+      plane (`GET /agent/v1/tunnel`), which decrypts it with a certificate authority of its own, made when it
+      starts and kept in memory. Each request is matched by method, host and path to an **action** of the
+      Integration's catalog (send mail, share a file; data, as Onyx's) and answered by that action's Policy for the
+      Connection: **allow** (reading, drafts, a new file), **ask** (what reaches other people or cannot be taken
+      back; and any request that matches no action), or **never**. Only then is the account's token added. No
+      token of a proxied Integration is handed to an agent. A request that the proxy and the service could read
+      differently is refused: another address, a path that climbs or hides a slash, a method override, a query
+      that does not parse strictly. What an agent may use is asked again for every request. Every request is
+      logged with the agent, the Connection, the action and the verdict. Lark still gets a token
+      (`POST /agent/v1/token`), as before.
+    - **An Approval** (migration 00039) is the owner's answer to a request that asked. The request is held up to
+      100 s; the Approval keeps who asked (a Dispatch with its Task and Run, or a chat), the action and the request
+      decoded for reading: a mail's recipients, subject and text, a file's name and size, a JSON body's values.
+      The owner approves once, approves the action for the rest of the Run or the chat, or rejects. An Approval
+      not answered in time stays open (owner, 2026-11-11): the tool is told it waits; a coordinator ends its turn
+      and a worker asks the owner and waits. When it is answered later, the coordinator is woken in its chat, or
+      the question the worker waits on is answered, and the repeat of the same request, recognized by its decoded
+      content and not its bytes, passes once. Only the owner's token lists and answers Approvals
+      (`GET /approvals`, `POST /approvals/{id}/decision`; `hypomnema approvals`) and sets an action's answer
+      (`.../connections/{label}/actions`; `hypomnema integrations actions`). On the web an Approval is a card
+      above the message box of the chat that asked, whose row in the sidebar says it needs the owner, and in the
+      Task of the worker that asked; an account on the Integrations page says what agents may do with it and
+      opens the list of actions.
     - **Who an agent is decides what it gets.** A worker presents its Dispatch's own key (`agent_sessions`,
       migration 00037): made by the node API as the offer is sent, for the Run's Connections, and revoked when the
       Dispatch settles, as its model gateway key is. The coordinator presents its coordinator token and gets the

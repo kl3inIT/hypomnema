@@ -21,6 +21,7 @@ import { since } from "@/lib/time"
 import { cn } from "@/lib/utils"
 
 import { useChats } from "./chats"
+import { usePending } from "@/features/approvals/use-approvals"
 
 // The app's frame, as t3code's (MIT, Copyright (c) 2026 T3 Tools Inc., https://github.com/pingdotgg/t3code;
 // components/ui/sidebar.tsx, sidebar/SidebarThreadRow.tsx): a full-height sidebar with the places (a new chat, the
@@ -129,6 +130,9 @@ export function SignOut() {
 
 export function ChatList({ current, label = "Chats" }: { current?: string; label?: string }) {
   const chats = useChats()
+  // A chat in which pi asked for an approval says so here: the owner may not have it open.
+  const pending = usePending()
+  const waiting = new Set(pending.data?.map((a) => a.chat_id))
 
   if (chats.data?.length === 0) {
     return <p className="px-2 py-6 text-center text-xs text-muted-foreground">No chats yet.</p>
@@ -139,14 +143,14 @@ export function ChatList({ current, label = "Chats" }: { current?: string; label
       <p className="px-2.5 pt-2 pb-1 text-xs font-medium text-muted-foreground">{label}</p>
       <div className="flex flex-col gap-px">
         {chats.data?.map((c) => (
-          <ChatRow key={c.id} chat={c} current={c.id === current} />
+          <ChatRow key={c.id} chat={c} current={c.id === current} waits={waiting.has(c.id)} />
         ))}
       </div>
     </nav>
   )
 }
 
-function ChatRow({ chat, current }: { chat: Chat; current: boolean }) {
+function ChatRow({ chat, current, waits }: { chat: Chat; current: boolean; waits: boolean }) {
   return (
     <Link
       to="/chats/$chatId"
@@ -168,7 +172,9 @@ function ChatRow({ chat, current }: { chat: Chat; current: boolean }) {
         {chat.title}
       </span>
       <span className="ml-auto flex h-6 min-w-8 shrink-0 items-center justify-end text-xs text-secondary-label tabular-nums">
-        {chat.working ? (
+        {waits ? (
+          <span className="font-medium text-needs-you">Needs you</span>
+        ) : chat.working ? (
           <span className="inline-flex items-center gap-1 font-medium text-info-foreground">
             <CircleDashed className="size-3.5 animate-spin [animation-duration:3s]" aria-hidden />
             Working

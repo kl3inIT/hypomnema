@@ -228,7 +228,7 @@ func TestPiIsWokenByItsRuns(t *testing.T) {
 	require.NoError(t, svc.CancelTask(ctx, tasks[0].ID))
 
 	waitFor(t, svc, chat.ID, orchestration.ChatCoordinator,
-		"echo: Message from the Hypomnema control plane: events of your Runs need you.")
+		"echo: Message from the Hypomnema control plane: these need you.")
 }
 
 // Scenario: pi dies mid-turn. The next message starts it again.
@@ -264,7 +264,7 @@ func TestPromptJoinsWakeUpsAndOwnerMessages(t *testing.T) {
 		{Role: orchestration.ChatOwner, Text: "also add docs"},
 	})
 	assert.Equal(t, fmt.Sprint(
-		"Message from the Hypomnema control plane: events of your Runs need you.\n",
+		"Message from the Hypomnema control plane: these need you.\n",
 		"- Task t1 of run r1 is succeeded: hypomnema tasks show t1 --json\n",
 		"Act on them, then end your turn; the control plane wakes you again.\n",
 		"\nThe owner also wrote:\nalso add docs"), got)

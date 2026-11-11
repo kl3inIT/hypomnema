@@ -42,6 +42,27 @@ func (e AccountStatus) Valid() bool {
 	}
 }
 
+// Defines values for ActionPolicy.
+const (
+	Allow ActionPolicy = "allow"
+	Ask   ActionPolicy = "ask"
+	Never ActionPolicy = "never"
+)
+
+// Valid indicates whether the value is a known member of the ActionPolicy enum.
+func (e ActionPolicy) Valid() bool {
+	switch e {
+	case Allow:
+		return true
+	case Ask:
+		return true
+	case Never:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for Addressee.
 const (
 	AddresseeCoordinator Addressee = "coordinator"
@@ -54,6 +75,66 @@ func (e Addressee) Valid() bool {
 	case AddresseeCoordinator:
 		return true
 	case AddresseeOwner:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ApprovalScope.
+const (
+	Once    ApprovalScope = "once"
+	Session ApprovalScope = "session"
+)
+
+// Valid indicates whether the value is a known member of the ApprovalScope enum.
+func (e ApprovalScope) Valid() bool {
+	switch e {
+	case Once:
+		return true
+	case Session:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ApprovalDecisionDecision.
+const (
+	Approve        ApprovalDecisionDecision = "approve"
+	ApproveSession ApprovalDecisionDecision = "approve_session"
+	Reject         ApprovalDecisionDecision = "reject"
+)
+
+// Valid indicates whether the value is a known member of the ApprovalDecisionDecision enum.
+func (e ApprovalDecisionDecision) Valid() bool {
+	switch e {
+	case Approve:
+		return true
+	case ApproveSession:
+		return true
+	case Reject:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ApprovalStatus.
+const (
+	ApprovalStatusApproved ApprovalStatus = "approved"
+	ApprovalStatusPending  ApprovalStatus = "pending"
+	ApprovalStatusRejected ApprovalStatus = "rejected"
+)
+
+// Valid indicates whether the value is a known member of the ApprovalStatus enum.
+func (e ApprovalStatus) Valid() bool {
+	switch e {
+	case ApprovalStatusApproved:
+		return true
+	case ApprovalStatusPending:
+		return true
+	case ApprovalStatusRejected:
 		return true
 	default:
 		return false
@@ -159,6 +240,27 @@ func (e ChatToolActivityPhase) Valid() bool {
 	case End:
 		return true
 	case Start:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConnectionActionKind.
+const (
+	Changes   ConnectionActionKind = "changes"
+	NeedsCare ConnectionActionKind = "needs_care"
+	Reads     ConnectionActionKind = "reads"
+)
+
+// Valid indicates whether the value is a known member of the ConnectionActionKind enum.
+func (e ConnectionActionKind) Valid() bool {
+	switch e {
+	case Changes:
+		return true
+	case NeedsCare:
+		return true
+	case Reads:
 		return true
 	default:
 		return false
@@ -597,6 +699,14 @@ type AccountList struct {
 	Data []Account `json:"data"`
 }
 
+// ActionPolicy defines model for ActionPolicy.
+type ActionPolicy string
+
+// ActionPolicyChange defines model for ActionPolicyChange.
+type ActionPolicyChange struct {
+	Policy ActionPolicy `json:"policy"`
+}
+
 // Addressee defines model for Addressee.
 type Addressee string
 
@@ -605,6 +715,59 @@ type Answer struct {
 	Option *int    `json:"option,omitempty"`
 	Text   *string `json:"text,omitempty"`
 }
+
+// Approval One request an agent made to a service that waits for the owner's answer, shown decoded. It is not a Gate.
+type Approval struct {
+	Action     string `json:"action"`
+	ActionName string `json:"action_name"`
+
+	// AskedBy pi, worker or owner.
+	AskedBy     string          `json:"asked_by"`
+	ChatId      *string         `json:"chat_id,omitempty"`
+	CreatedAt   time.Time       `json:"created_at"`
+	DecidedAt   *time.Time      `json:"decided_at,omitempty"`
+	DispatchId  *string         `json:"dispatch_id,omitempty"`
+	Id          string          `json:"id"`
+	Integration string          `json:"integration"`
+	Label       string          `json:"label"`
+	Payload     []ApprovalField `json:"payload"`
+	RunId       *string         `json:"run_id,omitempty"`
+
+	// Scope How far an approval reaches; absent until approved.
+	Scope  *ApprovalScope `json:"scope,omitempty"`
+	Status ApprovalStatus `json:"status"`
+	TaskId *string        `json:"task_id,omitempty"`
+	Title  string         `json:"title"`
+
+	// Used An approval for one request has run.
+	Used bool `json:"used"`
+}
+
+// ApprovalScope How far an approval reaches; absent until approved.
+type ApprovalScope string
+
+// ApprovalDecision defines model for ApprovalDecision.
+type ApprovalDecision struct {
+	// Decision approve lets this one request run; approve_session also stops asking for the action for the rest of the Run or the chat that asked; reject refuses it.
+	Decision ApprovalDecisionDecision `json:"decision"`
+}
+
+// ApprovalDecisionDecision approve lets this one request run; approve_session also stops asking for the action for the rest of the Run or the chat that asked; reject refuses it.
+type ApprovalDecisionDecision string
+
+// ApprovalField defines model for ApprovalField.
+type ApprovalField struct {
+	Label string `json:"label"`
+	Value string `json:"value"`
+}
+
+// ApprovalList defines model for ApprovalList.
+type ApprovalList struct {
+	Data []Approval `json:"data"`
+}
+
+// ApprovalStatus defines model for ApprovalStatus.
+type ApprovalStatus string
 
 // BlockedReason defines model for BlockedReason.
 type BlockedReason string
@@ -708,6 +871,29 @@ type ChatToolActivity struct {
 
 // ChatToolActivityPhase defines model for ChatToolActivity.Phase.
 type ChatToolActivityPhase string
+
+// ConnectionAction One thing an agent can do with a Connection, and the owner's answer to it.
+type ConnectionAction struct {
+	Default ActionPolicy `json:"default"`
+
+	// Id The action's name in commands, such as gmail.send.
+	Id     string               `json:"id"`
+	Kind   ConnectionActionKind `json:"kind"`
+	Name   string               `json:"name"`
+	Policy ActionPolicy         `json:"policy"`
+
+	// Service The part of the Integration it belongs to, such as Gmail.
+	Service string `json:"service"`
+	Text    string `json:"text"`
+}
+
+// ConnectionActionKind defines model for ConnectionAction.Kind.
+type ConnectionActionKind string
+
+// ConnectionActionList defines model for ConnectionActionList.
+type ConnectionActionList struct {
+	Data []ConnectionAction `json:"data"`
+}
 
 // ConnectionUse defines model for ConnectionUse.
 type ConnectionUse struct {
@@ -1563,6 +1749,9 @@ type After = int64
 // ChatID defines model for ChatID.
 type ChatID = string
 
+// ConnectionLabel defines model for ConnectionLabel.
+type ConnectionLabel = string
+
 // IdempotencyKey defines model for IdempotencyKey.
 type IdempotencyKey = string
 
@@ -1583,6 +1772,13 @@ type RunID = string
 
 // TaskID defines model for TaskID.
 type TaskID = string
+
+// ListApprovalsParams defines parameters for ListApprovals.
+type ListApprovalsParams struct {
+	Status *ApprovalStatus `form:"status,omitempty" json:"status,omitempty"`
+	ChatId *string         `form:"chat_id,omitempty" json:"chat_id,omitempty"`
+	TaskId *string         `form:"task_id,omitempty" json:"task_id,omitempty"`
+}
 
 // ListChatsParams defines parameters for ListChats.
 type ListChatsParams struct {
@@ -1680,6 +1876,9 @@ type ListTasksParams struct {
 	Limit *int       `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// DecideApprovalJSONRequestBody defines body for DecideApproval for application/json ContentType.
+type DecideApprovalJSONRequestBody = ApprovalDecision
+
 // PutLarkBotJSONRequestBody defines body for PutLarkBot for application/json ContentType.
 type PutLarkBotJSONRequestBody = LarkBotSettings
 
@@ -1706,6 +1905,9 @@ type PutIntegrationClientJSONRequestBody = NewIntegrationClient
 
 // PatchIntegrationConnectionJSONRequestBody defines body for PatchIntegrationConnection for application/json ContentType.
 type PatchIntegrationConnectionJSONRequestBody = ConnectionUse
+
+// SetConnectionActionJSONRequestBody defines body for SetConnectionAction for application/json ContentType.
+type SetConnectionActionJSONRequestBody = ActionPolicyChange
 
 // BeginIntegrationSignInJSONRequestBody defines body for BeginIntegrationSignIn for application/json ContentType.
 type BeginIntegrationSignInJSONRequestBody = NewSignIn
@@ -1824,6 +2026,29 @@ type ClientInterface interface {
 	//
 	// Corresponds with GET /accounts (the `ListAccounts` operationId).
 	ListAccounts(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListApprovals The requests agents made that wait for, or had, the owner's answer; only the owner
+	//
+	// Corresponds with GET /approvals (the `ListApprovals` operationId).
+	ListApprovals(ctx context.Context, params *ListApprovalsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DecideApprovalWithBody Answer a request that waits for approval; only the owner
+	//
+	// The first answer wins; the same answer again returns the Approval. A request still held goes on at once. An agent whose request had ended is told, and its repeat of the same request passes once.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /approvals/{approval_id}/decision (the `DecideApproval` operationId).
+	DecideApprovalWithBody(ctx context.Context, approvalId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DecideApproval Answer a request that waits for approval; only the owner
+	//
+	// The first answer wins; the same answer again returns the Approval. A request still held goes on at once. An agent whose request had ended is told, and its repeat of the same request passes once.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /approvals/{approval_id}/decision (the `DecideApproval` operationId).
+	DecideApproval(ctx context.Context, approvalId string, body DecideApprovalJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// DeleteLarkBot Forget the Lark bot and its app's secret; only the owner
 	//
@@ -2076,6 +2301,31 @@ type ClientInterface interface {
 	//
 	// Corresponds with PUT /integrations/{integration}/connections/{label} (the `PutIntegrationConnection` operationId).
 	PutIntegrationConnection(ctx context.Context, integration IntegrationID, label string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListConnectionActions What agents may do with a Connection, action by action; only the owner
+	//
+	// The actions of the Connection's Integration that go through the service proxy, each with the answer it has now and its default. An Integration that does not go through the proxy has none.
+	//
+	// Corresponds with GET /integrations/{integration}/connections/{label}/actions (the `ListConnectionActions` operationId).
+	ListConnectionActions(ctx context.Context, integration IntegrationID, label ConnectionLabel, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetConnectionActionWithBody Set the answer of one action of a Connection; only the owner
+	//
+	// allow runs the action on its own, ask holds each request for the owner's Approval, never refuses it. The change applies from the next request.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PUT /integrations/{integration}/connections/{label}/actions/{action} (the `SetConnectionAction` operationId).
+	SetConnectionActionWithBody(ctx context.Context, integration IntegrationID, label ConnectionLabel, action string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetConnectionAction Set the answer of one action of a Connection; only the owner
+	//
+	// allow runs the action on its own, ask holds each request for the owner's Approval, never refuses it. The change applies from the next request.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PUT /integrations/{integration}/connections/{label}/actions/{action} (the `SetConnectionAction` operationId).
+	SetConnectionAction(ctx context.Context, integration IntegrationID, label ConnectionLabel, action string, body SetConnectionActionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// BeginIntegrationSignInWithBody Start signing an account in, as a Connection under a label; only the owner
 	//
@@ -2437,6 +2687,59 @@ type ClientInterface interface {
 // Corresponds with GET /accounts (the `ListAccounts` operationId).
 func (c *Client) ListAccounts(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewListAccountsRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListApprovals The requests agents made that wait for, or had, the owner's answer; only the owner
+//
+// Corresponds with GET /approvals (the `ListApprovals` operationId).
+func (c *Client) ListApprovals(ctx context.Context, params *ListApprovalsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListApprovalsRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DecideApprovalWithBody Answer a request that waits for approval; only the owner
+//
+// The first answer wins; the same answer again returns the Approval. A request still held goes on at once. An agent whose request had ended is told, and its repeat of the same request passes once.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /approvals/{approval_id}/decision (the `DecideApproval` operationId).
+func (c *Client) DecideApprovalWithBody(ctx context.Context, approvalId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDecideApprovalRequestWithBody(c.Server, approvalId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DecideApproval Answer a request that waits for approval; only the owner
+//
+// The first answer wins; the same answer again returns the Approval. A request still held goes on at once. An agent whose request had ended is told, and its repeat of the same request passes once.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /approvals/{approval_id}/decision (the `DecideApproval` operationId).
+func (c *Client) DecideApproval(ctx context.Context, approvalId string, body DecideApprovalJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDecideApprovalRequest(c.Server, approvalId, body)
 	if err != nil {
 		return nil, err
 	}
@@ -3049,6 +3352,61 @@ func (c *Client) PatchIntegrationConnection(ctx context.Context, integration Int
 // Corresponds with PUT /integrations/{integration}/connections/{label} (the `PutIntegrationConnection` operationId).
 func (c *Client) PutIntegrationConnection(ctx context.Context, integration IntegrationID, label string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewPutIntegrationConnectionRequest(c.Server, integration, label)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListConnectionActions What agents may do with a Connection, action by action; only the owner
+//
+// The actions of the Connection's Integration that go through the service proxy, each with the answer it has now and its default. An Integration that does not go through the proxy has none.
+//
+// Corresponds with GET /integrations/{integration}/connections/{label}/actions (the `ListConnectionActions` operationId).
+func (c *Client) ListConnectionActions(ctx context.Context, integration IntegrationID, label ConnectionLabel, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListConnectionActionsRequest(c.Server, integration, label)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SetConnectionActionWithBody Set the answer of one action of a Connection; only the owner
+//
+// allow runs the action on its own, ask holds each request for the owner's Approval, never refuses it. The change applies from the next request.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PUT /integrations/{integration}/connections/{label}/actions/{action} (the `SetConnectionAction` operationId).
+func (c *Client) SetConnectionActionWithBody(ctx context.Context, integration IntegrationID, label ConnectionLabel, action string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetConnectionActionRequestWithBody(c.Server, integration, label, action, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SetConnectionAction Set the answer of one action of a Connection; only the owner
+//
+// allow runs the action on its own, ask holds each request for the owner's Approval, never refuses it. The change applies from the next request.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PUT /integrations/{integration}/connections/{label}/actions/{action} (the `SetConnectionAction` operationId).
+func (c *Client) SetConnectionAction(ctx context.Context, integration IntegrationID, label ConnectionLabel, action string, body SetConnectionActionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetConnectionActionRequest(c.Server, integration, label, action, body)
 	if err != nil {
 		return nil, err
 	}
@@ -3996,6 +4354,131 @@ func NewListAccountsRequest(server string) (*http.Request, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	return req, nil
+}
+
+// NewListApprovalsRequest constructs an http.Request for the ListApprovals method
+func NewListApprovalsRequest(server string, params *ListApprovalsParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/approvals")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Status != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "status", *params.Status, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.ChatId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "chat_id", *params.ChatId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.TaskId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "task_id", *params.TaskId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewDecideApprovalRequest calls the generic DecideApproval builder with application/json body
+func NewDecideApprovalRequest(server string, approvalId string, body DecideApprovalJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewDecideApprovalRequestWithBody(server, approvalId, "application/json", bodyReader)
+}
+
+// NewDecideApprovalRequestWithBody constructs an http.Request for the DecideApproval method, with any body, and a specified content type
+func NewDecideApprovalRequestWithBody(server string, approvalId string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "approval_id", approvalId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/approvals/%s/decision", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
 
 	return req, nil
 }
@@ -5320,6 +5803,108 @@ func NewPutIntegrationConnectionRequest(server string, integration IntegrationID
 	if err != nil {
 		return nil, err
 	}
+
+	return req, nil
+}
+
+// NewListConnectionActionsRequest constructs an http.Request for the ListConnectionActions method
+func NewListConnectionActionsRequest(server string, integration IntegrationID, label ConnectionLabel) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "integration", integration, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "label", label, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/integrations/%s/connections/%s/actions", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewSetConnectionActionRequest calls the generic SetConnectionAction builder with application/json body
+func NewSetConnectionActionRequest(server string, integration IntegrationID, label ConnectionLabel, action string, body SetConnectionActionJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewSetConnectionActionRequestWithBody(server, integration, label, action, "application/json", bodyReader)
+}
+
+// NewSetConnectionActionRequestWithBody constructs an http.Request for the SetConnectionAction method, with any body, and a specified content type
+func NewSetConnectionActionRequestWithBody(server string, integration IntegrationID, label ConnectionLabel, action string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "integration", integration, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "label", label, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam2 string
+
+	pathParam2, err = runtime.StyleParamWithOptions("simple", false, "action", action, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/integrations/%s/connections/%s/actions/%s", pathParam0, pathParam1, pathParam2)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
 
 	return req, nil
 }
@@ -7091,6 +7676,31 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /accounts (the `ListAccounts` operationId).
 	ListAccountsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListAccountsResponse, error)
 
+	// ListApprovalsWithResponse The requests agents made that wait for, or had, the owner's answer; only the owner
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /approvals (the `ListApprovals` operationId).
+	ListApprovalsWithResponse(ctx context.Context, params *ListApprovalsParams, reqEditors ...RequestEditorFn) (*ListApprovalsResponse, error)
+
+	// DecideApprovalWithBodyWithResponse Answer a request that waits for approval; only the owner
+	//
+	// The first answer wins; the same answer again returns the Approval. A request still held goes on at once. An agent whose request had ended is told, and its repeat of the same request passes once.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /approvals/{approval_id}/decision (the `DecideApproval` operationId).
+	DecideApprovalWithBodyWithResponse(ctx context.Context, approvalId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*DecideApprovalResponse, error)
+
+	// DecideApprovalWithResponse Answer a request that waits for approval; only the owner
+	//
+	// The first answer wins; the same answer again returns the Approval. A request still held goes on at once. An agent whose request had ended is told, and its repeat of the same request passes once.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /approvals/{approval_id}/decision (the `DecideApproval` operationId).
+	DecideApprovalWithResponse(ctx context.Context, approvalId string, body DecideApprovalJSONRequestBody, reqEditors ...RequestEditorFn) (*DecideApprovalResponse, error)
+
 	// DeleteLarkBotWithResponse Forget the Lark bot and its app's secret; only the owner
 	//
 	// Returns a wrapper object for the known response body format(s).
@@ -7378,6 +7988,33 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with PUT /integrations/{integration}/connections/{label} (the `PutIntegrationConnection` operationId).
 	PutIntegrationConnectionWithResponse(ctx context.Context, integration IntegrationID, label string, reqEditors ...RequestEditorFn) (*PutIntegrationConnectionResponse, error)
+
+	// ListConnectionActionsWithResponse What agents may do with a Connection, action by action; only the owner
+	//
+	// The actions of the Connection's Integration that go through the service proxy, each with the answer it has now and its default. An Integration that does not go through the proxy has none.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /integrations/{integration}/connections/{label}/actions (the `ListConnectionActions` operationId).
+	ListConnectionActionsWithResponse(ctx context.Context, integration IntegrationID, label ConnectionLabel, reqEditors ...RequestEditorFn) (*ListConnectionActionsResponse, error)
+
+	// SetConnectionActionWithBodyWithResponse Set the answer of one action of a Connection; only the owner
+	//
+	// allow runs the action on its own, ask holds each request for the owner's Approval, never refuses it. The change applies from the next request.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /integrations/{integration}/connections/{label}/actions/{action} (the `SetConnectionAction` operationId).
+	SetConnectionActionWithBodyWithResponse(ctx context.Context, integration IntegrationID, label ConnectionLabel, action string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetConnectionActionResponse, error)
+
+	// SetConnectionActionWithResponse Set the answer of one action of a Connection; only the owner
+	//
+	// allow runs the action on its own, ask holds each request for the owner's Approval, never refuses it. The change applies from the next request.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /integrations/{integration}/connections/{label}/actions/{action} (the `SetConnectionAction` operationId).
+	SetConnectionActionWithResponse(ctx context.Context, integration IntegrationID, label ConnectionLabel, action string, body SetConnectionActionJSONRequestBody, reqEditors ...RequestEditorFn) (*SetConnectionActionResponse, error)
 
 	// BeginIntegrationSignInWithBodyWithResponse Start signing an account in, as a Connection under a label; only the owner
 	//
@@ -7836,6 +8473,102 @@ func (r ListAccountsResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r ListAccountsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListApprovalsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ApprovalList
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListApprovalsResponse) GetJSON200() *ApprovalList {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListApprovalsResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListApprovalsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListApprovalsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListApprovalsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListApprovalsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type DecideApprovalResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Approval
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r DecideApprovalResponse) GetJSON200() *Approval {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r DecideApprovalResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r DecideApprovalResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r DecideApprovalResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DecideApprovalResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DecideApprovalResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -9090,6 +9823,102 @@ func (r PutIntegrationConnectionResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r PutIntegrationConnectionResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListConnectionActionsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ConnectionActionList
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListConnectionActionsResponse) GetJSON200() *ConnectionActionList {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListConnectionActionsResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListConnectionActionsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListConnectionActionsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListConnectionActionsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListConnectionActionsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type SetConnectionActionResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ConnectionAction
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r SetConnectionActionResponse) GetJSON200() *ConnectionAction {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r SetConnectionActionResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r SetConnectionActionResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r SetConnectionActionResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r SetConnectionActionResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r SetConnectionActionResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -11166,6 +11995,49 @@ func (c *ClientWithResponses) ListAccountsWithResponse(ctx context.Context, reqE
 	return ParseListAccountsResponse(rsp)
 }
 
+// ListApprovalsWithResponse The requests agents made that wait for, or had, the owner's answer; only the owner
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /approvals (the `ListApprovals` operationId).
+func (c *ClientWithResponses) ListApprovalsWithResponse(ctx context.Context, params *ListApprovalsParams, reqEditors ...RequestEditorFn) (*ListApprovalsResponse, error) {
+	rsp, err := c.ListApprovals(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListApprovalsResponse(rsp)
+}
+
+// DecideApprovalWithBodyWithResponse Answer a request that waits for approval; only the owner
+//
+// The first answer wins; the same answer again returns the Approval. A request still held goes on at once. An agent whose request had ended is told, and its repeat of the same request passes once.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /approvals/{approval_id}/decision (the `DecideApproval` operationId).
+func (c *ClientWithResponses) DecideApprovalWithBodyWithResponse(ctx context.Context, approvalId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*DecideApprovalResponse, error) {
+	rsp, err := c.DecideApprovalWithBody(ctx, approvalId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDecideApprovalResponse(rsp)
+}
+
+// DecideApprovalWithResponse Answer a request that waits for approval; only the owner
+//
+// The first answer wins; the same answer again returns the Approval. A request still held goes on at once. An agent whose request had ended is told, and its repeat of the same request passes once.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /approvals/{approval_id}/decision (the `DecideApproval` operationId).
+func (c *ClientWithResponses) DecideApprovalWithResponse(ctx context.Context, approvalId string, body DecideApprovalJSONRequestBody, reqEditors ...RequestEditorFn) (*DecideApprovalResponse, error) {
+	rsp, err := c.DecideApproval(ctx, approvalId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDecideApprovalResponse(rsp)
+}
+
 // DeleteLarkBotWithResponse Forget the Lark bot and its app's secret; only the owner
 //
 // Returns a wrapper object for the known response body format(s).
@@ -11668,6 +12540,51 @@ func (c *ClientWithResponses) PutIntegrationConnectionWithResponse(ctx context.C
 		return nil, err
 	}
 	return ParsePutIntegrationConnectionResponse(rsp)
+}
+
+// ListConnectionActionsWithResponse What agents may do with a Connection, action by action; only the owner
+//
+// The actions of the Connection's Integration that go through the service proxy, each with the answer it has now and its default. An Integration that does not go through the proxy has none.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /integrations/{integration}/connections/{label}/actions (the `ListConnectionActions` operationId).
+func (c *ClientWithResponses) ListConnectionActionsWithResponse(ctx context.Context, integration IntegrationID, label ConnectionLabel, reqEditors ...RequestEditorFn) (*ListConnectionActionsResponse, error) {
+	rsp, err := c.ListConnectionActions(ctx, integration, label, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListConnectionActionsResponse(rsp)
+}
+
+// SetConnectionActionWithBodyWithResponse Set the answer of one action of a Connection; only the owner
+//
+// allow runs the action on its own, ask holds each request for the owner's Approval, never refuses it. The change applies from the next request.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /integrations/{integration}/connections/{label}/actions/{action} (the `SetConnectionAction` operationId).
+func (c *ClientWithResponses) SetConnectionActionWithBodyWithResponse(ctx context.Context, integration IntegrationID, label ConnectionLabel, action string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetConnectionActionResponse, error) {
+	rsp, err := c.SetConnectionActionWithBody(ctx, integration, label, action, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetConnectionActionResponse(rsp)
+}
+
+// SetConnectionActionWithResponse Set the answer of one action of a Connection; only the owner
+//
+// allow runs the action on its own, ask holds each request for the owner's Approval, never refuses it. The change applies from the next request.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /integrations/{integration}/connections/{label}/actions/{action} (the `SetConnectionAction` operationId).
+func (c *ClientWithResponses) SetConnectionActionWithResponse(ctx context.Context, integration IntegrationID, label ConnectionLabel, action string, body SetConnectionActionJSONRequestBody, reqEditors ...RequestEditorFn) (*SetConnectionActionResponse, error) {
+	rsp, err := c.SetConnectionAction(ctx, integration, label, action, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetConnectionActionResponse(rsp)
 }
 
 // BeginIntegrationSignInWithBodyWithResponse Start signing an account in, as a Connection under a label; only the owner
@@ -12436,6 +13353,72 @@ func ParseListAccountsResponse(rsp *http.Response) (*ListAccountsResponse, error
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest AccountList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListApprovalsResponse parses an HTTP response from a ListApprovalsWithResponse call
+func ParseListApprovalsResponse(rsp *http.Response) (*ListApprovalsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListApprovalsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ApprovalList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDecideApprovalResponse parses an HTTP response from a DecideApprovalWithResponse call
+func ParseDecideApprovalResponse(rsp *http.Response) (*DecideApprovalResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DecideApprovalResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Approval
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -13297,6 +14280,72 @@ func ParsePutIntegrationConnectionResponse(rsp *http.Response) (*PutIntegrationC
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest IntegrationConnection
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListConnectionActionsResponse parses an HTTP response from a ListConnectionActionsWithResponse call
+func ParseListConnectionActionsResponse(rsp *http.Response) (*ListConnectionActionsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListConnectionActionsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ConnectionActionList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseSetConnectionActionResponse parses an HTTP response from a SetConnectionActionWithResponse call
+func ParseSetConnectionActionResponse(rsp *http.Response) (*SetConnectionActionResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &SetConnectionActionResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ConnectionAction
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -14764,6 +15813,12 @@ type ServerInterface interface {
 	// ListAccounts The accounts workers run under (no secrets)
 	// (GET /accounts)
 	ListAccounts(w http.ResponseWriter, r *http.Request)
+	// ListApprovals The requests agents made that wait for, or had, the owner's answer; only the owner
+	// (GET /approvals)
+	ListApprovals(w http.ResponseWriter, r *http.Request, params ListApprovalsParams)
+	// DecideApproval Answer a request that waits for approval; only the owner
+	// (POST /approvals/{approval_id}/decision)
+	DecideApproval(w http.ResponseWriter, r *http.Request, approvalId string)
 	// DeleteLarkBot Forget the Lark bot and its app's secret; only the owner
 	// (DELETE /channels/lark)
 	DeleteLarkBot(w http.ResponseWriter, r *http.Request)
@@ -14845,6 +15900,12 @@ type ServerInterface interface {
 	// PutIntegrationConnection Connect an Integration of kind app, as a Connection under a label; only the owner
 	// (PUT /integrations/{integration}/connections/{label})
 	PutIntegrationConnection(w http.ResponseWriter, r *http.Request, integration IntegrationID, label string)
+	// ListConnectionActions What agents may do with a Connection, action by action; only the owner
+	// (GET /integrations/{integration}/connections/{label}/actions)
+	ListConnectionActions(w http.ResponseWriter, r *http.Request, integration IntegrationID, label ConnectionLabel)
+	// SetConnectionAction Set the answer of one action of a Connection; only the owner
+	// (PUT /integrations/{integration}/connections/{label}/actions/{action})
+	SetConnectionAction(w http.ResponseWriter, r *http.Request, integration IntegrationID, label ConnectionLabel, action string)
 	// BeginIntegrationSignIn Start signing an account in, as a Connection under a label; only the owner
 	// (POST /integrations/{integration}/sign-ins)
 	BeginIntegrationSignIn(w http.ResponseWriter, r *http.Request, integration IntegrationID)
@@ -14990,6 +16051,91 @@ func (siw *ServerInterfaceWrapper) ListAccounts(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListAccounts(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListApprovals operation middleware
+func (siw *ServerInterfaceWrapper) ListApprovals(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListApprovalsParams
+
+	// ------------- Optional query parameter "status" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "status", r.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "status"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "status", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "chat_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "chat_id", r.URL.Query(), &params.ChatId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "chat_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "chat_id", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "task_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "task_id", r.URL.Query(), &params.TaskId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "task_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "task_id", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListApprovals(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DecideApproval operation middleware
+func (siw *ServerInterfaceWrapper) DecideApproval(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "approval_id" -------------
+	var approvalId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "approval_id", r.PathValue("approval_id"), &approvalId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "approval_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DecideApproval(w, r, approvalId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -15907,6 +17053,85 @@ func (siw *ServerInterfaceWrapper) PutIntegrationConnection(w http.ResponseWrite
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.PutIntegrationConnection(w, r, integration, label)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListConnectionActions operation middleware
+func (siw *ServerInterfaceWrapper) ListConnectionActions(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "integration" -------------
+	var integration IntegrationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "integration", r.PathValue("integration"), &integration, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integration", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "label" -------------
+	var label ConnectionLabel
+
+	err = runtime.BindStyledParameterWithOptions("simple", "label", r.PathValue("label"), &label, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "label", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListConnectionActions(w, r, integration, label)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetConnectionAction operation middleware
+func (siw *ServerInterfaceWrapper) SetConnectionAction(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "integration" -------------
+	var integration IntegrationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "integration", r.PathValue("integration"), &integration, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integration", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "label" -------------
+	var label ConnectionLabel
+
+	err = runtime.BindStyledParameterWithOptions("simple", "label", r.PathValue("label"), &label, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "label", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "action" -------------
+	var action string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "action", r.PathValue("action"), &action, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "action", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetConnectionAction(w, r, integration, label, action)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -17218,6 +18443,10 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/channels/lark", wrapper.PutLarkBot)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/channels/lark/people", wrapper.AddLarkBotPerson)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/channels/lark/people/{person}", wrapper.RemoveLarkBotPerson)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/integrations/{integration}/connections/{label}/actions", wrapper.ListConnectionActions)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/integrations/{integration}/connections/{label}/actions/{action}", wrapper.SetConnectionAction)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/approvals", wrapper.ListApprovals)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/approvals/{approval_id}/decision", wrapper.DecideApproval)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/secrets", wrapper.ListSecrets)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/secrets/{name}", wrapper.DeleteSecret)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/secrets/{name}", wrapper.PutSecret)
@@ -17273,6 +18502,85 @@ type ListAccountsdefaultJSONResponse struct {
 }
 
 func (response ListAccountsdefaultJSONResponse) VisitListAccountsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListApprovalsRequestObject struct {
+	Params ListApprovalsParams
+}
+
+type ListApprovalsResponseObject interface {
+	VisitListApprovalsResponse(w http.ResponseWriter) error
+}
+
+type ListApprovals200JSONResponse ApprovalList
+
+func (response ListApprovals200JSONResponse) VisitListApprovalsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListApprovalsdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListApprovalsdefaultJSONResponse) VisitListApprovalsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DecideApprovalRequestObject struct {
+	ApprovalId string `json:"approval_id"`
+	Body       *DecideApprovalJSONRequestBody
+}
+
+type DecideApprovalResponseObject interface {
+	VisitDecideApprovalResponse(w http.ResponseWriter) error
+}
+
+type DecideApproval200JSONResponse Approval
+
+func (response DecideApproval200JSONResponse) VisitDecideApprovalResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DecideApprovaldefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response DecideApprovaldefaultJSONResponse) VisitDecideApprovalResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -18370,6 +19678,88 @@ type PutIntegrationConnectiondefaultJSONResponse struct {
 }
 
 func (response PutIntegrationConnectiondefaultJSONResponse) VisitPutIntegrationConnectionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListConnectionActionsRequestObject struct {
+	Integration IntegrationID   `json:"integration"`
+	Label       ConnectionLabel `json:"label"`
+}
+
+type ListConnectionActionsResponseObject interface {
+	VisitListConnectionActionsResponse(w http.ResponseWriter) error
+}
+
+type ListConnectionActions200JSONResponse ConnectionActionList
+
+func (response ListConnectionActions200JSONResponse) VisitListConnectionActionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListConnectionActionsdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListConnectionActionsdefaultJSONResponse) VisitListConnectionActionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetConnectionActionRequestObject struct {
+	Integration IntegrationID   `json:"integration"`
+	Label       ConnectionLabel `json:"label"`
+	Action      string          `json:"action"`
+	Body        *SetConnectionActionJSONRequestBody
+}
+
+type SetConnectionActionResponseObject interface {
+	VisitSetConnectionActionResponse(w http.ResponseWriter) error
+}
+
+type SetConnectionAction200JSONResponse ConnectionAction
+
+func (response SetConnectionAction200JSONResponse) VisitSetConnectionActionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetConnectionActiondefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response SetConnectionActiondefaultJSONResponse) VisitSetConnectionActionResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -20077,6 +21467,12 @@ type StrictServerInterface interface {
 	// ListAccounts The accounts workers run under (no secrets)
 	// (GET /accounts)
 	ListAccounts(ctx context.Context, request ListAccountsRequestObject) (ListAccountsResponseObject, error)
+	// ListApprovals The requests agents made that wait for, or had, the owner's answer; only the owner
+	// (GET /approvals)
+	ListApprovals(ctx context.Context, request ListApprovalsRequestObject) (ListApprovalsResponseObject, error)
+	// DecideApproval Answer a request that waits for approval; only the owner
+	// (POST /approvals/{approval_id}/decision)
+	DecideApproval(ctx context.Context, request DecideApprovalRequestObject) (DecideApprovalResponseObject, error)
 	// DeleteLarkBot Forget the Lark bot and its app's secret; only the owner
 	// (DELETE /channels/lark)
 	DeleteLarkBot(ctx context.Context, request DeleteLarkBotRequestObject) (DeleteLarkBotResponseObject, error)
@@ -20158,6 +21554,12 @@ type StrictServerInterface interface {
 	// PutIntegrationConnection Connect an Integration of kind app, as a Connection under a label; only the owner
 	// (PUT /integrations/{integration}/connections/{label})
 	PutIntegrationConnection(ctx context.Context, request PutIntegrationConnectionRequestObject) (PutIntegrationConnectionResponseObject, error)
+	// ListConnectionActions What agents may do with a Connection, action by action; only the owner
+	// (GET /integrations/{integration}/connections/{label}/actions)
+	ListConnectionActions(ctx context.Context, request ListConnectionActionsRequestObject) (ListConnectionActionsResponseObject, error)
+	// SetConnectionAction Set the answer of one action of a Connection; only the owner
+	// (PUT /integrations/{integration}/connections/{label}/actions/{action})
+	SetConnectionAction(ctx context.Context, request SetConnectionActionRequestObject) (SetConnectionActionResponseObject, error)
 	// BeginIntegrationSignIn Start signing an account in, as a Connection under a label; only the owner
 	// (POST /integrations/{integration}/sign-ins)
 	BeginIntegrationSignIn(ctx context.Context, request BeginIntegrationSignInRequestObject) (BeginIntegrationSignInResponseObject, error)
@@ -20345,6 +21747,65 @@ func (sh *strictHandler) ListAccounts(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListAccountsResponseObject); ok {
 		if err := validResponse.VisitListAccountsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListApprovals operation middleware
+func (sh *strictHandler) ListApprovals(w http.ResponseWriter, r *http.Request, params ListApprovalsParams) {
+	var request ListApprovalsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListApprovals(ctx, request.(ListApprovalsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListApprovals")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListApprovalsResponseObject); ok {
+		if err := validResponse.VisitListApprovalsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DecideApproval operation middleware
+func (sh *strictHandler) DecideApproval(w http.ResponseWriter, r *http.Request, approvalId string) {
+	var request DecideApprovalRequestObject
+
+	request.ApprovalId = approvalId
+
+	var body DecideApprovalJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DecideApproval(ctx, request.(DecideApprovalRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DecideApproval")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DecideApprovalResponseObject); ok {
+		if err := validResponse.VisitDecideApprovalResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -21104,6 +22565,68 @@ func (sh *strictHandler) PutIntegrationConnection(w http.ResponseWriter, r *http
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(PutIntegrationConnectionResponseObject); ok {
 		if err := validResponse.VisitPutIntegrationConnectionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListConnectionActions operation middleware
+func (sh *strictHandler) ListConnectionActions(w http.ResponseWriter, r *http.Request, integration IntegrationID, label ConnectionLabel) {
+	var request ListConnectionActionsRequestObject
+
+	request.Integration = integration
+	request.Label = label
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListConnectionActions(ctx, request.(ListConnectionActionsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListConnectionActions")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListConnectionActionsResponseObject); ok {
+		if err := validResponse.VisitListConnectionActionsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetConnectionAction operation middleware
+func (sh *strictHandler) SetConnectionAction(w http.ResponseWriter, r *http.Request, integration IntegrationID, label ConnectionLabel, action string) {
+	var request SetConnectionActionRequestObject
+
+	request.Integration = integration
+	request.Label = label
+	request.Action = action
+
+	var body SetConnectionActionJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetConnectionAction(ctx, request.(SetConnectionActionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetConnectionAction")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetConnectionActionResponseObject); ok {
+		if err := validResponse.VisitSetConnectionActionResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -22305,229 +23828,246 @@ func (sh *strictHandler) ReopenTask(w http.ResponseWriter, r *http.Request, task
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

@@ -11,16 +11,18 @@ description: >-
 
 Read, search and change the owner's Gmail, Google Calendar and Google Drive with the `gws` command (the Google
 Workspace CLI). Hypomnema installed `gws` for you and signs it in on every call: you never see a password or a
-token, and you never log in.
+token, and you never log in. Every request `gws` makes passes Hypomnema's service proxy, which adds the account's
+credential and decides what runs at once and what waits for the owner.
 
 Adapted from the Google Workspace CLI's `gws-shared` skill (Apache-2.0, https://github.com/googleworkspace/cli).
-Changed for Hypomnema: how the command is signed in, which account it acts as, and the rule for anything that
+Changed for Hypomnema: how the command is signed in, which account it acts as, and what happens to anything that
 writes; its request to star the repository is left out.
 
 ## How it is signed in
 
-- Run `gws` as you would any command. A small launcher gets a fresh, short-lived token for the call and then runs
-  the real tool. A call hours into your work is signed in like the first one.
+- Run `gws` as you would any command. A small launcher runs the real tool and sends its requests through the
+  proxy, which signs them in. The tool itself holds no token. A call hours into your work is signed in like the
+  first one.
 - **Never run `gws auth ...`**, and never set or print a credential yourself. If a command says it is not
   signed in, or that you were given no account, say so in your report: only the owner can connect an account, in
   Settings, Integrations.
@@ -35,17 +37,32 @@ writes; its request to star the repository is left out.
 - An account may be read-only for a service. A command that changes something there is refused by Google; report it,
   do not retry.
 
-## Before anything that writes
+## What runs at once, and what waits for the owner
 
-Sending or replying to mail, deleting or archiving, creating or changing an event, uploading, sharing or deleting a
-file: **say exactly what you are about to do and get the owner's yes first.**
+The owner decides, action by action, what you may do with an account. You do not see the list; the proxy applies
+it to each request:
 
-- In a chat, ask the owner in the chat. A request for a summary, a search or a brief is not a yes to send or change
-  anything.
-- As a worker, ask with your question tool and wait for the answer, unless the task you were given already names
-  that exact action and its target.
-- Prefer `--dry-run` to see what a command would send before it is sent.
-- After a write, read back what was written (the message id, the event link, the file id) and report it.
+- **Reading, and what is easy to undo**, runs at once: listing and reading mail, events and files, writing a
+  draft, uploading a new file.
+- **What reaches other people or cannot be taken back** is held for the owner's approval, unless he set it
+  otherwise: sending mail, changing or deleting an event, changing, sharing or deleting a file, labelling or
+  trashing mail. He is shown exactly what you sent: the recipients, the subject, the text, the file.
+- **What he set to never** is refused.
+
+Run the command you mean. Do not ask the owner first in words: the approval he is shown is the question, and it
+shows more than you can say. What the command answers tells you what happened:
+
+| The command says | What it means, and what to do |
+|---|---|
+| The service's normal answer | It ran. Read back what was written (the message id, the event link, the file id) and report it. |
+| `Waiting for the owner's approval (apr_…): … was NOT run` | The command waited for the owner and he did not answer in time. Nothing was sent. **In a chat**: tell him in one line what waits for his approval, and end your turn; you are woken when he answers. **As a worker**: ask him with your question tool, as a plain question without options that names what you want approved, and wait for the answer. |
+| You are told it was **approved** | Run the same command again, with the same arguments and the same content. It passes once, without another question. If you change anything, it is a new request and asks again. |
+| `Rejected by the owner` or you are told it was **rejected** | Do not run it, and do not look for another way to do the same thing. Say so in your answer. |
+| `Refused: the owner set … to never` | The same: say so, do not work around it. |
+
+- Prefer `--dry-run` to see what a command would send before you send it.
+- A request for a summary, a search or a brief is not a request to send or change anything: do not start a write
+  the owner did not ask for.
 
 ## Never
 

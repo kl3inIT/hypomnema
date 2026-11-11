@@ -219,6 +219,37 @@ var commands = []command{
 		flags:   jsonFlag, run: integrationsChats,
 	},
 	{
+		name: "integrations actions", args: "<integration>:<label>", min: 1, max: 1,
+		summary: "what agents may do with an account, action by action (owner)", flags: jsonFlag,
+		run: integrationsActions,
+	},
+	{
+		name: "integrations actions set", args: "<integration>:<label> <action> allow|ask|never", min: 3, max: 3,
+		summary: "let an action run on its own, ask you each time, or never run (owner)", flags: jsonFlag,
+		run: integrationsActionsSet,
+	},
+	{
+		name: "approvals", summary: "the requests agents made to your accounts that wait for your answer (owner)",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("status", "pending", "pending, approved, rejected or all")
+			jsonFlag(fs)
+		},
+		run: approvalsList,
+	},
+	{
+		name: "approvals approve", args: "<approval_id>", min: 1, max: 1,
+		summary: "let a request run (owner)",
+		flags: func(fs *flag.FlagSet) {
+			fs.Bool("session", false, "also stop asking for this action for the rest of the Run or the chat")
+			jsonFlag(fs)
+		},
+		run: approvalsApprove,
+	},
+	{
+		name: "approvals reject", args: "<approval_id>", min: 1, max: 1, summary: "refuse a request (owner)",
+		flags: jsonFlag, run: approvalsReject,
+	},
+	{
 		name: "integrations client set", args: "<integration>", min: 1, max: 1,
 		summary: "keep the OAuth client a service signs in with, from the JSON file the service gave, or the app " +
 			"a service is, from a JSON file with its app_id and app_secret (owner)",

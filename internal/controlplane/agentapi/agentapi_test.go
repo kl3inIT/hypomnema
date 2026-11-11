@@ -32,7 +32,7 @@ type world struct {
 	logs  *bytes.Buffer
 }
 
-// newWorld is a control plane with two Google accounts of the owner's: work,
+// newWorld is a control plane with two Lark accounts of the owner's: work,
 // and personal.
 func newWorld(t *testing.T) *world {
 	t.Helper()
@@ -46,7 +46,7 @@ func newWorld(t *testing.T) *world {
 
 	for _, label := range []string{"work", "personal"} {
 		_, err := w.svc.SaveServiceConnection(t.Context(), orchestration.Connection{
-			Integration: "google", Label: label, Account: label + "@example.com", Secret: "conn-google-" + label,
+			Integration: "lark", Label: label, Account: label + "@example.com", Secret: "conn-lark-" + label,
 		})
 		require.NoError(t, err)
 	}
@@ -86,7 +86,7 @@ func (w *world) token(key, label string) (int, string) {
 	w.t.Helper()
 
 	status, body := w.call(http.MethodPost, agenttool.PathToken, key,
-		agenttool.TokenRequest{Integration: "google", Label: label})
+		agenttool.TokenRequest{Integration: "lark", Label: label})
 
 	var token agenttool.TokenResponse
 	if status == http.StatusOK {
@@ -144,14 +144,14 @@ func TestAWorkerGetsOnlyTheAccountsItsRunWasGivenAndStillHas(t *testing.T) {
 	ctx := t.Context()
 
 	for _, label := range []string{"work", "personal"} {
-		_, err := w.svc.SetConnectionChats(ctx, "google", label, true)
+		_, err := w.svc.SetConnectionChats(ctx, "lark", label, true)
 		require.NoError(t, err)
 	}
 
-	key, err := w.svc.AddAgentSession(ctx, "dsp_1", []string{"google:work"})
+	key, err := w.svc.AddAgentSession(ctx, "dsp_1", []string{"lark:work"})
 	require.NoError(t, err)
 
-	status, labels := w.get(key, "google")
+	status, labels := w.get(key, "lark")
 	require.Equal(t, http.StatusOK, status)
 	assert.Equal(t, []string{"work"}, labels)
 
@@ -165,24 +165,24 @@ func TestAWorkerGetsOnlyTheAccountsItsRunWasGivenAndStillHas(t *testing.T) {
 
 	status, _ = w.token(key, "nobody")
 	assert.Equal(t, http.StatusForbidden, status, "an account that does not exist answers as one not given")
-	assert.Equal(t, []string{"google:work"}, w.asked, "no token was fetched for what was refused")
+	assert.Equal(t, []string{"lark:work"}, w.asked, "no token was fetched for what was refused")
 
 	assert.Contains(t, w.logs.String(), "dsp_1")
-	assert.Contains(t, w.logs.String(), "google:work")
+	assert.Contains(t, w.logs.String(), "lark:work")
 	assert.NotContains(t, w.logs.String(), "ya29.")
 
 	// The owner takes the account back from the coordinator: its Run's worker loses it too.
-	_, err = w.svc.SetConnectionChats(ctx, "google", "work", false)
+	_, err = w.svc.SetConnectionChats(ctx, "lark", "work", false)
 	require.NoError(t, err)
 
 	status, _ = w.token(key, "work")
 	assert.Equal(t, http.StatusForbidden, status)
 
-	status, labels = w.get(key, "google")
+	status, labels = w.get(key, "lark")
 	require.Equal(t, http.StatusOK, status)
 	assert.Empty(t, labels)
 
-	_, err = w.svc.SetConnectionChats(ctx, "google", "work", true)
+	_, err = w.svc.SetConnectionChats(ctx, "lark", "work", true)
 	require.NoError(t, err)
 
 	status, _ = w.token(key, "work")
@@ -193,7 +193,7 @@ func TestAWorkerGetsOnlyTheAccountsItsRunWasGivenAndStillHas(t *testing.T) {
 	status, _ = w.token(key, "work")
 	assert.Equal(t, http.StatusUnauthorized, status)
 
-	status, _ = w.get(key, "google")
+	status, _ = w.get(key, "lark")
 	assert.Equal(t, http.StatusUnauthorized, status)
 }
 
@@ -211,17 +211,17 @@ func TestTheCoordinatorGetsOnlyWhatTheOwnerAllowedForChats(t *testing.T) {
 	_, owner, err := w.svc.AddToken(ctx, "me", bearertoken.Owner)
 	require.NoError(t, err)
 
-	status, labels := w.get(pi, "google")
+	status, labels := w.get(pi, "lark")
 	require.Equal(t, http.StatusOK, status)
 	assert.Empty(t, labels, "nothing is allowed until the owner says so")
 
 	status, _ = w.token(pi, "work")
 	assert.Equal(t, http.StatusForbidden, status)
 
-	_, err = w.svc.SetConnectionChats(ctx, "google", "work", true)
+	_, err = w.svc.SetConnectionChats(ctx, "lark", "work", true)
 	require.NoError(t, err)
 
-	status, labels = w.get(pi, "google")
+	status, labels = w.get(pi, "lark")
 	require.Equal(t, http.StatusOK, status)
 	assert.Equal(t, []string{"work"}, labels)
 
@@ -232,12 +232,12 @@ func TestTheCoordinatorGetsOnlyWhatTheOwnerAllowedForChats(t *testing.T) {
 	status, _ = w.token(pi, "personal")
 	assert.Equal(t, http.StatusForbidden, status)
 
-	status, labels = w.get(owner, "google")
+	status, labels = w.get(owner, "lark")
 	require.Equal(t, http.StatusOK, status)
 	// Two accounts connected within the same moment are listed by label, so their order is not this test's claim.
 	assert.ElementsMatch(t, []string{"work", "personal"}, labels)
 
-	_, err = w.svc.SetConnectionChats(ctx, "google", "work", false)
+	_, err = w.svc.SetConnectionChats(ctx, "lark", "work", false)
 	require.NoError(t, err)
 
 	status, _ = w.token(pi, "work")

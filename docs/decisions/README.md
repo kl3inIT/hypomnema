@@ -18,3 +18,4 @@ Decisions agreed but not yet implemented live in [vision.md](../vision.md) and t
 | [2026-11-09-coordinator-cli-and-skill.md](2026-11-09-coordinator-cli-and-skill.md) | Coordinators drive orchestration with the `hypomnema` CLI and a skill, not MCP; pi keeps its own tools |
 | [2026-11-10-model-gateway.md](2026-11-10-model-gateway.md) | The model gateway serves a declared model table, subscriptions included; vendor CLIs go straight to their vendor |
 | [2026-11-10-owner-reads-secret-values.md](2026-11-10-owner-reads-secret-values.md) | The owner's token can read a secret's value, one at a time and recorded; an agent never can |
+| [2026-11-11-service-proxy-in-the-control-plane.md](2026-11-11-service-proxy-in-the-control-plane.md) | One service proxy in the control plane holds an account's token and asks the owner before a write; no proxy on a node for Integrations |
