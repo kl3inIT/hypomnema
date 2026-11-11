@@ -779,7 +779,7 @@ Node (`internal/node`):
   (`ask`, `finish`), the model and the effort, and the prompt on standard input. `CODEX_HOME` is
   `conversations/<conversation>/codex` under the node's home, so a follow-up Dispatch continues with
   `exec resume <thread id>`. The thread id of `thread.started` is the session; the outcome is `finish`'s report,
-  or else what `turn.failed` said. A stop kills the process. A Codex worker's transcript is not sent yet.
+  or else what `turn.failed` said. A stop kills the process.
 - omp and opencode workers (`internal/node/acp`; [research](docs/research/2026-11-10-acp-omp-opencode.md)) share one
   runner that speaks the Agent Client Protocol, and their model comes from the gateway too. Each is an entry of a
   table: the command (`omp acp`, `opencode acp`) and the configuration written under
@@ -820,12 +820,25 @@ Node (`internal/node`):
     - progress at most every 30 s;
     - one turn per Dispatch: stdin is closed after the turn's `result`.
   - The worker's transcript goes to the control plane apart from its reports
-    ([research](docs/research/2026-11-10-worker-sessions.md)):
+    ([research](docs/research/2026-11-10-worker-sessions.md); one forwarder, `internal/node/transcript`, for every
+    runtime since issue #157):
     - Each journal line becomes items of one shape for every runtime: `message`, `reasoning`, `tool_call`,
       `tool_result`, `notice`. The first instruction and the final result are not items. An item is cut to 64 KiB
       and says how much was left out.
+    - A journal is in the format its runner names in a file `format` beside it: `claude` (stream-JSON; also a journal
+      with no such file), `codex` (`exec --json`) or `acp`. Each has a decoder in its runner's package. Codex's
+      commands are calls of `shell`, its file changes of `apply_patch`, its MCP calls `mcp__<server>__<tool>`; an
+      ACP agent's chunks of text are one message or thought, a call is one item once its input is known (omp has
+      it at once, opencode in the call's first update), and the worker's own tools are named
+      `mcp__hypomnema__<tool>` whatever the CLI calls them. Usage, plans, command lists and permission requests
+      are not items.
+    - A decoder may hold something open: a message whose chunks go on, a call without its input. The cursor then
+      stays before the line that opened it, so a daemon that restarts in the middle reads it again; what is open
+      when the worker has exited is closed and sent.
+    - The forwarder looks at `run/` each second and follows every journal there, so a runner does not tell it about
+      a Dispatch; one whose directory the node released is forgotten.
     - A second cursor beside the journal (`sent`: offset and last seq) says how far the control plane has it. Each
-      second the runner sends the items of the next whole lines, at most 32 items or 256 KiB, numbered from 1, and
+      second the forwarder sends the items of the next whole lines, at most 32 items or 256 KiB, numbered from 1, and
       one batch of a Dispatch at a time. The cursor moves on the acknowledgement, which brings the next batch at
       once; a batch not acknowledged in 15 s is sent again with the same numbers.
     - The control plane stores items by `(dispatch, seq)`, ignores a seq it holds, takes them in any status of the
@@ -1068,8 +1081,9 @@ internal/e2e               tests only: the control plane's node API with the nod
 internal/node             package node: configuration, CLI detection, init, check, run and the systemd unit
 internal/node/bridge      the mailbox between a worker's tools and the runner: questions, answers, the final report
 internal/node/claude      the Claude Code runner: worker environment, stream-JSON, journal reading, outcome
-internal/node/codex       the Codex CLI runner: the gateway as its provider, `exec --json`, journal reading, outcome
-internal/node/acp         the ACP runner for omp and opencode: each CLI's configuration, the conversation, outcome
+internal/node/codex       the Codex CLI runner: the gateway as its provider, `exec --json`, journal reading, outcome, and its transcript decoder
+internal/node/acp         the ACP runner for omp and opencode: each CLI's configuration, the conversation, outcome, and its transcript decoder
+internal/node/transcript  the forwarder of every worker's transcript, the decoder interface, the cutting of items
 internal/node/daemon      the node's connection: hello, socket, offers, outbox, Runner interface
 internal/node/shim        one worker kept across daemon restarts: journal, input socket, exit file
 internal/node/statedb     the node's SQLite state: Dispatches held and the report outbox

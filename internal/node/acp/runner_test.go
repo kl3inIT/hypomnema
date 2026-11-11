@@ -332,6 +332,10 @@ func TestOmpThroughTheGateway(t *testing.T) {
 	assert.Equal(t, "added the button", f.Summary)
 	assert.Equal(t, &nodeproto.Usage{Input: 1200, Output: 300, CacheRead: 9000}, f.Usage)
 
+	format, err := os.ReadFile(filepath.Join(g.runner.Home, "run", "dsp_1", "format"))
+	require.NoError(t, err)
+	assert.Equal(t, "acp", string(format), "the journal says how it is to be read")
+
 	conversation := filepath.Join(g.runner.Home, "conversations", "cnv_1", "omp")
 	assert.Equal(t, "acp\n--model\nhypomnema/claude-sonnet\n--session-dir\n"+filepath.Join(conversation, "sessions")+
 		"\n--thinking\nhigh", g.file("argv.txt"))

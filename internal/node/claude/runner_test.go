@@ -18,6 +18,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/node/bridge"
 	"github.com/kl3inIT/hypomnema/internal/node/shim"
 	"github.com/kl3inIT/hypomnema/internal/node/statedb"
+	"github.com/kl3inIT/hypomnema/internal/node/transcript"
 	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
 )
 
@@ -178,6 +179,28 @@ func bridgeDir() string {
 	return ""
 }
 
+// plane plays the control plane for the transcript of a worker.
+type plane struct {
+	mu      sync.Mutex
+	batches []nodeproto.Items
+}
+
+func (p *plane) send(b nodeproto.Items) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.batches = append(p.batches, b)
+
+	return true
+}
+
+func (p *plane) sent() []nodeproto.Items {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return append([]nodeproto.Items(nil), p.batches...)
+}
+
 // reporter records what the runner reports.
 type reporter struct {
 	mu       sync.Mutex
@@ -325,15 +348,19 @@ func TestWorkerRunsToSuccess(t *testing.T) {
 
 	g := newRig(t, "success")
 	p := &plane{}
-	g.runner.Send = p.send
 	r := newReporter("dsp_1")
 	require.NoError(t, g.runner.Start(t.Context(), g.dispatch("dsp_1"), r))
 	r.wait(t)
 
 	// The transcript of the worker just run is ready for the control plane.
-	g.runner.smu.Lock()
-	g.runner.step(t.Context(), g.runner.transcripts["dsp_1"])
-	g.runner.smu.Unlock()
+	(&transcript.Forwarder{
+		Home: g.runner.Home, Send: p.send, Logger: slog.New(slog.DiscardHandler),
+		Decoders: map[string]func() transcript.Decoder{Format: NewDecoder},
+	}).Step(t.Context())
+
+	format, err := os.ReadFile(filepath.Join(g.runner.Home, "run", "dsp_1", "format"))
+	require.NoError(t, err)
+	assert.Equal(t, "claude", string(format), "the journal says how it is to be read")
 
 	require.Len(t, p.sent(), 1)
 	sent := p.sent()[0]
@@ -365,7 +392,7 @@ func TestWorkerRunsToSuccess(t *testing.T) {
 		"a worker cannot ask outside ask or start subagents")
 	assert.Equal(t, "sk-ant-oat01-test", g.file("token.txt"))
 
-	_, err := os.Stat(filepath.Join(g.runner.dir("dsp_1"), shim.SpecFile))
+	_, err = os.Stat(filepath.Join(g.runner.dir("dsp_1"), shim.SpecFile))
 	assert.ErrorIs(t, err, os.ErrNotExist, "the spec with the token is gone once the worker runs")
 }
 

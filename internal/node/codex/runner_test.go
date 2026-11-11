@@ -249,6 +249,10 @@ func TestACodexWorkerRunsThroughTheGateway(t *testing.T) {
 	assert.Equal(t, []nodeproto.Evidence{{Kind: "pull_request", Ref: "kl3inIT/second-bite#7"}}, f.Evidence)
 	assert.Equal(t, &nodeproto.Usage{Input: 1200, Output: 300, CacheRead: 9000}, f.Usage)
 
+	format, err := os.ReadFile(filepath.Join(g.runner.Home, "run", "dsp_1", "format"))
+	require.NoError(t, err)
+	assert.Equal(t, "codex", string(format), "the journal says how it is to be read")
+
 	argv := g.file("argv.txt")
 	for _, want := range []string{
 		"exec\n--json\n--skip-git-repo-check\n--ignore-user-config\n--dangerously-bypass-approvals-and-sandbox",
