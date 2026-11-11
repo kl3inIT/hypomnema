@@ -959,9 +959,11 @@ the internet, so that a machine created at a provider can install the node from 
   tool catalog compiled into it, so a new tool reaches workers with a node release; the other nodes take v0.6.1
   at their next update check. The coordinator on zm has neither `lark-cli` nor the skill yet: its tools are
   installed by `deploy/coordinator/setup-coordinator.sh`, which needs root.
-- The Lark bot, since 2026-11-11: set up on zm with the owner's Lark app, mode `owner`, switched on; the
-  persistent connection opened at Lark. Not tried yet: a message from the owner through to the coordinator's
-  answer. The app has no card callback configured, which questions with buttons will need.
+- The Lark bot, since 2026-11-11: set up on zm with the owner's Lark app, mode `owner`, switched on, and
+  connected. The app's callback `card.action.trigger` was added over the persistent connection and released as
+  version 1.0.3 of the app. Tried: a worker's question with two options was answered by the owner nine seconds
+  after it was asked, and the worker went on with the option chosen. Not tried yet: a message from the owner
+  through to the coordinator's answer.
 - Nodes, since 2026-11-10, five: aioffice-app (user `hypnode`), and aioffice-serving, elitex, kdlstc-dev and
   stc-hy-app (user `hypomnema`, installed with the first-boot script, each reaching the control plane at its
   public URL). Each runs the node as a systemd user unit from `~/.hypomnema-node`, at v0.7.0 on 2026-11-11, and
