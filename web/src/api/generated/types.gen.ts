@@ -172,6 +172,14 @@ export type Dispatch = {
    * The profile version it ran with; absent for Dispatches from before profiles.
    */
   profile_version_id?: string;
+  /**
+   * The profile the Task asked for, when this Dispatch ran under a backup of it because every account of that profile's runtime waited for a limit to reset. `profile_version_id` is then the backup's.
+   */
+  fallback_for?: string;
+  /**
+   * With `fallback_for`, when the first of those accounts was to be free again.
+   */
+  fallback_until?: string;
   result?: DispatchResult;
   created_at: string;
   updated_at: string;
@@ -904,6 +912,10 @@ export type Profile = {
   model?: string;
   effort?: string;
   instruction?: string;
+  /**
+   * The profiles, in the owner's order, a Task of this one runs under while every account of its runtime waits for a limit to reset: the first a worker can start under now. Only a Task that has not started and names no runtime or model of its own moves; a backup's own list is not followed. Empty: the Task waits for the reset.
+   */
+  fallbacks: Array<string>;
   source: string;
   created_at: string;
   /**

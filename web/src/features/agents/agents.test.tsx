@@ -35,6 +35,7 @@ const profile = (name: string, m: Partial<Profile> = {}): Profile => ({
   version_id: `pfv_${name}_1`,
   version: 1,
   runtime: "claude",
+  fallbacks: [],
   source: `name: ${name}\ndescription: What ${name} is for.\nruntime: claude\n`,
   created_at: new Date(Date.now() - 2 * 3_600_000).toISOString(),
   available: true,
@@ -259,6 +260,46 @@ test("saving an agent makes a revision, and a refusal is shown in the server's w
   expect(screen.getByRole("button", { name: "Save revision" })).toBeDisabled()
 })
 
+// Scenario: the owner orders the agents that take this one's Tasks while it is out of quota (issue #171). The
+// other workers are offered, never the agent itself or the coordinator; the order chosen is the order saved, and a
+// row can be removed.
+test("fallbacks are chosen in order from the other workers and saved with the agent", async () => {
+  const applied = server([
+    profile("writer"),
+    profile("codex-worker", { runtime: "codex" }),
+    profile("omp-worker", { runtime: "omp" }),
+    profile("coordinator", { runtime: "pi", available: undefined }),
+  ])
+  open("/agents/writer")
+  const user = userEvent.setup()
+
+  const add = await screen.findByLabelText("Fallbacks")
+  await vi.waitFor(() =>
+    expect(
+      within(add)
+        .getAllByRole("option")
+        .map((o) => o.textContent),
+    ).toEqual(["Add a fallback…", "codex-worker", "omp-worker"]),
+  )
+
+  await user.selectOptions(add, "omp-worker")
+  await user.selectOptions(screen.getByLabelText("Fallbacks"), "codex-worker")
+
+  const rows = within(screen.getByRole("list", { name: "Fallbacks, in order" })).getAllByRole(
+    "listitem",
+  )
+  expect(rows).toHaveLength(2)
+  expect(within(rows[0]!).getByLabelText("Fallback 1")).toHaveValue("omp-worker")
+  expect(screen.getByLabelText("Fallbacks")).toBeDisabled()
+
+  await user.click(screen.getByRole("button", { name: "Save revision" }))
+  await vi.waitFor(() => expect(applied).toHaveLength(1))
+  expect(applied[0]?.source).toContain("fallbacks: [omp-worker, codex-worker]\n")
+
+  await user.click(screen.getByRole("button", { name: "Remove fallback omp-worker" }))
+  expect(screen.getByLabelText("Fallback 1")).toHaveValue("codex-worker")
+})
+
 // Scenario: the YAML is edited by hand, then the owner goes back to the builder. The builder cannot read YAML,
 // so it asks first; keeping the edits stays on YAML, discarding them returns to the fields as they were.
 test("going back to the builder asks before YAML edits are discarded", async () => {
@@ -321,6 +362,7 @@ const draft = (m: Partial<Draft>): Draft => ({
   model: "",
   effort: "",
   instruction: "",
+  fallbacks: [],
   ...m,
 })
 
@@ -338,6 +380,9 @@ test("the builder's YAML quotes what YAML would misread and keeps lines", () => 
   )
   expect(toYaml(draft({ instruction: "Read only.\n\nReport with file paths.\n" }), models)).toBe(
     'name: a\ndescription: "d"\nruntime: claude\ninstruction: |\n  Read only.\n\n  Report with file paths.\n',
+  )
+  expect(toYaml(draft({ fallbacks: ["codex-worker", "omp-worker"] }), models)).toBe(
+    'name: a\ndescription: "d"\nruntime: claude\nfallbacks: [codex-worker, omp-worker]\n',
   )
   expect(toYaml(draft({ instruction: "  indented first line\nsecond" }), models)).toContain(
     'instruction: "  indented first line\\nsecond"\n',

@@ -21,7 +21,8 @@ Each adapted file names its source.
   frontend/apps/web/src/components/agents: the profile cards, the Builder and YAML editor, the model field with its
   effort), from Omnigent (web/src/pages/settings/CustomAgentConfigForm.tsx and SettingsHarnessesSection.tsx: the
   name that cannot change, the description, the words that say whether an agent can run) and from OpenMausBot
-  (src/components/bot-settings/HistorySection.tsx: the list of versions), all Apache License 2.0. Each file says
+  (src/components/bot-settings/HistorySection.tsx: the list of versions; src/components/bot-panel/BackupAis.tsx:
+  the ordered list of fallbacks), all Apache License 2.0. Each file says
   what was changed.
 
 ## t3code

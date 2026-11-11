@@ -1,5 +1,5 @@
 import { useBlocker } from "@tanstack/react-router"
-import { Brain } from "lucide-react"
+import { Brain, Trash2 } from "lucide-react"
 import { useRef, useState } from "react"
 
 import type { Model, Profile } from "@/api/generated/types.gen"
@@ -27,6 +27,7 @@ import { Textarea } from "@/components/ui/textarea"
 import {
   efforts,
   errorText,
+  maxFallbacks,
   modelKey,
   problem,
   runtimeName,
@@ -35,7 +36,7 @@ import {
   toYaml,
   type Draft,
 } from "./profiles-state"
-import { useApplyProfile } from "./use-profiles"
+import { useApplyProfile, useProfiles } from "./use-profiles"
 
 type Mode = "builder" | "yaml"
 
@@ -358,6 +359,95 @@ function Builder({
           Added after the rules every worker gets, which it may not override. Optional.
         </FieldDescription>
       </Field>
+
+      {draft.runtime !== "pi" && (
+        <Fallbacks
+          own={draft.name}
+          chain={draft.fallbacks}
+          onChange={(fallbacks) => set({ fallbacks })}
+        />
+      )}
     </div>
+  )
+}
+
+// Fallbacks is the ordered list of agents that take this one's Tasks while it is out of quota (issue #171), after
+// OpenMausBot's backups of a bot (Apache License 2.0, https://github.com/milind-soni/OpenMausBot;
+// src/components/bot-panel/BackupAis.tsx): numbered rows, each changed or removed in place, then one control that
+// adds the next. Changed: a row is a native select of the other agents, where OpenMausBot opens its model menu.
+function Fallbacks({
+  own,
+  chain,
+  onChange,
+}: {
+  own: string
+  chain: string[]
+  onChange: (chain: string[]) => void
+}) {
+  // The agents a Task can run under: every worker's but this one. The coordinator's has no answer to "can run".
+  const workers = (useProfiles().data ?? [])
+    .filter((p) => p.available !== undefined && p.name !== own)
+    .map((p) => p.name)
+  const free = workers.filter((name) => !chain.includes(name))
+
+  return (
+    <Field>
+      <FieldLabel htmlFor="profile-fallback-add">Fallbacks</FieldLabel>
+      {chain.length > 0 && (
+        <ol aria-label="Fallbacks, in order" className="flex flex-col gap-1.5">
+          {chain.map((name, index) => (
+            <li key={name} className="flex items-center gap-2">
+              <span className="w-3 text-xs text-muted-foreground tabular-nums" aria-hidden>
+                {index + 1}
+              </span>
+              <NativeSelect
+                aria-label={`Fallback ${index + 1}`}
+                value={name}
+                onChange={(event) =>
+                  onChange(chain.map((n, at) => (at === index ? event.target.value : n)))
+                }
+              >
+                <NativeSelectOption value={name}>{name}</NativeSelectOption>
+                {free.map((n) => (
+                  <NativeSelectOption key={n} value={n}>
+                    {n}
+                  </NativeSelectOption>
+                ))}
+              </NativeSelect>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                aria-label={`Remove fallback ${name}`}
+                onClick={() => onChange(chain.filter((_, at) => at !== index))}
+              >
+                <Trash2 aria-hidden />
+              </Button>
+            </li>
+          ))}
+        </ol>
+      )}
+      {chain.length < maxFallbacks && (
+        <NativeSelect
+          id="profile-fallback-add"
+          value=""
+          disabled={free.length === 0}
+          onChange={(event) => {
+            if (event.target.value) onChange([...chain, event.target.value])
+          }}
+        >
+          <NativeSelectOption value="">Add a fallback…</NativeSelectOption>
+          {free.map((n) => (
+            <NativeSelectOption key={n} value={n}>
+              {n}
+            </NativeSelectOption>
+          ))}
+        </NativeSelect>
+      )}
+      <FieldDescription>
+        While this agent&apos;s accounts wait for a limit to reset, a Task that has not started runs
+        under the first of these that can run. None: the Task waits for the reset.
+      </FieldDescription>
+    </Field>
   )
 }

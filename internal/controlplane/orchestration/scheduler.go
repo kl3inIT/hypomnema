@@ -2,6 +2,8 @@ package orchestration
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"path"
 	"time"
@@ -86,8 +88,27 @@ func (s *Service) scheduleTask(ctx context.Context, q *store.Queries, now int64,
 		return err
 	}
 
+	// A Task that waits only for a limit to reset goes to a backup of its profile.
+	if spec == nil && reason == "" {
+		if spec, r, err = placeBackup(ctx, q, p, task, r, host); err != nil {
+			return err
+		}
+	}
+
 	if spec == nil {
 		return s.unplaceable(ctx, q, now, task, reason, out)
+	}
+
+	told := int64(1)
+
+	if r.fallbackFor != "" {
+		told, err = q.CountFallbacksOfRun(ctx, store.CountFallbacksOfRunParams{
+			RunID: task.RunID, FallbackFor: nullString(r.fallbackFor),
+			FallbackUntil: sql.NullInt64{Int64: r.fallbackUntil, Valid: true},
+		})
+		if err != nil {
+			return fmt.Errorf("reading the fallbacks of run %s: %w", task.RunID, err)
+		}
 	}
 
 	id := s.newID("dsp")
@@ -97,7 +118,73 @@ func (s *Service) scheduleTask(ctx context.Context, q *store.Queries, now int64,
 
 	out.Created = append(out.Created, id)
 
+	if told == 0 {
+		out.Escalations = append(out.Escalations, Escalation{
+			Kind: EscalationFallback, DispatchID: id, Profile: r.fallbackFor, Fallback: r.profile,
+			Until: r.fallbackUntil,
+		})
+	}
+
 	return nil
+}
+
+// placeBackup places a Task under the first backup of its profile a worker
+// can start under now, when every account of the profile's runtime waits for
+// a limit to reset (issue #171). The owner orders the backups, as
+// OpenMausBot's list per bot (server/host/limit-takeover.ts, chosen) and
+// OpenClaw's fallbacks per agent. It returns no spec, and r as given, when
+// the Task waits:
+//
+//   - a Task that has had a Conversation: its worker may have acted
+//     (OpenMausBot does not move an accepted prompt; t3code moves new threads only);
+//   - a Task that names its own runtime or model: that choice is strict
+//     (OpenClaw, t3code);
+//   - a backup no worker can start under now (OpenMausBot's usable, t3code).
+//
+// A backup's own backups are not followed (t3code: one hop).
+func placeBackup(ctx context.Context, q *store.Queries, p *placement, task store.Task, r resolved, host where,
+) (*DispatchSpec, resolved, error) {
+	if task.Runtime.String != "" || task.Model.String != "" {
+		return nil, r, nil
+	}
+
+	a := p.availability(r.runtime, r.gateway)
+	if a.Reason != ReasonAccountsCooling {
+		return nil, r, nil
+	}
+
+	if _, err := q.LatestConversationOfTask(ctx, task.ID); !errors.Is(err, sql.ErrNoRows) {
+		if err != nil {
+			return nil, r, fmt.Errorf("reading the conversation of task %s: %w", task.ID, err)
+		}
+
+		return nil, r, nil
+	}
+
+	own, err := q.GetProfileVersion(ctx, r.versionID)
+	if err != nil {
+		return nil, r, notFound(err, "profile version", r.versionID)
+	}
+
+	for _, name := range splitNames(own.Fallbacks) {
+		v, err := q.CurrentProfileVersion(ctx, name)
+		if err != nil {
+			return nil, r, notFound(err, "profile", name)
+		}
+
+		b, err := resolveVersion(ctx, q, task, v)
+		if err != nil {
+			return nil, r, err
+		}
+
+		if spec, _ := placeNew(p, task, b, host); spec != nil {
+			b.fallbackFor, b.fallbackUntil = task.Profile, a.At.UnixMilli()
+
+			return spec, b, nil
+		}
+	}
+
+	return nil, r, nil
 }
 
 // placeTask chooses where a ready Task runs. It returns no spec when the Task
@@ -105,8 +192,6 @@ func (s *Service) scheduleTask(ctx context.Context, q *store.Queries, now int64,
 // resolves by itself, such as a cooling account).
 func placeTask(ctx context.Context, q *store.Queries, p *placement, task store.Task, r resolved, host where,
 ) (*DispatchSpec, string, error) {
-	runtime := r.runtime
-
 	conv, open, err := openConversation(ctx, q, task.ID)
 	if err != nil {
 		return nil, "", err
@@ -127,17 +212,26 @@ func placeTask(ctx context.Context, q *store.Queries, p *placement, task store.T
 		return &DispatchSpec{Continue: true}, "", nil
 	}
 
+	spec, reason := placeNew(p, task, r, host)
+
+	return spec, reason, nil
+}
+
+// placeNew chooses the node and the account of a Task's new Conversation.
+func placeNew(p *placement, task store.Task, r resolved, host where) (*DispatchSpec, string) {
+	runtime := r.runtime
+
 	n := p.pickNode(runtime, host)
 	if runtime == "" || n == nil {
 		if !p.anyReaches(host.host) {
-			return nil, ReasonNoNodeReaches + host.host, nil
+			return nil, ReasonNoNodeReaches + host.host
 		}
 
 		if missing := p.anyHas(host.tools); missing != "" {
-			return nil, ReasonNoNodeHasTool + missing, nil
+			return nil, ReasonNoNodeHasTool + missing
 		}
 
-		return nil, ReasonNoNode, nil
+		return nil, ReasonNoNode
 	}
 
 	// A model the gateway serves needs no account on a node (issue #107).
@@ -148,15 +242,15 @@ func placeTask(ctx context.Context, q *store.Queries, p *placement, task store.T
 
 	switch {
 	case cooling && account == "":
-		return nil, "", nil
+		return nil, ""
 	case account == "":
-		return nil, ReasonNoAccount, nil
+		return nil, ReasonNoAccount
 	}
 
 	return &DispatchSpec{
 		NodeID: n.row.ID, Worktree: path.Join(n.row.WorktreeRoot.String, task.RunID, task.ID),
 		Runtime: runtime, AccountRef: account,
-	}, "", nil
+	}, ""
 }
 
 // runHost is what a Run's work needs of a node: the git host of its

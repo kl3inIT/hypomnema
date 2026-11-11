@@ -91,6 +91,25 @@ test("a card names its machine and runtime", () => {
   expect(card?.runtime).toBe("codex")
 })
 
+// Scenario: the Task's agent was out of quota and a fallback ran it (issue #171): the card shows the CLI that
+// ran, not the one the Task asked for.
+test("a card of a Task that ran under a fallback shows the fallback's runtime", () => {
+  const t = task("t", "run_1", {
+    latest_dispatch: dispatch({ profile_version_id: "pfv_codex", fallback_for: "implementer" }),
+  })
+  const [card] = boardCards(
+    board([t], [open]),
+    [],
+    [],
+    [
+      { name: "implementer", runtime: "claude", version_id: "pfv_impl" } as never,
+      { name: "codex-worker", runtime: "codex", version_id: "pfv_codex" } as never,
+    ],
+  )
+
+  expect(card?.runtime).toBe("codex")
+})
+
 // Scenario: in Working, workers that run come before Tasks that wait; a column shows the newest change first.
 test("a column puts running work first, newest first", () => {
   const cards = boardCards(

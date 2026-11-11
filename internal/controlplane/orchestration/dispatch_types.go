@@ -122,6 +122,12 @@ type Dispatch struct {
 	Effort string
 	// ProfileVersionID is the profile version it ran with; empty before profiles.
 	ProfileVersionID string
+	// FallbackFor is the profile the Task asked for, when the Dispatch ran
+	// under a backup of it because every account of that profile's runtime
+	// waited for a limit to reset; FallbackUntil is when the first was to be
+	// free (issue #171).
+	FallbackFor   string
+	FallbackUntil *time.Time
 	// Activity is one line about the newest thing the worker said or did.
 	Activity string
 }
@@ -272,6 +278,10 @@ const (
 	// EscalationAccountCooling: a rate limit cooled an account for more than
 	// AccountCoolingAlert while every other account of its runtime cools too.
 	EscalationAccountCooling EscalationKind = "account_cooling"
+	// EscalationFallback: a Task runs under a backup of its profile, whose
+	// accounts wait for a limit to reset. Once per Run for each stretch of
+	// the limit, as OpenMausBot tells a bot's owner once (limit-notices.ts).
+	EscalationFallback EscalationKind = "fallback"
 )
 
 // Reasons a Task is unplaceable.
@@ -297,6 +307,11 @@ type Escalation struct {
 	QuestionID string
 	AccountRef string
 	Reason     string
+	// Profile, Fallback and Until say which profile was out of quota, which
+	// one took the Task, and when the first is free again.
+	Profile  string
+	Fallback string
+	Until    int64
 }
 
 // Reaped is what one Reap did.

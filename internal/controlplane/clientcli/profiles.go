@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"strings"
 	"time"
 
 	"go.yaml.in/yaml/v3"
@@ -26,9 +27,19 @@ func profilesList(ctx context.Context, e *env, fs *flag.FlagSet) error {
 
 	return e.print(fs, resp.JSON200, func() {
 		for _, p := range resp.JSON200.Data {
-			e.printf("%s\tv%d\t%s\t%s%s\n  %s\n", p.Name, p.Version, p.Runtime, modelOf(p), cannotRun(p), p.Description)
+			e.printf("%s\tv%d\t%s\t%s%s%s\n  %s\n", p.Name, p.Version, p.Runtime, modelOf(p), fallbacksOf(p),
+				cannotRun(p), p.Description)
 		}
 	})
+}
+
+// fallbacksOf names a profile's backups for a line of the list.
+func fallbacksOf(p openapi.Profile) string {
+	if len(p.Fallbacks) == 0 {
+		return ""
+	}
+
+	return "\tfallbacks: " + strings.Join(p.Fallbacks, ", ")
 }
 
 // cannotRun is why no worker can start under a profile now, for a line of

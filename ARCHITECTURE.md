@@ -176,6 +176,9 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   the profile is read. A node at its limit still counts; a model the gateway serves needs no account, and the
   state of the gateway's own accounts is not looked at; the coordinator's runtime, pi, has no answer. `profiles
   list` shows it, and the coordinator skill tells the coordinator to read it before creating Tasks.
+  A profile may name up to five `fallbacks`, other workers' profiles in the owner's order (issue #171, after
+  OpenMausBot's backups of a bot and OpenClaw's fallbacks of an agent;
+  [research](docs/research/2026-11-11-work-moves-when-out-of-quota.md)); they are kept in the version.
   The starting set: `implementer`, `reviewer` and `explorer` on Claude Code with its default model, and
   `coordinator` on pi; provider `claude-subscription`. The reviewer (effort `high`) and the explorer say in their
   instruction how to report (issue #155, after omp's `reviewer` and `scout`): the reviewer a verdict, `correct` or
@@ -193,6 +196,16 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   gateway serves), in
   `<worktree root>/<run>/<task>`. A Task with no node or no account for 5 min is escalated once (`unplaceable`), and
   a rate limit over an hour that leaves its runtime with no free account is escalated (`account_cooling`).
+  A new Task whose profile's runtime has only accounts that cool down is placed, in the same pass, under the first
+  of the profile's `fallbacks` that has a ready node and an account (or a gateway model), with that profile's
+  current version, model, effort and instruction (issue #171). Only a Task with no Conversation yet moves, and
+  only one that names no runtime or model of its own; a backup's own `fallbacks` are not followed; with none that
+  can run, the Task waits as before. The Dispatch records `fallback_for`, the Task's own profile, and
+  `fallback_until`, when its first account is free; the first such Dispatch of a Run for one `fallback_until` is
+  escalated (`fallback`, with `profile`, `fallback` and `until`), so a coordinator hears of one stretch of a limit
+  once. Each pass starts from the Task's own profile, so work returns when the limit has reset. A profile whose
+  model the gateway serves never triggers it: the state of the gateway's accounts is not looked at. The Agents
+  page edits the list, and a Task's card says which profile it stands in for.
 
 - Runs name the repository their workers work in and its base branch (default `main`), and the coordinator token
   that coordinates them, if a coordinator created them. Runs are listed newest first, a page at a time.

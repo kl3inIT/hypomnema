@@ -31,6 +31,10 @@ const DefaultProfile = "implementer"
 // MaxDescription bounds a profile's description.
 const MaxDescription = 500
 
+// MaxFallbacks bounds a profile's backups, as OpenMausBot keeps five for a
+// bot (src/components/bot-panel/BackupAis.tsx, MAX_BACKUPS).
+const MaxFallbacks = 5
+
 // Provider kinds.
 const (
 	ProviderAnthropic          = "anthropic"
@@ -82,6 +86,10 @@ type Profile struct {
 	Model       string
 	Effort      string
 	Instruction string
+	// Fallbacks names, in the owner's order, the profiles a Task of this one
+	// runs under while every account of its runtime waits for a limit to
+	// reset (issue #171). Empty: the Task waits.
+	Fallbacks []string
 	// Source is the YAML as applied.
 	Source    string
 	CreatedAt time.Time
@@ -134,7 +142,8 @@ type profileSource struct {
 		Name     string `yaml:"name"`
 		Effort   string `yaml:"effort"`
 	} `yaml:"model"`
-	Instruction string `yaml:"instruction"`
+	Instruction string   `yaml:"instruction"`
+	Fallbacks   []string `yaml:"fallbacks"`
 }
 
 type providerSource struct {
@@ -176,7 +185,7 @@ func (s *Service) ApplyProfile(ctx context.Context, name, source string) (Profil
 
 	p := Profile{
 		Name: in.Name, Description: strings.TrimSpace(in.Description), Runtime: in.Runtime,
-		Instruction: in.Instruction, Source: source,
+		Instruction: in.Instruction, Fallbacks: in.Fallbacks, Source: source,
 	}
 	if in.Model != nil {
 		p.Provider, p.Model, p.Effort = in.Model.Provider, in.Model.Name, in.Model.Effort
@@ -203,6 +212,10 @@ func (s *Service) ApplyProfile(ctx context.Context, name, source string) (Profil
 	err := s.write(ctx, func(q *store.Queries, now int64) error {
 		provider, err := checkModel(ctx, q, p.Runtime, p.Provider, p.Model, p.Effort)
 		if err != nil {
+			return fmt.Errorf("profile %s: %w", p.Name, err)
+		}
+
+		if err := checkFallbacks(ctx, q, p); err != nil {
 			return fmt.Errorf("profile %s: %w", p.Name, err)
 		}
 
@@ -237,7 +250,8 @@ func (s *Service) ApplyProfile(ctx context.Context, name, source string) (Profil
 		if err := q.InsertProfileVersion(ctx, store.InsertProfileVersionParams{
 			ID: id, Profile: p.Name, Version: current.Version + 1, Source: source, Digest: digest, Description: p.Description,
 			Runtime: p.Runtime, Provider: nullString(p.Provider), Model: nullString(p.Model),
-			Effort: nullString(p.Effort), Instruction: nullString(p.Instruction), Now: now,
+			Effort: nullString(p.Effort), Instruction: nullString(p.Instruction),
+			Fallbacks: strings.Join(p.Fallbacks, ","), Now: now,
 		}); err != nil {
 			return fmt.Errorf("inserting a version of profile %s: %w", p.Name, err)
 		}
@@ -256,6 +270,38 @@ func (s *Service) ApplyProfile(ctx context.Context, name, source string) (Profil
 	}
 
 	return out, created, nil
+}
+
+// checkFallbacks checks the backups a profile names: each an existing
+// worker's profile, named once, and not the profile itself. The
+// coordinator's profile has none: no Task runs under it.
+func checkFallbacks(ctx context.Context, q *store.Queries, p Profile) error {
+	switch {
+	case len(p.Fallbacks) > 0 && p.Runtime == coordinatorRuntime:
+		return fmt.Errorf("%w: the coordinator's profile takes no fallbacks", ErrInvalid)
+	case len(p.Fallbacks) > MaxFallbacks:
+		return fmt.Errorf("%w: a profile names at most %d fallbacks", ErrInvalid, MaxFallbacks)
+	}
+
+	for i, name := range p.Fallbacks {
+		switch {
+		case name == p.Name:
+			return fmt.Errorf("%w: a profile is not its own fallback", ErrInvalid)
+		case slices.Contains(p.Fallbacks[:i], name):
+			return fmt.Errorf("%w: fallback %q is named twice", ErrInvalid, name)
+		}
+
+		v, err := q.CurrentProfileVersion(ctx, name)
+		if err != nil {
+			return fmt.Errorf("fallback: %w", notFound(err, "profile", name))
+		}
+
+		if v.Runtime == coordinatorRuntime {
+			return fmt.Errorf("%w: fallback %q is the coordinator's profile, not a worker's", ErrInvalid, name)
+		}
+	}
+
+	return nil
 }
 
 // checkModel checks a runtime, provider, model and effort together and
@@ -416,8 +462,17 @@ func profileFromRow(v store.ProfileVersion) Profile {
 		Name: v.Profile, Description: v.Description, VersionID: v.ID, Version: int(v.Version), Runtime: v.Runtime,
 		Provider: v.Provider.String,
 		Model:    v.Model.String, Effort: v.Effort.String, Instruction: v.Instruction.String, Source: v.Source,
-		CreatedAt: millis(v.CreatedAt),
+		Fallbacks: splitNames(v.Fallbacks), CreatedAt: millis(v.CreatedAt),
 	}
+}
+
+// splitNames reads names stored in order, separated by commas.
+func splitNames(stored string) []string {
+	if stored == "" {
+		return nil
+	}
+
+	return strings.Split(stored, ",")
 }
 
 // ApplyProvider stores a provider's YAML and the models it offers. It refuses
@@ -650,10 +705,15 @@ func checkTaskProfile(ctx context.Context, q *store.Queries, nt NewTask) error {
 // profile's current version.
 type resolved struct {
 	runtime, model, effort string
-	versionID              string
+	// profile and versionID are the profile version the values come from.
+	profile, versionID string
 	// gateway says the model gateway serves the model, so no account on a
 	// node is needed.
 	gateway bool
+	// fallbackFor is the Task's own profile when these are a backup's values,
+	// and fallbackUntil when that profile's accounts are free again.
+	fallbackFor   string
+	fallbackUntil int64
 }
 
 func resolve(ctx context.Context, q *store.Queries, task store.Task) (resolved, error) {
@@ -662,6 +722,12 @@ func resolve(ctx context.Context, q *store.Queries, task store.Task) (resolved, 
 		return resolved{}, notFound(err, "profile", task.Profile)
 	}
 
+	return resolveVersion(ctx, q, task, v)
+}
+
+// resolveVersion is the Task's own values over one profile version.
+func resolveVersion(ctx context.Context, q *store.Queries, task store.Task, v store.ProfileVersion,
+) (resolved, error) {
 	model, provider := v.Model.String, v.Provider.String
 	if task.Runtime.String != "" && task.Runtime.String != v.Runtime {
 		model, provider = "", "" // the profile's model and provider belong to its runtime
@@ -680,6 +746,6 @@ func resolve(ctx context.Context, q *store.Queries, task store.Task) (resolved, 
 
 	return resolved{
 		runtime: or(task.Runtime.String, v.Runtime), model: or(task.Model.String, model),
-		effort: or(task.Effort.String, v.Effort.String), versionID: v.ID, gateway: gateway,
+		effort: or(task.Effort.String, v.Effort.String), profile: v.Profile, versionID: v.ID, gateway: gateway,
 	}, nil
 }

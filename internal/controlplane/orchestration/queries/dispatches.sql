@@ -17,9 +17,14 @@ UPDATE conversations SET cli_session_ref = @cli_session_ref, updated_at = @now W
 
 -- name: InsertDispatch :exec
 INSERT INTO dispatches (id, task_id, conversation_id, node_id, status, recovery, gate_question_id,
-                        model, effort, profile_version_id, created_at, updated_at)
+                        model, effort, profile_version_id, fallback_for, fallback_until, created_at, updated_at)
 VALUES (@id, @task_id, @conversation_id, @node_id, 'queued', @recovery, @gate_question_id,
-        @model, @effort, @profile_version_id, @now, @now);
+        @model, @effort, @profile_version_id, @fallback_for, @fallback_until, @now, @now);
+
+-- name: CountFallbacksOfRun :one
+-- The Dispatches of a Run that ran under a backup of a profile in one stretch of its limit.
+SELECT count(*) FROM dispatches d JOIN tasks t ON t.id = d.task_id
+WHERE t.run_id = @run_id AND d.fallback_for = @fallback_for AND d.fallback_until = @fallback_until;
 
 -- name: GetDispatch :one
 SELECT * FROM dispatches WHERE id = @id;

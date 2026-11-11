@@ -1541,6 +1541,15 @@ components:
         profile_version_id:
           type: string
           description: The profile version it ran with; absent for Dispatches from before profiles.
+        fallback_for:
+          type: string
+          description: >-
+            The profile the Task asked for, when this Dispatch ran under a backup of it because every account of
+            that profile's runtime waited for a limit to reset. `profile_version_id` is then the backup's.
+        fallback_until:
+          type: string
+          format: date-time
+          description: With `fallback_for`, when the first of those accounts was to be free again.
         result: { $ref: "#/components/schemas/DispatchResult" }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
@@ -2358,7 +2367,7 @@ components:
           description: The YAML document; its name must equal the one in the path.
     Profile:
       type: object
-      required: [name, description, version_id, version, runtime, source, created_at]
+      required: [name, description, version_id, version, runtime, fallbacks, source, created_at]
       properties:
         name: { type: string }
         description:
@@ -2371,6 +2380,14 @@ components:
         model: { type: string }
         effort: { type: string }
         instruction: { type: string }
+        fallbacks:
+          type: array
+          items: { type: string }
+          description: >-
+            The profiles, in the owner's order, a Task of this one runs under while every account of its runtime
+            waits for a limit to reset: the first a worker can start under now. Only a Task that has not started
+            and names no runtime or model of its own moves; a backup's own list is not followed. Empty: the Task
+            waits for the reset.
         source: { type: string }
         created_at: { type: string, format: date-time }
         available:

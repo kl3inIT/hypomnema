@@ -795,3 +795,102 @@ func TestAnAccountWhoseTokenTheControlPlaneKeepsIsPlaced(t *testing.T) {
 	w.tasks(NewTask{Ref: "n", Profile: "implementer", Spec: "n"})
 	assert.Empty(t, w.schedule().Created, "the account cools down as one on a node does")
 }
+
+// Scenario: out of quota (issue #171). While every account of a profile's
+// runtime waits for a limit to reset, a Task that has not started runs under
+// the first backup the owner listed that a worker can start under; the Run
+// is told once for that stretch, and work returns when the limit has reset.
+func TestTaskMovesToABackupProfileWhenItsOwnIsOutOfQuota(t *testing.T) {
+	t.Parallel()
+
+	w := newSchedWorld(t)
+	ctx := t.Context()
+
+	_, err := w.s.ApplyProvider(ctx, "", "name: gateway\nkind: model_gateway\nmodels: [gpt-sol]\n")
+	require.NoError(t, err)
+	_, _, err = w.s.ApplyProfile(ctx, "", "name: codex-own\ndescription: d\nruntime: codex\n")
+	require.NoError(t, err)
+	backup, _, err := w.s.ApplyProfile(ctx, "",
+		"name: codex-worker\ndescription: d\nruntime: codex\nmodel: {provider: gateway, name: gpt-sol}\n")
+	require.NoError(t, err)
+	writer, _, err := w.s.ApplyProfile(ctx, "",
+		"name: writer\ndescription: d\nruntime: claude\nfallbacks: [codex-own, codex-worker]\n")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"codex-own", "codex-worker"}, writer.Fallbacks)
+
+	codex := w.addNode("node_codex", 4, "codex")
+
+	// The Task that meets the limit has a Conversation: it waits for the reset.
+	first := w.tasks(NewTask{Ref: "a", Profile: "writer", Spec: "a"})[0]
+	created := w.schedule().Created
+	require.Len(t, created, 1)
+	assert.Equal(t, w.node.ID, w.dispatchOf(created[0]).NodeID, "the profile's own runtime while it has quota")
+	assert.Empty(t, w.dispatchOf(created[0]).FallbackFor)
+
+	resets := t0.Add(2 * time.Hour)
+	require.NoError(t, w.finish(w.begin(created[0]), Outcome{Class: FailureRateLimited, ResetsAt: &resets}))
+
+	w.tasks(
+		NewTask{Ref: "b", Profile: "writer", Spec: "b"},
+		NewTask{Ref: "c", Profile: "writer", Spec: "c"},
+		NewTask{Ref: "strict", Profile: "writer", Spec: "strict", Runtime: "claude"},
+		NewTask{Ref: "plain", Profile: "implementer", Spec: "plain"},
+	)
+
+	out := w.schedule()
+	require.Len(t, out.Created, 2, "b and c; the Task that names its runtime and the profile with no list wait")
+
+	for _, id := range out.Created {
+		d := w.dispatchOf(id)
+		assert.Contains(t, []string{"b", "c"}, w.task(d.TaskID).Spec)
+		assert.Equal(t, codex.ID, d.NodeID)
+		assert.Equal(t, backup.VersionID, d.ProfileVersionID, "codex-own has no account, so the second backup runs")
+		assert.Equal(t, "gpt-sol", d.Model)
+		assert.Equal(t, "writer", d.FallbackFor)
+		require.NotNil(t, d.FallbackUntil)
+		assert.Equal(t, resets, *d.FallbackUntil)
+		assert.Equal(t, GatewayAccountRef, w.conversation(d.ConversationID).AccountRef)
+	}
+
+	require.Len(t, out.Escalations, 1, "one notice for the stretch, not one per Task")
+	assert.Equal(t, Escalation{
+		Kind: EscalationFallback, DispatchID: out.Created[0], Profile: "writer", Fallback: "codex-worker",
+		Until: resets.UnixMilli(),
+	}, out.Escalations[0])
+	assert.Equal(t, TaskReady, w.task(first.ID).Status, "the Task that met the limit still waits")
+
+	// The limit has reset: a new Task runs under its own profile again.
+	w.advance(2*time.Hour + time.Minute)
+	w.alive(w.node)
+	w.alive(codex)
+	w.tasks(NewTask{Ref: "later", Profile: "writer", Spec: "later"})
+
+	back := w.schedule().Created
+	require.NotEmpty(t, back)
+
+	for _, id := range back {
+		d := w.dispatchOf(id)
+		assert.Equal(t, w.node.ID, d.NodeID, w.task(d.TaskID).Spec)
+		assert.Empty(t, d.FallbackFor)
+	}
+}
+
+// A profile's backups are checked when it is applied.
+func TestFallbacksNameOtherWorkerProfiles(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	apply := func(source string) error {
+		_, _, err := w.s.ApplyProfile(t.Context(), "", source)
+
+		return err
+	}
+
+	require.ErrorIs(t, apply("name: a\ndescription: d\nruntime: claude\nfallbacks: [a]\n"), ErrInvalid)
+	require.ErrorIs(t, apply("name: a\ndescription: d\nruntime: claude\nfallbacks: [missing]\n"), ErrNotFound)
+	require.ErrorIs(t, apply("name: a\ndescription: d\nruntime: claude\nfallbacks: [coordinator]\n"), ErrInvalid)
+	require.ErrorIs(t, apply("name: a\ndescription: d\nruntime: claude\nfallbacks: [reviewer, reviewer]\n"),
+		ErrInvalid)
+	require.ErrorIs(t, apply("name: lead\ndescription: d\nruntime: pi\nfallbacks: [reviewer]\n"), ErrInvalid)
+	require.NoError(t, apply("name: a\ndescription: d\nruntime: claude\nfallbacks: [reviewer, explorer]\n"))
+}

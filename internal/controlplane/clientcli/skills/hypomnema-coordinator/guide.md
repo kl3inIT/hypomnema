@@ -75,6 +75,10 @@ what a profile was called or did before.
 - When a create is refused because a profile or a model cannot be served, or an escalation says a Task has no node
   or no account to run on, tell the owner what is missing and stop there for that Task. Do not move it to another
   profile or model on your own: which worker and which model do the owner's work is the owner's choice.
+- A profile may list `fallbacks`, set by the owner. While its accounts wait for a limit to reset, the scheduler
+  starts a Task that has not begun under the first of them that can run; the Task's latest Dispatch then has
+  `fallback_for`, and one escalation of kind `fallback` tells you. Tell the owner once which profile ran in place
+  of which, and until when; change nothing. A Task that names its own `runtime` or `model` is not moved.
 
 ## Task specs
 

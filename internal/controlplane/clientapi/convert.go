@@ -85,6 +85,7 @@ func toDispatch(d orchestration.Dispatch) openapi.Dispatch {
 		Id: d.ID, TaskId: d.TaskID, NodeId: d.NodeID, Status: openapi.DispatchStatus(d.Status), Epoch: d.Epoch,
 		FailureClass: ptr(string(d.FailureClass)), UnknownCause: ptr(string(d.UnknownCause)),
 		Model: ptr(d.Model), Effort: ptr(d.Effort), ProfileVersionId: ptr(d.ProfileVersionID),
+		FallbackFor: ptr(d.FallbackFor), FallbackUntil: d.FallbackUntil,
 		CreatedAt: d.CreatedAt, UpdatedAt: d.UpdatedAt,
 		StartedAt: d.StartedAt, ProgressAt: d.ProgressAt, SettledAt: d.SettledAt, WaitingSince: d.WaitingSince,
 		Activity: ptr(d.Activity),
