@@ -125,9 +125,12 @@ func (antigravitySubscription) do(ctx context.Context, s *Server, call chatCall)
 	// An account near the end of its quota for this model is used after the others.
 	nearQuota := func(token AccountToken) bool { return s.accountState.nearQuota(token.AccountID, model, now) }
 
-	resp, err := s.underAccounts(ctx, antigravityRuntime, nearQuota, func(token AccountToken) (*http.Response, error) {
-		return s.antigravityAttempt(ctx, call, token)
-	})
+	// Antigravity carries no per-account prompt cache through the gateway, so it
+	// round-robins (session empty) and leans on nearQuota ranking instead.
+	resp, err := s.underAccounts(ctx, antigravityRuntime, "", nearQuota,
+		func(token AccountToken) (*http.Response, error) {
+			return s.antigravityAttempt(ctx, call, token)
+		})
 	if err != nil {
 		return nil, fmt.Errorf("provider %q: %w", call.upstream.Provider, err)
 	}

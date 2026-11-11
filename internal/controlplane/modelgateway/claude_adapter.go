@@ -61,20 +61,21 @@ func (claudeSubscription) do(ctx context.Context, s *Server, call chatCall) (*ht
 		}, s.svc.clock.Now()), nil
 	}
 
-	resp, err := s.underAccounts(ctx, claudeAccountRuntime, nil, func(token AccountToken) (*http.Response, error) {
-		resp, err := s.claudeCall(ctx, &token, built)
-		if err != nil {
-			return nil, err
-		}
+	resp, err := s.underAccounts(ctx, claudeAccountRuntime, built.Session, nil,
+		func(token AccountToken) (*http.Response, error) {
+			resp, err := s.claudeCall(ctx, &token, built)
+			if err != nil {
+				return nil, err
+			}
 
-		if resp.StatusCode != http.StatusOK {
-			return s.claudeRefused(ctx, token, resp), nil
-		}
+			if resp.StatusCode != http.StatusOK {
+				return s.claudeRefused(ctx, token, resp), nil
+			}
 
-		s.accountState.served(token.AccountID)
+			s.accountState.served(token.AccountID)
 
-		return s.claudeAnswer(ctx, call, token, built, resp), nil
-	})
+			return s.claudeAnswer(ctx, call, token, built, resp), nil
+		})
 	if err != nil {
 		return nil, fmt.Errorf("provider %q: %w", call.upstream.Provider, err)
 	}
