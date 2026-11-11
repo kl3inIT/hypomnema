@@ -15,6 +15,9 @@ import { Route as MachinesRouteImport } from './routes/machines'
 import { Route as AgentsIndexRouteImport } from './routes/agents.index'
 import { Route as AgentsNameRouteImport } from './routes/agents.$name'
 import { Route as AgentsNewRouteImport } from './routes/agents.new'
+import { Route as BotsIndexRouteImport } from './routes/bots.index'
+import { Route as BotsNameRouteImport } from './routes/bots.$name'
+import { Route as BotsNewRouteImport } from './routes/bots.new'
 import { Route as ChatsChatIdRouteImport } from './routes/chats.$chatId'
 import { Route as RunsIndexRouteImport } from './routes/runs.index'
 import { Route as RunsRunIdRouteImport } from './routes/runs.$runId'
@@ -53,6 +56,21 @@ const AgentsNameRoute = AgentsNameRouteImport.update({
 const AgentsNewRoute = AgentsNewRouteImport.update({
   id: '/agents/new',
   path: '/agents/new',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BotsIndexRoute = BotsIndexRouteImport.update({
+  id: '/bots/',
+  path: '/bots/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BotsNameRoute = BotsNameRouteImport.update({
+  id: '/bots/$name',
+  path: '/bots/$name',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BotsNewRoute = BotsNewRouteImport.update({
+  id: '/bots/new',
+  path: '/bots/new',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ChatsChatIdRoute = ChatsChatIdRouteImport.update({
@@ -107,6 +125,8 @@ export interface FileRoutesByFullPath {
   '/machines': typeof MachinesRoute
   '/agents/$name': typeof AgentsNameRoute
   '/agents/new': typeof AgentsNewRoute
+  '/bots/$name': typeof BotsNameRoute
+  '/bots/new': typeof BotsNewRoute
   '/chats/$chatId': typeof ChatsChatIdRoute
   '/runs/$runId': typeof RunsRunIdRoute
   '/settings/channels': typeof SettingsChannelsRoute
@@ -114,6 +134,7 @@ export interface FileRoutesByFullPath {
   '/settings/repositories': typeof SettingsRepositoriesRoute
   '/settings/vault': typeof SettingsVaultRoute
   '/agents/': typeof AgentsIndexRoute
+  '/bots/': typeof BotsIndexRoute
   '/runs/': typeof RunsIndexRoute
   '/settings/': typeof SettingsIndexRoute
   '/machines/$nodeId/terminal': typeof MachinesNodeIdTerminalRoute
@@ -124,6 +145,8 @@ export interface FileRoutesByTo {
   '/machines': typeof MachinesRoute
   '/agents/$name': typeof AgentsNameRoute
   '/agents/new': typeof AgentsNewRoute
+  '/bots/$name': typeof BotsNameRoute
+  '/bots/new': typeof BotsNewRoute
   '/chats/$chatId': typeof ChatsChatIdRoute
   '/runs/$runId': typeof RunsRunIdRoute
   '/settings/channels': typeof SettingsChannelsRoute
@@ -131,6 +154,7 @@ export interface FileRoutesByTo {
   '/settings/repositories': typeof SettingsRepositoriesRoute
   '/settings/vault': typeof SettingsVaultRoute
   '/agents': typeof AgentsIndexRoute
+  '/bots': typeof BotsIndexRoute
   '/runs': typeof RunsIndexRoute
   '/settings': typeof SettingsIndexRoute
   '/machines/$nodeId/terminal': typeof MachinesNodeIdTerminalRoute
@@ -142,6 +166,8 @@ export interface FileRoutesById {
   '/machines': typeof MachinesRoute
   '/agents/$name': typeof AgentsNameRoute
   '/agents/new': typeof AgentsNewRoute
+  '/bots/$name': typeof BotsNameRoute
+  '/bots/new': typeof BotsNewRoute
   '/chats/$chatId': typeof ChatsChatIdRoute
   '/runs/$runId': typeof RunsRunIdRoute
   '/settings/channels': typeof SettingsChannelsRoute
@@ -149,6 +175,7 @@ export interface FileRoutesById {
   '/settings/repositories': typeof SettingsRepositoriesRoute
   '/settings/vault': typeof SettingsVaultRoute
   '/agents/': typeof AgentsIndexRoute
+  '/bots/': typeof BotsIndexRoute
   '/runs/': typeof RunsIndexRoute
   '/settings/': typeof SettingsIndexRoute
   '/machines_/$nodeId/terminal': typeof MachinesNodeIdTerminalRoute
@@ -161,6 +188,8 @@ export interface FileRouteTypes {
     | '/machines'
     | '/agents/$name'
     | '/agents/new'
+    | '/bots/$name'
+    | '/bots/new'
     | '/chats/$chatId'
     | '/runs/$runId'
     | '/settings/channels'
@@ -168,6 +197,7 @@ export interface FileRouteTypes {
     | '/settings/repositories'
     | '/settings/vault'
     | '/agents/'
+    | '/bots/'
     | '/runs/'
     | '/settings/'
     | '/machines/$nodeId/terminal'
@@ -178,6 +208,8 @@ export interface FileRouteTypes {
     | '/machines'
     | '/agents/$name'
     | '/agents/new'
+    | '/bots/$name'
+    | '/bots/new'
     | '/chats/$chatId'
     | '/runs/$runId'
     | '/settings/channels'
@@ -185,6 +217,7 @@ export interface FileRouteTypes {
     | '/settings/repositories'
     | '/settings/vault'
     | '/agents'
+    | '/bots'
     | '/runs'
     | '/settings'
     | '/machines/$nodeId/terminal'
@@ -195,6 +228,8 @@ export interface FileRouteTypes {
     | '/machines'
     | '/agents/$name'
     | '/agents/new'
+    | '/bots/$name'
+    | '/bots/new'
     | '/chats/$chatId'
     | '/runs/$runId'
     | '/settings/channels'
@@ -202,6 +237,7 @@ export interface FileRouteTypes {
     | '/settings/repositories'
     | '/settings/vault'
     | '/agents/'
+    | '/bots/'
     | '/runs/'
     | '/settings/'
     | '/machines_/$nodeId/terminal'
@@ -213,6 +249,8 @@ export interface RootRouteChildren {
   MachinesRoute: typeof MachinesRoute
   AgentsNameRoute: typeof AgentsNameRoute
   AgentsNewRoute: typeof AgentsNewRoute
+  BotsNameRoute: typeof BotsNameRoute
+  BotsNewRoute: typeof BotsNewRoute
   ChatsChatIdRoute: typeof ChatsChatIdRoute
   RunsRunIdRoute: typeof RunsRunIdRoute
   SettingsChannelsRoute: typeof SettingsChannelsRoute
@@ -220,6 +258,7 @@ export interface RootRouteChildren {
   SettingsRepositoriesRoute: typeof SettingsRepositoriesRoute
   SettingsVaultRoute: typeof SettingsVaultRoute
   AgentsIndexRoute: typeof AgentsIndexRoute
+  BotsIndexRoute: typeof BotsIndexRoute
   RunsIndexRoute: typeof RunsIndexRoute
   SettingsIndexRoute: typeof SettingsIndexRoute
   MachinesNodeIdTerminalRoute: typeof MachinesNodeIdTerminalRoute
@@ -267,6 +306,27 @@ declare module '@tanstack/react-router' {
       path: '/agents/new'
       fullPath: '/agents/new'
       preLoaderRoute: typeof AgentsNewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/bots/': {
+      id: '/bots/'
+      path: '/bots'
+      fullPath: '/bots/'
+      preLoaderRoute: typeof BotsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/bots/$name': {
+      id: '/bots/$name'
+      path: '/bots/$name'
+      fullPath: '/bots/$name'
+      preLoaderRoute: typeof BotsNameRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/bots/new': {
+      id: '/bots/new'
+      path: '/bots/new'
+      fullPath: '/bots/new'
+      preLoaderRoute: typeof BotsNewRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/chats/$chatId': {
@@ -341,6 +401,8 @@ const rootRouteChildren: RootRouteChildren = {
   MachinesRoute: MachinesRoute,
   AgentsNameRoute: AgentsNameRoute,
   AgentsNewRoute: AgentsNewRoute,
+  BotsNameRoute: BotsNameRoute,
+  BotsNewRoute: BotsNewRoute,
   ChatsChatIdRoute: ChatsChatIdRoute,
   RunsRunIdRoute: RunsRunIdRoute,
   SettingsChannelsRoute: SettingsChannelsRoute,
@@ -348,6 +410,7 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsRepositoriesRoute: SettingsRepositoriesRoute,
   SettingsVaultRoute: SettingsVaultRoute,
   AgentsIndexRoute: AgentsIndexRoute,
+  BotsIndexRoute: BotsIndexRoute,
   RunsIndexRoute: RunsIndexRoute,
   SettingsIndexRoute: SettingsIndexRoute,
   MachinesNodeIdTerminalRoute: MachinesNodeIdTerminalRoute,

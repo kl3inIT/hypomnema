@@ -899,6 +899,50 @@ export type Source = {
   source: string;
 };
 
+export type Bot = {
+  name: string;
+  provider?: string;
+  model?: string;
+  effort?: string;
+  /**
+   * What the Bot is and how it behaves, written by the owner; pi gets it after its built-in instructions.
+   */
+  persona: string;
+  /**
+   * What the Bot keeps across chats, one entry per line.
+   */
+  memory: string;
+  /**
+   * The most characters the memory holds.
+   */
+  memory_limit: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type BotList = {
+  data: Array<Bot>;
+};
+
+export type BotSettings = {
+  provider?: string;
+  model?: string;
+  effort?: string;
+  persona?: string;
+};
+
+export type MemoryChange = {
+  kind: 'add' | 'replace' | 'remove';
+  /**
+   * The entry to add, or what replaces the entry found.
+   */
+  text?: string;
+  /**
+   * Part of the one entry to replace or remove.
+   */
+  match?: string;
+};
+
 export type Profile = {
   name: string;
   /**
@@ -919,7 +963,7 @@ export type Profile = {
   source: string;
   created_at: string;
   /**
-   * Whether a worker can start under the profile now: a connected, active node has its CLI, and its runtime has an account that is not cooling down (none is needed for a model the gateway serves). A node at its limit still counts, since the Task waits its turn. Given for a profile's current version; absent for the coordinator's runtime, which no node runs, and in a list of versions.
+   * Whether a worker can start under the profile now: a connected, active node has its CLI, and its runtime has an account that is not cooling down (none is needed for a model the gateway serves). A node at its limit still counts, since the Task waits its turn. Given for a profile's current version; absent for a list of versions.
    */
   available?: boolean;
   /**
@@ -965,11 +1009,19 @@ export type ModelList = {
 
 export type NewChat = {
   title?: string;
+  /**
+   * The Bot the chat talks with; `coordinator` when left out.
+   */
+  bot?: string;
 };
 
 export type Chat = {
   id: string;
   title: string;
+  /**
+   * The Bot the chat talks with.
+   */
+  bot: string;
   /**
    * The coordinator is working on a turn of this chat.
    */
@@ -2815,6 +2867,139 @@ export type ListAccountsResponses = {
 };
 
 export type ListAccountsResponse = ListAccountsResponses[keyof ListAccountsResponses];
+
+export type ListBotsData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/bots';
+};
+
+export type ListBotsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListBotsError = ListBotsErrors[keyof ListBotsErrors];
+
+export type ListBotsResponses = {
+  /**
+   * The Bots.
+   */
+  200: BotList;
+};
+
+export type ListBotsResponse = ListBotsResponses[keyof ListBotsResponses];
+
+export type DeleteBotData = {
+  body?: never;
+  path: {
+    name: string;
+  };
+  query?: never;
+  url: '/bots/{name}';
+};
+
+export type DeleteBotErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type DeleteBotError = DeleteBotErrors[keyof DeleteBotErrors];
+
+export type DeleteBotResponses = {
+  /**
+   * The Bot is removed.
+   */
+  204: void;
+};
+
+export type DeleteBotResponse = DeleteBotResponses[keyof DeleteBotResponses];
+
+export type GetBotData = {
+  body?: never;
+  path: {
+    name: string;
+  };
+  query?: never;
+  url: '/bots/{name}';
+};
+
+export type GetBotErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GetBotError = GetBotErrors[keyof GetBotErrors];
+
+export type GetBotResponses = {
+  /**
+   * The Bot.
+   */
+  200: Bot;
+};
+
+export type GetBotResponse = GetBotResponses[keyof GetBotResponses];
+
+export type PutBotData = {
+  body: BotSettings;
+  path: {
+    name: string;
+  };
+  query?: never;
+  url: '/bots/{name}';
+};
+
+export type PutBotErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type PutBotError = PutBotErrors[keyof PutBotErrors];
+
+export type PutBotResponses = {
+  /**
+   * The Bot.
+   */
+  200: Bot;
+};
+
+export type PutBotResponse = PutBotResponses[keyof PutBotResponses];
+
+export type ChangeBotMemoryData = {
+  body: MemoryChange;
+  path: {
+    name: string;
+  };
+  query?: never;
+  url: '/bots/{name}/memory';
+};
+
+export type ChangeBotMemoryErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ChangeBotMemoryError = ChangeBotMemoryErrors[keyof ChangeBotMemoryErrors];
+
+export type ChangeBotMemoryResponses = {
+  /**
+   * The Bot, with its memory after the change.
+   */
+  200: Bot;
+};
+
+export type ChangeBotMemoryResponse = ChangeBotMemoryResponses[keyof ChangeBotMemoryResponses];
 
 export type ListProfilesData = {
   body?: never;

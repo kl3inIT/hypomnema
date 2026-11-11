@@ -139,8 +139,8 @@ function open(path: string) {
 
 const agent = (name: string) => screen.findByRole("article", { name })
 
-// Scenario: three workers' profiles and the coordinator's. Each card says its model and whether a worker can
-// start now, in words; the coordinator's says nothing about that; the header counts.
+// Scenario: three workers' profiles. Each card says its model and whether a worker can start now, in words; the
+// header counts.
 test("a card says what the agent runs on and whether it can run now", async () => {
   server([
     profile("implementer", { model: "opus", provider: "claude-subscription", effort: "xhigh" }),
@@ -150,7 +150,6 @@ test("a card says what the agent runs on and whether it can run now", async () =
       unavailable_reason: "no_node",
     }),
     profile("reviewer", { available: false, unavailable_reason: "no_account" }),
-    profile("coordinator", { runtime: "pi", available: undefined }),
   ])
   open("/agents")
 
@@ -163,8 +162,7 @@ test("a card says what the agent runs on and whether it can run now", async () =
 
   expect(await agent("codex-implementer")).toHaveTextContent("No machine online has Codex")
   expect(await agent("reviewer")).toHaveTextContent("No Claude Code account")
-  expect(await agent("coordinator")).not.toHaveTextContent(/can run|cannot|No /i)
-  expect(await agent("coordinator")).toHaveTextContent("Runtime default")
+  expect(await agent("reviewer")).toHaveTextContent("Runtime default")
   expect(screen.getByText("1 can run · 2 cannot")).toBeInTheDocument()
 })
 
@@ -280,14 +278,13 @@ test("saving an agent makes a revision, and a refusal is shown in the server's w
 })
 
 // Scenario: the owner orders the agents that take this one's Tasks while it is out of quota (issue #171). The
-// other workers are offered, never the agent itself or the coordinator; the order chosen is the order saved, and a
+// other workers are offered, never the agent itself; the order chosen is the order saved, and a
 // row can be removed.
 test("fallbacks are chosen in order from the other workers and saved with the agent", async () => {
   const applied = server([
     profile("writer"),
     profile("codex-worker", { runtime: "codex" }),
     profile("omp-worker", { runtime: "omp" }),
-    profile("coordinator", { runtime: "pi", available: undefined }),
   ])
   open("/agents/writer")
   const user = userEvent.setup()

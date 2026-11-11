@@ -7,6 +7,7 @@ import { shot } from "./shot.js"
 const chat = {
   id: "cht_1",
   title: "health page",
+  bot: "coordinator",
   working: false,
   coordinator: true,
   created_at: "2026-11-09T10:00:00Z",

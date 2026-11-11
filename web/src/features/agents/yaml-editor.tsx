@@ -30,7 +30,7 @@ const schema = {
     },
     runtime: {
       enum: [...runtimes],
-      description: "The CLI a worker of this agent is; pi is the coordinator's.",
+      description: "The CLI a worker of this agent is.",
     },
     model: {
       type: "object",

@@ -78,15 +78,6 @@ async function fakeServer(page: Page) {
       effort: "low",
       version: 2,
     }),
-    profile("coordinator", {
-      description:
-        "Plans a Run, gives its Tasks to workers and reports their outcomes; pi on the server.",
-      runtime: "pi",
-      model: "gpt-luna",
-      provider: "gateway",
-      available: undefined,
-      version: 4,
-    }),
   ]
   const applied: { name: string; source: string }[] = []
 
