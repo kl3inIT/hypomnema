@@ -13,8 +13,8 @@
 //
 // A refresh token and a client secret never pass through here: the token it
 // returns is the access token, good for about an hour. It is handed only for
-// an Integration that does not yet go through the service proxy (Lark); for
-// one that does (Google, issue #154) an agent gets none, and the proxy asks
+// an Integration that does not go through the service proxy; Google and Lark
+// do (issues #154, #175), so an agent gets none for them, and the proxy asks
 // this package who the agent is and what it may use.
 package agentapi
 
@@ -40,6 +40,7 @@ type Store interface {
 	AuthenticateToken(ctx context.Context, secret string) (orchestration.Token, error)
 	AgentSessionOf(ctx context.Context, secret string) (orchestration.AgentSession, error)
 	ConnectionsOf(ctx context.Context, integration string) ([]orchestration.Connection, error)
+	IntegrationClientOf(ctx context.Context, integration string) (orchestration.IntegrationClient, error)
 }
 
 // Token is a Connection's access token and when it ends.
@@ -184,7 +185,9 @@ func (s *Server) connections(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	allowed, err := s.allowed(r.Context(), a, r.URL.Query().Get("integration"))
+	integration := r.URL.Query().Get("integration")
+
+	allowed, err := s.allowed(r.Context(), a, integration)
 	if err != nil {
 		s.fail(w, r, err)
 
@@ -194,6 +197,19 @@ func (s *Server) connections(w http.ResponseWriter, r *http.Request) {
 	out := agenttool.ConnectionList{Data: make([]agenttool.Connection, 0, len(allowed))}
 	for _, c := range allowed {
 		out.Data = append(out.Data, agenttool.Connection{Label: c.Label, Account: c.Account})
+	}
+
+	// A tool that will not run without the id of the Integration's client is told it with the accounts: a Lark
+	// app's id, which is not a secret. An agent that was given no account is told nothing.
+	if def, ok := agenttool.Of(integration); ok && def.ClientEnv != "" && len(allowed) > 0 {
+		client, err := s.store.IntegrationClientOf(r.Context(), integration)
+		if err != nil && !errors.Is(err, orchestration.ErrNotFound) {
+			s.fail(w, r, err)
+
+			return
+		}
+
+		out.ClientID = client.ClientID
 	}
 
 	answer(w, out)

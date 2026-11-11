@@ -90,17 +90,39 @@ func (c Catalog) Has(host string) bool {
 }
 
 // Match returns the action a request is, and the unlisted action when it is
-// none of the catalog's.
+// none of the catalog's. Of the routes a request matches, the one that names
+// the most of its path is the action: "messages/search" before
+// "messages/{id}", and both before "{rest...}". Between equals the first in
+// the catalog wins.
 func (c Catalog) Match(method, host, path string) Action {
+	best, named := unlisted(c.Integration), -1
+
 	for _, a := range c.Actions {
 		for _, r := range a.Routes {
-			if r.Method == method && r.Host == host && pathMatches(r.Path, path) {
-				return a
+			if r.Method != method || r.Host != host || !pathMatches(r.Path, path) {
+				continue
+			}
+
+			if n := literals(r.Path); n > named {
+				best, named = a, n
 			}
 		}
 	}
 
-	return unlisted(c.Integration)
+	return best
+}
+
+// literals counts the segments of a route's path that are not placeholders.
+func literals(template string) int {
+	n := 0
+
+	for _, segment := range strings.Split(strings.Trim(template, "/"), "/") {
+		if !strings.HasPrefix(segment, "{") {
+			n++
+		}
+	}
+
+	return n
 }
 
 // Listed are the actions the owner sets an answer for, in the order he reads
@@ -180,8 +202,11 @@ func pathMatches(template, path string) bool {
 // CatalogOf returns the catalog of an Integration that goes through the
 // proxy, and false for one that does not.
 func CatalogOf(integration string) (Catalog, bool) {
-	if integration == "google" {
+	switch integration {
+	case "google":
 		return google(), true
+	case "lark":
+		return larkCatalog(), true
 	}
 
 	return Catalog{}, false

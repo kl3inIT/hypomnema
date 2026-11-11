@@ -72,6 +72,9 @@ type Connection struct {
 // ConnectionList answers PathConnections.
 type ConnectionList struct {
 	Data []Connection `json:"data"`
+	// ClientID is the id of the Integration's client, for a tool that will
+	// not run without it (Def.ClientEnv): a Lark app's id. Not a secret.
+	ClientID string `json:"client_id,omitempty"`
 }
 
 // TokenRequest is the body of PathToken.
@@ -80,8 +83,9 @@ type TokenRequest struct {
 	Label       string `json:"label"`
 }
 
-// TokenResponse answers PathToken. The token is short-lived; the launcher
-// hands it to the tool and keeps it nowhere.
+// TokenResponse answers PathToken, which only the owner's own token may ask:
+// no launcher asks for a token, since every tool goes through the service
+// proxy.
 type TokenResponse struct {
 	AccessToken string    `json:"access_token"`
 	ExpiresAt   time.Time `json:"expires_at"`
@@ -143,17 +147,16 @@ func (l Launcher) Run(ctx context.Context, name string, args []string) error {
 	fetchCtx, cancel := context.WithTimeout(ctx, launchTimeout)
 	defer cancel()
 
-	if label == "" {
-		label, err = l.only(fetchCtx, def)
-		if err != nil {
-			return err
-		}
-	} else if def.Proxied {
-		// Without a token to ask for, the account is checked here, so that a wrong label is said in words and
-		// not found out by the tool's first request.
-		if err := l.given(fetchCtx, def, label); err != nil {
-			return err
-		}
+	// The accounts are asked for on every run, so that a wrong label, or none where several were given, is said
+	// in words and not found out by the tool's first request.
+	list, err := l.accounts(fetchCtx, def)
+	if err != nil {
+		return err
+	}
+
+	label, err = pick(def, list, label)
+	if err != nil {
+		return err
 	}
 
 	//nolint:gosec // The pinned tool, installed by this machine's own installer.
@@ -161,35 +164,25 @@ func (l Launcher) Run(ctx context.Context, name string, args []string) error {
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = l.Stdin, l.Stdout, l.Stderr
 	cmd.Env = append(without(os.Environ(), EnvKey), def.Env...)
 
-	if def.Proxied {
-		// The tool holds no token: its requests go through the control plane's proxy, which adds it.
-		env, refused, stop, err := l.bridge(fetchCtx, def, label)
-		if err != nil {
-			return err
+	// The tool holds no token: its requests go through the control plane's proxy, which adds it.
+	env, refused, stop, err := l.bridge(fetchCtx, def, label)
+	if err != nil {
+		return err
+	}
+	defer stop()
+
+	// Said after the tool has ended, in the control plane's own words: the tool itself only knows that its proxy
+	// refused.
+	defer func() {
+		if reason := refused.said(); reason != "" && l.Stderr != nil {
+			_, _ = fmt.Fprintln(l.Stderr, "hypomnema: "+reason)
 		}
-		defer stop()
+	}()
 
-		// Said after the tool has ended, in the control plane's own words: the tool itself only knows that its
-		// proxy refused.
-		defer func() {
-			if reason := refused.said(); reason != "" && l.Stderr != nil {
-				_, _ = fmt.Fprintln(l.Stderr, "hypomnema: "+reason)
-			}
-		}()
+	cmd.Env = append(without(cmd.Env, proxyVariables...), env...)
 
-		cmd.Env = append(without(cmd.Env, proxyVariables...), env...)
-	} else {
-		var token TokenResponse
-		if err := l.call(fetchCtx, http.MethodPost, PathToken,
-			TokenRequest{Integration: def.Integration, Label: label}, &token); err != nil {
-			return fmt.Errorf("getting a token for %s:%s: %w", def.Integration, label, err)
-		}
-
-		cmd.Env = append(cmd.Env, def.TokenEnv+"="+token.AccessToken)
-
-		if def.ClientEnv != "" && token.ClientID != "" {
-			cmd.Env = append(cmd.Env, def.ClientEnv+"="+token.ClientID)
-		}
+	if def.ClientEnv != "" && list.ClientID != "" {
+		cmd.Env = append(cmd.Env, def.ClientEnv+"="+list.ClientID)
 	}
 
 	err = cmd.Run()
@@ -231,28 +224,28 @@ func account(args []string) (label string, rest []string, err error) {
 	return label, rest, nil
 }
 
-// given reports whether the agent may use the named account.
-func (l Launcher) given(ctx context.Context, def Def, label string) error {
+// accounts asks the control plane which accounts of the tool's Integration
+// the agent may use.
+func (l Launcher) accounts(ctx context.Context, def Def) (ConnectionList, error) {
 	var list ConnectionList
 	if err := l.call(ctx, http.MethodGet, PathConnections+"?integration="+url.QueryEscape(def.Integration), nil,
 		&list); err != nil {
-		return fmt.Errorf("asking which %s accounts this agent may use: %w", def.Integration, err)
+		return ConnectionList{}, fmt.Errorf("asking which %s accounts this agent may use: %w", def.Integration, err)
 	}
 
-	if !slices.ContainsFunc(list.Data, func(c Connection) bool { return c.Label == label }) {
-		return fmt.Errorf("this agent was not given %s:%s", def.Integration, label)
-	}
-
-	return nil
+	return list, nil
 }
 
-// only is the one account of the tool's Integration the agent may use. With
-// none, or several and none named, there is no answer: nothing is guessed.
-func (l Launcher) only(ctx context.Context, def Def) (string, error) {
-	var list ConnectionList
-	if err := l.call(ctx, http.MethodGet, PathConnections+"?integration="+url.QueryEscape(def.Integration), nil,
-		&list); err != nil {
-		return "", fmt.Errorf("asking which %s accounts this agent may use: %w", def.Integration, err)
+// pick is the account a run acts as: the one that was named, when the agent
+// was given it, or the only one it was given. With none, or several and none
+// named, there is no answer: nothing is guessed.
+func pick(def Def, list ConnectionList, named string) (string, error) {
+	if named != "" {
+		if !slices.ContainsFunc(list.Data, func(c Connection) bool { return c.Label == named }) {
+			return "", fmt.Errorf("this agent was not given %s:%s", def.Integration, named)
+		}
+
+		return named, nil
 	}
 
 	switch len(list.Data) {

@@ -177,8 +177,9 @@ The three boundaries that matter:
 - Workers never hold a raw secret. For an Integration, the control plane's service proxy attaches the account's
   token to each request an agent's tool makes, and the tool holds a placeholder
   ([decision, 2026-11-11](decisions/2026-11-11-service-proxy-in-the-control-plane.md)); a Dispatch's own key is its
-  Session. Git hosts and Lark still hand the tool a short-lived token until they move behind it. Egress of a
-  worker as a whole, deny by default per Dispatch, is not built.
+  Session. Google and Lark go through it. A git host does not (owner, 2026-11-11): a worker's git work can be
+  undone and is reviewed in a pull request, and no reference proxies git's own traffic. Egress of a worker as a
+  whole, deny by default per Dispatch, is not built.
 - Policies answer ALLOW, DENY or ASK and **fail closed**. They are evaluated in Go behind the client API and the
   service proxy. ASK is an Approval the owner answers; only the owner's token reads or answers one.
 - **Spawning follows the references' default** (OpenClaw `sessions_spawn`, Omnara `spawn_agent`, Omnigent dispatch):

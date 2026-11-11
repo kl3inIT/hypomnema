@@ -15,12 +15,13 @@ signs it in on every call: you never see a secret or a token, and you never log 
 
 Adapted from `lark-cli`'s `lark-shared` skill (MIT, Copyright (c) 2026 Lark Technologies Pte. Ltd.,
 https://github.com/larksuite/cli). Changed for Hypomnema: how the command is signed in, that it acts as the app
-only, and the rule for anything that writes; its sign-in, QR code, configuration and update steps are left out.
+only, and what happens to anything that writes; its sign-in, QR code, configuration and update steps are left out.
 
 ## How it is signed in
 
-- Run `lark-cli` as you would any command. A small launcher gets a fresh, short-lived token for the call and then
-  runs the real tool. A call hours into your work is signed in like the first one.
+- Run `lark-cli` as you would any command. A small launcher runs the real tool and sends its requests through the
+  proxy, which signs them in. The tool itself holds no token. A call hours into your work is signed in like the
+  first one.
 - **Never run `lark-cli auth ...`, `lark-cli config ...`, `lark-cli profile ...` or `lark-cli update`**, and never
   set or print a credential yourself. The tool's own skills and hints sometimes say to log in, to run
   `config init`, to show a QR code or to switch `strict-mode`: do none of it here. If a command says it is not
@@ -46,20 +47,36 @@ only, and the rule for anything that writes; its sign-in, QR code, configuration
 - When you were given several, name one on each command: `lark-cli --account work docs --help`. The label is the
   owner's name for it (`work`). A command that names none is refused with the list.
 
-## Before anything that writes
+## What runs at once, and what waits for the owner
 
-Sending a message, creating, changing or deleting a document, a record, a file, an event or a task, changing who
-may see something: **say exactly what you are about to do and get the owner's yes first.**
+Every request `lark-cli` makes passes Hypomnema's service proxy, which adds the app's credential and decides what
+runs at once and what waits for the owner. He sets it service by service (messages, mail, calendar, tasks, drive,
+wiki, sheets and the rest), by the risk `lark-cli` itself gives a command; you do not see the list.
 
-- In a chat, ask the owner in the chat. A request to read or summarize is not a yes to send or change anything.
-- As a worker, ask with your question tool and wait for the answer, unless the task you were given already names
-  that exact action and its target.
+- **A read** runs at once.
+- **A write** (sending a message, creating or changing a document, a record, a file, an event or a task) and **a
+  high-risk write** (deleting, transferring, changing who may see something) are held for the owner's approval,
+  unless he set them otherwise. He is shown exactly what you sent.
+- **What he set to never** is refused.
+
+Run the command you mean. Do not ask the owner first in words: the approval he is shown is the question. What the
+command answers tells you what happened:
+
+| The command says | What it means, and what to do |
+|---|---|
+| Its normal answer | It ran. Read back what was written (the message id, the document's link) and report it. |
+| `Waiting for the owner's approval (apr_…): … was NOT run` | He did not answer in time; nothing was done. **In a chat**: tell him in one line what waits for his approval, and end your turn; you are woken when he answers. **As a worker**: ask him with your question tool, as a plain question without options that names what you want approved, and wait. |
+| You are told it was **approved** | Run the same command again, with the same arguments and the same content. It passes once. A changed command is a new request and asks again. |
+| `Rejected by the owner`, or you are told it was **rejected** | Do not run it, and do not look for another way to do the same thing. Say so in your answer. |
+| `Refused: the owner set … to never` | The same: say so, do not work around it. |
+
 - Each command's `--help` names its risk: `read`, `write` or `high-risk-write`. Prefer `--dry-run`, which shows the
   request and sends nothing.
-- **Exit code 10 is a gate, not an error**: the command is a high-risk write and stopped before doing it. Show the
-  owner the action and its main parameters, get an explicit yes, and only then run it again with the flag its
-  `hint` names added at the end. Never add that flag on your own.
-- After a write, read back what was written (the document's link, the record's id, the message's id) and report it.
+- **Exit code 10** means the command is a high-risk write and `lark-cli` stopped before sending it, asking for the
+  flag its message names (`--yes`). Run it again with that flag: the proxy then holds the request for the owner's
+  approval, which is the confirmation `lark-cli` asks for. Never treat the flag as the owner's yes.
+- A request to read or summarize is not a request to send or change anything: do not start a write the owner did
+  not ask for.
 
 ## Never
 

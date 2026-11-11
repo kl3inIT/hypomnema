@@ -41,14 +41,12 @@ func TestMain(m *testing.M) {
 		fmt.Printf("client=%s brand=%s\n", os.Getenv(def.ClientEnv), os.Getenv("LARKSUITE_CLI_BRAND"))
 	}
 
-	if def.Proxied {
-		// A proxied tool is given a proxy on loopback and a certificate file, and reaches a host through them.
-		proxy := os.Getenv("HTTPS_PROXY")
-		_, caErr := os.Stat(os.Getenv("SSL_CERT_FILE")) //nolint:gosec // G703: a stand-in reads what it was given.
+	// A tool is given a proxy on loopback and a certificate file, and reaches a host through them.
+	proxy := os.Getenv("HTTPS_PROXY")
+	_, caErr := os.Stat(os.Getenv("SSL_CERT_FILE")) //nolint:gosec // G703: a stand-in reads what it was given.
 
-		fmt.Printf("proxy=%t ca=%t connect=%s\n", strings.HasPrefix(proxy, "http://127.0.0.1:"), caErr == nil,
-			connect(strings.TrimPrefix(proxy, "http://"), "gmail.googleapis.com:443"))
-	}
+	fmt.Printf("proxy=%t ca=%t connect=%s\n", strings.HasPrefix(proxy, "http://127.0.0.1:"), caErr == nil,
+		connect(strings.TrimPrefix(proxy, "http://"), "gmail.googleapis.com:443"))
 
 	if len(os.Args) > 1 && os.Args[len(os.Args)-1] == "fail" {
 		os.Exit(3)
@@ -102,7 +100,12 @@ func newControlPlane(t *testing.T, accounts ...Connection) *controlPlane {
 			return
 		}
 
-		_ = json.NewEncoder(w).Encode(ConnectionList{Data: c.accounts})
+		list := ConnectionList{Data: c.accounts}
+		if r.URL.Query().Get("integration") == "lark" && len(c.accounts) > 0 {
+			list.ClientID = "cli_a1b2"
+		}
+
+		_ = json.NewEncoder(w).Encode(list)
 	})
 	mux.HandleFunc("POST "+PathToken, func(w http.ResponseWriter, r *http.Request) {
 		var asked TokenRequest
@@ -229,18 +232,19 @@ func TestTheLauncherRunsAProxiedToolWithAPlaceholderAndABridge(t *testing.T) {
 
 // Scenario: an agent given the owner's Lark app runs lark-cli. Lark's tool
 // will not run on a token alone: the launcher also gives it the app's id,
-// which the control plane sent with the token, and the brand it is always
-// run with.
-func TestTheLauncherGivesLarksToolTheAppsIDBesideTheToken(t *testing.T) {
+// which the control plane tells with the accounts, and the brand it is always
+// run with. Like every tool it holds a placeholder and goes through the
+// proxy; no token is asked for.
+func TestTheLauncherGivesLarksToolTheAppsIDBesideThePlaceholder(t *testing.T) {
 	home := installedAs(t, LarkCLI())
 	c := newControlPlane(t, Connection{Label: "work", Account: "Hypomnema"})
 
 	var out bytes.Buffer
 
 	require.NoError(t, c.launcher(home, &out).Run(t.Context(), "lark-cli", []string{"calendar", "+agenda"}))
-	assert.Equal(t, "token=ya29.fresh-for-work key=\"\" args=calendar +agenda\nclient=cli_a1b2 brand=lark\n",
-		out.String())
-	assert.Equal(t, []string{"connections lark", "token lark:work"}, c.calls)
+	assert.Equal(t, "token="+Placeholder+" key=\"\" args=calendar +agenda\nclient=cli_a1b2 brand=lark\n"+
+		"proxy=true ca=true connect=502\nhypomnema: the stand-in opens no stream\n", out.String())
+	assert.Equal(t, []string{"connections lark", "certificate", "tunnel lark:work gmail.googleapis.com:443"}, c.calls)
 }
 
 // Scenario: an agent given two accounts must name one; the flag that names

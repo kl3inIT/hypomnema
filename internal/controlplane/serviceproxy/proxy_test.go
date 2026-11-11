@@ -171,8 +171,15 @@ type tool struct {
 func (w *world) open(key, label, host, chat string) (tl *tool, refused int) {
 	w.t.Helper()
 
+	return w.openTo("google", key, label, host, chat)
+}
+
+// openTo opens a tool's connection to a host of an Integration.
+func (w *world) openTo(integration, key, label, host, chat string) (tl *tool, refused int) {
+	w.t.Helper()
+
 	query := url.Values{
-		agenttool.QueryIntegration: {"google"}, agenttool.QueryLabel: {label}, agenttool.QueryHost: {host + ":443"},
+		agenttool.QueryIntegration: {integration}, agenttool.QueryLabel: {label}, agenttool.QueryHost: {host + ":443"},
 	}
 	if chat != "" {
 		query.Set(agenttool.QueryChat, chat)
@@ -717,6 +724,84 @@ func TestAnAccountsActionsAreListedFromReadingToWhatNeedsCare(t *testing.T) {
 		catalog.Match(http.MethodGet, "gmail.googleapis.com", "/gmail/v1/users/me/messages/1a2b").ID)
 	assert.Equal(t, "google.unlisted",
 		catalog.Match(http.MethodPost, "gmail.googleapis.com", "/gmail/v1/users/me/settings/filters").ID)
+}
+
+// Scenario: pi works in Lark as the owner's app. Reading a chat runs on its
+// own, and so does a read lark-cli's own list does not name. Sending a
+// message, which that list does not name either, is a write of Messages and
+// waits for the owner, who is shown what would be sent; deleting a calendar,
+// which lark-cli itself asks to confirm, waits too. Asking who read a
+// message is a read though it is a POST, and is not taken for a write. A
+// write to a part of Lark that lark-cli's list does not know asks as
+// something unnamed.
+func TestLarkGoesThroughTheProxyByLarkCLIsOwnRisks(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t, 100*time.Millisecond)
+	ctx := t.Context()
+
+	//nolint:gosec // A made-up name of a vault secret, not a credential.
+	_, err := w.svc.SaveServiceConnection(ctx, orchestration.Connection{
+		Integration: "lark", Label: "work", Account: "Hypomnema", Secret: "conn-lark-work",
+	})
+	require.NoError(t, err)
+	_, err = w.svc.SetConnectionChats(ctx, "lark", "work", true)
+	require.NoError(t, err)
+
+	lark, refused := w.openTo("lark", w.pi, "work", "open.larksuite.com", w.chat)
+	require.Zero(t, refused)
+
+	for name, path := range map[string]string{
+		"a chat":                 "/open-apis/im/v1/chats/oc_1",
+		"a read that is unnamed": "/open-apis/docx/v1/documents/doc_1/raw_content",
+	} {
+		assert.Equal(t, http.StatusOK, lark.do(http.MethodGet, path, "", nil).Status, name)
+	}
+
+	assert.Empty(t, w.approvals(""), "reading asks nobody")
+
+	send := []byte(`{"receive_id":"oc_1","msg_type":"text","content":"{\"text\":\"The build is green.\"}"}`)
+	got := lark.do(http.MethodPost, "/open-apis/im/v1/messages?receive_id_type=chat_id", "application/json", send)
+	assert.Equal(t, http.StatusForbidden, got.Status)
+	assert.Contains(t, got.message(), "Waiting for the owner's approval")
+
+	var lark403 struct {
+		Code int    `json:"code"`
+		Msg  string `json:"msg"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(got.Body), &lark403))
+	assert.Equal(t, got.message(), lark403.Msg, "Lark's tool reads the same words in its own field")
+
+	asked := w.pending()
+	assert.Equal(t, "lark.im.write", asked.Action)
+	assert.Contains(t, asked.Payload, orchestration.Field{Label: "receive_id", Value: "oc_1"})
+	assert.Contains(t, asked.Payload,
+		orchestration.Field{Label: "content", Value: `{"text":"The build is green."}`})
+
+	got = lark.do(http.MethodDelete, "/open-apis/calendar/v4/calendars/cal_1", "", nil)
+	assert.Equal(t, http.StatusForbidden, got.Status)
+
+	got = lark.do(http.MethodPost, "/open-apis/docx/v1/documents", "application/json", []byte(`{"title":"Notes"}`))
+	assert.Equal(t, http.StatusForbidden, got.Status)
+
+	actions := map[string]bool{}
+	for _, a := range w.approvals(orchestration.ApprovalPending) {
+		actions[a.Action] = true
+	}
+
+	assert.Equal(t, map[string]bool{"lark.im.write": true, "lark.calendar.risky": true, "lark.unlisted": true}, actions)
+
+	catalog, ok := serviceproxy.CatalogOf("lark")
+	require.True(t, ok)
+	assert.Equal(t, "lark.im.read",
+		catalog.Match(http.MethodPost, "open.larksuite.com", "/open-apis/im/v1/messages/read_status").ID,
+		"a method the list names wins over the rest of its service")
+	assert.Equal(t, "lark.im.risky",
+		catalog.Match(http.MethodDelete, "open.larksuite.com", "/open-apis/im/v1/messages/om_1").ID)
+	assert.Equal(t, "Messages", catalog.Listed()[0].Service)
+	assert.Equal(t, "lark.im.read", catalog.Listed()[0].ID)
+
+	assert.Len(t, w.service.received(), 2, "only the two reads reached Lark")
 }
 
 // standIn makes this test binary stand in for gws: installed under its name,

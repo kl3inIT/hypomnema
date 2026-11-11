@@ -264,8 +264,15 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       token of a proxied Integration is handed to an agent. A request that the proxy and the service could read
       differently is refused: another address, a path that climbs or hides a slash, a method override, a query
       that does not parse strictly. What an agent may use is asked again for every request. Every request is
-      logged with the agent, the Connection, the action and the verdict. Lark still gets a token
-      (`POST /agent/v1/token`), as before.
+      logged with the agent, the Connection, the action and the verdict. A request is the action whose route
+      names the most of its path. No launcher asks for a token any more; `POST /agent/v1/token` answers only an
+      owner's token.
+    - **Lark goes through it too** (issue #175). Its catalog is lark-cli's own (`lark_methods.json`, from
+      lark-cli 1.0.100, MIT): each method's path with the risk lark-cli gives it. A service (messages, mail,
+      calendar, tasks, drive and ten more) has up to three actions: read (allow), create or change (ask), delete
+      and other high-risk changes (ask). A request to a service's part of the API that lark-cli's list does not
+      name, as sending a message is not, is that service's write; a GET it does not name is a read; anything
+      else asks as unnamed. The app's id, which lark-cli will not run without, is told with the list of accounts.
     - **An Approval** (migration 00039) is the owner's answer to a request that asked. The request is held up to
       100 s; the Approval keeps who asked (a Dispatch with its Task and Run, or a chat), the action and the request
       decoded for reading: a mail's recipients, subject and text, a file's name and size, a JSON body's values.

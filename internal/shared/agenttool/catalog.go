@@ -24,7 +24,9 @@ type Def struct {
 	// Name is the command: gws.
 	Name    string
 	Version string
-	// TokenEnv is the variable the tool reads a ready access token from.
+	// TokenEnv is the variable the tool reads a ready access token from. It is
+	// given a placeholder: the tool's requests go through the control plane's
+	// service proxy, which puts the token in (issues #154, #175).
 	TokenEnv string
 	// ClientEnv is the variable the tool reads the id of the Integration's
 	// client from, when it will not run without it; empty for a tool that
@@ -32,10 +34,6 @@ type Def struct {
 	ClientEnv string
 	// Env are the variables the tool is always run with, as "NAME=value".
 	Env []string
-	// Proxied says the tool's requests go through the control plane's
-	// service proxy (issue #154): the tool is given a placeholder in
-	// TokenEnv and never a token.
-	Proxied bool
 	// Releases is the release file of each system, by "os/arch".
 	Releases map[string]Release
 }
@@ -103,7 +101,6 @@ func GoogleWorkspaceCLI() Def {
 		Integration: "google", Name: "gws", Version: version,
 		TokenEnv: "GOOGLE_WORKSPACE_CLI_TOKEN",
 		// gws takes a proxy and a CA file from the environment and speaks HTTP/1.1 (tried on 2026-11-11).
-		Proxied: true,
 		Releases: map[string]Release{
 			"linux/amd64": {
 				URL:    release + "google-workspace-cli-x86_64-unknown-linux-musl.tar.gz",
