@@ -176,6 +176,29 @@ type Service struct {
 	// rrMu guards it.
 	rr   map[string]int
 	rrMu sync.Mutex
+	// left is the last reading of what remains of each account's quota, in
+	// memory as the references keep theirs; leftMu guards it.
+	left   map[string]quotaReading
+	leftMu sync.Mutex
+}
+
+const (
+	// reserveLeft is the part of an account's quota at or below which it is
+	// kept in reserve, used only after the accounts that have more: a 10 %
+	// reserve in omp (packages/ai/src/auth/types.ts DEFAULT_USAGE_RESERVE_PCT),
+	// 90 % used in opencode-antigravity-auth (soft_quota_threshold_percent).
+	reserveLeft = 0.10
+	// quotaTrusted is how long a reading is believed; an account with none, or
+	// with an old one, is used as any other (opencode-antigravity-auth
+	// src/plugin/accounts.ts isOverSoftQuotaThreshold and its cache).
+	quotaTrusted = 30 * time.Minute
+)
+
+// quotaReading is what was left of an account's quota, from 0 to 1, and when
+// its vendor said so.
+type quotaReading struct {
+	at   time.Time
+	left float64
 }
 
 // New returns a Service over the accounts, the vault and the vendors.
@@ -184,7 +207,7 @@ func New(
 ) *Service {
 	s := &Service{
 		accounts: accounts, vault: v, clock: clock, logger: logger, vendors: map[string]Vendor{}, after: time.After,
-		rr: map[string]int{},
+		rr: map[string]int{}, left: map[string]quotaReading{},
 	}
 	for _, vendor := range vendors {
 		s.vendors[vendor.Runtime()] = vendor
@@ -341,7 +364,11 @@ func (s *Service) Refresh(ctx context.Context, id string) (Account, error) {
 // its id and probes to the next only while the home is cooling or skipped;
 // without a session accounts are taken round-robin to spread load. A token
 // about to end is refreshed first. (omp `select.ts`/`affinity.ts`, 9router-go
-// `session_affinity.go`, CLIProxyAPI `selector.go`.)
+// `session_affinity.go`, CLIProxyAPI `selector.go`.) An account in reserve,
+// one whose last reading says a tenth of its quota or less is left, comes
+// after the others in that order, a session's home too: it serves only when
+// no other can (omp `select.ts`, where a reserve evicts a session's account
+// while a sibling is outside it, and `rank.ts` inReserve).
 func (s *Service) Token(ctx context.Context, runtime, session string, skip ...string) (Token, error) {
 	accounts, err := s.List(ctx)
 	if err != nil {
@@ -365,11 +392,21 @@ func (s *Service) Token(ctx context.Context, runtime, session string, skip ...st
 	slices.SortFunc(ofRuntime, func(a, b Account) int { return strings.Compare(a.ID, b.ID) })
 
 	start := s.startIndex(runtime, session, len(ofRuntime), len(skip) == 0)
+	now := s.clock.Now()
+
+	ordered := make([]Account, 0, len(ofRuntime))
+	for i := range ofRuntime {
+		ordered = append(ordered, ofRuntime[(start+i)%len(ofRuntime)])
+	}
+
+	// The accounts in reserve go last, each group keeping its order.
+	slices.SortStableFunc(ordered, func(a, b Account) int {
+		return cmpBool(s.inReserve(a.ID, now), s.inReserve(b.ID, now))
+	})
 
 	var free *time.Time
 
-	for i := range ofRuntime {
-		a := ofRuntime[(start+i)%len(ofRuntime)]
+	for _, a := range ordered {
 
 		if slices.Contains(skip, a.ID) {
 			continue
@@ -383,7 +420,7 @@ func (s *Service) Token(ctx context.Context, runtime, session string, skip ...st
 			continue
 		}
 
-		if a.AccessTokenExpiresAt != nil && a.AccessTokenExpiresAt.Sub(s.clock.Now()) < useLead {
+		if a.AccessTokenExpiresAt != nil && a.AccessTokenExpiresAt.Sub(now) < useLead {
 			if err := s.refresh(ctx, a, 0); err != nil {
 				return Token{}, err
 			}
@@ -397,6 +434,38 @@ func (s *Service) Token(ctx context.Context, runtime, session string, skip ...st
 	}
 
 	return Token{}, fmt.Errorf("%w: %s", ErrNoAccount, runtime)
+}
+
+// NoteQuota records what an account's vendor said is left of its quota, from
+// 0 (used up) to 1, as read from an answer served under the account.
+func (s *Service) NoteQuota(accountID string, left float64) {
+	s.leftMu.Lock()
+	defer s.leftMu.Unlock()
+
+	s.left[accountID] = quotaReading{at: s.clock.Now(), left: left}
+}
+
+// inReserve reports whether an account's quota is known, fresh and nearly
+// used up. An account with no reading is not in reserve: it is used.
+func (s *Service) inReserve(accountID string, now time.Time) bool {
+	s.leftMu.Lock()
+	defer s.leftMu.Unlock()
+
+	reading, known := s.left[accountID]
+
+	return known && now.Sub(reading.at) < quotaTrusted && reading.left <= reserveLeft
+}
+
+// cmpBool orders false before true.
+func cmpBool(a, b bool) int {
+	switch {
+	case a == b:
+		return 0
+	case a:
+		return 1
+	default:
+		return -1
+	}
 }
 
 // startIndex is where to begin scanning a runtime's accounts. A session hashes

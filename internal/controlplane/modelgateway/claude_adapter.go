@@ -136,6 +136,8 @@ func (s *Server) claudePost(ctx context.Context, token AccountToken, built claud
 		return nil, fmt.Errorf("calling Claude: %w", err)
 	}
 
+	s.noteQuota(token, resp.Header, claudeQuotaLeft)
+
 	return resp, nil
 }
 

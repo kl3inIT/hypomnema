@@ -211,3 +211,42 @@ func TestAClaudeUsageLimitCoolsTheAccount(t *testing.T) {
 	assert.False(t, acc.cooledUntil().IsZero(), "the account was cooled down")
 	assert.Equal(t, "usage limit", acc.reason)
 }
+
+// Scenario: Anthropic says on every answer how much of the account's 5-hour
+// and 7-day windows is used. The gateway passes on what is left under the
+// fuller of the two, so the accounts can keep one that is nearly used up for
+// last; an answer that says nothing leaves the account as it was.
+func TestAClaudeAnswerSaysWhatIsLeftOfTheAccount(t *testing.T) {
+	t.Parallel()
+
+	var calls int
+
+	backend, _ := claudeBackend(t, func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			w.Header().Set("Anthropic-Ratelimit-Unified-5h-Utilization", "0.42")
+			w.Header().Set("Anthropic-Ratelimit-Unified-7d-Utilization", "0.93")
+		}
+
+		stream(claudeHello...)(w, r)
+	})
+
+	acc := &accounts{}
+	g := newClaudeGateway(t, backend, acc)
+
+	_, said := acc.quotaNoted("acc_1")
+	require.False(t, said, "nothing is known before the first answer")
+
+	status, _, body := g.call(t, g.key, askClaude+`,"stream":true}`)
+	require.Equal(t, http.StatusOK, status, body)
+
+	left, said := acc.quotaNoted("acc_1")
+	require.True(t, said)
+	assert.InDelta(t, 0.07, left, 1e-9, "one minus the fuller window")
+
+	status, _, body = g.call(t, g.key, askClaude+`,"stream":true}`)
+	require.Equal(t, http.StatusOK, status, body)
+
+	left, _ = acc.quotaNoted("acc_1")
+	assert.InDelta(t, 0.07, left, 1e-9, "an answer without the headers changes nothing")
+}
