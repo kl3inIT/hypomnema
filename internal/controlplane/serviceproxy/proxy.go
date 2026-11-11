@@ -27,6 +27,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -538,6 +539,11 @@ func (p *Proxy) forward(ctx context.Context, out io.Writer, req *http.Request, b
 	// What the tool sent as a credential is never passed on: it holds a placeholder.
 	upstream.Header.Del("Authorization")
 	upstream.Header.Del("Proxy-Authorization")
+
+	for _, name := range overrideHeaders {
+		upstream.Header.Del(name)
+	}
+
 	upstream.Header.Del("Connection")
 	upstream.ContentLength = int64(len(body))
 
@@ -581,11 +587,12 @@ func (p *Proxy) forward(ctx context.Context, out io.Writer, req *http.Request, b
 // passed on.
 var (
 	overrideHeaders = []string{"X-Http-Method-Override", "X-Http-Method", "X-Method-Override"}
-	overrideQueries = []string{"$httpMethod", "$method", "_method", "httpMethod"}
+	overrideQueries = []string{"$httpmethod", "$method", "_method", "httpmethod"}
 )
 
 // malformed says why a request is not one the proxy sends on, or "" for one
-// that is.
+// that is. It leaves the request's query written the one way it was read, so
+// that the service is sent exactly what was checked.
 func malformed(req *http.Request) string {
 	u := req.URL
 
@@ -607,18 +614,27 @@ func malformed(req *http.Request) string {
 		return "a request's path may not hide a slash"
 	}
 
+	// The header's presence is what counts, whatever its value.
 	for _, name := range overrideHeaders {
-		if req.Header.Get(name) != "" {
+		if _, present := req.Header[http.CanonicalHeaderKey(name)]; present {
 			return "a request may not ask to be treated as another method (" + name + ")"
 		}
 	}
 
-	query := u.Query()
-	for _, name := range overrideQueries {
-		if query.Has(name) {
+	// A query that does not parse strictly, such as one with a semicolon, may be split another way by the
+	// service: it is refused, not guessed at.
+	query, err := url.ParseQuery(u.RawQuery)
+	if err != nil {
+		return "a request's query must be plain name=value pairs"
+	}
+
+	for name := range query {
+		if slices.Contains(overrideQueries, strings.ToLower(name)) {
 			return "a request may not ask to be treated as another method (" + name + ")"
 		}
 	}
+
+	u.RawQuery = query.Encode()
 
 	return ""
 }

