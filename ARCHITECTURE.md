@@ -569,6 +569,14 @@ Claude subscriptions. Other provider formats and other capabilities do not exist
   - An Antigravity account with a tenth or less of a model's quota left is used after the others, not refused (omp's
     reserve, at opencode-antigravity-auth's 90 %). The quota is asked of Google after a successful request, at most
     every 15 minutes per account, and trusted for 30; an account whose quota is not known is used.
+  - A Claude or Codex account with a tenth or less of its whole quota left is kept in reserve
+    ([research](docs/research/2026-11-11-account-reserve.md)): it comes after the accounts that have more in the
+    order above, a session's home too, and serves only when no other can; when every account is in reserve the
+    order is unchanged (omp `select.ts` and `rank.ts`, at the same tenth). What is left is read from the headers of
+    each answer served under the account, with no further call: one minus the fuller of Anthropic's 5-hour and 7-day
+    windows (`anthropic-ratelimit-unified-*-utilization`) or of Codex's primary and secondary windows
+    (`x-codex-*-used-percent`), as omp reads them. The reading is in memory and trusted for 30 minutes; an account
+    with none is used.
 - `codex-subscription` (kind `codex_subscription`, after 9router-go, CLIProxyAPI and the Codex CLI;
   [research](docs/research/2026-11-10-codex-subscription-adapter.md)) is the first built-in provider. It runs under
   the Codex accounts logged in on the control plane (above).

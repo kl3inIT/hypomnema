@@ -282,3 +282,72 @@ func TestAClaudeSessionDetoursWhileItsHomeCools(t *testing.T) {
 	w.clock.advance(2 * time.Hour)
 	assert.Equal(t, home, w.account("conversation-1"), "the session returns home once it is free")
 }
+
+// Scenario: an account whose vendor says a tenth of its quota or less is left
+// is kept in reserve. A session leaves it for an account that has more, though
+// it is the session's home; it still serves when no other can; and once the
+// reading is too old to trust, it is used as any other again.
+func TestAClaudeAccountNearItsQuotaIsUsedLast(t *testing.T) {
+	t.Parallel()
+
+	w := newClaudeWorld(t)
+	ids := w.loginN(2)
+
+	home := w.account("conversation-1")
+	other := ids[0]
+	if other == home {
+		other = ids[1]
+	}
+
+	w.subs.NoteQuota(home, 0.05)
+
+	assert.Equal(t, other, w.account("conversation-1"), "the session moves to the account with quota left")
+	assert.Equal(t, other, w.account(""), "a request with no session takes it too")
+	assert.Equal(t, other, w.account(""), "every time")
+	assert.Equal(t, home, w.account("conversation-1", other), "the reserve serves when the other cannot")
+
+	require.NoError(t, w.subs.CoolDown(t.Context(), "claude", other, w.clock.Now().Add(10*time.Minute), "test"))
+	assert.Equal(t, home, w.account("conversation-1"), "and while the other cools down")
+
+	w.clock.advance(31 * time.Minute)
+	assert.Equal(t, home, w.account("conversation-1"), "an old reading is not trusted: the session is home again")
+}
+
+// Scenario: a session's home keeps the session while it has quota left, and an
+// account no reading was taken of is used: only a known, nearly used up
+// account is set aside.
+func TestAClaudeSessionKeepsItsHomeWhileItHasQuotaLeft(t *testing.T) {
+	t.Parallel()
+
+	w := newClaudeWorld(t)
+	w.loginN(3)
+
+	home := w.account("conversation-1")
+
+	w.subs.NoteQuota(home, 0.4)
+	assert.Equal(t, home, w.account("conversation-1"), "the home has less than the unread others, and stays")
+
+	seen := map[string]bool{}
+	for range 3 {
+		seen[w.account("")] = true
+	}
+
+	assert.Len(t, seen, 3, "the accounts with no reading take their turns")
+}
+
+// Scenario: when every account is in reserve there is nothing to spare them
+// for, and a session stays on its home.
+func TestAClaudeSessionStaysHomeWhenEveryAccountIsInReserve(t *testing.T) {
+	t.Parallel()
+
+	w := newClaudeWorld(t)
+	ids := w.loginN(2)
+
+	home := w.account("conversation-1")
+
+	for _, id := range ids {
+		w.subs.NoteQuota(id, 0.02)
+	}
+
+	assert.Equal(t, home, w.account("conversation-1"))
+}

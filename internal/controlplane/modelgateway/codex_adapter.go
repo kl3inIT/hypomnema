@@ -84,6 +84,10 @@ type Subscriptions interface {
 	// Quota asks the vendor what is left of an account's quota for each
 	// model, from 0 to 1; a model the vendor gives no quota for is absent.
 	Quota(ctx context.Context, accountID string) (map[string]float64, error)
+	// NoteQuota records what is left of an account's whole quota, from 0 to
+	// 1, as an answer served under it said; Token then keeps an account that
+	// is nearly used up for when no other can serve.
+	NoteQuota(accountID string, left float64)
 }
 
 // codexSubscription serves chat from the Codex backend.
@@ -173,6 +177,8 @@ func (s *Server) codexPost(ctx context.Context, token AccountToken, built codex.
 	if err != nil {
 		return nil, fmt.Errorf("calling Codex: %w", err)
 	}
+
+	s.noteQuota(token, resp.Header, codexQuotaLeft)
 
 	return resp, nil
 }

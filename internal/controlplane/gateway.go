@@ -58,6 +58,10 @@ func (g gatewayAccounts) Quota(ctx context.Context, accountID string) (map[strin
 	return g.subs.Quota(ctx, accountID)
 }
 
+func (g gatewayAccounts) NoteQuota(accountID string, left float64) {
+	g.subs.NoteQuota(accountID, left)
+}
+
 func (g gatewayAccounts) TokenAfterRefusal(
 	ctx context.Context, refused modelgateway.AccountToken,
 ) (modelgateway.AccountToken, error) {

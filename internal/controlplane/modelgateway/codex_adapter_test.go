@@ -47,6 +47,8 @@ type accounts struct {
 	cooled    map[string]time.Time
 	waits     map[string][]time.Duration
 	quotaAsks map[string]int
+	// noted is what the gateway said is left of each account's whole quota.
+	noted map[string]float64
 }
 
 func (a *accounts) Token(_ context.Context, _, _ string, skip ...string) (modelgateway.AccountToken, error) {
@@ -138,6 +140,27 @@ func (a *accounts) Quota(_ context.Context, id string) (map[string]float64, erro
 	a.quotaAsks[id]++
 
 	return a.quota[id], nil
+}
+
+func (a *accounts) NoteQuota(id string, left float64) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	if a.noted == nil {
+		a.noted = map[string]float64{}
+	}
+
+	a.noted[id] = left
+}
+
+// quotaNoted is what was last said to be left of an account's whole quota.
+func (a *accounts) quotaNoted(id string) (float64, bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	left, ok := a.noted[id]
+
+	return left, ok
 }
 
 func (a *accounts) cooledUntil() time.Time {
@@ -589,4 +612,27 @@ func TestARefusalCoolsTheAccountByItsKind(t *testing.T) {
 			assert.Equal(t, c.calls, got.calls())
 		})
 	}
+}
+
+// Scenario: the Codex backend says on every answer what percentage of the
+// account's primary and secondary windows is used. The
+// gateway passes on what is left under the fuller of the two.
+func TestACodexAnswerSaysWhatIsLeftOfTheAccount(t *testing.T) {
+	t.Parallel()
+
+	backend, _ := codexBackend(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Codex-Primary-Used-Percent", "20")
+		w.Header().Set("X-Codex-Secondary-Used-Percent", "95.5")
+		stream(helloEvents...)(w, r)
+	})
+
+	acc := &accounts{}
+	g := newCodexGateway(t, backend, acc)
+
+	status, _, body := g.call(t, g.key, askSol+`,"stream":true}`)
+	require.Equal(t, http.StatusOK, status, body)
+
+	left, said := acc.quotaNoted("acc_1")
+	require.True(t, said)
+	assert.InDelta(t, 0.045, left, 1e-9, "one minus the fuller window")
 }
