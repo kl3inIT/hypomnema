@@ -331,8 +331,13 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       supervisor's live frames, and closed with the kept message. A kept coordinator message with nothing
       written live (a wake-up's answer) is a card of its own. The last message sent is recorded per chat, so a
       restart sends nothing twice.
-    - Not built: questions as cards with buttons (the app's card callback is not configured yet), groups, a web
-      page for the bot, several bots.
+    - A question for the owner is a card in his direct chat with the bot (`lark_bot_questions`): a button for
+      each option, or "Reply to this card to answer" for a question without options. Only a press by the
+      owner's `open_id` answers; another person is told so. His reply to the card is the answer in his own
+      words and does not go to the coordinator. Once the question is answered or canceled, here or on the web,
+      the card says how it ended and has no buttons. It needs the app's callback `card.action.trigger` over
+      the persistent connection, configured in Lark's console.
+    - Not built: an option that also takes text, groups, a web page for the bot, several bots.
   - The token reaches a worker with its offer: the node API asks for it by host and repository as it sends the offer, and
     orchestration never holds it. The node gives it to that Dispatch only, as environment: git sends it to that
     host alone (an `http.https://<host>/.extraheader` through `GIT_CONFIG_COUNT`), `gh` reads `GH_TOKEN` (or
