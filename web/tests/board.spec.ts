@@ -117,7 +117,34 @@ const asked = {
   created_at: now,
 }
 
-async function fakeServer(page: Page) {
+// What the running worker asked to do with the owner's Google account, held for his approval.
+// The answers the owner gave to it, as the fake server received them.
+const decisions: unknown[] = []
+
+const held = {
+  id: "apr_1",
+  integration: "google",
+  label: "work",
+  action: "drive.share",
+  action_name: "Share a file",
+  asked_by: "worker",
+  dispatch_id: "dsp_4",
+  task_id: "tsk_4",
+  run_id: run.id,
+  title: "Share a file: Release notes v0.6.docx",
+  payload: [
+    { label: "emailAddress", value: "team@example.com" },
+    { label: "role", value: "commenter" },
+    { label: "type", value: "group" },
+  ],
+  status: "pending",
+  used: false,
+  created_at: new Date().toISOString(),
+}
+
+async function fakeServer(page: Page, start: { approval?: boolean } = {}) {
+  let approvals = start.approval ? [held] : []
+  decisions.length = 0
   const answers: unknown[] = []
 
   await page.route("**/api/v1/**", async (route) => {
@@ -127,6 +154,16 @@ async function fakeServer(page: Page) {
       route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) })
 
     switch (path) {
+      case "/approvals": {
+        const task = url.searchParams.get("task_id")
+
+        return json({ data: approvals.filter((a) => !task || a.task_id === task) })
+      }
+      case `/approvals/${held.id}/decision`:
+        decisions.push(route.request().postDataJSON())
+        approvals = []
+
+        return json({ ...held, status: "approved", scope: "session" })
       case "/me":
         return json({ id: "tok_1", name: "web", kind: "owner" })
       case "/chats":
@@ -207,6 +244,35 @@ test("a Run that asks comes first and is answered on its page", async ({ page })
   await page.getByText("Public", { exact: true }).click()
   await page.getByRole("button", { name: "Send answer" }).click()
   await expect.poll(() => answers).toEqual([{ option: 0 }])
+})
+
+// Scenario: a running worker asked to share a file from the owner's Drive, and the request is held. Its Task
+// shows what would be shared and with whom, above the transcript. The owner approves sharing for the rest of the
+// Run, and the card goes.
+test("the owner approves what a worker asked to do with an account", async ({ page }) => {
+  await fakeServer(page, { approval: true })
+  await page.goto("/board")
+
+  await page
+    .getByRole("region", { name: "Working" })
+    .getByTestId("task-card")
+    .filter({ hasText: "Cover /health" })
+    .click()
+
+  const panel = page.getByRole("dialog")
+  const card = panel.getByRole("region", {
+    name: "Approval needed: Share a file: Release notes v0.6.docx",
+  })
+  await expect(card).toContainText("team@example.com")
+  await expect(card).toContainText("google:work · Share a file · asked by worker")
+  expect(await page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")).toBe(
+    true,
+  )
+  await shot(page, "task-approval")
+
+  await card.getByRole("button", { name: "Approve for this Run" }).click()
+  await expect(card).toHaveCount(0)
+  expect(decisions).toEqual([{ decision: "approve_session" }])
 })
 
 // Scenario: a worker is running. Its card says what it does now; its Task opens at the transcript, where its

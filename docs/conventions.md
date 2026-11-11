@@ -174,10 +174,13 @@ The three boundaries that matter:
 - Chat text, issue text, web pages and tool output are **untrusted input** while agents hold credentials.
 - Only the owner, or an allowlist, can assign work. A public channel never starts work directly; it goes through a
   Gate.
-- Workers never hold a raw secret. The node's egress proxy attaches credentials from a vault Session scoped to one
-  Dispatch; workers see placeholders. Egress is deny by default per Dispatch.
-- Policies answer ALLOW, DENY or ASK and **fail closed**. They are evaluated in Go behind the client API and the node
-  proxy.
+- Workers never hold a raw secret. For an Integration, the control plane's service proxy attaches the account's
+  token to each request an agent's tool makes, and the tool holds a placeholder
+  ([decision, 2026-11-11](decisions/2026-11-11-service-proxy-in-the-control-plane.md)); a Dispatch's own key is its
+  Session. Git hosts and Lark still hand the tool a short-lived token until they move behind it. Egress of a
+  worker as a whole, deny by default per Dispatch, is not built.
+- Policies answer ALLOW, DENY or ASK and **fail closed**. They are evaluated in Go behind the client API and the
+  service proxy. ASK is an Approval the owner answers; only the owner's token reads or answers one.
 - **Spawning follows the references' default** (OpenClaw `sessions_spawn`, Omnara `spawn_agent`, Omnigent dispatch):
   every tool, `spawn` included, has a permission of ALLOW, ASK or DENY, and `spawn` is ALLOW. Hard limits always apply
   and are checked in Go: workers running at once, spawn depth, dispatches per turn (as Omnigent's `spawn_bounds`) and

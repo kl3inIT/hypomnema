@@ -63,6 +63,7 @@ type Server struct {
 	secrets Secrets
 	// integrations signs accounts in; nil when the control plane wired none.
 	integrations Integrations
+	approvals    Approvals
 	larkBot      LarkBot
 }
 

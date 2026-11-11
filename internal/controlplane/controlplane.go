@@ -23,6 +23,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/nodeapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/serviceproxy"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/subscription"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/webui"
@@ -183,13 +184,29 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		WithAgentKeys(workerKeys.AgentKey).WithTools(integrations.Tools).WithReleaseURL(cfg.NodeReleaseURL)
 	nodes.Register(mux)
 	// One API for every agent's tools: a worker with its Dispatch's key, the coordinator with its token.
-	agentapi.New(svc, func(ctx context.Context, id, label string) (agentapi.Token, error) {
+	agents := agentapi.New(svc, func(ctx context.Context, id, label string) (agentapi.Token, error) {
 		token, err := integrations.Token(ctx, id, label)
 
 		return agentapi.Token{
 			AccessToken: token.AccessToken, ExpiresAt: token.ExpiresAt, ClientID: token.ClientID,
 		}, err
-	}, logger).Register(mux)
+	}, logger)
+	agents.Register(mux)
+
+	// The service proxy: an agent's tool reaches a connected service through it and never holds the token.
+	proxy, err := serviceproxy.New(serviceproxy.Config{
+		Agents: agents, Store: svc, Logger: logger,
+		Token: func(ctx context.Context, id, label string) (string, error) {
+			token, err := integrations.Token(ctx, id, label)
+
+			return token.AccessToken, err
+		},
+	})
+	if err != nil {
+		return err
+	}
+
+	proxy.Register(mux)
 	modelgateway.NewServer(gateway, logger, modelgateway.Config{
 		Subscriptions: gatewayAccounts{subs: subscriptions}, CodexBaseURL: cfg.CodexBaseURL,
 		ClaudeBaseURL:      cfg.ClaudeBaseURL,
@@ -210,7 +227,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	api := clientapi.New(svc, logger, ctx.Done()).WithCoordinator(sup).WithHostTokens(tokens).
 		WithMachines(machineMgr).WithTerminals(nodeTerminals(nodes)).
 		WithSecrets(ownerSecrets{vault: secrets, referrers: referrers}).
-		WithIntegrations(integrations).WithLarkBot(larkSettings)
+		WithIntegrations(integrations).WithApprovals(proxy).WithLarkBot(larkSettings)
 	if err := api.Register(mux); err != nil {
 		return err
 	}

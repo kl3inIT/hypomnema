@@ -177,7 +177,7 @@ func promptText(msgs []orchestration.ChatMessage) string {
 	var b strings.Builder
 
 	if len(wakes) > 0 {
-		b.WriteString("Message from the Hypomnema control plane: events of your Runs need you.\n")
+		b.WriteString("Message from the Hypomnema control plane: these need you.\n")
 		b.WriteString(strings.Join(wakes, "\n"))
 		b.WriteString("\nAct on them, then end your turn; the control plane wakes you again.\n")
 	}
