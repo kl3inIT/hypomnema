@@ -12,8 +12,9 @@ Each adapted file names its source.
   (src/renderer/src/components/icons/GitHubIcon.tsx), MIT. The marks of GitLab, Google, Gmail, Google Calendar,
   Google Drive and Google Docs there are copied from Onyx (https://github.com/onyx-dot-app/onyx,
   web/lib/opal/src/logos), MIT, Copyright (c) 2023-present DanswerAI, Inc. Each mark belongs to its brand.
-- The runtime marks (Claude, Codex, pi) are copied from OpenMausBot (https://github.com/milind-soni/OpenMausBot,
-  src/components/ProviderIcons.tsx), Apache License 2.0.
+- The runtime marks (Claude, Codex, pi, opencode) are copied from OpenMausBot
+  (https://github.com/milind-soni/OpenMausBot, src/components/ProviderIcons.tsx), Apache License 2.0. omp's mark is
+  its own icon (https://github.com/can1357/oh-my-pi, assets/icon.svg), MIT, with its bars in the text colour.
 - The titles of a worker's tool calls and the line that says a group of them
   (`src/features/board/tool-title.ts`) are adapted from Omnigent (https://github.com/omnigent-ai/omnigent,
   web/src/lib/toolTitle.ts and toolValue.ts), Apache License 2.0. The file says what was changed.
