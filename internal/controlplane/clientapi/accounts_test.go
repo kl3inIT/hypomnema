@@ -324,7 +324,9 @@ func TestTheOwnerSignsAccountsInFromTheModelsPage(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, refused.StatusCode())
 
 	label := "work"
-	begun, err := owner.BeginAccountSignInWithResponse(ctx, openapi.NewAccountSignIn{Runtime: openapi.Claude, Label: &label})
+	claude := openapi.NewAccountSignIn{Runtime: openapi.Claude, Label: &label}
+
+	begun, err := owner.BeginAccountSignInWithResponse(ctx, claude)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, begun.StatusCode(), string(begun.Body))
 	assert.True(t, begun.JSON200.Paste)
@@ -344,14 +346,14 @@ func TestTheOwnerSignsAccountsInFromTheModelsPage(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusNotFound, again.StatusCode(), "a sign-in is completed once; one that failed is begun again")
 
-	begun, err = owner.BeginAccountSignInWithResponse(ctx, openapi.NewAccountSignIn{Runtime: openapi.Claude, Label: &label})
+	begun, err = owner.BeginAccountSignInWithResponse(ctx, claude)
 	require.NoError(t, err)
 
 	empty, err := owner.CompleteAccountSignInWithResponse(ctx, begun.JSON200.Id, openapi.AccountSignInCallback{})
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusBadRequest, empty.StatusCode(), "this kind needs the address")
 
-	begun, err = owner.BeginAccountSignInWithResponse(ctx, openapi.NewAccountSignIn{Runtime: openapi.Claude, Label: &label})
+	begun, err = owner.BeginAccountSignInWithResponse(ctx, claude)
 	require.NoError(t, err)
 
 	done, err := owner.CompleteAccountSignInWithResponse(ctx, begun.JSON200.Id,

@@ -1061,6 +1061,46 @@ export type Account = {
   token_expires_at?: string;
 };
 
+export type NewAccountSignIn = {
+  /**
+   * The kind of subscription.
+   */
+  runtime: 'claude' | 'codex' | 'antigravity';
+  /**
+   * The account's name for the owner; its e-mail when left out. Kept by an account signed in again.
+   */
+  label?: string;
+};
+
+export type AccountSignInAttempt = {
+  id: string;
+  runtime: string;
+  /**
+   * The link the owner opens in a browser to sign in.
+   */
+  url: string;
+  /**
+   * Completing needs the address the browser ended on.
+   */
+  paste: boolean;
+  /**
+   * The code the owner enters on the page the link opens, for a sign-in that does not paste.
+   */
+  user_code?: string;
+  expires_in_seconds: number;
+};
+
+export type AccountSignInCallback = {
+  /**
+   * The whole address the browser ended on.
+   */
+  callback?: string;
+};
+
+export type AccountMove = {
+  direction: 'up' | 'down';
+};
+
 export type AccountLimitWindow = {
   /**
    * The window, such as "5 hours", "week" or "week (Opus)".
@@ -3328,6 +3368,85 @@ export type ListAccountsResponses = {
 };
 
 export type ListAccountsResponse = ListAccountsResponses[keyof ListAccountsResponses];
+
+export type BeginAccountSignInData = {
+  body: NewAccountSignIn;
+  path?: never;
+  query?: never;
+  url: '/account-sign-ins';
+};
+
+export type BeginAccountSignInErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type BeginAccountSignInError = BeginAccountSignInErrors[keyof BeginAccountSignInErrors];
+
+export type BeginAccountSignInResponses = {
+  /**
+   * The sign-in to complete.
+   */
+  200: AccountSignInAttempt;
+};
+
+export type BeginAccountSignInResponse = BeginAccountSignInResponses[keyof BeginAccountSignInResponses];
+
+export type CompleteAccountSignInData = {
+  body: AccountSignInCallback;
+  path: {
+    sign_in_id: string;
+  };
+  query?: never;
+  url: '/account-sign-ins/{sign_in_id}';
+};
+
+export type CompleteAccountSignInErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type CompleteAccountSignInError = CompleteAccountSignInErrors[keyof CompleteAccountSignInErrors];
+
+export type CompleteAccountSignInResponses = {
+  /**
+   * The account.
+   */
+  200: Account;
+};
+
+export type CompleteAccountSignInResponse = CompleteAccountSignInResponses[keyof CompleteAccountSignInResponses];
+
+export type MoveAccountData = {
+  body: AccountMove;
+  path: {
+    account_id: string;
+  };
+  query?: never;
+  url: '/accounts/{account_id}/move';
+};
+
+export type MoveAccountErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type MoveAccountError = MoveAccountErrors[keyof MoveAccountErrors];
+
+export type MoveAccountResponses = {
+  /**
+   * The account, at its new place.
+   */
+  200: Account;
+};
+
+export type MoveAccountResponse = MoveAccountResponses[keyof MoveAccountResponses];
 
 export type RemoveAccountData = {
   body?: never;

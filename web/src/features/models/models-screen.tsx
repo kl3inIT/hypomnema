@@ -1,6 +1,8 @@
 import { useMutation } from "@tanstack/react-query"
 import {
   Bot,
+  ArrowDown,
+  ArrowUp,
   Box,
   CalendarDays,
   Crown,
@@ -9,6 +11,7 @@ import {
   Mail,
   MonitorSmartphone,
   Plug,
+  Plus,
   Power,
   RefreshCw,
   Route as RouteIcon,
@@ -22,7 +25,7 @@ import {
 import type { ReactNode } from "react"
 
 import "@/api/client"
-import { disableAccount, enableAccount, removeAccount } from "@/api/generated/sdk.gen"
+import { disableAccount, enableAccount, moveAccount, removeAccount } from "@/api/generated/sdk.gen"
 import type { Account, Provider } from "@/api/generated/types.gen"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -59,6 +62,7 @@ import { said } from "@/features/settings/use-integrations"
 import { modelName } from "@/lib/model-name"
 import { since } from "@/lib/time"
 
+import { AccountSignInDialog, type SignInRuntime } from "./account-sign-in"
 import {
   accountState,
   apiProvidersOf,
@@ -235,6 +239,16 @@ function SubscriptionCard({ subscription }: { subscription: Subscription }) {
         </CardTitle>
         <CardAction>
           <span className="flex flex-wrap items-center justify-end gap-2">
+            <AccountSignInDialog
+              runtime={subscription.runtime as SignInRuntime}
+              name={subscription.name}
+              trigger={
+                <Button variant="outline" size="sm">
+                  <Plus data-icon="inline-start" />
+                  Add account
+                </Button>
+              }
+            />
             {accounts.length > 0 && (
               <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
                 <label htmlFor={id} className="inline-flex items-center gap-1">
@@ -264,7 +278,8 @@ function SubscriptionCard({ subscription }: { subscription: Subscription }) {
                   key={account.id}
                   account={account}
                   order={index + 1}
-                  subscription={subscription.name}
+                  last={index === accounts.length - 1}
+                  subscription={subscription}
                 />
               ))}
             </ItemGroup>
@@ -281,14 +296,25 @@ function SubscriptionCard({ subscription }: { subscription: Subscription }) {
 function AccountRow({
   account,
   order,
-  subscription,
+  last,
+  subscription: owner,
 }: {
   account: Account
   order: number
-  subscription: string
+  // last: no account stands after it.
+  last: boolean
+  subscription: Subscription
 }) {
   const refresh = useRefreshAccounts()
+  const subscription = owner.name
   const state = accountState(account)
+
+  // 9router moves a connection up and down the same way (providers/[id]/page.js).
+  const move = useMutation({
+    mutationFn: (direction: "up" | "down") =>
+      moveAccount({ path: { account_id: account.id }, body: { direction } }),
+    onSuccess: refresh,
+  })
   const here = account.sign_in !== undefined
   const id = `use-${account.id}`
 
@@ -304,11 +330,33 @@ function AccountRow({
   return (
     <div className={account.status === "disabled" ? "opacity-70" : undefined}>
       <Item variant="muted" size="sm" aria-label={`${subscription} account ${account.label}`}>
-        <span
-          className="self-start pt-0.5 text-xs text-muted-foreground tabular-nums"
-          title="The gateway tries the accounts in this order"
-        >
-          #{order}
+        <span className="flex items-center gap-0.5 self-start">
+          <span
+            className="pe-0.5 text-xs text-muted-foreground tabular-nums"
+            title="The gateway tries the accounts in this order"
+          >
+            #{order}
+          </span>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            aria-label={`Move ${account.label} up`}
+            title="Try this account earlier"
+            disabled={order === 1 || move.isPending}
+            onClick={() => move.mutate("up")}
+          >
+            <ArrowUp />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            aria-label={`Move ${account.label} down`}
+            title="Try this account later"
+            disabled={last || move.isPending}
+            onClick={() => move.mutate("down")}
+          >
+            <ArrowDown />
+          </Button>
         </span>
         <ItemContent>
           <ItemTitle>
@@ -335,7 +383,7 @@ function AccountRow({
             </span>
           </ItemDescription>
           <LimitBars account={account} />
-          <ErrorAlert error={change.error} />
+          <ErrorAlert error={change.error ?? move.error} />
         </ItemContent>
         <ItemActions>
           <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -351,6 +399,19 @@ function AccountRow({
               onCheckedChange={(next) => change.mutate(next)}
             />
           </span>
+          {here && (
+            <AccountSignInDialog
+              runtime={owner.runtime as SignInRuntime}
+              name={subscription}
+              account={account}
+              trigger={
+                <Button variant="ghost" size="sm" aria-label={`Sign ${account.label} in again`}>
+                  <RefreshCw data-icon="inline-start" />
+                  Sign in again
+                </Button>
+              }
+            />
+          )}
           {here && (
             <ConfirmDialog
               trigger={
@@ -419,7 +480,7 @@ function LimitBars({ account }: { account: Account }) {
       {data.windows.map((window) => (
         <div
           key={window.name}
-          className="grid grid-cols-[7.5rem_minmax(0,1fr)] items-center gap-x-2 sm:grid-cols-[7.5rem_minmax(0,14rem)_minmax(0,1fr)]"
+          className="grid max-w-md grid-cols-[7.5rem_minmax(0,1fr)] items-center gap-x-2"
         >
           <span className="inline-flex items-center gap-1 text-muted-foreground">
             {window.name.startsWith("week") ? (
@@ -435,7 +496,7 @@ function LimitBars({ account }: { account: Account }) {
             connected={account.status === "active"}
             title={`${Math.round(100 - window.used_percent)}% left`}
           />
-          <span className="col-start-2 truncate text-muted-foreground sm:col-start-auto">
+          <span className="col-start-2 truncate text-muted-foreground">
             {window.resets_at ? `resets ${until(window.resets_at)}` : ""}
           </span>
         </div>
