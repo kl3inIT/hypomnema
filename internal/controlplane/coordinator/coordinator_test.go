@@ -31,10 +31,14 @@ func TestMain(m *testing.M) {
 
 // fakePi answers like pi in RPC mode: a response per command; for a prompt,
 // one turn with a bash call and a reply that echoes the prompt's first line.
-// A prompt that says "crash" makes it exit mid-turn.
+// A prompt that says "crash" makes it exit mid-turn; one that says "fail"
+// ends in a failed model call; one that says "hang <how>" writes a little and
+// waits for an abort, then ends the turn as <how> says (stopped).
 func fakePi() int {
 	in := bufio.NewReader(os.Stdin)
 	out := json.NewEncoder(os.Stdout)
+
+	hanging := ""
 
 	for {
 		line, err := in.ReadBytes('\n')
@@ -49,6 +53,18 @@ func fakePi() int {
 
 		reply := map[string]any{"type": "response", "id": cmd["id"], "command": cmd["type"], "success": true}
 
+		if cmd["type"] == "abort" && hanging != "" {
+			emit(out, reply)
+
+			for _, rec := range stopped(hanging) {
+				emit(out, rec)
+			}
+
+			hanging = ""
+
+			continue
+		}
+
 		if cmd["type"] != "prompt" {
 			emit(out, reply)
 
@@ -61,6 +77,32 @@ func fakePi() int {
 
 		if strings.Contains(text, "crash") {
 			return 3
+		}
+
+		if _, how, ok := strings.Cut(text, "hang "); ok {
+			hanging, _, _ = strings.Cut(how, "\n")
+
+			emit(out, map[string]any{"type": "agent_start"})
+			emit(out, map[string]any{"type": "message_start", "message": map[string]any{"role": "assistant"}})
+			emit(out, map[string]any{"type": "message_update", "assistantMessageEvent": map[string]any{
+				"type": "text_delta", "contentIndex": 0, "delta": "half an answer",
+			}})
+
+			continue
+		}
+
+		if strings.Contains(text, "fail") {
+			for _, rec := range []map[string]any{
+				{"type": "agent_start"},
+				{"type": "message_end", "message": map[string]any{
+					"role": "assistant", "stopReason": "error", "errorMessage": "overloaded",
+				}},
+				{"type": "agent_settled", "aborted": false},
+			} {
+				emit(out, rec)
+			}
+
+			continue
 		}
 
 		first, _, _ := strings.Cut(text, "\n")
@@ -104,6 +146,26 @@ func turn(reply string) []map[string]any {
 			"content": []map[string]any{{"type": "text", "text": reply}},
 		}},
 		{"type": "agent_settled", "aborted": false},
+	}
+}
+
+// stopped is how a turn told to stop ends: an aborted reply with what was
+// written, a failed call with nothing, or no reply at all.
+func stopped(how string) []map[string]any {
+	settled := map[string]any{"type": "agent_settled", "aborted": true}
+
+	switch how {
+	case "aborted":
+		return []map[string]any{{"type": "message_end", "message": map[string]any{
+			"role": "assistant", "stopReason": "aborted", "errorMessage": "Request was aborted",
+			"content": []map[string]any{{"type": "text", "text": "half an answer"}},
+		}}, settled}
+	case "error":
+		return []map[string]any{{"type": "message_end", "message": map[string]any{
+			"role": "assistant", "stopReason": "error", "errorMessage": "Request was aborted",
+		}}, settled}
+	default:
+		return []map[string]any{settled}
 	}
 }
 
@@ -471,4 +533,54 @@ func TestAChatsKeyLivesAsLongAsItsPi(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "secret-"+chat.ID+"-gwk_2", second)
 	assert.False(t, keys.ended("gwk_2"))
+}
+
+// Scenario: the owner stops pi mid-turn, and pi ends the turn as aborted with
+// what it had written, as a failed call, or with no reply. Each way the chat
+// keeps what was written and one stopped row, never a failure; a failure
+// after that, with no stop asked, is a failure again.
+func TestAStoppedTurnEndsInAStoppedRow(t *testing.T) {
+	t.Parallel()
+
+	for _, how := range []string{"aborted", "error", "settled"} {
+		t.Run(how, func(t *testing.T) {
+			t.Parallel()
+
+			svc, sup := newSupervisor(t)
+			ctx := t.Context()
+
+			chat, err := svc.CreateChat(ctx, "", "")
+			require.NoError(t, err)
+
+			_, err = svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, "hang "+how)
+			require.NoError(t, err)
+
+			require.Eventually(t, func() bool { return sup.Working(chat.ID) }, 10*time.Second, 10*time.Millisecond)
+			require.NoError(t, sup.Abort(ctx, chat.ID))
+
+			waitFor(t, svc, chat.ID, orchestration.ChatSystem, "Stopped")
+			require.Eventually(t, func() bool { return !sup.Working(chat.ID) }, 10*time.Second, 10*time.Millisecond)
+
+			_, err = svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, "fail now")
+			require.NoError(t, err)
+			waitFor(t, svc, chat.ID, orchestration.ChatSystem, "overloaded")
+
+			msgs, err := svc.ListChatMessages(ctx, chat.ID, 0, 0)
+			require.NoError(t, err)
+
+			got := make([]string, 0, len(msgs))
+			for _, m := range msgs {
+				got = append(got, fmt.Sprintf("%s/%s: %s", m.Role, m.Kind, m.Text))
+			}
+
+			want := []string{"owner/: hang " + how}
+			if how == "aborted" {
+				want = append(want, "coordinator/: half an answer")
+			}
+
+			want = append(want, "system/stopped: Stopped", "owner/: fail now",
+				"system/failed: pi's model call failed: overloaded")
+			assert.Equal(t, want, got)
+		})
+	}
 }

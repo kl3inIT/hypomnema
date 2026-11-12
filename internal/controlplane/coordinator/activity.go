@@ -88,6 +88,14 @@ func (p *proc) handle(ctx context.Context, line []byte) {
 	case "agent_start":
 		p.setWorking(true)
 	case "agent_settled":
+		// A stopped turn whose end said neither error nor aborted is said stopped here.
+		if p.stopping() {
+			p.keepMessages(ctx, orchestration.NewChatMessage{
+				Role: orchestration.ChatSystem, Kind: orchestration.ChatStopped, Text: stoppedText,
+			})
+		}
+
+		p.stopSettled()
 		p.setWorking(false)
 		p.s.settled()
 	case "message_start":
@@ -134,8 +142,17 @@ func (p *proc) relayDelta(rec record) {
 	}})
 }
 
+// stoppedText is the row that ends a turn the owner stopped.
+const stoppedText = "Stopped"
+
+// failedPrefix starts the row that says pi's model call failed.
+const failedPrefix = "pi's model call failed: "
+
 // keepReply keeps an assistant message's text and thinking, and its error.
-// Tool calls are kept when they end, with their results.
+// Tool calls are kept when they end, with their results. A turn the owner
+// stopped ends with a stopped row instead of a failure, kept in the same
+// write as its last text so a reader sees both together; pi reports such a
+// turn as aborted, or as a failed call.
 func (p *proc) keepReply(ctx context.Context, rec record) {
 	m := rec.Message
 	if m == nil || m.Role != "assistant" {
@@ -157,13 +174,33 @@ func (p *proc) keepReply(ctx context.Context, rec record) {
 		}
 	}
 
+	var msgs []orchestration.NewChatMessage
+
 	if len(parts) > 0 {
-		p.keep(ctx, orchestration.ChatCoordinator, strings.Join(texts, "\n\n"), parts)
+		raw, err := json.Marshal(parts)
+		if err != nil {
+			return
+		}
+
+		msgs = append(msgs, orchestration.NewChatMessage{
+			Role: orchestration.ChatCoordinator, Text: strings.Join(texts, "\n\n"), Parts: raw,
+		})
 	}
 
-	if m.StopReason == "error" {
-		p.keep(ctx, orchestration.ChatSystem, "pi's model call failed: "+m.Error, nil)
+	ended := m.StopReason == "error" || m.StopReason == "aborted"
+
+	switch {
+	case ended && p.stopping():
+		msgs = append(msgs, orchestration.NewChatMessage{
+			Role: orchestration.ChatSystem, Kind: orchestration.ChatStopped, Text: stoppedText,
+		})
+	case m.StopReason == "error":
+		msgs = append(msgs, orchestration.NewChatMessage{
+			Role: orchestration.ChatSystem, Kind: orchestration.ChatFailed, Text: failedPrefix + m.Error,
+		})
 	}
+
+	p.keepMessages(ctx, msgs...)
 }
 
 // keepTool keeps a finished tool call with its arguments and result.
@@ -220,7 +257,16 @@ func (p *proc) keep(ctx context.Context, role orchestration.ChatRole, text strin
 		return
 	}
 
-	if _, err := p.s.svc.AddChatMessageParts(ctx, p.chatID, role, text, raw); err != nil && ctx.Err() == nil {
+	p.keepMessages(ctx, orchestration.NewChatMessage{Role: role, Text: text, Parts: raw})
+}
+
+// keepMessages keeps messages in one write.
+func (p *proc) keepMessages(ctx context.Context, msgs ...orchestration.NewChatMessage) {
+	if len(msgs) == 0 {
+		return
+	}
+
+	if _, err := p.s.svc.AddChatMessages(ctx, p.chatID, msgs...); err != nil && ctx.Err() == nil {
 		p.s.cfg.Logger.ErrorContext(ctx, "keeping a chat message failed", slog.String("chat_id", p.chatID),
 			slog.Any("error", err))
 	}

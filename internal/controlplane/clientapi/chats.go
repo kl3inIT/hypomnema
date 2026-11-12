@@ -147,6 +147,11 @@ func toChatMessage(m orchestration.ChatMessage) openapi.ChatMessage {
 		out.EventSeq = &m.EventSeq
 	}
 
+	if m.Kind != "" {
+		kind := openapi.ChatKind(m.Kind)
+		out.Kind = &kind
+	}
+
 	if m.Parts != nil {
 		var parts []openapi.ChatPart
 		if json.Unmarshal(m.Parts, &parts) == nil {

@@ -520,7 +520,8 @@ func (cn *conn) startOver(ctx context.Context, m Message) error {
 }
 
 // stop is /stop: the Bot stops the turn it is running in the person's chat.
-// The card of that turn then closes as stopped, not as failed.
+// The server ends that turn with a stopped row, which closes its card as
+// stopped, not as failed.
 func (cn *conn) stop(ctx context.Context, m Message) error {
 	cn.mu.Lock()
 	r := cn.relays[m.ChatID]
@@ -532,11 +533,7 @@ func (cn *conn) stop(ctx context.Context, m Message) error {
 		return nil
 	}
 
-	r.halt(haltNone, haltAsked)
-
 	if err := cn.all.coord.Abort(ctx, r.chat.ChatID); err != nil {
-		r.halt(haltAsked, haltNone)
-
 		return err
 	}
 
@@ -642,34 +639,6 @@ type relay struct {
 	// waiting are the person's messages that have no reply yet, with the
 	// reaction that says the Bot works on each.
 	waiting []waiting
-	// halted says the person stopped the turn that runs (/stop), and whether
-	// its card already says so.
-	halted int
-}
-
-// What a relay knows of a turn the person stopped.
-const (
-	haltNone = iota
-	// haltAsked: the turn was told to stop; its card is to close as stopped.
-	haltAsked
-	// haltSaid: the card closed as stopped; a failure pi reports for that turn
-	// is not another card.
-	haltSaid
-)
-
-// halt moves what the relay knows of a stopped turn from one state to the
-// next and says whether it was in the first.
-func (r *relay) halt(from, to int) bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	if r.halted != from {
-		return false
-	}
-
-	r.halted = to
-
-	return true
 }
 
 // stopped closes the card of a turn the person stopped: with the text it had
@@ -774,15 +743,8 @@ func (r *relay) run(ctx context.Context) {
 		case <-closing:
 			closing = nil
 
-			// The Bot stopped and kept no reply: what was written stays, and nothing waits any more. A turn the
-			// person stopped says so, and is over either way.
-			if r.halt(haltAsked, haltNone) {
-				r.stopped(ctx, r.text.String())
-			} else {
-				r.halt(haltSaid, haltNone)
-				r.finish(ctx, r.text.String())
-			}
-
+			// The Bot stopped and kept no reply: what was written stays, and nothing waits any more.
+			r.finish(ctx, r.text.String())
 			r.settle(ctx, false)
 		}
 	}
@@ -919,24 +881,27 @@ func (r *relay) kept(ctx context.Context) {
 			}
 		}
 
-		for _, m := range msgs {
-			switch {
-			case m.Role == orchestration.ChatCoordinator && strings.TrimSpace(m.Text) != "":
-				// What a turn the person stopped had written is kept as a reply: its card says it was stopped.
-				if r.halt(haltAsked, haltSaid) {
-					r.stopped(ctx, m.Text)
-				} else {
-					r.finish(ctx, m.Text)
-				}
+		for i := 0; i < len(msgs); i++ {
+			m := msgs[i]
 
+			switch {
+			case m.Role == orchestration.ChatCoordinator && strings.TrimSpace(m.Text) != "" &&
+				i+1 < len(msgs) && msgs[i+1].Kind == orchestration.ChatStopped:
+				// What a turn the person stopped had written is kept together with its stopped row (coordinator
+				// keepReply): the card closes with it and says it was stopped.
+				r.stopped(ctx, m.Text)
 				r.settle(ctx, false)
-			case m.Role == orchestration.ChatSystem && m.EventSeq == 0 && r.halt(haltAsked, haltNone):
-				// pi reports the turn the person stopped as a failed call: it was stopped, not failed.
+
+				i++
+				m = msgs[i]
+			case m.Role == orchestration.ChatCoordinator && strings.TrimSpace(m.Text) != "":
+				r.finish(ctx, m.Text)
+				r.settle(ctx, false)
+			case m.Kind == orchestration.ChatStopped:
+				// The server recorded that the person stopped the turn: it was stopped, not failed.
 				r.stopped(ctx, r.text.String())
 				r.settle(ctx, false)
-			case m.Role == orchestration.ChatSystem && m.EventSeq == 0 && r.halt(haltSaid, haltNone):
-				// The card of the stopped turn is closed already.
-			case m.Role == orchestration.ChatSystem && m.EventSeq == 0:
+			case m.Kind == orchestration.ChatFailed:
 				// The model's call failed: what was written stays, with a line that says why it stops there
 				// (MemoryOS), and the message is marked as failed (Hermes).
 				partial := strings.TrimSpace(r.text.String())

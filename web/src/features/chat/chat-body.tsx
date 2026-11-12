@@ -25,7 +25,6 @@ export function ChatBody({ chatId }: { chatId: string }) {
     queryFn: async () => (await getChat({ path: { chat_id: chatId } })).data,
   })
   const [sending, setSending] = useState<ChatMessage[]>([])
-  const [stoppedAfter, setStoppedAfter] = useState<number>()
   const bot = chat.data?.bot ?? firstBot
 
   async function send(text: string) {
@@ -58,7 +57,7 @@ export function ChatBody({ chatId }: { chatId: string }) {
       )}
       <Conversation
         view={view}
-        local={{ sending, stoppedAfter }}
+        local={{ sending }}
         bot={bot}
         empty={
           <p className="text-center text-sm text-muted-foreground">Send a message to start.</p>
@@ -81,10 +80,7 @@ export function ChatBody({ chatId }: { chatId: string }) {
           working={view.working}
           bot={bot}
           onSend={send}
-          onStop={() => {
-            setStoppedAfter(Math.max(0, ...view.messages.map((m) => m.seq)))
-            void abortChat({ path: { chat_id: chatId } })
-          }}
+          onStop={() => void abortChat({ path: { chat_id: chatId } })}
         />
       </div>
     </>
