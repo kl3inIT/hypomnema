@@ -1,15 +1,35 @@
 #!/bin/sh
-# Runs the script of one Routine of a Bot (issue #211). Installed root-owned as /usr/local/bin/hypomnema-routine;
-# the control plane's user runs it as the coordinator user through the sudoers rule limited to this file and
-# hypomnema-pi. It accepts only a Bot's name and a Routine's id: which file runs, what it holds and how long it may
-# run are read from the control plane, never from the caller, so no command line reaches the coordinator's user
-# (Hermes: a script is a file under the profile's scripts/, never a command line). The script gets a clean
-# environment, as pi does: no variable of the caller reaches it.
+# Runs the script of one Routine of a Bot (issue #211), in the box a Bot's pi runs in (issue #260). Installed
+# root-owned as /usr/local/bin/hypomnema-routine; the control plane's user runs it as the coordinator user through
+# the sudoers rule limited to this file and hypomnema-pi. It accepts only a Bot's name and a Routine's id: which file
+# runs, what it holds and how long it may run are read from the control plane, never from the caller, so no command
+# line reaches the coordinator's user (Hermes: a script is a file under the profile's scripts/, never a command
+# line). The script gets a clean environment, as pi does: no variable of the caller reaches it.
+#
+# The first line of its stdin is the run's own token, which the control plane made for this run, bound to the Bot,
+# and ends when the run ends; the rest of stdin stays open for as long as the run should go on. The script runs in a
+# bubblewrap box as pi does (hypomnema-pi): its own PID namespace, the system and the tools read-only, of the
+# coordinator's home only the Bot's directory, read-write, and what the script reads. Other Bots' directories, the
+# chats' sessions and the shared token are not in it. Without a working bubblewrap the script does not run.
 set -eu
 umask 077
 
+# Where things are. The test of the box (internal/controlplane/routines/box_linux_test.go) runs this file with these
+# lines changed to a directory of its own.
+user_home=/home/coordinator
+hypomnema=/usr/local/bin/hypomnema
+node=/opt/hypomnema-node
+bwrap=/usr/bin/bwrap
+
+home="$user_home/.hypomnema-coordinator"
+
+fail() {
+  echo "hypomnema-routine: $*" >&2
+  exit 1
+}
+
 usage() {
-  echo "usage: hypomnema-routine <bot> <routine id>" >&2
+  echo "usage: hypomnema-routine <bot> <routine id> (the run's token on stdin)" >&2
   exit 2
 }
 
@@ -28,51 +48,103 @@ case "$routine" in
   *[!A-Za-z0-9_]*) usage ;;
 esac
 
-home=/home/coordinator/.hypomnema-coordinator
+# The run's token, before anything else reads stdin: a secret given on stdin, never on a command line or in the
+# environment. The shell reads it a byte at a time, so the rest of stdin stays the run's.
+token=""
+IFS= read -r token || true
+case "$token" in
+  hyp_bot_v1_*) ;;
+  *) fail "the first line of stdin is not the run's token; the script does not run without one" ;;
+esac
+case "$token" in
+  *[!A-Za-z0-9_]*) fail "the first line of stdin is not the run's token; the script does not run without one" ;;
+esac
 
-# The Bot's own directory, as hypomnema-pi makes it: the script works where the Bot does.
-mkdir -p "$home/bots"
+[ -x "$bwrap" ] || fail "bubblewrap is not installed (setup-coordinator.sh installs it); a script runs only in its box"
+
+# The Bot's own directory, as hypomnema-pi makes it: the script works where the Bot does. The box binds its real
+# path.
+mkdir -p "$home/bots" "$home/run"
 dir="$home/bots/$bot"
 if [ "$bot" = coordinator ] && [ ! -e "$dir" ]; then
   mkdir -p "$home/work"
   ln -s ../work "$dir"
 fi
-mkdir -p "$dir/routines"
+mkdir -p "$dir"
+dir=$(cd "$dir" && pwd -P)
+
+# What is made for this run, outside the box, and given to it read-only: the script and the run's key. The folder
+# is outside the Bot's directory, which pi and the script write: a link left there would send what this launcher
+# writes, outside the box, somewhere else (hypomnema-pi's skills folder, issue #260).
+run="$home/run/$routine"
+rm -rf "$run"
+mkdir -p "$run"
 
 # The control plane keeps the script's text, which is what the owner read. It is asked for with the coordinator's
-# own token and given once for the run that is starting: the helper writes it into the Bot's routines directory,
-# so the file that runs is that text whatever was left there, and writes the run's key beside it. The answer is
-# the file's name and the seconds it may run.
-if ! said=$(HOME=/home/coordinator /usr/local/bin/hypomnema routines script "$routine" --bot "$bot" \
-  --into "$dir/routines"); then
-  echo "hypomnema-routine: reading routine $routine of bot $bot failed" >&2
-  exit 1
+# own token, outside the box, and given once for the run that is starting: the helper writes it into the run's
+# folder, so the file that runs is that text, and writes the run's key beside it. The answer is the file's name and
+# the seconds it may run. No command here reads stdin: it is the run's.
+if ! said=$(HOME="$user_home" "$hypomnema" routines script "$routine" --bot "$bot" --into "$run" < /dev/null); then
+  rm -rf "$run"
+  fail "reading routine $routine of bot $bot failed"
 fi
 name=$(printf '%s\n' "$said" | sed -n 1p)
 limit=$(printf '%s\n' "$said" | sed -n 2p)
-key="$dir/routines/.run-$routine"
+key="$run/.run-$routine"
 
 case "$name" in
-  "" | .* | *[!A-Za-z0-9._-]*) echo "hypomnema-routine: the routine names no file" >&2; exit 1 ;;
+  "" | .* | *[!A-Za-z0-9._-]*) rm -rf "$run"; fail "the routine names no file" ;;
 esac
 case "$limit" in
-  "" | *[!0-9]*) echo "hypomnema-routine: the routine has no limit" >&2; exit 1 ;;
+  "" | *[!0-9]*) rm -rf "$run"; fail "the routine has no limit" ;;
 esac
 
-cd "$dir"
+# The control plane's address, from the coordinator's own login; the script's client.json in the box has it with the
+# run's token.
+url=$(sed -n 's/^ *"url": *"\([^"]*\)".*$/\1/p' "$user_home/.hypomnema/client.json")
+case "$url" in
+  http://* | https://*) ;;
+  *) rm -rf "$run"; fail "the coordinator is not logged in to the control plane (setup-coordinator.sh logs it in)" ;;
+esac
+case "$url" in
+  *[!A-Za-z0-9.:/_-]*) rm -rf "$run"; fail "the control plane's address in the coordinator's login is not a plain URL" ;;
+esac
 
 # The control plane holds this launcher's standard input open for as long as the run should go on, and closes it to
 # stop the run (the Routine was removed, or the control plane ended): its user cannot signal the coordinator's.
 exec 3<&0
 
-# The script has the Bot's tools on its PATH and the Bot's token, as pi has, and no model. HYPOMNEMA_ROUTINE says
-# that it is a Routine's run, which makes no Routines; HYPOMNEMA_ROUTINE_RUN_FILE names the file with the run's
-# key, by which what the script asks the owner to approve is known as this run's. It is ended at its limit here.
-env -i \
-  HOME=/home/coordinator USER=coordinator LOGNAME=coordinator LANG=C.UTF-8 TERM=dumb \
-  PATH="$home/tools/bin:/opt/hypomnema-node/bin:/usr/local/bin:/usr/bin:/bin" \
+# The box, as hypomnema-pi's: its own PID, IPC and UTS namespaces, ended with the launcher. Read-only: the system,
+# the resolver, the CPU list Node reads, Node, the integrations' tools and their guides, the skills every Bot gets,
+# and this run's folder. A private /tmp, /var/tmp, /proc and /dev, and an empty home, in which
+# ~/.hypomnema/client.json holds the run's token. Read-write: the Bot's directory. The script has the Bot's tools on
+# its PATH and no model. HYPOMNEMA_ROUTINE says that it is a Routine's run; HYPOMNEMA_ROUTINE_RUN_FILE names the
+# file with the run's key, by which what the script asks the owner to approve is known as this run's. It is ended
+# at its limit here, outside the box: timeout stops bubblewrap, and the box dies with it.
+timeout -k 10 "$limit" env -i \
+  HOME="$user_home" USER=coordinator LOGNAME=coordinator LANG=C.UTF-8 TERM=dumb \
+  PATH="$home/tools/bin:$node/bin:/usr/local/bin:/usr/bin:/bin" \
   HYPOMNEMA_BOT="$bot" HYPOMNEMA_ROUTINE="$routine" HYPOMNEMA_ROUTINE_RUN_FILE="$key" HYPOMNEMA_TOOLS_HOME="$home" \
-  timeout -k 10 "$limit" "$dir/routines/$name" < /dev/null 3<&- &
+  "$bwrap" \
+  --unshare-user --unshare-pid --unshare-ipc --unshare-uts --unshare-cgroup-try --die-with-parent \
+  --ro-bind /usr /usr --symlink usr/bin /bin --symlink usr/lib /lib --symlink usr/lib64 /lib64 \
+  --symlink usr/sbin /sbin --ro-bind /etc /etc \
+  --ro-bind-try /run/systemd/resolve /run/systemd/resolve \
+  --ro-bind-try /sys/devices/system/cpu/possible /sys/devices/system/cpu/possible \
+  --ro-bind-try /sys/devices/system/cpu/online /sys/devices/system/cpu/online \
+  --proc /proc --dev /dev --tmpfs /tmp --tmpfs /var/tmp \
+  --ro-bind "$node" "$node" \
+  --tmpfs "$user_home" \
+  --perms 0700 --dir "$user_home/.hypomnema" --perms 0600 --file 4 "$user_home/.hypomnema/client.json" \
+  --ro-bind-try "$user_home/.agents/skills" "$user_home/.agents/skills" \
+  --ro-bind-try "$home/tools" "$home/tools" \
+  --ro-bind-try "$home/skills" "$home/skills" \
+  --ro-bind "$run" "$run" \
+  --bind "$dir" "$dir" \
+  --chdir "$dir" \
+  -- "$run/$name" < /dev/null 3<&- 4<<CLIENT &
+{"url": "$url", "token": "$token"}
+CLIENT
 script=$!
 
 (
@@ -86,5 +158,5 @@ set +e
 wait "$script"
 code=$?
 kill "$watcher" 2> /dev/null
-rm -f "$key"
+rm -rf "$run"
 exit "$code"

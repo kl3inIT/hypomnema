@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/routines"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
@@ -60,11 +61,14 @@ type script struct {
 	mu    sync.Mutex
 	calls [][]string
 	next  []answer
+	// tokens are the tokens it was given, one a run.
+	tokens []string
 }
 
-func (s *script) exec(ctx context.Context, argv []string) (string, int, error) {
+func (s *script) exec(ctx context.Context, argv []string, token string) (string, int, error) {
 	s.mu.Lock()
 	s.calls = append(s.calls, argv)
+	s.tokens = append(s.tokens, token)
 
 	var do answer
 	if len(s.next) > 0 {
@@ -158,6 +162,8 @@ type world struct {
 	pi     *pi
 	lark   *lark
 	runner *routines.Runner
+	// tokens makes each script run's token; nil gives none.
+	tokens routines.Tokens
 	// waits are the times the runner waited between overdue Routines.
 	waits []time.Duration
 }
@@ -185,7 +191,7 @@ func newWorld(t *testing.T) *world {
 
 func (w *world) runnerWith(command ...string) *routines.Runner {
 	return routines.New(w.svc, routines.Config{
-		Command: command, Coordinator: w.pi, Owner: w.lark, Now: w.clock.Now, Exec: w.script.exec,
+		Command: command, Coordinator: w.pi, Owner: w.lark, Now: w.clock.Now, Exec: w.script.exec, Tokens: w.tokens,
 		After: func(d time.Duration) <-chan time.Time {
 			w.waits = append(w.waits, d)
 
@@ -430,6 +436,76 @@ func TestAScriptRunFailsWhereNoCommandIsSet(t *testing.T) {
 	failed := w.ended(sync.ID, 1, orchestration.RunFailed)
 	assert.Contains(t, failed.Error, "HYPOMNEMA_ROUTINE_COMMAND")
 	assert.Empty(t, w.script.ran())
+}
+
+// runTokens makes a script run's token under the coordinator token named
+// pi-coordinator, as the control plane does.
+type runTokens struct{ svc *orchestration.Service }
+
+func (r runTokens) AddRoutineToken(ctx context.Context, routineID string) (string, error) {
+	return r.svc.AddRoutineToken(ctx, "pi-coordinator", routineID)
+}
+
+func (r runTokens) RevokeBotToken(secret string) { r.svc.RevokeBotToken(secret) }
+
+// Scenario: a script runs with a token of its own (issue #211, after issue
+// #260), given to the launcher first on its input. While the script runs,
+// the token is its Bot's and its Routine's, in no chat; when the run ends,
+// so does the token. Without a working coordinator token no token is made
+// and the script does not run.
+func TestAScriptRunHasATokenOfItsOwnThatEndsWithIt(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	_, _, err := w.svc.AddToken(ctx, "pi-coordinator", bearertoken.Coordinator)
+	require.NoError(t, err)
+
+	w.tokens = runTokens{svc: w.svc}
+	w.runner = w.runnerWith("hypomnema-routine")
+	sync := w.hourly("sync", w.chat())
+
+	seen := make(chan orchestration.Token, 1)
+
+	w.script.then(func(ctx context.Context) (string, int, error) {
+		w.script.mu.Lock()
+		token := w.script.tokens[len(w.script.tokens)-1]
+		w.script.mu.Unlock()
+
+		during, err := w.svc.AuthenticateToken(ctx, token)
+		seen <- during
+
+		return "", 0, err
+	})
+
+	_, err = w.runner.RunNow(ctx, sync.ID)
+	require.NoError(t, err)
+	w.ended(sync.ID, 1, orchestration.RunSucceeded)
+
+	during := <-seen
+	assert.Equal(t, bearertoken.Bot, during.Kind)
+	assert.Equal(t, orchestration.DefaultBot, during.Bot)
+	assert.Equal(t, sync.ID, during.Routine)
+	assert.Empty(t, during.Chat, "a script answers no chat")
+
+	w.script.mu.Lock()
+	given := w.script.tokens[0]
+	w.script.mu.Unlock()
+
+	_, err = w.svc.AuthenticateToken(ctx, given)
+	require.ErrorIs(t, err, orchestration.ErrNotFound, "the token ends with its run")
+
+	tokens, err := w.svc.ListTokens(ctx)
+	require.NoError(t, err)
+	require.NoError(t, w.svc.RevokeToken(ctx, tokens[0].ID))
+
+	_, err = w.runner.RunNow(ctx, sync.ID)
+	require.NoError(t, err)
+
+	failed := w.ended(sync.ID, 2, orchestration.RunFailed)
+	assert.Contains(t, failed.Error, "making the run's token failed")
+	assert.Len(t, w.script.ran(), 1, "no script runs without its token")
 }
 
 // Scenario: a script's request needs the owner. The call waits where it is

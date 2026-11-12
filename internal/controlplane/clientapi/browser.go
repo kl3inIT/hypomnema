@@ -150,7 +150,8 @@ func (s *Server) browserTab(ctx context.Context, t shared.Tab) openapi.BrowserTa
 	switch {
 	case t.ID == shared.OwnerTab:
 		tab.Kind = openapi.BrowserTabKindOwner
-	case strings.HasPrefix(t.ID, "c-"):
+	// A coordinator token's tab, or a chat's pi's (issue #260).
+	case strings.HasPrefix(t.ID, "c-"), strings.HasPrefix(t.ID, "b-"):
 		tab.Kind = openapi.BrowserTabKindCoordinator
 	case strings.HasPrefix(t.ID, "d-"):
 		tab.Kind = openapi.BrowserTabKindWorker

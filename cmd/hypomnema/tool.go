@@ -20,7 +20,8 @@ import (
 //	hypomnema tool <name> [args...]      run a tool with a fresh token, as the logged-in agent
 //
 // The second form is what the script named after a tool runs. The agent's
-// credential is the token `hypomnema login` saved: the coordinator's.
+// credential is the token of the client configuration: in pi's box, pi's own
+// token, bound to its chat (issue #260).
 func tool(ctx context.Context, args []string, stdout io.Writer) error {
 	if len(args) == 0 {
 		return fmt.Errorf("%w: tool install --dir DIR | tool <name> [args...]", errUsage)

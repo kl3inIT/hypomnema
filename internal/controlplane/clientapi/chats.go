@@ -182,15 +182,15 @@ func (s *Server) AbortChat(ctx context.Context, req openapi.AbortChatRequestObje
 // with (issue #204). The supervisor holds it for as long as that pi runs;
 // Omnigent's pi asks the process that started it in the same way.
 //
-// Only pi's own token gets it. A chat's id is no secret: a Run records the
-// chat it was made in, and every token reads Runs, so another coordinator
-// could otherwise take pi's key. The owner is refused too: the owner makes
-// keys of their own.
+// Only the token of that chat's pi gets it (issue #260). A chat's id is no
+// secret: a Run records the chat it was made in, and every token reads Runs,
+// so a coordinator or another chat's pi could otherwise take this pi's key.
+// The owner is refused too: the owner makes keys of their own.
 func (s *Server) GetChatGatewayKey(ctx context.Context, req openapi.GetChatGatewayKeyRequestObject,
 ) (openapi.GetChatGatewayKeyResponseObject, error) {
 	tok := principal(ctx)
-	if s.chatKeyReader == "" || tok.Kind != bearertoken.Coordinator || tok.Name != s.chatKeyReader {
-		return nil, fmt.Errorf("%w: only pi's own token reads the gateway key of a chat's pi", errForbidden)
+	if tok.Kind != bearertoken.Bot || tok.Chat != req.ChatId {
+		return nil, fmt.Errorf("%w: only the token of the chat's own pi reads its gateway key", errForbidden)
 	}
 
 	if s.coordinator == nil {

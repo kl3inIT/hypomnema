@@ -138,8 +138,8 @@ type Routine struct {
 	Kind RoutineKind
 	// Prompt is what a prompt Routine gives its Bot.
 	Prompt string
-	// Script is the file a script Routine runs, under the Bot's routines/
-	// directory; ScriptText what the file holds.
+	// Script is the name of the file a script Routine runs, never a path;
+	// ScriptText what the file holds, written for each run.
 	Script     string
 	ScriptText string
 	// EveryMinutes, or Cron with Timezone, is the schedule.

@@ -25,6 +25,13 @@ type Token struct {
 	Kind      bearertoken.Kind
 	CreatedAt time.Time
 	RevokedAt *time.Time
+	// Chat and Bot are what a Bot token (bearertoken.Bot) is bound to: the
+	// chat its pi runs for and the Bot it runs as. Empty for other kinds.
+	Chat string
+	Bot  string
+	// Routine is the Routine whose script's run a Bot token is made for
+	// (issue #211); such a token has no chat. Empty for a pi's.
+	Routine string
 }
 
 // AddToken records a client token and returns it with its secret, which is
@@ -112,6 +119,10 @@ func (s *Service) AuthenticateToken(ctx context.Context, secret string) (Token, 
 	kind, err := bearertoken.Parse(secret)
 	if err != nil {
 		return Token{}, fmt.Errorf("%w: %w", ErrNotFound, err)
+	}
+
+	if kind == bearertoken.Bot {
+		return s.authenticateBotToken(ctx, secret)
 	}
 
 	row, err := s.read().GetClientTokenByHash(ctx, bearertoken.Hash(secret))

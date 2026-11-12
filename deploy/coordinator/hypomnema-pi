@@ -1,13 +1,37 @@
 #!/bin/sh
-# Starts pi for one chat with a Bot (issue #41, PR 3; Bots: issue #169). Installed root-owned as
-# /usr/local/bin/hypomnema-pi; the control plane's user runs it as the coordinator user through one sudoers rule
-# limited to this file. It accepts only a chat id, a Bot's name and the model flags the control plane adds, and gives
-# pi a clean environment, as Omnigent's _clean_pi_env does: no variable of the caller reaches pi.
+# Starts pi for one chat with a Bot, in a box of its own (issue #41, PR 3; Bots: issue #169; the box: issue #260).
+# Installed root-owned as /usr/local/bin/hypomnema-pi; the control plane's user runs it as the coordinator user
+# through one sudoers rule limited to this file. It accepts only a chat id, a Bot's name and the model flags the
+# control plane adds, and gives pi a clean environment, as Omnigent's _clean_pi_env does: no variable of the caller
+# reaches pi.
+#
+# The first line of its stdin is pi's own token (issue #260), which the control plane made for this pi, bound to the
+# chat and the Bot, and ends when pi ends; the rest of stdin is pi's. pi runs in a bubblewrap box, as every turn of
+# OpenMausBot does (docs/bot-box.md) and as Codex's linux-sandbox runs commands: its own PID namespace, the system
+# and pi's code read-only, and of the coordinator's home only the Bot's directory, the chat's sessions and what pi
+# reads. Other Bots' directories, other chats' sessions and the shared token are not in it. The network is the
+# host's (OpenMausBot's `net: "shared"`; owner, 2026-11-12). Without a working bubblewrap pi does not start: it never
+# runs outside its box (OpenMausBot server/bot-box/detect.ts).
 set -eu
 umask 077
 
+# Where things are. The test of the box (internal/controlplane/coordinator/box_linux_test.go) runs this file with
+# these lines changed to a directory of its own.
+user_home=/home/coordinator
+hypomnema=/usr/local/bin/hypomnema
+node=/opt/hypomnema-node
+bwrap=/usr/bin/bwrap
+
+home="$user_home/.hypomnema-coordinator"
+
+fail() {
+  echo "hypomnema-pi: $*" >&2
+  exit 1
+}
+
 usage() {
-  echo "usage: hypomnema-pi <chat id> [--bot B] [--group] [--provider P] [--model M] [--thinking T]" >&2
+  echo "usage: hypomnema-pi <chat id> --bot B [--group] [--provider P] [--model M] [--thinking T]" \
+    "(pi's token on stdin)" >&2
   exit 2
 }
 
@@ -62,67 +86,134 @@ while [ "$left" -gt 0 ]; do
   esac
 done
 [ "$expect" = flag ] || usage
+[ -n "$bot" ] || usage
 
-home=/home/coordinator/.hypomnema-coordinator
-dir="$home/work"
+# pi's token, before anything else reads stdin: a secret given on stdin, never on a command line or in the
+# environment (`gh auth login --with-token`). The shell reads it a byte at a time, so pi's commands stay for pi.
+token=""
+IFS= read -r token || true
+case "$token" in
+  hyp_bot_v1_*) ;;
+  *) fail "the first line of stdin is not pi's token; pi does not start without one" ;;
+esac
+case "$token" in
+  *[!A-Za-z0-9_]*) fail "the first line of stdin is not pi's token; pi does not start without one" ;;
+esac
+
+[ -x "$bwrap" ] || fail "bubblewrap is not installed (setup-coordinator.sh installs it); pi runs only in its box"
 
 # A Bot has its own directory, as an agent of OpenClaw, a profile of Hermes and a bot of OpenMausBot have: pi works
 # there, and what the Bot installs for itself (.pi/) stays its own. The first Bot keeps the directory pi always
-# worked in, so the chats it has go on.
-if [ -n "$bot" ]; then
-  mkdir -p "$home/bots"
-  dir="$home/bots/$bot"
-  if [ "$bot" = coordinator ] && [ ! -e "$dir" ]; then
-    ln -s ../work "$dir"
-  fi
-  mkdir -p "$dir"
-
-  # The Bot's persona and memory, read with pi's own token and given to pi after its built-in instructions. They
-  # are read here, once per pi process (Hermes gives its memory once per session). Without them pi would answer as
-  # another Bot, so pi does not start. A Lark group's chat gets the persona without the memory, and is told who
-  # writes there (OpenClaw leaves MEMORY.md out of a group session's prompt).
-  prompt="$home/bots/.prompt-$chat"
-  if ! HOME=/home/coordinator /usr/local/bin/hypomnema bots prompt $group "$bot" > "$prompt"; then
-    rm -f "$prompt"
-    echo "hypomnema-pi: reading bot $bot failed" >&2
-    exit 1
-  fi
-  set -- "$@" --append-system-prompt "$prompt"
-
-  # The skills the Bot gets (issue #21), each at its newest revision, put in a folder of the Bot's own and given to
-  # pi with --skill, which pi loads without asking for the project's trust as it would for .pi/skills. A skill the
-  # Bot no longer gets is taken out of the folder. Without them pi would lack what the owner gave the Bot, so pi does
-  # not start.
-  skills="$dir/.hypomnema/skills"
-  if ! HOME=/home/coordinator /usr/local/bin/hypomnema skills sync --bot "$bot" --dir "$skills" > /dev/null; then
-    echo "hypomnema-pi: putting bot $bot's skills in place failed" >&2
-    exit 1
-  fi
-  set -- "$@" --skill "$skills"
+# worked in, so the chats it has go on. The box binds the directory's real path, the one pi recorded in its sessions.
+mkdir -p "$home/bots" "$home/run" "$home/sessions"
+dir="$home/bots/$bot"
+if [ "$bot" = coordinator ] && [ ! -e "$dir" ]; then
+  ln -s ../work "$dir"
 fi
+mkdir -p "$dir"
+dir=$(cd "$dir" && pwd -P)
 
-# pi's models.json is written here, as pi starts (issue #204): the providers that are the model gateway and their
-# models, as the control plane lists them now, so a Bot given another model needs nothing changed on this machine.
-# Omnigent writes one for each of its pi sessions. The file holds no key: its apiKey is a command, `hypomnema
-# model-key`, which pi runs at each request and which asks the control plane for the key made for this chat's pi.
-# It is written beside the file and moved over it, so a pi of another chat never reads half of one. Without it pi
-# would start with models of another day, so pi does not start.
-models="$home/agent/models.json"
-if ! HOME=/home/coordinator /usr/local/bin/hypomnema pi-models > "$models.$$"; then
+# What is made for this chat's pi, outside the box, and given to it read-only: its prompt, its skills and its
+# models.json.
+run="$home/run/$chat"
+mkdir -p "$run"
+# Before issue #260 the prompt was kept beside the Bots' directories.
+rm -f "$home/bots/.prompt-$chat"
+
+# The Bot's persona and memory, read with the coordinator's token and given to pi after its built-in instructions.
+# They are read here, once per pi process (Hermes gives its memory once per session). Without them pi would answer as
+# another Bot, so pi does not start. A Lark group's chat (--group, issue #246) gets the persona without the memory,
+# and is told who writes there (OpenClaw leaves MEMORY.md out of a group session's prompt). It runs in the same box
+# with its own token as any other chat. No command here reads stdin: it is pi's.
+prompt="$run/prompt.md"
+# shellcheck disable=SC2086 # $group is --group or nothing.
+if ! HOME="$user_home" "$hypomnema" bots prompt $group "$bot" > "$prompt" < /dev/null; then
+  rm -f "$prompt"
+  fail "reading bot $bot failed"
+fi
+set -- "$@" --append-system-prompt "$prompt"
+
+# The skills the Bot gets (issue #21), each at its newest revision, put in this chat's folder and given to pi with
+# --skill, which pi loads without asking for the project's trust as it would for .pi/skills. A skill the Bot no
+# longer gets is taken out of the folder. The folder is outside the Bot's directory, which pi writes: a link pi
+# left there would send what this launcher writes, outside the box, somewhere else (issue #260); in the box it is
+# read-only. Without them pi would lack what the owner gave the Bot, so pi does not start.
+skills="$run/skills"
+if ! HOME="$user_home" "$hypomnema" skills sync --bot "$bot" --dir "$skills" > /dev/null < /dev/null; then
+  fail "putting bot $bot's skills in place failed"
+fi
+set -- "$@" --skill "$skills"
+
+# pi's models.json is written as pi starts (issue #204): the providers that are the model gateway and their models,
+# as the control plane lists them now, so a Bot given another model needs nothing changed on this machine. Omnigent
+# writes one for each of its pi sessions; each chat's pi has its own (issue #260), bound over the one in pi's agent
+# directory. The file holds no key: its apiKey is a command, `hypomnema model-key`, which pi runs at each request
+# and which asks the control plane, with pi's token, for the key made for this pi. Without it pi would start with
+# models of another day, so pi does not start.
+models="$run/models.json"
+if ! HOME="$user_home" "$hypomnema" pi-models > "$models.$$" < /dev/null; then
   rm -f "$models.$$"
-  echo "hypomnema-pi: reading pi's models failed" >&2
-  exit 1
+  fail "reading pi's models failed"
 fi
 mv -f "$models.$$" "$models"
 
-cd "$dir"
+# The chat's sessions have a directory of their own, the only one of pi's sessions in the box. pi names a session
+# file <time>_<session id>.jsonl (session-manager.ts); one kept with the others before issue #260 is moved in.
+sessions="$home/sessions/$chat"
+mkdir -p "$sessions"
+for kept in "$home/sessions/"*"_$chat.jsonl"; do
+  name=${kept##*/}
+  if [ -f "$kept" ] && [ ! -e "$sessions/$name" ]; then
+    mv "$kept" "$sessions/$name"
+  fi
+done
 
-# The tools of the integrations (gws for Google) are first on pi's PATH as scripts that run them through
-# `hypomnema tool` with pi's own coordinator token (issue #103). A tool whose integration goes through the service
-# proxy holds no token; HYPOMNEMA_CHAT_ID says which chat an approval it needs is shown in (issue #154).
-# HYPOMNEMA_BOT says which Bot's memory `hypomnema memory` changes.
+# The control plane's address, from the coordinator's own login; pi's client.json in the box has it with pi's token.
+url=$(sed -n 's/^ *"url": *"\([^"]*\)".*$/\1/p' "$user_home/.hypomnema/client.json")
+case "$url" in
+  http://* | https://*) ;;
+  *) fail "the coordinator is not logged in to the control plane (setup-coordinator.sh logs it in)" ;;
+esac
+case "$url" in
+  *[!A-Za-z0-9.:/_-]*) fail "the control plane's address in the coordinator's login is not a plain URL" ;;
+esac
+
+# The box. Its own PID, IPC and UTS namespaces, ended with the launcher (OpenMausBot's plan.ts options). Read-only:
+# the system (/usr, with merged /bin, /lib, /lib64 and /sbin, and /etc), the resolver Ubuntu's /etc/resolv.conf
+# links to, the CPU list Node reads, Node, pi, the integrations' tools and their guides, the skills every Bot gets
+# (~/.agents/skills), and this pi's prompt and models.json. A private /tmp, /var/tmp, /proc and /dev, and an empty
+# home, in which ~/.hypomnema/client.json holds pi's own token. pi's agent directory is private too: pi locks
+# auth.json and models-store.json there as it reads them (auth-storage.ts), so it cannot be read-only; the shared
+# instructions (AGENTS.md), the tools pi fetched (bin/) and this pi's models.json are bound in read-only. Read-write:
+# the Bot's directory and the chat's sessions. The hint variables say which chat and Bot this is; the token decides.
+agent="$home/agent"
 exec env -i \
-  HOME=/home/coordinator USER=coordinator LOGNAME=coordinator LANG=C.UTF-8 TERM=dumb \
-  PATH="$home/tools/bin:/opt/hypomnema-node/bin:$home/pi/node_modules/.bin:/usr/local/bin:/usr/bin:/bin" \
-  PI_CODING_AGENT_DIR="$home/agent" HYPOMNEMA_CHAT_ID="$chat" HYPOMNEMA_BOT="$bot" HYPOMNEMA_TOOLS_HOME="$home" \
-  pi --mode rpc --session-dir "$home/sessions" --session-id "$chat" "$@"
+  HOME="$user_home" USER=coordinator LOGNAME=coordinator LANG=C.UTF-8 TERM=dumb \
+  PATH="$home/tools/bin:$node/bin:$home/pi/node_modules/.bin:/usr/local/bin:/usr/bin:/bin" \
+  PI_CODING_AGENT_DIR="$agent" HYPOMNEMA_CHAT_ID="$chat" HYPOMNEMA_BOT="$bot" HYPOMNEMA_TOOLS_HOME="$home" \
+  "$bwrap" \
+  --unshare-user --unshare-pid --unshare-ipc --unshare-uts --unshare-cgroup-try --die-with-parent \
+  --ro-bind /usr /usr --symlink usr/bin /bin --symlink usr/lib /lib --symlink usr/lib64 /lib64 \
+  --symlink usr/sbin /sbin --ro-bind /etc /etc \
+  --ro-bind-try /run/systemd/resolve /run/systemd/resolve \
+  --ro-bind-try /sys/devices/system/cpu/possible /sys/devices/system/cpu/possible \
+  --ro-bind-try /sys/devices/system/cpu/online /sys/devices/system/cpu/online \
+  --proc /proc --dev /dev --tmpfs /tmp --tmpfs /var/tmp \
+  --ro-bind "$node" "$node" \
+  --tmpfs "$user_home" \
+  --perms 0700 --dir "$user_home/.hypomnema" --perms 0600 --file 3 "$user_home/.hypomnema/client.json" \
+  --ro-bind-try "$user_home/.agents/skills" "$user_home/.agents/skills" \
+  --ro-bind "$home/pi" "$home/pi" \
+  --ro-bind-try "$home/tools" "$home/tools" \
+  --ro-bind-try "$home/skills" "$home/skills" \
+  --tmpfs "$agent" \
+  --ro-bind-try "$agent/AGENTS.md" "$agent/AGENTS.md" \
+  --ro-bind-try "$agent/bin" "$agent/bin" \
+  --ro-bind "$models" "$agent/models.json" \
+  --ro-bind "$run" "$run" \
+  --bind "$dir" "$dir" \
+  --bind "$sessions" "$sessions" \
+  --chdir "$dir" \
+  -- pi --mode rpc --session-dir "$sessions" --session-id "$chat" "$@" 3<<CLIENT
+{"url": "$url", "token": "$token"}
+CLIENT

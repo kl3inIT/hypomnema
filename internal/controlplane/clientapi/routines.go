@@ -12,8 +12,8 @@ import (
 )
 
 // Routines (issue #211): work a Bot does on a schedule. Every token reads
-// them. The owner makes, changes, pauses, runs and removes one; a Bot, which
-// holds a coordinator's token, makes or changes one from a chat it talks in
+// them. The owner makes, changes, pauses, runs and removes one; a Bot, with
+// its pi's token (issue #260), makes or changes one of its own from its chat
 // and runs it once, as OpenMausBot's bot does through its tool and applies
 // at once (server/routine-requests.ts L962-966). Pausing, removing, undoing
 // a Bot's change and taking a grant back are the owner's (policy.go).
@@ -130,16 +130,27 @@ func (s *Server) GetRoutine(ctx context.Context, req openapi.GetRoutineRequestOb
 func (s *Server) PutRoutine(ctx context.Context, req openapi.PutRoutineRequestObject,
 ) (openapi.PutRoutineResponseObject, error) {
 	b := req.Body
+	tok := principal(ctx)
+
+	// A pi's token makes the Routines of its own Bot, from its own chat.
+	if err := botAllowed(tok, req.Name); err != nil {
+		return nil, err
+	}
+
+	chat, err := chatOf(tok, val(b.ChatId))
+	if err != nil {
+		return nil, err
+	}
 
 	r, err := s.svc.PutRoutine(ctx, orchestration.RoutineSpec{
 		Bot: req.Name, Name: req.Routine, Kind: orchestration.RoutineKind(b.Kind), Prompt: val(b.Prompt),
 		Script: val(b.Script), ScriptText: val(b.ScriptText), EveryMinutes: val(b.EveryMinutes), Cron: val(b.Cron),
 		Timezone: val(b.Timezone), TimeoutSeconds: val(b.TimeoutSeconds), Summary: val(b.Summary),
-		ChatID: val(b.ChatId),
+		ChatID: chat,
 		// A run's result goes to the chat the Routine was made in unless the owner chose none.
 		Announce: b.Announce == nil || *b.Announce,
 	}, orchestration.RoutineAuthor{
-		Bot: principal(ctx).Kind != bearertoken.Owner, FromRun: val(b.FromRoutine) != "",
+		Bot: tok.Kind != bearertoken.Owner, FromRun: val(b.FromRoutine) != "" || tok.Routine != "",
 	})
 	if err != nil {
 		return nil, err
@@ -181,6 +192,13 @@ func (s *Server) UndoRoutine(ctx context.Context, req openapi.UndoRoutineRequest
 // runs and the run's key, once a run.
 func (s *Server) LaunchRoutineScript(ctx context.Context, req openapi.LaunchRoutineScriptRequestObject,
 ) (openapi.LaunchRoutineScriptResponseObject, error) {
+	// The launcher asks outside the box, with the coordinator's own token. A token of a box, a pi's or a
+	// script's, is refused: a run's key would let it ask as that run (issue #260).
+	if principal(ctx).Kind != bearertoken.Coordinator {
+		return nil, fmt.Errorf("%w: only the launcher, with the coordinator's token, starts a routine's script",
+			errForbidden)
+	}
+
 	launch, err := s.svc.ClaimRoutineScript(ctx, req.RoutineId, req.Body.Bot)
 	if err != nil {
 		return nil, err
@@ -278,6 +296,22 @@ func (s *Server) PreviewRoutineSchedule(_ context.Context, req openapi.PreviewRo
 // RunRoutine runs a Routine now.
 func (s *Server) RunRoutine(ctx context.Context, req openapi.RunRoutineRequestObject,
 ) (openapi.RunRoutineResponseObject, error) {
+	tok := principal(ctx)
+	if tok.Routine != "" {
+		return nil, fmt.Errorf("%w: a routine's run starts no routines", errForbidden)
+	}
+
+	if tok.Kind == bearertoken.Bot {
+		r, err := s.svc.GetRoutine(ctx, req.RoutineId)
+		if err != nil {
+			return nil, err
+		}
+
+		if err := botAllowed(tok, r.Bot); err != nil {
+			return nil, err
+		}
+	}
+
 	if s.routines == nil {
 		return nil, errNoRoutines
 	}

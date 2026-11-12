@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os/exec"
 	"strings"
@@ -76,10 +77,22 @@ type Owner interface {
 	TellOwner(ctx context.Context, bot, chatID, title, text string)
 }
 
-// Exec runs a command until it ends, or until ctx ends, which stops it. It
-// returns what the command printed, its exit code, and an error when it
+// Exec runs a command until it ends, or until ctx ends, which stops it,
+// with the run's token, when there is one, as the first line of its input.
+// It returns what the command printed, its exit code, and an error when it
 // could not be run at all.
-type Exec func(ctx context.Context, argv []string) (output string, exitCode int, err error)
+type Exec func(ctx context.Context, argv []string, token string) (output string, exitCode int, err error)
+
+// Tokens makes and ends the token of one script run (issue #260's token per
+// pi, for a Routine's script: #211's comment of 2026-11-12). The launcher
+// reads it as the first line of its input and gives it to the script in its
+// box, so what the script asks the control plane is limited to its Bot.
+type Tokens interface {
+	// AddRoutineToken returns a new token's secret.
+	AddRoutineToken(ctx context.Context, routineID string) (string, error)
+	// RevokeBotToken stops it from working.
+	RevokeBotToken(secret string)
+}
 
 // Config is what a Runner is made of.
 type Config struct {
@@ -89,6 +102,9 @@ type Config struct {
 	Command []string
 	// Coordinator answers chats; nil when none runs.
 	Coordinator Coordinator
+	// Tokens makes each script run's token; nil gives the launcher none, and
+	// the launcher then runs no script.
+	Tokens Tokens
 	// Owner tells the owner of repeated failures; nil tells nobody there.
 	Owner  Owner
 	Logger *slog.Logger
@@ -136,9 +152,9 @@ func New(store Store, cfg Config) *Runner {
 
 // run is the real Exec. The launcher is not signaled: it runs as another
 // user, whom the control plane's user cannot signal. It is given a pipe as
-// its standard input and ends its script when the pipe closes, as pi is
-// stopped by closing its input.
-func run(ctx context.Context, argv []string) (string, int, error) {
+// its standard input, the token first on it, and ends its script when the
+// pipe closes, as pi is stopped by closing its input.
+func run(ctx context.Context, argv []string, token string) (string, int, error) {
 	//nolint:gosec // The owner's configured command, with a Bot's name and a Routine's id the control plane made.
 	// It is ended by closing its input, below, not by the context.
 	cmd := exec.CommandContext(context.WithoutCancel(ctx), argv[0], argv[1:]...)
@@ -155,6 +171,16 @@ func run(ctx context.Context, argv []string) (string, int, error) {
 
 	if err := cmd.Start(); err != nil {
 		return "", 0, err
+	}
+
+	// A secret given on stdin, never on a command line: sudo passes no environment (coordinator/proc.go).
+	if token != "" {
+		if _, err := io.WriteString(stdin, token+"\n"); err != nil {
+			_ = stdin.Close()
+			_ = cmd.Wait()
+
+			return out.String(), 0, fmt.Errorf("giving the launcher the run's token: %w", err)
+		}
 	}
 
 	done := make(chan error, 1)
@@ -413,8 +439,26 @@ func (r *Runner) runScript(ctx context.Context, s orchestration.StartedRun) {
 		return
 	}
 
+	// The run's own token, which ends with the run.
+	var token string
+
+	if r.cfg.Tokens != nil {
+		var err error
+
+		token, err = r.cfg.Tokens.AddRoutineToken(record, s.Routine.ID)
+		if err != nil {
+			r.finish(record, s.Run.ID, orchestration.RunResult{
+				State: orchestration.RunFailed, Error: "making the run's token failed: " + err.Error(),
+			})
+
+			return
+		}
+
+		defer r.cfg.Tokens.RevokeBotToken(token)
+	}
+
 	argv := append(append([]string{}, r.cfg.Command...), s.Routine.Bot, s.Routine.ID)
-	output, code, err := r.cfg.Exec(ctx, argv)
+	output, code, err := r.cfg.Exec(ctx, argv, token)
 
 	result := orchestration.RunResult{State: orchestration.RunSucceeded, ExitCode: &code, Output: output}
 

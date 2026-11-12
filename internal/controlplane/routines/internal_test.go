@@ -42,6 +42,7 @@ func TestWhichFailuresPass(t *testing.T) {
 // The launcher is stopped by closing its input, not by a signal: a command
 // that reads its input to the end and then exits is ended by stopping it,
 // with its own exit code; one that ends by itself gives its output and code.
+// The run's token is the first line of its input.
 func TestACommandIsStoppedByClosingItsInput(t *testing.T) {
 	t.Parallel()
 
@@ -50,17 +51,21 @@ func TestACommandIsStoppedByClosingItsInput(t *testing.T) {
 		t.Skip("no sh on this machine")
 	}
 
-	out, code, err := run(t.Context(), []string{sh, "-c", "echo 3 rows written; echo warned >&2; exit 3"})
+	out, code, err := run(t.Context(), []string{sh, "-c", "echo 3 rows written; echo warned >&2; exit 3"}, "")
 	require.NoError(t, err)
 	assert.Equal(t, 3, code)
 	assert.Contains(t, out, "3 rows written")
 	assert.Contains(t, out, "warned", "what it printed as errors is kept with the rest")
 
+	out, _, err = run(t.Context(), []string{sh, "-c", "IFS= read -r token; echo \"token=$token\""}, "hyp_bot_v1_run")
+	require.NoError(t, err)
+	assert.Equal(t, "token=hyp_bot_v1_run\n", out)
+
 	ctx, stop := context.WithCancel(t.Context())
 	done := make(chan int, 1)
 
 	go func() {
-		_, code, _ := run(ctx, []string{sh, "-c", "cat > /dev/null; exit 7"})
+		_, code, _ := run(ctx, []string{sh, "-c", "cat > /dev/null; exit 7"}, "")
 		done <- code
 	}()
 
@@ -79,6 +84,6 @@ func TestACommandIsStoppedByClosingItsInput(t *testing.T) {
 		require.Fail(t, "closing its input did not end the command")
 	}
 
-	_, _, err = run(t.Context(), []string{"/no/such/launcher"})
+	_, _, err = run(t.Context(), []string{"/no/such/launcher"}, "hyp_bot_v1_run")
 	require.Error(t, err, "a command that cannot be started is an error, not an exit code")
 }

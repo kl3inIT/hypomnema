@@ -636,6 +636,43 @@ func TestARunsRequestNobodyAnswersIsRefused(t *testing.T) {
 	assert.Contains(t, w.logs.String(), "verdict=expired")
 }
 
+// Scenario: a pi calls with its own token, bound to its chat (issue #260).
+// The Approval a send needs is shown in that chat though the tool names
+// none, and a tool that names another chat is refused before anything
+// reaches the service.
+func TestAPisTokenAsksInItsOwnChatOnly(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t, time.Minute)
+	ctx := t.Context()
+
+	secret, err := w.svc.AddBotToken(ctx, "pi", w.chat, orchestration.DefaultBot)
+	require.NoError(t, err)
+
+	other, err := w.svc.CreateChat(ctx, "", "Another chat")
+	require.NoError(t, err)
+
+	_, refused := w.open(secret, "work", "gmail.googleapis.com", other.ID)
+	assert.Equal(t, http.StatusForbidden, refused, "a pi's token names no chat but its own")
+
+	gmail, refused := w.open(secret, "work", "gmail.googleapis.com", "")
+	require.Zero(t, refused)
+
+	contentType, body := mail("minh@example.com", "Re: October invoice", "Received.", 1)
+
+	answered := make(chan answer, 1)
+	go func() { answered <- gmail.do(http.MethodPost, sendPath, contentType, body) }()
+
+	asked := w.pending()
+	assert.Equal(t, w.chat, asked.ChatID, "the chat comes from the token")
+	assert.Equal(t, "pi", asked.AskedBy)
+
+	_, err = w.proxy.Decide(ctx, asked.ID, false, "")
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, (<-answered).Status)
+	assert.Empty(t, w.service.received())
+}
+
 // Scenario: the owner's answers for an account's actions. Set to never,
 // sending is refused at once and asks nobody. Set to ask, a draft, which runs
 // on its own by default, waits. A request to the service that is none of the

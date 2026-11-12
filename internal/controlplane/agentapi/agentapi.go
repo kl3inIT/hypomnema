@@ -103,6 +103,8 @@ type agent struct {
 	dispatchID  string
 	coordinator bool
 	owner       bool
+	// chatID is the chat a pi's own token is bound to.
+	chatID string
 	// key names the agent's own tab in the shared browser: a worker's is its
 	// Dispatch's, so a new Dispatch starts on a new tab.
 	key string
@@ -122,7 +124,8 @@ func (s *Server) authenticate(r *http.Request) (agent, error) {
 		return agent{}, errNoCredential
 	}
 
-	if kind != bearertoken.Session && kind != bearertoken.Owner && kind != bearertoken.Coordinator {
+	if kind != bearertoken.Session && kind != bearertoken.Owner && kind != bearertoken.Coordinator &&
+		kind != bearertoken.Bot {
 		return agent{}, errNoCredential
 	}
 
@@ -160,6 +163,22 @@ func (s *Server) authenticate(r *http.Request) (agent, error) {
 			name: "coordinator token " + token.ID, coordinator: true, key: "c-" + token.ID,
 			may: func(c orchestration.Connection) bool { return c.Chats },
 		}, nil
+	case bearertoken.Bot:
+		// A Routine's script's token (issue #211) is bound to its Bot and no chat: its tab is its Routine's.
+		if token.Routine != "" {
+			return agent{
+				name: fmt.Sprintf("bot %s in routine %s", token.Bot, token.Routine), coordinator: true,
+				key: "r-" + token.Routine, may: func(c orchestration.Connection) bool { return c.Chats },
+			}, nil
+		}
+
+		// A pi's own token (issue #260): what the coordinator gets, and the chat it is bound to. Its ID is its
+		// coordinator token's, which every chat's pi shares, so its tab is its chat's: a chat has one Bot and
+		// one pi at a time, and the pi that follows goes on in the same tab.
+		return agent{
+			name: fmt.Sprintf("bot %s in chat %s", token.Bot, token.Chat), coordinator: true, chatID: token.Chat,
+			key: "b-" + token.Chat, may: func(c orchestration.Connection) bool { return c.Chats },
+		}, nil
 	default:
 		return agent{}, errNoCredential
 	}
@@ -173,7 +192,9 @@ func (s *Server) Caller(r *http.Request) (serviceproxy.Caller, error) {
 		return serviceproxy.Caller{}, err
 	}
 
-	return serviceproxy.Caller{Name: a.name, DispatchID: a.dispatchID, Coordinator: a.coordinator}, nil
+	return serviceproxy.Caller{
+		Name: a.name, DispatchID: a.dispatchID, Coordinator: a.coordinator, ChatID: a.chatID,
+	}, nil
 }
 
 // May reports whether the request's agent may use a Connection.

@@ -97,7 +97,8 @@ const (
 	// EnvTools is the directory the real tools are installed under.
 	EnvTools = "HYPOMNEMA_TOOLS_HOME"
 	// EnvChat is the chat a coordinator works in, so that what it asks the
-	// owner to approve is shown there.
+	// owner to approve is shown there. A pi's own token is bound to its chat
+	// and decides instead (issue #260).
 	EnvChat = "HYPOMNEMA_CHAT_ID"
 	// EnvRoutineRun names the file that holds the key of the Routine's run a
 	// script runs in, written by its launcher (issue #211): a request that

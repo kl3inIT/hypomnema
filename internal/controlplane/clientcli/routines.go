@@ -33,7 +33,7 @@ func routineFlags(fs *flag.FlagSet) {
 	fs.String("tz", "", "the IANA time zone of the cron expression, such as Asia/Ho_Chi_Minh")
 	fs.String("prompt-file", "", "a file with the prompt the bot works on at each run, or - for standard input")
 	fs.String("script-file", "", "a file with the script to run at each run with no model, or - for standard input")
-	fs.String("script", "", "the script's file name under the bot's routines directory (default: --script-file's name)")
+	fs.String("script", "", "the script's file name (default: --script-file's name)")
 	fs.Int("timeout", 0, "seconds a script may run (default 600)")
 	fs.String("summary", "", "what the work is, in one line")
 	fs.String("chat", "", "the chat the routine is made in: where its results and a failure are told")

@@ -50,11 +50,16 @@ func (s *Server) CreateRun(ctx context.Context, req openapi.CreateRunRequestObje
 ) (openapi.CreateRunResponseObject, error) {
 	tok := principal(ctx)
 
+	chat, err := chatOf(tok, val(req.Body.ChatId))
+	if err != nil {
+		return nil, err
+	}
+
 	nr := orchestration.NewRun{
 		Objective: req.Body.Objective, CreatedBy: tok.Name, Repo: val(req.Body.Repo), Base: val(req.Body.Base),
-		ChatID: val(req.Body.ChatId), Uses: val(req.Body.Uses),
+		ChatID: chat, Uses: val(req.Body.Uses),
 	}
-	if tok.Kind == bearertoken.Coordinator {
+	if tok.Kind == bearertoken.Coordinator || tok.Kind == bearertoken.Bot {
 		nr.CoordinatorTokenID = tok.ID
 	}
 
@@ -303,7 +308,7 @@ func (s *Server) GetQuestion(ctx context.Context, req openapi.GetQuestionRequest
 func (s *Server) AnswerQuestion(ctx context.Context, req openapi.AnswerQuestionRequestObject,
 ) (openapi.AnswerQuestionResponseObject, error) {
 	by := orchestration.AddressOwner
-	if principal(ctx).Kind == bearertoken.Coordinator {
+	if k := principal(ctx).Kind; k == bearertoken.Coordinator || k == bearertoken.Bot {
 		by = orchestration.AddressCoordinator
 	}
 

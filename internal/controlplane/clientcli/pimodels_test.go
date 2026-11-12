@@ -9,7 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
-	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/coordinator"
 )
 
@@ -36,7 +35,7 @@ func (p runningPi) Key(chatID string) (string, bool) { return p.key, chatID == p
 // its own chat.
 func TestPiStartsWithTheGatewaysModelsAndItsChatsKey(t *testing.T) { //nolint:paralleltest // sets HYPOMNEMA_CHAT_ID
 	pi := &runningPi{}
-	w := newWorldWith(t, pi, func(s *clientapi.Server) { s.WithChatKeyReader("cli-coordinator") })
+	w := newWorldWith(t, pi)
 	w.login(t, bearertoken.Coordinator)
 	ctx := t.Context()
 
@@ -78,6 +77,14 @@ func TestPiStartsWithTheGatewaysModelsAndItsChatsKey(t *testing.T) { //nolint:pa
 	require.ErrorIs(t, err, ErrUsage, "the command is for pi, which runs for a chat")
 
 	t.Setenv("HYPOMNEMA_CHAT_ID", chat.ID)
+
+	_, err = w.cmd(t, "model-key")
+	require.Error(t, err, "the coordinator token is not the token of the chat's pi")
+
+	// pi calls with its own token, bound to its chat (issue #260).
+	secret, err := w.svc.AddBotToken(ctx, "cli-coordinator", chat.ID, chat.Bot)
+	require.NoError(t, err)
+	w.loginWith(t, secret)
 
 	_, err = w.cmd(t, "model-key")
 	require.Error(t, err, "no pi runs for the chat yet")

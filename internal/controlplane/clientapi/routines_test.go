@@ -73,3 +73,72 @@ func TestARoutinesRunsArePaged(t *testing.T) {
 	assert.Len(t, last.JSON200.Data, 1)
 	assert.Nil(t, last.JSON200.NextOffset)
 }
+
+// Scenario: a pi's token (issue #260) makes the Routines of its own Bot, in
+// its own chat, and runs only those. A Routine's script's token (issue #211)
+// makes and runs none. Neither is given a run's script: only the
+// coordinator's token, outside every box, is.
+func TestBotTokensActOnTheirOwnBotsRoutinesOnly(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	coordinator, _ := w.token("pi-coordinator", bearertoken.Coordinator)
+	ctx := t.Context()
+
+	_, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "vmap", Persona: "You answer about VMAP."})
+	require.NoError(t, err)
+
+	mine, err := w.svc.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+
+	theirs, err := w.svc.CreateChat(ctx, "vmap", "")
+	require.NoError(t, err)
+
+	pi := w.piToken("pi-coordinator", mine.ID, orchestration.DefaultBot)
+	script, text, every := "sync.sh", "#!/bin/sh\n", 60
+	spec := openapi.RoutineSettings{Kind: openapi.Script, Script: &script, ScriptText: &text, EveryMinutes: &every}
+
+	other, err := pi.PutRoutineWithResponse(ctx, "vmap", "sync", spec)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, other.StatusCode(), "another Bot's routine")
+
+	elsewhere := spec
+	elsewhere.ChatId = &theirs.ID
+	named, err := pi.PutRoutineWithResponse(ctx, orchestration.DefaultBot, "sync", elsewhere)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, named.StatusCode(), "a routine made from another chat")
+
+	made, err := pi.PutRoutineWithResponse(ctx, orchestration.DefaultBot, "sync", spec)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, made.StatusCode(), string(made.Body))
+	require.NotNil(t, made.JSON200.ChatId)
+	assert.Equal(t, mine.ID, *made.JSON200.ChatId, "the chat comes from the token")
+
+	launched, err := pi.LaunchRoutineScriptWithResponse(ctx, made.JSON200.Id,
+		openapi.RoutineLaunchRequest{Bot: orchestration.DefaultBot})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, launched.StatusCode(), "a run's key is not a pi's")
+
+	secret, err := w.svc.AddRoutineToken(ctx, "pi-coordinator", made.JSON200.Id)
+	require.NoError(t, err)
+
+	run := w.client(secret)
+
+	again, err := run.PutRoutineWithResponse(ctx, orchestration.DefaultBot, "more", spec)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusConflict, again.StatusCode(), "a routine's run makes no routines")
+
+	started, err := run.RunRoutineWithResponse(ctx, made.JSON200.Id)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, started.StatusCode(), "a routine's run starts no routines")
+
+	launched, err = run.LaunchRoutineScriptWithResponse(ctx, made.JSON200.Id,
+		openapi.RoutineLaunchRequest{Bot: orchestration.DefaultBot})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, launched.StatusCode())
+
+	launched, err = coordinator.LaunchRoutineScriptWithResponse(ctx, made.JSON200.Id,
+		openapi.RoutineLaunchRequest{Bot: orchestration.DefaultBot})
+	require.NoError(t, err)
+	assert.NotEqual(t, http.StatusForbidden, launched.StatusCode(), "the launcher's token asks; no run has started")
+}

@@ -12,7 +12,9 @@ import (
 )
 
 // chatEnv names the chat pi works for; pi's environment carries it, so the
-// Runs pi creates wake that chat (issue #41, PR 3).
+// Runs pi creates wake that chat (issue #41, PR 3). It is a hint: pi's own
+// token is bound to its chat, and the control plane refuses another one
+// (issue #260).
 const chatEnv = "HYPOMNEMA_CHAT_ID"
 
 // chat writes to the coordinator on the server and prints its replies until
