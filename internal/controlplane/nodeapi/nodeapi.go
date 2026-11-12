@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -124,6 +125,35 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST "+nodeproto.PathHello, s.hello)
 	mux.HandleFunc("GET "+nodeproto.PathSocket, s.socket)
 	mux.HandleFunc("GET "+nodeproto.PathTerminal, s.terminal)
+	mux.HandleFunc("GET "+nodeproto.PathSkills+"{digest}", s.skill)
+}
+
+// skill serves a skill's archive to a node that holds an offer naming it
+// (issue #21), as Omnara's daemon downloads a revision its offer names.
+func (s *Server) skill(w http.ResponseWriter, r *http.Request) {
+	n, _, ok := s.authenticate(w, r)
+	if !ok {
+		return
+	}
+
+	archive, err := s.svc.SkillArchiveForNode(r.Context(), n.ID, r.PathValue("digest"))
+
+	switch {
+	case errors.Is(err, orchestration.ErrNotFound):
+		http.Error(w, "no offer of this node names that skill", http.StatusNotFound)
+
+		return
+	case err != nil:
+		s.logger.ErrorContext(r.Context(), "reading a skill for a node",
+			slog.String("event", "nodeapi.skill_failed"), slog.String("node_id", n.ID), slog.String("error", err.Error()))
+		http.Error(w, "internal error", http.StatusInternalServerError)
+
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/gzip")
+	w.Header().Set("Content-Length", strconv.Itoa(len(archive)))
+	_, _ = w.Write(archive)
 }
 
 // authenticate returns the node a request's bearer token belongs to, and the token's id.

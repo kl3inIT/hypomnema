@@ -42,6 +42,20 @@ func fallbacksOf(p openapi.Profile) string {
 	return "\tfallbacks: " + strings.Join(p.Fallbacks, ", ")
 }
 
+// skillsOf names the skills a profile adds and turns off, for a line of the list.
+func skillsOf(p openapi.Profile) string {
+	out := ""
+	if len(p.Skills) > 0 {
+		out += "	skills: " + strings.Join(p.Skills, ", ")
+	}
+
+	if len(p.SkillsOff) > 0 {
+		out += "	skills off: " + strings.Join(p.SkillsOff, ", ")
+	}
+
+	return out
+}
+
 // cannotRun is why no worker can start under a profile now, for a line of
 // the list; empty when one can, or when the API does not say.
 func cannotRun(p openapi.Profile) string {

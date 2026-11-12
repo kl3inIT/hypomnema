@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
+	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
 )
 
 // What a connected node is told (issue #32). On each connect the node lists
@@ -128,6 +129,9 @@ type Offer struct {
 	CLISessionRef string `json:"cli_session_ref,omitempty"`
 	Model         string `json:"model,omitempty"`
 	Effort        string `json:"effort,omitempty"`
+	// Skills are the skills the worker is given, each at the revision
+	// recorded when the Dispatch was made (issue #21).
+	Skills []nodeproto.Skill `json:"skills,omitempty"`
 }
 
 // StopRequest is a stop asked of a Dispatch on the node.
@@ -227,6 +231,11 @@ func offerOf(ctx context.Context, q *store.Queries, d store.Dispatch) (Offer, er
 		}
 	}
 
+	skills, err := dispatchSkills(ctx, q, d.ID)
+	if err != nil {
+		return Offer{}, err
+	}
+
 	host, kind := repoHost(run), ""
 
 	if host != "" {
@@ -244,6 +253,6 @@ func offerOf(ctx context.Context, q *store.Queries, d store.Dispatch) (Offer, er
 		Repo: run.Repo.String, RepoHost: host, RepoKind: kind,
 		Base: run.Base.String, ConversationID: conv.ID, Worktree: conv.Worktree,
 		Runtime: conv.Runtime, AccountRef: conv.AccountRef, CLISessionRef: conv.CliSessionRef.String,
-		Model: d.Model.String, Effort: d.Effort.String, Uses: splitUses(run.Uses),
+		Model: d.Model.String, Effort: d.Effort.String, Uses: splitUses(run.Uses), Skills: skills,
 	}, nil
 }

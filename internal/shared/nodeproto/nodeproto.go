@@ -16,6 +16,9 @@ import (
 const (
 	PathHello  = "/node/v1/hello"
 	PathSocket = "/node/v1/socket"
+	// PathSkills is where a node fetches a skill's archive, by digest: only one
+	// an offer it holds names.
+	PathSkills = "/node/v1/skills/"
 	// PathTerminal is the WebSocket a node opens for one terminal connection,
 	// with the stream it was given as ?stream= (issue #116).
 	PathTerminal = "/node/v1/terminal"
@@ -290,6 +293,18 @@ type Offer struct {
 	CLISessionRef  string   `json:"cli_session_ref,omitempty"`
 	Model          string   `json:"model,omitempty"`
 	Effort         string   `json:"effort,omitempty"`
+	// Skills are the skills the worker is given (issue #21). The node fetches
+	// each revision it does not have from PathSkills/<digest> and puts it
+	// where the worker's CLI reads skills.
+	Skills []Skill `json:"skills,omitempty"`
+}
+
+// Skill is one skill a worker is given, at one revision; its digest names
+// its files (internal/shared/skillpack).
+type Skill struct {
+	Name     string `json:"name"`
+	Revision int    `json:"revision"`
+	Digest   string `json:"digest"`
 }
 
 // Stop asks the node to stop a Dispatch's worker.

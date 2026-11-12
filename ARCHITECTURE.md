@@ -302,8 +302,26 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     is read from the tarball of that commit, as Omnigent installs from `owner/repo[/path]@ref` and OpenHands
     records the commit a ref resolved to.
   - A skill has a switch "for everyone", off when it is added (OpenMausBot's `everyBot`, an imported skill starting
-    off). Nothing reads it yet: a Profile's and a Bot's skills, and bringing skills to the nodes, are the next steps
-    of issue #21. A skill is removed with its revisions; once a Profile or a Bot names it, that will be refused.
+    off). A profile's YAML names the skills its workers get beside those (`skills: [...]`) and the ones for everyone
+    they do not get (`skills_off: [...]`), as OpenClaw's agent lists its skills and OpenMausBot's bot opts out; each
+    must exist and be named once (migration 00051). A skill a profile's current version names is not removed, as
+    Omnara refuses while an agent config names one; otherwise it is removed with its revisions. The web's agent
+    builder keeps both lists when it saves and does not edit them yet.
+  - When a Dispatch is made it records each skill it is given at its newest revision (`dispatch_skills`), as an
+    OpenClaw session keeps the revisions it selected: a later revision reaches the next Dispatch, not this one, and
+    the record stays when the skill is removed. Its offer names them (`skills`: name, revision, digest).
+  - On a node (`internal/node/skills`, after Omnara's `skillsync`), before the worker starts, each revision the node
+    does not have is fetched from `GET /node/v1/skills/{digest}` with the node's token, which serves only a revision
+    that a Dispatch of that node not yet ended was given; its digest is checked, and it is unpacked into a staging
+    folder and renamed to `~/.hypomnema-node/skills/<digest>`. A skill that cannot be had fails the start. Fetched
+    before the worker starts, not on the model's first use as in Omnara, because a vendor CLI reads skills from disk
+    as it starts.
+  - The Dispatch's skills are copied, as Orca copies a skill into each agent's folder, where the worker's CLI reads
+    them, as Omnigent places them: Claude Code gets a plugin folder of the Dispatch (`run/<dispatch>/plugin`, its
+    manifest naming it `hypomnema`) through `--plugin-dir`, since its configuration folder is shared by every
+    Dispatch on the account; Codex gets them in the Conversation's `CODEX_HOME/skills`, made again at each start so
+    that a skill taken away is gone, beside Codex's own `.system`. omp, opencode and Bots do not get them yet
+    (step 3 of issue #21); the built-in skills reach workers as before.
   - Client API: `GET /skills` (each skill at its newest revision), `POST /skills` (`{"github": ...}`),
     `POST /skills/archive` (the archive as the body, the one body allowed over 1 MB), `GET /skills/{skill}` (with
     every revision), `PUT /skills/{skill}/everyone`, `DELETE /skills/{skill}`. Every token reads; only the owner's
@@ -1446,6 +1464,7 @@ internal/node/acp         the ACP runner for omp and opencode: each CLI's config
 internal/node/transcript  the forwarder of every worker's transcript, the decoder interface, the cutting of items
 internal/node/daemon      the node's connection: hello, socket, offers, outbox, Runner interface
 internal/node/shim        one worker kept across daemon restarts: journal, input socket, exit file
+internal/node/skills      the skills an offer names: fetched once by digest, and placed where each CLI reads them
 internal/node/statedb     the node's SQLite state: Dispatches held and the report outbox
 internal/node/terminal    the shells opened from the web: a session per id, its ring of output, the idle end
 internal/node/workertools the worker's MCP server: ask and finish, and the shared browser's tools passed on to the control plane

@@ -31,3 +31,27 @@ FROM skill_revisions WHERE skill = @skill ORDER BY revision DESC;
 
 -- name: LatestSkillRevision :one
 SELECT revision, digest FROM skill_revisions WHERE skill = @skill ORDER BY revision DESC LIMIT 1;
+
+-- name: LatestSkillRevisions :many
+SELECT s.name, s.everyone, r.revision, r.digest
+FROM skills s JOIN skill_revisions r ON r.skill = s.name
+WHERE r.revision = (SELECT max(revision) FROM skill_revisions WHERE skill = s.name)
+ORDER BY s.name;
+
+-- name: InsertDispatchSkill :exec
+INSERT INTO dispatch_skills (dispatch_id, skill, revision, digest) VALUES (@dispatch_id, @skill, @revision, @digest);
+
+-- name: ListDispatchSkills :many
+SELECT skill, revision, digest FROM dispatch_skills WHERE dispatch_id = @dispatch_id ORDER BY skill;
+
+-- name: ProfilesNamingSkill :many
+SELECT p.name FROM profiles p JOIN profile_versions v ON v.id = p.current_version_id
+WHERE ',' || v.skills || ',' LIKE '%,' || @skill || ',%' OR ',' || v.skills_off || ',' LIKE '%,' || @skill || ',%'
+ORDER BY p.name;
+
+-- name: SkillArchiveForNode :one
+SELECT r.archive FROM dispatch_skills ds
+JOIN dispatches d ON d.id = ds.dispatch_id
+JOIN skill_revisions r ON r.skill = ds.skill AND r.revision = ds.revision
+WHERE ds.digest = @digest AND d.node_id = @node_id AND d.status IN ('queued', 'starting', 'running')
+LIMIT 1;

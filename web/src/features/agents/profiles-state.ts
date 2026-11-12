@@ -94,6 +94,10 @@ export type Draft = {
   instruction: string
   // fallbacks names, in order, the agents that take this one's Tasks while it is out of quota (issue #171).
   fallbacks: string[]
+  // skills and skillsOff are the skills the agent adds and the ones for everyone it turns off (issue #21). The
+  // builder does not edit them yet; they are kept so that saving does not drop them.
+  skills: string[]
+  skillsOff: string[]
 }
 
 // As many backups as OpenMausBot keeps for one bot (src/components/bot-panel/BackupAis.tsx, MAX_BACKUPS).
@@ -107,6 +111,8 @@ export const emptyDraft: Draft = {
   effort: "",
   instruction: "",
   fallbacks: [],
+  skills: [],
+  skillsOff: [],
 }
 
 export function draftOf(profile: Profile): Draft {
@@ -118,6 +124,8 @@ export function draftOf(profile: Profile): Draft {
     effort: profile.effort ?? "",
     instruction: (profile.instruction ?? "").replace(/\s+$/, ""),
     fallbacks: profile.fallbacks,
+    skills: profile.skills,
+    skillsOff: profile.skills_off,
   }
 }
 
@@ -157,7 +165,9 @@ export function sameDraft(a: Draft, b: Draft) {
     a.model === b.model &&
     a.effort === b.effort &&
     a.instruction === b.instruction &&
-    a.fallbacks.join() === b.fallbacks.join()
+    a.fallbacks.join() === b.fallbacks.join() &&
+    a.skills.join() === b.skills.join() &&
+    a.skillsOff.join() === b.skillsOff.join()
   )
 }
 
@@ -200,7 +210,7 @@ function text(key: string, value: string, fold: boolean) {
 }
 
 // toYaml writes a draft as the YAML document the server stores (name, description, runtime, an optional model,
-// instruction and list of fallbacks).
+// instruction, list of fallbacks and skills).
 export function toYaml(draft: Draft, models: Model[]) {
   let out = `name: ${scalar(draft.name.trim())}\n`
   out += text("description", draft.description.trim(), draft.description.trim().length > 80)
@@ -217,6 +227,8 @@ export function toYaml(draft: Draft, models: Model[]) {
   const instruction = draft.instruction.replace(/\s+$/, "")
   if (instruction) out += text("instruction", instruction, false)
   if (draft.fallbacks.length > 0) out += `fallbacks: [${draft.fallbacks.map(scalar).join(", ")}]\n`
+  if (draft.skills.length > 0) out += `skills: [${draft.skills.map(scalar).join(", ")}]\n`
+  if (draft.skillsOff.length > 0) out += `skills_off: [${draft.skillsOff.map(scalar).join(", ")}]\n`
 
   return out
 }
