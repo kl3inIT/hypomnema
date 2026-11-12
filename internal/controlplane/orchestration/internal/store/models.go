@@ -91,6 +91,7 @@ type Chat struct {
 	CreatedAt int64
 	UpdatedAt int64
 	Bot       string
+	LarkGroup int64
 }
 
 type ChatMessage struct {
@@ -103,6 +104,7 @@ type ChatMessage struct {
 	DeliveredAt   sql.NullInt64
 	CreatedAt     int64
 	ToCoordinator int64
+	Kind          string
 }
 
 type ClientToken struct {
@@ -303,6 +305,15 @@ type LarkChannelChat struct {
 	OpenID     string
 	ChatID     string
 	SentSeq    int64
+	CreatedAt  int64
+}
+
+type LarkChannelGroup struct {
+	Channel    string
+	LarkChatID string
+	Name       string
+	Enabled    int64
+	AskedAt    sql.NullInt64
 	CreatedAt  int64
 }
 

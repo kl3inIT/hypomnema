@@ -29,6 +29,23 @@ const (
 	ChatSystem      ChatRole = "system"
 )
 
+// ChatKind says what a system message is (issue #267, after t3code's typed
+// timeline items and OpenMausBot's named stop rows); owner, coordinator and
+// tool messages have none.
+type ChatKind string
+
+// Kinds of system messages.
+const (
+	// ChatWake reports an event of one of the chat's Runs.
+	ChatWake ChatKind = "wake"
+	// ChatFailed says pi's model call failed.
+	ChatFailed ChatKind = "failed"
+	// ChatStopped ends a turn the owner stopped.
+	ChatStopped ChatKind = "stopped"
+	// ChatApproval tells the coordinator the owner answered an Approval.
+	ChatApproval ChatKind = "approval"
+)
+
 // Limits on chats.
 const (
 	// MaxChatText bounds one message.
@@ -55,7 +72,9 @@ type ChatMessage struct {
 	Seq    int64
 	ChatID string
 	Role   ChatRole
-	Text   string
+	// Kind is what a system message is; empty for other messages.
+	Kind ChatKind
+	Text string
 	// Parts is a JSON array of a reply's or a tool's parts (text, thinking,
 	// tool_call, tool_result); nil for other messages.
 	Parts json.RawMessage
@@ -158,56 +177,99 @@ func (s *Service) AddChatMessage(ctx context.Context, chatID string, role ChatRo
 func (s *Service) AddChatMessageParts(ctx context.Context, chatID string, role ChatRole, text string,
 	parts json.RawMessage,
 ) (ChatMessage, error) {
+	msgs, err := s.AddChatMessages(ctx, chatID, NewChatMessage{Role: role, Text: text, Parts: parts})
+	if err != nil {
+		return ChatMessage{}, err
+	}
+
+	return msgs[0], nil
+}
+
+// NewChatMessage is a message to append.
+type NewChatMessage struct {
+	Role ChatRole
+	// Kind is a system message's kind, and only a system message's.
+	Kind  ChatKind
+	Text  string
+	Parts json.RawMessage
+}
+
+func (m NewChatMessage) check() error {
 	switch {
-	case role != ChatOwner && role != ChatCoordinator && role != ChatTool && role != ChatSystem:
-		return ChatMessage{}, fmt.Errorf("%w: unknown chat role %q", ErrInvalid, role)
-	case strings.TrimSpace(text) == "" && (parts == nil || role == ChatOwner):
-		return ChatMessage{}, fmt.Errorf("%w: a message needs text", ErrInvalid)
-	case len(text) > MaxChatText:
-		return ChatMessage{}, fmt.Errorf("%w: a message is at most %d bytes", ErrInvalid, MaxChatText)
-	case parts != nil && !json.Valid(parts):
-		return ChatMessage{}, fmt.Errorf("%w: message parts are not JSON", ErrInvalid)
+	case m.Role != ChatOwner && m.Role != ChatCoordinator && m.Role != ChatTool && m.Role != ChatSystem:
+		return fmt.Errorf("%w: unknown chat role %q", ErrInvalid, m.Role)
+	case m.Kind != "" && m.Role != ChatSystem:
+		return fmt.Errorf("%w: only a system message has a kind", ErrInvalid)
+	case m.Kind != "" && m.Kind != ChatWake && m.Kind != ChatFailed && m.Kind != ChatStopped && m.Kind != ChatApproval:
+		return fmt.Errorf("%w: unknown kind of chat message %q", ErrInvalid, m.Kind)
+	case strings.TrimSpace(m.Text) == "" && (m.Parts == nil || m.Role == ChatOwner):
+		return fmt.Errorf("%w: a message needs text", ErrInvalid)
+	case len(m.Text) > MaxChatText:
+		return fmt.Errorf("%w: a message is at most %d bytes", ErrInvalid, MaxChatText)
+	case m.Parts != nil && !json.Valid(m.Parts):
+		return fmt.Errorf("%w: message parts are not JSON", ErrInvalid)
 	}
 
-	var stored sql.NullString
-	if parts != nil {
-		stored = sql.NullString{String: string(parts), Valid: true}
+	return nil
+}
+
+// AddChatMessages appends messages in one write, so a reader sees all of
+// them or none: a stopped turn's last reply and the row that says it was
+// stopped come together.
+func (s *Service) AddChatMessages(ctx context.Context, chatID string, msgs ...NewChatMessage) ([]ChatMessage, error) {
+	if len(msgs) == 0 {
+		return nil, fmt.Errorf("%w: no message to add", ErrInvalid)
 	}
 
-	var seq int64
+	for _, m := range msgs {
+		if err := m.check(); err != nil {
+			return nil, err
+		}
+	}
+
+	var first int64
 
 	err := s.write(ctx, func(q *store.Queries, now int64) error {
 		if _, err := q.GetChat(ctx, chatID); err != nil {
 			return notFound(err, "chat", chatID)
 		}
 
-		var err error
+		for i, m := range msgs {
+			var stored sql.NullString
+			if m.Parts != nil {
+				stored = sql.NullString{String: string(m.Parts), Valid: true}
+			}
 
-		seq, err = q.InsertChatMessage(ctx, store.InsertChatMessageParams{
-			ChatID: chatID, Role: string(role), Text: text, Parts: stored, Now: now,
-		})
-		if err != nil {
-			return fmt.Errorf("inserting a message: %w", err)
-		}
+			seq, err := q.InsertChatMessage(ctx, store.InsertChatMessageParams{
+				ChatID: chatID, Role: string(m.Role), Kind: string(m.Kind), Text: m.Text, Parts: stored, Now: now,
+			})
+			if err != nil {
+				return fmt.Errorf("inserting a message: %w", err)
+			}
 
-		if role == ChatOwner {
-			if err := q.TitleUntitledChat(ctx, store.TitleUntitledChatParams{ID: chatID, Title: titleOf(text)}); err != nil {
-				return fmt.Errorf("titling the chat: %w", err)
+			if i == 0 {
+				first = seq
+			}
+
+			if m.Role == ChatOwner {
+				if err := q.TitleUntitledChat(ctx, store.TitleUntitledChatParams{ID: chatID, Title: titleOf(m.Text)}); err != nil {
+					return fmt.Errorf("titling the chat: %w", err)
+				}
 			}
 		}
 
 		return q.TouchChat(ctx, store.TouchChatParams{ID: chatID, Now: now})
 	})
 	if err != nil {
-		return ChatMessage{}, fmt.Errorf("adding a message to chat %s: %w", chatID, err)
+		return nil, fmt.Errorf("adding a message to chat %s: %w", chatID, err)
 	}
 
-	msgs, err := s.ListChatMessages(ctx, chatID, seq-1, 1)
-	if err != nil || len(msgs) == 0 {
-		return ChatMessage{}, errors.Join(err, fmt.Errorf("reading message %d", seq))
+	out, err := s.ListChatMessages(ctx, chatID, first-1, len(msgs))
+	if err != nil || len(out) != len(msgs) {
+		return nil, errors.Join(err, fmt.Errorf("reading message %d", first))
 	}
 
-	return msgs[0], nil
+	return out, nil
 }
 
 // ListChatMessages returns a chat's messages after a seq, oldest first.
@@ -231,7 +293,8 @@ func chatMessages(rows []store.ChatMessage) []ChatMessage {
 	out := make([]ChatMessage, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, ChatMessage{
-			Seq: r.Seq, ChatID: r.ChatID, Role: ChatRole(r.Role), Text: r.Text, Parts: rawParts(r.Parts),
+			Seq: r.Seq, ChatID: r.ChatID, Role: ChatRole(r.Role), Kind: ChatKind(r.Kind), Text: r.Text,
+			Parts:       rawParts(r.Parts),
 			EventSeq:    r.EventSeq.Int64,
 			DeliveredAt: optionalTime(r.DeliveredAt), CreatedAt: millis(r.CreatedAt),
 		})
@@ -328,7 +391,7 @@ func (s *Service) wakeChat(ctx context.Context, chatID string) (int, error) {
 			}
 
 			if _, err := q.InsertChatMessage(ctx, store.InsertChatMessageParams{
-				ChatID: chatID, Role: string(ChatSystem), Text: text,
+				ChatID: chatID, Role: string(ChatSystem), Kind: string(ChatWake), Text: text,
 				EventSeq: sql.NullInt64{Int64: r.Seq, Valid: true}, Now: now,
 			}); err != nil {
 				return fmt.Errorf("adding a wake-up to chat %s: %w", chatID, err)

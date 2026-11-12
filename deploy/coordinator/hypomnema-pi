@@ -30,7 +30,8 @@ fail() {
 }
 
 usage() {
-  echo "usage: hypomnema-pi <chat id> --bot B [--provider P] [--model M] [--thinking T] (pi's token on stdin)" >&2
+  echo "usage: hypomnema-pi <chat id> --bot B [--group] [--provider P] [--model M] [--thinking T]" \
+    "(pi's token on stdin)" >&2
   exit 2
 }
 
@@ -46,9 +47,10 @@ case "$chat" in
   *[!A-Za-z0-9_]*) usage ;;
 esac
 
-# The rest are flag and value pairs, from a short list, with plain values. The Bot's name is taken out; the model
-# flags stay for pi.
+# The rest are flag and value pairs, from a short list, with plain values, and --group, which says the chat is a Lark
+# group's (issue #246). The Bot's name and --group are taken out; the model flags stay for pi.
 bot=""
+group=""
 expect=flag
 left=$#
 while [ "$left" -gt 0 ]; do
@@ -59,6 +61,7 @@ while [ "$left" -gt 0 ]; do
     flag)
       case "$arg" in
         --bot) expect=bot ;;
+        --group) group=--group ;;
         --provider | --model | --thinking)
           expect=value
           set -- "$@" "$arg"
@@ -119,9 +122,12 @@ rm -f "$home/bots/.prompt-$chat"
 
 # The Bot's persona and memory, read with the coordinator's token and given to pi after its built-in instructions.
 # They are read here, once per pi process (Hermes gives its memory once per session). Without them pi would answer as
-# another Bot, so pi does not start. No command here reads stdin: it is pi's.
+# another Bot, so pi does not start. A Lark group's chat (--group, issue #246) gets the persona without the memory,
+# and is told who writes there (OpenClaw leaves MEMORY.md out of a group session's prompt). It runs in the same box
+# with its own token as any other chat. No command here reads stdin: it is pi's.
 prompt="$run/prompt.md"
-if ! HOME="$user_home" "$hypomnema" bots prompt "$bot" > "$prompt" < /dev/null; then
+# shellcheck disable=SC2086 # $group is --group or nothing.
+if ! HOME="$user_home" "$hypomnema" bots prompt $group "$bot" > "$prompt" < /dev/null; then
   rm -f "$prompt"
   fail "reading bot $bot failed"
 fi

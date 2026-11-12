@@ -93,7 +93,7 @@ func newBoxWorld(t *testing.T, bwrap string) *boxWorld {
 	// The control plane's CLI, as the launcher calls it before pi starts.
 	write(t, filepath.Join(root, "bin", "hypomnema"), `#!/bin/sh
 case "$1" in
-  bots) echo "persona of $3" ;;
+  bots) shift 2; echo "persona of $*" ;;
   skills) mkdir -p "$6" ;;
   pi-models) echo '{"providers":{"model-gateway":{}}}' ;;
   *) exit 9 ;;
@@ -162,13 +162,14 @@ func write(t *testing.T, path, content string, mode os.FileMode) {
 	require.NoError(t, os.WriteFile(path, []byte(content), mode)) //nolint:gosec // A path of the test's own.
 }
 
-// start runs the launcher for chat cht_mine with stdin and returns what it
-// printed and how it ended.
-func (w *boxWorld) start(t *testing.T, stdin string) (map[string]string, string, error) {
+// start runs the launcher for chat cht_mine with stdin and flags after the
+// Bot's, and returns what it printed and how it ended.
+func (w *boxWorld) start(t *testing.T, stdin string, flags ...string) (map[string]string, string, error) {
 	t.Helper()
 
+	args := append(append([]string{w.script, "cht_mine", "--bot", "coordinator"}, flags...), "--model", "gpt-sol")
 	//nolint:gosec // The test's own copy of the launcher.
-	cmd := exec.CommandContext(t.Context(), "sh", w.script, "cht_mine", "--bot", "coordinator", "--model", "gpt-sol")
+	cmd := exec.CommandContext(t.Context(), "sh", args...)
 	cmd.Env = append(os.Environ(), "HYPOMNEMA_SECRET_OF_THE_CALLER=x")
 	cmd.Stdin = strings.NewReader(stdin)
 
@@ -238,6 +239,24 @@ func TestPiRunsInItsBoxWithItsOwnToken(t *testing.T) {
 	shared, err := os.ReadFile(filepath.Join(w.userHome, ".hypomnema", "client.json"))
 	require.NoError(t, err)
 	assert.Contains(t, string(shared), "hyp_coordinator_v1_shared", "the coordinator's login is left as it was")
+}
+
+// Scenario: a Lark group's chat (issue #246) is started with --group. Its
+// prompt is asked for as a group's, and its pi runs in the same box with its
+// own token.
+func TestALarkGroupsPiRunsInItsBoxToo(t *testing.T) {
+	t.Parallel()
+	needBox(t)
+
+	w := newBoxWorld(t, bwrapPath)
+	seen, stderr, err := w.start(t, "hyp_bot_v1_group\n", "--group")
+	require.NoError(t, err, stderr)
+
+	assert.Equal(t, "persona of --group coordinator", seen["prompt"])
+	assert.NotContains(t, seen["args"], "--group", "the flag is the launcher's, not pi's")
+	assert.JSONEq(t, `{"url":"http://127.0.0.1:18990","token":"hyp_bot_v1_group"}`, seen["client"])
+	assert.Equal(t, "hidden", seen["other"])
+	assert.Equal(t, "private", seen["tmp"])
 }
 
 // Scenario: pi does not start without its token, nor without a box.

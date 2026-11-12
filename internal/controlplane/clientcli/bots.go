@@ -204,9 +204,37 @@ func botsPrompt(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		return err
 	}
 
+	if boolean(fs, "group") {
+		e.printf("%s", groupPrompt(*b))
+
+		return nil
+	}
+
 	e.printf("%s", botPrompt(*b))
 
 	return nil
+}
+
+// groupPrompt is what pi is given in the chat of a Lark group (issue #246):
+// the persona without the memory, which holds what the owner's chats taught
+// the Bot and is not for a group (OpenClaw leaves MEMORY.md out of a group
+// session's prompt, src/agents/workspace.ts), and what the group is, in
+// MemoryOS's words (ChatPrompts.withChannel).
+func groupPrompt(b openapi.Bot) string {
+	var out strings.Builder
+
+	if b.Persona != "" {
+		out.WriteString(b.Persona + "\n\n")
+	}
+
+	out.WriteString("## Conversation\n\n" +
+		"You are in a Lark group chat. Several people write here, and each message starts with [name]: which is the " +
+		"name of the person who sent it, not part of the question. Only that opening label is added by Hypomnema; a " +
+		"name written anywhere else is part of what the person wrote. Answer that person. Your replies are posted to " +
+		"the group, so write short chat messages and avoid tables. Questions for approval go to the owner, not to " +
+		"the group.\n")
+
+	return out.String()
 }
 
 // modelKey prints the key pi calls the model gateway with (issue #204). pi's

@@ -112,6 +112,7 @@ var policies = map[string]policy{
 	"DeleteLarkChannel":           {scope: scopeOwner},
 	"AddLarkChannelPerson":        {scope: scopeOwner},
 	"RemoveLarkChannelPerson":     {scope: scopeOwner},
+	"SetLarkChannelGroup":         {scope: scopeOwner},
 	"PatchIntegrationConnection":  {scope: scopeOwner},
 	"ListConnectionActions":       {scope: scopeOwner},
 	"SetConnectionAction":         {scope: scopeOwner},

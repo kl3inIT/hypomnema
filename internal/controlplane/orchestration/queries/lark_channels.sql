@@ -79,3 +79,31 @@ SELECT * FROM lark_channel_questions WHERE channel = @channel AND closed_at IS N
 
 -- name: CloseLarkChannelQuestion :exec
 UPDATE lark_channel_questions SET closed_at = @now, seq = @seq WHERE question_id = @question_id;
+
+-- name: IsLarkGroupChat :one
+SELECT lark_group FROM chats WHERE id = @chat_id;
+
+-- name: MarkLarkGroupChat :exec
+UPDATE chats SET lark_group = 1 WHERE id = @chat_id;
+
+-- name: UpsertLarkChannelGroup :exec
+INSERT INTO lark_channel_groups (channel, lark_chat_id, name, enabled, created_at)
+VALUES (@channel, @lark_chat_id, @name, 0, @now)
+ON CONFLICT (channel, lark_chat_id) DO UPDATE SET
+    name = CASE WHEN excluded.name <> '' THEN excluded.name ELSE lark_channel_groups.name END;
+
+-- name: GetLarkChannelGroup :one
+SELECT * FROM lark_channel_groups WHERE channel = @channel AND lark_chat_id = @lark_chat_id;
+
+-- name: ListLarkChannelGroups :many
+SELECT * FROM lark_channel_groups WHERE channel = @channel
+ORDER BY asked_at IS NULL, asked_at DESC, name, lark_chat_id;
+
+-- name: SetLarkChannelGroupEnabled :execrows
+UPDATE lark_channel_groups SET enabled = @enabled WHERE channel = @channel AND lark_chat_id = @lark_chat_id;
+
+-- name: SetLarkChannelGroupAsked :exec
+UPDATE lark_channel_groups SET asked_at = @now WHERE channel = @channel AND lark_chat_id = @lark_chat_id;
+
+-- name: DeleteLarkChannelGroup :execrows
+DELETE FROM lark_channel_groups WHERE channel = @channel AND lark_chat_id = @lark_chat_id;

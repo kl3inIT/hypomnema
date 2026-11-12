@@ -1,4 +1,5 @@
-import type { LarkChannel, LarkChannelMode } from "@/api/generated/types.gen"
+import type { LarkChannel, LarkChannelGroup, LarkChannelMode } from "@/api/generated/types.gen"
+import { since } from "@/lib/time"
 
 // What the Channels page and a Bot's page say about a Lark Channel, apart from how they draw it.
 
@@ -46,4 +47,16 @@ export function channelsOf<C extends Pick<LarkChannel, "bot">>(bot: string, chan
 // being read, so that its select never shows another.
 export function botChoices(bots: string[], current?: string): string[] {
   return current && !bots.includes(current) ? [current, ...bots] : bots
+}
+
+// groupName is how a group of a Channel is shown: its name at Lark, else its chat id, as MemoryOS falls back to
+// an id for a group it has no name for (channel-assistants-section.tsx).
+export function groupName(group: Pick<LarkChannelGroup, "name" | "chat_id">): string {
+  return group.name.trim() || group.chat_id
+}
+
+// groupAsked says when the bot was last asked in a group, as MemoryOS's row says "asked <when>" or that nobody
+// has asked yet.
+export function groupAsked(group: Pick<LarkChannelGroup, "asked_at">, now = Date.now()): string {
+  return group.asked_at ? `asked ${since(group.asked_at, now)}` : "not asked yet"
 }

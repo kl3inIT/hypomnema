@@ -11,8 +11,8 @@ SELECT * FROM chats ORDER BY updated_at DESC, id LIMIT @lim;
 UPDATE chats SET updated_at = @now WHERE id = @id;
 
 -- name: InsertChatMessage :one
-INSERT INTO chat_messages (chat_id, role, text, parts, event_seq, created_at)
-VALUES (@chat_id, @role, @text, @parts, @event_seq, @now)
+INSERT INTO chat_messages (chat_id, role, kind, text, parts, event_seq, created_at)
+VALUES (@chat_id, @role, @kind, @text, @parts, @event_seq, @now)
 RETURNING seq;
 
 -- name: ListChatMessages :many
@@ -60,8 +60,8 @@ UPDATE chats SET title = @title WHERE id = @id AND title = 'Chat';
 -- name: InsertChatNotice :exec
 -- A message of the control plane's own that the coordinator is given as a wake-up, though no event of a Run is
 -- behind it: the owner answered an Approval (issue #154).
-INSERT INTO chat_messages (chat_id, role, text, to_coordinator, created_at)
-VALUES (@chat_id, 'system', @text, 1, @now);
+INSERT INTO chat_messages (chat_id, role, kind, text, to_coordinator, created_at)
+VALUES (@chat_id, 'system', 'approval', @text, 1, @now);
 
 -- name: CountChatsOfBot :one
 SELECT count(*) FROM chats WHERE bot = @bot;

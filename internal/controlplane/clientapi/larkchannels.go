@@ -21,6 +21,7 @@ type LarkChannels interface {
 	Remove(ctx context.Context, channel string) error
 	AddPerson(ctx context.Context, channel, who string) (orchestration.LarkChannelPerson, error)
 	RemovePerson(ctx context.Context, channel, who string) error
+	SetGroup(ctx context.Context, channel, chatID string, enabled bool) (orchestration.LarkChannelGroup, error)
 }
 
 // WithLarkChannels sets the Channels' settings.
@@ -58,7 +59,33 @@ func toLarkChannel(st larkbot.Status) openapi.LarkChannel {
 		out.People = append(out.People, toLarkChannelPerson(p))
 	}
 
+	out.Groups = make([]openapi.LarkChannelGroup, 0, len(st.Groups))
+	for _, g := range st.Groups {
+		out.Groups = append(out.Groups, toLarkChannelGroup(g))
+	}
+
 	return out
+}
+
+func toLarkChannelGroup(g orchestration.LarkChannelGroup) openapi.LarkChannelGroup {
+	return openapi.LarkChannelGroup{
+		ChatId: g.ChatID, Name: g.Name, Enabled: g.Enabled, AskedAt: g.AskedAt, CreatedAt: g.CreatedAt,
+	}
+}
+
+// SetLarkChannelGroup switches a group of a Channel on or off.
+func (s *Server) SetLarkChannelGroup(ctx context.Context, req openapi.SetLarkChannelGroupRequestObject,
+) (openapi.SetLarkChannelGroupResponseObject, error) {
+	if s.larkChannels == nil {
+		return nil, errNoLarkChannels
+	}
+
+	g, err := s.larkChannels.SetGroup(ctx, req.Channel, req.Group, req.Body.Enabled)
+	if err != nil {
+		return nil, err
+	}
+
+	return openapi.SetLarkChannelGroup200JSONResponse(toLarkChannelGroup(g)), nil
 }
 
 // ListLarkChannels returns the Channels.

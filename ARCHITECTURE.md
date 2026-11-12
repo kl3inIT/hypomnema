@@ -23,13 +23,18 @@ messages and nothing answers. `HYPOMNEMA_BOT_FILES_COMMAND` (a JSON array, `sudo
 the panel shows only the Tasks' worktrees.
 
 The coordinator (`internal/controlplane/coordinator`, issue #41 PR 3): `serve` runs one `pi --mode rpc` per chat
-that has something for pi, as the chat's Bot (`--bot`) with the Bot's model (`--provider`, `--model`, `--thinking`),
+that has something for pi, as the chat's Bot (`--bot`, and `--group` for a Lark group's chat) with the Bot's model
+(`--provider`, `--model`, `--thinking`),
 and stops it after 30 min idle by closing its stdin; it starts again with the same session id. pi's own retries are off. Owner
 messages and wake-ups go as one `prompt`, or a follow-up while pi works, and are marked delivered once pi accepted
 them. pi's activity is kept and relayed as Omnara does (issue #41 PR 4): each assistant `message_end` is kept as
 the coordinator's message with its text and thinking as parts, and each finished tool call as a `tool` message with
 its arguments and result (at most 16 KiB). Text as pi writes it, tools starting and ending, and working or idle go to
-the chat's watchers from memory only and are never stored; `abort` stops pi's turn. On
+the chat's watchers from memory only and are never stored. A reply that ends in an error is followed by a `failed`
+row. `abort` stops pi's turn and marks it as stopped by the owner (issue #267, after OpenMausBot's
+`server/person-stops.ts`): while marked, the `message_end` whose `stopReason` is `error` or `aborted` keeps its text
+and a `stopped` row ("Stopped") in one write instead of a failure, and a turn that ends with neither gets the row at
+`agent_settled`, where the mark clears. On
 the server pi runs as the `coordinator` user through `deploy/coordinator/`: a root-owned launcher (`hypomnema-pi`,
 a clean environment, only a chat id, a Bot's name and model flags, pi's own token on the first line of stdin), one
 sudoers rule limited to it, the instructions every Bot gets, pi's version with its lockfile (`package.json`, which
@@ -271,7 +276,10 @@ transaction, every status change a guarded `UPDATE` checked against a transition
 - Chats (`orchestration/chats.go`, issue #41 PR 3, after Omnara;
   [research](docs/research/2026-11-09-chat-storage.md)): the owner's conversations with pi. Every message is kept
   (`owner`, `coordinator`, `tool`, `system`; replies and tools with JSON `parts`); owner messages and wake-ups wait
-  for pi and are marked delivered one by one. A
+  for pi and are marked delivered one by one. A `system` row has a `kind` (migration 00054, issue #267, after
+  t3code's typed timeline items): `wake` (it names its event), `failed` (pi's model call failed), `stopped` (the
+  owner stopped the turn) or `approval` (the coordinator is told an Approval was answered); the API sends it as
+  `ChatMessage.kind`, and the web and Lark read it rather than the text. A
   Run records the chat whose pi created it (`runs.chat_id`), and each event of such a Run that needs a coordinator (a
   Task ended or was blocked, a question to the coordinator, an escalation, the Run ended) adds one wake-up to the chat,
   unique per event.
@@ -322,8 +330,8 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     `HYPOMNEMA_CHAT_ID` and `HYPOMNEMA_BOT` stay in pi's environment as hints that name the chat and Bot in a
     request; they decide nothing.
   - **The box** (issue #260, after OpenMausBot's bot box, `docs/bot-box.md`, and Codex's `linux-sandbox`): the
-    launcher runs pi in an unprivileged bubblewrap box, its own PID, IPC and UTS namespaces, ended with the
-    launcher. Read-only: `/usr` (with merged `/bin`, `/lib`, `/lib64`, `/sbin`), `/etc`, the resolver Ubuntu's
+    launcher runs every chat's pi, a Lark group's too, in an unprivileged bubblewrap box, its own PID, IPC and UTS
+    namespaces, ended with the launcher. Read-only: `/usr` (with merged `/bin`, `/lib`, `/lib64`, `/sbin`), `/etc`, the resolver Ubuntu's
     `/etc/resolv.conf` links to (`/run/systemd/resolve`), the CPU list, `/opt/hypomnema-node`, pi, the
     integrations' tools and guides, the skills every Bot gets (`~/.agents/skills`), and this pi's prompt, skills and
     `models.json` (`run/<chat>/`, made by the launcher outside the box). Private: `/tmp`, `/var/tmp`, `/proc`,
@@ -712,7 +720,31 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       Lark message id, kept a day). The sender's organization must be the app's. The owner always may; others
       by the mode: the people he added, or every member of the organization. People are kept per Channel
       (`lark_channel_people`): Lark gives a person another `open_id` in each app. A refusal, a message that is
-      not text and a pi that is not running are answered with a short notice. A group is not served.
+      not text and a pi that is not running are answered with a short notice.
+    - Groups ([#246](https://github.com/kl3inIT/hypomnema/issues/246), migration 00055): each Channel keeps a
+      roster of the Lark groups its bot is in (`lark_channel_groups`, MemoryOS's `ChannelGroupRoster`): a group
+      is added when the bot is added to it (`im.chat.member.bot.added_v1`; `deleted_v1` removes it) and by Lark's
+      whole list of the bot's groups (`GET /open-apis/im/v1/chats`), read when the Channel connects and every ten
+      minutes; a group the list no longer holds is removed unless it was added or asked in since the list was
+      read; a list Lark does not give whole changes nothing. A group is off until the owner switches it on, and
+      the Channels page reads them again every half minute. In a group that is on, a message is served only when
+      it mentions the bot (`@all` is not a mention; the bot's `open_id` is read once from
+      `GET /open-apis/bot/v3/info`) and its sender passes the Channel's mode: the owner, the people he added, or
+      every member of the group, of the organization or not; the organization check is for direct messages
+      only. Anything else, commands included, is dropped without a word and not recorded. A group mentioning the
+      bot before any listing is put on the roster, off. The bot's mention is taken out of the text and another
+      person's is written as `@name`.
+    - A group has one chat with the Bot, marked `chats.lark_group`, which stays on a chat the group no longer
+      uses. `/new` from any member it answers starts it over for everyone, as do four hours without a question
+      (`asked_at` of the roster) and the first question after the bot was added to the group again; one message
+      of a group at a time decides which chat it goes to. Every
+      group message, the owner's too, opens with `[name]: `, the name from the people the owner added or from
+      Lark, with brackets and control characters taken out and cut to 64 characters; a direct message's label
+      names the sender the same way. pi starts for a group's chat with `--group`: `hypomnema bots prompt --group`
+      gives the persona without the Bot's memory (OpenClaw leaves `MEMORY.md` out of a group's prompt) and says,
+      in MemoryOS's words, that only that opening label is added by Hypomnema. A group's reply quotes the
+      question, mentions nobody and has no link to the web; the bot says nothing when it joins. Questions for
+      approval still go to the owner's direct chat only.
     - Each person's direct chat is one chat with the Channel's Bot (`lark_channel_chats`), and `/new` opens
       another with it. A chat that is open keeps its Bot when the Channel is given another. The owner's text is
       added as it is; another person's is added under a line that names them and says approvals are the
@@ -730,10 +762,14 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       his own words and does not go to the Bot. Once the question is answered or canceled, here or on the web,
       the card says how it ended and has no buttons. It needs the app's callback `card.action.trigger` over
       the persistent connection, configured in Lark's console.
-    - On the web, `/settings/channels` (under Connections) has a card for each Channel: add one (its name, its
-      app with the secret in a password field, the owner's email, its Bot), change its app, switch it on and
-      off, choose its Bot and who may talk to it, add and remove people, remove it; it says whether it is
-      connected and why not. It does what `channels lark ...` does.
+    - On the web, `/settings/channels` (under Connections) is laid out as the Integrations page: a Lark section
+      with "Add channel" and a card for each Channel: add one (its name, its app with the secret in a password
+      field, the owner's email, its Bot), change its app, switch it on and off, choose its Bot (each with its
+      icon, as on the Bots page) and who may talk to it, add and remove people in a side sheet, remove it; it
+      says whether it is connected and why not. It does what `channels lark ...` does. Its "Group chats" list
+      (after MemoryOS's channel page) shows each group with when it was last asked and a switch, which
+      `PUT /channels/lark/{channel}/groups/{group}` saves; `GET /channels/lark...` gives the groups with each
+      Channel. The terminal has no command for groups.
     - What a person sees while the Bot works: their message carries the emoji `Typing` until the reply is
       there, and `CrossMark` when the model's call failed; the card answers that message (Lark shows it
       quoted), shows the tool that is running (`⚡ name: arguments`) before and under the text, and ends with a
@@ -741,11 +777,13 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       told it is queued, by the name of the chat's Bot. A reply longer than 8,000 characters goes on in further
       cards. Lark's mention tags in a reply are written out, so nobody is notified. A card Lark stopped writing
       after ten minutes is switched on again. `/new` gives the person's next message a new chat; `/stop` stops
-      the turn that runs: its card closes with what was written and the line "Stopped.", and the message is
-      not marked as failed.
+      the turn that runs. The relay reads each system row's `kind`: a `stopped` row (from `/stop` or the web's
+      Stop) closes the card with what was written and the line "Stopped." and the message is not marked as
+      failed; a `failed` row ends it with "could not answer this" and the cross; `approval` and `wake` rows send
+      nothing.
     - A question's card is orange while it waits, green once answered, red when canceled.
-    - Not built: an option that also takes text, groups; a person's reaction as an answer; images
-      and voice.
+    - Not built: an option that also takes text; a person's reaction as an answer; images and voice; refusing
+      a group with members of another organization; a conversation per sender in a group.
   - The token reaches a worker with its offer: the node API asks for it by host and repository as it sends the offer, and
     orchestration never holds it. The node gives it to that Dispatch only, as environment: git sends it to that
     host alone (an `http.https://<host>/.extraheader` through `GIT_CONFIG_COUNT`), `gh` reads `GH_TOKEN` (or

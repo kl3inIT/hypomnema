@@ -18,7 +18,7 @@ import { useState, type ReactNode } from "react"
 import type { ChatMessage } from "@/api/generated/types.gen"
 import { cn } from "@/lib/utils"
 
-import { argLine, type ChatItem, type Step } from "./chat-state"
+import { argLine, failed, type ChatItem, type Step } from "./chat-state"
 import Markdown from "./markdown"
 import { WorkLogBlock, WorkLogButton, WorkLogDetails, WorkLogList, WorkLogRow } from "./work-log"
 
@@ -143,8 +143,8 @@ function Reply({
 
 // A wake-up from the control plane or a notice, as a line across the lane; a failed model call reads as danger.
 function Notice({ message }: { message: ChatMessage }) {
-  const danger = message.text.startsWith("pi's model call failed")
-  const wake = message.event_seq !== undefined
+  const danger = failed(message)
+  const wake = message.kind === "wake"
   const [label, detail] = splitNotice(message.text)
   const Icon = danger ? CircleAlert : Info
 
@@ -209,7 +209,7 @@ function Activity({ steps, live }: { steps: Step[]; live: boolean }) {
   }
 
   const tools = steps.filter((s) => s.kind === "tool")
-  const failed = tools.some((s) => s.result?.error)
+  const erred = tools.some((s) => s.result?.error)
 
   return (
     <>
@@ -221,7 +221,7 @@ function Activity({ steps, live }: { steps: Step[]; live: boolean }) {
           label={summary(tools.length, steps.length - tools.length)}
           trailing={
             <span className="flex shrink-0 items-center gap-1">
-              {failed && (
+              {erred && (
                 <X className="size-3 shrink-0 text-tool-error-icon/60" aria-label="failed" />
               )}
               <Chevron open={expanded} />

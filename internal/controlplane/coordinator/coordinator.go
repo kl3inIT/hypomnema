@@ -283,10 +283,10 @@ func (s *Supervisor) procFor(ctx context.Context, chatID string) (*proc, error) 
 }
 
 // botArgs are the launcher's flags for the chat's Bot: its name, by which the
-// launcher finds its directory, persona and memory, and its model: the
-// provider (an id in pi's models.json), the model and the effort. The model
-// is returned too: the chat's gateway key is good for it; and the Bot's name,
-// which pi's token is bound to.
+// launcher finds its directory, persona and memory, whether the chat is a
+// Lark group's, and its model: the provider (an id in pi's models.json), the
+// model and the effort. The model is returned too: the chat's gateway key is
+// good for it; and the Bot's name, which pi's token is bound to.
 func (s *Supervisor) botArgs(ctx context.Context, chatID string) ([]string, string, string, error) {
 	chat, err := s.svc.GetChat(ctx, chatID)
 	if err != nil {
@@ -299,6 +299,17 @@ func (s *Supervisor) botArgs(ctx context.Context, chatID string) ([]string, stri
 	}
 
 	args := []string{"--bot", p.Name}
+
+	// The chat of a Lark group is not given the Bot's memory, which holds what the owner's chats taught it, and
+	// is told who writes there (issue #246; OpenClaw leaves MEMORY.md out of a group session's prompt).
+	group, err := s.svc.IsLarkGroupChat(ctx, chatID)
+	if err != nil {
+		return nil, "", "", err
+	}
+
+	if group {
+		args = append(args, "--group")
+	}
 
 	if p.Model != "" {
 		if p.Provider != "" {

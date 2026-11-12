@@ -41,7 +41,9 @@ type Settings struct {
 type Status struct {
 	Channel orchestration.LarkChannel
 	People  []orchestration.LarkChannelPerson
-	State   State
+	// Groups are the Lark groups the Channel's bot is in.
+	Groups []orchestration.LarkChannelGroup
+	State  State
 }
 
 // SettingsStore is what the settings need of the store.
@@ -53,6 +55,9 @@ type SettingsStore interface {
 	) (orchestration.LarkChannelPerson, error)
 	LarkChannelPeople(ctx context.Context, channel string) ([]orchestration.LarkChannelPerson, error)
 	RemoveLarkChannelPerson(ctx context.Context, channel, openID string) error
+	LarkChannelGroups(ctx context.Context, channel string) ([]orchestration.LarkChannelGroup, error)
+	SetLarkChannelGroup(ctx context.Context, channel, chatID string, enabled bool,
+	) (orchestration.LarkChannelGroup, error)
 	GetBot(ctx context.Context, name string) (orchestration.Bot, error)
 }
 
@@ -123,7 +128,24 @@ func (s *Service) status(ctx context.Context, ch orchestration.LarkChannel) (Sta
 		return Status{}, err
 	}
 
-	return Status{Channel: ch, People: people, State: s.channels.State(ch.Name)}, nil
+	groups, err := s.store.LarkChannelGroups(ctx, ch.Name)
+	if err != nil {
+		return Status{}, err
+	}
+
+	return Status{Channel: ch, People: people, Groups: groups, State: s.channels.State(ch.Name)}, nil
+}
+
+// SetGroup switches a group of a Channel on or off: the Channel's bot answers
+// only in a group the owner switched on (OpenClaw's Feishu groupPolicy
+// allowlist).
+func (s *Service) SetGroup(ctx context.Context, channel, chatID string, enabled bool,
+) (orchestration.LarkChannelGroup, error) {
+	if _, err := s.store.LarkChannel(ctx, channel); err != nil {
+		return orchestration.LarkChannelGroup{}, err
+	}
+
+	return s.store.SetLarkChannelGroup(ctx, channel, strings.TrimSpace(chatID), enabled)
 }
 
 // Set sets a Channel up or changes it. The first time it needs the app, its

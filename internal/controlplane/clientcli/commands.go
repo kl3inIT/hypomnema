@@ -376,7 +376,10 @@ var commands = []command{
 	{
 		name: "bots prompt", args: "<bot>", min: 1, max: 1,
 		summary: "what pi is given about a bot when it starts for a chat: the persona and the memory",
-		run:     botsPrompt,
+		flags: func(fs *flag.FlagSet) {
+			fs.Bool("group", false, "for the chat of a Lark group: without the memory, and saying who writes there")
+		},
+		run: botsPrompt,
 	},
 	{
 		name:    "pi-models",

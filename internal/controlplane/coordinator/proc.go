@@ -34,6 +34,10 @@ type proc struct {
 	stderr     []string
 	// calls holds the arguments of running tool calls by id, until they end.
 	calls map[string]json.RawMessage
+	// stopAsked says the owner stopped the turn that runs (Abort), and
+	// stopKept that its stopped row is kept; both clear when the turn settles.
+	stopAsked bool
+	stopKept  bool
 }
 
 type response struct {
@@ -262,6 +266,40 @@ func (p *proc) setWorking(w bool) {
 	if changed {
 		p.s.publish(p.chatID, Frame{Event: FrameState, Data: map[string]any{"working": w}})
 	}
+}
+
+// askStop marks the turn that runs as stopped by the owner and says whether
+// one runs.
+func (p *proc) askStop() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.stopAsked = p.working
+
+	return p.working
+}
+
+// stopping says whether the turn was stopped and its stopped row is still to
+// keep, and takes that row as kept.
+func (p *proc) stopping() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if !p.stopAsked || p.stopKept {
+		return false
+	}
+
+	p.stopKept = true
+
+	return true
+}
+
+// stopSettled clears the stop mark once the turn is over, or when pi refused
+// to stop it.
+func (p *proc) stopSettled() {
+	p.mu.Lock()
+	p.stopAsked, p.stopKept = false, false
+	p.mu.Unlock()
 }
 
 func (p *proc) isWorking() bool {

@@ -874,6 +874,33 @@ paths:
       responses:
         "204": { description: The person is off the list. }
         default: { $ref: "#/components/responses/Error" }
+  /channels/lark/{channel}/groups/{group}:
+    parameters:
+      - $ref: "#/components/parameters/LarkChannelName"
+      - name: group
+        in: path
+        required: true
+        description: The group's chat id at Lark.
+        schema: { type: string, minLength: 1, maxLength: 200 }
+    put:
+      operationId: SetLarkChannelGroup
+      summary: Switch a Lark group of a Channel on or off; only the owner
+      description: >-
+        A group the Channel's bot is in is off until the owner switches it
+        on. In a group that is on, the bot answers a member who mentions it
+        and whom the Channel's mode lets ask.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LarkChannelGroupSettings" }
+      responses:
+        "200":
+          description: The group.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LarkChannelGroup" }
+        default: { $ref: "#/components/responses/Error" }
   /integrations/{integration}/connections/{label}/actions:
     parameters:
       - $ref: "#/components/parameters/IntegrationID"
@@ -2932,7 +2959,7 @@ components:
     LarkChannel:
       type: object
       description: A Lark Channel as the owner set it up, and whether it is connected.
-      required: [name, bot, app_id, mode, owner_open_id, enabled, connected, people, created_at, updated_at]
+      required: [name, bot, app_id, mode, owner_open_id, enabled, connected, people, groups, created_at, updated_at]
       properties:
         name: { type: string, description: The Channel's name. }
         bot:
@@ -2956,8 +2983,37 @@ components:
         people:
           type: array
           items: { $ref: "#/components/schemas/LarkChannelPerson" }
+        groups:
+          type: array
+          description: >-
+            The Lark groups the Channel's bot is in, the most recently asked
+            first.
+          items: { $ref: "#/components/schemas/LarkChannelGroup" }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+    LarkChannelGroup:
+      type: object
+      description: >-
+        A Lark group the Channel's bot is in, found when the bot is added to
+        it or in Lark's list of the bot's groups, read every ten minutes.
+      required: [chat_id, name, enabled, created_at]
+      properties:
+        chat_id: { type: string, description: The group's chat id at Lark. }
+        name: { type: string, description: The group's name at Lark; empty when Lark gave none. }
+        enabled:
+          type: boolean
+          description: Whether the bot answers in the group. A group is off until the owner switches it on.
+        asked_at:
+          type: string
+          format: date-time
+          description: When someone last asked the bot in the group; absent when nobody has.
+        created_at: { type: string, format: date-time }
+    LarkChannelGroupSettings:
+      type: object
+      required: [enabled]
+      additionalProperties: false
+      properties:
+        enabled: { type: boolean }
     LarkChannelList:
       type: object
       required: [data]
@@ -2970,8 +3026,11 @@ components:
       enum: [owner, allowlist, everyone]
       description: >-
         Who may talk through the Channel: its owner only, the owner and the
-        people he added, or every member of the app's Lark organization.
-        Someone of another organization is refused in every mode.
+        people he added, or every member of the app's Lark organization. In
+        a direct message someone of another organization is refused in every
+        mode. In a group that is on, the same choice applies to each member
+        who mentions the bot, and there everyone is every member of the
+        group.
     LarkChannelSettings:
       type: object
       additionalProperties: false
@@ -4061,6 +4120,14 @@ components:
         owner: typed by the owner; coordinator: pi's reply; tool: a tool pi
         ran, with its result; system: a wake-up or a notice.
       enum: [owner, coordinator, tool, system]
+    ChatKind:
+      type: string
+      description: >-
+        What a system message is: wake, a wake-up for an event of one of the
+        chat's Runs; failed, pi's model call failed; stopped, the owner stopped
+        the turn; approval, the coordinator is told the owner answered an
+        Approval.
+      enum: [wake, failed, stopped, approval]
     ChatPart:
       type: object
       description: One piece of a reply (text, thinking) or of a tool pi ran (tool_result).
@@ -4120,6 +4187,9 @@ components:
         seq: { type: integer, format: int64 }
         chat_id: { type: string }
         role: { $ref: "#/components/schemas/ChatRole" }
+        kind:
+          $ref: "#/components/schemas/ChatKind"
+          description: What a system message is; absent for other messages.
         text: { type: string }
         parts:
           type: array
