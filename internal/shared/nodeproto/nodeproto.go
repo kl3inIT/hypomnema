@@ -10,6 +10,8 @@ package nodeproto
 import (
 	"encoding/json"
 	"time"
+
+	"github.com/kl3inIT/hypomnema/internal/shared/workspacefs"
 )
 
 // Paths, relative to the control plane's URL.
@@ -22,7 +24,17 @@ const (
 	// PathTerminal is the WebSocket a node opens for one terminal connection,
 	// with the stream it was given as ?stream= (issue #116).
 	PathTerminal = "/node/v1/terminal"
+	// PathFiles is where a node posts the answer to a files_request, with the
+	// request's id as ?request= (issue #255).
+	PathFiles = "/node/v1/files"
 )
+
+// FilesAnswerWithin is how long the control plane waits for a node's answer
+// about a worktree: git's own limit, and a little more.
+const FilesAnswerWithin = workspacefs.GitTimeout + 5*time.Second
+
+// MaxFilesAnswerBytes bounds a node's answer: a file read whole, as JSON.
+const MaxFilesAnswerBytes = 4*workspacefs.MaxRead + 1<<20
 
 // TerminalMeetWithin is how long the two ends of a terminal connection have
 // to meet at the control plane (Nezha io_stream.go: 10 s).
@@ -64,6 +76,8 @@ const (
 	TypeError        Type = "error"
 	// TypeTerminalOpen asks the node to open a terminal connection.
 	TypeTerminalOpen Type = "terminal_open"
+	// TypeFilesRequest asks the node about a worktree; it answers on PathFiles.
+	TypeFilesRequest Type = "files_request"
 )
 
 // Message is one envelope.
@@ -208,6 +222,16 @@ type TerminalOpen struct {
 	SessionID string `json:"session_id"`
 	Rows      int    `json:"rows"`
 	Cols      int    `json:"cols"`
+}
+
+// FilesRequest asks a node about a file or folder of one of its worktrees
+// (issue #255). The answer is a workspacefs.Result, which the node posts to
+// PathFiles rather than sending on the socket, whose messages are smaller
+// than a file may be: as Omnigent's runner streams a response's body.
+type FilesRequest struct {
+	RequestID string              `json:"request_id"`
+	Worktree  string              `json:"worktree"`
+	Request   workspacefs.Request `json:"request"`
 }
 
 // Disposition kinds: what the node does with a claimed Dispatch.

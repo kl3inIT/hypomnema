@@ -1506,6 +1506,95 @@ export type NewChat = {
   bot?: string;
 };
 
+export type WorkspaceList = {
+  data: Array<Workspace>;
+};
+
+export type Workspace = {
+  /**
+   * `bot`, or the Task's id.
+   */
+  id: string;
+  kind: 'bot' | 'task';
+  /**
+   * The Bot's name
+   */
+  name: string;
+  /**
+   * Where the folder is on its machine.
+   */
+  root: string;
+  /**
+   * Whether the folder's machine can be read now.
+   */
+  online: boolean;
+  node_id?: string;
+  node_name?: string;
+  task_id?: string;
+  run_id?: string;
+  task_status?: string;
+};
+
+export type WorkspaceEntry = {
+  name: string;
+  path: string;
+  type: 'file' | 'directory';
+  bytes: number;
+  /**
+   * Unix seconds.
+   */
+  modified_at: number;
+};
+
+export type WorkspaceListing = {
+  entries: Array<WorkspaceEntry>;
+  has_more: boolean;
+};
+
+export type WorkspaceFile = {
+  path: string;
+  bytes: number;
+  /**
+   * A binary file has no content.
+   */
+  binary: boolean;
+  /**
+   * The content is the first 10 MiB
+   */
+  truncated: boolean;
+  content: string;
+};
+
+export type WorkspaceChange = {
+  path: string;
+  status: 'created' | 'modified' | 'deleted';
+  lines_added?: number;
+  lines_removed?: number;
+  modified_at: number;
+};
+
+export type WorkspaceChanges = {
+  /**
+   * False for a folder in no git repository
+   */
+  git: boolean;
+  changes: Array<WorkspaceChange>;
+  truncated: boolean;
+};
+
+export type WorkspaceDiff = {
+  path: string;
+  /**
+   * The file at HEAD; absent when it was created.
+   */
+  before?: string;
+  /**
+   * The file now; absent when it was deleted.
+   */
+  after?: string;
+  binary: boolean;
+};
+
 export type Chat = {
   id: string;
   title: string;
@@ -1700,6 +1789,16 @@ export type Name = string;
 export type SkillName = string;
 
 export type ChatId = string;
+
+/**
+ * `bot` for the Bot's folder, or a Task's id for its worktree.
+ */
+export type WorkspaceId = string;
+
+/**
+ * A path in the folder, with forward slashes; empty or absent is the folder itself.
+ */
+export type WorkspacePath = string;
 
 export type NodeId = string;
 
@@ -4741,6 +4840,176 @@ export type StreamChatResponses = {
 };
 
 export type StreamChatResponse = StreamChatResponses[keyof StreamChatResponses];
+
+export type ListChatWorkspacesData = {
+  body?: never;
+  path: {
+    chat_id: string;
+  };
+  query?: never;
+  url: '/chats/{chat_id}/workspaces';
+};
+
+export type ListChatWorkspacesErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListChatWorkspacesError = ListChatWorkspacesErrors[keyof ListChatWorkspacesErrors];
+
+export type ListChatWorkspacesResponses = {
+  /**
+   * The folders.
+   */
+  200: WorkspaceList;
+};
+
+export type ListChatWorkspacesResponse = ListChatWorkspacesResponses[keyof ListChatWorkspacesResponses];
+
+export type ListWorkspaceDirectoryData = {
+  body?: never;
+  path: {
+    chat_id: string;
+    /**
+     * `bot` for the Bot's folder, or a Task's id for its worktree.
+     */
+    workspace_id: string;
+  };
+  query?: {
+    /**
+     * A path in the folder, with forward slashes; empty or absent is the folder itself.
+     */
+    path?: string;
+    /**
+     * The page after this name.
+     */
+    after?: string;
+  };
+  url: '/chats/{chat_id}/workspaces/{workspace_id}/tree';
+};
+
+export type ListWorkspaceDirectoryErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListWorkspaceDirectoryError = ListWorkspaceDirectoryErrors[keyof ListWorkspaceDirectoryErrors];
+
+export type ListWorkspaceDirectoryResponses = {
+  /**
+   * The page.
+   */
+  200: WorkspaceListing;
+};
+
+export type ListWorkspaceDirectoryResponse = ListWorkspaceDirectoryResponses[keyof ListWorkspaceDirectoryResponses];
+
+export type ReadWorkspaceFileData = {
+  body?: never;
+  path: {
+    chat_id: string;
+    /**
+     * `bot` for the Bot's folder, or a Task's id for its worktree.
+     */
+    workspace_id: string;
+  };
+  query?: {
+    /**
+     * A path in the folder, with forward slashes; empty or absent is the folder itself.
+     */
+    path?: string;
+  };
+  url: '/chats/{chat_id}/workspaces/{workspace_id}/file';
+};
+
+export type ReadWorkspaceFileErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ReadWorkspaceFileError = ReadWorkspaceFileErrors[keyof ReadWorkspaceFileErrors];
+
+export type ReadWorkspaceFileResponses = {
+  /**
+   * The file.
+   */
+  200: WorkspaceFile;
+};
+
+export type ReadWorkspaceFileResponse = ReadWorkspaceFileResponses[keyof ReadWorkspaceFileResponses];
+
+export type ListWorkspaceChangesData = {
+  body?: never;
+  path: {
+    chat_id: string;
+    /**
+     * `bot` for the Bot's folder, or a Task's id for its worktree.
+     */
+    workspace_id: string;
+  };
+  query?: never;
+  url: '/chats/{chat_id}/workspaces/{workspace_id}/changes';
+};
+
+export type ListWorkspaceChangesErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListWorkspaceChangesError = ListWorkspaceChangesErrors[keyof ListWorkspaceChangesErrors];
+
+export type ListWorkspaceChangesResponses = {
+  /**
+   * The changes.
+   */
+  200: WorkspaceChanges;
+};
+
+export type ListWorkspaceChangesResponse = ListWorkspaceChangesResponses[keyof ListWorkspaceChangesResponses];
+
+export type DiffWorkspaceFileData = {
+  body?: never;
+  path: {
+    chat_id: string;
+    /**
+     * `bot` for the Bot's folder, or a Task's id for its worktree.
+     */
+    workspace_id: string;
+  };
+  query?: {
+    /**
+     * A path in the folder, with forward slashes; empty or absent is the folder itself.
+     */
+    path?: string;
+  };
+  url: '/chats/{chat_id}/workspaces/{workspace_id}/diff';
+};
+
+export type DiffWorkspaceFileErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type DiffWorkspaceFileError = DiffWorkspaceFileErrors[keyof DiffWorkspaceFileErrors];
+
+export type DiffWorkspaceFileResponses = {
+  /**
+   * The file before and after.
+   */
+  200: WorkspaceDiff;
+};
+
+export type DiffWorkspaceFileResponse = DiffWorkspaceFileResponses[keyof DiffWorkspaceFileResponses];
 
 export type AbortChatData = {
   body?: never;

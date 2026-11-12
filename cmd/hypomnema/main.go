@@ -50,6 +50,7 @@
 // `hypomnema <command> --help` lists a command's flags; every one takes --json.
 //
 //	hypomnema version                          print the version
+//	hypomnema files serve --root DIR           answer one question about a Bot's folder under DIR (issue #255)
 package main
 
 import (
@@ -71,7 +72,7 @@ var errUsage = errors.New("usage: hypomnema migrate | serve | version | " +
 	"nodes add|list|drain|resume|rm|rename|token | machines providers|create | accounts add|login|list|refresh|rm | " +
 	"tokens add|list|revoke | users add|passwd|list | secrets keygen|add|list|rotate|rm|rewrap | gateway models|keys … | login --url URL --token-file FILE | run --repo owner/name <objective> | " +
 	"runs … | tasks … | questions … | whoami | skills get|install | " +
-	"answer <question> <answer> | questions")
+	"answer <question> <answer> | questions | files serve --root DIR")
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -104,6 +105,10 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdout 
 
 	if args[0] == "tool" {
 		return tool(ctx, args[1:], stdout)
+	}
+
+	if args[0] == "files" {
+		return files(ctx, args[1:], os.Stdin, stdout)
 	}
 
 	if args[0] == "version" {

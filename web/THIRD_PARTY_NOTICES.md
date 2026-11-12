@@ -25,6 +25,10 @@ Each adapted file names its source.
   GridSessionsContext.tsx), Apache License 2.0. Where a dropped tab lands in a pane (`dropZone` in
   `grid-layout.ts`) is adapted from Orca's `resolveDropZone` (src/renderer/src/components/tab-group/tab-drop-zone.ts),
   MIT License.
+- The Files panel (`src/features/files`) follows Omnigent's (web/src/shell/FilesPanel.tsx, FlatFileList.tsx,
+  FolderTree.tsx, CodeViewer.tsx, MonacoDiffViewer.tsx, web/src/hooks/useWorkspaceChangedFiles.ts), Apache License
+  2.0, and Orca's file explorer (src/renderer/src/components/right-sidebar/file-explorer), MIT License: their
+  layout, limits and refresh rules, written again here rather than copied.
 - The browser view (`src/features/browser`) is adapted from t3code's server browser: its socket client and frame
   painter (packages/client-runtime/src/preview/serverBrowserStream.ts), its surface's pointer and key handling
   (apps/web/src/browser/ServerBrowserSurface.tsx) and its address row
