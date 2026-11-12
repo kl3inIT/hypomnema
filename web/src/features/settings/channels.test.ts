@@ -1,6 +1,24 @@
 import { expect, test } from "vitest"
 
-import { botChoices, channelsOf, channelState, nameProblem } from "./channels-state"
+import {
+  botChoices,
+  channelsOf,
+  channelState,
+  groupAsked,
+  groupName,
+  nameProblem,
+} from "./channels-state"
+
+test("a group is shown by its name, else its chat id, and says when it was last asked", () => {
+  expect(groupName({ name: "Maps team", chat_id: "oc_1" })).toBe("Maps team")
+  expect(groupName({ name: " ", chat_id: "oc_1" })).toBe("oc_1")
+
+  const now = Date.parse("2026-11-12T12:00:00Z")
+  expect(groupAsked({}, now)).toBe("not asked yet")
+  expect(groupAsked({ asked_at: "2026-11-12T09:00:00Z" }, now)).toMatch(
+    /^asked 3\s?h(r|ours?)? ago$/,
+  )
+})
 
 test("a channel's badge says off, connected or not connected", () => {
   expect(channelState({ enabled: false, connected: false })).toEqual({ label: "Off", good: false })

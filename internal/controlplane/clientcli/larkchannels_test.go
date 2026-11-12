@@ -148,6 +148,22 @@ func (l *larkChannelSettings) RemovePerson(_ context.Context, channel, who strin
 	return nil
 }
 
+func (l *larkChannelSettings) SetGroup(_ context.Context, channel, chatID string, enabled bool,
+) (orchestration.LarkChannelGroup, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	for i, g := range l.statuses[channel].Groups {
+		if g.ChatID == chatID {
+			l.statuses[channel].Groups[i].Enabled = enabled
+
+			return l.statuses[channel].Groups[i], nil
+		}
+	}
+
+	return orchestration.LarkChannelGroup{}, orchestration.ErrNotFound
+}
+
 // Scenario: the owner sets his Lark Channels up from the terminal. The first,
 // main, gets its app from a file and who he is at Lark, then he lets Linh in
 // and switches it on. A second, maps, talks to the Bot vmap through another

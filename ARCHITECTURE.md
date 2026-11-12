@@ -21,7 +21,8 @@ configured.
 messages and nothing answers.
 
 The coordinator (`internal/controlplane/coordinator`, issue #41 PR 3): `serve` runs one `pi --mode rpc` per chat
-that has something for pi, as the chat's Bot (`--bot`) with the Bot's model (`--provider`, `--model`, `--thinking`),
+that has something for pi, as the chat's Bot (`--bot`, and `--group` for a Lark group's chat) with the Bot's model
+(`--provider`, `--model`, `--thinking`),
 and stops it after 30 min idle by closing its stdin; it starts again with the same session id. pi's own retries are off. Owner
 messages and wake-ups go as one `prompt`, or a follow-up while pi works, and are marked delivered once pi accepted
 them. pi's activity is kept and relayed as Omnara does (issue #41 PR 4): each assistant `message_end` is kept as
@@ -640,7 +641,28 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       Lark message id, kept a day). The sender's organization must be the app's. The owner always may; others
       by the mode: the people he added, or every member of the organization. People are kept per Channel
       (`lark_channel_people`): Lark gives a person another `open_id` in each app. A refusal, a message that is
-      not text and a pi that is not running are answered with a short notice. A group is not served.
+      not text and a pi that is not running are answered with a short notice.
+    - Groups ([#246](https://github.com/kl3inIT/hypomnema/issues/246), migration 00053): each Channel keeps a
+      roster of the Lark groups its bot is in (`lark_channel_groups`, MemoryOS's `ChannelGroupRoster`): a group
+      is added when the bot is added to it (`im.chat.member.bot.added_v1`; `deleted_v1` removes it) and by Lark's
+      whole list of the bot's groups (`GET /open-apis/im/v1/chats`), read when the Channel connects and every ten
+      minutes; a group the list no longer holds is removed unless it was added or asked in since the list was
+      read. A group is off until the owner switches it on. In a group that is on, a message is served only when
+      it mentions the bot (`@all` is not a mention; the bot's `open_id` is read once from
+      `GET /open-apis/bot/v3/info`) and its sender passes the Channel's mode: the owner, the people he added, or
+      every member of the group, of the organization or not; the organization check is for direct messages
+      only. Anything else, commands included, is dropped without a word and not recorded. A group mentioning the
+      bot before any listing is put on the roster, off. The bot's mention is taken out of the text and another
+      person's is written as `@name`.
+    - A group has one chat with the Bot (`lark_channel_chats.is_group`), which `/new` from any member it
+      answers starts over for everyone, as do four hours without a question (`asked_at` of the roster). Every
+      group message, the owner's too, opens with `[name]: `, the name from the people the owner added or from
+      Lark, with brackets and control characters taken out and cut to 64 characters; a direct message's label
+      names the sender the same way. pi starts for a group's chat with `--group`: `hypomnema bots prompt --group`
+      gives the persona without the Bot's memory (OpenClaw leaves `MEMORY.md` out of a group's prompt) and says,
+      in MemoryOS's words, that only that opening label is added by Hypomnema. A group's reply quotes the
+      question, mentions nobody and has no link to the web; the bot says nothing when it joins. Questions for
+      approval still go to the owner's direct chat only.
     - Each person's direct chat is one chat with the Channel's Bot (`lark_channel_chats`), and `/new` opens
       another with it. A chat that is open keeps its Bot when the Channel is given another. The owner's text is
       added as it is; another person's is added under a line that names them and says approvals are the
@@ -658,10 +680,14 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       his own words and does not go to the Bot. Once the question is answered or canceled, here or on the web,
       the card says how it ended and has no buttons. It needs the app's callback `card.action.trigger` over
       the persistent connection, configured in Lark's console.
-    - On the web, `/settings/channels` (under Connections) has a card for each Channel: add one (its name, its
-      app with the secret in a password field, the owner's email, its Bot), change its app, switch it on and
-      off, choose its Bot and who may talk to it, add and remove people, remove it; it says whether it is
-      connected and why not. It does what `channels lark ...` does.
+    - On the web, `/settings/channels` (under Connections) is laid out as the Integrations page: a Lark section
+      with "Add channel" and a card for each Channel: add one (its name, its app with the secret in a password
+      field, the owner's email, its Bot), change its app, switch it on and off, choose its Bot (each with its
+      icon, as on the Bots page) and who may talk to it, add and remove people in a side sheet, remove it; it
+      says whether it is connected and why not. It does what `channels lark ...` does. Its "Group chats" list
+      (after MemoryOS's channel page) shows each group with when it was last asked and a switch, which
+      `PUT /channels/lark/{channel}/groups/{group}` saves; `GET /channels/lark...` gives the groups with each
+      Channel. The terminal has no command for groups.
     - What a person sees while the Bot works: their message carries the emoji `Typing` until the reply is
       there, and `CrossMark` when the model's call failed; the card answers that message (Lark shows it
       quoted), shows the tool that is running (`⚡ name: arguments`) before and under the text, and ends with a
@@ -672,8 +698,8 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       the turn that runs: its card closes with what was written and the line "Stopped.", and the message is
       not marked as failed.
     - A question's card is orange while it waits, green once answered, red when canceled.
-    - Not built: an option that also takes text, groups; a person's reaction as an answer; images
-      and voice.
+    - Not built: an option that also takes text; a person's reaction as an answer; images and voice; refusing
+      a group with members of another organization; a conversation per sender in a group.
   - The token reaches a worker with its offer: the node API asks for it by host and repository as it sends the offer, and
     orchestration never holds it. The node gives it to that Dispatch only, as environment: git sends it to that
     host alone (an `http.https://<host>/.extraheader` through `GIT_CONFIG_COUNT`), `gh` reads `GH_TOKEN` (or

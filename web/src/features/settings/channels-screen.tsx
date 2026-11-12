@@ -1,6 +1,6 @@
 import { useForm } from "@tanstack/react-form"
 import { useMutation } from "@tanstack/react-query"
-import { Plus } from "lucide-react"
+import { ChevronRight, Plus, Users } from "lucide-react"
 import { useId, useState, type ReactElement } from "react"
 import { z } from "zod"
 
@@ -10,8 +10,14 @@ import {
   deleteLarkChannel,
   putLarkChannel,
   removeLarkChannelPerson,
+  setLarkChannelGroup,
 } from "@/api/generated/sdk.gen"
-import type { LarkChannel, LarkChannelMode, LarkChannelPerson } from "@/api/generated/types.gen"
+import type {
+  LarkChannel,
+  LarkChannelGroup,
+  LarkChannelMode,
+  LarkChannelPerson,
+} from "@/api/generated/types.gen"
 import { LarkIcon } from "@/components/icons/brand-icons"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -50,13 +56,28 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet"
 import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
 import { firstBot } from "@/features/bots/bots-state"
 import { useBots } from "@/features/bots/use-bots"
 
 import { AvatarName } from "@/features/agents/agent-avatar"
-import { botChoices, channelState, modeNames, nameProblem } from "./channels-state"
+import {
+  botChoices,
+  channelState,
+  groupAsked,
+  groupName,
+  modeNames,
+  nameProblem,
+} from "./channels-state"
 import { ConfirmDialog, ErrorAlert, TextField } from "./settings-parts"
 import { SettingsPage } from "./settings-shell"
 import { useLarkChannels, useRefreshChannels } from "./use-channels"
@@ -64,8 +85,10 @@ import { said } from "./use-integrations"
 
 // Channels are the doors to the Bots from outside the web client (issues #136 and #169). A Lark Channel is a
 // Lark app, the Bot it talks to and who may talk through it; there may be several, and several may talk to one
-// Bot. One card a Channel, as an Integration has its card: what it is, whether it is connected, its Bot, who may
-// talk through it. The page does what `hypomnema channels lark ...` does.
+// Bot. The page is laid out as the Integrations page is (integrations-screen.tsx, after Orca's Integrations
+// pane), as there will be several Channels (owner, 2026-11-12): the page's header has no action; a group of
+// cards has a heading with what it is for and its own action, and each card carries its actions and its badge
+// in its header, with its rows under it. The page does what `hypomnema channels lark ...` does.
 
 export function ChannelsScreen() {
   const channels = useLarkChannels()
@@ -77,34 +100,45 @@ export function ChannelsScreen() {
     <SettingsPage
       title="Channels"
       description="Where you talk to your Bots from, outside this page. A channel is a door to one Bot."
-      actions={
-        list.length > 0 && (
-          <SetUpDialog
-            bots={bots}
-            taken={taken}
-            trigger={
-              <Button size="sm">
-                <Plus data-icon="inline-start" />
-                Add channel
-              </Button>
-            }
-          />
-        )
-      }
     >
-      <ErrorAlert error={channels.error} />
-      {channels.isPending ? (
-        <p className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Spinner />
-          Loading…
-        </p>
-      ) : list.length === 0 ? (
-        !channels.error && <NoChannelCard bots={bots} />
-      ) : (
-        list.map((channel) => (
-          <LarkChannelCard key={channel.name} channel={channel} bots={bots} taken={taken} />
-        ))
-      )}
+      <section aria-labelledby="lark-channels" className="flex flex-col gap-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex flex-col gap-1">
+            <h2 id="lark-channels" className="text-sm font-semibold text-foreground">
+              Lark
+            </h2>
+            <p className="text-xs text-muted-foreground">
+              Lark apps of yours. A message to one, direct or in a group you switch on, is a message
+              to its Bot.
+            </p>
+          </div>
+          {list.length > 0 && (
+            <SetUpDialog
+              bots={bots}
+              taken={taken}
+              trigger={
+                <Button variant="outline" size="sm">
+                  <Plus data-icon="inline-start" />
+                  Add channel
+                </Button>
+              }
+            />
+          )}
+        </div>
+        <ErrorAlert error={channels.error} />
+        {channels.isPending ? (
+          <p className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Spinner />
+            Loading…
+          </p>
+        ) : list.length === 0 ? (
+          !channels.error && <NoChannelCard bots={bots} />
+        ) : (
+          list.map((channel) => (
+            <LarkChannelCard key={channel.name} channel={channel} bots={bots} taken={taken} />
+          ))
+        )}
+      </section>
     </SettingsPage>
   )
 }
@@ -187,9 +221,32 @@ function LarkChannelCard({
             </span>
           </span>
         </CardTitle>
-        <CardAction>
-          <span className="flex flex-wrap items-center justify-end gap-2">
-            <span className="flex items-center gap-2 text-xs text-muted-foreground">
+        <CardAction wrap>
+          <span className="flex flex-wrap items-center gap-1.5 sm:justify-end">
+            <SetUpDialog
+              channel={channel}
+              bots={bots}
+              taken={taken}
+              trigger={
+                <Button variant="outline" size="sm">
+                  Change app
+                </Button>
+              }
+            />
+            <ConfirmDialog
+              trigger={
+                <Button variant="ghost" size="sm">
+                  Remove
+                </Button>
+              }
+              title={`Remove the channel ${channel.name}?`}
+              consequence="Hypomnema forgets the channel, the people you added to it, its group chats and its app's secret, and takes no more messages from its Lark app. The chats stay. The app itself is removed in Lark's developer console."
+              action="Remove"
+              done={`The channel ${channel.name} is removed`}
+              run={() => deleteLarkChannel({ path: { channel: channel.name } })}
+              onDone={refresh}
+            />
+            <span className="flex items-center gap-2 px-1 text-xs text-muted-foreground">
               <label htmlFor={`${id}-on`}>On</label>
               <Switch
                 id={`${id}-on`}
@@ -283,38 +340,78 @@ function LarkChannelCard({
             </span>
           </div>
           <p className="text-xs text-muted-foreground">
-            Someone you let in can give work. Questions for approval come to you alone. A chat that
-            is open keeps its Bot; the next one is with the Bot chosen here.
+            Someone you let in can give work. In a group chat you switch on, the same rule applies
+            to each member who mentions the bot, and everyone there is any member of the group.
+            Questions for approval come to you alone, in your direct chat. A chat that is open keeps
+            its Bot; the next one is with the Bot chosen here.
           </p>
+          <GroupChats channel={channel} />
           <People channel={channel} />
-          <span className="flex flex-wrap gap-2">
-            <SetUpDialog
-              channel={channel}
-              bots={bots}
-              taken={taken}
-              trigger={
-                <Button variant="outline" size="sm">
-                  Change app
-                </Button>
-              }
-            />
-            <ConfirmDialog
-              trigger={
-                <Button variant="ghost" size="sm">
-                  Remove
-                </Button>
-              }
-              title={`Remove the channel ${channel.name}?`}
-              consequence="Hypomnema forgets the channel, the people you added to it and its app's secret, and takes no more messages from its Lark app. The chats stay. The app itself is removed in Lark's developer console."
-              action="Remove"
-              done={`The channel ${channel.name} is removed`}
-              run={() => deleteLarkChannel({ path: { channel: channel.name } })}
-              onDone={refresh}
-            />
-          </span>
         </div>
       </CardContent>
     </Card>
+  )
+}
+
+// GroupChats are the Lark groups the Channel's bot is in, as the control plane found them: when the bot is added
+// to one, and in Lark's list of the bot's groups read every ten minutes. Each row is the group's name, when it was
+// last asked, and the owner's switch, saved as it changes; a group is off until he switches it on (issue #246).
+// Adapted from MemoryOS's groups of a channel (web/src/features/channels/channel-assistants-section.tsx), in the
+// rows the accounts of an Integration have.
+function GroupChats({ channel }: { channel: LarkChannel }) {
+  return (
+    <section aria-label="Group chats" className="flex flex-col gap-2">
+      <p className="text-xs font-medium text-foreground">Group chats</p>
+      {channel.groups.length === 0 ? (
+        <output className="text-xs text-muted-foreground">
+          No group chats yet. A group shows here within ten minutes of the bot being added to it,
+          and stays off until you switch it on.
+        </output>
+      ) : (
+        <ItemGroup>
+          {channel.groups.map((group) => (
+            <GroupRow key={group.chat_id} channel={channel.name} group={group} />
+          ))}
+        </ItemGroup>
+      )}
+    </section>
+  )
+}
+
+function GroupRow({ channel, group }: { channel: string; group: LarkChannelGroup }) {
+  const refresh = useRefreshChannels()
+  const shown = groupName(group)
+  const id = `group-${channel}-${group.chat_id}`
+
+  const change = useMutation({
+    mutationFn: (enabled: boolean) =>
+      setLarkChannelGroup({ path: { channel, group: group.chat_id }, body: { enabled } }),
+    onSuccess: async (_, enabled) => {
+      await refresh()
+      said(enabled ? `The bot answers in ${shown}` : `The bot no longer answers in ${shown}`)
+    },
+  })
+
+  return (
+    <Item variant="muted" size="sm" aria-label={`Group ${shown}`}>
+      <ItemContent>
+        <ItemTitle>{shown}</ItemTitle>
+        <ItemDescription>{groupAsked(group)}</ItemDescription>
+        {change.error && <ErrorAlert error={change.error} />}
+      </ItemContent>
+      <ItemActions>
+        <span className="flex items-center gap-2 text-xs text-muted-foreground">
+          <label htmlFor={id}>Answers here</label>
+          <Switch
+            id={id}
+            size="sm"
+            checked={group.enabled}
+            disabled={change.isPending}
+            onCheckedChange={(next) => change.mutate(next)}
+          />
+        </span>
+      </ItemActions>
+    </Item>
   )
 }
 
@@ -322,44 +419,65 @@ function LarkChannelCard({
 // says so.
 function People({ channel }: { channel: LarkChannel }) {
   const refresh = useRefreshChannels()
+  const count = channel.people.length
 
+  // A line under the card that opens the list in a sheet, as an account of an Integration has its "Agents may"
+  // line (agent-actions.tsx): with several Channels each card stays short.
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-xs font-medium text-foreground">
-          People you added
-          {channel.mode !== "allowlist" && (
-            <span className="font-normal text-muted-foreground">
-              {" "}
-              · used when you choose “{modeNames.allowlist}”
-            </span>
-          )}
-        </p>
-        <AddPersonDialog
-          channel={channel.name}
-          trigger={
-            <Button variant="outline" size="sm">
-              <Plus data-icon="inline-start" />
-              Add person
-            </Button>
+    <Sheet>
+      <div className="flex min-w-0">
+        <SheetTrigger
+          render={
+            <Button variant="ghost" size="sm" aria-label={`People you added to ${channel.name}`} />
           }
-        />
+        >
+          <Users data-icon="inline-start" />
+          <span className="font-medium">People you added</span>
+          <span className="min-w-0 truncate font-normal text-muted-foreground">
+            {count === 0 ? "nobody yet" : count === 1 ? "1 person" : `${count} people`}
+            {channel.mode !== "allowlist" && " · not used now"}
+          </span>
+          <ChevronRight data-icon="inline-end" />
+        </SheetTrigger>
       </div>
-      {channel.people.length === 0 ? (
-        <p className="text-xs text-muted-foreground">Nobody yet.</p>
-      ) : (
-        <ItemGroup>
-          {channel.people.map((person) => (
-            <PersonRow
-              key={person.open_id}
+      <SheetContent>
+        <SheetHeader>
+          <SheetTitle>{channel.name} · People you added</SheetTitle>
+          <SheetDescription>
+            They may talk to {channel.bot} through this channel while you choose “
+            {modeNames.allowlist}”: in a direct message, and in a group chat you switch on when they
+            mention the bot.
+          </SheetDescription>
+        </SheetHeader>
+        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-4 pb-6">
+          <span>
+            <AddPersonDialog
               channel={channel.name}
-              person={person}
-              onDone={refresh}
+              trigger={
+                <Button variant="outline" size="sm">
+                  <Plus data-icon="inline-start" />
+                  Add person
+                </Button>
+              }
             />
-          ))}
-        </ItemGroup>
-      )}
-    </div>
+          </span>
+          {count === 0 ? (
+            <p className="text-xs text-muted-foreground">Nobody yet.</p>
+          ) : (
+            <ItemGroup>
+              {channel.people.map((person) => (
+                <PersonRow
+                  key={person.open_id}
+                  channel={channel.name}
+                  person={person}
+                  onDone={refresh}
+                />
+              ))}
+            </ItemGroup>
+          )}
+        </div>
+      </SheetContent>
+    </Sheet>
   )
 }
 

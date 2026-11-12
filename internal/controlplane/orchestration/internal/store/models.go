@@ -303,6 +303,16 @@ type LarkChannelChat struct {
 	ChatID     string
 	SentSeq    int64
 	CreatedAt  int64
+	IsGroup    int64
+}
+
+type LarkChannelGroup struct {
+	Channel    string
+	LarkChatID string
+	Name       string
+	Enabled    int64
+	AskedAt    sql.NullInt64
+	CreatedAt  int64
 }
 
 type LarkChannelMessage struct {

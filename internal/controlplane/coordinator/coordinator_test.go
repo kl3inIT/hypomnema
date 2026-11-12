@@ -320,6 +320,29 @@ func TestPiRunsAsTheChatsBotWithItsModel(t *testing.T) {
 	args, _, err = sup.botArgs(ctx, first.ID)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"--bot", "coordinator"}, args, "the first chat keeps its Bot")
+
+	// A Lark group's chat is not given the Bot's memory (issue #246); a person's direct chat is.
+	_, err = svc.SetLarkChannel(ctx, orchestration.LarkChannel{
+		Name: "maps", AppID: "cli_m4p5", Secret: "lark-channel-maps", Bot: "vmap",
+		Mode: orchestration.LarkChannelOwner, OwnerOpenID: "ou_owner", Enabled: true,
+	})
+	require.NoError(t, err)
+
+	group, err := svc.LarkGroupChatFor(ctx, "maps", "oc_group", "Lark: Maps team")
+	require.NoError(t, err)
+
+	args, _, err = sup.botArgs(ctx, group.ChatID)
+	require.NoError(t, err)
+	assert.Equal(t, []string{
+		"--bot", "vmap", "--group", "--provider", "ninerouter", "--model", "cx/gpt-6.1-sol", "--thinking", "high",
+	}, args)
+
+	direct, err := svc.LarkChannelChatFor(ctx, "maps", "oc_dm", "ou_owner", "")
+	require.NoError(t, err)
+
+	args, _, err = sup.botArgs(ctx, direct.ChatID)
+	require.NoError(t, err)
+	assert.NotContains(t, args, "--group")
 }
 
 // Scenario: the web watches a chat while pi answers: it sees pi start

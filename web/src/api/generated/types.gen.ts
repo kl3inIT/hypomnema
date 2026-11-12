@@ -697,8 +697,39 @@ export type LarkChannel = {
    */
   last_error?: string;
   people: Array<LarkChannelPerson>;
+  /**
+   * The Lark groups the Channel's bot is in, the most recently asked first.
+   */
+  groups: Array<LarkChannelGroup>;
   created_at: string;
   updated_at: string;
+};
+
+/**
+ * A Lark group the Channel's bot is in, found when the bot is added to it or in Lark's list of the bot's groups, read every ten minutes.
+ */
+export type LarkChannelGroup = {
+  /**
+   * The group's chat id at Lark.
+   */
+  chat_id: string;
+  /**
+   * The group's name at Lark; empty when Lark gave none.
+   */
+  name: string;
+  /**
+   * Whether the bot answers in the group. A group is off until the owner switches it on.
+   */
+  enabled: boolean;
+  /**
+   * When someone last asked the bot in the group; absent when nobody has.
+   */
+  asked_at?: string;
+  created_at: string;
+};
+
+export type LarkChannelGroupSettings = {
+  enabled: boolean;
 };
 
 export type LarkChannelList = {
@@ -706,7 +737,7 @@ export type LarkChannelList = {
 };
 
 /**
- * Who may talk through the Channel: its owner only, the owner and the people he added, or every member of the app's Lark organization. Someone of another organization is refused in every mode.
+ * Who may talk through the Channel: its owner only, the owner and the people he added, or every member of the app's Lark organization. In a direct message someone of another organization is refused in every mode. In a group that is on, the same choice applies to each member who mentions the bot, and there everyone is every member of the group.
  */
 export type LarkChannelMode = 'owner' | 'allowlist' | 'everyone';
 
@@ -3074,6 +3105,40 @@ export type RemoveLarkChannelPersonResponses = {
 };
 
 export type RemoveLarkChannelPersonResponse = RemoveLarkChannelPersonResponses[keyof RemoveLarkChannelPersonResponses];
+
+export type SetLarkChannelGroupData = {
+  body: LarkChannelGroupSettings;
+  path: {
+    /**
+     * The Channel's name.
+     */
+    channel: string;
+    /**
+     * The group's chat id at Lark.
+     */
+    group: string;
+  };
+  query?: never;
+  url: '/channels/lark/{channel}/groups/{group}';
+};
+
+export type SetLarkChannelGroupErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type SetLarkChannelGroupError = SetLarkChannelGroupErrors[keyof SetLarkChannelGroupErrors];
+
+export type SetLarkChannelGroupResponses = {
+  /**
+   * The group.
+   */
+  200: LarkChannelGroup;
+};
+
+export type SetLarkChannelGroupResponse = SetLarkChannelGroupResponses[keyof SetLarkChannelGroupResponses];
 
 export type ListConnectionActionsData = {
   body?: never;

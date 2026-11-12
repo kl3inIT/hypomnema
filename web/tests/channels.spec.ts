@@ -6,6 +6,14 @@ import { choose } from "./choose.js"
 
 type Person = { open_id: string; email: string; name: string; created_at: string }
 
+type Group = {
+  chat_id: string
+  name: string
+  enabled: boolean
+  asked_at?: string
+  created_at: string
+}
+
 type Channel = {
   name: string
   bot: string
@@ -16,6 +24,7 @@ type Channel = {
   connected: boolean
   last_error?: string
   people: Person[]
+  groups: Group[]
   created_at: string
   updated_at: string
 }
@@ -47,6 +56,7 @@ const main: Channel = {
   enabled: true,
   connected: true,
   people: [],
+  groups: [],
   created_at: now,
   updated_at: now,
 }
@@ -79,7 +89,23 @@ async function fakeServer(page: Page, start: Channel[] = []) {
 
     const one = /^\/channels\/lark\/([^/]+)$/.exec(path)
     const people = /^\/channels\/lark\/([^/]+)\/people(?:\/([^/]+))?$/.exec(path)
-    const found = channels.find((c) => c.name === (one ?? people)?.[1])
+    const group = /^\/channels\/lark\/([^/]+)\/groups\/([^/]+)$/.exec(path)
+    const found = channels.find((c) => c.name === (one ?? people ?? group)?.[1])
+
+    if (group && found && request.method() === "PUT") {
+      const { enabled } = request.postDataJSON() as { enabled: boolean }
+      const changed = found.groups.find((g) => g.chat_id === group[2])
+      if (!changed) return json({ code: "not_found", message: "no such group" }, 404)
+
+      const stored = { ...changed, enabled }
+      channels = channels.map((c) =>
+        c === found
+          ? { ...c, groups: c.groups.map((g) => (g.chat_id === stored.chat_id ? stored : g)) }
+          : c,
+      )
+
+      return json(stored)
+    }
 
     if (one && request.method() === "PUT") {
       const set = request.postDataJSON() as {
@@ -117,6 +143,7 @@ async function fakeServer(page: Page, start: Channel[] = []) {
         enabled: set.enabled ?? found?.enabled ?? false,
         connected: set.enabled ?? found?.connected ?? false,
         people: found?.people ?? [],
+        groups: found?.groups ?? [],
         created_at: found?.created_at ?? now,
         updated_at: now,
       }
@@ -231,18 +258,31 @@ test("the owner sets the first Lark channel up, switches it on and lets a person
   await expect(page.getByRole("option", { name: "Only you" })).toBeVisible()
   await shot(page, "channels-select-open")
   await page.getByRole("option", { name: "You and the people you add" }).click()
-  await card.getByRole("button", { name: "Add person" }).click()
-  await page.getByRole("dialog").getByLabel("Email at Lark").fill("linh@example.com")
-  await page.getByRole("dialog").getByRole("button", { name: "Add" }).click()
-  await expect(card.getByLabel("Person Linh")).toContainText("linh@example.com")
-  await expect(page.getByRole("dialog", { name: "Add a person" })).toHaveCount(0)
+  await expect(card).toContainText("Connected")
   expect(await fits(page)).toBe(true)
   await shot(page, "channels-connected")
 
-  await card.getByRole("button", { name: "Remove Linh" }).click()
+  // The people are a line under the card that opens their list in a sheet, as an account's actions do.
+  await card.getByRole("button", { name: "People you added to main" }).click()
+  const sheet = page.getByRole("dialog", { name: "main · People you added" })
+  await expect(sheet).toContainText("Nobody yet.")
+  await sheet.getByRole("button", { name: "Add person" }).click()
+  const adding = page.getByRole("dialog", { name: "Add a person" })
+  await adding.getByLabel("Email at Lark").fill("linh@example.com")
+  await adding.getByRole("button", { name: "Add" }).click()
+  await expect(sheet.getByLabel("Person Linh")).toContainText("linh@example.com")
+  await expect(adding).toHaveCount(0)
+  expect(await fits(page)).toBe(true)
+  await shot(page, "channels-people")
+
+  await sheet.getByRole("button", { name: "Remove Linh" }).click()
   await shot(page, "channels-remove-person")
   await page.getByRole("alertdialog").getByRole("button", { name: "Remove" }).click()
-  await expect(card.getByLabel("Person Linh")).toHaveCount(0)
+  await expect(sheet.getByLabel("Person Linh")).toHaveCount(0)
+  await page.keyboard.press("Escape")
+  await expect(card.getByRole("button", { name: "People you added to main" })).toContainText(
+    "nobody yet",
+  )
 
   expect(calls).toEqual([
     {
@@ -377,4 +417,62 @@ test("a channel that could not connect says why", async ({ page }) => {
   await expect(card).toContainText("app secret invalid")
   expect(await fits(page)).toBe(true)
   await shot(page, "channels-not-connected")
+})
+
+// Scenario: the channel main's bot was added to two Lark groups; nobody has asked it in one, and the other was
+// asked an hour ago. Both are off until the owner switches them on. He switches the maps team on, and it is saved
+// as he does; he switches it off again. A channel whose bot is in no group says so. The Bot of a channel is shown
+// with its face (its gradient marks it), in the closed picker and in its list.
+test("the owner switches a Lark group of a channel on and off", async ({ page }) => {
+  const hourAgo = new Date(Date.now() - 60 * 60 * 1000).toISOString()
+  const calls = await fakeServer(page, [
+    {
+      ...main,
+      mode: "everyone",
+      groups: [
+        {
+          chat_id: "oc_maps",
+          name: "Maps team",
+          enabled: false,
+          asked_at: hourAgo,
+          created_at: now,
+        },
+        { chat_id: "oc_unnamed", name: "", enabled: false, created_at: now },
+      ],
+    },
+    { ...main, name: "maps", bot: "vmap", app_id: "cli_m4p5", enabled: false, connected: false },
+  ])
+  await page.goto("/settings/channels")
+
+  const mainCard = page.getByLabel("Channel main", { exact: true })
+  const maps = mainCard.getByLabel("Group Maps team")
+  await expect(maps).toContainText(/asked 1\s?h(r|our)? ago/)
+  await expect(mainCard.getByLabel("Group oc_unnamed")).toContainText("not asked yet")
+  await expect(maps.getByRole("switch", { name: "Answers here" })).not.toBeChecked()
+  await expect(mainCard).toContainText("each member who mentions the bot")
+  await expect(page.getByLabel("Channel maps", { exact: true }).getByRole("status")).toContainText(
+    "No group chats yet",
+  )
+  await expect(mainCard.getByLabel("Bot").locator("svg linearGradient")).toHaveCount(1)
+  expect(await fits(page)).toBe(true)
+  await shot(page, "channels-groups")
+
+  await maps.getByRole("switch", { name: "Answers here" }).click()
+  await expect(maps.getByRole("switch", { name: "Answers here" })).toBeChecked()
+  await shot(page, "channels-group-on")
+
+  await mainCard.getByLabel("Bot").click()
+  await expect(
+    page.getByRole("option", { name: "vmap" }).locator("svg linearGradient"),
+  ).toHaveCount(1)
+  await shot(page, "channels-bot-picker")
+  await page.keyboard.press("Escape")
+
+  await maps.getByRole("switch", { name: "Answers here" }).click()
+  await expect(maps.getByRole("switch", { name: "Answers here" })).not.toBeChecked()
+
+  expect(calls).toEqual([
+    { call: "PUT /channels/lark/main/groups/oc_maps", body: { enabled: true } },
+    { call: "PUT /channels/lark/main/groups/oc_maps", body: { enabled: false } },
+  ])
 })

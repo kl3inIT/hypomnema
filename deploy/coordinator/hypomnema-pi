@@ -7,7 +7,7 @@ set -eu
 umask 077
 
 usage() {
-  echo "usage: hypomnema-pi <chat id> [--bot B] [--provider P] [--model M] [--thinking T]" >&2
+  echo "usage: hypomnema-pi <chat id> [--bot B] [--group] [--provider P] [--model M] [--thinking T]" >&2
   exit 2
 }
 
@@ -23,9 +23,10 @@ case "$chat" in
   *[!A-Za-z0-9_]*) usage ;;
 esac
 
-# The rest are flag and value pairs, from a short list, with plain values. The Bot's name is taken out; the model
-# flags stay for pi.
+# The rest are flag and value pairs, from a short list, with plain values, and --group, which says the chat is a Lark
+# group's (issue #246). The Bot's name and --group are taken out; the model flags stay for pi.
 bot=""
+group=""
 expect=flag
 left=$#
 while [ "$left" -gt 0 ]; do
@@ -36,6 +37,7 @@ while [ "$left" -gt 0 ]; do
     flag)
       case "$arg" in
         --bot) expect=bot ;;
+        --group) group=--group ;;
         --provider | --model | --thinking)
           expect=value
           set -- "$@" "$arg"
@@ -77,9 +79,10 @@ if [ -n "$bot" ]; then
 
   # The Bot's persona and memory, read with pi's own token and given to pi after its built-in instructions. They
   # are read here, once per pi process (Hermes gives its memory once per session). Without them pi would answer as
-  # another Bot, so pi does not start.
+  # another Bot, so pi does not start. A Lark group's chat gets the persona without the memory, and is told who
+  # writes there (OpenClaw leaves MEMORY.md out of a group session's prompt).
   prompt="$home/bots/.prompt-$chat"
-  if ! HOME=/home/coordinator /usr/local/bin/hypomnema bots prompt "$bot" > "$prompt"; then
+  if ! HOME=/home/coordinator /usr/local/bin/hypomnema bots prompt $group "$bot" > "$prompt"; then
     rm -f "$prompt"
     echo "hypomnema-pi: reading bot $bot failed" >&2
     exit 1

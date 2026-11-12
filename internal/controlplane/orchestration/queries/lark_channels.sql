@@ -41,8 +41,8 @@ SELECT * FROM lark_channel_people WHERE channel = @channel ORDER BY created_at, 
 DELETE FROM lark_channel_people WHERE channel = @channel AND open_id = @open_id;
 
 -- name: InsertLarkChannelChat :exec
-INSERT INTO lark_channel_chats (lark_chat_id, channel, open_id, chat_id, sent_seq, created_at)
-VALUES (@lark_chat_id, @channel, @open_id, @chat_id, 0, @now);
+INSERT INTO lark_channel_chats (lark_chat_id, channel, open_id, chat_id, sent_seq, is_group, created_at)
+VALUES (@lark_chat_id, @channel, @open_id, @chat_id, 0, @is_group, @now);
 
 -- name: GetLarkChannelChat :one
 SELECT * FROM lark_channel_chats WHERE channel = @channel AND lark_chat_id = @lark_chat_id;
@@ -79,3 +79,28 @@ SELECT * FROM lark_channel_questions WHERE channel = @channel AND closed_at IS N
 
 -- name: CloseLarkChannelQuestion :exec
 UPDATE lark_channel_questions SET closed_at = @now, seq = @seq WHERE question_id = @question_id;
+
+-- name: IsLarkGroupChat :one
+SELECT is_group FROM lark_channel_chats WHERE chat_id = @chat_id;
+
+-- name: UpsertLarkChannelGroup :exec
+INSERT INTO lark_channel_groups (channel, lark_chat_id, name, enabled, created_at)
+VALUES (@channel, @lark_chat_id, @name, 0, @now)
+ON CONFLICT (channel, lark_chat_id) DO UPDATE SET
+    name = CASE WHEN excluded.name <> '' THEN excluded.name ELSE lark_channel_groups.name END;
+
+-- name: GetLarkChannelGroup :one
+SELECT * FROM lark_channel_groups WHERE channel = @channel AND lark_chat_id = @lark_chat_id;
+
+-- name: ListLarkChannelGroups :many
+SELECT * FROM lark_channel_groups WHERE channel = @channel
+ORDER BY asked_at IS NULL, asked_at DESC, name, lark_chat_id;
+
+-- name: SetLarkChannelGroupEnabled :execrows
+UPDATE lark_channel_groups SET enabled = @enabled WHERE channel = @channel AND lark_chat_id = @lark_chat_id;
+
+-- name: SetLarkChannelGroupAsked :exec
+UPDATE lark_channel_groups SET asked_at = @now WHERE channel = @channel AND lark_chat_id = @lark_chat_id;
+
+-- name: DeleteLarkChannelGroup :execrows
+DELETE FROM lark_channel_groups WHERE channel = @channel AND lark_chat_id = @lark_chat_id;

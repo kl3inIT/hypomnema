@@ -86,6 +86,10 @@ type LarkChannelChat struct {
 	Bot string
 	// SentSeq is the last message of the chat that was sent to Lark.
 	SentSeq int64
+	// Group says the Lark chat is a group, whose one chat with the Bot is the
+	// whole group's (OpenClaw's Feishu groupSessionScope "group"); OpenID is
+	// then empty.
+	Group bool
 }
 
 func larkChannelFromRow(r store.LarkChannel) LarkChannel {
@@ -319,13 +323,24 @@ func (s *Service) larkChannelChat(ctx context.Context, r store.LarkChannelChat) 
 
 	return LarkChannelChat{
 		Channel: r.Channel, LarkChatID: r.LarkChatID, OpenID: r.OpenID, ChatID: r.ChatID, Bot: chat.Bot,
-		SentSeq: r.SentSeq,
+		SentSeq: r.SentSeq, Group: r.IsGroup != 0,
 	}, nil
 }
 
 // LarkChannelChatFor returns the chat that a person's direct chat with a
 // Channel's app is, starting one with the Channel's Bot the first time.
 func (s *Service) LarkChannelChatFor(ctx context.Context, channel, larkChatID, openID, title string,
+) (LarkChannelChat, error) {
+	return s.larkChatFor(ctx, channel, larkChatID, openID, title, false)
+}
+
+// LarkGroupChatFor returns the chat that a Lark group is, the whole group's
+// one, starting one with the Channel's Bot the first time.
+func (s *Service) LarkGroupChatFor(ctx context.Context, channel, larkChatID, title string) (LarkChannelChat, error) {
+	return s.larkChatFor(ctx, channel, larkChatID, "", title, true)
+}
+
+func (s *Service) larkChatFor(ctx context.Context, channel, larkChatID, openID, title string, group bool,
 ) (LarkChannelChat, error) {
 	row, err := s.read().GetLarkChannelChat(ctx, store.GetLarkChannelChatParams{
 		Channel: channel, LarkChatID: larkChatID,
@@ -348,22 +363,27 @@ func (s *Service) LarkChannelChatFor(ctx context.Context, channel, larkChatID, o
 		return LarkChannelChat{}, err
 	}
 
+	isGroup := int64(0)
+	if group {
+		isGroup = 1
+	}
+
 	if err := s.write(ctx, func(q *store.Queries, now int64) error {
 		return q.InsertLarkChannelChat(ctx, store.InsertLarkChannelChatParams{
-			LarkChatID: larkChatID, Channel: channel, OpenID: openID, ChatID: chat.ID, Now: now,
+			LarkChatID: larkChatID, Channel: channel, OpenID: openID, ChatID: chat.ID, IsGroup: isGroup, Now: now,
 		})
 	}); err != nil {
 		return LarkChannelChat{}, fmt.Errorf("recording Lark chat %s: %w", larkChatID, err)
 	}
 
 	return LarkChannelChat{
-		Channel: channel, LarkChatID: larkChatID, OpenID: openID, ChatID: chat.ID, Bot: chat.Bot,
+		Channel: channel, LarkChatID: larkChatID, OpenID: openID, ChatID: chat.ID, Bot: chat.Bot, Group: group,
 	}, nil
 }
 
 // ResetLarkChannelChat gives a Lark chat a new chat with its Channel's Bot:
-// the person's /new. The chat it had stays, on the web. ErrNotFound when the
-// Lark chat has none yet.
+// the person's /new, or a group's conversation that was idle too long. The
+// chat it had stays, on the web. ErrNotFound when the Lark chat has none yet.
 func (s *Service) ResetLarkChannelChat(ctx context.Context, channel, larkChatID, title string,
 ) (LarkChannelChat, error) {
 	row, err := s.read().GetLarkChannelChat(ctx, store.GetLarkChannelChatParams{
@@ -395,6 +415,7 @@ func (s *Service) ResetLarkChannelChat(ctx context.Context, channel, larkChatID,
 
 	return LarkChannelChat{
 		Channel: channel, LarkChatID: larkChatID, OpenID: row.OpenID, ChatID: chat.ID, Bot: chat.Bot,
+		Group: row.IsGroup != 0,
 	}, nil
 }
 
@@ -551,4 +572,196 @@ func larkQuestionCardFromRow(r store.LarkChannelQuestion) LarkQuestionCard {
 	return LarkQuestionCard{
 		QuestionID: r.QuestionID, Channel: r.Channel, CardID: r.CardID, MessageID: r.MessageID, Seq: int(r.Seq),
 	}
+}
+
+// LarkChannelGroup is a Lark group a Channel's bot is in (issue #246). The
+// roster follows MemoryOS's ChannelGroupRoster: a group is added when the bot
+// is added to it and by Lark's whole list of the bot's groups, and a group
+// the list leaves out is removed. A group is off until the owner switches it
+// on, as OpenClaw's Feishu groupPolicy is an allowlist by default.
+type LarkChannelGroup struct {
+	Channel string
+	// ChatID is the group's chat id at Lark.
+	ChatID string
+	// Name is the group's name at Lark; empty when Lark gave none.
+	Name    string
+	Enabled bool
+	// AskedAt is when someone the bot answers last asked there; nil while
+	// nobody has.
+	AskedAt   *time.Time
+	CreatedAt time.Time
+}
+
+func larkChannelGroupFromRow(r store.LarkChannelGroup) LarkChannelGroup {
+	return LarkChannelGroup{
+		Channel: r.Channel, ChatID: r.LarkChatID, Name: r.Name, Enabled: r.Enabled != 0,
+		AskedAt: optionalTime(r.AskedAt), CreatedAt: millis(r.CreatedAt),
+	}
+}
+
+// JoinLarkChannelGroup records a group the Channel's bot is in. A name Lark
+// gives replaces the one kept; an empty one keeps it. A group already known
+// keeps whether it is on.
+func (s *Service) JoinLarkChannelGroup(ctx context.Context, channel, chatID, name string) error {
+	if err := s.write(ctx, func(q *store.Queries, now int64) error {
+		return q.UpsertLarkChannelGroup(ctx, store.UpsertLarkChannelGroupParams{
+			Channel: channel, LarkChatID: chatID, Name: strings.TrimSpace(name), Now: now,
+		})
+	}); err != nil {
+		return fmt.Errorf("recording Lark group %s of channel %s: %w", chatID, channel, err)
+	}
+
+	return nil
+}
+
+// LeaveLarkChannelGroup forgets a group the Channel's bot left. Its chat
+// with the Bot stays, on the web.
+func (s *Service) LeaveLarkChannelGroup(ctx context.Context, channel, chatID string) error {
+	if err := s.write(ctx, func(q *store.Queries, _ int64) error {
+		_, err := q.DeleteLarkChannelGroup(ctx, store.DeleteLarkChannelGroupParams{Channel: channel, LarkChatID: chatID})
+
+		return err
+	}); err != nil {
+		return fmt.Errorf("forgetting Lark group %s of channel %s: %w", chatID, channel, err)
+	}
+
+	return nil
+}
+
+// ListedLarkChannelGroups makes a Channel's groups Lark's whole list of the
+// bot's groups, read from readAt: it records those listed and removes the
+// others, which the bot has left. A group added or asked in since readAt
+// stays, as the list may be older (MemoryOS, JdbcChannelGroupRepository
+// .replace). It returns the groups removed.
+func (s *Service) ListedLarkChannelGroups(ctx context.Context, channel string, listed []LarkChannelGroup,
+	readAt time.Time,
+) ([]string, error) {
+	var left []string
+
+	if err := s.write(ctx, func(q *store.Queries, now int64) error {
+		kept := make(map[string]bool, len(listed))
+
+		for _, g := range listed {
+			kept[g.ChatID] = true
+
+			if err := q.UpsertLarkChannelGroup(ctx, store.UpsertLarkChannelGroupParams{
+				Channel: channel, LarkChatID: g.ChatID, Name: strings.TrimSpace(g.Name), Now: now,
+			}); err != nil {
+				return err
+			}
+		}
+
+		rows, err := q.ListLarkChannelGroups(ctx, channel)
+		if err != nil {
+			return err
+		}
+
+		from := readAt.UnixMilli()
+
+		for _, r := range rows {
+			if kept[r.LarkChatID] || r.CreatedAt >= from || (r.AskedAt.Valid && r.AskedAt.Int64 >= from) {
+				continue
+			}
+
+			if _, err := q.DeleteLarkChannelGroup(ctx, store.DeleteLarkChannelGroupParams{
+				Channel: channel, LarkChatID: r.LarkChatID,
+			}); err != nil {
+				return err
+			}
+
+			left = append(left, r.LarkChatID)
+		}
+
+		return nil
+	}); err != nil {
+		return nil, fmt.Errorf("recording the Lark groups of channel %s: %w", channel, err)
+	}
+
+	return left, nil
+}
+
+// LarkChannelGroups returns a Channel's groups, the most recently asked
+// first and those nobody has asked in last.
+func (s *Service) LarkChannelGroups(ctx context.Context, channel string) ([]LarkChannelGroup, error) {
+	rows, err := s.read().ListLarkChannelGroups(ctx, channel)
+	if err != nil {
+		return nil, fmt.Errorf("listing the groups of Lark channel %s: %w", channel, err)
+	}
+
+	out := make([]LarkChannelGroup, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, larkChannelGroupFromRow(r))
+	}
+
+	return out, nil
+}
+
+// LarkChannelGroup returns one group of a Channel; ErrNotFound when the
+// Channel's bot is not known to be in it.
+func (s *Service) LarkChannelGroup(ctx context.Context, channel, chatID string) (LarkChannelGroup, error) {
+	row, err := s.read().GetLarkChannelGroup(ctx, store.GetLarkChannelGroupParams{Channel: channel, LarkChatID: chatID})
+	if err != nil {
+		return LarkChannelGroup{}, notFound(err, "group of Lark channel "+channel, chatID)
+	}
+
+	return larkChannelGroupFromRow(row), nil
+}
+
+// SetLarkChannelGroup switches a group of a Channel on or off.
+func (s *Service) SetLarkChannelGroup(ctx context.Context, channel, chatID string, enabled bool,
+) (LarkChannelGroup, error) {
+	on := int64(0)
+	if enabled {
+		on = 1
+	}
+
+	var changed int64
+
+	if err := s.write(ctx, func(q *store.Queries, _ int64) error {
+		var err error
+
+		changed, err = q.SetLarkChannelGroupEnabled(ctx, store.SetLarkChannelGroupEnabledParams{
+			Enabled: on, Channel: channel, LarkChatID: chatID,
+		})
+
+		return err
+	}); err != nil {
+		return LarkChannelGroup{}, fmt.Errorf("switching Lark group %s of channel %s: %w", chatID, channel, err)
+	}
+
+	if changed == 0 {
+		return LarkChannelGroup{}, fmt.Errorf("%w: the bot of Lark channel %s is in no group %q", ErrNotFound,
+			channel, chatID)
+	}
+
+	return s.LarkChannelGroup(ctx, channel, chatID)
+}
+
+// AskedInLarkChannelGroup records that someone the bot answers asked in a
+// group now.
+func (s *Service) AskedInLarkChannelGroup(ctx context.Context, channel, chatID string) error {
+	if err := s.write(ctx, func(q *store.Queries, now int64) error {
+		return q.SetLarkChannelGroupAsked(ctx, store.SetLarkChannelGroupAskedParams{
+			Now: sql.NullInt64{Int64: now, Valid: true}, Channel: channel, LarkChatID: chatID,
+		})
+	}); err != nil {
+		return fmt.Errorf("recording a question in Lark group %s: %w", chatID, err)
+	}
+
+	return nil
+}
+
+// IsLarkGroupChat says whether a chat is the conversation of a Lark group:
+// the Bot's memory is then not in its prompt.
+func (s *Service) IsLarkGroupChat(ctx context.Context, chatID string) (bool, error) {
+	group, err := s.read().IsLarkGroupChat(ctx, chatID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+
+	if err != nil {
+		return false, fmt.Errorf("reading whether chat %s is a Lark group's: %w", chatID, err)
+	}
+
+	return group != 0, nil
 }

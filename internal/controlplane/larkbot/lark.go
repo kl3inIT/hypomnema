@@ -70,10 +70,27 @@ func Connect(appID, secret string) Lark {
 	}
 }
 
-func (s *sdk) Listen(ctx context.Context, take func(Message), press func(Press) string) error {
+func (s *sdk) Listen(ctx context.Context, on Events) error {
 	handler := dispatcher.NewEventDispatcher("", "").
 		OnP2MessageReceiveV1(func(_ context.Context, e *larkim.P2MessageReceiveV1) error {
-			take(messageOf(e))
+			on.Message(messageOf(e))
+
+			return nil
+		}).
+		// The bot was added to a group or left one (im.chat.member.bot.added_v1 and deleted_v1): the roster
+		// changes at once, as MemoryOS's LarkChannelAdapter does. An app that does not subscribe them still finds
+		// its groups in the listing every ten minutes.
+		OnP2ChatMemberBotAddedV1(func(_ context.Context, e *larkim.P2ChatMemberBotAddedV1) error {
+			if e != nil && e.Event != nil && deref(e.Event.ChatId) != "" {
+				on.Joined(Group{ChatID: deref(e.Event.ChatId), Name: deref(e.Event.Name)})
+			}
+
+			return nil
+		}).
+		OnP2ChatMemberBotDeletedV1(func(_ context.Context, e *larkim.P2ChatMemberBotDeletedV1) error {
+			if e != nil && e.Event != nil && deref(e.Event.ChatId) != "" {
+				on.Left(deref(e.Event.ChatId))
+			}
 
 			return nil
 		}).
@@ -82,7 +99,7 @@ func (s *sdk) Listen(ctx context.Context, take func(Message), press func(Press) 
 		OnP2CardActionTrigger(func(_ context.Context, e *callback.CardActionTriggerEvent) (
 			*callback.CardActionTriggerResponse, error,
 		) {
-			said := press(pressOf(e))
+			said := on.Press(pressOf(e))
 			if said == "" {
 				return &callback.CardActionTriggerResponse{}, nil
 			}
@@ -131,6 +148,19 @@ func messageOf(e *larkim.P2MessageReceiveV1) Message {
 
 	if m.IsText {
 		m.Text = textOf(deref(msg.Content))
+	}
+
+	for _, mention := range msg.Mentions {
+		if mention == nil {
+			continue
+		}
+
+		at := Mention{Key: deref(mention.Key), Name: deref(mention.Name)}
+		if mention.Id != nil {
+			at.OpenID = deref(mention.Id.OpenId)
+		}
+
+		m.Mentions = append(m.Mentions, at)
 	}
 
 	m.ReplyTo = deref(msg.ParentId)
@@ -515,6 +545,95 @@ func (s *sdk) NameOf(ctx context.Context, openID string) (string, error) {
 	}
 
 	return deref(resp.Data.User.Name), nil
+}
+
+// BotOpenID reads the bot's own open_id (GET /open-apis/bot/v3/info), which
+// a mention of the bot carries. The SDK has no typed call for it, so it is
+// asked as a raw request with the app's token, as MemoryOS's checkBot asks.
+func (s *sdk) BotOpenID(ctx context.Context) (string, error) {
+	resp, err := s.api.Get(ctx, "/open-apis/bot/v3/info", nil, larkcore.AccessTokenTypeTenant)
+	if err != nil {
+		return "", fmt.Errorf("reading the bot at Lark: %w", err)
+	}
+
+	var info struct {
+		Code int    `json:"code"`
+		Msg  string `json:"msg"`
+		Bot  struct {
+			OpenID string `json:"open_id"`
+		} `json:"bot"`
+	}
+
+	if err := json.Unmarshal(resp.RawBody, &info); err != nil {
+		return "", fmt.Errorf("reading the bot at Lark: %w", err)
+	}
+
+	if err := refused("reading the bot at Lark", info.Code == 0, info.Code, info.Msg); err != nil {
+		return "", err
+	}
+
+	if info.Bot.OpenID == "" {
+		return "", errors.New("reading the bot at Lark: Lark gave no open_id")
+	}
+
+	return info.Bot.OpenID, nil
+}
+
+// The groups are listed a hundred a page, at most fifty pages (MemoryOS,
+// LarkChannelAdapter.CHAT_PAGE and CHAT_PAGES).
+const (
+	chatPage  = 100
+	chatPages = 50
+)
+
+// Groups lists the groups the bot is in (GET /open-apis/im/v1/chats), which
+// lists no direct chat. A group no longer in use is left out, as MemoryOS
+// leaves it out. A page that cannot be read, or more pages than are read,
+// gives no list, so no group is removed for a list that is not whole.
+func (s *sdk) Groups(ctx context.Context) ([]Group, error) {
+	var (
+		out   []Group
+		token string
+	)
+
+	for range chatPages {
+		req := larkim.NewListChatReqBuilder().PageSize(chatPage)
+		if token != "" {
+			req.PageToken(token)
+		}
+
+		resp, err := s.api.Im.V1.Chat.List(ctx, req.Build())
+		if err != nil {
+			return nil, fmt.Errorf("listing the bot's groups: %w", err)
+		}
+
+		if err := refused("listing the bot's groups", resp.Success(), resp.Code, resp.Msg); err != nil {
+			return nil, err
+		}
+
+		if resp.Data == nil {
+			return out, nil
+		}
+
+		for _, chat := range resp.Data.Items {
+			if chat == nil || deref(chat.ChatId) == "" {
+				continue
+			}
+
+			if status := deref(chat.ChatStatus); status != "" && status != "normal" {
+				continue
+			}
+
+			out = append(out, Group{ChatID: deref(chat.ChatId), Name: strings.TrimSpace(deref(chat.Name))})
+		}
+
+		token = deref(resp.Data.PageToken)
+		if resp.Data.HasMore == nil || !*resp.Data.HasMore || token == "" {
+			return out, nil
+		}
+	}
+
+	return nil, fmt.Errorf("listing the bot's groups: more than %d groups", chatPage*chatPages)
 }
 
 var markdownMarks = strings.NewReplacer("*", "", "_", "", "`", "", "#", "", "[", "", "]", "")
