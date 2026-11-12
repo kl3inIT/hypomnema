@@ -24,13 +24,14 @@ export function useProfiles() {
   })
 }
 
-// useProfile reads one profile at its current version.
-export function useProfile(name: string) {
+// useProfile reads one profile at its current version, while `enabled`.
+export function useProfile(name: string, enabled = true) {
   return useQuery({
     queryKey: [...profilesKey, name],
     queryFn: async () => (await getProfile({ path: { name } })).data,
     refetchInterval: whileOpen,
     retry: false,
+    enabled,
   })
 }
 

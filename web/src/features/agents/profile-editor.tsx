@@ -17,16 +17,14 @@ import {
 import { Button } from "@/components/ui/button"
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
-import {
-  NativeSelect,
-  NativeSelectOptGroup,
-  NativeSelectOption,
-} from "@/components/ui/native-select"
+import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
 import { Textarea } from "@/components/ui/textarea"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 
+import { ModelPicker } from "./model-picker"
 import {
   efforts,
+  emptyDraft,
   errorText,
   maxFallbacks,
   modelKey,
@@ -82,7 +80,10 @@ export function ProfileEditor({
   const built = toYaml(draft, models)
   const untouched = sameDraft(draft, start)
   const shown = yaml ?? (untouched && startSource ? startSource : built)
-  const dirty = yaml !== null ? yaml !== (startSource ?? "") : !untouched
+  // changed is what leaving the page would lose. A new agent that starts as a copy (issue #200) has nothing to
+  // lose until it is edited, yet can be created as it is: there is something to save while it is not empty.
+  const changed = yaml !== null ? yaml !== (startSource ?? "") : !untouched
+  const dirty = stored || yaml !== null ? changed : !sameDraft(draft, emptyDraft)
   const wrong = yaml === null ? problem(draft) : yaml.trim() === "" ? "The YAML is empty." : null
 
   // Omnara's guard (hooks/use-unsaved-changes-warning.ts): a confirm before unsaved changes are left behind.
@@ -93,7 +94,7 @@ export function ProfileEditor({
     shouldBlockFn: () =>
       !saved.current && !window.confirm("You have unsaved changes. Discard them?"),
     enableBeforeUnload: () => !saved.current,
-    disabled: !dirty,
+    disabled: !changed,
   })
 
   const set = (change: Partial<Draft>) => {
@@ -328,8 +329,8 @@ function Builder({
   )
 }
 
-// ModelField picks a model and its effort: every provider's models in one select, grouped by provider, with the
-// effort as a row of pills under it. The Bots' page uses it too (features/bots), where the default is pi's.
+// ModelField picks a model and its effort: every provider's models in one picker with a search (model-picker.tsx),
+// grouped by provider, with the effort as a row of pills under it. The Bots' page uses it too (features/bots), where the default is pi's.
 export function ModelField({
   id,
   model,
@@ -351,35 +352,19 @@ export function ModelField({
   // gone is said in the description's place when no provider offers the model chosen.
   gone?: string
 }) {
-  const providers = [...new Set(models.map((m) => m.provider))].sort()
   const known = model === "" || models.some((m) => modelKey(m.provider, m.name) === model)
 
   return (
     <Field>
       <FieldLabel htmlFor={id}>Model</FieldLabel>
-      <div className="flex flex-wrap items-center gap-2">
-        <NativeSelect
+      <div>
+        <ModelPicker
           id={id}
-          value={model}
-          onChange={(event) => onChange({ model: event.target.value })}
-        >
-          <NativeSelectOption value="">{defaultLabel}</NativeSelectOption>
-          {!known && <NativeSelectOption value={model}>{model} (not offered)</NativeSelectOption>}
-          {providers.map((provider) => (
-            <NativeSelectOptGroup key={provider} label={provider}>
-              {models
-                .filter((m) => m.provider === provider)
-                .map((m) => (
-                  <NativeSelectOption
-                    key={modelKey(m.provider, m.name)}
-                    value={modelKey(m.provider, m.name)}
-                  >
-                    {m.name}
-                  </NativeSelectOption>
-                ))}
-            </NativeSelectOptGroup>
-          ))}
-        </NativeSelect>
+          model={model}
+          models={models}
+          defaultLabel={defaultLabel}
+          onChange={(next) => onChange({ model: next })}
+        />
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <Brain className="size-4 text-muted-foreground" aria-hidden />

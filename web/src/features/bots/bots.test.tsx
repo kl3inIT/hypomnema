@@ -229,7 +229,9 @@ test("a Bot's persona is saved with its model, and its memory is read only", asy
 
   expect(await screen.findByRole("heading", { name: "researcher", level: 2 })).toBeInTheDocument()
   expect(screen.queryByLabelText("Name")).not.toBeInTheDocument()
-  await vi.waitFor(() => expect(screen.getByLabelText("Model")).toHaveValue("gateway/gpt-luna"))
+  await vi.waitFor(() =>
+    expect(screen.getByLabelText("Model")).toHaveTextContent("gpt-lunagateway"),
+  )
   expect(screen.getByRole("button", { name: "Save" })).toBeDisabled()
 
   // The memory is the Bot's own writing, which the owner may edit; untouched, it offers nothing to save.
@@ -331,10 +333,8 @@ test("a new Bot is made with a name, a model and a persona", async () => {
 
   await user.clear(name)
   await user.type(name, "researcher")
-  await vi.waitFor(() =>
-    expect(within(screen.getByLabelText("Model")).getAllByRole("option")).toHaveLength(3),
-  )
-  await user.selectOptions(screen.getByLabelText("Model"), "claude-subscription/opus")
+  await user.click(screen.getByLabelText("Model"))
+  await user.click(await screen.findByRole("option", { name: "opus" }))
   await user.type(screen.getByLabelText("Persona"), "You are the team's researcher.")
   await user.click(create)
 

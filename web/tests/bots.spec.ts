@@ -211,13 +211,15 @@ test("a new Bot is made with a name, a model and a persona", async ({ page }) =>
   await expect(page.getByRole("button", { name: "Create Bot" })).toBeDisabled()
 
   await page.getByLabel("Name").fill("researcher")
-  await page.getByLabel("Model").selectOption("gateway/gpt-sol")
+  await page.getByLabel("Model", { exact: true }).click()
+  await page.getByRole("option", { name: "gpt-sol" }).click()
   await page.getByLabel("Persona").fill("You are the team's researcher. Answer with sources.")
   await page.getByRole("button", { name: "Create Bot" }).click()
   await expect(page.getByText("pi cannot use the model gpt-sol")).toBeVisible()
   await shot(page, "bot-new-refused")
 
-  await page.getByLabel("Model").selectOption("claude-subscription/opus")
+  await page.getByLabel("Model", { exact: true }).click()
+  await page.getByRole("option", { name: "opus" }).click()
   await page
     .getByRole("group", { name: "Effort" })
     .getByRole("button", { name: "High", exact: true })
@@ -247,7 +249,7 @@ test("a Bot shows its memory, takes a new persona and refuses to be removed", as
   await page.getByRole("link", { name: "coordinator" }).click()
 
   await expect(page.getByRole("heading", { name: "coordinator", level: 2 })).toBeVisible()
-  await expect(page.getByLabel("Model")).toHaveValue("gateway/gpt-luna")
+  await expect(page.getByLabel("Model", { exact: true })).toContainText("gpt-luna")
   await expect(page.getByRole("button", { name: "Save", exact: true })).toBeDisabled()
 
   // The memory is the Bot's own writing; the owner reads it and edits it by hand.

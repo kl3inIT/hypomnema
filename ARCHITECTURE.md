@@ -1034,12 +1034,16 @@ Node (`internal/node`):
   main sidebar between Runs and Machines): `/agents` lists the profiles as cards or a table, each with its
   description, runtime, model, effort, version and whether a worker can start under it now, in words; it is read
   again every 10 s. `/agents/$name` shows one profile: a builder (the name, which cannot change, the description,
-  the runtime, a model from `GET /models` grouped by provider, its effort as a row of choices, the instructions,
+  the runtime, a model from `GET /models` in a picker with a search (issue #200, after Omnara's model combobox
+  and t3code's model search: grouped by provider, every word typed found in the name or the provider; the Bots
+  page uses the same field), its effort as a row of choices, the instructions,
   the fallbacks) and the YAML in Monaco with `monaco-yaml` (issue #177, as Omnara's editor): completion, hover and
   marks against a schema of the profile document written in the client, fetched when the YAML tab first opens.
   Both are saved with `PUT /profiles/{name}` as a new version, a refusal shown in the server's words; and its
   versions, each opening to its source, an earlier one restored by applying its source again. `/agents/new` makes
-  a profile with the same builder. The builder writes the YAML and does not read it back, so YAML edits are
+  a profile with the same builder; "Duplicate" on an agent's page opens it filled in from that agent
+  (`/agents/new?from=<name>`, issue #200, after OpenMausBot's duplicate and Hermes's clone) under the first free
+  name of `<name>-copy`, `<name>-copy-2`, and nothing is stored until it is created. The builder writes the YAML and does not read it back, so YAML edits are
   discarded, after a question, on the way back to the builder; leaving with unsaved changes asks first. The list
   is searched by name and description. An agent has an avatar (issue #177): one of OpenMausBot's ten mascot bodies
   and ten of its colours with its idle eyes, drawn still, both chosen by a hash of the agent's name, so nothing is

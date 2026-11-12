@@ -110,7 +110,15 @@ function open(path: string) {
   const root = createRootRoute({ component: Outlet })
   const routes = [
     createRoute({ getParentRoute: () => root, path: "/agents", component: AgentsScreen }),
-    createRoute({ getParentRoute: () => root, path: "/agents/new", component: NewAgentScreen }),
+    createRoute({
+      getParentRoute: () => root,
+      path: "/agents/new",
+      component: function New() {
+        const { from } = routes[1]!.useSearch() as { from?: string }
+
+        return <NewAgentScreen from={from} />
+      },
+    }),
     createRoute({
       getParentRoute: () => root,
       path: "/agents/$name",
@@ -209,7 +217,22 @@ test("a new agent is sent as YAML built from the fields", async () => {
   await user.type(screen.getByLabelText("Name"), "codex-implementer")
   await user.type(screen.getByLabelText("Description"), "Makes a narrow change.")
   await user.selectOptions(screen.getByLabelText("Runs on"), "codex")
-  await user.selectOptions(await screen.findByLabelText("Model"), "gateway/gpt-sol")
+  // The model is found by typing: words of its provider and its name, and Enter takes the first match.
+  await user.click(screen.getByLabelText("Model"))
+  const search = await screen.findByLabelText("Search models")
+  await user.type(search, "zzz")
+  expect(await screen.findByText("No models found.")).toBeInTheDocument()
+  await user.clear(search)
+  await user.type(search, "gate sol")
+  await vi.waitFor(() =>
+    expect(
+      within(screen.getByRole("listbox"))
+        .getAllByRole("option")
+        .map((o) => o.textContent),
+    ).toEqual(["gpt-sol"]),
+  )
+  await user.keyboard("{Enter}")
+  expect(screen.getByLabelText("Model")).toHaveTextContent("gpt-solgateway")
   await user.click(
     within(screen.getByRole("group", { name: "Effort" })).getByRole("button", { name: "High" }),
   )
@@ -456,4 +479,35 @@ test("the builder's YAML quotes what YAML would misread and keeps lines", () => 
   expect(toYaml(draft({ instruction: "  indented first line\nsecond" }), models)).toContain(
     'instruction: "  indented first line\\nsecond"\n',
   )
+})
+
+// Scenario: the owner wants a second reviewer like the first. "Duplicate" opens the new agent's form filled in
+// from it under a name that is free, and it can be created as it is.
+test("an agent is duplicated into the new agent's form", async () => {
+  const reviewer = profile("reviewer", {
+    description: "Reviews a change.",
+    provider: "claude-subscription",
+    model: "opus",
+    effort: "high",
+    instruction: "Be strict.",
+  })
+  const applied = server([reviewer, profile("reviewer-copy"), profile("reviewer-copy-2")])
+  const router = open("/agents/reviewer")
+  const user = userEvent.setup()
+
+  await user.click(await screen.findByRole("link", { name: "Duplicate" }))
+
+  expect(
+    await screen.findByText("A copy of reviewer. Change what differs, then create it."),
+  ).toBeInTheDocument()
+  expect(router.state.location.pathname).toBe("/agents/new")
+  expect(screen.getByLabelText("Name")).toHaveValue("reviewer-copy-3")
+  expect(screen.getByLabelText("Description")).toHaveValue("Reviews a change.")
+  expect(screen.getByLabelText("Model")).toHaveTextContent("opus")
+  expect(screen.getByLabelText("Instructions")).toHaveValue("Be strict.")
+
+  await user.click(screen.getByRole("button", { name: "Create profile" }))
+  await vi.waitFor(() => expect(applied).toHaveLength(1))
+  expect(applied[0]?.name).toBe("reviewer-copy-3")
+  expect(applied[0]?.source).toContain("  name: opus\n  effort: high\n")
 })
