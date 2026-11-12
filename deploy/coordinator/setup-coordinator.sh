@@ -3,9 +3,10 @@
 #
 #   sudo sh setup-coordinator.sh <control plane user> <this directory, with the hypomnema binary added>
 #
-# It creates the coordinator user, installs Node and pi for it, the root-owned launcher and one sudoers rule that lets
-# the control plane's user run only that launcher as the coordinator, a coordinator token in a file of mode 0600,
-# and the coordinator skill. No secret is passed on a command line or printed. Run it again to update pi
+# It creates the coordinator user, installs Node and pi for it, the root-owned launcher and a sudoers rule that lets
+# the control plane's user run, as the coordinator, only that launcher and the reader of the Bots' folders (issue #255:
+# `hypomnema files serve` with its root, which only reads), a coordinator token in a file of mode 0600, and the
+# coordinator skill. No secret is passed on a command line or printed. Run it again to update pi
 # (package.json and package-lock.json here, which Dependabot updates), the launcher, the binary or the
 # instructions; the existing token is kept.
 #
@@ -51,7 +52,10 @@ sudo -u coordinator -H /usr/local/bin/hypomnema tool install --dir "$home"
 
 echo "== sudoers"
 rule=/etc/sudoers.d/hypomnema-coordinator
-printf '%s ALL=(coordinator) NOPASSWD: /usr/local/bin/hypomnema-pi\n' "$cp_user" > "$rule.new"
+{
+  printf '%s ALL=(coordinator) NOPASSWD: /usr/local/bin/hypomnema-pi\n' "$cp_user"
+  printf '%s ALL=(coordinator) NOPASSWD: /usr/local/bin/hypomnema files serve --root %s/bots\n' "$cp_user" "$home"
+} > "$rule.new"
 chmod 0440 "$rule.new"
 visudo -cf "$rule.new" >/dev/null
 mv "$rule.new" "$rule"
@@ -73,4 +77,5 @@ fi
 sudo -u coordinator -H /usr/local/bin/hypomnema skills install --agent agents
 
 echo "pi's models are the providers that are the model gateway: a Bot names one of them and one of its models"
+echo "the Files panel reads the Bots' folders with HYPOMNEMA_BOT_FILES_COMMAND='[\"sudo\",\"-n\",\"-u\",\"coordinator\",\"/usr/local/bin/hypomnema\",\"files\",\"serve\",\"--root\",\"$home/bots\"]' in the control plane's env"
 echo "done: add HYPOMNEMA_COORDINATOR_COMMAND='[\"sudo\",\"-n\",\"-u\",\"coordinator\",\"/usr/local/bin/hypomnema-pi\"]' to the control plane's env and restart it"

@@ -51,6 +51,11 @@ type Config struct {
 	// CoordinatorCommand starts pi for a chat id appended to it, from
 	// HYPOMNEMA_COORDINATOR_COMMAND as a JSON array; empty: no coordinator.
 	CoordinatorCommand []string
+	// BotFilesCommand answers a question about a Bot's folder (issue #255),
+	// from HYPOMNEMA_BOT_FILES_COMMAND as a JSON array, such as [sudo -n -u
+	// coordinator /usr/local/bin/hypomnema files serve --root DIR]; empty:
+	// the Bots' folders are not shown.
+	BotFilesCommand []string
 	// CoordinatorToken is the name of the client token pi calls the control
 	// plane with, from HYPOMNEMA_COORDINATOR_TOKEN; the setup script makes
 	// it as pi-coordinator. Only that token reads the gateway key of a
@@ -145,6 +150,12 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 	if raw := env.String(envPrefix+"_COORDINATOR_COMMAND", ""); raw != "" {
 		if err := json.Unmarshal([]byte(raw), &cfg.CoordinatorCommand); err != nil || len(cfg.CoordinatorCommand) == 0 {
 			cmdErr = fmt.Errorf("%s_COORDINATOR_COMMAND is not a JSON array of strings", envPrefix)
+		}
+	}
+
+	if raw := env.String(envPrefix+"_BOT_FILES_COMMAND", ""); raw != "" && cmdErr == nil {
+		if err := json.Unmarshal([]byte(raw), &cfg.BotFilesCommand); err != nil || len(cfg.BotFilesCommand) == 0 {
+			cmdErr = fmt.Errorf("%s_BOT_FILES_COMMAND is not a JSON array of strings", envPrefix)
 		}
 	}
 
@@ -312,6 +323,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		WithAccounts(subscriptions).WithGatewayModels(gateway).
 		WithHostTokens(tokens).
 		WithMachines(machineMgr).WithTerminals(nodeTerminals(nodes)).
+		WithWorkspaces(nodes.Files, newBotFiles(cfg.BotFilesCommand)).
 		WithSecrets(ownerSecrets{vault: secrets, referrers: referrers}).
 		WithIntegrations(integrations).WithApprovals(proxy).WithRelay(proxy).WithLarkChannels(larkSettings).
 		WithSkillSources(skillsource.NewGitHub(&http.Client{Timeout: 2 * time.Minute}))

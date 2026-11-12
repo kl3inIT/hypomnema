@@ -483,6 +483,61 @@ func (q *Queries) LatestConversationOfTask(ctx context.Context, taskID string) (
 	return i, err
 }
 
+const listChatWorktrees = `-- name: ListChatWorktrees :many
+SELECT t.id AS task_id, t.run_id, t.profile, t.spec, t.status, c.node_id, c.worktree, n.name AS node_name
+FROM runs r
+JOIN tasks t ON t.run_id = r.id
+JOIN conversations c ON c.id = (
+    SELECT c2.id FROM conversations c2 WHERE c2.task_id = t.id ORDER BY c2.created_at DESC, c2.rowid DESC LIMIT 1)
+JOIN nodes n ON n.id = c.node_id
+WHERE r.chat_id = ?1
+ORDER BY r.created_at, r.id, t.position
+`
+
+type ListChatWorktreesRow struct {
+	TaskID   string
+	RunID    string
+	Profile  string
+	Spec     string
+	Status   string
+	NodeID   string
+	Worktree string
+	NodeName string
+}
+
+// The worktree of each Task of a chat's Runs that has had one: its newest Conversation's, with its node's name.
+func (q *Queries) ListChatWorktrees(ctx context.Context, chatID sql.NullString) ([]ListChatWorktreesRow, error) {
+	rows, err := q.db.QueryContext(ctx, listChatWorktrees, chatID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListChatWorktreesRow{}
+	for rows.Next() {
+		var i ListChatWorktreesRow
+		if err := rows.Scan(
+			&i.TaskID,
+			&i.RunID,
+			&i.Profile,
+			&i.Spec,
+			&i.Status,
+			&i.NodeID,
+			&i.Worktree,
+			&i.NodeName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listEffects = `-- name: ListEffects :many
 SELECT dispatch_id, seq, kind, ref, phase, payload, created_at, updated_at FROM dispatch_effects WHERE dispatch_id = ?1 ORDER BY seq
 `
