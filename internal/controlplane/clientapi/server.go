@@ -58,6 +58,8 @@ type Server struct {
 	machines Machines
 	// terminals reaches a node for a terminal; nil when the control plane wired none.
 	terminals Terminals
+	nodeFiles NodeFiles
+	botFiles  BotFiles
 	tickets   terminalTickets
 	// browser is the browser every agent shares; nil when the control plane has none.
 	browser Browser

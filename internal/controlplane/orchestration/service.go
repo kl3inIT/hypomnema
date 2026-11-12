@@ -425,6 +425,38 @@ func (s *Service) GetTask(ctx context.Context, id string) (Task, error) {
 	return taskFromRow(row), nil
 }
 
+// ChatWorktree is where a Task of a chat's Runs works: the worktree of its
+// newest Conversation, on that Conversation's node (issue #255).
+type ChatWorktree struct {
+	TaskID   string
+	RunID    string
+	Profile  string
+	Spec     string
+	Status   TaskStatus
+	NodeID   string
+	NodeName string
+	Worktree string
+}
+
+// ChatWorktrees lists the worktrees of a chat's Tasks, oldest Run first, a
+// Run's Tasks in order. A Task that never ran has none.
+func (s *Service) ChatWorktrees(ctx context.Context, chatID string) ([]ChatWorktree, error) {
+	rows, err := s.read().ListChatWorktrees(ctx, sql.NullString{String: chatID, Valid: true})
+	if err != nil {
+		return nil, fmt.Errorf("listing a chat's worktrees: %w", err)
+	}
+
+	out := make([]ChatWorktree, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, ChatWorktree{
+			TaskID: r.TaskID, RunID: r.RunID, Profile: r.Profile, Spec: r.Spec, Status: TaskStatus(r.Status),
+			NodeID: r.NodeID, NodeName: r.NodeName, Worktree: r.Worktree,
+		})
+	}
+
+	return out, nil
+}
+
 // ListTasks returns a Run's Tasks in creation order.
 func (s *Service) ListTasks(ctx context.Context, runID string) ([]Task, error) {
 	rows, err := s.read().ListTasksByRun(ctx, runID)

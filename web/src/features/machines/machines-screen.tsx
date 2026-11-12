@@ -3,23 +3,32 @@ import { useState, type ReactNode } from "react"
 import type { Node } from "@/api/generated/types.gen"
 import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { PageHeader } from "@/features/shell/app-shell"
+import { PageHeader, PageHeading } from "@/features/shell/app-shell"
 import { since } from "@/lib/time"
 import { cn } from "@/lib/utils"
 
 import { AddMachine } from "./add-machine"
 import { RemoveMachine } from "./machine-actions"
 import { IndicatorDot, MachineProblem, StateText } from "./machine-cells"
-import { isVisible, useColumnVisibility } from "./column-visibility"
-import { ColumnsMenu } from "./columns-menu"
+import { isVisible, useColumnVisibility, useStatusFilter } from "./column-visibility"
+import { ViewMenu } from "./columns-menu"
 import { columns, hiddenColumns, shownColumns, type Column } from "./machines-columns"
-import { errorText, machineNote, machineState, summary } from "./machines-state"
+import {
+  errorText,
+  filterStates,
+  machineNote,
+  machineState,
+  stateNames,
+  statusChoices,
+  withStatus,
+} from "./machines-state"
 import { useMachinePower, useMachines } from "./use-machines"
 
 type Layout = "grid" | "table"
 
 const layoutKey = "hypomnema.machines.layout"
 const columnsKey = "hypomnema.machines.columns"
+const statusKey = "hypomnema.machines.status"
 
 function readLayout(): Layout {
   try {
@@ -31,16 +40,18 @@ function readLayout(): Layout {
 
 // MachinesScreen lists the nodes, after Beszel's systems-table (MIT, Copyright (c) 2024 henrygd,
 // https://github.com/henrygd/beszel; internal/site/src/components/systems-table/systems-table.tsx): a Grid of
-// cards or a Table, both drawn from one column definition (machines-columns.tsx). Changed: the layout is chosen
-// with the Board's segmented control instead of Beszel's view menu, which keeps only its visible columns
-// (columns-menu.tsx), shown with the table; no filter, sorting or pagination; a machine has no page of its own, so
-// a card or row is not a link.
+// cards or a Table, both drawn from one column definition (machines-columns.tsx), filtered by the View menu's
+// status (columns-menu.tsx). Changed: the layout is chosen with the Board's segmented control instead of Beszel's
+// view menu, which keeps its status and its visible columns, those with the table only; no text filter, sorting or
+// pagination; a machine has no page of its own, so a card or row is not a link.
 export function MachinesScreen() {
   const machines = useMachines()
   const [layout, setLayout] = useState<Layout>(readLayout)
   const [visibility, show] = useColumnVisibility(columnsKey, hiddenColumns)
-  const nodes = machines.data ?? []
-  const shown = shownColumns(nodes)
+  const [status, filter] = useStatusFilter(statusKey, filterStates)
+  const all = machines.data ?? []
+  const nodes = withStatus(all, status)
+  const shown = shownColumns(all)
 
   function choose(next: Layout) {
     setLayout(next)
@@ -54,11 +65,14 @@ export function MachinesScreen() {
 
   return (
     <main className="flex min-w-0 flex-1 flex-col">
-      <PageHeader title="Machines">
-        {nodes.length > 0 && (
-          <span className="text-xs whitespace-nowrap text-muted-foreground">{summary(nodes)}</span>
-        )}
-        <div className="ms-auto flex items-center gap-2">
+      <PageHeader />
+
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 pt-1 pb-8 sm:px-5">
+        <PageHeading
+          title="Machines"
+          description="The machines your workers run on. A machine's menu opens its terminal, drains it or removes it."
+          className="mb-5"
+        >
           <fieldset className="m-0 inline-flex gap-0.5 rounded-lg border border-solid bg-muted p-0.5">
             <legend className="sr-only">Layout</legend>
             {(["grid", "table"] as const).map((l) => (
@@ -73,26 +87,34 @@ export function MachinesScreen() {
               </button>
             ))}
           </fieldset>
-          {layout === "table" && nodes.length > 0 && (
-            <ColumnsMenu
-              columns={shown.filter((column) => column.enableHiding !== false)}
+          {all.length > 0 && (
+            <ViewMenu
+              status={status}
+              statuses={statusChoices(all)}
+              onStatus={filter}
+              columns={
+                layout === "table"
+                  ? shown.filter((column) => column.enableHiding !== false)
+                  : undefined
+              }
               visibility={visibility}
               onShow={show}
             />
           )}
           <AddMachine />
-        </div>
-      </PageHeader>
-
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 pt-1 pb-8 sm:px-5">
+        </PageHeading>
         {machines.error ? (
           <p className="py-10 text-center text-sm text-destructive">
             The machines could not be read.
           </p>
         ) : machines.isPending ? (
           <p className="py-10 text-center text-sm text-muted-foreground">Loading…</p>
-        ) : nodes.length === 0 ? (
+        ) : all.length === 0 ? (
           <Empty />
+        ) : status !== "all" && nodes.length === 0 ? (
+          <p className="py-16 text-center text-sm text-muted-foreground">
+            No {stateNames[status].toLowerCase()} machines.
+          </p>
         ) : layout === "table" ? (
           <MachinesTable
             nodes={nodes}

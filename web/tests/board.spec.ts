@@ -207,6 +207,7 @@ test("the owner answers a worker from the board", async ({ page }) => {
   const answers = await fakeServer(page)
   await page.goto("/board")
 
+  await expect(page.getByRole("heading", { name: "Board", level: 1 })).toBeVisible()
   const needsYou = page.getByRole("region", { name: "Needs you" })
   await expect(needsYou.getByTestId("task-card")).toHaveCount(1)
   await expect(needsYou).toContainText("Should /health be public")
@@ -235,6 +236,7 @@ test("a Run that asks comes first and is answered on its page", async ({ page })
   const answers = await fakeServer(page)
   await page.goto("/runs")
 
+  await expect(page.getByRole("heading", { name: "Runs", level: 1 })).toBeVisible()
   const first = page.getByRole("region", { name: "Needs you" })
   await expect(first).toContainText("Add a /health page")
   await shot(page, "runs")
