@@ -30,7 +30,11 @@ messages and wake-ups go as one `prompt`, or a follow-up while pi works, and are
 them. pi's activity is kept and relayed as Omnara does (issue #41 PR 4): each assistant `message_end` is kept as
 the coordinator's message with its text and thinking as parts, and each finished tool call as a `tool` message with
 its arguments and result (at most 16 KiB). Text as pi writes it, tools starting and ending, and working or idle go to
-the chat's watchers from memory only and are never stored; `abort` stops pi's turn. On
+the chat's watchers from memory only and are never stored. A reply that ends in an error is followed by a `failed`
+row. `abort` stops pi's turn and marks it as stopped by the owner (issue #267, after OpenMausBot's
+`server/person-stops.ts`): while marked, the `message_end` whose `stopReason` is `error` or `aborted` keeps its text
+and a `stopped` row ("Stopped") in one write instead of a failure, and a turn that ends with neither gets the row at
+`agent_settled`, where the mark clears. On
 the server pi runs as the `coordinator` user through `deploy/coordinator/`: a root-owned launcher (`hypomnema-pi`,
 a clean environment, only a chat id, a Bot's name and model flags), one sudoers rule limited to it, the instructions
 every Bot gets, pi's version with its lockfile (`package.json`, which Dependabot
@@ -270,7 +274,10 @@ transaction, every status change a guarded `UPDATE` checked against a transition
 - Chats (`orchestration/chats.go`, issue #41 PR 3, after Omnara;
   [research](docs/research/2026-11-09-chat-storage.md)): the owner's conversations with pi. Every message is kept
   (`owner`, `coordinator`, `tool`, `system`; replies and tools with JSON `parts`); owner messages and wake-ups wait
-  for pi and are marked delivered one by one. A
+  for pi and are marked delivered one by one. A `system` row has a `kind` (migration 00054, issue #267, after
+  t3code's typed timeline items): `wake` (it names its event), `failed` (pi's model call failed), `stopped` (the
+  owner stopped the turn) or `approval` (the coordinator is told an Approval was answered); the API sends it as
+  `ChatMessage.kind`, and the web and Lark read it rather than the text. A
   Run records the chat whose pi created it (`runs.chat_id`), and each event of such a Run that needs a coordinator (a
   Task ended or was blocked, a question to the coordinator, an escalation, the Run ended) adds one wake-up to the chat,
   unique per event.
@@ -674,7 +681,7 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       by the mode: the people he added, or every member of the organization. People are kept per Channel
       (`lark_channel_people`): Lark gives a person another `open_id` in each app. A refusal, a message that is
       not text and a pi that is not running are answered with a short notice.
-    - Groups ([#246](https://github.com/kl3inIT/hypomnema/issues/246), migration 00054): each Channel keeps a
+    - Groups ([#246](https://github.com/kl3inIT/hypomnema/issues/246), migration 00055): each Channel keeps a
       roster of the Lark groups its bot is in (`lark_channel_groups`, MemoryOS's `ChannelGroupRoster`): a group
       is added when the bot is added to it (`im.chat.member.bot.added_v1`; `deleted_v1` removes it) and by Lark's
       whole list of the bot's groups (`GET /open-apis/im/v1/chats`), read when the Channel connects and every ten
@@ -730,8 +737,10 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       told it is queued, by the name of the chat's Bot. A reply longer than 8,000 characters goes on in further
       cards. Lark's mention tags in a reply are written out, so nobody is notified. A card Lark stopped writing
       after ten minutes is switched on again. `/new` gives the person's next message a new chat; `/stop` stops
-      the turn that runs: its card closes with what was written and the line "Stopped.", and the message is
-      not marked as failed.
+      the turn that runs. The relay reads each system row's `kind`: a `stopped` row (from `/stop` or the web's
+      Stop) closes the card with what was written and the line "Stopped." and the message is not marked as
+      failed; a `failed` row ends it with "could not answer this" and the cross; `approval` and `wake` rows send
+      nothing.
     - A question's card is orange while it waits, green once answered, red when canceled.
     - Not built: an option that also takes text; a person's reaction as an answer; images and voice; refusing
       a group with members of another organization; a conversation per sender in a group.

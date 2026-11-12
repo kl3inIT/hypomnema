@@ -102,26 +102,23 @@ export type Step =
   | { kind: "tool"; key: string; name: string; args?: Record<string, unknown>; result?: ChatPart }
 
 // What the owner did in this page that the stream does not carry: the messages sent and not kept yet, shown at once
-// as t3code's optimisticUserMessages.ts, and the last kept message's seq when he pressed Stop.
-export type Local = { sending?: ChatMessage[]; stoppedAfter?: number }
+// as t3code's optimisticUserMessages.ts.
+export type Local = { sending?: ChatMessage[] }
 
-// failed is a notice that the model's call failed, which is how pi reports a turn it was told to stop.
+// failed is a notice that the model's call failed.
 export function failed(m: ChatMessage) {
-  return m.role === "system" && m.event_seq === undefined
+  return m.role === "system" && m.kind === "failed"
 }
 
 // chatItems turns the view into what is drawn. As Omnara's groupToolRuns
 // (.tmp/omnara/frontend/apps/web/src/components/agents/AgentChatMessage.tsx), consecutive thoughts and tool calls
 // become one group, so a burst of work reads as one line that opens; a reply's text ends the group.
 //
-// pi reports a turn the owner stopped as a failed model call. As the Lark relay (larkbot/channels.go, kept), the
-// first such notice after he pressed Stop, before he wrote again, is the stop and reads as one (t3code's "You
-// stopped this response", MessagesTimeline.logic.ts; assistant-ui's StoppedRun). The server does not say which
-// turn was stopped, so this is known only in the page where Stop was pressed.
+// A turn the owner stopped ends in a row the server keeps as stopped, which reads as one (t3code's "You stopped
+// this response", MessagesTimeline.logic.ts; assistant-ui's StoppedRun).
 export function chatItems(view: ChatView, local: Local = {}): ChatItem[] {
   const items: ChatItem[] = []
   let group: Step[] | null = null
-  let stopping = local.stoppedAfter !== undefined
   const kept = new Set(view.messages.map((m) => m.seq))
   const messages = [...view.messages, ...(local.sending ?? []).filter((m) => !kept.has(m.seq))]
 
@@ -139,18 +136,15 @@ export function chatItems(view: ChatView, local: Local = {}): ChatItem[] {
 
   for (const m of messages) {
     const key = String(m.seq)
-    const afterStop = stopping && m.seq > (local.stoppedAfter ?? 0)
 
     switch (m.role) {
       case "owner":
         close()
-        if (afterStop) stopping = false
         items.push({ kind: "owner", key, message: m })
         break
       case "system":
         close()
-        if (afterStop && failed(m)) {
-          stopping = false
+        if (m.kind === "stopped") {
           items.push({ kind: "stopped", key, message: m })
         } else {
           items.push({ kind: "notice", key, message: m })

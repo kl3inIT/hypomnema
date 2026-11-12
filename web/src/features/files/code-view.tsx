@@ -55,15 +55,30 @@ function keep(editor: monaco.editor.ICodeEditor, m: monaco.editor.ITextModel, te
   if (state) editor.restoreViewState(state)
 }
 
+// Orca's file editor's options (MonacoEditor.tsx): no minimap, the line in front highlighted, no space above the
+// first line, smooth scrolling. Changed: the overview ruler shows no cursor and no border, which on a read-only
+// view is only a stray mark (owner, 2026-11-13).
 const common = {
   readOnly: true,
   domReadOnly: true,
   automaticLayout: true,
   minimap: { enabled: false },
   scrollBeyondLastLine: false,
-  renderLineHighlight: "none",
-  padding: { top: 8 },
+  renderLineHighlight: "line",
+  padding: { top: 0 },
+  smoothScrolling: true,
+  hideCursorInOverviewRuler: true,
+  overviewRulerBorder: false,
 } satisfies monaco.editor.IEditorOptions
+
+// Orca's diff scrollbars are wider, so that a dense diff's marks leave something to drag
+// (diff-editor-scrollbar-options.ts).
+const diffScrollbar = {
+  verticalScrollbarSize: 20,
+  horizontalScrollbarSize: 20,
+  verticalSliderSize: 20,
+  horizontalSliderSize: 20,
+} satisfies monaco.editor.IEditorScrollbarOptions
 
 export default function CodeView(props: CodeViewProps) {
   const host = useRef<HTMLDivElement>(null)
@@ -109,7 +124,8 @@ export default function CodeView(props: CodeViewProps) {
       renderSideBySide: element.clientWidth >= splitFrom,
       useInlineViewWhenSpaceIsLimited: false,
       hideUnchangedRegions: { enabled: true, contextLineCount: 3 },
-      renderOverviewRuler: false,
+      renderOverviewRuler: true,
+      scrollbar: diffScrollbar,
     })
     editor.setModel({ original: before, modified: after })
     diff.current = { editor, before, after }

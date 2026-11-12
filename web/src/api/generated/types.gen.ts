@@ -1694,6 +1694,11 @@ export type ChatList = {
 export type ChatRole = 'owner' | 'coordinator' | 'tool' | 'system';
 
 /**
+ * What a system message is: wake, a wake-up for an event of one of the chat's Runs; failed, pi's model call failed; stopped, the owner stopped the turn; approval, the coordinator is told the owner answered an Approval.
+ */
+export type ChatKind = 'wake' | 'failed' | 'stopped' | 'approval';
+
+/**
  * One piece of a reply (text, thinking) or of a tool pi ran (tool_result).
  */
 export type ChatPart = {
@@ -1762,6 +1767,7 @@ export type ChatMessage = {
   seq: number;
   chat_id: string;
   role: ChatRole;
+  kind?: ChatKind;
   text: string;
   /**
    * A reply's text and thinking, or a tool's result; absent for owner and system messages.

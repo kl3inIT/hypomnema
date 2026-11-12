@@ -968,9 +968,10 @@ func TestTheOwnerAnswersAWorkersQuestionOnItsCard(t *testing.T) {
 // does it. His message is marked as being worked on; the reply is a card that
 // answers that message and first shows what tool is running, then the text;
 // it ends with a link to the same chat on the web, and the mark comes off. A
-// second message sent meanwhile is told it waits. When the model's call
-// fails, what was written stays with a line that says so and the message is
-// marked as failed.
+// second message sent meanwhile is told it waits. The coordinator being told
+// of an answered Approval is no failure. When the model's call fails, what
+// was written stays with a line that says so and the message is marked as
+// failed.
 func TestTheOwnerSeesTheCoordinatorWork(t *testing.T) {
 	t.Parallel()
 
@@ -1014,10 +1015,17 @@ func TestTheOwnerSeesTheCoordinatorWork(t *testing.T) {
 	w.pi.frame(chat, coordinator.FrameReset, nil)
 	w.pi.frame(chat, coordinator.FrameDelta, map[string]any{"kind": "text", "index": 0, "delta": "Looking"})
 
-	_, err = w.orch.AddChatMessage(t.Context(), chat, orchestration.ChatSystem, "pi's model call failed: overloaded")
+	_, err = w.orch.AddChatMessages(t.Context(), chat, orchestration.NewChatMessage{
+		Role: orchestration.ChatSystem, Kind: orchestration.ChatApproval, Text: `The owner approved "Send email".`,
+	})
+	require.NoError(t, err)
+	_, err = w.orch.AddChatMessages(t.Context(), chat, orchestration.NewChatMessage{
+		Role: orchestration.ChatSystem, Kind: orchestration.ChatFailed, Text: "pi's model call failed: overloaded",
+	})
 	require.NoError(t, err)
 	require.Eventually(t, func() bool { return w.lark.cardAt(1).closed }, eventual, tick)
 	assert.Contains(t, w.lark.cardAt(1).text, "Looking\n\ncoordinator could not answer this.")
+	assert.Len(t, w.lark.sent(), 2, "the approval's row closed no card and sent none")
 	require.Eventually(t, func() bool {
 		return assert.ObjectsAreEqual([]string{"CrossMark"}, w.lark.marked("om_3"))
 	}, eventual, tick)
@@ -1051,10 +1059,12 @@ func TestALongReplyGoesOnInAnotherCardAndMentionsNobody(t *testing.T) {
 
 // Scenario: the owner stops the coordinator from Lark and starts over. /stop
 // stops the turn that runs in his chat and says so, or says nothing runs.
-// The card of the stopped turn closes with what was written and a line that
-// says it was stopped, though pi reports the turn as a failed call, and his
+// The server ends the turn with a stopped row: the card of the stopped turn
+// closes with what was written and a line that says it was stopped, and his
 // message is not marked as failed. /new gives his next message a new chat
-// with the coordinator, and the old one stays.
+// with the coordinator, and the old one stays. A turn stopped there from the
+// web, whose last reply is kept with its stopped row, closes its card with
+// that reply and the same line.
 func TestTheOwnerStopsTheCoordinatorAndStartsOver(t *testing.T) {
 	t.Parallel()
 
@@ -1079,8 +1089,9 @@ func TestTheOwnerStopsTheCoordinatorAndStartsOver(t *testing.T) {
 	assert.Equal(t, ownerDM+": Stopped.", w.lark.noticed()[1])
 	assert.Equal(t, []string{first}, w.pi.stopped())
 
-	_, err := w.orch.AddChatMessage(t.Context(), first, orchestration.ChatSystem,
-		"pi's model call failed: Request was aborted")
+	_, err := w.orch.AddChatMessages(t.Context(), first, orchestration.NewChatMessage{
+		Role: orchestration.ChatSystem, Kind: orchestration.ChatStopped, Text: "Stopped",
+	})
 	require.NoError(t, err)
 	w.pi.frame(first, coordinator.FrameState, map[string]any{"working": false})
 	require.Eventually(t, func() bool { return w.lark.cardAt(0).closed }, eventual, tick)
@@ -1102,9 +1113,22 @@ func TestTheOwnerStopsTheCoordinatorAndStartsOver(t *testing.T) {
 		return second != first && len(w.texts(second)) == 1
 	}, eventual, tick)
 	assert.Equal(t, []string{"owner: something else"}, w.texts(second))
-	assert.Equal(t, []string{"owner: refactor everything", "system: pi's model call failed: Request was aborted"},
+	assert.Equal(t, []string{"owner: refactor everything", "system: Stopped"},
 		w.texts(first), "the commands are not messages")
 	assert.Empty(t, w.lark.marked("om_1"), "a stopped message is not marked as failed")
+
+	w.pi.frame(second, coordinator.FrameReset, nil)
+	w.pi.frame(second, coordinator.FrameDelta, map[string]any{"kind": "text", "index": 0, "delta": "Half"})
+	require.Eventually(t, func() bool { return len(w.lark.sent()) == 2 }, eventual, tick)
+
+	_, err = w.orch.AddChatMessages(t.Context(), second,
+		orchestration.NewChatMessage{Role: orchestration.ChatCoordinator, Text: "Half done"},
+		orchestration.NewChatMessage{Role: orchestration.ChatSystem, Kind: orchestration.ChatStopped, Text: "Stopped"})
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return w.lark.cardAt(1).closed }, eventual, tick)
+	assert.Equal(t, "Half done\n\nStopped.", w.lark.cardAt(1).text)
+	require.Eventually(t, func() bool { return len(w.lark.marked("om_5")) == 0 }, eventual, tick)
+	assert.Len(t, w.lark.sent(), 2, "the stopped reply and its row are one card")
 }
 
 // botOf is the Bot a chat talks with.
