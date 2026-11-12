@@ -180,8 +180,18 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     `deploy/browser/setup-browser.sh` once with sudo, which writes an AppArmor profile and installs missing
     libraries (T3 Code's `t3 browser setup`, MIT, its license in `third_party/t3code/`).
     `HYPOMNEMA_BROWSER_SANDBOX=0` runs Chrome without the sandbox; nothing else does.
-  - Not guarded yet: what the browser may reach. An agent can open an address on the control plane's own machine
-    or network (OpenMausBot has a gate for this, `server/browser/egress/`).
+  - What the browser may reach is limited by a gate (issue #202; `internal/controlplane/browser/egress`, adapted
+    from OpenMausBot's `server/browser/egress/`, Apache-2.0, its notice in `third_party/openmausbot/`). Chrome is
+    launched with a SOCKS5 server inside the control plane, on a loopback port, as its proxy for every connection,
+    loopback included, and is never started without it. The gate resolves each name itself, classes every address
+    and connects only to the addresses it checked, so a redirect or a name that changes where it points reaches
+    nothing else. The public internet passes. Cloud metadata, link-local and reserved addresses never pass.
+    Loopback, the machine's own addresses and private networks (10/8, 100.64/10, 172.16/12, 192.168/16, fc00::/7)
+    pass only where `HYPOMNEMA_BROWSER_ALLOW` lists them (`10.0.0.5`, `192.168.1.0/24`, `10.0.0.5:8080`,
+    `[fd12::1]:443`, separated by commas; empty by default; a page opened as `localhost` needs its port listed, as
+    `127.0.0.1:3000`, which covers `::1` too), and the control plane's own port, the gate's and
+    Chrome's DevTools port never open on that machine. A refusal is logged as `browser.refused` with the host, the
+    port and the reason; the agent sees Chrome's connection error.
 - Chats (`orchestration/chats.go`, issue #41 PR 3, after Omnara;
   [research](docs/research/2026-11-09-chat-storage.md)): the owner's conversations with pi. Every message is kept
   (`owner`, `coordinator`, `tool`, `system`; replies and tools with JSON `parts`); owner messages and wake-ups wait
@@ -1222,6 +1232,7 @@ api                       the client API's contract (openapi.yaml) and oapi-code
 internal/controlplane     package controlplane: configuration, migrate, serve and the owner's server commands
 internal/controlplane/bearertoken  client token format: making, checking and hashing
 internal/controlplane/browser  the browser every agent shares: the pinned agent-browser and headless Chrome, one Chrome and a session an agent, the tools offered, the idle rules
+internal/controlplane/browser/egress  the gate on what the shared browser may reach: the SOCKS5 server Chrome goes through, the address classes, the owner's allow list
 internal/controlplane/clientapi  the client API: policies, handlers, events and their stream; generated code in openapi/
 internal/controlplane/clientcli  the commands that call the client API, and the coordinator skill (skills/)
 internal/controlplane/nodeapi  the node API: hello and the node WebSocket

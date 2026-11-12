@@ -14,10 +14,12 @@ import (
 	"net"
 	"net/http"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/agentapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/browser"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/browser/egress"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/coordinator"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/integration"
@@ -88,6 +90,11 @@ type Config struct {
 	// BrowserNoSandbox runs Chrome without its sandbox, from
 	// HYPOMNEMA_BROWSER_SANDBOX=0. Nothing else turns the sandbox off.
 	BrowserNoSandbox bool
+	// BrowserAllow lists the private destinations the shared browser may
+	// reach (issue #202), from HYPOMNEMA_BROWSER_ALLOW: entries such as
+	// `10.0.0.5`, `192.168.1.0/24` or `10.0.0.5:8080`, separated by commas.
+	// Empty: the public internet only.
+	BrowserAllow egress.Allow
 }
 
 // LoadConfig reads the configuration and reports every problem at once.
@@ -130,7 +137,14 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 	keys, keysErr := vault.ParseKeyring(getenv(envPrefix+"_VAULT_KEYS"), getenv(envPrefix+"_VAULT_ACTIVE_KEY_ID"))
 	cfg.VaultKeys = keys
 
-	if err := errors.Join(env.Err(), cmdErr, keysErr); err != nil {
+	allow, allowErr := egress.ParseAllow(strings.Split(env.String(envPrefix+"_BROWSER_ALLOW", ""), ","))
+	if allowErr != nil {
+		allowErr = fmt.Errorf("%s_BROWSER_ALLOW: %w", envPrefix, allowErr)
+	}
+
+	cfg.BrowserAllow = allow
+
+	if err := errors.Join(env.Err(), cmdErr, keysErr, allowErr); err != nil {
 		return Config{}, fmt.Errorf("configuration: %w", err)
 	}
 
@@ -214,7 +228,18 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		return fmt.Errorf("the browser's directory: %w", err)
 	}
 
-	shared := browser.New(browser.Config{Dir: browserDir, NoSandbox: cfg.BrowserNoSandbox, Logger: logger})
+	// The browser never reaches the control plane's own port, whatever the owner's list allows (issue #202).
+	var ownPorts []uint16
+
+	if _, port, err := net.SplitHostPort(cfg.HTTPAddr); err == nil {
+		if n, err := strconv.ParseUint(port, 10, 16); err == nil && n != 0 {
+			ownPorts = append(ownPorts, uint16(n))
+		}
+	}
+
+	shared := browser.New(browser.Config{
+		Dir: browserDir, NoSandbox: cfg.BrowserNoSandbox, Allow: cfg.BrowserAllow, OwnPorts: ownPorts, Logger: logger,
+	})
 	agents.WithBrowser(shared).Register(mux)
 
 	// The service proxy: an agent's tool reaches a connected service through it and never holds the token.

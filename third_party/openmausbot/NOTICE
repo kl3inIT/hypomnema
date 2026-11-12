@@ -1,0 +1,17 @@
+OpenMausBot
+Copyright 2026 Milind Soni and OpenMausBot contributors
+
+Used under the Apache License, Version 2.0 (LICENSE in this directory).
+Source: https://github.com/milind-soni/OpenMausBot at 1a4e4da9f.
+
+What is adapted from it here: the egress gate for the shared browser
+(internal/controlplane/browser/egress/), from its server/browser/egress/gate.ts
+and policy.ts and its electron/egress-addresses.mjs. Changed: written in Go in
+place of Node, and only the rules of a self-hosted server are kept.
+
+From OpenMausBot's own NOTICE, for that code:
+
+The egress gate for the bots' browser (server/browser/egress/) adapts T3 Code's
+public-only SOCKS5 proxy for HTML previews and the Linux listener-ownership
+scan of its preview port scanner, Copyright 2026 T3 Tools Inc., used under the
+MIT License (third_party/t3-code/LICENSE).
