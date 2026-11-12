@@ -42,3 +42,18 @@ export function sessionOf(approval: Approval): string | null {
 
   return null
 }
+
+// readable turns a request's own field name (a JSON key such as "emailAddress" or "send_notification") into words
+// ("Email address"), as the mail's fields already read (From, To, Subject). A label the server wrote for people,
+// which starts with a capital, stays as it is; the raw name stays in the label's tooltip.
+export function readable(label: string) {
+  if (!/^[a-z]/.test(label)) return label
+
+  const words = label
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/[-_.]+/g, " ")
+    .trim()
+    .toLowerCase()
+
+  return words.charAt(0).toUpperCase() + words.slice(1)
+}

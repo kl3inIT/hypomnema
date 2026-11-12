@@ -8,16 +8,18 @@ import {
   Info,
   ListChecks,
   Search,
+  Square,
   SquareTerminal,
   Wrench,
   X,
 } from "lucide-react"
-import { lazy, Suspense, useState, type ReactNode } from "react"
+import { useState, type ReactNode } from "react"
 
 import type { ChatMessage } from "@/api/generated/types.gen"
 import { cn } from "@/lib/utils"
 
 import { argLine, type ChatItem, type Step } from "./chat-state"
+import Markdown from "./markdown"
 import { WorkLogBlock, WorkLogButton, WorkLogDetails, WorkLogList, WorkLogRow } from "./work-log"
 
 // The rows of a conversation, drawn as t3code draws its timeline (MIT, Copyright (c) 2026 T3 Tools Inc.,
@@ -26,16 +28,29 @@ import { WorkLogBlock, WorkLogButton, WorkLogDetails, WorkLogList, WorkLogRow } 
 // (chat/TimelineAssistantRows.tsx), its work as dense rows that open (chat/TimelineWorkEntryRow.tsx,
 // TimelineWorkGroupRows.tsx), and notices as a line across the lane (chat/TimelineSystemDivider.tsx).
 
-const Markdown = lazy(() => import("./markdown"))
+// The markdown renderer is imported with the chat, as t3code's ChatMarkdown is, so a reply never shows its raw
+// marks while the renderer loads.
 
-export function ChatItemView({ item, working }: { item: ChatItem; working: boolean }) {
+export function ChatItemView({
+  item,
+  working,
+  bot,
+}: {
+  item: ChatItem
+  working: boolean
+  bot: string
+}) {
   switch (item.kind) {
     case "owner":
       return <OwnerMessage message={item.message} />
     case "notice":
       return <Notice message={item.message} />
+    case "stopped":
+      return <Stopped />
     case "reply":
-      return <Reply text={item.text} streaming={item.streaming} createdAt={item.createdAt} />
+      return (
+        <Reply text={item.text} streaming={item.streaming} createdAt={item.createdAt} bot={bot} />
+      )
     case "activity":
       return <Activity steps={item.steps} live={item.open && working} />
   }
@@ -107,24 +122,20 @@ function Reply({
   text,
   streaming,
   createdAt,
+  bot,
 }: {
   text: string
   streaming: boolean
   createdAt?: string
+  bot: string
 }) {
   return (
     <div
       className="group/assistant relative min-w-0 px-1 py-0.5 pb-2"
       data-testid={streaming ? "reply-streaming" : "reply"}
     >
-      <h3 className="sr-only">pi</h3>
-      <Suspense
-        fallback={
-          <p className="text-sm leading-relaxed whitespace-pre-wrap text-foreground/90">{text}</p>
-        }
-      >
-        <Markdown text={text} streaming={streaming} />
-      </Suspense>
+      <h3 className="sr-only">{bot}</h3>
+      <Markdown text={text} streaming={streaming} />
       {!streaming && <Meta text={text} createdAt={createdAt} align="start" />}
     </div>
   )
@@ -151,6 +162,25 @@ function Notice({ message }: { message: ChatMessage }) {
         <Icon className="size-3 shrink-0" />
         <span className="font-medium">{label}</span>
         {detail && <span className="max-w-80 truncate opacity-70">·&nbsp;{detail}</span>}
+      </span>
+      <span aria-hidden="true" className="h-px flex-1 bg-border/70" />
+    </div>
+  )
+}
+
+// Stopped is a turn the owner stopped: a quiet line, not a failure (assistant-ui's StoppedRun, its square mark and
+// muted words; t3code's "You stopped this response").
+function Stopped() {
+  return (
+    <div
+      role="note"
+      aria-label="Stopped"
+      className="flex min-w-0 items-center gap-2 py-2 text-2xs text-muted-foreground"
+    >
+      <span aria-hidden="true" className="h-px flex-1 bg-border/70" />
+      <span className="flex items-center gap-1.5 rounded-full px-2 py-1">
+        <Square className="size-2.5 shrink-0 fill-current" aria-hidden="true" />
+        <span className="font-medium">Stopped</span>
       </span>
       <span aria-hidden="true" className="h-px flex-1 bg-border/70" />
     </div>

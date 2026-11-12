@@ -1,5 +1,8 @@
+import { CircleAlert, X } from "lucide-react"
 import { useState } from "react"
 
+import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert"
+import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
 
 // The message box, after t3code's composer (MIT, Copyright (c) 2026 T3 Tools Inc.,
@@ -7,30 +10,41 @@ import { cn } from "@/lib/utils"
 // chat/ChatComposer.tsx for the body and footer, chat/ComposerPrimaryActions.tsx for the round Send and Stop.
 // Enter sends and Shift+Enter breaks the line, never while an input method composes, so Vietnamese with Telex
 // is not sent half typed. While pi works and the box is empty, Stop takes Send's place; a message sent then
-// reaches pi as a follow-up.
+// reaches pi as a follow-up. The box empties as the message leaves, which the chat shows at once; a send that fails
+// puts the text back to be sent again and says why above the box (t3code's ChatView send path and
+// ThreadErrorBanner.tsx).
 export function Composer({
   onSend,
   onStop,
   working,
   disabled,
+  bot,
 }: {
   onSend: (text: string) => Promise<unknown>
   onStop: () => void
   working: boolean
   disabled?: boolean
+  // bot names who the message goes to.
+  bot: string
 }) {
   const [text, setText] = useState("")
   const [sending, setSending] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   async function send() {
     const message = text.trim()
     if (!message || sending) return
 
     setSending(true)
+    setError(null)
+    setText("")
 
     try {
       await onSend(message)
-      setText("")
+    } catch (err) {
+      // What was typed meanwhile is kept; the failed text goes back only into an empty box.
+      setText((typed) => (typed === "" ? message : typed))
+      setError(errorText(err))
     } finally {
       setSending(false)
     }
@@ -50,11 +64,30 @@ export function Composer({
         void send()
       }}
     >
+      {error && (
+        <div className="relative z-10 mb-2">
+          <Alert variant="destructive">
+            <CircleAlert />
+            <AlertDescription>Not sent: {error}</AlertDescription>
+            <AlertAction>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                aria-label="Dismiss"
+                onClick={() => setError(null)}
+              >
+                <X />
+              </Button>
+            </AlertAction>
+          </Alert>
+        </div>
+      )}
       <div className="relative z-10 w-full rounded-2xl shadow-composer after:pointer-events-none after:absolute after:inset-0 after:rounded-[inherit] after:border after:border-(--composer-outline) dark:shadow-none dark:after:inset-shadow-2xs dark:after:inset-shadow-[rgb(255_255_255/3%)]">
         <div className="relative px-4 pt-3.5 pb-2 sm:pt-4">
           <textarea
             aria-label="Message"
-            placeholder={working ? "Add to what pi is doing" : "Ask pi to build something"}
+            placeholder={working ? `Add to what ${bot} is doing` : `Ask ${bot} to build something`}
             rows={1}
             value={text}
             disabled={disabled}
@@ -111,4 +144,11 @@ export function Composer({
       </div>
     </form>
   )
+}
+
+// errorText is the server's words for a refused send, or a plain line when it gave none (a network error).
+function errorText(err: unknown) {
+  if (err && typeof err === "object" && "message" in err && err.message) return String(err.message)
+
+  return "the server could not be reached. Try again."
 }

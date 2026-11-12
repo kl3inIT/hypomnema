@@ -6,6 +6,7 @@ import { afterEach, expect, test, vi } from "vitest"
 import type { Approval } from "@/api/generated/types.gen"
 
 import { PendingApprovals } from "./approval-card"
+import { readable } from "./use-approvals"
 
 afterEach(() => vi.restoreAllMocks())
 
@@ -92,9 +93,11 @@ test("the owner reads a held mail and approves it once", async () => {
   expect(card.getByText("Re: October invoice")).toBeInTheDocument()
   expect(card.getByText(/Received\.\s+We pay before the 15th\./)).toBeInTheDocument()
   expect(card.getByText("google:work · Send mail · asked by pi")).toBeInTheDocument()
-  expect(card.getByRole("button", { name: "Approve for this chat" })).toBeInTheDocument()
+  expect(
+    card.getAllByRole("button").map((b) => b.getAttribute("aria-label") ?? b.textContent),
+  ).toEqual(["Decline", "Approve", "More approval options"])
 
-  await user.click(card.getByRole("button", { name: "Approve once" }))
+  await user.click(card.getByRole("button", { name: "Approve" }))
   await waitFor(() => expect(screen.queryByRole("region")).not.toBeInTheDocument())
 
   expect(requests[0]).toEqual({
@@ -109,9 +112,9 @@ test("the owner reads a held mail and approves it once", async () => {
   })
 })
 
-// Scenario: a worker's request, shown in its Task. It can be approved for the rest of the Run, or rejected. A
-// request nobody's session is behind offers no approval for a session.
-test("a worker's request is approved for its Run or rejected", async () => {
+// Scenario: a worker's request, shown in its Task. It can be approved for the rest of the Run from the "…" menu,
+// or declined. A request nobody's session is behind has no menu.
+test("a worker's request is approved for its Run or declined", async () => {
   const user = userEvent.setup()
   const requests = server([
     mail({
@@ -136,16 +139,17 @@ test("a worker's request is approved for its Run or rejected", async () => {
   const second = within(
     screen.getByRole("region", { name: "Approval needed: Send mail: lan@example.com" }),
   )
-  expect(second.queryByRole("button", { name: /Approve for/ })).not.toBeInTheDocument()
+  expect(second.queryByRole("button", { name: "More approval options" })).not.toBeInTheDocument()
 
-  await user.click(first.getByRole("button", { name: "Approve for this Run" }))
+  await user.click(first.getByRole("button", { name: "More approval options" }))
+  await user.click(await screen.findByRole("menuitem", { name: "Approve for this Run" }))
   await waitFor(() =>
     expect(
       screen.queryByRole("region", { name: "Approval needed: Send mail: minh@example.com" }),
     ).not.toBeInTheDocument(),
   )
 
-  await user.click(second.getByRole("button", { name: "Reject" }))
+  await user.click(second.getByRole("button", { name: "Decline" }))
   await waitFor(() => expect(screen.queryByRole("region")).not.toBeInTheDocument())
 
   expect(requests).toContainEqual({
@@ -167,7 +171,7 @@ test("a refused answer is said on the card", async () => {
   show({ chatId: "cht_1" })
 
   const card = within(await screen.findByRole("region"))
-  await user.click(card.getByRole("button", { name: "Reject" }))
+  await user.click(card.getByRole("button", { name: "Decline" }))
 
   expect(await card.findByRole("alert")).toHaveTextContent(
     "Not answered: approval apr_1 was already answered",
@@ -181,4 +185,15 @@ test("nothing is shown when nothing waits", async () => {
 
   await waitFor(() => expect(requests).toHaveLength(1))
   expect(container).toBeEmptyDOMElement()
+})
+
+// Scenario: a Drive share's fields are the request's own JSON keys; they read as words, and a label the server
+// already wrote for people stays as it is.
+test("a request's field names read as words", () => {
+  expect(readable("emailAddress")).toBe("Email address")
+  expect(readable("role")).toBe("Role")
+  expect(readable("send_notification_email")).toBe("Send notification email")
+  expect(readable("X-Forward-Copy")).toBe("X-Forward-Copy")
+  expect(readable("Subject")).toBe("Subject")
+  expect(readable("…")).toBe("…")
 })
