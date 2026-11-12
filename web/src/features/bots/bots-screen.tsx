@@ -7,7 +7,9 @@ import { Button, buttonVariants } from "@/components/ui/button"
 import { AgentAvatar } from "@/features/agents/agent-avatar"
 import { effortLabel } from "@/features/agents/profiles-state"
 import { PageHeader } from "@/features/shell/app-shell"
+import { modelIsId } from "@/lib/model-name"
 import { since } from "@/lib/time"
+import { cn } from "@/lib/utils"
 
 import { memoryLine, modelLine } from "./bots-state"
 import { useBots } from "./use-bots"
@@ -61,7 +63,7 @@ export function BotsScreen() {
             ))}
           </fieldset>
           <Link to="/bots/new" className={buttonVariants()}>
-            New Bot
+            New bot
           </Link>
         </div>
       </PageHeader>
@@ -92,7 +94,7 @@ export function BotsScreen() {
               No Bots yet. A Bot has a name, a model, a persona you write and a memory it keeps.
             </p>
             <Link to="/bots/new" className={buttonVariants()}>
-              New Bot
+              New bot
             </Link>
           </div>
         ) : layout === "table" ? (
@@ -118,7 +120,9 @@ function BotCard({ bot }: { bot: Bot }) {
       icon: <Box className="size-4 text-muted-foreground" aria-hidden />,
       value: (
         <>
-          <span className="shrink-0 font-mono text-xs">{modelLine(bot)}</span>
+          <span className={cn("shrink-0 text-xs", modelIsId(bot.model) && "font-mono")}>
+            {modelLine(bot)}
+          </span>
           {bot.provider && (
             <span className="ms-1.5 truncate text-xs text-muted-foreground">({bot.provider})</span>
           )}
@@ -217,7 +221,9 @@ function BotsTable({ bots }: { bots: Bot[] }) {
                 </span>
               </td>
               <td className="px-3 py-2.5 whitespace-nowrap">
-                <span className="font-mono text-xs">{modelLine(bot)}</span>
+                <span className={cn("text-xs", modelIsId(bot.model) && "font-mono")}>
+                  {modelLine(bot)}
+                </span>
                 {bot.provider && (
                   <span className="ms-1.5 text-xs text-muted-foreground">({bot.provider})</span>
                 )}

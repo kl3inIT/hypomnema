@@ -1,7 +1,7 @@
 import { useForm } from "@tanstack/react-form"
 import { useMutation } from "@tanstack/react-query"
 import { Plus } from "lucide-react"
-import { useState, type ReactElement } from "react"
+import { useId, useState, type ReactElement } from "react"
 import { z } from "zod"
 
 import "@/api/client"
@@ -30,6 +30,7 @@ import {
   DialogDescription,
   DialogFooter,
   DialogHeader,
+  DialogPanel,
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
@@ -408,6 +409,7 @@ const personSchema = z.object({
 })
 
 function AddPersonDialog({ channel, trigger }: { channel: string; trigger: ReactElement }) {
+  const formId = useId()
   const refresh = useRefreshChannels()
   const [open, setOpen] = useState(false)
 
@@ -443,38 +445,41 @@ function AddPersonDialog({ channel, trigger }: { channel: string; trigger: React
     <Dialog open={open} onOpenChange={change}>
       <DialogTrigger render={trigger} />
       <DialogContent size="sm">
-        <form
-          autoComplete="off"
-          noValidate
-          className="flex flex-col gap-4"
-          onSubmit={(event) => {
-            event.preventDefault()
-            void form.handleSubmit()
-          }}
-        >
-          <DialogHeader>
-            <DialogTitle>Add a person</DialogTitle>
-            <DialogDescription>
-              They must be a member of the app&apos;s Lark organization. Hypomnema looks them up at
-              Lark with the app. A person is added to each channel apart.
-            </DialogDescription>
-          </DialogHeader>
-          <FieldGroup>
-            <form.Field name="who">
-              {(field) => (
-                <TextField field={field} label="Email at Lark" placeholder="linh@company.com" />
-              )}
-            </form.Field>
-          </FieldGroup>
-          <ErrorAlert error={add.error} />
-          <DialogFooter>
-            <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
-            <Button type="submit" disabled={add.isPending}>
-              {add.isPending && <Spinner data-icon="inline-start" />}
-              Add
-            </Button>
-          </DialogFooter>
-        </form>
+        <DialogHeader>
+          <DialogTitle>Add a person</DialogTitle>
+          <DialogDescription>
+            They must be a member of the app&apos;s Lark organization. Hypomnema looks them up at
+            Lark with the app. A person is added to each channel apart.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogPanel>
+          <form
+            id={formId}
+            autoComplete="off"
+            noValidate
+            className="flex flex-col gap-4"
+            onSubmit={(event) => {
+              event.preventDefault()
+              void form.handleSubmit()
+            }}
+          >
+            <FieldGroup>
+              <form.Field name="who">
+                {(field) => (
+                  <TextField field={field} label="Email at Lark" placeholder="linh@company.com" />
+                )}
+              </form.Field>
+            </FieldGroup>
+            <ErrorAlert error={add.error} />
+          </form>
+        </DialogPanel>
+        <DialogFooter>
+          <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
+          <Button type="submit" form={formId} disabled={add.isPending}>
+            {add.isPending && <Spinner data-icon="inline-start" />}
+            Add
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )
@@ -504,6 +509,7 @@ function SetUpDialog({
   taken: string[]
   trigger: ReactElement
 }) {
+  const formId = useId()
   const refresh = useRefreshChannels()
   const [open, setOpen] = useState(false)
 
@@ -565,98 +571,99 @@ function SetUpDialog({
     <Dialog open={open} onOpenChange={change}>
       <DialogTrigger render={trigger} />
       <DialogContent>
-        <form
-          autoComplete="off"
-          noValidate
-          // A new Channel's form is taller than a phone: it scrolls inside the dialog, with room for the
-          // fields' focus rings.
-          className="-mx-1 flex max-h-[calc(100dvh-4rem)] flex-col gap-4 overflow-y-auto px-1"
-          onSubmit={(event) => {
-            event.preventDefault()
-            void form.handleSubmit()
-          }}
-        >
-          <DialogHeader>
-            <DialogTitle>
-              {channel ? `Change the app of ${channel.name}` : "Add a Lark channel"}
-            </DialogTitle>
-            <DialogDescription>
-              {channel
-                ? "Another app is used once the control plane starts again. The secret goes to the vault and is not shown again."
-                : "The App ID and App Secret are on the app's Credentials page in Lark's developer console. The secret goes to the vault and is not shown again. One app is one channel. A new channel is off and takes messages from you only."}
-            </DialogDescription>
-          </DialogHeader>
-          <FieldGroup>
-            {!channel && (
-              <form.Field name="name">
+        <DialogHeader>
+          <DialogTitle>
+            {channel ? `Change the app of ${channel.name}` : "Add a Lark channel"}
+          </DialogTitle>
+          <DialogDescription>
+            {channel
+              ? "Another app is used once the control plane starts again. The secret goes to the vault and is not shown again."
+              : "The App ID and App Secret are on the app's Credentials page in Lark's developer console. The secret goes to the vault and is not shown again. One app is one channel. A new channel is off and takes messages from you only."}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogPanel>
+          <form
+            id={formId}
+            autoComplete="off"
+            noValidate
+            className="flex flex-col gap-4"
+            onSubmit={(event) => {
+              event.preventDefault()
+              void form.handleSubmit()
+            }}
+          >
+            <FieldGroup>
+              {!channel && (
+                <form.Field name="name">
+                  {(field) => (
+                    <TextField
+                      field={field}
+                      label="Name"
+                      placeholder="support"
+                      description="Lowercase letters, digits and dashes. It cannot be changed later."
+                    />
+                  )}
+                </form.Field>
+              )}
+              <form.Field name="appId">
+                {(field) => <TextField field={field} label="App ID" placeholder="cli_…" />}
+              </form.Field>
+              <form.Field name="appSecret">
+                {(field) => <TextField field={field} label="App Secret" secret />}
+              </form.Field>
+              <form.Field name="owner">
                 {(field) => (
                   <TextField
                     field={field}
-                    label="Name"
-                    placeholder="support"
-                    description="Lowercase letters, digits and dashes. It cannot be changed later."
+                    label="Your email at Lark"
+                    placeholder="you@company.com"
+                    description={
+                      channel
+                        ? "Leave empty to stay the owner as you are."
+                        : "Hypomnema looks you up at Lark with the app, which also shows the App ID and Secret work."
+                    }
                   />
                 )}
               </form.Field>
-            )}
-            <form.Field name="appId">
-              {(field) => <TextField field={field} label="App ID" placeholder="cli_…" />}
-            </form.Field>
-            <form.Field name="appSecret">
-              {(field) => <TextField field={field} label="App Secret" secret />}
-            </form.Field>
-            <form.Field name="owner">
-              {(field) => (
-                <TextField
-                  field={field}
-                  label="Your email at Lark"
-                  placeholder="you@company.com"
-                  description={
-                    channel
-                      ? "Leave empty to stay the owner as you are."
-                      : "Hypomnema looks you up at Lark with the app, which also shows the App ID and Secret work."
-                  }
-                />
+              {!channel && (
+                <form.Field name="bot">
+                  {(field) => (
+                    <Field>
+                      <FieldLabel htmlFor={field.name}>Bot</FieldLabel>
+                      <Select
+                        name={field.name}
+                        value={field.state.value}
+                        onValueChange={(bot) => bot && field.handleChange(bot)}
+                      >
+                        <SelectTrigger id={field.name} width="full">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {botChoices(bots, firstBot).map((bot) => (
+                            <SelectItem key={bot} value={bot}>
+                              {bot}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FieldDescription>
+                        The Bot a message through this channel talks to.
+                      </FieldDescription>
+                    </Field>
+                  )}
+                </form.Field>
               )}
-            </form.Field>
-            {!channel && (
-              <form.Field name="bot">
-                {(field) => (
-                  <Field>
-                    <FieldLabel htmlFor={field.name}>Bot</FieldLabel>
-                    <Select
-                      name={field.name}
-                      value={field.state.value}
-                      onValueChange={(bot) => bot && field.handleChange(bot)}
-                    >
-                      <SelectTrigger id={field.name} width="full">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {botChoices(bots, firstBot).map((bot) => (
-                          <SelectItem key={bot} value={bot}>
-                            {bot}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FieldDescription>
-                      The Bot a message through this channel talks to.
-                    </FieldDescription>
-                  </Field>
-                )}
-              </form.Field>
-            )}
-          </FieldGroup>
-          <ErrorAlert error={save.error} />
-          <DialogFooter>
-            <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
-            <Button type="submit" disabled={save.isPending}>
-              {save.isPending && <Spinner data-icon="inline-start" />}
-              Save
-            </Button>
-          </DialogFooter>
-        </form>
+            </FieldGroup>
+            <ErrorAlert error={save.error} />
+          </form>
+        </DialogPanel>
+        <DialogFooter>
+          <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
+          <Button type="submit" form={formId} disabled={save.isPending}>
+            {save.isPending && <Spinner data-icon="inline-start" />}
+            Save
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )

@@ -205,7 +205,7 @@ test("the Bots show as cards and as a table, each with its model and its memory"
 test("a new Bot is made with a name, a model and a persona", async ({ page }) => {
   const calls = await fakeServer(page)
   await page.goto("/bots")
-  await page.getByRole("link", { name: "New Bot" }).click()
+  await page.getByRole("link", { name: "New bot" }).click()
 
   await page.getByLabel("Name").fill("Researcher")
   await expect(page.getByText("Use lowercase letters, digits and dashes")).toBeVisible()

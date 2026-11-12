@@ -205,6 +205,9 @@ test("the owner sets the first Lark channel up, switches it on and lets a person
   await dialog.getByRole("button", { name: "Save" }).click()
   await expect(dialog.getByRole("alert")).toContainText("no member of the app's Lark organization")
   await shot(page, "channels-setup-refused")
+  // Taller than a phone, the dialog keeps its title and its buttons in view; only the fields scroll (issue #242).
+  await expect(dialog.getByText("Add a Lark channel")).toBeInViewport()
+  await expect(dialog.getByRole("button", { name: "Save" })).toBeInViewport()
 
   await dialog.getByLabel("Your email at Lark").fill("owner@example.com")
   await dialog.getByRole("button", { name: "Save" }).click()

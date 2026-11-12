@@ -1,7 +1,7 @@
 import { useForm } from "@tanstack/react-form"
 import { useMutation } from "@tanstack/react-query"
 import { Copy, ExternalLink } from "lucide-react"
-import { useState, type ReactElement } from "react"
+import { useId, useState, type ReactElement } from "react"
 import { z } from "zod"
 
 import "@/api/client"
@@ -15,6 +15,7 @@ import {
   DialogDescription,
   DialogFooter,
   DialogHeader,
+  DialogPanel,
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
@@ -56,6 +57,7 @@ export function AccountSignInDialog({
   account?: Account
   trigger: ReactElement
 }) {
+  const formId = useId()
   const refresh = useRefreshAccounts()
   const [open, setOpen] = useState(false)
   const [started, setStarted] = useState<AccountSignInAttempt | null>(null)
@@ -124,110 +126,112 @@ export function AccountSignInDialog({
     <Dialog open={open} onOpenChange={change}>
       <DialogTrigger render={trigger} />
       <DialogContent>
-        <form
-          autoComplete="off"
-          noValidate
-          className="flex flex-col gap-4"
-          onSubmit={(event) => {
-            event.preventDefault()
-            void (started ? finish.handleSubmit() : start.handleSubmit())
-          }}
-        >
-          <DialogHeader>
-            <DialogTitle>
-              {account ? `Sign ${account.label} in again` : `Add a ${name} account`}
-            </DialogTitle>
-            <DialogDescription>
-              {!started
-                ? `You sign in on ${name}'s own page, in a browser on any machine. Nothing is opened on the server, and your password does not pass through Hypomnema.`
-                : started.paste
-                  ? `Sign in on ${name}'s page. The browser then ends on an address that does not load: copy that whole address and paste it here.`
-                  : `Open ${name}'s page, sign in and enter this code there. This dialog closes by itself when it is done.`}
-            </DialogDescription>
-          </DialogHeader>
-
-          {!started && !account && (
-            <FieldGroup>
-              <start.Field name="label">
-                {(field) => (
-                  <TextField
-                    field={field}
-                    label="Name"
-                    placeholder="work"
-                    description="What you call this account. Its e-mail when left empty."
-                  />
-                )}
-              </start.Field>
-            </FieldGroup>
-          )}
-
-          {started && (
-            <FieldGroup>
-              {/* A link that looks like a button: it leaves this page, so it is an anchor, not a button. */}
-              <a
-                href={started.url}
-                target="_blank"
-                rel="noreferrer"
-                className={buttonVariants({ variant: "outline" })}
-              >
-                <ExternalLink data-icon="inline-start" />
-                Open {name}&apos;s sign-in page
-              </a>
-              {started.paste ? (
-                <finish.Field name="callback">
+        <DialogHeader>
+          <DialogTitle>
+            {account ? `Sign ${account.label} in again` : `Add a ${name} account`}
+          </DialogTitle>
+          <DialogDescription>
+            {!started
+              ? `You sign in on ${name}'s own page, in a browser on any machine. Nothing is opened on the server, and your password does not pass through Hypomnema.`
+              : started.paste
+                ? `Sign in on ${name}'s page. The browser then ends on an address that does not load: copy that whole address and paste it here.`
+                : `Open ${name}'s page, sign in and enter this code there. This dialog closes by itself when it is done.`}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogPanel>
+          <form
+            id={formId}
+            autoComplete="off"
+            noValidate
+            className="flex flex-col gap-4"
+            onSubmit={(event) => {
+              event.preventDefault()
+              void (started ? finish.handleSubmit() : start.handleSubmit())
+            }}
+          >
+            {!started && !account && (
+              <FieldGroup>
+                <start.Field name="label">
                   {(field) => (
                     <TextField
                       field={field}
-                      label="Address the browser ended on"
-                      placeholder="http://localhost:54545/callback?code=…&state=…"
-                      description={`Within ${minutes} minutes.`}
+                      label="Name"
+                      placeholder="work"
+                      description="What you call this account. Its e-mail when left empty."
                     />
                   )}
-                </finish.Field>
-              ) : (
-                <Field>
-                  <FieldLabel>Code to enter there</FieldLabel>
-                  <div className="flex items-center justify-between gap-2 rounded-lg border bg-muted px-3 py-2">
-                    <span className="font-mono text-lg tracking-widest" data-testid="user-code">
-                      {started.user_code}
-                    </span>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => {
-                        void navigator.clipboard.writeText(started.user_code ?? "")
-                        said("The code was copied")
-                      }}
-                    >
-                      <Copy data-icon="inline-start" />
-                      Copy
-                    </Button>
-                  </div>
-                  <FieldDescription>
-                    <span className="inline-flex items-center gap-1.5">
-                      {complete.isPending && <Spinner />}
-                      {complete.isPending
-                        ? `Waiting for you to enter it, for up to ${minutes} minutes.`
-                        : "The sign-in did not complete. Close this and start again."}
-                    </span>
-                  </FieldDescription>
-                </Field>
-              )}
-            </FieldGroup>
-          )}
-
-          <ErrorAlert error={begin.error ?? complete.error} />
-          <DialogFooter>
-            <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
-            {!waiting && (
-              <Button type="submit" disabled={begin.isPending || complete.isPending}>
-                {(begin.isPending || complete.isPending) && <Spinner data-icon="inline-start" />}
-                {started ? "Sign in" : "Continue"}
-              </Button>
+                </start.Field>
+              </FieldGroup>
             )}
-          </DialogFooter>
-        </form>
+
+            {started && (
+              <FieldGroup>
+                {/* A link that looks like a button: it leaves this page, so it is an anchor, not a button. */}
+                <a
+                  href={started.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className={buttonVariants({ variant: "outline" })}
+                >
+                  <ExternalLink data-icon="inline-start" />
+                  Open {name}&apos;s sign-in page
+                </a>
+                {started.paste ? (
+                  <finish.Field name="callback">
+                    {(field) => (
+                      <TextField
+                        field={field}
+                        label="Address the browser ended on"
+                        placeholder="http://localhost:54545/callback?code=…&state=…"
+                        description={`Within ${minutes} minutes.`}
+                      />
+                    )}
+                  </finish.Field>
+                ) : (
+                  <Field>
+                    <FieldLabel>Code to enter there</FieldLabel>
+                    <div className="flex items-center justify-between gap-2 rounded-lg border bg-muted px-3 py-2">
+                      <span className="font-mono text-lg tracking-widest" data-testid="user-code">
+                        {started.user_code}
+                      </span>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          void navigator.clipboard.writeText(started.user_code ?? "")
+                          said("The code was copied")
+                        }}
+                      >
+                        <Copy data-icon="inline-start" />
+                        Copy
+                      </Button>
+                    </div>
+                    <FieldDescription>
+                      <span className="inline-flex items-center gap-1.5">
+                        {complete.isPending && <Spinner />}
+                        {complete.isPending
+                          ? `Waiting for you to enter it, for up to ${minutes} minutes.`
+                          : "The sign-in did not complete. Close this and start again."}
+                      </span>
+                    </FieldDescription>
+                  </Field>
+                )}
+              </FieldGroup>
+            )}
+
+            <ErrorAlert error={begin.error ?? complete.error} />
+          </form>
+        </DialogPanel>
+        <DialogFooter>
+          <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
+          {!waiting && (
+            <Button type="submit" form={formId} disabled={begin.isPending || complete.isPending}>
+              {(begin.isPending || complete.isPending) && <Spinner data-icon="inline-start" />}
+              {started ? "Sign in" : "Continue"}
+            </Button>
+          )}
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )

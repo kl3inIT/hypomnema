@@ -79,7 +79,8 @@ export function SettingsSidebar() {
 }
 
 // SettingsPage is one section's page. On a phone, where the sidebar hides, the sections are a row of links under
-// the header.
+// the header that scrolls sideways, its edge fading where more of it is hidden (shadcn's scroll-fade-x, as the
+// CodeBlock primitive uses it).
 export function SettingsPage({
   title,
   description,
@@ -102,7 +103,7 @@ export function SettingsPage({
       {sections.length > 1 && (
         <nav
           aria-label="Settings sections"
-          className="flex shrink-0 gap-1 overflow-x-auto px-3 pb-2 md:hidden"
+          className="no-scrollbar flex shrink-0 scroll-fade-x gap-1 overflow-x-auto px-3 pb-2 md:hidden"
         >
           {sections.map((section) => (
             <Link

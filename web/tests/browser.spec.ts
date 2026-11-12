@@ -205,11 +205,13 @@ test("a dropped view comes back by itself", async ({ page }) => {
     .toBe(1280)
 })
 
-// A control plane with no browser says so, in its own words.
+// A control plane with no browser says so, in its own words, as an empty page rather than an error.
 test("a control plane with no browser says so", async ({ page }) => {
   await fakeServer(page, { noBrowser: true })
   await page.goto("/browser")
 
-  await expect(page.getByRole("alert")).toContainText("this control plane has no browser")
+  await expect(page.getByText("The browser is not available")).toBeVisible()
+  await expect(page.getByText("This control plane has no browser.")).toBeVisible()
+  await expect(page.getByRole("alert")).toHaveCount(0)
   await shot(page, "browser-none")
 })

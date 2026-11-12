@@ -1,7 +1,7 @@
 import { useForm } from "@tanstack/react-form"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { ExternalLink, Plug, Plus, RefreshCw, Sheet } from "lucide-react"
-import { useState, type ComponentType, type ReactElement, type SVGProps } from "react"
+import { useId, useState, type ComponentType, type ReactElement, type SVGProps } from "react"
 import { z } from "zod"
 
 import "@/api/client"
@@ -39,6 +39,7 @@ import {
   DialogDescription,
   DialogFooter,
   DialogHeader,
+  DialogPanel,
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
@@ -162,8 +163,8 @@ export function ServiceCard({ service }: { service: Integration }) {
             </span>
           </span>
         </CardTitle>
-        <CardAction>
-          <span className="flex flex-wrap items-center justify-end gap-1.5">
+        <CardAction wrap>
+          <span className="flex flex-wrap items-center gap-1.5 sm:justify-end">
             {account && <ConnectAccountDialog service={service} trigger={add} />}
             {service.client_id &&
               (app ? (
@@ -328,6 +329,7 @@ const labelSchema = z
 // ConnectAppDialog connects a service that is an app. There is nothing to sign in to: the owner names the
 // Connection, and the control plane checks the app's id and secret with the service and reads the app's name.
 function ConnectAppDialog({ service, trigger }: { service: Integration; trigger: ReactElement }) {
+  const formId = useId()
   const refresh = useRefreshServices()
   const [open, setOpen] = useState(false)
 
@@ -363,42 +365,45 @@ function ConnectAppDialog({ service, trigger }: { service: Integration; trigger:
     <Dialog open={open} onOpenChange={change}>
       <DialogTrigger render={trigger} />
       <DialogContent>
-        <form
-          autoComplete="off"
-          noValidate
-          className="flex flex-col gap-4"
-          onSubmit={(event) => {
-            event.preventDefault()
-            void form.handleSubmit()
-          }}
-        >
-          <DialogHeader>
-            <DialogTitle>Connect your {service.name} app</DialogTitle>
-            <DialogDescription>
-              {`There is nothing to sign in to. Hypomnema checks the app's id and secret with ${service.name} and then works as the app, with what the app is allowed there.`}
-            </DialogDescription>
-          </DialogHeader>
-          <FieldGroup>
-            <form.Field name="label">
-              {(field) => (
-                <TextField
-                  field={field}
-                  label="Name"
-                  placeholder="work"
-                  description="What you call this app here, such as work."
-                />
-              )}
-            </form.Field>
-          </FieldGroup>
-          <ErrorAlert error={connect.error} />
-          <DialogFooter>
-            <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
-            <Button type="submit" disabled={connect.isPending}>
-              {connect.isPending && <Spinner data-icon="inline-start" />}
-              Connect
-            </Button>
-          </DialogFooter>
-        </form>
+        <DialogHeader>
+          <DialogTitle>Connect your {service.name} app</DialogTitle>
+          <DialogDescription>
+            {`There is nothing to sign in to. Hypomnema checks the app's id and secret with ${service.name} and then works as the app, with what the app is allowed there.`}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogPanel>
+          <form
+            id={formId}
+            autoComplete="off"
+            noValidate
+            className="flex flex-col gap-4"
+            onSubmit={(event) => {
+              event.preventDefault()
+              void form.handleSubmit()
+            }}
+          >
+            <FieldGroup>
+              <form.Field name="label">
+                {(field) => (
+                  <TextField
+                    field={field}
+                    label="Name"
+                    placeholder="work"
+                    description="What you call this app here, such as work."
+                  />
+                )}
+              </form.Field>
+            </FieldGroup>
+            <ErrorAlert error={connect.error} />
+          </form>
+        </DialogPanel>
+        <DialogFooter>
+          <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
+          <Button type="submit" form={formId} disabled={connect.isPending}>
+            {connect.isPending && <Spinner data-icon="inline-start" />}
+            Connect
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )
@@ -428,6 +433,7 @@ function ConnectAccountDialog({
   connection?: IntegrationConnection
   trigger: ReactElement
 }) {
+  const formId = useId()
   const refresh = useRefreshServices()
   const [open, setOpen] = useState(false)
 
@@ -476,68 +482,71 @@ function ConnectAccountDialog({
     <Dialog open={open} onOpenChange={change}>
       <DialogTrigger render={trigger} />
       <DialogContent>
-        <form
-          autoComplete="off"
-          noValidate
-          className="flex flex-col gap-4"
-          onSubmit={(event) => {
-            event.preventDefault()
-            void form.handleSubmit()
-          }}
-        >
-          <DialogHeader>
-            <DialogTitle>
-              {connection ? `Connect ${connection.label} again` : `Add a ${service.name} account`}
-            </DialogTitle>
-            <DialogDescription>
-              {`Hypomnema signs in to your ${service.name} with this account and reads what the account may read there. The password is kept encrypted in the vault and is not shown again.`}
-            </DialogDescription>
-          </DialogHeader>
-          <FieldGroup>
-            {!connection && (
-              <form.Field name="label">
+        <DialogHeader>
+          <DialogTitle>
+            {connection ? `Connect ${connection.label} again` : `Add a ${service.name} account`}
+          </DialogTitle>
+          <DialogDescription>
+            {`Hypomnema signs in to your ${service.name} with this account and reads what the account may read there. The password is kept encrypted in the vault and is not shown again.`}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogPanel>
+          <form
+            id={formId}
+            autoComplete="off"
+            noValidate
+            className="flex flex-col gap-4"
+            onSubmit={(event) => {
+              event.preventDefault()
+              void form.handleSubmit()
+            }}
+          >
+            <FieldGroup>
+              {!connection && (
+                <form.Field name="label">
+                  {(field) => (
+                    <TextField
+                      field={field}
+                      label="Name"
+                      placeholder="work"
+                      description="What you call this account here, such as work."
+                    />
+                  )}
+                </form.Field>
+              )}
+              <form.Field name="address">
                 {(field) => (
                   <TextField
                     field={field}
-                    label="Name"
-                    placeholder="work"
-                    description="What you call this account here, such as work."
+                    label="Address"
+                    placeholder="https://superset.example.com"
+                    description={`Where your ${service.name} is, as you open it in a browser.`}
                   />
                 )}
               </form.Field>
-            )}
-            <form.Field name="address">
-              {(field) => (
-                <TextField
-                  field={field}
-                  label="Address"
-                  placeholder="https://superset.example.com"
-                  description={`Where your ${service.name} is, as you open it in a browser.`}
-                />
-              )}
-            </form.Field>
-            <form.Field name="username">
-              {(field) => (
-                <TextField
-                  field={field}
-                  label="User name"
-                  description={`An account of ${service.name}'s own, not one that signs in through another service.`}
-                />
-              )}
-            </form.Field>
-            <form.Field name="password">
-              {(field) => <TextField field={field} label="Password" secret />}
-            </form.Field>
-          </FieldGroup>
-          <ErrorAlert error={connect.error} />
-          <DialogFooter>
-            <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
-            <Button type="submit" disabled={connect.isPending}>
-              {connect.isPending && <Spinner data-icon="inline-start" />}
-              Connect
-            </Button>
-          </DialogFooter>
-        </form>
+              <form.Field name="username">
+                {(field) => (
+                  <TextField
+                    field={field}
+                    label="User name"
+                    description={`An account of ${service.name}'s own, not one that signs in through another service.`}
+                  />
+                )}
+              </form.Field>
+              <form.Field name="password">
+                {(field) => <TextField field={field} label="Password" secret />}
+              </form.Field>
+            </FieldGroup>
+            <ErrorAlert error={connect.error} />
+          </form>
+        </DialogPanel>
+        <DialogFooter>
+          <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
+          <Button type="submit" form={formId} disabled={connect.isPending}>
+            {connect.isPending && <Spinner data-icon="inline-start" />}
+            Connect
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )
@@ -623,6 +632,7 @@ function SignInDialog({
   connection?: IntegrationConnection
   trigger: ReactElement
 }) {
+  const formId = useId()
   const refresh = useRefreshServices()
   const [open, setOpen] = useState(false)
   const [started, setStarted] = useState<SignIn | null>(null)
@@ -708,117 +718,120 @@ function SignInDialog({
     <Dialog open={open} onOpenChange={change}>
       <DialogTrigger render={trigger} />
       <DialogContent size="lg">
-        <form
-          autoComplete="off"
-          noValidate
-          className="flex flex-col gap-4"
-          onSubmit={(event) => {
-            event.preventDefault()
-            void (started ? finish.handleSubmit() : start.handleSubmit())
-          }}
-        >
-          <DialogHeader>
-            <DialogTitle>
-              {connection ? `Sign ${connection.label} in again` : `Add a ${service.name} account`}
-            </DialogTitle>
-            <DialogDescription>
-              {started
-                ? `Sign in on ${service.name}'s page. The browser then ends on an address that does not load: copy that whole address and paste it here.`
-                : `Name the account and choose what Hypomnema may do with it. You then sign in on ${service.name}'s own page; your password never passes through here.`}
-            </DialogDescription>
-          </DialogHeader>
-          {!started && (
-            <FieldGroup>
-              {!connection && (
-                <start.Field name="label">
+        <DialogHeader>
+          <DialogTitle>
+            {connection ? `Sign ${connection.label} in again` : `Add a ${service.name} account`}
+          </DialogTitle>
+          <DialogDescription>
+            {started
+              ? `Sign in on ${service.name}'s page. The browser then ends on an address that does not load: copy that whole address and paste it here.`
+              : `Name the account and choose what Hypomnema may do with it. You then sign in on ${service.name}'s own page; your password never passes through here.`}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogPanel>
+          <form
+            id={formId}
+            autoComplete="off"
+            noValidate
+            className="flex flex-col gap-4"
+            onSubmit={(event) => {
+              event.preventDefault()
+              void (started ? finish.handleSubmit() : start.handleSubmit())
+            }}
+          >
+            {!started && (
+              <FieldGroup>
+                {!connection && (
+                  <start.Field name="label">
+                    {(field) => (
+                      <TextField
+                        field={field}
+                        label="Name"
+                        placeholder="work"
+                        description="What you call this account, such as work or personal."
+                      />
+                    )}
+                  </start.Field>
+                )}
+                <FieldSet>
+                  <FieldLegend variant="label">Access</FieldLegend>
+                  <start.Field name="access">
+                    {(field) => (
+                      <FieldGroup>
+                        {service.services.map((id) => (
+                          <Field key={id} orientation="horizontal">
+                            <ServiceMark id={id} />
+                            <FieldContent>
+                              <FieldLabel htmlFor={`access-${id}`}>{serviceName(id)}</FieldLabel>
+                              <FieldDescription>{about[id]?.holds}</FieldDescription>
+                            </FieldContent>
+                            <Select
+                              value={field.state.value[id] ?? "none"}
+                              onValueChange={(mode) =>
+                                mode &&
+                                field.handleChange({
+                                  ...field.state.value,
+                                  [id]: mode,
+                                })
+                              }
+                              items={modeNames}
+                            >
+                              <SelectTrigger id={`access-${id}`} size="sm">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="write">{modeNames.write}</SelectItem>
+                                <SelectItem value="read">{modeNames.read}</SelectItem>
+                                <SelectItem value="none">{modeNames.none}</SelectItem>
+                              </SelectContent>
+                            </Select>
+                          </Field>
+                        ))}
+                        {!field.state.meta.isValid && (
+                          <p role="alert" className="text-sm text-destructive">
+                            Choose at least one service.
+                          </p>
+                        )}
+                      </FieldGroup>
+                    )}
+                  </start.Field>
+                </FieldSet>
+              </FieldGroup>
+            )}
+            {started && (
+              <FieldGroup>
+                {/* A link that looks like a button: it leaves this page, so it is an anchor, not a button. */}
+                <a
+                  href={started.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className={buttonVariants({ variant: "outline" })}
+                >
+                  <ExternalLink data-icon="inline-start" />
+                  Open {service.name}&apos;s sign-in page
+                </a>
+                <finish.Field name="callback">
                   {(field) => (
                     <TextField
                       field={field}
-                      label="Name"
-                      placeholder="work"
-                      description="What you call this account, such as work or personal."
+                      label="Address the browser ended on"
+                      placeholder="http://localhost:1/?state=…&code=…"
+                      description={`Within ${Math.round(started.expires_in_seconds / 60)} minutes.`}
                     />
                   )}
-                </start.Field>
-              )}
-              <FieldSet>
-                <FieldLegend variant="label">Access</FieldLegend>
-                <start.Field name="access">
-                  {(field) => (
-                    <FieldGroup>
-                      {service.services.map((id) => (
-                        <Field key={id} orientation="horizontal">
-                          <ServiceMark id={id} />
-                          <FieldContent>
-                            <FieldLabel htmlFor={`access-${id}`}>{serviceName(id)}</FieldLabel>
-                            <FieldDescription>{about[id]?.holds}</FieldDescription>
-                          </FieldContent>
-                          <Select
-                            value={field.state.value[id] ?? "none"}
-                            onValueChange={(mode) =>
-                              mode &&
-                              field.handleChange({
-                                ...field.state.value,
-                                [id]: mode,
-                              })
-                            }
-                            items={modeNames}
-                          >
-                            <SelectTrigger id={`access-${id}`} size="sm">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="write">{modeNames.write}</SelectItem>
-                              <SelectItem value="read">{modeNames.read}</SelectItem>
-                              <SelectItem value="none">{modeNames.none}</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </Field>
-                      ))}
-                      {!field.state.meta.isValid && (
-                        <p role="alert" className="text-sm text-destructive">
-                          Choose at least one service.
-                        </p>
-                      )}
-                    </FieldGroup>
-                  )}
-                </start.Field>
-              </FieldSet>
-            </FieldGroup>
-          )}
-          {started && (
-            <FieldGroup>
-              {/* A link that looks like a button: it leaves this page, so it is an anchor, not a button. */}
-              <a
-                href={started.url}
-                target="_blank"
-                rel="noreferrer"
-                className={buttonVariants({ variant: "outline" })}
-              >
-                <ExternalLink data-icon="inline-start" />
-                Open {service.name}&apos;s sign-in page
-              </a>
-              <finish.Field name="callback">
-                {(field) => (
-                  <TextField
-                    field={field}
-                    label="Address the browser ended on"
-                    placeholder="http://localhost:1/?state=…&code=…"
-                    description={`Within ${Math.round(started.expires_in_seconds / 60)} minutes.`}
-                  />
-                )}
-              </finish.Field>
-            </FieldGroup>
-          )}
-          <ErrorAlert error={begin.error ?? complete.error} />
-          <DialogFooter>
-            <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
-            <Button type="submit" disabled={pending}>
-              {pending && <Spinner data-icon="inline-start" />}
-              {started ? "Connect" : "Continue"}
-            </Button>
-          </DialogFooter>
-        </form>
+                </finish.Field>
+              </FieldGroup>
+            )}
+            <ErrorAlert error={begin.error ?? complete.error} />
+          </form>
+        </DialogPanel>
+        <DialogFooter>
+          <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
+          <Button type="submit" form={formId} disabled={pending}>
+            {pending && <Spinner data-icon="inline-start" />}
+            {started ? "Connect" : "Continue"}
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )

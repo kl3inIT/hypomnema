@@ -5,6 +5,7 @@ import { Dialog as DialogPrimitive } from "@base-ui/react/dialog"
 import { cn } from "cn"
 
 import { Button } from "@/components/ui/button"
+import { ScrollArea } from "@/components/ui/scroll-area"
 import { XIcon } from "lucide-react"
 
 function Dialog({ ...props }: DialogPrimitive.Root.Props) {
@@ -48,6 +49,8 @@ function DialogContent({
   // command or a table of choices.
   size?: "sm" | "default" | "lg"
 }) {
+  // The popup is bounded by the viewport, as t3code's is (max-h-full in its viewport): a dialog taller than the
+  // screen keeps its header and footer and scrolls its DialogPanel.
   return (
     <DialogPortal>
       <DialogOverlay />
@@ -55,7 +58,7 @@ function DialogContent({
         data-slot="dialog-content"
         data-size={size}
         className={cn(
-          "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none data-[size=default]:sm:max-w-lg data-[size=lg]:sm:max-w-xl data-[size=sm]:sm:max-w-md data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          "fixed top-1/2 left-1/2 z-50 flex max-h-[calc(100dvh-2rem)] w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 flex-col gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none data-[size=default]:sm:max-w-lg data-[size=lg]:sm:max-w-xl data-[size=sm]:sm:max-w-md data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
           className,
         )}
         {...props}
@@ -77,7 +80,11 @@ function DialogContent({
 
 function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
-    <div data-slot="dialog-header" className={cn("flex flex-col gap-2", className)} {...props} />
+    <div
+      data-slot="dialog-header"
+      className={cn("flex shrink-0 flex-col gap-2", className)}
+      {...props}
+    />
   )
 }
 
@@ -93,7 +100,7 @@ function DialogFooter({
     <div
       data-slot="dialog-footer"
       className={cn(
-        "-mx-4 -mb-4 flex flex-col-reverse gap-2 rounded-b-xl border-t bg-muted/50 p-4 sm:flex-row sm:justify-end",
+        "-mx-4 -mb-4 flex shrink-0 flex-col-reverse gap-2 rounded-b-xl border-t bg-muted/50 p-4 sm:flex-row sm:justify-end",
         className,
       )}
       {...props}
@@ -103,6 +110,23 @@ function DialogFooter({
         <DialogPrimitive.Close render={<Button variant="outline" />}>Close</DialogPrimitive.Close>
       )}
     </div>
+  )
+}
+
+// DialogPanel is the middle of a dialog, between its header and its footer, and the only part that scrolls when
+// the dialog is taller than the screen. Adapted from t3code's DialogPanel (apps/web/src/components/ui/dialog.tsx,
+// MIT, Copyright (c) 2026 T3 Tools Inc.): a ScrollArea around the body. Its edges reach the popup's, so the
+// scrollbar sits at the popup's side and a field's focus ring is not cut; a form whose footer is outside the
+// panel names it with the submit button's form attribute, as t3code's do.
+function DialogPanel({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <ScrollArea className="-mx-4 -my-1 min-h-0">
+      <div
+        data-slot="dialog-panel"
+        className={cn("flex flex-col gap-4 px-4 py-1", className)}
+        {...props}
+      />
+    </ScrollArea>
   )
 }
 
@@ -137,6 +161,7 @@ export {
   DialogFooter,
   DialogHeader,
   DialogOverlay,
+  DialogPanel,
   DialogPortal,
   DialogTitle,
   DialogTrigger,
