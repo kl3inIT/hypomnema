@@ -17,6 +17,12 @@ type Key = {
   last_used_at?: string
 }
 
+const served = (name: string, provider: string) => ({
+  name,
+  targets: [{ provider, upstream_model: name }],
+  updated_at: iso(now),
+})
+
 const secret = "hyp_gateway_v1_Ab12Cd34ef56gh78ij90klmnopqrstuv_x9"
 
 async function fakeServer(page: Page, start?: Key[]) {
@@ -33,7 +39,7 @@ async function fakeServer(page: Page, start?: Key[]) {
       id: "gwk_2",
       name: "omp-desktop",
       prefix: "hyp_gateway_v1_Lm40Pr",
-      models: ["gpt-6.1-sol", "claude-sonnet"],
+      models: ["gpt-5.5-codex", "claude-sonnet-5-5"],
       created_at: iso(now - 2 * 86_400_000),
     },
   ]
@@ -77,8 +83,21 @@ async function fakeServer(page: Page, start?: Key[]) {
       case "GET /gateway/models":
         return json({
           data: [
-            { name: "gpt-6.1-sol", targets: [], updated_at: iso(now) },
-            { name: "claude-sonnet", targets: [], updated_at: iso(now) },
+            served("claude-opus-5-5", "claude"),
+            served("claude-sonnet-5-5", "claude"),
+            served("gpt-5.5", "codex"),
+            served("gpt-5.5-codex", "codex"),
+            served("gemini-3-pro", "antigravity"),
+            served("deepseek-v4", "openrouter"),
+          ],
+        })
+      case "GET /providers":
+        return json({
+          data: [
+            { name: "claude", kind: "claude_subscription", models: [] },
+            { name: "codex", kind: "codex_subscription", models: [] },
+            { name: "antigravity", kind: "antigravity_subscription", models: [] },
+            { name: "openrouter", kind: "openai_compatible", models: [] },
           ],
         })
       case "GET /tasks":
@@ -108,15 +127,18 @@ test("the owner sees the gateway's address and keys", async ({ page }) => {
   await expect(laptop).toContainText("Every model")
   await expect(laptop).toContainText("40m ago")
   const desktop = page.getByRole("row", { name: "omp-desktop" })
-  await expect(desktop).toContainText("claude-sonnet")
+  // A model reads as its name, with its maker's mark.
+  await expect(desktop).toContainText("Claude Sonnet 5.5")
+  await expect(desktop).toContainText("GPT-5.5-Codex")
   await expect(desktop).toContainText("Never")
   await expect(page.getByTestId("worker-keys")).toContainText("2 more keys")
   expect(await fits(page)).toBe(true)
   await shot(page, "gateway-keys")
 })
 
-// Scenario: the owner makes a key for one tool, limited to one model, and copies it; its value is shown once and
-// the list then shows it by its start. A key with no model chosen is refused before it is sent.
+// Scenario: the owner makes a key for one tool, limited to some models, and copies it; its value is shown once and
+// the list then shows it by its start. The models are grouped by the provider that serves them; a provider's box
+// takes all of its models, and the search narrows the list. A key with no model chosen is refused before it is sent.
 test("the owner creates a key and sees it once", async ({ page }) => {
   const calls = await fakeServer(page)
   await page.goto("/settings/gateway-keys")
@@ -124,12 +146,27 @@ test("the owner creates a key and sees it once", async ({ page }) => {
   await page.getByRole("button", { name: "Create key" }).click()
   const dialog = page.getByRole("dialog", { name: /gateway key|Copy the key/ })
   await dialog.getByLabel("Name").fill("opencode-phone")
-  await dialog.getByRole("checkbox", { name: "Every model" }).click()
+  await dialog.getByRole("radio", { name: /Only these models/ }).click()
   await dialog.getByRole("button", { name: "Create key" }).click()
   await expect(dialog).toContainText("Choose a model, or every model.")
 
-  await dialog.getByRole("checkbox", { name: "gpt-6.1-sol" }).click()
+  await expect(dialog.getByRole("group", { name: "Claude subscription" })).toContainText(
+    "Claude Opus 5.5",
+  )
+  await expect(dialog.getByRole("group", { name: "openrouter" })).toContainText("deepseek-v4")
+  await dialog.getByRole("checkbox", { name: "Every model of Claude subscription" }).click()
+  await dialog.getByRole("checkbox", { name: /GPT-5.5-Codex/ }).click()
+  await expect(dialog.getByTestId("chosen-count")).toContainText("3 selected")
+  await expect(dialog.getByRole("checkbox", { name: /GPT-5.5-Codex/ })).toBeChecked()
+  await dialog.getByLabel("Search models").focus()
+  // The boxes fade to their colour; the picture waits for it.
+  await page.waitForTimeout(300)
   await shot(page, "gateway-keys-create")
+
+  await dialog.getByLabel("Search models").fill("gemini")
+  await expect(dialog.getByRole("group", { name: "Antigravity" })).toBeVisible()
+  await expect(dialog.getByRole("group", { name: "Claude subscription" })).toHaveCount(0)
+  await dialog.getByLabel("Search models").fill("")
   await dialog.getByRole("button", { name: "Create key" }).click()
 
   await expect(dialog).toContainText("cannot be shown again")
@@ -137,9 +174,11 @@ test("the owner creates a key and sees it once", async ({ page }) => {
   await shot(page, "gateway-keys-created")
   await dialog.getByRole("button", { name: "Done" }).click()
 
-  await expect(page.getByRole("row", { name: "opencode-phone" })).toContainText("gpt-6.1-sol")
+  await expect(page.getByRole("row", { name: "opencode-phone" })).toContainText("Claude Opus 5.5")
   await expect(page.getByText(secret)).toHaveCount(0)
-  expect(calls).toContain("POST /gateway/keys opencode-phone gpt-6.1-sol")
+  expect(calls).toContain(
+    "POST /gateway/keys opencode-phone claude-opus-5-5,claude-sonnet-5-5,gpt-5.5-codex",
+  )
 })
 
 // Scenario: the owner revokes a key after being told a tool using it is refused from now on.
@@ -150,6 +189,7 @@ test("the owner revokes a key", async ({ page }) => {
   await page.getByRole("button", { name: "Revoke omp-desktop" }).click()
   const dialog = page.getByRole("alertdialog")
   await expect(dialog).toContainText("refused from now on")
+  await shot(page, "gateway-keys-revoke")
   await dialog.getByRole("button", { name: "Revoke key" }).click()
 
   await expect(page.getByRole("row", { name: "omp-desktop" })).toHaveCount(0)
