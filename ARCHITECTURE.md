@@ -1282,24 +1282,27 @@ Node (`internal/node`):
     option takes it, Enter sends. A question to pi is shown, and the owner can take it over (forward).
   - `/runs` lists the Runs, those that ask the owner first; `/runs/{id}` shows the objective, the open questions
     answered in place, the Tasks and the answered questions; Finish and Cancel.
-  - Several chats on one screen (issue #235, step 1; `web/src/features/workbench`, after Omnigent's grid of
-    sessions, Apache-2.0): up to four panes, two rows by two columns, each axis split once along a path. A chat
-    dragged from the sidebar onto an open chat, or onto a pane, takes the half of the edge it is dropped on (a
-    quarter on the left or the right, the middle above or below), shown as a dashed ghost; one that has no room
-    is not taken. The grid is at `/grid`, with a "Grid" row in the sidebar while there is one. A pane's chat tab
-    dragged onto another pane changes places with it; a pane can fill the screen for a while, or leave the grid,
-    and with one chat left there is no grid and that chat is shown alone. The grid is kept in the browser
-    (`localStorage`, `hypomnema.grid`) and followed across its windows. A phone, or a screen with a coarse
-    pointer, has no grid. Not built yet: a browser tab's size following its pane (step 3).
-  - A chat's pane has tabs (issue #235, step 2; `chat-tabs.tsx`, `use-pane-tabs.ts`): the chat first, named by
-    its title with its Bot's avatar, as Orca's terminal tab carries its agent's icon, then what was opened beside
-    it, and a "+" ("Open new") that offers what the control plane has, as Orca's tab bar
-    (`tab-bar-static-create-menu.tsx`) and Omnigent's workspace panel ("Open new") do. For now a tab is the chat
-    or a tab of the shared browser. The strip is the top of the pane, with no header above it, as in Orca: on a
-    phone it starts with the menu, and in the grid it ends with the pane's buttons and its chat tab is what is
-    dragged to change places. The chat stays mounted behind another tab. The open tabs and the one in front are
-    kept in the browser per chat (`localStorage`, `hypomnema.pane-tabs`), as Omnigent keeps a session's
-    workspace tabs.
+  - Several panes on one screen (issue #235; `web/src/features/workbench`, after Omnigent's grid of sessions,
+    Apache-2.0, and Orca's tab groups, MIT): up to four panes, two rows by two columns, each axis split once
+    along a path. A pane is a group of tabs, as in Orca (`pane.ts`, `moves.ts`): a chat, a tab of the shared
+    browser, or a new chat. A tab, or a chat from the sidebar, dropped on the outer tenth of a pane's side makes a
+    new pane there, and dropped in its middle joins that pane (Orca's `resolveDropZone`), shown as a dashed
+    ghost; a drop with no room is not taken, and a chat is on the grid once, so one from the sidebar leaves the
+    pane that had it. A pane left with no tab leaves the grid. The grid is at `/grid`, with a "Grid" row in the
+    sidebar while there is one; a pane can fill the screen for a while, or leave the grid, and a grid down to one
+    pane with a chat is that chat's page again, with the pane's tabs. A chat's own page (`/chats/:id`) is a pane
+    whose chat tab cannot be closed; a tab dropped on its side makes a grid. The grid and the panes are kept in
+    the browser (`localStorage`, `hypomnema.grid`, `hypomnema.panes`, as Omnigent keeps a session's workspace
+    tabs) and followed across its windows. A phone, or a screen with a coarse pointer, has no grid. Not built
+    yet: a browser tab's size following its pane (step 3).
+  - A pane's strip (`pane-view.tsx`) is its top, with no header above it, as Orca's tab bar is: a chat's tab is
+    named by its title with its Bot's avatar, as Orca's terminal tab carries its agent's icon; on a phone the
+    strip starts with the menu, and in the grid it ends with the pane's buttons. "+" ("Open new") offers a new
+    chat (a list of Bots when there are several), the owner's browser tab, and the browser tabs of the workers of
+    the pane's chats, as Orca's tab bar (`tab-bar-static-create-menu.tsx`, New Terminal, New Browser Tab) and
+    Omnigent's workspace panel ("Open new") do. A new chat is a composer in its tab until its first message
+    makes the chat, which then takes the tab's place, so no empty chat is made. A chat stays mounted behind
+    another tab.
   - The sidebar lists the places (New chat, Board with the count that needs the owner, Runs, Machines) above the
     chats.
     Every page follows `GET /events/stream` from the board's cursor and refreshes what an event may have changed.

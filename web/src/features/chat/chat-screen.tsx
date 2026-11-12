@@ -1,9 +1,6 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { useState } from "react"
 
-import "@/api/client"
-import { createChat, sendChatMessage } from "@/api/generated/sdk.gen"
 import {
   Select,
   SelectContent,
@@ -22,13 +19,10 @@ import {
   SettingsLink,
   SignOut,
 } from "@/features/shell/app-shell"
-import { chatsKey } from "@/features/shell/chats"
-import { ChatTabs } from "@/features/workbench/chat-tabs"
-import { GridDrop } from "@/features/workbench/grid-drop"
-import { splitGrid } from "@/features/workbench/grid-layout"
-import { setGrid, useGridOffered } from "@/features/workbench/use-grid"
+import { SoloPane } from "@/features/workbench/solo-pane"
 
 import { Composer } from "./composer"
+import { useStartChat } from "./start-chat"
 
 // The chat with pi, laid out as t3code's app (MIT, Copyright (c) 2026 T3 Tools Inc.,
 // https://github.com/pingdotgg/t3code): the app's sidebar (features/shell), and beside it a column with a quiet
@@ -47,27 +41,15 @@ export function ChatScreen({ chatId }: { chatId?: string }) {
 
 function NewChat() {
   const navigate = useNavigate()
-  const queryClient = useQueryClient()
   // The Bot the new chat talks with. With one Bot there is nothing to choose and the server takes the first.
   const bots = useBots().data ?? []
   const [picked, setPicked] = useState(firstBot)
   const choice = bots.length > 1
   const bot = bots.some((b) => b.name === picked) ? picked : firstBot
 
-  const start = useMutation({
-    mutationFn: async (text: string) => {
-      const { data: chat } = await createChat({
-        body: { title: text.split("\n")[0]?.slice(0, 80), ...(choice && { bot }) },
-      })
-      await sendChatMessage({ path: { chat_id: chat.id }, body: { text } })
-
-      return chat
-    },
-    onSuccess: async (chat) => {
-      await queryClient.invalidateQueries({ queryKey: chatsKey })
-      await navigate({ to: "/chats/$chatId", params: { chatId: chat.id } })
-    },
-  })
+  const start = useStartChat(choice ? bot : undefined, (chat) =>
+    navigate({ to: "/chats/$chatId", params: { chatId: chat.id } }),
+  )
 
   return (
     <main className="flex min-w-0 flex-1 flex-col">
@@ -112,26 +94,12 @@ function NewChat() {
   )
 }
 
+// OpenChat is a chat's own page: its pane, whose tabs are the top of the page with no header above them (issue
+// #235).
 function OpenChat({ chatId }: { chatId: string }) {
-  const navigate = useNavigate()
-  const offered = useGridOffered()
-
-  // The chat's tabs are the top of the page, with no header above them (issue #235): its title and its Bot's
-  // avatar are on its own tab.
   return (
     <main className="relative flex min-w-0 flex-1 flex-col">
-      <ChatTabs chatId={chatId} start={<MenuLink />} />
-      {/* Another chat dragged here from the sidebar makes a grid of the two (issue #235). */}
-      {offered && (
-        <GridDrop
-          chat={chatId}
-          splits={(dragged, edge) => splitGrid(chatId, chatId, dragged, edge) !== null}
-          onSplit={(dragged, edge) => {
-            setGrid(splitGrid(chatId, chatId, dragged, edge))
-            void navigate({ to: "/grid" })
-          }}
-        />
-      )}
+      <SoloPane chat={chatId} start={<MenuLink />} />
     </main>
   )
 }

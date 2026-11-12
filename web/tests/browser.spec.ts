@@ -189,7 +189,7 @@ test("the owner opens the browser beside a chat, takes control, and uses the pag
 
   // Only this chat's workers are offered.
   await page.getByRole("button", { name: "Open new" }).click()
-  await expect(page.getByRole("menuitem")).toHaveText(["My browser", "Example Domain"])
+  await expect(page.getByRole("menuitem")).toHaveText(["New chat", "My browser", "Example Domain"])
   await shot(page, "pane-open-new")
   await page.getByRole("menuitem", { name: "My browser" }).click()
 
@@ -298,14 +298,15 @@ test("a dropped view comes back by itself", async ({ page }) => {
   await painted(page)
 })
 
-// A control plane with no browser offers none: the chat is its pane's only tab.
+// A control plane with no browser offers none: "+" has only a new chat.
 test("a control plane with no browser offers no browser", async ({ page }) => {
   await fakeServer(page, { noBrowser: true })
   await page.goto("/chats/cht_1")
 
   await expect(page.getByText("add a health page")).toBeVisible()
-  await expect(page.getByRole("button", { name: "Open new" })).toHaveCount(0)
   await expect(page.getByRole("tab")).toHaveCount(1)
+  await page.getByRole("button", { name: "Open new" }).click()
+  await expect(page.getByRole("menuitem")).toHaveText(["New chat"])
 })
 
 // While the owner holds the browser the sidebar says so, on every page.

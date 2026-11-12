@@ -75,14 +75,14 @@ test.beforeEach(({ page }, info) => {
 })
 
 // Scenario: the owner follows several chats at once. A chat dragged from the sidebar onto the open chat's right
-// half makes a grid of the two; more are dropped on edges until there are four, and a fifth is not taken. The grid
+// side makes a grid of the two; more are dropped on edges until there are four, and a fifth is not taken. The grid
 // is still there after a reload.
 test("chats are dragged from the sidebar into a grid of up to four", async ({ page }) => {
   await fakeServer(page)
   await page.goto("/chats/cht_1")
   await expect(page.getByText("about the health page")).toBeVisible()
 
-  await drag(page, row(page, "login button"), page.getByRole("main"), 0.9, 0.5)
+  await drag(page, row(page, "login button"), page.getByRole("main"), 0.97, 0.5)
   await expect(page.getByTestId("grid-ghost")).toBeVisible()
   await shot(page, "grid-dragging")
   await page.mouse.up()
@@ -93,15 +93,15 @@ test("chats are dragged from the sidebar into a grid of up to four", async ({ pa
   await expect(pane(page, "login button").getByText("about the login button")).toBeVisible()
   await expect(page.getByRole("link", { name: /Grid 2 chats/ })).toBeVisible()
 
-  await drag(page, row(page, "slow setup"), pane(page, "login button"), 0.5, 0.9)
+  await drag(page, row(page, "slow setup"), pane(page, "login button"), 0.5, 0.97)
   await page.mouse.up()
-  await drag(page, row(page, "quick question"), pane(page, "health page"), 0.5, 0.9)
+  await drag(page, row(page, "quick question"), pane(page, "health page"), 0.5, 0.97)
   await page.mouse.up()
   await expect(panes(page)).toHaveCount(4)
   await shot(page, "grid-four")
 
   // A fifth has no room: nothing is offered and nothing changes.
-  await drag(page, row(page, "fifth"), pane(page, "health page"), 0.1, 0.5)
+  await drag(page, row(page, "fifth"), pane(page, "health page"), 0.03, 0.5)
   await expect(page.getByTestId("grid-ghost")).toHaveCount(0)
   await page.mouse.up()
   await expect(panes(page)).toHaveCount(4)
@@ -110,39 +110,61 @@ test("chats are dragged from the sidebar into a grid of up to four", async ({ pa
   await expect(panes(page)).toHaveCount(4)
 })
 
-// Scenario: the owner rearranges and tidies the grid. A pane's chat tab dragged onto another pane changes places with
-// it; a pane fills the screen and comes back; taking panes off leaves one chat, shown alone, and no grid.
-test("panes change places, fill the screen, and leave the grid", async ({ page }) => {
+// Scenario: the owner rearranges and tidies the grid, whose panes are groups of tabs as in Orca. A tab dragged
+// onto the middle of another pane joins it; a pane fills the screen and comes back; taking panes off leaves one
+// pane, which is its chat's page again, with its tabs.
+test("tabs move between panes, a pane fills the screen, and the grid ends in one pane", async ({
+  page,
+}) => {
   await fakeServer(page)
+  const panesKept = {
+    p1: { tabs: [{ kind: "chat", chat: "cht_1" }], active: "chat:cht_1" },
+    p2: {
+      tabs: [
+        { kind: "chat", chat: "cht_2" },
+        { kind: "chat", chat: "cht_3" },
+      ],
+      active: "chat:cht_2",
+    },
+  }
   await page.addInitScript({
-    content: `localStorage.setItem('hypomnema.grid', '{"axis":"columns","children":["cht_1","cht_2"]}')`,
+    content: `localStorage.setItem('hypomnema.grid', '{"axis":"columns","children":["p1","p2"]}')
+      localStorage.setItem('hypomnema.panes', ${JSON.stringify(JSON.stringify(panesKept))})`,
   })
   await page.goto("/grid")
   await expect(panes(page)).toHaveCount(2)
+  await expect(pane(page, "login button").getByRole("tab")).toHaveText([
+    "login button",
+    "slow setup",
+  ])
+  await expect(page.getByRole("link", { name: /Grid 3 chats/ })).toBeVisible()
 
-  const titles = () =>
-    panes(page).evaluateAll((all) => all.map((pane) => pane.getAttribute("aria-label")))
-  expect(await titles()).toEqual(["health page", "login button"])
-
+  // "slow setup" is carried by its tab into the middle of the other pane, and is in front there.
   await drag(
     page,
-    pane(page, "health page").getByRole("tab", { name: "health page" }),
-    pane(page, "login button"),
+    pane(page, "login button").getByRole("tab", { name: "slow setup" }),
+    pane(page, "health page"),
     0.5,
     0.6,
   )
+  await expect(page.getByTestId("grid-ghost")).toBeVisible()
+  await shot(page, "grid-tab-joining")
   await page.mouse.up()
-  await expect.poll(titles).toEqual(["login button", "health page"])
+  await expect(pane(page, "slow setup").getByRole("tab")).toHaveText(["health page", "slow setup"])
+  await expect(pane(page, "login button").getByRole("tab")).toHaveText(["login button"])
+  await expect(pane(page, "slow setup").getByText("about the slow setup")).toBeVisible()
 
-  await pane(page, "health page").getByRole("button", { name: "Full screen" }).click()
+  await pane(page, "slow setup").getByRole("button", { name: "Full screen" }).click()
   await expect(
-    pane(page, "health page").getByRole("button", { name: "Back to the grid" }),
+    pane(page, "slow setup").getByRole("button", { name: "Back to the grid" }),
   ).toBeVisible()
   await shot(page, "grid-full-screen")
-  await pane(page, "health page").getByRole("button", { name: "Back to the grid" }).click()
+  await pane(page, "slow setup").getByRole("button", { name: "Back to the grid" }).click()
 
+  // One pane left is its chat's page, the chat in front, with the pane's tabs.
   await pane(page, "login button").getByRole("button", { name: "Remove from the grid" }).click()
-  await expect(page).toHaveURL(/\/chats\/cht_1$/)
+  await expect(page).toHaveURL(/\/chats\/cht_3$/)
+  await expect(page.getByRole("tab")).toHaveText(["health page", "slow setup"])
   await expect(page.getByRole("link", { name: /Grid/ })).toHaveCount(0)
   expect(await page.evaluate<string | null>("localStorage.getItem('hypomnema.grid')")).toBeNull()
 })

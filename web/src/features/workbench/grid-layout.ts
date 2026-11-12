@@ -1,43 +1,45 @@
-// The grid of chats (issue #235): up to four chats on one screen, two rows by two columns.
+// The grid (issue #235): up to four panes on one screen, two rows by two columns. A pane is a group of tabs
+// (pane.ts); here it is only its id.
 //
 // Adapted from Omnigent (web/src/grid/gridLayout.ts, Apache License 2.0; web/THIRD_PARTY_NOTICES.md). Changed: a
-// leaf is a chat, there is one grid and it has no name, and a pointer's place in a pane gives the edge here
+// leaf is a pane's id, there is one grid and it has no name, and a pointer's place in a pane gives the edge here
 // (Omnigent's drop zones are elements of its GridDropTargets.tsx).
 
 export type SplitEdge = "left" | "right" | "top" | "bottom"
+export type DropZone = SplitEdge | "center"
 type Axis = "columns" | "rows"
 
-// A layout is one chat, or two layouts side by side or one above the other.
+// A layout is one pane, or two layouts side by side or one above the other.
 export type GridLayout = string | { axis: Axis; children: [GridLayout, GridLayout] }
 
 export const maxPanes = 4
 
-export function gridChats(layout: GridLayout): string[] {
-  return typeof layout === "string" ? [layout] : layout.children.flatMap(gridChats)
+export function gridPanes(layout: GridLayout): string[] {
+  return typeof layout === "string" ? [layout] : layout.children.flatMap(gridPanes)
 }
 
-// splitGrid puts a chat on an edge of the pane of another, or returns null when it cannot: the chat is on screen
-// already, there are four, or the pane was split that way before. Each axis is split once along a path, so the
+// splitGrid puts a pane on an edge of another, or returns null when it cannot: the pane is on screen already,
+// there are four, or the pane was split that way before. Each axis is split once along a path, so the
 // grid is at most two rows and two columns.
 export function splitGrid(
   layout: GridLayout,
   target: string,
-  chat: string,
+  pane: string,
   edge: SplitEdge,
   used: Axis[] = [],
 ): GridLayout | null {
-  const chats = gridChats(layout)
-  if (!chats.includes(target) || chats.includes(chat) || chats.length >= maxPanes) return null
+  const panes = gridPanes(layout)
+  if (!panes.includes(target) || panes.includes(pane) || panes.length >= maxPanes) return null
 
   const axis = edge === "left" || edge === "right" ? "columns" : "rows"
   if (typeof layout === "string") {
     if (used.includes(axis)) return null
 
-    return { axis, children: edge === "left" || edge === "top" ? [chat, layout] : [layout, chat] }
+    return { axis, children: edge === "left" || edge === "top" ? [pane, layout] : [layout, pane] }
   }
 
-  const index = gridChats(layout.children[0]).includes(target) ? 0 : 1
-  const next = splitGrid(layout.children[index], target, chat, edge, [...used, layout.axis])
+  const index = gridPanes(layout.children[0]).includes(target) ? 0 : 1
+  const next = splitGrid(layout.children[index], target, pane, edge, [...used, layout.axis])
   if (next === null) return null
 
   return {
@@ -46,37 +48,20 @@ export function splitGrid(
   }
 }
 
-// removeChat takes a chat off the grid; its neighbour takes the room. null when it was the only one.
-export function removeChat(layout: GridLayout, chat: string): GridLayout | null {
-  if (typeof layout === "string") return layout === chat ? null : layout
+// removePane takes a pane off the grid; its neighbour takes the room. null when it was the only one.
+export function removePane(layout: GridLayout, pane: string): GridLayout | null {
+  if (typeof layout === "string") return layout === pane ? null : layout
 
-  const first = removeChat(layout.children[0], chat)
-  const second = removeChat(layout.children[1], chat)
+  const first = removePane(layout.children[0], pane)
+  const second = removePane(layout.children[1], pane)
   if (first === null) return second
   if (second === null) return first
 
   return { ...layout, children: [first, second] }
 }
 
-// swapChats makes two chats change places.
-export function swapChats(layout: GridLayout, a: string, b: string): GridLayout {
-  const chats = gridChats(layout)
-  if (a === b || !chats.includes(a) || !chats.includes(b)) return layout
-
-  const swap = (node: GridLayout): GridLayout =>
-    typeof node === "string"
-      ? node === a
-        ? b
-        : node === b
-          ? a
-          : node
-      : { ...node, children: [swap(node.children[0]), swap(node.children[1])] }
-
-  return swap(layout)
-}
-
-// parseGrid reads a grid kept in the browser, or null when it is not one: fewer than two chats, a chat twice, or
-// a shape the grid cannot have.
+// parseGrid reads a grid kept in the browser, or null when it is not one: no pane, a pane twice, or a shape the
+// grid cannot have.
 export function parseGrid(raw: string | null): GridLayout | null {
   const valid = (value: unknown, axes: Axis[] = []): value is GridLayout => {
     if (typeof value === "string") return value.length > 0
@@ -97,8 +82,8 @@ export function parseGrid(raw: string | null): GridLayout | null {
     const value: unknown = JSON.parse(raw ?? "null")
     if (!valid(value)) return null
 
-    const chats = gridChats(value)
-    if (chats.length < 2 || new Set(chats).size !== chats.length) return null
+    const panes = gridPanes(value)
+    if (new Set(panes).size !== panes.length) return null
 
     return value
   } catch {
@@ -106,16 +91,23 @@ export function parseGrid(raw: string | null): GridLayout | null {
   }
 }
 
-// edgeOf is the edge of a pane a pointer is over: a quarter on each side, the middle half above and below
-// (Omnigent's GridDropTargets.tsx, with four edges).
-export function edgeOf(
+// dropZone is where a pointer is over a pane: the outer tenth of each side splits it on that side, the middle
+// takes the tab into the pane. As Orca's resolveDropZone (src/renderer/src/components/tab-group/tab-drop-zone.ts,
+// MIT): the sides are split by thirds, so a corner goes to the left or the right.
+export function dropZone(
   rect: { left: number; top: number; width: number; height: number },
   x: number,
   y: number,
-): SplitEdge {
-  const across = (x - rect.left) / rect.width
-  if (across < 0.25) return "left"
-  if (across > 0.75) return "right"
+): DropZone {
+  const across = x - rect.left
+  const down = y - rect.top
+  const sideX = rect.width * 0.1
+  const sideY = rect.height * 0.1
+  if (across > sideX && across < rect.width - sideX && down > sideY && down < rect.height - sideY) {
+    return "center"
+  }
+  if (across < rect.width / 3) return "left"
+  if (across > (rect.width * 2) / 3) return "right"
 
-  return (y - rect.top) / rect.height < 0.5 ? "top" : "bottom"
+  return down < rect.height / 2 ? "top" : "bottom"
 }
