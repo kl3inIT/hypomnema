@@ -1,5 +1,7 @@
 import { expect, test, type Page } from "@playwright/test"
 
+import { choose } from "./choose.js"
+
 // The Channels page, built, against a fake client API, on a phone and a desktop.
 
 type Person = { open_id: string; email: string; name: string; created_at: string }
@@ -195,7 +197,7 @@ test("the owner sets the first Lark channel up, switches it on and lets a person
   await page.getByTestId("channel-empty").getByRole("button", { name: "Set up" }).click()
   const dialog = page.getByRole("dialog")
   await expect(dialog.getByLabel("Name")).toHaveValue("main")
-  await expect(dialog.getByLabel("Bot")).toHaveValue("coordinator")
+  await expect(dialog.getByLabel("Bot")).toContainText("coordinator")
   await dialog.getByLabel("App ID").fill("cli_a1b2c3")
   await dialog.getByLabel("App Secret").fill("never-shown")
   await expect(dialog.getByLabel("App Secret")).toHaveAttribute("type", "password")
@@ -212,14 +214,18 @@ test("the owner sets the first Lark channel up, switches it on and lets a person
   await expect(card).toContainText("main")
   await expect(card).toContainText("Off")
   await expect(card).toContainText("cli_a1b2c3")
-  await expect(card.getByLabel("Bot")).toHaveValue("coordinator")
-  await expect(card.getByLabel("Who may talk to it")).toHaveValue("owner")
+  await expect(card.getByLabel("Bot")).toContainText("coordinator")
+  await expect(card.getByLabel("Who may talk to it")).toContainText("Only you")
   await expect(page.getByText("never-shown")).toHaveCount(0)
 
   await card.getByRole("switch", { name: "On" }).click()
   await expect(card).toContainText("Connected")
 
-  await card.getByLabel("Who may talk to it").selectOption("allowlist")
+  // The list opens in the app's own popup, not the system's.
+  await card.getByLabel("Who may talk to it").click()
+  await expect(page.getByRole("option", { name: "Only you" })).toBeVisible()
+  await shot(page, "channels-select-open")
+  await page.getByRole("option", { name: "You and the people you add" }).click()
   await card.getByRole("button", { name: "Add person" }).click()
   await page.getByRole("dialog").getByLabel("Email at Lark").fill("linh@example.com")
   await page.getByRole("dialog").getByRole("button", { name: "Add" }).click()
@@ -277,7 +283,7 @@ test("the owner adds a second channel for another Bot", async ({ page }) => {
   await dialog.getByLabel("App ID").fill("cli_a1b2c3")
   await dialog.getByLabel("App Secret").fill("never-shown")
   await dialog.getByLabel("Your email at Lark").fill("owner@example.com")
-  await dialog.getByLabel("Bot").selectOption("vmap")
+  await choose(page, dialog.getByLabel("Bot"), "vmap")
   await dialog.getByRole("button", { name: "Save" }).click()
   await expect(dialog).toContainText("A channel has this name already.")
   expect(calls).toEqual([])
@@ -299,14 +305,14 @@ test("the owner adds a second channel for another Bot", async ({ page }) => {
 
   const mainCard = page.getByLabel("Channel main", { exact: true })
   const mapsCard = page.getByLabel("Channel maps", { exact: true })
-  await expect(mainCard.getByLabel("Bot")).toHaveValue("coordinator")
-  await expect(mapsCard.getByLabel("Bot")).toHaveValue("vmap")
+  await expect(mainCard.getByLabel("Bot")).toContainText("coordinator")
+  await expect(mapsCard.getByLabel("Bot")).toContainText("vmap")
   await expect(mapsCard).toContainText("A message to this Lark app is a message to vmap")
   await expect(mapsCard).toContainText("Off")
   expect(await fits(page)).toBe(true)
   await shot(page, "channels-list")
 
-  await mainCard.getByLabel("Bot").selectOption("vmap")
+  await choose(page, mainCard.getByLabel("Bot"), "vmap")
   await expect(mainCard).toContainText("A message to this Lark app is a message to vmap")
 
   await page.goto("/bots/vmap")

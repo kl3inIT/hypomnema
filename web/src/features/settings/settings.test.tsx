@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { choose } from "@/test/choose"
 import {
   createMemoryHistory,
   createRootRoute,
@@ -431,8 +432,8 @@ test("the owner signs a Google account in and disconnects it", async () => {
 
   await user.clear(dialog.getByLabelText("Name"))
   await user.type(dialog.getByLabelText("Name"), "work")
-  await user.selectOptions(dialog.getByLabelText("Gmail"), "Read only")
-  await user.selectOptions(dialog.getByLabelText("Drive"), "Not connected")
+  await choose(user, dialog.getByLabelText("Gmail"), "Read only")
+  await choose(user, dialog.getByLabelText("Drive"), "Not connected")
   await user.click(dialog.getByRole("button", { name: "Continue" }))
 
   expect(await dialog.findByRole("link", { name: /Open Google's sign-in page/ })).toHaveAttribute(
@@ -615,8 +616,8 @@ test("a service says what it still needs", async () => {
   await user.click(account.getByRole("button", { name: "Sign in again" }))
   const dialog = within(await screen.findByRole("dialog"))
   expect(dialog.queryByLabelText("Name")).not.toBeInTheDocument()
-  expect(dialog.getByLabelText("Gmail")).toHaveValue("read")
-  expect(dialog.getByLabelText("Calendar")).toHaveValue("none")
+  expect(dialog.getByLabelText("Gmail")).toHaveTextContent("Read only")
+  expect(dialog.getByLabelText("Calendar")).toHaveTextContent("Not connected")
 })
 
 // Scenario: the owner connects his company's Superset. It needs no client: the card offers to add an account at

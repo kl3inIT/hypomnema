@@ -4,7 +4,13 @@ import { useState } from "react"
 
 import "@/api/client"
 import { abortChat, createChat, getChat, sendChatMessage } from "@/api/generated/sdk.gen"
-import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { AgentAvatar } from "@/features/agents/agent-avatar"
 import { firstBot } from "@/features/bots/bots-state"
 import { useBots } from "@/features/bots/use-bots"
@@ -72,21 +78,21 @@ function NewChat() {
             What should be built?
           </h1>
           {choice && (
-            <label className="flex items-center gap-2 text-sm text-muted-foreground">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
               Chat with
-              <NativeSelect
-                size="sm"
-                aria-label="Bot"
-                value={bot}
-                onChange={(event) => setPicked(event.target.value)}
-              >
-                {bots.map((b) => (
-                  <NativeSelectOption key={b.name} value={b.name}>
-                    {b.name}
-                  </NativeSelectOption>
-                ))}
-              </NativeSelect>
-            </label>
+              <Select value={bot} onValueChange={(value) => value && setPicked(value)}>
+                <SelectTrigger aria-label="Bot" size="sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {bots.map((b) => (
+                    <SelectItem key={b.name} value={b.name}>
+                      {b.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           )}
           <Composer onSend={(text) => start.mutateAsync(text)} onStop={() => {}} working={false} />
           <p className="max-w-(--chat-content-max-width) text-center text-sm text-muted-foreground">

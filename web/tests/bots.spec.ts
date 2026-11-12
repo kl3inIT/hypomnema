@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test"
 
+import { choose } from "./choose.js"
 import { shot } from "./shot.js"
 
 // The Bots pages and the Bot of a chat, built, against a fake client API, on a phone and a desktop.
@@ -325,10 +326,10 @@ test("a new chat is started with the Bot the owner picks", async ({ page }) => {
   const calls = await fakeServer(page, [coordinator, bot("researcher")])
   await page.goto("/")
 
-  await expect(page.getByLabel("Bot", { exact: true })).toHaveValue("coordinator")
+  await expect(page.getByLabel("Bot", { exact: true })).toContainText("coordinator")
   expect(await fits(page)).toBe(true)
   await shot(page, "chat-pick-bot")
-  await page.getByLabel("Bot", { exact: true }).selectOption("researcher")
+  await choose(page, page.getByLabel("Bot", { exact: true }), "researcher")
   await page.getByRole("textbox", { name: "Message" }).fill("what changed in pi this week?")
   await page.keyboard.press("Enter")
 
