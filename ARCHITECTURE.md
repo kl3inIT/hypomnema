@@ -160,7 +160,8 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   - It is one headless Chrome on the control plane's machine with one persistent profile, so a sign-in is made
     once and every agent has it, driven through agent-browser (Vercel Labs), as OpenMausBot's is. Each agent is an
     agent-browser session attached to that Chrome and pinned to a tab of its own
-    (`--cdp`, `--pin-tab`); a worker's session is named after its Dispatch.
+    (`--cdp`, `--pin-tab`); a worker's session is named after its Dispatch, and a chat's pi's after its chat
+    (issue #260), so the pi that follows goes on in the same tab.
   - Both programs are pinned by version, size and SHA-256 (`release.go`) and fetched at the first use into
     `HYPOMNEMA_BROWSER_DIR` (default: `browser` beside the database), which also holds the profile and
     agent-browser's sockets: `tools/<name>/<version>/`, `profile/`, `home/`, `run/`. A file that does not match
@@ -303,7 +304,7 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     launcher runs pi in an unprivileged bubblewrap box, its own PID, IPC and UTS namespaces, ended with the
     launcher. Read-only: `/usr` (with merged `/bin`, `/lib`, `/lib64`, `/sbin`), `/etc`, the resolver Ubuntu's
     `/etc/resolv.conf` links to (`/run/systemd/resolve`), the CPU list, `/opt/hypomnema-node`, pi, the
-    integrations' tools and guides, the skills every Bot gets (`~/.agents/skills`), and this pi's prompt and
+    integrations' tools and guides, the skills every Bot gets (`~/.agents/skills`), and this pi's prompt, skills and
     `models.json` (`run/<chat>/`, made by the launcher outside the box). Private: `/tmp`, `/var/tmp`, `/proc`,
     `/dev`, and an empty home in which `~/.hypomnema/client.json` holds the control plane's address and pi's token
     (bubblewrap's `--file`), so the coordinator token's `client.json` is not there. pi's agent directory is private
@@ -365,7 +366,9 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   - A Bot has the same two lists (`bots set --skills a,b --skills-off c`, migration 00052); a change that names
     neither keeps them, so a client that does not know them does not take them away. A skill a Bot names is not
     removed. When pi starts for a chat, `hypomnema-pi` runs `hypomnema skills sync --bot <bot> --dir
-    <bot's folder>/.hypomnema/skills` with pi's token: it asks `GET /bots/{name}/skills` for the skills the Bot gets
+    run/<chat>/skills` with the coordinator token, as the `coordinator` user, outside the box: a folder pi cannot
+    write, so no link pi leaves sends the writes elsewhere, and the sync refuses a folder, a folder holding it, or
+    a skill's folder that is a link (issue #260). It asks `GET /bots/{name}/skills` for the skills the Bot gets
     now, each at its newest revision, fetches a revision the folder does not hold from
     `GET /skills/{skill}/revisions/{revision}/archive`, checks its digest, unpacks it beside the folder's other
     skills with a `.hypomnema-digest` file (Omnara's `.digest`) and takes away a skill the Bot no longer gets. pi is

@@ -205,7 +205,7 @@ func TestPiRunsInItsBoxWithItsOwnToken(t *testing.T) {
 	assert.JSONEq(t, `{"type":"get_state"}`, seen["stdin"], "pi reads its commands; the token line is the launcher's")
 	assert.Equal(t, "--mode rpc --session-dir "+sessions+" --session-id cht_mine --model gpt-sol "+
 		"--append-system-prompt "+filepath.Join(w.home, "run", "cht_mine", "prompt.md")+
-		" --skill "+filepath.Join(work, ".hypomnema", "skills"), seen["args"])
+		" --skill "+filepath.Join(w.home, "run", "cht_mine", "skills"), seen["args"])
 	assert.Equal(t, "persona of coordinator", seen["prompt"])
 	assert.Equal(t, work, seen["cwd"], "the first Bot works where pi always worked, the path its sessions record")
 

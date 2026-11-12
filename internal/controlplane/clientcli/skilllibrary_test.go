@@ -132,6 +132,57 @@ func TestABotsSkillsAreSyncedForPi(t *testing.T) {
 	assert.NoDirExists(t, filepath.Join(dir, "review-go"))
 }
 
+// Scenario: a link stands where the skills' folder is, or where the folder
+// that holds it is, as a Bot could plant one in a folder it writes (issue
+// #260). The sync is refused and nothing is written through the link; a
+// skill's folder that is a link is refused too.
+func TestASyncWritesNothingThroughALink(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	w.login(t, bearertoken.Owner)
+
+	archive, err := skillpack.Skill{Files: []skillpack.File{
+		{Path: "SKILL.md", Data: []byte("---\nname: review-go\ndescription: Review a Go change.\n---\n")},
+	}}.Archive()
+	require.NoError(t, err)
+
+	file := filepath.Join(t.TempDir(), "review-go.tar.gz")
+	require.NoError(t, os.WriteFile(file, archive, 0o600))
+
+	_, err = w.cmd(t, "skills", "add", "--file", file)
+	require.NoError(t, err)
+	_, err = w.cmd(t, "bots", "set", "vmap", "--skills", "review-go")
+	require.NoError(t, err)
+
+	elsewhere := t.TempDir()
+	root := t.TempDir()
+
+	if err := os.Symlink(elsewhere, filepath.Join(root, "linked")); err != nil {
+		t.Skipf("this machine makes no links: %v", err)
+	}
+
+	for _, dir := range []string{filepath.Join(root, "linked"), filepath.Join(root, "linked", "skills")} {
+		_, err = w.cmd(t, "skills", "sync", "--bot", "vmap", "--dir", dir)
+		require.ErrorContains(t, err, "is not a folder of its own", dir)
+	}
+
+	written, err := os.ReadDir(elsewhere)
+	require.NoError(t, err)
+	assert.Empty(t, written, "nothing is written where the link points")
+
+	skills := filepath.Join(root, "skills")
+	require.NoError(t, os.Mkdir(skills, 0o700))
+	require.NoError(t, os.Symlink(elsewhere, filepath.Join(skills, "review-go")))
+
+	_, err = w.cmd(t, "skills", "sync", "--bot", "vmap", "--dir", skills)
+	require.ErrorContains(t, err, "is not a folder of its own")
+
+	written, err = os.ReadDir(elsewhere)
+	require.NoError(t, err)
+	assert.Empty(t, written)
+}
+
 // Scenario: the skills this binary ships are listed with the description
 // their stub gives, for the web's Skills page.
 func TestTheBuiltinSkillsAreListed(t *testing.T) {

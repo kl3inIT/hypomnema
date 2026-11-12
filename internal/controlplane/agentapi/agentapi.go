@@ -164,10 +164,12 @@ func (s *Server) authenticate(r *http.Request) (agent, error) {
 			may: func(c orchestration.Connection) bool { return c.Chats },
 		}, nil
 	case bearertoken.Bot:
-		// A pi's own token (issue #260): what the coordinator gets, and the chat it is bound to.
+		// A pi's own token (issue #260): what the coordinator gets, and the chat it is bound to. Its ID is its
+		// coordinator token's, which every chat's pi shares, so its tab is its chat's: a chat has one Bot and
+		// one pi at a time, and the pi that follows goes on in the same tab.
 		return agent{
 			name: fmt.Sprintf("bot %s in chat %s", token.Bot, token.Chat), coordinator: true, chatID: token.Chat,
-			key: "c-" + token.ID, may: func(c orchestration.Connection) bool { return c.Chats },
+			key: "b-" + token.Chat, may: func(c orchestration.Connection) bool { return c.Chats },
 		}, nil
 	default:
 		return agent{}, errNoCredential

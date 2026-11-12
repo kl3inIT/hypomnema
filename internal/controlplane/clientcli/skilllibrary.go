@@ -3,6 +3,7 @@ package clientcli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"net/http"
@@ -208,8 +209,18 @@ func skillsSync(ctx context.Context, e *env, fs *flag.FlagSet) error {
 
 	given := resp.JSON200.Data
 
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	// The folder and the one that holds it are real folders, not links, read before anything is made: a link
+	// would send what is written here somewhere else (issue #260).
+	if err := realFolder(filepath.Dir(dir)); err != nil {
+		return err
+	}
+
+	if err := os.Mkdir(dir, 0o700); err != nil && !errors.Is(err, os.ErrExist) {
 		return fmt.Errorf("making %s: %w", dir, err)
+	}
+
+	if err := realFolder(dir); err != nil {
+		return err
 	}
 
 	entries, err := os.ReadDir(dir)
@@ -238,12 +249,33 @@ func skillsSync(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	return nil
 }
 
+// realFolder refuses a path that is a link or not a folder, read without
+// following a link.
+func realFolder(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return fmt.Errorf("reading %s: %w", path, err)
+	}
+
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return fmt.Errorf("%s is not a folder of its own (a link or a file); skills are not written there", path)
+	}
+
+	return nil
+}
+
 func syncSkill(ctx context.Context, e *env, dir string, s openapi.SkillRef) error {
 	if strings.HasPrefix(s.Name, ".") || strings.ContainsAny(s.Name, `/\`) {
 		return fmt.Errorf("skill %q: not a folder name", s.Name)
 	}
 
 	target := filepath.Join(dir, s.Name)
+
+	if _, err := os.Lstat(target); err == nil {
+		if err := realFolder(target); err != nil {
+			return err
+		}
+	}
 
 	had, err := os.ReadFile(filepath.Join(target, digestFile)) //nolint:gosec // the folder the caller names
 	if err == nil && string(had) == s.Digest {

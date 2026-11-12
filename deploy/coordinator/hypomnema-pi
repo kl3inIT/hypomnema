@@ -110,7 +110,8 @@ fi
 mkdir -p "$dir"
 dir=$(cd "$dir" && pwd -P)
 
-# What is made for this chat's pi, outside the box, and given to it read-only: its prompt and its models.json.
+# What is made for this chat's pi, outside the box, and given to it read-only: its prompt, its skills and its
+# models.json.
 run="$home/run/$chat"
 mkdir -p "$run"
 # Before issue #260 the prompt was kept beside the Bots' directories.
@@ -126,11 +127,12 @@ if ! HOME="$user_home" "$hypomnema" bots prompt "$bot" > "$prompt" < /dev/null; 
 fi
 set -- "$@" --append-system-prompt "$prompt"
 
-# The skills the Bot gets (issue #21), each at its newest revision, put in a folder of the Bot's own and given to pi
-# with --skill, which pi loads without asking for the project's trust as it would for .pi/skills. A skill the Bot no
-# longer gets is taken out of the folder. Without them pi would lack what the owner gave the Bot, so pi does not
-# start.
-skills="$dir/.hypomnema/skills"
+# The skills the Bot gets (issue #21), each at its newest revision, put in this chat's folder and given to pi with
+# --skill, which pi loads without asking for the project's trust as it would for .pi/skills. A skill the Bot no
+# longer gets is taken out of the folder. The folder is outside the Bot's directory, which pi writes: a link pi
+# left there would send what this launcher writes, outside the box, somewhere else (issue #260); in the box it is
+# read-only. Without them pi would lack what the owner gave the Bot, so pi does not start.
+skills="$run/skills"
 if ! HOME="$user_home" "$hypomnema" skills sync --bot "$bot" --dir "$skills" > /dev/null < /dev/null; then
   fail "putting bot $bot's skills in place failed"
 fi

@@ -95,7 +95,7 @@ func TestTheOwnerSeesTheBrowserAndItsTabs(t *testing.T) {
 	b := newSharedBrowser(
 		shared.Tab{ID: shared.OwnerTab, URL: "https://accounts.example.com/", Title: "Sign in", Views: 1},
 		shared.Tab{ID: "d-dsp_1", URL: "https://example.com/", Title: "Example Domain"},
-		shared.Tab{ID: "c-tok_1"}, shared.Tab{ID: "o-tok_2"},
+		shared.Tab{ID: "c-tok_1"}, shared.Tab{ID: "o-tok_2"}, shared.Tab{ID: "b-cht_1"},
 	)
 	b.held = true
 	w.srv.WithBrowser(b)
@@ -106,16 +106,16 @@ func TestTheOwnerSeesTheBrowserAndItsTabs(t *testing.T) {
 	assert.True(t, resp.JSON200.Installed)
 	assert.True(t, resp.JSON200.Running)
 	assert.True(t, resp.JSON200.Held)
-	require.Len(t, resp.JSON200.Tabs, 4)
+	require.Len(t, resp.JSON200.Tabs, 5)
 
-	kinds := make([]openapi.BrowserTabKind, 0, 4)
+	kinds := make([]openapi.BrowserTabKind, 0, 5)
 	for _, tab := range resp.JSON200.Tabs {
 		kinds = append(kinds, tab.Kind)
 	}
 
 	assert.Equal(t, []openapi.BrowserTabKind{
 		openapi.BrowserTabKindOwner, openapi.BrowserTabKindWorker, openapi.BrowserTabKindCoordinator,
-		openapi.BrowserTabKindToken,
+		openapi.BrowserTabKindToken, openapi.BrowserTabKindCoordinator,
 	}, kinds)
 
 	mine, workers := resp.JSON200.Tabs[0], resp.JSON200.Tabs[1]
