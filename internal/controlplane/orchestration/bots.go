@@ -104,7 +104,8 @@ func (s *Service) ListBots(ctx context.Context) ([]Bot, error) {
 }
 
 // DeleteBot removes a Bot nothing depends on: not the first one, and not one
-// with chats or a memory, which would be left without their Bot.
+// with chats or a memory, which would be left without their Bot, nor one a
+// Lark Channel talks to.
 func (s *Service) DeleteBot(ctx context.Context, name string) error {
 	if name == DefaultBot {
 		return fmt.Errorf("%w: the bot %s is always there", ErrConflict, DefaultBot)
@@ -121,7 +122,15 @@ func (s *Service) DeleteBot(ctx context.Context, name string) error {
 			return err
 		}
 
+		channels, err := q.CountLarkChannelsOfBot(ctx, name)
+		if err != nil {
+			return err
+		}
+
 		switch {
+		case channels > 0:
+			return fmt.Errorf("%w: %d Lark channels talk to bot %s; give them another bot or remove them first",
+				ErrConflict, channels, name)
 		case chats > 0:
 			return fmt.Errorf("%w: bot %s has %d chats", ErrConflict, name, chats)
 		case row.Memory != "":

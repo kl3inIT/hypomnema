@@ -164,7 +164,8 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   Bot is a row with a name, a model (provider, name, effort, checked as a profile's is, for pi), a persona and a
   memory. It is apart from the workers' profiles (owner, 2026-11-11). The Bot `coordinator` is always there: it is
   what the profile `coordinator` was, and a chat that names no Bot talks with it. A chat records its Bot. A Bot with
-  chats or a memory is not removed, and `coordinator` never is; a Bot is not renamed. A provider change that would
+  chats or a memory, or one a Lark Channel talks to, is not removed, and `coordinator` never is; a Bot is not
+  renamed. A provider change that would
   leave a Bot's model unserved is refused, as for a profile.
   - The persona is the owner's text of what the Bot is, without versions, as `SOUL.md` of OpenClaw and Hermes. How
     to give work to workers is the persona of `coordinator`; the instructions every Bot gets
@@ -189,8 +190,9 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   - Every token reads Bots and changes a memory an entry at a time; only the owner makes, changes and removes a
     Bot (`hypomnema bots list|show|set|rm`) and replaces a whole memory. Bots run as one server user with one token: a Bot's directory and memory are its own by
     convention, not by a wall.
-  - Not built: a Lark Channel per Bot, the accounts and tools a Bot may use, MCP servers and pi extensions per
-    Bot, isolation between Bots, a Bot on another CLI than pi (issue #169).
+  - A Bot's page lists the Lark Channels that talk to it, each a link to `/settings/channels`.
+  - Not built: the accounts and tools a Bot may use, MCP servers and pi extensions per Bot, isolation between
+    Bots, a Bot on another CLI than pi (issue #169).
 - Profiles (`orchestration/profiles.go`, issue #42, after Omnara's agent configs): a profile is a YAML document
   (`name`, `description` of what it is for, `runtime`, optional `model: {provider, name, effort}`, `instruction`). Applying a changed source makes a
   new immutable version and points the name at it; the same source returns the current version. Providers (kind
@@ -396,49 +398,71 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     - `integrations disconnect lark:work` forgets the Connection and keeps the app's id and secret.
     - Only Lark international (`open.larksuite.com`) is declared; Feishu is not. A person's own sign-in (their
       mail, calendar and drive) is not built: a Connection acts as the app.
-  - The Lark bot (`internal/controlplane/larkbot`, [issue #136](https://github.com/kl3inIT/hypomnema/issues/136))
-    is a Channel: a person's direct message to the bot at Lark becomes a message of a chat with the coordinator,
-    and what the coordinator says there goes back to Lark.
+  - Lark Channels (`internal/controlplane/larkbot`, issues
+    [#136](https://github.com/kl3inIT/hypomnema/issues/136) and
+    [#169](https://github.com/kl3inIT/hypomnema/issues/169)): a Channel is a door to one Bot, a Lark app and who
+    may talk through it. A person's direct message to the app at Lark becomes a message of a chat with the
+    Channel's Bot, and what the Bot says there goes back to Lark. There may be several Channels, and several may
+    talk to one Bot (OpenClaw's `bindings[]`: one channel account routed to one agent). What Lark calls a bot is
+    a Channel's app.
+    - A Channel is a row of `lark_channels`: its name (as a Bot's, at most 50 characters), its app's id, the
+      name of the vault secret with the app's secret, the Bot it talks to, its mode, the owner's `open_id` and
+      whether it is on. One app is one Channel: an app that another Channel has is refused (Hermes refuses two
+      profiles on one app). The one Lark bot there was before migration 00047 is the Channel `main`, which talks
+      to `coordinator`.
     - It talks to Lark through Lark's Go SDK (`github.com/larksuite/oapi-sdk-go/v3`): events come over a
-      persistent connection the control plane opens, so nothing public is opened for it. Only Lark international
-      is served.
-    - `channels lark set --app-file FILE --owner EMAIL` (`PUT /channels/lark`) sets it up: the app's id, its
-      secret (the vault secret `lark-bot-app`, apart from the Lark Integration's), and the owner, whose email is
-      looked up at Lark with the app and kept as his `open_id`. A new bot is off and in mode `owner`.
-      `--mode owner|allowlist|everyone` and `--on`/`--off` change it; `channels lark allow|disallow <email>`
-      keep the allowlist; `channels lark show` says whether it is connected and why not. All are the owner's.
-    - A bot that is set up and on connects at start, or within half a minute of being set up. The SDK cannot
-      close a persistent connection: switching the bot off makes it take no message, and another app is used
-      from the control plane's next start.
-    - A message is taken when a person sent it in their direct chat with the bot, once (a row per Lark message
-      id, kept a day). The sender's organization must be the app's. The owner always may; others by the mode: the
-      people he added, or every member of the organization. A refusal, a message that is not text and a
-      coordinator that is not running are answered with a short notice. A group is not served.
-    - Each person's direct chat is one chat with the coordinator (`lark_bot_chats`). The owner's text is added
-      as it is; another person's is added under a line that names them and says approvals are the owner's. It
-      is an owner message in the record, so pi answers it as any other.
+      persistent connection the control plane opens, one per Channel, so nothing public is opened for it. Only
+      Lark international is served.
+    - `channels lark set <channel> --app-file FILE --owner EMAIL [--bot BOT]`
+      (`PUT /channels/lark/{channel}`) sets one up: the app's id, its secret (the vault secret
+      `lark-channel-<channel>`, apart from the Lark Integration's; `main` keeps `lark-bot-app`, which it had as
+      the one bot), the owner, whose email is looked up at Lark with the app and kept as his `open_id`, and the
+      Bot, which must exist and is `coordinator` unless named. A new Channel is off and in mode `owner`.
+      `--bot`, `--mode owner|allowlist|everyone` and `--on`/`--off` change it;
+      `channels lark allow|disallow <channel> <email>` keep its allowlist; `channels lark list` and
+      `channels lark show <channel>` say whether each is connected and why not; `channels lark rm <channel>`
+      forgets it with its people, its Lark chats' rows and its secret, and the chats stay. All are the owner's.
+    - A Channel that is set up and on connects at start, or at once when it is set up or switched on; one that
+      could not connect is tried again every half minute. The SDK cannot close a persistent connection:
+      switching a Channel off or removing it makes it take no message, and another app is used from the control
+      plane's next start.
+    - A message is taken when a person sent it in their direct chat with the Channel's app, once (a row per
+      Lark message id, kept a day). The sender's organization must be the app's. The owner always may; others
+      by the mode: the people he added, or every member of the organization. People are kept per Channel
+      (`lark_channel_people`): Lark gives a person another `open_id` in each app. A refusal, a message that is
+      not text and a pi that is not running are answered with a short notice. A group is not served.
+    - Each person's direct chat is one chat with the Channel's Bot (`lark_channel_chats`), and `/new` opens
+      another with it. A chat that is open keeps its Bot when the Channel is given another. The owner's text is
+      added as it is; another person's is added under a line that names them and says approvals are the
+      owner's. It is an owner message in the record, so pi answers it as any other.
     - The reply is a CardKit card: opened with the first text pi writes, updated at most twice a second from the
-      supervisor's live frames, and closed with the kept message. A kept coordinator message with nothing
-      written live (a wake-up's answer) is a card of its own. The last message sent is recorded per chat, so a
-      restart sends nothing twice.
-    - A question for the owner is a card in his direct chat with the bot (`lark_bot_questions`): a button for
-      each option, or "Reply to this card to answer" for a question without options. Only a press by the
-      owner's `open_id` answers; another person is told so. His reply to the card is the answer in his own
-      words and does not go to the coordinator. Once the question is answered or canceled, here or on the web,
+      supervisor's live frames, and closed with the kept message. A kept Bot message with nothing written live
+      (a wake-up's answer) is a card of its own. The last message sent is recorded per chat, so a restart sends
+      nothing twice.
+    - A question for the owner is a card in his direct chat with a Channel's app (`lark_channel_questions`). It
+      goes out through one Channel: the one whose Lark chat is the chat that started the question's Run
+      (`runs.chat_id`), as Hermes sends an approval to the conversation the work came from, and for a Run
+      started elsewhere the oldest Channel that is on. A Channel that is off sends none. The card has a button
+      for each option, or "Reply to this card to answer" for a question without options. Only a press by the
+      owner's `open_id` in that app answers; another person is told so. His reply to the card is the answer in
+      his own words and does not go to the Bot. Once the question is answered or canceled, here or on the web,
       the card says how it ended and has no buttons. It needs the app's callback `card.action.trigger` over
       the persistent connection, configured in Lark's console.
-    - On the web, `/settings/channels` (under Connections) has the bot's card: set it up or change its app
-      (the secret in a password field), switch it on and off, choose who may talk to it, add and remove people,
-      remove it; it says whether it is connected and why not. It does what `channels lark ...` does.
-    - What a person sees while the coordinator works: their message carries the emoji `Typing` until the reply
-      is there, and `CrossMark` when the model's call failed; the card answers that message (Lark shows it
+    - On the web, `/settings/channels` (under Connections) has a card for each Channel: add one (its name, its
+      app with the secret in a password field, the owner's email, its Bot), change its app, switch it on and
+      off, choose its Bot and who may talk to it, add and remove people, remove it; it says whether it is
+      connected and why not. It does what `channels lark ...` does.
+    - What a person sees while the Bot works: their message carries the emoji `Typing` until the reply is
+      there, and `CrossMark` when the model's call failed; the card answers that message (Lark shows it
       quoted), shows the tool that is running (`⚡ name: arguments`) before and under the text, and ends with a
       link to the same chat on the web when `HYPOMNEMA_PUBLIC_URL` is set. A message sent while a turn runs is
-      told it is queued. A reply longer than 8,000 characters goes on in further cards. Lark's mention tags in
-      a reply are written out, so nobody is notified. A card Lark stopped writing after ten minutes is switched
-      on again. `/new` gives the person's next message a new chat; `/stop` stops the turn that runs.
+      told it is queued, by the name of the chat's Bot. A reply longer than 8,000 characters goes on in further
+      cards. Lark's mention tags in a reply are written out, so nobody is notified. A card Lark stopped writing
+      after ten minutes is switched on again. `/new` gives the person's next message a new chat; `/stop` stops
+      the turn that runs: its card closes with what was written and the line "Stopped.", and the message is
+      not marked as failed.
     - A question's card is orange while it waits, green once answered, red when canceled.
-    - Not built: an option that also takes text, groups, several bots; a person's reaction as an answer; images
+    - Not built: an option that also takes text, groups; a person's reaction as an answer; images
       and voice.
   - The token reaches a worker with its offer: the node API asks for it by host and repository as it sends the offer, and
     orchestration never holds it. The node gives it to that Dispatch only, as environment: git sends it to that

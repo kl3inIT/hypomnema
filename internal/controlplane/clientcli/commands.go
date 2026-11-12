@@ -265,36 +265,44 @@ var commands = []command{
 		flags:   jsonFlag, run: integrationsDisconnect,
 	},
 	{
-		name: "channels lark show", summary: "the Lark bot, who may talk to it and whether it is connected (owner)",
-		flags: jsonFlag, run: larkBotShow,
+		name: "channels lark list", summary: "the Lark channels: each a Lark app, the bot it talks to and whether " +
+			"it is connected (owner)",
+		flags: jsonFlag, run: larkChannelsList,
 	},
 	{
-		name: "channels lark set",
-		summary: "set the Lark bot up or change it: its app from a JSON file with app_id and app_secret, the " +
-			"owner's email at Lark, who may talk to it, and whether it is on (owner)",
+		name: "channels lark show", args: "<channel>", min: 1, max: 1,
+		summary: "a Lark channel, who may talk through it and whether it is connected (owner)",
+		flags:   jsonFlag, run: larkChannelShow,
+	},
+	{
+		name: "channels lark set", args: "<channel>", min: 1, max: 1,
+		summary: "set a Lark channel up or change it: the bot it talks to, its app from a JSON file with app_id " +
+			"and app_secret, the owner's email at Lark, who may talk through it, and whether it is on (owner)",
 		flags: func(fs *flag.FlagSet) {
+			fs.String("bot", "", "the bot the channel talks to; coordinator for a new channel")
 			fs.String("app-file", "", "a JSON file with the app's app_id and app_secret, or - for standard input")
 			fs.String("owner", "", "the owner's email in the app's Lark organization, or his open_id")
-			fs.String("mode", "", "who may talk to the bot: owner, allowlist or everyone")
-			fs.Bool("on", false, "switch the bot on")
-			fs.Bool("off", false, "switch the bot off")
+			fs.String("mode", "", "who may talk through the channel: owner, allowlist or everyone")
+			fs.Bool("on", false, "switch the channel on")
+			fs.Bool("off", false, "switch the channel off")
 			jsonFlag(fs)
 		},
-		run: larkBotSet,
+		run: larkChannelSet,
 	},
 	{
-		name: "channels lark rm", summary: "forget the Lark bot and its app's secret (owner)",
-		flags: jsonFlag, run: larkBotRemove,
+		name: "channels lark rm", args: "<channel>", min: 1, max: 1,
+		summary: "forget a Lark channel, its people and its app's secret (owner)",
+		flags:   jsonFlag, run: larkChannelRemove,
 	},
 	{
-		name: "channels lark allow", args: "<email or open_id>", min: 1, max: 1,
-		summary: "add someone who may talk to the Lark bot when its mode is allowlist (owner)",
-		flags:   jsonFlag, run: larkBotPersonAdd,
+		name: "channels lark allow", args: "<channel> <email or open_id>", min: 2, max: 2,
+		summary: "add someone who may talk through a Lark channel when its mode is allowlist (owner)",
+		flags:   jsonFlag, run: larkChannelPersonAdd,
 	},
 	{
-		name: "channels lark disallow", args: "<email or open_id>", min: 1, max: 1,
-		summary: "take someone off the Lark bot's list (owner)",
-		flags:   jsonFlag, run: larkBotPersonRemove,
+		name: "channels lark disallow", args: "<channel> <email or open_id>", min: 2, max: 2,
+		summary: "take someone off a Lark channel's list (owner)",
+		flags:   jsonFlag, run: larkChannelPersonRemove,
 	},
 	{
 		name: "bots list", summary: "the bots: each a model, a persona and a memory", flags: jsonFlag, run: botsList,

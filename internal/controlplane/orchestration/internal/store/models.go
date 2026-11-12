@@ -271,38 +271,44 @@ type IntegrationClient struct {
 	UpdatedAt   int64
 }
 
-type LarkBot struct {
-	ID          int64
+type LarkChannel struct {
+	Name        string
 	AppID       string
 	Secret      string
+	Bot         string
 	Mode        string
 	OwnerOpenID string
 	Enabled     int64
+	CreatedAt   int64
 	UpdatedAt   int64
 }
 
-type LarkBotChat struct {
+type LarkChannelChat struct {
 	LarkChatID string
+	Channel    string
 	OpenID     string
 	ChatID     string
 	SentSeq    int64
 	CreatedAt  int64
 }
 
-type LarkBotMessage struct {
+type LarkChannelMessage struct {
 	MessageID string
+	Channel   string
 	CreatedAt int64
 }
 
-type LarkBotPerson struct {
+type LarkChannelPerson struct {
+	Channel   string
 	OpenID    string
 	Email     string
 	Name      string
 	CreatedAt int64
 }
 
-type LarkBotQuestion struct {
+type LarkChannelQuestion struct {
 	QuestionID string
+	Channel    string
 	CardID     string
 	MessageID  string
 	Seq        int64

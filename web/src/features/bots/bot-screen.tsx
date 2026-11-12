@@ -13,7 +13,10 @@ import { AgentAvatar } from "@/features/agents/agent-avatar"
 import { ModelField } from "@/features/agents/profile-editor"
 import { errorText } from "@/features/agents/profiles-state"
 import { useModels } from "@/features/agents/use-profiles"
+import { LarkIcon } from "@/components/icons/brand-icons"
+import { channelsOf, channelState } from "@/features/settings/channels-state"
 import { ConfirmDialog } from "@/features/settings/settings-parts"
+import { useLarkChannels } from "@/features/settings/use-channels"
 import { PageHeader } from "@/features/shell/app-shell"
 
 import {
@@ -78,6 +81,7 @@ export function BotScreen({ name }: { name: string }) {
 
               <BotForm start={draftOf(b)} models={models.data ?? []} stored={b} />
               <Memory bot={b} />
+              <Channels bot={b} />
               <Removal bot={b} />
             </>
           )}
@@ -321,8 +325,53 @@ function Memory({ bot }: { bot: Bot }) {
   )
 }
 
-// Removal takes a Bot away after a question. The server refuses the first Bot, one with chats and one with a
-// memory, and the dialog stays open with its reason.
+// Channels are the doors to this Bot from outside the web client: the Lark Channels that talk to it, each a link
+// to the Channels page, where they are set up. Only the owner may read them; for anyone else the list is left
+// out.
+function Channels({ bot }: { bot: Bot }) {
+  const channels = useLarkChannels()
+  if (!channels.data) return null
+
+  const mine = channelsOf(bot.name, channels.data)
+
+  return (
+    <section aria-labelledby="bot-channels" className="flex flex-col gap-2 border-t pt-4">
+      <div className="flex flex-wrap items-baseline gap-x-3">
+        <h3 id="bot-channels" className="text-sm font-medium">
+          Channels
+        </h3>
+        <Link
+          to="/settings/channels"
+          className="text-xs text-muted-foreground hover:text-foreground hover:underline"
+        >
+          Manage channels
+        </Link>
+      </div>
+      {mine.length === 0 ? (
+        <p className="text-xs text-muted-foreground">
+          No channel talks to this Bot: it is reached from its chats here only.
+        </p>
+      ) : (
+        <ul className="flex flex-col gap-1.5">
+          {mine.map((channel) => (
+            <li key={channel.name} className="flex min-w-0 items-center gap-2 text-sm">
+              <LarkIcon className="size-4 shrink-0" />
+              <Link to="/settings/channels" className="truncate font-medium hover:underline">
+                {channel.name}
+              </Link>
+              <span className="shrink-0 text-xs text-muted-foreground">
+                Lark · {channelState(channel).label}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  )
+}
+
+// Removal takes a Bot away after a question. The server refuses the first Bot, one with chats, one with a
+// memory and one a Channel talks to, and the dialog stays open with its reason.
 function Removal({ bot }: { bot: Bot }) {
   const remove = useDeleteBot()
   const navigate = useNavigate()
@@ -334,7 +383,7 @@ function Removal({ bot }: { bot: Bot }) {
       className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t pt-4"
     >
       <p className="min-w-0 flex-1 basis-64 text-xs text-muted-foreground">
-        A Bot can be removed while it has no chats and no memory.
+        A Bot can be removed while it has no chats and no memory, and no channel talks to it.
       </p>
       <ConfirmDialog
         trigger={

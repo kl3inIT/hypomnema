@@ -2,7 +2,7 @@
 
 import type { Client, ClientMeta, Options as Options2, RequestResult, ServerSentEventsResult, TDataShape } from './client';
 import { client } from './client.gen';
-import type { AbortChatData, AbortChatErrors, AbortChatResponses, AddLarkBotPersonData, AddLarkBotPersonErrors, AddLarkBotPersonResponses, AnswerQuestionData, AnswerQuestionErrors, AnswerQuestionResponses, ApplyProfileData, ApplyProfileErrors, ApplyProfileResponses, ApplyProviderData, ApplyProviderErrors, ApplyProviderResponses, BeginIntegrationSignInData, BeginIntegrationSignInErrors, BeginIntegrationSignInResponses, CancelRunData, CancelRunErrors, CancelRunResponses, CancelTaskData, CancelTaskErrors, CancelTaskResponses, ChangeBotMemoryData, ChangeBotMemoryErrors, ChangeBotMemoryResponses, CompleteIntegrationSignInData, CompleteIntegrationSignInErrors, CompleteIntegrationSignInResponses, CreateChatData, CreateChatErrors, CreateChatResponses, CreateNodeData, CreateNodeErrors, CreateNodeResponses, CreateRunData, CreateRunErrors, CreateRunResponses, CreateSessionData, CreateSessionErrors, CreateSessionResponses, CreateTasksData, CreateTasksErrors, CreateTasksResponses, DecideApprovalData, DecideApprovalErrors, DecideApprovalResponses, DeleteBotData, DeleteBotErrors, DeleteBotResponses, DeleteGitHostConnectionData, DeleteGitHostConnectionErrors, DeleteGitHostConnectionResponses, DeleteGitHostData, DeleteGitHostErrors, DeleteGitHostResponses, DeleteGitHostTokenData, DeleteGitHostTokenErrors, DeleteGitHostTokenResponses, DeleteIntegrationConnectionData, DeleteIntegrationConnectionErrors, DeleteIntegrationConnectionResponses, DeleteLarkBotData, DeleteLarkBotErrors, DeleteLarkBotResponses, DeleteRepoData, DeleteRepoErrors, DeleteRepoResponses, DeleteSecretData, DeleteSecretErrors, DeleteSecretResponses, DeleteSessionData, DeleteSessionErrors, DeleteSessionResponses, DrainNodeData, DrainNodeErrors, DrainNodeResponses, FinishRunData, FinishRunErrors, FinishRunResponses, ForwardQuestionData, ForwardQuestionErrors, ForwardQuestionResponses, GetBotData, GetBotErrors, GetBotResponses, GetChatData, GetChatErrors, GetChatResponses, GetLarkBotData, GetLarkBotErrors, GetLarkBotResponses, GetMeData, GetMeErrors, GetMeResponses, GetProfileData, GetProfileErrors, GetProfileResponses, GetQuestionData, GetQuestionErrors, GetQuestionResponses, GetRunData, GetRunErrors, GetRunResponses, GetSecretValueData, GetSecretValueErrors, GetSecretValueResponses, GetTaskData, GetTaskErrors, GetTaskResponses, ListAccountsData, ListAccountsErrors, ListAccountsResponses, ListApprovalsData, ListApprovalsErrors, ListApprovalsResponses, ListBotsData, ListBotsErrors, ListBotsResponses, ListChatMessagesData, ListChatMessagesErrors, ListChatMessagesResponses, ListChatsData, ListChatsErrors, ListChatsResponses, ListConnectionActionsData, ListConnectionActionsErrors, ListConnectionActionsResponses, ListDispatchItemsData, ListDispatchItemsErrors, ListDispatchItemsResponses, ListEventsData, ListEventsErrors, ListEventsResponses, ListGitHostsData, ListGitHostsErrors, ListGitHostsResponses, ListIntegrationsData, ListIntegrationsErrors, ListIntegrationsResponses, ListMachineProvidersData, ListMachineProvidersErrors, ListMachineProvidersResponses, ListModelsData, ListModelsErrors, ListModelsResponses, ListNodesData, ListNodesErrors, ListNodesResponses, ListProfilesData, ListProfilesErrors, ListProfilesResponses, ListProfileVersionsData, ListProfileVersionsErrors, ListProfileVersionsResponses, ListProvidersData, ListProvidersErrors, ListProvidersResponses, ListQuestionsData, ListQuestionsErrors, ListQuestionsResponses, ListReposData, ListReposErrors, ListReposResponses, ListRunsData, ListRunsErrors, ListRunsResponses, ListSecretsData, ListSecretsErrors, ListSecretsResponses, ListTasksData, ListTasksErrors, ListTasksResponses, OpenNodeTerminalData, OpenNodeTerminalErrors, OpenNodeTerminalResponses, PatchIntegrationConnectionData, PatchIntegrationConnectionErrors, PatchIntegrationConnectionResponses, PutBotData, PutBotErrors, PutBotResponses, PutGitHostConnectionData, PutGitHostConnectionErrors, PutGitHostConnectionResponses, PutGitHostData, PutGitHostErrors, PutGitHostResponses, PutGitHostTokenData, PutGitHostTokenErrors, PutGitHostTokenResponses, PutIntegrationClientData, PutIntegrationClientErrors, PutIntegrationClientResponses, PutIntegrationConnectionData, PutIntegrationConnectionErrors, PutIntegrationConnectionResponses, PutLarkBotData, PutLarkBotErrors, PutLarkBotResponses, PutRepoData, PutRepoErrors, PutRepoResponses, PutSecretData, PutSecretErrors, PutSecretResponses, RemoveLarkBotPersonData, RemoveLarkBotPersonErrors, RemoveLarkBotPersonResponses, RemoveNodeData, RemoveNodeErrors, RemoveNodeResponses, ReopenTaskData, ReopenTaskErrors, ReopenTaskResponses, ResumeNodeData, ResumeNodeErrors, ResumeNodeResponses, SendChatMessageData, SendChatMessageErrors, SendChatMessageResponses, SetBotMemoryData, SetBotMemoryErrors, SetBotMemoryResponses, SetConnectionActionData, SetConnectionActionErrors, SetConnectionActionResponses, StartNodeMachineData, StartNodeMachineErrors, StartNodeMachineResponses, StopNodeMachineData, StopNodeMachineErrors, StopNodeMachineResponses, StreamChatData, StreamChatErrors, StreamChatResponse, StreamChatResponses, StreamEventsData, StreamEventsErrors, StreamEventsResponse, StreamEventsResponses, UpdateNodeData, UpdateNodeErrors, UpdateNodeResponses } from './types.gen';
+import type { AbortChatData, AbortChatErrors, AbortChatResponses, AddLarkChannelPersonData, AddLarkChannelPersonErrors, AddLarkChannelPersonResponses, AnswerQuestionData, AnswerQuestionErrors, AnswerQuestionResponses, ApplyProfileData, ApplyProfileErrors, ApplyProfileResponses, ApplyProviderData, ApplyProviderErrors, ApplyProviderResponses, BeginIntegrationSignInData, BeginIntegrationSignInErrors, BeginIntegrationSignInResponses, CancelRunData, CancelRunErrors, CancelRunResponses, CancelTaskData, CancelTaskErrors, CancelTaskResponses, ChangeBotMemoryData, ChangeBotMemoryErrors, ChangeBotMemoryResponses, CompleteIntegrationSignInData, CompleteIntegrationSignInErrors, CompleteIntegrationSignInResponses, CreateChatData, CreateChatErrors, CreateChatResponses, CreateNodeData, CreateNodeErrors, CreateNodeResponses, CreateRunData, CreateRunErrors, CreateRunResponses, CreateSessionData, CreateSessionErrors, CreateSessionResponses, CreateTasksData, CreateTasksErrors, CreateTasksResponses, DecideApprovalData, DecideApprovalErrors, DecideApprovalResponses, DeleteBotData, DeleteBotErrors, DeleteBotResponses, DeleteGitHostConnectionData, DeleteGitHostConnectionErrors, DeleteGitHostConnectionResponses, DeleteGitHostData, DeleteGitHostErrors, DeleteGitHostResponses, DeleteGitHostTokenData, DeleteGitHostTokenErrors, DeleteGitHostTokenResponses, DeleteIntegrationConnectionData, DeleteIntegrationConnectionErrors, DeleteIntegrationConnectionResponses, DeleteLarkChannelData, DeleteLarkChannelErrors, DeleteLarkChannelResponses, DeleteRepoData, DeleteRepoErrors, DeleteRepoResponses, DeleteSecretData, DeleteSecretErrors, DeleteSecretResponses, DeleteSessionData, DeleteSessionErrors, DeleteSessionResponses, DrainNodeData, DrainNodeErrors, DrainNodeResponses, FinishRunData, FinishRunErrors, FinishRunResponses, ForwardQuestionData, ForwardQuestionErrors, ForwardQuestionResponses, GetBotData, GetBotErrors, GetBotResponses, GetChatData, GetChatErrors, GetChatResponses, GetLarkChannelData, GetLarkChannelErrors, GetLarkChannelResponses, GetMeData, GetMeErrors, GetMeResponses, GetProfileData, GetProfileErrors, GetProfileResponses, GetQuestionData, GetQuestionErrors, GetQuestionResponses, GetRunData, GetRunErrors, GetRunResponses, GetSecretValueData, GetSecretValueErrors, GetSecretValueResponses, GetTaskData, GetTaskErrors, GetTaskResponses, ListAccountsData, ListAccountsErrors, ListAccountsResponses, ListApprovalsData, ListApprovalsErrors, ListApprovalsResponses, ListBotsData, ListBotsErrors, ListBotsResponses, ListChatMessagesData, ListChatMessagesErrors, ListChatMessagesResponses, ListChatsData, ListChatsErrors, ListChatsResponses, ListConnectionActionsData, ListConnectionActionsErrors, ListConnectionActionsResponses, ListDispatchItemsData, ListDispatchItemsErrors, ListDispatchItemsResponses, ListEventsData, ListEventsErrors, ListEventsResponses, ListGitHostsData, ListGitHostsErrors, ListGitHostsResponses, ListIntegrationsData, ListIntegrationsErrors, ListIntegrationsResponses, ListLarkChannelsData, ListLarkChannelsErrors, ListLarkChannelsResponses, ListMachineProvidersData, ListMachineProvidersErrors, ListMachineProvidersResponses, ListModelsData, ListModelsErrors, ListModelsResponses, ListNodesData, ListNodesErrors, ListNodesResponses, ListProfilesData, ListProfilesErrors, ListProfilesResponses, ListProfileVersionsData, ListProfileVersionsErrors, ListProfileVersionsResponses, ListProvidersData, ListProvidersErrors, ListProvidersResponses, ListQuestionsData, ListQuestionsErrors, ListQuestionsResponses, ListReposData, ListReposErrors, ListReposResponses, ListRunsData, ListRunsErrors, ListRunsResponses, ListSecretsData, ListSecretsErrors, ListSecretsResponses, ListTasksData, ListTasksErrors, ListTasksResponses, OpenNodeTerminalData, OpenNodeTerminalErrors, OpenNodeTerminalResponses, PatchIntegrationConnectionData, PatchIntegrationConnectionErrors, PatchIntegrationConnectionResponses, PutBotData, PutBotErrors, PutBotResponses, PutGitHostConnectionData, PutGitHostConnectionErrors, PutGitHostConnectionResponses, PutGitHostData, PutGitHostErrors, PutGitHostResponses, PutGitHostTokenData, PutGitHostTokenErrors, PutGitHostTokenResponses, PutIntegrationClientData, PutIntegrationClientErrors, PutIntegrationClientResponses, PutIntegrationConnectionData, PutIntegrationConnectionErrors, PutIntegrationConnectionResponses, PutLarkChannelData, PutLarkChannelErrors, PutLarkChannelResponses, PutRepoData, PutRepoErrors, PutRepoResponses, PutSecretData, PutSecretErrors, PutSecretResponses, RemoveLarkChannelPersonData, RemoveLarkChannelPersonErrors, RemoveLarkChannelPersonResponses, RemoveNodeData, RemoveNodeErrors, RemoveNodeResponses, ReopenTaskData, ReopenTaskErrors, ReopenTaskResponses, ResumeNodeData, ResumeNodeErrors, ResumeNodeResponses, SendChatMessageData, SendChatMessageErrors, SendChatMessageResponses, SetBotMemoryData, SetBotMemoryErrors, SetBotMemoryResponses, SetConnectionActionData, SetConnectionActionErrors, SetConnectionActionResponses, StartNodeMachineData, StartNodeMachineErrors, StartNodeMachineResponses, StopNodeMachineData, StopNodeMachineErrors, StopNodeMachineResponses, StreamChatData, StreamChatErrors, StreamChatResponse, StreamChatResponses, StreamEventsData, StreamEventsErrors, StreamEventsResponse, StreamEventsResponses, UpdateNodeData, UpdateNodeErrors, UpdateNodeResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
   /**
@@ -498,33 +498,44 @@ export const putIntegrationConnection = <ThrowOnError extends boolean = true>(op
 });
 
 /**
- * Forget the Lark bot and its app's secret; only the owner
+ * The Lark Channels, the oldest first; only the owner
+ *
+ * A Channel is a door to one Bot: a Lark app and who may talk through it. A person's direct message to the app at Lark is a message of a chat with the Channel's Bot. Several Channels may talk to one Bot. An app's secret is never in the answer.
  */
-export const deleteLarkBot = <ThrowOnError extends boolean = true>(options?: Options<DeleteLarkBotData, ThrowOnError>): RequestResult<DeleteLarkBotResponses, DeleteLarkBotErrors, ThrowOnError> => (options?.client ?? client).delete<DeleteLarkBotResponses, DeleteLarkBotErrors, ThrowOnError>({
+export const listLarkChannels = <ThrowOnError extends boolean = true>(options?: Options<ListLarkChannelsData, ThrowOnError>): RequestResult<ListLarkChannelsResponses, ListLarkChannelsErrors, ThrowOnError> => (options?.client ?? client).get<ListLarkChannelsResponses, ListLarkChannelsErrors, ThrowOnError>({
   security: [{ scheme: 'bearer', type: 'http' }],
   url: '/channels/lark',
   ...options
 });
 
 /**
- * The Lark bot, who may talk to it and whether it is connected; only the owner
+ * Forget a Lark Channel, its people and its app's secret; only the owner
  *
- * The bot is a Channel: a person's direct message to it at Lark is a message of a chat with the coordinator. The app's secret is never in the answer.
+ * The chats that were opened through it stay.
  */
-export const getLarkBot = <ThrowOnError extends boolean = true>(options?: Options<GetLarkBotData, ThrowOnError>): RequestResult<GetLarkBotResponses, GetLarkBotErrors, ThrowOnError> => (options?.client ?? client).get<GetLarkBotResponses, GetLarkBotErrors, ThrowOnError>({
+export const deleteLarkChannel = <ThrowOnError extends boolean = true>(options: Options<DeleteLarkChannelData, ThrowOnError>): RequestResult<DeleteLarkChannelResponses, DeleteLarkChannelErrors, ThrowOnError> => (options.client ?? client).delete<DeleteLarkChannelResponses, DeleteLarkChannelErrors, ThrowOnError>({
   security: [{ scheme: 'bearer', type: 'http' }],
-  url: '/channels/lark',
+  url: '/channels/lark/{channel}',
   ...options
 });
 
 /**
- * Set the Lark bot up, or change it; only the owner
- *
- * The first time it takes the app's id and secret and the owner's email at Lark. After that a field left out keeps what the bot had. The secret goes into the vault. The owner's email is looked up at Lark with the app, which also shows the app's id and secret work. A new bot is off and takes messages from its owner only. Another app is used from the control plane's next start.
+ * A Lark Channel, who may talk through it and whether it is connected; only the owner
  */
-export const putLarkBot = <ThrowOnError extends boolean = true>(options: Options<PutLarkBotData, ThrowOnError>): RequestResult<PutLarkBotResponses, PutLarkBotErrors, ThrowOnError> => (options.client ?? client).put<PutLarkBotResponses, PutLarkBotErrors, ThrowOnError>({
+export const getLarkChannel = <ThrowOnError extends boolean = true>(options: Options<GetLarkChannelData, ThrowOnError>): RequestResult<GetLarkChannelResponses, GetLarkChannelErrors, ThrowOnError> => (options.client ?? client).get<GetLarkChannelResponses, GetLarkChannelErrors, ThrowOnError>({
   security: [{ scheme: 'bearer', type: 'http' }],
-  url: '/channels/lark',
+  url: '/channels/lark/{channel}',
+  ...options
+});
+
+/**
+ * Set a Lark Channel up, or change it; only the owner
+ *
+ * The first time it takes the app's id and secret and the owner's email at Lark. After that a field left out keeps what the Channel had. The secret goes into the vault. The owner's email is looked up at Lark with the app, which also shows the app's id and secret work. A new Channel is off, takes messages from its owner only and talks to the Bot coordinator unless another is named. An app that is another Channel's is refused: one app is one Channel. A new Channel connects at once; another app of a Channel that is connected is used from the control plane's next start.
+ */
+export const putLarkChannel = <ThrowOnError extends boolean = true>(options: Options<PutLarkChannelData, ThrowOnError>): RequestResult<PutLarkChannelResponses, PutLarkChannelErrors, ThrowOnError> => (options.client ?? client).put<PutLarkChannelResponses, PutLarkChannelErrors, ThrowOnError>({
+  security: [{ scheme: 'bearer', type: 'http' }],
+  url: '/channels/lark/{channel}',
   ...options,
   headers: {
     'Content-Type': 'application/json',
@@ -533,11 +544,13 @@ export const putLarkBot = <ThrowOnError extends boolean = true>(options: Options
 });
 
 /**
- * Add someone who may talk to the Lark bot when its mode is allowlist; only the owner
+ * Add someone who may talk through a Lark Channel when its mode is allowlist; only the owner
+ *
+ * Lark gives a person another open_id in each app, so a person is added to each Channel apart.
  */
-export const addLarkBotPerson = <ThrowOnError extends boolean = true>(options: Options<AddLarkBotPersonData, ThrowOnError>): RequestResult<AddLarkBotPersonResponses, AddLarkBotPersonErrors, ThrowOnError> => (options.client ?? client).post<AddLarkBotPersonResponses, AddLarkBotPersonErrors, ThrowOnError>({
+export const addLarkChannelPerson = <ThrowOnError extends boolean = true>(options: Options<AddLarkChannelPersonData, ThrowOnError>): RequestResult<AddLarkChannelPersonResponses, AddLarkChannelPersonErrors, ThrowOnError> => (options.client ?? client).post<AddLarkChannelPersonResponses, AddLarkChannelPersonErrors, ThrowOnError>({
   security: [{ scheme: 'bearer', type: 'http' }],
-  url: '/channels/lark/people',
+  url: '/channels/lark/{channel}/people',
   ...options,
   headers: {
     'Content-Type': 'application/json',
@@ -546,11 +559,11 @@ export const addLarkBotPerson = <ThrowOnError extends boolean = true>(options: O
 });
 
 /**
- * Take someone off the Lark bot's list; only the owner
+ * Take someone off a Lark Channel's list; only the owner
  */
-export const removeLarkBotPerson = <ThrowOnError extends boolean = true>(options: Options<RemoveLarkBotPersonData, ThrowOnError>): RequestResult<RemoveLarkBotPersonResponses, RemoveLarkBotPersonErrors, ThrowOnError> => (options.client ?? client).delete<RemoveLarkBotPersonResponses, RemoveLarkBotPersonErrors, ThrowOnError>({
+export const removeLarkChannelPerson = <ThrowOnError extends boolean = true>(options: Options<RemoveLarkChannelPersonData, ThrowOnError>): RequestResult<RemoveLarkChannelPersonResponses, RemoveLarkChannelPersonErrors, ThrowOnError> => (options.client ?? client).delete<RemoveLarkChannelPersonResponses, RemoveLarkChannelPersonErrors, ThrowOnError>({
   security: [{ scheme: 'bearer', type: 'http' }],
-  url: '/channels/lark/people/{person}',
+  url: '/channels/lark/{channel}/people/{person}',
   ...options
 });
 

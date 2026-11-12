@@ -767,73 +767,97 @@ paths:
         default: { $ref: "#/components/responses/Error" }
   /channels/lark:
     get:
-      operationId: GetLarkBot
-      summary: The Lark bot, who may talk to it and whether it is connected; only the owner
+      operationId: ListLarkChannels
+      summary: The Lark Channels, the oldest first; only the owner
       description: >-
-        The bot is a Channel: a person's direct message to it at Lark is a
-        message of a chat with the coordinator. The app's secret is never in
-        the answer.
+        A Channel is a door to one Bot: a Lark app and who may talk through
+        it. A person's direct message to the app at Lark is a message of a
+        chat with the Channel's Bot. Several Channels may talk to one Bot. An
+        app's secret is never in the answer.
       responses:
         "200":
-          description: The bot.
+          description: The Channels.
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/LarkBot" }
+              schema: { $ref: "#/components/schemas/LarkChannelList" }
+        default: { $ref: "#/components/responses/Error" }
+  /channels/lark/{channel}:
+    parameters:
+      - $ref: "#/components/parameters/LarkChannelName"
+    get:
+      operationId: GetLarkChannel
+      summary: A Lark Channel, who may talk through it and whether it is connected; only the owner
+      responses:
+        "200":
+          description: The Channel.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LarkChannel" }
         default: { $ref: "#/components/responses/Error" }
     put:
-      operationId: PutLarkBot
-      summary: Set the Lark bot up, or change it; only the owner
+      operationId: PutLarkChannel
+      summary: Set a Lark Channel up, or change it; only the owner
       description: >-
         The first time it takes the app's id and secret and the owner's email
-        at Lark. After that a field left out keeps what the bot had. The secret
-        goes into the vault. The owner's email is looked up at Lark with the
-        app, which also shows the app's id and secret work. A new bot is off
-        and takes messages from its owner only. Another app is used from the
+        at Lark. After that a field left out keeps what the Channel had. The
+        secret goes into the vault. The owner's email is looked up at Lark
+        with the app, which also shows the app's id and secret work. A new
+        Channel is off, takes messages from its owner only and talks to the
+        Bot coordinator unless another is named. An app that is another
+        Channel's is refused: one app is one Channel. A new Channel connects
+        at once; another app of a Channel that is connected is used from the
         control plane's next start.
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: "#/components/schemas/LarkBotSettings" }
+            schema: { $ref: "#/components/schemas/LarkChannelSettings" }
       responses:
         "200":
-          description: The bot.
+          description: The Channel.
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/LarkBot" }
+              schema: { $ref: "#/components/schemas/LarkChannel" }
         default: { $ref: "#/components/responses/Error" }
     delete:
-      operationId: DeleteLarkBot
-      summary: Forget the Lark bot and its app's secret; only the owner
+      operationId: DeleteLarkChannel
+      summary: Forget a Lark Channel, its people and its app's secret; only the owner
+      description: The chats that were opened through it stay.
       responses:
-        "204": { description: The bot is forgotten. }
+        "204": { description: The Channel is forgotten. }
         default: { $ref: "#/components/responses/Error" }
-  /channels/lark/people:
+  /channels/lark/{channel}/people:
+    parameters:
+      - $ref: "#/components/parameters/LarkChannelName"
     post:
-      operationId: AddLarkBotPerson
-      summary: Add someone who may talk to the Lark bot when its mode is allowlist; only the owner
+      operationId: AddLarkChannelPerson
+      summary: Add someone who may talk through a Lark Channel when its mode is allowlist; only the owner
+      description: >-
+        Lark gives a person another open_id in each app, so a person is added
+        to each Channel apart.
       requestBody:
         required: true
         content:
           application/json:
-            schema: { $ref: "#/components/schemas/NewLarkBotPerson" }
+            schema: { $ref: "#/components/schemas/NewLarkChannelPerson" }
       responses:
         "200":
           description: The person.
           content:
             application/json:
-              schema: { $ref: "#/components/schemas/LarkBotPerson" }
+              schema: { $ref: "#/components/schemas/LarkChannelPerson" }
         default: { $ref: "#/components/responses/Error" }
-  /channels/lark/people/{person}:
+  /channels/lark/{channel}/people/{person}:
     parameters:
+      - $ref: "#/components/parameters/LarkChannelName"
       - name: person
         in: path
         required: true
         description: The person's open_id at Lark, or the email they were added with.
         schema: { type: string, minLength: 1, maxLength: 320 }
     delete:
-      operationId: RemoveLarkBotPerson
-      summary: Take someone off the Lark bot's list; only the owner
+      operationId: RemoveLarkChannelPerson
+      summary: Take someone off a Lark Channel's list; only the owner
       responses:
         "204": { description: The person is off the list. }
         default: { $ref: "#/components/responses/Error" }
@@ -1349,6 +1373,12 @@ components:
       type: http
       scheme: bearer
   parameters:
+    LarkChannelName:
+      name: channel
+      in: path
+      required: true
+      description: The Channel's name.
+      schema: { type: string, pattern: "^[a-z][a-z0-9-]{0,49}$" }
     IntegrationID:
       name: integration
       in: path
@@ -2133,18 +2163,22 @@ components:
         connections:
           type: array
           items: { $ref: "#/components/schemas/IntegrationConnection" }
-    LarkBot:
+    LarkChannel:
       type: object
-      description: The Lark bot as the owner set it up, and whether it is connected.
-      required: [app_id, mode, owner_open_id, enabled, connected, people, updated_at]
+      description: A Lark Channel as the owner set it up, and whether it is connected.
+      required: [name, bot, app_id, mode, owner_open_id, enabled, connected, people, created_at, updated_at]
       properties:
+        name: { type: string, description: The Channel's name. }
+        bot:
+          type: string
+          description: The Bot a chat opened through the Channel talks with.
         app_id: { type: string, description: The Lark app's id. Not secret. }
-        mode: { $ref: "#/components/schemas/LarkBotMode" }
-        owner_open_id: { type: string, description: The owner's id at Lark. }
-        enabled: { type: boolean, description: Whether the bot takes messages. }
+        mode: { $ref: "#/components/schemas/LarkChannelMode" }
+        owner_open_id: { type: string, description: The owner's id at Lark, in the Channel's app. }
+        enabled: { type: boolean, description: Whether the Channel takes messages. }
         connected:
           type: boolean
-          description: Whether the persistent connection to Lark is open.
+          description: Whether the Channel's persistent connection to Lark is open.
         connected_app_id:
           type: string
           description: >-
@@ -2155,19 +2189,34 @@ components:
           description: Why the last attempt to connect failed.
         people:
           type: array
-          items: { $ref: "#/components/schemas/LarkBotPerson" }
+          items: { $ref: "#/components/schemas/LarkChannelPerson" }
+        created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
-    LarkBotMode:
+    LarkChannelList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/LarkChannel" }
+    LarkChannelMode:
       type: string
       enum: [owner, allowlist, everyone]
       description: >-
-        Who may talk to the bot: its owner only, the owner and the people he
-        added, or every member of the app's Lark organization. Someone of
-        another organization is refused in every mode.
-    LarkBotSettings:
+        Who may talk through the Channel: its owner only, the owner and the
+        people he added, or every member of the app's Lark organization.
+        Someone of another organization is refused in every mode.
+    LarkChannelSettings:
       type: object
       additionalProperties: false
       properties:
+        bot:
+          type: string
+          pattern: "^[a-z][a-z0-9-]{0,62}$"
+          description: >-
+            The Bot the Channel talks to, which must exist; coordinator for a
+            new Channel that names none. A chat that is open keeps its Bot;
+            the next one is with the new Bot.
         app_id: { type: string, minLength: 1, maxLength: 1024 }
         app_secret:
           type: string
@@ -2179,9 +2228,9 @@ components:
           minLength: 1
           maxLength: 320
           description: The owner's email in the app's Lark organization, or his open_id.
-        mode: { $ref: "#/components/schemas/LarkBotMode" }
+        mode: { $ref: "#/components/schemas/LarkChannelMode" }
         enabled: { type: boolean }
-    LarkBotPerson:
+    LarkChannelPerson:
       type: object
       required: [open_id, email, name, created_at]
       properties:
@@ -2189,7 +2238,7 @@ components:
         email: { type: string, description: The email they were added with; empty when added by open_id. }
         name: { type: string, description: Their name at Lark, when the app may read it. }
         created_at: { type: string, format: date-time }
-    NewLarkBotPerson:
+    NewLarkChannelPerson:
       type: object
       required: [who]
       additionalProperties: false

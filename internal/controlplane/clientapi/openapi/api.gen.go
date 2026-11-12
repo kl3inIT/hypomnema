@@ -396,21 +396,21 @@ func (e IntegrationKind) Valid() bool {
 	}
 }
 
-// Defines values for LarkBotMode.
+// Defines values for LarkChannelMode.
 const (
-	LarkBotModeAllowlist LarkBotMode = "allowlist"
-	LarkBotModeEveryone  LarkBotMode = "everyone"
-	LarkBotModeOwner     LarkBotMode = "owner"
+	LarkChannelModeAllowlist LarkChannelMode = "allowlist"
+	LarkChannelModeEveryone  LarkChannelMode = "everyone"
+	LarkChannelModeOwner     LarkChannelMode = "owner"
 )
 
-// Valid indicates whether the value is a known member of the LarkBotMode enum.
-func (e LarkBotMode) Valid() bool {
+// Valid indicates whether the value is a known member of the LarkChannelMode enum.
+func (e LarkChannelMode) Valid() bool {
 	switch e {
-	case LarkBotModeAllowlist:
+	case LarkChannelModeAllowlist:
 		return true
-	case LarkBotModeEveryone:
+	case LarkChannelModeEveryone:
 		return true
-	case LarkBotModeOwner:
+	case LarkChannelModeOwner:
 		return true
 	default:
 		return false
@@ -1128,37 +1128,49 @@ type IntegrationList struct {
 	Data []Integration `json:"data"`
 }
 
-// LarkBot The Lark bot as the owner set it up, and whether it is connected.
-type LarkBot struct {
+// LarkChannel A Lark Channel as the owner set it up, and whether it is connected.
+type LarkChannel struct {
 	// AppId The Lark app's id. Not secret.
 	AppId string `json:"app_id"`
 
-	// Connected Whether the persistent connection to Lark is open.
+	// Bot The Bot a chat opened through the Channel talks with.
+	Bot string `json:"bot"`
+
+	// Connected Whether the Channel's persistent connection to Lark is open.
 	Connected bool `json:"connected"`
 
 	// ConnectedAppId The app the connection was opened as, when it is another than app_id: the control plane must start again to use the new one.
-	ConnectedAppId *string `json:"connected_app_id,omitempty"`
+	ConnectedAppId *string   `json:"connected_app_id,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
 
-	// Enabled Whether the bot takes messages.
+	// Enabled Whether the Channel takes messages.
 	Enabled bool `json:"enabled"`
 
 	// LastError Why the last attempt to connect failed.
 	LastError *string `json:"last_error,omitempty"`
 
-	// Mode Who may talk to the bot: its owner only, the owner and the people he added, or every member of the app's Lark organization. Someone of another organization is refused in every mode.
-	Mode LarkBotMode `json:"mode"`
+	// Mode Who may talk through the Channel: its owner only, the owner and the people he added, or every member of the app's Lark organization. Someone of another organization is refused in every mode.
+	Mode LarkChannelMode `json:"mode"`
 
-	// OwnerOpenId The owner's id at Lark.
-	OwnerOpenId string          `json:"owner_open_id"`
-	People      []LarkBotPerson `json:"people"`
-	UpdatedAt   time.Time       `json:"updated_at"`
+	// Name The Channel's name.
+	Name string `json:"name"`
+
+	// OwnerOpenId The owner's id at Lark
+	OwnerOpenId string              `json:"owner_open_id"`
+	People      []LarkChannelPerson `json:"people"`
+	UpdatedAt   time.Time           `json:"updated_at"`
 }
 
-// LarkBotMode Who may talk to the bot: its owner only, the owner and the people he added, or every member of the app's Lark organization. Someone of another organization is refused in every mode.
-type LarkBotMode string
+// LarkChannelList defines model for LarkChannelList.
+type LarkChannelList struct {
+	Data []LarkChannel `json:"data"`
+}
 
-// LarkBotPerson defines model for LarkBotPerson.
-type LarkBotPerson struct {
+// LarkChannelMode Who may talk through the Channel: its owner only, the owner and the people he added, or every member of the app's Lark organization. Someone of another organization is refused in every mode.
+type LarkChannelMode string
+
+// LarkChannelPerson defines model for LarkChannelPerson.
+type LarkChannelPerson struct {
 	CreatedAt time.Time `json:"created_at"`
 
 	// Email The email they were added with; empty when added by open_id.
@@ -1169,14 +1181,17 @@ type LarkBotPerson struct {
 	OpenId string `json:"open_id"`
 }
 
-// LarkBotSettings defines model for LarkBotSettings.
-type LarkBotSettings struct {
+// LarkChannelSettings defines model for LarkChannelSettings.
+type LarkChannelSettings struct {
 	AppId     *string `json:"app_id,omitempty"`
 	AppSecret *string `json:"app_secret,omitempty"`
-	Enabled   *bool   `json:"enabled,omitempty"`
 
-	// Mode Who may talk to the bot: its owner only, the owner and the people he added, or every member of the app's Lark organization. Someone of another organization is refused in every mode.
-	Mode *LarkBotMode `json:"mode,omitempty"`
+	// Bot The Bot the Channel talks to, which must exist; coordinator for a new Channel that names none. A chat that is open keeps its Bot; the next one is with the new Bot.
+	Bot     *string `json:"bot,omitempty"`
+	Enabled *bool   `json:"enabled,omitempty"`
+
+	// Mode Who may talk through the Channel: its owner only, the owner and the people he added, or every member of the app's Lark organization. Someone of another organization is refused in every mode.
+	Mode *LarkChannelMode `json:"mode,omitempty"`
 
 	// Owner The owner's email in the app's Lark organization, or his open_id.
 	Owner *string `json:"owner,omitempty"`
@@ -1277,8 +1292,8 @@ type NewIntegrationClient struct {
 	ClientSecret *string `json:"client_secret,omitempty"`
 }
 
-// NewLarkBotPerson defines model for NewLarkBotPerson.
-type NewLarkBotPerson struct {
+// NewLarkChannelPerson defines model for NewLarkChannelPerson.
+type NewLarkChannelPerson struct {
 	// Who Their email in the app's Lark organization, or their open_id.
 	Who string `json:"who"`
 }
@@ -1848,6 +1863,9 @@ type IdempotencyKey = string
 // IntegrationID defines model for IntegrationID.
 type IntegrationID = string
 
+// LarkChannelName defines model for LarkChannelName.
+type LarkChannelName = string
+
 // Name defines model for Name.
 type Name = string
 
@@ -1978,11 +1996,11 @@ type ChangeBotMemoryJSONRequestBody = MemoryChange
 // SetBotMemoryJSONRequestBody defines body for SetBotMemory for application/json ContentType.
 type SetBotMemoryJSONRequestBody = MemoryText
 
-// PutLarkBotJSONRequestBody defines body for PutLarkBot for application/json ContentType.
-type PutLarkBotJSONRequestBody = LarkBotSettings
+// PutLarkChannelJSONRequestBody defines body for PutLarkChannel for application/json ContentType.
+type PutLarkChannelJSONRequestBody = LarkChannelSettings
 
-// AddLarkBotPersonJSONRequestBody defines body for AddLarkBotPerson for application/json ContentType.
-type AddLarkBotPersonJSONRequestBody = NewLarkBotPerson
+// AddLarkChannelPersonJSONRequestBody defines body for AddLarkChannelPerson for application/json ContentType.
+type AddLarkChannelPersonJSONRequestBody = NewLarkChannelPerson
 
 // CreateChatJSONRequestBody defines body for CreateChat for application/json ContentType.
 type CreateChatJSONRequestBody = NewChat
@@ -2222,54 +2240,65 @@ type ClientInterface interface {
 	// Corresponds with PUT /bots/{name}/memory (the `SetBotMemory` operationId).
 	SetBotMemory(ctx context.Context, name Name, body SetBotMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// DeleteLarkBot Forget the Lark bot and its app's secret; only the owner
+	// ListLarkChannels The Lark Channels, the oldest first; only the owner
 	//
-	// Corresponds with DELETE /channels/lark (the `DeleteLarkBot` operationId).
-	DeleteLarkBot(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// A Channel is a door to one Bot: a Lark app and who may talk through it. A person's direct message to the app at Lark is a message of a chat with the Channel's Bot. Several Channels may talk to one Bot. An app's secret is never in the answer.
+	//
+	// Corresponds with GET /channels/lark (the `ListLarkChannels` operationId).
+	ListLarkChannels(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// GetLarkBot The Lark bot, who may talk to it and whether it is connected; only the owner
+	// DeleteLarkChannel Forget a Lark Channel, its people and its app's secret; only the owner
 	//
-	// The bot is a Channel: a person's direct message to it at Lark is a message of a chat with the coordinator. The app's secret is never in the answer.
+	// The chats that were opened through it stay.
 	//
-	// Corresponds with GET /channels/lark (the `GetLarkBot` operationId).
-	GetLarkBot(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// Corresponds with DELETE /channels/lark/{channel} (the `DeleteLarkChannel` operationId).
+	DeleteLarkChannel(ctx context.Context, channel LarkChannelName, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// PutLarkBotWithBody Set the Lark bot up, or change it; only the owner
+	// GetLarkChannel A Lark Channel, who may talk through it and whether it is connected; only the owner
 	//
-	// The first time it takes the app's id and secret and the owner's email at Lark. After that a field left out keeps what the bot had. The secret goes into the vault. The owner's email is looked up at Lark with the app, which also shows the app's id and secret work. A new bot is off and takes messages from its owner only. Another app is used from the control plane's next start.
+	// Corresponds with GET /channels/lark/{channel} (the `GetLarkChannel` operationId).
+	GetLarkChannel(ctx context.Context, channel LarkChannelName, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PutLarkChannelWithBody Set a Lark Channel up, or change it; only the owner
+	//
+	// The first time it takes the app's id and secret and the owner's email at Lark. After that a field left out keeps what the Channel had. The secret goes into the vault. The owner's email is looked up at Lark with the app, which also shows the app's id and secret work. A new Channel is off, takes messages from its owner only and talks to the Bot coordinator unless another is named. An app that is another Channel's is refused: one app is one Channel. A new Channel connects at once; another app of a Channel that is connected is used from the control plane's next start.
 	//
 	// Takes any type of body and a specified content type.
 	//
-	// Corresponds with PUT /channels/lark (the `PutLarkBot` operationId).
-	PutLarkBotWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// Corresponds with PUT /channels/lark/{channel} (the `PutLarkChannel` operationId).
+	PutLarkChannelWithBody(ctx context.Context, channel LarkChannelName, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// PutLarkBot Set the Lark bot up, or change it; only the owner
+	// PutLarkChannel Set a Lark Channel up, or change it; only the owner
 	//
-	// The first time it takes the app's id and secret and the owner's email at Lark. After that a field left out keeps what the bot had. The secret goes into the vault. The owner's email is looked up at Lark with the app, which also shows the app's id and secret work. A new bot is off and takes messages from its owner only. Another app is used from the control plane's next start.
+	// The first time it takes the app's id and secret and the owner's email at Lark. After that a field left out keeps what the Channel had. The secret goes into the vault. The owner's email is looked up at Lark with the app, which also shows the app's id and secret work. A new Channel is off, takes messages from its owner only and talks to the Bot coordinator unless another is named. An app that is another Channel's is refused: one app is one Channel. A new Channel connects at once; another app of a Channel that is connected is used from the control plane's next start.
 	//
 	// Takes a body of the `application/json` content type.
 	//
-	// Corresponds with PUT /channels/lark (the `PutLarkBot` operationId).
-	PutLarkBot(ctx context.Context, body PutLarkBotJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// Corresponds with PUT /channels/lark/{channel} (the `PutLarkChannel` operationId).
+	PutLarkChannel(ctx context.Context, channel LarkChannelName, body PutLarkChannelJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// AddLarkBotPersonWithBody Add someone who may talk to the Lark bot when its mode is allowlist; only the owner
+	// AddLarkChannelPersonWithBody Add someone who may talk through a Lark Channel when its mode is allowlist; only the owner
+	//
+	// Lark gives a person another open_id in each app, so a person is added to each Channel apart.
 	//
 	// Takes any type of body and a specified content type.
 	//
-	// Corresponds with POST /channels/lark/people (the `AddLarkBotPerson` operationId).
-	AddLarkBotPersonWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// Corresponds with POST /channels/lark/{channel}/people (the `AddLarkChannelPerson` operationId).
+	AddLarkChannelPersonWithBody(ctx context.Context, channel LarkChannelName, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// AddLarkBotPerson Add someone who may talk to the Lark bot when its mode is allowlist; only the owner
+	// AddLarkChannelPerson Add someone who may talk through a Lark Channel when its mode is allowlist; only the owner
+	//
+	// Lark gives a person another open_id in each app, so a person is added to each Channel apart.
 	//
 	// Takes a body of the `application/json` content type.
 	//
-	// Corresponds with POST /channels/lark/people (the `AddLarkBotPerson` operationId).
-	AddLarkBotPerson(ctx context.Context, body AddLarkBotPersonJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// Corresponds with POST /channels/lark/{channel}/people (the `AddLarkChannelPerson` operationId).
+	AddLarkChannelPerson(ctx context.Context, channel LarkChannelName, body AddLarkChannelPersonJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// RemoveLarkBotPerson Take someone off the Lark bot's list; only the owner
+	// RemoveLarkChannelPerson Take someone off a Lark Channel's list; only the owner
 	//
-	// Corresponds with DELETE /channels/lark/people/{person} (the `RemoveLarkBotPerson` operationId).
-	RemoveLarkBotPerson(ctx context.Context, person string, reqEditors ...RequestEditorFn) (*http.Response, error)
+	// Corresponds with DELETE /channels/lark/{channel}/people/{person} (the `RemoveLarkChannelPerson` operationId).
+	RemoveLarkChannelPerson(ctx context.Context, channel LarkChannelName, person string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListChats The owner's chats with the coordinator, the most recently active first
 	//
@@ -3085,11 +3114,13 @@ func (c *Client) SetBotMemory(ctx context.Context, name Name, body SetBotMemoryJ
 	return c.Client.Do(req)
 }
 
-// DeleteLarkBot Forget the Lark bot and its app's secret; only the owner
+// ListLarkChannels The Lark Channels, the oldest first; only the owner
 //
-// Corresponds with DELETE /channels/lark (the `DeleteLarkBot` operationId).
-func (c *Client) DeleteLarkBot(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewDeleteLarkBotRequest(c.Server)
+// A Channel is a door to one Bot: a Lark app and who may talk through it. A person's direct message to the app at Lark is a message of a chat with the Channel's Bot. Several Channels may talk to one Bot. An app's secret is never in the answer.
+//
+// Corresponds with GET /channels/lark (the `ListLarkChannels` operationId).
+func (c *Client) ListLarkChannels(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListLarkChannelsRequest(c.Server)
 	if err != nil {
 		return nil, err
 	}
@@ -3100,13 +3131,13 @@ func (c *Client) DeleteLarkBot(ctx context.Context, reqEditors ...RequestEditorF
 	return c.Client.Do(req)
 }
 
-// GetLarkBot The Lark bot, who may talk to it and whether it is connected; only the owner
+// DeleteLarkChannel Forget a Lark Channel, its people and its app's secret; only the owner
 //
-// The bot is a Channel: a person's direct message to it at Lark is a message of a chat with the coordinator. The app's secret is never in the answer.
+// The chats that were opened through it stay.
 //
-// Corresponds with GET /channels/lark (the `GetLarkBot` operationId).
-func (c *Client) GetLarkBot(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewGetLarkBotRequest(c.Server)
+// Corresponds with DELETE /channels/lark/{channel} (the `DeleteLarkChannel` operationId).
+func (c *Client) DeleteLarkChannel(ctx context.Context, channel LarkChannelName, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteLarkChannelRequest(c.Server, channel)
 	if err != nil {
 		return nil, err
 	}
@@ -3117,15 +3148,30 @@ func (c *Client) GetLarkBot(ctx context.Context, reqEditors ...RequestEditorFn) 
 	return c.Client.Do(req)
 }
 
-// PutLarkBotWithBody Set the Lark bot up, or change it; only the owner
+// GetLarkChannel A Lark Channel, who may talk through it and whether it is connected; only the owner
 //
-// The first time it takes the app's id and secret and the owner's email at Lark. After that a field left out keeps what the bot had. The secret goes into the vault. The owner's email is looked up at Lark with the app, which also shows the app's id and secret work. A new bot is off and takes messages from its owner only. Another app is used from the control plane's next start.
+// Corresponds with GET /channels/lark/{channel} (the `GetLarkChannel` operationId).
+func (c *Client) GetLarkChannel(ctx context.Context, channel LarkChannelName, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetLarkChannelRequest(c.Server, channel)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PutLarkChannelWithBody Set a Lark Channel up, or change it; only the owner
+//
+// The first time it takes the app's id and secret and the owner's email at Lark. After that a field left out keeps what the Channel had. The secret goes into the vault. The owner's email is looked up at Lark with the app, which also shows the app's id and secret work. A new Channel is off, takes messages from its owner only and talks to the Bot coordinator unless another is named. An app that is another Channel's is refused: one app is one Channel. A new Channel connects at once; another app of a Channel that is connected is used from the control plane's next start.
 //
 // Takes any type of body and a specified content type.
 //
-// Corresponds with PUT /channels/lark (the `PutLarkBot` operationId).
-func (c *Client) PutLarkBotWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewPutLarkBotRequestWithBody(c.Server, contentType, body)
+// Corresponds with PUT /channels/lark/{channel} (the `PutLarkChannel` operationId).
+func (c *Client) PutLarkChannelWithBody(ctx context.Context, channel LarkChannelName, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPutLarkChannelRequestWithBody(c.Server, channel, contentType, body)
 	if err != nil {
 		return nil, err
 	}
@@ -3136,15 +3182,15 @@ func (c *Client) PutLarkBotWithBody(ctx context.Context, contentType string, bod
 	return c.Client.Do(req)
 }
 
-// PutLarkBot Set the Lark bot up, or change it; only the owner
+// PutLarkChannel Set a Lark Channel up, or change it; only the owner
 //
-// The first time it takes the app's id and secret and the owner's email at Lark. After that a field left out keeps what the bot had. The secret goes into the vault. The owner's email is looked up at Lark with the app, which also shows the app's id and secret work. A new bot is off and takes messages from its owner only. Another app is used from the control plane's next start.
+// The first time it takes the app's id and secret and the owner's email at Lark. After that a field left out keeps what the Channel had. The secret goes into the vault. The owner's email is looked up at Lark with the app, which also shows the app's id and secret work. A new Channel is off, takes messages from its owner only and talks to the Bot coordinator unless another is named. An app that is another Channel's is refused: one app is one Channel. A new Channel connects at once; another app of a Channel that is connected is used from the control plane's next start.
 //
 // Takes a body of the `application/json` content type.
 //
-// Corresponds with PUT /channels/lark (the `PutLarkBot` operationId).
-func (c *Client) PutLarkBot(ctx context.Context, body PutLarkBotJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewPutLarkBotRequest(c.Server, body)
+// Corresponds with PUT /channels/lark/{channel} (the `PutLarkChannel` operationId).
+func (c *Client) PutLarkChannel(ctx context.Context, channel LarkChannelName, body PutLarkChannelJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPutLarkChannelRequest(c.Server, channel, body)
 	if err != nil {
 		return nil, err
 	}
@@ -3155,13 +3201,15 @@ func (c *Client) PutLarkBot(ctx context.Context, body PutLarkBotJSONRequestBody,
 	return c.Client.Do(req)
 }
 
-// AddLarkBotPersonWithBody Add someone who may talk to the Lark bot when its mode is allowlist; only the owner
+// AddLarkChannelPersonWithBody Add someone who may talk through a Lark Channel when its mode is allowlist; only the owner
+//
+// Lark gives a person another open_id in each app, so a person is added to each Channel apart.
 //
 // Takes any type of body and a specified content type.
 //
-// Corresponds with POST /channels/lark/people (the `AddLarkBotPerson` operationId).
-func (c *Client) AddLarkBotPersonWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewAddLarkBotPersonRequestWithBody(c.Server, contentType, body)
+// Corresponds with POST /channels/lark/{channel}/people (the `AddLarkChannelPerson` operationId).
+func (c *Client) AddLarkChannelPersonWithBody(ctx context.Context, channel LarkChannelName, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAddLarkChannelPersonRequestWithBody(c.Server, channel, contentType, body)
 	if err != nil {
 		return nil, err
 	}
@@ -3172,13 +3220,15 @@ func (c *Client) AddLarkBotPersonWithBody(ctx context.Context, contentType strin
 	return c.Client.Do(req)
 }
 
-// AddLarkBotPerson Add someone who may talk to the Lark bot when its mode is allowlist; only the owner
+// AddLarkChannelPerson Add someone who may talk through a Lark Channel when its mode is allowlist; only the owner
+//
+// Lark gives a person another open_id in each app, so a person is added to each Channel apart.
 //
 // Takes a body of the `application/json` content type.
 //
-// Corresponds with POST /channels/lark/people (the `AddLarkBotPerson` operationId).
-func (c *Client) AddLarkBotPerson(ctx context.Context, body AddLarkBotPersonJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewAddLarkBotPersonRequest(c.Server, body)
+// Corresponds with POST /channels/lark/{channel}/people (the `AddLarkChannelPerson` operationId).
+func (c *Client) AddLarkChannelPerson(ctx context.Context, channel LarkChannelName, body AddLarkChannelPersonJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAddLarkChannelPersonRequest(c.Server, channel, body)
 	if err != nil {
 		return nil, err
 	}
@@ -3189,11 +3239,11 @@ func (c *Client) AddLarkBotPerson(ctx context.Context, body AddLarkBotPersonJSON
 	return c.Client.Do(req)
 }
 
-// RemoveLarkBotPerson Take someone off the Lark bot's list; only the owner
+// RemoveLarkChannelPerson Take someone off a Lark Channel's list; only the owner
 //
-// Corresponds with DELETE /channels/lark/people/{person} (the `RemoveLarkBotPerson` operationId).
-func (c *Client) RemoveLarkBotPerson(ctx context.Context, person string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewRemoveLarkBotPersonRequest(c.Server, person)
+// Corresponds with DELETE /channels/lark/{channel}/people/{person} (the `RemoveLarkChannelPerson` operationId).
+func (c *Client) RemoveLarkChannelPerson(ctx context.Context, channel LarkChannelName, person string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRemoveLarkChannelPersonRequest(c.Server, channel, person)
 	if err != nil {
 		return nil, err
 	}
@@ -5054,35 +5104,8 @@ func NewSetBotMemoryRequestWithBody(server string, name Name, contentType string
 	return req, nil
 }
 
-// NewDeleteLarkBotRequest constructs an http.Request for the DeleteLarkBot method
-func NewDeleteLarkBotRequest(server string) (*http.Request, error) {
-	var err error
-
-	serverURL, err := url.Parse(server)
-	if err != nil {
-		return nil, err
-	}
-
-	operationPath := fmt.Sprintf("/channels/lark")
-	if operationPath[0] == '/' {
-		operationPath = "." + operationPath
-	}
-
-	queryURL, err := serverURL.Parse(operationPath)
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
-	if err != nil {
-		return nil, err
-	}
-
-	return req, nil
-}
-
-// NewGetLarkBotRequest constructs an http.Request for the GetLarkBot method
-func NewGetLarkBotRequest(server string) (*http.Request, error) {
+// NewListLarkChannelsRequest constructs an http.Request for the ListLarkChannels method
+func NewListLarkChannelsRequest(server string) (*http.Request, error) {
 	var err error
 
 	serverURL, err := url.Parse(server)
@@ -5108,27 +5131,102 @@ func NewGetLarkBotRequest(server string) (*http.Request, error) {
 	return req, nil
 }
 
-// NewPutLarkBotRequest calls the generic PutLarkBot builder with application/json body
-func NewPutLarkBotRequest(server string, body PutLarkBotJSONRequestBody) (*http.Request, error) {
-	var bodyReader io.Reader
-	buf, err := json.Marshal(body)
+// NewDeleteLarkChannelRequest constructs an http.Request for the DeleteLarkChannel method
+func NewDeleteLarkChannelRequest(server string, channel LarkChannelName) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "channel", channel, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
-	bodyReader = bytes.NewReader(buf)
-	return NewPutLarkBotRequestWithBody(server, "application/json", bodyReader)
-}
-
-// NewPutLarkBotRequestWithBody constructs an http.Request for the PutLarkBot method, with any body, and a specified content type
-func NewPutLarkBotRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
-	var err error
 
 	serverURL, err := url.Parse(server)
 	if err != nil {
 		return nil, err
 	}
 
-	operationPath := fmt.Sprintf("/channels/lark")
+	operationPath := fmt.Sprintf("/channels/lark/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetLarkChannelRequest constructs an http.Request for the GetLarkChannel method
+func NewGetLarkChannelRequest(server string, channel LarkChannelName) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "channel", channel, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/channels/lark/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewPutLarkChannelRequest calls the generic PutLarkChannel builder with application/json body
+func NewPutLarkChannelRequest(server string, channel LarkChannelName, body PutLarkChannelJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPutLarkChannelRequestWithBody(server, channel, "application/json", bodyReader)
+}
+
+// NewPutLarkChannelRequestWithBody constructs an http.Request for the PutLarkChannel method, with any body, and a specified content type
+func NewPutLarkChannelRequestWithBody(server string, channel LarkChannelName, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "channel", channel, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/channels/lark/%s", pathParam0)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -5148,27 +5246,34 @@ func NewPutLarkBotRequestWithBody(server string, contentType string, body io.Rea
 	return req, nil
 }
 
-// NewAddLarkBotPersonRequest calls the generic AddLarkBotPerson builder with application/json body
-func NewAddLarkBotPersonRequest(server string, body AddLarkBotPersonJSONRequestBody) (*http.Request, error) {
+// NewAddLarkChannelPersonRequest calls the generic AddLarkChannelPerson builder with application/json body
+func NewAddLarkChannelPersonRequest(server string, channel LarkChannelName, body AddLarkChannelPersonJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
 	buf, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
 	}
 	bodyReader = bytes.NewReader(buf)
-	return NewAddLarkBotPersonRequestWithBody(server, "application/json", bodyReader)
+	return NewAddLarkChannelPersonRequestWithBody(server, channel, "application/json", bodyReader)
 }
 
-// NewAddLarkBotPersonRequestWithBody constructs an http.Request for the AddLarkBotPerson method, with any body, and a specified content type
-func NewAddLarkBotPersonRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+// NewAddLarkChannelPersonRequestWithBody constructs an http.Request for the AddLarkChannelPerson method, with any body, and a specified content type
+func NewAddLarkChannelPersonRequestWithBody(server string, channel LarkChannelName, contentType string, body io.Reader) (*http.Request, error) {
 	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "channel", channel, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
 
 	serverURL, err := url.Parse(server)
 	if err != nil {
 		return nil, err
 	}
 
-	operationPath := fmt.Sprintf("/channels/lark/people")
+	operationPath := fmt.Sprintf("/channels/lark/%s/people", pathParam0)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -5188,13 +5293,20 @@ func NewAddLarkBotPersonRequestWithBody(server string, contentType string, body 
 	return req, nil
 }
 
-// NewRemoveLarkBotPersonRequest constructs an http.Request for the RemoveLarkBotPerson method
-func NewRemoveLarkBotPersonRequest(server string, person string) (*http.Request, error) {
+// NewRemoveLarkChannelPersonRequest constructs an http.Request for the RemoveLarkChannelPerson method
+func NewRemoveLarkChannelPersonRequest(server string, channel LarkChannelName, person string) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
 
-	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "person", person, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "channel", channel, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "person", person, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
 	if err != nil {
 		return nil, err
 	}
@@ -5204,7 +5316,7 @@ func NewRemoveLarkBotPersonRequest(server string, person string) (*http.Request,
 		return nil, err
 	}
 
-	operationPath := fmt.Sprintf("/channels/lark/people/%s", pathParam0)
+	operationPath := fmt.Sprintf("/channels/lark/%s/people/%s", pathParam0, pathParam1)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -8351,60 +8463,73 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with PUT /bots/{name}/memory (the `SetBotMemory` operationId).
 	SetBotMemoryWithResponse(ctx context.Context, name Name, body SetBotMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*SetBotMemoryResponse, error)
 
-	// DeleteLarkBotWithResponse Forget the Lark bot and its app's secret; only the owner
+	// ListLarkChannelsWithResponse The Lark Channels, the oldest first; only the owner
+	//
+	// A Channel is a door to one Bot: a Lark app and who may talk through it. A person's direct message to the app at Lark is a message of a chat with the Channel's Bot. Several Channels may talk to one Bot. An app's secret is never in the answer.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
-	// Corresponds with DELETE /channels/lark (the `DeleteLarkBot` operationId).
-	DeleteLarkBotWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*DeleteLarkBotResponse, error)
+	// Corresponds with GET /channels/lark (the `ListLarkChannels` operationId).
+	ListLarkChannelsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListLarkChannelsResponse, error)
 
-	// GetLarkBotWithResponse The Lark bot, who may talk to it and whether it is connected; only the owner
+	// DeleteLarkChannelWithResponse Forget a Lark Channel, its people and its app's secret; only the owner
 	//
-	// The bot is a Channel: a person's direct message to it at Lark is a message of a chat with the coordinator. The app's secret is never in the answer.
+	// The chats that were opened through it stay.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
-	// Corresponds with GET /channels/lark (the `GetLarkBot` operationId).
-	GetLarkBotWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetLarkBotResponse, error)
+	// Corresponds with DELETE /channels/lark/{channel} (the `DeleteLarkChannel` operationId).
+	DeleteLarkChannelWithResponse(ctx context.Context, channel LarkChannelName, reqEditors ...RequestEditorFn) (*DeleteLarkChannelResponse, error)
 
-	// PutLarkBotWithBodyWithResponse Set the Lark bot up, or change it; only the owner
+	// GetLarkChannelWithResponse A Lark Channel, who may talk through it and whether it is connected; only the owner
 	//
-	// The first time it takes the app's id and secret and the owner's email at Lark. After that a field left out keeps what the bot had. The secret goes into the vault. The owner's email is looked up at Lark with the app, which also shows the app's id and secret work. A new bot is off and takes messages from its owner only. Another app is used from the control plane's next start.
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /channels/lark/{channel} (the `GetLarkChannel` operationId).
+	GetLarkChannelWithResponse(ctx context.Context, channel LarkChannelName, reqEditors ...RequestEditorFn) (*GetLarkChannelResponse, error)
+
+	// PutLarkChannelWithBodyWithResponse Set a Lark Channel up, or change it; only the owner
+	//
+	// The first time it takes the app's id and secret and the owner's email at Lark. After that a field left out keeps what the Channel had. The secret goes into the vault. The owner's email is looked up at Lark with the app, which also shows the app's id and secret work. A new Channel is off, takes messages from its owner only and talks to the Bot coordinator unless another is named. An app that is another Channel's is refused: one app is one Channel. A new Channel connects at once; another app of a Channel that is connected is used from the control plane's next start.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
-	// Corresponds with PUT /channels/lark (the `PutLarkBot` operationId).
-	PutLarkBotWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutLarkBotResponse, error)
+	// Corresponds with PUT /channels/lark/{channel} (the `PutLarkChannel` operationId).
+	PutLarkChannelWithBodyWithResponse(ctx context.Context, channel LarkChannelName, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutLarkChannelResponse, error)
 
-	// PutLarkBotWithResponse Set the Lark bot up, or change it; only the owner
+	// PutLarkChannelWithResponse Set a Lark Channel up, or change it; only the owner
 	//
-	// The first time it takes the app's id and secret and the owner's email at Lark. After that a field left out keeps what the bot had. The secret goes into the vault. The owner's email is looked up at Lark with the app, which also shows the app's id and secret work. A new bot is off and takes messages from its owner only. Another app is used from the control plane's next start.
+	// The first time it takes the app's id and secret and the owner's email at Lark. After that a field left out keeps what the Channel had. The secret goes into the vault. The owner's email is looked up at Lark with the app, which also shows the app's id and secret work. A new Channel is off, takes messages from its owner only and talks to the Bot coordinator unless another is named. An app that is another Channel's is refused: one app is one Channel. A new Channel connects at once; another app of a Channel that is connected is used from the control plane's next start.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
-	// Corresponds with PUT /channels/lark (the `PutLarkBot` operationId).
-	PutLarkBotWithResponse(ctx context.Context, body PutLarkBotJSONRequestBody, reqEditors ...RequestEditorFn) (*PutLarkBotResponse, error)
+	// Corresponds with PUT /channels/lark/{channel} (the `PutLarkChannel` operationId).
+	PutLarkChannelWithResponse(ctx context.Context, channel LarkChannelName, body PutLarkChannelJSONRequestBody, reqEditors ...RequestEditorFn) (*PutLarkChannelResponse, error)
 
-	// AddLarkBotPersonWithBodyWithResponse Add someone who may talk to the Lark bot when its mode is allowlist; only the owner
+	// AddLarkChannelPersonWithBodyWithResponse Add someone who may talk through a Lark Channel when its mode is allowlist; only the owner
+	//
+	// Lark gives a person another open_id in each app, so a person is added to each Channel apart.
 	//
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
-	// Corresponds with POST /channels/lark/people (the `AddLarkBotPerson` operationId).
-	AddLarkBotPersonWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AddLarkBotPersonResponse, error)
+	// Corresponds with POST /channels/lark/{channel}/people (the `AddLarkChannelPerson` operationId).
+	AddLarkChannelPersonWithBodyWithResponse(ctx context.Context, channel LarkChannelName, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AddLarkChannelPersonResponse, error)
 
-	// AddLarkBotPersonWithResponse Add someone who may talk to the Lark bot when its mode is allowlist; only the owner
+	// AddLarkChannelPersonWithResponse Add someone who may talk through a Lark Channel when its mode is allowlist; only the owner
+	//
+	// Lark gives a person another open_id in each app, so a person is added to each Channel apart.
 	//
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
-	// Corresponds with POST /channels/lark/people (the `AddLarkBotPerson` operationId).
-	AddLarkBotPersonWithResponse(ctx context.Context, body AddLarkBotPersonJSONRequestBody, reqEditors ...RequestEditorFn) (*AddLarkBotPersonResponse, error)
+	// Corresponds with POST /channels/lark/{channel}/people (the `AddLarkChannelPerson` operationId).
+	AddLarkChannelPersonWithResponse(ctx context.Context, channel LarkChannelName, body AddLarkChannelPersonJSONRequestBody, reqEditors ...RequestEditorFn) (*AddLarkChannelPersonResponse, error)
 
-	// RemoveLarkBotPersonWithResponse Take someone off the Lark bot's list; only the owner
+	// RemoveLarkChannelPersonWithResponse Take someone off a Lark Channel's list; only the owner
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
-	// Corresponds with DELETE /channels/lark/people/{person} (the `RemoveLarkBotPerson` operationId).
-	RemoveLarkBotPersonWithResponse(ctx context.Context, person string, reqEditors ...RequestEditorFn) (*RemoveLarkBotPersonResponse, error)
+	// Corresponds with DELETE /channels/lark/{channel}/people/{person} (the `RemoveLarkChannelPerson` operationId).
+	RemoveLarkChannelPersonWithResponse(ctx context.Context, channel LarkChannelName, person string, reqEditors ...RequestEditorFn) (*RemoveLarkChannelPersonResponse, error)
 
 	// ListChatsWithResponse The owner's chats with the coordinator, the most recently active first
 	//
@@ -9506,73 +9631,32 @@ func (r SetBotMemoryResponse) ContentType() string {
 	return ""
 }
 
-type DeleteLarkBotResponse struct {
-	Body         []byte
-	HTTPResponse *http.Response
-	// JSONDefault the response for an HTTP default `application/json` response
-	JSONDefault *Error
-}
-
-// GetJSONDefault returns the response for an HTTP default `application/json` response
-func (r DeleteLarkBotResponse) GetJSONDefault() *Error {
-	return r.JSONDefault
-}
-
-// GetBody returns the raw response body bytes
-func (r DeleteLarkBotResponse) GetBody() []byte {
-	return r.Body
-}
-
-// Status returns HTTPResponse.Status
-func (r DeleteLarkBotResponse) Status() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Status
-	}
-	return http.StatusText(0)
-}
-
-// StatusCode returns HTTPResponse.StatusCode
-func (r DeleteLarkBotResponse) StatusCode() int {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.StatusCode
-	}
-	return 0
-}
-
-// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r DeleteLarkBotResponse) ContentType() string {
-	if r.HTTPResponse != nil {
-		return r.HTTPResponse.Header.Get("Content-Type")
-	}
-	return ""
-}
-
-type GetLarkBotResponse struct {
+type ListLarkChannelsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	// JSON200 the response for an HTTP 200 `application/json` response
-	JSON200 *LarkBot
+	JSON200 *LarkChannelList
 	// JSONDefault the response for an HTTP default `application/json` response
 	JSONDefault *Error
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
-func (r GetLarkBotResponse) GetJSON200() *LarkBot {
+func (r ListLarkChannelsResponse) GetJSON200() *LarkChannelList {
 	return r.JSON200
 }
 
 // GetJSONDefault returns the response for an HTTP default `application/json` response
-func (r GetLarkBotResponse) GetJSONDefault() *Error {
+func (r ListLarkChannelsResponse) GetJSONDefault() *Error {
 	return r.JSONDefault
 }
 
 // GetBody returns the raw response body bytes
-func (r GetLarkBotResponse) GetBody() []byte {
+func (r ListLarkChannelsResponse) GetBody() []byte {
 	return r.Body
 }
 
 // Status returns HTTPResponse.Status
-func (r GetLarkBotResponse) Status() string {
+func (r ListLarkChannelsResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -9580,7 +9664,7 @@ func (r GetLarkBotResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r GetLarkBotResponse) StatusCode() int {
+func (r ListLarkChannelsResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -9588,39 +9672,80 @@ func (r GetLarkBotResponse) StatusCode() int {
 }
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r GetLarkBotResponse) ContentType() string {
+func (r ListLarkChannelsResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
 	return ""
 }
 
-type PutLarkBotResponse struct {
+type DeleteLarkChannelResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r DeleteLarkChannelResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r DeleteLarkChannelResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteLarkChannelResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteLarkChannelResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DeleteLarkChannelResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetLarkChannelResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	// JSON200 the response for an HTTP 200 `application/json` response
-	JSON200 *LarkBot
+	JSON200 *LarkChannel
 	// JSONDefault the response for an HTTP default `application/json` response
 	JSONDefault *Error
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
-func (r PutLarkBotResponse) GetJSON200() *LarkBot {
+func (r GetLarkChannelResponse) GetJSON200() *LarkChannel {
 	return r.JSON200
 }
 
 // GetJSONDefault returns the response for an HTTP default `application/json` response
-func (r PutLarkBotResponse) GetJSONDefault() *Error {
+func (r GetLarkChannelResponse) GetJSONDefault() *Error {
 	return r.JSONDefault
 }
 
 // GetBody returns the raw response body bytes
-func (r PutLarkBotResponse) GetBody() []byte {
+func (r GetLarkChannelResponse) GetBody() []byte {
 	return r.Body
 }
 
 // Status returns HTTPResponse.Status
-func (r PutLarkBotResponse) Status() string {
+func (r GetLarkChannelResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -9628,7 +9753,7 @@ func (r PutLarkBotResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r PutLarkBotResponse) StatusCode() int {
+func (r GetLarkChannelResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -9636,39 +9761,39 @@ func (r PutLarkBotResponse) StatusCode() int {
 }
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r PutLarkBotResponse) ContentType() string {
+func (r GetLarkChannelResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
 	return ""
 }
 
-type AddLarkBotPersonResponse struct {
+type PutLarkChannelResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	// JSON200 the response for an HTTP 200 `application/json` response
-	JSON200 *LarkBotPerson
+	JSON200 *LarkChannel
 	// JSONDefault the response for an HTTP default `application/json` response
 	JSONDefault *Error
 }
 
 // GetJSON200 returns the response for an HTTP 200 `application/json` response
-func (r AddLarkBotPersonResponse) GetJSON200() *LarkBotPerson {
+func (r PutLarkChannelResponse) GetJSON200() *LarkChannel {
 	return r.JSON200
 }
 
 // GetJSONDefault returns the response for an HTTP default `application/json` response
-func (r AddLarkBotPersonResponse) GetJSONDefault() *Error {
+func (r PutLarkChannelResponse) GetJSONDefault() *Error {
 	return r.JSONDefault
 }
 
 // GetBody returns the raw response body bytes
-func (r AddLarkBotPersonResponse) GetBody() []byte {
+func (r PutLarkChannelResponse) GetBody() []byte {
 	return r.Body
 }
 
 // Status returns HTTPResponse.Status
-func (r AddLarkBotPersonResponse) Status() string {
+func (r PutLarkChannelResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -9676,7 +9801,7 @@ func (r AddLarkBotPersonResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r AddLarkBotPersonResponse) StatusCode() int {
+func (r PutLarkChannelResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -9684,14 +9809,62 @@ func (r AddLarkBotPersonResponse) StatusCode() int {
 }
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r AddLarkBotPersonResponse) ContentType() string {
+func (r PutLarkChannelResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
 	return ""
 }
 
-type RemoveLarkBotPersonResponse struct {
+type AddLarkChannelPersonResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *LarkChannelPerson
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r AddLarkChannelPersonResponse) GetJSON200() *LarkChannelPerson {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r AddLarkChannelPersonResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r AddLarkChannelPersonResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r AddLarkChannelPersonResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r AddLarkChannelPersonResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r AddLarkChannelPersonResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type RemoveLarkChannelPersonResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
 	// JSONDefault the response for an HTTP default `application/json` response
@@ -9699,17 +9872,17 @@ type RemoveLarkBotPersonResponse struct {
 }
 
 // GetJSONDefault returns the response for an HTTP default `application/json` response
-func (r RemoveLarkBotPersonResponse) GetJSONDefault() *Error {
+func (r RemoveLarkChannelPersonResponse) GetJSONDefault() *Error {
 	return r.JSONDefault
 }
 
 // GetBody returns the raw response body bytes
-func (r RemoveLarkBotPersonResponse) GetBody() []byte {
+func (r RemoveLarkChannelPersonResponse) GetBody() []byte {
 	return r.Body
 }
 
 // Status returns HTTPResponse.Status
-func (r RemoveLarkBotPersonResponse) Status() string {
+func (r RemoveLarkChannelPersonResponse) Status() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Status
 	}
@@ -9717,7 +9890,7 @@ func (r RemoveLarkBotPersonResponse) Status() string {
 }
 
 // StatusCode returns HTTPResponse.StatusCode
-func (r RemoveLarkBotPersonResponse) StatusCode() int {
+func (r RemoveLarkChannelPersonResponse) StatusCode() int {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.StatusCode
 	}
@@ -9725,7 +9898,7 @@ func (r RemoveLarkBotPersonResponse) StatusCode() int {
 }
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
-func (r RemoveLarkBotPersonResponse) ContentType() string {
+func (r RemoveLarkChannelPersonResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -13102,101 +13275,120 @@ func (c *ClientWithResponses) SetBotMemoryWithResponse(ctx context.Context, name
 	return ParseSetBotMemoryResponse(rsp)
 }
 
-// DeleteLarkBotWithResponse Forget the Lark bot and its app's secret; only the owner
+// ListLarkChannelsWithResponse The Lark Channels, the oldest first; only the owner
+//
+// A Channel is a door to one Bot: a Lark app and who may talk through it. A person's direct message to the app at Lark is a message of a chat with the Channel's Bot. Several Channels may talk to one Bot. An app's secret is never in the answer.
 //
 // Returns a wrapper object for the known response body format(s).
 //
-// Corresponds with DELETE /channels/lark (the `DeleteLarkBot` operationId).
-func (c *ClientWithResponses) DeleteLarkBotWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*DeleteLarkBotResponse, error) {
-	rsp, err := c.DeleteLarkBot(ctx, reqEditors...)
+// Corresponds with GET /channels/lark (the `ListLarkChannels` operationId).
+func (c *ClientWithResponses) ListLarkChannelsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListLarkChannelsResponse, error) {
+	rsp, err := c.ListLarkChannels(ctx, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseDeleteLarkBotResponse(rsp)
+	return ParseListLarkChannelsResponse(rsp)
 }
 
-// GetLarkBotWithResponse The Lark bot, who may talk to it and whether it is connected; only the owner
+// DeleteLarkChannelWithResponse Forget a Lark Channel, its people and its app's secret; only the owner
 //
-// The bot is a Channel: a person's direct message to it at Lark is a message of a chat with the coordinator. The app's secret is never in the answer.
+// The chats that were opened through it stay.
 //
 // Returns a wrapper object for the known response body format(s).
 //
-// Corresponds with GET /channels/lark (the `GetLarkBot` operationId).
-func (c *ClientWithResponses) GetLarkBotWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetLarkBotResponse, error) {
-	rsp, err := c.GetLarkBot(ctx, reqEditors...)
+// Corresponds with DELETE /channels/lark/{channel} (the `DeleteLarkChannel` operationId).
+func (c *ClientWithResponses) DeleteLarkChannelWithResponse(ctx context.Context, channel LarkChannelName, reqEditors ...RequestEditorFn) (*DeleteLarkChannelResponse, error) {
+	rsp, err := c.DeleteLarkChannel(ctx, channel, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseGetLarkBotResponse(rsp)
+	return ParseDeleteLarkChannelResponse(rsp)
 }
 
-// PutLarkBotWithBodyWithResponse Set the Lark bot up, or change it; only the owner
+// GetLarkChannelWithResponse A Lark Channel, who may talk through it and whether it is connected; only the owner
 //
-// The first time it takes the app's id and secret and the owner's email at Lark. After that a field left out keeps what the bot had. The secret goes into the vault. The owner's email is looked up at Lark with the app, which also shows the app's id and secret work. A new bot is off and takes messages from its owner only. Another app is used from the control plane's next start.
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /channels/lark/{channel} (the `GetLarkChannel` operationId).
+func (c *ClientWithResponses) GetLarkChannelWithResponse(ctx context.Context, channel LarkChannelName, reqEditors ...RequestEditorFn) (*GetLarkChannelResponse, error) {
+	rsp, err := c.GetLarkChannel(ctx, channel, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetLarkChannelResponse(rsp)
+}
+
+// PutLarkChannelWithBodyWithResponse Set a Lark Channel up, or change it; only the owner
+//
+// The first time it takes the app's id and secret and the owner's email at Lark. After that a field left out keeps what the Channel had. The secret goes into the vault. The owner's email is looked up at Lark with the app, which also shows the app's id and secret work. A new Channel is off, takes messages from its owner only and talks to the Bot coordinator unless another is named. An app that is another Channel's is refused: one app is one Channel. A new Channel connects at once; another app of a Channel that is connected is used from the control plane's next start.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
-// Corresponds with PUT /channels/lark (the `PutLarkBot` operationId).
-func (c *ClientWithResponses) PutLarkBotWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutLarkBotResponse, error) {
-	rsp, err := c.PutLarkBotWithBody(ctx, contentType, body, reqEditors...)
+// Corresponds with PUT /channels/lark/{channel} (the `PutLarkChannel` operationId).
+func (c *ClientWithResponses) PutLarkChannelWithBodyWithResponse(ctx context.Context, channel LarkChannelName, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutLarkChannelResponse, error) {
+	rsp, err := c.PutLarkChannelWithBody(ctx, channel, contentType, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParsePutLarkBotResponse(rsp)
+	return ParsePutLarkChannelResponse(rsp)
 }
 
-// PutLarkBotWithResponse Set the Lark bot up, or change it; only the owner
+// PutLarkChannelWithResponse Set a Lark Channel up, or change it; only the owner
 //
-// The first time it takes the app's id and secret and the owner's email at Lark. After that a field left out keeps what the bot had. The secret goes into the vault. The owner's email is looked up at Lark with the app, which also shows the app's id and secret work. A new bot is off and takes messages from its owner only. Another app is used from the control plane's next start.
+// The first time it takes the app's id and secret and the owner's email at Lark. After that a field left out keeps what the Channel had. The secret goes into the vault. The owner's email is looked up at Lark with the app, which also shows the app's id and secret work. A new Channel is off, takes messages from its owner only and talks to the Bot coordinator unless another is named. An app that is another Channel's is refused: one app is one Channel. A new Channel connects at once; another app of a Channel that is connected is used from the control plane's next start.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
-// Corresponds with PUT /channels/lark (the `PutLarkBot` operationId).
-func (c *ClientWithResponses) PutLarkBotWithResponse(ctx context.Context, body PutLarkBotJSONRequestBody, reqEditors ...RequestEditorFn) (*PutLarkBotResponse, error) {
-	rsp, err := c.PutLarkBot(ctx, body, reqEditors...)
+// Corresponds with PUT /channels/lark/{channel} (the `PutLarkChannel` operationId).
+func (c *ClientWithResponses) PutLarkChannelWithResponse(ctx context.Context, channel LarkChannelName, body PutLarkChannelJSONRequestBody, reqEditors ...RequestEditorFn) (*PutLarkChannelResponse, error) {
+	rsp, err := c.PutLarkChannel(ctx, channel, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParsePutLarkBotResponse(rsp)
+	return ParsePutLarkChannelResponse(rsp)
 }
 
-// AddLarkBotPersonWithBodyWithResponse Add someone who may talk to the Lark bot when its mode is allowlist; only the owner
+// AddLarkChannelPersonWithBodyWithResponse Add someone who may talk through a Lark Channel when its mode is allowlist; only the owner
+//
+// Lark gives a person another open_id in each app, so a person is added to each Channel apart.
 //
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
-// Corresponds with POST /channels/lark/people (the `AddLarkBotPerson` operationId).
-func (c *ClientWithResponses) AddLarkBotPersonWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AddLarkBotPersonResponse, error) {
-	rsp, err := c.AddLarkBotPersonWithBody(ctx, contentType, body, reqEditors...)
+// Corresponds with POST /channels/lark/{channel}/people (the `AddLarkChannelPerson` operationId).
+func (c *ClientWithResponses) AddLarkChannelPersonWithBodyWithResponse(ctx context.Context, channel LarkChannelName, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AddLarkChannelPersonResponse, error) {
+	rsp, err := c.AddLarkChannelPersonWithBody(ctx, channel, contentType, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseAddLarkBotPersonResponse(rsp)
+	return ParseAddLarkChannelPersonResponse(rsp)
 }
 
-// AddLarkBotPersonWithResponse Add someone who may talk to the Lark bot when its mode is allowlist; only the owner
+// AddLarkChannelPersonWithResponse Add someone who may talk through a Lark Channel when its mode is allowlist; only the owner
+//
+// Lark gives a person another open_id in each app, so a person is added to each Channel apart.
 //
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
-// Corresponds with POST /channels/lark/people (the `AddLarkBotPerson` operationId).
-func (c *ClientWithResponses) AddLarkBotPersonWithResponse(ctx context.Context, body AddLarkBotPersonJSONRequestBody, reqEditors ...RequestEditorFn) (*AddLarkBotPersonResponse, error) {
-	rsp, err := c.AddLarkBotPerson(ctx, body, reqEditors...)
+// Corresponds with POST /channels/lark/{channel}/people (the `AddLarkChannelPerson` operationId).
+func (c *ClientWithResponses) AddLarkChannelPersonWithResponse(ctx context.Context, channel LarkChannelName, body AddLarkChannelPersonJSONRequestBody, reqEditors ...RequestEditorFn) (*AddLarkChannelPersonResponse, error) {
+	rsp, err := c.AddLarkChannelPerson(ctx, channel, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseAddLarkBotPersonResponse(rsp)
+	return ParseAddLarkChannelPersonResponse(rsp)
 }
 
-// RemoveLarkBotPersonWithResponse Take someone off the Lark bot's list; only the owner
+// RemoveLarkChannelPersonWithResponse Take someone off a Lark Channel's list; only the owner
 //
 // Returns a wrapper object for the known response body format(s).
 //
-// Corresponds with DELETE /channels/lark/people/{person} (the `RemoveLarkBotPerson` operationId).
-func (c *ClientWithResponses) RemoveLarkBotPersonWithResponse(ctx context.Context, person string, reqEditors ...RequestEditorFn) (*RemoveLarkBotPersonResponse, error) {
-	rsp, err := c.RemoveLarkBotPerson(ctx, person, reqEditors...)
+// Corresponds with DELETE /channels/lark/{channel}/people/{person} (the `RemoveLarkChannelPerson` operationId).
+func (c *ClientWithResponses) RemoveLarkChannelPersonWithResponse(ctx context.Context, channel LarkChannelName, person string, reqEditors ...RequestEditorFn) (*RemoveLarkChannelPersonResponse, error) {
+	rsp, err := c.RemoveLarkChannelPerson(ctx, channel, person, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
-	return ParseRemoveLarkBotPersonResponse(rsp)
+	return ParseRemoveLarkChannelPersonResponse(rsp)
 }
 
 // ListChatsWithResponse The owner's chats with the coordinator, the most recently active first
@@ -14694,15 +14886,48 @@ func ParseSetBotMemoryResponse(rsp *http.Response) (*SetBotMemoryResponse, error
 	return response, nil
 }
 
-// ParseDeleteLarkBotResponse parses an HTTP response from a DeleteLarkBotWithResponse call
-func ParseDeleteLarkBotResponse(rsp *http.Response) (*DeleteLarkBotResponse, error) {
+// ParseListLarkChannelsResponse parses an HTTP response from a ListLarkChannelsWithResponse call
+func ParseListLarkChannelsResponse(rsp *http.Response) (*ListLarkChannelsResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &DeleteLarkBotResponse{
+	response := &ListLarkChannelsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest LarkChannelList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDeleteLarkChannelResponse parses an HTTP response from a DeleteLarkChannelWithResponse call
+func ParseDeleteLarkChannelResponse(rsp *http.Response) (*DeleteLarkChannelResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteLarkChannelResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
@@ -14723,22 +14948,22 @@ func ParseDeleteLarkBotResponse(rsp *http.Response) (*DeleteLarkBotResponse, err
 	return response, nil
 }
 
-// ParseGetLarkBotResponse parses an HTTP response from a GetLarkBotWithResponse call
-func ParseGetLarkBotResponse(rsp *http.Response) (*GetLarkBotResponse, error) {
+// ParseGetLarkChannelResponse parses an HTTP response from a GetLarkChannelWithResponse call
+func ParseGetLarkChannelResponse(rsp *http.Response) (*GetLarkChannelResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &GetLarkBotResponse{
+	response := &GetLarkChannelResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest LarkBot
+		var dest LarkChannel
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -14756,22 +14981,22 @@ func ParseGetLarkBotResponse(rsp *http.Response) (*GetLarkBotResponse, error) {
 	return response, nil
 }
 
-// ParsePutLarkBotResponse parses an HTTP response from a PutLarkBotWithResponse call
-func ParsePutLarkBotResponse(rsp *http.Response) (*PutLarkBotResponse, error) {
+// ParsePutLarkChannelResponse parses an HTTP response from a PutLarkChannelWithResponse call
+func ParsePutLarkChannelResponse(rsp *http.Response) (*PutLarkChannelResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &PutLarkBotResponse{
+	response := &PutLarkChannelResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest LarkBot
+		var dest LarkChannel
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -14789,22 +15014,22 @@ func ParsePutLarkBotResponse(rsp *http.Response) (*PutLarkBotResponse, error) {
 	return response, nil
 }
 
-// ParseAddLarkBotPersonResponse parses an HTTP response from a AddLarkBotPersonWithResponse call
-func ParseAddLarkBotPersonResponse(rsp *http.Response) (*AddLarkBotPersonResponse, error) {
+// ParseAddLarkChannelPersonResponse parses an HTTP response from a AddLarkChannelPersonWithResponse call
+func ParseAddLarkChannelPersonResponse(rsp *http.Response) (*AddLarkChannelPersonResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &AddLarkBotPersonResponse{
+	response := &AddLarkChannelPersonResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
 
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
-		var dest LarkBotPerson
+		var dest LarkChannelPerson
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -14822,15 +15047,15 @@ func ParseAddLarkBotPersonResponse(rsp *http.Response) (*AddLarkBotPersonRespons
 	return response, nil
 }
 
-// ParseRemoveLarkBotPersonResponse parses an HTTP response from a RemoveLarkBotPersonWithResponse call
-func ParseRemoveLarkBotPersonResponse(rsp *http.Response) (*RemoveLarkBotPersonResponse, error) {
+// ParseRemoveLarkChannelPersonResponse parses an HTTP response from a RemoveLarkChannelPersonWithResponse call
+func ParseRemoveLarkChannelPersonResponse(rsp *http.Response) (*RemoveLarkChannelPersonResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
 	defer func() { _ = rsp.Body.Close() }()
 	if err != nil {
 		return nil, err
 	}
 
-	response := &RemoveLarkBotPersonResponse{
+	response := &RemoveLarkChannelPersonResponse{
 		Body:         bodyBytes,
 		HTTPResponse: rsp,
 	}
@@ -17095,21 +17320,24 @@ type ServerInterface interface {
 	// SetBotMemory Replace a Bot's whole memory with the owner's text; only the owner
 	// (PUT /bots/{name}/memory)
 	SetBotMemory(w http.ResponseWriter, r *http.Request, name Name)
-	// DeleteLarkBot Forget the Lark bot and its app's secret; only the owner
-	// (DELETE /channels/lark)
-	DeleteLarkBot(w http.ResponseWriter, r *http.Request)
-	// GetLarkBot The Lark bot, who may talk to it and whether it is connected; only the owner
+	// ListLarkChannels The Lark Channels, the oldest first; only the owner
 	// (GET /channels/lark)
-	GetLarkBot(w http.ResponseWriter, r *http.Request)
-	// PutLarkBot Set the Lark bot up, or change it; only the owner
-	// (PUT /channels/lark)
-	PutLarkBot(w http.ResponseWriter, r *http.Request)
-	// AddLarkBotPerson Add someone who may talk to the Lark bot when its mode is allowlist; only the owner
-	// (POST /channels/lark/people)
-	AddLarkBotPerson(w http.ResponseWriter, r *http.Request)
-	// RemoveLarkBotPerson Take someone off the Lark bot's list; only the owner
-	// (DELETE /channels/lark/people/{person})
-	RemoveLarkBotPerson(w http.ResponseWriter, r *http.Request, person string)
+	ListLarkChannels(w http.ResponseWriter, r *http.Request)
+	// DeleteLarkChannel Forget a Lark Channel, its people and its app's secret; only the owner
+	// (DELETE /channels/lark/{channel})
+	DeleteLarkChannel(w http.ResponseWriter, r *http.Request, channel LarkChannelName)
+	// GetLarkChannel A Lark Channel, who may talk through it and whether it is connected; only the owner
+	// (GET /channels/lark/{channel})
+	GetLarkChannel(w http.ResponseWriter, r *http.Request, channel LarkChannelName)
+	// PutLarkChannel Set a Lark Channel up, or change it; only the owner
+	// (PUT /channels/lark/{channel})
+	PutLarkChannel(w http.ResponseWriter, r *http.Request, channel LarkChannelName)
+	// AddLarkChannelPerson Add someone who may talk through a Lark Channel when its mode is allowlist; only the owner
+	// (POST /channels/lark/{channel}/people)
+	AddLarkChannelPerson(w http.ResponseWriter, r *http.Request, channel LarkChannelName)
+	// RemoveLarkChannelPerson Take someone off a Lark Channel's list; only the owner
+	// (DELETE /channels/lark/{channel}/people/{person})
+	RemoveLarkChannelPerson(w http.ResponseWriter, r *http.Request, channel LarkChannelName, person string)
 	// ListChats The owner's chats with the coordinator, the most recently active first
 	// (GET /chats)
 	ListChats(w http.ResponseWriter, r *http.Request, params ListChatsParams)
@@ -17565,11 +17793,11 @@ func (siw *ServerInterfaceWrapper) SetBotMemory(w http.ResponseWriter, r *http.R
 	handler.ServeHTTP(w, r)
 }
 
-// DeleteLarkBot operation middleware
-func (siw *ServerInterfaceWrapper) DeleteLarkBot(w http.ResponseWriter, r *http.Request) {
+// ListLarkChannels operation middleware
+func (siw *ServerInterfaceWrapper) ListLarkChannels(w http.ResponseWriter, r *http.Request) {
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.DeleteLarkBot(w, r)
+		siw.Handler.ListLarkChannels(w, r)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -17579,53 +17807,124 @@ func (siw *ServerInterfaceWrapper) DeleteLarkBot(w http.ResponseWriter, r *http.
 	handler.ServeHTTP(w, r)
 }
 
-// GetLarkBot operation middleware
-func (siw *ServerInterfaceWrapper) GetLarkBot(w http.ResponseWriter, r *http.Request) {
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.GetLarkBot(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// PutLarkBot operation middleware
-func (siw *ServerInterfaceWrapper) PutLarkBot(w http.ResponseWriter, r *http.Request) {
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.PutLarkBot(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// AddLarkBotPerson operation middleware
-func (siw *ServerInterfaceWrapper) AddLarkBotPerson(w http.ResponseWriter, r *http.Request) {
-
-	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.AddLarkBotPerson(w, r)
-	}))
-
-	for _, middleware := range siw.HandlerMiddlewares {
-		handler = middleware(handler)
-	}
-
-	handler.ServeHTTP(w, r)
-}
-
-// RemoveLarkBotPerson operation middleware
-func (siw *ServerInterfaceWrapper) RemoveLarkBotPerson(w http.ResponseWriter, r *http.Request) {
+// DeleteLarkChannel operation middleware
+func (siw *ServerInterfaceWrapper) DeleteLarkChannel(w http.ResponseWriter, r *http.Request) {
 
 	var err error
 	_ = err
+
+	// ------------- Path parameter "channel" -------------
+	var channel LarkChannelName
+
+	err = runtime.BindStyledParameterWithOptions("simple", "channel", r.PathValue("channel"), &channel, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "channel", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteLarkChannel(w, r, channel)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetLarkChannel operation middleware
+func (siw *ServerInterfaceWrapper) GetLarkChannel(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "channel" -------------
+	var channel LarkChannelName
+
+	err = runtime.BindStyledParameterWithOptions("simple", "channel", r.PathValue("channel"), &channel, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "channel", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetLarkChannel(w, r, channel)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PutLarkChannel operation middleware
+func (siw *ServerInterfaceWrapper) PutLarkChannel(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "channel" -------------
+	var channel LarkChannelName
+
+	err = runtime.BindStyledParameterWithOptions("simple", "channel", r.PathValue("channel"), &channel, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "channel", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PutLarkChannel(w, r, channel)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AddLarkChannelPerson operation middleware
+func (siw *ServerInterfaceWrapper) AddLarkChannelPerson(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "channel" -------------
+	var channel LarkChannelName
+
+	err = runtime.BindStyledParameterWithOptions("simple", "channel", r.PathValue("channel"), &channel, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "channel", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AddLarkChannelPerson(w, r, channel)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RemoveLarkChannelPerson operation middleware
+func (siw *ServerInterfaceWrapper) RemoveLarkChannelPerson(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "channel" -------------
+	var channel LarkChannelName
+
+	err = runtime.BindStyledParameterWithOptions("simple", "channel", r.PathValue("channel"), &channel, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "channel", Err: err})
+		return
+	}
 
 	// ------------- Path parameter "person" -------------
 	var person string
@@ -17637,7 +17936,7 @@ func (siw *ServerInterfaceWrapper) RemoveLarkBotPerson(w http.ResponseWriter, r 
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.RemoveLarkBotPerson(w, r, person)
+		siw.Handler.RemoveLarkChannelPerson(w, r, channel, person)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -19858,11 +20157,12 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/integrations/{integration}/connections/{label}", wrapper.DeleteIntegrationConnection)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/integrations/{integration}/connections/{label}", wrapper.PatchIntegrationConnection)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/integrations/{integration}/connections/{label}", wrapper.PutIntegrationConnection)
-	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/channels/lark", wrapper.DeleteLarkBot)
-	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/channels/lark", wrapper.GetLarkBot)
-	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/channels/lark", wrapper.PutLarkBot)
-	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/channels/lark/people", wrapper.AddLarkBotPerson)
-	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/channels/lark/people/{person}", wrapper.RemoveLarkBotPerson)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/channels/lark", wrapper.ListLarkChannels)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/channels/lark/{channel}", wrapper.DeleteLarkChannel)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/channels/lark/{channel}", wrapper.GetLarkChannel)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/channels/lark/{channel}", wrapper.PutLarkChannel)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/channels/lark/{channel}/people", wrapper.AddLarkChannelPerson)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/channels/lark/{channel}/people/{person}", wrapper.RemoveLarkChannelPerson)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/integrations/{integration}/connections/{label}/actions", wrapper.ListConnectionActions)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/integrations/{integration}/connections/{label}/actions/{action}", wrapper.SetConnectionAction)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/approvals", wrapper.ListApprovals)
@@ -20248,27 +20548,66 @@ func (response SetBotMemorydefaultJSONResponse) VisitSetBotMemoryResponse(w http
 	return err
 }
 
-type DeleteLarkBotRequestObject struct {
+type ListLarkChannelsRequestObject struct {
 }
 
-type DeleteLarkBotResponseObject interface {
-	VisitDeleteLarkBotResponse(w http.ResponseWriter) error
+type ListLarkChannelsResponseObject interface {
+	VisitListLarkChannelsResponse(w http.ResponseWriter) error
 }
 
-type DeleteLarkBot204Response struct {
+type ListLarkChannels200JSONResponse LarkChannelList
+
+func (response ListLarkChannels200JSONResponse) VisitListLarkChannelsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
 }
 
-func (response DeleteLarkBot204Response) VisitDeleteLarkBotResponse(w http.ResponseWriter) error {
+type ListLarkChannelsdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListLarkChannelsdefaultJSONResponse) VisitListLarkChannelsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteLarkChannelRequestObject struct {
+	Channel LarkChannelName `json:"channel"`
+}
+
+type DeleteLarkChannelResponseObject interface {
+	VisitDeleteLarkChannelResponse(w http.ResponseWriter) error
+}
+
+type DeleteLarkChannel204Response struct {
+}
+
+func (response DeleteLarkChannel204Response) VisitDeleteLarkChannelResponse(w http.ResponseWriter) error {
 	w.WriteHeader(204)
 	return nil
 }
 
-type DeleteLarkBotdefaultJSONResponse struct {
+type DeleteLarkChanneldefaultJSONResponse struct {
 	Body       Error
 	StatusCode int
 }
 
-func (response DeleteLarkBotdefaultJSONResponse) VisitDeleteLarkBotResponse(w http.ResponseWriter) error {
+func (response DeleteLarkChanneldefaultJSONResponse) VisitDeleteLarkChannelResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -20280,16 +20619,17 @@ func (response DeleteLarkBotdefaultJSONResponse) VisitDeleteLarkBotResponse(w ht
 	return err
 }
 
-type GetLarkBotRequestObject struct {
+type GetLarkChannelRequestObject struct {
+	Channel LarkChannelName `json:"channel"`
 }
 
-type GetLarkBotResponseObject interface {
-	VisitGetLarkBotResponse(w http.ResponseWriter) error
+type GetLarkChannelResponseObject interface {
+	VisitGetLarkChannelResponse(w http.ResponseWriter) error
 }
 
-type GetLarkBot200JSONResponse LarkBot
+type GetLarkChannel200JSONResponse LarkChannel
 
-func (response GetLarkBot200JSONResponse) VisitGetLarkBotResponse(w http.ResponseWriter) error {
+func (response GetLarkChannel200JSONResponse) VisitGetLarkChannelResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -20301,12 +20641,12 @@ func (response GetLarkBot200JSONResponse) VisitGetLarkBotResponse(w http.Respons
 	return err
 }
 
-type GetLarkBotdefaultJSONResponse struct {
+type GetLarkChanneldefaultJSONResponse struct {
 	Body       Error
 	StatusCode int
 }
 
-func (response GetLarkBotdefaultJSONResponse) VisitGetLarkBotResponse(w http.ResponseWriter) error {
+func (response GetLarkChanneldefaultJSONResponse) VisitGetLarkChannelResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -20318,17 +20658,18 @@ func (response GetLarkBotdefaultJSONResponse) VisitGetLarkBotResponse(w http.Res
 	return err
 }
 
-type PutLarkBotRequestObject struct {
-	Body *PutLarkBotJSONRequestBody
+type PutLarkChannelRequestObject struct {
+	Channel LarkChannelName `json:"channel"`
+	Body    *PutLarkChannelJSONRequestBody
 }
 
-type PutLarkBotResponseObject interface {
-	VisitPutLarkBotResponse(w http.ResponseWriter) error
+type PutLarkChannelResponseObject interface {
+	VisitPutLarkChannelResponse(w http.ResponseWriter) error
 }
 
-type PutLarkBot200JSONResponse LarkBot
+type PutLarkChannel200JSONResponse LarkChannel
 
-func (response PutLarkBot200JSONResponse) VisitPutLarkBotResponse(w http.ResponseWriter) error {
+func (response PutLarkChannel200JSONResponse) VisitPutLarkChannelResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -20340,12 +20681,12 @@ func (response PutLarkBot200JSONResponse) VisitPutLarkBotResponse(w http.Respons
 	return err
 }
 
-type PutLarkBotdefaultJSONResponse struct {
+type PutLarkChanneldefaultJSONResponse struct {
 	Body       Error
 	StatusCode int
 }
 
-func (response PutLarkBotdefaultJSONResponse) VisitPutLarkBotResponse(w http.ResponseWriter) error {
+func (response PutLarkChanneldefaultJSONResponse) VisitPutLarkChannelResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -20357,17 +20698,18 @@ func (response PutLarkBotdefaultJSONResponse) VisitPutLarkBotResponse(w http.Res
 	return err
 }
 
-type AddLarkBotPersonRequestObject struct {
-	Body *AddLarkBotPersonJSONRequestBody
+type AddLarkChannelPersonRequestObject struct {
+	Channel LarkChannelName `json:"channel"`
+	Body    *AddLarkChannelPersonJSONRequestBody
 }
 
-type AddLarkBotPersonResponseObject interface {
-	VisitAddLarkBotPersonResponse(w http.ResponseWriter) error
+type AddLarkChannelPersonResponseObject interface {
+	VisitAddLarkChannelPersonResponse(w http.ResponseWriter) error
 }
 
-type AddLarkBotPerson200JSONResponse LarkBotPerson
+type AddLarkChannelPerson200JSONResponse LarkChannelPerson
 
-func (response AddLarkBotPerson200JSONResponse) VisitAddLarkBotPersonResponse(w http.ResponseWriter) error {
+func (response AddLarkChannelPerson200JSONResponse) VisitAddLarkChannelPersonResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
@@ -20379,12 +20721,12 @@ func (response AddLarkBotPerson200JSONResponse) VisitAddLarkBotPersonResponse(w 
 	return err
 }
 
-type AddLarkBotPersondefaultJSONResponse struct {
+type AddLarkChannelPersondefaultJSONResponse struct {
 	Body       Error
 	StatusCode int
 }
 
-func (response AddLarkBotPersondefaultJSONResponse) VisitAddLarkBotPersonResponse(w http.ResponseWriter) error {
+func (response AddLarkChannelPersondefaultJSONResponse) VisitAddLarkChannelPersonResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -20396,28 +20738,29 @@ func (response AddLarkBotPersondefaultJSONResponse) VisitAddLarkBotPersonRespons
 	return err
 }
 
-type RemoveLarkBotPersonRequestObject struct {
-	Person string `json:"person"`
+type RemoveLarkChannelPersonRequestObject struct {
+	Channel LarkChannelName `json:"channel"`
+	Person  string          `json:"person"`
 }
 
-type RemoveLarkBotPersonResponseObject interface {
-	VisitRemoveLarkBotPersonResponse(w http.ResponseWriter) error
+type RemoveLarkChannelPersonResponseObject interface {
+	VisitRemoveLarkChannelPersonResponse(w http.ResponseWriter) error
 }
 
-type RemoveLarkBotPerson204Response struct {
+type RemoveLarkChannelPerson204Response struct {
 }
 
-func (response RemoveLarkBotPerson204Response) VisitRemoveLarkBotPersonResponse(w http.ResponseWriter) error {
+func (response RemoveLarkChannelPerson204Response) VisitRemoveLarkChannelPersonResponse(w http.ResponseWriter) error {
 	w.WriteHeader(204)
 	return nil
 }
 
-type RemoveLarkBotPersondefaultJSONResponse struct {
+type RemoveLarkChannelPersondefaultJSONResponse struct {
 	Body       Error
 	StatusCode int
 }
 
-func (response RemoveLarkBotPersondefaultJSONResponse) VisitRemoveLarkBotPersonResponse(w http.ResponseWriter) error {
+func (response RemoveLarkChannelPersondefaultJSONResponse) VisitRemoveLarkChannelPersonResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -23147,21 +23490,24 @@ type StrictServerInterface interface {
 	// SetBotMemory Replace a Bot's whole memory with the owner's text; only the owner
 	// (PUT /bots/{name}/memory)
 	SetBotMemory(ctx context.Context, request SetBotMemoryRequestObject) (SetBotMemoryResponseObject, error)
-	// DeleteLarkBot Forget the Lark bot and its app's secret; only the owner
-	// (DELETE /channels/lark)
-	DeleteLarkBot(ctx context.Context, request DeleteLarkBotRequestObject) (DeleteLarkBotResponseObject, error)
-	// GetLarkBot The Lark bot, who may talk to it and whether it is connected; only the owner
+	// ListLarkChannels The Lark Channels, the oldest first; only the owner
 	// (GET /channels/lark)
-	GetLarkBot(ctx context.Context, request GetLarkBotRequestObject) (GetLarkBotResponseObject, error)
-	// PutLarkBot Set the Lark bot up, or change it; only the owner
-	// (PUT /channels/lark)
-	PutLarkBot(ctx context.Context, request PutLarkBotRequestObject) (PutLarkBotResponseObject, error)
-	// AddLarkBotPerson Add someone who may talk to the Lark bot when its mode is allowlist; only the owner
-	// (POST /channels/lark/people)
-	AddLarkBotPerson(ctx context.Context, request AddLarkBotPersonRequestObject) (AddLarkBotPersonResponseObject, error)
-	// RemoveLarkBotPerson Take someone off the Lark bot's list; only the owner
-	// (DELETE /channels/lark/people/{person})
-	RemoveLarkBotPerson(ctx context.Context, request RemoveLarkBotPersonRequestObject) (RemoveLarkBotPersonResponseObject, error)
+	ListLarkChannels(ctx context.Context, request ListLarkChannelsRequestObject) (ListLarkChannelsResponseObject, error)
+	// DeleteLarkChannel Forget a Lark Channel, its people and its app's secret; only the owner
+	// (DELETE /channels/lark/{channel})
+	DeleteLarkChannel(ctx context.Context, request DeleteLarkChannelRequestObject) (DeleteLarkChannelResponseObject, error)
+	// GetLarkChannel A Lark Channel, who may talk through it and whether it is connected; only the owner
+	// (GET /channels/lark/{channel})
+	GetLarkChannel(ctx context.Context, request GetLarkChannelRequestObject) (GetLarkChannelResponseObject, error)
+	// PutLarkChannel Set a Lark Channel up, or change it; only the owner
+	// (PUT /channels/lark/{channel})
+	PutLarkChannel(ctx context.Context, request PutLarkChannelRequestObject) (PutLarkChannelResponseObject, error)
+	// AddLarkChannelPerson Add someone who may talk through a Lark Channel when its mode is allowlist; only the owner
+	// (POST /channels/lark/{channel}/people)
+	AddLarkChannelPerson(ctx context.Context, request AddLarkChannelPersonRequestObject) (AddLarkChannelPersonResponseObject, error)
+	// RemoveLarkChannelPerson Take someone off a Lark Channel's list; only the owner
+	// (DELETE /channels/lark/{channel}/people/{person})
+	RemoveLarkChannelPerson(ctx context.Context, request RemoveLarkChannelPersonRequestObject) (RemoveLarkChannelPersonResponseObject, error)
 	// ListChats The owner's chats with the coordinator, the most recently active first
 	// (GET /chats)
 	ListChats(ctx context.Context, request ListChatsRequestObject) (ListChatsResponseObject, error)
@@ -23662,23 +24008,23 @@ func (sh *strictHandler) SetBotMemory(w http.ResponseWriter, r *http.Request, na
 	}
 }
 
-// DeleteLarkBot operation middleware
-func (sh *strictHandler) DeleteLarkBot(w http.ResponseWriter, r *http.Request) {
-	var request DeleteLarkBotRequestObject
+// ListLarkChannels operation middleware
+func (sh *strictHandler) ListLarkChannels(w http.ResponseWriter, r *http.Request) {
+	var request ListLarkChannelsRequestObject
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.DeleteLarkBot(ctx, request.(DeleteLarkBotRequestObject))
+		return sh.ssi.ListLarkChannels(ctx, request.(ListLarkChannelsRequestObject))
 	}
 	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "DeleteLarkBot")
+		handler = middleware(handler, "ListLarkChannels")
 	}
 
 	response, err := handler(r.Context(), w, r, request)
 
 	if err != nil {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(DeleteLarkBotResponseObject); ok {
-		if err := validResponse.VisitDeleteLarkBotResponse(w); err != nil {
+	} else if validResponse, ok := response.(ListLarkChannelsResponseObject); ok {
+		if err := validResponse.VisitListLarkChannelsResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -23686,23 +24032,25 @@ func (sh *strictHandler) DeleteLarkBot(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// GetLarkBot operation middleware
-func (sh *strictHandler) GetLarkBot(w http.ResponseWriter, r *http.Request) {
-	var request GetLarkBotRequestObject
+// DeleteLarkChannel operation middleware
+func (sh *strictHandler) DeleteLarkChannel(w http.ResponseWriter, r *http.Request, channel LarkChannelName) {
+	var request DeleteLarkChannelRequestObject
+
+	request.Channel = channel
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.GetLarkBot(ctx, request.(GetLarkBotRequestObject))
+		return sh.ssi.DeleteLarkChannel(ctx, request.(DeleteLarkChannelRequestObject))
 	}
 	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "GetLarkBot")
+		handler = middleware(handler, "DeleteLarkChannel")
 	}
 
 	response, err := handler(r.Context(), w, r, request)
 
 	if err != nil {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(GetLarkBotResponseObject); ok {
-		if err := validResponse.VisitGetLarkBotResponse(w); err != nil {
+	} else if validResponse, ok := response.(DeleteLarkChannelResponseObject); ok {
+		if err := validResponse.VisitDeleteLarkChannelResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -23710,11 +24058,39 @@ func (sh *strictHandler) GetLarkBot(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// PutLarkBot operation middleware
-func (sh *strictHandler) PutLarkBot(w http.ResponseWriter, r *http.Request) {
-	var request PutLarkBotRequestObject
+// GetLarkChannel operation middleware
+func (sh *strictHandler) GetLarkChannel(w http.ResponseWriter, r *http.Request, channel LarkChannelName) {
+	var request GetLarkChannelRequestObject
 
-	var body PutLarkBotJSONRequestBody
+	request.Channel = channel
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetLarkChannel(ctx, request.(GetLarkChannelRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetLarkChannel")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetLarkChannelResponseObject); ok {
+		if err := validResponse.VisitGetLarkChannelResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PutLarkChannel operation middleware
+func (sh *strictHandler) PutLarkChannel(w http.ResponseWriter, r *http.Request, channel LarkChannelName) {
+	var request PutLarkChannelRequestObject
+
+	request.Channel = channel
+
+	var body PutLarkChannelJSONRequestBody
 	if err := runtime.BindJSONBody(r, &body); err != nil {
 		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
 		return
@@ -23722,18 +24098,18 @@ func (sh *strictHandler) PutLarkBot(w http.ResponseWriter, r *http.Request) {
 	request.Body = &body
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.PutLarkBot(ctx, request.(PutLarkBotRequestObject))
+		return sh.ssi.PutLarkChannel(ctx, request.(PutLarkChannelRequestObject))
 	}
 	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "PutLarkBot")
+		handler = middleware(handler, "PutLarkChannel")
 	}
 
 	response, err := handler(r.Context(), w, r, request)
 
 	if err != nil {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(PutLarkBotResponseObject); ok {
-		if err := validResponse.VisitPutLarkBotResponse(w); err != nil {
+	} else if validResponse, ok := response.(PutLarkChannelResponseObject); ok {
+		if err := validResponse.VisitPutLarkChannelResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -23741,11 +24117,13 @@ func (sh *strictHandler) PutLarkBot(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// AddLarkBotPerson operation middleware
-func (sh *strictHandler) AddLarkBotPerson(w http.ResponseWriter, r *http.Request) {
-	var request AddLarkBotPersonRequestObject
+// AddLarkChannelPerson operation middleware
+func (sh *strictHandler) AddLarkChannelPerson(w http.ResponseWriter, r *http.Request, channel LarkChannelName) {
+	var request AddLarkChannelPersonRequestObject
 
-	var body AddLarkBotPersonJSONRequestBody
+	request.Channel = channel
+
+	var body AddLarkChannelPersonJSONRequestBody
 	if err := runtime.BindJSONBody(r, &body); err != nil {
 		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
 		return
@@ -23753,18 +24131,18 @@ func (sh *strictHandler) AddLarkBotPerson(w http.ResponseWriter, r *http.Request
 	request.Body = &body
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.AddLarkBotPerson(ctx, request.(AddLarkBotPersonRequestObject))
+		return sh.ssi.AddLarkChannelPerson(ctx, request.(AddLarkChannelPersonRequestObject))
 	}
 	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "AddLarkBotPerson")
+		handler = middleware(handler, "AddLarkChannelPerson")
 	}
 
 	response, err := handler(r.Context(), w, r, request)
 
 	if err != nil {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(AddLarkBotPersonResponseObject); ok {
-		if err := validResponse.VisitAddLarkBotPersonResponse(w); err != nil {
+	} else if validResponse, ok := response.(AddLarkChannelPersonResponseObject); ok {
+		if err := validResponse.VisitAddLarkChannelPersonResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -23772,25 +24150,26 @@ func (sh *strictHandler) AddLarkBotPerson(w http.ResponseWriter, r *http.Request
 	}
 }
 
-// RemoveLarkBotPerson operation middleware
-func (sh *strictHandler) RemoveLarkBotPerson(w http.ResponseWriter, r *http.Request, person string) {
-	var request RemoveLarkBotPersonRequestObject
+// RemoveLarkChannelPerson operation middleware
+func (sh *strictHandler) RemoveLarkChannelPerson(w http.ResponseWriter, r *http.Request, channel LarkChannelName, person string) {
+	var request RemoveLarkChannelPersonRequestObject
 
+	request.Channel = channel
 	request.Person = person
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
-		return sh.ssi.RemoveLarkBotPerson(ctx, request.(RemoveLarkBotPersonRequestObject))
+		return sh.ssi.RemoveLarkChannelPerson(ctx, request.(RemoveLarkChannelPersonRequestObject))
 	}
 	for _, middleware := range sh.middlewares {
-		handler = middleware(handler, "RemoveLarkBotPerson")
+		handler = middleware(handler, "RemoveLarkChannelPerson")
 	}
 
 	response, err := handler(r.Context(), w, r, request)
 
 	if err != nil {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
-	} else if validResponse, ok := response.(RemoveLarkBotPersonResponseObject); ok {
-		if err := validResponse.VisitRemoveLarkBotPersonResponse(w); err != nil {
+	} else if validResponse, ok := response.(RemoveLarkChannelPersonResponseObject); ok {
+		if err := validResponse.VisitRemoveLarkChannelPersonResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -25677,264 +26056,269 @@ func (sh *strictHandler) ReopenTask(w http.ResponseWriter, r *http.Request, task
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
-	"o7ZGBPPW1LOzmc92Ab74fwMA",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

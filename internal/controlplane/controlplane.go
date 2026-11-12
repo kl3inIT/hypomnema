@@ -215,19 +215,20 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 
 	sup := coordinator.New(svc, coordinator.Config{Command: cfg.CoordinatorCommand, Logger: logger})
 
-	// The Lark bot (issue #136): its settings read the app's secret from the vault, and the bot opens its
-	// connection through them.
+	// The Lark Channels (issues #136 and #169): their settings read each app's secret from the vault, and a
+	// Channel opens its connection through them.
 	var larkSettings *larkbot.Service
 
-	larkBot := larkbot.New(svc, sup, func(ctx context.Context, b orchestration.LarkBot) (larkbot.Lark, error) {
-		return larkSettings.Open(ctx, b)
-	}, logger).WithWebURL(cfg.PublicURL)
-	larkSettings = larkbot.NewService(svc, secrets, larkBot, larkbot.Connect)
+	larkChannels := larkbot.New(svc, sup,
+		func(ctx context.Context, c orchestration.LarkChannel) (larkbot.Lark, error) {
+			return larkSettings.Open(ctx, c)
+		}, logger).WithWebURL(cfg.PublicURL)
+	larkSettings = larkbot.NewService(svc, secrets, larkChannels, larkbot.Connect)
 
 	api := clientapi.New(svc, logger, ctx.Done()).WithCoordinator(sup).WithHostTokens(tokens).
 		WithMachines(machineMgr).WithTerminals(nodeTerminals(nodes)).
 		WithSecrets(ownerSecrets{vault: secrets, referrers: referrers}).
-		WithIntegrations(integrations).WithApprovals(proxy).WithLarkBot(larkSettings)
+		WithIntegrations(integrations).WithApprovals(proxy).WithLarkChannels(larkSettings)
 	if err := api.Register(mux); err != nil {
 		return err
 	}
@@ -292,7 +293,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	go func() {
 		defer close(larkDone)
 
-		_ = larkBot.Run(ctx)
+		_ = larkChannels.Run(ctx)
 	}()
 
 	serveErr := platform.Serve(ctx, ln, mux, logger)
