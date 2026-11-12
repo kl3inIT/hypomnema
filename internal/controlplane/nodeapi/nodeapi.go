@@ -450,8 +450,9 @@ func (c *session) push(ctx context.Context) error {
 			}
 		}
 
-		// And the key with which the worker's tools ask for a token of the accounts its Run was given.
-		if c.srv.agentKey != nil && len(o.Uses) > 0 {
+		// And the worker's key to the agent API: its tools reach the accounts its Run was given with it, and the
+		// shared browser (issue #212), which a Run with no account has too.
+		if c.srv.agentKey != nil {
 			if key, ok := c.srv.agentKey(ctx, o.DispatchID, o.Uses); ok {
 				o.AgentKey = key
 			}

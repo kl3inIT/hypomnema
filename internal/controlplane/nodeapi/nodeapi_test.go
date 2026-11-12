@@ -240,12 +240,24 @@ func TestDispatchRunsOverTheSocket(t *testing.T) {
 	t.Parallel()
 
 	p := newPlane(t)
+	p.api.WithAgentKeys(func(ctx context.Context, dispatchID string, uses []string) (string, bool) {
+		key, err := p.svc.AddAgentSession(ctx, dispatchID, uses)
+
+		return key, err == nil
+	})
+
 	conn := p.connect()
 	task := p.task()
 
 	var offer nodeproto.Offer
 	require.NoError(t, json.Unmarshal(p.next(conn, nodeproto.TypeOffer).Payload, &offer))
 	assert.Equal(t, task.ID, offer.TaskID)
+
+	// Its Run was given no account, and the worker still has a key of its own: the shared browser knows it by it.
+	session, err := p.svc.AgentSessionOf(t.Context(), offer.AgentKey)
+	require.NoError(t, err)
+	assert.Equal(t, offer.DispatchID, session.DispatchID)
+	assert.Empty(t, session.Uses)
 	assert.Equal(t, "add the Google login button", offer.Spec)
 	assert.Equal(t, "kl3inIT/second-bite", offer.Repo)
 	assert.Equal(t, orchestration.DefaultBase, offer.Base)
