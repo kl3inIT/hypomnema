@@ -24,9 +24,20 @@ told to install Go when it is missing. By its report it downloaded Go 1.27.4 fro
 about 10 seconds, checked the SHA-256, and ran `go test ./internal/node/acp/` with it. The worker's report was not
 checked on the machine by hand.
 
-## 3. Decided (owner, 2026-11-12)
+## 3. Read for Hypomnema
 
-The worker installs what the repository needs itself, as OpenMausBot leaves it to the bot's shell: the owner's
-answer to a proposed setup script was that workers install it themselves, and to look at OpenMausBot. `AGENTS.md`
-says which tools the checks need and where an agent puts them. No setup script run by the node is built; Orca's
-and t3code's is the reference if one is wanted later.
+- Three of four have the system run a script the repository, or its template, declares when the workspace is made;
+  in all four the agent may install more in its own shell.
+- Orca and t3code start the agent while the script still runs by default, and both can hold it until the script
+  ends (`setupAgentStartupPolicy: wait-for-setup`; t3code's `t3ProjectFile.ts`). In Orca a script that fails does
+  not undo the worktree (`runtime-local-worktree-setup.ts`).
+
+## 4. Decided (owner, 2026-11-12)
+
+Learn from all four. The node runs a setup script the repository declares when it makes a Task's worktree, after
+Orca and t3code; the design is in issue #186 and waits for the owner's approval. Until it is built, and beside it
+afterwards, a worker installs what is missing itself, as OpenMausBot leaves it to the bot's shell: `AGENTS.md` says
+which tools the checks need and where an agent puts them.
+
+This section said until later the same day that no setup script would be built; that was a misreading of the
+owner's "openmausbot đi", which asked for OpenMausBot to be read as one more reference.
