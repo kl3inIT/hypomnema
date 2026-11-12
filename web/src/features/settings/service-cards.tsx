@@ -1,6 +1,6 @@
 import { useForm } from "@tanstack/react-form"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { ChartColumn, ExternalLink, Plug, Plus, RefreshCw, Sheet } from "lucide-react"
+import { ExternalLink, Plug, Plus, RefreshCw, Sheet } from "lucide-react"
 import { useState, type ComponentType, type ReactElement, type SVGProps } from "react"
 import { z } from "zod"
 
@@ -20,6 +20,7 @@ import {
   GoogleDriveIcon,
   GoogleIcon,
   LarkIcon,
+  SupersetIcon,
 } from "@/components/icons/brand-icons"
 import { Badge } from "@/components/ui/badge"
 import { Button, buttonVariants } from "@/components/ui/button"
@@ -77,11 +78,10 @@ function useRefreshServices() {
   return () => queryClient.invalidateQueries({ queryKey: servicesKey })
 }
 
-// Superset has no mark among the brand icons, so it carries a plain chart.
 const marks: Record<string, ComponentType<SVGProps<SVGSVGElement>>> = {
   google: GoogleIcon,
   lark: LarkIcon,
-  superset: ChartColumn,
+  superset: SupersetIcon,
 }
 
 // What a service of kind account is for, under its name.
