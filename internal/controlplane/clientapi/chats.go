@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/coordinator"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
@@ -175,8 +176,18 @@ func (s *Server) AbortChat(ctx context.Context, req openapi.AbortChatRequestObje
 // GetChatGatewayKey returns the key the chat's pi calls the model gateway
 // with (issue #204). The supervisor holds it for as long as that pi runs;
 // Omnigent's pi asks the process that started it in the same way.
-func (s *Server) GetChatGatewayKey(_ context.Context, req openapi.GetChatGatewayKeyRequestObject,
+//
+// Only pi's own token gets it. A chat's id is no secret: a Run records the
+// chat it was made in, and every token reads Runs, so another coordinator
+// could otherwise take pi's key. The owner is refused too: the owner makes
+// keys of their own.
+func (s *Server) GetChatGatewayKey(ctx context.Context, req openapi.GetChatGatewayKeyRequestObject,
 ) (openapi.GetChatGatewayKeyResponseObject, error) {
+	tok := principal(ctx)
+	if s.chatKeyReader == "" || tok.Kind != bearertoken.Coordinator || tok.Name != s.chatKeyReader {
+		return nil, fmt.Errorf("%w: only pi's own token reads the gateway key of a chat's pi", errForbidden)
+	}
+
 	if s.coordinator == nil {
 		return nil, fmt.Errorf("%w: chat %s has no running pi", orchestration.ErrNotFound, req.ChatId)
 	}

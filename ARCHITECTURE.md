@@ -633,8 +633,9 @@ Claude subscriptions. Other provider formats and other capabilities do not exist
     starts, since no pi outlives it.
   - pi reads it at each model request: the `apiKey` of its `models.json` is the command `hypomnema model-key`,
     which calls `GET /chats/{chat_id}/gateway-key` with pi's coordinator token and the chat of
-    `HYPOMNEMA_CHAT_ID`. No pi running for the chat is 404. Any token of the client API may call it; chats are
-    listed for the owner only, so a caller must already know the chat's id.
+    `HYPOMNEMA_CHAT_ID`. No pi running for the chat is 404. Only pi's own token gets it, by its name
+    (`HYPOMNEMA_COORDINATOR_TOKEN`, `pi-coordinator` when unset, as the setup script names it): a chat's id is on
+    the Runs every token reads, so another coordinator and the owner are refused with 403.
   - pi's `models.json` is written by the launcher as pi starts, from `hypomnema pi-models`: one provider of pi for
     each provider of the control plane that is the gateway (kind `model_gateway`, or an OpenAI-compatible provider
     whose address is the gateway's own), with the models that provider lists. A Bot may name a provider of kind

@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/coordinator"
 )
 
@@ -35,7 +36,7 @@ func (p runningPi) Key(chatID string) (string, bool) { return p.key, chatID == p
 // its own chat.
 func TestPiStartsWithTheGatewaysModelsAndItsChatsKey(t *testing.T) { //nolint:paralleltest // sets HYPOMNEMA_CHAT_ID
 	pi := &runningPi{}
-	w := newWorldWith(t, pi)
+	w := newWorldWith(t, pi, func(s *clientapi.Server) { s.WithChatKeyReader("cli-coordinator") })
 	w.login(t, bearertoken.Coordinator)
 	ctx := t.Context()
 
