@@ -26,7 +26,9 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/coordinator"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/machines"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/subscription"
 )
 
 // BasePath is where the API is served.
@@ -67,6 +69,39 @@ type Server struct {
 	integrations Integrations
 	approvals    Approvals
 	larkChannels LarkChannels
+	// accounts shows the accounts with the state of their sign-ins and removes one; nil when the control plane
+	// wired none, and then an account shows what orchestration knows of it.
+	accounts Accounts
+	// gatewayModels lists what the model gateway serves; nil when the control plane wired none.
+	gatewayModels GatewayModels
+}
+
+// Accounts is what the API asks of the service that signs subscription
+// accounts in (issue #199).
+type Accounts interface {
+	// List returns every account with the state of its sign-in.
+	List(ctx context.Context) ([]subscription.Account, error)
+	// Remove deletes an account that was signed in here, and its tokens.
+	Remove(ctx context.Context, id string) error
+}
+
+// GatewayModels lists the models the model gateway serves.
+type GatewayModels interface {
+	ListModels(ctx context.Context) ([]modelgateway.Model, error)
+}
+
+// WithAccounts lets the API show the sign-in of an account and remove one.
+func (s *Server) WithAccounts(a Accounts) *Server {
+	s.accounts = a
+
+	return s
+}
+
+// WithGatewayModels lets the API list what the model gateway serves.
+func (s *Server) WithGatewayModels(m GatewayModels) *Server {
+	s.gatewayModels = m
+
+	return s
 }
 
 // HostTokens is how the API has a Connection's token kept (issue #103). The

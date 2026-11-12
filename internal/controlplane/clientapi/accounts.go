@@ -1,0 +1,182 @@
+package clientapi
+
+import (
+	"context"
+	"errors"
+	"fmt"
+
+	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/subscription"
+)
+
+// The accounts and the gateway's models, for the Models page (issue #199).
+// The references that keep subscription accounts show an account under its
+// provider with its state: 9router (providers/[id]/ConnectionRow.js),
+// OpenClaw (pages/model-providers), Orca (settings/accounts).
+
+// ListAccounts returns the accounts workers and the gateway run under, with
+// the state of each sign-in made on the control plane. No secret is in it.
+func (s *Server) ListAccounts(ctx context.Context, _ openapi.ListAccountsRequestObject,
+) (openapi.ListAccountsResponseObject, error) {
+	accounts, err := s.listAccounts(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	out := openapi.ListAccounts200JSONResponse{Data: make([]openapi.Account, 0, len(accounts))}
+	for _, a := range accounts {
+		out.Data = append(out.Data, toAccount(a))
+	}
+
+	return out, nil
+}
+
+func (s *Server) listAccounts(ctx context.Context) ([]subscription.Account, error) {
+	if s.accounts != nil {
+		return s.accounts.List(ctx)
+	}
+
+	plain, err := s.svc.ListAccounts(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]subscription.Account, 0, len(plain))
+	for _, a := range plain {
+		out = append(out, subscription.Account{Account: a})
+	}
+
+	return out, nil
+}
+
+// account returns one account as the API shows it.
+func (s *Server) account(ctx context.Context, id string) (openapi.Account, error) {
+	accounts, err := s.listAccounts(ctx)
+	if err != nil {
+		return openapi.Account{}, err
+	}
+
+	for _, a := range accounts {
+		if a.ID == id {
+			return toAccount(a), nil
+		}
+	}
+
+	return openapi.Account{}, fmt.Errorf("%w: account %s", orchestration.ErrNotFound, id)
+}
+
+// EnableAccount puts an account back in use.
+func (s *Server) EnableAccount(ctx context.Context, req openapi.EnableAccountRequestObject,
+) (openapi.EnableAccountResponseObject, error) {
+	if err := s.svc.EnableAccount(ctx, req.AccountId); err != nil {
+		return nil, err
+	}
+
+	a, err := s.account(ctx, req.AccountId)
+	if err != nil {
+		return nil, err
+	}
+
+	return openapi.EnableAccount200JSONResponse(a), nil
+}
+
+// DisableAccount takes an account out of use: placement and the gateway pass
+// it over, and its sign-in and its record stay (9router's active toggle).
+func (s *Server) DisableAccount(ctx context.Context, req openapi.DisableAccountRequestObject,
+) (openapi.DisableAccountResponseObject, error) {
+	if err := s.svc.DisableAccount(ctx, req.AccountId); err != nil {
+		return nil, err
+	}
+
+	a, err := s.account(ctx, req.AccountId)
+	if err != nil {
+		return nil, err
+	}
+
+	return openapi.DisableAccount200JSONResponse(a), nil
+}
+
+// RemoveAccount deletes an account that was signed in on the control plane,
+// with its tokens. One whose CLI was signed in on a node has no tokens here
+// and is refused: its login is on that node.
+func (s *Server) RemoveAccount(ctx context.Context, req openapi.RemoveAccountRequestObject,
+) (openapi.RemoveAccountResponseObject, error) {
+	if s.accounts == nil {
+		return nil, fmt.Errorf("%w: accounts are not signed in on this control plane", orchestration.ErrUnavailable)
+	}
+
+	if err := s.accounts.Remove(ctx, req.AccountId); err != nil {
+		if errors.Is(err, subscription.ErrNoTokens) {
+			return nil, fmt.Errorf("%w: %w", orchestration.ErrConflict, err)
+		}
+
+		return nil, err
+	}
+
+	return openapi.RemoveAccount204Response{}, nil
+}
+
+// ListGatewayModels returns the models the gateway serves and where each is
+// served from, in the order its targets are tried.
+func (s *Server) ListGatewayModels(ctx context.Context, _ openapi.ListGatewayModelsRequestObject,
+) (openapi.ListGatewayModelsResponseObject, error) {
+	out := openapi.ListGatewayModels200JSONResponse{Data: []openapi.GatewayModel{}}
+	if s.gatewayModels == nil {
+		return out, nil
+	}
+
+	models, err := s.gatewayModels.ListModels(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, m := range models {
+		out.Data = append(out.Data, toGatewayModel(m))
+	}
+
+	return out, nil
+}
+
+func toGatewayModel(m modelgateway.Model) openapi.GatewayModel {
+	out := openapi.GatewayModel{Name: m.Name, UpdatedAt: m.UpdatedAt, Targets: []openapi.GatewayModelTarget{}}
+
+	for _, t := range m.Targets {
+		out.Targets = append(out.Targets, openapi.GatewayModelTarget{
+			Provider: t.Provider, UpstreamModel: t.UpstreamModel,
+		})
+	}
+
+	return out
+}
+
+func toAccount(a subscription.Account) openapi.Account {
+	out := openapi.Account{
+		Id: a.ID, Runtime: a.Runtime, Label: a.Label, Status: openapi.AccountStatus(a.Status),
+		Position: a.Position, CoolingUntil: a.CoolingUntil, TokenExpiresAt: a.AccessTokenExpiresAt,
+	}
+
+	if a.CoolingUntil != nil && a.CoolingReason != "" {
+		out.CoolingReason = &a.CoolingReason
+	}
+
+	if a.Email != "" {
+		out.Email = &a.Email
+	}
+
+	if a.Plan != "" {
+		out.Plan = &a.Plan
+	}
+
+	signIns := map[subscription.State]openapi.AccountSignIn{
+		subscription.StateActive:        openapi.AccountSignInActive,
+		subscription.StateLoginRequired: openapi.AccountSignInLoginRequired,
+		subscription.StateNoTokens:      openapi.AccountSignInNoTokens,
+	}
+	if signIn, ok := signIns[a.State]; ok {
+		out.SignIn = &signIn
+	}
+
+	return out
+}

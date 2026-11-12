@@ -242,13 +242,6 @@ func float32Ptr(v *float64) *float32 {
 	return &f
 }
 
-func toAccount(a orchestration.Account) openapi.Account {
-	return openapi.Account{
-		Id: a.ID, Runtime: a.Runtime, Label: a.Label, Status: openapi.AccountStatus(a.Status),
-		Position: a.Position, CoolingUntil: a.CoolingUntil,
-	}
-}
-
 func fromNewTask(t openapi.NewTask) orchestration.NewTask {
 	return orchestration.NewTask{
 		Ref: t.Ref, Profile: val(t.Profile), Spec: t.Spec, Runtime: val(t.Runtime), Model: val(t.Model),
