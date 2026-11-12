@@ -187,6 +187,8 @@ test("the Bots show as cards and as a table, each with its model and its memory"
   await fakeServer(page, [coordinator, bot("researcher")])
   await page.goto("/bots")
 
+  await expect(page.getByRole("heading", { name: "Bots", level: 1 })).toBeVisible()
+  await expect(page.getByText("A Bot talks with you in chats")).toBeVisible()
   const first = page.getByRole("article", { name: "coordinator" })
   await expect(first).toContainText("Plan the work, give it to workers")
   await expect(first).toContainText("Model:gpt-luna(gateway)")

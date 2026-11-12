@@ -47,3 +47,29 @@ export function useColumnVisibility(key: string, hidden: readonly string[]) {
 
   return [visibility, show] as const
 }
+
+// useStatusFilter is the View menu's status choice for a list, kept in this browser under key as Beszel keeps its
+// statusFilter ("besz-statusFilter"); a choice that is no longer offered is "all".
+export function useStatusFilter<S extends string>(key: string, values: readonly S[]) {
+  const [status, setStatus] = useState<S | "all">(() => {
+    try {
+      const saved = window.localStorage.getItem(key)
+      return values.find((v) => v === saved) ?? "all"
+    } catch {
+      return "all"
+    }
+  })
+
+  function choose(next: string) {
+    const value = values.find((v) => v === next) ?? "all"
+    setStatus(value)
+
+    try {
+      window.localStorage.setItem(key, value)
+    } catch {
+      // Kept until the page closes.
+    }
+  }
+
+  return [status, choose] as const
+}

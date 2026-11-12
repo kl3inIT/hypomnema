@@ -118,13 +118,14 @@ async function fakeServer(page: Page) {
   return calls
 }
 
-// Scenario: the owner looks at the machines as cards, then as a table that scrolls inside its box, and the
-// choice survives a reload.
+// Scenario: the owner looks at the machines as cards, shows only the offline ones from the View menu's Status
+// group, then looks at them as a table that scrolls inside its box, and the choice survives a reload.
 test("the machines show as cards and as a table", async ({ page }) => {
   await fakeServer(page)
   await page.goto("/machines")
 
-  await expect(page.getByText("1 online · 1 drained · 1 offline")).toBeVisible()
+  await expect(page.getByRole("heading", { name: "Machines", level: 1 })).toBeVisible()
+  await expect(page.getByText("The machines your workers run on.")).toBeVisible()
   const app = page.getByRole("article", { name: "aioffice-app" })
   await expect(app).toContainText("Online")
   await expect(app).toContainText("3 of 4")
@@ -133,6 +134,22 @@ test("the machines show as cards and as a table", async ({ page }) => {
     "Offline · seen 2d ago",
   )
   await shot(page, "machines-grid")
+
+  // The counts are the View menu's Status group, which filters the cards, as Beszel's.
+  await page.getByRole("button", { name: "View" }).click()
+  await expect(page.getByRole("menuitemradio", { name: "Drained (1)" })).toBeVisible()
+  await page.getByRole("menuitemradio", { name: "Offline (1)" }).click()
+  await expect(page.getByRole("menuitemradio", { name: "Offline (1)" })).toBeChecked()
+  // The grid has no columns to choose.
+  await expect(page.getByRole("menuitemcheckbox")).toHaveCount(0)
+  await shot(page, "machines-grid-view-status")
+  await page.keyboard.press("Escape")
+  await expect(page.getByRole("article")).toHaveCount(1)
+  await expect(page.getByRole("article", { name: "old-laptop" })).toBeVisible()
+  await page.getByRole("button", { name: "View" }).click()
+  await page.getByRole("menuitemradio", { name: "All machines" }).click()
+  await page.keyboard.press("Escape")
+  await expect(page.getByRole("article")).toHaveCount(3)
 
   await page.getByRole("button", { name: "table" }).click()
   await expect(page.getByRole("row", { name: /gpu-box/ })).toContainText("Drained")
