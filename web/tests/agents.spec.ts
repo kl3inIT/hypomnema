@@ -14,6 +14,8 @@ const profile = (name: string, m: object = {}) => ({
   version: 1,
   runtime: "claude",
   fallbacks: [],
+  skills: [],
+  skills_off: [],
   source: `name: ${name}\nruntime: claude\n`,
   created_at: hours(30),
   available: true,

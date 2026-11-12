@@ -96,6 +96,10 @@ func (s *Service) createDispatch(ctx context.Context, q *store.Queries, now int6
 		return fmt.Errorf("inserting dispatch: %w", err)
 	}
 
+	if err := recordSkills(ctx, q, id, r.versionID); err != nil {
+		return err
+	}
+
 	p.take(node)
 
 	if err := emit(ctx, q, now, event{

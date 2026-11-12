@@ -594,3 +594,27 @@ func TestWorkerRunsUnderTheOffersToken(t *testing.T) {
 	require.ErrorContains(t, g.runner.Start(t.Context(), missing, newReporter("dsp_2")),
 		"the node has no credentials for account acc_nowhere")
 }
+
+// Scenario: the offer gives the worker a skill the node has kept. Claude Code
+// is given a plugin folder of the Dispatch's own that holds it (issue #21).
+func TestTheWorkersSkillsAreAPluginOfItsOwn(t *testing.T) {
+	t.Parallel()
+
+	g := newRig(t, "success")
+	digest := strings.Repeat("ab", 32)
+	kept := filepath.Join(g.runner.Home, "skills", digest)
+	require.NoError(t, os.MkdirAll(kept, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(kept, "SKILL.md"), []byte("---\nname: review-go\n---\n"), 0o600))
+
+	d := g.dispatch("dsp_1")
+	d.Offer.Skills = []nodeproto.Skill{{Name: "review-go", Revision: 2, Digest: digest}}
+
+	r := newReporter("dsp_1")
+	require.NoError(t, g.runner.Start(t.Context(), d, r))
+	r.wait(t)
+
+	plugin := filepath.Join(g.runner.dir("dsp_1"), "plugin")
+	assert.Contains(t, g.file("argv.txt"), "--plugin-dir "+plugin)
+	assert.FileExists(t, filepath.Join(plugin, "skills", "review-go", "SKILL.md"))
+	assert.FileExists(t, filepath.Join(plugin, ".claude-plugin", "plugin.json"))
+}

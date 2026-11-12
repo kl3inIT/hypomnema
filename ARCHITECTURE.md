@@ -154,8 +154,8 @@ transaction, every status change a guarded `UPDATE` checked against a transition
 - A browser every agent shares (issue #193, step 1 in issue #196,
   [research](docs/research/2026-11-12-embedded-browser.md); `internal/controlplane/browser`). Built so far: the
   engine on the control plane, an agent's calls to it, the tools in a worker's hands, and the control plane's
-  side of the owner watching a tab and taking control, and the page in the web client. Not built: a node
-  holding the browser instead, and the browser inside a chat's pane.
+  side of the owner watching a tab and taking control, and its tabs in a chat's pane in the web client. Not
+  built: a node holding the browser instead.
   - It is one headless Chrome on the control plane's machine with one persistent profile, so a sign-in is made
     once and every agent has it, driven through agent-browser (Vercel Labs), as OpenMausBot's is. Each agent is an
     agent-browser session attached to that Chrome and pinned to a tab of its own
@@ -213,10 +213,12 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   - `GET /api/v1/browser` (owner only) and `hypomnema browser status` say whether the browser is installed and
     running, whether the owner holds it, and list the tabs: whose each is (a worker's with its Dispatch, Task and
     Run), and its address and title as Chrome's own DevTools port lists them.
-  - The page (issue #226; `web/src/features/browser`, at `/browser`, in the sidebar): a strip of the tabs of
-    `GET /api/v1/browser`, read again every five seconds, the owner's own first and always offered, each named
-    by its page's title with a mark of whose it is; under it the picked tab as `BrowserView`, one piece that
-    holds the address row, the control button and the picture, so that it can be put in a chat's pane later. It
+  - In the web client (issue #226; `web/src/features/browser`) a tab of the browser is opened in a chat's pane
+    from its "+" (issue #235, step 2, below), not from a page of its own: the owner's own tab, and the tabs of
+    `GET /api/v1/browser`, read again every five seconds, that belong to Runs of that chat, each named by its
+    page's title with a mark of whose it is. The tab is shown as `BrowserView`, one piece that holds the address
+    row, the control button and the picture. While the owner holds the browser the sidebar says so on every
+    page, since every agent's browser tools wait meanwhile. It
     asks for a ticket at each connect, as the terminal page does; acknowledges a frame before painting it;
     paints on a canvas the size of the frame, fitted with `object-contain`, one decode at a time; and maps the
     pointer through the letterbox to the tab's own pixels. Moves and wheel steps are merged, one message a
@@ -302,8 +304,26 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     is read from the tarball of that commit, as Omnigent installs from `owner/repo[/path]@ref` and OpenHands
     records the commit a ref resolved to.
   - A skill has a switch "for everyone", off when it is added (OpenMausBot's `everyBot`, an imported skill starting
-    off). Nothing reads it yet: a Profile's and a Bot's skills, and bringing skills to the nodes, are the next steps
-    of issue #21. A skill is removed with its revisions; once a Profile or a Bot names it, that will be refused.
+    off). A profile's YAML names the skills its workers get beside those (`skills: [...]`) and the ones for everyone
+    they do not get (`skills_off: [...]`), as OpenClaw's agent lists its skills and OpenMausBot's bot opts out; each
+    must exist and be named once (migration 00051). A skill a profile's current version names is not removed, as
+    Omnara refuses while an agent config names one; otherwise it is removed with its revisions. The web's agent
+    builder keeps both lists when it saves and does not edit them yet.
+  - When a Dispatch is made it records each skill it is given at its newest revision (`dispatch_skills`), as an
+    OpenClaw session keeps the revisions it selected: a later revision reaches the next Dispatch, not this one, and
+    the record stays when the skill is removed. Its offer names them (`skills`: name, revision, digest).
+  - On a node (`internal/node/skills`, after Omnara's `skillsync`), before the worker starts, each revision the node
+    does not have is fetched from `GET /node/v1/skills/{digest}` with the node's token, which serves only a revision
+    that a Dispatch of that node not yet ended was given; its digest is checked, and it is unpacked into a staging
+    folder and renamed to `~/.hypomnema-node/skills/<digest>`. A skill that cannot be had fails the start. Fetched
+    before the worker starts, not on the model's first use as in Omnara, because a vendor CLI reads skills from disk
+    as it starts.
+  - The Dispatch's skills are copied, as Orca copies a skill into each agent's folder, where the worker's CLI reads
+    them, as Omnigent places them: Claude Code gets a plugin folder of the Dispatch (`run/<dispatch>/plugin`, its
+    manifest naming it `hypomnema`) through `--plugin-dir`, since its configuration folder is shared by every
+    Dispatch on the account; Codex gets them in the Conversation's `CODEX_HOME/skills`, made again at each start so
+    that a skill taken away is gone, beside Codex's own `.system`. omp, opencode and Bots do not get them yet
+    (step 3 of issue #21); the built-in skills reach workers as before.
   - Client API: `GET /skills` (each skill at its newest revision), `POST /skills` (`{"github": ...}`),
     `POST /skills/archive` (the archive as the body, the one body allowed over 1 MB), `GET /skills/{skill}` (with
     every revision), `PUT /skills/{skill}/everyone`, `DELETE /skills/{skill}`. Every token reads; only the owner's
@@ -1266,12 +1286,20 @@ Node (`internal/node`):
     sessions, Apache-2.0): up to four panes, two rows by two columns, each axis split once along a path. A chat
     dragged from the sidebar onto an open chat, or onto a pane, takes the half of the edge it is dropped on (a
     quarter on the left or the right, the middle above or below), shown as a dashed ghost; one that has no room
-    is not taken. The grid is at `/grid`, with a "Grid" row in the sidebar while there is one. A pane's header
+    is not taken. The grid is at `/grid`, with a "Grid" row in the sidebar while there is one. A pane's chat tab
     dragged onto another pane changes places with it; a pane can fill the screen for a while, or leave the grid,
     and with one chat left there is no grid and that chat is shown alone. The grid is kept in the browser
     (`localStorage`, `hypomnema.grid`) and followed across its windows. A phone, or a screen with a coarse
-    pointer, has no grid. Not built yet: a pane's own tabs and "+" (step 2), and the tab's size following its
-    pane (step 3).
+    pointer, has no grid. Not built yet: a browser tab's size following its pane (step 3).
+  - A chat's pane has tabs (issue #235, step 2; `chat-tabs.tsx`, `use-pane-tabs.ts`): the chat first, named by
+    its title with its Bot's avatar, as Orca's terminal tab carries its agent's icon, then what was opened beside
+    it, and a "+" ("Open new") that offers what the control plane has, as Orca's tab bar
+    (`tab-bar-static-create-menu.tsx`) and Omnigent's workspace panel ("Open new") do. For now a tab is the chat
+    or a tab of the shared browser. The strip is the top of the pane, with no header above it, as in Orca: on a
+    phone it starts with the menu, and in the grid it ends with the pane's buttons and its chat tab is what is
+    dragged to change places. The chat stays mounted behind another tab. The open tabs and the one in front are
+    kept in the browser per chat (`localStorage`, `hypomnema.pane-tabs`), as Omnigent keeps a session's
+    workspace tabs.
   - The sidebar lists the places (New chat, Board with the count that needs the owner, Runs, Machines) above the
     chats.
     Every page follows `GET /events/stream` from the board's cursor and refreshes what an event may have changed.
@@ -1468,6 +1496,7 @@ internal/node/acp         the ACP runner for omp and opencode: each CLI's config
 internal/node/transcript  the forwarder of every worker's transcript, the decoder interface, the cutting of items
 internal/node/daemon      the node's connection: hello, socket, offers, outbox, Runner interface
 internal/node/shim        one worker kept across daemon restarts: journal, input socket, exit file
+internal/node/skills      the skills an offer names: fetched once by digest, and placed where each CLI reads them
 internal/node/statedb     the node's SQLite state: Dispatches held and the report outbox
 internal/node/terminal    the shells opened from the web: a session per id, its ring of output, the idle end
 internal/node/workertools the worker's MCP server: ask and finish, and the shared browser's tools passed on to the control plane

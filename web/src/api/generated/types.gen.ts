@@ -1339,6 +1339,14 @@ export type Profile = {
   effort?: string;
   instruction?: string;
   /**
+   * The skills its workers get beside those given to everyone.
+   */
+  skills: Array<string>;
+  /**
+   * The skills given to everyone that its workers do not get.
+   */
+  skills_off: Array<string>;
+  /**
    * The profiles, in the owner's order, a Task of this one runs under while every account of its runtime waits for a limit to reset: the first a worker can start under now. Only a Task that has not started and names no runtime or model of its own moves; a backup's own list is not followed. Empty: the Task waits for the reset.
    */
   fallbacks: Array<string>;

@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/kl3inIT/hypomnema/internal/node/daemon"
+	"github.com/kl3inIT/hypomnema/internal/node/skills"
 	"github.com/kl3inIT/hypomnema/internal/node/statedb"
 	"github.com/kl3inIT/hypomnema/internal/node/transcript"
 	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
@@ -33,6 +34,8 @@ type worker interface {
 type runners struct {
 	byRuntime   map[string]worker
 	transcripts *transcript.Forwarder
+	// skills fetches the skills an offer names before its worker starts (issue #21).
+	skills skills.Cache
 }
 
 var _ daemon.Runner = runners{}
@@ -54,6 +57,10 @@ func (rs runners) of(d statedb.Dispatch) (worker, error) {
 func (rs runners) Start(ctx context.Context, d statedb.Dispatch, rep daemon.Reporter) error {
 	r, err := rs.of(d)
 	if err != nil {
+		return err
+	}
+
+	if err := rs.skills.Ensure(ctx, d.Offer.Skills); err != nil {
 		return err
 	}
 

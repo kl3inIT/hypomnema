@@ -27,8 +27,8 @@ func profilesList(ctx context.Context, e *env, fs *flag.FlagSet) error {
 
 	return e.print(fs, resp.JSON200, func() {
 		for _, p := range resp.JSON200.Data {
-			e.printf("%s\tv%d\t%s\t%s%s%s\n  %s\n", p.Name, p.Version, p.Runtime, modelOf(p), fallbacksOf(p),
-				cannotRun(p), p.Description)
+			e.printf("%s\tv%d\t%s\t%s%s%s%s\n  %s\n", p.Name, p.Version, p.Runtime, modelOf(p), fallbacksOf(p),
+				skillsOf(p), cannotRun(p), p.Description)
 		}
 	})
 }
@@ -40,6 +40,20 @@ func fallbacksOf(p openapi.Profile) string {
 	}
 
 	return "\tfallbacks: " + strings.Join(p.Fallbacks, ", ")
+}
+
+// skillsOf names the skills a profile adds and turns off, for a line of the list.
+func skillsOf(p openapi.Profile) string {
+	out := ""
+	if len(p.Skills) > 0 {
+		out += "	skills: " + strings.Join(p.Skills, ", ")
+	}
+
+	if len(p.SkillsOff) > 0 {
+		out += "	skills off: " + strings.Join(p.SkillsOff, ", ")
+	}
+
+	return out
 }
 
 // cannotRun is why no worker can start under a profile now, for a line of

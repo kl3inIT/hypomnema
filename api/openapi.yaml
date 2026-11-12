@@ -3408,7 +3408,7 @@ components:
           description: Part of the one entry to replace or remove.
     Profile:
       type: object
-      required: [name, description, version_id, version, runtime, fallbacks, source, created_at]
+      required: [name, description, version_id, version, runtime, fallbacks, skills, skills_off, source, created_at]
       properties:
         name: { type: string }
         description:
@@ -3421,6 +3421,14 @@ components:
         model: { type: string }
         effort: { type: string }
         instruction: { type: string }
+        skills:
+          type: array
+          items: { type: string }
+          description: The skills its workers get beside those given to everyone.
+        skills_off:
+          type: array
+          items: { type: string }
+          description: The skills given to everyone that its workers do not get.
         fallbacks:
           type: array
           items: { type: string }
