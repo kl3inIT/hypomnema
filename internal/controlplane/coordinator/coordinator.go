@@ -43,7 +43,21 @@ type Config struct {
 	Command []string
 	// IdleAfter stops an idle pi; DefaultIdleAfter when zero.
 	IdleAfter time.Duration
-	Logger    *slog.Logger
+	// Keys makes the model gateway's key of a chat's pi; nil when pi reaches
+	// its model another way.
+	Keys   Keys
+	Logger *slog.Logger
+}
+
+// Keys makes and ends the key a chat's pi calls the model gateway with
+// (issue #204), as a Dispatch's worker has one of its own. Omnigent gives
+// its pi no credential either: pi asks the process that started it.
+type Keys interface {
+	// AddChatKey returns a new key's id and its secret, good for the model, or
+	// for every model when it is empty.
+	AddChatKey(ctx context.Context, chatID, model string) (id, secret string, err error)
+	// RevokeKey stops a key from working.
+	RevokeKey(ctx context.Context, id string) error
 }
 
 // Supervisor starts, feeds and stops pi processes, one per chat.
@@ -83,6 +97,20 @@ func (s *Supervisor) Working(chatID string) bool {
 	s.mu.Unlock()
 
 	return p != nil && p.isWorking()
+}
+
+// Key returns the model gateway's key of the chat's running pi. No pi, or
+// one that has ended, has none.
+func (s *Supervisor) Key(chatID string) (string, bool) {
+	s.mu.Lock()
+	p := s.procs[chatID]
+	s.mu.Unlock()
+
+	if p == nil || p.exited() || p.key == "" {
+		return "", false
+	}
+
+	return p.key, true
 }
 
 // Run delivers what chats have for pi after every commit and every tick,
@@ -202,13 +230,24 @@ func (s *Supervisor) procFor(ctx context.Context, chatID string) (*proc, error) 
 		return p, nil
 	}
 
-	args, err := s.botArgs(ctx, chatID)
+	args, model, err := s.botArgs(ctx, chatID)
 	if err != nil {
 		return nil, err
 	}
 
-	p, err := start(ctx, s, chatID, args)
+	var key gatewayKey
+
+	if s.cfg.Keys != nil {
+		key.id, key.secret, err = s.cfg.Keys.AddChatKey(ctx, chatID, model)
+		if err != nil {
+			return nil, fmt.Errorf("making the gateway key of chat %s: %w", chatID, err)
+		}
+	}
+
+	p, err := start(ctx, s, chatID, args, key)
 	if err != nil {
+		s.revoke(ctx, chatID, key.id)
+
 		return nil, fmt.Errorf("starting pi for chat %s: %w", chatID, err)
 	}
 
@@ -219,16 +258,17 @@ func (s *Supervisor) procFor(ctx context.Context, chatID string) (*proc, error) 
 
 // botArgs are the launcher's flags for the chat's Bot: its name, by which the
 // launcher finds its directory, persona and memory, and its model: the
-// provider (an id in pi's models.json), the model and the effort.
-func (s *Supervisor) botArgs(ctx context.Context, chatID string) ([]string, error) {
+// provider (an id in pi's models.json), the model and the effort. The model
+// is returned too: the chat's gateway key is good for it.
+func (s *Supervisor) botArgs(ctx context.Context, chatID string) ([]string, string, error) {
 	chat, err := s.svc.GetChat(ctx, chatID)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	p, err := s.svc.GetBot(ctx, chat.Bot)
 	if err != nil {
-		return nil, fmt.Errorf("reading the bot of chat %s: %w", chatID, err)
+		return nil, "", fmt.Errorf("reading the bot of chat %s: %w", chatID, err)
 	}
 
 	args := []string{"--bot", p.Name}
@@ -245,7 +285,21 @@ func (s *Supervisor) botArgs(ctx context.Context, chatID string) ([]string, erro
 		args = append(args, "--thinking", p.Effort)
 	}
 
-	return args, nil
+	return args, p.Model, nil
+}
+
+// revoke ends a pi's gateway key. The pi is gone or never started, so the
+// caller's context may be over: the key is ended all the same.
+func (s *Supervisor) revoke(ctx context.Context, chatID, keyID string) {
+	if s.cfg.Keys == nil || keyID == "" {
+		return
+	}
+
+	if err := s.cfg.Keys.RevokeKey(context.WithoutCancel(ctx), keyID); err != nil {
+		s.cfg.Logger.ErrorContext(ctx, "revoking pi's gateway key failed",
+			slog.String("event", "coordinator.key_revoke_failed"), slog.String("chat_id", chatID),
+			slog.String("key_id", keyID), slog.Any("error", err))
+	}
 }
 
 // settled is called by a proc when a turn ends or it exits, so waiting

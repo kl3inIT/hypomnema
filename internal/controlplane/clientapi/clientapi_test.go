@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -792,6 +793,17 @@ func TestOnlyTheOwnerChangesProfiles(t *testing.T) {
 type fakeCoordinator struct {
 	live    chan coordinator.Frame
 	aborted atomic.Value
+	// keys are the gateway keys of the chats a pi runs for.
+	keys sync.Map
+}
+
+func (f *fakeCoordinator) Key(chatID string) (string, bool) {
+	key, ok := f.keys.Load(chatID)
+	if !ok {
+		return "", false
+	}
+
+	return key.(string), true
 }
 
 func (*fakeCoordinator) Enabled() bool         { return true }
@@ -860,6 +872,39 @@ func TestOnlyTheOwnerChats(t *testing.T) {
 	missing, err := pi.CreateRunWithResponse(ctx, nil, openapi.NewRun{Objective: "x", ChatId: &unknown})
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusNotFound, missing.StatusCode())
+}
+
+// Scenario: pi asks for the key it calls the model gateway with (issue #204).
+// With its coordinator token it gets the key of the chat it runs for, never
+// kept by a cache; a chat no pi runs for has none.
+func TestPiReadsItsChatsGatewayKey(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	owner, _ := w.token("web", bearertoken.Owner)
+	pi, _ := w.token("pi", bearertoken.Coordinator)
+	ctx := t.Context()
+
+	created, err := owner.CreateChatWithResponse(ctx, openapi.NewChat{})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, created.StatusCode(), string(created.Body))
+	chat := created.JSON201.Id
+
+	none, err := pi.GetChatGatewayKeyWithResponse(ctx, chat)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusNotFound, none.StatusCode(), "no pi runs for the chat")
+
+	w.pi.keys.Store(chat, "hyp_gateway_v1_of_this_pi")
+
+	got, err := pi.GetChatGatewayKeyWithResponse(ctx, chat)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, got.StatusCode(), string(got.Body))
+	assert.Equal(t, "hyp_gateway_v1_of_this_pi", got.JSON200.Key)
+	assert.Equal(t, "no-store", got.HTTPResponse.Header.Get("Cache-Control"))
+
+	other, err := pi.GetChatGatewayKeyWithResponse(ctx, "cht_another")
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusNotFound, other.StatusCode())
 }
 
 // Scenario: the web opens a chat while pi answers. It gets pi's state, the

@@ -183,6 +183,31 @@ func botsPrompt(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	return nil
 }
 
+// modelKey prints the key pi calls the model gateway with (issue #204). pi's
+// models.json names this command as its apiKey, which pi runs at each
+// request and does not keep (pi's docs/models.md), as Omnigent's pi runs
+// gateway-auth.cjs. The chat is the one the launcher started pi for.
+func modelKey(ctx context.Context, e *env, _ *flag.FlagSet) error {
+	chat := os.Getenv(chatEnv)
+	if chat == "" {
+		return fmt.Errorf("%w: %s is not set: this command is for pi, which the launcher starts for a chat",
+			ErrUsage, chatEnv)
+	}
+
+	resp, err := e.api.GetChatGatewayKeyWithResponse(ctx, chat)
+	if err != nil {
+		return fmt.Errorf("reading the model key of chat %s: %w", chat, err)
+	}
+
+	if resp.JSON200 == nil {
+		return apiError("reading the model key of chat "+chat, resp.StatusCode(), resp.JSONDefault)
+	}
+
+	e.printf("%s\n", resp.JSON200.Key)
+
+	return nil
+}
+
 func botPrompt(b openapi.Bot) string {
 	var out strings.Builder
 

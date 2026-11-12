@@ -172,6 +172,28 @@ func (s *Server) AbortChat(ctx context.Context, req openapi.AbortChatRequestObje
 	return openapi.AbortChat204Response{}, nil
 }
 
+// GetChatGatewayKey returns the key the chat's pi calls the model gateway
+// with (issue #204). The supervisor holds it for as long as that pi runs;
+// Omnigent's pi asks the process that started it in the same way.
+func (s *Server) GetChatGatewayKey(_ context.Context, req openapi.GetChatGatewayKeyRequestObject,
+) (openapi.GetChatGatewayKeyResponseObject, error) {
+	if s.coordinator == nil {
+		return nil, fmt.Errorf("%w: chat %s has no running pi", orchestration.ErrNotFound, req.ChatId)
+	}
+
+	key, ok := s.coordinator.Key(req.ChatId)
+	if !ok {
+		return nil, fmt.Errorf("%w: chat %s has no running pi", orchestration.ErrNotFound, req.ChatId)
+	}
+
+	noStore := "no-store"
+
+	return openapi.GetChatGatewayKey200JSONResponse{
+		Body:    openapi.ChatGatewayKey{Key: key},
+		Headers: openapi.GetChatGatewayKey200ResponseHeaders{CacheControl: &noStore},
+	}, nil
+}
+
 // StreamChat sends the kept messages after the cursor, then each new one as
 // it is kept, with pi's live frames in between (after Omnara's delta
 // previews: what is live is shown until the kept message replaces it).

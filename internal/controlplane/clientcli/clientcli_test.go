@@ -1024,6 +1024,8 @@ func (replier) Watch(_ string) (<-chan coordinator.Frame, func()) { return nil, 
 
 func (replier) Abort(_ context.Context, _ string) error { return nil }
 
+func (replier) Key(_ string) (string, bool) { return "", false }
+
 func (r replier) run(ctx context.Context) {
 	for {
 		select {
