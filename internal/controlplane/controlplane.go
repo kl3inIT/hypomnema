@@ -31,6 +31,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/serviceproxy"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/skillsource"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/skillssh"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/subscription"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/webui"
@@ -316,6 +317,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		WithSecrets(ownerSecrets{vault: secrets, referrers: referrers}).
 		WithIntegrations(integrations).WithApprovals(proxy).WithRelay(proxy).WithLarkChannels(larkSettings).
 		WithSkillSources(skillsource.NewGitHub(&http.Client{Timeout: 2 * time.Minute})).
+		WithSkillDirectory(skillssh.New(&http.Client{Timeout: 30 * time.Second})).
 		WithBuiltinSkills(builtinSkills)
 	if cfg.VaultKeys != nil {
 		api.WithTokenAccounts(accountTokens{svc: svc, vault: secrets, logger: logger})

@@ -1641,6 +1641,52 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/BuiltinSkillList" }
         default: { $ref: "#/components/responses/Error" }
+  /skill-search:
+    get:
+      operationId: SearchSkills
+      summary: Search the skills on skills.sh; only the owner
+      description: >-
+        The control plane asks skills.sh's search. A query of several words
+        that finds fewer than ten is asked again with each word left out, and
+        those results follow, at most 25 in all, as the skills CLI does.
+      parameters:
+        - { name: q, in: query, required: true, schema: { type: string, minLength: 1 } }
+        - name: owner
+          in: query
+          description: Only the skills of this GitHub owner.
+          schema: { type: string }
+      responses:
+        "200":
+          description: The skills found.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SkillSearchList" }
+        default: { $ref: "#/components/responses/Error" }
+  /skill-audits:
+    get:
+      operationId: ListSkillAudits
+      summary: What skills.sh's auditors said of a skill; only the owner
+      description: >-
+        Read from skills.sh as the skills CLI reads it before installing.
+        Empty when skills.sh has none or does not answer.
+      parameters:
+        - name: source
+          in: query
+          required: true
+          description: owner/repo.
+          schema: { type: string }
+        - name: skill
+          in: query
+          required: true
+          description: The skill's slug on skills.sh, the last part of its id.
+          schema: { type: string }
+      responses:
+        "200":
+          description: The audits.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SkillAuditList" }
+        default: { $ref: "#/components/responses/Error" }
   /skills/{skill}/everyone:
     parameters:
       - $ref: "#/components/parameters/SkillName"
@@ -3558,6 +3604,47 @@ components:
         data:
           type: array
           items: { $ref: "#/components/schemas/BuiltinSkill" }
+    SkillSearchResult:
+      type: object
+      required: [id, name, source, installs]
+      properties:
+        id:
+          type: string
+          description: owner/repo/slug, the skill's page on skills.sh.
+        name: { type: string }
+        source:
+          type: string
+          description: owner/repo, the GitHub repository it is in.
+        installs: { type: integer, format: int64 }
+    SkillSearchList:
+      type: object
+      required: [data, exact]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/SkillSearchResult" }
+        exact:
+          type: integer
+          description: How many of the first results match every word; the rest match some.
+    SkillAudit:
+      type: object
+      required: [partner, risk]
+      properties:
+        partner:
+          type: string
+          description: Who audited it, as skills.sh names them (ath for Gen, socket, snyk).
+        risk:
+          type: string
+          enum: [safe, low, medium, high, critical, unknown]
+        alerts: { type: integer }
+        analyzed_at: { type: string }
+    SkillAuditList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/SkillAudit" }
     SkillRef:
       type: object
       required: [name, revision, digest]
@@ -3587,6 +3674,12 @@ components:
         github:
           type: string
           description: owner/repo[/path][@ref]; no ref is the default branch.
+        skill:
+          type: string
+          description: >-
+            The name of a skill in the repository, as skills.sh gives it,
+            instead of a path: the folder whose SKILL.md has this name is
+            found as the skills CLI finds it, and kept as the source's path.
     SkillEveryone:
       type: object
       additionalProperties: false

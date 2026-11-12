@@ -88,6 +88,8 @@ type Server struct {
 	accountSignIns accountSignIns
 	// skillSources fetches a skill from a repository; nil when the control plane wired none.
 	skillSources SkillSources
+	// skillDirectory searches skills.sh; nil when the control plane wired none.
+	skillDirectory SkillDirectory
 	// builtinSkills lists the skills the binary ships; nil when the control plane wired none.
 	builtinSkills func() ([]BuiltinSkill, error)
 }
