@@ -35,9 +35,10 @@ checked on the machine by hand.
 ## 4. Decided (owner, 2026-11-12)
 
 Learn from all four. The node runs a setup script the repository declares when it makes a Task's worktree, after
-Orca and t3code; the design is in issue #186 and waits for the owner's approval. Until it is built, and beside it
-afterwards, a worker installs what is missing itself, as OpenMausBot leaves it to the bot's shell: `AGENTS.md` says
-which tools the checks need and where an agent puts them.
+Orca and t3code; the design is in issue #186, built in pull request #188 and released as node `v0.9.2`. Beside it
+a worker installs what is missing itself, as OpenMausBot leaves it to the bot's shell: `AGENTS.md` says which tools
+the checks need and where an agent puts them. What exists is in `ARCHITECTURE.md`; the check on a node is tracked
+in issue #186.
 
 This section said until later the same day that no setup script would be built; that was a misreading of the
 owner's "openmausbot đi", which asked for OpenMausBot to be read as one more reference.
