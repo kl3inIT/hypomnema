@@ -5,7 +5,7 @@ import { modelKey } from "./profiles-state"
 // A Choice is one row: a model of a provider, the default (key ""), or a model no provider offers any more.
 export type Choice = { key: string; name: string; provider: string; gone?: boolean }
 
-export type Group = { value: string; items: Choice[] }
+export type Group = { value: string; kind: string; items: Choice[] }
 
 // choices lists the default first, then a model that is chosen but no longer offered, then every provider's
 // models under the provider's name.
@@ -17,9 +17,10 @@ export function choices(models: Model[], model: string, defaultLabel: string): G
   const providers = [...new Set(models.map((m) => m.provider))].sort()
 
   return [
-    { value: "", items: top },
+    { value: "", kind: "", items: top },
     ...providers.map((provider) => ({
       value: provider,
+      kind: models.find((m) => m.provider === provider)?.kind ?? "",
       items: models
         .filter((m) => m.provider === provider)
         .map((m) => ({ key: modelKey(m.provider, m.name), name: m.name, provider })),

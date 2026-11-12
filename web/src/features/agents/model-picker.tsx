@@ -15,13 +15,15 @@ import {
 } from "@/components/ui/combobox"
 
 import { choices, matches, type Choice, type Group } from "./model-choices"
+import { ModelMark, ProviderMark } from "./model-mark"
 
 // ModelPicker chooses a model from every provider's, with a search (issue #200). It is Omnara's model combobox
 // (Apache License 2.0, https://github.com/omnara-ai/omnara; frontend/apps/web/src/components/ui/
 // resource-combobox.tsx, resource-combobox-content.tsx, agents/AgentConfigModelField.tsx): a button that shows
 // the choice, the search inside the popup above the list, the first match highlighted so Enter takes it, a letter
 // typed on the closed button opening the popup with that letter.
-// The check on the chosen row and the provider said beside the name are t3code's row (apps/web/src/components/
+// A row and the button lead with the mark of the model's maker, and a group's label with its provider's
+// (model-mark.tsx, issue #205). The check on the chosen row and the provider said beside the name are t3code's row (apps/web/src/components/
 // chat/ModelListRow.tsx). The groups by provider and the row for a model that is gone are this field's own, kept
 // from the select it replaces.
 export function ModelPicker({
@@ -75,7 +77,8 @@ export function ModelPicker({
           setOpen(true)
         }}
       >
-        <span className="flex min-w-0 items-baseline gap-2">
+        <span className="flex min-w-0 items-center gap-2">
+          {chosen && chosen.key !== "" && <ModelMark name={chosen.name} className="size-3.5" />}
           <span className="truncate">{chosen?.name ?? defaultLabel}</span>
           {chosen?.provider && (
             <span className="truncate text-xs text-muted-foreground">{chosen.provider}</span>
@@ -93,10 +96,18 @@ export function ModelPicker({
         <ComboboxList>
           {(group: Group) => (
             <ComboboxGroup key={group.value} items={group.items}>
-              {group.value && <ComboboxLabel>{group.value}</ComboboxLabel>}
+              {group.value && (
+                <ComboboxLabel>
+                  <span className="flex items-center gap-1.5">
+                    <ProviderMark kind={group.kind} className="size-3 opacity-70" />
+                    {group.value}
+                  </span>
+                </ComboboxLabel>
+              )}
               <ComboboxCollection>
                 {(choice: Choice) => (
                   <ComboboxItem key={choice.key} value={choice}>
+                    {choice.key !== "" && <ModelMark name={choice.name} className="size-3.5" />}
                     <span className="truncate">{choice.name}</span>
                     {choice.gone && (
                       <span className="shrink-0 text-xs text-muted-foreground">not offered</span>

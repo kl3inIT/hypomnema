@@ -15,6 +15,15 @@ Each adapted file names its source.
 - The runtime marks (Claude, Codex, pi, opencode) are copied from OpenMausBot
   (https://github.com/milind-soni/OpenMausBot, src/components/ProviderIcons.tsx), Apache License 2.0. omp's mark is
   its own icon (https://github.com/can1357/oh-my-pi, assets/icon.svg), MIT, with its bars in the text colour.
+- The model picker (`src/features/agents/model-picker.tsx`, `model-mark.tsx`) follows Omnara's model combobox
+  (frontend/apps/web/src/components/ui/resource-combobox.tsx, Apache License 2.0), t3code's model search and row
+  (packages/client-runtime/src/modelSearch.ts, apps/web/src/components/chat/ModelListRow.tsx, MIT), and the
+  row with its logo of assistant-ui (https://github.com/assistant-ui/assistant-ui, packages/ui/src/components/
+  react/assistant-ui/elements/model-selector.tsx, MIT, Copyright (c) 2026 AgentbaseAI Inc.) and AI Elements
+  (https://github.com/vercel/ai-elements, packages/elements/src/model-selector.tsx, Apache License 2.0).
+  Gemini's mark (`src/components/icons/brand-icons.tsx`) is copied from Onyx (web/lib/opal/src/logos/gemini.tsx,
+  MIT) and Antigravity's from OpenMausBot (src/components/ProviderIcons.tsx, Apache License 2.0). Each mark
+  belongs to its brand.
 - The titles of a worker's tool calls and the line that says a group of them
   (`src/features/board/tool-title.ts`) are adapted from Omnigent (https://github.com/omnigent-ai/omnigent,
   web/src/lib/toolTitle.ts and toolValue.ts), Apache License 2.0. The file says what was changed.

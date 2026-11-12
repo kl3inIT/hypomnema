@@ -48,6 +48,13 @@ const models = [
   { provider: "claude-subscription", name: "sonnet", kind: "claude_subscription" },
   { provider: "gateway", name: "gpt-sol", kind: "model_gateway" },
   { provider: "gateway", name: "gpt-luna", kind: "model_gateway" },
+  {
+    provider: "antigravity-subscription",
+    name: "gemini-3-flash",
+    kind: "antigravity_subscription",
+  },
+  { provider: "codex-subscription", name: "gpt-6-sol", kind: "codex_subscription" },
+  { provider: "ninerouter", name: "cx/qwen-coder", kind: "openai_compatible" },
 ]
 
 async function fakeServer(page: Page) {
@@ -250,7 +257,9 @@ test("a refused save says why, and a saved one becomes the next version", async 
   // The model's picker: every provider's models under the provider's name, and a search that narrows them.
   await page.getByLabel("Model", { exact: true }).click()
   const list = page.getByRole("listbox")
-  await expect(list.getByRole("option")).toHaveCount(5)
+  await expect(list.getByRole("option")).toHaveCount(8)
+  // The popup fades in; the picture waits for it.
+  await expect(page.locator("[data-slot=combobox-content]")).toHaveCSS("opacity", "1")
   await shot(page, "agent-model-open")
   await page.getByLabel("Search models").fill("nothing like this")
   await expect(page.getByText("No models found.")).toBeVisible()

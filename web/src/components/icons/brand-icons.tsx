@@ -267,3 +267,47 @@ export function LarkIcon(props: SVGProps<SVGSVGElement>) {
     </svg>
   )
 }
+
+// Gemini's mark, copied from Onyx (web/lib/opal/src/logos/gemini.tsx; MIT, Copyright (c) 2023-present DanswerAI,
+// Inc., https://github.com/onyx-dot-app/onyx). The gradient's id is made per mark, so two on a page do not share
+// one.
+export function GeminiIcon(props: SVGProps<SVGSVGElement>) {
+  const id = useId()
+
+  return (
+    <svg viewBox="0 0 52 52" fill="none" aria-hidden="true" {...props}>
+      <path
+        d="M26 2C26.5034 2 26.9412 2.34378 27.064 2.83212C27.4405 4.3258 27.9315 5.78274 28.5426 7.20002C30.1345 10.8981 32.3187 14.1349 35.092 16.9081C37.8664 19.6813 41.102 21.8655 44.8 23.4574C46.2186 24.0685 47.6743 24.5595 49.1679 24.936C49.6562 25.0588 49.9999 25.4967 50 26C50 26.5034 49.6563 26.9413 49.1679 27.064C47.6743 27.4405 46.2172 27.9315 44.8 28.5426C41.1019 30.1345 37.8651 32.3187 35.092 35.092C32.3187 37.8665 30.1345 41.1019 28.5426 44.8C27.9315 46.2186 27.4405 47.6743 27.064 49.1679C26.9413 49.6563 26.5034 50 26 50C25.4967 49.9999 25.0588 49.6562 24.936 49.1679C24.5595 47.6743 24.0685 46.2172 23.4574 44.8C21.8655 41.102 19.6826 37.8651 16.9081 35.092C14.1335 32.3187 10.8981 30.1345 7.20002 28.5426C5.78137 27.9315 4.3258 27.4405 2.83212 27.064C2.34378 26.9412 2 26.5034 2 26C2.00006 25.4967 2.34381 25.0588 2.83212 24.936C4.32581 24.5595 5.78273 24.0686 7.20002 23.4574C10.8981 21.8655 14.1349 19.6813 16.9081 16.9081C19.6813 14.1349 21.8655 10.8981 23.4574 7.20002C24.0686 5.78137 24.5595 4.32581 24.936 2.83212C25.0588 2.34381 25.4967 2.00006 26 2Z"
+        fill={`url(#${id})`}
+      />
+      <defs>
+        <linearGradient
+          id={id}
+          x1={15.6448}
+          y1={34.1163}
+          x2={40.5754}
+          y2={13.0975}
+          gradientUnits="userSpaceOnUse"
+        >
+          <stop stopColor="#4893FC" />
+          <stop offset={0.27} stopColor="#4893FC" />
+          <stop offset={0.776981} stopColor="#969DFF" />
+          <stop offset={1} stopColor="#BD99FE" />
+        </linearGradient>
+      </defs>
+    </svg>
+  )
+}
+
+// Antigravity's mark, the path OpenMausBot draws (src/components/ProviderIcons.tsx, AntigravityMark; Apache
+// License 2.0, https://github.com/milind-soni/OpenMausBot). It is one colour: it takes the text's.
+export function AntigravityIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" {...props}>
+      <path
+        fillRule="evenodd"
+        d="M21.751 22.607c1.34 1.005 3.35.335 1.508-1.508C17.73 15.74 18.904 1 12.037 1 5.17 1 6.342 15.74.815 21.1c-2.01 2.009.167 2.511 1.507 1.506 5.192-3.517 4.857-9.714 9.715-9.714 4.857 0 4.522 6.197 9.714 9.715z"
+      />
+    </svg>
+  )
+}
