@@ -1,4 +1,5 @@
 import { Link } from "@tanstack/react-router"
+import { HypomnemaIcon } from "@/components/icons/brand-icons"
 import { ArrowLeft, Box, KeyRound, MessagesSquare, Plug, type LucideIcon } from "lucide-react"
 import type { ReactNode } from "react"
 
@@ -49,7 +50,8 @@ const rowClass =
 export function SettingsSidebar() {
   return (
     <aside className="hidden h-full w-64 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground md:flex">
-      <div className="flex h-(--workspace-topbar-height) shrink-0 items-center px-3.5">
+      <div className="flex h-(--workspace-topbar-height) shrink-0 items-center gap-2 px-3.5">
+        <HypomnemaIcon className="size-6 shrink-0" />
         <span className="text-sm font-semibold tracking-tight">Settings</span>
       </div>
       <nav
