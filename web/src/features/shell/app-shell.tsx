@@ -3,7 +3,6 @@ import {
   Bot,
   BotMessageSquare,
   CircleDashed,
-  Globe,
   KanbanSquare,
   LayoutGrid,
   ListTree,
@@ -22,6 +21,7 @@ import { signOut } from "@/features/auth/session"
 import { needsYou } from "@/features/board/board-state"
 import { useBoard, useLiveUpdates } from "@/features/board/use-board"
 import { since } from "@/lib/time"
+import { useBrowser } from "@/features/browser/browser-state"
 import { gridChats } from "@/features/workbench/grid-layout"
 import { chatDrag, setDragged, useGrid, useGridOffered } from "@/features/workbench/use-grid"
 import { cn } from "@/lib/utils"
@@ -98,13 +98,6 @@ export function Places() {
         <Server className="size-4" />
         Machines
       </Link>
-      <Link
-        to="/browser"
-        className={cn(placeClass, "[&.active]:bg-sidebar-row-active [&.active]:text-foreground")}
-      >
-        <Globe className="size-4" />
-        Browser
-      </Link>
     </nav>
   )
 }
@@ -120,6 +113,7 @@ export function AppSidebar({ currentChat }: { currentChat?: string }) {
       </div>
       <div className="flex min-h-0 flex-1 flex-col gap-2 px-2">
         <Places />
+        <BrowserHeld />
         <GridLink />
         <ChatList current={currentChat} />
       </div>
@@ -147,6 +141,20 @@ export function SignOut() {
       <LogOut className="size-4" />
       Sign out
     </button>
+  )
+}
+
+// BrowserHeld says that the owner holds the shared browser, wherever the owner is: every agent's browser tools
+// are paused meanwhile, and the tab where control was taken may not be on screen (issue #235; the owner saw it in
+// the prototype, 2026-11-12).
+function BrowserHeld() {
+  const browser = useBrowser()
+  if (!browser.data?.held) return null
+
+  return (
+    <output className="mx-0.5 rounded-md border border-primary/50 bg-primary/10 px-2.5 py-2 text-xs text-foreground">
+      You hold the browser. Every agent's browser tools are paused until you hand it back.
+    </output>
   )
 }
 
@@ -237,16 +245,26 @@ function ChatRow({ chat, current, waits }: { chat: Chat; current: boolean; waits
 }
 
 // PageHeader is the quiet bar above a page: on a phone a way to the start page, the title, and the page's tools.
+// MenuLink goes to the menu on a phone, where there is no sidebar. A desktop does not show it.
+export function MenuLink({ className }: { className?: string }) {
+  return (
+    <Link
+      to="/"
+      aria-label="Menu"
+      className={cn(
+        "flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground md:hidden",
+        className,
+      )}
+    >
+      <Menu className="size-4" />
+    </Link>
+  )
+}
+
 export function PageHeader({ title, children }: { title?: ReactNode; children?: ReactNode }) {
   return (
     <header className="flex min-h-(--workspace-topbar-height) shrink-0 flex-wrap items-center gap-x-2 gap-y-2 bg-background px-3 py-2 sm:px-5">
-      <Link
-        to="/"
-        aria-label="Menu"
-        className="-ms-1.5 flex size-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground md:hidden"
-      >
-        <Menu className="size-4" />
-      </Link>
+      <MenuLink className="-ms-1.5" />
       {title && <h1 className="min-w-0 truncate text-sm font-medium text-foreground">{title}</h1>}
       {children}
     </header>
