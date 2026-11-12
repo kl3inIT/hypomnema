@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils"
 // and OpenMausBot contributors, https://github.com/milind-soni/OpenMausBot; see web/THIRD_PARTY_NOTICES.md). A card leads with the runtime, as
 // OpenMausBot's team map shows a bot's provider: the worker lives for one Task, so what runs it is its face.
 
-function ClaudeMark({ className }: { className?: string }) {
+export function ClaudeMark({ className }: { className?: string }) {
   return (
     <svg
       viewBox="0 0 256 257"
@@ -19,7 +19,7 @@ function ClaudeMark({ className }: { className?: string }) {
   )
 }
 
-function CodexMark({ className }: { className?: string }) {
+export function CodexMark({ className }: { className?: string }) {
   return (
     <svg
       viewBox="0 0 256 260"

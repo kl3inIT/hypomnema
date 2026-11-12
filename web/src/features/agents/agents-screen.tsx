@@ -10,6 +10,7 @@ import { PageHeader } from "@/features/shell/app-shell"
 import { cn } from "@/lib/utils"
 
 import { AgentAvatar } from "./agent-avatar"
+import { ModelMark } from "./model-mark"
 import { effortLabel, modelLine, runtimeName, savedAgo, standing, summary } from "./profiles-state"
 import { useProfiles } from "./use-profiles"
 
@@ -222,7 +223,11 @@ function AgentCard({ profile }: { profile: Profile }) {
     },
     {
       name: "Model",
-      icon: <Box className="size-4 text-muted-foreground" aria-hidden />,
+      icon: profile.model ? (
+        <ModelMark name={profile.model} className="size-4" />
+      ) : (
+        <Box className="size-4 text-muted-foreground" aria-hidden />
+      ),
       value: (
         <>
           <span className="shrink-0 font-mono text-xs">{modelLine(profile)}</span>
