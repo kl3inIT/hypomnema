@@ -7,9 +7,12 @@ Each adapted file names its source.
   apps/web), MIT, Copyright (c) 2026 T3 Tools Inc.
 - The board's columns and cards are adapted from Orca (https://github.com/stablyai/orca,
   src/renderer/src/components/dashboard-popout), MIT.
-- The Machines page's cards, table, meters and actions menu (`src/features/machines`), and the View menu that
-  shows or hides the columns of the Machines and Agents tables (`columns-menu.tsx`, `column-visibility.ts`), are
-  adapted from Beszel (https://github.com/henrygd/beszel, internal/site/src/components/systems-table), MIT.
+- The Machines page's cards, table, meters and actions menu (`src/features/machines`), the View menu of the
+  Machines and Agents pages, with its Status group that counts and filters the list and its columns to show or
+  hide (`columns-menu.tsx`, `column-visibility.ts`), and the list pages' header (`PageHeading` in
+  `src/features/shell/app-shell.tsx`) are adapted from Beszel (https://github.com/henrygd/beszel,
+  internal/site/src/components/systems-table), MIT. The header also follows Orca's settings section
+  (https://github.com/stablyai/orca, src/renderer/src/components/settings/section-layout/SettingsSection.tsx), MIT.
 - GitHub's mark (`src/components/icons/brand-icons.tsx`) is the path Orca uses
   (src/renderer/src/components/icons/GitHubIcon.tsx), MIT. The marks of GitLab, Google, Gmail, Google Calendar,
   Google Drive and Google Docs there are copied from Onyx (https://github.com/onyx-dot-app/onyx,

@@ -6,7 +6,7 @@ import { listRuns } from "@/api/generated/sdk.gen"
 import type { Run } from "@/api/generated/types.gen"
 import { firstLine, repoLabel, type Card } from "@/features/board/board-state"
 import { useBoard } from "@/features/board/use-board"
-import { PageHeader } from "@/features/shell/app-shell"
+import { PageHeader, PageHeading } from "@/features/shell/app-shell"
 import { since } from "@/lib/time"
 import { cn } from "@/lib/utils"
 
@@ -46,9 +46,13 @@ export function RunsScreen() {
 
   return (
     <main className="flex min-w-0 flex-1 flex-col">
-      <PageHeader title="Runs" />
+      <PageHeader />
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 px-3 pt-2 pb-10 sm:px-6">
+          <PageHeading
+            title="Runs"
+            description="Each Run is one objective pi works on, split into Tasks. The Runs that need you come first."
+          />
           {runs.isPending && (
             <p className="py-10 text-center text-sm text-muted-foreground">Loading…</p>
           )}

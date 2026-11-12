@@ -264,12 +264,53 @@ export function MenuLink({ className }: { className?: string }) {
   )
 }
 
+// The bar carries a detail page's breadcrumb ("Agents / reviewer", t3code's SettingsBreadcrumb.tsx) or a page's
+// tools; a list page, whose title is its PageHeading, gives it neither, and it shows only on a phone, for the menu.
 export function PageHeader({ title, children }: { title?: ReactNode; children?: ReactNode }) {
   return (
-    <header className="flex min-h-(--workspace-topbar-height) shrink-0 flex-wrap items-center gap-x-2 gap-y-2 bg-background px-3 py-2 sm:px-5">
+    <header
+      className={cn(
+        "flex min-h-(--workspace-topbar-height) shrink-0 flex-wrap items-center gap-x-2 gap-y-2 bg-background px-3 py-2 sm:px-5",
+        !title && !children && "md:hidden",
+      )}
+    >
       <MenuLink className="-ms-1.5" />
       {title && <h1 className="min-w-0 truncate text-sm font-medium text-foreground">{title}</h1>}
       {children}
     </header>
+  )
+}
+
+// PageHeading is a list page's head: its title, one plain sentence under it saying what the page holds, the page's
+// actions on the right and a rule below, as Orca's settings section (MIT, Copyright (c) 2026 Lovecast Inc.,
+// https://github.com/stablyai/orca; components/settings/section-layout/SettingsSection.tsx) and Beszel's systems
+// table (MIT, Copyright (c) 2024 henrygd, https://github.com/henrygd/beszel; components/systems-table/
+// systems-table.tsx CardHead, ui/card.tsx). On a phone the actions wrap under the title, as Beszel's.
+export function PageHeading({
+  title,
+  description,
+  children,
+  className,
+}: {
+  title: ReactNode
+  description?: ReactNode
+  children?: ReactNode
+  className?: string
+}) {
+  return (
+    <div
+      className={cn(
+        "flex flex-col gap-3 border-b border-border/60 pb-5 md:flex-row md:items-start md:justify-between md:gap-4 md:pt-6",
+        className,
+      )}
+    >
+      <div className="flex min-w-0 flex-1 flex-col gap-2">
+        <h1 className="text-2xl leading-tight font-semibold text-foreground">{title}</h1>
+        {description && (
+          <p className="max-w-3xl text-sm leading-6 text-muted-foreground">{description}</p>
+        )}
+      </div>
+      {children && <div className="flex flex-wrap items-center gap-2 md:shrink-0">{children}</div>}
+    </div>
   )
 }

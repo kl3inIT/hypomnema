@@ -151,7 +151,7 @@ function open(path: string) {
 const agent = (name: string) => screen.findByRole("article", { name })
 
 // Scenario: three workers' profiles. Each card says its model and whether a worker can start now, in words; the
-// header counts.
+// View menu's Status group counts them.
 test("a card says what the agent runs on and whether it can run now", async () => {
   server([
     profile("implementer", { model: "opus", provider: "claude-subscription", effort: "xhigh" }),
@@ -174,7 +174,18 @@ test("a card says what the agent runs on and whether it can run now", async () =
   expect(await agent("codex-implementer")).toHaveTextContent("No machine online has Codex")
   expect(await agent("reviewer")).toHaveTextContent("No Claude Code account")
   expect(await agent("reviewer")).toHaveTextContent("Runtime default")
-  expect(screen.getByText("1 can run · 2 cannot")).toBeInTheDocument()
+
+  await userEvent.click(screen.getByRole("button", { name: "View" }))
+  const statuses = await screen.findAllByRole("menuitemradio")
+  expect(statuses.map((item) => item.textContent)).toEqual([
+    "All agents",
+    "Can run (1)",
+    "Cannot run (2)",
+  ])
+  await userEvent.click(screen.getByRole("menuitemradio", { name: "Cannot run (2)" }))
+  expect(screen.queryByRole("article", { name: "implementer" })).toBeNull()
+  expect(await agent("reviewer")).toBeVisible()
+  expect(window.localStorage.getItem("hypomnema.agents.status")).toBe("cannot")
 })
 
 // Scenario: the owner prefers the table; the choice is kept in this browser, and the table says the same things.

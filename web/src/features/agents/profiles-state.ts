@@ -69,13 +69,29 @@ export function standing(profile: Profile): Standing | null {
   }
 }
 
-// summary counts what can run, for the list's header: "3 can run · 1 cannot".
-export function summary(profiles: Profile[]) {
-  const workers = profiles.filter((p) => p.available !== undefined)
-  const can = workers.filter((p) => p.available).length
-  const cannot = workers.length - can
+// The View menu's Status group, as Beszel's (systems-table.tsx): whether a worker can start under a profile now. A
+// profile with no answer shows under All agents only.
+export const filterStates = ["can", "cannot"] as const
 
-  return [can > 0 && `${can} can run`, cannot > 0 && `${cannot} cannot`].filter(Boolean).join(" · ")
+export type FilterState = (typeof filterStates)[number]
+
+// statusChoices are the View menu's Status group with each one's count: "Can run (3)".
+export function statusChoices(profiles: Profile[]) {
+  const can = profiles.filter((p) => p.available === true).length
+  const cannot = profiles.filter((p) => p.available === false).length
+
+  return [
+    { value: "all", label: "All agents" },
+    { value: "can", label: `Can run (${can})` },
+    { value: "cannot", label: `Cannot run (${cannot})` },
+  ]
+}
+
+// withStatus is the profiles the View menu's choice lets through.
+export function withStatus(profiles: Profile[], status: FilterState | "all") {
+  if (status === "all") return profiles
+
+  return profiles.filter((p) => p.available === (status === "can"))
 }
 
 // modelLine is a profile's model as a card says it: the name, or that the runtime chooses.

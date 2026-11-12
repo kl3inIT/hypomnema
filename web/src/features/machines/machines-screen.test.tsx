@@ -74,7 +74,7 @@ async function open() {
 const machine = (name: string) => screen.findByRole("article", { name })
 
 // Scenario: three machines, one taking work, one drained by the owner, one that lost its connection. Each says
-// its state, and the header counts them.
+// its state, and the View menu's Status group counts them.
 test("a machine says whether it is online, drained or offline", async () => {
   nodesServer([
     node("builder"),
@@ -89,7 +89,43 @@ test("a machine says whether it is online, drained or offline", async () => {
   expect(await machine("builder")).toHaveTextContent("Online")
   expect(await machine("resting")).toHaveTextContent("Drained")
   expect(await machine("gone")).toHaveTextContent(/Offline · seen 3h ago/)
-  expect(screen.getByText("1 online · 1 drained · 1 offline")).toBeInTheDocument()
+
+  await userEvent.click(screen.getByRole("button", { name: "View" }))
+  const statuses = await screen.findAllByRole("menuitemradio")
+  expect(statuses.map((item) => item.textContent)).toEqual([
+    "All machines",
+    "Online (1)",
+    "Drained (1)",
+    "Offline (1)",
+  ])
+})
+
+// Scenario: the owner shows only the offline machines from the View menu, in the grid and in the table; the choice
+// is kept, and a choice that hides every machine says so.
+test("the View menu's status filters the machines and is remembered", async () => {
+  const user = userEvent.setup()
+  nodesServer([node("builder"), node("gone", { connected: false })])
+  await open()
+  await machine("builder")
+
+  await user.click(screen.getByRole("button", { name: "View" }))
+  await user.click(await screen.findByRole("menuitemradio", { name: "Offline (1)" }))
+  // The grid has no columns to choose.
+  expect(screen.queryByRole("menuitemcheckbox")).toBeNull()
+  expect(screen.getByRole("menuitemradio", { name: "Offline (1)" })).toBeChecked()
+  await user.keyboard("{Escape}")
+
+  expect(screen.getAllByTestId("machine")).toHaveLength(1)
+  expect(await machine("gone")).toBeVisible()
+  expect(window.localStorage.getItem("hypomnema.machines.status")).toBe("offline")
+
+  await user.click(screen.getByRole("button", { name: "table" }))
+  expect(screen.getAllByTestId("machine")).toHaveLength(1)
+  expect(screen.getAllByTestId("machine")[0]).toHaveTextContent("gone")
+
+  await user.click(screen.getByRole("button", { name: "View" }))
+  await user.click(await screen.findByRole("menuitemradio", { name: "Drained (0)" }))
+  expect(screen.getByText("No drained machines.")).toBeInTheDocument()
 })
 
 // Scenario: memory and disk are shares of the machine's totals; a meter warns from 65 % and is critical from
@@ -171,8 +207,6 @@ test("the table hides its low-value columns until the owner shows them", async (
   await open()
   await machine("builder")
 
-  // The menu belongs to the table.
-  expect(screen.queryByRole("button", { name: "View" })).not.toBeInTheDocument()
   await user.click(screen.getByRole("button", { name: "table" }))
   expect(await screen.findByRole("columnheader", { name: "CPU" })).toBeVisible()
   for (const hidden of ["Load Avg", "Agent", "Source"]) {
@@ -339,8 +373,6 @@ test("a provider's machine says where it is until it is ready", async () => {
   expect(await machine("stuck")).toHaveTextContent("RequestLimitExceeded")
   expect(await machine("stuck")).toHaveTextContent("may still run and cost money")
   expect(await machine("ready")).toHaveTextContent("Online")
-
-  expect(screen.getByText("1 online · 1 creating · 1 not created · 1 not removed")).toBeVisible()
 })
 
 // Scenario: the server has a machine provider. The owner picks it in the dialog, sees what a machine there will
@@ -532,7 +564,6 @@ test("a stopped machine says what it costs and is started from its card", async 
   expect(card).toHaveTextContent("Stopped")
   expect(card).not.toHaveTextContent("Offline")
   expect(card).toHaveTextContent("bills for its disk, not for the machine")
-  expect(screen.getByText("1 stopped")).toBeVisible()
 
   await user.click(screen.getByRole("button", { name: "Actions for build-1" }))
   expect(await screen.findByRole("menuitem", { name: "Start machine" })).toBeVisible()
