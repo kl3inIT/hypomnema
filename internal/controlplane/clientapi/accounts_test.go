@@ -208,7 +208,7 @@ func TestTheOwnerReadsAnAccountsLimits(t *testing.T) {
 	fake := &signedIn{
 		svc: w.svc, states: map[string]subscription.State{}, removed: map[string]bool{},
 		limits: map[string]subscription.Limits{codex.ID: {
-			ReadAt:  read,
+			ReadAt: read,
 			Windows: []subscription.Window{
 				{Name: "5 hours", UsedPercent: 12, ResetsAt: reset},
 				{Name: "week", UsedPercent: 45.5},
