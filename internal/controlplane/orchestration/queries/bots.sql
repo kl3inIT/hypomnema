@@ -1,8 +1,9 @@
 -- name: UpsertBot :exec
-INSERT INTO bots (name, provider, model, effort, persona, created_at, updated_at)
-VALUES (@name, @provider, @model, @effort, @persona, @now, @now)
+INSERT INTO bots (name, provider, model, effort, persona, skills, skills_off, created_at, updated_at)
+VALUES (@name, @provider, @model, @effort, @persona, @skills, @skills_off, @now, @now)
 ON CONFLICT (name) DO UPDATE SET provider = excluded.provider, model = excluded.model, effort = excluded.effort,
-    persona = excluded.persona, updated_at = excluded.updated_at;
+    persona = excluded.persona, skills = excluded.skills, skills_off = excluded.skills_off,
+    updated_at = excluded.updated_at;
 
 -- name: GetBot :one
 SELECT * FROM bots WHERE name = @name;

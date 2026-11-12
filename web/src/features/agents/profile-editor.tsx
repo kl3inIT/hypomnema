@@ -24,6 +24,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { AvatarName } from "@/features/agents/agent-avatar"
+import { RuntimeMark } from "@/features/board/runtime-mark"
 import { Textarea } from "@/components/ui/textarea"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 
@@ -296,12 +298,12 @@ function Builder({
           items={runtimes.map((r) => ({ value: r, label: runtimeName(r) }))}
         >
           <SelectTrigger id="profile-runtime" width="full">
-            <SelectValue />
+            <SelectValue>{(value: string) => <RuntimeName runtime={value} />}</SelectValue>
           </SelectTrigger>
           <SelectContent>
             {runtimes.map((r) => (
               <SelectItem key={r} value={r}>
-                {runtimeName(r)}
+                <RuntimeName runtime={r} />
               </SelectItem>
             ))}
           </SelectContent>
@@ -441,13 +443,15 @@ function Fallbacks({
                   }
                 >
                   <SelectTrigger aria-label={`Fallback ${index + 1}`} width="full">
-                    <SelectValue />
+                    <SelectValue>{(value: string) => <AvatarName name={value} />}</SelectValue>
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value={name}>{name}</SelectItem>
+                    <SelectItem value={name}>
+                      <AvatarName name={name} />
+                    </SelectItem>
                     {free.map((n) => (
                       <SelectItem key={n} value={n}>
-                        {n}
+                        <AvatarName name={n} />
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -480,7 +484,7 @@ function Fallbacks({
           <SelectContent>
             {free.map((n) => (
               <SelectItem key={n} value={n}>
-                {n}
+                <AvatarName name={n} />
               </SelectItem>
             ))}
           </SelectContent>
@@ -491,5 +495,16 @@ function Fallbacks({
         under the first of these that can run. None: the Task waits for the reset.
       </FieldDescription>
     </Field>
+  )
+}
+
+// RuntimeName is a runtime as a choice shows it: its mark, then its name (docs/conventions.md: a thing that has a
+// logo is shown with it).
+function RuntimeName({ runtime }: { runtime: string }) {
+  return (
+    <span className="flex items-center gap-2">
+      <RuntimeMark runtime={runtime} className="size-4" />
+      {runtimeName(runtime)}
+    </span>
   )
 }

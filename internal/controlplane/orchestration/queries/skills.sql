@@ -55,3 +55,11 @@ JOIN dispatches d ON d.id = ds.dispatch_id
 JOIN skill_revisions r ON r.skill = ds.skill AND r.revision = ds.revision
 WHERE ds.digest = @digest AND d.node_id = @node_id AND d.status IN ('queued', 'starting', 'running')
 LIMIT 1;
+
+-- name: BotsNamingSkill :many
+SELECT name FROM bots
+WHERE ',' || skills || ',' LIKE '%,' || @skill || ',%' OR ',' || skills_off || ',' LIKE '%,' || @skill || ',%'
+ORDER BY name;
+
+-- name: GetSkillArchive :one
+SELECT archive FROM skill_revisions WHERE skill = @skill AND revision = @revision;

@@ -2,6 +2,7 @@ package clientapi
 
 import (
 	"context"
+	"errors"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
@@ -40,10 +41,32 @@ func (s *Server) GetBot(ctx context.Context, req openapi.GetBotRequestObject) (o
 
 // PutBot makes a Bot or changes its model and persona.
 func (s *Server) PutBot(ctx context.Context, req openapi.PutBotRequestObject) (openapi.PutBotResponseObject, error) {
-	b, err := s.svc.PutBot(ctx, orchestration.Bot{
+	bot := orchestration.Bot{
 		Name: req.Name, Provider: val(req.Body.Provider), Model: val(req.Body.Model), Effort: val(req.Body.Effort),
 		Persona: val(req.Body.Persona),
-	})
+	}
+
+	// Skills left out are kept: a client that does not know a Bot's skills does not take them away.
+	if req.Body.Skills == nil || req.Body.SkillsOff == nil {
+		had, err := s.svc.GetBot(ctx, req.Name)
+
+		switch {
+		case err == nil:
+			bot.Skills, bot.SkillsOff = had.Skills, had.SkillsOff
+		case !errors.Is(err, orchestration.ErrNotFound):
+			return nil, err
+		}
+	}
+
+	if req.Body.Skills != nil {
+		bot.Skills = *req.Body.Skills
+	}
+
+	if req.Body.SkillsOff != nil {
+		bot.SkillsOff = *req.Body.SkillsOff
+	}
+
+	b, err := s.svc.PutBot(ctx, bot)
 	if err != nil {
 		return nil, err
 	}
@@ -89,6 +112,7 @@ func toBot(b orchestration.Bot) openapi.Bot {
 	return openapi.Bot{
 		Name: b.Name, Provider: ptr(b.Provider), Model: ptr(b.Model), Effort: ptr(b.Effort),
 		Persona: b.Persona, Memory: b.Memory, MemoryLimit: orchestration.MaxMemory,
+		Skills: append([]string{}, b.Skills...), SkillsOff: append([]string{}, b.SkillsOff...),
 		CreatedAt: b.CreatedAt, UpdatedAt: b.UpdatedAt,
 	}
 }

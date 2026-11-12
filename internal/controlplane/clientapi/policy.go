@@ -80,6 +80,8 @@ var policies = map[string]policy{
 	"ListIntegrations":            {},
 	"ListSkills":                  {},
 	"GetSkill":                    {},
+	"GetSkillArchive":             {},
+	"ListBotSkills":               {},
 	"AddSkill":                    {scope: scopeOwner, long: true},
 	"UploadSkill":                 {scope: scopeOwner},
 	"SetSkillEveryone":            {scope: scopeOwner},

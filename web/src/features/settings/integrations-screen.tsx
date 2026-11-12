@@ -115,6 +115,18 @@ export function IntegrationsScreen() {
 // What a company's own git server runs, as the owner picks it.
 const hostKindNames: Record<GitHostKind, string> = { gitlab: "GitLab", github: "GitHub Enterprise" }
 
+// HostKindName is what a company's git server runs, as the picker shows it: the product's mark, then its name.
+function HostKindName({ kind }: { kind: GitHostKind }) {
+  const Icon = kind === "github" ? GitHubIcon : GitLabIcon
+
+  return (
+    <span className="flex items-center gap-2">
+      <Icon className="size-4 shrink-0" />
+      {hostKindNames[kind]}
+    </span>
+  )
+}
+
 // HostIcon is the mark of what a host runs: GitHub's or GitLab's. A company's own server carries the mark of the
 // product it runs, as its address alone says nothing.
 function HostIcon({ host }: { host: GitHost }) {
@@ -450,11 +462,15 @@ function AddHost() {
                 items={hostKindNames}
               >
                 <SelectTrigger id={field.name} onBlur={field.handleBlur} width="full">
-                  <SelectValue />
+                  <SelectValue>{(value: GitHostKind) => <HostKindName kind={value} />}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="gitlab">{hostKindNames.gitlab}</SelectItem>
-                  <SelectItem value="github">{hostKindNames.github}</SelectItem>
+                  <SelectItem value="gitlab">
+                    <HostKindName kind="gitlab" />
+                  </SelectItem>
+                  <SelectItem value="github">
+                    <HostKindName kind="github" />
+                  </SelectItem>
                 </SelectContent>
               </Select>
             </Field>

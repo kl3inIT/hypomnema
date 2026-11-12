@@ -11,6 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { AvatarName } from "@/features/agents/agent-avatar"
 import { firstBot } from "@/features/bots/bots-state"
 import { useBots } from "@/features/bots/use-bots"
 import {
@@ -82,12 +83,12 @@ function NewChat() {
               Chat with
               <Select value={bot} onValueChange={(value) => value && setPicked(value)}>
                 <SelectTrigger aria-label="Bot" size="sm">
-                  <SelectValue />
+                  <SelectValue>{(value: string) => <AvatarName name={value} />}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {bots.map((b) => (
                     <SelectItem key={b.name} value={b.name}>
-                      {b.name}
+                      <AvatarName name={b.name} />
                     </SelectItem>
                   ))}
                 </SelectContent>

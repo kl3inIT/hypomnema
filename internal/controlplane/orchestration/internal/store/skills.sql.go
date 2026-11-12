@@ -10,6 +10,35 @@ import (
 	"database/sql"
 )
 
+const botsNamingSkill = `-- name: BotsNamingSkill :many
+SELECT name FROM bots
+WHERE ',' || skills || ',' LIKE '%,' || ?1 || ',%' OR ',' || skills_off || ',' LIKE '%,' || ?1 || ',%'
+ORDER BY name
+`
+
+func (q *Queries) BotsNamingSkill(ctx context.Context, skill sql.NullString) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, botsNamingSkill, skill)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		items = append(items, name)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const deleteSkill = `-- name: DeleteSkill :execrows
 DELETE FROM skills WHERE name = ?1
 `
@@ -36,6 +65,22 @@ func (q *Queries) GetSkill(ctx context.Context, name string) (Skill, error) {
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const getSkillArchive = `-- name: GetSkillArchive :one
+SELECT archive FROM skill_revisions WHERE skill = ?1 AND revision = ?2
+`
+
+type GetSkillArchiveParams struct {
+	Skill    string
+	Revision int64
+}
+
+func (q *Queries) GetSkillArchive(ctx context.Context, arg GetSkillArchiveParams) ([]byte, error) {
+	row := q.db.QueryRowContext(ctx, getSkillArchive, arg.Skill, arg.Revision)
+	var archive []byte
+	err := row.Scan(&archive)
+	return archive, err
 }
 
 const insertDispatchSkill = `-- name: InsertDispatchSkill :exec

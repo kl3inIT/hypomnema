@@ -55,6 +55,7 @@ import { Switch } from "@/components/ui/switch"
 import { firstBot } from "@/features/bots/bots-state"
 import { useBots } from "@/features/bots/use-bots"
 
+import { AvatarName } from "@/features/agents/agent-avatar"
 import { botChoices, channelState, modeNames, nameProblem } from "./channels-state"
 import { ConfirmDialog, ErrorAlert, TextField } from "./settings-parts"
 import { SettingsPage } from "./settings-shell"
@@ -247,12 +248,12 @@ function LarkChannelCard({
                 }}
               >
                 <SelectTrigger id={`${id}-bot`} size="sm">
-                  <SelectValue />
+                  <SelectValue>{(value: string) => <AvatarName name={value} />}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {botChoices(bots, channel.bot).map((bot) => (
                     <SelectItem key={bot} value={bot}>
-                      {bot}
+                      <AvatarName name={bot} />
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -636,12 +637,14 @@ function SetUpDialog({
                         onValueChange={(bot) => bot && field.handleChange(bot)}
                       >
                         <SelectTrigger id={field.name} width="full">
-                          <SelectValue />
+                          <SelectValue>
+                            {(value: string) => <AvatarName name={value} />}
+                          </SelectValue>
                         </SelectTrigger>
                         <SelectContent>
                           {botChoices(bots, firstBot).map((bot) => (
                             <SelectItem key={bot} value={bot}>
-                              {bot}
+                              <AvatarName name={bot} />
                             </SelectItem>
                           ))}
                         </SelectContent>

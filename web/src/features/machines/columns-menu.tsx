@@ -35,7 +35,7 @@ export function ColumnsMenu({
       <DropdownMenuTrigger render={<Button variant="outline" size="icon" aria-label="View" />}>
         <Settings2 />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" size="wide">
+      <DropdownMenuContent align="end" width="content">
         <DropdownMenuGroup>
           <DropdownMenuLabel>Visible columns</DropdownMenuLabel>
           <DropdownMenuSeparator />

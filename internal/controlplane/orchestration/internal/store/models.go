@@ -81,6 +81,8 @@ type Bot struct {
 	Memory    string
 	CreatedAt int64
 	UpdatedAt int64
+	Skills    string
+	SkillsOff string
 }
 
 type Chat struct {
