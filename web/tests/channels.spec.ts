@@ -279,7 +279,8 @@ test("the owner sets the first Lark channel up, switches it on and lets a person
   await shot(page, "channels-remove-person")
   await page.getByRole("alertdialog").getByRole("button", { name: "Remove" }).click()
   await expect(sheet.getByLabel("Person Linh")).toHaveCount(0)
-  await page.keyboard.press("Escape")
+  await sheet.getByRole("button", { name: "Close" }).click()
+  await expect(sheet).toHaveCount(0)
   await expect(card.getByRole("button", { name: "People you added to main" })).toContainText(
     "nobody yet",
   )
