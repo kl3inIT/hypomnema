@@ -194,3 +194,56 @@ func TestAWorkerIsGivenTheSkillsOfItsProfile(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, pending.Offers)
 }
+
+// Scenario: a Bot turns off a skill for everyone and adds another; it gets
+// the rest for everyone and the one it adds, at their newest revisions. A
+// skill a Bot names is not removed, and a Bot cannot name one that does not
+// exist.
+func TestABotGetsItsSkills(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	for _, name := range []string{"review-go", "pdf", "lark-docs"} {
+		_, _, err := w.s.AddSkill(ctx, namedSkill(t, name, "1"), SkillSource{Source: SkillUpload})
+		require.NoError(t, err)
+	}
+
+	for _, name := range []string{"review-go", "pdf"} {
+		_, err := w.s.SetSkillEveryone(ctx, name, true)
+		require.NoError(t, err)
+	}
+
+	_, err := w.s.PutBot(ctx, Bot{Name: "vmap", Skills: []string{"nowhere"}})
+	require.ErrorIs(t, err, ErrNotFound)
+
+	bot, err := w.s.PutBot(ctx, Bot{Name: "vmap", Skills: []string{"lark-docs"}, SkillsOff: []string{"pdf"}})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"lark-docs"}, bot.Skills)
+	assert.Equal(t, []string{"pdf"}, bot.SkillsOff)
+
+	latest, _, err := w.s.AddSkill(ctx, namedSkill(t, "review-go", "2"), SkillSource{Source: SkillUpload})
+	require.NoError(t, err)
+
+	given, err := w.s.BotSkills(ctx, "vmap")
+	require.NoError(t, err)
+	require.Len(t, given, 2)
+	assert.Equal(t, "lark-docs", given[0].Name)
+	assert.Equal(t, nodeproto.Skill{Name: "review-go", Revision: 2, Digest: latest.Latest.Digest}, given[1],
+		"a Bot takes the newest revision each time pi starts")
+
+	archive, err := w.s.SkillArchive(ctx, "review-go", 2)
+	require.NoError(t, err)
+
+	got, err := skillpack.FromArchive(archive)
+	require.NoError(t, err)
+	assert.Equal(t, latest.Latest.Digest, got.Digest)
+
+	_, err = w.s.SkillArchive(ctx, "review-go", 3)
+	require.ErrorIs(t, err, ErrNotFound)
+
+	err = w.s.DeleteSkill(ctx, "lark-docs")
+	require.ErrorIs(t, err, ErrConflict)
+	require.ErrorContains(t, err, "vmap")
+}

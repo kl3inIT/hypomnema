@@ -6,8 +6,13 @@ import (
 	"flag"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
+	"github.com/kl3inIT/hypomnema/internal/shared/skillpack"
 )
 
 // The skills the owner adds to the control plane (issue #21), after Omnara's
@@ -175,4 +180,113 @@ func skillsRemove(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	}
 
 	return e.print(fs, map[string]bool{"removed": true}, func() { e.printf("skill %s is removed\n", name) })
+}
+
+// digestFile beside a skill's files says which revision they are, as
+// Omnara's daemon keeps a .digest beside a skill it unpacked.
+const digestFile = ".hypomnema-digest"
+
+// skillsSync puts the skills a Bot gets in a folder for pi's --skill: each
+// at its newest revision, fetched only when the folder holds another, and a
+// skill the Bot no longer gets taken out. The launcher runs it as pi starts
+// for a chat (deploy/coordinator/hypomnema-pi), with pi's own token.
+func skillsSync(ctx context.Context, e *env, fs *flag.FlagSet) error {
+	bot, dir := str(fs, "bot"), str(fs, "dir")
+	if bot == "" || dir == "" {
+		return fmt.Errorf("%w: skills sync --bot <bot> --dir <folder>", ErrUsage)
+	}
+
+	resp, err := e.api.ListBotSkillsWithResponse(ctx, bot)
+	if err != nil {
+		return fmt.Errorf("listing the skills of bot %s: %w", bot, err)
+	}
+
+	if resp.JSON200 == nil {
+		return apiError("listing the skills of bot "+bot, resp.StatusCode(), resp.JSONDefault)
+	}
+
+	given := resp.JSON200.Data
+
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("making %s: %w", dir, err)
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return fmt.Errorf("reading %s: %w", dir, err)
+	}
+
+	for _, d := range entries {
+		keep := strings.HasPrefix(d.Name(), ".") ||
+			slices.ContainsFunc(given, func(s openapi.SkillRef) bool { return s.Name == d.Name() })
+		if !keep {
+			if err := os.RemoveAll(filepath.Join(dir, d.Name())); err != nil {
+				return fmt.Errorf("taking skill %s away: %w", d.Name(), err)
+			}
+		}
+	}
+
+	for _, s := range given {
+		if err := syncSkill(ctx, e, dir, s); err != nil {
+			return err
+		}
+	}
+
+	e.printf("bot %s: %d skills in %s\n", bot, len(given), dir)
+
+	return nil
+}
+
+func syncSkill(ctx context.Context, e *env, dir string, s openapi.SkillRef) error {
+	if strings.HasPrefix(s.Name, ".") || strings.ContainsAny(s.Name, `/\`) {
+		return fmt.Errorf("skill %q: not a folder name", s.Name)
+	}
+
+	target := filepath.Join(dir, s.Name)
+
+	had, err := os.ReadFile(filepath.Join(target, digestFile)) //nolint:gosec // the folder the caller names
+	if err == nil && string(had) == s.Digest {
+		return nil
+	}
+
+	resp, err := e.api.GetSkillArchiveWithResponse(ctx, s.Name, s.Revision)
+	if err != nil {
+		return fmt.Errorf("fetching skill %s: %w", s.Name, err)
+	}
+
+	if resp.StatusCode() != http.StatusOK {
+		return apiError("fetching skill "+s.Name, resp.StatusCode(), resp.JSONDefault)
+	}
+
+	sk, err := skillpack.FromArchive(resp.Body)
+	if err != nil {
+		return fmt.Errorf("skill %s: %w", s.Name, err)
+	}
+
+	if sk.Digest != s.Digest {
+		return fmt.Errorf("skill %s: the archive's digest is %s, not %s", s.Name, sk.Digest, s.Digest)
+	}
+
+	staging := filepath.Join(dir, ".staging-"+s.Name)
+	if err := os.RemoveAll(staging); err != nil {
+		return fmt.Errorf("clearing %s: %w", staging, err)
+	}
+
+	if err := sk.WriteTo(staging); err != nil {
+		return err
+	}
+
+	if err := os.WriteFile(filepath.Join(staging, digestFile), []byte(s.Digest), 0o600); err != nil {
+		return fmt.Errorf("writing the digest of skill %s: %w", s.Name, err)
+	}
+
+	if err := os.RemoveAll(target); err != nil {
+		return fmt.Errorf("replacing skill %s: %w", s.Name, err)
+	}
+
+	if err := os.Rename(staging, target); err != nil {
+		return fmt.Errorf("putting skill %s in place: %w", s.Name, err)
+	}
+
+	return nil
 }

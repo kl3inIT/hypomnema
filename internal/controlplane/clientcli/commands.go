@@ -363,6 +363,8 @@ var commands = []command{
 			fs.String("model", "", "the model pi runs for the bot; empty for pi's default")
 			fs.String("effort", "", "the reasoning effort: low, medium, high, xhigh or max")
 			fs.String("persona-file", "", "a file with what the bot is and how it behaves, or - for standard input")
+			fs.String("skills", "", "the skills the bot gets beside those for everyone, separated by commas; \"\" for none")
+			fs.String("skills-off", "", "the skills for everyone the bot does not get, separated by commas; \"\" for none")
 			jsonFlag(fs)
 		},
 		run: botsSet,
@@ -475,6 +477,14 @@ var commands = []command{
 			jsonFlag(fs)
 		},
 		run: skillsAdd,
+	},
+	{
+		name: "skills sync", summary: "put the skills a bot gets in a folder, for pi's --skill (the launcher's)",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("bot", "", "the bot")
+			fs.String("dir", "", "the folder; a skill the bot no longer gets is taken out of it")
+		},
+		run: skillsSync,
 	},
 	{
 		name: "skills everyone", args: "<skill> on|off", min: 2, max: 2,

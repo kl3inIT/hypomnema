@@ -36,7 +36,11 @@ type Bot struct {
 	Effort   string
 	Persona  string
 	// Memory is the Bot's entries, one per line.
-	Memory    string
+	Memory string
+	// Skills are the skills the Bot gets beside those given to everyone;
+	// SkillsOff the ones given to everyone it does not get (issue #21).
+	Skills    []string
+	SkillsOff []string
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
@@ -44,7 +48,7 @@ type Bot struct {
 func botFromRow(r store.Bot) Bot {
 	return Bot{
 		Name: r.Name, Provider: r.Provider.String, Model: r.Model.String, Effort: r.Effort.String,
-		Persona: r.Persona, Memory: r.Memory,
+		Persona: r.Persona, Memory: r.Memory, Skills: splitNames(r.Skills), SkillsOff: splitNames(r.SkillsOff),
 		CreatedAt: time.UnixMilli(r.CreatedAt).UTC(), UpdatedAt: time.UnixMilli(r.UpdatedAt).UTC(),
 	}
 }
@@ -67,9 +71,14 @@ func (s *Service) PutBot(ctx context.Context, b Bot) (Bot, error) {
 			return err
 		}
 
+		if err := checkSkills(ctx, q, b.Skills, b.SkillsOff); err != nil {
+			return err
+		}
+
 		return q.UpsertBot(ctx, store.UpsertBotParams{
 			Name: b.Name, Provider: nullString(provider), Model: nullString(b.Model), Effort: nullString(b.Effort),
-			Persona: b.Persona, Now: now,
+			Persona: b.Persona, Skills: strings.Join(b.Skills, ","), SkillsOff: strings.Join(b.SkillsOff, ","),
+			Now: now,
 		})
 	}); err != nil {
 		return Bot{}, fmt.Errorf("saving bot %s: %w", b.Name, err)

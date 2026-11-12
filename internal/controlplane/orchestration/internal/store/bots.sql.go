@@ -20,7 +20,7 @@ func (q *Queries) DeleteBot(ctx context.Context, name string) error {
 }
 
 const getBot = `-- name: GetBot :one
-SELECT name, provider, model, effort, persona, memory, created_at, updated_at FROM bots WHERE name = ?1
+SELECT name, provider, model, effort, persona, memory, created_at, updated_at, skills, skills_off FROM bots WHERE name = ?1
 `
 
 func (q *Queries) GetBot(ctx context.Context, name string) (Bot, error) {
@@ -35,12 +35,14 @@ func (q *Queries) GetBot(ctx context.Context, name string) (Bot, error) {
 		&i.Memory,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Skills,
+		&i.SkillsOff,
 	)
 	return i, err
 }
 
 const listBots = `-- name: ListBots :many
-SELECT name, provider, model, effort, persona, memory, created_at, updated_at FROM bots ORDER BY created_at, name
+SELECT name, provider, model, effort, persona, memory, created_at, updated_at, skills, skills_off FROM bots ORDER BY created_at, name
 `
 
 func (q *Queries) ListBots(ctx context.Context) ([]Bot, error) {
@@ -61,6 +63,8 @@ func (q *Queries) ListBots(ctx context.Context) ([]Bot, error) {
 			&i.Memory,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Skills,
+			&i.SkillsOff,
 		); err != nil {
 			return nil, err
 		}
@@ -91,19 +95,22 @@ func (q *Queries) SetBotMemory(ctx context.Context, arg SetBotMemoryParams) erro
 }
 
 const upsertBot = `-- name: UpsertBot :exec
-INSERT INTO bots (name, provider, model, effort, persona, created_at, updated_at)
-VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)
+INSERT INTO bots (name, provider, model, effort, persona, skills, skills_off, created_at, updated_at)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)
 ON CONFLICT (name) DO UPDATE SET provider = excluded.provider, model = excluded.model, effort = excluded.effort,
-    persona = excluded.persona, updated_at = excluded.updated_at
+    persona = excluded.persona, skills = excluded.skills, skills_off = excluded.skills_off,
+    updated_at = excluded.updated_at
 `
 
 type UpsertBotParams struct {
-	Name     string
-	Provider sql.NullString
-	Model    sql.NullString
-	Effort   sql.NullString
-	Persona  string
-	Now      int64
+	Name      string
+	Provider  sql.NullString
+	Model     sql.NullString
+	Effort    sql.NullString
+	Persona   string
+	Skills    string
+	SkillsOff string
+	Now       int64
 }
 
 func (q *Queries) UpsertBot(ctx context.Context, arg UpsertBotParams) error {
@@ -113,6 +120,8 @@ func (q *Queries) UpsertBot(ctx context.Context, arg UpsertBotParams) error {
 		arg.Model,
 		arg.Effort,
 		arg.Persona,
+		arg.Skills,
+		arg.SkillsOff,
 		arg.Now,
 	)
 	return err

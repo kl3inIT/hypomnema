@@ -192,6 +192,16 @@ func (s *Service) DeleteSkill(ctx context.Context, name string) error {
 				strings.Join(profiles, ", "), name)
 		}
 
+		bots, err := q.BotsNamingSkill(ctx, nullString(name))
+		if err != nil {
+			return fmt.Errorf("finding the bots of skill %s: %w", name, err)
+		}
+
+		if len(bots) > 0 {
+			return fmt.Errorf("%w: bots %s name skill %s; take it out of them first", ErrConflict,
+				strings.Join(bots, ", "), name)
+		}
+
 		n, err := q.DeleteSkill(ctx, name)
 		if err != nil {
 			return fmt.Errorf("removing skill %s: %w", name, err)
@@ -240,25 +250,63 @@ func recordSkills(ctx context.Context, q *store.Queries, dispatchID, versionID s
 		add, off = splitNames(v.Skills), splitNames(v.SkillsOff)
 	}
 
-	latest, err := q.LatestSkillRevisions(ctx)
+	given, err := givenSkills(ctx, q, add, off)
 	if err != nil {
-		return fmt.Errorf("reading the skills: %w", err)
+		return err
 	}
 
-	for _, r := range latest {
-		given := slices.Contains(add, r.Name) || (r.Everyone == 1 && !slices.Contains(off, r.Name))
-		if !given {
-			continue
-		}
-
+	for _, sk := range given {
 		if err := q.InsertDispatchSkill(ctx, store.InsertDispatchSkillParams{
-			DispatchID: dispatchID, Skill: r.Name, Revision: r.Revision, Digest: r.Digest,
+			DispatchID: dispatchID, Skill: sk.Name, Revision: int64(sk.Revision), Digest: sk.Digest,
 		}); err != nil {
-			return fmt.Errorf("recording skill %s of dispatch %s: %w", r.Name, dispatchID, err)
+			return fmt.Errorf("recording skill %s of dispatch %s: %w", sk.Name, dispatchID, err)
 		}
 	}
 
 	return nil
+}
+
+// givenSkills are the skills an agent that adds add and turns off off gets,
+// at their newest revisions: those for everyone it does not turn off, and
+// those it adds.
+func givenSkills(ctx context.Context, q *store.Queries, add, off []string) ([]nodeproto.Skill, error) {
+	latest, err := q.LatestSkillRevisions(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("reading the skills: %w", err)
+	}
+
+	var out []nodeproto.Skill
+
+	for _, r := range latest {
+		if slices.Contains(add, r.Name) || (r.Everyone == 1 && !slices.Contains(off, r.Name)) {
+			out = append(out, nodeproto.Skill{Name: r.Name, Revision: int(r.Revision), Digest: r.Digest})
+		}
+	}
+
+	return out, nil
+}
+
+// BotSkills are the skills a Bot gets now, at their newest revisions: its
+// launcher puts them where pi reads them when pi starts for a chat.
+func (s *Service) BotSkills(ctx context.Context, name string) ([]nodeproto.Skill, error) {
+	q := s.read()
+
+	b, err := q.GetBot(ctx, name)
+	if err != nil {
+		return nil, notFound(err, "bot", name)
+	}
+
+	return givenSkills(ctx, q, splitNames(b.Skills), splitNames(b.SkillsOff))
+}
+
+// SkillArchive returns the archive of one revision of a skill.
+func (s *Service) SkillArchive(ctx context.Context, name string, revision int) ([]byte, error) {
+	archive, err := s.read().GetSkillArchive(ctx, store.GetSkillArchiveParams{Skill: name, Revision: int64(revision)})
+	if err != nil {
+		return nil, notFound(err, "skill revision", fmt.Sprintf("%s@%d", name, revision))
+	}
+
+	return archive, nil
 }
 
 func dispatchSkills(ctx context.Context, q *store.Queries, dispatchID string) ([]nodeproto.Skill, error) {

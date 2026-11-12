@@ -1411,6 +1411,22 @@ paths:
       responses:
         "204": { description: The Bot is removed. }
         default: { $ref: "#/components/responses/Error" }
+  /bots/{name}/skills:
+    parameters:
+      - $ref: "#/components/parameters/Name"
+    get:
+      operationId: ListBotSkills
+      summary: The skills a Bot gets now, each at its newest revision
+      description: >-
+        Those given to everyone that the Bot does not turn off, and those it
+        adds. Its launcher fetches them when pi starts for a chat.
+      responses:
+        "200":
+          description: The skills.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SkillRefList" }
+        default: { $ref: "#/components/responses/Error" }
   /bots/{name}/memory:
     parameters:
       - $ref: "#/components/parameters/Name"
@@ -1532,6 +1548,23 @@ paths:
       summary: Remove a skill and its revisions; only the owner
       responses:
         "204": { description: The skill is removed. }
+        default: { $ref: "#/components/responses/Error" }
+  /skills/{skill}/revisions/{revision}/archive:
+    parameters:
+      - $ref: "#/components/parameters/SkillName"
+      - name: revision
+        in: path
+        required: true
+        schema: { type: integer, minimum: 1 }
+    get:
+      operationId: GetSkillArchive
+      summary: One revision of a skill, as a gzipped tar
+      responses:
+        "200":
+          description: The archive.
+          content:
+            application/gzip:
+              schema: { type: string, format: binary }
         default: { $ref: "#/components/responses/Error" }
   /skills/{skill}/everyone:
     parameters:
@@ -3371,6 +3404,20 @@ components:
           type: string
           description: The commit the ref was, for a repository.
         created_at: { type: string, format: date-time }
+    SkillRef:
+      type: object
+      required: [name, revision, digest]
+      properties:
+        name: { type: string }
+        revision: { type: integer }
+        digest: { type: string }
+    SkillRefList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/SkillRef" }
     SkillList:
       type: object
       required: [data]
@@ -3394,7 +3441,7 @@ components:
         everyone: { type: boolean }
     Bot:
       type: object
-      required: [name, persona, memory, memory_limit, created_at, updated_at]
+      required: [name, persona, memory, memory_limit, skills, skills_off, created_at, updated_at]
       properties:
         name: { type: string }
         provider: { type: string }
@@ -3409,6 +3456,14 @@ components:
         memory_limit:
           type: integer
           description: The most characters the memory holds.
+        skills:
+          type: array
+          items: { type: string }
+          description: The skills the Bot gets beside those given to everyone.
+        skills_off:
+          type: array
+          items: { type: string }
+          description: The skills given to everyone that the Bot does not get.
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
     BotList:
@@ -3426,6 +3481,14 @@ components:
         model: { type: string }
         effort: { type: string }
         persona: { type: string }
+        skills:
+          type: array
+          items: { type: string }
+          description: The skills the Bot adds; left out, the Bot keeps those it has.
+        skills_off:
+          type: array
+          items: { type: string }
+          description: The skills for everyone the Bot turns off; left out, the Bot keeps those it has.
     MemoryText:
       type: object
       additionalProperties: false

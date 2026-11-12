@@ -85,6 +85,17 @@ if [ -n "$bot" ]; then
     exit 1
   fi
   set -- "$@" --append-system-prompt "$prompt"
+
+  # The skills the Bot gets (issue #21), each at its newest revision, put in a folder of the Bot's own and given to
+  # pi with --skill, which pi loads without asking for the project's trust as it would for .pi/skills. A skill the
+  # Bot no longer gets is taken out of the folder. Without them pi would lack what the owner gave the Bot, so pi does
+  # not start.
+  skills="$dir/.hypomnema/skills"
+  if ! HOME=/home/coordinator /usr/local/bin/hypomnema skills sync --bot "$bot" --dir "$skills" > /dev/null; then
+    echo "hypomnema-pi: putting bot $bot's skills in place failed" >&2
+    exit 1
+  fi
+  set -- "$@" --skill "$skills"
 fi
 
 # pi's models.json is written here, as pi starts (issue #204): the providers that are the model gateway and their

@@ -13,6 +13,8 @@ type Bot = {
   persona: string
   memory: string
   memory_limit: number
+  skills: string[]
+  skills_off: string[]
   created_at: string
   updated_at: string
 }
@@ -24,6 +26,8 @@ const bot = (name: string, m: Partial<Bot> = {}): Bot => ({
   persona: "",
   memory: "",
   memory_limit: 2200,
+  skills: [],
+  skills_off: [],
   created_at: hours(200),
   updated_at: hours(3),
   ...m,
