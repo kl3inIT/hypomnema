@@ -154,8 +154,8 @@ transaction, every status change a guarded `UPDATE` checked against a transition
 - A browser every agent shares (issue #193, step 1 in issue #196,
   [research](docs/research/2026-11-12-embedded-browser.md); `internal/controlplane/browser`). Built so far: the
   engine on the control plane, an agent's calls to it, the tools in a worker's hands, and the control plane's
-  side of the owner watching a tab and taking control. Not built: the page in the web client, a node holding the
-  browser instead.
+  side of the owner watching a tab and taking control, and the page in the web client. Not built: a node
+  holding the browser instead, and the browser inside a chat's pane.
   - It is one headless Chrome on the control plane's machine with one persistent profile, so a sign-in is made
     once and every agent has it, driven through agent-browser (Vercel Labs), as OpenMausBot's is. Each agent is an
     agent-browser session attached to that Chrome and pinned to a tab of its own
@@ -213,6 +213,20 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   - `GET /api/v1/browser` (owner only) and `hypomnema browser status` say whether the browser is installed and
     running, whether the owner holds it, and list the tabs: whose each is (a worker's with its Dispatch, Task and
     Run), and its address and title as Chrome's own DevTools port lists them.
+  - The page (issue #226; `web/src/features/browser`, at `/browser`, in the sidebar): a strip of the tabs of
+    `GET /api/v1/browser`, read again every five seconds, the owner's own first and always offered, each named
+    by its page's title with a mark of whose it is; under it the picked tab as `BrowserView`, one piece that
+    holds the address row, the control button and the picture, so that it can be put in a chat's pane later. It
+    asks for a ticket at each connect, as the terminal page does; acknowledges a frame before painting it;
+    paints on a canvas the size of the frame, fitted with `object-contain`, one decode at a time; and maps the
+    pointer through the letterbox to the tab's own pixels. Moves and wheel steps are merged, one message a
+    frame; a hidden text area holds the keys' focus, a key that types carries its text, Shift+Escape leaves the
+    page, and a pasted or composed text goes as one key a character, since the control plane takes keys only.
+    Control is taken only with the button; without it the page takes no input and the address row is off. A
+    dropped view is tried again after half a second, doubled each time up to ten; a tab that is gone, and a
+    control plane with no browser, say so. The stream stops while the page is hidden, unless the owner holds the
+    browser. Adapted from T3 Code and OpenMausBot (`web/THIRD_PARTY_NOTICES.md`). On a phone a tap is a click and
+    a drag scrolls; typing there is not done yet.
   - Others on the control plane's machine: agent-browser serves each session's stream, and a route that runs
     commands in it, on `127.0.0.1` with no key, and Chrome's DevTools port is on `127.0.0.1` too, as in T3 Code
     and OpenMausBot. Any user or program on that machine can reach them, and with them the signed-in browser.

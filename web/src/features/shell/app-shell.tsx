@@ -3,6 +3,7 @@ import {
   Bot,
   BotMessageSquare,
   CircleDashed,
+  Globe,
   KanbanSquare,
   ListTree,
   LogOut,
@@ -93,6 +94,13 @@ export function Places() {
       >
         <Server className="size-4" />
         Machines
+      </Link>
+      <Link
+        to="/browser"
+        className={cn(placeClass, "[&.active]:bg-sidebar-row-active [&.active]:text-foreground")}
+      >
+        <Globe className="size-4" />
+        Browser
       </Link>
     </nav>
   )
