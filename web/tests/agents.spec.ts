@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test"
 
+import { choose } from "./choose.js"
 import { shot } from "./shot.js"
 
 // The Agents pages, built, against a fake client API, on a phone and a desktop.
@@ -224,9 +225,9 @@ test("an agent opens to its builder, its YAML and its versions", async ({ page }
   await shot(page, "agent-builder")
 
   // Its fallbacks, in order; another worker is added and the list is one longer.
-  await expect(page.getByLabel("Fallback 1")).toHaveValue("codex-implementer")
-  await page.getByLabel("Fallbacks", { exact: true }).selectOption("explorer")
-  await expect(page.getByLabel("Fallback 2")).toHaveValue("explorer")
+  await expect(page.getByLabel("Fallback 1")).toContainText("codex-implementer")
+  await choose(page, page.getByLabel("Fallbacks", { exact: true }), "explorer")
+  await expect(page.getByLabel("Fallback 2")).toContainText("explorer")
   await page.getByLabel("Fallback 2").scrollIntoViewIfNeeded()
   await shot(page, "agent-fallbacks")
   await page.getByRole("button", { name: "Remove fallback explorer" }).click()
@@ -292,7 +293,7 @@ test("a new agent is made from the builder", async ({ page }) => {
 
   await page.getByLabel("Name").fill("codex-reviewer")
   await page.getByLabel("Description").fill("Reviews a change made on Claude Code, on Codex.")
-  await page.getByLabel("Runs on").selectOption("codex")
+  await choose(page, page.getByLabel("Runs on"), "Codex")
   await page.getByLabel("Model", { exact: true }).click()
   await page.getByRole("option", { name: "gpt-sol" }).click()
   await page

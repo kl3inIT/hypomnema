@@ -59,7 +59,13 @@ import {
   ItemGroup,
   ItemTitle,
 } from "@/components/ui/item"
-import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
 
@@ -584,6 +590,12 @@ const modes = ["write", "read", "none"] as const
 
 type Mode = (typeof modes)[number]
 
+const modeNames: Record<Mode, string> = {
+  write: "Read and write",
+  read: "Read only",
+  none: "Not connected",
+}
+
 const startSchema = z.object({
   label: labelSchema,
   access: z
@@ -695,7 +707,7 @@ function SignInDialog({
   return (
     <Dialog open={open} onOpenChange={change}>
       <DialogTrigger render={trigger} />
-      <DialogContent>
+      <DialogContent size="lg">
         <form
           autoComplete="off"
           noValidate
@@ -741,21 +753,26 @@ function SignInDialog({
                             <FieldLabel htmlFor={`access-${id}`}>{serviceName(id)}</FieldLabel>
                             <FieldDescription>{about[id]?.holds}</FieldDescription>
                           </FieldContent>
-                          <NativeSelect
-                            id={`access-${id}`}
-                            size="sm"
+                          <Select
                             value={field.state.value[id] ?? "none"}
-                            onChange={(event) =>
+                            onValueChange={(mode) =>
+                              mode &&
                               field.handleChange({
                                 ...field.state.value,
-                                [id]: event.target.value as Mode,
+                                [id]: mode,
                               })
                             }
+                            items={modeNames}
                           >
-                            <NativeSelectOption value="write">Read and write</NativeSelectOption>
-                            <NativeSelectOption value="read">Read only</NativeSelectOption>
-                            <NativeSelectOption value="none">Not connected</NativeSelectOption>
-                          </NativeSelect>
+                            <SelectTrigger id={`access-${id}`} size="sm">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="write">{modeNames.write}</SelectItem>
+                              <SelectItem value="read">{modeNames.read}</SelectItem>
+                              <SelectItem value="none">{modeNames.none}</SelectItem>
+                            </SelectContent>
+                          </Select>
                         </Field>
                       ))}
                       {!field.state.meta.isValid && (

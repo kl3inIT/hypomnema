@@ -42,7 +42,13 @@ import {
   ItemGroup,
   ItemTitle,
 } from "@/components/ui/item"
-import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
 import { firstBot } from "@/features/bots/bots-state"
@@ -227,13 +233,11 @@ function LarkChannelCard({
               <label htmlFor={`${id}-bot`} className="whitespace-nowrap">
                 Bot
               </label>
-              <NativeSelect
-                id={`${id}-bot`}
-                size="sm"
+              <Select
                 value={channel.bot}
                 disabled={change.isPending}
-                onChange={(event) => {
-                  const bot = event.target.value
+                onValueChange={(bot) => {
+                  if (!bot) return
 
                   change.mutate(
                     { bot },
@@ -241,30 +245,39 @@ function LarkChannelCard({
                   )
                 }}
               >
-                {botChoices(bots, channel.bot).map((bot) => (
-                  <NativeSelectOption key={bot} value={bot}>
-                    {bot}
-                  </NativeSelectOption>
-                ))}
-              </NativeSelect>
+                <SelectTrigger id={`${id}-bot`} size="sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {botChoices(bots, channel.bot).map((bot) => (
+                    <SelectItem key={bot} value={bot}>
+                      {bot}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </span>
             <span className="flex flex-wrap items-center gap-2">
               <label htmlFor={`${id}-mode`} className="whitespace-nowrap">
                 Who may talk to it
               </label>
-              <NativeSelect
-                id={`${id}-mode`}
-                size="sm"
+              <Select
                 value={channel.mode}
                 disabled={change.isPending}
-                onChange={(event) => change.mutate({ mode: event.target.value as LarkChannelMode })}
+                onValueChange={(mode) => mode && change.mutate({ mode })}
+                items={modeNames}
               >
-                {(Object.keys(modeNames) as LarkChannelMode[]).map((mode) => (
-                  <NativeSelectOption key={mode} value={mode}>
-                    {modeNames[mode]}
-                  </NativeSelectOption>
-                ))}
-              </NativeSelect>
+                <SelectTrigger id={`${id}-mode`} size="sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(Object.keys(modeNames) as LarkChannelMode[]).map((mode) => (
+                    <SelectItem key={mode} value={mode}>
+                      {modeNames[mode]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </span>
           </div>
           <p className="text-xs text-muted-foreground">
@@ -429,7 +442,7 @@ function AddPersonDialog({ channel, trigger }: { channel: string; trigger: React
   return (
     <Dialog open={open} onOpenChange={change}>
       <DialogTrigger render={trigger} />
-      <DialogContent>
+      <DialogContent size="sm">
         <form
           autoComplete="off"
           noValidate
@@ -611,18 +624,22 @@ function SetUpDialog({
                 {(field) => (
                   <Field>
                     <FieldLabel htmlFor={field.name}>Bot</FieldLabel>
-                    <NativeSelect
-                      id={field.name}
+                    <Select
                       name={field.name}
                       value={field.state.value}
-                      onChange={(event) => field.handleChange(event.target.value)}
+                      onValueChange={(bot) => bot && field.handleChange(bot)}
                     >
-                      {botChoices(bots, firstBot).map((bot) => (
-                        <NativeSelectOption key={bot} value={bot}>
-                          {bot}
-                        </NativeSelectOption>
-                      ))}
-                    </NativeSelect>
+                      <SelectTrigger id={field.name} width="full">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {botChoices(bots, firstBot).map((bot) => (
+                          <SelectItem key={bot} value={bot}>
+                            {bot}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                     <FieldDescription>
                       The Bot a message through this channel talks to.
                     </FieldDescription>

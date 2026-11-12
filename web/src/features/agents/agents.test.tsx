@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { choose, options } from "@/test/choose"
 import {
   createMemoryHistory,
   createRootRoute,
@@ -216,7 +217,7 @@ test("a new agent is sent as YAML built from the fields", async () => {
 
   await user.type(screen.getByLabelText("Name"), "codex-implementer")
   await user.type(screen.getByLabelText("Description"), "Makes a narrow change.")
-  await user.selectOptions(screen.getByLabelText("Runs on"), "codex")
+  await choose(user, screen.getByLabelText("Runs on"), "Codex")
   // The model is found by typing: words of its provider and its name, and Enter takes the first match.
   await user.click(screen.getByLabelText("Model"))
   const search = await screen.findByLabelText("Search models")
@@ -313,22 +314,18 @@ test("fallbacks are chosen in order from the other workers and saved with the ag
   const user = userEvent.setup()
 
   const add = await screen.findByLabelText("Fallbacks")
-  await vi.waitFor(() =>
-    expect(
-      within(add)
-        .getAllByRole("option")
-        .map((o) => o.textContent),
-    ).toEqual(["Add a fallback…", "codex-worker", "omp-worker"]),
-  )
+  await vi.waitFor(() => expect(add).toBeEnabled())
+  expect(add).toHaveTextContent("Add a fallback…")
+  expect(await options(user, add)).toEqual(["codex-worker", "omp-worker"])
 
-  await user.selectOptions(add, "omp-worker")
-  await user.selectOptions(screen.getByLabelText("Fallbacks"), "codex-worker")
+  await choose(user, add, "omp-worker")
+  await choose(user, screen.getByLabelText("Fallbacks"), "codex-worker")
 
   const rows = within(screen.getByRole("list", { name: "Fallbacks, in order" })).getAllByRole(
     "listitem",
   )
   expect(rows).toHaveLength(2)
-  expect(within(rows[0]!).getByLabelText("Fallback 1")).toHaveValue("omp-worker")
+  expect(within(rows[0]!).getByLabelText("Fallback 1")).toHaveTextContent("omp-worker")
   expect(screen.getByLabelText("Fallbacks")).toBeDisabled()
 
   await user.click(screen.getByRole("button", { name: "Save revision" }))
@@ -336,7 +333,7 @@ test("fallbacks are chosen in order from the other workers and saved with the ag
   expect(applied[0]?.source).toContain("fallbacks: [omp-worker, codex-worker]\n")
 
   await user.click(screen.getByRole("button", { name: "Remove fallback omp-worker" }))
-  expect(screen.getByLabelText("Fallback 1")).toHaveValue("codex-worker")
+  expect(screen.getByLabelText("Fallback 1")).toHaveTextContent("codex-worker")
 })
 
 // Scenario: the owner looks for an agent by a word of its name or of its description; a word nothing has says so,

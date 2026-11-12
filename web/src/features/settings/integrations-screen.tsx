@@ -34,7 +34,13 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
-import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
 
 import { ServiceCard } from "./service-cards"
@@ -51,7 +57,8 @@ import {
   useServices,
 } from "./use-integrations"
 
-// IntegrationsScreen is where the owner connects the services Hypomnema works with. Today those are the git hosts
+// IntegrationsScreen is where the owner connects the services Hypomnema works with. The page's header has no
+// action: each group carries its own, as Orca's groups and cards do. Today those are the git hosts
 // workers push to and open pull requests on; a task tracker would be a second group, as Orca's Integrations pane
 // has "Review providers" and "Task providers" (src/renderer/src/components/settings/integrations/IntegrationsPane.tsx).
 export function IntegrationsScreen() {
@@ -62,7 +69,6 @@ export function IntegrationsScreen() {
     <SettingsPage
       title="Integrations"
       description="The services Hypomnema works with, and the access it has to each."
-      actions={<AddHost />}
     >
       <section aria-labelledby="services" className="flex flex-col gap-3">
         <div className="flex flex-col gap-1">
@@ -79,13 +85,16 @@ export function IntegrationsScreen() {
         ))}
       </section>
       <section aria-labelledby="git-hosts" className="flex flex-col gap-3">
-        <div className="flex flex-col gap-1">
-          <h2 id="git-hosts" className="text-sm font-semibold text-foreground">
-            Git hosts
-          </h2>
-          <p className="text-xs text-muted-foreground">
-            Where workers clone repositories, push their branches and open pull requests.
-          </p>
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex flex-col gap-1">
+            <h2 id="git-hosts" className="text-sm font-semibold text-foreground">
+              Git hosts
+            </h2>
+            <p className="text-xs text-muted-foreground">
+              Where workers clone repositories, push their branches and open pull requests.
+            </p>
+          </div>
+          <AddHost />
         </div>
         {hosts.isPending && (
           <p className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -101,6 +110,9 @@ export function IntegrationsScreen() {
     </SettingsPage>
   )
 }
+
+// What a company's own git server runs, as the owner picks it.
+const hostKindNames: Record<GitHostKind, string> = { gitlab: "GitLab", github: "GitHub Enterprise" }
 
 // HostIcon is the mark of what a host runs: GitHub's or GitLab's. A company's own server carries the mark of the
 // product it runs, as its address alone says nothing.
@@ -397,7 +409,7 @@ function AddHost() {
       trigger={
         <DialogTrigger
           render={
-            <Button>
+            <Button variant="outline" size="sm">
               <Plus data-icon="inline-start" />
               Add a git server
             </Button>
@@ -426,16 +438,20 @@ function AddHost() {
           {(field) => (
             <Field>
               <FieldLabel htmlFor={field.name}>It runs</FieldLabel>
-              <NativeSelect
-                id={field.name}
+              <Select
                 name={field.name}
                 value={field.state.value}
-                onBlur={field.handleBlur}
-                onChange={(event) => field.handleChange(event.target.value as GitHostKind)}
+                onValueChange={(kind) => kind && field.handleChange(kind)}
+                items={hostKindNames}
               >
-                <NativeSelectOption value="gitlab">GitLab</NativeSelectOption>
-                <NativeSelectOption value="github">GitHub Enterprise</NativeSelectOption>
-              </NativeSelect>
+                <SelectTrigger id={field.name} onBlur={field.handleBlur} width="full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="gitlab">{hostKindNames.gitlab}</SelectItem>
+                  <SelectItem value="github">{hostKindNames.github}</SelectItem>
+                </SelectContent>
+              </Select>
             </Field>
           )}
         </form.Field>

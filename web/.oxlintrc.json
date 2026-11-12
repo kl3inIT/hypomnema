@@ -19,7 +19,18 @@
     "shadcn/no-raw-colors": "error",
     "shadcn/no-restyle": "error",
     "shadcn/no-unknown-classes": "error",
-    "shadcn/require-static-classes": "error"
+    "shadcn/require-static-classes": "error",
+    "no-restricted-imports": [
+      "error",
+      {
+        "paths": [
+          {
+            "name": "@/components/ui/native-select",
+            "message": "A choice uses Select (@/components/ui/select): the native list is drawn by the system (docs/conventions.md)."
+          }
+        ]
+      }
+    ]
   },
   "overrides": [
     {
