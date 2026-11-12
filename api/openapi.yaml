@@ -1362,6 +1362,49 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/GatewayModelList" }
         default: { $ref: "#/components/responses/Error" }
+  /gateway/keys:
+    get:
+      operationId: ListGatewayKeys
+      summary: The gateway keys the owner made, not revoked; only the owner
+      description: >-
+        A key is what a client outside, such as opencode or omp, gives the
+        gateway as its API key. The keys made for one Dispatch or one chat's
+        pi are not listed: `live_worker_keys` says how many work now.
+      responses:
+        "200":
+          description: The keys.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GatewayKeyList" }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      operationId: CreateGatewayKey
+      summary: Make a gateway key; its value is answered this once; only the owner
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewGatewayKey" }
+      responses:
+        "201":
+          description: The key and its value.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CreatedGatewayKey" }
+        default: { $ref: "#/components/responses/Error" }
+  /gateway/keys/{key_id}:
+    parameters:
+      - name: key_id
+        in: path
+        required: true
+        schema: { type: string, minLength: 1, maxLength: 64 }
+    delete:
+      operationId: RevokeGatewayKey
+      summary: Revoke a gateway key; a client using it is refused from now on; only the owner
+      responses:
+        "204":
+          description: Revoked.
+        default: { $ref: "#/components/responses/Error" }
   /bots:
     get:
       operationId: ListBots
@@ -1600,6 +1643,52 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/BuiltinSkillList" }
         default: { $ref: "#/components/responses/Error" }
+  /skill-search:
+    get:
+      operationId: SearchSkills
+      summary: Search the skills on skills.sh; only the owner
+      description: >-
+        The control plane asks skills.sh's search. A query of several words
+        that finds fewer than ten is asked again with each word left out, and
+        those results follow, at most 25 in all, as the skills CLI does.
+      parameters:
+        - { name: q, in: query, required: true, schema: { type: string, minLength: 1 } }
+        - name: owner
+          in: query
+          description: Only the skills of this GitHub owner.
+          schema: { type: string }
+      responses:
+        "200":
+          description: The skills found.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SkillSearchList" }
+        default: { $ref: "#/components/responses/Error" }
+  /skill-audits:
+    get:
+      operationId: ListSkillAudits
+      summary: What skills.sh's auditors said of a skill; only the owner
+      description: >-
+        Read from skills.sh as the skills CLI reads it before installing.
+        Empty when skills.sh has none or does not answer.
+      parameters:
+        - name: source
+          in: query
+          required: true
+          description: owner/repo.
+          schema: { type: string }
+        - name: skill
+          in: query
+          required: true
+          description: The skill's slug on skills.sh, the last part of its id.
+          schema: { type: string }
+      responses:
+        "200":
+          description: The audits.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SkillAuditList" }
+        default: { $ref: "#/components/responses/Error" }
   /skills/{skill}/everyone:
     parameters:
       - $ref: "#/components/parameters/SkillName"
@@ -1822,6 +1911,87 @@ paths:
             text/event-stream:
               schema: { type: string }
         default: { $ref: "#/components/responses/Error" }
+  /chats/{chat_id}/workspaces:
+    parameters:
+      - $ref: "#/components/parameters/ChatID"
+    get:
+      operationId: ListChatWorkspaces
+      summary: >-
+        The folders a chat's agents work in (owner only): its Bot's own folder, and the worktree of each Task of
+        its Runs that has run, on that Task's machine
+      responses:
+        "200":
+          description: The folders.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkspaceList" }
+        default: { $ref: "#/components/responses/Error" }
+  /chats/{chat_id}/workspaces/{workspace_id}/tree:
+    parameters:
+      - $ref: "#/components/parameters/ChatID"
+      - $ref: "#/components/parameters/WorkspaceID"
+    get:
+      operationId: ListWorkspaceDirectory
+      summary: A page of a directory of a chat's folder, by name (owner only)
+      parameters:
+        - $ref: "#/components/parameters/WorkspacePath"
+        - name: after
+          in: query
+          description: The page after this name.
+          schema: { type: string }
+      responses:
+        "200":
+          description: The page.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkspaceListing" }
+        default: { $ref: "#/components/responses/Error" }
+  /chats/{chat_id}/workspaces/{workspace_id}/file:
+    parameters:
+      - $ref: "#/components/parameters/ChatID"
+      - $ref: "#/components/parameters/WorkspaceID"
+    get:
+      operationId: ReadWorkspaceFile
+      summary: A file of a chat's folder, as text up to 10 MiB (owner only)
+      parameters:
+        - $ref: "#/components/parameters/WorkspacePath"
+      responses:
+        "200":
+          description: The file.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkspaceFile" }
+        default: { $ref: "#/components/responses/Error" }
+  /chats/{chat_id}/workspaces/{workspace_id}/changes:
+    parameters:
+      - $ref: "#/components/parameters/ChatID"
+      - $ref: "#/components/parameters/WorkspaceID"
+    get:
+      operationId: ListWorkspaceChanges
+      summary: What git says changed in a chat's folder since HEAD, newest first (owner only)
+      responses:
+        "200":
+          description: The changes.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkspaceChanges" }
+        default: { $ref: "#/components/responses/Error" }
+  /chats/{chat_id}/workspaces/{workspace_id}/diff:
+    parameters:
+      - $ref: "#/components/parameters/ChatID"
+      - $ref: "#/components/parameters/WorkspaceID"
+    get:
+      operationId: DiffWorkspaceFile
+      summary: A changed file of a chat's folder at HEAD and now, for the client to draw (owner only)
+      parameters:
+        - $ref: "#/components/parameters/WorkspacePath"
+      responses:
+        "200":
+          description: The file before and after.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkspaceDiff" }
+        default: { $ref: "#/components/responses/Error" }
   /chats/{chat_id}/abort:
     parameters:
       - $ref: "#/components/parameters/ChatID"
@@ -1946,6 +2116,17 @@ components:
       in: path
       required: true
       schema: { type: string, minLength: 1 }
+    WorkspaceID:
+      name: workspace_id
+      in: path
+      required: true
+      description: "`bot` for the Bot's folder, or a Task's id for its worktree."
+      schema: { type: string, minLength: 1 }
+    WorkspacePath:
+      name: path
+      in: query
+      description: A path in the folder, with forward slashes; empty or absent is the folder itself.
+      schema: { type: string }
     NodeID:
       name: node_id
       in: path
@@ -3238,6 +3419,56 @@ components:
           type: string
           format: date-time
           description: When the access token ends, when that is known; it is renewed before then.
+    GatewayKey:
+      type: object
+      required: [id, name, prefix, models, created_at]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        prefix:
+          type: string
+          description: The key's start, to tell keys apart; empty for a key made before it was kept.
+        models:
+          type: array
+          items: { type: string }
+          description: The model names it may use; `*` is every model.
+        created_at: { type: string, format: date-time }
+        last_used_at:
+          type: string
+          format: date-time
+          description: When the gateway last served a request with it; absent when never.
+    GatewayKeyList:
+      type: object
+      required: [data, live_worker_keys]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/GatewayKey" }
+        live_worker_keys:
+          type: integer
+          description: How many keys made for a Dispatch or a chat's pi work now.
+    NewGatewayKey:
+      type: object
+      required: [name]
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          pattern: "^[a-z0-9][a-z0-9-]{0,62}$"
+          description: What the owner calls the client that uses it, such as opencode-laptop.
+        models:
+          type: array
+          maxItems: 200
+          items: { type: string, minLength: 1, maxLength: 128 }
+          description: The model names it may use; every model when left out or empty.
+    CreatedGatewayKey:
+      type: object
+      required: [key, secret]
+      properties:
+        key: { $ref: "#/components/schemas/GatewayKey" }
+        secret:
+          type: string
+          description: The key's value, answered this once; only its hash is kept.
     NewTokenAccount:
       type: object
       required: [runtime, label, token]
@@ -3468,6 +3699,47 @@ components:
         data:
           type: array
           items: { $ref: "#/components/schemas/BuiltinSkill" }
+    SkillSearchResult:
+      type: object
+      required: [id, name, source, installs]
+      properties:
+        id:
+          type: string
+          description: owner/repo/slug, the skill's page on skills.sh.
+        name: { type: string }
+        source:
+          type: string
+          description: owner/repo, the GitHub repository it is in.
+        installs: { type: integer, format: int64 }
+    SkillSearchList:
+      type: object
+      required: [data, exact]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/SkillSearchResult" }
+        exact:
+          type: integer
+          description: How many of the first results match every word; the rest match some.
+    SkillAudit:
+      type: object
+      required: [partner, risk]
+      properties:
+        partner:
+          type: string
+          description: Who audited it, as skills.sh names them (ath for Gen, socket, snyk).
+        risk:
+          type: string
+          enum: [safe, low, medium, high, critical, unknown]
+        alerts: { type: integer }
+        analyzed_at: { type: string }
+    SkillAuditList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/SkillAudit" }
     SkillRef:
       type: object
       required: [name, revision, digest]
@@ -3497,6 +3769,12 @@ components:
         github:
           type: string
           description: owner/repo[/path][@ref]; no ref is the default branch.
+        skill:
+          type: string
+          description: >-
+            The name of a skill in the repository, as skills.sh gives it,
+            instead of a path: the folder whose SKILL.md has this name is
+            found as the skills CLI finds it, and kept as the source's path.
     SkillEveryone:
       type: object
       additionalProperties: false
@@ -3682,6 +3960,79 @@ components:
         bot:
           type: string
           description: The Bot the chat talks with; `coordinator` when left out.
+    WorkspaceList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/Workspace" }
+    Workspace:
+      type: object
+      required: [id, kind, name, root, online]
+      properties:
+        id: { type: string, description: "`bot`, or the Task's id." }
+        kind: { type: string, enum: [bot, task] }
+        name: { type: string, description: The Bot's name, or the first line of the Task's spec. }
+        root: { type: string, description: Where the folder is on its machine. }
+        online: { type: boolean, description: Whether the folder's machine can be read now. }
+        node_id: { type: string }
+        node_name: { type: string }
+        task_id: { type: string }
+        run_id: { type: string }
+        task_status: { type: string }
+    WorkspaceEntry:
+      type: object
+      required: [name, path, type, bytes, modified_at]
+      properties:
+        name: { type: string }
+        path: { type: string }
+        type: { type: string, enum: [file, directory] }
+        bytes: { type: integer, format: int64 }
+        modified_at: { type: integer, format: int64, description: Unix seconds. }
+    WorkspaceListing:
+      type: object
+      required: [entries, has_more]
+      properties:
+        entries:
+          type: array
+          items: { $ref: "#/components/schemas/WorkspaceEntry" }
+        has_more: { type: boolean }
+    WorkspaceFile:
+      type: object
+      required: [path, bytes, binary, truncated, content]
+      properties:
+        path: { type: string }
+        bytes: { type: integer, format: int64 }
+        binary: { type: boolean, description: A binary file has no content. }
+        truncated: { type: boolean, description: The content is the first 10 MiB, cut at a character. }
+        content: { type: string }
+    WorkspaceChange:
+      type: object
+      required: [path, status, modified_at]
+      properties:
+        path: { type: string }
+        status: { type: string, enum: [created, modified, deleted] }
+        lines_added: { type: integer }
+        lines_removed: { type: integer }
+        modified_at: { type: integer, format: int64 }
+    WorkspaceChanges:
+      type: object
+      required: [git, changes, truncated]
+      properties:
+        git: { type: boolean, description: False for a folder in no git repository, which has no changes. }
+        changes:
+          type: array
+          items: { $ref: "#/components/schemas/WorkspaceChange" }
+        truncated: { type: boolean }
+    WorkspaceDiff:
+      type: object
+      required: [path, binary]
+      properties:
+        path: { type: string }
+        before: { type: string, description: The file at HEAD; absent when it was created. }
+        after: { type: string, description: The file now; absent when it was deleted. }
+        binary: { type: boolean }
     Chat:
       type: object
       required: [id, title, bot, working, coordinator, created_at, updated_at]

@@ -8,8 +8,13 @@ export type PaneTab =
   // A new chat is made on its first message, as on the New chat page; until then it is only this tab. An empty bot
   // is the server's first.
   | { kind: "draft"; id: string; bot: string }
+  // A file of a chat's folder, opened from the Files panel (issue #255): its text, or its diff since HEAD.
+  | { kind: "file"; chat: string; workspace: string; path: string; view: FileView }
 
-export type Pane = { tabs: PaneTab[]; active: string }
+export type FileView = "file" | "diff"
+
+// files says whether the Files panel is open beside the pane's tabs.
+export type Pane = { tabs: PaneTab[]; active: string; files?: boolean }
 
 export function tabKey(tab: PaneTab): string {
   switch (tab.kind) {
@@ -19,6 +24,8 @@ export function tabKey(tab: PaneTab): string {
       return `browser:${tab.tab}`
     case "draft":
       return `draft:${tab.id}`
+    case "file":
+      return `file:${tab.chat}:${tab.workspace}:${tab.view}:${tab.path}`
   }
 }
 
@@ -33,7 +40,7 @@ export const hasTab = (pane: Pane, key: string) => pane.tabs.some((tab) => tabKe
 export function openTab(pane: Pane, tab: PaneTab): Pane {
   const key = tabKey(tab)
 
-  return { tabs: hasTab(pane, key) ? pane.tabs : [...pane.tabs, tab], active: key }
+  return { ...pane, tabs: hasTab(pane, key) ? pane.tabs : [...pane.tabs, tab], active: key }
 }
 
 // closeTab takes a tab out; the one after it, or else before it, comes in front. null when it was the last.
@@ -43,16 +50,17 @@ export function closeTab(pane: Pane, key: string): Pane | null {
 
   const tabs = pane.tabs.filter((_, at) => at !== index)
   if (tabs.length === 0) return null
-  if (pane.active !== key) return { tabs, active: pane.active }
+  if (pane.active !== key) return { ...pane, tabs }
 
   const next = tabs[Math.min(index, tabs.length - 1)]
 
-  return { tabs, active: next === undefined ? pane.active : tabKey(next) }
+  return { ...pane, tabs, active: next === undefined ? pane.active : tabKey(next) }
 }
 
 // replaceTab puts a tab in the place of another, in front when that one was: a new chat that became a chat.
 export function replaceTab(pane: Pane, key: string, tab: PaneTab): Pane {
   return {
+    ...pane,
     tabs: pane.tabs.map((each) => (tabKey(each) === key ? tab : each)),
     active: pane.active === key ? tabKey(tab) : pane.active,
   }
@@ -67,7 +75,7 @@ export function frontOf(pane: Pane): PaneTab | undefined {
 export function parsePane(value: unknown): Pane | null {
   if (!value || typeof value !== "object") return null
 
-  const { tabs, active } = value as Record<string, unknown>
+  const { tabs, active, files } = value as Record<string, unknown>
   if (!Array.isArray(tabs) || typeof active !== "string") return null
 
   const kept = tabs.filter((tab): tab is PaneTab => {
@@ -81,10 +89,17 @@ export function parsePane(value: unknown): Pane | null {
         return typeof t.tab === "string"
       case "draft":
         return typeof t.id === "string" && typeof t.bot === "string"
+      case "file":
+        return (
+          typeof t.chat === "string" &&
+          typeof t.workspace === "string" &&
+          typeof t.path === "string" &&
+          (t.view === "file" || t.view === "diff")
+        )
       default:
         return false
     }
   })
 
-  return kept.length === 0 ? null : { tabs: kept, active }
+  return kept.length === 0 ? null : { tabs: kept, active, ...(files === true && { files }) }
 }

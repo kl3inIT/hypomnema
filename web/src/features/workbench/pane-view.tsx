@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query"
-import { Globe, MessageSquarePlus, Plus, X } from "lucide-react"
+import { FileDiff, FileText, FolderTree, Globe, MessageSquarePlus, Plus, X } from "lucide-react"
 import type { ReactNode } from "react"
 
 import "@/api/client"
@@ -24,6 +24,9 @@ import { useBots } from "@/features/bots/use-bots"
 import { ownerTab, tabName, useBrowser, whose } from "@/features/browser/browser-state"
 import { BrowserView } from "@/features/browser/browser-view"
 import { ChatBody } from "@/features/chat/chat-body"
+import { FileTab } from "@/features/files/file-tab"
+import { FilesPanel } from "@/features/files/files-panel"
+import { baseName } from "@/features/files/files-state"
 import { cn } from "@/lib/utils"
 
 import { DraftChat } from "./draft-chat"
@@ -94,6 +97,9 @@ export function PaneView({
   const frontKey = front === undefined ? "" : tabKey(front)
   const open = (tab: PaneTab) => onChange(openTab(pane, tab))
   const newChat = (bot: string) => open({ kind: "draft", id: crypto.randomUUID().slice(0, 8), bot })
+  // The Files panel shows the folders of the chat in front, or of the pane's first chat (issue #255).
+  const filesOf =
+    front?.kind === "chat" || front?.kind === "file" ? front.chat : (paneChats(pane)[0] ?? null)
 
   return (
     <>
@@ -131,6 +137,23 @@ export function PaneView({
                   >
                     <AgentAvatar name={tab.bot || firstBot} className="size-5 shrink-0" />
                     <span className="truncate">New chat</span>
+                  </TabButton>
+                )
+              case "file":
+                return (
+                  <TabButton
+                    key={key}
+                    title={`${tab.path}${tab.view === "diff" ? ", its change since the last commit" : ""}`}
+                    onClose={close}
+                    closeLabel={`Close ${baseName(tab.path)}`}
+                    {...common}
+                  >
+                    {tab.view === "diff" ? (
+                      <FileDiff className="size-3.5 shrink-0" aria-hidden />
+                    ) : (
+                      <FileText className="size-3.5 shrink-0" aria-hidden />
+                    )}
+                    <span className="truncate">{baseName(tab.path)}</span>
                   </TabButton>
                 )
               case "browser": {
@@ -213,36 +236,86 @@ export function PaneView({
             </DropdownMenu>
           </div>
         </div>
+        {filesOf !== null && (
+          <div className="flex shrink-0 items-center ps-1.5">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="Files"
+              aria-pressed={pane.files === true}
+              title="The folders this chat's agents work in"
+              onClick={() => onChange({ ...pane, files: !pane.files })}
+            >
+              <FolderTree />
+            </Button>
+          </div>
+        )}
         {end && <div className="flex shrink-0 items-center gap-1 px-1.5">{end}</div>}
       </div>
-      {/* A chat stays as it is behind another tab, so that what was typed is still there. */}
-      {pane.tabs.map((tab) => {
-        const key = tabKey(tab)
-        const shown = key === frontKey
-        if (tab.kind === "browser") {
-          return (
-            shown && (
-              <BrowserView key={key} tab={tab.tab} label={`The page of ${label(known(tab.tab))}`} />
-            )
-          )
-        }
+      <div className="relative flex min-h-0 min-w-0 flex-1">
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          {/* A chat stays as it is behind another tab, so that what was typed is still there. */}
+          {pane.tabs.map((tab) => {
+            const key = tabKey(tab)
+            const shown = key === frontKey
+            if (tab.kind === "browser") {
+              return (
+                shown && (
+                  <BrowserView
+                    key={key}
+                    tab={tab.tab}
+                    label={`The page of ${label(known(tab.tab))}`}
+                  />
+                )
+              )
+            }
+            if (tab.kind === "file") {
+              return (
+                shown && (
+                  <div key={key} className="flex min-h-0 min-w-0 flex-1 flex-col">
+                    <FileTab
+                      chat={tab.chat}
+                      workspace={tab.workspace}
+                      path={tab.path}
+                      view={tab.view}
+                      shown={shown}
+                    />
+                  </div>
+                )
+              )
+            }
 
-        return (
-          <div
-            key={key}
-            className={cn("min-h-0 min-w-0 flex-1 flex-col", shown ? "flex" : "hidden")}
-          >
-            {tab.kind === "chat" ? (
-              <ChatBody chatId={tab.chat} />
-            ) : (
-              <DraftChat
-                bot={tab.bot}
-                onStarted={(chat) => onChange(replaceTab(pane, key, { kind: "chat", chat }))}
-              />
-            )}
-          </div>
-        )
-      })}
+            return (
+              <div
+                key={key}
+                className={cn("min-h-0 min-w-0 flex-1 flex-col", shown ? "flex" : "hidden")}
+              >
+                {tab.kind === "chat" ? (
+                  <ChatBody chatId={tab.chat} />
+                ) : (
+                  <DraftChat
+                    bot={tab.bot}
+                    onStarted={(chat) => onChange(replaceTab(pane, key, { kind: "chat", chat }))}
+                  />
+                )}
+              </div>
+            )
+          })}
+        </div>
+        {pane.files && filesOf !== null && (
+          <FilesPanel
+            chat={filesOf}
+            // On a phone the panel lies over the pane, as a sheet: it gives way to the file it opened.
+            onOpen={(workspace, path, view) =>
+              onChange({
+                ...openTab(pane, { kind: "file", chat: filesOf, workspace, path, view }),
+                files: window.matchMedia("(min-width: 768px)").matches,
+              })
+            }
+            onClose={() => onChange({ ...pane, files: false })}
+          />
+        )}
+      </div>
     </>
   )
 }

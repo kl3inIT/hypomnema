@@ -2,7 +2,7 @@
 
 import type { Client, ClientMeta, Options as Options2, RequestResult, ServerSentEventsResult, TDataShape } from './client';
 import { client } from './client.gen';
-import type { AbortChatData, AbortChatErrors, AbortChatResponses, AddLarkChannelPersonData, AddLarkChannelPersonErrors, AddLarkChannelPersonResponses, AddSkillData, AddSkillErrors, AddSkillResponses, AddTokenAccountData, AddTokenAccountErrors, AddTokenAccountResponses, AnswerQuestionData, AnswerQuestionErrors, AnswerQuestionResponses, ApplyProfileData, ApplyProfileErrors, ApplyProfileResponses, ApplyProviderData, ApplyProviderErrors, ApplyProviderResponses, BeginAccountSignInData, BeginAccountSignInErrors, BeginAccountSignInResponses, BeginIntegrationSignInData, BeginIntegrationSignInErrors, BeginIntegrationSignInResponses, CancelRunData, CancelRunErrors, CancelRunResponses, CancelTaskData, CancelTaskErrors, CancelTaskResponses, ChangeBotMemoryData, ChangeBotMemoryErrors, ChangeBotMemoryResponses, CompleteAccountSignInData, CompleteAccountSignInErrors, CompleteAccountSignInResponses, CompleteIntegrationSignInData, CompleteIntegrationSignInErrors, CompleteIntegrationSignInResponses, CreateChatData, CreateChatErrors, CreateChatResponses, CreateNodeData, CreateNodeErrors, CreateNodeResponses, CreateRunData, CreateRunErrors, CreateRunResponses, CreateSessionData, CreateSessionErrors, CreateSessionResponses, CreateTasksData, CreateTasksErrors, CreateTasksResponses, DecideApprovalData, DecideApprovalErrors, DecideApprovalResponses, DeleteBotData, DeleteBotErrors, DeleteBotResponses, DeleteGitHostConnectionData, DeleteGitHostConnectionErrors, DeleteGitHostConnectionResponses, DeleteGitHostData, DeleteGitHostErrors, DeleteGitHostResponses, DeleteGitHostTokenData, DeleteGitHostTokenErrors, DeleteGitHostTokenResponses, DeleteIntegrationConnectionData, DeleteIntegrationConnectionErrors, DeleteIntegrationConnectionResponses, DeleteLarkChannelData, DeleteLarkChannelErrors, DeleteLarkChannelResponses, DeleteRepoData, DeleteRepoErrors, DeleteRepoResponses, DeleteSecretData, DeleteSecretErrors, DeleteSecretResponses, DeleteSessionData, DeleteSessionErrors, DeleteSessionResponses, DeleteSkillData, DeleteSkillErrors, DeleteSkillResponses, DisableAccountData, DisableAccountErrors, DisableAccountResponses, DrainNodeData, DrainNodeErrors, DrainNodeResponses, EnableAccountData, EnableAccountErrors, EnableAccountResponses, FinishRunData, FinishRunErrors, FinishRunResponses, ForwardQuestionData, ForwardQuestionErrors, ForwardQuestionResponses, GetAccountLimitsData, GetAccountLimitsErrors, GetAccountLimitsResponses, GetBotData, GetBotErrors, GetBotResponses, GetBrowserData, GetBrowserErrors, GetBrowserResponses, GetChatData, GetChatErrors, GetChatGatewayKeyData, GetChatGatewayKeyErrors, GetChatGatewayKeyResponses, GetChatResponses, GetLarkChannelData, GetLarkChannelErrors, GetLarkChannelResponses, GetMeData, GetMeErrors, GetMeResponses, GetProfileData, GetProfileErrors, GetProfileResponses, GetQuestionData, GetQuestionErrors, GetQuestionResponses, GetRunData, GetRunErrors, GetRunResponses, GetSecretValueData, GetSecretValueErrors, GetSecretValueResponses, GetSkillArchiveData, GetSkillArchiveErrors, GetSkillArchiveResponses, GetSkillData, GetSkillErrors, GetSkillResponses, GetSupersetChartDataData, GetSupersetChartDataErrors, GetSupersetChartDataResponses, GetSupersetDashboardData, GetSupersetDashboardErrors, GetSupersetDashboardResponses, GetTaskData, GetTaskErrors, GetTaskResponses, ListAccountsData, ListAccountsErrors, ListAccountsResponses, ListApprovalsData, ListApprovalsErrors, ListApprovalsResponses, ListBotsData, ListBotsErrors, ListBotSkillsData, ListBotSkillsErrors, ListBotSkillsResponses, ListBotsResponses, ListBuiltinSkillsData, ListBuiltinSkillsErrors, ListBuiltinSkillsResponses, ListChatMessagesData, ListChatMessagesErrors, ListChatMessagesResponses, ListChatsData, ListChatsErrors, ListChatsResponses, ListConnectionActionsData, ListConnectionActionsErrors, ListConnectionActionsResponses, ListDispatchItemsData, ListDispatchItemsErrors, ListDispatchItemsResponses, ListEventsData, ListEventsErrors, ListEventsResponses, ListGatewayModelsData, ListGatewayModelsErrors, ListGatewayModelsResponses, ListGitHostsData, ListGitHostsErrors, ListGitHostsResponses, ListIntegrationsData, ListIntegrationsErrors, ListIntegrationsResponses, ListLarkChannelsData, ListLarkChannelsErrors, ListLarkChannelsResponses, ListMachineProvidersData, ListMachineProvidersErrors, ListMachineProvidersResponses, ListModelsData, ListModelsErrors, ListModelsResponses, ListNodesData, ListNodesErrors, ListNodesResponses, ListProfilesData, ListProfilesErrors, ListProfilesResponses, ListProfileVersionsData, ListProfileVersionsErrors, ListProfileVersionsResponses, ListProvidersData, ListProvidersErrors, ListProvidersResponses, ListQuestionsData, ListQuestionsErrors, ListQuestionsResponses, ListReposData, ListReposErrors, ListReposResponses, ListRunsData, ListRunsErrors, ListRunsResponses, ListSecretsData, ListSecretsErrors, ListSecretsResponses, ListSkillFilesData, ListSkillFilesErrors, ListSkillFilesResponses, ListSkillsData, ListSkillsErrors, ListSkillsResponses, ListSupersetDashboardsData, ListSupersetDashboardsErrors, ListSupersetDashboardsResponses, ListTasksData, ListTasksErrors, ListTasksResponses, MoveAccountData, MoveAccountErrors, MoveAccountResponses, OpenBrowserViewData, OpenBrowserViewErrors, OpenBrowserViewResponses, OpenNodeTerminalData, OpenNodeTerminalErrors, OpenNodeTerminalResponses, PatchIntegrationConnectionData, PatchIntegrationConnectionErrors, PatchIntegrationConnectionResponses, PutBotData, PutBotErrors, PutBotResponses, PutGitHostConnectionData, PutGitHostConnectionErrors, PutGitHostConnectionResponses, PutGitHostData, PutGitHostErrors, PutGitHostResponses, PutGitHostTokenData, PutGitHostTokenErrors, PutGitHostTokenResponses, PutIntegrationClientData, PutIntegrationClientErrors, PutIntegrationClientResponses, PutIntegrationConnectionData, PutIntegrationConnectionErrors, PutIntegrationConnectionResponses, PutLarkChannelData, PutLarkChannelErrors, PutLarkChannelResponses, PutRepoData, PutRepoErrors, PutRepoResponses, PutSecretData, PutSecretErrors, PutSecretResponses, RedeemAccountLimitResetData, RedeemAccountLimitResetErrors, RedeemAccountLimitResetResponses, RelaySupersetRequestData, RelaySupersetRequestErrors, RelaySupersetRequestResponses, RemoveAccountData, RemoveAccountErrors, RemoveAccountResponses, RemoveLarkChannelPersonData, RemoveLarkChannelPersonErrors, RemoveLarkChannelPersonResponses, RemoveNodeData, RemoveNodeErrors, RemoveNodeResponses, ReopenTaskData, ReopenTaskErrors, ReopenTaskResponses, ResumeNodeData, ResumeNodeErrors, ResumeNodeResponses, SendChatMessageData, SendChatMessageErrors, SendChatMessageResponses, SetBotMemoryData, SetBotMemoryErrors, SetBotMemoryResponses, SetConnectionActionData, SetConnectionActionErrors, SetConnectionActionResponses, SetSkillEveryoneData, SetSkillEveryoneErrors, SetSkillEveryoneResponses, StartNodeMachineData, StartNodeMachineErrors, StartNodeMachineResponses, StopNodeMachineData, StopNodeMachineErrors, StopNodeMachineResponses, StreamChatData, StreamChatErrors, StreamChatResponse, StreamChatResponses, StreamEventsData, StreamEventsErrors, StreamEventsResponse, StreamEventsResponses, UpdateNodeData, UpdateNodeErrors, UpdateNodeResponses, UploadSkillData, UploadSkillErrors, UploadSkillResponses } from './types.gen';
+import type { AbortChatData, AbortChatErrors, AbortChatResponses, AddLarkChannelPersonData, AddLarkChannelPersonErrors, AddLarkChannelPersonResponses, AddSkillData, AddSkillErrors, AddSkillResponses, AddTokenAccountData, AddTokenAccountErrors, AddTokenAccountResponses, AnswerQuestionData, AnswerQuestionErrors, AnswerQuestionResponses, ApplyProfileData, ApplyProfileErrors, ApplyProfileResponses, ApplyProviderData, ApplyProviderErrors, ApplyProviderResponses, BeginAccountSignInData, BeginAccountSignInErrors, BeginAccountSignInResponses, BeginIntegrationSignInData, BeginIntegrationSignInErrors, BeginIntegrationSignInResponses, CancelRunData, CancelRunErrors, CancelRunResponses, CancelTaskData, CancelTaskErrors, CancelTaskResponses, ChangeBotMemoryData, ChangeBotMemoryErrors, ChangeBotMemoryResponses, CompleteAccountSignInData, CompleteAccountSignInErrors, CompleteAccountSignInResponses, CompleteIntegrationSignInData, CompleteIntegrationSignInErrors, CompleteIntegrationSignInResponses, CreateChatData, CreateChatErrors, CreateChatResponses, CreateGatewayKeyData, CreateGatewayKeyErrors, CreateGatewayKeyResponses, CreateNodeData, CreateNodeErrors, CreateNodeResponses, CreateRunData, CreateRunErrors, CreateRunResponses, CreateSessionData, CreateSessionErrors, CreateSessionResponses, CreateTasksData, CreateTasksErrors, CreateTasksResponses, DecideApprovalData, DecideApprovalErrors, DecideApprovalResponses, DeleteBotData, DeleteBotErrors, DeleteBotResponses, DeleteGitHostConnectionData, DeleteGitHostConnectionErrors, DeleteGitHostConnectionResponses, DeleteGitHostData, DeleteGitHostErrors, DeleteGitHostResponses, DeleteGitHostTokenData, DeleteGitHostTokenErrors, DeleteGitHostTokenResponses, DeleteIntegrationConnectionData, DeleteIntegrationConnectionErrors, DeleteIntegrationConnectionResponses, DeleteLarkChannelData, DeleteLarkChannelErrors, DeleteLarkChannelResponses, DeleteRepoData, DeleteRepoErrors, DeleteRepoResponses, DeleteSecretData, DeleteSecretErrors, DeleteSecretResponses, DeleteSessionData, DeleteSessionErrors, DeleteSessionResponses, DeleteSkillData, DeleteSkillErrors, DeleteSkillResponses, DiffWorkspaceFileData, DiffWorkspaceFileErrors, DiffWorkspaceFileResponses, DisableAccountData, DisableAccountErrors, DisableAccountResponses, DrainNodeData, DrainNodeErrors, DrainNodeResponses, EnableAccountData, EnableAccountErrors, EnableAccountResponses, FinishRunData, FinishRunErrors, FinishRunResponses, ForwardQuestionData, ForwardQuestionErrors, ForwardQuestionResponses, GetAccountLimitsData, GetAccountLimitsErrors, GetAccountLimitsResponses, GetBotData, GetBotErrors, GetBotResponses, GetBrowserData, GetBrowserErrors, GetBrowserResponses, GetChatData, GetChatErrors, GetChatGatewayKeyData, GetChatGatewayKeyErrors, GetChatGatewayKeyResponses, GetChatResponses, GetLarkChannelData, GetLarkChannelErrors, GetLarkChannelResponses, GetMeData, GetMeErrors, GetMeResponses, GetProfileData, GetProfileErrors, GetProfileResponses, GetQuestionData, GetQuestionErrors, GetQuestionResponses, GetRunData, GetRunErrors, GetRunResponses, GetSecretValueData, GetSecretValueErrors, GetSecretValueResponses, GetSkillArchiveData, GetSkillArchiveErrors, GetSkillArchiveResponses, GetSkillData, GetSkillErrors, GetSkillResponses, GetSupersetChartDataData, GetSupersetChartDataErrors, GetSupersetChartDataResponses, GetSupersetDashboardData, GetSupersetDashboardErrors, GetSupersetDashboardResponses, GetTaskData, GetTaskErrors, GetTaskResponses, ListAccountsData, ListAccountsErrors, ListAccountsResponses, ListApprovalsData, ListApprovalsErrors, ListApprovalsResponses, ListBotsData, ListBotsErrors, ListBotSkillsData, ListBotSkillsErrors, ListBotSkillsResponses, ListBotsResponses, ListBuiltinSkillsData, ListBuiltinSkillsErrors, ListBuiltinSkillsResponses, ListChatMessagesData, ListChatMessagesErrors, ListChatMessagesResponses, ListChatsData, ListChatsErrors, ListChatsResponses, ListChatWorkspacesData, ListChatWorkspacesErrors, ListChatWorkspacesResponses, ListConnectionActionsData, ListConnectionActionsErrors, ListConnectionActionsResponses, ListDispatchItemsData, ListDispatchItemsErrors, ListDispatchItemsResponses, ListEventsData, ListEventsErrors, ListEventsResponses, ListGatewayKeysData, ListGatewayKeysErrors, ListGatewayKeysResponses, ListGatewayModelsData, ListGatewayModelsErrors, ListGatewayModelsResponses, ListGitHostsData, ListGitHostsErrors, ListGitHostsResponses, ListIntegrationsData, ListIntegrationsErrors, ListIntegrationsResponses, ListLarkChannelsData, ListLarkChannelsErrors, ListLarkChannelsResponses, ListMachineProvidersData, ListMachineProvidersErrors, ListMachineProvidersResponses, ListModelsData, ListModelsErrors, ListModelsResponses, ListNodesData, ListNodesErrors, ListNodesResponses, ListProfilesData, ListProfilesErrors, ListProfilesResponses, ListProfileVersionsData, ListProfileVersionsErrors, ListProfileVersionsResponses, ListProvidersData, ListProvidersErrors, ListProvidersResponses, ListQuestionsData, ListQuestionsErrors, ListQuestionsResponses, ListReposData, ListReposErrors, ListReposResponses, ListRunsData, ListRunsErrors, ListRunsResponses, ListSecretsData, ListSecretsErrors, ListSecretsResponses, ListSkillAuditsData, ListSkillAuditsErrors, ListSkillAuditsResponses, ListSkillFilesData, ListSkillFilesErrors, ListSkillFilesResponses, ListSkillsData, ListSkillsErrors, ListSkillsResponses, ListSupersetDashboardsData, ListSupersetDashboardsErrors, ListSupersetDashboardsResponses, ListTasksData, ListTasksErrors, ListTasksResponses, ListWorkspaceChangesData, ListWorkspaceChangesErrors, ListWorkspaceChangesResponses, ListWorkspaceDirectoryData, ListWorkspaceDirectoryErrors, ListWorkspaceDirectoryResponses, MoveAccountData, MoveAccountErrors, MoveAccountResponses, OpenBrowserViewData, OpenBrowserViewErrors, OpenBrowserViewResponses, OpenNodeTerminalData, OpenNodeTerminalErrors, OpenNodeTerminalResponses, PatchIntegrationConnectionData, PatchIntegrationConnectionErrors, PatchIntegrationConnectionResponses, PutBotData, PutBotErrors, PutBotResponses, PutGitHostConnectionData, PutGitHostConnectionErrors, PutGitHostConnectionResponses, PutGitHostData, PutGitHostErrors, PutGitHostResponses, PutGitHostTokenData, PutGitHostTokenErrors, PutGitHostTokenResponses, PutIntegrationClientData, PutIntegrationClientErrors, PutIntegrationClientResponses, PutIntegrationConnectionData, PutIntegrationConnectionErrors, PutIntegrationConnectionResponses, PutLarkChannelData, PutLarkChannelErrors, PutLarkChannelResponses, PutRepoData, PutRepoErrors, PutRepoResponses, PutSecretData, PutSecretErrors, PutSecretResponses, ReadWorkspaceFileData, ReadWorkspaceFileErrors, ReadWorkspaceFileResponses, RedeemAccountLimitResetData, RedeemAccountLimitResetErrors, RedeemAccountLimitResetResponses, RelaySupersetRequestData, RelaySupersetRequestErrors, RelaySupersetRequestResponses, RemoveAccountData, RemoveAccountErrors, RemoveAccountResponses, RemoveLarkChannelPersonData, RemoveLarkChannelPersonErrors, RemoveLarkChannelPersonResponses, RemoveNodeData, RemoveNodeErrors, RemoveNodeResponses, ReopenTaskData, ReopenTaskErrors, ReopenTaskResponses, ResumeNodeData, ResumeNodeErrors, ResumeNodeResponses, RevokeGatewayKeyData, RevokeGatewayKeyErrors, RevokeGatewayKeyResponses, SearchSkillsData, SearchSkillsErrors, SearchSkillsResponses, SendChatMessageData, SendChatMessageErrors, SendChatMessageResponses, SetBotMemoryData, SetBotMemoryErrors, SetBotMemoryResponses, SetConnectionActionData, SetConnectionActionErrors, SetConnectionActionResponses, SetSkillEveryoneData, SetSkillEveryoneErrors, SetSkillEveryoneResponses, StartNodeMachineData, StartNodeMachineErrors, StartNodeMachineResponses, StopNodeMachineData, StopNodeMachineErrors, StopNodeMachineResponses, StreamChatData, StreamChatErrors, StreamChatResponse, StreamChatResponses, StreamEventsData, StreamEventsErrors, StreamEventsResponse, StreamEventsResponses, UpdateNodeData, UpdateNodeErrors, UpdateNodeResponses, UploadSkillData, UploadSkillErrors, UploadSkillResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
   /**
@@ -876,6 +876,39 @@ export const listGatewayModels = <ThrowOnError extends boolean = true>(options?:
 });
 
 /**
+ * The gateway keys the owner made, not revoked; only the owner
+ *
+ * A key is what a client outside, such as opencode or omp, gives the gateway as its API key. The keys made for one Dispatch or one chat's pi are not listed: `live_worker_keys` says how many work now.
+ */
+export const listGatewayKeys = <ThrowOnError extends boolean = true>(options?: Options<ListGatewayKeysData, ThrowOnError>): RequestResult<ListGatewayKeysResponses, ListGatewayKeysErrors, ThrowOnError> => (options?.client ?? client).get<ListGatewayKeysResponses, ListGatewayKeysErrors, ThrowOnError>({
+  security: [{ scheme: 'bearer', type: 'http' }],
+  url: '/gateway/keys',
+  ...options
+});
+
+/**
+ * Make a gateway key; its value is answered this once; only the owner
+ */
+export const createGatewayKey = <ThrowOnError extends boolean = true>(options: Options<CreateGatewayKeyData, ThrowOnError>): RequestResult<CreateGatewayKeyResponses, CreateGatewayKeyErrors, ThrowOnError> => (options.client ?? client).post<CreateGatewayKeyResponses, CreateGatewayKeyErrors, ThrowOnError>({
+  security: [{ scheme: 'bearer', type: 'http' }],
+  url: '/gateway/keys',
+  ...options,
+  headers: {
+    'Content-Type': 'application/json',
+    ...options.headers
+  }
+});
+
+/**
+ * Revoke a gateway key; a client using it is refused from now on; only the owner
+ */
+export const revokeGatewayKey = <ThrowOnError extends boolean = true>(options: Options<RevokeGatewayKeyData, ThrowOnError>): RequestResult<RevokeGatewayKeyResponses, RevokeGatewayKeyErrors, ThrowOnError> => (options.client ?? client).delete<RevokeGatewayKeyResponses, RevokeGatewayKeyErrors, ThrowOnError>({
+  security: [{ scheme: 'bearer', type: 'http' }],
+  url: '/gateway/keys/{key_id}',
+  ...options
+});
+
+/**
  * Every Bot, the oldest first
  *
  * A Bot is a long-lived agent of the control plane: its model, its persona and its memory. It talks with people in chats and gives work to workers. It is apart from a Profile, which is a worker's recipe.
@@ -1052,6 +1085,28 @@ export const listBuiltinSkills = <ThrowOnError extends boolean = true>(options?:
 });
 
 /**
+ * Search the skills on skills.sh; only the owner
+ *
+ * The control plane asks skills.sh's search. A query of several words that finds fewer than ten is asked again with each word left out, and those results follow, at most 25 in all, as the skills CLI does.
+ */
+export const searchSkills = <ThrowOnError extends boolean = true>(options: Options<SearchSkillsData, ThrowOnError>): RequestResult<SearchSkillsResponses, SearchSkillsErrors, ThrowOnError> => (options.client ?? client).get<SearchSkillsResponses, SearchSkillsErrors, ThrowOnError>({
+  security: [{ scheme: 'bearer', type: 'http' }],
+  url: '/skill-search',
+  ...options
+});
+
+/**
+ * What skills.sh's auditors said of a skill; only the owner
+ *
+ * Read from skills.sh as the skills CLI reads it before installing. Empty when skills.sh has none or does not answer.
+ */
+export const listSkillAudits = <ThrowOnError extends boolean = true>(options: Options<ListSkillAuditsData, ThrowOnError>): RequestResult<ListSkillAuditsResponses, ListSkillAuditsErrors, ThrowOnError> => (options.client ?? client).get<ListSkillAuditsResponses, ListSkillAuditsErrors, ThrowOnError>({
+  security: [{ scheme: 'bearer', type: 'http' }],
+  url: '/skill-audits',
+  ...options
+});
+
+/**
  * Give a skill to every worker and Bot, or take it back; only the owner
  *
  * A skill is not given to everyone when it is added.
@@ -1194,6 +1249,51 @@ export const getChat = <ThrowOnError extends boolean = true>(options: Options<Ge
 export const streamChat = <ThrowOnError extends boolean = true>(options: Options<StreamChatData, ThrowOnError, StreamChatResponse>): Promise<ServerSentEventsResult<StreamChatResponses>> => (options.client ?? client).sse.get<StreamChatResponses, StreamChatErrors, ThrowOnError>({
   security: [{ scheme: 'bearer', type: 'http' }],
   url: '/chats/{chat_id}/stream',
+  ...options
+});
+
+/**
+ * The folders a chat's agents work in (owner only): its Bot's own folder, and the worktree of each Task of its Runs that has run, on that Task's machine
+ */
+export const listChatWorkspaces = <ThrowOnError extends boolean = true>(options: Options<ListChatWorkspacesData, ThrowOnError>): RequestResult<ListChatWorkspacesResponses, ListChatWorkspacesErrors, ThrowOnError> => (options.client ?? client).get<ListChatWorkspacesResponses, ListChatWorkspacesErrors, ThrowOnError>({
+  security: [{ scheme: 'bearer', type: 'http' }],
+  url: '/chats/{chat_id}/workspaces',
+  ...options
+});
+
+/**
+ * A page of a directory of a chat's folder, by name (owner only)
+ */
+export const listWorkspaceDirectory = <ThrowOnError extends boolean = true>(options: Options<ListWorkspaceDirectoryData, ThrowOnError>): RequestResult<ListWorkspaceDirectoryResponses, ListWorkspaceDirectoryErrors, ThrowOnError> => (options.client ?? client).get<ListWorkspaceDirectoryResponses, ListWorkspaceDirectoryErrors, ThrowOnError>({
+  security: [{ scheme: 'bearer', type: 'http' }],
+  url: '/chats/{chat_id}/workspaces/{workspace_id}/tree',
+  ...options
+});
+
+/**
+ * A file of a chat's folder, as text up to 10 MiB (owner only)
+ */
+export const readWorkspaceFile = <ThrowOnError extends boolean = true>(options: Options<ReadWorkspaceFileData, ThrowOnError>): RequestResult<ReadWorkspaceFileResponses, ReadWorkspaceFileErrors, ThrowOnError> => (options.client ?? client).get<ReadWorkspaceFileResponses, ReadWorkspaceFileErrors, ThrowOnError>({
+  security: [{ scheme: 'bearer', type: 'http' }],
+  url: '/chats/{chat_id}/workspaces/{workspace_id}/file',
+  ...options
+});
+
+/**
+ * What git says changed in a chat's folder since HEAD, newest first (owner only)
+ */
+export const listWorkspaceChanges = <ThrowOnError extends boolean = true>(options: Options<ListWorkspaceChangesData, ThrowOnError>): RequestResult<ListWorkspaceChangesResponses, ListWorkspaceChangesErrors, ThrowOnError> => (options.client ?? client).get<ListWorkspaceChangesResponses, ListWorkspaceChangesErrors, ThrowOnError>({
+  security: [{ scheme: 'bearer', type: 'http' }],
+  url: '/chats/{chat_id}/workspaces/{workspace_id}/changes',
+  ...options
+});
+
+/**
+ * A changed file of a chat's folder at HEAD and now, for the client to draw (owner only)
+ */
+export const diffWorkspaceFile = <ThrowOnError extends boolean = true>(options: Options<DiffWorkspaceFileData, ThrowOnError>): RequestResult<DiffWorkspaceFileResponses, DiffWorkspaceFileErrors, ThrowOnError> => (options.client ?? client).get<DiffWorkspaceFileResponses, DiffWorkspaceFileErrors, ThrowOnError>({
+  security: [{ scheme: 'bearer', type: 'http' }],
+  url: '/chats/{chat_id}/workspaces/{workspace_id}/diff',
   ...options
 });
 

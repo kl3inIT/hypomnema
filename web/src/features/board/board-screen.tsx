@@ -6,7 +6,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
-import { PageHeader } from "@/features/shell/app-shell"
+import { PageHeader, PageHeading } from "@/features/shell/app-shell"
 
 import { byColumn, columns, lanes, repos, type Card, type Group } from "./board-state"
 import { TaskCard } from "./task-card"
@@ -38,8 +38,14 @@ export function BoardScreen({
 
   return (
     <main className="flex min-w-0 flex-1 flex-col">
-      <PageHeader title="Board">
-        <div className="ms-auto flex items-center gap-2 max-sm:ms-0 max-sm:w-full">
+      <PageHeader />
+
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 pt-1 pb-8 sm:px-5">
+        <PageHeading
+          title="Board"
+          description="Every Task in flight: what needs you, what is working and what is done. Click a card to open it."
+          className="mb-5"
+        >
           <span className="text-xs text-muted-foreground max-sm:hidden">Group by</span>
           {/* The same switch as the Machines page's Grid and Table: kept by hand, as that one is, because the
               standard toggle group does not show which one is on as clearly. */}
@@ -77,10 +83,8 @@ export function BoardScreen({
               ))}
             </SelectContent>
           </Select>
-        </div>
-      </PageHeader>
+        </PageHeading>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 pt-1 pb-8 sm:px-5">
         {error ? (
           <p className="py-10 text-center text-sm text-destructive">The board could not be read.</p>
         ) : loading ? (

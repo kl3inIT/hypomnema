@@ -27,8 +27,8 @@ SELECT * FROM gateway_model_targets WHERE model = @model ORDER BY position;
 DELETE FROM gateway_models WHERE name = @name;
 
 -- name: InsertGatewayKey :exec
-INSERT INTO gateway_keys (id, name, key_hash, models, dispatch_id, chat_id, created_at)
-VALUES (@id, @name, @key_hash, @models, @dispatch_id, @chat_id, @now);
+INSERT INTO gateway_keys (id, name, key_hash, key_prefix, models, dispatch_id, chat_id, created_at)
+VALUES (@id, @name, @key_hash, @key_prefix, @models, @dispatch_id, @chat_id, @now);
 
 -- name: RevokeGatewayKeysOfChat :execrows
 UPDATE gateway_keys SET revoked_at = @now WHERE chat_id = @chat_id AND revoked_at IS NULL;
@@ -50,6 +50,9 @@ SELECT * FROM gateway_keys WHERE key_hash = @key_hash;
 
 -- name: ListGatewayKeys :many
 SELECT * FROM gateway_keys ORDER BY name;
+
+-- name: GatewayKeysLastUsed :many
+SELECT key_id, CAST(MAX(created_at) AS INTEGER) AS last_used FROM gateway_usage GROUP BY key_id;
 
 -- name: RevokeGatewayKey :execrows
 UPDATE gateway_keys SET revoked_at = @now WHERE id = @id AND revoked_at IS NULL;

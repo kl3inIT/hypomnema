@@ -6,21 +6,35 @@ import type { Profile } from "@/api/generated/types.gen"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group"
 import { RuntimeMark } from "@/features/board/runtime-mark"
-import { isVisible, useColumnVisibility } from "@/features/machines/column-visibility"
-import { ColumnsMenu } from "@/features/machines/columns-menu"
-import { PageHeader } from "@/features/shell/app-shell"
+import {
+  isVisible,
+  useColumnVisibility,
+  useStatusFilter,
+} from "@/features/machines/column-visibility"
+import { ViewMenu } from "@/features/machines/columns-menu"
+import { PageHeader, PageHeading } from "@/features/shell/app-shell"
 import { modelIsId } from "@/lib/model-name"
 import { cn } from "@/lib/utils"
 
 import { AgentAvatar } from "./agent-avatar"
 import { ModelMark } from "./model-mark"
-import { effortLabel, modelLine, runtimeName, savedAgo, standing, summary } from "./profiles-state"
+import {
+  effortLabel,
+  filterStates,
+  modelLine,
+  runtimeName,
+  savedAgo,
+  standing,
+  statusChoices,
+  withStatus,
+} from "./profiles-state"
 import { useProfiles } from "./use-profiles"
 
 type Layout = "grid" | "table"
 
 const layoutKey = "hypomnema.agents.layout"
 const columnsKey = "hypomnema.agents.columns"
+const statusKey = "hypomnema.agents.status"
 
 function readLayout(): Layout {
   try {
@@ -43,11 +57,14 @@ export function AgentsScreen() {
   const [layout, setLayout] = useState<Layout>(readLayout)
   const [query, setQuery] = useState("")
   const [visibility, show] = useColumnVisibility(columnsKey, hiddenColumns)
+  // The View menu's status filter is the Machines page's (columns-menu.tsx, after Beszel's).
+  const [status, filter] = useStatusFilter(statusKey, filterStates)
   const all = profiles.data ?? []
   const words = query.trim().toLowerCase()
+  const shown = withStatus(all, status)
   const list = words
-    ? all.filter((p) => `${p.name} ${p.description}`.toLowerCase().includes(words))
-    : all
+    ? shown.filter((p) => `${p.name} ${p.description}`.toLowerCase().includes(words))
+    : shown
 
   function choose(next: Layout) {
     setLayout(next)
@@ -61,45 +78,17 @@ export function AgentsScreen() {
 
   return (
     <main className="flex min-w-0 flex-1 flex-col">
-      <PageHeader title="Agents">
-        {all.length > 0 && (
-          <span className="text-xs whitespace-nowrap text-muted-foreground">{summary(all)}</span>
-        )}
-        <div className="ms-auto flex items-center gap-2">
-          <fieldset className="m-0 inline-flex gap-0.5 rounded-lg border border-solid bg-muted p-0.5">
-            <legend className="sr-only">Layout</legend>
-            {(["grid", "table"] as const).map((l) => (
-              <button
-                key={l}
-                type="button"
-                aria-pressed={layout === l}
-                onClick={() => choose(l)}
-                className="rounded-md px-2.5 py-1 text-xs text-muted-foreground capitalize aria-pressed:bg-foreground/9 aria-pressed:text-foreground"
-              >
-                {l}
-              </button>
-            ))}
-          </fieldset>
-          {layout === "table" && all.length > 0 && (
-            <ColumnsMenu
-              columns={tableColumns.filter((column) => column.enableHiding !== false)}
-              visibility={visibility}
-              onShow={show}
-            />
-          )}
-          <Link to="/agents/new" className={buttonVariants()}>
-            New agent
-          </Link>
-        </div>
-      </PageHeader>
+      <PageHeader />
 
       <div className="min-h-0 flex-1 overflow-y-auto px-3 pt-1 pb-8 sm:px-5">
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 pb-3">
-          <p className="min-w-0 flex-1 basis-64 text-xs text-muted-foreground">
-            The coordinator gives each Task to one of these, choosing by its description.
-          </p>
+        <PageHeading
+          title="Agents"
+          description="The coordinator gives each Task to one of these, choosing by its description."
+          className="mb-5"
+        >
+          {/* The search sits beside the View menu, as Beszel's filter does in its CardHead. */}
           {all.length > 0 && (
-            <div className="w-full sm:w-64">
+            <div className="w-full sm:w-56">
               <InputGroup>
                 <InputGroupAddon>
                   <Search />
@@ -115,7 +104,38 @@ export function AgentsScreen() {
               </InputGroup>
             </div>
           )}
-        </div>
+          <fieldset className="m-0 inline-flex gap-0.5 rounded-lg border border-solid bg-muted p-0.5">
+            <legend className="sr-only">Layout</legend>
+            {(["grid", "table"] as const).map((l) => (
+              <button
+                key={l}
+                type="button"
+                aria-pressed={layout === l}
+                onClick={() => choose(l)}
+                className="rounded-md px-2.5 py-1 text-xs text-muted-foreground capitalize aria-pressed:bg-foreground/9 aria-pressed:text-foreground"
+              >
+                {l}
+              </button>
+            ))}
+          </fieldset>
+          {all.length > 0 && (
+            <ViewMenu
+              status={status}
+              statuses={statusChoices(all)}
+              onStatus={filter}
+              columns={
+                layout === "table"
+                  ? tableColumns.filter((column) => column.enableHiding !== false)
+                  : undefined
+              }
+              visibility={visibility}
+              onShow={show}
+            />
+          )}
+          <Link to="/agents/new" className={buttonVariants()}>
+            New agent
+          </Link>
+        </PageHeading>
         {profiles.error ? (
           <div className="flex flex-col items-center gap-3 py-10 text-sm text-muted-foreground">
             <p>Couldn&apos;t load this list.</p>
@@ -133,7 +153,13 @@ export function AgentsScreen() {
             ))}
           </div>
         ) : all.length > 0 && list.length === 0 ? (
-          <p className="py-16 text-center text-sm text-muted-foreground">No results.</p>
+          <p className="py-16 text-center text-sm text-muted-foreground">
+            {words || status === "all"
+              ? "No results."
+              : status === "can"
+                ? "No agents that can run."
+                : "No agents that cannot run."}
+          </p>
         ) : list.length === 0 ? (
           <div className="mx-auto flex max-w-sm flex-col items-center gap-4 py-16 text-center">
             <p className="text-sm text-muted-foreground">

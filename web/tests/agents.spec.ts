@@ -184,7 +184,8 @@ test("the agents show as cards and as a table, each saying whether it can run", 
   await fakeServer(page)
   await page.goto("/agents")
 
-  await expect(page.getByText("2 can run · 2 cannot")).toBeVisible()
+  await expect(page.getByRole("heading", { name: "Agents", level: 1 })).toBeVisible()
+  await expect(page.getByText("The coordinator gives each Task to one of these")).toBeVisible()
   await expect(page.getByRole("article", { name: "codex-implementer" })).toContainText(
     "No machine online has Codex",
   )
@@ -199,6 +200,17 @@ test("the agents show as cards and as a table, each saying whether it can run", 
     "Fallback:codex-implementer",
   )
   await shot(page, "agents-grid")
+
+  // The counts are the View menu's Status group, which filters the cards, as the Machines page's.
+  await page.getByRole("button", { name: "View" }).click()
+  await page.getByRole("menuitemradio", { name: "Can run (2)" }).click()
+  await expect(page.getByRole("menuitemradio", { name: "Cannot run (2)" })).toBeVisible()
+  await shot(page, "agents-grid-view-status")
+  await page.keyboard.press("Escape")
+  await expect(page.getByRole("article")).toHaveCount(2)
+  await page.getByRole("button", { name: "View" }).click()
+  await page.getByRole("menuitemradio", { name: "All agents" }).click()
+  await page.keyboard.press("Escape")
 
   await page.getByRole("button", { name: "table" }).click()
   await expect(page.getByRole("row", { name: /explorer/ })).toContainText("Low")

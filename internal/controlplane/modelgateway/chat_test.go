@@ -227,6 +227,13 @@ func TestAChatRequestIsForwardedAsItCame(t *testing.T) {
 	assert.Equal(t, 1, u.Attempts)
 	assert.False(t, u.Stream)
 	assert.Equal(t, modelgateway.Tokens{Prompt: 12, Completion: 5, Cached: 4, Reasoning: 2}, u.Tokens)
+
+	// The Gateway keys page shows when a key was last used (issue #199, step 6).
+	keys, err := g.svc.ListKeys(t.Context())
+	require.NoError(t, err)
+	require.Len(t, keys, 1)
+	require.NotNil(t, keys[0].LastUsedAt)
+	assert.Equal(t, u.CreatedAt, *keys[0].LastUsedAt)
 }
 
 const (

@@ -31,6 +31,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/serviceproxy"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/skillsource"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/skillssh"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/subscription"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/webui"
@@ -52,6 +53,11 @@ type Config struct {
 	// CoordinatorCommand starts pi for a chat id appended to it, from
 	// HYPOMNEMA_COORDINATOR_COMMAND as a JSON array; empty: no coordinator.
 	CoordinatorCommand []string
+	// BotFilesCommand answers a question about a Bot's folder (issue #255),
+	// from HYPOMNEMA_BOT_FILES_COMMAND as a JSON array, such as [sudo -n -u
+	// coordinator /usr/local/bin/hypomnema files serve --root DIR]; empty:
+	// the Bots' folders are not shown.
+	BotFilesCommand []string
 	// CoordinatorToken is the name of the coordinator token pi's runs belong
 	// to, from HYPOMNEMA_COORDINATOR_TOKEN; the setup script makes it as
 	// pi-coordinator. Each pi is given a token of its own made under it,
@@ -147,6 +153,12 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 	if raw := env.String(envPrefix+"_COORDINATOR_COMMAND", ""); raw != "" {
 		if err := json.Unmarshal([]byte(raw), &cfg.CoordinatorCommand); err != nil || len(cfg.CoordinatorCommand) == 0 {
 			cmdErr = fmt.Errorf("%s_COORDINATOR_COMMAND is not a JSON array of strings", envPrefix)
+		}
+	}
+
+	if raw := env.String(envPrefix+"_BOT_FILES_COMMAND", ""); raw != "" && cmdErr == nil {
+		if err := json.Unmarshal([]byte(raw), &cfg.BotFilesCommand); err != nil || len(cfg.BotFilesCommand) == 0 {
+			cmdErr = fmt.Errorf("%s_BOT_FILES_COMMAND is not a JSON array of strings", envPrefix)
 		}
 	}
 
@@ -312,12 +324,14 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	larkSettings = larkbot.NewService(svc, secrets, larkChannels, larkbot.Connect)
 
 	api := clientapi.New(svc, logger, ctx.Done()).WithCoordinator(sup).
-		WithAccounts(subscriptions).WithGatewayModels(gateway).
+		WithAccounts(subscriptions).WithGatewayModels(gateway).WithGatewayKeys(gateway).
 		WithHostTokens(tokens).
 		WithMachines(machineMgr).WithTerminals(nodeTerminals(nodes)).
+		WithWorkspaces(nodes.Files, newBotFiles(cfg.BotFilesCommand)).
 		WithSecrets(ownerSecrets{vault: secrets, referrers: referrers}).
 		WithIntegrations(integrations).WithApprovals(proxy).WithRelay(proxy).WithLarkChannels(larkSettings).
 		WithSkillSources(skillsource.NewGitHub(&http.Client{Timeout: 2 * time.Minute})).
+		WithSkillDirectory(skillssh.New(&http.Client{Timeout: 30 * time.Second})).
 		WithBuiltinSkills(builtinSkills)
 	if cfg.VaultKeys != nil {
 		api.WithTokenAccounts(accountTokens{svc: svc, vault: secrets, logger: logger})

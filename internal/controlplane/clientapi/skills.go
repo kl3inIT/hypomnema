@@ -6,19 +6,123 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"regexp"
+	"slices"
+	"strings"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/skillsource"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/skillssh"
 	"github.com/kl3inIT/hypomnema/internal/shared/skillpack"
 )
 
 // Skills (issue #21). Every token reads them; only the owner adds, gives to
 // everyone and removes one (policy.go).
 
-// SkillSources fetches a skill from a repository.
+// SkillSources fetches a skill from a repository, and finds the folder of
+// one named but not placed.
 type SkillSources interface {
 	Fetch(ctx context.Context, src skillsource.Source) (skillpack.Skill, string, error)
+	Find(ctx context.Context, src skillsource.Source, name string) (skillsource.Source, error)
+}
+
+// SkillDirectory is skills.sh: its search and its auditors' results.
+type SkillDirectory interface {
+	Find(ctx context.Context, query, owner string) ([]skillssh.Result, int, error)
+	Audits(ctx context.Context, source, slug string) ([]skillssh.Audit, error)
+}
+
+// errNoSkillDirectory is a control plane that wired no way to reach skills.sh.
+var errNoSkillDirectory = errors.New("this control plane does not search skills.sh")
+
+// WithSkillDirectory lets the owner search skills.sh.
+func (s *Server) WithSkillDirectory(d SkillDirectory) *Server {
+	s.skillDirectory = d
+
+	return s
+}
+
+var (
+	repoPattern = regexp.MustCompile(`^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$`)
+	slugPattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+)
+
+// dots is a part of a path that names no folder of its own.
+func dots(part string) bool { return part == "." || part == ".." }
+
+// SearchSkills asks skills.sh for the skills that answer a query.
+func (s *Server) SearchSkills(ctx context.Context, req openapi.SearchSkillsRequestObject,
+) (openapi.SearchSkillsResponseObject, error) {
+	if s.skillDirectory == nil {
+		return nil, errNoSkillDirectory
+	}
+
+	query := strings.TrimSpace(req.Params.Q)
+	if query == "" {
+		return nil, fmt.Errorf("%w: nothing to search for", orchestration.ErrInvalid)
+	}
+
+	owner := ""
+	if req.Params.Owner != nil {
+		owner = strings.ToLower(strings.TrimSpace(*req.Params.Owner))
+	}
+
+	found, exact, err := s.skillDirectory.Find(ctx, query, owner)
+	if err != nil {
+		return nil, err
+	}
+
+	out := openapi.SearchSkills200JSONResponse{Data: make([]openapi.SkillSearchResult, 0, len(found)), Exact: exact}
+	for _, r := range found {
+		out.Data = append(out.Data, openapi.SkillSearchResult{
+			Id: r.ID, Name: r.Name, Source: r.Source, Installs: r.Installs,
+		})
+	}
+
+	return out, nil
+}
+
+var auditRisks = []openapi.SkillAuditRisk{
+	openapi.SkillAuditRiskSafe, openapi.SkillAuditRiskLow, openapi.SkillAuditRiskMedium,
+	openapi.SkillAuditRiskHigh, openapi.SkillAuditRiskCritical,
+}
+
+// ListSkillAudits says what skills.sh's auditors said of a skill; nothing
+// when skills.sh does not answer, as the skills CLI shows nothing then.
+func (s *Server) ListSkillAudits(ctx context.Context, req openapi.ListSkillAuditsRequestObject,
+) (openapi.ListSkillAuditsResponseObject, error) {
+	if s.skillDirectory == nil {
+		return nil, errNoSkillDirectory
+	}
+
+	if !repoPattern.MatchString(req.Params.Source) || !slugPattern.MatchString(req.Params.Skill) ||
+		slices.ContainsFunc(append(strings.Split(req.Params.Source, "/"), req.Params.Skill), dots) {
+		return nil, fmt.Errorf("%w: source is owner/repo and skill a slug", orchestration.ErrInvalid)
+	}
+
+	out := openapi.ListSkillAudits200JSONResponse{Data: []openapi.SkillAudit{}}
+
+	audits, err := s.skillDirectory.Audits(ctx, req.Params.Source, req.Params.Skill)
+	if err != nil {
+		return out, nil //nolint:nilerr // Audits only inform; none is what is shown when skills.sh does not answer.
+	}
+
+	for _, a := range audits {
+		risk := openapi.SkillAuditRisk(a.Risk)
+		if !slices.Contains(auditRisks, risk) {
+			risk = openapi.SkillAuditRiskUnknown
+		}
+
+		audit := openapi.SkillAudit{Partner: a.Partner, Risk: risk, Alerts: a.Alerts}
+		if a.AnalyzedAt != "" {
+			audit.AnalyzedAt = &a.AnalyzedAt
+		}
+
+		out.Data = append(out.Data, audit)
+	}
+
+	return out, nil
 }
 
 // errNoSkillSource is a control plane that wired no way to reach GitHub.
@@ -57,6 +161,16 @@ func (s *Server) AddSkill(ctx context.Context, req openapi.AddSkillRequestObject
 	src, err := skillsource.Parse(req.Body.Github)
 	if err != nil {
 		return nil, err
+	}
+
+	if req.Body.Skill != nil && strings.TrimSpace(*req.Body.Skill) != "" {
+		if src.Path != "" {
+			return nil, fmt.Errorf("%w: name a folder or a skill, not both", skillsource.ErrInvalid)
+		}
+
+		if src, err = s.skillSources.Find(ctx, src, *req.Body.Skill); err != nil {
+			return nil, err
+		}
 	}
 
 	sk, commit, err := s.skillSources.Fetch(ctx, src)

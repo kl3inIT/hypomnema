@@ -9,6 +9,7 @@ import {
   listTasks,
   streamEvents,
 } from "@/api/generated/sdk.gen"
+import { isFileQuery, workspaceKey } from "@/features/files/files-state"
 
 import { boardCards } from "./board-state"
 
@@ -75,6 +76,12 @@ export function useLiveUpdates(after: number | undefined) {
         for (const queryKey of [boardKey, questionsKey, ["runs"], ["run"]]) {
           void queryClient.invalidateQueries({ queryKey })
         }
+        // A chat's folders, as Omnigent refreshes them when its runner says files changed; a file that is open
+        // reads itself again.
+        void queryClient.invalidateQueries({
+          queryKey: workspaceKey,
+          predicate: (query) => !isFileQuery(query.queryKey),
+        })
       }, settle)
     }
 

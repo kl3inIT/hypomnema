@@ -18,7 +18,9 @@ and the vault's root keys: `HYPOMNEMA_VAULT_KEYS` (a comma-separated list of `id
 Which runtime and model workers use is stored, as profiles (below), and which model a Bot uses in the Bot, not
 configured.
 `HYPOMNEMA_COORDINATOR_COMMAND` (a JSON array) starts pi for a chat id appended to it; unset, chats keep their
-messages and nothing answers.
+messages and nothing answers. `HYPOMNEMA_BOT_FILES_COMMAND` (a JSON array, `sudo -n -u coordinator
+/usr/local/bin/hypomnema files serve --root <the Bots' folders>`) reads a Bot's folder for the Files panel; unset,
+the panel shows only the Tasks' worktrees.
 
 The coordinator (`internal/controlplane/coordinator`, issue #41 PR 3): `serve` runs one `pi --mode rpc` per chat
 that has something for pi, as the chat's Bot (`--bot`) with the Bot's model (`--provider`, `--model`, `--thinking`),
@@ -152,6 +154,25 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     long it lasted. What is typed and shown is not recorded.
   - Not built: a command given in a link, several viewers of one shell, files, a shell for coordinators or
     workers, Windows.
+- A chat's working folders, for the owner (issue #255; after Omnigent's resource routes and runner, read for
+  behaviour): its Bot's own folder on the control plane's machine and the worktree of each Task of its Runs that has
+  run (its newest Conversation's, on that Conversation's node). Read only.
+  - `internal/shared/workspacefs` answers a question about a folder: a page of a directory (1000 entries by name,
+    with an `after` cursor), a file (10 MiB, binary when its first 8 KiB hold a NUL or are not UTF-8, cut at a
+    character), what changed (`git status --porcelain=v1 -z --untracked-files=all` without optional locks,
+    `node_modules`, `.venv` and the like left out; untracked or added is created, deleted is deleted, else modified;
+    line counts from `git diff --numstat HEAD`; 30 s), and a changed file at HEAD and now. A path is relative,
+    without `..`, and refused when its links lead out of the folder.
+  - A Task's worktree: the control plane sends `files_request` on the node's socket and waits up to 35 s for the
+    node's answer, which the node posts to `POST /node/v1/files?request=` since a file is larger than a socket
+    message. The node answers only for a folder under its worktree root, not the root itself. A node that is not
+    connected is not asked.
+  - A Bot's folder: the control plane's user cannot read the coordinator's home, so it runs `hypomnema files serve
+    --root <bots>` as the coordinator for each question, one JSON request on stdin and one answer on stdout, through
+    a second sudoers rule that `deploy/coordinator/setup-coordinator.sh` writes beside the launcher's.
+  - `GET /api/v1/chats/{id}/workspaces` lists the folders (owner only), `.../workspaces/{bot|task id}/tree`, `/file`,
+    `/changes` and `/diff` ask the machine that holds one; its refusal keeps its words (a path refused is 400,
+    nothing there 404, no git 409, git failing or a machine offline 503).
 - A browser every agent shares (issue #193, step 1 in issue #196,
   [research](docs/research/2026-11-12-embedded-browser.md); `internal/controlplane/browser`). Built so far: the
   engine on the control plane, an agent's calls to it, the tools in a worker's hands, and the control plane's
@@ -381,6 +402,16 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     description of each skill the binary ships). Every token reads; only the owner's change. CLI: `skills list`, `skills show`, `skills add --github owner/repo[/path][@ref] | --file <archive>`,
     `skills everyone <skill> on|off`, `skills rm`. `skills get` and `skills install` are still the built-in skills',
     which are not listed.
+  - skills.sh (`internal/controlplane/skillssh`, step 5, after the skills CLI `vercel-labs/skills`): `GET
+    /skill-search?q=&owner=` asks skills.sh's search and, when a query of two to six words finds fewer than ten,
+    asks again without each word and puts those after, at most 25 (`exact` says how many lead); `GET
+    /skill-audits?source=owner/repo&skill=<slug>` gives what skills.sh's auditors (Gen, Socket, Snyk) said, empty
+    when skills.sh does not answer. Both only the owner's. A GitHub source may name a skill instead of a folder
+    (`{"github": "owner/repo", "skill": "pdf"}`): `skillsource` reads the SKILL.md files of the repository's
+    tarball and takes the folder of the first whose name matches, in the CLI's order (the root, `skills/`, the
+    agents' project folders, the `paths` of `skills.sh.json`, three levels deep; else anywhere five deep), and
+    keeps that folder as the source's path. CLI: `skills search <words> [--owner o]`, `skills add --github
+    owner/repo --skill <name>`, which prints the audits first. Nothing else is sent to skills.sh.
 - Profiles (`orchestration/profiles.go`, issue #42, after Omnara's agent configs): a profile is a YAML document
   (`name`, `description` of what it is for, `runtime`, optional `model: {provider, name, effort}`, `instruction`). Applying a changed source makes a
   new immutable version and points the name at it; the same source returns the current version. Providers (kind
@@ -869,6 +900,12 @@ Claude subscriptions. Other provider formats and other capabilities do not exist
     keeps its status and body.
   - Not served: a model with no Codex target (400 `model_not_served_here`), an answer that is not a stream (400),
     `/v1/responses/compact`, a WebSocket.
+- The owner manages the keys a tool outside (opencode, omp) uses on Settings → Gateway keys (issue #199, step 6, after
+  Coder's AI Gateway keys and 9router's Endpoint & Key): `GET /gateway/keys` lists the keys the owner made that work,
+  with their start (`key_prefix`, the kind and six characters, migration 00053; empty for older keys), models,
+  creation and last use (the latest usage row); the keys of a Dispatch or a chat are only counted
+  (`live_worker_keys`). `POST /gateway/keys` `{name, models?}` answers the value once; `DELETE /gateway/keys/{id}`
+  revokes one the owner made. All are the owner's. The page shows its own origin with `/v1` as the base URL.
 - `GET /v1/models` with `Authorization: Bearer <key>` answers OpenAI's list shape with the models the key may use;
   errors are OpenAI's `{"error": {message, type, code}}`, 401 without a valid key.
 - `POST /v1/chat/completions` forwards the request to the model's first target, as 9router-go does: the body is
@@ -1356,6 +1393,19 @@ Node (`internal/node`):
     Omnigent's workspace panel ("Open new") do. A new chat is a composer in its tab until its first message
     makes the chat, which then takes the tab's place, so no empty chat is made. A chat stays mounted behind
     another tab.
+  - The Files panel (issue #255, `web/src/features/files`), opened by the Files button at the end of a pane's strip
+    and kept with the pane, as Orca's right sidebar and Omnigent's `FilesPanel.tsx`: the folders of the chat in
+    front, the newest Task's first, each with its machine and whether it is online; the folder's path with a copy
+    button; Refresh; "Changed | All files" (the Machines page's segmented control); a filter by name. Changed lists
+    what git says changed with lines added and removed; All files is a tree read a directory at a time when it is
+    opened, its rows virtualized (`@tanstack/react-virtual`, 25 px rows, as Orca and Omnigent). A file opens as a
+    read-only tab of the pane in Monaco (`code-view.tsx`, loaded with the first file); a changed file opens as its
+    diff in Monaco's diff editor, unified, side by side from 920 px, unchanged lines folded to three of context;
+    a created or deleted file as its one side. Nothing polls: the lists are read again on each event of
+    `GET /events/stream` (a quarter second after), when the window comes back and with Refresh, and an open file of
+    256 KiB or less every two seconds while it is shown. On a phone the panel lies over the pane and gives way to
+    the file it opens. Not built: editing, file actions, previews, content search, more than the first 1000 entries
+    of a directory.
   - The sidebar lists the places (New chat, Board with the count that needs the owner, Runs, Machines) above the
     chats.
     Every page follows `GET /events/stream` from the board's cursor and refreshes what an event may have changed.
@@ -1449,7 +1499,7 @@ Node (`internal/node`):
     box (`web/src/features/skills/`). A built-in skill tied to a service wears that service's logo; every other skill
     one book icon. "Add skill" takes a GitHub source or an archive (Omnara's drop zone). A skill's page
     (`/settings/skills/<name>`) has the switch that gives it to everyone, who uses it, the newest revision's files as
-    a tree (Omnara's, Apache-2.0), every revision, "Update from GitHub", "Upload new revision" and Remove, whose
+    a tree (Omnara's, Apache-2.0), every version, "Update from GitHub", "Upload new version" and Remove, whose
     refusal is shown in the dialog.
   - `/settings/vault` (under Connections, [issue #108](https://github.com/kl3inIT/hypomnema/issues/108)) is a
     table of the vault's secrets, after Infisical's secrets dashboard (MIT) and Omnara's secrets list

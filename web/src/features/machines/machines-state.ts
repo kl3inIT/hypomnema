@@ -143,13 +143,26 @@ export function usedOfTotal(used: number | undefined, total: number | undefined)
   return `${gib(used)} of ${gib(total)}`
 }
 
-// summary counts the machines by state, leaving out a state no machine is in: "3 online · 1 offline".
-export function summary(nodes: Node[]) {
-  return (Object.keys(stateNames) as MachineState[])
-    .map((state) => ({ state, count: nodes.filter((n) => machineState(n) === state).length }))
-    .filter((s) => s.count > 0)
-    .map((s) => `${s.count} ${stateNames[s.state].toLowerCase()}`)
-    .join(" · ")
+// The states the View menu filters by, as Beszel's Status group offers Up, Down and Paused
+// (systems-table.tsx); a machine in another state, being created or removed, shows under All machines only.
+export const filterStates = ["online", "drained", "offline"] as const
+
+export type FilterState = (typeof filterStates)[number]
+
+// statusChoices are the View menu's Status group with each state's count: "Online (3)".
+export function statusChoices(nodes: Node[]) {
+  return [
+    { value: "all", label: "All machines" },
+    ...filterStates.map((state) => ({
+      value: state,
+      label: `${stateNames[state]} (${nodes.filter((n) => machineState(n) === state).length})`,
+    })),
+  ]
+}
+
+// withStatus is the machines the View menu's choice lets through.
+export function withStatus(nodes: Node[], status: FilterState | "all") {
+  return status === "all" ? nodes : nodes.filter((n) => machineState(n) === status)
 }
 
 // errorText is the server's message for a refused request (a problem's `message`), or a plain fallback.

@@ -1099,6 +1099,51 @@ export type Account = {
   token_expires_at?: string;
 };
 
+export type GatewayKey = {
+  id: string;
+  name: string;
+  /**
+   * The key's start, to tell keys apart; empty for a key made before it was kept.
+   */
+  prefix: string;
+  /**
+   * The model names it may use; `*` is every model.
+   */
+  models: Array<string>;
+  created_at: string;
+  /**
+   * When the gateway last served a request with it; absent when never.
+   */
+  last_used_at?: string;
+};
+
+export type GatewayKeyList = {
+  data: Array<GatewayKey>;
+  /**
+   * How many keys made for a Dispatch or a chat's pi work now.
+   */
+  live_worker_keys: number;
+};
+
+export type NewGatewayKey = {
+  /**
+   * What the owner calls the client that uses it, such as opencode-laptop.
+   */
+  name: string;
+  /**
+   * The model names it may use; every model when left out or empty.
+   */
+  models?: Array<string>;
+};
+
+export type CreatedGatewayKey = {
+  key: GatewayKey;
+  /**
+   * The key's value, answered this once; only its hash is kept.
+   */
+  secret: string;
+};
+
 export type NewTokenAccount = {
   /**
    * The kind of subscription; only Claude gives a token to paste.
@@ -1289,6 +1334,41 @@ export type BuiltinSkillList = {
   data: Array<BuiltinSkill>;
 };
 
+export type SkillSearchResult = {
+  /**
+   * owner/repo/slug, the skill's page on skills.sh.
+   */
+  id: string;
+  name: string;
+  /**
+   * owner/repo, the GitHub repository it is in.
+   */
+  source: string;
+  installs: number;
+};
+
+export type SkillSearchList = {
+  data: Array<SkillSearchResult>;
+  /**
+   * How many of the first results match every word; the rest match some.
+   */
+  exact: number;
+};
+
+export type SkillAudit = {
+  /**
+   * Who audited it, as skills.sh names them (ath for Gen, socket, snyk).
+   */
+  partner: string;
+  risk: 'safe' | 'low' | 'medium' | 'high' | 'critical' | 'unknown';
+  alerts?: number;
+  analyzed_at?: string;
+};
+
+export type SkillAuditList = {
+  data: Array<SkillAudit>;
+};
+
 export type SkillRef = {
   name: string;
   revision: number;
@@ -1308,6 +1388,10 @@ export type SkillFromGitHub = {
    * owner/repo[/path][@ref]; no ref is the default branch.
    */
   github: string;
+  /**
+   * The name of a skill in the repository, as skills.sh gives it, instead of a path: the folder whose SKILL.md has this name is found as the skills CLI finds it, and kept as the source's path.
+   */
+  skill?: string;
 };
 
 export type SkillEveryone = {
@@ -1459,6 +1543,95 @@ export type NewChat = {
    * The Bot the chat talks with; `coordinator` when left out.
    */
   bot?: string;
+};
+
+export type WorkspaceList = {
+  data: Array<Workspace>;
+};
+
+export type Workspace = {
+  /**
+   * `bot`, or the Task's id.
+   */
+  id: string;
+  kind: 'bot' | 'task';
+  /**
+   * The Bot's name
+   */
+  name: string;
+  /**
+   * Where the folder is on its machine.
+   */
+  root: string;
+  /**
+   * Whether the folder's machine can be read now.
+   */
+  online: boolean;
+  node_id?: string;
+  node_name?: string;
+  task_id?: string;
+  run_id?: string;
+  task_status?: string;
+};
+
+export type WorkspaceEntry = {
+  name: string;
+  path: string;
+  type: 'file' | 'directory';
+  bytes: number;
+  /**
+   * Unix seconds.
+   */
+  modified_at: number;
+};
+
+export type WorkspaceListing = {
+  entries: Array<WorkspaceEntry>;
+  has_more: boolean;
+};
+
+export type WorkspaceFile = {
+  path: string;
+  bytes: number;
+  /**
+   * A binary file has no content.
+   */
+  binary: boolean;
+  /**
+   * The content is the first 10 MiB
+   */
+  truncated: boolean;
+  content: string;
+};
+
+export type WorkspaceChange = {
+  path: string;
+  status: 'created' | 'modified' | 'deleted';
+  lines_added?: number;
+  lines_removed?: number;
+  modified_at: number;
+};
+
+export type WorkspaceChanges = {
+  /**
+   * False for a folder in no git repository
+   */
+  git: boolean;
+  changes: Array<WorkspaceChange>;
+  truncated: boolean;
+};
+
+export type WorkspaceDiff = {
+  path: string;
+  /**
+   * The file at HEAD; absent when it was created.
+   */
+  before?: string;
+  /**
+   * The file now; absent when it was deleted.
+   */
+  after?: string;
+  binary: boolean;
 };
 
 export type Chat = {
@@ -1655,6 +1828,16 @@ export type Name = string;
 export type SkillName = string;
 
 export type ChatId = string;
+
+/**
+ * `bot` for the Bot's folder, or a Task's id for its worktree.
+ */
+export type WorkspaceId = string;
+
+/**
+ * A path in the folder, with forward slashes; empty or absent is the folder itself.
+ */
+export type WorkspacePath = string;
 
 export type NodeId = string;
 
@@ -3829,6 +4012,83 @@ export type ListGatewayModelsResponses = {
 
 export type ListGatewayModelsResponse = ListGatewayModelsResponses[keyof ListGatewayModelsResponses];
 
+export type ListGatewayKeysData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/gateway/keys';
+};
+
+export type ListGatewayKeysErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListGatewayKeysError = ListGatewayKeysErrors[keyof ListGatewayKeysErrors];
+
+export type ListGatewayKeysResponses = {
+  /**
+   * The keys.
+   */
+  200: GatewayKeyList;
+};
+
+export type ListGatewayKeysResponse = ListGatewayKeysResponses[keyof ListGatewayKeysResponses];
+
+export type CreateGatewayKeyData = {
+  body: NewGatewayKey;
+  path?: never;
+  query?: never;
+  url: '/gateway/keys';
+};
+
+export type CreateGatewayKeyErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type CreateGatewayKeyError = CreateGatewayKeyErrors[keyof CreateGatewayKeyErrors];
+
+export type CreateGatewayKeyResponses = {
+  /**
+   * The key and its value.
+   */
+  201: CreatedGatewayKey;
+};
+
+export type CreateGatewayKeyResponse = CreateGatewayKeyResponses[keyof CreateGatewayKeyResponses];
+
+export type RevokeGatewayKeyData = {
+  body?: never;
+  path: {
+    key_id: string;
+  };
+  query?: never;
+  url: '/gateway/keys/{key_id}';
+};
+
+export type RevokeGatewayKeyErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type RevokeGatewayKeyError = RevokeGatewayKeyErrors[keyof RevokeGatewayKeyErrors];
+
+export type RevokeGatewayKeyResponses = {
+  /**
+   * Revoked.
+   */
+  204: void;
+};
+
+export type RevokeGatewayKeyResponse = RevokeGatewayKeyResponses[keyof RevokeGatewayKeyResponses];
+
 export type ListBotsData = {
   body?: never;
   path?: never;
@@ -4234,6 +4494,71 @@ export type ListBuiltinSkillsResponses = {
 
 export type ListBuiltinSkillsResponse = ListBuiltinSkillsResponses[keyof ListBuiltinSkillsResponses];
 
+export type SearchSkillsData = {
+  body?: never;
+  path?: never;
+  query: {
+    q: string;
+    /**
+     * Only the skills of this GitHub owner.
+     */
+    owner?: string;
+  };
+  url: '/skill-search';
+};
+
+export type SearchSkillsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type SearchSkillsError = SearchSkillsErrors[keyof SearchSkillsErrors];
+
+export type SearchSkillsResponses = {
+  /**
+   * The skills found.
+   */
+  200: SkillSearchList;
+};
+
+export type SearchSkillsResponse = SearchSkillsResponses[keyof SearchSkillsResponses];
+
+export type ListSkillAuditsData = {
+  body?: never;
+  path?: never;
+  query: {
+    /**
+     * owner/repo.
+     */
+    source: string;
+    /**
+     * The skill's slug on skills.sh, the last part of its id.
+     */
+    skill: string;
+  };
+  url: '/skill-audits';
+};
+
+export type ListSkillAuditsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListSkillAuditsError = ListSkillAuditsErrors[keyof ListSkillAuditsErrors];
+
+export type ListSkillAuditsResponses = {
+  /**
+   * The audits.
+   */
+  200: SkillAuditList;
+};
+
+export type ListSkillAuditsResponse = ListSkillAuditsResponses[keyof ListSkillAuditsResponses];
+
 export type SetSkillEveryoneData = {
   body: SkillEveryone;
   path: {
@@ -4619,6 +4944,176 @@ export type StreamChatResponses = {
 };
 
 export type StreamChatResponse = StreamChatResponses[keyof StreamChatResponses];
+
+export type ListChatWorkspacesData = {
+  body?: never;
+  path: {
+    chat_id: string;
+  };
+  query?: never;
+  url: '/chats/{chat_id}/workspaces';
+};
+
+export type ListChatWorkspacesErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListChatWorkspacesError = ListChatWorkspacesErrors[keyof ListChatWorkspacesErrors];
+
+export type ListChatWorkspacesResponses = {
+  /**
+   * The folders.
+   */
+  200: WorkspaceList;
+};
+
+export type ListChatWorkspacesResponse = ListChatWorkspacesResponses[keyof ListChatWorkspacesResponses];
+
+export type ListWorkspaceDirectoryData = {
+  body?: never;
+  path: {
+    chat_id: string;
+    /**
+     * `bot` for the Bot's folder, or a Task's id for its worktree.
+     */
+    workspace_id: string;
+  };
+  query?: {
+    /**
+     * A path in the folder, with forward slashes; empty or absent is the folder itself.
+     */
+    path?: string;
+    /**
+     * The page after this name.
+     */
+    after?: string;
+  };
+  url: '/chats/{chat_id}/workspaces/{workspace_id}/tree';
+};
+
+export type ListWorkspaceDirectoryErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListWorkspaceDirectoryError = ListWorkspaceDirectoryErrors[keyof ListWorkspaceDirectoryErrors];
+
+export type ListWorkspaceDirectoryResponses = {
+  /**
+   * The page.
+   */
+  200: WorkspaceListing;
+};
+
+export type ListWorkspaceDirectoryResponse = ListWorkspaceDirectoryResponses[keyof ListWorkspaceDirectoryResponses];
+
+export type ReadWorkspaceFileData = {
+  body?: never;
+  path: {
+    chat_id: string;
+    /**
+     * `bot` for the Bot's folder, or a Task's id for its worktree.
+     */
+    workspace_id: string;
+  };
+  query?: {
+    /**
+     * A path in the folder, with forward slashes; empty or absent is the folder itself.
+     */
+    path?: string;
+  };
+  url: '/chats/{chat_id}/workspaces/{workspace_id}/file';
+};
+
+export type ReadWorkspaceFileErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ReadWorkspaceFileError = ReadWorkspaceFileErrors[keyof ReadWorkspaceFileErrors];
+
+export type ReadWorkspaceFileResponses = {
+  /**
+   * The file.
+   */
+  200: WorkspaceFile;
+};
+
+export type ReadWorkspaceFileResponse = ReadWorkspaceFileResponses[keyof ReadWorkspaceFileResponses];
+
+export type ListWorkspaceChangesData = {
+  body?: never;
+  path: {
+    chat_id: string;
+    /**
+     * `bot` for the Bot's folder, or a Task's id for its worktree.
+     */
+    workspace_id: string;
+  };
+  query?: never;
+  url: '/chats/{chat_id}/workspaces/{workspace_id}/changes';
+};
+
+export type ListWorkspaceChangesErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListWorkspaceChangesError = ListWorkspaceChangesErrors[keyof ListWorkspaceChangesErrors];
+
+export type ListWorkspaceChangesResponses = {
+  /**
+   * The changes.
+   */
+  200: WorkspaceChanges;
+};
+
+export type ListWorkspaceChangesResponse = ListWorkspaceChangesResponses[keyof ListWorkspaceChangesResponses];
+
+export type DiffWorkspaceFileData = {
+  body?: never;
+  path: {
+    chat_id: string;
+    /**
+     * `bot` for the Bot's folder, or a Task's id for its worktree.
+     */
+    workspace_id: string;
+  };
+  query?: {
+    /**
+     * A path in the folder, with forward slashes; empty or absent is the folder itself.
+     */
+    path?: string;
+  };
+  url: '/chats/{chat_id}/workspaces/{workspace_id}/diff';
+};
+
+export type DiffWorkspaceFileErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type DiffWorkspaceFileError = DiffWorkspaceFileErrors[keyof DiffWorkspaceFileErrors];
+
+export type DiffWorkspaceFileResponses = {
+  /**
+   * The file before and after.
+   */
+  200: WorkspaceDiff;
+};
+
+export type DiffWorkspaceFileResponse = DiffWorkspaceFileResponses[keyof DiffWorkspaceFileResponses];
 
 export type AbortChatData = {
   body?: never;

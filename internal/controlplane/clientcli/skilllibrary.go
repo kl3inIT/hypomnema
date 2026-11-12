@@ -9,7 +9,9 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
@@ -88,7 +90,7 @@ func skillsShow(ctx context.Context, e *env, fs *flag.FlagSet) error {
 // skillsAdd keeps a skill from a repository or an archive: a new skill, or
 // the next revision of the one its SKILL.md names.
 func skillsAdd(ctx context.Context, e *env, fs *flag.FlagSet) error {
-	github, file := str(fs, "github"), str(fs, "file")
+	github, file, named := str(fs, "github"), str(fs, "file"), str(fs, "skill")
 
 	var (
 		status  int
@@ -99,8 +101,19 @@ func skillsAdd(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	switch {
 	case (github == "") == (file == ""):
 		return fmt.Errorf("%w: give --github owner/repo[/path][@ref] or --file <zip or tar.gz>", ErrUsage)
+	case named != "" && github == "":
+		return fmt.Errorf("%w: --skill names a skill of the repository --github gives", ErrUsage)
 	case github != "":
-		resp, err := e.api.AddSkillWithResponse(ctx, openapi.SkillFromGitHub{Github: github})
+		body := openapi.SkillFromGitHub{Github: github}
+		if named != "" {
+			body.Skill = &named
+
+			if !boolean(fs, "json") {
+				printAudits(ctx, e, github, named)
+			}
+		}
+
+		resp, err := e.api.AddSkillWithResponse(ctx, body)
 		if err != nil {
 			return fmt.Errorf("adding skill from %s: %w", github, err)
 		}
@@ -322,4 +335,150 @@ func syncSkill(ctx context.Context, e *env, dir string, s openapi.SkillRef) erro
 	}
 
 	return nil
+}
+
+// skillsSearch is the skills CLI's `skills find <query>` without a terminal
+// (src/find.ts): each skill as owner/repo@name with its installs, and its
+// page on skills.sh; those that match only some of the words after a line
+// that says so.
+func skillsSearch(ctx context.Context, e *env, fs *flag.FlagSet) error {
+	query := strings.Join(fs.Args(), " ")
+	params := &openapi.SearchSkillsParams{Q: query}
+
+	if owner := str(fs, "owner"); owner != "" {
+		params.Owner = &owner
+	}
+
+	resp, err := e.api.SearchSkillsWithResponse(ctx, params)
+	if err != nil {
+		return fmt.Errorf("searching skills.sh: %w", err)
+	}
+
+	if resp.JSON200 == nil {
+		return apiError("searching skills.sh", resp.StatusCode(), resp.JSONDefault)
+	}
+
+	found := resp.JSON200
+
+	return e.print(fs, found, func() {
+		if len(found.Data) == 0 {
+			e.printf("no skills found for %q\n", query)
+
+			return
+		}
+
+		e.printf("add one with `hypomnema skills add --github <owner/repo> --skill <name>`\n\n")
+
+		for i, s := range found.Data {
+			if i == found.Exact {
+				if found.Exact == 0 {
+					e.printf("no skill matched every word of %q; some of them:\n\n", query)
+				} else {
+					e.printf("matching some of the words of %q:\n\n", query)
+				}
+			}
+
+			line := s.Source + "@" + s.Name
+			if n := installs(s.Installs); n != "" {
+				line += "  " + n
+			}
+
+			e.printf("%s\n└ https://skills.sh/%s\n\n", line, s.Id)
+		}
+	})
+}
+
+// installs is the skills CLI's formatInstalls.
+func installs(n int64) string {
+	trim := func(f float64) string { return strings.TrimSuffix(strconv.FormatFloat(f, 'f', 1, 64), ".0") }
+
+	switch {
+	case n <= 0:
+		return ""
+	case n >= 1_000_000:
+		return trim(float64(n)/1_000_000) + "M installs"
+	case n >= 1_000:
+		return trim(float64(n)/1_000) + "K installs"
+	case n == 1:
+		return "1 install"
+	default:
+		return strconv.FormatInt(n, 10) + " installs"
+	}
+}
+
+// printAudits shows what skills.sh's auditors said of the skill before it is
+// added, as the skills CLI's `skills add` shows its security table
+// (src/add.ts buildSecurityLines). It never stops the adding; when skills.sh
+// says nothing, nothing is shown.
+func printAudits(ctx context.Context, e *env, github, name string) {
+	repo, _, _ := strings.Cut(strings.TrimPrefix(github, "github:"), "@")
+
+	resp, err := e.api.ListSkillAuditsWithResponse(ctx, &openapi.ListSkillAuditsParams{
+		Source: strings.ToLower(strings.Trim(repo, "/")), Skill: skillSlug(name),
+	})
+	if err != nil || resp.JSON200 == nil || len(resp.JSON200.Data) == 0 {
+		return
+	}
+
+	e.printf("skills.sh's audits of %s:\n", name)
+
+	for _, a := range resp.JSON200.Data {
+		e.printf("  %-7s %s\n", auditor(a.Partner), auditResult(a))
+	}
+
+	e.printf("\n")
+}
+
+func auditor(partner string) string {
+	switch partner {
+	case "ath":
+		return "Gen"
+	case "socket":
+		return "Socket"
+	case "snyk":
+		return "Snyk"
+	default:
+		return partner
+	}
+}
+
+// auditResult is the CLI's riskLabel, and socketLabel for Socket's count of alerts.
+func auditResult(a openapi.SkillAudit) string {
+	if a.Partner == "socket" && a.Alerts != nil {
+		if *a.Alerts == 1 {
+			return "1 alert"
+		}
+
+		return strconv.Itoa(*a.Alerts) + " alerts"
+	}
+
+	switch a.Risk {
+	case openapi.SkillAuditRiskCritical:
+		return "Critical Risk"
+	case openapi.SkillAuditRiskHigh:
+		return "High Risk"
+	case openapi.SkillAuditRiskMedium:
+		return "Med Risk"
+	case openapi.SkillAuditRiskLow:
+		return "Low Risk"
+	case openapi.SkillAuditRiskSafe:
+		return "Safe"
+	default:
+		return "--"
+	}
+}
+
+var (
+	slugSpaces = regexp.MustCompile(`[\s_]+`)
+	slugOther  = regexp.MustCompile(`[^a-z0-9-]`)
+	slugDashes = regexp.MustCompile(`-+`)
+)
+
+// skillSlug is the skills CLI's toSkillSlug (src/blob.ts): a skill's name as
+// skills.sh keys it.
+func skillSlug(name string) string {
+	s := slugSpaces.ReplaceAllString(strings.ToLower(name), "-")
+	s = slugDashes.ReplaceAllString(slugOther.ReplaceAllString(s, ""), "-")
+
+	return strings.Trim(s, "-")
 }

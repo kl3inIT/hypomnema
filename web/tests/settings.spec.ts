@@ -339,7 +339,7 @@ test("the owner opens Settings and gives a host its token", async ({ page }) => 
   await page.getByRole("link", { name: "Settings" }).click()
 
   await expect(page).toHaveURL(/\/settings\/integrations$/)
-  await expect(page.getByRole("heading", { name: "Integrations" })).toBeVisible()
+  await expect(page.getByRole("heading", { name: "Integrations", level: 1 })).toBeVisible()
   await expect(card(page, "GitHub")).toContainText("Connected")
   await expect(card(page, "GitLab")).toContainText("No token")
   await expect(card(page, "git.company.example")).toContainText("GitLab server")

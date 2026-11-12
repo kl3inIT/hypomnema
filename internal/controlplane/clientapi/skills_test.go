@@ -13,6 +13,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/skillsource"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/skillssh"
 	"github.com/kl3inIT/hypomnema/internal/shared/skillpack"
 )
 
@@ -43,6 +44,36 @@ func (f *fakeSources) Fetch(_ context.Context, src skillsource.Source) (skillpac
 	sk, err := skillpack.FromArchive(archiveOfManifest("---\nname: pdf\ndescription: Read PDFs.\n---\n"))
 
 	return sk, "0123456789abcdef0123456789abcdef01234567", err
+}
+
+func (f *fakeSources) Find(_ context.Context, src skillsource.Source, name string) (skillsource.Source, error) {
+	if name != "pdf" {
+		return skillsource.Source{}, skillsource.ErrInvalid
+	}
+
+	src.Path = "skills/pdf-tools"
+
+	return src, nil
+}
+
+// fakeDirectory is skills.sh: it finds pdf, and its auditors said one thing of it.
+type fakeDirectory struct{ asked []string }
+
+func (f *fakeDirectory) Find(_ context.Context, query, owner string) ([]skillssh.Result, int, error) {
+	f.asked = append(f.asked, query+"|"+owner)
+
+	return []skillssh.Result{
+		{ID: "anthropics/skills/pdf", Name: "pdf", Source: "anthropics/skills", Installs: 1200},
+		{ID: "o/r/pdf-lite", Name: "pdf-lite", Source: "o/r", Installs: 3},
+	}, 1, nil
+}
+
+func (f *fakeDirectory) Audits(_ context.Context, source, slug string) ([]skillssh.Audit, error) {
+	if source != "anthropics/skills" || slug != "pdf" {
+		return nil, skillssh.ErrUnavailable
+	}
+
+	return []skillssh.Audit{{Partner: "snyk", Risk: "high"}, {Partner: "ath", Risk: "unheard-of"}}, nil
 }
 
 func archiveOfManifest(m string) []byte {
@@ -180,4 +211,71 @@ func TestTheFilesOfARevisionAndTheBuiltinSkillsAreListed(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, built.JSON200)
 	assert.Equal(t, []openapi.BuiltinSkill{{Name: "lark", Description: "Lark through lark-cli."}}, built.JSON200.Data)
+}
+
+// Scenario: the owner searches skills.sh, reads what its auditors said of
+// one result, and adds it by the name skills.sh gave: the folder found is
+// what the source keeps, so adding it again fetches the same folder. A
+// coordinator may not search; skills.sh not answering leaves the audits
+// empty.
+func TestTheOwnerAddsASkillFoundOnSkillsSh(t *testing.T) {
+	w := newWorld(t)
+	ctx := t.Context()
+	owner, _ := w.token("owner", bearertoken.Owner)
+	coord, _ := w.token("pi", bearertoken.Coordinator)
+
+	none, err := owner.SearchSkillsWithResponse(ctx, &openapi.SearchSkillsParams{Q: "pdf"})
+	require.NoError(t, err)
+	assert.Equal(t, openapi.Unavailable, errorCode(t, none.Body, none.StatusCode(), http.StatusServiceUnavailable))
+
+	dir, src := &fakeDirectory{}, &fakeSources{}
+	w.srv.WithSkillDirectory(dir).WithSkillSources(src)
+
+	who := "Anthropics "
+	found, err := owner.SearchSkillsWithResponse(ctx, &openapi.SearchSkillsParams{Q: " pdf forms ", Owner: &who})
+	require.NoError(t, err)
+	require.NotNil(t, found.JSON200, string(found.Body))
+	assert.Equal(t, 1, found.JSON200.Exact)
+	assert.Equal(t, openapi.SkillSearchResult{
+		Id: "anthropics/skills/pdf", Name: "pdf", Source: "anthropics/skills", Installs: 1200,
+	}, found.JSON200.Data[0])
+	assert.Equal(t, []string{"pdf forms|anthropics"}, dir.asked)
+
+	denied, err := coord.SearchSkillsWithResponse(ctx, &openapi.SearchSkillsParams{Q: "pdf"})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, denied.StatusCode())
+
+	audits, err := owner.ListSkillAuditsWithResponse(ctx,
+		&openapi.ListSkillAuditsParams{Source: "anthropics/skills", Skill: "pdf"})
+	require.NoError(t, err)
+	require.NotNil(t, audits.JSON200, string(audits.Body))
+	assert.Equal(t, []openapi.SkillAudit{
+		{Partner: "snyk", Risk: openapi.SkillAuditRiskHigh},
+		{Partner: "ath", Risk: openapi.SkillAuditRiskUnknown},
+	}, audits.JSON200.Data)
+
+	quiet, err := owner.ListSkillAuditsWithResponse(ctx, &openapi.ListSkillAuditsParams{Source: "o/r", Skill: "x"})
+	require.NoError(t, err)
+	require.NotNil(t, quiet.JSON200)
+	assert.Empty(t, quiet.JSON200.Data)
+
+	bad, err := owner.ListSkillAuditsWithResponse(ctx, &openapi.ListSkillAuditsParams{Source: "../x", Skill: "x"})
+	require.NoError(t, err)
+	assert.Equal(t, openapi.InvalidRequest, errorCode(t, bad.Body, bad.StatusCode(), http.StatusBadRequest))
+
+	pdf := "pdf"
+	added, err := owner.AddSkillWithResponse(ctx, openapi.SkillFromGitHub{Github: "anthropics/skills", Skill: &pdf})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, added.StatusCode(), string(added.Body))
+	assert.Equal(t, "github:anthropics/skills/skills/pdf-tools@HEAD", added.JSON201.Latest.Source)
+	assert.Equal(t, []skillsource.Source{{Owner: "anthropics", Repo: "skills", Path: "skills/pdf-tools"}}, src.asked)
+
+	both, err := owner.AddSkillWithResponse(ctx, openapi.SkillFromGitHub{Github: "anthropics/skills/x", Skill: &pdf})
+	require.NoError(t, err)
+	assert.Equal(t, openapi.InvalidRequest, errorCode(t, both.Body, both.StatusCode(), http.StatusBadRequest))
+
+	other := "missing"
+	unknown, err := owner.AddSkillWithResponse(ctx, openapi.SkillFromGitHub{Github: "anthropics/skills", Skill: &other})
+	require.NoError(t, err)
+	assert.Equal(t, openapi.InvalidRequest, errorCode(t, unknown.Body, unknown.StatusCode(), http.StatusBadRequest))
 }
