@@ -76,6 +76,8 @@ type Server struct {
 	accounts Accounts
 	// gatewayModels lists what the model gateway serves; nil when the control plane wired none.
 	gatewayModels GatewayModels
+	// accountSignIns are the sign-ins of subscription accounts begun and not completed.
+	accountSignIns accountSignIns
 }
 
 // Accounts is what the API asks of the service that signs subscription
@@ -88,6 +90,11 @@ type Accounts interface {
 	// Limits says how much of an account's windows is used; fresh asks the
 	// vendor now.
 	Limits(ctx context.Context, id string, fresh bool) (subscription.Limits, error)
+	// Begin starts a sign-in at the vendor of a runtime.
+	Begin(ctx context.Context, runtime string) (*subscription.Attempt, error)
+	// Complete finishes a sign-in and stores it: a new account, or new tokens
+	// for the account the vendor's id already has.
+	Complete(ctx context.Context, a *subscription.Attempt, pasted, label string) (subscription.Account, error)
 }
 
 // GatewayModels lists the models the model gateway serves.

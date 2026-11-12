@@ -123,6 +123,9 @@ SELECT runtime, label FROM accounts WHERE secret_ref = @secret_ref ORDER BY runt
 -- name: SetAccountStatus :execrows
 UPDATE accounts SET updated_at = @now, status = @status WHERE id = @id;
 
+-- name: SetAccountPosition :execrows
+UPDATE accounts SET updated_at = @now, position = @position WHERE id = @id;
+
 -- name: InsertTokenAccount :exec
 -- An account whose token the control plane keeps and sends to the node (issue #150).
 INSERT INTO accounts (id, runtime, label, status, position, secret_ref, sent_to_node, created_at, updated_at)

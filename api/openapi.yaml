@@ -1182,6 +1182,72 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/AccountList" }
         default: { $ref: "#/components/responses/Error" }
+  /account-sign-ins:
+    post:
+      operationId: BeginAccountSignIn
+      summary: Start signing a subscription account in on the control plane; only the owner
+      description: >-
+        Answers with a link the owner opens in a browser on any machine;
+        nothing is opened on the server. Either the browser ends on an address
+        that does not load, which completes the sign-in (`paste`), or the owner
+        enters `user_code` on the page the link opens and completing waits for
+        it. An account the vendor already knows is signed in again.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewAccountSignIn" }
+      responses:
+        "200":
+          description: The sign-in to complete.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AccountSignInAttempt" }
+        default: { $ref: "#/components/responses/Error" }
+  /account-sign-ins/{sign_in_id}:
+    parameters:
+      - name: sign_in_id
+        in: path
+        required: true
+        schema: { type: string, minLength: 1, maxLength: 64 }
+    post:
+      operationId: CompleteAccountSignIn
+      summary: Complete a sign-in; only the owner
+      description: >-
+        With `callback`, the address the browser ended on, for a sign-in that
+        asks for it. Without, it waits until the owner has entered the code at
+        the vendor, for as long as the sign-in stays open. The tokens go to the
+        vault; a sign-in is completed once.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AccountSignInCallback" }
+      responses:
+        "200":
+          description: The account.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Account" }
+        default: { $ref: "#/components/responses/Error" }
+  /accounts/{account_id}/move:
+    parameters:
+      - $ref: "#/components/parameters/AccountID"
+    post:
+      operationId: MoveAccount
+      summary: Move an account one place up or down among the accounts of its runtime; only the owner
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AccountMove" }
+      responses:
+        "200":
+          description: The account, at its new place.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Account" }
+        default: { $ref: "#/components/responses/Error" }
   /accounts/{account_id}:
     parameters:
       - $ref: "#/components/parameters/AccountID"
@@ -2879,6 +2945,53 @@ components:
           type: string
           format: date-time
           description: When the access token ends, when that is known; it is renewed before then.
+    NewAccountSignIn:
+      type: object
+      required: [runtime]
+      additionalProperties: false
+      properties:
+        runtime:
+          type: string
+          enum: [claude, codex, antigravity]
+          description: The kind of subscription.
+        label:
+          type: string
+          maxLength: 64
+          description: The account's name for the owner; its e-mail when left out. Kept by an account signed in again.
+    AccountSignInAttempt:
+      type: object
+      required: [id, runtime, url, paste, expires_in_seconds]
+      properties:
+        id: { type: string }
+        runtime: { type: string }
+        url:
+          type: string
+          description: The link the owner opens in a browser to sign in.
+        paste:
+          type: boolean
+          description: Completing needs the address the browser ended on.
+        user_code:
+          type: string
+          description: The code the owner enters on the page the link opens, for a sign-in that does not paste.
+        expires_in_seconds: { type: integer }
+    AccountSignInCallback:
+      type: object
+      additionalProperties: false
+      properties:
+        callback:
+          type: string
+          minLength: 1
+          maxLength: 8192
+          writeOnly: true
+          description: The whole address the browser ended on.
+    AccountMove:
+      type: object
+      required: [direction]
+      additionalProperties: false
+      properties:
+        direction:
+          type: string
+          enum: [up, down]
     AccountLimitWindow:
       type: object
       required: [name, used_percent]
