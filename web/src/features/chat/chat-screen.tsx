@@ -8,6 +8,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { AvatarName } from "@/features/agents/agent-avatar"
 import { firstBot } from "@/features/bots/bots-state"
 import { useBots } from "@/features/bots/use-bots"
 import {
@@ -64,19 +65,24 @@ function NewChat() {
               Chat with
               <Select value={bot} onValueChange={(value) => value && setPicked(value)}>
                 <SelectTrigger aria-label="Bot" size="sm">
-                  <SelectValue />
+                  <SelectValue>{(value: string) => <AvatarName name={value} />}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
                   {bots.map((b) => (
                     <SelectItem key={b.name} value={b.name}>
-                      {b.name}
+                      <AvatarName name={b.name} />
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
           )}
-          <Composer onSend={(text) => start.mutateAsync(text)} onStop={() => {}} working={false} />
+          <Composer
+            onSend={(text) => start.mutateAsync(text)}
+            onStop={() => {}}
+            working={false}
+            bot={bot}
+          />
           <p className="max-w-(--chat-content-max-width) text-center text-sm text-muted-foreground">
             pi plans the work, gives it to workers on your machines, and reports back here.
           </p>

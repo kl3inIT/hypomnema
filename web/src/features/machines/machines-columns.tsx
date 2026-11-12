@@ -30,7 +30,8 @@ import {
 // The columns of the Machines page, after Beszel's systems-table (MIT, Copyright (c) 2024 henrygd,
 // https://github.com/henrygd/beszel; internal/site/src/components/systems-table/systems-table-columns.tsx): one
 // definition (an icon, a name and a cell) that the Table layout renders as columns and the Grid layout as a
-// card's rows. Changed: a plain array instead of TanStack Table's ColumnDef, no sorting, filtering or hiding; this
+// card's rows; the table hides a column the owner unticks in its View menu (columns-menu.tsx), as Beszel's. Changed:
+// a plain array instead of TanStack Table's ColumnDef, no sorting or filtering; this
 // app's status tokens instead of Beszel's colours; the columns a node reports (no GPU, net, temperature, battery,
 // Wi-Fi, services, updates or uptime), plus its Dispatches and runtimes.
 
@@ -44,7 +45,15 @@ export type Column = {
   // has says whether the machine has this at all. Without it a card leaves the row out, and the table leaves the
   // column out when no machine has it: a machine without a GPU does not get empty GPU rows.
   has?: (node: Node) => boolean
+  // enableHiding false keeps the column out of the View menu, as Beszel's name column (TanStack Table's option).
+  enableHiding?: false
 }
+
+// hiddenColumns are hidden in the table until the owner shows them: with them the table is wider than a 1280 px
+// screen beside the sidebar (issue #242). Each is the one least needed to choose a machine or act on it: the load
+// average repeats what the CPU meter says, the agent's version and system matter only when updating, and where a
+// machine comes from is shown on its card.
+export const hiddenColumns = ["load", "agent", "source"] as const
 
 // shownColumns are the columns worth showing for these machines.
 export function shownColumns(nodes: Node[]) {
@@ -60,6 +69,7 @@ export const columns: Column[] = [
     id: "machine",
     name: "Machine",
     Icon: Server,
+    enableHiding: false,
     cell: (node) => (
       <span className="flex items-center gap-2 text-sm font-medium text-nowrap">
         <IndicatorDot node={node} />

@@ -437,7 +437,9 @@ test("an installation with no subscription says how to add one", async ({ page }
   )
   await page.goto("/settings/models")
 
+  await expect(page.getByText("No subscriptions yet")).toBeVisible()
   await expect(page.getByText("hypomnema accounts login claude")).toBeVisible()
+  await expect(page.getByRole("button", { name: "Copy" })).toBeVisible()
   await shot(page, "models-empty")
 })
 

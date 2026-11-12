@@ -3,14 +3,25 @@ import { useEffect, useState } from "react"
 import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom"
 
 import { ChatItemView } from "./chat-items"
-import { chatItems, type ChatView } from "./chat-state"
+import { chatItems, type ChatView, type Local } from "./chat-state"
 
 // The scrolling conversation in t3code's lane (MIT, Copyright (c) 2026 T3 Tools Inc.,
 // https://github.com/pingdotgg/t3code; MessagesTimeline.tsx): 46rem centred, rows spaced by their own bottom
 // padding, a "Working for 12s" line while pi works. It follows new text while the reader is at the bottom, with a
 // button back down when they scroll up (ai-elements' Conversation).
-export function Conversation({ view, empty }: { view: ChatView; empty: React.ReactNode }) {
-  const items = chatItems(view)
+export function Conversation({
+  view,
+  local,
+  bot,
+  empty,
+}: {
+  view: ChatView
+  local?: Local
+  // bot names who answers, for a reply's heading.
+  bot: string
+  empty: React.ReactNode
+}) {
+  const items = chatItems(view, local)
 
   return (
     <StickToBottom
@@ -22,7 +33,9 @@ export function Conversation({ view, empty }: { view: ChatView; empty: React.Rea
       <StickToBottom.Content className="chat-content-lane flex flex-col px-3 pt-4 pb-6 sm:px-12">
         {items.length === 0
           ? empty
-          : items.map((item) => <ChatItemView key={item.key} item={item} working={view.working} />)}
+          : items.map((item) => (
+              <ChatItemView key={item.key} item={item} working={view.working} bot={bot} />
+            ))}
         {view.working && <WorkingFor />}
       </StickToBottom.Content>
       <ScrollDown />

@@ -11,13 +11,22 @@ const reopenAfter = 2000
 
 // useChatStream follows a chat from GET /chats/{id}/stream: its kept messages, then pi's live frames. The generated
 // client reconnects after a network error with Last-Event-ID; when the server ends the stream, this opens it again
-// after the last kept message. Remount (key) to switch chats.
+// after the last kept message. Remount (key) to switch chats. While the stream is down the view says it is
+// reconnecting, as Omnigent's ConnectionIndicator (web/src/pages/ChatIndicators.tsx); the server's first frame on
+// every open, the state, says it is back.
 export function useChatStream(chatId: string) {
   const [view, dispatch] = useReducer(chatReducer, emptyChat)
 
   useEffect(() => {
     const controller = new AbortController()
     let after = 0
+    let down = false
+
+    const connection = (reconnecting: boolean) => {
+      if (down === reconnecting || controller.signal.aborted) return
+      down = reconnecting
+      dispatch({ type: "connection", reconnecting })
+    }
 
     const frame = (event: string | undefined, data: unknown): ChatAction | null => {
       switch (event) {
@@ -43,7 +52,9 @@ export function useChatStream(chatId: string) {
             path: { chat_id: chatId },
             query: { after },
             signal: controller.signal,
+            onSseError: () => connection(true),
             onSseEvent: (e) => {
+              connection(false)
               const action = frame(e.event, e.data)
               if (!action) return
               if (action.type === "message") after = Math.max(after, action.message.seq)
@@ -57,6 +68,8 @@ export function useChatStream(chatId: string) {
         } catch {
           // Reopened below.
         }
+
+        connection(true)
 
         await new Promise((resolve) => setTimeout(resolve, reopenAfter))
       }

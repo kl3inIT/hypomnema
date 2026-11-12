@@ -4,10 +4,10 @@ import { expect, test, vi } from "vitest"
 
 import { Composer } from "./composer"
 
-const setup = (working = false) => {
-  const onSend = vi.fn<(text: string) => Promise<void>>(async () => {})
+const setup = (working = false, send: (text: string) => Promise<void> = async () => {}) => {
+  const onSend = vi.fn<(text: string) => Promise<void>>(send)
   const onStop = vi.fn<() => void>()
-  render(<Composer onSend={onSend} onStop={onStop} working={working} />)
+  render(<Composer onSend={onSend} onStop={onStop} working={working} bot="coordinator" />)
 
   return { onSend, onStop, box: screen.getByRole("textbox", { name: "Message" }) }
 }
@@ -35,7 +35,26 @@ test("Enter while an input method composes does not send", () => {
   expect(onSend).not.toHaveBeenCalled()
 })
 
-// Scenario: pi is working; the owner can stop it, or add a message it gets as a follow-up.
+// Scenario: the server refuses the message. The box says why and gives the text back to send again.
+test("a failed send keeps the text and says why", async () => {
+  const user = userEvent.setup()
+  const { box } = setup(false, async () => {
+    throw { code: "unavailable", message: "the coordinator is not running" }
+  })
+
+  await user.type(box, "add a page{Enter}")
+
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "Not sent: the coordinator is not running",
+  )
+  expect(box).toHaveValue("add a page")
+
+  await user.click(screen.getByRole("button", { name: "Dismiss" }))
+  expect(screen.queryByRole("alert")).not.toBeInTheDocument()
+})
+
+// Scenario: the Bot is working; the owner can stop it, or add a message it gets as a follow-up. The box names the
+// chat's Bot.
 test("while pi works, Stop shows and asks it to stop", async () => {
   const user = userEvent.setup()
   const { onStop } = setup(true)
@@ -44,7 +63,7 @@ test("while pi works, Stop shows and asks it to stop", async () => {
   expect(onStop).toHaveBeenCalled()
   expect(screen.getByRole("textbox", { name: "Message" })).toHaveAttribute(
     "placeholder",
-    "Add to what pi is doing",
+    "Add to what coordinator is doing",
   )
 })
 

@@ -26,7 +26,7 @@ import {
   Search,
   Trash2,
 } from "lucide-react"
-import { createContext, use, useMemo, useState, type ReactElement } from "react"
+import { createContext, use, useId, useMemo, useState, type ReactElement } from "react"
 import { z } from "zod"
 
 import "@/api/client"
@@ -41,6 +41,7 @@ import {
   DialogDescription,
   DialogFooter,
   DialogHeader,
+  DialogPanel,
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
@@ -540,6 +541,7 @@ function SecretDialog({
   secret?: Secret
   action: string
 }) {
+  const formId = useId()
   const refresh = useRefreshSecrets()
   const [open, setOpen] = useState(false)
   const mode = !secret ? "add" : secret.kind === "oauth_token_set" ? "tokenSet" : "generic"
@@ -587,60 +589,65 @@ function SecretDialog({
     <Dialog open={open} onOpenChange={change}>
       <DialogTrigger render={trigger} />
       <DialogContent>
-        <form
-          autoComplete="off"
-          noValidate
-          className="flex flex-col gap-4"
-          onSubmit={(event) => {
-            event.preventDefault()
-            void form.handleSubmit()
-          }}
-        >
-          <DialogHeader>
-            <DialogTitle>{title}</DialogTitle>
-            <DialogDescription>{about}</DialogDescription>
-          </DialogHeader>
-          <FieldGroup>
-            {mode === "add" && (
-              <form.Field name="name">
-                {(field) => (
-                  <TextField
-                    field={field}
-                    label="Name"
-                    placeholder="openai-key"
-                    description="Lower-case letters, digits and dashes."
-                  />
-                )}
-              </form.Field>
-            )}
-            {mode !== "tokenSet" && (
-              <form.Field name="value">
-                {(field) => (
-                  <TextField
-                    field={field}
-                    label="Value"
-                    secret
-                    placeholder={secret && "••••••••"}
-                  />
-                )}
-              </form.Field>
-            )}
-            {mode === "tokenSet" &&
-              (["refresh_token", "access_token", "id_token"] as const).map((key) => (
-                <form.Field key={key} name={key}>
-                  {(field) => <TextField field={field} label={key} secret placeholder="••••••••" />}
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{about}</DialogDescription>
+        </DialogHeader>
+        <DialogPanel>
+          <form
+            id={formId}
+            autoComplete="off"
+            noValidate
+            className="flex flex-col gap-4"
+            onSubmit={(event) => {
+              event.preventDefault()
+              void form.handleSubmit()
+            }}
+          >
+            <FieldGroup>
+              {mode === "add" && (
+                <form.Field name="name">
+                  {(field) => (
+                    <TextField
+                      field={field}
+                      label="Name"
+                      placeholder="openai-key"
+                      description="Lower-case letters, digits and dashes."
+                    />
+                  )}
                 </form.Field>
-              ))}
-          </FieldGroup>
-          <ErrorAlert error={save.error} />
-          <DialogFooter>
-            <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
-            <Button type="submit" disabled={save.isPending}>
-              {save.isPending && <Spinner data-icon="inline-start" />}
-              {action}
-            </Button>
-          </DialogFooter>
-        </form>
+              )}
+              {mode !== "tokenSet" && (
+                <form.Field name="value">
+                  {(field) => (
+                    <TextField
+                      field={field}
+                      label="Value"
+                      secret
+                      placeholder={secret && "••••••••"}
+                    />
+                  )}
+                </form.Field>
+              )}
+              {mode === "tokenSet" &&
+                (["refresh_token", "access_token", "id_token"] as const).map((key) => (
+                  <form.Field key={key} name={key}>
+                    {(field) => (
+                      <TextField field={field} label={key} secret placeholder="••••••••" />
+                    )}
+                  </form.Field>
+                ))}
+            </FieldGroup>
+            <ErrorAlert error={save.error} />
+          </form>
+        </DialogPanel>
+        <DialogFooter>
+          <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
+          <Button type="submit" form={formId} disabled={save.isPending}>
+            {save.isPending && <Spinner data-icon="inline-start" />}
+            {action}
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )

@@ -33,6 +33,12 @@ import type { Account, AccountLimitResets, Provider } from "@/api/generated/type
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
+  CodeBlock,
+  CodeBlockActions,
+  CodeBlockContent,
+  CodeBlockCopyButton,
+} from "@/components/ui/code-block"
+import {
   Card,
   CardAction,
   CardContent,
@@ -40,6 +46,14 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty"
 import {
   Item,
   ItemActions,
@@ -108,10 +122,7 @@ export function ModelsScreen() {
             note="Accounts signed in on the control plane or on a machine. The gateway uses the first one in order that is in use and not resting."
           >
             {subscriptions.length === 0 ? (
-              <Empty>
-                No subscription is set up. Sign one in from a terminal: hypomnema accounts login
-                claude
-              </Empty>
+              <NoSubscription />
             ) : (
               subscriptions.map((subscription) => (
                 <SubscriptionCard key={subscription.provider.name} subscription={subscription} />
@@ -164,11 +175,29 @@ function Section({
   )
 }
 
-function Empty({ children }: { children: ReactNode }) {
+// NoSubscription is the page with nothing signed in: Empty, as Vault and Repositories say it (after t3code's
+// empty.tsx), with the command that signs one in as code that copies, the CodeBlock primitive.
+function NoSubscription() {
+  const command = "hypomnema accounts login claude"
+
   return (
-    <p className="rounded-xl border border-dashed px-4 py-6 text-center text-sm text-muted-foreground">
-      {children}
-    </p>
+    <Empty>
+      <EmptyHeader>
+        <EmptyMedia variant="icon">
+          <Users />
+        </EmptyMedia>
+        <EmptyTitle>No subscriptions yet</EmptyTitle>
+        <EmptyDescription>Sign one in from a terminal on the control plane.</EmptyDescription>
+      </EmptyHeader>
+      <EmptyContent>
+        <CodeBlock size="sm">
+          <CodeBlockActions>
+            <CodeBlockCopyButton value={command} />
+          </CodeBlockActions>
+          <CodeBlockContent>{command}</CodeBlockContent>
+        </CodeBlock>
+      </EmptyContent>
+    </Empty>
   )
 }
 
@@ -419,6 +448,7 @@ function AccountRow({
 // (usage/components/ProviderLimits), T3 Code's limits (usage/UsageLimits.tsx) and Orca's status bar do for a
 // subscription. Only an account signed in here can be asked. An account with nothing to show has no bars, and a
 // line says so when the reading failed; the button asks the vendor now.
+// On a phone a bar goes under its name, and the time it starts again stays on one line (issue #242).
 function LimitBars({ account }: { account: Account }) {
   const limits = useAccountLimits(account.id, account.sign_in === "active")
   const refresh = useRefreshLimits(account.id)
@@ -460,7 +490,7 @@ function LimitBars({ account }: { account: Account }) {
       {data.windows.map((window) => (
         <div
           key={window.name}
-          className="grid max-w-md grid-cols-[7.5rem_minmax(0,1fr)] items-center gap-x-2"
+          className="grid max-w-md grid-cols-1 items-center gap-x-2 gap-y-1 sm:grid-cols-[7.5rem_minmax(0,1fr)] sm:gap-y-0"
         >
           <span className="inline-flex items-center gap-1 text-muted-foreground">
             {window.name.startsWith("week") ? (
@@ -476,7 +506,7 @@ function LimitBars({ account }: { account: Account }) {
             connected={account.status === "active"}
             title={`${Math.round(100 - window.used_percent)}% left`}
           />
-          <span className="col-start-2 text-muted-foreground">
+          <span className="whitespace-nowrap text-muted-foreground sm:col-start-2">
             {window.resets_at ? `resets ${until(window.resets_at)}` : ""}
           </span>
         </div>

@@ -158,4 +158,50 @@ describe("the conversation items", () => {
 
     expect(chatItems(view)).toMatchObject([{ kind: "reply", text: "Hello" }])
   })
+
+  // Scenario: the owner pressed Stop; pi reports the stopped turn as a failed call. That notice reads as the stop.
+  // A failure after he wrote again is a failure.
+  test("the failure after Stop is the stop", () => {
+    const asked = msg({ role: "owner", text: "refactor everything" })
+    const stoppedAfter = asked.seq
+    const view = run(
+      { type: "message", message: asked },
+      {
+        type: "message",
+        message: msg({ role: "system", text: "pi's model call failed: Request was aborted" }),
+      },
+      { type: "message", message: msg({ role: "owner", text: "only the page" }) },
+      {
+        type: "message",
+        message: msg({ role: "system", text: "pi's model call failed: overloaded" }),
+      },
+    )
+
+    expect(chatItems(view, { stoppedAfter }).map((i) => i.kind)).toEqual([
+      "owner",
+      "stopped",
+      "owner",
+      "notice",
+    ])
+    expect(chatItems(view).map((i) => i.kind)).toEqual(["owner", "notice", "owner", "notice"])
+  })
+
+  // Scenario: the owner sends a message; it shows at once, and once the stream keeps it, it shows once.
+  test("a message being sent shows until it is kept", () => {
+    const kept = msg({ role: "owner", text: "hi" })
+    const shown = { ...kept, seq: -1 }
+
+    expect(chatItems(emptyChat, { sending: [shown] })).toMatchObject([{ kind: "owner", key: "-1" }])
+
+    const acknowledged = run({ type: "message", message: kept })
+    expect(chatItems(acknowledged, { sending: [kept] })).toHaveLength(1)
+  })
+
+  test("the stream says when it is reconnecting", () => {
+    expect(run({ type: "connection", reconnecting: true }).reconnecting).toBe(true)
+    expect(
+      run({ type: "connection", reconnecting: true }, { type: "connection", reconnecting: false })
+        .reconnecting,
+    ).toBe(false)
+  })
 })
