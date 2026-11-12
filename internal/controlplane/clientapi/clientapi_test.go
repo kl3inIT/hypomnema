@@ -53,7 +53,7 @@ func newWorld(t *testing.T) *world {
 
 	stop := make(chan struct{})
 	pi := &fakeCoordinator{live: make(chan coordinator.Frame, 16)}
-	srv := New(svc, slog.New(slog.DiscardHandler), stop).WithCoordinator(pi)
+	srv := New(svc, slog.New(slog.DiscardHandler), stop).WithCoordinator(pi).WithChatKeyReader("pi")
 	srv.heartbeat = 50 * time.Millisecond
 
 	mux := http.NewServeMux()
@@ -873,8 +873,9 @@ func TestOnlyTheOwnerChats(t *testing.T) {
 }
 
 // Scenario: pi asks for the key it calls the model gateway with (issue #204).
-// With its coordinator token it gets the key of the chat it runs for, never
-// kept by a cache; a chat no pi runs for has none.
+// With its own token it gets the key of the chat it runs for, never kept by
+// a cache; a chat no pi runs for has none. Another coordinator, which reads
+// the chat's id on a Run, and the owner get nothing.
 func TestPiReadsItsChatsGatewayKey(t *testing.T) {
 	t.Parallel()
 
@@ -903,6 +904,15 @@ func TestPiReadsItsChatsGatewayKey(t *testing.T) {
 	other, err := pi.GetChatGatewayKeyWithResponse(ctx, "cht_another")
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusNotFound, other.StatusCode())
+
+	laptop, _ := w.token("laptop", bearertoken.Coordinator)
+
+	for name, client := range map[string]*openapi.ClientWithResponses{"another coordinator": laptop, "the owner": owner} {
+		refused, err := client.GetChatGatewayKeyWithResponse(ctx, chat)
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusForbidden, refused.StatusCode(), name)
+		assert.NotContains(t, string(refused.Body), "hyp_gateway_v1_of_this_pi", name)
+	}
 }
 
 // Scenario: the web opens a chat while pi answers. It gets pi's state, the
