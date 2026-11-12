@@ -87,6 +87,10 @@ type Config struct {
 	// programs, its profile with the owner's sign-ins, and its sockets. From
 	// HYPOMNEMA_BROWSER_DIR; empty: `browser` beside the database.
 	BrowserDir string
+	// BrowserOff gives no agent the shared browser, from HYPOMNEMA_BROWSER=0
+	// (issue #212). Agents have it otherwise, as T3 Code's and OpenMausBot's
+	// have theirs unless a setting turns it off.
+	BrowserOff bool
 	// BrowserNoSandbox runs Chrome without its sandbox, from
 	// HYPOMNEMA_BROWSER_SANDBOX=0. Nothing else turns the sandbox off.
 	BrowserNoSandbox bool
@@ -120,6 +124,7 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 			ClientSecret: env.String(envPrefix+"_ANTIGRAVITY_CLIENT_SECRET", ""),
 		},
 		BrowserDir:       env.String(envPrefix+"_BROWSER_DIR", ""),
+		BrowserOff:       env.String(envPrefix+"_BROWSER", "1") == "0",
 		BrowserNoSandbox: env.String(envPrefix+"_BROWSER_SANDBOX", "1") == "0",
 	}
 
@@ -240,7 +245,11 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	shared := browser.New(browser.Config{
 		Dir: browserDir, NoSandbox: cfg.BrowserNoSandbox, Allow: cfg.BrowserAllow, OwnPorts: ownPorts, Logger: logger,
 	})
-	agents.WithBrowser(shared).Register(mux)
+	if !cfg.BrowserOff {
+		agents.WithBrowser(shared)
+	}
+
+	agents.Register(mux)
 
 	// The service proxy: an agent's tool reaches a connected service through it and never holds the token.
 	proxy, err := serviceproxy.New(serviceproxy.Config{

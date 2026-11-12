@@ -229,6 +229,13 @@ func (rn *Runner) Start(ctx context.Context, d statedb.Dispatch, r daemon.Report
 		return err
 	}
 
+	// The worker's tools server reaches the shared browser with the Dispatch's key (issue #212).
+	if rn.URL != "" && o.AgentKey != "" {
+		if err := bridge.SetAgent(bridge.Dir(dir), bridge.Agent{URL: rn.URL, Key: o.AgentKey}); err != nil {
+			return err
+		}
+	}
+
 	if err := transcript.SetFormat(dir, Format); err != nil {
 		return err
 	}

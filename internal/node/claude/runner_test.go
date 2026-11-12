@@ -432,11 +432,23 @@ func TestAskIsRelayedAndAnswered(t *testing.T) {
 	t.Parallel()
 
 	g := newRig(t, "ask")
+	g.runner.URL = "https://hypomnema.example"
+
+	d := g.dispatch("dsp_1")
+	d.Offer.AgentKey = "the-dispatch's-key"
+
 	r := newReporter("dsp_1")
-	require.NoError(t, g.runner.Start(t.Context(), g.dispatch("dsp_1"), r))
+	require.NoError(t, g.runner.Start(t.Context(), d, r))
 
 	require.Eventually(t, func() bool { return r.asked() == 1 }, 20*time.Second, 20*time.Millisecond)
 	assert.Equal(t, "goth or hand-written?", r.asks[0].Text)
+
+	// The tools server finds the control plane's agent API and the Dispatch's key where it finds the rest: with
+	// them it reaches the shared browser (issue #212).
+	agent, ok, err := bridge.AgentOf(bridge.Dir(g.runner.dir("dsp_1")))
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, bridge.Agent{URL: "https://hypomnema.example", Key: "the-dispatch's-key"}, agent)
 
 	g.runner.Asked("dsp_1", "rep_q", "q_1")
 

@@ -1,7 +1,9 @@
 // Package workertools is the stdio MCP server a worker's CLI starts from
 // --mcp-config (issue #32), as Omnigent's `serve-mcp` bridge
 // (omnigent/harnesses/claude_native/bridge.py at cf1021e). It offers two
-// tools and talks to the node daemon only through the bridge directory:
+// tools of its own, which talk to the node daemon only through the bridge
+// directory, and the tools of the browser every agent shares (issue #212),
+// which it passes on to the control plane:
 //
 //   - ask: a question the worker waits for (a `wait` question of the
 //     orchestration core). The call blocks until the answer arrives and sends
@@ -52,11 +54,17 @@ type server struct {
 	// poll is how often an ask looks for its answer (shorter in tests).
 	poll     time.Duration
 	progress time.Duration
+	// agent reaches the control plane's agent API with the Dispatch's key;
+	// nil when the runner gave none.
+	agent *agentAPI
 }
 
 // Serve answers MCP requests on in until it closes.
 func Serve(ctx context.Context, in io.Reader, out io.Writer, dir string) error {
-	s := &server{dir: dir, out: out, calls: map[string]context.CancelFunc{}, poll: pollEvery, progress: ProgressEvery}
+	s := &server{
+		dir: dir, out: out, calls: map[string]context.CancelFunc{}, poll: pollEvery, progress: ProgressEvery,
+		agent: agentOf(dir),
+	}
 
 	return s.serve(ctx, in)
 }
@@ -96,7 +104,12 @@ func (s *server) serve(ctx context.Context, in io.Reader) error {
 		case "ping":
 			s.reply(r.ID, map[string]any{}, nil)
 		case "tools/list":
-			s.reply(r.ID, map[string]any{"tools": tools()}, nil)
+			listed := tools()
+			if s.agent != nil {
+				listed = append(listed, s.agent.browserTools(ctx)...)
+			}
+
+			s.reply(r.ID, map[string]any{"tools": listed}, nil)
 		case "tools/call":
 			callCtx, callCancel := context.WithCancel(ctx)
 			s.track(r.ID, callCancel)
@@ -243,7 +256,7 @@ func tools() []map[string]any {
 	}
 }
 
-func (s *server) call(ctx context.Context, raw json.RawMessage) (map[string]any, error) {
+func (s *server) call(ctx context.Context, raw json.RawMessage) (any, error) {
 	var p struct {
 		Name      string          `json:"name"`
 		Arguments json.RawMessage `json:"arguments"`
@@ -262,6 +275,11 @@ func (s *server) call(ctx context.Context, raw json.RawMessage) (map[string]any,
 	case "finish":
 		return s.finish(p.Arguments)
 	default:
+		// Any other tool is the browser's: the control plane knows which it offers.
+		if s.agent != nil {
+			return s.agent.browserCall(ctx, p.Name, p.Arguments)
+		}
+
 		return nil, fmt.Errorf("unknown tool %q", p.Name)
 	}
 }

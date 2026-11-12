@@ -153,8 +153,8 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     workers, Windows.
 - A browser every agent shares (issue #193, step 1 in issue #196,
   [research](docs/research/2026-11-12-embedded-browser.md); `internal/controlplane/browser`). Built so far: the
-  engine on the control plane and an agent's calls to it. Not built: the browser tools on a node, a person watching
-  or taking control, the page in the web client, a node holding the browser instead.
+  engine on the control plane, an agent's calls to it, and the tools in a worker's hands. Not built: a person
+  watching or taking control, the page in the web client, a node holding the browser instead.
   - It is one headless Chrome on the control plane's machine with one persistent profile, so a sign-in is made
     once and every agent has it, driven through agent-browser (Vercel Labs), as OpenMausBot's is. Each agent is an
     agent-browser session attached to that Chrome and pinned to a tab of its own
@@ -178,6 +178,16 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     `deploy/browser/setup-browser.sh` once with sudo, which writes an AppArmor profile and installs missing
     libraries (T3 Code's `t3 browser setup`, MIT, its license in `third_party/t3code/`).
     `HYPOMNEMA_BROWSER_SANDBOX=0` runs Chrome without the sandbox; nothing else does.
+  - Every worker has the tools (issue #212), as T3 Code's and OpenMausBot's agents have theirs unless a setting
+    turns them off; `HYPOMNEMA_BROWSER=0` on the control plane gives them to no agent. Every Dispatch gets a key
+    to the agent API, also one whose Run was given no Connection: that key opens no account and says which worker
+    asks. The runner writes the control plane's address and the key into the worker's bridge directory
+    (`agent.json`), and the worker's MCP server (`internal/node/workertools`) calls the agent API itself, as
+    OpenMausBot's stdio proxy calls its server: `tools/list` answers `ask`, `finish` and what the control plane
+    lists, under agent-browser's names, so the list changes without a node release; any other tool's call is
+    passed to `POST /agent/v1/browser/call` and its answer, a screenshot as image content, is passed back as it
+    is. A control plane that gives no browser leaves the worker `ask` and `finish`. The tab is not closed when
+    the Dispatch settles: the idle rules close it.
   - What the browser may reach is limited by a gate (issue #202; `internal/controlplane/browser/egress`, adapted
     from OpenMausBot's `server/browser/egress/`, Apache-2.0, its notice in `third_party/openmausbot/`). Chrome is
     launched with a SOCKS5 server inside the control plane, on a loopback port, as its proxy for every connection,
@@ -996,9 +1006,9 @@ Node (`internal/node`):
     - A transcript the control plane has whole after the worker exited is marked `sent.done`. A new daemon sends the
       journals under `run/` that are not marked, those from before this existed too.
   - The worker's tools (`internal/node/workertools`, `hypomnema-node mcp`) come in through `--mcp-config` with
-    `--strict-mcp-config`; AskUserQuestion and the subagent tool (`Task`, `Agent`) are disallowed. They reach the
+    `--strict-mcp-config`; AskUserQuestion and the subagent tool (`Task`, `Agent`) are disallowed. `ask` and `finish` reach the
     runner only through a bridge directory beside the journal (`internal/node/bridge`), so a question survives a
-    daemon restart.
+    daemon restart; the shared browser's tools go to the control plane (see "A browser every agent shares").
     - `ask`: the runner submits the question, records the control plane's id, writes the answer for the waiting
       call, and acknowledges it. While it waits, the call sends `notifications/progress` every minute; tool calls may
       last 24 h (`MCP_TOOL_TIMEOUT`). A canceled call withdraws the question.
@@ -1262,7 +1272,7 @@ internal/node/daemon      the node's connection: hello, socket, offers, outbox, 
 internal/node/shim        one worker kept across daemon restarts: journal, input socket, exit file
 internal/node/statedb     the node's SQLite state: Dispatches held and the report outbox
 internal/node/terminal    the shells opened from the web: a session per id, its ring of output, the idle end
-internal/node/workertools the worker's MCP server: ask and finish
+internal/node/workertools the worker's MCP server: ask and finish, and the shared browser's tools passed on to the control plane
 internal/node/worktree    bare mirrors and git worktrees per Task
 internal/controlplane/cloudcode  what is presented to Google's Cloud Code backend: its hosts, the Antigravity IDE's user agent and version
 internal/controlplane/coordinator  the supervisor of pi, the coordinator: one pi in RPC mode per chat

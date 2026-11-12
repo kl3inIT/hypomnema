@@ -25,12 +25,19 @@ type client struct {
 func newClient(t *testing.T) *client {
 	t.Helper()
 
+	return newClientIn(t, t.TempDir())
+}
+
+// newClientIn is a client of the server over the bridge directory dir, with
+// what its runner recorded there.
+func newClientIn(t *testing.T, dir string) *client {
+	t.Helper()
+
 	inR, inW := io.Pipe()
 	outR, outW := io.Pipe()
-	dir := t.TempDir()
 
 	s := &server{dir: dir, out: outW, calls: map[string]context.CancelFunc{},
-		poll: 10 * time.Millisecond, progress: 30 * time.Millisecond}
+		poll: 10 * time.Millisecond, progress: 30 * time.Millisecond, agent: agentOf(dir)}
 
 	done := make(chan struct{})
 

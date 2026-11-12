@@ -148,10 +148,11 @@ type AgentSession struct {
 }
 
 // AddAgentSession makes a Dispatch's key and returns it once; only its hash
-// is kept.
+// is kept. A key with no Connection opens no account: it says which worker
+// asks, which is what the shared browser needs (issue #212).
 func (s *Service) AddAgentSession(ctx context.Context, dispatchID string, uses []string) (string, error) {
-	if dispatchID == "" || len(uses) == 0 {
-		return "", fmt.Errorf("%w: an agent session needs its dispatch and what it may use", ErrInvalid)
+	if dispatchID == "" {
+		return "", fmt.Errorf("%w: an agent session needs its dispatch", ErrInvalid)
 	}
 
 	secret, err := bearertoken.Generate(bearertoken.Session)
@@ -193,9 +194,12 @@ func (s *Service) AgentSessionOf(ctx context.Context, secret string) (AgentSessi
 		return AgentSession{}, err
 	}
 
-	return AgentSession{
-		ID: row.ID, DispatchID: row.DispatchID, Uses: strings.Split(row.Uses, ","), ByCoordinator: byCoordinator,
-	}, nil
+	var uses []string
+	if row.Uses != "" {
+		uses = strings.Split(row.Uses, ",")
+	}
+
+	return AgentSession{ID: row.ID, DispatchID: row.DispatchID, Uses: uses, ByCoordinator: byCoordinator}, nil
 }
 
 // runByCoordinator reports whether a Dispatch's Run was created by a

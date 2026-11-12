@@ -5,12 +5,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kl3inIT/hypomnema/internal/controlplane/agentapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/browser"
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
@@ -59,8 +62,13 @@ func TestEachAgentUsesTheBrowserAsItself(t *testing.T) {
 
 	first, err := w.svc.AddAgentSession(ctx, "dsp_1", []string{"notion:work"})
 	require.NoError(t, err)
-	second, err := w.svc.AddAgentSession(ctx, "dsp_2", []string{"notion:work"})
+	// A Dispatch whose Run was given no account has a key too (issue #212): it opens no account.
+	second, err := w.svc.AddAgentSession(ctx, "dsp_2", nil)
 	require.NoError(t, err)
+
+	listed, labels := w.get(second, "notion")
+	require.Equal(t, http.StatusOK, listed)
+	assert.Empty(t, labels)
 	pi, piKey, err := w.svc.AddToken(ctx, "pi", bearertoken.Coordinator)
 	require.NoError(t, err)
 
@@ -140,4 +148,30 @@ func TestABrowserCallThatFailsSaysWhy(t *testing.T) {
 	status, body := w.call(http.MethodPost, agenttool.PathBrowserCall, key, map[string]string{"arguments": "x"})
 	assert.Equal(t, http.StatusBadRequest, status)
 	assert.Contains(t, string(body), "name the tool")
+}
+
+// A control plane whose browser is turned off (HYPOMNEMA_BROWSER=0) lists no
+// tool and runs none, and says so to an agent that asks.
+func TestAControlPlaneWithNoBrowserSaysSo(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+
+	key, err := w.svc.AddAgentSession(t.Context(), "dsp_1", nil)
+	require.NoError(t, err)
+
+	mux := http.NewServeMux()
+	agentapi.New(w.svc, nil, slog.New(slog.DiscardHandler)).Register(mux)
+
+	w.srv = httptest.NewServer(mux)
+	t.Cleanup(w.srv.Close)
+
+	status, body := w.call(http.MethodGet, agenttool.PathBrowserTools, key, nil)
+	assert.Equal(t, http.StatusServiceUnavailable, status)
+	assert.Contains(t, string(body), "no browser")
+
+	status, answer := w.browse(key, "agent_browser_open", `{"url":"example.com"}`)
+	assert.Equal(t, http.StatusServiceUnavailable, status)
+	assert.Contains(t, answer, "no browser")
+	assert.Empty(t, w.browser.calls)
 }

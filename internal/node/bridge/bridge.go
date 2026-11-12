@@ -174,6 +174,37 @@ func Finished(dir string) (Final, bool, error) {
 	return f, true, nil
 }
 
+// Agent is where a worker's tools server reaches the control plane's agent
+// API, and the Dispatch's own key to it (issue #212). The runner writes it
+// before the worker starts. It is a file and not the server's environment so
+// that every CLI gets it the same way and the key is on no command line.
+type Agent struct {
+	URL string `json:"url"`
+	Key string `json:"key"`
+}
+
+// SetAgent records the agent API of a Dispatch.
+func SetAgent(dir string, a Agent) error { return writeFile(dir, "agent.json", a) }
+
+// AgentOf returns the agent API of a Dispatch, if its runner recorded one.
+func AgentOf(dir string) (Agent, bool, error) {
+	raw, err := os.ReadFile(filepath.Join(dir, "agent.json")) //nolint:gosec // the bridge's own file
+	if errors.Is(err, os.ErrNotExist) {
+		return Agent{}, false, nil
+	}
+
+	if err != nil {
+		return Agent{}, false, err
+	}
+
+	var a Agent
+	if err := json.Unmarshal(raw, &a); err != nil {
+		return Agent{}, false, fmt.Errorf("decoding the agent API's address: %w", err)
+	}
+
+	return a, true, nil
+}
+
 func writeFile(dir, name string, v any) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
