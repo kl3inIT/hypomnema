@@ -8,6 +8,17 @@ SELECT * FROM conversations WHERE id = @id;
 -- name: LatestConversationOfTask :one
 SELECT * FROM conversations WHERE task_id = @task_id ORDER BY created_at DESC, rowid DESC LIMIT 1;
 
+-- name: ListChatWorktrees :many
+-- The worktree of each Task of a chat's Runs that has had one: its newest Conversation's, with its node's name.
+SELECT t.id AS task_id, t.run_id, t.profile, t.spec, t.status, c.node_id, c.worktree, n.name AS node_name
+FROM runs r
+JOIN tasks t ON t.run_id = r.id
+JOIN conversations c ON c.id = (
+    SELECT c2.id FROM conversations c2 WHERE c2.task_id = t.id ORDER BY c2.created_at DESC, c2.rowid DESC LIMIT 1)
+JOIN nodes n ON n.id = c.node_id
+WHERE r.chat_id = @chat_id
+ORDER BY r.created_at, r.id, t.position;
+
 -- name: CloseConversation :execrows
 UPDATE conversations SET status = 'closed', close_reason = @close_reason, updated_at = @now
 WHERE id = @id AND status = 'open';

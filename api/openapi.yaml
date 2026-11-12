@@ -1909,6 +1909,87 @@ paths:
             text/event-stream:
               schema: { type: string }
         default: { $ref: "#/components/responses/Error" }
+  /chats/{chat_id}/workspaces:
+    parameters:
+      - $ref: "#/components/parameters/ChatID"
+    get:
+      operationId: ListChatWorkspaces
+      summary: >-
+        The folders a chat's agents work in (owner only): its Bot's own folder, and the worktree of each Task of
+        its Runs that has run, on that Task's machine
+      responses:
+        "200":
+          description: The folders.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkspaceList" }
+        default: { $ref: "#/components/responses/Error" }
+  /chats/{chat_id}/workspaces/{workspace_id}/tree:
+    parameters:
+      - $ref: "#/components/parameters/ChatID"
+      - $ref: "#/components/parameters/WorkspaceID"
+    get:
+      operationId: ListWorkspaceDirectory
+      summary: A page of a directory of a chat's folder, by name (owner only)
+      parameters:
+        - $ref: "#/components/parameters/WorkspacePath"
+        - name: after
+          in: query
+          description: The page after this name.
+          schema: { type: string }
+      responses:
+        "200":
+          description: The page.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkspaceListing" }
+        default: { $ref: "#/components/responses/Error" }
+  /chats/{chat_id}/workspaces/{workspace_id}/file:
+    parameters:
+      - $ref: "#/components/parameters/ChatID"
+      - $ref: "#/components/parameters/WorkspaceID"
+    get:
+      operationId: ReadWorkspaceFile
+      summary: A file of a chat's folder, as text up to 10 MiB (owner only)
+      parameters:
+        - $ref: "#/components/parameters/WorkspacePath"
+      responses:
+        "200":
+          description: The file.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkspaceFile" }
+        default: { $ref: "#/components/responses/Error" }
+  /chats/{chat_id}/workspaces/{workspace_id}/changes:
+    parameters:
+      - $ref: "#/components/parameters/ChatID"
+      - $ref: "#/components/parameters/WorkspaceID"
+    get:
+      operationId: ListWorkspaceChanges
+      summary: What git says changed in a chat's folder since HEAD, newest first (owner only)
+      responses:
+        "200":
+          description: The changes.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkspaceChanges" }
+        default: { $ref: "#/components/responses/Error" }
+  /chats/{chat_id}/workspaces/{workspace_id}/diff:
+    parameters:
+      - $ref: "#/components/parameters/ChatID"
+      - $ref: "#/components/parameters/WorkspaceID"
+    get:
+      operationId: DiffWorkspaceFile
+      summary: A changed file of a chat's folder at HEAD and now, for the client to draw (owner only)
+      parameters:
+        - $ref: "#/components/parameters/WorkspacePath"
+      responses:
+        "200":
+          description: The file before and after.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkspaceDiff" }
+        default: { $ref: "#/components/responses/Error" }
   /chats/{chat_id}/abort:
     parameters:
       - $ref: "#/components/parameters/ChatID"
@@ -2032,6 +2113,17 @@ components:
       in: path
       required: true
       schema: { type: string, minLength: 1 }
+    WorkspaceID:
+      name: workspace_id
+      in: path
+      required: true
+      description: "`bot` for the Bot's folder, or a Task's id for its worktree."
+      schema: { type: string, minLength: 1 }
+    WorkspacePath:
+      name: path
+      in: query
+      description: A path in the folder, with forward slashes; empty or absent is the folder itself.
+      schema: { type: string }
     NodeID:
       name: node_id
       in: path
@@ -3865,6 +3957,79 @@ components:
         bot:
           type: string
           description: The Bot the chat talks with; `coordinator` when left out.
+    WorkspaceList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/Workspace" }
+    Workspace:
+      type: object
+      required: [id, kind, name, root, online]
+      properties:
+        id: { type: string, description: "`bot`, or the Task's id." }
+        kind: { type: string, enum: [bot, task] }
+        name: { type: string, description: The Bot's name, or the first line of the Task's spec. }
+        root: { type: string, description: Where the folder is on its machine. }
+        online: { type: boolean, description: Whether the folder's machine can be read now. }
+        node_id: { type: string }
+        node_name: { type: string }
+        task_id: { type: string }
+        run_id: { type: string }
+        task_status: { type: string }
+    WorkspaceEntry:
+      type: object
+      required: [name, path, type, bytes, modified_at]
+      properties:
+        name: { type: string }
+        path: { type: string }
+        type: { type: string, enum: [file, directory] }
+        bytes: { type: integer, format: int64 }
+        modified_at: { type: integer, format: int64, description: Unix seconds. }
+    WorkspaceListing:
+      type: object
+      required: [entries, has_more]
+      properties:
+        entries:
+          type: array
+          items: { $ref: "#/components/schemas/WorkspaceEntry" }
+        has_more: { type: boolean }
+    WorkspaceFile:
+      type: object
+      required: [path, bytes, binary, truncated, content]
+      properties:
+        path: { type: string }
+        bytes: { type: integer, format: int64 }
+        binary: { type: boolean, description: A binary file has no content. }
+        truncated: { type: boolean, description: The content is the first 10 MiB, cut at a character. }
+        content: { type: string }
+    WorkspaceChange:
+      type: object
+      required: [path, status, modified_at]
+      properties:
+        path: { type: string }
+        status: { type: string, enum: [created, modified, deleted] }
+        lines_added: { type: integer }
+        lines_removed: { type: integer }
+        modified_at: { type: integer, format: int64 }
+    WorkspaceChanges:
+      type: object
+      required: [git, changes, truncated]
+      properties:
+        git: { type: boolean, description: False for a folder in no git repository, which has no changes. }
+        changes:
+          type: array
+          items: { $ref: "#/components/schemas/WorkspaceChange" }
+        truncated: { type: boolean }
+    WorkspaceDiff:
+      type: object
+      required: [path, binary]
+      properties:
+        path: { type: string }
+        before: { type: string, description: The file at HEAD; absent when it was created. }
+        after: { type: string, description: The file now; absent when it was deleted. }
+        binary: { type: boolean }
     Chat:
       type: object
       required: [id, title, bot, working, coordinator, created_at, updated_at]

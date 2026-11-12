@@ -12,7 +12,7 @@ import {
 } from "lucide-react"
 import type { ReactNode } from "react"
 
-import { PageHeader } from "@/features/shell/app-shell"
+import { PageHeader, PageHeading } from "@/features/shell/app-shell"
 import { cn } from "@/lib/utils"
 
 // Settings is what the owner sets up once, kept apart from the places of daily work. The references whose sidebar
@@ -97,7 +97,7 @@ export function SettingsSidebar() {
   )
 }
 
-// SettingsPage is one section's page. On a phone, where the sidebar hides, the sections are a row of links under
+// SettingsPage is one section's page, headed by the list pages' PageHeading. On a phone, where the sidebar hides, the sections are a row of links under
 // the header that scrolls sideways, its edge fading where more of it is hidden (shadcn's scroll-fade-x, as the
 // CodeBlock primitive uses it).
 export function SettingsPage({
@@ -108,7 +108,7 @@ export function SettingsPage({
   children,
 }: {
   title: string
-  // description is said under the header; a page that leads with something else says it itself.
+  // description is said under the title; a page that leads with something else says it itself.
   description?: string
   actions?: ReactNode
   // wide gives the page the room a table needs.
@@ -117,9 +117,7 @@ export function SettingsPage({
 }) {
   return (
     <main className="flex min-w-0 flex-1 flex-col">
-      <PageHeader title={title}>
-        <div className="ms-auto flex items-center gap-2">{actions}</div>
-      </PageHeader>
+      <PageHeader />
       {sections.length > 1 && (
         <nav
           aria-label="Settings sections"
@@ -147,7 +145,9 @@ export function SettingsPage({
             wide ? "max-w-5xl" : "max-w-3xl",
           )}
         >
-          {description && <p className="text-sm text-muted-foreground">{description}</p>}
+          <PageHeading title={title} description={description}>
+            {actions}
+          </PageHeading>
           {children}
         </div>
       </div>

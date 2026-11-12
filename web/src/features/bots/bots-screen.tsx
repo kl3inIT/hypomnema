@@ -6,7 +6,7 @@ import type { Bot } from "@/api/generated/types.gen"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { AgentAvatar } from "@/features/agents/agent-avatar"
 import { effortLabel } from "@/features/agents/profiles-state"
-import { PageHeader } from "@/features/shell/app-shell"
+import { PageHeader, PageHeading } from "@/features/shell/app-shell"
 import { modelIsId } from "@/lib/model-name"
 import { ModelMark } from "@/features/agents/model-mark"
 import { since } from "@/lib/time"
@@ -47,8 +47,14 @@ export function BotsScreen() {
 
   return (
     <main className="flex min-w-0 flex-1 flex-col">
-      <PageHeader title="Bots">
-        <div className="ms-auto flex items-center gap-2">
+      <PageHeader />
+
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 pt-1 pb-8 sm:px-5">
+        <PageHeading
+          title="Bots"
+          description="A Bot talks with you in chats, gives work to workers, and keeps a memory across its chats."
+          className="mb-5"
+        >
           <fieldset className="m-0 inline-flex gap-0.5 rounded-lg border border-solid bg-muted p-0.5">
             <legend className="sr-only">Layout</legend>
             {(["grid", "table"] as const).map((l) => (
@@ -66,13 +72,7 @@ export function BotsScreen() {
           <Link to="/bots/new" className={buttonVariants()}>
             New bot
           </Link>
-        </div>
-      </PageHeader>
-
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 pt-1 pb-8 sm:px-5">
-        <p className="pb-3 text-xs text-muted-foreground">
-          A Bot talks with you in chats, gives work to workers, and keeps a memory across its chats.
-        </p>
+        </PageHeading>
         {bots.error ? (
           <div className="flex flex-col items-center gap-3 py-10 text-sm text-muted-foreground">
             <p>Couldn&apos;t load this list.</p>
