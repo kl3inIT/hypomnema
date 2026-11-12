@@ -180,6 +180,10 @@ type Service struct {
 	// memory as the references keep theirs; leftMu guards it.
 	left   map[string]quotaReading
 	leftMu sync.Mutex
+	// limits is the last reading of each account's limits (limits.go);
+	// limitsMu guards it.
+	limits   map[string]limitsEntry
+	limitsMu sync.Mutex
 }
 
 const (
@@ -207,7 +211,7 @@ func New(
 ) *Service {
 	s := &Service{
 		accounts: accounts, vault: v, clock: clock, logger: logger, vendors: map[string]Vendor{}, after: time.After,
-		rr: map[string]int{}, left: map[string]quotaReading{},
+		rr: map[string]int{}, left: map[string]quotaReading{}, limits: map[string]limitsEntry{},
 	}
 	for _, vendor := range vendors {
 		s.vendors[vendor.Runtime()] = vendor

@@ -69,8 +69,10 @@ var codexDeadGrants = []string{
 // Codex is the Vendor of ChatGPT subscriptions used through Codex.
 type Codex struct {
 	issuer string
-	client *http.Client
-	clock  platform.Clock
+	// usageBase is where the account's limits are read (limits.go).
+	usageBase string
+	client    *http.Client
+	clock     platform.Clock
 	// after is time.After outside tests: the pause between two polls.
 	after func(time.Duration) <-chan time.Time
 }
@@ -82,7 +84,8 @@ func NewCodex(issuer string, clock platform.Clock) *Codex {
 	}
 
 	return &Codex{
-		issuer: strings.TrimRight(issuer, "/"), client: &http.Client{Timeout: codexHTTPTimeout}, clock: clock,
+		issuer: strings.TrimRight(issuer, "/"), usageBase: codexUsageBase,
+		client: &http.Client{Timeout: codexHTTPTimeout}, clock: clock,
 		after: time.After,
 	}
 }

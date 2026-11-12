@@ -32,6 +32,8 @@ type anthropicOAuth struct {
 	exchanges int
 	refreshes int
 	lastGrant string
+	// usage answers api.anthropic.com's OAuth usage call; nil answers 404.
+	usage http.HandlerFunc
 }
 
 func newAnthropicOAuth(t *testing.T) *anthropicOAuth {
@@ -81,10 +83,31 @@ func newAnthropicOAuth(t *testing.T) *anthropicOAuth {
 		})
 	})
 
+	mux.HandleFunc("GET /api/oauth/usage", func(w http.ResponseWriter, r *http.Request) {
+		a.mu.Lock()
+		usage := a.usage
+		a.mu.Unlock()
+
+		if usage == nil {
+			http.NotFound(w, r)
+
+			return
+		}
+
+		usage(w, r)
+	})
+
 	a.srv = httptest.NewServer(mux)
 	t.Cleanup(a.srv.Close)
 
 	return a
+}
+
+func (a *anthropicOAuth) answerUsage(h http.HandlerFunc) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	a.usage = h
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

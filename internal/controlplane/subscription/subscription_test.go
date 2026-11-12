@@ -208,6 +208,7 @@ type world struct {
 	orch   *orchestration.Service
 	vault  *vault.Service
 	subs   *subscription.Service
+	codex  *subscription.Codex
 }
 
 func newWorld(t *testing.T) *world {
@@ -226,9 +227,9 @@ func newWorld(t *testing.T) *world {
 	w.orch = orchestration.New(db, w.clock, platform.NewID)
 	w.vault = vault.New(db, w.clock, platform.NewID, keys, w.orch.AccountsUsingSecretRef)
 
-	codex := subscription.NewCodex(w.openai.srv.URL, w.clock)
-	codex.PollWithoutWaiting()
-	w.subs = subscription.New(w.orch, w.vault, w.clock, slog.New(slog.DiscardHandler), codex)
+	w.codex = subscription.NewCodex(w.openai.srv.URL, w.clock)
+	w.codex.PollWithoutWaiting()
+	w.subs = subscription.New(w.orch, w.vault, w.clock, slog.New(slog.DiscardHandler), w.codex)
 
 	return w
 }

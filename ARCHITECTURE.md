@@ -874,7 +874,12 @@ The owner's commands:
   - `accounts add <runtime> <label>` records an account whose CLI is logged in on a node; `accounts login codex|antigravity
     [--label L]` logs a subscription in here, printing a link and a code and waiting, or asking for the pasted
     address; `accounts list` shows each with the state of its tokens; `accounts models <account>` asks the vendor which
-    models it serves the account, with what is left of each quota (Antigravity only); `accounts refresh <account>` and
+    models it serves the account, with what is left of each quota (Antigravity only); `accounts limits <account>`
+    prints what is left of each window of a Claude or Codex subscription, 5 hours, week and a model's own week,
+    with its reset (issue #199, step 3, after 9router-go, Orca and OpenMausBot): one call with the account's
+    token to `api.anthropic.com/api/oauth/usage` or `chatgpt.com/backend-api/wham/usage`, neither a published
+    API; the service keeps a reading for 60 seconds, does not ask for 3 minutes after a 429 (or the wait it
+    names, up to 15 minutes) and gives the last reading when a call fails; `accounts refresh <account>` and
     `accounts rm <account>` (which removes the tokens too) are for those logged in here;
   - `tokens add <name> [--kind owner|coordinator]` prints a client token once; `tokens list` and
     `tokens revoke <id>`;
