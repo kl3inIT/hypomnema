@@ -52,8 +52,6 @@ type Server struct {
 	heartbeat time.Duration
 	// coordinator reports whether pi works on a chat; nil when none runs.
 	coordinator Coordinator
-	// chatKeyReader is the name of the token that reads a chat's gateway key.
-	chatKeyReader string
 	// machines creates and removes provider machines; nil when the control plane wired none.
 	machines Machines
 	// terminals reaches a node for a terminal; nil when the control plane wired none.
@@ -177,14 +175,6 @@ type Coordinator interface {
 // WithCoordinator lets chats report whether pi is working on them.
 func (s *Server) WithCoordinator(c Coordinator) *Server {
 	s.coordinator = c
-
-	return s
-}
-
-// WithChatKeyReader names the one client token that may read the gateway
-// key of a chat's pi: pi's own (issue #204). Without it nobody may.
-func (s *Server) WithChatKeyReader(tokenName string) *Server {
-	s.chatKeyReader = tokenName
 
 	return s
 }

@@ -53,7 +53,7 @@ func newWorld(t *testing.T) *world {
 
 	stop := make(chan struct{})
 	pi := &fakeCoordinator{live: make(chan coordinator.Frame, 16)}
-	srv := New(svc, slog.New(slog.DiscardHandler), stop).WithCoordinator(pi).WithChatKeyReader("pi")
+	srv := New(svc, slog.New(slog.DiscardHandler), stop).WithCoordinator(pi)
 	srv.heartbeat = 50 * time.Millisecond
 
 	mux := http.NewServeMux()
@@ -872,22 +872,39 @@ func TestOnlyTheOwnerChats(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, missing.StatusCode())
 }
 
+// piToken is the token of a pi running for the chat as the Bot (issue #260),
+// made under the coordinator token named coordinator.
+func (w *world) piToken(coordinator, chat, bot string) *openapi.ClientWithResponses {
+	w.t.Helper()
+
+	secret, err := w.svc.AddBotToken(w.t.Context(), coordinator, chat, bot)
+	require.NoError(w.t, err)
+
+	return w.client(secret)
+}
+
 // Scenario: pi asks for the key it calls the model gateway with (issue #204).
-// With its own token it gets the key of the chat it runs for, never kept by
-// a cache; a chat no pi runs for has none. Another coordinator, which reads
-// the chat's id on a Run, and the owner get nothing.
+// With its own token (issue #260) it gets the key of the chat it runs for,
+// never kept by a cache; a chat no pi runs for has none. The coordinator
+// token pi's runs belong to, another coordinator, which reads the chat's id
+// on a Run, the owner and another chat's pi get nothing.
 func TestPiReadsItsChatsGatewayKey(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
 	owner, _ := w.token("web", bearertoken.Owner)
-	pi, _ := w.token("pi", bearertoken.Coordinator)
+	shared, _ := w.token("pi-coordinator", bearertoken.Coordinator)
 	ctx := t.Context()
 
 	created, err := owner.CreateChatWithResponse(ctx, openapi.NewChat{})
 	require.NoError(t, err)
 	require.Equal(t, http.StatusCreated, created.StatusCode(), string(created.Body))
 	chat := created.JSON201.Id
+
+	another, err := w.svc.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+
+	pi := w.piToken("pi-coordinator", chat, orchestration.DefaultBot)
 
 	none, err := pi.GetChatGatewayKeyWithResponse(ctx, chat)
 	require.NoError(t, err)
@@ -901,18 +918,111 @@ func TestPiReadsItsChatsGatewayKey(t *testing.T) {
 	assert.Equal(t, "hyp_gateway_v1_of_this_pi", got.JSON200.Key)
 	assert.Equal(t, "no-store", got.HTTPResponse.Header.Get("Cache-Control"))
 
-	other, err := pi.GetChatGatewayKeyWithResponse(ctx, "cht_another")
+	w.pi.keys.Store(another.ID, "hyp_gateway_v1_of_another_pi")
+
+	other, err := pi.GetChatGatewayKeyWithResponse(ctx, another.ID)
 	require.NoError(t, err)
-	assert.Equal(t, http.StatusNotFound, other.StatusCode())
+	assert.Equal(t, http.StatusForbidden, other.StatusCode())
+	assert.NotContains(t, string(other.Body), "hyp_gateway_v1_of_another_pi")
 
 	laptop, _ := w.token("laptop", bearertoken.Coordinator)
+	anotherPi := w.piToken("pi-coordinator", another.ID, orchestration.DefaultBot)
 
-	for name, client := range map[string]*openapi.ClientWithResponses{"another coordinator": laptop, "the owner": owner} {
+	for name, client := range map[string]*openapi.ClientWithResponses{
+		"pi's coordinator token": shared, "another coordinator": laptop, "the owner": owner,
+		"another chat's pi": anotherPi,
+	} {
 		refused, err := client.GetChatGatewayKeyWithResponse(ctx, chat)
 		require.NoError(t, err)
 		assert.Equal(t, http.StatusForbidden, refused.StatusCode(), name)
 		assert.NotContains(t, string(refused.Body), "hyp_gateway_v1_of_this_pi", name)
 	}
+}
+
+// Scenario: two Bots each answer a chat with their own pi (issue #260). A
+// pi's token creates Runs in its own chat only, as its coordinator token's,
+// changes only its chat's Runs, and reads and changes only its own Bot. Once
+// its pi has ended the token is refused.
+func TestAPisTokenActsInItsChatAndAsItsBotOnly(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	_, shared := w.token("pi-coordinator", bearertoken.Coordinator)
+	ctx := t.Context()
+
+	_, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "vmap", Persona: "You answer about VMAP."})
+	require.NoError(t, err)
+
+	mine, err := w.svc.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+
+	theirs, err := w.svc.CreateChat(ctx, "vmap", "")
+	require.NoError(t, err)
+
+	secret, err := w.svc.AddBotToken(ctx, "pi-coordinator", mine.ID, orchestration.DefaultBot)
+	require.NoError(t, err)
+
+	pi := w.client(secret)
+	vmap := w.piToken("pi-coordinator", theirs.ID, "vmap")
+
+	named, err := pi.CreateRunWithResponse(ctx, nil, openapi.NewRun{Objective: "x", ChatId: &theirs.ID})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, named.StatusCode(), "a Run in another chat")
+
+	run, err := pi.CreateRunWithResponse(ctx, nil, openapi.NewRun{Objective: "health page"})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, run.StatusCode(), string(run.Body))
+	assert.Equal(t, mine.ID, val(run.JSON201.ChatId), "a Run that names no chat is the token's chat's")
+	assert.Equal(t, shared.ID, val(run.JSON201.CoordinatorTokenId), "the next pi of the chat goes on with it")
+
+	theirRun, err := vmap.CreateRunWithResponse(ctx, nil, openapi.NewRun{Objective: "map tiles"})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, theirRun.StatusCode(), string(theirRun.Body))
+
+	refused, err := pi.CancelRunWithResponse(ctx, theirRun.JSON201.Id)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, refused.StatusCode(), "another chat's Run")
+
+	canceled, err := pi.CancelRunWithResponse(ctx, run.JSON201.Id)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, canceled.StatusCode(), string(canceled.Body))
+
+	other, err := pi.GetBotWithResponse(ctx, "vmap")
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, other.StatusCode())
+	assert.NotContains(t, string(other.Body), "You answer about VMAP.")
+
+	listed, err := pi.ListBotsWithResponse(ctx)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, listed.StatusCode())
+	require.Len(t, listed.JSON200.Data, 1, "a pi is shown its own Bot")
+	assert.Equal(t, orchestration.DefaultBot, listed.JSON200.Data[0].Name)
+
+	skills, err := pi.ListBotSkillsWithResponse(ctx, "vmap")
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, skills.StatusCode())
+
+	note := "The owner likes short answers."
+	change := openapi.MemoryChange{Kind: openapi.Add, Text: &note}
+
+	theirMemory, err := pi.ChangeBotMemoryWithResponse(ctx, "vmap", change)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, theirMemory.StatusCode())
+
+	ownMemory, err := pi.ChangeBotMemoryWithResponse(ctx, orchestration.DefaultBot, change)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, ownMemory.StatusCode(), string(ownMemory.Body))
+
+	me, err := pi.GetMeWithResponse(ctx)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, me.StatusCode())
+	assert.Equal(t, openapi.TokenKind(bearertoken.Bot), me.JSON200.Kind)
+
+	w.svc.RevokeBotToken(secret)
+
+	ended, err := pi.GetMeWithResponse(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusUnauthorized, ended.StatusCode(), "the token ends with its pi")
 }
 
 // Scenario: the web opens a chat while pi answers. It gets pi's state, the

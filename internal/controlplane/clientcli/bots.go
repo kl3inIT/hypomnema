@@ -16,7 +16,8 @@ import (
 // reads its Bot's prompt when it starts and writes its memory.
 
 // botEnv names the Bot a pi process is, set by its launcher, so that
-// `hypomnema memory` needs no name.
+// `hypomnema memory` needs no name. It is a hint: pi's own token is bound to
+// its Bot, and the control plane refuses another one (issue #260).
 const botEnv = "HYPOMNEMA_BOT"
 
 func botModel(b openapi.Bot) string {

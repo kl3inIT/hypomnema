@@ -31,10 +31,13 @@ func TestMain(m *testing.M) {
 
 // fakePi answers like pi in RPC mode: a response per command; for a prompt,
 // one turn with a bash call and a reply that echoes the prompt's first line.
-// A prompt that says "crash" makes it exit mid-turn.
+// A prompt that says "crash" makes it exit mid-turn; one that asks for the
+// "token" is answered with the line before the commands, which the launcher
+// reads.
 func fakePi() int {
 	in := bufio.NewReader(os.Stdin)
 	out := json.NewEncoder(os.Stdout)
+	token := ""
 
 	for {
 		line, err := in.ReadBytes('\n')
@@ -44,6 +47,10 @@ func fakePi() int {
 
 		var cmd map[string]any
 		if json.Unmarshal(line, &cmd) != nil {
+			if token == "" {
+				token = strings.TrimSpace(string(line))
+			}
+
 			continue
 		}
 
@@ -65,6 +72,10 @@ func fakePi() int {
 
 		first, _, _ := strings.Cut(text, "\n")
 		answer := "echo: " + first
+
+		if strings.Contains(text, "token") {
+			answer = "my token: " + token
+		}
 		for _, rec := range turn(answer) {
 			emit(out, rec)
 		}
@@ -122,12 +133,20 @@ func newSupervisor(t *testing.T) (*orchestration.Service, *Supervisor) {
 func newSupervisorWith(t *testing.T, keys Keys) (*orchestration.Service, *Supervisor) {
 	t.Helper()
 
+	return newSupervisorConfig(t, Config{Keys: keys})
+}
+
+// newSupervisorConfig runs a supervisor of fake pi processes with cfg.
+func newSupervisorConfig(t *testing.T, cfg Config) (*orchestration.Service, *Supervisor) {
+	t.Helper()
+
 	db, err := sqlite.Open(t.Context(), sqlite.Config{Path: sqlitetest.Migrated(t, orchestration.Migrate)})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 
 	svc := orchestration.New(db, platform.SystemClock{}, platform.NewID)
-	sup := New(svc, Config{Command: []string{os.Args[0], "fake-pi"}, Keys: keys})
+	cfg.Command = []string{os.Args[0], "fake-pi"}
+	sup := New(svc, cfg)
 
 	done := make(chan error, 1)
 	ctx, cancel := contextWithCancel(t)
@@ -294,7 +313,7 @@ func TestPiRunsAsTheChatsBotWithItsModel(t *testing.T) {
 	first, err := svc.CreateChat(ctx, "", "")
 	require.NoError(t, err)
 
-	args, _, err := sup.botArgs(ctx, first.ID)
+	args, _, _, err := sup.botArgs(ctx, first.ID)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"--bot", "coordinator"}, args, "the starting set leaves pi's own default model")
 
@@ -310,14 +329,15 @@ func TestPiRunsAsTheChatsBotWithItsModel(t *testing.T) {
 	second, err := svc.CreateChat(ctx, "vmap", "")
 	require.NoError(t, err)
 
-	args, model, err := sup.botArgs(ctx, second.ID)
+	args, bot, model, err := sup.botArgs(ctx, second.ID)
 	require.NoError(t, err)
 	assert.Equal(t, []string{
 		"--bot", "vmap", "--provider", "ninerouter", "--model", "cx/gpt-6.1-sol", "--thinking", "high",
 	}, args)
 	assert.Equal(t, "cx/gpt-6.1-sol", model, "the chat's gateway key is made for this model")
+	assert.Equal(t, "vmap", bot, "pi's token is bound to the Bot")
 
-	args, _, err = sup.botArgs(ctx, first.ID)
+	args, _, _, err = sup.botArgs(ctx, first.ID)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"--bot", "coordinator"}, args, "the first chat keeps its Bot")
 }
@@ -471,4 +491,71 @@ func TestAChatsKeyLivesAsLongAsItsPi(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "secret-"+chat.ID+"-gwk_2", second)
 	assert.False(t, keys.ended("gwk_2"))
+}
+
+// fakeTokens stands for the control plane's tokens of pi processes: it
+// hands one out per pi and remembers which it was asked to end.
+type fakeTokens struct {
+	mu      sync.Mutex
+	made    int
+	revoked map[string]bool
+}
+
+func (f *fakeTokens) AddBotToken(_ context.Context, chatID, bot string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.made++
+
+	return fmt.Sprintf("hyp_bot_v1_%d_%s_%s", f.made, chatID, bot), nil
+}
+
+func (f *fakeTokens) RevokeBotToken(secret string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.revoked == nil {
+		f.revoked = map[string]bool{}
+	}
+
+	f.revoked[secret] = true
+}
+
+func (f *fakeTokens) ended(secret string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.revoked[secret]
+}
+
+// Scenario: each pi gets a token of its own, bound to its chat and its Bot
+// (issue #260). The launcher reads it as the first line of pi's stdin,
+// before any command; it ends with that pi, and the pi started after it gets
+// another.
+func TestEachPiGetsItsOwnTokenOnItsStdin(t *testing.T) {
+	t.Parallel()
+
+	tokens := &fakeTokens{}
+	svc, _ := newSupervisorConfig(t, Config{Tokens: tokens})
+	ctx := t.Context()
+
+	chat, err := svc.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+
+	first := "hyp_bot_v1_1_" + chat.ID + "_coordinator"
+
+	_, err = svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, "what is your token?")
+	require.NoError(t, err)
+	waitFor(t, svc, chat.ID, orchestration.ChatCoordinator, "my token: "+first)
+	assert.False(t, tokens.ended(first))
+
+	_, err = svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, "crash please")
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool { return tokens.ended(first) }, 10*time.Second, 20*time.Millisecond,
+		"the token ends with the pi it was made for")
+
+	_, err = svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, "and your token now?")
+	require.NoError(t, err)
+	waitFor(t, svc, chat.ID, orchestration.ChatCoordinator, "my token: hyp_bot_v1_2_"+chat.ID+"_coordinator")
 }

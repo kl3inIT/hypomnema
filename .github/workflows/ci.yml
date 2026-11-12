@@ -84,8 +84,14 @@ jobs:
             ~/.cache/go-build
           key: go-unit-${{ runner.os }}-${{ hashFiles('go.sum', 'tools/ci/go.sum') }}
           restore-keys: go-unit-${{ runner.os }}-
+      # The box each Bot's pi runs in (issue #260) is tested on a real bubblewrap: the runner is set up as the
+      # coordinator's machine is, and the test fails rather than skips when the box cannot be made.
+      - name: Set up the Bots' box
+        run: sudo sh deploy/coordinator/setup-box.sh "$USER"
       - name: make unit
         run: make unit
+        env:
+          HYPOMNEMA_BOX_TEST: required
 
   race:
     name: Race

@@ -52,10 +52,11 @@ type Config struct {
 	// CoordinatorCommand starts pi for a chat id appended to it, from
 	// HYPOMNEMA_COORDINATOR_COMMAND as a JSON array; empty: no coordinator.
 	CoordinatorCommand []string
-	// CoordinatorToken is the name of the client token pi calls the control
-	// plane with, from HYPOMNEMA_COORDINATOR_TOKEN; the setup script makes
-	// it as pi-coordinator. Only that token reads the gateway key of a
-	// chat's pi (issue #204).
+	// CoordinatorToken is the name of the coordinator token pi's runs belong
+	// to, from HYPOMNEMA_COORDINATOR_TOKEN; the setup script makes it as
+	// pi-coordinator. Each pi is given a token of its own made under it,
+	// bound to its chat and Bot (issue #260): the Runs it creates are this
+	// token's.
 	CoordinatorToken string
 	// VaultKeys holds the vault's root keys, from HYPOMNEMA_VAULT_KEYS (a
 	// comma-separated list of id:base64 entries) and
@@ -296,7 +297,8 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	}
 
 	sup := coordinator.New(svc, coordinator.Config{
-		Command: cfg.CoordinatorCommand, Keys: chatKeys{gateway: gateway}, Logger: logger,
+		Command: cfg.CoordinatorCommand, Keys: chatKeys{gateway: gateway},
+		Tokens: botTokens{svc: svc, coordinator: cfg.CoordinatorToken}, Logger: logger,
 	})
 
 	// The Lark Channels (issues #136 and #169): their settings read each app's secret from the vault, and a
@@ -309,7 +311,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		}, logger).WithWebURL(cfg.PublicURL)
 	larkSettings = larkbot.NewService(svc, secrets, larkChannels, larkbot.Connect)
 
-	api := clientapi.New(svc, logger, ctx.Done()).WithCoordinator(sup).WithChatKeyReader(cfg.CoordinatorToken).
+	api := clientapi.New(svc, logger, ctx.Done()).WithCoordinator(sup).
 		WithAccounts(subscriptions).WithGatewayModels(gateway).
 		WithHostTokens(tokens).
 		WithMachines(machineMgr).WithTerminals(nodeTerminals(nodes)).

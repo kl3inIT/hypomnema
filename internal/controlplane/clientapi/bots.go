@@ -8,12 +8,13 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 )
 
-// Bots (issue #169). Every token reads them and changes a memory: pi, which
-// holds a coordinator's token, reads its Bot's persona when it starts and
-// writes its memory. Only the owner makes, changes and removes a Bot
-// (policy.go).
+// Bots (issue #169). Every token reads them and changes a memory: pi's
+// launcher reads its Bot's persona when it starts, and pi writes its memory.
+// A pi's own token (issue #260) reads and changes its own Bot only, so one
+// Bot never reads another's persona or memory. Only the owner makes, changes
+// and removes a Bot (policy.go).
 
-// ListBots returns every Bot.
+// ListBots returns every Bot; a pi's token is shown its own.
 func (s *Server) ListBots(ctx context.Context, _ openapi.ListBotsRequestObject,
 ) (openapi.ListBotsResponseObject, error) {
 	bots, err := s.svc.ListBots(ctx)
@@ -21,9 +22,13 @@ func (s *Server) ListBots(ctx context.Context, _ openapi.ListBotsRequestObject,
 		return nil, err
 	}
 
+	tok := principal(ctx)
+
 	out := openapi.ListBots200JSONResponse{Data: make([]openapi.Bot, 0, len(bots))}
 	for _, b := range bots {
-		out.Data = append(out.Data, toBot(b))
+		if botAllowed(tok, b.Name) == nil {
+			out.Data = append(out.Data, toBot(b))
+		}
 	}
 
 	return out, nil
@@ -31,6 +36,10 @@ func (s *Server) ListBots(ctx context.Context, _ openapi.ListBotsRequestObject,
 
 // GetBot returns a Bot.
 func (s *Server) GetBot(ctx context.Context, req openapi.GetBotRequestObject) (openapi.GetBotResponseObject, error) {
+	if err := botAllowed(principal(ctx), req.Name); err != nil {
+		return nil, err
+	}
+
 	b, err := s.svc.GetBot(ctx, req.Name)
 	if err != nil {
 		return nil, err
@@ -87,6 +96,10 @@ func (s *Server) DeleteBot(ctx context.Context, req openapi.DeleteBotRequestObje
 // ChangeBotMemory applies one change to a Bot's memory.
 func (s *Server) ChangeBotMemory(ctx context.Context, req openapi.ChangeBotMemoryRequestObject,
 ) (openapi.ChangeBotMemoryResponseObject, error) {
+	if err := botAllowed(principal(ctx), req.Name); err != nil {
+		return nil, err
+	}
+
 	b, err := s.svc.ChangeBotMemory(ctx, req.Name, orchestration.MemoryOp{
 		Kind: string(req.Body.Kind), Text: val(req.Body.Text), Match: val(req.Body.Match),
 	})

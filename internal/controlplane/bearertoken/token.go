@@ -31,10 +31,15 @@ const (
 	// Session is a Dispatch's own key to the agent API (issue #103): it asks
 	// for a token of an account its Run was given, and nothing else.
 	Session Kind = "session"
+	// Bot is the key of one pi process, a Bot's run in a chat (issue #260):
+	// what a coordinator token may do, limited to that chat and that Bot. It
+	// is made as pi starts and ends with it; it is never stored, so none
+	// outlives the control plane (OpenMausBot's broker token per process).
+	Bot Kind = "bot"
 )
 
 // Kinds lists every kind.
-var Kinds = []Kind{Owner, Coordinator, Gateway, Session}
+var Kinds = []Kind{Owner, Coordinator, Gateway, Session, Bot}
 
 // ClientKinds lists the kinds the client API accepts.
 var ClientKinds = []Kind{Owner, Coordinator}

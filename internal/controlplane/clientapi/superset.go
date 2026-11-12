@@ -62,14 +62,20 @@ func (s *Server) supersetCall(ctx context.Context, label string, chatID *string)
 		}
 
 		call.Caller = serviceproxy.Caller{Name: "owner token " + tok.ID}
-	case bearertoken.Coordinator:
+	case bearertoken.Coordinator, bearertoken.Bot:
 		if err != nil || !conn.Chats {
 			return serviceproxy.Call{}, fmt.Errorf("%w: this agent was not given %s", errForbidden,
 				orchestration.Use(serviceproxy.SupersetID, label))
 		}
 
-		call.Caller = serviceproxy.Caller{Name: "coordinator token " + tok.ID, Coordinator: true}
-		call.ChatID = val(chatID)
+		// A pi's token asks from its own chat, whatever chat the request names (issue #260).
+		chat, err := chatOf(tok, val(chatID))
+		if err != nil {
+			return serviceproxy.Call{}, err
+		}
+
+		call.Caller = serviceproxy.Caller{Name: callerName(tok), Coordinator: true, ChatID: tok.Chat}
+		call.ChatID = chat
 	default:
 		return serviceproxy.Call{}, fmt.Errorf("%w: only the owner and a coordinator may use a Superset connection",
 			errForbidden)

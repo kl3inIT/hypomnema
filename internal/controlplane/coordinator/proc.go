@@ -22,10 +22,9 @@ type proc struct {
 	cmd    *exec.Cmd
 	stdin  io.WriteCloser
 	done   chan struct{}
-	// keyID and key are the model gateway's key this pi asks for; empty when
-	// the supervisor makes none.
-	keyID string
-	key   string
+	// keys are the model gateway's key this pi asks for and its token; each
+	// is empty when the supervisor makes none.
+	keys gatewayKey
 
 	mu         sync.Mutex
 	working    bool
@@ -43,14 +42,18 @@ type response struct {
 	Data    json.RawMessage `json:"data"`
 }
 
-// gatewayKey is the model gateway's key made for one pi.
+// gatewayKey is what is made for one pi: the model gateway's key, and the
+// token it calls the control plane with (issue #260).
 type gatewayKey struct {
 	id     string
 	secret string
+	token  string
 }
 
 // start runs the configured command with the chat id and turns pi's own
-// retries off. The key is held with the process and ends with it.
+// retries off. The key and the token are held with the process and end with
+// it; the token is written first on its stdin, one line before pi's
+// commands, for the launcher to read.
 func start(ctx context.Context, s *Supervisor, chatID string, modelArgs []string, key gatewayKey) (*proc, error) {
 	argv := append(append(append([]string{}, s.cfg.Command...), chatID), modelArgs...)
 	//nolint:gosec // the owner's configured command
@@ -78,8 +81,17 @@ func start(ctx context.Context, s *Supervisor, chatID string, modelArgs []string
 
 	p := &proc{
 		s: s, chatID: chatID, cmd: cmd, stdin: stdin, done: make(chan struct{}), lastActive: time.Now(),
-		keyID: key.id, key: key.secret,
-		waiting: map[string]chan response{}, calls: map[string]json.RawMessage{},
+		keys: key, waiting: map[string]chan response{}, calls: map[string]json.RawMessage{},
+	}
+
+	if key.token != "" {
+		if _, err := io.WriteString(stdin, key.token+"\n"); err != nil {
+			_ = stdin.Close()
+			_ = cmd.Process.Kill()
+			_ = cmd.Wait()
+
+			return nil, fmt.Errorf("giving pi its token: %w", err)
+		}
 	}
 
 	go p.readStderr(stderr)
@@ -172,7 +184,7 @@ func (p *proc) read(ctx context.Context, stdout io.Reader) {
 
 		p.setWorking(false)
 		close(p.done)
-		p.s.revoke(ctx, p.chatID, p.keyID)
+		p.s.revoke(ctx, p.chatID, p.keys)
 		p.s.cfg.Logger.InfoContext(ctx, "pi exited", slog.String("event", "coordinator.exited"),
 			slog.String("chat_id", p.chatID), slog.String("stderr", p.stderrTail()))
 		p.s.settled()

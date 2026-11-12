@@ -24,12 +24,17 @@ type Service struct {
 	random func() float64
 	// notify wakes event readers after each commit.
 	notify *notifier
+	// botTokens are the keys of the pi processes running now (issue #260),
+	// kept in memory only.
+	botTokens *botTokens
 }
 
 // New returns a Service over an opened, migrated database. The clock and id
 // generator are passed in so tests control time and ids.
 func New(db *sql.DB, clock platform.Clock, newID func(prefix string) string, opts ...ServiceOption) *Service {
-	s := &Service{db: db, clock: clock, newID: newID, random: rand.Float64, notify: newNotifier()}
+	s := &Service{
+		db: db, clock: clock, newID: newID, random: rand.Float64, notify: newNotifier(), botTokens: newBotTokens(),
+	}
 	for _, o := range opts {
 		o(s)
 	}

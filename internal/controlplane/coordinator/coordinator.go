@@ -45,8 +45,25 @@ type Config struct {
 	IdleAfter time.Duration
 	// Keys makes the model gateway's key of a chat's pi; nil when pi reaches
 	// its model another way.
-	Keys   Keys
+	Keys Keys
+	// Tokens makes the token each pi calls the control plane with (issue
+	// #260); nil when pi is given none, as in tests that play pi.
+	Tokens Tokens
 	Logger *slog.Logger
+}
+
+// Tokens makes and ends the token of one pi process (issue #260): bound to
+// the chat and the Bot it runs as, so what pi asks the control plane is
+// limited to them, whatever its environment says. The launcher reads it as
+// the first line of its stdin, before pi's commands: a secret given on
+// stdin, never on a command line (`gh auth login --with-token`, `docker
+// login --password-stdin`), since sudo, which runs the launcher, passes no
+// environment.
+type Tokens interface {
+	// AddBotToken returns a new token's secret.
+	AddBotToken(ctx context.Context, chatID, bot string) (string, error)
+	// RevokeBotToken stops it from working.
+	RevokeBotToken(secret string)
 }
 
 // Keys makes and ends the key a chat's pi calls the model gateway with
@@ -106,11 +123,11 @@ func (s *Supervisor) Key(chatID string) (string, bool) {
 	p := s.procs[chatID]
 	s.mu.Unlock()
 
-	if p == nil || p.exited() || p.key == "" {
+	if p == nil || p.exited() || p.keys.secret == "" {
 		return "", false
 	}
 
-	return p.key, true
+	return p.keys.secret, true
 }
 
 // Run delivers what chats have for pi after every commit and every tick,
@@ -230,7 +247,7 @@ func (s *Supervisor) procFor(ctx context.Context, chatID string) (*proc, error) 
 		return p, nil
 	}
 
-	args, model, err := s.botArgs(ctx, chatID)
+	args, bot, model, err := s.botArgs(ctx, chatID)
 	if err != nil {
 		return nil, err
 	}
@@ -244,9 +261,18 @@ func (s *Supervisor) procFor(ctx context.Context, chatID string) (*proc, error) 
 		}
 	}
 
+	if s.cfg.Tokens != nil {
+		key.token, err = s.cfg.Tokens.AddBotToken(ctx, chatID, bot)
+		if err != nil {
+			s.revoke(ctx, chatID, key)
+
+			return nil, fmt.Errorf("making the token of chat %s's pi: %w", chatID, err)
+		}
+	}
+
 	p, err := start(ctx, s, chatID, args, key)
 	if err != nil {
-		s.revoke(ctx, chatID, key.id)
+		s.revoke(ctx, chatID, key)
 
 		return nil, fmt.Errorf("starting pi for chat %s: %w", chatID, err)
 	}
@@ -259,16 +285,17 @@ func (s *Supervisor) procFor(ctx context.Context, chatID string) (*proc, error) 
 // botArgs are the launcher's flags for the chat's Bot: its name, by which the
 // launcher finds its directory, persona and memory, and its model: the
 // provider (an id in pi's models.json), the model and the effort. The model
-// is returned too: the chat's gateway key is good for it.
-func (s *Supervisor) botArgs(ctx context.Context, chatID string) ([]string, string, error) {
+// is returned too: the chat's gateway key is good for it; and the Bot's name,
+// which pi's token is bound to.
+func (s *Supervisor) botArgs(ctx context.Context, chatID string) ([]string, string, string, error) {
 	chat, err := s.svc.GetChat(ctx, chatID)
 	if err != nil {
-		return nil, "", err
+		return nil, "", "", err
 	}
 
 	p, err := s.svc.GetBot(ctx, chat.Bot)
 	if err != nil {
-		return nil, "", fmt.Errorf("reading the bot of chat %s: %w", chatID, err)
+		return nil, "", "", fmt.Errorf("reading the bot of chat %s: %w", chatID, err)
 	}
 
 	args := []string{"--bot", p.Name}
@@ -285,20 +312,24 @@ func (s *Supervisor) botArgs(ctx context.Context, chatID string) ([]string, stri
 		args = append(args, "--thinking", p.Effort)
 	}
 
-	return args, p.Model, nil
+	return args, p.Name, p.Model, nil
 }
 
-// revoke ends a pi's gateway key. The pi is gone or never started, so the
-// caller's context may be over: the key is ended all the same.
-func (s *Supervisor) revoke(ctx context.Context, chatID, keyID string) {
-	if s.cfg.Keys == nil || keyID == "" {
+// revoke ends a pi's gateway key and its token. The pi is gone or never
+// started, so the caller's context may be over: both are ended all the same.
+func (s *Supervisor) revoke(ctx context.Context, chatID string, key gatewayKey) {
+	if s.cfg.Tokens != nil && key.token != "" {
+		s.cfg.Tokens.RevokeBotToken(key.token)
+	}
+
+	if s.cfg.Keys == nil || key.id == "" {
 		return
 	}
 
-	if err := s.cfg.Keys.RevokeKey(context.WithoutCancel(ctx), keyID); err != nil {
+	if err := s.cfg.Keys.RevokeKey(context.WithoutCancel(ctx), key.id); err != nil {
 		s.cfg.Logger.ErrorContext(ctx, "revoking pi's gateway key failed",
 			slog.String("event", "coordinator.key_revoke_failed"), slog.String("chat_id", chatID),
-			slog.String("key_id", keyID), slog.Any("error", err))
+			slog.String("key_id", key.id), slog.Any("error", err))
 	}
 }
 

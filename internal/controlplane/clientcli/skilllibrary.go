@@ -189,7 +189,8 @@ const digestFile = ".hypomnema-digest"
 // skillsSync puts the skills a Bot gets in a folder for pi's --skill: each
 // at its newest revision, fetched only when the folder holds another, and a
 // skill the Bot no longer gets taken out. The launcher runs it as pi starts
-// for a chat (deploy/coordinator/hypomnema-pi), with pi's own token.
+// for a chat (deploy/coordinator/hypomnema-pi), with the coordinator token,
+// before pi starts in its box.
 func skillsSync(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	bot, dir := str(fs, "bot"), str(fs, "dir")
 	if bot == "" || dir == "" {
