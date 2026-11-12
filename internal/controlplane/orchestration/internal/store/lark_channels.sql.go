@@ -48,6 +48,23 @@ func (q *Queries) DeleteLarkChannel(ctx context.Context, name string) (int64, er
 	return result.RowsAffected()
 }
 
+const deleteLarkChannelGroup = `-- name: DeleteLarkChannelGroup :execrows
+DELETE FROM lark_channel_groups WHERE channel = ?1 AND lark_chat_id = ?2
+`
+
+type DeleteLarkChannelGroupParams struct {
+	Channel    string
+	LarkChatID string
+}
+
+func (q *Queries) DeleteLarkChannelGroup(ctx context.Context, arg DeleteLarkChannelGroupParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, deleteLarkChannelGroup, arg.Channel, arg.LarkChatID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const deleteLarkChannelMessagesBefore = `-- name: DeleteLarkChannelMessagesBefore :exec
 DELETE FROM lark_channel_messages WHERE created_at < ?1
 `
@@ -145,6 +162,29 @@ func (q *Queries) GetLarkChannelChat(ctx context.Context, arg GetLarkChannelChat
 		&i.OpenID,
 		&i.ChatID,
 		&i.SentSeq,
+		&i.CreatedAt,
+	)
+	return i, err
+}
+
+const getLarkChannelGroup = `-- name: GetLarkChannelGroup :one
+SELECT channel, lark_chat_id, name, enabled, asked_at, created_at FROM lark_channel_groups WHERE channel = ?1 AND lark_chat_id = ?2
+`
+
+type GetLarkChannelGroupParams struct {
+	Channel    string
+	LarkChatID string
+}
+
+func (q *Queries) GetLarkChannelGroup(ctx context.Context, arg GetLarkChannelGroupParams) (LarkChannelGroup, error) {
+	row := q.db.QueryRowContext(ctx, getLarkChannelGroup, arg.Channel, arg.LarkChatID)
+	var i LarkChannelGroup
+	err := row.Scan(
+		&i.Channel,
+		&i.LarkChatID,
+		&i.Name,
+		&i.Enabled,
+		&i.AskedAt,
 		&i.CreatedAt,
 	)
 	return i, err
@@ -282,6 +322,17 @@ func (q *Queries) InsertLarkChannelQuestion(ctx context.Context, arg InsertLarkC
 	return err
 }
 
+const isLarkGroupChat = `-- name: IsLarkGroupChat :one
+SELECT lark_group FROM chats WHERE id = ?1
+`
+
+func (q *Queries) IsLarkGroupChat(ctx context.Context, chatID string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, isLarkGroupChat, chatID)
+	var lark_group int64
+	err := row.Scan(&lark_group)
+	return lark_group, err
+}
+
 const larkChannelOfRun = `-- name: LarkChannelOfRun :one
 SELECT c.channel FROM runs r JOIN lark_channel_chats c ON c.chat_id = r.chat_id WHERE r.id = ?1
 `
@@ -312,6 +363,41 @@ func (q *Queries) ListLarkChannelChats(ctx context.Context, channel string) ([]L
 			&i.OpenID,
 			&i.ChatID,
 			&i.SentSeq,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listLarkChannelGroups = `-- name: ListLarkChannelGroups :many
+SELECT channel, lark_chat_id, name, enabled, asked_at, created_at FROM lark_channel_groups WHERE channel = ?1
+ORDER BY asked_at IS NULL, asked_at DESC, name, lark_chat_id
+`
+
+func (q *Queries) ListLarkChannelGroups(ctx context.Context, channel string) ([]LarkChannelGroup, error) {
+	rows, err := q.db.QueryContext(ctx, listLarkChannelGroups, channel)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []LarkChannelGroup{}
+	for rows.Next() {
+		var i LarkChannelGroup
+		if err := rows.Scan(
+			&i.Channel,
+			&i.LarkChatID,
+			&i.Name,
+			&i.Enabled,
+			&i.AskedAt,
 			&i.CreatedAt,
 		); err != nil {
 			return nil, err
@@ -432,6 +518,15 @@ func (q *Queries) ListOpenLarkChannelQuestions(ctx context.Context, channel stri
 	return items, nil
 }
 
+const markLarkGroupChat = `-- name: MarkLarkGroupChat :exec
+UPDATE chats SET lark_group = 1 WHERE id = ?1
+`
+
+func (q *Queries) MarkLarkGroupChat(ctx context.Context, chatID string) error {
+	_, err := q.db.ExecContext(ctx, markLarkGroupChat, chatID)
+	return err
+}
+
 const resetLarkChannelChat = `-- name: ResetLarkChannelChat :execrows
 UPDATE lark_channel_chats SET chat_id = ?1, sent_seq = 0
 WHERE channel = ?2 AND lark_chat_id = ?3
@@ -465,6 +560,39 @@ func (q *Queries) SetLarkChannelChatSent(ctx context.Context, arg SetLarkChannel
 	return err
 }
 
+const setLarkChannelGroupAsked = `-- name: SetLarkChannelGroupAsked :exec
+UPDATE lark_channel_groups SET asked_at = ?1 WHERE channel = ?2 AND lark_chat_id = ?3
+`
+
+type SetLarkChannelGroupAskedParams struct {
+	Now        sql.NullInt64
+	Channel    string
+	LarkChatID string
+}
+
+func (q *Queries) SetLarkChannelGroupAsked(ctx context.Context, arg SetLarkChannelGroupAskedParams) error {
+	_, err := q.db.ExecContext(ctx, setLarkChannelGroupAsked, arg.Now, arg.Channel, arg.LarkChatID)
+	return err
+}
+
+const setLarkChannelGroupEnabled = `-- name: SetLarkChannelGroupEnabled :execrows
+UPDATE lark_channel_groups SET enabled = ?1 WHERE channel = ?2 AND lark_chat_id = ?3
+`
+
+type SetLarkChannelGroupEnabledParams struct {
+	Enabled    int64
+	Channel    string
+	LarkChatID string
+}
+
+func (q *Queries) SetLarkChannelGroupEnabled(ctx context.Context, arg SetLarkChannelGroupEnabledParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setLarkChannelGroupEnabled, arg.Enabled, arg.Channel, arg.LarkChatID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const upsertLarkChannel = `-- name: UpsertLarkChannel :exec
 INSERT INTO lark_channels (name, app_id, secret, bot, mode, owner_open_id, enabled, created_at, updated_at)
 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)
@@ -493,6 +621,30 @@ func (q *Queries) UpsertLarkChannel(ctx context.Context, arg UpsertLarkChannelPa
 		arg.Mode,
 		arg.OwnerOpenID,
 		arg.Enabled,
+		arg.Now,
+	)
+	return err
+}
+
+const upsertLarkChannelGroup = `-- name: UpsertLarkChannelGroup :exec
+INSERT INTO lark_channel_groups (channel, lark_chat_id, name, enabled, created_at)
+VALUES (?1, ?2, ?3, 0, ?4)
+ON CONFLICT (channel, lark_chat_id) DO UPDATE SET
+    name = CASE WHEN excluded.name <> '' THEN excluded.name ELSE lark_channel_groups.name END
+`
+
+type UpsertLarkChannelGroupParams struct {
+	Channel    string
+	LarkChatID string
+	Name       string
+	Now        int64
+}
+
+func (q *Queries) UpsertLarkChannelGroup(ctx context.Context, arg UpsertLarkChannelGroupParams) error {
+	_, err := q.db.ExecContext(ctx, upsertLarkChannelGroup,
+		arg.Channel,
+		arg.LarkChatID,
+		arg.Name,
 		arg.Now,
 	)
 	return err

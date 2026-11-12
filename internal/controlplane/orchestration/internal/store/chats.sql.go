@@ -143,7 +143,7 @@ func (q *Queries) CountChatsOfBot(ctx context.Context, bot string) (int64, error
 }
 
 const getChat = `-- name: GetChat :one
-SELECT id, title, created_at, updated_at, bot FROM chats WHERE id = ?1
+SELECT id, title, created_at, updated_at, bot, lark_group FROM chats WHERE id = ?1
 `
 
 func (q *Queries) GetChat(ctx context.Context, id string) (Chat, error) {
@@ -155,6 +155,7 @@ func (q *Queries) GetChat(ctx context.Context, id string) (Chat, error) {
 		&i.CreatedAt,
 		&i.UpdatedAt,
 		&i.Bot,
+		&i.LarkGroup,
 	)
 	return i, err
 }
@@ -274,7 +275,7 @@ func (q *Queries) ListChatMessages(ctx context.Context, arg ListChatMessagesPara
 }
 
 const listChats = `-- name: ListChats :many
-SELECT id, title, created_at, updated_at, bot FROM chats ORDER BY updated_at DESC, id LIMIT ?1
+SELECT id, title, created_at, updated_at, bot, lark_group FROM chats ORDER BY updated_at DESC, id LIMIT ?1
 `
 
 func (q *Queries) ListChats(ctx context.Context, lim int64) ([]Chat, error) {
@@ -292,6 +293,7 @@ func (q *Queries) ListChats(ctx context.Context, lim int64) ([]Chat, error) {
 			&i.CreatedAt,
 			&i.UpdatedAt,
 			&i.Bot,
+			&i.LarkGroup,
 		); err != nil {
 			return nil, err
 		}

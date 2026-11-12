@@ -61,9 +61,10 @@ type lark struct {
 	mu sync.Mutex
 	// owner is the owner's open_id in this app.
 	owner string
-	// take and press are the Channel's handlers, once it listens.
-	take  func(larkbot.Message)
-	press func(larkbot.Press) string
+	// on are the Channel's handlers, once it listens.
+	on larkbot.Events
+	// groups are the groups the bot is in, as Lark lists them.
+	groups []larkbot.Group
 	// asked are the cards sent to a person, by card id, as they are now.
 	asked map[string]larkbot.Card
 	// marks are the emoji on each message, in the order they were put.
@@ -90,7 +91,7 @@ func newLark(owner, linh string) *lark {
 	}
 }
 
-func (l *lark) Listen(_ context.Context, take func(larkbot.Message), press func(larkbot.Press) string) error {
+func (l *lark) Listen(_ context.Context, on larkbot.Events) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
@@ -98,9 +99,21 @@ func (l *lark) Listen(_ context.Context, take func(larkbot.Message), press func(
 		return l.refuse
 	}
 
-	l.take, l.press = take, press
+	l.on = on
 
 	return nil
+}
+
+// botID is the bot's own open_id in every app of these tests.
+const botID = "ou_the_bot"
+
+func (l *lark) BotOpenID(context.Context) (string, error) { return botID, nil }
+
+func (l *lark) Groups(context.Context) ([]larkbot.Group, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	return append([]larkbot.Group(nil), l.groups...), nil
 }
 
 func (l *lark) SendCard(_ context.Context, openID string, c larkbot.Card) (cardID, messageID string, err error) {
@@ -140,7 +153,7 @@ func (l *lark) askedCard(id string) (larkbot.Card, bool) {
 // pressed is a person pressing a button; it returns what they are told.
 func (l *lark) pressed(operator string, b larkbot.Button) string {
 	l.mu.Lock()
-	press := l.press
+	press := l.on.Press
 	l.mu.Unlock()
 
 	return press(larkbot.Press{Operator: operator, Value: b.Value})
@@ -271,7 +284,7 @@ func (l *lark) noticed() []string {
 // say is a person writing to the app.
 func (l *lark) say(m larkbot.Message) {
 	l.mu.Lock()
-	take := l.take
+	take := l.on.Message
 	l.mu.Unlock()
 
 	take(m)
@@ -429,9 +442,29 @@ func (a *asking) AnswerQuestion(_ context.Context, id string, by orchestration.A
 	return q, nil
 }
 
+// later is the wall clock moved on by what a test says has passed.
+type later struct {
+	mu sync.Mutex
+	by time.Duration
+}
+
+func (l *later) Now() time.Time {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	return time.Now().Add(l.by)
+}
+
+func (l *later) pass(d time.Duration) {
+	l.mu.Lock()
+	l.by += d
+	l.mu.Unlock()
+}
+
 type world struct {
-	t    *testing.T
-	path string
+	t     *testing.T
+	path  string
+	clock *later
 	// web is the web client's address the Channels are given, when they are
 	// given one.
 	web   string
@@ -464,10 +497,10 @@ func newWorld(t *testing.T) *world {
 	require.NoError(t, err)
 
 	w := &world{
-		t: t, path: path, lark: newLark(ownerID, linhID), larkMaps: newLark(mapsOwner, mapsLinh),
+		t: t, path: path, clock: &later{}, lark: newLark(ownerID, linhID), larkMaps: newLark(mapsOwner, mapsLinh),
 		pi: &pi{watchers: map[string][]chan coordinator.Frame{}, working: map[string]bool{}},
 	}
-	w.orch = orchestration.New(db, platform.SystemClock{}, platform.NewID)
+	w.orch = orchestration.New(db, w.clock, platform.NewID)
 	w.asks = &asking{Service: w.orch, questions: map[string]orchestration.Question{}}
 	// Any commit wakes the Channels; a chat that is made and never used is one.
 	w.asks.changed = func() { _, _ = w.orch.CreateChat(context.Background(), "", "wake") }
@@ -500,7 +533,7 @@ func (w *world) start() {
 
 	w.channels = larkbot.New(w.asks, w.pi,
 		func(ctx context.Context, c orchestration.LarkChannel) (larkbot.Lark, error) { return svc.Open(ctx, c) },
-		logger).WithWebURL(w.web)
+		logger).WithWebURL(w.web).WithClock(w.clock)
 	w.running = false
 	svc = larkbot.NewService(w.asks, w.vault, w.channels, connect)
 	w.svc = svc
@@ -1265,4 +1298,251 @@ func TestAQuestionReachesTheOwnerThroughTheChannelItsRunCameFrom(t *testing.T) {
 		return ok && c.Text == "Publish them?"
 	}, eventual, tick)
 	assert.Equal(t, 1, w.lark.askedCount(), "a Channel that is off sends nothing")
+}
+
+const team = "oc_maps_team"
+
+// mentionOfBot is how Lark writes a mention of the bot in a message's text.
+var mentionOfBot = larkbot.Mention{Key: "@_user_1", OpenID: botID, Name: "Hypomnema"}
+
+// inGroup is a person writing in the group team, from the app's organization.
+func inGroup(id, sender, text string, mentions ...larkbot.Mention) larkbot.Message {
+	m := direct(id, team, sender, text)
+	m.Direct, m.Mentions = false, mentions
+
+	return m
+}
+
+// groups are the Channel main's groups as the owner sees them, as "chat
+// (name): on|off".
+func (w *world) groups() []string {
+	w.t.Helper()
+
+	st, err := w.svc.Status(w.t.Context(), main)
+	require.NoError(w.t, err)
+
+	out := make([]string, 0, len(st.Groups))
+
+	for _, g := range st.Groups {
+		state := "off"
+		if g.Enabled {
+			state = "on"
+		}
+
+		out = append(out, fmt.Sprintf("%s (%s): %s", g.ChatID, g.Name, state))
+	}
+
+	return out
+}
+
+// quiet waits a little and says nothing new reached Lark or a chat.
+func (w *world) quiet(notices, chats int) {
+	w.t.Helper()
+
+	time.Sleep(200 * time.Millisecond)
+	assert.Len(w.t, w.lark.noticed(), notices, "nothing is said")
+	assert.Len(w.t, w.larkChats(), chats, "no chat is started")
+}
+
+// Scenario: the bot of the Channel main is in a group (issue #246). The
+// group is listed when the Channel connects, off. While it is off, the bot
+// says nothing there, even to the owner. Once the owner switches it on, a
+// message that mentions the bot is a message of the group's one chat with
+// the coordinator, opened with the sender's name; a message that does not
+// mention it, or mentions everyone, is left alone and not recorded. The
+// answer quotes the question in the group, with no link to the web client.
+// The group's chat is a group's, so the Bot's memory stays out of it.
+func TestTheBotAnswersInAGroupTheOwnerSwitchedOn(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	w.web = "https://hyp.example/"
+	w.start()
+	w.lark.groups = []larkbot.Group{{ChatID: team, Name: "Maps team"}}
+	w.lark.names[ownerID] = "Đạt [admin]" + string(rune(7)) + string(rune(10))
+	w.setUp(orchestration.LarkChannelOwner)
+
+	require.Eventually(t, func() bool { return len(w.groups()) == 1 }, eventual, tick)
+	assert.Equal(t, []string{team + " (Maps team): off"}, w.groups())
+
+	w.lark.say(inGroup("om_1", ownerID, "@_user_1 what is new?", mentionOfBot))
+	w.quiet(0, 0)
+
+	g, err := w.svc.SetGroup(t.Context(), main, team, true)
+	require.NoError(t, err)
+	assert.True(t, g.Enabled)
+
+	w.lark.say(inGroup("om_2", ownerID, "lunch at noon"))
+	w.lark.say(inGroup("om_3", ownerID, "@_all hello everyone", larkbot.Mention{Key: "@_all", Name: "all"}))
+	w.quiet(0, 0)
+
+	w.lark.say(inGroup("om_4", ownerID, "@_user_1 what did @_user_10 ship?", mentionOfBot,
+		larkbot.Mention{Key: "@_user_10", OpenID: linhID, Name: "Linh"}))
+	chat := w.chatOf(team)
+	require.Eventually(t, func() bool { return len(w.texts(chat)) == 1 }, eventual, tick)
+	assert.Equal(t, []string{"owner: [Đạt admin]: what did @Linh ship?"}, w.texts(chat),
+		"the bot's mention is taken out, another's is named, and the name is a plain label")
+
+	group, err := w.orch.IsLarkGroupChat(t.Context(), chat)
+	require.NoError(t, err)
+	assert.True(t, group, "the coordinator starts without its memory in a group's chat")
+
+	w.answer(chat, "The map tiles.")
+	require.Eventually(t, func() bool { return w.lark.cardAt(0).closed }, eventual, tick)
+	assert.Equal(t, card{chat: team, text: "The map tiles.", replyTo: "om_4", closed: true}, w.lark.cardAt(0),
+		"the answer quotes the question and has no link to the web client")
+
+	st, err := w.svc.Status(t.Context(), main)
+	require.NoError(t, err)
+	require.NotNil(t, st.Groups[0].AskedAt, "the owner sees when the group last asked")
+	assert.Empty(t, w.lark.noticed())
+}
+
+// Scenario: in a group, the Channel's own choice of who may ask is applied
+// to each sender who mentions the bot, and a sender it refuses gets no reply
+// and starts nothing. With everyone, every member of the group may ask, one
+// of another organization too. /new needs the mention, and starts the
+// group's one chat over for everyone; four idle hours do the same.
+func TestWhoMayAskInAGroupIsTheChannelsChoice(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	w.lark.groups = []larkbot.Group{{ChatID: team, Name: "Maps team"}}
+	w.setUp(orchestration.LarkChannelOwner)
+	require.Eventually(t, func() bool { return len(w.groups()) == 1 }, eventual, tick)
+
+	_, err := w.svc.SetGroup(t.Context(), main, team, true)
+	require.NoError(t, err)
+
+	w.lark.say(inGroup("om_1", linhID, "@_user_1 deploy it", mentionOfBot))
+	w.quiet(0, 0)
+
+	_, err = w.svc.Set(t.Context(), main, larkbot.Settings{Mode: orchestration.LarkChannelAllowlist})
+	require.NoError(t, err)
+	w.lark.say(inGroup("om_2", linhID, "@_user_1 deploy it", mentionOfBot))
+	w.quiet(0, 0)
+
+	_, err = w.svc.AddPerson(t.Context(), main, "linh@example.com")
+	require.NoError(t, err)
+	w.lark.say(inGroup("om_3", linhID, "@_user_1 deploy it", mentionOfBot))
+
+	first := w.chatOf(team)
+	require.Eventually(t, func() bool { return len(w.texts(first)) == 1 }, eventual, tick)
+	assert.Equal(t, []string{"owner: [Linh]: deploy it"}, w.texts(first))
+
+	_, err = w.svc.Set(t.Context(), main, larkbot.Settings{Mode: orchestration.LarkChannelEveryone})
+	require.NoError(t, err)
+
+	guest := inGroup("om_4", "ou_guest", "@_user_1 and the docs?", mentionOfBot)
+	guest.SenderOrg = "another-tenant"
+	w.lark.say(guest)
+	require.Eventually(t, func() bool { return len(w.texts(first)) == 2 }, eventual, tick)
+	assert.Equal(t, "owner: [ou_guest]: and the docs?", w.texts(first)[1], "a guest of the group may ask too")
+
+	w.lark.say(inGroup("om_5", linhID, "/new"))
+	w.quiet(0, 1)
+
+	w.lark.say(inGroup("om_6", linhID, "@_user_1 /new", mentionOfBot))
+	require.Eventually(t, func() bool { return len(w.lark.noticed()) == 1 }, eventual, tick)
+	assert.Equal(t, team+": A new conversation has started.", w.lark.noticed()[0])
+
+	w.lark.say(inGroup("om_7", ownerID, "@_user_1 status?", mentionOfBot))
+
+	var second string
+
+	require.Eventually(t, func() bool {
+		second = w.chatOf(team)
+
+		return second != first && len(w.texts(second)) == 1
+	}, eventual, tick)
+
+	stillGroup, err := w.orch.IsLarkGroupChat(t.Context(), first)
+	require.NoError(t, err)
+	assert.True(t, stillGroup, "a chat the group left behind still starts without the memory")
+
+	// Two members ask at once after four idle hours: both questions are in the one new chat.
+	w.clock.pass(5 * time.Hour)
+	w.lark.say(inGroup("om_8", ownerID, "@_user_1 good morning", mentionOfBot))
+	w.lark.say(inGroup("om_9", linhID, "@_user_1 morning", mentionOfBot))
+
+	var third string
+
+	require.Eventually(t, func() bool {
+		third = w.chatOf(team)
+
+		return third != second && len(w.texts(third)) == 2
+	}, eventual, tick, "a group's conversation idle for four hours is over")
+	assert.Len(t, w.texts(second), 1)
+
+	time.Sleep(200 * time.Millisecond)
+	assert.Equal(t, third, w.chatOf(team), "the second question did not start yet another chat")
+	assert.Len(t, w.texts(third), 2)
+}
+
+// Scenario: the roster follows Lark. A group the bot is added to is listed at
+// once, off; a group it leaves is gone; and a group Lark's list no longer
+// holds, read when the Channel connects, is removed. A group the bot is
+// mentioned in before any listing is put on the list, off.
+func TestAChannelsGroupsFollowLark(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	w.lark.groups = []larkbot.Group{{ChatID: team, Name: "Maps team"}, {ChatID: "oc_ops", Name: "Ops"}}
+	w.setUp(orchestration.LarkChannelOwner)
+	require.Eventually(t, func() bool { return len(w.groups()) == 2 }, eventual, tick)
+
+	w.lark.mu.Lock()
+	on := w.lark.on
+	w.lark.mu.Unlock()
+
+	on.Joined(larkbot.Group{ChatID: "oc_new", Name: "New"})
+	require.Eventually(t, func() bool { return len(w.groups()) == 3 }, eventual, tick)
+
+	on.Left("oc_ops")
+	require.Eventually(t, func() bool { return len(w.groups()) == 2 }, eventual, tick)
+	assert.ElementsMatch(t, []string{team + " (Maps team): off", "oc_new (New): off"}, w.groups())
+
+	w.lark.say(larkbot.Message{
+		ID: "om_1", ChatID: "oc_unlisted", Text: "@_user_1 hi", IsText: true, Sender: ownerID, FromPerson: true,
+		SenderOrg: org, Org: org, Mentions: []larkbot.Mention{mentionOfBot},
+	})
+	require.Eventually(t, func() bool { return len(w.groups()) == 3 }, eventual, tick)
+	assert.Contains(t, w.groups(), "oc_unlisted (): off")
+	assert.Empty(t, w.larkChats(), "a group that is off is not answered")
+
+	w.lark.mu.Lock()
+	w.lark.groups = []larkbot.Group{{ChatID: team, Name: "Maps team, renamed"}}
+	w.lark.mu.Unlock()
+
+	w.clock.pass(time.Minute)
+	w.start()
+	w.run(main)
+	require.Eventually(t, func() bool { return len(w.groups()) == 1 }, eventual, tick)
+	assert.Equal(t, []string{team + " (Maps team, renamed): off"}, w.groups())
+
+	// The bot leaves a group it talked in and is added again: the group starts as one never seen, off, and its
+	// first question starts a new conversation.
+	_, err := w.svc.SetGroup(t.Context(), main, team, true)
+	require.NoError(t, err)
+	w.lark.say(inGroup("om_2", ownerID, "@_user_1 hello", mentionOfBot))
+	before := w.chatOf(team)
+
+	w.lark.mu.Lock()
+	on = w.lark.on
+	w.lark.mu.Unlock()
+
+	on.Left(team)
+	require.Eventually(t, func() bool { return len(w.groups()) == 0 }, eventual, tick)
+	on.Joined(larkbot.Group{ChatID: team, Name: "Maps team"})
+	require.Eventually(t, func() bool { return len(w.groups()) == 1 }, eventual, tick)
+	assert.Equal(t, []string{team + " (Maps team): off"}, w.groups())
+
+	_, err = w.svc.SetGroup(t.Context(), main, team, true)
+	require.NoError(t, err)
+	w.lark.say(inGroup("om_3", ownerID, "@_user_1 back again", mentionOfBot))
+	require.Eventually(t, func() bool {
+		after := w.chatOf(team)
+
+		return after != before && len(w.texts(after)) == 1
+	}, eventual, tick)
 }

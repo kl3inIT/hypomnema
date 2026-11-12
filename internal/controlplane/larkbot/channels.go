@@ -2,8 +2,10 @@
 // a door to one Bot: a Lark app and who may talk through it. A person's
 // direct message to the app at Lark becomes a message of a chat with the
 // Channel's Bot, and what the Bot says in that chat is sent back as a card
-// that fills as the text is written. Each Channel has its own connection to
-// Lark; several Channels may talk to one Bot (OpenClaw's bindings).
+// that fills as the text is written. In a Lark group the owner switched on,
+// a message that mentions the bot is a message of the group's one chat with
+// the Bot (issue #246). Each Channel has its own connection to Lark; several
+// Channels may talk to one Bot (OpenClaw's bindings).
 //
 // It follows the Feishu channels of OpenClaw (extensions/feishu) and Hermes
 // (plugins/platforms/feishu) and the owner's MemoryOS (mem-246-lark-bot):
@@ -19,12 +21,15 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/coordinator"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 )
 
 // Message is a message a person sent, as a Channel needs it.
@@ -47,6 +52,33 @@ type Message struct {
 	Org       string
 	// ReplyTo is the message this one replies to, when it is a reply.
 	ReplyTo string
+	// Mentions are the people and bots the message mentions; Text holds each
+	// as its Key.
+	Mentions []Mention
+}
+
+// Mention is one mention in a message: the placeholder Lark writes for it in
+// the text, and who it names. A mention of everyone (@all) names nobody.
+type Mention struct {
+	Key    string
+	OpenID string
+	Name   string
+}
+
+// Group is a Lark group the Channel's bot is in.
+type Group struct {
+	ChatID string
+	Name   string
+}
+
+// Events are what a Channel is given from its connection: each message, each
+// press of a card's button, whose answer is shown to who pressed, and the bot
+// being added to a group or leaving one.
+type Events struct {
+	Message func(Message)
+	Press   func(Press) string
+	Joined  func(Group)
+	Left    func(chatID string)
 }
 
 // Press is a person pressing a button of a card.
@@ -81,11 +113,14 @@ type Button struct {
 // Lark is what a Channel does at Lark as its app. The SDK is behind it
 // (lark.go).
 type Lark interface {
-	// Listen opens the persistent connection and gives each message to take
-	// and each press of a card's button to press, whose answer is shown to
-	// who pressed. It returns when the connection cannot be opened; an open
+	// Listen opens the persistent connection and gives what comes over it to
+	// on. It returns when the connection cannot be opened; an open
 	// connection stays for the life of the process.
-	Listen(ctx context.Context, take func(Message), press func(Press) string) error
+	Listen(ctx context.Context, on Events) error
+	// BotOpenID reads the bot's own open_id, which a mention of it carries.
+	BotOpenID(ctx context.Context) (string, error)
+	// Groups lists the groups the bot is in, the whole list or an error.
+	Groups(ctx context.Context) ([]Group, error)
 	// SendCard sends a card to a person and returns its id and its message's.
 	SendCard(ctx context.Context, openID string, card Card) (cardID, messageID string, err error)
 	// ReplaceCard replaces a card sent with SendCard; seq rises with each call.
@@ -118,7 +153,14 @@ type Store interface {
 	ForgetLarkMessagesBefore(ctx context.Context, before time.Time) error
 	LarkChannelChatFor(ctx context.Context, channel, larkChatID, openID, title string,
 	) (orchestration.LarkChannelChat, error)
+	LarkGroupChatFor(ctx context.Context, channel, larkChatID, title string) (orchestration.LarkChannelChat, error)
 	LarkChannelChats(ctx context.Context, channel string) ([]orchestration.LarkChannelChat, error)
+	LarkChannelGroup(ctx context.Context, channel, chatID string) (orchestration.LarkChannelGroup, error)
+	JoinLarkChannelGroup(ctx context.Context, channel, chatID, name string) error
+	LeaveLarkChannelGroup(ctx context.Context, channel, chatID string) error
+	ListedLarkChannelGroups(ctx context.Context, channel string, listed []orchestration.LarkChannelGroup,
+		readAt time.Time) ([]string, error)
+	AskedInLarkChannelGroup(ctx context.Context, channel, chatID string) error
 	ResetLarkChannelChat(ctx context.Context, channel, larkChatID, title string) (orchestration.LarkChannelChat, error)
 	MarkLarkChannelSent(ctx context.Context, larkChatID string, seq int64) error
 	ListQuestions(ctx context.Context, f orchestration.QuestionFilter) ([]orchestration.Question, error)
@@ -198,6 +240,16 @@ const (
 	// could not connect.
 	retryEvery  = 30 * time.Second
 	sendTimeout = 30 * time.Second
+	// listEvery is how often a Channel reads Lark's whole list of its bot's
+	// groups, besides when it connects (MemoryOS, ChannelSupervisor.LISTING).
+	listEvery = 10 * time.Minute
+	// groupIdle is how long a group's conversation waits for a question
+	// before the next one starts a new one (MemoryOS,
+	// ChannelProperties.groupConversationIdle).
+	groupIdle = 4 * time.Hour
+	// speakerLength is the most characters of the name that labels a
+	// sender's message (MemoryOS, ChannelInboundService.ASKER_LENGTH).
+	speakerLength = 64
 )
 
 // Channels runs the Lark Channels: one connection to Lark for each.
@@ -231,12 +283,24 @@ type conn struct {
 
 	mu     sync.Mutex
 	relays map[string]*relay
+	// botID is the bot's own open_id, read once it is first needed.
+	botID string
+	// turns let one message of each Lark group at a time choose its chat.
+	turns map[string]*sync.Mutex
 }
 
 // WithWebURL sets the web client's address; a reply then ends with a link to
 // its chat there (MemoryOS's "Continue in MemoryOS", after Dust).
 func (c *Channels) WithWebURL(url string) *Channels {
 	c.webURL = strings.TrimSuffix(url, "/")
+
+	return c
+}
+
+// WithClock sets the clock that decides when a group's conversation is over;
+// the wall clock by default.
+func (c *Channels) WithClock(clock platform.Clock) *Channels {
+	c.now = clock.Now
 
 	return c
 }
@@ -345,12 +409,17 @@ func (c *Channels) connect(ctx context.Context) {
 
 // start opens one Channel's connection.
 func (c *Channels) start(ctx context.Context, ch orchestration.LarkChannel) {
-	cn := &conn{all: c, name: ch.Name, appID: ch.AppID, relays: map[string]*relay{}}
+	cn := &conn{all: c, name: ch.Name, appID: ch.AppID, relays: map[string]*relay{}, turns: map[string]*sync.Mutex{}}
 
 	lark, err := c.open(ctx, ch)
 	if err == nil {
 		cn.lark = lark
-		err = lark.Listen(ctx, func(m Message) { cn.take(ctx, m) }, func(p Press) string { return cn.press(ctx, p) })
+		err = lark.Listen(ctx, Events{
+			Message: func(m Message) { cn.take(ctx, m) },
+			Press:   func(p Press) string { return cn.press(ctx, p) },
+			Joined:  func(g Group) { go cn.joined(ctx, g) },
+			Left:    func(chatID string) { go cn.left(ctx, chatID) },
+		})
 	}
 
 	c.mu.Lock()
@@ -385,6 +454,81 @@ func (c *Channels) start(ctx context.Context, ch orchestration.LarkChannel) {
 	cn.mu.Unlock()
 
 	go cn.questions(ctx)
+	go cn.roster(ctx)
+}
+
+// roster keeps the Channel's groups: Lark's whole list of the bot's groups
+// is read when the Channel connects and every ten minutes after, which adds
+// the groups the bot was added to unseen and removes those it left
+// (MemoryOS, ChannelGroupRoster.listed). It is the only way to know the
+// groups for an app that does not subscribe the bot's added and deleted
+// events.
+func (cn *conn) roster(ctx context.Context) {
+	every := time.NewTicker(listEvery)
+	defer every.Stop()
+
+	for {
+		cn.list(ctx)
+
+		select {
+		case <-ctx.Done():
+			return
+		case <-every.C:
+		}
+	}
+}
+
+func (cn *conn) list(ctx context.Context) {
+	readAt := cn.all.now()
+
+	listCtx, cancel := context.WithTimeout(ctx, 5*sendTimeout)
+	groups, err := cn.lark.Groups(listCtx)
+
+	cancel()
+
+	if err != nil {
+		if ctx.Err() == nil {
+			cn.all.logger.WarnContext(ctx, "a Lark channel's groups were not listed",
+				slog.String("event", "larkbot.groups_failed"), slog.String("channel", cn.name), slog.Any("error", err))
+		}
+
+		return
+	}
+
+	listed := make([]orchestration.LarkChannelGroup, 0, len(groups))
+	for _, g := range groups {
+		listed = append(listed, orchestration.LarkChannelGroup{ChatID: g.ChatID, Name: g.Name})
+	}
+
+	left, err := cn.all.store.ListedLarkChannelGroups(ctx, cn.name, listed, readAt)
+	if err != nil {
+		cn.all.logger.WarnContext(ctx, "a Lark channel's groups were not recorded",
+			slog.String("event", "larkbot.groups_failed"), slog.String("channel", cn.name), slog.Any("error", err))
+
+		return
+	}
+
+	if len(left) > 0 {
+		cn.all.logger.InfoContext(ctx, "a Lark channel's bot is no longer in groups",
+			slog.String("event", "larkbot.groups_left"), slog.String("channel", cn.name), slog.Int("count", len(left)))
+	}
+}
+
+// joined records a group the bot was added to; it is off until the owner
+// switches it on, and the bot says nothing there (no greeting on join).
+func (cn *conn) joined(ctx context.Context, g Group) {
+	if err := cn.all.store.JoinLarkChannelGroup(ctx, cn.name, g.ChatID, g.Name); err != nil {
+		cn.all.logger.WarnContext(ctx, "a Lark group was not recorded", slog.String("event", "larkbot.group_failed"),
+			slog.String("channel", cn.name), slog.Any("error", err))
+	}
+}
+
+// left forgets a group the bot left.
+func (cn *conn) left(ctx context.Context, chatID string) {
+	if err := cn.all.store.LeaveLarkChannelGroup(ctx, cn.name, chatID); err != nil {
+		cn.all.logger.WarnContext(ctx, "a Lark group was not forgotten", slog.String("event", "larkbot.group_failed"),
+			slog.String("channel", cn.name), slog.Any("error", err))
+	}
 }
 
 // take handles one message from Lark. It is called from the connection, which
@@ -409,10 +553,13 @@ func (cn *conn) taken(ctx context.Context, m Message) error {
 		return nil //nolint:nilerr // A Channel that was switched off or removed takes nothing and says nothing.
 	}
 
-	// Only what a person wrote to the app directly: a group is not served yet, and another app's message is
-	// never an instruction.
-	if !m.FromPerson || !m.Direct || m.ID == "" || m.ChatID == "" {
+	// Only what a person wrote: another app's message is never an instruction.
+	if !m.FromPerson || m.ID == "" || m.ChatID == "" {
 		return nil
+	}
+
+	if !m.Direct {
+		return cn.inGroup(ctx, ch, m)
 	}
 
 	first, err := store.TakeLarkMessage(ctx, cn.name, m.ID)
@@ -445,7 +592,7 @@ func (cn *conn) taken(ctx context.Context, m Message) error {
 
 	switch strings.ToLower(strings.TrimSpace(m.Text)) {
 	case commandNew:
-		return cn.startOver(ctx, m)
+		return cn.startOver(ctx, m, "")
 	case commandStop:
 		return cn.stop(ctx, m)
 	}
@@ -464,6 +611,193 @@ func (cn *conn) taken(ctx context.Context, m Message) error {
 	if err != nil {
 		return err
 	}
+
+	return cn.deliver(ctx, m, chat, text)
+}
+
+// inGroup handles a message in a group (issue #246). It is served only when
+// the owner switched the group on (OpenClaw's groupPolicy allowlist), the
+// message mentions the bot, @all being no mention (OpenClaw, MemoryOS), and
+// the Channel's mode lets its sender ask, applied to each sender (Hermes,
+// OpenClaw's groupSenderAllowFrom). Anything else is dropped without a word
+// and is not recorded (Hermes, MemoryOS). A command needs the mention too
+// (OpenClaw).
+func (cn *conn) inGroup(ctx context.Context, ch orchestration.LarkChannel, m Message) error {
+	store := cn.all.store
+
+	text, mentioned, err := cn.addressed(ctx, m)
+	if err != nil || !mentioned {
+		return err
+	}
+
+	g, err := store.LarkChannelGroup(ctx, cn.name, m.ChatID)
+	if errors.Is(err, orchestration.ErrNotFound) {
+		// A group the roster does not hold yet, as the bot was added since the last listing: it is put on the
+		// owner's list, off, as MemoryOS lists a group that is not allowed when it is asked there.
+		return store.JoinLarkChannelGroup(ctx, cn.name, m.ChatID, "")
+	}
+
+	if err != nil || !g.Enabled {
+		return err
+	}
+
+	if refusal := cn.refusalOf(ctx, ch, m.Sender); refusal != "" {
+		cn.all.logger.InfoContext(ctx, "a Lark group message was refused", slog.String("event", "larkbot.refused"),
+			slog.String("channel", cn.name), slog.String("sender", m.Sender), slog.String("reason", refusal))
+
+		return nil
+	}
+
+	first, err := store.TakeLarkMessage(ctx, cn.name, m.ID)
+	if err != nil || !first {
+		return err
+	}
+
+	if !m.IsText {
+		cn.notice(ctx, m.ChatID, noticeTextOnly)
+
+		return nil
+	}
+
+	// Mentioning the bot with nothing to ask says nothing to answer (MemoryOS).
+	if strings.TrimSpace(text) == "" {
+		return nil
+	}
+
+	title := "Lark: " + g.ChatID
+	if g.Name != "" {
+		title = "Lark: " + g.Name
+	}
+
+	if strings.ToLower(strings.TrimSpace(text)) == commandStop {
+		return cn.stop(ctx, m)
+	}
+
+	// Which chat a group's message goes to, and whether that one is over, is decided for one message of the group
+	// at a time: two messages after an idle spell would otherwise each start a new chat.
+	turn := cn.turnOf(m.ChatID)
+	turn.Lock()
+	defer turn.Unlock()
+
+	if strings.ToLower(strings.TrimSpace(text)) == commandNew {
+		// The group's one conversation starts over for every member (OpenClaw's /new, MemoryOS).
+		return cn.startOver(ctx, m, title)
+	}
+
+	if g, err = store.LarkChannelGroup(ctx, cn.name, m.ChatID); err != nil {
+		return err
+	}
+
+	// A group's conversation idle for four hours is over: the next question starts a new one (MemoryOS). So is
+	// the one of a group nobody asked in since it was added: the bot left it and came back, which starts as a
+	// group never seen does (MemoryOS, ChannelGroupRoster).
+	if g.AskedAt == nil || cn.all.now().Sub(*g.AskedAt) >= groupIdle {
+		if err := cn.restart(ctx, m.ChatID, title); err != nil {
+			return err
+		}
+	}
+
+	chat, err := store.LarkGroupChatFor(ctx, cn.name, m.ChatID, title)
+	if err != nil {
+		return err
+	}
+
+	if err := store.AskedInLarkChannelGroup(ctx, cn.name, m.ChatID); err != nil {
+		return err
+	}
+
+	// Every message, the owner's too, opens with its sender's name, which the group's prompt says is the only
+	// label Hypomnema adds (MemoryOS, ChannelInboundService.asked).
+	return cn.deliver(ctx, m, chat, "["+cn.nameOf(ctx, m.Sender)+"]: "+text)
+}
+
+// addressed is a group message's text without the bot's own mentions, and
+// whether it mentions the bot. Another person's mention stays, by name rather
+// than by the placeholder Lark writes for it (MemoryOS,
+// LarkChannelAdapter.withoutBotMentions). A mention of everyone names nobody,
+// so it is not one of the bot.
+func (cn *conn) addressed(ctx context.Context, m Message) (string, bool, error) {
+	bot, err := cn.bot(ctx)
+	if err != nil {
+		return "", false, err
+	}
+
+	mentioned := false
+	mentions := make([]Mention, 0, len(m.Mentions))
+
+	for _, at := range m.Mentions {
+		if at.OpenID != "" && at.OpenID == bot {
+			mentioned = true
+		}
+
+		if at.Key != "" {
+			mentions = append(mentions, at)
+		}
+	}
+
+	// The placeholders are replaced in one pass, the longest first, so that @_user_1 is not taken out of
+	// @_user_10.
+	sort.SliceStable(mentions, func(i, j int) bool { return len(mentions[i].Key) > len(mentions[j].Key) })
+
+	pairs := make([]string, 0, 2*len(mentions))
+
+	for _, at := range mentions {
+		switch {
+		case at.OpenID != "" && at.OpenID == bot:
+			pairs = append(pairs, at.Key, "")
+		case at.Name != "":
+			pairs = append(pairs, at.Key, "@"+at.Name)
+		}
+	}
+
+	return strings.TrimSpace(strings.NewReplacer(pairs...).Replace(m.Text)), mentioned, nil
+}
+
+// turnOf is what lets one message of a Lark group at a time choose the
+// group's chat.
+func (cn *conn) turnOf(larkChatID string) *sync.Mutex {
+	cn.mu.Lock()
+	defer cn.mu.Unlock()
+
+	turn := cn.turns[larkChatID]
+	if turn == nil {
+		turn = &sync.Mutex{}
+		cn.turns[larkChatID] = turn
+	}
+
+	return turn
+}
+
+// bot is the bot's own open_id, read from Lark the first time it is needed
+// and kept; a failed read is tried again with the next message.
+func (cn *conn) bot(ctx context.Context) (string, error) {
+	cn.mu.Lock()
+	id := cn.botID
+	cn.mu.Unlock()
+
+	if id != "" {
+		return id, nil
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, sendTimeout)
+	defer cancel()
+
+	id, err := cn.lark.BotOpenID(ctx)
+	if err != nil {
+		return "", err
+	}
+
+	cn.mu.Lock()
+	cn.botID = id
+	cn.mu.Unlock()
+
+	return id, nil
+}
+
+// deliver gives a person's message to the Bot of its chat and marks it as
+// being worked on.
+func (cn *conn) deliver(ctx context.Context, m Message, chat orchestration.LarkChannelChat, text string) error {
+	store := cn.all.store
 
 	cn.mu.Lock()
 	r := cn.relayLocked(ctx, chat)
@@ -491,13 +825,23 @@ func (cn *conn) taken(ctx context.Context, m Message) error {
 	return nil
 }
 
-// startOver is /new: the person's next message starts a new chat with the
-// Channel's Bot.
-func (cn *conn) startOver(ctx context.Context, m Message) error {
-	chat, err := cn.all.store.ResetLarkChannelChat(ctx, cn.name, m.ChatID, "")
-	if errors.Is(err, orchestration.ErrNotFound) {
-		cn.notice(ctx, m.ChatID, noticeNew)
+// startOver is /new: the next message in the Lark chat starts a new chat with
+// the Channel's Bot, titled title.
+func (cn *conn) startOver(ctx context.Context, m Message, title string) error {
+	if err := cn.restart(ctx, m.ChatID, title); err != nil {
+		return err
+	}
 
+	cn.notice(ctx, m.ChatID, noticeNew)
+
+	return nil
+}
+
+// restart gives a Lark chat a new chat with the Channel's Bot, and relays
+// that one. A Lark chat with no chat yet needs none.
+func (cn *conn) restart(ctx context.Context, larkChatID, title string) error {
+	chat, err := cn.all.store.ResetLarkChannelChat(ctx, cn.name, larkChatID, title)
+	if errors.Is(err, orchestration.ErrNotFound) {
 		return nil
 	}
 
@@ -506,15 +850,13 @@ func (cn *conn) startOver(ctx context.Context, m Message) error {
 	}
 
 	cn.mu.Lock()
-	if old := cn.relays[m.ChatID]; old != nil {
+	if old := cn.relays[larkChatID]; old != nil {
 		old.stop()
-		delete(cn.relays, m.ChatID)
+		delete(cn.relays, larkChatID)
 	}
 
 	cn.relayLocked(ctx, chat)
 	cn.mu.Unlock()
-
-	cn.notice(ctx, m.ChatID, noticeNew)
 
 	return nil
 }
@@ -542,15 +884,23 @@ func (cn *conn) stop(ctx context.Context, m Message) error {
 	return nil
 }
 
-// refusal says why a sender may not talk through the Channel, or nothing
-// when they may.
+// refusal says why a sender may not talk through the Channel in a direct
+// message, or nothing when they may.
 func (cn *conn) refusal(ctx context.Context, ch orchestration.LarkChannel, m Message) string {
-	// A custom app belongs to one organization, which every event names (MemoryOS, rule 2).
+	// A custom app belongs to one organization, which every event names (MemoryOS, rule 2). In a group the
+	// check is not made: there everyone is every member of the group (owner, 2026-11-12).
 	if m.SenderOrg == "" || m.SenderOrg != m.Org {
 		return noticeOutsider
 	}
 
-	if m.Sender == ch.OwnerOpenID {
+	return cn.refusalOf(ctx, ch, m.Sender)
+}
+
+// refusalOf says why the Channel's mode does not let a sender ask, or
+// nothing when it does: the same choice in a direct message and, for each
+// sender, in a group.
+func (cn *conn) refusalOf(ctx context.Context, ch orchestration.LarkChannel, sender string) string {
+	if sender == ch.OwnerOpenID {
 		return ""
 	}
 
@@ -558,7 +908,7 @@ func (cn *conn) refusal(ctx context.Context, ch orchestration.LarkChannel, m Mes
 	case orchestration.LarkChannelEveryone:
 		return ""
 	case orchestration.LarkChannelAllowlist:
-		if _, err := cn.all.store.LarkChannelPerson(ctx, cn.name, m.Sender); err == nil {
+		if _, err := cn.all.store.LarkChannelPerson(ctx, cn.name, sender); err == nil {
 			return ""
 		}
 
@@ -568,21 +918,47 @@ func (cn *conn) refusal(ctx context.Context, ch orchestration.LarkChannel, m Mes
 	}
 }
 
-// nameOf is how a sender who is not the owner is named to the Bot: the name
-// the owner added them under, else their name at Lark, else their id.
+// nameOf is how a sender is named to the Bot: the name the owner added them
+// under, else their name at Lark, else their id. It is a label, so it is cut
+// to a plain name that cannot pass for an instruction or end the label.
 func (cn *conn) nameOf(ctx context.Context, openID string) string {
-	if p, err := cn.all.store.LarkChannelPerson(ctx, cn.name, openID); err == nil && p.Name != "" {
-		return p.Name
+	if p, err := cn.all.store.LarkChannelPerson(ctx, cn.name, openID); err == nil {
+		if name := speaker(p.Name); name != "" {
+			return name
+		}
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, sendTimeout)
 	defer cancel()
 
-	if name, err := cn.lark.NameOf(ctx, openID); err == nil && name != "" {
-		return name
+	if name, err := cn.lark.NameOf(ctx, openID); err == nil {
+		if name := speaker(name); name != "" {
+			return name
+		}
 	}
 
-	return openID
+	return speaker(openID)
+}
+
+// speaker is a name as a label of a message: brackets, control characters
+// and runs of white space become one space, and it is cut to a sane length
+// (MemoryOS, ChannelInboundService.asked).
+func speaker(name string) string {
+	name = strings.Map(func(r rune) rune {
+		switch {
+		case r == '[' || r == ']' || unicode.IsSpace(r) || unicode.IsControl(r) || unicode.Is(unicode.Cf, r):
+			return ' '
+		default:
+			return r
+		}
+	}, name)
+	name = strings.Join(strings.Fields(name), " ")
+
+	if r := []rune(name); len(r) > speakerLength {
+		name = strings.TrimSpace(string(r[:speakerLength]))
+	}
+
+	return name
 }
 
 func (cn *conn) notice(ctx context.Context, chatID, text string) {
@@ -942,7 +1318,9 @@ func (r *relay) finish(ctx context.Context, text string) {
 	}
 
 	parts := split(inert(text))
-	if r.all.webURL != "" {
+	// A group's reply has no link: its conversation goes on in the group, and only the owner opens the web
+	// client (MemoryOS, ChannelInboundService: a group answer has no closing line).
+	if r.all.webURL != "" && !r.chat.Group {
 		parts[len(parts)-1] += "\n\n[Open in Hypomnema](" + r.all.webURL + "/chats/" + r.chat.ChatID + ")"
 	}
 
