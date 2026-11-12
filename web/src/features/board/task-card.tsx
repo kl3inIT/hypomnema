@@ -105,7 +105,7 @@ export function TaskCard({
           </Chip>
         )}
         {pr && (
-          <span className="inline-flex items-center gap-0.5 font-mono text-done">
+          <span className="inline-flex items-center gap-0.5 text-done">
             <GitPullRequest className="size-3" aria-hidden />
             {pr.label}
           </span>

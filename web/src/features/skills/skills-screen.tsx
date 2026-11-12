@@ -210,19 +210,15 @@ function AddedCard({ skill, users }: { skill: Skill; users: Users }) {
         header={
           <>
             <SkillMark name={skill.name} />
-            <h3 className="min-w-0 flex-1 truncate font-mono text-sm font-semibold">
-              {skill.name}
-            </h3>
+            <h3 className="min-w-0 flex-1 truncate text-sm font-semibold">{skill.name}</h3>
             {skill.everyone && <EveryoneBadge />}
           </>
         }
       >
         <Fact icon={<SourceIcon source={skill.latest.source} />} name="Source">
-          <span className={skill.latest.source.startsWith("github:") ? "font-mono text-xs" : ""}>
-            {sourceLine(skill.latest)}
-          </span>
+          {sourceLine(skill.latest)}
         </Fact>
-        <Fact icon={<History />} name="Revision">
+        <Fact icon={<History />} name="Version">
           {skill.latest.revision} · {since(skill.latest.created_at)}
         </Fact>
         <Fact icon={<UsersIcon />} name="Used by">
@@ -241,9 +237,7 @@ function BuiltinCard({ skill }: { skill: BuiltinSkill }) {
         header={
           <>
             <SkillMark name={skill.name} builtin />
-            <h3 className="min-w-0 flex-1 truncate font-mono text-sm font-semibold">
-              {skill.name}
-            </h3>
+            <h3 className="min-w-0 flex-1 truncate text-sm font-semibold">{skill.name}</h3>
             <Badge variant="secondary">Built in</Badge>
           </>
         }
@@ -275,7 +269,7 @@ function AddedTable({ rows }: { rows: { skill: Skill; users: Users }[] }) {
               Source
             </th>
             <th scope="col" className={thClass}>
-              Revision
+              Version
             </th>
             <th scope="col" className={thClass}>
               Used by
@@ -289,7 +283,7 @@ function AddedTable({ rows }: { rows: { skill: Skill; users: Users }[] }) {
                 <Link
                   to="/settings/skills/$name"
                   params={{ name: skill.name }}
-                  className="flex items-center gap-2.5 font-mono font-medium hover:underline"
+                  className="flex items-center gap-2.5 font-medium hover:underline"
                 >
                   <SkillMark name={skill.name} />
                   {skill.name}
@@ -335,7 +329,7 @@ function BuiltinTable({ skills }: { skills: BuiltinSkill[] }) {
           {skills.map((skill) => (
             <tr key={skill.name} data-testid="built-in-skill" className="border-b last:border-b-0">
               <td className="h-12 px-3">
-                <span className="flex items-center gap-2.5 font-mono font-medium whitespace-nowrap">
+                <span className="flex items-center gap-2.5 font-medium whitespace-nowrap">
                   <SkillMark name={skill.name} builtin />
                   {skill.name}
                 </span>
