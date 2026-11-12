@@ -345,6 +345,25 @@ func TestWithoutDeviceCodesTheOwnerPastesTheAddressTheBrowserEndedOn(t *testing.
 	assert.Equal(t, []string{"http://localhost:1455/auth/callback"}, w.openai.redirects)
 }
 
+// Scenario: the owner adds a Codex account on the Models page. The page asks
+// for the browser login, as the other dashboards do, even where OpenAI offers
+// a device code; the device code stays with `accounts login`.
+func TestTheModelsPageSignsCodexInWithTheBrowser(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+
+	attempt, err := w.subs.BeginInBrowser(t.Context(), "codex")
+	require.NoError(t, err)
+	assert.True(t, attempt.Paste)
+	assert.Empty(t, attempt.UserCode)
+	assert.Equal(t, "codex", attempt.Runtime)
+	assert.Contains(t, attempt.URL, "/oauth/authorize")
+
+	_, err = w.subs.BeginInBrowser(t.Context(), "antigravity")
+	require.ErrorIs(t, err, subscription.ErrUnknownVendor)
+}
+
 // Scenario: the refresh loop passes. A token far from its end is left alone;
 // one that ends within the lead is exchanged, the new refresh token replaces
 // the spent one, and a plan that changed at OpenAI shows on the account.

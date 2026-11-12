@@ -183,6 +183,10 @@ func (c *Codex) finishDevice(ctx context.Context, deviceAuthID, userCode string,
 	}
 }
 
+// BeginInBrowser starts the browser login, never the device code: the login a
+// web page offers (Service.BeginInBrowser).
+func (c *Codex) BeginInBrowser(context.Context) (*Attempt, error) { return c.beginPaste() }
+
 // beginPaste starts the browser login. The control plane keeps the PKCE
 // verifier and the state; the owner brings back the address with the code.
 func (c *Codex) beginPaste() (*Attempt, error) {

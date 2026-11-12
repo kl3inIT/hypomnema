@@ -180,7 +180,7 @@ async function fakeServer(page: Page, start?: Account[]) {
 
     const [, kind, id, action] = path.split("/")
 
-    // A sign-in: claude asks for the code its page shows, codex shows a code and completes by itself.
+    // A sign-in: claude asks for the code its page shows, codex for the address the browser ends on.
     if (kind === "account-sign-ins") {
       calls.push(call)
 
@@ -192,14 +192,17 @@ async function fakeServer(page: Page, start?: Account[]) {
           id: "sgn_1",
           runtime: body.runtime,
           url: `https://${body.runtime}.example/sign-in`,
-          paste: body.runtime === "claude",
-          ...(body.runtime === "claude" ? {} : { user_code: "ABCD-1234" }),
+          paste: true,
           expires_in_seconds: 600,
         })
       }
 
       const body = request.postDataJSON() as { callback?: string }
-      if (pending?.runtime === "claude" && body.callback !== "xyz#abc") {
+      const right =
+        pending?.runtime === "claude"
+          ? "xyz#abc"
+          : "http://localhost:1455/auth/callback?code=xyz&state=abc"
+      if (body.callback !== right) {
         return json(
           { code: "invalid", message: "invalid request: the login did not complete: no code" },
           400,
@@ -441,7 +444,7 @@ test("an installation with no subscription says how to add one", async ({ page }
 // Scenario: the owner adds a Claude account from the page. Opening the dialog starts the sign-in, with no step
 // before it: the link to Claude's own page and the field for the code it shows are there at once. A wrong code is
 // refused and the owner starts again with a new link; the right one signs the account in, named by its e-mail.
-// Signing a Codex account in again shows a code instead, and the dialog closes by itself.
+// Signing a Codex account in again asks for the address the browser ends on.
 test("the owner signs accounts in from the page", async ({ page }) => {
   const calls = await fakeServer(page)
   await page.goto("/settings/models")
@@ -474,8 +477,13 @@ test("the owner signs accounts in from the page", async ({ page }) => {
   await expect(page.getByText("Claude account owner@example.com is signed in")).toBeVisible()
 
   const codex = card(page, "Codex")
-  // Codex gives a code; the vendor here answers at once, so the dialog closes by itself.
   await codex.getByRole("button", { name: "Sign old in again" }).click()
+  await expect(dialog).toContainText("copy the whole address")
+  await dialog
+    .getByLabel("2. Paste what the page gives back")
+    .fill("http://localhost:1455/auth/callback?code=xyz&state=abc")
+  await shot(page, "models-sign-in-codex")
+  await dialog.getByRole("button", { name: "Sign in" }).click()
   await expect(page.getByText("Codex account owner@example.com is signed in")).toBeVisible()
   await expect(dialog).toHaveCount(0)
   expect(calls.filter((c) => c === "POST /account-sign-ins")).toHaveLength(3)
@@ -506,25 +514,6 @@ test("the owner adds a Claude account by pasting a token", async ({ page }) => {
   await expect(dialog).toHaveCount(0)
   await expect(claude.getByLabel("Claude account personal")).toBeVisible()
   expect(calls).toContain("POST /accounts")
-})
-
-// A sign-in with a code shows the code while the server waits for the vendor.
-test("a sign-in with a code shows the code to enter", async ({ page }) => {
-  await fakeServer(page)
-  // The vendor has not answered yet: completing stays open.
-  await page.route("**/api/v1/account-sign-ins/sgn_1", () => {})
-  await page.goto("/settings/models")
-
-  await card(page, "Codex").getByRole("button", { name: "Add account" }).click()
-
-  // A toast is a dialog too; the sign-in dialog is found by its title.
-  const dialog = page.getByRole("dialog", { name: /^(Add a .* account|Sign .* in again)$/ })
-
-  await expect(dialog.getByTestId("user-code")).toHaveText("ABCD-1234")
-  await expect(dialog).toContainText("Waiting for you to enter it")
-  await expect(dialog.getByRole("button", { name: "Sign in" })).toHaveCount(0)
-  await expect(dialog.getByRole("tab", { name: "Paste a token" })).toHaveCount(0)
-  await shot(page, "models-sign-in-code")
 })
 
 // Scenario: the owner changes which account the gateway tries first.

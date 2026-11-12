@@ -89,7 +89,7 @@ func (s *Server) BeginAccountSignIn(ctx context.Context, req openapi.BeginAccoun
 
 	runtime := string(req.Body.Runtime)
 
-	attempt, err := s.accounts.Begin(ctx, runtime)
+	attempt, err := s.accounts.BeginInBrowser(ctx, runtime)
 	if err != nil {
 		if errors.Is(err, subscription.ErrUnknownVendor) {
 			return nil, fmt.Errorf("%w: %w", orchestration.ErrInvalid, err)

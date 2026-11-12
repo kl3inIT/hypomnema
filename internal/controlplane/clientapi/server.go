@@ -101,8 +101,9 @@ type Accounts interface {
 	// UseReset uses one of an account's limit resets and returns its limits
 	// after it; requestID makes a repeated call the same use.
 	UseReset(ctx context.Context, id, requestID string) (subscription.Limits, error)
-	// Begin starts a sign-in at the vendor of a runtime.
-	Begin(ctx context.Context, runtime string) (*subscription.Attempt, error)
+	// BeginInBrowser starts a sign-in at the vendor of a runtime whose last
+	// address the owner pastes back.
+	BeginInBrowser(ctx context.Context, runtime string) (*subscription.Attempt, error)
 	// Complete finishes a sign-in and stores it: a new account, or new tokens
 	// for the account the vendor's id already has.
 	Complete(ctx context.Context, a *subscription.Attempt, pasted, label string) (subscription.Account, error)
