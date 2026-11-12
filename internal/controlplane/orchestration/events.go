@@ -229,6 +229,11 @@ func emitEscalation(ctx context.Context, q *store.Queries, now int64, e Escalati
 		ev.payload["account_ref"] = e.AccountRef
 	}
 
+	if e.Profile != "" {
+		ev.payload["profile"], ev.payload["fallback"] = e.Profile, e.Fallback
+		ev.payload["until"] = millis(e.Until).Format(time.RFC3339)
+	}
+
 	if e.TaskID != "" && e.DispatchID == "" {
 		task, err := q.GetTask(ctx, e.TaskID)
 		if err != nil {

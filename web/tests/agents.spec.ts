@@ -12,6 +12,7 @@ const profile = (name: string, m: object = {}) => ({
   version_id: `pfv_${name}`,
   version: 1,
   runtime: "claude",
+  fallbacks: [],
   source: `name: ${name}\nruntime: claude\n`,
   created_at: hours(30),
   available: true,
@@ -39,6 +40,7 @@ const reviewer = profile("reviewer", {
   available: false,
   unavailable_reason: "accounts_cooling",
   available_at: new Date(Date.now() + 95 * 60_000).toISOString(),
+  fallbacks: ["codex-implementer"],
 })
 
 const models = [
@@ -75,15 +77,6 @@ async function fakeServer(page: Page) {
       provider: "claude-subscription",
       effort: "low",
       version: 2,
-    }),
-    profile("coordinator", {
-      description:
-        "Plans a Run, gives its Tasks to workers and reports their outcomes; pi on the server.",
-      runtime: "pi",
-      model: "gpt-luna",
-      provider: "gateway",
-      available: undefined,
-      version: 4,
     }),
   ]
   const applied: { name: string; source: string }[] = []
@@ -189,6 +182,10 @@ test("the agents show as cards and as a table, each saying whether it can run", 
   await expect(page.getByRole("article", { name: "implementer", exact: true })).toContainText(
     "Can run now",
   )
+  // The agent that takes its Tasks while it is out of quota (issue #171).
+  await expect(page.getByRole("article", { name: "reviewer" })).toContainText(
+    "Fallback:codex-implementer",
+  )
   await shot(page, "agents-grid")
 
   await page.getByRole("button", { name: "table" }).click()
@@ -210,13 +207,32 @@ test("an agent opens to its builder, its YAML and its versions", async ({ page }
   await expect(page.getByText("Version 3 · Claude Code")).toBeVisible()
   await expect(page.getByLabel("Name")).toHaveAttribute("readonly", "")
   await expect(page.getByLabel("Model")).toHaveValue("claude-subscription/opus")
-  await expect(page.getByLabel("Effort")).toHaveValue("xhigh")
+  await expect(
+    page.getByRole("group", { name: "Effort" }).getByRole("button", { name: "Extra High" }),
+  ).toHaveAttribute("aria-pressed", "true")
   await expect(page.getByRole("button", { name: "Save revision" })).toBeDisabled()
   await shot(page, "agent-builder")
 
+  // Its fallbacks, in order; another worker is added and the list is one longer.
+  await expect(page.getByLabel("Fallback 1")).toHaveValue("codex-implementer")
+  await page.getByLabel("Fallbacks", { exact: true }).selectOption("explorer")
+  await expect(page.getByLabel("Fallback 2")).toHaveValue("explorer")
+  await page.getByLabel("Fallback 2").scrollIntoViewIfNeeded()
+  await shot(page, "agent-fallbacks")
+  await page.getByRole("button", { name: "Remove fallback explorer" }).click()
+  await expect(page.getByRole("button", { name: "Save revision" })).toBeDisabled()
+
   await page.getByRole("button", { name: "YAML" }).click()
-  await expect(page.getByLabel("Config (YAML)")).toHaveValue(reviewerSource)
+  // The YAML is in an editor that knows the profile's shape: a key it does not have is marked as it is typed.
+  const yaml = page.getByTestId("yaml-editor")
+  await expect(yaml.locator(".view-lines")).toContainText(/name:\sreviewer/)
+  await expect(yaml.locator(".squiggly-error, .squiggly-warning")).toHaveCount(0)
   await shot(page, "agent-yaml")
+  await yaml.locator(".view-lines").click()
+  await page.keyboard.press("Control+End")
+  await page.keyboard.type("nope: 1")
+  await expect(yaml.locator(".squiggly-error, .squiggly-warning").first()).toBeVisible()
+  await shot(page, "agent-yaml-error")
 
   await page.getByRole("button", { name: "versions" }).click()
   await page.getByText("Version 2", { exact: true }).click()
@@ -253,7 +269,10 @@ test("a new agent is made from the builder", async ({ page }) => {
   await page.getByLabel("Description").fill("Reviews a change made on Claude Code, on Codex.")
   await page.getByLabel("Runs on").selectOption("codex")
   await page.getByLabel("Model").selectOption("gateway/gpt-sol")
-  await page.getByLabel("Effort").selectOption("xhigh")
+  await page
+    .getByRole("group", { name: "Effort" })
+    .getByRole("button", { name: "Extra High" })
+    .click()
   await shot(page, "agent-new")
 
   await page.getByRole("button", { name: "Create profile" }).click()

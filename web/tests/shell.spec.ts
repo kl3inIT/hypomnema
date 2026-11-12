@@ -7,6 +7,7 @@ import { shot } from "./shot.js"
 const chat = {
   id: "cht_1",
   title: "health page",
+  bot: "coordinator",
   working: false,
   coordinator: true,
   created_at: "2026-11-09T10:00:00Z",
@@ -57,7 +58,42 @@ const frames = [
 ].join("")
 
 // signedIn says whether the browser already has a session; password is the one the server takes.
-async function fakeServer(page: Page, signedIn: boolean, password = "correct horse") {
+// What pi asked to send from the owner's Gmail in the chat, held for his approval.
+// The answers the owner gave to it, as the fake server received them.
+const decisions: unknown[] = []
+
+const held = {
+  id: "apr_1",
+  integration: "google",
+  label: "work",
+  action: "gmail.send",
+  action_name: "Send mail",
+  asked_by: "pi",
+  chat_id: chat.id,
+  title: "Send mail: minh@example.com",
+  payload: [
+    { label: "From", value: "owner@example.com" },
+    { label: "To", value: "minh@example.com" },
+    { label: "Subject", value: "Re: October invoice" },
+    {
+      label: "Body",
+      value:
+        "Hello Minh,\n\nWe received the October invoice and will pay before the 15th.\n\nThanks",
+    },
+  ],
+  status: "pending",
+  used: false,
+  created_at: new Date().toISOString(),
+}
+
+async function fakeServer(
+  page: Page,
+  signedIn: boolean,
+  password = "correct horse",
+  start: { approval?: boolean } = {},
+) {
+  let approvals = start.approval ? [held] : []
+  decisions.length = 0
   const sent: string[] = []
 
   await page.route("**/api/v1/**", async (route) => {
@@ -85,6 +121,13 @@ async function fakeServer(page: Page, signedIn: boolean, password = "correct hor
       signedIn = false
 
       return route.fulfill({ status: 204 })
+    }
+    if (path === "/approvals") return json({ data: approvals })
+    if (path === `/approvals/${held.id}/decision`) {
+      decisions.push(route.request().postDataJSON())
+      approvals = []
+
+      return json({ ...held, status: "approved", scope: "once" })
     }
     if (path === "/chats" && route.request().method() === "GET") return json({ data: [chat] })
     if (path === "/chats" && route.request().method() === "POST") return json(chat, 201)
@@ -142,6 +185,30 @@ test("a chat shows pi's work and reply", async ({ page }) => {
   await expect(log.getByText("check the runs first")).toBeVisible()
   await log.getByText("hypomnema runs list --json").click()
   await expect(log.locator("pre", { hasText: "[]" })).toBeVisible()
+})
+
+// Scenario: pi asked to send a mail and the request is held. The chat's row in the sidebar says it needs the
+// owner; in the chat, above the message box, he reads who the mail goes to and its text, approves it once, and
+// the card and the mark go.
+test("the owner approves a mail pi asked to send, in the chat", async ({ page }) => {
+  await fakeServer(page, true, undefined, { approval: true })
+  await page.goto(`/chats/${chat.id}`)
+
+  const card = page.getByRole("region", { name: "Approval needed: Send mail: minh@example.com" })
+  await expect(card).toContainText("Re: October invoice")
+  await expect(card).toContainText("will pay before the 15th")
+  await expect(card.getByText("Waits for you")).toBeVisible()
+  expect(await page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")).toBe(
+    true,
+  )
+  await shot(page, "chat-approval")
+
+  const row = page.getByRole("navigation", { name: "Chats" }).getByRole("link").first()
+  if (await row.isVisible()) await expect(row).toContainText("Needs you")
+
+  await card.getByRole("button", { name: "Approve once" }).click()
+  await expect(card).toHaveCount(0)
+  expect(decisions).toEqual([{ decision: "approve" }])
 })
 
 // Scenario: a wrong password is refused, and the sign-in screen stays.

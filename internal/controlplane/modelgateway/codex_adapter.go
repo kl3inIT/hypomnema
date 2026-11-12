@@ -71,10 +71,11 @@ func (e *CoolingError) Error() string {
 // Subscriptions gives a built-in provider the accounts logged in on the
 // control plane; the wiring gives the subscription service's.
 type Subscriptions interface {
-	// Token returns a valid access token of the first account of a runtime
-	// that can be used and is not among skip; ErrNoAccount or a *CoolingError
-	// when none can.
-	Token(ctx context.Context, runtime string, skip ...string) (AccountToken, error)
+	// Token returns a valid access token of an account of a runtime that can be
+	// used and is not among skip, ordered by the session (sticky, so one
+	// conversation keeps one account) or round-robin when the session is empty;
+	// ErrNoAccount or a *CoolingError when none can.
+	Token(ctx context.Context, runtime, session string, skip ...string) (AccountToken, error)
 	// TokenAfterRefusal refreshes an account whose token the vendor refused
 	// and returns the new one.
 	TokenAfterRefusal(ctx context.Context, refused AccountToken) (AccountToken, error)
@@ -83,6 +84,10 @@ type Subscriptions interface {
 	// Quota asks the vendor what is left of an account's quota for each
 	// model, from 0 to 1; a model the vendor gives no quota for is absent.
 	Quota(ctx context.Context, accountID string) (map[string]float64, error)
+	// NoteQuota records what is left of an account's whole quota, from 0 to
+	// 1, as an answer served under it said; Token then keeps an account that
+	// is nearly used up for when no other can serve.
+	NoteQuota(accountID string, left float64)
 }
 
 // codexSubscription serves chat from the Codex backend.
@@ -105,7 +110,7 @@ func (codexSubscription) do(ctx context.Context, s *Server, call chatCall) (*htt
 		}, s.svc.clock.Now()), nil
 	}
 
-	resp, err := s.underAccounts(ctx, codexRuntime, nil, func(token AccountToken) (*http.Response, error) {
+	resp, err := s.underAccounts(ctx, codexRuntime, built.CacheKey, nil, func(token AccountToken) (*http.Response, error) {
 		resp, err := s.codexCall(ctx, &token, built)
 		if err != nil {
 			return nil, err
@@ -172,6 +177,8 @@ func (s *Server) codexPost(ctx context.Context, token AccountToken, built codex.
 	if err != nil {
 		return nil, fmt.Errorf("calling Codex: %w", err)
 	}
+
+	s.noteQuota(token, resp.Header, codexQuotaLeft)
 
 	return resp, nil
 }

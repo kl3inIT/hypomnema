@@ -1,4 +1,11 @@
-import { Box, CircleAlert, GitPullRequest, MessageCircleQuestion, Server } from "lucide-react"
+import {
+  Box,
+  CircleAlert,
+  GitPullRequest,
+  LifeBuoy,
+  MessageCircleQuestion,
+  Server,
+} from "lucide-react"
 import type { ReactNode } from "react"
 
 import { span } from "@/lib/time"
@@ -6,6 +13,24 @@ import { cn } from "@/lib/utils"
 
 import { firstLine, pullRequest, type Card } from "./board-state"
 import { RuntimeMark } from "./runtime-mark"
+
+const clock = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" })
+
+// fallbackTitle says why a Task ran under a backup of its agent (issue #171), in one line as OpenMausBot's notice
+// does ("Codex reached its limit until 14:00, so Kai is using Claude meanwhile.").
+function fallbackTitle(dispatch: {
+  fallback_for?: string
+  fallback_until?: string
+  handoff?: boolean
+}) {
+  const until = dispatch.fallback_until
+    ? ` until ${clock.format(new Date(dispatch.fallback_until))}`
+    : ""
+
+  return dispatch.handoff
+    ? `${dispatch.fallback_for} reached its limit${until} under way, so a fallback took this Task over in its worktree`
+    : `${dispatch.fallback_for} reached its limit${until}, so a fallback runs this Task`
+}
 
 // TaskCard is one worker's Task on the board, after Orca's AgentKanbanCard (MIT, Copyright (c) 2026 Lovecast Inc.,
 // https://github.com/stablyai/orca; components/dashboard-popout/AgentKanbanCard.tsx): what runs it and what it is
@@ -72,6 +97,11 @@ export function TaskCard({
         {(dispatch?.model || task.model) && (
           <Chip icon={<Box className="size-3" aria-hidden />} name="Model">
             {dispatch?.model || task.model}
+          </Chip>
+        )}
+        {dispatch?.fallback_for && (
+          <Chip icon={<LifeBuoy className="size-3" aria-hidden />} name={fallbackTitle(dispatch)}>
+            {dispatch.handoff ? "took over from" : "for"} {dispatch.fallback_for}
           </Chip>
         )}
         {pr && (

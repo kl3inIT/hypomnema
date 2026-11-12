@@ -89,7 +89,9 @@ func (s *Service) createDispatch(ctx context.Context, q *store.Queries, now int6
 	if err := q.InsertDispatch(ctx, store.InsertDispatchParams{
 		ID: id, TaskID: task.ID, ConversationID: conv, NodeID: node, Recovery: boolInt(recovery),
 		GateQuestionID: nullString(gate), Model: nullString(r.model), Effort: nullString(r.effort),
-		ProfileVersionID: nullString(r.versionID), Now: now,
+		ProfileVersionID: nullString(r.versionID), FallbackFor: nullString(r.fallbackFor),
+		FallbackUntil: sql.NullInt64{Int64: r.fallbackUntil, Valid: r.fallbackFor != ""},
+		Handoff:       boolInt(r.handoff), Now: now,
 	}); err != nil {
 		return fmt.Errorf("inserting dispatch: %w", err)
 	}
@@ -98,7 +100,10 @@ func (s *Service) createDispatch(ctx context.Context, q *store.Queries, now int6
 
 	if err := emit(ctx, q, now, event{
 		kind: EventDispatchCreated, run: task.RunID, task: task.ID, dispatch: id, node: node,
-		payload: map[string]any{"conversation_id": conv, "recovery": recovery, "gate_question_id": gate},
+		payload: map[string]any{
+			"conversation_id": conv, "recovery": recovery, "gate_question_id": gate, "fallback_for": r.fallbackFor,
+			"handoff": r.handoff,
+		},
 	}); err != nil {
 		return err
 	}
@@ -865,10 +870,24 @@ func (s *Service) afterSettle(ctx context.Context, q *store.Queries, now int64, 
 			return err
 		}
 
-		if err := q.SetTaskNotBefore(ctx, store.SetTaskNotBeforeParams{
-			NotBefore: sql.NullInt64{Int64: until, Valid: true}, Now: now, ID: d.TaskID,
-		}); err != nil {
-			return fmt.Errorf("delaying task %s: %w", d.TaskID, err)
+		// A Task a backup may take over is not held until the reset: the
+		// scheduler hands it off, or finds it waiting on its cooling account.
+		task, err := q.GetTask(ctx, d.TaskID)
+		if err != nil {
+			return notFound(err, "task", d.TaskID)
+		}
+
+		may, err := mayHandOff(ctx, q, task)
+		if err != nil {
+			return err
+		}
+
+		if !may {
+			if err := q.SetTaskNotBefore(ctx, store.SetTaskNotBeforeParams{
+				NotBefore: sql.NullInt64{Int64: until, Valid: true}, Now: now, ID: d.TaskID,
+			}); err != nil {
+				return fmt.Errorf("delaying task %s: %w", d.TaskID, err)
+			}
 		}
 
 		return transitionTask(ctx, q, now, d.TaskID, TaskReady, BlockedNone, "")
@@ -1360,6 +1379,7 @@ func dispatchFromRow(d store.Dispatch) (Dispatch, error) {
 		SettledAt: optionalTime(d.SettledAt), WaitingSince: optionalTime(d.WaitingSince),
 		Waited: time.Duration(d.WaitedMs) * time.Millisecond, GateQuestionID: d.GateQuestionID.String,
 		Model: d.Model.String, Effort: d.Effort.String, ProfileVersionID: d.ProfileVersionID.String,
+		FallbackFor: d.FallbackFor.String, FallbackUntil: optionalTime(d.FallbackUntil), Handoff: d.Handoff == 1,
 		Activity: d.Activity.String,
 	}
 

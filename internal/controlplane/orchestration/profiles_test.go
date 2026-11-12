@@ -1,6 +1,7 @@
 package orchestration
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -18,16 +19,30 @@ func TestTheStartingSetIsThere(t *testing.T) {
 	profiles, err := w.s.ListProfiles(ctx)
 	require.NoError(t, err)
 
+	// The seed, the seed with its description, and for the two that report in a set form, that form (issue #155).
+	versions := map[string]int{"explorer": 3, "implementer": 2, "reviewer": 3}
+
 	names := map[string]string{}
 	for _, p := range profiles {
 		names[p.Name] = p.Runtime
 		assert.NotEmpty(t, p.Description, "%s says what it is for", p.Name)
-		assert.Equal(t, 2, p.Version, "%s: the seed, then the seed with its description", p.Name)
+		assert.Equal(t, versions[p.Name], p.Version, p.Name)
+
+		// A seeded row holds what applying its own source would store.
+		same, created, err := w.s.ApplyProfile(ctx, p.Name, p.Source)
+		require.NoError(t, err, p.Name)
+		assert.False(t, created, "%s: the digest is the source's", p.Name)
+		assert.Equal(t, p.VersionID, same.VersionID, p.Name)
+
+		copied, _, err := w.s.ApplyProfile(ctx, "",
+			strings.Replace(p.Source, "name: "+p.Name+"\n", "name: copy-"+p.Name+"\n", 1))
+		require.NoError(t, err, p.Name)
+		assert.Equal(t, []string{p.Description, p.Runtime, p.Model, p.Effort, p.Instruction},
+			[]string{copied.Description, copied.Runtime, copied.Model, copied.Effort, copied.Instruction}, p.Name)
 	}
 
-	assert.Equal(t, map[string]string{
-		"coordinator": "pi", "explorer": "claude", "implementer": "claude", "reviewer": "claude",
-	}, names)
+	assert.Equal(t, map[string]string{"explorer": "claude", "implementer": "claude", "reviewer": "claude"}, names,
+		"pi on the server is a Bot, not a profile")
 
 	implementer, err := w.s.GetProfile(ctx, "implementer")
 	require.NoError(t, err)
@@ -106,7 +121,8 @@ func TestAProfileIsCheckedWhenApplied(t *testing.T) {
 		"name: x\ndescription: d\nruntime: claude\nmodel: {name: opus, effort: huge}\n":     "unknown effort",
 		"name: x\ndescription: d\nruntime: claude\nmodel: {name: gpt-5}\n":                  "no provider",
 		"name: x\ndescription: d\nruntime: claude\nmodel: {provider: router, name: opus}\n": "cannot run against",
-		"name: x\ndescription: d\nruntime: pi\nmodel: {provider: router, name: opus}\n":     "does not offer",
+		"name: x\ndescription: d\nruntime: codex\nmodel: {provider: router, name: opus}\n":  "does not offer",
+		"name: x\ndescription: d\nruntime: pi\n":                                            "a bot's",
 		"name: x\ndescription: d\nruntime: codex\nmodel: {provider: nobody}\n":              "not found",
 		"name: x\nruntime: claude\n":                                                        "needs a description",
 	} {
@@ -118,9 +134,9 @@ func TestAProfileIsCheckedWhenApplied(t *testing.T) {
 	require.ErrorIs(t, err, ErrInvalid, "the name in the path must be the source's")
 
 	p, _, err := w.s.ApplyProfile(t.Context(), "",
-		"name: coordinator\ndescription: d\nruntime: pi\nmodel: {name: sonnet}\n")
+		"name: z\ndescription: d\nruntime: codex\nmodel: {name: gpt-5}\n")
 	require.NoError(t, err)
-	assert.Equal(t, "router", p.Provider, "only router offers sonnet to pi")
+	assert.Equal(t, "router", p.Provider, "only router offers gpt-5 to codex")
 
 	p, _, err = w.s.ApplyProfile(t.Context(), "", "name: x\ndescription: d\nruntime: claude\nmodel: {name: sonnet}\n")
 	require.NoError(t, err)
@@ -149,12 +165,11 @@ func TestAProviderKeepsItsProfilesWorking(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"m1", "m2"}, p.Models)
 
-	_, _, err = w.s.ApplyProfile(ctx, "",
-		"name: coordinator\ndescription: d\nruntime: pi\nmodel: {provider: router, name: m1}\n")
+	_, err = w.s.PutBot(ctx, Bot{Name: DefaultBot, Provider: "router", Model: "m1"})
 	require.NoError(t, err)
 
 	_, err = w.s.ApplyProvider(ctx, "", "name: router\nkind: openai_compatible\nmodels: [m2]\n")
-	require.ErrorIs(t, err, ErrConflict, "the coordinator uses m1")
+	require.ErrorIs(t, err, ErrConflict, "the bot coordinator uses m1")
 
 	_, err = w.s.ApplyProvider(ctx, "", "name: router\nkind: codex_subscription\nmodels: [m1]\n")
 	require.ErrorIs(t, err, ErrConflict, "pi cannot use a codex subscription")

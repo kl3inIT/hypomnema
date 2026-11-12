@@ -31,6 +31,10 @@ const DefaultProfile = "implementer"
 // MaxDescription bounds a profile's description.
 const MaxDescription = 500
 
+// MaxFallbacks bounds a profile's backups, as OpenMausBot keeps five for a
+// bot (src/components/bot-panel/BackupAis.tsx, MAX_BACKUPS).
+const MaxFallbacks = 5
+
 // Provider kinds.
 const (
 	ProviderAnthropic          = "anthropic"
@@ -82,12 +86,15 @@ type Profile struct {
 	Model       string
 	Effort      string
 	Instruction string
+	// Fallbacks names, in the owner's order, the profiles a Task of this one
+	// runs under while every account of its runtime waits for a limit to
+	// reset (issue #171). Empty: the Task waits.
+	Fallbacks []string
 	// Source is the YAML as applied.
 	Source    string
 	CreatedAt time.Time
 	// Availability says whether a worker can start under the profile now. It
-	// is set on a profile's current version only, and not for the
-	// coordinator's runtime, which no node runs.
+	// is set on a profile's current version only.
 	Availability *Availability
 }
 
@@ -100,10 +107,6 @@ type Availability struct {
 	Reason    string
 	At        *time.Time
 }
-
-// coordinatorRuntime is run by the control plane for the owner's chats; no
-// node has it and no Task is placed under it.
-const coordinatorRuntime = "pi"
 
 // Provider is a source of models, such as a subscription or an API.
 type Provider struct {
@@ -134,7 +137,8 @@ type profileSource struct {
 		Name     string `yaml:"name"`
 		Effort   string `yaml:"effort"`
 	} `yaml:"model"`
-	Instruction string `yaml:"instruction"`
+	Instruction string   `yaml:"instruction"`
+	Fallbacks   []string `yaml:"fallbacks"`
 }
 
 type providerSource struct {
@@ -176,7 +180,7 @@ func (s *Service) ApplyProfile(ctx context.Context, name, source string) (Profil
 
 	p := Profile{
 		Name: in.Name, Description: strings.TrimSpace(in.Description), Runtime: in.Runtime,
-		Instruction: in.Instruction, Source: source,
+		Instruction: in.Instruction, Fallbacks: in.Fallbacks, Source: source,
 	}
 	if in.Model != nil {
 		p.Provider, p.Model, p.Effort = in.Model.Provider, in.Model.Name, in.Model.Effort
@@ -184,6 +188,12 @@ func (s *Service) ApplyProfile(ctx context.Context, name, source string) (Profil
 
 	if !namePattern.MatchString(p.Name) {
 		return Profile{}, false, fmt.Errorf("%w: a profile name is lowercase letters, digits and dashes", ErrInvalid)
+	}
+
+	// pi is run by the control plane for a Bot; no node has it and no Task is placed under it (issue #169).
+	if p.Runtime == botRuntime {
+		return Profile{}, false, fmt.Errorf("%w: runtime %s is a bot's, not a worker's; see `hypomnema bots`",
+			ErrInvalid, botRuntime)
 	}
 
 	if name != "" && name != p.Name {
@@ -203,6 +213,10 @@ func (s *Service) ApplyProfile(ctx context.Context, name, source string) (Profil
 	err := s.write(ctx, func(q *store.Queries, now int64) error {
 		provider, err := checkModel(ctx, q, p.Runtime, p.Provider, p.Model, p.Effort)
 		if err != nil {
+			return fmt.Errorf("profile %s: %w", p.Name, err)
+		}
+
+		if err := checkFallbacks(ctx, q, p); err != nil {
 			return fmt.Errorf("profile %s: %w", p.Name, err)
 		}
 
@@ -237,7 +251,8 @@ func (s *Service) ApplyProfile(ctx context.Context, name, source string) (Profil
 		if err := q.InsertProfileVersion(ctx, store.InsertProfileVersionParams{
 			ID: id, Profile: p.Name, Version: current.Version + 1, Source: source, Digest: digest, Description: p.Description,
 			Runtime: p.Runtime, Provider: nullString(p.Provider), Model: nullString(p.Model),
-			Effort: nullString(p.Effort), Instruction: nullString(p.Instruction), Now: now,
+			Effort: nullString(p.Effort), Instruction: nullString(p.Instruction),
+			Fallbacks: strings.Join(p.Fallbacks, ","), Now: now,
 		}); err != nil {
 			return fmt.Errorf("inserting a version of profile %s: %w", p.Name, err)
 		}
@@ -256,6 +271,29 @@ func (s *Service) ApplyProfile(ctx context.Context, name, source string) (Profil
 	}
 
 	return out, created, nil
+}
+
+// checkFallbacks checks the backups a profile names: each an existing
+// worker's profile, named once, and not the profile itself.
+func checkFallbacks(ctx context.Context, q *store.Queries, p Profile) error {
+	if len(p.Fallbacks) > MaxFallbacks {
+		return fmt.Errorf("%w: a profile names at most %d fallbacks", ErrInvalid, MaxFallbacks)
+	}
+
+	for i, name := range p.Fallbacks {
+		switch {
+		case name == p.Name:
+			return fmt.Errorf("%w: a profile is not its own fallback", ErrInvalid)
+		case slices.Contains(p.Fallbacks[:i], name):
+			return fmt.Errorf("%w: fallback %q is named twice", ErrInvalid, name)
+		}
+
+		if _, err := q.CurrentProfileVersion(ctx, name); err != nil {
+			return fmt.Errorf("fallback: %w", notFound(err, "profile", name))
+		}
+	}
+
+	return nil
 }
 
 // checkModel checks a runtime, provider, model and effort together and
@@ -351,10 +389,6 @@ func (s *Service) withAvailability(ctx context.Context, profiles []Profile) erro
 	}
 
 	for i, pr := range profiles {
-		if pr.Runtime == coordinatorRuntime {
-			continue
-		}
-
 		gateway := false
 
 		if pr.Provider != "" {
@@ -416,8 +450,17 @@ func profileFromRow(v store.ProfileVersion) Profile {
 		Name: v.Profile, Description: v.Description, VersionID: v.ID, Version: int(v.Version), Runtime: v.Runtime,
 		Provider: v.Provider.String,
 		Model:    v.Model.String, Effort: v.Effort.String, Instruction: v.Instruction.String, Source: v.Source,
-		CreatedAt: millis(v.CreatedAt),
+		Fallbacks: splitNames(v.Fallbacks), CreatedAt: millis(v.CreatedAt),
 	}
+}
+
+// splitNames reads names stored in order, separated by commas.
+func splitNames(stored string) []string {
+	if stored == "" {
+		return nil
+	}
+
+	return strings.Split(stored, ",")
 }
 
 // ApplyProvider stores a provider's YAML and the models it offers. It refuses
@@ -511,9 +554,29 @@ func looksLikeSecret(s string) bool {
 	return false
 }
 
-// providerStillServes checks that the current profile versions using a
-// provider keep their model and runtime after the change.
+// providerStillServes checks that the current profile versions and the Bots
+// using a provider keep their model and runtime after the change.
 func providerStillServes(ctx context.Context, q *store.Queries, in providerSource) error {
+	bots, err := q.ListBots(ctx)
+	if err != nil {
+		return fmt.Errorf("listing bots: %w", err)
+	}
+
+	for _, b := range bots {
+		if b.Provider.String != in.Name {
+			continue
+		}
+
+		if !slices.Contains(runtimeProviders[botRuntime], in.Kind) {
+			return fmt.Errorf("%w: bot %s runs %s on provider %s, which kind %s cannot serve", ErrConflict,
+				b.Name, botRuntime, in.Name, in.Kind)
+		}
+
+		if b.Model.Valid && !slices.Contains(in.Models, b.Model.String) {
+			return fmt.Errorf("%w: bot %s uses model %s of provider %s", ErrConflict, b.Name, b.Model.String, in.Name)
+		}
+	}
+
 	versions, err := q.ListCurrentProfileVersions(ctx)
 	if err != nil {
 		return fmt.Errorf("listing profiles: %w", err)
@@ -650,10 +713,17 @@ func checkTaskProfile(ctx context.Context, q *store.Queries, nt NewTask) error {
 // profile's current version.
 type resolved struct {
 	runtime, model, effort string
-	versionID              string
+	// profile and versionID are the profile version the values come from.
+	profile, versionID string
 	// gateway says the model gateway serves the model, so no account on a
 	// node is needed.
 	gateway bool
+	// fallbackFor is the Task's own profile when these are a backup's values,
+	// and fallbackUntil when that profile's accounts are free again.
+	fallbackFor   string
+	fallbackUntil int64
+	// handoff says the backup takes over work another worker began.
+	handoff bool
 }
 
 func resolve(ctx context.Context, q *store.Queries, task store.Task) (resolved, error) {
@@ -662,6 +732,40 @@ func resolve(ctx context.Context, q *store.Queries, task store.Task) (resolved, 
 		return resolved{}, notFound(err, "profile", task.Profile)
 	}
 
+	// A Task that runs under a backup of its profile keeps that backup for
+	// the rest of its open Conversation: a later Dispatch continues a session
+	// of the backup's CLI, with the backup's model and instruction.
+	last, err := q.LastDispatchOfTask(ctx, task.ID)
+
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+	case err != nil:
+		return resolved{}, fmt.Errorf("reading the last dispatch of task %s: %w", task.ID, err)
+	case last.FallbackFor.Valid && last.ProfileVersionID.Valid:
+		conv, open, err := openConversation(ctx, q, task.ID)
+		if err != nil {
+			return resolved{}, err
+		}
+
+		if open && conv.ID == last.ConversationID {
+			b, err := q.GetProfileVersion(ctx, last.ProfileVersionID.String)
+			if err != nil {
+				return resolved{}, notFound(err, "profile version", last.ProfileVersionID.String)
+			}
+
+			r, err := resolveVersion(ctx, q, task, b)
+			r.fallbackFor, r.fallbackUntil = last.FallbackFor.String, last.FallbackUntil.Int64
+
+			return r, err
+		}
+	}
+
+	return resolveVersion(ctx, q, task, v)
+}
+
+// resolveVersion is the Task's own values over one profile version.
+func resolveVersion(ctx context.Context, q *store.Queries, task store.Task, v store.ProfileVersion,
+) (resolved, error) {
 	model, provider := v.Model.String, v.Provider.String
 	if task.Runtime.String != "" && task.Runtime.String != v.Runtime {
 		model, provider = "", "" // the profile's model and provider belong to its runtime
@@ -680,6 +784,6 @@ func resolve(ctx context.Context, q *store.Queries, task store.Task) (resolved, 
 
 	return resolved{
 		runtime: or(task.Runtime.String, v.Runtime), model: or(task.Model.String, model),
-		effort: or(task.Effort.String, v.Effort.String), versionID: v.ID, gateway: gateway,
+		effort: or(task.Effort.String, v.Effort.String), profile: v.Profile, versionID: v.ID, gateway: gateway,
 	}, nil
 }

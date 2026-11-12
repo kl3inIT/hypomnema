@@ -41,7 +41,7 @@ func (q *Queries) AcceptDispatch(ctx context.Context, arg AcceptDispatchParams) 
 }
 
 const activeDispatchOfTask = `-- name: ActiveDispatchOfTask :one
-SELECT id, task_id, conversation_id, node_id, status, epoch, failure_class, unknown_cause, recovery, process_ref, result, resets_at, created_at, updated_at, accepted_at, started_at, lease_expires_at, progress_at, stop_requested_at, stop_acked_at, stalled_at, overrun_at, settled_at, waiting_since, waited_ms, gate_question_id, model, effort, profile_version_id, activity FROM dispatches
+SELECT id, task_id, conversation_id, node_id, status, epoch, failure_class, unknown_cause, recovery, process_ref, result, resets_at, created_at, updated_at, accepted_at, started_at, lease_expires_at, progress_at, stop_requested_at, stop_acked_at, stalled_at, overrun_at, settled_at, waiting_since, waited_ms, gate_question_id, model, effort, profile_version_id, activity, fallback_for, fallback_until, handoff FROM dispatches
 WHERE task_id = ?1 AND status IN ('queued', 'starting', 'running', 'stopping', 'unknown', 'stop_unknown')
 `
 
@@ -79,6 +79,9 @@ func (q *Queries) ActiveDispatchOfTask(ctx context.Context, taskID string) (Disp
 		&i.Effort,
 		&i.ProfileVersionID,
 		&i.Activity,
+		&i.FallbackFor,
+		&i.FallbackUntil,
+		&i.Handoff,
 	)
 	return i, err
 }
@@ -100,6 +103,37 @@ func (q *Queries) CloseConversation(ctx context.Context, arg CloseConversationPa
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const countFallbacksOfRun = `-- name: CountFallbacksOfRun :one
+SELECT count(*) FROM dispatches d JOIN tasks t ON t.id = d.task_id
+WHERE t.run_id = ?1 AND d.fallback_for = ?2 AND d.fallback_until = ?3
+`
+
+type CountFallbacksOfRunParams struct {
+	RunID         string
+	FallbackFor   sql.NullString
+	FallbackUntil sql.NullInt64
+}
+
+// The Dispatches of a Run that ran under a backup of a profile in one stretch of its limit.
+func (q *Queries) CountFallbacksOfRun(ctx context.Context, arg CountFallbacksOfRunParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countFallbacksOfRun, arg.RunID, arg.FallbackFor, arg.FallbackUntil)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countFallbacksOfTask = `-- name: CountFallbacksOfTask :one
+SELECT count(*) FROM dispatches WHERE task_id = ?1 AND fallback_for IS NOT NULL
+`
+
+// The Dispatches of a Task that ran under a backup of its profile: a Task is handed off once.
+func (q *Queries) CountFallbacksOfTask(ctx context.Context, taskID string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countFallbacksOfTask, taskID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
 }
 
 const deleteExpiredCooldowns = `-- name: DeleteExpiredCooldowns :execrows
@@ -172,7 +206,7 @@ func (q *Queries) GetCooldown(ctx context.Context, arg GetCooldownParams) (Accou
 }
 
 const getDispatch = `-- name: GetDispatch :one
-SELECT id, task_id, conversation_id, node_id, status, epoch, failure_class, unknown_cause, recovery, process_ref, result, resets_at, created_at, updated_at, accepted_at, started_at, lease_expires_at, progress_at, stop_requested_at, stop_acked_at, stalled_at, overrun_at, settled_at, waiting_since, waited_ms, gate_question_id, model, effort, profile_version_id, activity FROM dispatches WHERE id = ?1
+SELECT id, task_id, conversation_id, node_id, status, epoch, failure_class, unknown_cause, recovery, process_ref, result, resets_at, created_at, updated_at, accepted_at, started_at, lease_expires_at, progress_at, stop_requested_at, stop_acked_at, stalled_at, overrun_at, settled_at, waiting_since, waited_ms, gate_question_id, model, effort, profile_version_id, activity, fallback_for, fallback_until, handoff FROM dispatches WHERE id = ?1
 `
 
 func (q *Queries) GetDispatch(ctx context.Context, id string) (Dispatch, error) {
@@ -209,6 +243,9 @@ func (q *Queries) GetDispatch(ctx context.Context, id string) (Dispatch, error) 
 		&i.Effort,
 		&i.ProfileVersionID,
 		&i.Activity,
+		&i.FallbackFor,
+		&i.FallbackUntil,
+		&i.Handoff,
 	)
 	return i, err
 }
@@ -266,9 +303,10 @@ func (q *Queries) InsertConversation(ctx context.Context, arg InsertConversation
 
 const insertDispatch = `-- name: InsertDispatch :exec
 INSERT INTO dispatches (id, task_id, conversation_id, node_id, status, recovery, gate_question_id,
-                        model, effort, profile_version_id, created_at, updated_at)
+                        model, effort, profile_version_id, fallback_for, fallback_until, handoff, created_at,
+                        updated_at)
 VALUES (?1, ?2, ?3, ?4, 'queued', ?5, ?6,
-        ?7, ?8, ?9, ?10, ?10)
+        ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?13)
 `
 
 type InsertDispatchParams struct {
@@ -281,6 +319,9 @@ type InsertDispatchParams struct {
 	Model            sql.NullString
 	Effort           sql.NullString
 	ProfileVersionID sql.NullString
+	FallbackFor      sql.NullString
+	FallbackUntil    sql.NullInt64
+	Handoff          int64
 	Now              int64
 }
 
@@ -295,6 +336,9 @@ func (q *Queries) InsertDispatch(ctx context.Context, arg InsertDispatchParams) 
 		arg.Model,
 		arg.Effort,
 		arg.ProfileVersionID,
+		arg.FallbackFor,
+		arg.FallbackUntil,
+		arg.Handoff,
 		arg.Now,
 	)
 	return err
@@ -327,7 +371,7 @@ func (q *Queries) InsertReceipt(ctx context.Context, arg InsertReceiptParams) er
 }
 
 const lastDispatchOfConversation = `-- name: LastDispatchOfConversation :one
-SELECT id, task_id, conversation_id, node_id, status, epoch, failure_class, unknown_cause, recovery, process_ref, result, resets_at, created_at, updated_at, accepted_at, started_at, lease_expires_at, progress_at, stop_requested_at, stop_acked_at, stalled_at, overrun_at, settled_at, waiting_since, waited_ms, gate_question_id, model, effort, profile_version_id, activity FROM dispatches WHERE conversation_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT 1
+SELECT id, task_id, conversation_id, node_id, status, epoch, failure_class, unknown_cause, recovery, process_ref, result, resets_at, created_at, updated_at, accepted_at, started_at, lease_expires_at, progress_at, stop_requested_at, stop_acked_at, stalled_at, overrun_at, settled_at, waiting_since, waited_ms, gate_question_id, model, effort, profile_version_id, activity, fallback_for, fallback_until, handoff FROM dispatches WHERE conversation_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT 1
 `
 
 func (q *Queries) LastDispatchOfConversation(ctx context.Context, conversationID string) (Dispatch, error) {
@@ -364,12 +408,15 @@ func (q *Queries) LastDispatchOfConversation(ctx context.Context, conversationID
 		&i.Effort,
 		&i.ProfileVersionID,
 		&i.Activity,
+		&i.FallbackFor,
+		&i.FallbackUntil,
+		&i.Handoff,
 	)
 	return i, err
 }
 
 const lastDispatchOfTask = `-- name: LastDispatchOfTask :one
-SELECT id, task_id, conversation_id, node_id, status, epoch, failure_class, unknown_cause, recovery, process_ref, result, resets_at, created_at, updated_at, accepted_at, started_at, lease_expires_at, progress_at, stop_requested_at, stop_acked_at, stalled_at, overrun_at, settled_at, waiting_since, waited_ms, gate_question_id, model, effort, profile_version_id, activity FROM dispatches WHERE task_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT 1
+SELECT id, task_id, conversation_id, node_id, status, epoch, failure_class, unknown_cause, recovery, process_ref, result, resets_at, created_at, updated_at, accepted_at, started_at, lease_expires_at, progress_at, stop_requested_at, stop_acked_at, stalled_at, overrun_at, settled_at, waiting_since, waited_ms, gate_question_id, model, effort, profile_version_id, activity, fallback_for, fallback_until, handoff FROM dispatches WHERE task_id = ?1 ORDER BY created_at DESC, rowid DESC LIMIT 1
 `
 
 func (q *Queries) LastDispatchOfTask(ctx context.Context, taskID string) (Dispatch, error) {
@@ -406,6 +453,9 @@ func (q *Queries) LastDispatchOfTask(ctx context.Context, taskID string) (Dispat
 		&i.Effort,
 		&i.ProfileVersionID,
 		&i.Activity,
+		&i.FallbackFor,
+		&i.FallbackUntil,
+		&i.Handoff,
 	)
 	return i, err
 }
@@ -751,6 +801,54 @@ func (q *Queries) MarkUnknown(ctx context.Context, arg MarkUnknownParams) (int64
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const previousDispatchOfTask = `-- name: PreviousDispatchOfTask :one
+SELECT p.id, p.task_id, p.conversation_id, p.node_id, p.status, p.epoch, p.failure_class, p.unknown_cause, p.recovery, p.process_ref, p.result, p.resets_at, p.created_at, p.updated_at, p.accepted_at, p.started_at, p.lease_expires_at, p.progress_at, p.stop_requested_at, p.stop_acked_at, p.stalled_at, p.overrun_at, p.settled_at, p.waiting_since, p.waited_ms, p.gate_question_id, p.model, p.effort, p.profile_version_id, p.activity, p.fallback_for, p.fallback_until, p.handoff FROM dispatches p JOIN dispatches d ON d.task_id = p.task_id
+WHERE d.id = ?1 AND (p.created_at < d.created_at OR (p.created_at = d.created_at AND p.rowid < d.rowid))
+ORDER BY p.created_at DESC, p.rowid DESC LIMIT 1
+`
+
+// The Dispatch of a Task before this one: the worker a hand-off takes over from.
+func (q *Queries) PreviousDispatchOfTask(ctx context.Context, id string) (Dispatch, error) {
+	row := q.db.QueryRowContext(ctx, previousDispatchOfTask, id)
+	var i Dispatch
+	err := row.Scan(
+		&i.ID,
+		&i.TaskID,
+		&i.ConversationID,
+		&i.NodeID,
+		&i.Status,
+		&i.Epoch,
+		&i.FailureClass,
+		&i.UnknownCause,
+		&i.Recovery,
+		&i.ProcessRef,
+		&i.Result,
+		&i.ResetsAt,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.AcceptedAt,
+		&i.StartedAt,
+		&i.LeaseExpiresAt,
+		&i.ProgressAt,
+		&i.StopRequestedAt,
+		&i.StopAckedAt,
+		&i.StalledAt,
+		&i.OverrunAt,
+		&i.SettledAt,
+		&i.WaitingSince,
+		&i.WaitedMs,
+		&i.GateQuestionID,
+		&i.Model,
+		&i.Effort,
+		&i.ProfileVersionID,
+		&i.Activity,
+		&i.FallbackFor,
+		&i.FallbackUntil,
+		&i.Handoff,
+	)
+	return i, err
 }
 
 const reattach = `-- name: Reattach :execrows

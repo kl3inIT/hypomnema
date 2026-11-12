@@ -4,7 +4,10 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"math"
 	"net/http"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -93,7 +96,7 @@ func newAccountState() *accountState {
 // the client gets when none serves. usedLast, when given, says an account is
 // to be tried only after the others.
 func (s *Server) underAccounts(
-	ctx context.Context, runtime string, usedLast func(AccountToken) bool,
+	ctx context.Context, runtime, session string, usedLast func(AccountToken) bool,
 	attempt func(AccountToken) (*http.Response, error),
 ) (*http.Response, error) {
 	var (
@@ -119,7 +122,7 @@ func (s *Server) underAccounts(
 	}
 
 	for {
-		token, err := s.accounts.Token(ctx, runtime, tried...)
+		token, err := s.accounts.Token(ctx, runtime, session, tried...)
 		if err != nil {
 			stopping = err
 
@@ -222,6 +225,53 @@ func (a *accountState) served(account string) {
 	defer a.mu.Unlock()
 
 	delete(a.levels, account)
+}
+
+// An account's whole quota, for a vendor that says it on every answer: the
+// gateway reads it there, asking nothing more, and Token keeps an account
+// that is nearly used up for last (subscription.Service.Token). What is left
+// is one minus the most used of the vendor's windows, as omp measures it
+// (packages/ai/src/auth/usage-report.ts remainingUsageFraction).
+
+// claudeQuotaLeft reads Anthropic's unified windows, 5 hours and 7 days, each
+// a used part from 0 to 1 (omp packages/ai/src/usage/claude.ts
+// parseClaudeRateLimitHeaders). The window of one model family is left out:
+// omp trusts it only once it is used up.
+func claudeQuotaLeft(h http.Header) (float64, bool) {
+	return quotaLeft(1,
+		h.Get("Anthropic-Ratelimit-Unified-5h-Utilization"), h.Get("Anthropic-Ratelimit-Unified-7d-Utilization"))
+}
+
+// codexQuotaLeft reads the Codex backend's primary and secondary windows, each
+// a used percentage (omp packages/ai/src/usage/openai-codex.ts
+// parseCodexRateLimitHeaders).
+func codexQuotaLeft(h http.Header) (float64, bool) {
+	return quotaLeft(100, h.Get("X-Codex-Primary-Used-Percent"), h.Get("X-Codex-Secondary-Used-Percent"))
+}
+
+// quotaLeft is what remains under the most used of the windows, whose used
+// part is written out of full; false when the vendor named none.
+func quotaLeft(full float64, used ...string) (float64, bool) {
+	most, known := 0.0, false
+
+	for _, text := range used {
+		part, err := strconv.ParseFloat(strings.TrimSpace(text), 64)
+		if err != nil || math.IsNaN(part) || math.IsInf(part, 0) {
+			continue
+		}
+
+		most, known = max(most, part/full), true
+	}
+
+	return min(max(1-most, 0), 1), known
+}
+
+// noteQuota passes what an answer's headers say of an account's quota on to
+// its accounts; read is the vendor's way of saying it.
+func (s *Server) noteQuota(token AccountToken, h http.Header, read func(http.Header) (float64, bool)) {
+	if left, known := read(h); known {
+		s.accounts.NoteQuota(token.AccountID, left)
+	}
 }
 
 // nearQuota reports whether an account's quota for a model is known, fresh,

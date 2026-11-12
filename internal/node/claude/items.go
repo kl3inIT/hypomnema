@@ -2,11 +2,10 @@ package claude
 
 import (
 	"encoding/json"
-	"fmt"
 	"strings"
 	"time"
-	"unicode/utf8"
 
+	"github.com/kl3inIT/hypomnema/internal/node/transcript"
 	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
 )
 
@@ -85,13 +84,7 @@ func itemsOf(raw []byte) []nodeproto.Item {
 		}
 	}
 
-	// Room for the envelope and each item's field names.
-	limit := min(nodeproto.MaxItemBytes, (nodeproto.MaxBatchBytes-4096)/max(len(out), 1))
-	for i := range out {
-		bound(&out[i], limit)
-	}
-
-	return out
+	return transcript.Fit(out)
 }
 
 // blocksOf returns a message's content blocks; a content that is plain text
@@ -135,78 +128,18 @@ func resultText(content json.RawMessage) string {
 	return strings.Join(parts, "\n")
 }
 
-// bound cuts an item until it encodes to at most limit bytes: its text, and
-// the long strings of its input, as Omnigent's forwarder cuts an oversized
-// item (harnesses/claude_native/forwarder.py at cf1021e).
-func bound(it *nodeproto.Item, limit int) {
-	for most := limit; ; most /= 2 {
-		c := *it
-		c.Text = cut(it.Text, most)
-		c.Input = cutInput(it.Input, most)
+// Format names the journal of Claude Code's stream-JSON (transcript.SetFormat).
+const Format = "claude"
 
-		if raw, err := json.Marshal(c); (err == nil && len(raw) <= limit) || most < 64 {
-			*it = c
+// decoder is the transcript decoder of Claude Code's journal: each line says
+// all of itself.
+type decoder struct{}
 
-			return
-		}
-	}
-}
+// NewDecoder is the transcript decoder of a Claude Code worker's journal.
+func NewDecoder() transcript.Decoder { return decoder{} }
 
-// cutInput cuts the strings of a tool's input so that it takes about most
-// bytes; an input that cannot be cut that far is dropped and marked.
-func cutInput(raw json.RawMessage, most int) json.RawMessage {
-	if len(raw) <= most {
-		return raw
-	}
+func (decoder) Line(raw []byte) []nodeproto.Item { return itemsOf(raw) }
 
-	var input map[string]any
-	if most < 64 || json.Unmarshal(raw, &input) != nil {
-		return json.RawMessage(`{"truncated":true}`)
-	}
+func (decoder) OpenSince() int { return -1 }
 
-	out, err := json.Marshal(cutStrings(input, most/8))
-	if err != nil {
-		return json.RawMessage(`{"truncated":true}`)
-	}
-
-	return out
-}
-
-func cutStrings(v any, most int) any {
-	switch x := v.(type) {
-	case string:
-		return cut(x, most)
-	case map[string]any:
-		out := make(map[string]any, len(x))
-		for k, e := range x {
-			out[k] = cutStrings(e, most)
-		}
-
-		return out
-	case []any:
-		out := make([]any, len(x))
-		for i, e := range x {
-			out[i] = cutStrings(e, most)
-		}
-
-		return out
-	default:
-		return v
-	}
-}
-
-// cut keeps the first most bytes of s, on a rune boundary, and says how much
-// it left out.
-func cut(s string, most int) string {
-	most = max(most, 64)
-	if len(s) <= most {
-		return s
-	}
-
-	keep := most
-	for keep > 0 && !utf8.RuneStart(s[keep]) {
-		keep--
-	}
-
-	return s[:keep] + fmt.Sprintf("\n… [%d more bytes not kept]", len(s)-keep)
-}
+func (decoder) Flush() []nodeproto.Item { return nil }

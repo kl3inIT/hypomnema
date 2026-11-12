@@ -110,6 +110,10 @@ type Offer struct {
 	// serves its model. Orchestration never fills it: the node API does, as
 	// it sends the offer.
 	ModelKey string `json:"model_key,omitempty"`
+	// AccountToken is the account's token, when the control plane keeps it
+	// (issue #150). Orchestration never fills it: the node API does, from the
+	// vault, as it sends the offer.
+	AccountToken string `json:"account_token,omitempty"`
 	// Uses are the Connections the Run's workers may use; AgentKey is this
 	// Dispatch's own key to ask for their tokens. Orchestration never fills
 	// the key: the node API does, as it sends the offer.
@@ -214,6 +218,15 @@ func offerOf(ctx context.Context, q *store.Queries, d store.Dispatch) (Offer, er
 		instruction = v.Instruction.String
 	}
 
+	// A worker that takes over another's work is told so with the Task.
+	spec := task.Spec
+
+	if d.Handoff == 1 {
+		if spec, err = handoffSpec(ctx, q, d, task.Spec); err != nil {
+			return Offer{}, err
+		}
+	}
+
 	host, kind := repoHost(run), ""
 
 	if host != "" {
@@ -227,7 +240,7 @@ func offerOf(ctx context.Context, q *store.Queries, d store.Dispatch) (Offer, er
 
 	return Offer{
 		DispatchID: d.ID, TaskID: task.ID, RunID: run.ID, Profile: task.Profile, Instruction: instruction,
-		Spec: task.Spec,
+		Spec: spec,
 		Repo: run.Repo.String, RepoHost: host, RepoKind: kind,
 		Base: run.Base.String, ConversationID: conv.ID, Worktree: conv.Worktree,
 		Runtime: conv.Runtime, AccountRef: conv.AccountRef, CLISessionRef: conv.CliSessionRef.String,

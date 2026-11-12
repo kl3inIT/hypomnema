@@ -172,6 +172,18 @@ export type Dispatch = {
    * The profile version it ran with; absent for Dispatches from before profiles.
    */
   profile_version_id?: string;
+  /**
+   * The profile the Task asked for, when this Dispatch ran under a backup of it because every account of that profile's runtime waited for a limit to reset. `profile_version_id` is then the backup's.
+   */
+  fallback_for?: string;
+  /**
+   * With `fallback_for`, when the first of those accounts was to be free again.
+   */
+  fallback_until?: string;
+  /**
+   * With `fallback_for`: this Dispatch took over a Task whose worker had begun and met a usage limit. It ran in the same worktree with a session of its own, and its worker was given the Task again, a note and the end of the previous worker's transcript.
+   */
+  handoff?: boolean;
   result?: DispatchResult;
   created_at: string;
   updated_at: string;
@@ -609,6 +621,74 @@ export type Integration = {
   connections: Array<IntegrationConnection>;
 };
 
+/**
+ * The Lark bot as the owner set it up, and whether it is connected.
+ */
+export type LarkBot = {
+  /**
+   * The Lark app's id. Not secret.
+   */
+  app_id: string;
+  mode: LarkBotMode;
+  /**
+   * The owner's id at Lark.
+   */
+  owner_open_id: string;
+  /**
+   * Whether the bot takes messages.
+   */
+  enabled: boolean;
+  /**
+   * Whether the persistent connection to Lark is open.
+   */
+  connected: boolean;
+  /**
+   * The app the connection was opened as, when it is another than app_id: the control plane must start again to use the new one.
+   */
+  connected_app_id?: string;
+  /**
+   * Why the last attempt to connect failed.
+   */
+  last_error?: string;
+  people: Array<LarkBotPerson>;
+  updated_at: string;
+};
+
+/**
+ * Who may talk to the bot: its owner only, the owner and the people he added, or every member of the app's Lark organization. Someone of another organization is refused in every mode.
+ */
+export type LarkBotMode = 'owner' | 'allowlist' | 'everyone';
+
+export type LarkBotSettings = {
+  app_id?: string;
+  /**
+   * The owner's email in the app's Lark organization, or his open_id.
+   */
+  owner?: string;
+  mode?: LarkBotMode;
+  enabled?: boolean;
+};
+
+export type LarkBotPerson = {
+  open_id: string;
+  /**
+   * The email they were added with; empty when added by open_id.
+   */
+  email: string;
+  /**
+   * Their name at Lark
+   */
+  name: string;
+  created_at: string;
+};
+
+export type NewLarkBotPerson = {
+  /**
+   * Their email in the app's Lark organization, or their open_id.
+   */
+  who: string;
+};
+
 export type IntegrationList = {
   data: Array<Integration>;
 };
@@ -637,6 +717,85 @@ export type IntegrationConnection = {
   chats: boolean;
   created_at: string;
   updated_at: string;
+};
+
+export type ActionPolicy = 'allow' | 'ask' | 'never';
+
+/**
+ * One thing an agent can do with a Connection, and the owner's answer to it.
+ */
+export type ConnectionAction = {
+  /**
+   * The action's name in commands, such as gmail.send.
+   */
+  id: string;
+  /**
+   * The part of the Integration it belongs to, such as Gmail.
+   */
+  service: string;
+  name: string;
+  text: string;
+  kind: 'reads' | 'changes' | 'needs_care';
+  policy: ActionPolicy;
+  default: ActionPolicy;
+};
+
+export type ConnectionActionList = {
+  data: Array<ConnectionAction>;
+};
+
+export type ActionPolicyChange = {
+  policy: ActionPolicy;
+};
+
+export type ApprovalStatus = 'pending' | 'approved' | 'rejected';
+
+export type ApprovalField = {
+  label: string;
+  value: string;
+};
+
+/**
+ * One request an agent made to a service that waits for the owner's answer, shown decoded. It is not a Gate.
+ */
+export type Approval = {
+  id: string;
+  integration: string;
+  label: string;
+  action: string;
+  action_name: string;
+  /**
+   * pi, worker or owner.
+   */
+  asked_by: string;
+  dispatch_id?: string;
+  task_id?: string;
+  run_id?: string;
+  chat_id?: string;
+  title: string;
+  payload: Array<ApprovalField>;
+  status: ApprovalStatus;
+  /**
+   * How far an approval reaches; absent until approved.
+   */
+  scope?: 'once' | 'session';
+  /**
+   * An approval for one request has run.
+   */
+  used: boolean;
+  created_at: string;
+  decided_at?: string;
+};
+
+export type ApprovalList = {
+  data: Array<Approval>;
+};
+
+export type ApprovalDecision = {
+  /**
+   * approve lets this one request run; approve_session also stops asking for the action for the rest of the Run or the chat that asked; reject refuses it.
+   */
+  decision: 'approve' | 'approve_session' | 'reject';
 };
 
 export type ConnectionUse = {
@@ -744,6 +903,57 @@ export type Source = {
   source: string;
 };
 
+export type Bot = {
+  name: string;
+  provider?: string;
+  model?: string;
+  effort?: string;
+  /**
+   * What the Bot is and how it behaves, written by the owner; pi gets it after its built-in instructions.
+   */
+  persona: string;
+  /**
+   * What the Bot keeps across chats, one entry per line.
+   */
+  memory: string;
+  /**
+   * The most characters the memory holds.
+   */
+  memory_limit: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type BotList = {
+  data: Array<Bot>;
+};
+
+export type BotSettings = {
+  provider?: string;
+  model?: string;
+  effort?: string;
+  persona?: string;
+};
+
+export type MemoryText = {
+  /**
+   * The entries, one per line.
+   */
+  memory: string;
+};
+
+export type MemoryChange = {
+  kind: 'add' | 'replace' | 'remove';
+  /**
+   * The entry to add, or what replaces the entry found.
+   */
+  text?: string;
+  /**
+   * Part of the one entry to replace or remove.
+   */
+  match?: string;
+};
+
 export type Profile = {
   name: string;
   /**
@@ -757,10 +967,14 @@ export type Profile = {
   model?: string;
   effort?: string;
   instruction?: string;
+  /**
+   * The profiles, in the owner's order, a Task of this one runs under while every account of its runtime waits for a limit to reset: the first a worker can start under now. Only a Task that has not started and names no runtime or model of its own moves; a backup's own list is not followed. Empty: the Task waits for the reset.
+   */
+  fallbacks: Array<string>;
   source: string;
   created_at: string;
   /**
-   * Whether a worker can start under the profile now: a connected, active node has its CLI, and its runtime has an account that is not cooling down (none is needed for a model the gateway serves). A node at its limit still counts, since the Task waits its turn. Given for a profile's current version; absent for the coordinator's runtime, which no node runs, and in a list of versions.
+   * Whether a worker can start under the profile now: a connected, active node has its CLI, and its runtime has an account that is not cooling down (none is needed for a model the gateway serves). A node at its limit still counts, since the Task waits its turn. Given for a profile's current version; absent for a list of versions.
    */
   available?: boolean;
   /**
@@ -806,11 +1020,19 @@ export type ModelList = {
 
 export type NewChat = {
   title?: string;
+  /**
+   * The Bot the chat talks with; `coordinator` when left out.
+   */
+  bot?: string;
 };
 
 export type Chat = {
   id: string;
   title: string;
+  /**
+   * The Bot the chat talks with.
+   */
+  bot: string;
   /**
    * The coordinator is working on a turn of this chat.
    */
@@ -921,12 +1143,25 @@ export type ChatMessageList = {
   next_after: number;
 };
 
+export type LarkBotSettingsWritable = {
+  app_id?: string;
+  app_secret?: string;
+  /**
+   * The owner's email in the app's Lark organization, or his open_id.
+   */
+  owner?: string;
+  mode?: LarkBotMode;
+  enabled?: boolean;
+};
+
 export type NewIntegrationClientWritable = {
   client_id: string;
   client_secret: string;
 };
 
 export type IntegrationId = string;
+
+export type ConnectionLabel = string;
 
 export type Name = string;
 
@@ -2191,6 +2426,249 @@ export type PutIntegrationConnectionResponses = {
 
 export type PutIntegrationConnectionResponse = PutIntegrationConnectionResponses[keyof PutIntegrationConnectionResponses];
 
+export type DeleteLarkBotData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/channels/lark';
+};
+
+export type DeleteLarkBotErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type DeleteLarkBotError = DeleteLarkBotErrors[keyof DeleteLarkBotErrors];
+
+export type DeleteLarkBotResponses = {
+  /**
+   * The bot is forgotten.
+   */
+  204: void;
+};
+
+export type DeleteLarkBotResponse = DeleteLarkBotResponses[keyof DeleteLarkBotResponses];
+
+export type GetLarkBotData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/channels/lark';
+};
+
+export type GetLarkBotErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GetLarkBotError = GetLarkBotErrors[keyof GetLarkBotErrors];
+
+export type GetLarkBotResponses = {
+  /**
+   * The bot.
+   */
+  200: LarkBot;
+};
+
+export type GetLarkBotResponse = GetLarkBotResponses[keyof GetLarkBotResponses];
+
+export type PutLarkBotData = {
+  body: LarkBotSettingsWritable;
+  path?: never;
+  query?: never;
+  url: '/channels/lark';
+};
+
+export type PutLarkBotErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type PutLarkBotError = PutLarkBotErrors[keyof PutLarkBotErrors];
+
+export type PutLarkBotResponses = {
+  /**
+   * The bot.
+   */
+  200: LarkBot;
+};
+
+export type PutLarkBotResponse = PutLarkBotResponses[keyof PutLarkBotResponses];
+
+export type AddLarkBotPersonData = {
+  body: NewLarkBotPerson;
+  path?: never;
+  query?: never;
+  url: '/channels/lark/people';
+};
+
+export type AddLarkBotPersonErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type AddLarkBotPersonError = AddLarkBotPersonErrors[keyof AddLarkBotPersonErrors];
+
+export type AddLarkBotPersonResponses = {
+  /**
+   * The person.
+   */
+  200: LarkBotPerson;
+};
+
+export type AddLarkBotPersonResponse = AddLarkBotPersonResponses[keyof AddLarkBotPersonResponses];
+
+export type RemoveLarkBotPersonData = {
+  body?: never;
+  path: {
+    /**
+     * The person's open_id at Lark, or the email they were added with.
+     */
+    person: string;
+  };
+  query?: never;
+  url: '/channels/lark/people/{person}';
+};
+
+export type RemoveLarkBotPersonErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type RemoveLarkBotPersonError = RemoveLarkBotPersonErrors[keyof RemoveLarkBotPersonErrors];
+
+export type RemoveLarkBotPersonResponses = {
+  /**
+   * The person is off the list.
+   */
+  204: void;
+};
+
+export type RemoveLarkBotPersonResponse = RemoveLarkBotPersonResponses[keyof RemoveLarkBotPersonResponses];
+
+export type ListConnectionActionsData = {
+  body?: never;
+  path: {
+    integration: string;
+    label: string;
+  };
+  query?: never;
+  url: '/integrations/{integration}/connections/{label}/actions';
+};
+
+export type ListConnectionActionsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListConnectionActionsError = ListConnectionActionsErrors[keyof ListConnectionActionsErrors];
+
+export type ListConnectionActionsResponses = {
+  /**
+   * The actions.
+   */
+  200: ConnectionActionList;
+};
+
+export type ListConnectionActionsResponse = ListConnectionActionsResponses[keyof ListConnectionActionsResponses];
+
+export type SetConnectionActionData = {
+  body: ActionPolicyChange;
+  path: {
+    integration: string;
+    label: string;
+    action: string;
+  };
+  query?: never;
+  url: '/integrations/{integration}/connections/{label}/actions/{action}';
+};
+
+export type SetConnectionActionErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type SetConnectionActionError = SetConnectionActionErrors[keyof SetConnectionActionErrors];
+
+export type SetConnectionActionResponses = {
+  /**
+   * The action with its answer.
+   */
+  200: ConnectionAction;
+};
+
+export type SetConnectionActionResponse = SetConnectionActionResponses[keyof SetConnectionActionResponses];
+
+export type ListApprovalsData = {
+  body?: never;
+  path?: never;
+  query?: {
+    status?: ApprovalStatus;
+    chat_id?: string;
+    task_id?: string;
+  };
+  url: '/approvals';
+};
+
+export type ListApprovalsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListApprovalsError = ListApprovalsErrors[keyof ListApprovalsErrors];
+
+export type ListApprovalsResponses = {
+  /**
+   * The Approvals, the newest first.
+   */
+  200: ApprovalList;
+};
+
+export type ListApprovalsResponse = ListApprovalsResponses[keyof ListApprovalsResponses];
+
+export type DecideApprovalData = {
+  body: ApprovalDecision;
+  path: {
+    approval_id: string;
+  };
+  query?: never;
+  url: '/approvals/{approval_id}/decision';
+};
+
+export type DecideApprovalErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type DecideApprovalError = DecideApprovalErrors[keyof DecideApprovalErrors];
+
+export type DecideApprovalResponses = {
+  /**
+   * The Approval as answered.
+   */
+  200: Approval;
+};
+
+export type DecideApprovalResponse = DecideApprovalResponses[keyof DecideApprovalResponses];
+
 export type ListSecretsData = {
   body?: never;
   path?: never;
@@ -2400,6 +2878,166 @@ export type ListAccountsResponses = {
 };
 
 export type ListAccountsResponse = ListAccountsResponses[keyof ListAccountsResponses];
+
+export type ListBotsData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/bots';
+};
+
+export type ListBotsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListBotsError = ListBotsErrors[keyof ListBotsErrors];
+
+export type ListBotsResponses = {
+  /**
+   * The Bots.
+   */
+  200: BotList;
+};
+
+export type ListBotsResponse = ListBotsResponses[keyof ListBotsResponses];
+
+export type DeleteBotData = {
+  body?: never;
+  path: {
+    name: string;
+  };
+  query?: never;
+  url: '/bots/{name}';
+};
+
+export type DeleteBotErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type DeleteBotError = DeleteBotErrors[keyof DeleteBotErrors];
+
+export type DeleteBotResponses = {
+  /**
+   * The Bot is removed.
+   */
+  204: void;
+};
+
+export type DeleteBotResponse = DeleteBotResponses[keyof DeleteBotResponses];
+
+export type GetBotData = {
+  body?: never;
+  path: {
+    name: string;
+  };
+  query?: never;
+  url: '/bots/{name}';
+};
+
+export type GetBotErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GetBotError = GetBotErrors[keyof GetBotErrors];
+
+export type GetBotResponses = {
+  /**
+   * The Bot.
+   */
+  200: Bot;
+};
+
+export type GetBotResponse = GetBotResponses[keyof GetBotResponses];
+
+export type PutBotData = {
+  body: BotSettings;
+  path: {
+    name: string;
+  };
+  query?: never;
+  url: '/bots/{name}';
+};
+
+export type PutBotErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type PutBotError = PutBotErrors[keyof PutBotErrors];
+
+export type PutBotResponses = {
+  /**
+   * The Bot.
+   */
+  200: Bot;
+};
+
+export type PutBotResponse = PutBotResponses[keyof PutBotResponses];
+
+export type ChangeBotMemoryData = {
+  body: MemoryChange;
+  path: {
+    name: string;
+  };
+  query?: never;
+  url: '/bots/{name}/memory';
+};
+
+export type ChangeBotMemoryErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ChangeBotMemoryError = ChangeBotMemoryErrors[keyof ChangeBotMemoryErrors];
+
+export type ChangeBotMemoryResponses = {
+  /**
+   * The Bot, with its memory after the change.
+   */
+  200: Bot;
+};
+
+export type ChangeBotMemoryResponse = ChangeBotMemoryResponses[keyof ChangeBotMemoryResponses];
+
+export type SetBotMemoryData = {
+  body: MemoryText;
+  path: {
+    name: string;
+  };
+  query?: never;
+  url: '/bots/{name}/memory';
+};
+
+export type SetBotMemoryErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type SetBotMemoryError = SetBotMemoryErrors[keyof SetBotMemoryErrors];
+
+export type SetBotMemoryResponses = {
+  /**
+   * The Bot, with its memory as kept.
+   */
+  200: Bot;
+};
+
+export type SetBotMemoryResponse = SetBotMemoryResponses[keyof SetBotMemoryResponses];
 
 export type ListProfilesData = {
   body?: never;

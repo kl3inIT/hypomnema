@@ -464,12 +464,12 @@ func TestTheGatewayGetsAValidTokenOfAnAccountThatCanBeUsed(t *testing.T) {
 
 	w := newWorld(t)
 
-	_, err := w.subs.Token(t.Context(), "codex")
+	_, err := w.subs.Token(t.Context(), "codex", "")
 	require.ErrorIs(t, err, subscription.ErrNoAccount)
 
 	a := w.login()
 
-	first, err := w.subs.Token(t.Context(), "codex")
+	first, err := w.subs.Token(t.Context(), "codex", "")
 	require.NoError(t, err)
 	assert.Equal(t, subscription.Token{
 		AccountID: a.ID, ExternalID: chatGPTAccount, AccessToken: "access-1", Version: 1,
@@ -477,7 +477,7 @@ func TestTheGatewayGetsAValidTokenOfAnAccountThatCanBeUsed(t *testing.T) {
 
 	w.clock.advance(time.Hour - 30*time.Second)
 
-	fresh, err := w.subs.Token(t.Context(), "codex")
+	fresh, err := w.subs.Token(t.Context(), "codex", "")
 	require.NoError(t, err)
 	assert.Equal(t, "access-2", fresh.AccessToken)
 	assert.Equal(t, 1, w.openai.refreshCalls())
@@ -494,7 +494,7 @@ func TestTheGatewayGetsAValidTokenOfAnAccountThatCanBeUsed(t *testing.T) {
 	until := w.clock.Now().Add(3 * time.Hour)
 	require.NoError(t, w.subs.CoolDown(t.Context(), "codex", a.ID, until, "usage limit"))
 
-	_, err = w.subs.Token(t.Context(), "codex")
+	_, err = w.subs.Token(t.Context(), "codex", "")
 
 	var cooling *subscription.CoolingError
 	require.ErrorAs(t, err, &cooling)
@@ -502,6 +502,6 @@ func TestTheGatewayGetsAValidTokenOfAnAccountThatCanBeUsed(t *testing.T) {
 
 	w.clock.advance(3*time.Hour + time.Second)
 
-	_, err = w.subs.Token(t.Context(), "codex")
+	_, err = w.subs.Token(t.Context(), "codex", "")
 	require.NoError(t, err)
 }

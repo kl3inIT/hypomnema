@@ -1,8 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useNavigate } from "@tanstack/react-router"
+import { Link, useNavigate } from "@tanstack/react-router"
+import { useState } from "react"
 
 import "@/api/client"
 import { abortChat, createChat, getChat, sendChatMessage } from "@/api/generated/sdk.gen"
+import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
+import { AgentAvatar } from "@/features/agents/agent-avatar"
+import { firstBot } from "@/features/bots/bots-state"
+import { useBots } from "@/features/bots/use-bots"
 import {
   AppSidebar,
   ChatList,
@@ -13,6 +18,8 @@ import {
 } from "@/features/shell/app-shell"
 import { chatsKey } from "@/features/shell/chats"
 
+import { PendingApprovals } from "@/features/approvals/approval-card"
+
 import { Composer } from "./composer"
 import { Conversation } from "./conversation"
 import { useChatStream } from "./use-chat-stream"
@@ -21,7 +28,8 @@ import { useChatStream } from "./use-chat-stream"
 // https://github.com/pingdotgg/t3code): the app's sidebar (features/shell), and beside it a column with a quiet
 // header (ChatView.tsx, ChatHeader.tsx), the conversation and the composer. On a phone the sidebar hides and the
 // header's menu opens the start screen, which lists the places and the chats. Without a chat open, the start
-// screen's composer starts one (chat/DraftHeroHeadline.tsx).
+// screen's composer starts one (chat/DraftHeroHeadline.tsx). A chat talks with one Bot (issue #169): the start
+// screen offers the Bots when there are several, and an open chat's header names its Bot.
 export function ChatScreen({ chatId }: { chatId?: string }) {
   return (
     <>
@@ -34,11 +42,16 @@ export function ChatScreen({ chatId }: { chatId?: string }) {
 function NewChat() {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  // The Bot the new chat talks with. With one Bot there is nothing to choose and the server takes the first.
+  const bots = useBots().data ?? []
+  const [picked, setPicked] = useState(firstBot)
+  const choice = bots.length > 1
+  const bot = bots.some((b) => b.name === picked) ? picked : firstBot
 
   const start = useMutation({
     mutationFn: async (text: string) => {
       const { data: chat } = await createChat({
-        body: { title: text.split("\n")[0]?.slice(0, 80) },
+        body: { title: text.split("\n")[0]?.slice(0, 80), ...(choice && { bot }) },
       })
       await sendChatMessage({ path: { chat_id: chat.id }, body: { text } })
 
@@ -58,6 +71,23 @@ function NewChat() {
           <h1 className="w-full text-center text-2xl font-normal tracking-tight text-foreground sm:text-3xl">
             What should be built?
           </h1>
+          {choice && (
+            <label className="flex items-center gap-2 text-sm text-muted-foreground">
+              Chat with
+              <NativeSelect
+                size="sm"
+                aria-label="Bot"
+                value={bot}
+                onChange={(event) => setPicked(event.target.value)}
+              >
+                {bots.map((b) => (
+                  <NativeSelectOption key={b.name} value={b.name}>
+                    {b.name}
+                  </NativeSelectOption>
+                ))}
+              </NativeSelect>
+            </label>
+          )}
           <Composer onSend={(text) => start.mutateAsync(text)} onStop={() => {}} working={false} />
           <p className="max-w-(--chat-content-max-width) text-center text-sm text-muted-foreground">
             pi plans the work, gives it to workers on your machines, and reports back here.
@@ -86,7 +116,19 @@ function OpenChat({ chatId }: { chatId: string }) {
 
   return (
     <main className="flex min-w-0 flex-1 flex-col">
-      <PageHeader title={chat.data?.title} />
+      <PageHeader title={chat.data?.title}>
+        {chat.data && (
+          <Link
+            to="/bots/$name"
+            params={{ name: chat.data.bot }}
+            aria-label={`Bot ${chat.data.bot}`}
+            className="ms-auto flex shrink-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+          >
+            <AgentAvatar name={chat.data.bot} className="size-5" />
+            {chat.data.bot}
+          </Link>
+        )}
+      </PageHeader>
       {chat.data && !chat.data.coordinator && (
         <output className="block px-5 pb-2 text-sm text-muted-foreground">
           No coordinator runs on the server: messages are kept and nothing answers.
@@ -99,6 +141,10 @@ function OpenChat({ chatId }: { chatId: string }) {
         }
       />
       <div className="px-3 pb-[calc(env(safe-area-inset-bottom)+1rem)] sm:px-12 sm:pb-[calc(env(safe-area-inset-bottom)+1.25rem)]">
+        {/* What pi asked to do with an account and waits for: answered here, where it was asked. */}
+        <div className="mx-auto mb-3 w-full max-w-(--chat-content-max-width) empty:hidden">
+          <PendingApprovals chatId={chatId} />
+        </div>
         <Composer
           working={view.working}
           onSend={async (text) => {

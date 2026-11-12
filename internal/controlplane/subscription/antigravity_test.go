@@ -292,7 +292,7 @@ func TestOwnerLogsAnAntigravityAccountIn(t *testing.T) {
 	assert.Equal(t, subscription.StateActive, a.State)
 	assert.Equal(t, t0.Add(3599*time.Second), *a.AccessTokenExpiresAt)
 
-	token, err := w.subs.Token(t.Context(), "antigravity")
+	token, err := w.subs.Token(t.Context(), "antigravity", "")
 	require.NoError(t, err)
 	assert.Equal(t, "ya29.access-1", token.AccessToken)
 	assert.Equal(t, "bright-wave-1234", token.Project)

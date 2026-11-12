@@ -13,7 +13,7 @@ import (
 
 const countAccountsFreeAfter = `-- name: CountAccountsFreeAfter :one
 SELECT count(*) FROM accounts a
-WHERE a.runtime = ?1 AND a.status = 'active' AND a.secret_ref IS NULL
+WHERE a.runtime = ?1 AND a.status = 'active' AND (a.secret_ref IS NULL OR a.sent_to_node = 1)
   AND NOT EXISTS (SELECT 1 FROM account_cooldowns c
                   WHERE c.runtime = a.runtime AND c.account_ref = a.id AND c.until > ?2)
 `
@@ -170,7 +170,7 @@ func (q *Queries) DeleteNode(ctx context.Context, arg DeleteNodeParams) (int64, 
 }
 
 const getAccount = `-- name: GetAccount :one
-SELECT id, runtime, label, status, position, created_at, updated_at, external_id, email, "plan", secret_ref, refresh_failures, refresh_retry_at, refresh_error, project FROM accounts WHERE id = ?1
+SELECT id, runtime, label, status, position, created_at, updated_at, external_id, email, "plan", secret_ref, refresh_failures, refresh_retry_at, refresh_error, project, sent_to_node FROM accounts WHERE id = ?1
 `
 
 func (q *Queries) GetAccount(ctx context.Context, id string) (Account, error) {
@@ -192,12 +192,13 @@ func (q *Queries) GetAccount(ctx context.Context, id string) (Account, error) {
 		&i.RefreshRetryAt,
 		&i.RefreshError,
 		&i.Project,
+		&i.SentToNode,
 	)
 	return i, err
 }
 
 const getAccountByExternalID = `-- name: GetAccountByExternalID :one
-SELECT id, runtime, label, status, position, created_at, updated_at, external_id, email, "plan", secret_ref, refresh_failures, refresh_retry_at, refresh_error, project FROM accounts WHERE runtime = ?1 AND external_id = ?2
+SELECT id, runtime, label, status, position, created_at, updated_at, external_id, email, "plan", secret_ref, refresh_failures, refresh_retry_at, refresh_error, project, sent_to_node FROM accounts WHERE runtime = ?1 AND external_id = ?2
 `
 
 type GetAccountByExternalIDParams struct {
@@ -224,6 +225,7 @@ func (q *Queries) GetAccountByExternalID(ctx context.Context, arg GetAccountByEx
 		&i.RefreshRetryAt,
 		&i.RefreshError,
 		&i.Project,
+		&i.SentToNode,
 	)
 	return i, err
 }
@@ -418,6 +420,33 @@ func (q *Queries) InsertNodeToken(ctx context.Context, arg InsertNodeTokenParams
 	return err
 }
 
+const insertTokenAccount = `-- name: InsertTokenAccount :exec
+INSERT INTO accounts (id, runtime, label, status, position, secret_ref, sent_to_node, created_at, updated_at)
+VALUES (?1, ?2, ?3, 'active',
+        (SELECT coalesce(max(position), 0) + 1 FROM accounts WHERE runtime = ?2),
+        ?4, 1, ?5, ?5)
+`
+
+type InsertTokenAccountParams struct {
+	ID        string
+	Runtime   string
+	Label     string
+	SecretRef sql.NullString
+	Now       int64
+}
+
+// An account whose token the control plane keeps and sends to the node (issue #150).
+func (q *Queries) InsertTokenAccount(ctx context.Context, arg InsertTokenAccountParams) error {
+	_, err := q.db.ExecContext(ctx, insertTokenAccount,
+		arg.ID,
+		arg.Runtime,
+		arg.Label,
+		arg.SecretRef,
+		arg.Now,
+	)
+	return err
+}
+
 const listAccountLabelsBySecretRef = `-- name: ListAccountLabelsBySecretRef :many
 SELECT runtime, label FROM accounts WHERE secret_ref = ?1 ORDER BY runtime, label
 `
@@ -451,7 +480,7 @@ func (q *Queries) ListAccountLabelsBySecretRef(ctx context.Context, secretRef sq
 }
 
 const listAccounts = `-- name: ListAccounts :many
-SELECT id, runtime, label, status, position, created_at, updated_at, external_id, email, "plan", secret_ref, refresh_failures, refresh_retry_at, refresh_error, project FROM accounts ORDER BY runtime, position, id
+SELECT id, runtime, label, status, position, created_at, updated_at, external_id, email, "plan", secret_ref, refresh_failures, refresh_retry_at, refresh_error, project, sent_to_node FROM accounts ORDER BY runtime, position, id
 `
 
 func (q *Queries) ListAccounts(ctx context.Context) ([]Account, error) {
@@ -479,6 +508,7 @@ func (q *Queries) ListAccounts(ctx context.Context) ([]Account, error) {
 			&i.RefreshRetryAt,
 			&i.RefreshError,
 			&i.Project,
+			&i.SentToNode,
 		); err != nil {
 			return nil, err
 		}

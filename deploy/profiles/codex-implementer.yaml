@@ -4,15 +4,22 @@
 # Before applying, replace the two placeholders:
 #   <gateway provider>  the provider of kind model_gateway: `hypomnema providers list`
 #   <gateway model>     a model that provider offers:        `hypomnema models list`
-# Then: hypomnema profiles apply codex-implementer.yaml
+#                       Codex describes gpt-6.1-sol as its "Latest workhorse model for coding and everyday work".
+# Then: hypomnema profiles apply codex-implementer.yaml, or make it on the web under Agents.
 #
 # The description is what the coordinator chooses by; say in it what this worker is for.
 name: codex-implementer
 description: >-
-  Makes a narrow, well-scoped change in the repository, runs its checks and opens a pull request. Runs on Codex;
-  use implementer for work across many files, refactors and writing tests.
+  Makes a change in the repository, runs its checks and opens a pull request, on Codex. Use when the owner asks
+  for Codex, or to have a second vendor do the work.
 runtime: codex
 model:
   provider: <gateway provider>
   name: <gateway model>
   effort: high
+# Optional backups, off by default. `fallbacks` is an ordered list of other workers' profiles, tried in the order
+# written, with at most 5 entries. It applies only to a Task that has not started (it has no Conversation yet): a
+# Task already running stays on its own profile. To use it, remove the leading "# " and name profiles that exist
+# (`hypomnema profiles list`).
+# fallbacks:
+#   - implementer

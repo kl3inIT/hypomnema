@@ -42,6 +42,27 @@ func (e AccountStatus) Valid() bool {
 	}
 }
 
+// Defines values for ActionPolicy.
+const (
+	Allow ActionPolicy = "allow"
+	Ask   ActionPolicy = "ask"
+	Never ActionPolicy = "never"
+)
+
+// Valid indicates whether the value is a known member of the ActionPolicy enum.
+func (e ActionPolicy) Valid() bool {
+	switch e {
+	case Allow:
+		return true
+	case Ask:
+		return true
+	case Never:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for Addressee.
 const (
 	AddresseeCoordinator Addressee = "coordinator"
@@ -54,6 +75,66 @@ func (e Addressee) Valid() bool {
 	case AddresseeCoordinator:
 		return true
 	case AddresseeOwner:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ApprovalScope.
+const (
+	Once    ApprovalScope = "once"
+	Session ApprovalScope = "session"
+)
+
+// Valid indicates whether the value is a known member of the ApprovalScope enum.
+func (e ApprovalScope) Valid() bool {
+	switch e {
+	case Once:
+		return true
+	case Session:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ApprovalDecisionDecision.
+const (
+	Approve        ApprovalDecisionDecision = "approve"
+	ApproveSession ApprovalDecisionDecision = "approve_session"
+	Reject         ApprovalDecisionDecision = "reject"
+)
+
+// Valid indicates whether the value is a known member of the ApprovalDecisionDecision enum.
+func (e ApprovalDecisionDecision) Valid() bool {
+	switch e {
+	case Approve:
+		return true
+	case ApproveSession:
+		return true
+	case Reject:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ApprovalStatus.
+const (
+	ApprovalStatusApproved ApprovalStatus = "approved"
+	ApprovalStatusPending  ApprovalStatus = "pending"
+	ApprovalStatusRejected ApprovalStatus = "rejected"
+)
+
+// Valid indicates whether the value is a known member of the ApprovalStatus enum.
+func (e ApprovalStatus) Valid() bool {
+	switch e {
+	case ApprovalStatusApproved:
+		return true
+	case ApprovalStatusPending:
+		return true
+	case ApprovalStatusRejected:
 		return true
 	default:
 		return false
@@ -159,6 +240,27 @@ func (e ChatToolActivityPhase) Valid() bool {
 	case End:
 		return true
 	case Start:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ConnectionActionKind.
+const (
+	Changes   ConnectionActionKind = "changes"
+	NeedsCare ConnectionActionKind = "needs_care"
+	Reads     ConnectionActionKind = "reads"
+)
+
+// Valid indicates whether the value is a known member of the ConnectionActionKind enum.
+func (e ConnectionActionKind) Valid() bool {
+	switch e {
+	case Changes:
+		return true
+	case NeedsCare:
+		return true
+	case Reads:
 		return true
 	default:
 		return false
@@ -294,6 +396,27 @@ func (e IntegrationKind) Valid() bool {
 	}
 }
 
+// Defines values for LarkBotMode.
+const (
+	LarkBotModeAllowlist LarkBotMode = "allowlist"
+	LarkBotModeEveryone  LarkBotMode = "everyone"
+	LarkBotModeOwner     LarkBotMode = "owner"
+)
+
+// Valid indicates whether the value is a known member of the LarkBotMode enum.
+func (e LarkBotMode) Valid() bool {
+	switch e {
+	case LarkBotModeAllowlist:
+		return true
+	case LarkBotModeEveryone:
+		return true
+	case LarkBotModeOwner:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for MachineProviderKind.
 const (
 	Aws MachineProviderKind = "aws"
@@ -303,6 +426,27 @@ const (
 func (e MachineProviderKind) Valid() bool {
 	switch e {
 	case Aws:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for MemoryChangeKind.
+const (
+	Add     MemoryChangeKind = "add"
+	Remove  MemoryChangeKind = "remove"
+	Replace MemoryChangeKind = "replace"
+)
+
+// Valid indicates whether the value is a known member of the MemoryChangeKind enum.
+func (e MemoryChangeKind) Valid() bool {
+	switch e {
+	case Add:
+		return true
+	case Remove:
+		return true
+	case Replace:
 		return true
 	default:
 		return false
@@ -576,6 +720,14 @@ type AccountList struct {
 	Data []Account `json:"data"`
 }
 
+// ActionPolicy defines model for ActionPolicy.
+type ActionPolicy string
+
+// ActionPolicyChange defines model for ActionPolicyChange.
+type ActionPolicyChange struct {
+	Policy ActionPolicy `json:"policy"`
+}
+
 // Addressee defines model for Addressee.
 type Addressee string
 
@@ -585,11 +737,99 @@ type Answer struct {
 	Text   *string `json:"text,omitempty"`
 }
 
+// Approval One request an agent made to a service that waits for the owner's answer, shown decoded. It is not a Gate.
+type Approval struct {
+	Action     string `json:"action"`
+	ActionName string `json:"action_name"`
+
+	// AskedBy pi, worker or owner.
+	AskedBy     string          `json:"asked_by"`
+	ChatId      *string         `json:"chat_id,omitempty"`
+	CreatedAt   time.Time       `json:"created_at"`
+	DecidedAt   *time.Time      `json:"decided_at,omitempty"`
+	DispatchId  *string         `json:"dispatch_id,omitempty"`
+	Id          string          `json:"id"`
+	Integration string          `json:"integration"`
+	Label       string          `json:"label"`
+	Payload     []ApprovalField `json:"payload"`
+	RunId       *string         `json:"run_id,omitempty"`
+
+	// Scope How far an approval reaches; absent until approved.
+	Scope  *ApprovalScope `json:"scope,omitempty"`
+	Status ApprovalStatus `json:"status"`
+	TaskId *string        `json:"task_id,omitempty"`
+	Title  string         `json:"title"`
+
+	// Used An approval for one request has run.
+	Used bool `json:"used"`
+}
+
+// ApprovalScope How far an approval reaches; absent until approved.
+type ApprovalScope string
+
+// ApprovalDecision defines model for ApprovalDecision.
+type ApprovalDecision struct {
+	// Decision approve lets this one request run; approve_session also stops asking for the action for the rest of the Run or the chat that asked; reject refuses it.
+	Decision ApprovalDecisionDecision `json:"decision"`
+}
+
+// ApprovalDecisionDecision approve lets this one request run; approve_session also stops asking for the action for the rest of the Run or the chat that asked; reject refuses it.
+type ApprovalDecisionDecision string
+
+// ApprovalField defines model for ApprovalField.
+type ApprovalField struct {
+	Label string `json:"label"`
+	Value string `json:"value"`
+}
+
+// ApprovalList defines model for ApprovalList.
+type ApprovalList struct {
+	Data []Approval `json:"data"`
+}
+
+// ApprovalStatus defines model for ApprovalStatus.
+type ApprovalStatus string
+
 // BlockedReason defines model for BlockedReason.
 type BlockedReason string
 
+// Bot defines model for Bot.
+type Bot struct {
+	CreatedAt time.Time `json:"created_at"`
+	Effort    *string   `json:"effort,omitempty"`
+
+	// Memory What the Bot keeps across chats, one entry per line.
+	Memory string `json:"memory"`
+
+	// MemoryLimit The most characters the memory holds.
+	MemoryLimit int     `json:"memory_limit"`
+	Model       *string `json:"model,omitempty"`
+	Name        string  `json:"name"`
+
+	// Persona What the Bot is and how it behaves, written by the owner; pi gets it after its built-in instructions.
+	Persona   string    `json:"persona"`
+	Provider  *string   `json:"provider,omitempty"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// BotList defines model for BotList.
+type BotList struct {
+	Data []Bot `json:"data"`
+}
+
+// BotSettings defines model for BotSettings.
+type BotSettings struct {
+	Effort   *string `json:"effort,omitempty"`
+	Model    *string `json:"model,omitempty"`
+	Persona  *string `json:"persona,omitempty"`
+	Provider *string `json:"provider,omitempty"`
+}
+
 // Chat defines model for Chat.
 type Chat struct {
+	// Bot The Bot the chat talks with.
+	Bot string `json:"bot"`
+
 	// Coordinator A coordinator is configured to answer; false means messages are kept and nothing answers.
 	Coordinator bool      `json:"coordinator"`
 	CreatedAt   time.Time `json:"created_at"`
@@ -688,6 +928,29 @@ type ChatToolActivity struct {
 // ChatToolActivityPhase defines model for ChatToolActivity.Phase.
 type ChatToolActivityPhase string
 
+// ConnectionAction One thing an agent can do with a Connection, and the owner's answer to it.
+type ConnectionAction struct {
+	Default ActionPolicy `json:"default"`
+
+	// Id The action's name in commands, such as gmail.send.
+	Id     string               `json:"id"`
+	Kind   ConnectionActionKind `json:"kind"`
+	Name   string               `json:"name"`
+	Policy ActionPolicy         `json:"policy"`
+
+	// Service The part of the Integration it belongs to, such as Gmail.
+	Service string `json:"service"`
+	Text    string `json:"text"`
+}
+
+// ConnectionActionKind defines model for ConnectionAction.Kind.
+type ConnectionActionKind string
+
+// ConnectionActionList defines model for ConnectionActionList.
+type ConnectionActionList struct {
+	Data []ConnectionAction `json:"data"`
+}
+
 // ConnectionUse defines model for ConnectionUse.
 type ConnectionUse struct {
 	Chats bool `json:"chats"`
@@ -721,9 +984,18 @@ type Dispatch struct {
 	Effort       *string   `json:"effort,omitempty"`
 	Epoch        int       `json:"epoch"`
 	FailureClass *string   `json:"failure_class,omitempty"`
-	Id           string    `json:"id"`
-	Model        *string   `json:"model,omitempty"`
-	NodeId       string    `json:"node_id"`
+
+	// FallbackFor The profile the Task asked for, when this Dispatch ran under a backup of it because every account of that profile's runtime waited for a limit to reset. `profile_version_id` is then the backup's.
+	FallbackFor *string `json:"fallback_for,omitempty"`
+
+	// FallbackUntil With `fallback_for`, when the first of those accounts was to be free again.
+	FallbackUntil *time.Time `json:"fallback_until,omitempty"`
+
+	// Handoff With `fallback_for`: this Dispatch took over a Task whose worker had begun and met a usage limit. It ran in the same worktree with a session of its own, and its worker was given the Task again, a note and the end of the previous worker's transcript.
+	Handoff *bool   `json:"handoff,omitempty"`
+	Id      string  `json:"id"`
+	Model   *string `json:"model,omitempty"`
+	NodeId  string  `json:"node_id"`
 
 	// ProfileVersionId The profile version it ran with; absent for Dispatches from before profiles.
 	ProfileVersionId *string         `json:"profile_version_id,omitempty"`
@@ -856,6 +1128,60 @@ type IntegrationList struct {
 	Data []Integration `json:"data"`
 }
 
+// LarkBot The Lark bot as the owner set it up, and whether it is connected.
+type LarkBot struct {
+	// AppId The Lark app's id. Not secret.
+	AppId string `json:"app_id"`
+
+	// Connected Whether the persistent connection to Lark is open.
+	Connected bool `json:"connected"`
+
+	// ConnectedAppId The app the connection was opened as, when it is another than app_id: the control plane must start again to use the new one.
+	ConnectedAppId *string `json:"connected_app_id,omitempty"`
+
+	// Enabled Whether the bot takes messages.
+	Enabled bool `json:"enabled"`
+
+	// LastError Why the last attempt to connect failed.
+	LastError *string `json:"last_error,omitempty"`
+
+	// Mode Who may talk to the bot: its owner only, the owner and the people he added, or every member of the app's Lark organization. Someone of another organization is refused in every mode.
+	Mode LarkBotMode `json:"mode"`
+
+	// OwnerOpenId The owner's id at Lark.
+	OwnerOpenId string          `json:"owner_open_id"`
+	People      []LarkBotPerson `json:"people"`
+	UpdatedAt   time.Time       `json:"updated_at"`
+}
+
+// LarkBotMode Who may talk to the bot: its owner only, the owner and the people he added, or every member of the app's Lark organization. Someone of another organization is refused in every mode.
+type LarkBotMode string
+
+// LarkBotPerson defines model for LarkBotPerson.
+type LarkBotPerson struct {
+	CreatedAt time.Time `json:"created_at"`
+
+	// Email The email they were added with; empty when added by open_id.
+	Email string `json:"email"`
+
+	// Name Their name at Lark
+	Name   string `json:"name"`
+	OpenId string `json:"open_id"`
+}
+
+// LarkBotSettings defines model for LarkBotSettings.
+type LarkBotSettings struct {
+	AppId     *string `json:"app_id,omitempty"`
+	AppSecret *string `json:"app_secret,omitempty"`
+	Enabled   *bool   `json:"enabled,omitempty"`
+
+	// Mode Who may talk to the bot: its owner only, the owner and the people he added, or every member of the app's Lark organization. Someone of another organization is refused in every mode.
+	Mode *LarkBotMode `json:"mode,omitempty"`
+
+	// Owner The owner's email in the app's Lark organization, or his open_id.
+	Owner *string `json:"owner,omitempty"`
+}
+
 // MachineProvider defines model for MachineProvider.
 type MachineProvider struct {
 	Id   string              `json:"id"`
@@ -890,6 +1216,26 @@ type Me struct {
 	Name string    `json:"name"`
 }
 
+// MemoryChange defines model for MemoryChange.
+type MemoryChange struct {
+	Kind MemoryChangeKind `json:"kind"`
+
+	// Match Part of the one entry to replace or remove.
+	Match *string `json:"match,omitempty"`
+
+	// Text The entry to add, or what replaces the entry found.
+	Text *string `json:"text,omitempty"`
+}
+
+// MemoryChangeKind defines model for MemoryChange.Kind.
+type MemoryChangeKind string
+
+// MemoryText defines model for MemoryText.
+type MemoryText struct {
+	// Memory The entries, one per line.
+	Memory string `json:"memory"`
+}
+
 // Model defines model for Model.
 type Model struct {
 	Kind     string `json:"kind"`
@@ -904,6 +1250,8 @@ type ModelList struct {
 
 // NewChat defines model for NewChat.
 type NewChat struct {
+	// Bot The Bot the chat talks with; `coordinator` when left out.
+	Bot   *string `json:"bot,omitempty"`
 	Title *string `json:"title,omitempty"`
 }
 
@@ -927,6 +1275,12 @@ type NewGitHostToken struct {
 type NewIntegrationClient struct {
 	ClientId     string  `json:"client_id"`
 	ClientSecret *string `json:"client_secret,omitempty"`
+}
+
+// NewLarkBotPerson defines model for NewLarkBotPerson.
+type NewLarkBotPerson struct {
+	// Who Their email in the app's Lark organization, or their open_id.
+	Who string `json:"who"`
 }
 
 // NewNode defines model for NewNode.
@@ -1144,7 +1498,7 @@ type Option struct {
 
 // Profile defines model for Profile.
 type Profile struct {
-	// Available Whether a worker can start under the profile now: a connected, active node has its CLI, and its runtime has an account that is not cooling down (none is needed for a model the gateway serves). A node at its limit still counts, since the Task waits its turn. Given for a profile's current version; absent for the coordinator's runtime, which no node runs, and in a list of versions.
+	// Available Whether a worker can start under the profile now: a connected, active node has its CLI, and its runtime has an account that is not cooling down (none is needed for a model the gateway serves). A node at its limit still counts, since the Task waits its turn. Given for a profile's current version; absent for a list of versions.
 	Available *bool `json:"available,omitempty"`
 
 	// AvailableAt With `accounts_cooling`, when the first account is free again.
@@ -1154,12 +1508,15 @@ type Profile struct {
 	// Description What the profile is for; empty for versions applied before descriptions.
 	Description string  `json:"description"`
 	Effort      *string `json:"effort,omitempty"`
-	Instruction *string `json:"instruction,omitempty"`
-	Model       *string `json:"model,omitempty"`
-	Name        string  `json:"name"`
-	Provider    *string `json:"provider,omitempty"`
-	Runtime     string  `json:"runtime"`
-	Source      string  `json:"source"`
+
+	// Fallbacks The profiles, in the owner's order, a Task of this one runs under while every account of its runtime waits for a limit to reset: the first a worker can start under now. Only a Task that has not started and names no runtime or model of its own moves; a backup's own list is not followed. Empty: the Task waits for the reset.
+	Fallbacks   []string `json:"fallbacks"`
+	Instruction *string  `json:"instruction,omitempty"`
+	Model       *string  `json:"model,omitempty"`
+	Name        string   `json:"name"`
+	Provider    *string  `json:"provider,omitempty"`
+	Runtime     string   `json:"runtime"`
+	Source      string   `json:"source"`
 
 	// UnavailableReason Why no worker can start, when `available` is false: no connected, active node has the CLI; the runtime has no active account on a node; or every account of the runtime cools down.
 	UnavailableReason *ProfileUnavailableReason `json:"unavailable_reason,omitempty"`
@@ -1482,6 +1839,9 @@ type After = int64
 // ChatID defines model for ChatID.
 type ChatID = string
 
+// ConnectionLabel defines model for ConnectionLabel.
+type ConnectionLabel = string
+
 // IdempotencyKey defines model for IdempotencyKey.
 type IdempotencyKey = string
 
@@ -1502,6 +1862,13 @@ type RunID = string
 
 // TaskID defines model for TaskID.
 type TaskID = string
+
+// ListApprovalsParams defines parameters for ListApprovals.
+type ListApprovalsParams struct {
+	Status *ApprovalStatus `form:"status,omitempty" json:"status,omitempty"`
+	ChatId *string         `form:"chat_id,omitempty" json:"chat_id,omitempty"`
+	TaskId *string         `form:"task_id,omitempty" json:"task_id,omitempty"`
+}
 
 // ListChatsParams defines parameters for ListChats.
 type ListChatsParams struct {
@@ -1599,6 +1966,24 @@ type ListTasksParams struct {
 	Limit *int       `form:"limit,omitempty" json:"limit,omitempty"`
 }
 
+// DecideApprovalJSONRequestBody defines body for DecideApproval for application/json ContentType.
+type DecideApprovalJSONRequestBody = ApprovalDecision
+
+// PutBotJSONRequestBody defines body for PutBot for application/json ContentType.
+type PutBotJSONRequestBody = BotSettings
+
+// ChangeBotMemoryJSONRequestBody defines body for ChangeBotMemory for application/json ContentType.
+type ChangeBotMemoryJSONRequestBody = MemoryChange
+
+// SetBotMemoryJSONRequestBody defines body for SetBotMemory for application/json ContentType.
+type SetBotMemoryJSONRequestBody = MemoryText
+
+// PutLarkBotJSONRequestBody defines body for PutLarkBot for application/json ContentType.
+type PutLarkBotJSONRequestBody = LarkBotSettings
+
+// AddLarkBotPersonJSONRequestBody defines body for AddLarkBotPerson for application/json ContentType.
+type AddLarkBotPersonJSONRequestBody = NewLarkBotPerson
+
 // CreateChatJSONRequestBody defines body for CreateChat for application/json ContentType.
 type CreateChatJSONRequestBody = NewChat
 
@@ -1619,6 +2004,9 @@ type PutIntegrationClientJSONRequestBody = NewIntegrationClient
 
 // PatchIntegrationConnectionJSONRequestBody defines body for PatchIntegrationConnection for application/json ContentType.
 type PatchIntegrationConnectionJSONRequestBody = ConnectionUse
+
+// SetConnectionActionJSONRequestBody defines body for SetConnectionAction for application/json ContentType.
+type SetConnectionActionJSONRequestBody = ActionPolicyChange
 
 // BeginIntegrationSignInJSONRequestBody defines body for BeginIntegrationSignIn for application/json ContentType.
 type BeginIntegrationSignInJSONRequestBody = NewSignIn
@@ -1737,6 +2125,151 @@ type ClientInterface interface {
 	//
 	// Corresponds with GET /accounts (the `ListAccounts` operationId).
 	ListAccounts(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListApprovals The requests agents made that wait for, or had, the owner's answer; only the owner
+	//
+	// Corresponds with GET /approvals (the `ListApprovals` operationId).
+	ListApprovals(ctx context.Context, params *ListApprovalsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DecideApprovalWithBody Answer a request that waits for approval; only the owner
+	//
+	// The first answer wins; the same answer again returns the Approval. A request still held goes on at once. An agent whose request had ended is told, and its repeat of the same request passes once.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /approvals/{approval_id}/decision (the `DecideApproval` operationId).
+	DecideApprovalWithBody(ctx context.Context, approvalId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DecideApproval Answer a request that waits for approval; only the owner
+	//
+	// The first answer wins; the same answer again returns the Approval. A request still held goes on at once. An agent whose request had ended is told, and its repeat of the same request passes once.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /approvals/{approval_id}/decision (the `DecideApproval` operationId).
+	DecideApproval(ctx context.Context, approvalId string, body DecideApprovalJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListBots Every Bot, the oldest first
+	//
+	// A Bot is a long-lived agent of the control plane: its model, its persona and its memory. It talks with people in chats and gives work to workers. It is apart from a Profile, which is a worker's recipe.
+	//
+	// Corresponds with GET /bots (the `ListBots` operationId).
+	ListBots(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DeleteBot Remove a Bot that has no chats and no memory; only the owner
+	//
+	// The Bot `coordinator` is always there and is not removed.
+	//
+	// Corresponds with DELETE /bots/{name} (the `DeleteBot` operationId).
+	DeleteBot(ctx context.Context, name Name, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetBot A Bot, with its persona and memory
+	//
+	// Corresponds with GET /bots/{name} (the `GetBot` operationId).
+	GetBot(ctx context.Context, name Name, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PutBotWithBody Make a Bot, or change its model and persona; only the owner
+	//
+	// The Bot's memory stays as it is.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PUT /bots/{name} (the `PutBot` operationId).
+	PutBotWithBody(ctx context.Context, name Name, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PutBot Make a Bot, or change its model and persona; only the owner
+	//
+	// The Bot's memory stays as it is.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PUT /bots/{name} (the `PutBot` operationId).
+	PutBot(ctx context.Context, name Name, body PutBotJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ChangeBotMemoryWithBody Add, replace or remove one entry of a Bot's memory
+	//
+	// The memory is the Bot's entries, one per line, the same in every chat with it. A change that would pass the memory's limit is refused and changes nothing: replace or remove entries first.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /bots/{name}/memory (the `ChangeBotMemory` operationId).
+	ChangeBotMemoryWithBody(ctx context.Context, name Name, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ChangeBotMemory Add, replace or remove one entry of a Bot's memory
+	//
+	// The memory is the Bot's entries, one per line, the same in every chat with it. A change that would pass the memory's limit is refused and changes nothing: replace or remove entries first.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /bots/{name}/memory (the `ChangeBotMemory` operationId).
+	ChangeBotMemory(ctx context.Context, name Name, body ChangeBotMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetBotMemoryWithBody Replace a Bot's whole memory with the owner's text; only the owner
+	//
+	// Each line is an entry; empty lines and an entry given twice are dropped. A text over the memory's limit is refused.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PUT /bots/{name}/memory (the `SetBotMemory` operationId).
+	SetBotMemoryWithBody(ctx context.Context, name Name, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetBotMemory Replace a Bot's whole memory with the owner's text; only the owner
+	//
+	// Each line is an entry; empty lines and an entry given twice are dropped. A text over the memory's limit is refused.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PUT /bots/{name}/memory (the `SetBotMemory` operationId).
+	SetBotMemory(ctx context.Context, name Name, body SetBotMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DeleteLarkBot Forget the Lark bot and its app's secret; only the owner
+	//
+	// Corresponds with DELETE /channels/lark (the `DeleteLarkBot` operationId).
+	DeleteLarkBot(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetLarkBot The Lark bot, who may talk to it and whether it is connected; only the owner
+	//
+	// The bot is a Channel: a person's direct message to it at Lark is a message of a chat with the coordinator. The app's secret is never in the answer.
+	//
+	// Corresponds with GET /channels/lark (the `GetLarkBot` operationId).
+	GetLarkBot(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PutLarkBotWithBody Set the Lark bot up, or change it; only the owner
+	//
+	// The first time it takes the app's id and secret and the owner's email at Lark. After that a field left out keeps what the bot had. The secret goes into the vault. The owner's email is looked up at Lark with the app, which also shows the app's id and secret work. A new bot is off and takes messages from its owner only. Another app is used from the control plane's next start.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PUT /channels/lark (the `PutLarkBot` operationId).
+	PutLarkBotWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PutLarkBot Set the Lark bot up, or change it; only the owner
+	//
+	// The first time it takes the app's id and secret and the owner's email at Lark. After that a field left out keeps what the bot had. The secret goes into the vault. The owner's email is looked up at Lark with the app, which also shows the app's id and secret work. A new bot is off and takes messages from its owner only. Another app is used from the control plane's next start.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PUT /channels/lark (the `PutLarkBot` operationId).
+	PutLarkBot(ctx context.Context, body PutLarkBotJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AddLarkBotPersonWithBody Add someone who may talk to the Lark bot when its mode is allowlist; only the owner
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /channels/lark/people (the `AddLarkBotPerson` operationId).
+	AddLarkBotPersonWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// AddLarkBotPerson Add someone who may talk to the Lark bot when its mode is allowlist; only the owner
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /channels/lark/people (the `AddLarkBotPerson` operationId).
+	AddLarkBotPerson(ctx context.Context, body AddLarkBotPersonJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RemoveLarkBotPerson Take someone off the Lark bot's list; only the owner
+	//
+	// Corresponds with DELETE /channels/lark/people/{person} (the `RemoveLarkBotPerson` operationId).
+	RemoveLarkBotPerson(ctx context.Context, person string, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListChats The owner's chats with the coordinator, the most recently active first
 	//
@@ -1940,6 +2473,31 @@ type ClientInterface interface {
 	//
 	// Corresponds with PUT /integrations/{integration}/connections/{label} (the `PutIntegrationConnection` operationId).
 	PutIntegrationConnection(ctx context.Context, integration IntegrationID, label string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListConnectionActions What agents may do with a Connection, action by action; only the owner
+	//
+	// The actions of the Connection's Integration that go through the service proxy, each with the answer it has now and its default. An Integration that does not go through the proxy has none.
+	//
+	// Corresponds with GET /integrations/{integration}/connections/{label}/actions (the `ListConnectionActions` operationId).
+	ListConnectionActions(ctx context.Context, integration IntegrationID, label ConnectionLabel, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetConnectionActionWithBody Set the answer of one action of a Connection; only the owner
+	//
+	// allow runs the action on its own, ask holds each request for the owner's Approval, never refuses it. The change applies from the next request.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PUT /integrations/{integration}/connections/{label}/actions/{action} (the `SetConnectionAction` operationId).
+	SetConnectionActionWithBody(ctx context.Context, integration IntegrationID, label ConnectionLabel, action string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetConnectionAction Set the answer of one action of a Connection; only the owner
+	//
+	// allow runs the action on its own, ask holds each request for the owner's Approval, never refuses it. The change applies from the next request.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PUT /integrations/{integration}/connections/{label}/actions/{action} (the `SetConnectionAction` operationId).
+	SetConnectionAction(ctx context.Context, integration IntegrationID, label ConnectionLabel, action string, body SetConnectionActionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// BeginIntegrationSignInWithBody Start signing an account in, as a Connection under a label; only the owner
 	//
@@ -2301,6 +2859,341 @@ type ClientInterface interface {
 // Corresponds with GET /accounts (the `ListAccounts` operationId).
 func (c *Client) ListAccounts(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewListAccountsRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListApprovals The requests agents made that wait for, or had, the owner's answer; only the owner
+//
+// Corresponds with GET /approvals (the `ListApprovals` operationId).
+func (c *Client) ListApprovals(ctx context.Context, params *ListApprovalsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListApprovalsRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DecideApprovalWithBody Answer a request that waits for approval; only the owner
+//
+// The first answer wins; the same answer again returns the Approval. A request still held goes on at once. An agent whose request had ended is told, and its repeat of the same request passes once.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /approvals/{approval_id}/decision (the `DecideApproval` operationId).
+func (c *Client) DecideApprovalWithBody(ctx context.Context, approvalId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDecideApprovalRequestWithBody(c.Server, approvalId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DecideApproval Answer a request that waits for approval; only the owner
+//
+// The first answer wins; the same answer again returns the Approval. A request still held goes on at once. An agent whose request had ended is told, and its repeat of the same request passes once.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /approvals/{approval_id}/decision (the `DecideApproval` operationId).
+func (c *Client) DecideApproval(ctx context.Context, approvalId string, body DecideApprovalJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDecideApprovalRequest(c.Server, approvalId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListBots Every Bot, the oldest first
+//
+// A Bot is a long-lived agent of the control plane: its model, its persona and its memory. It talks with people in chats and gives work to workers. It is apart from a Profile, which is a worker's recipe.
+//
+// Corresponds with GET /bots (the `ListBots` operationId).
+func (c *Client) ListBots(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListBotsRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DeleteBot Remove a Bot that has no chats and no memory; only the owner
+//
+// The Bot `coordinator` is always there and is not removed.
+//
+// Corresponds with DELETE /bots/{name} (the `DeleteBot` operationId).
+func (c *Client) DeleteBot(ctx context.Context, name Name, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteBotRequest(c.Server, name)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetBot A Bot, with its persona and memory
+//
+// Corresponds with GET /bots/{name} (the `GetBot` operationId).
+func (c *Client) GetBot(ctx context.Context, name Name, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetBotRequest(c.Server, name)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PutBotWithBody Make a Bot, or change its model and persona; only the owner
+//
+// The Bot's memory stays as it is.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PUT /bots/{name} (the `PutBot` operationId).
+func (c *Client) PutBotWithBody(ctx context.Context, name Name, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPutBotRequestWithBody(c.Server, name, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PutBot Make a Bot, or change its model and persona; only the owner
+//
+// The Bot's memory stays as it is.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PUT /bots/{name} (the `PutBot` operationId).
+func (c *Client) PutBot(ctx context.Context, name Name, body PutBotJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPutBotRequest(c.Server, name, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ChangeBotMemoryWithBody Add, replace or remove one entry of a Bot's memory
+//
+// The memory is the Bot's entries, one per line, the same in every chat with it. A change that would pass the memory's limit is refused and changes nothing: replace or remove entries first.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /bots/{name}/memory (the `ChangeBotMemory` operationId).
+func (c *Client) ChangeBotMemoryWithBody(ctx context.Context, name Name, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewChangeBotMemoryRequestWithBody(c.Server, name, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ChangeBotMemory Add, replace or remove one entry of a Bot's memory
+//
+// The memory is the Bot's entries, one per line, the same in every chat with it. A change that would pass the memory's limit is refused and changes nothing: replace or remove entries first.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /bots/{name}/memory (the `ChangeBotMemory` operationId).
+func (c *Client) ChangeBotMemory(ctx context.Context, name Name, body ChangeBotMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewChangeBotMemoryRequest(c.Server, name, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SetBotMemoryWithBody Replace a Bot's whole memory with the owner's text; only the owner
+//
+// Each line is an entry; empty lines and an entry given twice are dropped. A text over the memory's limit is refused.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PUT /bots/{name}/memory (the `SetBotMemory` operationId).
+func (c *Client) SetBotMemoryWithBody(ctx context.Context, name Name, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetBotMemoryRequestWithBody(c.Server, name, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SetBotMemory Replace a Bot's whole memory with the owner's text; only the owner
+//
+// Each line is an entry; empty lines and an entry given twice are dropped. A text over the memory's limit is refused.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PUT /bots/{name}/memory (the `SetBotMemory` operationId).
+func (c *Client) SetBotMemory(ctx context.Context, name Name, body SetBotMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetBotMemoryRequest(c.Server, name, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DeleteLarkBot Forget the Lark bot and its app's secret; only the owner
+//
+// Corresponds with DELETE /channels/lark (the `DeleteLarkBot` operationId).
+func (c *Client) DeleteLarkBot(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteLarkBotRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetLarkBot The Lark bot, who may talk to it and whether it is connected; only the owner
+//
+// The bot is a Channel: a person's direct message to it at Lark is a message of a chat with the coordinator. The app's secret is never in the answer.
+//
+// Corresponds with GET /channels/lark (the `GetLarkBot` operationId).
+func (c *Client) GetLarkBot(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetLarkBotRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PutLarkBotWithBody Set the Lark bot up, or change it; only the owner
+//
+// The first time it takes the app's id and secret and the owner's email at Lark. After that a field left out keeps what the bot had. The secret goes into the vault. The owner's email is looked up at Lark with the app, which also shows the app's id and secret work. A new bot is off and takes messages from its owner only. Another app is used from the control plane's next start.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PUT /channels/lark (the `PutLarkBot` operationId).
+func (c *Client) PutLarkBotWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPutLarkBotRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PutLarkBot Set the Lark bot up, or change it; only the owner
+//
+// The first time it takes the app's id and secret and the owner's email at Lark. After that a field left out keeps what the bot had. The secret goes into the vault. The owner's email is looked up at Lark with the app, which also shows the app's id and secret work. A new bot is off and takes messages from its owner only. Another app is used from the control plane's next start.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PUT /channels/lark (the `PutLarkBot` operationId).
+func (c *Client) PutLarkBot(ctx context.Context, body PutLarkBotJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPutLarkBotRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// AddLarkBotPersonWithBody Add someone who may talk to the Lark bot when its mode is allowlist; only the owner
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /channels/lark/people (the `AddLarkBotPerson` operationId).
+func (c *Client) AddLarkBotPersonWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAddLarkBotPersonRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// AddLarkBotPerson Add someone who may talk to the Lark bot when its mode is allowlist; only the owner
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /channels/lark/people (the `AddLarkBotPerson` operationId).
+func (c *Client) AddLarkBotPerson(ctx context.Context, body AddLarkBotPersonJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewAddLarkBotPersonRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RemoveLarkBotPerson Take someone off the Lark bot's list; only the owner
+//
+// Corresponds with DELETE /channels/lark/people/{person} (the `RemoveLarkBotPerson` operationId).
+func (c *Client) RemoveLarkBotPerson(ctx context.Context, person string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRemoveLarkBotPersonRequest(c.Server, person)
 	if err != nil {
 		return nil, err
 	}
@@ -2794,6 +3687,61 @@ func (c *Client) PatchIntegrationConnection(ctx context.Context, integration Int
 // Corresponds with PUT /integrations/{integration}/connections/{label} (the `PutIntegrationConnection` operationId).
 func (c *Client) PutIntegrationConnection(ctx context.Context, integration IntegrationID, label string, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewPutIntegrationConnectionRequest(c.Server, integration, label)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListConnectionActions What agents may do with a Connection, action by action; only the owner
+//
+// The actions of the Connection's Integration that go through the service proxy, each with the answer it has now and its default. An Integration that does not go through the proxy has none.
+//
+// Corresponds with GET /integrations/{integration}/connections/{label}/actions (the `ListConnectionActions` operationId).
+func (c *Client) ListConnectionActions(ctx context.Context, integration IntegrationID, label ConnectionLabel, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListConnectionActionsRequest(c.Server, integration, label)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SetConnectionActionWithBody Set the answer of one action of a Connection; only the owner
+//
+// allow runs the action on its own, ask holds each request for the owner's Approval, never refuses it. The change applies from the next request.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PUT /integrations/{integration}/connections/{label}/actions/{action} (the `SetConnectionAction` operationId).
+func (c *Client) SetConnectionActionWithBody(ctx context.Context, integration IntegrationID, label ConnectionLabel, action string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetConnectionActionRequestWithBody(c.Server, integration, label, action, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SetConnectionAction Set the answer of one action of a Connection; only the owner
+//
+// allow runs the action on its own, ask holds each request for the owner's Approval, never refuses it. The change applies from the next request.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PUT /integrations/{integration}/connections/{label}/actions/{action} (the `SetConnectionAction` operationId).
+func (c *Client) SetConnectionAction(ctx context.Context, integration IntegrationID, label ConnectionLabel, action string, body SetConnectionActionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetConnectionActionRequest(c.Server, integration, label, action, body)
 	if err != nil {
 		return nil, err
 	}
@@ -3738,6 +4686,535 @@ func NewListAccountsRequest(server string) (*http.Request, error) {
 	}
 
 	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewListApprovalsRequest constructs an http.Request for the ListApprovals method
+func NewListApprovalsRequest(server string, params *ListApprovalsParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/approvals")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Status != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "status", *params.Status, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.ChatId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "chat_id", *params.ChatId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.TaskId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "task_id", *params.TaskId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewDecideApprovalRequest calls the generic DecideApproval builder with application/json body
+func NewDecideApprovalRequest(server string, approvalId string, body DecideApprovalJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewDecideApprovalRequestWithBody(server, approvalId, "application/json", bodyReader)
+}
+
+// NewDecideApprovalRequestWithBody constructs an http.Request for the DecideApproval method, with any body, and a specified content type
+func NewDecideApprovalRequestWithBody(server string, approvalId string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "approval_id", approvalId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/approvals/%s/decision", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewListBotsRequest constructs an http.Request for the ListBots method
+func NewListBotsRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/bots")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewDeleteBotRequest constructs an http.Request for the DeleteBot method
+func NewDeleteBotRequest(server string, name Name) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "name", name, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/bots/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetBotRequest constructs an http.Request for the GetBot method
+func NewGetBotRequest(server string, name Name) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "name", name, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/bots/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewPutBotRequest calls the generic PutBot builder with application/json body
+func NewPutBotRequest(server string, name Name, body PutBotJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPutBotRequestWithBody(server, name, "application/json", bodyReader)
+}
+
+// NewPutBotRequestWithBody constructs an http.Request for the PutBot method, with any body, and a specified content type
+func NewPutBotRequestWithBody(server string, name Name, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "name", name, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/bots/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewChangeBotMemoryRequest calls the generic ChangeBotMemory builder with application/json body
+func NewChangeBotMemoryRequest(server string, name Name, body ChangeBotMemoryJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewChangeBotMemoryRequestWithBody(server, name, "application/json", bodyReader)
+}
+
+// NewChangeBotMemoryRequestWithBody constructs an http.Request for the ChangeBotMemory method, with any body, and a specified content type
+func NewChangeBotMemoryRequestWithBody(server string, name Name, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "name", name, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/bots/%s/memory", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewSetBotMemoryRequest calls the generic SetBotMemory builder with application/json body
+func NewSetBotMemoryRequest(server string, name Name, body SetBotMemoryJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewSetBotMemoryRequestWithBody(server, name, "application/json", bodyReader)
+}
+
+// NewSetBotMemoryRequestWithBody constructs an http.Request for the SetBotMemory method, with any body, and a specified content type
+func NewSetBotMemoryRequestWithBody(server string, name Name, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "name", name, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/bots/%s/memory", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewDeleteLarkBotRequest constructs an http.Request for the DeleteLarkBot method
+func NewDeleteLarkBotRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/channels/lark")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetLarkBotRequest constructs an http.Request for the GetLarkBot method
+func NewGetLarkBotRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/channels/lark")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewPutLarkBotRequest calls the generic PutLarkBot builder with application/json body
+func NewPutLarkBotRequest(server string, body PutLarkBotJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPutLarkBotRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewPutLarkBotRequestWithBody constructs an http.Request for the PutLarkBot method, with any body, and a specified content type
+func NewPutLarkBotRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/channels/lark")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewAddLarkBotPersonRequest calls the generic AddLarkBotPerson builder with application/json body
+func NewAddLarkBotPersonRequest(server string, body AddLarkBotPersonJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewAddLarkBotPersonRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewAddLarkBotPersonRequestWithBody constructs an http.Request for the AddLarkBotPerson method, with any body, and a specified content type
+func NewAddLarkBotPersonRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/channels/lark/people")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewRemoveLarkBotPersonRequest constructs an http.Request for the RemoveLarkBotPerson method
+func NewRemoveLarkBotPersonRequest(server string, person string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "person", person, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/channels/lark/people/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -4897,6 +6374,108 @@ func NewPutIntegrationConnectionRequest(server string, integration IntegrationID
 	if err != nil {
 		return nil, err
 	}
+
+	return req, nil
+}
+
+// NewListConnectionActionsRequest constructs an http.Request for the ListConnectionActions method
+func NewListConnectionActionsRequest(server string, integration IntegrationID, label ConnectionLabel) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "integration", integration, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "label", label, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/integrations/%s/connections/%s/actions", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewSetConnectionActionRequest calls the generic SetConnectionAction builder with application/json body
+func NewSetConnectionActionRequest(server string, integration IntegrationID, label ConnectionLabel, action string, body SetConnectionActionJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewSetConnectionActionRequestWithBody(server, integration, label, action, "application/json", bodyReader)
+}
+
+// NewSetConnectionActionRequestWithBody constructs an http.Request for the SetConnectionAction method, with any body, and a specified content type
+func NewSetConnectionActionRequestWithBody(server string, integration IntegrationID, label ConnectionLabel, action string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "integration", integration, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "label", label, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam2 string
+
+	pathParam2, err = runtime.StyleParamWithOptions("simple", false, "action", action, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/integrations/%s/connections/%s/actions/%s", pathParam0, pathParam1, pathParam2)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
 
 	return req, nil
 }
@@ -6668,6 +8247,165 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with GET /accounts (the `ListAccounts` operationId).
 	ListAccountsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListAccountsResponse, error)
 
+	// ListApprovalsWithResponse The requests agents made that wait for, or had, the owner's answer; only the owner
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /approvals (the `ListApprovals` operationId).
+	ListApprovalsWithResponse(ctx context.Context, params *ListApprovalsParams, reqEditors ...RequestEditorFn) (*ListApprovalsResponse, error)
+
+	// DecideApprovalWithBodyWithResponse Answer a request that waits for approval; only the owner
+	//
+	// The first answer wins; the same answer again returns the Approval. A request still held goes on at once. An agent whose request had ended is told, and its repeat of the same request passes once.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /approvals/{approval_id}/decision (the `DecideApproval` operationId).
+	DecideApprovalWithBodyWithResponse(ctx context.Context, approvalId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*DecideApprovalResponse, error)
+
+	// DecideApprovalWithResponse Answer a request that waits for approval; only the owner
+	//
+	// The first answer wins; the same answer again returns the Approval. A request still held goes on at once. An agent whose request had ended is told, and its repeat of the same request passes once.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /approvals/{approval_id}/decision (the `DecideApproval` operationId).
+	DecideApprovalWithResponse(ctx context.Context, approvalId string, body DecideApprovalJSONRequestBody, reqEditors ...RequestEditorFn) (*DecideApprovalResponse, error)
+
+	// ListBotsWithResponse Every Bot, the oldest first
+	//
+	// A Bot is a long-lived agent of the control plane: its model, its persona and its memory. It talks with people in chats and gives work to workers. It is apart from a Profile, which is a worker's recipe.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /bots (the `ListBots` operationId).
+	ListBotsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListBotsResponse, error)
+
+	// DeleteBotWithResponse Remove a Bot that has no chats and no memory; only the owner
+	//
+	// The Bot `coordinator` is always there and is not removed.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with DELETE /bots/{name} (the `DeleteBot` operationId).
+	DeleteBotWithResponse(ctx context.Context, name Name, reqEditors ...RequestEditorFn) (*DeleteBotResponse, error)
+
+	// GetBotWithResponse A Bot, with its persona and memory
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /bots/{name} (the `GetBot` operationId).
+	GetBotWithResponse(ctx context.Context, name Name, reqEditors ...RequestEditorFn) (*GetBotResponse, error)
+
+	// PutBotWithBodyWithResponse Make a Bot, or change its model and persona; only the owner
+	//
+	// The Bot's memory stays as it is.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /bots/{name} (the `PutBot` operationId).
+	PutBotWithBodyWithResponse(ctx context.Context, name Name, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutBotResponse, error)
+
+	// PutBotWithResponse Make a Bot, or change its model and persona; only the owner
+	//
+	// The Bot's memory stays as it is.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /bots/{name} (the `PutBot` operationId).
+	PutBotWithResponse(ctx context.Context, name Name, body PutBotJSONRequestBody, reqEditors ...RequestEditorFn) (*PutBotResponse, error)
+
+	// ChangeBotMemoryWithBodyWithResponse Add, replace or remove one entry of a Bot's memory
+	//
+	// The memory is the Bot's entries, one per line, the same in every chat with it. A change that would pass the memory's limit is refused and changes nothing: replace or remove entries first.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /bots/{name}/memory (the `ChangeBotMemory` operationId).
+	ChangeBotMemoryWithBodyWithResponse(ctx context.Context, name Name, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ChangeBotMemoryResponse, error)
+
+	// ChangeBotMemoryWithResponse Add, replace or remove one entry of a Bot's memory
+	//
+	// The memory is the Bot's entries, one per line, the same in every chat with it. A change that would pass the memory's limit is refused and changes nothing: replace or remove entries first.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /bots/{name}/memory (the `ChangeBotMemory` operationId).
+	ChangeBotMemoryWithResponse(ctx context.Context, name Name, body ChangeBotMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*ChangeBotMemoryResponse, error)
+
+	// SetBotMemoryWithBodyWithResponse Replace a Bot's whole memory with the owner's text; only the owner
+	//
+	// Each line is an entry; empty lines and an entry given twice are dropped. A text over the memory's limit is refused.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /bots/{name}/memory (the `SetBotMemory` operationId).
+	SetBotMemoryWithBodyWithResponse(ctx context.Context, name Name, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetBotMemoryResponse, error)
+
+	// SetBotMemoryWithResponse Replace a Bot's whole memory with the owner's text; only the owner
+	//
+	// Each line is an entry; empty lines and an entry given twice are dropped. A text over the memory's limit is refused.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /bots/{name}/memory (the `SetBotMemory` operationId).
+	SetBotMemoryWithResponse(ctx context.Context, name Name, body SetBotMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*SetBotMemoryResponse, error)
+
+	// DeleteLarkBotWithResponse Forget the Lark bot and its app's secret; only the owner
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with DELETE /channels/lark (the `DeleteLarkBot` operationId).
+	DeleteLarkBotWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*DeleteLarkBotResponse, error)
+
+	// GetLarkBotWithResponse The Lark bot, who may talk to it and whether it is connected; only the owner
+	//
+	// The bot is a Channel: a person's direct message to it at Lark is a message of a chat with the coordinator. The app's secret is never in the answer.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /channels/lark (the `GetLarkBot` operationId).
+	GetLarkBotWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetLarkBotResponse, error)
+
+	// PutLarkBotWithBodyWithResponse Set the Lark bot up, or change it; only the owner
+	//
+	// The first time it takes the app's id and secret and the owner's email at Lark. After that a field left out keeps what the bot had. The secret goes into the vault. The owner's email is looked up at Lark with the app, which also shows the app's id and secret work. A new bot is off and takes messages from its owner only. Another app is used from the control plane's next start.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /channels/lark (the `PutLarkBot` operationId).
+	PutLarkBotWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutLarkBotResponse, error)
+
+	// PutLarkBotWithResponse Set the Lark bot up, or change it; only the owner
+	//
+	// The first time it takes the app's id and secret and the owner's email at Lark. After that a field left out keeps what the bot had. The secret goes into the vault. The owner's email is looked up at Lark with the app, which also shows the app's id and secret work. A new bot is off and takes messages from its owner only. Another app is used from the control plane's next start.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /channels/lark (the `PutLarkBot` operationId).
+	PutLarkBotWithResponse(ctx context.Context, body PutLarkBotJSONRequestBody, reqEditors ...RequestEditorFn) (*PutLarkBotResponse, error)
+
+	// AddLarkBotPersonWithBodyWithResponse Add someone who may talk to the Lark bot when its mode is allowlist; only the owner
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /channels/lark/people (the `AddLarkBotPerson` operationId).
+	AddLarkBotPersonWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AddLarkBotPersonResponse, error)
+
+	// AddLarkBotPersonWithResponse Add someone who may talk to the Lark bot when its mode is allowlist; only the owner
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /channels/lark/people (the `AddLarkBotPerson` operationId).
+	AddLarkBotPersonWithResponse(ctx context.Context, body AddLarkBotPersonJSONRequestBody, reqEditors ...RequestEditorFn) (*AddLarkBotPersonResponse, error)
+
+	// RemoveLarkBotPersonWithResponse Take someone off the Lark bot's list; only the owner
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with DELETE /channels/lark/people/{person} (the `RemoveLarkBotPerson` operationId).
+	RemoveLarkBotPersonWithResponse(ctx context.Context, person string, reqEditors ...RequestEditorFn) (*RemoveLarkBotPersonResponse, error)
+
 	// ListChatsWithResponse The owner's chats with the coordinator, the most recently active first
 	//
 	// Returns a wrapper object for the known response body format(s).
@@ -6900,6 +8638,33 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with PUT /integrations/{integration}/connections/{label} (the `PutIntegrationConnection` operationId).
 	PutIntegrationConnectionWithResponse(ctx context.Context, integration IntegrationID, label string, reqEditors ...RequestEditorFn) (*PutIntegrationConnectionResponse, error)
+
+	// ListConnectionActionsWithResponse What agents may do with a Connection, action by action; only the owner
+	//
+	// The actions of the Connection's Integration that go through the service proxy, each with the answer it has now and its default. An Integration that does not go through the proxy has none.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /integrations/{integration}/connections/{label}/actions (the `ListConnectionActions` operationId).
+	ListConnectionActionsWithResponse(ctx context.Context, integration IntegrationID, label ConnectionLabel, reqEditors ...RequestEditorFn) (*ListConnectionActionsResponse, error)
+
+	// SetConnectionActionWithBodyWithResponse Set the answer of one action of a Connection; only the owner
+	//
+	// allow runs the action on its own, ask holds each request for the owner's Approval, never refuses it. The change applies from the next request.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /integrations/{integration}/connections/{label}/actions/{action} (the `SetConnectionAction` operationId).
+	SetConnectionActionWithBodyWithResponse(ctx context.Context, integration IntegrationID, label ConnectionLabel, action string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetConnectionActionResponse, error)
+
+	// SetConnectionActionWithResponse Set the answer of one action of a Connection; only the owner
+	//
+	// allow runs the action on its own, ask holds each request for the owner's Approval, never refuses it. The change applies from the next request.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /integrations/{integration}/connections/{label}/actions/{action} (the `SetConnectionAction` operationId).
+	SetConnectionActionWithResponse(ctx context.Context, integration IntegrationID, label ConnectionLabel, action string, body SetConnectionActionJSONRequestBody, reqEditors ...RequestEditorFn) (*SetConnectionActionResponse, error)
 
 	// BeginIntegrationSignInWithBodyWithResponse Start signing an account in, as a Connection under a label; only the owner
 	//
@@ -7358,6 +9123,609 @@ func (r ListAccountsResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r ListAccountsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListApprovalsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ApprovalList
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListApprovalsResponse) GetJSON200() *ApprovalList {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListApprovalsResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListApprovalsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListApprovalsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListApprovalsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListApprovalsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type DecideApprovalResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Approval
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r DecideApprovalResponse) GetJSON200() *Approval {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r DecideApprovalResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r DecideApprovalResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r DecideApprovalResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DecideApprovalResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DecideApprovalResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListBotsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *BotList
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListBotsResponse) GetJSON200() *BotList {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListBotsResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListBotsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListBotsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListBotsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListBotsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type DeleteBotResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r DeleteBotResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r DeleteBotResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteBotResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteBotResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DeleteBotResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetBotResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Bot
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetBotResponse) GetJSON200() *Bot {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r GetBotResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r GetBotResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetBotResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetBotResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetBotResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type PutBotResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Bot
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r PutBotResponse) GetJSON200() *Bot {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r PutBotResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r PutBotResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r PutBotResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PutBotResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r PutBotResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ChangeBotMemoryResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Bot
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ChangeBotMemoryResponse) GetJSON200() *Bot {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ChangeBotMemoryResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ChangeBotMemoryResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ChangeBotMemoryResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ChangeBotMemoryResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ChangeBotMemoryResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type SetBotMemoryResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Bot
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r SetBotMemoryResponse) GetJSON200() *Bot {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r SetBotMemoryResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r SetBotMemoryResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r SetBotMemoryResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r SetBotMemoryResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r SetBotMemoryResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type DeleteLarkBotResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r DeleteLarkBotResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r DeleteLarkBotResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteLarkBotResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteLarkBotResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DeleteLarkBotResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetLarkBotResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *LarkBot
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetLarkBotResponse) GetJSON200() *LarkBot {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r GetLarkBotResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r GetLarkBotResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetLarkBotResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetLarkBotResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetLarkBotResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type PutLarkBotResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *LarkBot
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r PutLarkBotResponse) GetJSON200() *LarkBot {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r PutLarkBotResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r PutLarkBotResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r PutLarkBotResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PutLarkBotResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r PutLarkBotResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type AddLarkBotPersonResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *LarkBotPerson
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r AddLarkBotPersonResponse) GetJSON200() *LarkBotPerson {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r AddLarkBotPersonResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r AddLarkBotPersonResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r AddLarkBotPersonResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r AddLarkBotPersonResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r AddLarkBotPersonResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type RemoveLarkBotPersonResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r RemoveLarkBotPersonResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r RemoveLarkBotPersonResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r RemoveLarkBotPersonResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RemoveLarkBotPersonResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r RemoveLarkBotPersonResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -8386,6 +10754,102 @@ func (r PutIntegrationConnectionResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r PutIntegrationConnectionResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListConnectionActionsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ConnectionActionList
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListConnectionActionsResponse) GetJSON200() *ConnectionActionList {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListConnectionActionsResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListConnectionActionsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListConnectionActionsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListConnectionActionsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListConnectionActionsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type SetConnectionActionResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *ConnectionAction
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r SetConnectionActionResponse) GetJSON200() *ConnectionAction {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r SetConnectionActionResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r SetConnectionActionResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r SetConnectionActionResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r SetConnectionActionResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r SetConnectionActionResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -10462,6 +12926,279 @@ func (c *ClientWithResponses) ListAccountsWithResponse(ctx context.Context, reqE
 	return ParseListAccountsResponse(rsp)
 }
 
+// ListApprovalsWithResponse The requests agents made that wait for, or had, the owner's answer; only the owner
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /approvals (the `ListApprovals` operationId).
+func (c *ClientWithResponses) ListApprovalsWithResponse(ctx context.Context, params *ListApprovalsParams, reqEditors ...RequestEditorFn) (*ListApprovalsResponse, error) {
+	rsp, err := c.ListApprovals(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListApprovalsResponse(rsp)
+}
+
+// DecideApprovalWithBodyWithResponse Answer a request that waits for approval; only the owner
+//
+// The first answer wins; the same answer again returns the Approval. A request still held goes on at once. An agent whose request had ended is told, and its repeat of the same request passes once.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /approvals/{approval_id}/decision (the `DecideApproval` operationId).
+func (c *ClientWithResponses) DecideApprovalWithBodyWithResponse(ctx context.Context, approvalId string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*DecideApprovalResponse, error) {
+	rsp, err := c.DecideApprovalWithBody(ctx, approvalId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDecideApprovalResponse(rsp)
+}
+
+// DecideApprovalWithResponse Answer a request that waits for approval; only the owner
+//
+// The first answer wins; the same answer again returns the Approval. A request still held goes on at once. An agent whose request had ended is told, and its repeat of the same request passes once.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /approvals/{approval_id}/decision (the `DecideApproval` operationId).
+func (c *ClientWithResponses) DecideApprovalWithResponse(ctx context.Context, approvalId string, body DecideApprovalJSONRequestBody, reqEditors ...RequestEditorFn) (*DecideApprovalResponse, error) {
+	rsp, err := c.DecideApproval(ctx, approvalId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDecideApprovalResponse(rsp)
+}
+
+// ListBotsWithResponse Every Bot, the oldest first
+//
+// A Bot is a long-lived agent of the control plane: its model, its persona and its memory. It talks with people in chats and gives work to workers. It is apart from a Profile, which is a worker's recipe.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /bots (the `ListBots` operationId).
+func (c *ClientWithResponses) ListBotsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListBotsResponse, error) {
+	rsp, err := c.ListBots(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListBotsResponse(rsp)
+}
+
+// DeleteBotWithResponse Remove a Bot that has no chats and no memory; only the owner
+//
+// The Bot `coordinator` is always there and is not removed.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with DELETE /bots/{name} (the `DeleteBot` operationId).
+func (c *ClientWithResponses) DeleteBotWithResponse(ctx context.Context, name Name, reqEditors ...RequestEditorFn) (*DeleteBotResponse, error) {
+	rsp, err := c.DeleteBot(ctx, name, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteBotResponse(rsp)
+}
+
+// GetBotWithResponse A Bot, with its persona and memory
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /bots/{name} (the `GetBot` operationId).
+func (c *ClientWithResponses) GetBotWithResponse(ctx context.Context, name Name, reqEditors ...RequestEditorFn) (*GetBotResponse, error) {
+	rsp, err := c.GetBot(ctx, name, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetBotResponse(rsp)
+}
+
+// PutBotWithBodyWithResponse Make a Bot, or change its model and persona; only the owner
+//
+// The Bot's memory stays as it is.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /bots/{name} (the `PutBot` operationId).
+func (c *ClientWithResponses) PutBotWithBodyWithResponse(ctx context.Context, name Name, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutBotResponse, error) {
+	rsp, err := c.PutBotWithBody(ctx, name, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePutBotResponse(rsp)
+}
+
+// PutBotWithResponse Make a Bot, or change its model and persona; only the owner
+//
+// The Bot's memory stays as it is.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /bots/{name} (the `PutBot` operationId).
+func (c *ClientWithResponses) PutBotWithResponse(ctx context.Context, name Name, body PutBotJSONRequestBody, reqEditors ...RequestEditorFn) (*PutBotResponse, error) {
+	rsp, err := c.PutBot(ctx, name, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePutBotResponse(rsp)
+}
+
+// ChangeBotMemoryWithBodyWithResponse Add, replace or remove one entry of a Bot's memory
+//
+// The memory is the Bot's entries, one per line, the same in every chat with it. A change that would pass the memory's limit is refused and changes nothing: replace or remove entries first.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /bots/{name}/memory (the `ChangeBotMemory` operationId).
+func (c *ClientWithResponses) ChangeBotMemoryWithBodyWithResponse(ctx context.Context, name Name, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ChangeBotMemoryResponse, error) {
+	rsp, err := c.ChangeBotMemoryWithBody(ctx, name, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseChangeBotMemoryResponse(rsp)
+}
+
+// ChangeBotMemoryWithResponse Add, replace or remove one entry of a Bot's memory
+//
+// The memory is the Bot's entries, one per line, the same in every chat with it. A change that would pass the memory's limit is refused and changes nothing: replace or remove entries first.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /bots/{name}/memory (the `ChangeBotMemory` operationId).
+func (c *ClientWithResponses) ChangeBotMemoryWithResponse(ctx context.Context, name Name, body ChangeBotMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*ChangeBotMemoryResponse, error) {
+	rsp, err := c.ChangeBotMemory(ctx, name, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseChangeBotMemoryResponse(rsp)
+}
+
+// SetBotMemoryWithBodyWithResponse Replace a Bot's whole memory with the owner's text; only the owner
+//
+// Each line is an entry; empty lines and an entry given twice are dropped. A text over the memory's limit is refused.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /bots/{name}/memory (the `SetBotMemory` operationId).
+func (c *ClientWithResponses) SetBotMemoryWithBodyWithResponse(ctx context.Context, name Name, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetBotMemoryResponse, error) {
+	rsp, err := c.SetBotMemoryWithBody(ctx, name, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetBotMemoryResponse(rsp)
+}
+
+// SetBotMemoryWithResponse Replace a Bot's whole memory with the owner's text; only the owner
+//
+// Each line is an entry; empty lines and an entry given twice are dropped. A text over the memory's limit is refused.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /bots/{name}/memory (the `SetBotMemory` operationId).
+func (c *ClientWithResponses) SetBotMemoryWithResponse(ctx context.Context, name Name, body SetBotMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*SetBotMemoryResponse, error) {
+	rsp, err := c.SetBotMemory(ctx, name, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetBotMemoryResponse(rsp)
+}
+
+// DeleteLarkBotWithResponse Forget the Lark bot and its app's secret; only the owner
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with DELETE /channels/lark (the `DeleteLarkBot` operationId).
+func (c *ClientWithResponses) DeleteLarkBotWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*DeleteLarkBotResponse, error) {
+	rsp, err := c.DeleteLarkBot(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteLarkBotResponse(rsp)
+}
+
+// GetLarkBotWithResponse The Lark bot, who may talk to it and whether it is connected; only the owner
+//
+// The bot is a Channel: a person's direct message to it at Lark is a message of a chat with the coordinator. The app's secret is never in the answer.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /channels/lark (the `GetLarkBot` operationId).
+func (c *ClientWithResponses) GetLarkBotWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*GetLarkBotResponse, error) {
+	rsp, err := c.GetLarkBot(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetLarkBotResponse(rsp)
+}
+
+// PutLarkBotWithBodyWithResponse Set the Lark bot up, or change it; only the owner
+//
+// The first time it takes the app's id and secret and the owner's email at Lark. After that a field left out keeps what the bot had. The secret goes into the vault. The owner's email is looked up at Lark with the app, which also shows the app's id and secret work. A new bot is off and takes messages from its owner only. Another app is used from the control plane's next start.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /channels/lark (the `PutLarkBot` operationId).
+func (c *ClientWithResponses) PutLarkBotWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutLarkBotResponse, error) {
+	rsp, err := c.PutLarkBotWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePutLarkBotResponse(rsp)
+}
+
+// PutLarkBotWithResponse Set the Lark bot up, or change it; only the owner
+//
+// The first time it takes the app's id and secret and the owner's email at Lark. After that a field left out keeps what the bot had. The secret goes into the vault. The owner's email is looked up at Lark with the app, which also shows the app's id and secret work. A new bot is off and takes messages from its owner only. Another app is used from the control plane's next start.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /channels/lark (the `PutLarkBot` operationId).
+func (c *ClientWithResponses) PutLarkBotWithResponse(ctx context.Context, body PutLarkBotJSONRequestBody, reqEditors ...RequestEditorFn) (*PutLarkBotResponse, error) {
+	rsp, err := c.PutLarkBot(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePutLarkBotResponse(rsp)
+}
+
+// AddLarkBotPersonWithBodyWithResponse Add someone who may talk to the Lark bot when its mode is allowlist; only the owner
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /channels/lark/people (the `AddLarkBotPerson` operationId).
+func (c *ClientWithResponses) AddLarkBotPersonWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*AddLarkBotPersonResponse, error) {
+	rsp, err := c.AddLarkBotPersonWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAddLarkBotPersonResponse(rsp)
+}
+
+// AddLarkBotPersonWithResponse Add someone who may talk to the Lark bot when its mode is allowlist; only the owner
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /channels/lark/people (the `AddLarkBotPerson` operationId).
+func (c *ClientWithResponses) AddLarkBotPersonWithResponse(ctx context.Context, body AddLarkBotPersonJSONRequestBody, reqEditors ...RequestEditorFn) (*AddLarkBotPersonResponse, error) {
+	rsp, err := c.AddLarkBotPerson(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseAddLarkBotPersonResponse(rsp)
+}
+
+// RemoveLarkBotPersonWithResponse Take someone off the Lark bot's list; only the owner
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with DELETE /channels/lark/people/{person} (the `RemoveLarkBotPerson` operationId).
+func (c *ClientWithResponses) RemoveLarkBotPersonWithResponse(ctx context.Context, person string, reqEditors ...RequestEditorFn) (*RemoveLarkBotPersonResponse, error) {
+	rsp, err := c.RemoveLarkBotPerson(ctx, person, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRemoveLarkBotPersonResponse(rsp)
+}
+
 // ListChatsWithResponse The owner's chats with the coordinator, the most recently active first
 //
 // Returns a wrapper object for the known response body format(s).
@@ -10867,6 +13604,51 @@ func (c *ClientWithResponses) PutIntegrationConnectionWithResponse(ctx context.C
 		return nil, err
 	}
 	return ParsePutIntegrationConnectionResponse(rsp)
+}
+
+// ListConnectionActionsWithResponse What agents may do with a Connection, action by action; only the owner
+//
+// The actions of the Connection's Integration that go through the service proxy, each with the answer it has now and its default. An Integration that does not go through the proxy has none.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /integrations/{integration}/connections/{label}/actions (the `ListConnectionActions` operationId).
+func (c *ClientWithResponses) ListConnectionActionsWithResponse(ctx context.Context, integration IntegrationID, label ConnectionLabel, reqEditors ...RequestEditorFn) (*ListConnectionActionsResponse, error) {
+	rsp, err := c.ListConnectionActions(ctx, integration, label, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListConnectionActionsResponse(rsp)
+}
+
+// SetConnectionActionWithBodyWithResponse Set the answer of one action of a Connection; only the owner
+//
+// allow runs the action on its own, ask holds each request for the owner's Approval, never refuses it. The change applies from the next request.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /integrations/{integration}/connections/{label}/actions/{action} (the `SetConnectionAction` operationId).
+func (c *ClientWithResponses) SetConnectionActionWithBodyWithResponse(ctx context.Context, integration IntegrationID, label ConnectionLabel, action string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetConnectionActionResponse, error) {
+	rsp, err := c.SetConnectionActionWithBody(ctx, integration, label, action, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetConnectionActionResponse(rsp)
+}
+
+// SetConnectionActionWithResponse Set the answer of one action of a Connection; only the owner
+//
+// allow runs the action on its own, ask holds each request for the owner's Approval, never refuses it. The change applies from the next request.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /integrations/{integration}/connections/{label}/actions/{action} (the `SetConnectionAction` operationId).
+func (c *ClientWithResponses) SetConnectionActionWithResponse(ctx context.Context, integration IntegrationID, label ConnectionLabel, action string, body SetConnectionActionJSONRequestBody, reqEditors ...RequestEditorFn) (*SetConnectionActionResponse, error) {
+	rsp, err := c.SetConnectionAction(ctx, integration, label, action, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetConnectionActionResponse(rsp)
 }
 
 // BeginIntegrationSignInWithBodyWithResponse Start signing an account in, as a Connection under a label; only the owner
@@ -11652,6 +14434,423 @@ func ParseListAccountsResponse(rsp *http.Response) (*ListAccountsResponse, error
 	return response, nil
 }
 
+// ParseListApprovalsResponse parses an HTTP response from a ListApprovalsWithResponse call
+func ParseListApprovalsResponse(rsp *http.Response) (*ListApprovalsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListApprovalsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ApprovalList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDecideApprovalResponse parses an HTTP response from a DecideApprovalWithResponse call
+func ParseDecideApprovalResponse(rsp *http.Response) (*DecideApprovalResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DecideApprovalResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Approval
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListBotsResponse parses an HTTP response from a ListBotsWithResponse call
+func ParseListBotsResponse(rsp *http.Response) (*ListBotsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListBotsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest BotList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDeleteBotResponse parses an HTTP response from a DeleteBotWithResponse call
+func ParseDeleteBotResponse(rsp *http.Response) (*DeleteBotResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteBotResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetBotResponse parses an HTTP response from a GetBotWithResponse call
+func ParseGetBotResponse(rsp *http.Response) (*GetBotResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetBotResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Bot
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePutBotResponse parses an HTTP response from a PutBotWithResponse call
+func ParsePutBotResponse(rsp *http.Response) (*PutBotResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PutBotResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Bot
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseChangeBotMemoryResponse parses an HTTP response from a ChangeBotMemoryWithResponse call
+func ParseChangeBotMemoryResponse(rsp *http.Response) (*ChangeBotMemoryResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ChangeBotMemoryResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Bot
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseSetBotMemoryResponse parses an HTTP response from a SetBotMemoryWithResponse call
+func ParseSetBotMemoryResponse(rsp *http.Response) (*SetBotMemoryResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &SetBotMemoryResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Bot
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDeleteLarkBotResponse parses an HTTP response from a DeleteLarkBotWithResponse call
+func ParseDeleteLarkBotResponse(rsp *http.Response) (*DeleteLarkBotResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteLarkBotResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetLarkBotResponse parses an HTTP response from a GetLarkBotWithResponse call
+func ParseGetLarkBotResponse(rsp *http.Response) (*GetLarkBotResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetLarkBotResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest LarkBot
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePutLarkBotResponse parses an HTTP response from a PutLarkBotWithResponse call
+func ParsePutLarkBotResponse(rsp *http.Response) (*PutLarkBotResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PutLarkBotResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest LarkBot
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseAddLarkBotPersonResponse parses an HTTP response from a AddLarkBotPersonWithResponse call
+func ParseAddLarkBotPersonResponse(rsp *http.Response) (*AddLarkBotPersonResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &AddLarkBotPersonResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest LarkBotPerson
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseRemoveLarkBotPersonResponse parses an HTTP response from a RemoveLarkBotPersonWithResponse call
+func ParseRemoveLarkBotPersonResponse(rsp *http.Response) (*RemoveLarkBotPersonResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RemoveLarkBotPersonResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseListChatsResponse parses an HTTP response from a ListChatsWithResponse call
 func ParseListChatsResponse(rsp *http.Response) (*ListChatsResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -12339,6 +15538,72 @@ func ParsePutIntegrationConnectionResponse(rsp *http.Response) (*PutIntegrationC
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest IntegrationConnection
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListConnectionActionsResponse parses an HTTP response from a ListConnectionActionsWithResponse call
+func ParseListConnectionActionsResponse(rsp *http.Response) (*ListConnectionActionsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListConnectionActionsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ConnectionActionList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseSetConnectionActionResponse parses an HTTP response from a SetConnectionActionWithResponse call
+func ParseSetConnectionActionResponse(rsp *http.Response) (*SetConnectionActionResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &SetConnectionActionResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest ConnectionAction
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -13806,6 +17071,45 @@ type ServerInterface interface {
 	// ListAccounts The accounts workers run under (no secrets)
 	// (GET /accounts)
 	ListAccounts(w http.ResponseWriter, r *http.Request)
+	// ListApprovals The requests agents made that wait for, or had, the owner's answer; only the owner
+	// (GET /approvals)
+	ListApprovals(w http.ResponseWriter, r *http.Request, params ListApprovalsParams)
+	// DecideApproval Answer a request that waits for approval; only the owner
+	// (POST /approvals/{approval_id}/decision)
+	DecideApproval(w http.ResponseWriter, r *http.Request, approvalId string)
+	// ListBots Every Bot, the oldest first
+	// (GET /bots)
+	ListBots(w http.ResponseWriter, r *http.Request)
+	// DeleteBot Remove a Bot that has no chats and no memory; only the owner
+	// (DELETE /bots/{name})
+	DeleteBot(w http.ResponseWriter, r *http.Request, name Name)
+	// GetBot A Bot, with its persona and memory
+	// (GET /bots/{name})
+	GetBot(w http.ResponseWriter, r *http.Request, name Name)
+	// PutBot Make a Bot, or change its model and persona; only the owner
+	// (PUT /bots/{name})
+	PutBot(w http.ResponseWriter, r *http.Request, name Name)
+	// ChangeBotMemory Add, replace or remove one entry of a Bot's memory
+	// (POST /bots/{name}/memory)
+	ChangeBotMemory(w http.ResponseWriter, r *http.Request, name Name)
+	// SetBotMemory Replace a Bot's whole memory with the owner's text; only the owner
+	// (PUT /bots/{name}/memory)
+	SetBotMemory(w http.ResponseWriter, r *http.Request, name Name)
+	// DeleteLarkBot Forget the Lark bot and its app's secret; only the owner
+	// (DELETE /channels/lark)
+	DeleteLarkBot(w http.ResponseWriter, r *http.Request)
+	// GetLarkBot The Lark bot, who may talk to it and whether it is connected; only the owner
+	// (GET /channels/lark)
+	GetLarkBot(w http.ResponseWriter, r *http.Request)
+	// PutLarkBot Set the Lark bot up, or change it; only the owner
+	// (PUT /channels/lark)
+	PutLarkBot(w http.ResponseWriter, r *http.Request)
+	// AddLarkBotPerson Add someone who may talk to the Lark bot when its mode is allowlist; only the owner
+	// (POST /channels/lark/people)
+	AddLarkBotPerson(w http.ResponseWriter, r *http.Request)
+	// RemoveLarkBotPerson Take someone off the Lark bot's list; only the owner
+	// (DELETE /channels/lark/people/{person})
+	RemoveLarkBotPerson(w http.ResponseWriter, r *http.Request, person string)
 	// ListChats The owner's chats with the coordinator, the most recently active first
 	// (GET /chats)
 	ListChats(w http.ResponseWriter, r *http.Request, params ListChatsParams)
@@ -13872,6 +17176,12 @@ type ServerInterface interface {
 	// PutIntegrationConnection Connect an Integration of kind app, as a Connection under a label; only the owner
 	// (PUT /integrations/{integration}/connections/{label})
 	PutIntegrationConnection(w http.ResponseWriter, r *http.Request, integration IntegrationID, label string)
+	// ListConnectionActions What agents may do with a Connection, action by action; only the owner
+	// (GET /integrations/{integration}/connections/{label}/actions)
+	ListConnectionActions(w http.ResponseWriter, r *http.Request, integration IntegrationID, label ConnectionLabel)
+	// SetConnectionAction Set the answer of one action of a Connection; only the owner
+	// (PUT /integrations/{integration}/connections/{label}/actions/{action})
+	SetConnectionAction(w http.ResponseWriter, r *http.Request, integration IntegrationID, label ConnectionLabel, action string)
 	// BeginIntegrationSignIn Start signing an account in, as a Connection under a label; only the owner
 	// (POST /integrations/{integration}/sign-ins)
 	BeginIntegrationSignIn(w http.ResponseWriter, r *http.Request, integration IntegrationID)
@@ -14017,6 +17327,317 @@ func (siw *ServerInterfaceWrapper) ListAccounts(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListAccounts(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListApprovals operation middleware
+func (siw *ServerInterfaceWrapper) ListApprovals(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListApprovalsParams
+
+	// ------------- Optional query parameter "status" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "status", r.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "status"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "status", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "chat_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "chat_id", r.URL.Query(), &params.ChatId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "chat_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "chat_id", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "task_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "task_id", r.URL.Query(), &params.TaskId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "task_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "task_id", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListApprovals(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DecideApproval operation middleware
+func (siw *ServerInterfaceWrapper) DecideApproval(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "approval_id" -------------
+	var approvalId string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "approval_id", r.PathValue("approval_id"), &approvalId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "approval_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DecideApproval(w, r, approvalId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListBots operation middleware
+func (siw *ServerInterfaceWrapper) ListBots(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListBots(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteBot operation middleware
+func (siw *ServerInterfaceWrapper) DeleteBot(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name Name
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", r.PathValue("name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteBot(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetBot operation middleware
+func (siw *ServerInterfaceWrapper) GetBot(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name Name
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", r.PathValue("name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetBot(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PutBot operation middleware
+func (siw *ServerInterfaceWrapper) PutBot(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name Name
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", r.PathValue("name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PutBot(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ChangeBotMemory operation middleware
+func (siw *ServerInterfaceWrapper) ChangeBotMemory(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name Name
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", r.PathValue("name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ChangeBotMemory(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetBotMemory operation middleware
+func (siw *ServerInterfaceWrapper) SetBotMemory(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name Name
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", r.PathValue("name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetBotMemory(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteLarkBot operation middleware
+func (siw *ServerInterfaceWrapper) DeleteLarkBot(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteLarkBot(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetLarkBot operation middleware
+func (siw *ServerInterfaceWrapper) GetLarkBot(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetLarkBot(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PutLarkBot operation middleware
+func (siw *ServerInterfaceWrapper) PutLarkBot(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PutLarkBot(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// AddLarkBotPerson operation middleware
+func (siw *ServerInterfaceWrapper) AddLarkBotPerson(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.AddLarkBotPerson(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RemoveLarkBotPerson operation middleware
+func (siw *ServerInterfaceWrapper) RemoveLarkBotPerson(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "person" -------------
+	var person string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "person", r.PathValue("person"), &person, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "person", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RemoveLarkBotPerson(w, r, person)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -14852,6 +18473,85 @@ func (siw *ServerInterfaceWrapper) PutIntegrationConnection(w http.ResponseWrite
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.PutIntegrationConnection(w, r, integration, label)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListConnectionActions operation middleware
+func (siw *ServerInterfaceWrapper) ListConnectionActions(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "integration" -------------
+	var integration IntegrationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "integration", r.PathValue("integration"), &integration, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integration", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "label" -------------
+	var label ConnectionLabel
+
+	err = runtime.BindStyledParameterWithOptions("simple", "label", r.PathValue("label"), &label, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "label", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListConnectionActions(w, r, integration, label)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetConnectionAction operation middleware
+func (siw *ServerInterfaceWrapper) SetConnectionAction(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "integration" -------------
+	var integration IntegrationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "integration", r.PathValue("integration"), &integration, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integration", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "label" -------------
+	var label ConnectionLabel
+
+	err = runtime.BindStyledParameterWithOptions("simple", "label", r.PathValue("label"), &label, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "label", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "action" -------------
+	var action string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "action", r.PathValue("action"), &action, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "action", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetConnectionAction(w, r, integration, label, action)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -16158,6 +19858,15 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/integrations/{integration}/connections/{label}", wrapper.DeleteIntegrationConnection)
 	m.HandleFunc(http.MethodPatch+" "+options.BaseURL+"/integrations/{integration}/connections/{label}", wrapper.PatchIntegrationConnection)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/integrations/{integration}/connections/{label}", wrapper.PutIntegrationConnection)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/channels/lark", wrapper.DeleteLarkBot)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/channels/lark", wrapper.GetLarkBot)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/channels/lark", wrapper.PutLarkBot)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/channels/lark/people", wrapper.AddLarkBotPerson)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/channels/lark/people/{person}", wrapper.RemoveLarkBotPerson)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/integrations/{integration}/connections/{label}/actions", wrapper.ListConnectionActions)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/integrations/{integration}/connections/{label}/actions/{action}", wrapper.SetConnectionAction)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/approvals", wrapper.ListApprovals)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/approvals/{approval_id}/decision", wrapper.DecideApproval)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/secrets", wrapper.ListSecrets)
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/secrets/{name}", wrapper.DeleteSecret)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/secrets/{name}", wrapper.PutSecret)
@@ -16166,6 +19875,12 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/repos/{name}", wrapper.DeleteRepo)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/repos/{name}", wrapper.PutRepo)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/accounts", wrapper.ListAccounts)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/bots", wrapper.ListBots)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/bots/{name}", wrapper.DeleteBot)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/bots/{name}", wrapper.GetBot)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/bots/{name}", wrapper.PutBot)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/bots/{name}/memory", wrapper.ChangeBotMemory)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/bots/{name}/memory", wrapper.SetBotMemory)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/profiles", wrapper.ListProfiles)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/profiles/{name}", wrapper.GetProfile)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/profiles/{name}", wrapper.ApplyProfile)
@@ -16213,6 +19928,496 @@ type ListAccountsdefaultJSONResponse struct {
 }
 
 func (response ListAccountsdefaultJSONResponse) VisitListAccountsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListApprovalsRequestObject struct {
+	Params ListApprovalsParams
+}
+
+type ListApprovalsResponseObject interface {
+	VisitListApprovalsResponse(w http.ResponseWriter) error
+}
+
+type ListApprovals200JSONResponse ApprovalList
+
+func (response ListApprovals200JSONResponse) VisitListApprovalsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListApprovalsdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListApprovalsdefaultJSONResponse) VisitListApprovalsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DecideApprovalRequestObject struct {
+	ApprovalId string `json:"approval_id"`
+	Body       *DecideApprovalJSONRequestBody
+}
+
+type DecideApprovalResponseObject interface {
+	VisitDecideApprovalResponse(w http.ResponseWriter) error
+}
+
+type DecideApproval200JSONResponse Approval
+
+func (response DecideApproval200JSONResponse) VisitDecideApprovalResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DecideApprovaldefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response DecideApprovaldefaultJSONResponse) VisitDecideApprovalResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListBotsRequestObject struct {
+}
+
+type ListBotsResponseObject interface {
+	VisitListBotsResponse(w http.ResponseWriter) error
+}
+
+type ListBots200JSONResponse BotList
+
+func (response ListBots200JSONResponse) VisitListBotsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListBotsdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListBotsdefaultJSONResponse) VisitListBotsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteBotRequestObject struct {
+	Name Name `json:"name"`
+}
+
+type DeleteBotResponseObject interface {
+	VisitDeleteBotResponse(w http.ResponseWriter) error
+}
+
+type DeleteBot204Response struct {
+}
+
+func (response DeleteBot204Response) VisitDeleteBotResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteBotdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response DeleteBotdefaultJSONResponse) VisitDeleteBotResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetBotRequestObject struct {
+	Name Name `json:"name"`
+}
+
+type GetBotResponseObject interface {
+	VisitGetBotResponse(w http.ResponseWriter) error
+}
+
+type GetBot200JSONResponse Bot
+
+func (response GetBot200JSONResponse) VisitGetBotResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetBotdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetBotdefaultJSONResponse) VisitGetBotResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutBotRequestObject struct {
+	Name Name `json:"name"`
+	Body *PutBotJSONRequestBody
+}
+
+type PutBotResponseObject interface {
+	VisitPutBotResponse(w http.ResponseWriter) error
+}
+
+type PutBot200JSONResponse Bot
+
+func (response PutBot200JSONResponse) VisitPutBotResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutBotdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response PutBotdefaultJSONResponse) VisitPutBotResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ChangeBotMemoryRequestObject struct {
+	Name Name `json:"name"`
+	Body *ChangeBotMemoryJSONRequestBody
+}
+
+type ChangeBotMemoryResponseObject interface {
+	VisitChangeBotMemoryResponse(w http.ResponseWriter) error
+}
+
+type ChangeBotMemory200JSONResponse Bot
+
+func (response ChangeBotMemory200JSONResponse) VisitChangeBotMemoryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ChangeBotMemorydefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ChangeBotMemorydefaultJSONResponse) VisitChangeBotMemoryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetBotMemoryRequestObject struct {
+	Name Name `json:"name"`
+	Body *SetBotMemoryJSONRequestBody
+}
+
+type SetBotMemoryResponseObject interface {
+	VisitSetBotMemoryResponse(w http.ResponseWriter) error
+}
+
+type SetBotMemory200JSONResponse Bot
+
+func (response SetBotMemory200JSONResponse) VisitSetBotMemoryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetBotMemorydefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response SetBotMemorydefaultJSONResponse) VisitSetBotMemoryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteLarkBotRequestObject struct {
+}
+
+type DeleteLarkBotResponseObject interface {
+	VisitDeleteLarkBotResponse(w http.ResponseWriter) error
+}
+
+type DeleteLarkBot204Response struct {
+}
+
+func (response DeleteLarkBot204Response) VisitDeleteLarkBotResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteLarkBotdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response DeleteLarkBotdefaultJSONResponse) VisitDeleteLarkBotResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetLarkBotRequestObject struct {
+}
+
+type GetLarkBotResponseObject interface {
+	VisitGetLarkBotResponse(w http.ResponseWriter) error
+}
+
+type GetLarkBot200JSONResponse LarkBot
+
+func (response GetLarkBot200JSONResponse) VisitGetLarkBotResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetLarkBotdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetLarkBotdefaultJSONResponse) VisitGetLarkBotResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutLarkBotRequestObject struct {
+	Body *PutLarkBotJSONRequestBody
+}
+
+type PutLarkBotResponseObject interface {
+	VisitPutLarkBotResponse(w http.ResponseWriter) error
+}
+
+type PutLarkBot200JSONResponse LarkBot
+
+func (response PutLarkBot200JSONResponse) VisitPutLarkBotResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutLarkBotdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response PutLarkBotdefaultJSONResponse) VisitPutLarkBotResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddLarkBotPersonRequestObject struct {
+	Body *AddLarkBotPersonJSONRequestBody
+}
+
+type AddLarkBotPersonResponseObject interface {
+	VisitAddLarkBotPersonResponse(w http.ResponseWriter) error
+}
+
+type AddLarkBotPerson200JSONResponse LarkBotPerson
+
+func (response AddLarkBotPerson200JSONResponse) VisitAddLarkBotPersonResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type AddLarkBotPersondefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response AddLarkBotPersondefaultJSONResponse) VisitAddLarkBotPersonResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RemoveLarkBotPersonRequestObject struct {
+	Person string `json:"person"`
+}
+
+type RemoveLarkBotPersonResponseObject interface {
+	VisitRemoveLarkBotPersonResponse(w http.ResponseWriter) error
+}
+
+type RemoveLarkBotPerson204Response struct {
+}
+
+func (response RemoveLarkBotPerson204Response) VisitRemoveLarkBotPersonResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type RemoveLarkBotPersondefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response RemoveLarkBotPersondefaultJSONResponse) VisitRemoveLarkBotPersonResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -17129,6 +21334,88 @@ type PutIntegrationConnectiondefaultJSONResponse struct {
 }
 
 func (response PutIntegrationConnectiondefaultJSONResponse) VisitPutIntegrationConnectionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListConnectionActionsRequestObject struct {
+	Integration IntegrationID   `json:"integration"`
+	Label       ConnectionLabel `json:"label"`
+}
+
+type ListConnectionActionsResponseObject interface {
+	VisitListConnectionActionsResponse(w http.ResponseWriter) error
+}
+
+type ListConnectionActions200JSONResponse ConnectionActionList
+
+func (response ListConnectionActions200JSONResponse) VisitListConnectionActionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListConnectionActionsdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListConnectionActionsdefaultJSONResponse) VisitListConnectionActionsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetConnectionActionRequestObject struct {
+	Integration IntegrationID   `json:"integration"`
+	Label       ConnectionLabel `json:"label"`
+	Action      string          `json:"action"`
+	Body        *SetConnectionActionJSONRequestBody
+}
+
+type SetConnectionActionResponseObject interface {
+	VisitSetConnectionActionResponse(w http.ResponseWriter) error
+}
+
+type SetConnectionAction200JSONResponse ConnectionAction
+
+func (response SetConnectionAction200JSONResponse) VisitSetConnectionActionResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetConnectionActiondefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response SetConnectionActiondefaultJSONResponse) VisitSetConnectionActionResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -18836,6 +23123,45 @@ type StrictServerInterface interface {
 	// ListAccounts The accounts workers run under (no secrets)
 	// (GET /accounts)
 	ListAccounts(ctx context.Context, request ListAccountsRequestObject) (ListAccountsResponseObject, error)
+	// ListApprovals The requests agents made that wait for, or had, the owner's answer; only the owner
+	// (GET /approvals)
+	ListApprovals(ctx context.Context, request ListApprovalsRequestObject) (ListApprovalsResponseObject, error)
+	// DecideApproval Answer a request that waits for approval; only the owner
+	// (POST /approvals/{approval_id}/decision)
+	DecideApproval(ctx context.Context, request DecideApprovalRequestObject) (DecideApprovalResponseObject, error)
+	// ListBots Every Bot, the oldest first
+	// (GET /bots)
+	ListBots(ctx context.Context, request ListBotsRequestObject) (ListBotsResponseObject, error)
+	// DeleteBot Remove a Bot that has no chats and no memory; only the owner
+	// (DELETE /bots/{name})
+	DeleteBot(ctx context.Context, request DeleteBotRequestObject) (DeleteBotResponseObject, error)
+	// GetBot A Bot, with its persona and memory
+	// (GET /bots/{name})
+	GetBot(ctx context.Context, request GetBotRequestObject) (GetBotResponseObject, error)
+	// PutBot Make a Bot, or change its model and persona; only the owner
+	// (PUT /bots/{name})
+	PutBot(ctx context.Context, request PutBotRequestObject) (PutBotResponseObject, error)
+	// ChangeBotMemory Add, replace or remove one entry of a Bot's memory
+	// (POST /bots/{name}/memory)
+	ChangeBotMemory(ctx context.Context, request ChangeBotMemoryRequestObject) (ChangeBotMemoryResponseObject, error)
+	// SetBotMemory Replace a Bot's whole memory with the owner's text; only the owner
+	// (PUT /bots/{name}/memory)
+	SetBotMemory(ctx context.Context, request SetBotMemoryRequestObject) (SetBotMemoryResponseObject, error)
+	// DeleteLarkBot Forget the Lark bot and its app's secret; only the owner
+	// (DELETE /channels/lark)
+	DeleteLarkBot(ctx context.Context, request DeleteLarkBotRequestObject) (DeleteLarkBotResponseObject, error)
+	// GetLarkBot The Lark bot, who may talk to it and whether it is connected; only the owner
+	// (GET /channels/lark)
+	GetLarkBot(ctx context.Context, request GetLarkBotRequestObject) (GetLarkBotResponseObject, error)
+	// PutLarkBot Set the Lark bot up, or change it; only the owner
+	// (PUT /channels/lark)
+	PutLarkBot(ctx context.Context, request PutLarkBotRequestObject) (PutLarkBotResponseObject, error)
+	// AddLarkBotPerson Add someone who may talk to the Lark bot when its mode is allowlist; only the owner
+	// (POST /channels/lark/people)
+	AddLarkBotPerson(ctx context.Context, request AddLarkBotPersonRequestObject) (AddLarkBotPersonResponseObject, error)
+	// RemoveLarkBotPerson Take someone off the Lark bot's list; only the owner
+	// (DELETE /channels/lark/people/{person})
+	RemoveLarkBotPerson(ctx context.Context, request RemoveLarkBotPersonRequestObject) (RemoveLarkBotPersonResponseObject, error)
 	// ListChats The owner's chats with the coordinator, the most recently active first
 	// (GET /chats)
 	ListChats(ctx context.Context, request ListChatsRequestObject) (ListChatsResponseObject, error)
@@ -18902,6 +23228,12 @@ type StrictServerInterface interface {
 	// PutIntegrationConnection Connect an Integration of kind app, as a Connection under a label; only the owner
 	// (PUT /integrations/{integration}/connections/{label})
 	PutIntegrationConnection(ctx context.Context, request PutIntegrationConnectionRequestObject) (PutIntegrationConnectionResponseObject, error)
+	// ListConnectionActions What agents may do with a Connection, action by action; only the owner
+	// (GET /integrations/{integration}/connections/{label}/actions)
+	ListConnectionActions(ctx context.Context, request ListConnectionActionsRequestObject) (ListConnectionActionsResponseObject, error)
+	// SetConnectionAction Set the answer of one action of a Connection; only the owner
+	// (PUT /integrations/{integration}/connections/{label}/actions/{action})
+	SetConnectionAction(ctx context.Context, request SetConnectionActionRequestObject) (SetConnectionActionResponseObject, error)
 	// BeginIntegrationSignIn Start signing an account in, as a Connection under a label; only the owner
 	// (POST /integrations/{integration}/sign-ins)
 	BeginIntegrationSignIn(ctx context.Context, request BeginIntegrationSignInRequestObject) (BeginIntegrationSignInResponseObject, error)
@@ -19089,6 +23421,376 @@ func (sh *strictHandler) ListAccounts(w http.ResponseWriter, r *http.Request) {
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(ListAccountsResponseObject); ok {
 		if err := validResponse.VisitListAccountsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListApprovals operation middleware
+func (sh *strictHandler) ListApprovals(w http.ResponseWriter, r *http.Request, params ListApprovalsParams) {
+	var request ListApprovalsRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListApprovals(ctx, request.(ListApprovalsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListApprovals")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListApprovalsResponseObject); ok {
+		if err := validResponse.VisitListApprovalsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DecideApproval operation middleware
+func (sh *strictHandler) DecideApproval(w http.ResponseWriter, r *http.Request, approvalId string) {
+	var request DecideApprovalRequestObject
+
+	request.ApprovalId = approvalId
+
+	var body DecideApprovalJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DecideApproval(ctx, request.(DecideApprovalRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DecideApproval")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DecideApprovalResponseObject); ok {
+		if err := validResponse.VisitDecideApprovalResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListBots operation middleware
+func (sh *strictHandler) ListBots(w http.ResponseWriter, r *http.Request) {
+	var request ListBotsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListBots(ctx, request.(ListBotsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListBots")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListBotsResponseObject); ok {
+		if err := validResponse.VisitListBotsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteBot operation middleware
+func (sh *strictHandler) DeleteBot(w http.ResponseWriter, r *http.Request, name Name) {
+	var request DeleteBotRequestObject
+
+	request.Name = name
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteBot(ctx, request.(DeleteBotRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteBot")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteBotResponseObject); ok {
+		if err := validResponse.VisitDeleteBotResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetBot operation middleware
+func (sh *strictHandler) GetBot(w http.ResponseWriter, r *http.Request, name Name) {
+	var request GetBotRequestObject
+
+	request.Name = name
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetBot(ctx, request.(GetBotRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetBot")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetBotResponseObject); ok {
+		if err := validResponse.VisitGetBotResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PutBot operation middleware
+func (sh *strictHandler) PutBot(w http.ResponseWriter, r *http.Request, name Name) {
+	var request PutBotRequestObject
+
+	request.Name = name
+
+	var body PutBotJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PutBot(ctx, request.(PutBotRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PutBot")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PutBotResponseObject); ok {
+		if err := validResponse.VisitPutBotResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ChangeBotMemory operation middleware
+func (sh *strictHandler) ChangeBotMemory(w http.ResponseWriter, r *http.Request, name Name) {
+	var request ChangeBotMemoryRequestObject
+
+	request.Name = name
+
+	var body ChangeBotMemoryJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ChangeBotMemory(ctx, request.(ChangeBotMemoryRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ChangeBotMemory")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ChangeBotMemoryResponseObject); ok {
+		if err := validResponse.VisitChangeBotMemoryResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetBotMemory operation middleware
+func (sh *strictHandler) SetBotMemory(w http.ResponseWriter, r *http.Request, name Name) {
+	var request SetBotMemoryRequestObject
+
+	request.Name = name
+
+	var body SetBotMemoryJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetBotMemory(ctx, request.(SetBotMemoryRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetBotMemory")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetBotMemoryResponseObject); ok {
+		if err := validResponse.VisitSetBotMemoryResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteLarkBot operation middleware
+func (sh *strictHandler) DeleteLarkBot(w http.ResponseWriter, r *http.Request) {
+	var request DeleteLarkBotRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteLarkBot(ctx, request.(DeleteLarkBotRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteLarkBot")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteLarkBotResponseObject); ok {
+		if err := validResponse.VisitDeleteLarkBotResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetLarkBot operation middleware
+func (sh *strictHandler) GetLarkBot(w http.ResponseWriter, r *http.Request) {
+	var request GetLarkBotRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetLarkBot(ctx, request.(GetLarkBotRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetLarkBot")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetLarkBotResponseObject); ok {
+		if err := validResponse.VisitGetLarkBotResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PutLarkBot operation middleware
+func (sh *strictHandler) PutLarkBot(w http.ResponseWriter, r *http.Request) {
+	var request PutLarkBotRequestObject
+
+	var body PutLarkBotJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PutLarkBot(ctx, request.(PutLarkBotRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PutLarkBot")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PutLarkBotResponseObject); ok {
+		if err := validResponse.VisitPutLarkBotResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// AddLarkBotPerson operation middleware
+func (sh *strictHandler) AddLarkBotPerson(w http.ResponseWriter, r *http.Request) {
+	var request AddLarkBotPersonRequestObject
+
+	var body AddLarkBotPersonJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.AddLarkBotPerson(ctx, request.(AddLarkBotPersonRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "AddLarkBotPerson")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(AddLarkBotPersonResponseObject); ok {
+		if err := validResponse.VisitAddLarkBotPersonResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RemoveLarkBotPerson operation middleware
+func (sh *strictHandler) RemoveLarkBotPerson(w http.ResponseWriter, r *http.Request, person string) {
+	var request RemoveLarkBotPersonRequestObject
+
+	request.Person = person
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RemoveLarkBotPerson(ctx, request.(RemoveLarkBotPersonRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RemoveLarkBotPerson")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RemoveLarkBotPersonResponseObject); ok {
+		if err := validResponse.VisitRemoveLarkBotPersonResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -19712,6 +24414,68 @@ func (sh *strictHandler) PutIntegrationConnection(w http.ResponseWriter, r *http
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(PutIntegrationConnectionResponseObject); ok {
 		if err := validResponse.VisitPutIntegrationConnectionResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListConnectionActions operation middleware
+func (sh *strictHandler) ListConnectionActions(w http.ResponseWriter, r *http.Request, integration IntegrationID, label ConnectionLabel) {
+	var request ListConnectionActionsRequestObject
+
+	request.Integration = integration
+	request.Label = label
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListConnectionActions(ctx, request.(ListConnectionActionsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListConnectionActions")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListConnectionActionsResponseObject); ok {
+		if err := validResponse.VisitListConnectionActionsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetConnectionAction operation middleware
+func (sh *strictHandler) SetConnectionAction(w http.ResponseWriter, r *http.Request, integration IntegrationID, label ConnectionLabel, action string) {
+	var request SetConnectionActionRequestObject
+
+	request.Integration = integration
+	request.Label = label
+	request.Action = action
+
+	var body SetConnectionActionJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetConnectionAction(ctx, request.(SetConnectionActionRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetConnectionAction")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetConnectionActionResponseObject); ok {
+		if err := validResponse.VisitSetConnectionActionResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -20913,215 +25677,264 @@ func (sh *strictHandler) ReopenTask(w http.ResponseWriter, r *http.Request, task
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
-	"vwEA",
+	"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",
+	"o7ZGBPPW1LOzmc92Ab74fwMA",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

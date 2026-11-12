@@ -19,9 +19,11 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/coordinator"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/integration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/larkbot"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/nodeapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/serviceproxy"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/subscription"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/webui"
@@ -60,6 +62,14 @@ type Config struct {
 	// CodexBaseURL is the backend the gateway serves a Codex subscription
 	// from, from HYPOMNEMA_CODEX_BASE_URL; empty: ChatGPT's. Tests name their own.
 	CodexBaseURL string
+	// ClaudeBaseURL is the Anthropic Messages backend the gateway serves a
+	// Claude subscription from, from HYPOMNEMA_CLAUDE_BASE_URL; empty:
+	// Anthropic's. Tests name their own.
+	ClaudeBaseURL string
+	// Claude configures the Claude login's OAuth hosts, from
+	// HYPOMNEMA_CLAUDE_AUTH_BASE / _TOKEN_BASE / _PROFILE_BASE; empty:
+	// Anthropic's. Tests name their own.
+	Claude subscription.ClaudeOptions
 	// AntigravityBaseURL is the Cloud Code host the gateway serves an
 	// Antigravity subscription from, from HYPOMNEMA_ANTIGRAVITY_BASE_URL;
 	// empty: Google's daily host. Tests name their own.
@@ -83,7 +93,13 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 		NodeReleaseURL:     env.String(envPrefix+"_NODE_RELEASE_URL", ""),
 		CodexIssuer:        env.String(envPrefix+"_CODEX_ISSUER", ""),
 		CodexBaseURL:       env.String(envPrefix+"_CODEX_BASE_URL", ""),
+		ClaudeBaseURL:      env.String(envPrefix+"_CLAUDE_BASE_URL", ""),
 		AntigravityBaseURL: env.String(envPrefix+"_ANTIGRAVITY_BASE_URL", ""),
+		Claude: subscription.ClaudeOptions{
+			AuthBase:    env.String(envPrefix+"_CLAUDE_AUTH_BASE", ""),
+			TokenBase:   env.String(envPrefix+"_CLAUDE_TOKEN_BASE", ""),
+			ProfileBase: env.String(envPrefix+"_CLAUDE_PROFILE_BASE", ""),
+		},
 		Antigravity: subscription.AntigravityOptions{
 			ClientSecret: env.String(envPrefix+"_ANTIGRAVITY_CLIENT_SECRET", ""),
 		},
@@ -164,27 +180,54 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		integration.Google(), integration.Lark())
 
 	nodes := nodeapi.New(svc, logger).WithHostTokens(tokens.Token).WithModelKeys(workerKeys.Key).
+		WithAccountTokens(accountTokens{svc: svc, vault: secrets, logger: logger}.Token).
 		WithAgentKeys(workerKeys.AgentKey).WithTools(integrations.Tools).WithReleaseURL(cfg.NodeReleaseURL)
 	nodes.Register(mux)
 	// One API for every agent's tools: a worker with its Dispatch's key, the coordinator with its token.
-	agentapi.New(svc, func(ctx context.Context, id, label string) (agentapi.Token, error) {
+	agents := agentapi.New(svc, func(ctx context.Context, id, label string) (agentapi.Token, error) {
 		token, err := integrations.Token(ctx, id, label)
 
 		return agentapi.Token{
 			AccessToken: token.AccessToken, ExpiresAt: token.ExpiresAt, ClientID: token.ClientID,
 		}, err
-	}, logger).Register(mux)
+	}, logger)
+	agents.Register(mux)
+
+	// The service proxy: an agent's tool reaches a connected service through it and never holds the token.
+	proxy, err := serviceproxy.New(serviceproxy.Config{
+		Agents: agents, Store: svc, Logger: logger,
+		Token: func(ctx context.Context, id, label string) (string, error) {
+			token, err := integrations.Token(ctx, id, label)
+
+			return token.AccessToken, err
+		},
+	})
+	if err != nil {
+		return err
+	}
+
+	proxy.Register(mux)
 	modelgateway.NewServer(gateway, logger, modelgateway.Config{
 		Subscriptions: gatewayAccounts{subs: subscriptions}, CodexBaseURL: cfg.CodexBaseURL,
+		ClaudeBaseURL:      cfg.ClaudeBaseURL,
 		AntigravityBaseURL: cfg.AntigravityBaseURL,
 	}).Register(mux)
 
 	sup := coordinator.New(svc, coordinator.Config{Command: cfg.CoordinatorCommand, Logger: logger})
 
+	// The Lark bot (issue #136): its settings read the app's secret from the vault, and the bot opens its
+	// connection through them.
+	var larkSettings *larkbot.Service
+
+	larkBot := larkbot.New(svc, sup, func(ctx context.Context, b orchestration.LarkBot) (larkbot.Lark, error) {
+		return larkSettings.Open(ctx, b)
+	}, logger).WithWebURL(cfg.PublicURL)
+	larkSettings = larkbot.NewService(svc, secrets, larkBot, larkbot.Connect)
+
 	api := clientapi.New(svc, logger, ctx.Done()).WithCoordinator(sup).WithHostTokens(tokens).
 		WithMachines(machineMgr).WithTerminals(nodeTerminals(nodes)).
 		WithSecrets(ownerSecrets{vault: secrets, referrers: referrers}).
-		WithIntegrations(integrations)
+		WithIntegrations(integrations).WithApprovals(proxy).WithLarkBot(larkSettings)
 	if err := api.Register(mux); err != nil {
 		return err
 	}
@@ -244,9 +287,18 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		_ = sup.Run(ctx)
 	}()
 
+	larkDone := make(chan struct{})
+
+	go func() {
+		defer close(larkDone)
+
+		_ = larkBot.Run(ctx)
+	}()
+
 	serveErr := platform.Serve(ctx, ln, mux, logger)
 
 	cancel(nil)
+	<-larkDone
 	<-loopDone
 	<-machinesDone
 	<-refreshDone

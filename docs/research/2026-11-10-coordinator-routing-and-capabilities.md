@@ -288,3 +288,82 @@ What it means here (inference):
   Task up to three times, at the same effort. Whether to raise it needs the cost figures of issue #22.
 - The figures are Anthropic's, measured through the API by price. Hypomnema's workers run on subscriptions, where
   the cost is the plan's limits.
+
+## 10. Which agent runs on which CLI and model, and what was measured (2026-11-11)
+
+Asked by the owner: the defaults the references ship, as a reference for Hypomnema's own agents, and whether a
+benchmark stands behind them. Two scouts read the clones (affectui was not part of this); values are quoted from
+the files named. `(inference)` marks what a scout worked out rather than read.
+
+### 10.1 The shipped defaults
+
+| Product | Agent or role | CLI or harness | Default model | Effort | Reason given |
+|---|---|---|---|---|---|
+| omp | `scout`, `sonic` | omp | `@smol`: `claude-haiku-5-5` first, then `google-antigravity/gemini-3.8-flash`, `openai-codex/gpt-5.3-codex-spark`… | medium | sonic: "Low-reasoning agent for strictly mechanical updates" |
+| omp | `reviewer`, `advisor` | omp | `@slow`: `openai-codex/gpt-5.6-sol` first, then `anthropic/claude-fable-5-1`, `kimi-code/k3`… | unset | advisor "stays a distinct strong model out of the box" (`model-resolver.ts` L1174-1176) |
+| omp | `task` | omp | the session's model | auto | none |
+| omp | judge | omp | `typesafe/jev-1.14.0`, then `@tiny`, `@smol`, `@default` | | none |
+| Omnigent | The brains of polly, scribe, sentinel, debby | `claude-sdk` | Not pinned; the provider's default ("the bundled catalog default is claude-opus-4-8") | | "No model/profile is pinned" |
+| Omnigent | polly's `claude_code`, `codex`, `opencode`, `hermes`, `agy`, `pi` | Each CLI's own harness | The CLI's default; Codex `gpt-5.6-sol` (`models/model_fallbacks.py` L92-103) | | none |
+| Omnigent | polly's `cursor` | `cursor-native` | `grok-4.5`, the one pinned model | | "Faster default for Polly Cursor workers" |
+| Omnigent | The reviewers of scribe and sentinel | `codex` | `gpt-5.6-sol` (inference) | | "deliberately a DIFFERENT vendor … so it catches claims the author's own model would wave through" |
+| Omnigent | Titles | | `haiku` / `gpt-5.6-luna` | low | "they always run on the family's cheapest arm" |
+| genie | Worker stages (readers, locate, planners, the gate, the publisher) | Claude Code workflows | `sonnet` | low or medium | `.claude/workflows/README.md` L67-71 |
+| genie | Reasoner stages (judges, synthesis, design, review, the executor and its fix) | The same | `opus` | high | The same |
+| OpenClaw | The main agent and its role templates | OpenClaw | `openai/gpt-6-astra`; the templates set no model | | none |
+| OpenClaw | Utility calls | | `claude-haiku-5-5` / `gpt-6-luna` | | "lower-cost model for short internal tasks" |
+| OpenClaw | Sub-agents | | Inherit | | "set a cheaper model for sub-agents and keep your main agent on a higher-quality model" |
+| Hermes | Main | Hermes | `anthropic/claude-opus-4.6` | medium | none |
+| Hermes | Delegated children | | Inherit; the example map: `fast` `google/gemini-3-flash-preview`, `deep` `claude-opus-5` at high | | "children carry the vast majority of tokens" |
+| Coder | Every context | chatd | The organization's default; titles on `claude-haiku-4-5`, `gpt-4o-mini` | | "the cheapest/fastest small model for that provider" |
+| OpenMausBot | A new bot | The first engine by rank: Claude, then Codex, Gemini, Grok | The engine's default: `claude-sonnet-5`, `gpt-5.6-sol` | none | "A Claude account, then a ChatGPT plan, then Gemini, then Grok" |
+| t3code | Main; text generation | codex | `gpt-6-astra` (`claude-opus-5-5` on Claude); `gpt-6-luna` at low | | none |
+| Orca | Commit messages | The claude CLI | `sonnet` (`gpt-5.6-terra` on Codex) | low | none |
+| OpenHands SDK | Four preset sub-agents | SDK | `inherit` | | none |
+| Buzz | Orchestrator and two workers (a benchmark manifest) | buzz-acp | `claude-sonnet-4-6` and `claude-haiku-4-5` | | Prices only |
+| Companion | "Great", "Fast" | pi and a gateway | `gpt-5.6-luna`, `deepseek-flash` | | none |
+
+Sources: omp `packages/coding-agent/src/prompts/agents/`, `src/task/agents.ts`,
+`packages/catalog/src/compat/rules/runtime/behavior.kdl` L414-527; Omnigent `examples/*/agents/*/config.yaml`;
+genie `.claude/workflows/`; OpenClaw `src/agents/defaults.ts`, `extensions/*/openclaw.plugin.json`; Hermes
+`cli-config.yaml.example`; Coder `coderd/x/chatd/quickgen.go`; OpenMausBot `shared/ai-ranking.ts`,
+`server/drivers/`; t3code `packages/contracts/src/model.ts`; Orca `commit-message-agent-specs-primary.ts`;
+OpenHands `openhands-tools/openhands/tools/preset/subagents/`; Buzz `benchmarks/harbor-buzz-orchestra/manifests/`;
+Companion `apps/server/src/model-selection.ts`.
+
+What is common:
+
+- A delegated worker mostly ships with **no model of its own** and inherits its parent's, or takes its CLI's
+  default.
+- A cheap model is the default only for **small side calls**: titles, utility calls, a gate, a publisher.
+- The strong and cheap split is a **role chain set in one place** (omp's `slow` and `smol`, genie's `opus` and
+  `sonnet`), or advice in the docs; it is rarely an id pinned on an agent.
+- Where a reviewer is singled out, the reason given is **independence** (a strong or another vendor's model), not
+  cost.
+
+### 10.2 What was measured
+
+Results committed in a repository exist in four of fourteen: genie, Hermes, t3code and OpenMausBot. omp, Buzz and
+OpenHands state figures that point elsewhere or have none committed; Omnigent, OpenClaw and the rest have a harness
+and no results; Coder and Orca have nothing on this.
+
+| Question | Evidence |
+|---|---|
+| Is a cheap model enough for read-only exploration? | genie measured it and the answer for questions of several parts is no: four cheap models (`deepseek-v4-flash`, `mimo-v2.5`, `kimi-code`, `claude-haiku`) passed 0 of 6 tasks mined from real sessions, in 16 rounds, where the recorded premium session passed 5 of 6. They invented nothing; they stated too few of the required facts (`genie/mikro/docs/parity-explore.md` L521-530). For narrow jobs with a list of facts (scoping a change, preparing a review, triaging issues) the cheap model met the thresholds genie set, with no premium model beside it (`.mikro/agents/*/EVIDENCE.md`) |
+| Does a review by another vendor's model catch more than one by the same model? | No committed evidence |
+| Does one coding CLI do a kind of task better than another? | One narrow comparison: recall after compaction, Codex CLI 36.7% against Hermes 45.8% to 68.3%; the file says it compares compaction, and the models differed too (`hermes-agent/evals/compaction/results/SCORECARD-2026-08-15.md`). Nothing on wide against narrow changes |
+| Does a low effort with a retry beat a high effort? | Nothing in the repositories. Anthropic's page states about 40% lower cost at the same pass rate (9.2) |
+| Stage models | genie: the gate on haiku and the publisher on sonnet save $0.44 a run against opus throughout (`.claude/workflows/README.md` L153-157) |
+
+### 10.3 What it changes in section 7 and 8.6
+
+- A cheap model as the default for `explorer` was proposed from how omp, genie and Hermes set their tiers. genie's
+  own measurement says a cheap model fails exploration that has several parts. The proposal is withdrawn; `explorer`
+  keeps the runtime's default.
+- "Claude Code for work across many files, Codex for a narrow change" has no measurement behind it anywhere; it is a
+  sentence of Polly's prompt and of its router's hints. It was written into the coordinator's guide in issue #127.
+- Review by another vendor is what Polly, genie and Omnigent's other examples do, for independence; nobody measured
+  it.
+- So the references choose by experience more than by measurement. That speaks for keeping such choices where the
+  owner can change them (a profile's description and model) and out of the coordinator's guide, and for measuring
+  on Hypomnema's own Tasks before fixing any of them (9.1).

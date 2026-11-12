@@ -38,7 +38,7 @@ func (s *Server) ListChats(ctx context.Context, req openapi.ListChatsRequestObje
 // CreateChat starts a chat.
 func (s *Server) CreateChat(ctx context.Context, req openapi.CreateChatRequestObject,
 ) (openapi.CreateChatResponseObject, error) {
-	chat, err := s.svc.CreateChat(ctx, val(req.Body.Title))
+	chat, err := s.svc.CreateChat(ctx, val(req.Body.Bot), val(req.Body.Title))
 	if err != nil {
 		return nil, err
 	}
@@ -126,7 +126,7 @@ func chatMessageList(msgs []orchestration.ChatMessage, after int64) openapi.List
 }
 
 func (s *Server) toChat(c orchestration.Chat) openapi.Chat {
-	out := openapi.Chat{Id: c.ID, Title: c.Title, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt}
+	out := openapi.Chat{Id: c.ID, Title: c.Title, Bot: c.Bot, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt}
 
 	if s.coordinator != nil {
 		out.Coordinator = s.coordinator.Enabled()

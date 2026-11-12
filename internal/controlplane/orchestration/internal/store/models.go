@@ -24,6 +24,7 @@ type Account struct {
 	RefreshRetryAt  sql.NullInt64
 	RefreshError    sql.NullString
 	Project         sql.NullString
+	SentToNode      int64
 }
 
 type AccountCooldown struct {
@@ -31,6 +32,14 @@ type AccountCooldown struct {
 	AccountRef string
 	Until      int64
 	Reason     string
+}
+
+type ActionPolicy struct {
+	Integration string
+	Label       string
+	Action      string
+	Policy      string
+	UpdatedAt   int64
 }
 
 type AgentSession struct {
@@ -42,22 +51,56 @@ type AgentSession struct {
 	RevokedAt  sql.NullInt64
 }
 
+type Approval struct {
+	ID          string
+	Integration string
+	Label       string
+	Action      string
+	ActionName  string
+	DispatchID  sql.NullString
+	TaskID      sql.NullString
+	RunID       sql.NullString
+	ChatID      sql.NullString
+	AskedBy     string
+	Title       string
+	Payload     string
+	MatchHash   string
+	Status      string
+	Scope       sql.NullString
+	UsedAt      sql.NullInt64
+	CreatedAt   int64
+	DecidedAt   sql.NullInt64
+}
+
+type Bot struct {
+	Name      string
+	Provider  sql.NullString
+	Model     sql.NullString
+	Effort    sql.NullString
+	Persona   string
+	Memory    string
+	CreatedAt int64
+	UpdatedAt int64
+}
+
 type Chat struct {
 	ID        string
 	Title     string
 	CreatedAt int64
 	UpdatedAt int64
+	Bot       string
 }
 
 type ChatMessage struct {
-	Seq         int64
-	ChatID      string
-	Role        string
-	Text        string
-	Parts       sql.NullString
-	EventSeq    sql.NullInt64
-	DeliveredAt sql.NullInt64
-	CreatedAt   int64
+	Seq           int64
+	ChatID        string
+	Role          string
+	Text          string
+	Parts         sql.NullString
+	EventSeq      sql.NullInt64
+	DeliveredAt   sql.NullInt64
+	CreatedAt     int64
+	ToCoordinator int64
 }
 
 type ClientToken struct {
@@ -125,6 +168,9 @@ type Dispatch struct {
 	Effort           sql.NullString
 	ProfileVersionID sql.NullString
 	Activity         sql.NullString
+	FallbackFor      sql.NullString
+	FallbackUntil    sql.NullInt64
+	Handoff          int64
 }
 
 type DispatchEffect struct {
@@ -225,6 +271,45 @@ type IntegrationClient struct {
 	UpdatedAt   int64
 }
 
+type LarkBot struct {
+	ID          int64
+	AppID       string
+	Secret      string
+	Mode        string
+	OwnerOpenID string
+	Enabled     int64
+	UpdatedAt   int64
+}
+
+type LarkBotChat struct {
+	LarkChatID string
+	OpenID     string
+	ChatID     string
+	SentSeq    int64
+	CreatedAt  int64
+}
+
+type LarkBotMessage struct {
+	MessageID string
+	CreatedAt int64
+}
+
+type LarkBotPerson struct {
+	OpenID    string
+	Email     string
+	Name      string
+	CreatedAt int64
+}
+
+type LarkBotQuestion struct {
+	QuestionID string
+	CardID     string
+	MessageID  string
+	Seq        int64
+	ClosedAt   sql.NullInt64
+	CreatedAt  int64
+}
+
 type MachineProvider struct {
 	ID          string
 	Name        string
@@ -311,6 +396,7 @@ type ProfileVersion struct {
 	Instruction sql.NullString
 	CreatedAt   int64
 	Description string
+	Fallbacks   string
 }
 
 type Provider struct {

@@ -1,12 +1,13 @@
 #!/bin/sh
-# Starts pi, the coordinator, for one chat (issue #41, PR 3). Installed root-owned as /usr/local/bin/hypomnema-pi; the
-# control plane's user runs it as the coordinator user through one sudoers rule limited to this file. It accepts only
-# a chat id and the model flags the control plane adds, and gives pi a clean environment, as Omnigent's
-# _clean_pi_env does: no variable of the caller reaches pi.
+# Starts pi for one chat with a Bot (issue #41, PR 3; Bots: issue #169). Installed root-owned as
+# /usr/local/bin/hypomnema-pi; the control plane's user runs it as the coordinator user through one sudoers rule
+# limited to this file. It accepts only a chat id, a Bot's name and the model flags the control plane adds, and gives
+# pi a clean environment, as Omnigent's _clean_pi_env does: no variable of the caller reaches pi.
 set -eu
+umask 077
 
 usage() {
-  echo "usage: hypomnema-pi <chat id> [--provider P] [--model M] [--thinking T]" >&2
+  echo "usage: hypomnema-pi <chat id> [--bot B] [--provider P] [--model M] [--thinking T]" >&2
   exit 2
 }
 
@@ -22,30 +23,78 @@ case "$chat" in
   *[!A-Za-z0-9_]*) usage ;;
 esac
 
-# The rest are flag and value pairs, from a short list, with plain values.
+# The rest are flag and value pairs, from a short list, with plain values. The Bot's name is taken out; the model
+# flags stay for pi.
+bot=""
 expect=flag
-for arg in "$@"; do
-  if [ "$expect" = flag ]; then
-    case "$arg" in
-      --provider | --model | --thinking) expect=value ;;
-      *) usage ;;
-    esac
-  else
-    case "$arg" in
-      "" | -* | *[!A-Za-z0-9._/:-]*) usage ;;
-    esac
-    expect=flag
-  fi
+left=$#
+while [ "$left" -gt 0 ]; do
+  arg=$1
+  shift
+  left=$((left - 1))
+  case "$expect" in
+    flag)
+      case "$arg" in
+        --bot) expect=bot ;;
+        --provider | --model | --thinking)
+          expect=value
+          set -- "$@" "$arg"
+          ;;
+        *) usage ;;
+      esac
+      ;;
+    bot)
+      case "$arg" in
+        "" | [!a-z]* | *[!a-z0-9-]*) usage ;;
+      esac
+      bot=$arg
+      expect=flag
+      ;;
+    value)
+      case "$arg" in
+        "" | -* | *[!A-Za-z0-9._/:-]*) usage ;;
+      esac
+      set -- "$@" "$arg"
+      expect=flag
+      ;;
+  esac
 done
 [ "$expect" = flag ] || usage
 
 home=/home/coordinator/.hypomnema-coordinator
-cd "$home/work"
+dir="$home/work"
+
+# A Bot has its own directory, as an agent of OpenClaw, a profile of Hermes and a bot of OpenMausBot have: pi works
+# there, and what the Bot installs for itself (.pi/) stays its own. The first Bot keeps the directory pi always
+# worked in, so the chats it has go on.
+if [ -n "$bot" ]; then
+  mkdir -p "$home/bots"
+  dir="$home/bots/$bot"
+  if [ "$bot" = coordinator ] && [ ! -e "$dir" ]; then
+    ln -s ../work "$dir"
+  fi
+  mkdir -p "$dir"
+
+  # The Bot's persona and memory, read with pi's own token and given to pi after its built-in instructions. They
+  # are read here, once per pi process (Hermes gives its memory once per session). Without them pi would answer as
+  # another Bot, so pi does not start.
+  prompt="$home/bots/.prompt-$chat"
+  if ! HOME=/home/coordinator /usr/local/bin/hypomnema bots prompt "$bot" > "$prompt"; then
+    rm -f "$prompt"
+    echo "hypomnema-pi: reading bot $bot failed" >&2
+    exit 1
+  fi
+  set -- "$@" --append-system-prompt "$prompt"
+fi
+
+cd "$dir"
 
 # The tools of the integrations (gws for Google) are first on pi's PATH as scripts that run them through
-# `hypomnema tool`, which gets a fresh token for each call with pi's own coordinator token (issue #103).
+# `hypomnema tool` with pi's own coordinator token (issue #103). A tool whose integration goes through the service
+# proxy holds no token; HYPOMNEMA_CHAT_ID says which chat an approval it needs is shown in (issue #154).
+# HYPOMNEMA_BOT says which Bot's memory `hypomnema memory` changes.
 exec env -i \
   HOME=/home/coordinator USER=coordinator LOGNAME=coordinator LANG=C.UTF-8 TERM=dumb \
   PATH="$home/tools/bin:/opt/hypomnema-node/bin:$home/pi/node_modules/.bin:/usr/local/bin:/usr/bin:/bin" \
-  PI_CODING_AGENT_DIR="$home/agent" HYPOMNEMA_CHAT_ID="$chat" HYPOMNEMA_TOOLS_HOME="$home" \
+  PI_CODING_AGENT_DIR="$home/agent" HYPOMNEMA_CHAT_ID="$chat" HYPOMNEMA_BOT="$bot" HYPOMNEMA_TOOLS_HOME="$home" \
   pi --mode rpc --session-dir "$home/sessions" --session-id "$chat" "$@"

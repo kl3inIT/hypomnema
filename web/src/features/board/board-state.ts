@@ -55,6 +55,7 @@ export function boardCards(
   const runs = new Map(board.runs.map((r) => [r.id, r]))
   const nodeNames = new Map(nodes.map((n) => [n.id, n.name]))
   const runtimes = new Map(profiles.map((p) => [p.name, p.runtime]))
+  const byVersion = new Map(profiles.map((p) => [p.version_id, p.runtime]))
   const asked = new Map<string, Question>()
   const askedPi = new Map<string, Question>()
 
@@ -78,7 +79,14 @@ export function boardCards(
       column: columnOf(task, run, question),
       question,
       piQuestion: askedPi.get(task.id),
-      runtime: task.runtime || runtimes.get(task.profile) || "",
+      // A Task that ran under a fallback of its agent shows that agent's CLI (issue #171): the one whose
+      // current version the Dispatch ran with, the Task's own when that version has been replaced since.
+      runtime:
+        task.runtime ||
+        (task.latest_dispatch?.fallback_for &&
+          byVersion.get(task.latest_dispatch.profile_version_id ?? "")) ||
+        runtimes.get(task.profile) ||
+        "",
       node: nodeId ? (nodeNames.get(nodeId) ?? nodeId) : undefined,
       queued: task.status === "pending" || task.status === "ready",
     })

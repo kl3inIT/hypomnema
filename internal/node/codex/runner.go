@@ -20,8 +20,7 @@
 // never asks for approval, and the sandbox is off as Claude Code's runner
 // allows every tool. One process is one turn: it ends by itself.
 //
-// Not here yet: the worker's transcript on the control plane, which Claude
-// Code's runner reads from the CLI's session file.
+// The worker's transcript is read from the same journal (items.go).
 package codex
 
 import (
@@ -45,6 +44,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/node/daemon"
 	"github.com/kl3inIT/hypomnema/internal/node/shim"
 	"github.com/kl3inIT/hypomnema/internal/node/statedb"
+	"github.com/kl3inIT/hypomnema/internal/node/transcript"
 	"github.com/kl3inIT/hypomnema/internal/node/worktree"
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
@@ -86,8 +86,6 @@ type Runner struct {
 	mu   sync.Mutex
 	jobs map[string]*job
 }
-
-var _ daemon.Runner = (*Runner)(nil)
 
 type job struct {
 	id     string
@@ -249,6 +247,10 @@ func (rn *Runner) Start(ctx context.Context, d statedb.Dispatch, r daemon.Report
 		Env: append(append(rn.env(codexHome, o.ModelKey), hostEnv...), toolEnv...),
 	}
 	if err := shim.WriteSpec(dir, spec); err != nil {
+		return err
+	}
+
+	if err := transcript.SetFormat(dir, Format); err != nil {
 		return err
 	}
 
@@ -431,9 +433,6 @@ func (rn *Runner) Answer(id string, q nodeproto.Question) {
 		return
 	}
 }
-
-// ItemsAcked does nothing: a Codex worker's transcript is not sent yet.
-func (rn *Runner) ItemsAcked(nodeproto.ItemsAck) {}
 
 func answerText(q nodeproto.Question) string {
 	a := q.Answer

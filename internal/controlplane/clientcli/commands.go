@@ -219,6 +219,37 @@ var commands = []command{
 		flags:   jsonFlag, run: integrationsChats,
 	},
 	{
+		name: "integrations actions", args: "<integration>:<label>", min: 1, max: 1,
+		summary: "what agents may do with an account, action by action (owner)", flags: jsonFlag,
+		run: integrationsActions,
+	},
+	{
+		name: "integrations actions set", args: "<integration>:<label> <action> allow|ask|never", min: 3, max: 3,
+		summary: "let an action run on its own, ask you each time, or never run (owner)", flags: jsonFlag,
+		run: integrationsActionsSet,
+	},
+	{
+		name: "approvals", summary: "the requests agents made to your accounts that wait for your answer (owner)",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("status", "pending", "pending, approved, rejected or all")
+			jsonFlag(fs)
+		},
+		run: approvalsList,
+	},
+	{
+		name: "approvals approve", args: "<approval_id>", min: 1, max: 1,
+		summary: "let a request run (owner)",
+		flags: func(fs *flag.FlagSet) {
+			fs.Bool("session", false, "also stop asking for this action for the rest of the Run or the chat")
+			jsonFlag(fs)
+		},
+		run: approvalsApprove,
+	},
+	{
+		name: "approvals reject", args: "<approval_id>", min: 1, max: 1, summary: "refuse a request (owner)",
+		flags: jsonFlag, run: approvalsReject,
+	},
+	{
 		name: "integrations client set", args: "<integration>", min: 1, max: 1,
 		summary: "keep the OAuth client a service signs in with, from the JSON file the service gave, or the app " +
 			"a service is, from a JSON file with its app_id and app_secret (owner)",
@@ -232,6 +263,88 @@ var commands = []command{
 		name: "integrations disconnect", args: "<integration>:<label>", min: 1, max: 1,
 		summary: "forget a connected account and its token (owner)",
 		flags:   jsonFlag, run: integrationsDisconnect,
+	},
+	{
+		name: "channels lark show", summary: "the Lark bot, who may talk to it and whether it is connected (owner)",
+		flags: jsonFlag, run: larkBotShow,
+	},
+	{
+		name: "channels lark set",
+		summary: "set the Lark bot up or change it: its app from a JSON file with app_id and app_secret, the " +
+			"owner's email at Lark, who may talk to it, and whether it is on (owner)",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("app-file", "", "a JSON file with the app's app_id and app_secret, or - for standard input")
+			fs.String("owner", "", "the owner's email in the app's Lark organization, or his open_id")
+			fs.String("mode", "", "who may talk to the bot: owner, allowlist or everyone")
+			fs.Bool("on", false, "switch the bot on")
+			fs.Bool("off", false, "switch the bot off")
+			jsonFlag(fs)
+		},
+		run: larkBotSet,
+	},
+	{
+		name: "channels lark rm", summary: "forget the Lark bot and its app's secret (owner)",
+		flags: jsonFlag, run: larkBotRemove,
+	},
+	{
+		name: "channels lark allow", args: "<email or open_id>", min: 1, max: 1,
+		summary: "add someone who may talk to the Lark bot when its mode is allowlist (owner)",
+		flags:   jsonFlag, run: larkBotPersonAdd,
+	},
+	{
+		name: "channels lark disallow", args: "<email or open_id>", min: 1, max: 1,
+		summary: "take someone off the Lark bot's list (owner)",
+		flags:   jsonFlag, run: larkBotPersonRemove,
+	},
+	{
+		name: "bots list", summary: "the bots: each a model, a persona and a memory", flags: jsonFlag, run: botsList,
+	},
+	{
+		name: "bots show", args: "<bot>", min: 1, max: 1, summary: "a bot's model, persona and memory",
+		flags: jsonFlag, run: botsShow,
+	},
+	{
+		name: "bots set", args: "<bot>", min: 1, max: 1,
+		summary: "make a bot, or change its model or persona; what is left out stays (owner)",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("provider", "", "the provider of the model, when more than one offers it")
+			fs.String("model", "", "the model pi runs for the bot; empty for pi's default")
+			fs.String("effort", "", "the reasoning effort: low, medium, high, xhigh or max")
+			fs.String("persona-file", "", "a file with what the bot is and how it behaves, or - for standard input")
+			jsonFlag(fs)
+		},
+		run: botsSet,
+	},
+	{
+		name: "bots rm", args: "<bot>", min: 1, max: 1, summary: "remove a bot that has no chats and no memory (owner)",
+		flags: jsonFlag, run: botsRemove,
+	},
+	{
+		name: "bots prompt", args: "<bot>", min: 1, max: 1,
+		summary: "what pi is given about a bot when it starts for a chat: the persona and the memory",
+		run:     botsPrompt,
+	},
+	{
+		name: "memory show", summary: "a bot's memory", flags: memoryFlags, run: memoryShow,
+	},
+	{
+		name: "memory set", args: "<file>", min: 1, max: 1,
+		summary: "replace a bot's whole memory with a file's lines, or - for standard input (owner)",
+		flags:   memoryFlags, run: memorySet,
+	},
+	{
+		name: "memory add", args: "<entry>", min: 1, max: 1, summary: "add one line to a bot's memory",
+		flags: memoryFlags, run: memoryChange(memoryAdd),
+	},
+	{
+		name: "memory replace", args: "<part of an entry> <the new line>", min: 2, max: 2,
+		summary: "replace the one entry of a bot's memory that has the text",
+		flags:   memoryFlags, run: memoryChange(memoryReplace),
+	},
+	{
+		name: "memory remove", args: "<part of an entry>", min: 1, max: 1,
+		summary: "remove the one entry of a bot's memory that has the text",
+		flags:   memoryFlags, run: memoryChange(memoryRemove),
 	},
 	{
 		name: "repos list", summary: "the repositories registered under a name", flags: jsonFlag, run: reposList,

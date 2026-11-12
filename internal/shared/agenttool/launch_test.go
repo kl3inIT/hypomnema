@@ -1,10 +1,13 @@
 package agenttool
 
 import (
+	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -38,11 +41,39 @@ func TestMain(m *testing.M) {
 		fmt.Printf("client=%s brand=%s\n", os.Getenv(def.ClientEnv), os.Getenv("LARKSUITE_CLI_BRAND"))
 	}
 
+	// A tool is given a proxy on loopback and a certificate file, and reaches a host through them.
+	proxy := os.Getenv("HTTPS_PROXY")
+	_, caErr := os.Stat(os.Getenv("SSL_CERT_FILE")) //nolint:gosec // G703: a stand-in reads what it was given.
+
+	fmt.Printf("proxy=%t ca=%t connect=%s\n", strings.HasPrefix(proxy, "http://127.0.0.1:"), caErr == nil,
+		connect(strings.TrimPrefix(proxy, "http://"), "gmail.googleapis.com:443"))
+
 	if len(os.Args) > 1 && os.Args[len(os.Args)-1] == "fail" {
 		os.Exit(3)
 	}
 
 	os.Exit(0)
+}
+
+// connect asks a proxy for a connection to host and returns the status it
+// answered with.
+func connect(proxy, host string) string {
+	dialer := net.Dialer{Timeout: 5 * time.Second}
+
+	conn, err := dialer.DialContext(context.Background(), "tcp", proxy)
+	if err != nil {
+		return "unreachable"
+	}
+	defer conn.Close() //nolint:errcheck // a stand-in's connection
+
+	_, _ = fmt.Fprintf(conn, "CONNECT %s HTTP/1.1\r\nHost: %s\r\n\r\n", host, host)
+
+	line, _ := bufio.NewReader(conn).ReadString('\n')
+	if fields := strings.Fields(line); len(fields) > 1 {
+		return fields[1]
+	}
+
+	return "nothing"
 }
 
 // controlPlane stands in for the agent API: the accounts this agent may use,
@@ -69,7 +100,12 @@ func newControlPlane(t *testing.T, accounts ...Connection) *controlPlane {
 			return
 		}
 
-		_ = json.NewEncoder(w).Encode(ConnectionList{Data: c.accounts})
+		list := ConnectionList{Data: c.accounts}
+		if r.URL.Query().Get("integration") == "lark" && len(c.accounts) > 0 {
+			list.ClientID = "cli_a1b2"
+		}
+
+		_ = json.NewEncoder(w).Encode(list)
 	})
 	mux.HandleFunc("POST "+PathToken, func(w http.ResponseWriter, r *http.Request) {
 		var asked TokenRequest
@@ -95,6 +131,25 @@ func newControlPlane(t *testing.T, accounts ...Connection) *controlPlane {
 
 		w.WriteHeader(http.StatusForbidden)
 		_ = json.NewEncoder(w).Encode(map[string]string{"message": "this agent was not given google:" + asked.Label})
+	})
+
+	mux.HandleFunc("GET "+PathCA, func(w http.ResponseWriter, _ *http.Request) {
+		c.calls = append(c.calls, "certificate")
+		_, _ = io.WriteString(w, "-----BEGIN CERTIFICATE-----\nbm90IGEgcmVhbCBvbmU=\n-----END CERTIFICATE-----\n")
+	})
+	// The stand-in opens no stream: it records what the bridge asked for and refuses in words.
+	mux.HandleFunc("GET "+PathTunnel, func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		c.calls = append(c.calls, strings.TrimSpace(fmt.Sprintf("tunnel %s:%s %s %s", q.Get(QueryIntegration),
+			q.Get(QueryLabel), q.Get(QueryHost), q.Get(QueryChat))))
+
+		status, message := http.StatusForbidden, "the stand-in opens no stream"
+		if r.Header.Get("Authorization") != "Bearer the-agents-key" {
+			status, message = http.StatusUnauthorized, "the agent's credential no longer works"
+		}
+
+		w.WriteHeader(status)
+		_ = json.NewEncoder(w).Encode(map[string]string{"message": message})
 	})
 
 	c.srv = httptest.NewServer(mux)
@@ -136,24 +191,39 @@ func (c *controlPlane) launcher(home string, out io.Writer) Launcher {
 	return Launcher{URL: c.srv.URL, Key: "the-agents-key", ToolsHome: home, Stdout: out, Stderr: out}
 }
 
-// Scenario: an agent given one Google account runs gws. The launcher asks
-// which account, gets a fresh token for it and runs the real tool with that
-// token and the agent's own arguments. The tool does not get the agent's key,
-// and its exit code is the launcher's.
-func TestTheLauncherRunsAToolWithAFreshToken(t *testing.T) {
+// Scenario: an agent given one Google account runs gws, whose Integration
+// goes through the service proxy. The launcher asks which account and runs
+// the real tool with the agent's own arguments, a placeholder where a token
+// would be, and a proxy on loopback that carries the tool's connection to the
+// control plane with the agent's key, the account and, for a coordinator, its
+// chat. No token is asked for. The tool does not get the agent's key, what
+// the control plane refuses is said once in its own words, and the tool's
+// exit code is the launcher's.
+func TestTheLauncherRunsAProxiedToolWithAPlaceholderAndABridge(t *testing.T) {
 	home := installed(t)
 	c := newControlPlane(t, Connection{Label: "work", Account: "owner@example.com"})
 
-	var out bytes.Buffer
+	var out, errs bytes.Buffer
 
 	t.Setenv(EnvKey, "the-agents-key")
-	require.NoError(t, c.launcher(home, &out).Run(t.Context(), "gws", []string{"gmail", "+triage"}))
-	assert.Equal(t, "token=ya29.fresh-for-work key=\"\" args=gmail +triage\n", out.String())
-	assert.Equal(t, []string{"connections google", "token google:work"}, c.calls)
+	t.Setenv("HTTPS_PROXY", "http://proxy.of.the.agent.example:3128")
+
+	launcher := c.launcher(home, &out)
+	launcher.Stderr, launcher.Chat = &errs, "cht_1"
+
+	require.NoError(t, launcher.Run(t.Context(), "gws", []string{"gmail", "+triage"}))
+	assert.Equal(t, "token="+Placeholder+" key=\"\" args=gmail +triage\nproxy=true ca=true connect=502\n", out.String())
+	assert.Equal(t, []string{"connections google", "certificate", "tunnel google:work gmail.googleapis.com:443 cht_1"},
+		c.calls)
+	assert.Equal(t, "hypomnema: the stand-in opens no stream\n", errs.String())
+
+	leftovers, err := filepath.Glob(filepath.Join(os.TempDir(), "hypomnema-proxy-ca-*.pem"))
+	require.NoError(t, err)
+	assert.Empty(t, leftovers, "the certificate file is removed when the tool ends")
 
 	out.Reset()
 
-	err := c.launcher(home, &out).Run(t.Context(), "gws", []string{"gmail", "fail"})
+	err = c.launcher(home, &out).Run(t.Context(), "gws", []string{"gmail", "fail"})
 
 	var exit *ExitError
 	require.ErrorAs(t, err, &exit)
@@ -162,18 +232,19 @@ func TestTheLauncherRunsAToolWithAFreshToken(t *testing.T) {
 
 // Scenario: an agent given the owner's Lark app runs lark-cli. Lark's tool
 // will not run on a token alone: the launcher also gives it the app's id,
-// which the control plane sent with the token, and the brand it is always
-// run with.
-func TestTheLauncherGivesLarksToolTheAppsIDBesideTheToken(t *testing.T) {
+// which the control plane tells with the accounts, and the brand it is always
+// run with. Like every tool it holds a placeholder and goes through the
+// proxy; no token is asked for.
+func TestTheLauncherGivesLarksToolTheAppsIDBesideThePlaceholder(t *testing.T) {
 	home := installedAs(t, LarkCLI())
 	c := newControlPlane(t, Connection{Label: "work", Account: "Hypomnema"})
 
 	var out bytes.Buffer
 
 	require.NoError(t, c.launcher(home, &out).Run(t.Context(), "lark-cli", []string{"calendar", "+agenda"}))
-	assert.Equal(t, "token=ya29.fresh-for-work key=\"\" args=calendar +agenda\nclient=cli_a1b2 brand=lark\n",
-		out.String())
-	assert.Equal(t, []string{"connections lark", "token lark:work"}, c.calls)
+	assert.Equal(t, "token="+Placeholder+" key=\"\" args=calendar +agenda\nclient=cli_a1b2 brand=lark\n"+
+		"proxy=true ca=true connect=502\nhypomnema: the stand-in opens no stream\n", out.String())
+	assert.Equal(t, []string{"connections lark", "certificate", "tunnel lark:work gmail.googleapis.com:443"}, c.calls)
 }
 
 // Scenario: an agent given two accounts must name one; the flag that names
@@ -193,12 +264,12 @@ func TestTheLauncherActsAsTheAccountThatIsNamed(t *testing.T) {
 
 	require.NoError(t, c.launcher(home, &out).Run(t.Context(), "gws",
 		[]string{"--account", "personal", "calendar", "+agenda"}))
-	assert.Contains(t, out.String(), "token=ya29.fresh-for-personal")
+	assert.Contains(t, c.calls, "tunnel google:personal gmail.googleapis.com:443")
 	assert.Contains(t, out.String(), "args=calendar +agenda\n")
 
 	out.Reset()
 	require.NoError(t, c.launcher(home, &out).Run(t.Context(), "gws", []string{"drive", "--account=work", "files"}))
-	assert.Contains(t, out.String(), "token=ya29.fresh-for-work")
+	assert.Contains(t, c.calls, "tunnel google:work gmail.googleapis.com:443")
 	assert.Contains(t, out.String(), "args=drive files\n")
 
 	out.Reset()
@@ -291,4 +362,15 @@ func TestANodePreparesADispatchForItsAccounts(t *testing.T) {
 	assert.Contains(t, brief, `"$HYPOMNEMA_SKILLS/google-workspace/guide.md"`)
 	assert.Contains(t, brief, "gws --account <label>")
 	assert.Empty(t, Brief(nil))
+
+	// A Dispatch given the Lark app gets Lark's script and guide instead; the guide has no references of its
+	// own, since lark-cli carries its guides itself.
+	_, err = ForDispatch(home, "/opt/hypomnema-node", "https://cp.example", []string{"lark:work"}, "the-key")
+	require.NoError(t, err)
+	assert.FileExists(t, filepath.Join(place.Bin(), "lark-cli"))
+
+	guide, err = os.ReadFile(filepath.Join(place.SkillsDir(), "lark", "guide.md"))
+	require.NoError(t, err)
+	assert.Contains(t, string(guide), "Never run `lark-cli auth")
+	assert.Contains(t, Brief([]string{"lark:work"}), `"$HYPOMNEMA_SKILLS/lark/guide.md"`)
 }

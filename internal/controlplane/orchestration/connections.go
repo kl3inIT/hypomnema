@@ -222,6 +222,14 @@ func (s *Service) RemoveConnection(ctx context.Context, integration, label strin
 			return fmt.Errorf("removing connection %s:%s: %w", integration, label, err)
 		}
 
+		// The owner's answers for its actions go with it: an account connected again under the label starts
+		// from the defaults.
+		if err := q.DeleteActionPoliciesOfConnection(ctx, store.DeleteActionPoliciesOfConnectionParams{
+			Integration: integration, Label: label,
+		}); err != nil {
+			return fmt.Errorf("removing the action policies of %s:%s: %w", integration, label, err)
+		}
+
 		removed = connectionFromRow(row)
 
 		return nil

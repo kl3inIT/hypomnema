@@ -26,6 +26,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/node/daemon"
 	"github.com/kl3inIT/hypomnema/internal/node/statedb"
 	"github.com/kl3inIT/hypomnema/internal/node/terminal"
+	"github.com/kl3inIT/hypomnema/internal/node/transcript"
 	"github.com/kl3inIT/hypomnema/internal/node/worktree"
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
@@ -223,7 +224,7 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 
 	runner := &claude.Runner{
 		Home: home, Exe: exe, Claude: claudePath, URL: cfg.URL, Accounts: cfg.Accounts, Logger: logger,
-		Worktrees: worktree.Maker{Root: home},
+		Worktrees: worktree.Maker{Root: home, Logger: logger},
 	}
 
 	logger.InfoContext(ctx, "node starting", slog.String("event", "node.starting"), slog.String("url", cfg.URL),
@@ -238,18 +239,28 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 
 	// The agents that speak ACP share one runner (issue #107).
 	acpRunner := &acp.Runner{
-		Home: home, Exe: exe, Paths: paths, URL: cfg.URL, Logger: logger, Worktrees: worktree.Maker{Root: home},
+		Home: home, Exe: exe, Paths: paths, URL: cfg.URL, Logger: logger,
+		Worktrees: worktree.Maker{Root: home, Logger: logger},
 	}
 
-	all := runners{}
+	// Workers' transcripts go to the control plane beside their reports, whatever the runtime (issues #43, #157).
+	transcripts := &transcript.Forwarder{
+		Home: home, Logger: logger,
+		Decoders: map[string]func() transcript.Decoder{
+			claude.Format: claude.NewDecoder, codex.Format: codex.NewDecoder, acp.Format: acp.NewDecoder,
+		},
+	}
+
+	all := runners{byRuntime: map[string]worker{}, transcripts: transcripts}
 	for _, runtime := range acp.Runtimes() {
-		all[runtime] = acpRunner
+		all.byRuntime[runtime] = acpRunner
 	}
 
-	all["claude"] = runner
+	all.byRuntime["claude"] = runner
 	// A Codex worker's model comes from the control plane's gateway (issue #107).
-	all["codex"] = &codex.Runner{
-		Home: home, Exe: exe, Codex: codexPath, URL: cfg.URL, Logger: logger, Worktrees: worktree.Maker{Root: home},
+	all.byRuntime["codex"] = &codex.Runner{
+		Home: home, Exe: exe, Codex: codexPath, URL: cfg.URL, Logger: logger,
+		Worktrees: worktree.Maker{Root: home, Logger: logger},
 	}
 
 	d := daemon.New(daemon.Config{
@@ -261,10 +272,9 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 		Terminal:    terminals,
 	}, db, all, logger)
 
-	// Workers' transcripts go to the control plane beside their reports (issue #43).
-	runner.Send = d.SendItems
+	transcripts.Send = d.SendItems
 
-	go runner.Forward(ctx)
+	go transcripts.Forward(ctx)
 
 	// The node updates itself only where ending is a restart: under systemd, which sets INVOCATION_ID.
 	updater := Updater{Exe: exe, Version: platform.Version}

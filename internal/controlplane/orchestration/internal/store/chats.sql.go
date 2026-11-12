@@ -105,7 +105,7 @@ func (q *Queries) ChatsWithRuns(ctx context.Context) ([]sql.NullString, error) {
 
 const chatsWithUndelivered = `-- name: ChatsWithUndelivered :many
 SELECT DISTINCT chat_id FROM chat_messages
-WHERE delivered_at IS NULL AND (role = 'owner' OR event_seq IS NOT NULL)
+WHERE delivered_at IS NULL AND (role = 'owner' OR event_seq IS NOT NULL OR to_coordinator = 1)
 `
 
 func (q *Queries) ChatsWithUndelivered(ctx context.Context) ([]string, error) {
@@ -131,8 +131,19 @@ func (q *Queries) ChatsWithUndelivered(ctx context.Context) ([]string, error) {
 	return items, nil
 }
 
+const countChatsOfBot = `-- name: CountChatsOfBot :one
+SELECT count(*) FROM chats WHERE bot = ?1
+`
+
+func (q *Queries) CountChatsOfBot(ctx context.Context, bot string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countChatsOfBot, bot)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const getChat = `-- name: GetChat :one
-SELECT id, title, created_at, updated_at FROM chats WHERE id = ?1
+SELECT id, title, created_at, updated_at, bot FROM chats WHERE id = ?1
 `
 
 func (q *Queries) GetChat(ctx context.Context, id string) (Chat, error) {
@@ -143,22 +154,29 @@ func (q *Queries) GetChat(ctx context.Context, id string) (Chat, error) {
 		&i.Title,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.Bot,
 	)
 	return i, err
 }
 
 const insertChat = `-- name: InsertChat :exec
-INSERT INTO chats (id, title, created_at, updated_at) VALUES (?1, ?2, ?3, ?3)
+INSERT INTO chats (id, title, bot, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?4)
 `
 
 type InsertChatParams struct {
 	ID    string
 	Title string
+	Bot   string
 	Now   int64
 }
 
 func (q *Queries) InsertChat(ctx context.Context, arg InsertChatParams) error {
-	_, err := q.db.ExecContext(ctx, insertChat, arg.ID, arg.Title, arg.Now)
+	_, err := q.db.ExecContext(ctx, insertChat,
+		arg.ID,
+		arg.Title,
+		arg.Bot,
+		arg.Now,
+	)
 	return err
 }
 
@@ -191,8 +209,26 @@ func (q *Queries) InsertChatMessage(ctx context.Context, arg InsertChatMessagePa
 	return seq, err
 }
 
+const insertChatNotice = `-- name: InsertChatNotice :exec
+INSERT INTO chat_messages (chat_id, role, text, to_coordinator, created_at)
+VALUES (?1, 'system', ?2, 1, ?3)
+`
+
+type InsertChatNoticeParams struct {
+	ChatID string
+	Text   string
+	Now    int64
+}
+
+// A message of the control plane's own that the coordinator is given as a wake-up, though no event of a Run is
+// behind it: the owner answered an Approval (issue #154).
+func (q *Queries) InsertChatNotice(ctx context.Context, arg InsertChatNoticeParams) error {
+	_, err := q.db.ExecContext(ctx, insertChatNotice, arg.ChatID, arg.Text, arg.Now)
+	return err
+}
+
 const listChatMessages = `-- name: ListChatMessages :many
-SELECT seq, chat_id, role, text, parts, event_seq, delivered_at, created_at FROM chat_messages WHERE chat_id = ?1 AND seq > ?2 ORDER BY seq LIMIT ?3
+SELECT seq, chat_id, role, text, parts, event_seq, delivered_at, created_at, to_coordinator FROM chat_messages WHERE chat_id = ?1 AND seq > ?2 ORDER BY seq LIMIT ?3
 `
 
 type ListChatMessagesParams struct {
@@ -219,6 +255,7 @@ func (q *Queries) ListChatMessages(ctx context.Context, arg ListChatMessagesPara
 			&i.EventSeq,
 			&i.DeliveredAt,
 			&i.CreatedAt,
+			&i.ToCoordinator,
 		); err != nil {
 			return nil, err
 		}
@@ -234,7 +271,7 @@ func (q *Queries) ListChatMessages(ctx context.Context, arg ListChatMessagesPara
 }
 
 const listChats = `-- name: ListChats :many
-SELECT id, title, created_at, updated_at FROM chats ORDER BY updated_at DESC, id LIMIT ?1
+SELECT id, title, created_at, updated_at, bot FROM chats ORDER BY updated_at DESC, id LIMIT ?1
 `
 
 func (q *Queries) ListChats(ctx context.Context, lim int64) ([]Chat, error) {
@@ -251,6 +288,7 @@ func (q *Queries) ListChats(ctx context.Context, lim int64) ([]Chat, error) {
 			&i.Title,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.Bot,
 		); err != nil {
 			return nil, err
 		}
@@ -267,7 +305,7 @@ func (q *Queries) ListChats(ctx context.Context, lim int64) ([]Chat, error) {
 
 const markChatMessagesDelivered = `-- name: MarkChatMessagesDelivered :exec
 UPDATE chat_messages SET delivered_at = ?1
-WHERE chat_id = ?2 AND seq <= ?3 AND delivered_at IS NULL AND (role = 'owner' OR event_seq IS NOT NULL)
+WHERE chat_id = ?2 AND seq <= ?3 AND delivered_at IS NULL AND (role = 'owner' OR event_seq IS NOT NULL OR to_coordinator = 1)
 `
 
 type MarkChatMessagesDeliveredParams struct {
@@ -311,8 +349,8 @@ func (q *Queries) TouchChat(ctx context.Context, arg TouchChatParams) error {
 }
 
 const undeliveredChatMessages = `-- name: UndeliveredChatMessages :many
-SELECT seq, chat_id, role, text, parts, event_seq, delivered_at, created_at FROM chat_messages
-WHERE chat_id = ?1 AND delivered_at IS NULL AND (role = 'owner' OR event_seq IS NOT NULL)
+SELECT seq, chat_id, role, text, parts, event_seq, delivered_at, created_at, to_coordinator FROM chat_messages
+WHERE chat_id = ?1 AND delivered_at IS NULL AND (role = 'owner' OR event_seq IS NOT NULL OR to_coordinator = 1)
 ORDER BY seq
 `
 
@@ -335,6 +373,7 @@ func (q *Queries) UndeliveredChatMessages(ctx context.Context, chatID string) ([
 			&i.EventSeq,
 			&i.DeliveredAt,
 			&i.CreatedAt,
+			&i.ToCoordinator,
 		); err != nil {
 			return nil, err
 		}

@@ -1,6 +1,6 @@
 import { useBlocker } from "@tanstack/react-router"
-import { Brain } from "lucide-react"
-import { useRef, useState } from "react"
+import { Brain, Trash2 } from "lucide-react"
+import { lazy, Suspense, useRef, useState } from "react"
 
 import type { Model, Profile } from "@/api/generated/types.gen"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -23,10 +23,12 @@ import {
   NativeSelectOption,
 } from "@/components/ui/native-select"
 import { Textarea } from "@/components/ui/textarea"
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 
 import {
   efforts,
   errorText,
+  maxFallbacks,
   modelKey,
   problem,
   runtimeName,
@@ -35,9 +37,15 @@ import {
   toYaml,
   type Draft,
 } from "./profiles-state"
-import { useApplyProfile } from "./use-profiles"
+import { useApplyProfile, useProfiles } from "./use-profiles"
 
 type Mode = "builder" | "yaml"
+
+// noEffort stands for "the runtime's default" in the effort's group, whose values cannot be empty.
+const noEffort = "default"
+
+// Monaco is large, so it is fetched when the YAML tab first opens.
+const YamlEditor = lazy(() => import("./yaml-editor"))
 
 // ProfileEditor edits one profile, new or stored, and saves it as a version. It is Omnara's config editor
 // (Apache License 2.0, https://github.com/omnara-ai/omnara; frontend/apps/web/src/components/agents/
@@ -45,10 +53,10 @@ type Mode = "builder" | "yaml"
 // ConfirmDiscardYamlDialog.tsx): Builder and YAML as two pills, the effort joined to the model, "Save revision"
 // off until something changed, "Discard changes", and a question before YAML edits are thrown away. The name that
 // cannot change, the description and the runtime's select are Omnigent's form (Apache License 2.0,
-// https://github.com/omnigent-ai/omnigent; web/src/pages/settings/CustomAgentConfigForm.tsx). Changed: YAML is a
-// plain text field checked by the server, where Omnara has Monaco with a schema; the builder does not read YAML
-// back, so going back to it always discards YAML edits; every model is listed, and the server says which a
-// runtime cannot use.
+// https://github.com/omnigent-ai/omnigent; web/src/pages/settings/CustomAgentConfigForm.tsx). The effort is a row
+// of pills with "Default" first, as OpenMausBot's (Apache License 2.0, https://github.com/milind-soni/OpenMausBot;
+// src/components/ModelPicker.tsx, EffortRow). Changed: the builder does not read YAML back, so going back to it
+// always discards YAML edits; every model is listed, and the server says which a runtime cannot use.
 export function ProfileEditor({
   start,
   startSource,
@@ -154,21 +162,22 @@ export function ProfileEditor({
         <Builder draft={draft} set={set} models={models} renamable={!stored} />
       ) : (
         <Field>
-          <FieldLabel htmlFor="profile-yaml">Config (YAML)</FieldLabel>
-          <Textarea
-            id="profile-yaml"
-            spellCheck={false}
-            autoComplete="off"
-            code
-            rows={18}
-            value={shown}
-            onChange={(event) => {
-              apply.reset()
-              setYaml(event.target.value)
-            }}
-          />
+          <FieldLabel id="profile-yaml-label">Config (YAML)</FieldLabel>
+          <Suspense fallback={<div className="h-[26rem] animate-pulse rounded-lg bg-muted" />}>
+            <YamlEditor
+              id="profile-yaml"
+              label="Config (YAML)"
+              value={shown}
+              onChange={(next) => {
+                if (next === shown) return
+                apply.reset()
+                setYaml(next)
+              }}
+            />
+          </Suspense>
           <FieldDescription>
-            The document the server stores. It checks it when you save and says what is wrong.
+            The document the server stores. The editor marks what does not fit it as you type; the
+            server checks the rest when you save.
           </FieldDescription>
         </Field>
       )}
@@ -236,10 +245,6 @@ function Builder({
   models: Model[]
   renamable: boolean
 }) {
-  const providers = [...new Set(models.map((m) => m.provider))].sort()
-  const known =
-    draft.model === "" || models.some((m) => modelKey(m.provider, m.name) === draft.model)
-
   return (
     <div className="flex flex-col gap-5">
       <Field>
@@ -286,64 +291,19 @@ function Builder({
           {runtimes.map((r) => (
             <NativeSelectOption key={r} value={r}>
               {runtimeName(r)}
-              {r === "pi" ? " (the coordinator)" : ""}
             </NativeSelectOption>
           ))}
         </NativeSelect>
         <FieldDescription>The CLI a worker of this agent is, on a machine.</FieldDescription>
       </Field>
 
-      <Field>
-        <FieldLabel htmlFor="profile-model">Model</FieldLabel>
-        <div className="flex flex-wrap items-center gap-2">
-          <NativeSelect
-            id="profile-model"
-            value={draft.model}
-            onChange={(event) => set({ model: event.target.value })}
-          >
-            <NativeSelectOption value="">Runtime default</NativeSelectOption>
-            {!known && (
-              <NativeSelectOption value={draft.model}>
-                {draft.model} (not offered)
-              </NativeSelectOption>
-            )}
-            {providers.map((provider) => (
-              <NativeSelectOptGroup key={provider} label={provider}>
-                {models
-                  .filter((m) => m.provider === provider)
-                  .map((m) => (
-                    <NativeSelectOption
-                      key={modelKey(m.provider, m.name)}
-                      value={modelKey(m.provider, m.name)}
-                    >
-                      {m.name}
-                    </NativeSelectOption>
-                  ))}
-              </NativeSelectOptGroup>
-            ))}
-          </NativeSelect>
-          <span className="flex items-center gap-1.5">
-            <Brain className="size-4 text-muted-foreground" aria-hidden />
-            <NativeSelect
-              aria-label="Effort"
-              value={draft.effort}
-              onChange={(event) => set({ effort: event.target.value })}
-            >
-              <NativeSelectOption value="">Default</NativeSelectOption>
-              {efforts.map((e) => (
-                <NativeSelectOption key={e.value} value={e.value}>
-                  {e.label}
-                </NativeSelectOption>
-              ))}
-            </NativeSelect>
-          </span>
-        </div>
-        <FieldDescription>
-          {known
-            ? "Every provider's models are listed. Saving says so when this runtime cannot use the one chosen."
-            : "No provider offers this model any more. Pick another, or the runtime's default."}
-        </FieldDescription>
-      </Field>
+      <ModelField
+        id="profile-model"
+        model={draft.model}
+        effort={draft.effort}
+        models={models}
+        onChange={set}
+      />
 
       <Field>
         <FieldLabel htmlFor="profile-instruction">Instructions</FieldLabel>
@@ -358,6 +318,173 @@ function Builder({
           Added after the rules every worker gets, which it may not override. Optional.
         </FieldDescription>
       </Field>
+
+      <Fallbacks
+        own={draft.name}
+        chain={draft.fallbacks}
+        onChange={(fallbacks) => set({ fallbacks })}
+      />
     </div>
+  )
+}
+
+// ModelField picks a model and its effort: every provider's models in one select, grouped by provider, with the
+// effort as a row of pills under it. The Bots' page uses it too (features/bots), where the default is pi's.
+export function ModelField({
+  id,
+  model,
+  effort,
+  models,
+  onChange,
+  defaultLabel = "Runtime default",
+  description = "Every provider's models are listed. Saving says so when this runtime cannot use the one chosen.",
+  gone = "No provider offers this model any more. Pick another, or the runtime's default.",
+}: {
+  id: string
+  // model is "provider/name", a bare name, or "" for the default (profiles-state.ts, modelKey).
+  model: string
+  effort: string
+  models: Model[]
+  onChange: (change: { model?: string; effort?: string }) => void
+  defaultLabel?: string
+  description?: string
+  // gone is said in the description's place when no provider offers the model chosen.
+  gone?: string
+}) {
+  const providers = [...new Set(models.map((m) => m.provider))].sort()
+  const known = model === "" || models.some((m) => modelKey(m.provider, m.name) === model)
+
+  return (
+    <Field>
+      <FieldLabel htmlFor={id}>Model</FieldLabel>
+      <div className="flex flex-wrap items-center gap-2">
+        <NativeSelect
+          id={id}
+          value={model}
+          onChange={(event) => onChange({ model: event.target.value })}
+        >
+          <NativeSelectOption value="">{defaultLabel}</NativeSelectOption>
+          {!known && <NativeSelectOption value={model}>{model} (not offered)</NativeSelectOption>}
+          {providers.map((provider) => (
+            <NativeSelectOptGroup key={provider} label={provider}>
+              {models
+                .filter((m) => m.provider === provider)
+                .map((m) => (
+                  <NativeSelectOption
+                    key={modelKey(m.provider, m.name)}
+                    value={modelKey(m.provider, m.name)}
+                  >
+                    {m.name}
+                  </NativeSelectOption>
+                ))}
+            </NativeSelectOptGroup>
+          ))}
+        </NativeSelect>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <Brain className="size-4 text-muted-foreground" aria-hidden />
+        <ToggleGroup
+          variant="outline"
+          size="sm"
+          spacing={0}
+          aria-label="Effort"
+          value={[effort || noEffort]}
+          onValueChange={(next) => {
+            const chosen = next[0] as string | undefined
+            if (chosen) onChange({ effort: chosen === noEffort ? "" : chosen })
+          }}
+        >
+          {[{ value: noEffort, label: "Default" }, ...efforts].map((e) => (
+            <ToggleGroupItem key={e.value} value={e.value}>
+              {(effort || noEffort) === e.value ? (
+                e.label
+              ) : (
+                <span className="font-normal text-muted-foreground">{e.label}</span>
+              )}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
+      </div>
+      <FieldDescription>{known ? description : gone}</FieldDescription>
+    </Field>
+  )
+}
+
+// Fallbacks is the ordered list of agents that take this one's Tasks while it is out of quota (issue #171), after
+// OpenMausBot's backups of a bot (Apache License 2.0, https://github.com/milind-soni/OpenMausBot;
+// src/components/bot-panel/BackupAis.tsx): numbered rows, each changed or removed in place, then one control that
+// adds the next. Changed: a row is a native select of the other agents, where OpenMausBot opens its model menu.
+function Fallbacks({
+  own,
+  chain,
+  onChange,
+}: {
+  own: string
+  chain: string[]
+  onChange: (chain: string[]) => void
+}) {
+  // The agents a Task can run under: every one but this one.
+  const workers = (useProfiles().data ?? []).filter((p) => p.name !== own).map((p) => p.name)
+  const free = workers.filter((name) => !chain.includes(name))
+
+  return (
+    <Field>
+      <FieldLabel htmlFor="profile-fallback-add">Fallbacks</FieldLabel>
+      {chain.length > 0 && (
+        <ol aria-label="Fallbacks, in order" className="flex flex-col gap-1.5">
+          {chain.map((name, index) => (
+            <li key={name} className="flex items-center gap-2">
+              <span className="w-3 text-xs text-muted-foreground tabular-nums" aria-hidden>
+                {index + 1}
+              </span>
+              <NativeSelect
+                aria-label={`Fallback ${index + 1}`}
+                value={name}
+                onChange={(event) =>
+                  onChange(chain.map((n, at) => (at === index ? event.target.value : n)))
+                }
+              >
+                <NativeSelectOption value={name}>{name}</NativeSelectOption>
+                {free.map((n) => (
+                  <NativeSelectOption key={n} value={n}>
+                    {n}
+                  </NativeSelectOption>
+                ))}
+              </NativeSelect>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                aria-label={`Remove fallback ${name}`}
+                onClick={() => onChange(chain.filter((_, at) => at !== index))}
+              >
+                <Trash2 aria-hidden />
+              </Button>
+            </li>
+          ))}
+        </ol>
+      )}
+      {chain.length < maxFallbacks && (
+        <NativeSelect
+          id="profile-fallback-add"
+          value=""
+          disabled={free.length === 0}
+          onChange={(event) => {
+            if (event.target.value) onChange([...chain, event.target.value])
+          }}
+        >
+          <NativeSelectOption value="">Add a fallback…</NativeSelectOption>
+          {free.map((n) => (
+            <NativeSelectOption key={n} value={n}>
+              {n}
+            </NativeSelectOption>
+          ))}
+        </NativeSelect>
+      )}
+      <FieldDescription>
+        While this agent&apos;s accounts wait for a limit to reset, a Task that has not started runs
+        under the first of these that can run. None: the Task waits for the reset.
+      </FieldDescription>
+    </Field>
   )
 }

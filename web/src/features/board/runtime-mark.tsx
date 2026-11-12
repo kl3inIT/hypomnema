@@ -44,7 +44,42 @@ function PiMark({ className }: { className?: string }) {
   )
 }
 
-const names: Record<string, string> = { claude: "Claude Code", codex: "Codex", pi: "pi" }
+// opencode's mark, from OpenMausBot's ProviderIcons.tsx as the three above.
+function OpenCodeMark({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={cn("fill-foreground", className)} aria-hidden>
+      <path fillRule="evenodd" d="M16 6H8v12h8V6zm4 16H4V2h16v20z" />
+    </svg>
+  )
+}
+
+// omp's mark is its own icon (assets/icon.svg of https://github.com/can1357/oh-my-pi, MIT; see
+// web/THIRD_PARTY_NOTICES.md): pi's letter with a plug. Its bars take the text colour, so that it shows on a
+// light and a dark surface; the plug keeps its orange.
+function OmpMark({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 120 90" className={className} aria-hidden>
+      <g className="fill-foreground">
+        <rect x="10" y="8" width="100" height="12" rx="2" />
+        <rect x="25" y="20" width="12" height="62" rx="2" />
+        <rect x="75" y="20" width="12" height="45" rx="2" />
+      </g>
+      <rect x="71" y="55" width="20" height="16" rx="3" className="fill-[#f97316]" />
+      <g className="fill-background">
+        <rect x="76" y="59" width="3" height="8" rx="1" />
+        <rect x="82" y="59" width="3" height="8" rx="1" />
+      </g>
+    </svg>
+  )
+}
+
+const names: Record<string, string> = {
+  claude: "Claude Code",
+  codex: "Codex",
+  pi: "pi",
+  omp: "omp",
+  opencode: "opencode",
+}
 
 export function RuntimeMark({ runtime, className }: { runtime: string; className?: string }) {
   const mark =
@@ -54,6 +89,10 @@ export function RuntimeMark({ runtime, className }: { runtime: string; className
       <CodexMark className="size-3.5" />
     ) : runtime === "pi" ? (
       <PiMark className="size-4" />
+    ) : runtime === "omp" ? (
+      <OmpMark className="size-3.5" />
+    ) : runtime === "opencode" ? (
+      <OpenCodeMark className="size-3.5" />
     ) : (
       <Bot className="size-3.5 text-icon-muted" aria-hidden />
     )

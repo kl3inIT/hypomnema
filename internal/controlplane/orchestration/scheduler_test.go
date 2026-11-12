@@ -2,6 +2,7 @@ package orchestration
 
 import (
 	"context"
+	"database/sql"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -10,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 )
 
@@ -607,7 +609,7 @@ func TestMigrationKeepsProvidersAndWhatNamesThem(t *testing.T) {
 	require.NoError(t, db.QueryRowContext(ctx, `SELECT
 		(SELECT count(*) FROM profile_versions WHERE provider = 'router') +
 		(SELECT count(*) FROM gateway_model_targets WHERE provider = 'router')`).Scan(&named))
-	assert.Equal(t, 2, named)
+	assert.Equal(t, 1, named, "the versions of pi's profile left with it when it became a Bot (00045)")
 
 	_, err = s.ApplyProvider(ctx, "", "name: agy2\nkind: antigravity_subscription\nmodels: [m]\n")
 	require.NoError(t, err)
@@ -739,4 +741,306 @@ func TestProfilesSayWhetherAWorkerCanStartNow(t *testing.T) {
 	// A drained node runs no new worker.
 	require.NoError(t, w.s.DrainNode(ctx, w.node.ID))
 	assert.Equal(t, &Availability{Reason: ReasonNoNode}, availability()["implementer"])
+}
+
+// Scenario: the owner gives the control plane a Claude token (issue #150).
+// No node holds an account, yet a Claude Code Task is placed on a node that
+// has Claude Code, under the account whose token the control plane keeps; an
+// account before it that cools down is passed over as any other. A Codex
+// account logged in on the control plane is for the gateway: it is not one a
+// worker runs under.
+func TestAnAccountWhoseTokenTheControlPlaneKeepsIsPlaced(t *testing.T) {
+	t.Parallel()
+
+	w := newSchedWorld(t)
+	require.NoError(t, w.s.DisableAccount(t.Context(), w.account.ID))
+
+	kept, err := w.s.AddTokenAccount(t.Context(), "claude", "personal", func(id string) string { return "vault:" + id })
+	require.NoError(t, err)
+	assert.Equal(t, "vault:"+kept.ID, kept.SecretRef)
+
+	_, err = w.s.AddTokenAccount(t.Context(), "codex", "work", func(id string) string { return "vault:" + id })
+	require.ErrorIs(t, err, ErrInvalid, "only Claude Code's token is one to send")
+
+	gateway, err := w.s.SaveAccountLogin(t.Context(), AccountLogin{
+		Runtime: "codex", ExternalID: "chatgpt-1", Email: "owner@example.com",
+	}, func(id string) string { return "vault:" + id })
+	require.NoError(t, err)
+
+	w.addNode("node_codex", 2, "codex")
+	w.tasks(
+		NewTask{Ref: "c", Profile: "implementer", Spec: "c"},
+		NewTask{Ref: "x", Profile: "implementer", Spec: "x", Runtime: "codex"},
+	)
+
+	created := w.schedule().Created
+	require.Len(t, created, 1, "the Codex account is the gateway's, not a worker's")
+
+	d := w.dispatchOf(created[0])
+	assert.Equal(t, "c", w.task(d.TaskID).Spec)
+	assert.Equal(t, kept.ID, w.conversation(d.ConversationID).AccountRef)
+
+	ref, sent, err := w.s.AccountTokenRef(t.Context(), kept.ID)
+	require.NoError(t, err)
+	assert.True(t, sent)
+	assert.Equal(t, kept.SecretRef, ref)
+
+	for _, id := range []string{w.account.ID, gateway.ID, "acc_unknown"} {
+		_, sent, err := w.s.AccountTokenRef(t.Context(), id)
+		require.NoError(t, err)
+		assert.False(t, sent, id)
+	}
+
+	resets := t0.Add(2 * time.Hour)
+	require.NoError(t, w.finish(w.begin(created[0]), Outcome{Class: FailureRateLimited, ResetsAt: &resets}))
+
+	w.tasks(NewTask{Ref: "n", Profile: "implementer", Spec: "n"})
+	assert.Empty(t, w.schedule().Created, "the account cools down as one on a node does")
+}
+
+// Scenario: out of quota (issue #171). While every account of a profile's
+// runtime waits for a limit to reset, a Task that has not started runs under
+// the first backup the owner listed that a worker can start under; the Run
+// is told once for that stretch, and work returns when the limit has reset.
+func TestTaskMovesToABackupProfileWhenItsOwnIsOutOfQuota(t *testing.T) {
+	t.Parallel()
+
+	w := newSchedWorld(t)
+	ctx := t.Context()
+
+	_, err := w.s.ApplyProvider(ctx, "", "name: gateway\nkind: model_gateway\nmodels: [gpt-sol]\n")
+	require.NoError(t, err)
+	_, _, err = w.s.ApplyProfile(ctx, "", "name: codex-own\ndescription: d\nruntime: codex\n")
+	require.NoError(t, err)
+	backup, _, err := w.s.ApplyProfile(ctx, "",
+		"name: codex-worker\ndescription: d\nruntime: codex\nmodel: {provider: gateway, name: gpt-sol}\n")
+	require.NoError(t, err)
+	writer, _, err := w.s.ApplyProfile(ctx, "",
+		"name: writer\ndescription: d\nruntime: claude\nfallbacks: [codex-own, codex-worker]\n")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"codex-own", "codex-worker"}, writer.Fallbacks)
+
+	codex := w.addNode("node_codex", 4, "codex")
+
+	// The Task that meets the limit has a Conversation: it waits for the reset.
+	first := w.tasks(NewTask{Ref: "a", Profile: "writer", Spec: "a"})[0]
+	created := w.schedule().Created
+	require.Len(t, created, 1)
+	assert.Equal(t, w.node.ID, w.dispatchOf(created[0]).NodeID, "the profile's own runtime while it has quota")
+	assert.Empty(t, w.dispatchOf(created[0]).FallbackFor)
+
+	resets := t0.Add(2 * time.Hour)
+	require.NoError(t, w.finish(w.begin(created[0]), Outcome{Class: FailureRateLimited, ResetsAt: &resets}))
+
+	w.tasks(
+		NewTask{Ref: "b", Profile: "writer", Spec: "b"},
+		NewTask{Ref: "c", Profile: "writer", Spec: "c"},
+		NewTask{Ref: "strict", Profile: "writer", Spec: "strict", Runtime: "claude"},
+		NewTask{Ref: "plain", Profile: "implementer", Spec: "plain"},
+	)
+
+	out := w.schedule()
+	require.Len(t, out.Created, 2, "b and c; the Task that names its runtime and the profile with no list wait")
+
+	for _, id := range out.Created {
+		d := w.dispatchOf(id)
+		assert.Contains(t, []string{"b", "c"}, w.task(d.TaskID).Spec)
+		assert.Equal(t, codex.ID, d.NodeID)
+		assert.Equal(t, backup.VersionID, d.ProfileVersionID, "codex-own has no account, so the second backup runs")
+		assert.Equal(t, "gpt-sol", d.Model)
+		assert.Equal(t, "writer", d.FallbackFor)
+		require.NotNil(t, d.FallbackUntil)
+		assert.Equal(t, resets, *d.FallbackUntil)
+		assert.Equal(t, GatewayAccountRef, w.conversation(d.ConversationID).AccountRef)
+	}
+
+	require.Len(t, out.Escalations, 1, "one notice for the stretch, not one per Task")
+	assert.Equal(t, Escalation{
+		Kind: EscalationFallback, DispatchID: out.Created[0], Profile: "writer", Fallback: "codex-worker",
+		Until: resets.UnixMilli(),
+	}, out.Escalations[0])
+	assert.Equal(t, TaskReady, w.task(first.ID).Status, "the Task that met the limit still waits")
+
+	// The limit has reset: a new Task runs under its own profile again.
+	w.advance(2*time.Hour + time.Minute)
+	w.alive(w.node)
+	w.alive(codex)
+	w.tasks(NewTask{Ref: "later", Profile: "writer", Spec: "later"})
+
+	back := w.schedule().Created
+	require.NotEmpty(t, back)
+
+	for _, id := range back {
+		d := w.dispatchOf(id)
+		assert.Equal(t, w.node.ID, d.NodeID, w.task(d.TaskID).Spec)
+		assert.Empty(t, d.FallbackFor)
+	}
+}
+
+// Scenario: the limit comes under way (issue #187). The Task's worker had begun; a backup takes the Task over on
+// the same node, in the same worktree, with a session of its own, and is told so with the end of the previous
+// worker's transcript. A Task is handed off once, never when it names its own runtime, and never after a request
+// to a service was approved for it.
+func TestTaskUnderWayIsHandedToABackupInItsWorktree(t *testing.T) {
+	t.Parallel()
+
+	w := newSchedWorld(t)
+	ctx := t.Context()
+
+	_, err := w.s.ApplyProvider(ctx, "", "name: gateway\nkind: model_gateway\nmodels: [gpt-sol]\n")
+	require.NoError(t, err)
+	backup, _, err := w.s.ApplyProfile(ctx, "",
+		"name: codex-worker\ndescription: d\nruntime: codex\nmodel: {provider: gateway, name: gpt-sol}\n")
+	require.NoError(t, err)
+	_, _, err = w.s.ApplyProfile(ctx, "",
+		"name: writer\ndescription: d\nruntime: claude\nfallbacks: [codex-worker]\n")
+	require.NoError(t, err)
+
+	// Both CLIs on one node: the worktree is there.
+	both := w.addNode("node_both", 4, "claude", "codex")
+	require.NoError(t, w.s.DrainNode(ctx, w.node.ID))
+
+	tasks := w.tasks(
+		NewTask{Ref: "a", Profile: "writer", Spec: "do a"},
+		NewTask{Ref: "strict", Profile: "writer", Spec: "strict", Runtime: "claude"},
+	)
+
+	created := w.schedule().Created
+	require.Len(t, created, 2)
+
+	byTask := map[string]Dispatch{}
+	for _, id := range created {
+		d := w.dispatchOf(id)
+		byTask[d.TaskID] = d
+	}
+
+	first := byTask[tasks[0].ID]
+	old := w.conversation(first.ConversationID)
+	call := w.begin(first.ID)
+	_, err = w.s.AddItems(ctx, both.ID, first.ID, []Item{
+		{Seq: 1, Kind: ItemMessage, Text: "I will write the\nhandler first."},
+		{Seq: 2, Kind: ItemReasoning, Text: "private thoughts"},
+		{Seq: 3, Kind: ItemToolCall, CallID: "c1", Tool: "Bash", Input: []byte(`{"command":"go test ./..."}`)},
+		{Seq: 4, Kind: ItemToolResult, CallID: "c1", Text: "ok"},
+	})
+	require.NoError(t, err)
+
+	resets := t0.Add(48 * time.Hour)
+	require.NoError(t, w.finish(call, Outcome{Class: FailureRateLimited, ResetsAt: &resets}))
+	require.NoError(t, w.finish(w.begin(byTask[tasks[1].ID].ID), Outcome{Class: FailureRateLimited, ResetsAt: &resets}))
+	assert.Nil(t, w.task(tasks[0].ID).NotBefore, "a Task a backup may take over is not held until the reset")
+	assert.NotNil(t, w.task(tasks[1].ID).NotBefore, "a Task that names its runtime waits for the reset")
+
+	out := w.schedule()
+	require.Len(t, out.Created, 1, "the Task that names its runtime waits")
+
+	d := w.dispatchOf(out.Created[0])
+	conv := w.conversation(d.ConversationID)
+	assert.Equal(t, tasks[0].ID, d.TaskID)
+	assert.True(t, d.Handoff)
+	assert.Equal(t, "writer", d.FallbackFor)
+	assert.Equal(t, backup.VersionID, d.ProfileVersionID)
+	assert.Equal(t, both.ID, d.NodeID)
+	assert.Equal(t, old.Worktree, conv.Worktree, "the same worktree")
+	assert.Equal(t, "codex", conv.Runtime)
+	assert.NotEqual(t, old.ID, conv.ID, "a session of its own")
+	assert.Equal(t, ConversationClosed, w.conversation(old.ID).Status)
+	require.Len(t, out.Escalations, 1)
+	assert.Equal(t, EscalationFallback, out.Escalations[0].Kind)
+
+	// The worker that takes over gets the Task again, the note, and what the first one said and did.
+	row, err := w.s.read().GetDispatch(ctx, d.ID)
+	require.NoError(t, err)
+	offer, err := offerOf(ctx, w.s.read(), row)
+	require.NoError(t, err)
+	assert.True(t, strings.HasPrefix(offer.Spec, "do a\n\nAnother worker began this task"), offer.Spec)
+	assert.Contains(t, offer.Spec, "The files are what is true")
+	assert.Contains(t, offer.Spec, "worker: I will write the handler first.\n"+
+		"tool Bash: {\"command\":\"go test ./...\"}\nresult: ok\n---\n")
+	assert.NotContains(t, offer.Spec, "private thoughts")
+	assert.Empty(t, offer.CLISessionRef, "no session of the first CLI is resumed")
+
+	// A later Dispatch of the Task continues the backup's session with the backup's profile; it is not a second
+	// hand-off, and the Run is not told again.
+	require.NoError(t, w.finish(w.begin(d.ID), Outcome{Class: FailureWorkerError}))
+	w.advance(time.Hour)
+	w.alive(both)
+
+	next := w.schedule()
+	require.Len(t, next.Created, 1)
+	assert.Empty(t, next.Escalations)
+
+	again := w.dispatchOf(next.Created[0])
+	assert.Equal(t, conv.ID, again.ConversationID)
+	assert.Equal(t, backup.VersionID, again.ProfileVersionID)
+	assert.Equal(t, "gpt-sol", again.Model)
+	assert.Equal(t, "writer", again.FallbackFor)
+	assert.False(t, again.Handoff)
+
+	row, err = w.s.read().GetDispatch(ctx, again.ID)
+	require.NoError(t, err)
+	offer, err = offerOf(ctx, w.s.read(), row)
+	require.NoError(t, err)
+	assert.Equal(t, "do a", offer.Spec, "the note is given once, to the worker that takes over")
+}
+
+// A Task for which a request to a service was approved is not handed off: its worker acted outside the worktree.
+func TestTaskThatWroteThroughAnAccountIsNotHandedOff(t *testing.T) {
+	t.Parallel()
+
+	w := newSchedWorld(t)
+	ctx := t.Context()
+
+	_, _, err := w.s.ApplyProfile(ctx, "", "name: codex-own\ndescription: d\nruntime: codex\n")
+	require.NoError(t, err)
+	_, _, err = w.s.ApplyProfile(ctx, "", "name: writer\ndescription: d\nruntime: claude\nfallbacks: [codex-own]\n")
+	require.NoError(t, err)
+	w.addNode("node_both", 4, "claude", "codex")
+	w.addAccount("codex", "codex_1")
+	require.NoError(t, w.s.DrainNode(ctx, w.node.ID))
+
+	task := w.tasks(NewTask{Ref: "a", Profile: "writer", Spec: "a"})[0]
+	created := w.schedule().Created
+	require.Len(t, created, 1)
+
+	call := w.begin(created[0])
+	require.NoError(t, w.s.write(ctx, func(q *store.Queries, now int64) error {
+		if err := q.InsertApproval(ctx, store.InsertApprovalParams{
+			ID: "apr_1", Integration: "google", Label: "work", Action: "gmail.send", ActionName: "Send a mail",
+			DispatchID: nullString(created[0]), TaskID: nullString(task.ID), RunID: nullString(task.RunID),
+			AskedBy: "worker", Title: "Send a mail", Payload: "{}", MatchHash: "h", Now: now,
+		}); err != nil {
+			return err
+		}
+
+		_, err := q.DecideApproval(ctx, store.DecideApprovalParams{
+			ID: "apr_1", Status: "approved", Scope: nullString("once"), Now: sql.NullInt64{Int64: now, Valid: true},
+		})
+
+		return err
+	}))
+
+	resets := t0.Add(48 * time.Hour)
+	require.NoError(t, w.finish(call, Outcome{Class: FailureRateLimited, ResetsAt: &resets}))
+	assert.NotNil(t, w.task(task.ID).NotBefore, "it waits for the reset")
+	assert.Empty(t, w.schedule().Created)
+}
+
+// A profile's backups are checked when it is applied.
+func TestFallbacksNameOtherWorkerProfiles(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	apply := func(source string) error {
+		_, _, err := w.s.ApplyProfile(t.Context(), "", source)
+
+		return err
+	}
+
+	require.ErrorIs(t, apply("name: a\ndescription: d\nruntime: claude\nfallbacks: [a]\n"), ErrInvalid)
+	require.ErrorIs(t, apply("name: a\ndescription: d\nruntime: claude\nfallbacks: [missing]\n"), ErrNotFound)
+	require.ErrorIs(t, apply("name: a\ndescription: d\nruntime: claude\nfallbacks: [reviewer, reviewer]\n"),
+		ErrInvalid)
+	require.ErrorIs(t, apply("name: lead\ndescription: d\nruntime: pi\nfallbacks: [reviewer]\n"), ErrInvalid)
+	require.NoError(t, apply("name: a\ndescription: d\nruntime: claude\nfallbacks: [reviewer, explorer]\n"))
 }

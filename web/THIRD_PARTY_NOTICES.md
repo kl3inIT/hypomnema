@@ -12,8 +12,9 @@ Each adapted file names its source.
   (src/renderer/src/components/icons/GitHubIcon.tsx), MIT. The marks of GitLab, Google, Gmail, Google Calendar,
   Google Drive and Google Docs there are copied from Onyx (https://github.com/onyx-dot-app/onyx,
   web/lib/opal/src/logos), MIT, Copyright (c) 2023-present DanswerAI, Inc. Each mark belongs to its brand.
-- The runtime marks (Claude, Codex, pi) are copied from OpenMausBot (https://github.com/milind-soni/OpenMausBot,
-  src/components/ProviderIcons.tsx), Apache License 2.0.
+- The runtime marks (Claude, Codex, pi, opencode) are copied from OpenMausBot
+  (https://github.com/milind-soni/OpenMausBot, src/components/ProviderIcons.tsx), Apache License 2.0. omp's mark is
+  its own icon (https://github.com/can1357/oh-my-pi, assets/icon.svg), MIT, with its bars in the text colour.
 - The titles of a worker's tool calls and the line that says a group of them
   (`src/features/board/tool-title.ts`) are adapted from Omnigent (https://github.com/omnigent-ai/omnigent,
   web/src/lib/toolTitle.ts and toolValue.ts), Apache License 2.0. The file says what was changed.
@@ -21,8 +22,16 @@ Each adapted file names its source.
   frontend/apps/web/src/components/agents: the profile cards, the Builder and YAML editor, the model field with its
   effort), from Omnigent (web/src/pages/settings/CustomAgentConfigForm.tsx and SettingsHarnessesSection.tsx: the
   name that cannot change, the description, the words that say whether an agent can run) and from OpenMausBot
-  (src/components/bot-settings/HistorySection.tsx: the list of versions), all Apache License 2.0. Each file says
-  what was changed.
+  (src/components/bot-settings/HistorySection.tsx: the list of versions; src/components/bot-panel/BackupAis.tsx:
+  the ordered list of fallbacks; src/components/ModelPicker.tsx: the effort as a row of choices), all Apache
+  License 2.0. Each file says what was changed.
+- An agent's avatar (`src/features/agents/agent-avatar.tsx`, `mascot-bodies.ts`, `agent-look.ts`) is OpenMausBot's
+  mascot: its bodies (shared/mascot-bodies.ts), its colours (src/lib/mascot.ts), its idle eyes
+  (src/components/cursor-face-data.ts) and the way it is drawn (src/components/CursorAvatar.tsx, Avatar.tsx),
+  Apache License 2.0. It is drawn still, and the body and colour come from the agent's name.
+- The YAML editor of an agent (`src/features/agents/yaml-editor.tsx`, `monaco-environment.ts`, `yaml.worker.js`)
+  is adapted from Omnara (frontend/apps/web/src/components/agents/AgentConfigYamlEditor.tsx,
+  monacoEnvironment.ts, yaml.worker.js, and src/styles/editor.ts), Apache License 2.0.
 
 ## t3code
 

@@ -43,6 +43,38 @@ async function fakeServer(
   // Lark, an app: connected with no sign-in once its id and secret were given.
   let apps: typeof accounts = []
   let asked: { label: string; services: string[] } | undefined
+  // What agents may do with a Google account: the actions of the service proxy's catalog, with their answers.
+  const action = (id: string, service: string, name: string, text: string, policy: string) => ({
+    id,
+    service,
+    name,
+    text,
+    kind: policy === "allow" ? "reads" : "needs_care",
+    policy,
+    default: policy,
+  })
+  let actions = [
+    action("gmail.read", "Gmail", "Read mail", "List, search and read messages", "allow"),
+    action(
+      "gmail.draft",
+      "Gmail",
+      "Write drafts",
+      "Create and edit drafts; nothing is sent",
+      "allow",
+    ),
+    action(
+      "gmail.send",
+      "Gmail",
+      "Send mail",
+      "A new message, a reply, a forward or a draft",
+      "ask",
+    ),
+    action("gmail.trash", "Gmail", "Trash or delete mail", "Move a message to the trash", "ask"),
+    action("calendar.read", "Calendar", "Read events", "The agenda, free and busy times", "allow"),
+    action("calendar.write", "Calendar", "Create or change an event", "Guests get an email", "ask"),
+    action("drive.read", "Drive", "Read files", "Search, list and download", "allow"),
+    action("drive.share", "Drive", "Share a file", "Give someone access", "ask"),
+  ]
   const calls: string[] = []
 
   await page.route("**/api/v1/**", async (route) => {
@@ -57,6 +89,18 @@ async function fakeServer(
     if (path === "/me") return json({ id: "usr_1", name: "admin", kind: "owner" })
 
     const [, kind, name, sub] = path.split("/")
+
+    if (kind === "integrations" && path.endsWith("/actions")) {
+      return json({ data: name === "google" ? actions : [] })
+    }
+
+    if (kind === "integrations" && path.includes("/actions/")) {
+      const id = path.split("/").at(-1)
+      const body = request.postDataJSON() as { policy: string }
+      actions = actions.map((a) => (a.id === id ? { ...a, policy: body.policy } : a))
+
+      return json(actions.find((a) => a.id === id))
+    }
 
     if (kind === "hosts" && name) {
       if (name === "refused.example") {
@@ -329,6 +373,45 @@ test("the owner signs a second Google account in and disconnects the first", asy
     "POST /integrations/google/sign-ins/signin-1",
     "DELETE /integrations/google/connections/personal",
   ])
+})
+
+// Scenario: the owner looks at what agents may do with his Google account. The line under the account says it in
+// words; the sheet lists each action of each service with its answer. He forbids sending mail, and the line says
+// so. Lark, which does not go through the service proxy, has no such line.
+test("the owner sets what agents may do with an account", async ({ page }) => {
+  const calls = await fakeServer(page, { larkApp: true })
+  await page.goto("/settings/integrations")
+
+  const may = page.getByRole("button", { name: "What agents may do with personal" })
+  await expect(may).toContainText("4 on their own · ask before 4")
+  expect(await fits(page)).toBe(true)
+  await shot(page, "integrations-agents-may")
+
+  await may.click()
+  const sheet = page.locator("[data-slot=sheet-content]")
+  await expect(sheet.getByRole("heading", { name: "Google · personal" })).toBeVisible()
+  await expect(sheet.getByRole("region", { name: "Drive" })).toContainText("Share a file")
+  await expect(
+    sheet.getByRole("group", { name: "Read mail" }).getByRole("button", { name: "On its own" }),
+  ).toHaveAttribute("aria-pressed", "true")
+  await shot(page, "integrations-actions")
+
+  await sheet
+    .getByRole("group", { name: "Send mail" })
+    .getByRole("button", { name: "Never" })
+    .click()
+  await expect(
+    sheet.getByRole("group", { name: "Send mail" }).getByRole("button", { name: "Never" }),
+  ).toHaveAttribute("aria-pressed", "true")
+  expect(await fits(page)).toBe(true)
+  await shot(page, "integrations-actions-changed")
+
+  await page.keyboard.press("Escape")
+  await expect(sheet).toBeHidden()
+  await expect(may).toContainText("4 on their own · ask before 3 · never 1")
+  await expect(page.getByRole("button", { name: /What agents may do/ })).toHaveCount(1)
+
+  expect(calls).toEqual(["PUT /integrations/google/connections/personal/actions/gmail.send"])
 })
 
 // Scenario: the owner gave Hypomnema his Lark app's id and secret. He connects the app under a name, with no

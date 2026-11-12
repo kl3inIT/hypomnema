@@ -13,8 +13,25 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest"
 
 import type { Model, Profile } from "@/api/generated/types.gen"
 
+import { look } from "./agent-look"
 import { AgentsScreen } from "./agents-screen"
 import { NewAgentScreen, ProfileScreen } from "./profile-screen"
+
+// Monaco needs a real browser; here the YAML is a plain field with the same name, value and change. The editor
+// itself is covered by the browser tests (tests/agents.spec.ts).
+vi.mock("./yaml-editor", () => ({
+  default: ({
+    label,
+    value,
+    onChange,
+  }: {
+    label: string
+    value: string
+    onChange: (value: string) => void
+  }) => (
+    <textarea aria-label={label} value={value} onChange={(event) => onChange(event.target.value)} />
+  ),
+}))
 import { toYaml, type Draft } from "./profiles-state"
 
 beforeEach(() => {
@@ -35,6 +52,7 @@ const profile = (name: string, m: Partial<Profile> = {}): Profile => ({
   version_id: `pfv_${name}_1`,
   version: 1,
   runtime: "claude",
+  fallbacks: [],
   source: `name: ${name}\ndescription: What ${name} is for.\nruntime: claude\n`,
   created_at: new Date(Date.now() - 2 * 3_600_000).toISOString(),
   available: true,
@@ -121,8 +139,8 @@ function open(path: string) {
 
 const agent = (name: string) => screen.findByRole("article", { name })
 
-// Scenario: three workers' profiles and the coordinator's. Each card says its model and whether a worker can
-// start now, in words; the coordinator's says nothing about that; the header counts.
+// Scenario: three workers' profiles. Each card says its model and whether a worker can start now, in words; the
+// header counts.
 test("a card says what the agent runs on and whether it can run now", async () => {
   server([
     profile("implementer", { model: "opus", provider: "claude-subscription", effort: "xhigh" }),
@@ -132,7 +150,6 @@ test("a card says what the agent runs on and whether it can run now", async () =
       unavailable_reason: "no_node",
     }),
     profile("reviewer", { available: false, unavailable_reason: "no_account" }),
-    profile("coordinator", { runtime: "pi", available: undefined }),
   ])
   open("/agents")
 
@@ -145,8 +162,7 @@ test("a card says what the agent runs on and whether it can run now", async () =
 
   expect(await agent("codex-implementer")).toHaveTextContent("No machine online has Codex")
   expect(await agent("reviewer")).toHaveTextContent("No Claude Code account")
-  expect(await agent("coordinator")).not.toHaveTextContent(/can run|cannot|No /i)
-  expect(await agent("coordinator")).toHaveTextContent("Runtime default")
+  expect(await agent("reviewer")).toHaveTextContent("Runtime default")
   expect(screen.getByText("1 can run · 2 cannot")).toBeInTheDocument()
 })
 
@@ -194,7 +210,9 @@ test("a new agent is sent as YAML built from the fields", async () => {
   await user.type(screen.getByLabelText("Description"), "Makes a narrow change.")
   await user.selectOptions(screen.getByLabelText("Runs on"), "codex")
   await user.selectOptions(await screen.findByLabelText("Model"), "gateway/gpt-sol")
-  await user.selectOptions(screen.getByLabelText("Effort"), "high")
+  await user.click(
+    within(screen.getByRole("group", { name: "Effort" })).getByRole("button", { name: "High" }),
+  )
   await user.type(screen.getByLabelText("Instructions"), "Keep the change small.")
   await user.click(create)
 
@@ -259,6 +277,98 @@ test("saving an agent makes a revision, and a refusal is shown in the server's w
   expect(screen.getByRole("button", { name: "Save revision" })).toBeDisabled()
 })
 
+// Scenario: the owner orders the agents that take this one's Tasks while it is out of quota (issue #171). The
+// other workers are offered, never the agent itself; the order chosen is the order saved, and a
+// row can be removed.
+test("fallbacks are chosen in order from the other workers and saved with the agent", async () => {
+  const applied = server([
+    profile("writer"),
+    profile("codex-worker", { runtime: "codex" }),
+    profile("omp-worker", { runtime: "omp" }),
+  ])
+  open("/agents/writer")
+  const user = userEvent.setup()
+
+  const add = await screen.findByLabelText("Fallbacks")
+  await vi.waitFor(() =>
+    expect(
+      within(add)
+        .getAllByRole("option")
+        .map((o) => o.textContent),
+    ).toEqual(["Add a fallback…", "codex-worker", "omp-worker"]),
+  )
+
+  await user.selectOptions(add, "omp-worker")
+  await user.selectOptions(screen.getByLabelText("Fallbacks"), "codex-worker")
+
+  const rows = within(screen.getByRole("list", { name: "Fallbacks, in order" })).getAllByRole(
+    "listitem",
+  )
+  expect(rows).toHaveLength(2)
+  expect(within(rows[0]!).getByLabelText("Fallback 1")).toHaveValue("omp-worker")
+  expect(screen.getByLabelText("Fallbacks")).toBeDisabled()
+
+  await user.click(screen.getByRole("button", { name: "Save revision" }))
+  await vi.waitFor(() => expect(applied).toHaveLength(1))
+  expect(applied[0]?.source).toContain("fallbacks: [omp-worker, codex-worker]\n")
+
+  await user.click(screen.getByRole("button", { name: "Remove fallback omp-worker" }))
+  expect(screen.getByLabelText("Fallback 1")).toHaveValue("codex-worker")
+})
+
+// Scenario: the owner looks for an agent by a word of its name or of its description; a word nothing has says so,
+// which is not the empty list's invitation to make the first agent.
+test("the search narrows the agents by name and description", async () => {
+  server([
+    profile("implementer"),
+    profile("reviewer", { description: "Reads a pull request against its spec." }),
+  ])
+  open("/agents")
+  const user = userEvent.setup()
+
+  await agent("implementer")
+  const search = screen.getByRole("searchbox", { name: "Search agents" })
+
+  await user.type(search, "pull request")
+  expect(screen.getAllByTestId("agent").map((a) => a.getAttribute("aria-label"))).toEqual([
+    "reviewer",
+  ])
+
+  await user.clear(search)
+  await user.type(search, "IMPLEM")
+  expect(screen.getAllByTestId("agent").map((a) => a.getAttribute("aria-label"))).toEqual([
+    "implementer",
+  ])
+
+  await user.clear(search)
+  await user.type(search, "nothing has this")
+  expect(screen.getByText("No results.")).toBeInTheDocument()
+  expect(screen.queryByText(/No agents yet/)).toBeNull()
+})
+
+// Scenario: a starting profile was put in by a migration and has no time of its own; the card gives its version
+// and no age, where it used to count the days since 1970.
+test("a version with no time shows no age", async () => {
+  server([profile("implementer", { created_at: new Date(0).toISOString() })])
+  open("/agents")
+
+  const card = await agent("implementer")
+  expect(card).toHaveTextContent("Version:1")
+  expect(card).not.toHaveTextContent(/saved|ago/)
+})
+
+// An agent keeps its face: the same name gives the same body and colour, and the starting agents differ.
+test("an agent's avatar comes from its name", () => {
+  expect(look("reviewer")).toEqual(look("reviewer"))
+
+  const faces = ["implementer", "reviewer", "explorer", "coordinator"].map((name) => {
+    const { body, color } = look(name)
+
+    return `${body.id} ${color}`
+  })
+  expect(new Set(faces).size).toBe(4)
+})
+
 // Scenario: the YAML is edited by hand, then the owner goes back to the builder. The builder cannot read YAML,
 // so it asks first; keeping the edits stays on YAML, discarding them returns to the fields as they were.
 test("going back to the builder asks before YAML edits are discarded", async () => {
@@ -267,7 +377,7 @@ test("going back to the builder asks before YAML edits are discarded", async () 
   const user = userEvent.setup()
 
   await user.click(await screen.findByRole("button", { name: "YAML" }))
-  const yaml = screen.getByLabelText("Config (YAML)")
+  const yaml = await screen.findByRole("textbox", { name: "Config (YAML)" })
   expect(yaml).toHaveValue(profile("reviewer").source)
 
   await user.type(yaml, "instruction: by hand\n")
@@ -275,7 +385,7 @@ test("going back to the builder asks before YAML edits are discarded", async () 
 
   const dialog = await screen.findByRole("alertdialog", { name: "Discard YAML edits?" })
   await user.click(within(dialog).getByRole("button", { name: "Keep editing YAML" }))
-  expect(screen.getByLabelText("Config (YAML)")).toHaveValue(
+  expect(screen.getByRole("textbox", { name: "Config (YAML)" })).toHaveValue(
     `${profile("reviewer").source}instruction: by hand\n`,
   )
 
@@ -321,6 +431,7 @@ const draft = (m: Partial<Draft>): Draft => ({
   model: "",
   effort: "",
   instruction: "",
+  fallbacks: [],
   ...m,
 })
 
@@ -338,6 +449,9 @@ test("the builder's YAML quotes what YAML would misread and keeps lines", () => 
   )
   expect(toYaml(draft({ instruction: "Read only.\n\nReport with file paths.\n" }), models)).toBe(
     'name: a\ndescription: "d"\nruntime: claude\ninstruction: |\n  Read only.\n\n  Report with file paths.\n',
+  )
+  expect(toYaml(draft({ fallbacks: ["codex-worker", "omp-worker"] }), models)).toBe(
+    'name: a\ndescription: "d"\nruntime: claude\nfallbacks: [codex-worker, omp-worker]\n',
   )
   expect(toYaml(draft({ instruction: "  indented first line\nsecond" }), models)).toContain(
     'instruction: "  indented first line\\nsecond"\n',

@@ -765,6 +765,166 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Disconnected" }
         default: { $ref: "#/components/responses/Error" }
+  /channels/lark:
+    get:
+      operationId: GetLarkBot
+      summary: The Lark bot, who may talk to it and whether it is connected; only the owner
+      description: >-
+        The bot is a Channel: a person's direct message to it at Lark is a
+        message of a chat with the coordinator. The app's secret is never in
+        the answer.
+      responses:
+        "200":
+          description: The bot.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LarkBot" }
+        default: { $ref: "#/components/responses/Error" }
+    put:
+      operationId: PutLarkBot
+      summary: Set the Lark bot up, or change it; only the owner
+      description: >-
+        The first time it takes the app's id and secret and the owner's email
+        at Lark. After that a field left out keeps what the bot had. The secret
+        goes into the vault. The owner's email is looked up at Lark with the
+        app, which also shows the app's id and secret work. A new bot is off
+        and takes messages from its owner only. Another app is used from the
+        control plane's next start.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/LarkBotSettings" }
+      responses:
+        "200":
+          description: The bot.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LarkBot" }
+        default: { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: DeleteLarkBot
+      summary: Forget the Lark bot and its app's secret; only the owner
+      responses:
+        "204": { description: The bot is forgotten. }
+        default: { $ref: "#/components/responses/Error" }
+  /channels/lark/people:
+    post:
+      operationId: AddLarkBotPerson
+      summary: Add someone who may talk to the Lark bot when its mode is allowlist; only the owner
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewLarkBotPerson" }
+      responses:
+        "200":
+          description: The person.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/LarkBotPerson" }
+        default: { $ref: "#/components/responses/Error" }
+  /channels/lark/people/{person}:
+    parameters:
+      - name: person
+        in: path
+        required: true
+        description: The person's open_id at Lark, or the email they were added with.
+        schema: { type: string, minLength: 1, maxLength: 320 }
+    delete:
+      operationId: RemoveLarkBotPerson
+      summary: Take someone off the Lark bot's list; only the owner
+      responses:
+        "204": { description: The person is off the list. }
+        default: { $ref: "#/components/responses/Error" }
+  /integrations/{integration}/connections/{label}/actions:
+    parameters:
+      - $ref: "#/components/parameters/IntegrationID"
+      - $ref: "#/components/parameters/ConnectionLabel"
+    get:
+      operationId: ListConnectionActions
+      summary: What agents may do with a Connection, action by action; only the owner
+      description: >-
+        The actions of the Connection's Integration that go through the service proxy, each with the answer it
+        has now and its default. An Integration that does not go through the proxy has none.
+      responses:
+        "200":
+          description: The actions.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConnectionActionList" }
+        default: { $ref: "#/components/responses/Error" }
+  /integrations/{integration}/connections/{label}/actions/{action}:
+    parameters:
+      - $ref: "#/components/parameters/IntegrationID"
+      - $ref: "#/components/parameters/ConnectionLabel"
+      - name: action
+        in: path
+        required: true
+        schema: { type: string, pattern: "^[a-z][a-z0-9_.]{0,60}$" }
+    put:
+      operationId: SetConnectionAction
+      summary: Set the answer of one action of a Connection; only the owner
+      description: >-
+        allow runs the action on its own, ask holds each request for the owner's Approval, never refuses it. The
+        change applies from the next request.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ActionPolicyChange" }
+      responses:
+        "200":
+          description: The action with its answer.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ConnectionAction" }
+        default: { $ref: "#/components/responses/Error" }
+  /approvals:
+    get:
+      operationId: ListApprovals
+      summary: The requests agents made that wait for, or had, the owner's answer; only the owner
+      parameters:
+        - name: status
+          in: query
+          schema: { $ref: "#/components/schemas/ApprovalStatus" }
+        - name: chat_id
+          in: query
+          schema: { type: string, maxLength: 64 }
+        - name: task_id
+          in: query
+          schema: { type: string, maxLength: 64 }
+      responses:
+        "200":
+          description: The Approvals, the newest first.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApprovalList" }
+        default: { $ref: "#/components/responses/Error" }
+  /approvals/{approval_id}/decision:
+    parameters:
+      - name: approval_id
+        in: path
+        required: true
+        schema: { type: string, maxLength: 64 }
+    post:
+      operationId: DecideApproval
+      summary: Answer a request that waits for approval; only the owner
+      description: >-
+        The first answer wins; the same answer again returns the Approval. A request still held goes on at once.
+        An agent whose request had ended is told, and its repeat of the same request passes once.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ApprovalDecision" }
+      responses:
+        "200":
+          description: The Approval as answered.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Approval" }
+        default: { $ref: "#/components/responses/Error" }
   /secrets:
     get:
       operationId: ListSecrets
@@ -879,6 +1039,97 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/AccountList" }
+        default: { $ref: "#/components/responses/Error" }
+  /bots:
+    get:
+      operationId: ListBots
+      summary: Every Bot, the oldest first
+      description: >-
+        A Bot is a long-lived agent of the control plane: its model, its
+        persona and its memory. It talks with people in chats and gives work
+        to workers. It is apart from a Profile, which is a worker's recipe.
+      responses:
+        "200":
+          description: The Bots.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BotList" }
+        default: { $ref: "#/components/responses/Error" }
+  /bots/{name}:
+    parameters:
+      - $ref: "#/components/parameters/Name"
+    get:
+      operationId: GetBot
+      summary: A Bot, with its persona and memory
+      responses:
+        "200":
+          description: The Bot.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Bot" }
+        default: { $ref: "#/components/responses/Error" }
+    put:
+      operationId: PutBot
+      summary: Make a Bot, or change its model and persona; only the owner
+      description: The Bot's memory stays as it is.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BotSettings" }
+      responses:
+        "200":
+          description: The Bot.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Bot" }
+        default: { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: DeleteBot
+      summary: Remove a Bot that has no chats and no memory; only the owner
+      description: The Bot `coordinator` is always there and is not removed.
+      responses:
+        "204": { description: The Bot is removed. }
+        default: { $ref: "#/components/responses/Error" }
+  /bots/{name}/memory:
+    parameters:
+      - $ref: "#/components/parameters/Name"
+    put:
+      operationId: SetBotMemory
+      summary: Replace a Bot's whole memory with the owner's text; only the owner
+      description: >-
+        Each line is an entry; empty lines and an entry given twice are
+        dropped. A text over the memory's limit is refused.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MemoryText" }
+      responses:
+        "200":
+          description: The Bot, with its memory as kept.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Bot" }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      operationId: ChangeBotMemory
+      summary: Add, replace or remove one entry of a Bot's memory
+      description: >-
+        The memory is the Bot's entries, one per line, the same in every chat
+        with it. A change that would pass the memory's limit is refused and
+        changes nothing: replace or remove entries first.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MemoryChange" }
+      responses:
+        "200":
+          description: The Bot, with its memory after the change.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Bot" }
         default: { $ref: "#/components/responses/Error" }
   /profiles:
     get:
@@ -1103,6 +1354,11 @@ components:
       in: path
       required: true
       schema: { type: string, pattern: "^[a-z][a-z0-9-]{0,30}$" }
+    ConnectionLabel:
+      name: label
+      in: path
+      required: true
+      schema: { type: string, pattern: "^[a-z0-9][a-z0-9-]{0,30}$" }
     Name:
       name: name
       in: path
@@ -1376,6 +1632,21 @@ components:
         profile_version_id:
           type: string
           description: The profile version it ran with; absent for Dispatches from before profiles.
+        fallback_for:
+          type: string
+          description: >-
+            The profile the Task asked for, when this Dispatch ran under a backup of it because every account of
+            that profile's runtime waited for a limit to reset. `profile_version_id` is then the backup's.
+        fallback_until:
+          type: string
+          format: date-time
+          description: With `fallback_for`, when the first of those accounts was to be free again.
+        handoff:
+          type: boolean
+          description: >-
+            With `fallback_for`: this Dispatch took over a Task whose worker had begun and met a usage limit. It
+            ran in the same worktree with a session of its own, and its worker was given the Task again, a note
+            and the end of the previous worker's transcript.
         result: { $ref: "#/components/schemas/DispatchResult" }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
@@ -1862,6 +2133,72 @@ components:
         connections:
           type: array
           items: { $ref: "#/components/schemas/IntegrationConnection" }
+    LarkBot:
+      type: object
+      description: The Lark bot as the owner set it up, and whether it is connected.
+      required: [app_id, mode, owner_open_id, enabled, connected, people, updated_at]
+      properties:
+        app_id: { type: string, description: The Lark app's id. Not secret. }
+        mode: { $ref: "#/components/schemas/LarkBotMode" }
+        owner_open_id: { type: string, description: The owner's id at Lark. }
+        enabled: { type: boolean, description: Whether the bot takes messages. }
+        connected:
+          type: boolean
+          description: Whether the persistent connection to Lark is open.
+        connected_app_id:
+          type: string
+          description: >-
+            The app the connection was opened as, when it is another than
+            app_id: the control plane must start again to use the new one.
+        last_error:
+          type: string
+          description: Why the last attempt to connect failed.
+        people:
+          type: array
+          items: { $ref: "#/components/schemas/LarkBotPerson" }
+        updated_at: { type: string, format: date-time }
+    LarkBotMode:
+      type: string
+      enum: [owner, allowlist, everyone]
+      description: >-
+        Who may talk to the bot: its owner only, the owner and the people he
+        added, or every member of the app's Lark organization. Someone of
+        another organization is refused in every mode.
+    LarkBotSettings:
+      type: object
+      additionalProperties: false
+      properties:
+        app_id: { type: string, minLength: 1, maxLength: 1024 }
+        app_secret:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          writeOnly: true
+        owner:
+          type: string
+          minLength: 1
+          maxLength: 320
+          description: The owner's email in the app's Lark organization, or his open_id.
+        mode: { $ref: "#/components/schemas/LarkBotMode" }
+        enabled: { type: boolean }
+    LarkBotPerson:
+      type: object
+      required: [open_id, email, name, created_at]
+      properties:
+        open_id: { type: string }
+        email: { type: string, description: The email they were added with; empty when added by open_id. }
+        name: { type: string, description: Their name at Lark, when the app may read it. }
+        created_at: { type: string, format: date-time }
+    NewLarkBotPerson:
+      type: object
+      required: [who]
+      additionalProperties: false
+      properties:
+        who:
+          type: string
+          minLength: 1
+          maxLength: 320
+          description: Their email in the app's Lark organization, or their open_id.
     IntegrationList:
       type: object
       required: [data]
@@ -1895,6 +2232,91 @@ components:
             turns it on.
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+    ActionPolicy:
+      type: string
+      enum: [allow, ask, never]
+    ConnectionAction:
+      type: object
+      description: One thing an agent can do with a Connection, and the owner's answer to it.
+      required: [id, service, name, text, kind, policy, default]
+      properties:
+        id: { type: string, description: "The action's name in commands, such as gmail.send." }
+        service: { type: string, description: "The part of the Integration it belongs to, such as Gmail." }
+        name: { type: string }
+        text: { type: string }
+        kind:
+          type: string
+          enum: [reads, changes, needs_care]
+        policy: { $ref: "#/components/schemas/ActionPolicy" }
+        default: { $ref: "#/components/schemas/ActionPolicy" }
+    ConnectionActionList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/ConnectionAction" }
+    ActionPolicyChange:
+      type: object
+      required: [policy]
+      additionalProperties: false
+      properties:
+        policy: { $ref: "#/components/schemas/ActionPolicy" }
+    ApprovalStatus:
+      type: string
+      enum: [pending, approved, rejected]
+    ApprovalField:
+      type: object
+      required: [label, value]
+      properties:
+        label: { type: string }
+        value: { type: string }
+    Approval:
+      type: object
+      description: >-
+        One request an agent made to a service that waits for the owner's answer, shown decoded. It is not a Gate.
+      required: [id, integration, label, action, action_name, asked_by, title, payload, status, used, created_at]
+      properties:
+        id: { type: string }
+        integration: { type: string }
+        label: { type: string }
+        action: { type: string }
+        action_name: { type: string }
+        asked_by: { type: string, description: "pi, worker or owner." }
+        dispatch_id: { type: string }
+        task_id: { type: string }
+        run_id: { type: string }
+        chat_id: { type: string }
+        title: { type: string }
+        payload:
+          type: array
+          items: { $ref: "#/components/schemas/ApprovalField" }
+        status: { $ref: "#/components/schemas/ApprovalStatus" }
+        scope:
+          type: string
+          enum: [once, session]
+          description: How far an approval reaches; absent until approved.
+        used: { type: boolean, description: "An approval for one request has run." }
+        created_at: { type: string, format: date-time }
+        decided_at: { type: string, format: date-time }
+    ApprovalList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/Approval" }
+    ApprovalDecision:
+      type: object
+      required: [decision]
+      additionalProperties: false
+      properties:
+        decision:
+          type: string
+          enum: [approve, approve_session, reject]
+          description: >-
+            approve lets this one request run; approve_session also stops asking for the action for the rest of
+            the Run or the chat that asked; reject refuses it.
     ConnectionUse:
       type: object
       required: [chats]
@@ -2040,9 +2462,63 @@ components:
           minLength: 1
           maxLength: 100000
           description: The YAML document; its name must equal the one in the path.
+    Bot:
+      type: object
+      required: [name, persona, memory, memory_limit, created_at, updated_at]
+      properties:
+        name: { type: string }
+        provider: { type: string }
+        model: { type: string }
+        effort: { type: string }
+        persona:
+          type: string
+          description: What the Bot is and how it behaves, written by the owner; pi gets it after its built-in instructions.
+        memory:
+          type: string
+          description: What the Bot keeps across chats, one entry per line.
+        memory_limit:
+          type: integer
+          description: The most characters the memory holds.
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    BotList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/Bot" }
+    BotSettings:
+      type: object
+      additionalProperties: false
+      properties:
+        provider: { type: string }
+        model: { type: string }
+        effort: { type: string }
+        persona: { type: string }
+    MemoryText:
+      type: object
+      additionalProperties: false
+      required: [memory]
+      properties:
+        memory:
+          type: string
+          description: The entries, one per line.
+    MemoryChange:
+      type: object
+      additionalProperties: false
+      required: [kind]
+      properties:
+        kind: { type: string, enum: [add, replace, remove] }
+        text:
+          type: string
+          description: The entry to add, or what replaces the entry found.
+        match:
+          type: string
+          description: Part of the one entry to replace or remove.
     Profile:
       type: object
-      required: [name, description, version_id, version, runtime, source, created_at]
+      required: [name, description, version_id, version, runtime, fallbacks, source, created_at]
       properties:
         name: { type: string }
         description:
@@ -2055,6 +2531,14 @@ components:
         model: { type: string }
         effort: { type: string }
         instruction: { type: string }
+        fallbacks:
+          type: array
+          items: { type: string }
+          description: >-
+            The profiles, in the owner's order, a Task of this one runs under while every account of its runtime
+            waits for a limit to reset: the first a worker can start under now. Only a Task that has not started
+            and names no runtime or model of its own moves; a backup's own list is not followed. Empty: the Task
+            waits for the reset.
         source: { type: string }
         created_at: { type: string, format: date-time }
         available:
@@ -2063,7 +2547,7 @@ components:
             Whether a worker can start under the profile now: a connected, active node has its CLI, and its runtime
             has an account that is not cooling down (none is needed for a model the gateway serves). A node at its
             limit still counts, since the Task waits its turn. Given for a profile's current version; absent for
-            the coordinator's runtime, which no node runs, and in a list of versions.
+            a list of versions.
         unavailable_reason:
           type: string
           enum: [no_node, no_account, accounts_cooling]
@@ -2124,12 +2608,16 @@ components:
       additionalProperties: false
       properties:
         title: { type: string, maxLength: 200 }
+        bot:
+          type: string
+          description: The Bot the chat talks with; `coordinator` when left out.
     Chat:
       type: object
-      required: [id, title, working, coordinator, created_at, updated_at]
+      required: [id, title, bot, working, coordinator, created_at, updated_at]
       properties:
         id: { type: string }
         title: { type: string }
+        bot: { type: string, description: The Bot the chat talks with. }
         working:
           type: boolean
           description: The coordinator is working on a turn of this chat.

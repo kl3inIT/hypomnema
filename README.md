@@ -43,7 +43,17 @@ To connect a Google account (Gmail, Calendar, Drive, Docs, Sheets), as Hermes' g
 No agent uses an account until you say so. To let pi use it in chats, and give it to the Runs it starts:
 `hypomnema integrations chats google:work on` (or "Use in chats" on the account in Settings). To give it to a Run
 you start yourself: `hypomnema runs create --use google:work ...`. The agent calls Google with the `gws` command,
-which Hypomnema installs and signs in on every call.
+which Hypomnema installs and signs in on every call. The agent never holds the account's token: each request passes
+the control plane, which adds it.
+
+Lark works the same way, with `lark-cli` and `lark:<label>`.
+
+What an agent may do with an account is set action by action: `hypomnema integrations actions google:work` lists
+them, and `hypomnema integrations actions set google:work gmail.send never` changes one to `allow`, `ask` or
+`never` (or open the account's "Agents may" line in Settings). By default reading and drafts run on their own, and
+what sends, changes, shares or deletes asks you first: the request waits, you see exactly what would be sent, and
+you answer on the card in the chat or the Task, or with `hypomnema approvals`, `approvals approve <id>` and
+`approvals reject <id>`. A request you answer later still runs when the agent repeats it.
 
 To let your own agent (Claude Code, Codex or pi) coordinate workers, log in with a `coordinator` token and run
 `hypomnema skills install`. It installs the coordinator skill into `~/.claude/skills` and `~/.agents/skills`; then

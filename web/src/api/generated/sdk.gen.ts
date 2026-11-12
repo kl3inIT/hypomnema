@@ -2,7 +2,7 @@
 
 import type { Client, ClientMeta, Options as Options2, RequestResult, ServerSentEventsResult, TDataShape } from './client';
 import { client } from './client.gen';
-import type { AbortChatData, AbortChatErrors, AbortChatResponses, AnswerQuestionData, AnswerQuestionErrors, AnswerQuestionResponses, ApplyProfileData, ApplyProfileErrors, ApplyProfileResponses, ApplyProviderData, ApplyProviderErrors, ApplyProviderResponses, BeginIntegrationSignInData, BeginIntegrationSignInErrors, BeginIntegrationSignInResponses, CancelRunData, CancelRunErrors, CancelRunResponses, CancelTaskData, CancelTaskErrors, CancelTaskResponses, CompleteIntegrationSignInData, CompleteIntegrationSignInErrors, CompleteIntegrationSignInResponses, CreateChatData, CreateChatErrors, CreateChatResponses, CreateNodeData, CreateNodeErrors, CreateNodeResponses, CreateRunData, CreateRunErrors, CreateRunResponses, CreateSessionData, CreateSessionErrors, CreateSessionResponses, CreateTasksData, CreateTasksErrors, CreateTasksResponses, DeleteGitHostConnectionData, DeleteGitHostConnectionErrors, DeleteGitHostConnectionResponses, DeleteGitHostData, DeleteGitHostErrors, DeleteGitHostResponses, DeleteGitHostTokenData, DeleteGitHostTokenErrors, DeleteGitHostTokenResponses, DeleteIntegrationConnectionData, DeleteIntegrationConnectionErrors, DeleteIntegrationConnectionResponses, DeleteRepoData, DeleteRepoErrors, DeleteRepoResponses, DeleteSecretData, DeleteSecretErrors, DeleteSecretResponses, DeleteSessionData, DeleteSessionErrors, DeleteSessionResponses, DrainNodeData, DrainNodeErrors, DrainNodeResponses, FinishRunData, FinishRunErrors, FinishRunResponses, ForwardQuestionData, ForwardQuestionErrors, ForwardQuestionResponses, GetChatData, GetChatErrors, GetChatResponses, GetMeData, GetMeErrors, GetMeResponses, GetProfileData, GetProfileErrors, GetProfileResponses, GetQuestionData, GetQuestionErrors, GetQuestionResponses, GetRunData, GetRunErrors, GetRunResponses, GetSecretValueData, GetSecretValueErrors, GetSecretValueResponses, GetTaskData, GetTaskErrors, GetTaskResponses, ListAccountsData, ListAccountsErrors, ListAccountsResponses, ListChatMessagesData, ListChatMessagesErrors, ListChatMessagesResponses, ListChatsData, ListChatsErrors, ListChatsResponses, ListDispatchItemsData, ListDispatchItemsErrors, ListDispatchItemsResponses, ListEventsData, ListEventsErrors, ListEventsResponses, ListGitHostsData, ListGitHostsErrors, ListGitHostsResponses, ListIntegrationsData, ListIntegrationsErrors, ListIntegrationsResponses, ListMachineProvidersData, ListMachineProvidersErrors, ListMachineProvidersResponses, ListModelsData, ListModelsErrors, ListModelsResponses, ListNodesData, ListNodesErrors, ListNodesResponses, ListProfilesData, ListProfilesErrors, ListProfilesResponses, ListProfileVersionsData, ListProfileVersionsErrors, ListProfileVersionsResponses, ListProvidersData, ListProvidersErrors, ListProvidersResponses, ListQuestionsData, ListQuestionsErrors, ListQuestionsResponses, ListReposData, ListReposErrors, ListReposResponses, ListRunsData, ListRunsErrors, ListRunsResponses, ListSecretsData, ListSecretsErrors, ListSecretsResponses, ListTasksData, ListTasksErrors, ListTasksResponses, OpenNodeTerminalData, OpenNodeTerminalErrors, OpenNodeTerminalResponses, PatchIntegrationConnectionData, PatchIntegrationConnectionErrors, PatchIntegrationConnectionResponses, PutGitHostConnectionData, PutGitHostConnectionErrors, PutGitHostConnectionResponses, PutGitHostData, PutGitHostErrors, PutGitHostResponses, PutGitHostTokenData, PutGitHostTokenErrors, PutGitHostTokenResponses, PutIntegrationClientData, PutIntegrationClientErrors, PutIntegrationClientResponses, PutIntegrationConnectionData, PutIntegrationConnectionErrors, PutIntegrationConnectionResponses, PutRepoData, PutRepoErrors, PutRepoResponses, PutSecretData, PutSecretErrors, PutSecretResponses, RemoveNodeData, RemoveNodeErrors, RemoveNodeResponses, ReopenTaskData, ReopenTaskErrors, ReopenTaskResponses, ResumeNodeData, ResumeNodeErrors, ResumeNodeResponses, SendChatMessageData, SendChatMessageErrors, SendChatMessageResponses, StartNodeMachineData, StartNodeMachineErrors, StartNodeMachineResponses, StopNodeMachineData, StopNodeMachineErrors, StopNodeMachineResponses, StreamChatData, StreamChatErrors, StreamChatResponse, StreamChatResponses, StreamEventsData, StreamEventsErrors, StreamEventsResponse, StreamEventsResponses, UpdateNodeData, UpdateNodeErrors, UpdateNodeResponses } from './types.gen';
+import type { AbortChatData, AbortChatErrors, AbortChatResponses, AddLarkBotPersonData, AddLarkBotPersonErrors, AddLarkBotPersonResponses, AnswerQuestionData, AnswerQuestionErrors, AnswerQuestionResponses, ApplyProfileData, ApplyProfileErrors, ApplyProfileResponses, ApplyProviderData, ApplyProviderErrors, ApplyProviderResponses, BeginIntegrationSignInData, BeginIntegrationSignInErrors, BeginIntegrationSignInResponses, CancelRunData, CancelRunErrors, CancelRunResponses, CancelTaskData, CancelTaskErrors, CancelTaskResponses, ChangeBotMemoryData, ChangeBotMemoryErrors, ChangeBotMemoryResponses, CompleteIntegrationSignInData, CompleteIntegrationSignInErrors, CompleteIntegrationSignInResponses, CreateChatData, CreateChatErrors, CreateChatResponses, CreateNodeData, CreateNodeErrors, CreateNodeResponses, CreateRunData, CreateRunErrors, CreateRunResponses, CreateSessionData, CreateSessionErrors, CreateSessionResponses, CreateTasksData, CreateTasksErrors, CreateTasksResponses, DecideApprovalData, DecideApprovalErrors, DecideApprovalResponses, DeleteBotData, DeleteBotErrors, DeleteBotResponses, DeleteGitHostConnectionData, DeleteGitHostConnectionErrors, DeleteGitHostConnectionResponses, DeleteGitHostData, DeleteGitHostErrors, DeleteGitHostResponses, DeleteGitHostTokenData, DeleteGitHostTokenErrors, DeleteGitHostTokenResponses, DeleteIntegrationConnectionData, DeleteIntegrationConnectionErrors, DeleteIntegrationConnectionResponses, DeleteLarkBotData, DeleteLarkBotErrors, DeleteLarkBotResponses, DeleteRepoData, DeleteRepoErrors, DeleteRepoResponses, DeleteSecretData, DeleteSecretErrors, DeleteSecretResponses, DeleteSessionData, DeleteSessionErrors, DeleteSessionResponses, DrainNodeData, DrainNodeErrors, DrainNodeResponses, FinishRunData, FinishRunErrors, FinishRunResponses, ForwardQuestionData, ForwardQuestionErrors, ForwardQuestionResponses, GetBotData, GetBotErrors, GetBotResponses, GetChatData, GetChatErrors, GetChatResponses, GetLarkBotData, GetLarkBotErrors, GetLarkBotResponses, GetMeData, GetMeErrors, GetMeResponses, GetProfileData, GetProfileErrors, GetProfileResponses, GetQuestionData, GetQuestionErrors, GetQuestionResponses, GetRunData, GetRunErrors, GetRunResponses, GetSecretValueData, GetSecretValueErrors, GetSecretValueResponses, GetTaskData, GetTaskErrors, GetTaskResponses, ListAccountsData, ListAccountsErrors, ListAccountsResponses, ListApprovalsData, ListApprovalsErrors, ListApprovalsResponses, ListBotsData, ListBotsErrors, ListBotsResponses, ListChatMessagesData, ListChatMessagesErrors, ListChatMessagesResponses, ListChatsData, ListChatsErrors, ListChatsResponses, ListConnectionActionsData, ListConnectionActionsErrors, ListConnectionActionsResponses, ListDispatchItemsData, ListDispatchItemsErrors, ListDispatchItemsResponses, ListEventsData, ListEventsErrors, ListEventsResponses, ListGitHostsData, ListGitHostsErrors, ListGitHostsResponses, ListIntegrationsData, ListIntegrationsErrors, ListIntegrationsResponses, ListMachineProvidersData, ListMachineProvidersErrors, ListMachineProvidersResponses, ListModelsData, ListModelsErrors, ListModelsResponses, ListNodesData, ListNodesErrors, ListNodesResponses, ListProfilesData, ListProfilesErrors, ListProfilesResponses, ListProfileVersionsData, ListProfileVersionsErrors, ListProfileVersionsResponses, ListProvidersData, ListProvidersErrors, ListProvidersResponses, ListQuestionsData, ListQuestionsErrors, ListQuestionsResponses, ListReposData, ListReposErrors, ListReposResponses, ListRunsData, ListRunsErrors, ListRunsResponses, ListSecretsData, ListSecretsErrors, ListSecretsResponses, ListTasksData, ListTasksErrors, ListTasksResponses, OpenNodeTerminalData, OpenNodeTerminalErrors, OpenNodeTerminalResponses, PatchIntegrationConnectionData, PatchIntegrationConnectionErrors, PatchIntegrationConnectionResponses, PutBotData, PutBotErrors, PutBotResponses, PutGitHostConnectionData, PutGitHostConnectionErrors, PutGitHostConnectionResponses, PutGitHostData, PutGitHostErrors, PutGitHostResponses, PutGitHostTokenData, PutGitHostTokenErrors, PutGitHostTokenResponses, PutIntegrationClientData, PutIntegrationClientErrors, PutIntegrationClientResponses, PutIntegrationConnectionData, PutIntegrationConnectionErrors, PutIntegrationConnectionResponses, PutLarkBotData, PutLarkBotErrors, PutLarkBotResponses, PutRepoData, PutRepoErrors, PutRepoResponses, PutSecretData, PutSecretErrors, PutSecretResponses, RemoveLarkBotPersonData, RemoveLarkBotPersonErrors, RemoveLarkBotPersonResponses, RemoveNodeData, RemoveNodeErrors, RemoveNodeResponses, ReopenTaskData, ReopenTaskErrors, ReopenTaskResponses, ResumeNodeData, ResumeNodeErrors, ResumeNodeResponses, SendChatMessageData, SendChatMessageErrors, SendChatMessageResponses, SetBotMemoryData, SetBotMemoryErrors, SetBotMemoryResponses, SetConnectionActionData, SetConnectionActionErrors, SetConnectionActionResponses, StartNodeMachineData, StartNodeMachineErrors, StartNodeMachineResponses, StopNodeMachineData, StopNodeMachineErrors, StopNodeMachineResponses, StreamChatData, StreamChatErrors, StreamChatResponse, StreamChatResponses, StreamEventsData, StreamEventsErrors, StreamEventsResponse, StreamEventsResponses, UpdateNodeData, UpdateNodeErrors, UpdateNodeResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
   /**
@@ -498,6 +498,113 @@ export const putIntegrationConnection = <ThrowOnError extends boolean = true>(op
 });
 
 /**
+ * Forget the Lark bot and its app's secret; only the owner
+ */
+export const deleteLarkBot = <ThrowOnError extends boolean = true>(options?: Options<DeleteLarkBotData, ThrowOnError>): RequestResult<DeleteLarkBotResponses, DeleteLarkBotErrors, ThrowOnError> => (options?.client ?? client).delete<DeleteLarkBotResponses, DeleteLarkBotErrors, ThrowOnError>({
+  security: [{ scheme: 'bearer', type: 'http' }],
+  url: '/channels/lark',
+  ...options
+});
+
+/**
+ * The Lark bot, who may talk to it and whether it is connected; only the owner
+ *
+ * The bot is a Channel: a person's direct message to it at Lark is a message of a chat with the coordinator. The app's secret is never in the answer.
+ */
+export const getLarkBot = <ThrowOnError extends boolean = true>(options?: Options<GetLarkBotData, ThrowOnError>): RequestResult<GetLarkBotResponses, GetLarkBotErrors, ThrowOnError> => (options?.client ?? client).get<GetLarkBotResponses, GetLarkBotErrors, ThrowOnError>({
+  security: [{ scheme: 'bearer', type: 'http' }],
+  url: '/channels/lark',
+  ...options
+});
+
+/**
+ * Set the Lark bot up, or change it; only the owner
+ *
+ * The first time it takes the app's id and secret and the owner's email at Lark. After that a field left out keeps what the bot had. The secret goes into the vault. The owner's email is looked up at Lark with the app, which also shows the app's id and secret work. A new bot is off and takes messages from its owner only. Another app is used from the control plane's next start.
+ */
+export const putLarkBot = <ThrowOnError extends boolean = true>(options: Options<PutLarkBotData, ThrowOnError>): RequestResult<PutLarkBotResponses, PutLarkBotErrors, ThrowOnError> => (options.client ?? client).put<PutLarkBotResponses, PutLarkBotErrors, ThrowOnError>({
+  security: [{ scheme: 'bearer', type: 'http' }],
+  url: '/channels/lark',
+  ...options,
+  headers: {
+    'Content-Type': 'application/json',
+    ...options.headers
+  }
+});
+
+/**
+ * Add someone who may talk to the Lark bot when its mode is allowlist; only the owner
+ */
+export const addLarkBotPerson = <ThrowOnError extends boolean = true>(options: Options<AddLarkBotPersonData, ThrowOnError>): RequestResult<AddLarkBotPersonResponses, AddLarkBotPersonErrors, ThrowOnError> => (options.client ?? client).post<AddLarkBotPersonResponses, AddLarkBotPersonErrors, ThrowOnError>({
+  security: [{ scheme: 'bearer', type: 'http' }],
+  url: '/channels/lark/people',
+  ...options,
+  headers: {
+    'Content-Type': 'application/json',
+    ...options.headers
+  }
+});
+
+/**
+ * Take someone off the Lark bot's list; only the owner
+ */
+export const removeLarkBotPerson = <ThrowOnError extends boolean = true>(options: Options<RemoveLarkBotPersonData, ThrowOnError>): RequestResult<RemoveLarkBotPersonResponses, RemoveLarkBotPersonErrors, ThrowOnError> => (options.client ?? client).delete<RemoveLarkBotPersonResponses, RemoveLarkBotPersonErrors, ThrowOnError>({
+  security: [{ scheme: 'bearer', type: 'http' }],
+  url: '/channels/lark/people/{person}',
+  ...options
+});
+
+/**
+ * What agents may do with a Connection, action by action; only the owner
+ *
+ * The actions of the Connection's Integration that go through the service proxy, each with the answer it has now and its default. An Integration that does not go through the proxy has none.
+ */
+export const listConnectionActions = <ThrowOnError extends boolean = true>(options: Options<ListConnectionActionsData, ThrowOnError>): RequestResult<ListConnectionActionsResponses, ListConnectionActionsErrors, ThrowOnError> => (options.client ?? client).get<ListConnectionActionsResponses, ListConnectionActionsErrors, ThrowOnError>({
+  security: [{ scheme: 'bearer', type: 'http' }],
+  url: '/integrations/{integration}/connections/{label}/actions',
+  ...options
+});
+
+/**
+ * Set the answer of one action of a Connection; only the owner
+ *
+ * allow runs the action on its own, ask holds each request for the owner's Approval, never refuses it. The change applies from the next request.
+ */
+export const setConnectionAction = <ThrowOnError extends boolean = true>(options: Options<SetConnectionActionData, ThrowOnError>): RequestResult<SetConnectionActionResponses, SetConnectionActionErrors, ThrowOnError> => (options.client ?? client).put<SetConnectionActionResponses, SetConnectionActionErrors, ThrowOnError>({
+  security: [{ scheme: 'bearer', type: 'http' }],
+  url: '/integrations/{integration}/connections/{label}/actions/{action}',
+  ...options,
+  headers: {
+    'Content-Type': 'application/json',
+    ...options.headers
+  }
+});
+
+/**
+ * The requests agents made that wait for, or had, the owner's answer; only the owner
+ */
+export const listApprovals = <ThrowOnError extends boolean = true>(options?: Options<ListApprovalsData, ThrowOnError>): RequestResult<ListApprovalsResponses, ListApprovalsErrors, ThrowOnError> => (options?.client ?? client).get<ListApprovalsResponses, ListApprovalsErrors, ThrowOnError>({
+  security: [{ scheme: 'bearer', type: 'http' }],
+  url: '/approvals',
+  ...options
+});
+
+/**
+ * Answer a request that waits for approval; only the owner
+ *
+ * The first answer wins; the same answer again returns the Approval. A request still held goes on at once. An agent whose request had ended is told, and its repeat of the same request passes once.
+ */
+export const decideApproval = <ThrowOnError extends boolean = true>(options: Options<DecideApprovalData, ThrowOnError>): RequestResult<DecideApprovalResponses, DecideApprovalErrors, ThrowOnError> => (options.client ?? client).post<DecideApprovalResponses, DecideApprovalErrors, ThrowOnError>({
+  security: [{ scheme: 'bearer', type: 'http' }],
+  url: '/approvals/{approval_id}/decision',
+  ...options,
+  headers: {
+    'Content-Type': 'application/json',
+    ...options.headers
+  }
+});
+
+/**
  * The vault's secrets, without their values; only the owner
  */
 export const listSecrets = <ThrowOnError extends boolean = true>(options?: Options<ListSecretsData, ThrowOnError>): RequestResult<ListSecretsResponses, ListSecretsErrors, ThrowOnError> => (options?.client ?? client).get<ListSecretsResponses, ListSecretsErrors, ThrowOnError>({
@@ -581,6 +688,82 @@ export const listAccounts = <ThrowOnError extends boolean = true>(options?: Opti
   security: [{ scheme: 'bearer', type: 'http' }],
   url: '/accounts',
   ...options
+});
+
+/**
+ * Every Bot, the oldest first
+ *
+ * A Bot is a long-lived agent of the control plane: its model, its persona and its memory. It talks with people in chats and gives work to workers. It is apart from a Profile, which is a worker's recipe.
+ */
+export const listBots = <ThrowOnError extends boolean = true>(options?: Options<ListBotsData, ThrowOnError>): RequestResult<ListBotsResponses, ListBotsErrors, ThrowOnError> => (options?.client ?? client).get<ListBotsResponses, ListBotsErrors, ThrowOnError>({
+  security: [{ scheme: 'bearer', type: 'http' }],
+  url: '/bots',
+  ...options
+});
+
+/**
+ * Remove a Bot that has no chats and no memory; only the owner
+ *
+ * The Bot `coordinator` is always there and is not removed.
+ */
+export const deleteBot = <ThrowOnError extends boolean = true>(options: Options<DeleteBotData, ThrowOnError>): RequestResult<DeleteBotResponses, DeleteBotErrors, ThrowOnError> => (options.client ?? client).delete<DeleteBotResponses, DeleteBotErrors, ThrowOnError>({
+  security: [{ scheme: 'bearer', type: 'http' }],
+  url: '/bots/{name}',
+  ...options
+});
+
+/**
+ * A Bot, with its persona and memory
+ */
+export const getBot = <ThrowOnError extends boolean = true>(options: Options<GetBotData, ThrowOnError>): RequestResult<GetBotResponses, GetBotErrors, ThrowOnError> => (options.client ?? client).get<GetBotResponses, GetBotErrors, ThrowOnError>({
+  security: [{ scheme: 'bearer', type: 'http' }],
+  url: '/bots/{name}',
+  ...options
+});
+
+/**
+ * Make a Bot, or change its model and persona; only the owner
+ *
+ * The Bot's memory stays as it is.
+ */
+export const putBot = <ThrowOnError extends boolean = true>(options: Options<PutBotData, ThrowOnError>): RequestResult<PutBotResponses, PutBotErrors, ThrowOnError> => (options.client ?? client).put<PutBotResponses, PutBotErrors, ThrowOnError>({
+  security: [{ scheme: 'bearer', type: 'http' }],
+  url: '/bots/{name}',
+  ...options,
+  headers: {
+    'Content-Type': 'application/json',
+    ...options.headers
+  }
+});
+
+/**
+ * Add, replace or remove one entry of a Bot's memory
+ *
+ * The memory is the Bot's entries, one per line, the same in every chat with it. A change that would pass the memory's limit is refused and changes nothing: replace or remove entries first.
+ */
+export const changeBotMemory = <ThrowOnError extends boolean = true>(options: Options<ChangeBotMemoryData, ThrowOnError>): RequestResult<ChangeBotMemoryResponses, ChangeBotMemoryErrors, ThrowOnError> => (options.client ?? client).post<ChangeBotMemoryResponses, ChangeBotMemoryErrors, ThrowOnError>({
+  security: [{ scheme: 'bearer', type: 'http' }],
+  url: '/bots/{name}/memory',
+  ...options,
+  headers: {
+    'Content-Type': 'application/json',
+    ...options.headers
+  }
+});
+
+/**
+ * Replace a Bot's whole memory with the owner's text; only the owner
+ *
+ * Each line is an entry; empty lines and an entry given twice are dropped. A text over the memory's limit is refused.
+ */
+export const setBotMemory = <ThrowOnError extends boolean = true>(options: Options<SetBotMemoryData, ThrowOnError>): RequestResult<SetBotMemoryResponses, SetBotMemoryErrors, ThrowOnError> => (options.client ?? client).put<SetBotMemoryResponses, SetBotMemoryErrors, ThrowOnError>({
+  security: [{ scheme: 'bearer', type: 'http' }],
+  url: '/bots/{name}/memory',
+  ...options,
+  headers: {
+    'Content-Type': 'application/json',
+    ...options.headers
+  }
 });
 
 /**

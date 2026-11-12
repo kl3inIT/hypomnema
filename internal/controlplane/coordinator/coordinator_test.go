@@ -166,7 +166,7 @@ func TestPiAnswersTheOwner(t *testing.T) {
 	svc, sup := newSupervisor(t)
 	ctx := t.Context()
 
-	chat, err := svc.CreateChat(ctx, "")
+	chat, err := svc.CreateChat(ctx, "", "")
 	require.NoError(t, err)
 
 	_, err = svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, "add a health page\nto demo")
@@ -217,7 +217,7 @@ func TestPiIsWokenByItsRuns(t *testing.T) {
 	svc, _ := newSupervisor(t)
 	ctx := t.Context()
 
-	chat, err := svc.CreateChat(ctx, "health page")
+	chat, err := svc.CreateChat(ctx, "", "health page")
 	require.NoError(t, err)
 
 	run, err := svc.CreateRun(ctx, orchestration.NewRun{Objective: "health", CreatedBy: "pi", ChatID: chat.ID})
@@ -228,7 +228,7 @@ func TestPiIsWokenByItsRuns(t *testing.T) {
 	require.NoError(t, svc.CancelTask(ctx, tasks[0].ID))
 
 	waitFor(t, svc, chat.ID, orchestration.ChatCoordinator,
-		"echo: Message from the Hypomnema control plane: events of your Runs need you.")
+		"echo: Message from the Hypomnema control plane: these need you.")
 }
 
 // Scenario: pi dies mid-turn. The next message starts it again.
@@ -238,7 +238,7 @@ func TestPiIsStartedAgainAfterItExits(t *testing.T) {
 	svc, _ := newSupervisor(t)
 	ctx := t.Context()
 
-	chat, err := svc.CreateChat(ctx, "")
+	chat, err := svc.CreateChat(ctx, "", "")
 	require.NoError(t, err)
 
 	_, err = svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, "crash please")
@@ -264,7 +264,7 @@ func TestPromptJoinsWakeUpsAndOwnerMessages(t *testing.T) {
 		{Role: orchestration.ChatOwner, Text: "also add docs"},
 	})
 	assert.Equal(t, fmt.Sprint(
-		"Message from the Hypomnema control plane: events of your Runs need you.\n",
+		"Message from the Hypomnema control plane: these need you.\n",
 		"- Task t1 of run r1 is succeeded: hypomnema tasks show t1 --json\n",
 		"Act on them, then end your turn; the control plane wakes you again.\n",
 		"\nThe owner also wrote:\nalso add docs"), got)
@@ -276,29 +276,42 @@ func contextWithCancel(t *testing.T) (context.Context, context.CancelFunc) {
 	return context.WithCancel(context.WithoutCancel(t.Context()))
 }
 
-// pi runs the coordinator profile's model: its provider is an id in pi's
-// models.json.
-func TestPiRunsTheCoordinatorProfilesModel(t *testing.T) {
+// pi runs as the chat's Bot, with the Bot's model: its provider is an id in
+// pi's models.json. A chat that names no Bot talks with the first one.
+func TestPiRunsAsTheChatsBotWithItsModel(t *testing.T) {
 	t.Parallel()
 
 	svc, sup := newSupervisor(t)
 	ctx := t.Context()
 
-	args, err := sup.modelArgs(ctx)
+	first, err := svc.CreateChat(ctx, "", "")
 	require.NoError(t, err)
-	assert.Empty(t, args, "the starting set leaves pi's own default")
+
+	args, err := sup.botArgs(ctx, first.ID)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"--bot", "coordinator"}, args, "the starting set leaves pi's own default model")
 
 	_, err = svc.ApplyProvider(ctx, "", "name: ninerouter\nkind: openai_compatible\n"+
 		"base_url: http://172.22.0.1:20128/v1\napi_key_ref: file:ninerouter.key\nmodels: [cx/gpt-6.1-sol]\n")
 	require.NoError(t, err)
 
-	_, _, err = svc.ApplyProfile(ctx, "", "name: coordinator\ndescription: pi\nruntime: pi\n"+
-		"model: {provider: ninerouter, name: cx/gpt-6.1-sol, effort: high}\n")
+	_, err = svc.PutBot(ctx, orchestration.Bot{
+		Name: "vmap", Provider: "ninerouter", Model: "cx/gpt-6.1-sol", Effort: "high", Persona: "You answer about VMAP.",
+	})
 	require.NoError(t, err)
 
-	args, err = sup.modelArgs(ctx)
+	second, err := svc.CreateChat(ctx, "vmap", "")
 	require.NoError(t, err)
-	assert.Equal(t, []string{"--provider", "ninerouter", "--model", "cx/gpt-6.1-sol", "--thinking", "high"}, args)
+
+	args, err = sup.botArgs(ctx, second.ID)
+	require.NoError(t, err)
+	assert.Equal(t, []string{
+		"--bot", "vmap", "--provider", "ninerouter", "--model", "cx/gpt-6.1-sol", "--thinking", "high",
+	}, args)
+
+	args, err = sup.botArgs(ctx, first.ID)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"--bot", "coordinator"}, args, "the first chat keeps its Bot")
 }
 
 // Scenario: the web watches a chat while pi answers: it sees pi start
@@ -310,7 +323,7 @@ func TestWatchersSeePiWorkLive(t *testing.T) {
 	svc, sup := newSupervisor(t)
 	ctx := t.Context()
 
-	chat, err := svc.CreateChat(ctx, "")
+	chat, err := svc.CreateChat(ctx, "", "")
 	require.NoError(t, err)
 
 	frames, stop := sup.Watch(chat.ID)

@@ -7,11 +7,10 @@ import { Button, buttonVariants } from "@/components/ui/button"
 import { RuntimeMark } from "@/features/board/runtime-mark"
 import { ConfirmDialog } from "@/features/settings/settings-parts"
 import { PageHeader } from "@/features/shell/app-shell"
-import { since } from "@/lib/time"
-
+import { AgentAvatar } from "./agent-avatar"
 import { StandingText } from "./agents-screen"
 import { ProfileEditor } from "./profile-editor"
-import { draftOf, emptyDraft, runtimeName } from "./profiles-state"
+import { draftOf, emptyDraft, runtimeName, savedAgo } from "./profiles-state"
 import { useApplyProfile, useModels, useProfile, useProfileVersions } from "./use-profiles"
 
 type View = "configuration" | "versions"
@@ -54,12 +53,13 @@ export function ProfileScreen({ name }: { name: string }) {
             <p className="py-10 text-center text-sm text-muted-foreground">Loading…</p>
           ) : (
             <>
-              <header className="flex items-start gap-3">
-                <RuntimeMark runtime={p.runtime} className="mt-1 size-6 shrink-0" />
+              <header className="flex items-center gap-3.5">
+                <AgentAvatar name={p.name} className="size-12 shrink-0" />
                 <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                   <h2 className="truncate text-lg font-semibold tracking-tight">{p.name}</h2>
                   <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                    <span>
+                    <span className="inline-flex items-center gap-1.5">
+                      <RuntimeMark runtime={p.runtime} className="size-3.5" />
                       Version {p.version} · {runtimeName(p.runtime)}
                     </span>
                     <StandingText profile={p} />
@@ -131,7 +131,9 @@ function Versions({ profile }: { profile: Profile }) {
                   aria-hidden
                 />
                 <span className="font-medium">Version {v.version}</span>
-                <span className="text-xs text-muted-foreground">· {since(v.created_at)}</span>
+                {savedAgo(v) && (
+                  <span className="text-xs text-muted-foreground">· {savedAgo(v)}</span>
+                )}
                 {current && <span className="ms-auto text-xs text-muted-foreground">Current</span>}
               </summary>
               <div className="flex flex-col gap-3 border-t px-3 py-3">

@@ -169,7 +169,7 @@ func (p *placement) checkAccount(runtime, id string) error {
 		return fmt.Errorf("%w: account %s is for %s, not %s", ErrInvalid, id, a.Runtime, runtime)
 	case AccountStatus(a.Status) != AccountActive:
 		return fmt.Errorf("%w: account %s is disabled", ErrUnavailable, id)
-	case a.SecretRef.Valid:
+	case !runsOnNode(a):
 		return fmt.Errorf("%w: account %s was logged in on the control plane; no node has it", ErrInvalid, id)
 	}
 
@@ -240,7 +240,7 @@ func (p *placement) availability(runtime string, gateway bool) Availability {
 // runtime that a node holds: the ones pickAccount looks at.
 func (p *placement) checkAccountKnown(runtime, id string) bool {
 	return slices.ContainsFunc(p.accounts, func(a store.Account) bool {
-		return a.ID == id && a.Runtime == runtime && AccountStatus(a.Status) == AccountActive && !a.SecretRef.Valid
+		return a.ID == id && a.Runtime == runtime && AccountStatus(a.Status) == AccountActive && runsOnNode(a)
 	})
 }
 
@@ -323,11 +323,25 @@ func (p *placement) pickNode(runtime string, host where) *nodeLoad {
 	return best
 }
 
+// TokenRuntime is the runtime whose account can be a token the control plane
+// keeps and sends to the node with each Dispatch (issue #150): Claude Code's
+// `claude setup-token`, long-lived and with no refresh to share.
+const TokenRuntime = "claude"
+
+// sentToNode reports whether an account is a token the control plane keeps
+// and hands to the node in the offer.
+func sentToNode(a store.Account) bool { return a.SecretRef.Valid && a.SentToNode == 1 }
+
+// runsOnNode reports whether a worker on a node can run under an account:
+// one whose CLI was logged in on a node, or one whose token is sent to it.
+// An account logged in on the control plane for the gateway is neither.
+func runsOnNode(a store.Account) bool { return !a.SecretRef.Valid || sentToNode(a) }
+
 // pickAccount is the first active account of the runtime a node holds, by
 // position, that is not cooling down. cooling reports whether one exists but cools.
 func (p *placement) pickAccount(runtime string) (id string, cooling bool) {
 	for _, a := range p.accounts {
-		if a.Runtime != runtime || AccountStatus(a.Status) != AccountActive || a.SecretRef.Valid {
+		if a.Runtime != runtime || AccountStatus(a.Status) != AccountActive || !runsOnNode(a) {
 			continue
 		}
 

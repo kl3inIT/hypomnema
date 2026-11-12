@@ -1,4 +1,5 @@
 import type { Model, Profile } from "@/api/generated/types.gen"
+import { since } from "@/lib/time"
 
 // What the Agents pages say about a profile, apart from how they draw it.
 
@@ -6,12 +7,20 @@ import type { Model, Profile } from "@/api/generated/types.gen"
 export function runtimeName(runtime: string) {
   if (runtime === "claude") return "Claude Code"
   if (runtime === "codex") return "Codex"
+  if (runtime === "opencode") return "OpenCode"
 
   return runtime
 }
 
-// The runtimes a profile may name; pi is the coordinator's.
-export const runtimes = ["claude", "codex", "pi"] as const
+// The runtimes a profile may name, as the server knows them (orchestration/profiles.go, runtimeProviders): the
+// workers' CLIs. pi runs a Bot on the server and is not a profile's (issue #169).
+export const runtimes = ["claude", "codex", "omp", "opencode"] as const
+
+// savedAgo says how long ago a version was saved, or nothing for one with no time: the starting profiles were
+// inserted by migrations at time 0.
+export function savedAgo(profile: Pick<Profile, "created_at">) {
+  return new Date(profile.created_at).getTime() > 0 ? since(profile.created_at) : null
+}
 
 // The efforts a profile may name, as Omnara's model field words them (AgentConfigModelField.tsx: "xhigh" reads
 // "Extra High", the others are capitalized).
@@ -34,7 +43,7 @@ export type Standing = { tone: "good" | "warn"; short: string; text: string }
 const clock = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" })
 
 // standing says in words whether a worker can start under a profile now (issue #139). A profile with no answer,
-// the coordinator's, has no standing.
+// one read from a list of versions, has no standing.
 export function standing(profile: Profile): Standing | null {
   if (profile.available === undefined) return null
   if (profile.available) return { tone: "good", short: "Ready", text: "Can run now" }
@@ -82,7 +91,12 @@ export type Draft = {
   model: string
   effort: string
   instruction: string
+  // fallbacks names, in order, the agents that take this one's Tasks while it is out of quota (issue #171).
+  fallbacks: string[]
 }
+
+// As many backups as OpenMausBot keeps for one bot (src/components/bot-panel/BackupAis.tsx, MAX_BACKUPS).
+export const maxFallbacks = 5
 
 export const emptyDraft: Draft = {
   name: "",
@@ -91,6 +105,7 @@ export const emptyDraft: Draft = {
   model: "",
   effort: "",
   instruction: "",
+  fallbacks: [],
 }
 
 export function draftOf(profile: Profile): Draft {
@@ -101,6 +116,7 @@ export function draftOf(profile: Profile): Draft {
     model: modelKey(profile.provider ?? "", profile.model ?? ""),
     effort: profile.effort ?? "",
     instruction: (profile.instruction ?? "").replace(/\s+$/, ""),
+    fallbacks: profile.fallbacks,
   }
 }
 
@@ -112,7 +128,7 @@ export function modelKey(provider: string, name: string) {
 }
 
 // splitModel takes a key apart again, by the models the server lists; a key it does not find is a bare name.
-function splitModel(key: string, models: Model[]) {
+export function splitModel(key: string, models: Model[]) {
   const found = models.find((m) => modelKey(m.provider, m.name) === key)
   if (found) return { provider: found.provider, name: found.name }
 
@@ -126,7 +142,8 @@ export function sameDraft(a: Draft, b: Draft) {
     a.runtime === b.runtime &&
     a.model === b.model &&
     a.effort === b.effort &&
-    a.instruction === b.instruction
+    a.instruction === b.instruction &&
+    a.fallbacks.join() === b.fallbacks.join()
   )
 }
 
@@ -168,8 +185,8 @@ function text(key: string, value: string, fold: boolean) {
   return `${key}: |\n${lines.map((l) => (l ? `  ${l}` : "")).join("\n")}\n`
 }
 
-// toYaml writes a draft as the YAML document the server stores (name, description, runtime, an optional model
-// and instruction).
+// toYaml writes a draft as the YAML document the server stores (name, description, runtime, an optional model,
+// instruction and list of fallbacks).
 export function toYaml(draft: Draft, models: Model[]) {
   let out = `name: ${scalar(draft.name.trim())}\n`
   out += text("description", draft.description.trim(), draft.description.trim().length > 80)
@@ -185,6 +202,7 @@ export function toYaml(draft: Draft, models: Model[]) {
 
   const instruction = draft.instruction.replace(/\s+$/, "")
   if (instruction) out += text("instruction", instruction, false)
+  if (draft.fallbacks.length > 0) out += `fallbacks: [${draft.fallbacks.map(scalar).join(", ")}]\n`
 
   return out
 }

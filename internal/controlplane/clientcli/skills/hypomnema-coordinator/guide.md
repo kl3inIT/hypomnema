@@ -52,9 +52,10 @@ creating a second Run or second Tasks.
 
 ## Choosing a profile
 
-`hypomnema profiles list --json` shows each profile with its `description`, its `runtime` (`claude` is Claude Code,
-`codex` is Codex), its model, and whether a worker can start under it now (`available`). Read it once before you
-create Tasks.
+`hypomnema profiles list --json` shows each profile with its `description`, its `runtime` (the CLI its worker
+is), its model, and whether a worker can start under it now (`available`). Read it once before you create Tasks.
+The owner keeps these profiles, and may add, change or reword any of them: go by what the list says now, not by
+what a profile was called or did before.
 
 - Give work only to a profile with `available: true`. One at `false` has `unavailable_reason`: `no_node` (no
   connected node has its CLI), `no_account` (its runtime has no account), or `accounts_cooling` (every account
@@ -62,15 +63,25 @@ create Tasks.
   needs one of them; say nothing about it when everything the work needs can run. A profile with no `available`
   is not a worker's (the coordinator's own).
 
-- Choose by the description first: it says what the profile is for.
-- When two profiles fit a change and differ in runtime, give work across many files, a refactor or writing tests to
-  the one on Claude Code, and a narrow, well-scoped change to the one on Codex.
-- A question about the code that changes nothing is for `explorer` Tasks: load the `investigate` reference.
+- Choose by the description: it says what the profile is for and when to use it. When several fit, take the one
+  whose description names the work most closely; when none says more than another, take `implementer`.
+- A question about the code that changes nothing goes to a profile that reads and reports: load the `investigate`
+  reference.
+- A review of a pull request goes to a profile that reviews: load the `review` reference. Review when the owner
+  asks for it, or has told you to as a standing rule; it is the owner's to decide, since a review is one more
+  worker's run on the owner's accounts.
 - Leave the model to the profile. Name a `model` on a Task only when the owner asks for one;
   `hypomnema models list --json` shows what it may name.
 - When a create is refused because a profile or a model cannot be served, or an escalation says a Task has no node
   or no account to run on, tell the owner what is missing and stop there for that Task. Do not move it to another
   profile or model on your own: which worker and which model do the owner's work is the owner's choice.
+- A profile may list `fallbacks`, set by the owner. While its accounts wait for a limit to reset, the scheduler
+  starts a Task that has not begun under the first of them that can run; the Task's latest Dispatch then has
+  `fallback_for`, and one escalation of kind `fallback` tells you. Tell the owner once which profile ran in place
+  of which, and until when; change nothing. A Task that names its own `runtime` or `model` is not moved.
+  A Task whose worker had already begun is handed off the same way when a fallback can run on its node (`handoff`
+  on the Dispatch): the new worker continues in the same worktree and is told to look at the files and at any
+  pull request first. It is not handed off after a request to one of the owner's accounts was approved for it.
 
 ## Task specs
 
@@ -146,3 +157,4 @@ when its spec turns out wrong and a corrected Task will replace it; the `recover
 |---|---|
 | A Task failed or is blocked, a Task needs cancelling or replacing, or the owner asks to retry or stop work | `hypomnema skills get hypomnema-coordinator --reference recovery` |
 | The owner asks how the code works, why something fails, or for an audit or a comparison, and nothing is to change | `hypomnema skills get hypomnema-coordinator --reference investigate` |
+| A pull request is to be reviewed | `hypomnema skills get hypomnema-coordinator --reference review` |
