@@ -1,6 +1,14 @@
 import { Link } from "@tanstack/react-router"
 import { HypomnemaIcon } from "@/components/icons/brand-icons"
-import { ArrowLeft, Box, KeyRound, MessagesSquare, Plug, type LucideIcon } from "lucide-react"
+import {
+  ArrowLeft,
+  BookOpen,
+  Box,
+  KeyRound,
+  MessagesSquare,
+  Plug,
+  type LucideIcon,
+} from "lucide-react"
 import type { ReactNode } from "react"
 
 import { PageHeader } from "@/features/shell/app-shell"
@@ -20,16 +28,22 @@ type Section = {
     | "/settings/integrations"
     | "/settings/channels"
     | "/settings/vault"
+    | "/settings/skills"
   label: string
   icon: LucideIcon
 }
 
 // The group "Models" holds what the model gateway serves from (issue #199): the owner named it so, not "Agents",
-// which the app's sidebar already has (2026-11-12).
+// which the app's sidebar already has (2026-11-12). The group "Agents" holds what is given to the agents' CLIs:
+// their skills (issue #21; prototype the owner accepted, 2026-11-12).
 const groups: { heading: string; sections: Section[] }[] = [
   {
     heading: "Models",
     sections: [{ to: "/settings/models", label: "Models", icon: Box }],
+  },
+  {
+    heading: "Agents",
+    sections: [{ to: "/settings/skills", label: "Skills", icon: BookOpen }],
   },
   {
     heading: "Connections",
@@ -88,7 +102,8 @@ export function SettingsPage({
   children,
 }: {
   title: string
-  description: string
+  // description is said under the header; a page that leads with something else says it itself.
+  description?: string
   actions?: ReactNode
   // wide gives the page the room a table needs.
   wide?: boolean
@@ -126,7 +141,7 @@ export function SettingsPage({
             wide ? "max-w-5xl" : "max-w-3xl",
           )}
         >
-          <p className="text-sm text-muted-foreground">{description}</p>
+          {description && <p className="text-sm text-muted-foreground">{description}</p>}
           {children}
         </div>
       </div>

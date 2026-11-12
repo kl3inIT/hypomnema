@@ -235,6 +235,12 @@ func build(files []File) (Skill, error) {
 	return Skill{Name: name, Description: description, Files: files, Digest: digest(files)}, nil
 }
 
+// Frontmatter reads the name and description of a SKILL.md, as a skill in
+// an archive is checked.
+func Frontmatter(manifest []byte) (name, description string, err error) {
+	return frontmatter(manifest)
+}
+
 // frontmatter reads the name and description of a SKILL.md.
 func frontmatter(manifest []byte) (name, description string, err error) {
 	text := strings.ReplaceAll(string(manifest), "\r\n", "\n")

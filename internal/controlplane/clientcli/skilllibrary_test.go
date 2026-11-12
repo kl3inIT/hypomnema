@@ -131,3 +131,20 @@ func TestABotsSkillsAreSyncedForPi(t *testing.T) {
 	require.NoError(t, err)
 	assert.NoDirExists(t, filepath.Join(dir, "review-go"))
 }
+
+// Scenario: the skills this binary ships are listed with the description
+// their stub gives, for the web's Skills page.
+func TestTheBuiltinSkillsAreListed(t *testing.T) {
+	t.Parallel()
+
+	skills, err := BuiltinSkills()
+	require.NoError(t, err)
+
+	names := make([]string, len(skills))
+	for i, s := range skills {
+		names[i] = s.Name
+		assert.NotEmpty(t, s.Description, s.Name)
+	}
+
+	assert.Equal(t, []string{"google-workspace", "hypomnema-coordinator", "lark", "superset"}, names)
+}

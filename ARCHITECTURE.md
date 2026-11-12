@@ -337,8 +337,9 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     `.pi/skills`. When the skills cannot be put in place, pi does not start.
   - Client API: `GET /skills` (each skill at its newest revision), `POST /skills` (`{"github": ...}`),
     `POST /skills/archive` (the archive as the body, the one body allowed over 1 MB), `GET /skills/{skill}` (with
-    every revision), `PUT /skills/{skill}/everyone`, `DELETE /skills/{skill}`. Every token reads; only the owner's
-    change. CLI: `skills list`, `skills show`, `skills add --github owner/repo[/path][@ref] | --file <archive>`,
+    every revision), `GET /skills/{skill}/revisions/{revision}/files` (a revision's paths, sizes and executable
+    flags), `PUT /skills/{skill}/everyone`, `DELETE /skills/{skill}`, and `GET /built-in-skills` (the name and
+    description of each skill the binary ships). Every token reads; only the owner's change. CLI: `skills list`, `skills show`, `skills add --github owner/repo[/path][@ref] | --file <archive>`,
     `skills everyone <skill> on|off`, `skills rm`. `skills get` and `skills install` are still the built-in skills',
     which are not listed.
 - Profiles (`orchestration/profiles.go`, issue #42, after Omnara's agent configs): a profile is a YAML document
@@ -1399,6 +1400,13 @@ Node (`internal/node`):
       now) gives the reading the subscription service keeps for a minute. An account with nothing to show is
       answered without windows and with the reason (`unavailable`: `not_given`, `sign_in`, `resting`, `failed`),
       and the page then shows no bars, or one line when the reading failed.
+  - `/settings/skills` (under Agents, [issue #21](https://github.com/kl3inIT/hypomnema/issues/21)) lists the added
+    skills and the built-in ones as two sections of cards or a table, chosen as on the Machines page, with a search
+    box (`web/src/features/skills/`). A built-in skill tied to a service wears that service's logo; every other skill
+    one book icon. "Add skill" takes a GitHub source or an archive (Omnara's drop zone). A skill's page
+    (`/settings/skills/<name>`) has the switch that gives it to everyone, who uses it, the newest revision's files as
+    a tree (Omnara's, Apache-2.0), every revision, "Update from GitHub", "Upload new revision" and Remove, whose
+    refusal is shown in the dialog.
   - `/settings/vault` (under Connections, [issue #108](https://github.com/kl3inIT/hypomnema/issues/108)) is a
     table of the vault's secrets, after Infisical's secrets dashboard (MIT) and Omnara's secrets list
     (Apache-2.0): Name, Value, Type, Version and Updated as columns, sorted by Name or Updated, with a search box

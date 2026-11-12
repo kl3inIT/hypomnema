@@ -137,3 +137,47 @@ func TestTheOwnerAddsASkillFromGitHub(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusNoContent, gone.StatusCode())
 }
+
+// Scenario: the web reads the files of a revision, each with its size and
+// whether it runs, and the skills the binary ships beside those added.
+func TestTheFilesOfARevisionAndTheBuiltinSkillsAreListed(t *testing.T) {
+	w := newWorld(t)
+	ctx := t.Context()
+	owner, _ := w.token("owner", bearertoken.Owner)
+
+	archive, err := skillpack.Skill{Files: []skillpack.File{
+		{Path: "SKILL.md", Data: []byte(reviewManifest)},
+		{Path: "scripts/check.sh", Exec: true, Data: []byte("go vet ./...\n")},
+	}}.Archive()
+	require.NoError(t, err)
+
+	up, err := owner.UploadSkillWithBodyWithResponse(ctx, "application/octet-stream", bytes.NewReader(archive))
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, up.StatusCode(), string(up.Body))
+
+	files, err := owner.ListSkillFilesWithResponse(ctx, "review-go", 1)
+	require.NoError(t, err)
+	require.NotNil(t, files.JSON200)
+	assert.Equal(t, []openapi.SkillFile{
+		{Path: "SKILL.md", Size: int64(len(reviewManifest)), Executable: false},
+		{Path: "scripts/check.sh", Size: 13, Executable: true},
+	}, files.JSON200.Data)
+
+	missing, err := owner.ListSkillFilesWithResponse(ctx, "review-go", 2)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusNotFound, missing.StatusCode())
+
+	none, err := owner.ListBuiltinSkillsWithResponse(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, none.JSON200)
+	assert.Empty(t, none.JSON200.Data, "a control plane that wired none lists none")
+
+	w.srv.WithBuiltinSkills(func() ([]BuiltinSkill, error) {
+		return []BuiltinSkill{{Name: "lark", Description: "Lark through lark-cli."}}, nil
+	})
+
+	built, err := owner.ListBuiltinSkillsWithResponse(ctx)
+	require.NoError(t, err)
+	require.NotNil(t, built.JSON200)
+	assert.Equal(t, []openapi.BuiltinSkill{{Name: "lark", Description: "Lark through lark-cli."}}, built.JSON200.Data)
+}
