@@ -69,6 +69,38 @@ const models = [
   },
 ]
 
+// What each account's limits call answers. An account that is not here has a kind that says no limits.
+const limits: Record<string, object> = {
+  acc_work: {
+    windows: [
+      { name: "5 hours", used_percent: 38, resets_at: iso(now + 3 * 3600_000) },
+      { name: "week", used_percent: 69, resets_at: iso(now + 4 * 86_400_000) },
+      { name: "week (Opus)", used_percent: 12, resets_at: iso(now + 4 * 86_400_000) },
+    ],
+    read_at: iso(now - 20_000),
+  },
+  acc_spare: {
+    windows: [
+      { name: "5 hours", used_percent: 100, resets_at: iso(now + 2 * 3600_000) },
+      { name: "week", used_percent: 26, resets_at: iso(now + 2 * 86_400_000) },
+    ],
+    read_at: iso(now - 20_000),
+  },
+  acc_main: {
+    windows: [
+      { name: "5 hours", used_percent: 12, resets_at: iso(now + 4 * 3600_000) },
+      { name: "week", used_percent: 45 },
+    ],
+    read_at: iso(now - 20_000),
+  },
+  acc_kept: {
+    windows: [],
+    unavailable: "failed",
+    detail:
+      "the vendor refused the account's token for its limits (403); sign the account in again",
+  },
+}
+
 async function fakeServer(page: Page, start?: Account[]) {
   let accounts: Account[] = start ?? [
     {
@@ -115,6 +147,15 @@ async function fakeServer(page: Page, start?: Account[]) {
     },
     { id: "acc_node", runtime: "codex", label: "kdlstc-dev", status: "active", position: 3 },
     {
+      id: "acc_kept",
+      runtime: "claude",
+      label: "kept",
+      status: "active",
+      position: 3,
+      email: "third@example.com",
+      sign_in: "active",
+    },
+    {
       id: "acc_trial",
       runtime: "antigravity",
       label: "trial",
@@ -134,6 +175,13 @@ async function fakeServer(page: Page, start?: Account[]) {
       route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) })
 
     const [, kind, id, action] = path.split("/")
+
+    if (kind === "accounts" && id && action === "limits") {
+      const fresh = new URL(request.url()).searchParams.get("fresh") === "true"
+      if (fresh) calls.push(`${call}?fresh`)
+
+      return json(limits[id] ?? { windows: [], unavailable: "not_given" })
+    }
 
     if (kind === "accounts" && id) {
       calls.push(call)
@@ -197,7 +245,20 @@ test("the owner sees where models come from", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Models", level: 1 })).toBeVisible()
 
   const claude = card(page, "Claude")
-  await expect(claude).toContainText("Claude subscription · 2 accounts")
+  await expect(claude).toContainText("Claude subscription · 3 accounts")
+
+  // An account signed in here shows how much of each window is used and when it starts again.
+  const work = claude.getByLabel("Claude account work")
+  await expect(work.getByRole("meter", { name: "5 hours used by work" })).toHaveAttribute(
+    "aria-valuenow",
+    "38",
+  )
+  await expect(work.getByTestId("limits")).toContainText("Week (Opus)")
+  await expect(work.getByTestId("limits")).toContainText("resets")
+  // One whose limits cannot be read says so and keeps its row.
+  await expect(
+    claude.getByLabel("Claude account kept").getByTestId("limits-unavailable"),
+  ).toContainText("could not be read")
   await expect(claude).toContainText("Serving")
   await expect(claude.getByLabel("Claude account spare")).toContainText("Resting until")
   await expect(claude).toContainText("Claude Opus 5.5")
@@ -205,6 +266,8 @@ test("the owner sees where models come from", async ({ page }) => {
   const codex = card(page, "Codex")
   await expect(codex.getByLabel("Codex account old")).toContainText("Needs sign-in")
   await expect(codex.getByLabel("Codex account kdlstc-dev")).toContainText("Signed in on a machine")
+  // A machine's account cannot be asked for its limits from here.
+  await expect(codex.getByLabel("Codex account kdlstc-dev").getByTestId("limits")).toHaveCount(0)
   // An account that was signed in on a machine is not removed from here.
   await expect(codex.getByRole("button", { name: "Remove kdlstc-dev" })).toHaveCount(0)
 
@@ -229,6 +292,10 @@ test("the owner turns accounts off and removes one", async ({ page }) => {
 
   const codex = card(page, "Codex")
   const main = codex.getByLabel("Codex account main")
+
+  // The button beside the bars asks the vendor now.
+  await main.getByRole("button", { name: "Read the limits of main again" }).click()
+  await expect.poll(() => calls).toContain("GET /accounts/acc_main/limits?fresh")
 
   await main.getByRole("switch", { name: "In use" }).click()
   await expect(main).toContainText("Off")

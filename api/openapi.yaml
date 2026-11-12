@@ -1100,6 +1100,27 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Account" }
         default: { $ref: "#/components/responses/Error" }
+  /accounts/{account_id}/limits:
+    parameters:
+      - $ref: "#/components/parameters/AccountID"
+    get:
+      operationId: GetAccountLimits
+      summary: How much of an account's limits is used, and when each starts again; only the owner
+      description: >-
+        A reading is kept for a minute; `fresh` asks the vendor now. When there
+        is nothing to show the answer has no windows and says why.
+      parameters:
+        - name: fresh
+          in: query
+          description: Ask the vendor now instead of giving a reading of the last minute.
+          schema: { type: boolean }
+      responses:
+        "200":
+          description: The windows, or why there are none.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AccountLimits" }
+        default: { $ref: "#/components/responses/Error" }
   /gateway/models:
     get:
       operationId: ListGatewayModels
@@ -2582,6 +2603,41 @@ components:
           type: string
           format: date-time
           description: When the access token ends, when that is known; it is renewed before then.
+    AccountLimitWindow:
+      type: object
+      required: [name, used_percent]
+      properties:
+        name:
+          type: string
+          description: The window, such as "5 hours", "week" or "week (Opus)".
+        used_percent:
+          type: number
+          description: The part used, from 0 to 100.
+        resets_at:
+          type: string
+          format: date-time
+          description: When the window starts again, when the vendor says.
+    AccountLimits:
+      type: object
+      required: [windows]
+      properties:
+        windows:
+          type: array
+          items: { $ref: "#/components/schemas/AccountLimitWindow" }
+        read_at:
+          type: string
+          format: date-time
+          description: When the vendor gave this reading.
+        unavailable:
+          type: string
+          enum: [not_given, sign_in, resting, failed]
+          description: >-
+            Why there are no windows: this kind of account says none; the
+            account has no sign-in here that can ask; the vendor asked to wait;
+            the call failed.
+        detail:
+          type: string
+          description: What went wrong, in the server's words, when the call failed.
     GatewayModelTarget:
       type: object
       required: [provider, upstream_model]

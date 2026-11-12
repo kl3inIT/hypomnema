@@ -118,6 +118,67 @@ func (s *Server) RemoveAccount(ctx context.Context, req openapi.RemoveAccountReq
 	return openapi.RemoveAccount204Response{}, nil
 }
 
+// GetAccountLimits returns how much of an account's limits is used (issue
+// #199, decisions 7 and 8). The reading and its cache are the subscription
+// service's. An account with nothing to show is no error: the page shows the
+// account without its bars, as 9router's and Orca's do, and says why.
+func (s *Server) GetAccountLimits(ctx context.Context, req openapi.GetAccountLimitsRequestObject,
+) (openapi.GetAccountLimitsResponseObject, error) {
+	out := openapi.AccountLimits{Windows: []openapi.AccountLimitWindow{}}
+
+	if s.accounts == nil {
+		why := openapi.AccountLimitsUnavailableNotGiven
+		out.Unavailable = &why
+
+		return openapi.GetAccountLimits200JSONResponse(out), nil
+	}
+
+	limits, err := s.accounts.Limits(ctx, req.AccountId, val(req.Params.Fresh))
+	if err != nil {
+		if errors.Is(err, orchestration.ErrNotFound) {
+			return nil, err
+		}
+
+		why, detail := limitsUnavailable(err)
+		out.Unavailable = &why
+
+		if detail != "" {
+			out.Detail = &detail
+		}
+
+		return openapi.GetAccountLimits200JSONResponse(out), nil
+	}
+
+	for _, w := range limits.Windows {
+		window := openapi.AccountLimitWindow{Name: w.Name, UsedPercent: float32(w.UsedPercent)}
+		if !w.ResetsAt.IsZero() {
+			window.ResetsAt = &w.ResetsAt
+		}
+
+		out.Windows = append(out.Windows, window)
+	}
+
+	if !limits.ReadAt.IsZero() {
+		out.ReadAt = &limits.ReadAt
+	}
+
+	return openapi.GetAccountLimits200JSONResponse(out), nil
+}
+
+// limitsUnavailable says why an account has no limits to show.
+func limitsUnavailable(err error) (openapi.AccountLimitsUnavailable, string) {
+	switch {
+	case errors.Is(err, subscription.ErrNoLimits):
+		return openapi.AccountLimitsUnavailableNotGiven, ""
+	case errors.Is(err, subscription.ErrNoTokens):
+		return openapi.AccountLimitsUnavailableSignIn, ""
+	case errors.Is(err, subscription.ErrLimitsResting):
+		return openapi.AccountLimitsUnavailableResting, ""
+	default:
+		return openapi.AccountLimitsUnavailableFailed, err.Error()
+	}
+}
+
 // ListGatewayModels returns the models the gateway serves and where each is
 // served from, in the order its targets are tried.
 func (s *Server) ListGatewayModels(ctx context.Context, _ openapi.ListGatewayModelsRequestObject,

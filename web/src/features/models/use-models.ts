@@ -1,7 +1,12 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import "@/api/client"
-import { listAccounts, listGatewayModels, listProviders } from "@/api/generated/sdk.gen"
+import {
+  getAccountLimits,
+  listAccounts,
+  listGatewayModels,
+  listProviders,
+} from "@/api/generated/sdk.gen"
 
 export const accountsKey = ["accounts"] as const
 export const providersKey = ["model-providers"] as const
@@ -34,4 +39,27 @@ export function useRefreshAccounts() {
   const queryClient = useQueryClient()
 
   return () => queryClient.invalidateQueries({ queryKey: accountsKey })
+}
+
+export const limitsKey = (accountId: string) => ["account-limits", accountId] as const
+
+// An account's limits. The server keeps a reading for a minute, so the page asks again each minute while open.
+export function useAccountLimits(accountId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: limitsKey(accountId),
+    queryFn: async () => (await getAccountLimits({ path: { account_id: accountId } })).data,
+    enabled,
+    refetchInterval: 60_000,
+  })
+}
+
+// useRefreshLimits asks the vendor for an account's limits now and shows what it answers.
+export function useRefreshLimits(accountId: string) {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: async () =>
+      (await getAccountLimits({ path: { account_id: accountId }, query: { fresh: true } })).data,
+    onSuccess: (limits) => queryClient.setQueryData(limitsKey(accountId), limits),
+  })
 }

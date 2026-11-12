@@ -105,6 +105,7 @@ var policies = map[string]policy{
 	"EnableAccount":               {scope: scopeOwner},
 	"DisableAccount":              {scope: scopeOwner},
 	"RemoveAccount":               {scope: scopeOwner},
+	"GetAccountLimits":            {scope: scopeOwner},
 	"ListGatewayModels":           {},
 	"ListBots":                    {},
 	"GetBot":                      {},
