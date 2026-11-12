@@ -312,6 +312,10 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		WithMachines(machineMgr).WithTerminals(nodeTerminals(nodes)).
 		WithSecrets(ownerSecrets{vault: secrets, referrers: referrers}).
 		WithIntegrations(integrations).WithApprovals(proxy).WithRelay(proxy).WithLarkChannels(larkSettings)
+	if !cfg.BrowserOff {
+		api.WithBrowser(ownersBrowser{shared})
+	}
+
 	if err := api.Register(mux); err != nil {
 		return err
 	}
@@ -404,6 +408,19 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	}
 
 	return serveErr
+}
+
+// ownersBrowser is the shared browser as the client API sees it: the owner
+// watches its tabs and takes control (issue #219).
+type ownersBrowser struct{ *browser.Engine }
+
+func (b ownersBrowser) Watch(ctx context.Context, tab string) (clientapi.BrowserView, error) {
+	view, err := b.Engine.Watch(ctx, tab)
+	if err != nil {
+		return nil, err
+	}
+
+	return view, nil
 }
 
 // nodeTerminals lets the client API reach a node for a terminal through the

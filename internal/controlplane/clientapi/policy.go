@@ -65,6 +65,8 @@ var policies = map[string]policy{
 	"ListMachineProviders":        {scope: scopeOwner},
 	"UpdateNode":                  {scope: scopeOwner},
 	"OpenNodeTerminal":            {scope: scopeOwner},
+	"GetBrowser":                  {scope: scopeOwner},
+	"OpenBrowserView":             {scope: scopeOwner},
 	"StopNodeMachine":             {scope: scopeOwner},
 	"StartNodeMachine":            {scope: scopeOwner},
 	"RemoveNode":                  {scope: scopeOwner},
