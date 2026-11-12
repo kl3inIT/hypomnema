@@ -1246,6 +1246,14 @@ Node (`internal/node`):
       (`sign_in`: `active`, `login_required`, `no_tokens`; absent for an account signed in on a node);
       `POST /accounts/{id}/enable` and `/disable` and `DELETE /accounts/{id}` are the owner's;
       `GET /gateway/models` lists the gateway's models with their targets.
+    - Signing in and the order (step 2 of the issue): "Add account" on a subscription's card and "Sign in again"
+      on an account open a dialog with the two sign-ins `accounts login` has, after 9router's dialog on a remote
+      host and CLIProxyAPI's management API. `POST /account-sign-ins` begins one at the vendor and answers with a
+      link, and either `paste` (the owner pastes the address the browser ends on) or a `user_code` to enter at
+      the vendor; `POST /account-sign-ins/{id}` completes it, with the address or by waiting. A sign-in begun is
+      held in the control plane's memory until it ends, at most 16 at a time, and is completed once.
+      `POST /accounts/{id}/move` moves an account one place up or down among the accounts of its runtime, as
+      9router moves a connection; positions are written again from 1. All three are the owner's.
     - An account signed in on the control plane shows its limits under its row (step 3 of the issue): a meter a
       window (5 hours, week, a model's own week) with the part used, the Machines page's meter, and when the
       window starts again; a button asks the vendor now. `GET /accounts/{id}/limits` (the owner's; `fresh` asks

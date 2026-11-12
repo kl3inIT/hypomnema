@@ -24,6 +24,8 @@ export type Subscription = {
   name: string
   // account is what kind of account signs in, such as "ChatGPT subscription".
   account: string
+  // runtime is what its accounts sign in for: claude, codex or antigravity.
+  runtime: string
   accounts: Account[]
 }
 
@@ -35,6 +37,7 @@ export function subscriptionsOf(providers: Provider[], accounts: Account[]): Sub
       provider,
       name: subscriptions[provider.kind]?.name ?? provider.name,
       account: subscriptions[provider.kind]?.account ?? "Subscription",
+      runtime: runtimes[provider.kind] ?? "",
       accounts: accounts
         .filter((account) => account.runtime === runtimes[provider.kind])
         .toSorted((a, b) => a.position - b.position),

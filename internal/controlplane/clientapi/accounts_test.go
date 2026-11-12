@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -88,6 +89,45 @@ func (s *signedIn) Remove(_ context.Context, id string) error {
 	s.removed[id] = true
 
 	return nil
+}
+
+// Begin starts a sign-in the way the two kinds do: claude asks for the
+// address the browser ends on, codex shows a code.
+func (s *signedIn) Begin(_ context.Context, runtime string) (*subscription.Attempt, error) {
+	switch runtime {
+	case "claude":
+		return &subscription.Attempt{
+			Runtime: runtime, URL: "https://claude.example/authorize?state=abc", Paste: true, ExpiresIn: 10 * time.Minute,
+		}, nil
+	case "codex":
+		return &subscription.Attempt{
+			Runtime: runtime, URL: "https://chatgpt.example/device", UserCode: "ABCD-1234", ExpiresIn: 15 * time.Minute,
+		}, nil
+	default:
+		return nil, fmt.Errorf("%w: %q", subscription.ErrUnknownVendor, runtime)
+	}
+}
+
+// Complete signs the account in when the pasted address carries a code, as a
+// vendor accepts one; a sign-in with a code needs nothing pasted.
+func (s *signedIn) Complete(ctx context.Context, a *subscription.Attempt, pasted, label string,
+) (subscription.Account, error) {
+	if a.Paste && !strings.Contains(pasted, "code=") {
+		return subscription.Account{}, fmt.Errorf("%w: the address has no code", subscription.ErrLoginFailed)
+	}
+
+	if label == "" {
+		label = "owner@example.com"
+	}
+
+	made, err := s.svc.AddAccount(ctx, a.Runtime, label)
+	if err != nil {
+		return subscription.Account{}, err
+	}
+
+	s.states[made.ID] = subscription.StateActive
+
+	return subscription.Account{Account: made, State: subscription.StateActive}, nil
 }
 
 type servedModels []modelgateway.Model
@@ -261,3 +301,167 @@ func TestTheOwnerReadsAnAccountsLimits(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusForbidden, refused.StatusCode())
 }
+
+// Scenario: the owner adds accounts from the Models page (issue #199, step
+// 2). A Claude sign-in gives a link and is completed with the address the
+// browser ended on; a Codex sign-in gives a link and a code and is completed
+// by waiting. A sign-in is completed once, a wrong address is refused and the
+// sign-in is begun again, and a coordinator starts none.
+func TestTheOwnerSignsAccountsInFromTheModelsPage(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	fake := &signedIn{svc: w.svc, states: map[string]subscription.State{}, removed: map[string]bool{}}
+	w.srv.WithAccounts(fake).WithSecrets(noSecrets{})
+
+	owner, _ := w.token("web", bearertoken.Owner)
+	pi, _ := w.token("pi", bearertoken.Coordinator)
+
+	refused, err := pi.BeginAccountSignInWithResponse(ctx, openapi.NewAccountSignIn{Runtime: openapi.Claude})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, refused.StatusCode())
+
+	label := "work"
+	claude := openapi.NewAccountSignIn{Runtime: openapi.Claude, Label: &label}
+
+	begun, err := owner.BeginAccountSignInWithResponse(ctx, claude)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, begun.StatusCode(), string(begun.Body))
+	assert.True(t, begun.JSON200.Paste)
+	assert.Nil(t, begun.JSON200.UserCode)
+	assert.Contains(t, begun.JSON200.Url, "authorize")
+	assert.Equal(t, 600, begun.JSON200.ExpiresInSeconds)
+
+	wrong := "http://localhost:54545/callback?error=denied"
+	bad, err := owner.CompleteAccountSignInWithResponse(ctx, begun.JSON200.Id,
+		openapi.AccountSignInCallback{Callback: &wrong})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, bad.StatusCode(), string(bad.Body))
+
+	right := "http://localhost:54545/callback?code=xyz&state=abc"
+	again, err := owner.CompleteAccountSignInWithResponse(ctx, begun.JSON200.Id,
+		openapi.AccountSignInCallback{Callback: &right})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusNotFound, again.StatusCode(), "a sign-in is completed once; one that failed is begun again")
+
+	begun, err = owner.BeginAccountSignInWithResponse(ctx, claude)
+	require.NoError(t, err)
+
+	empty, err := owner.CompleteAccountSignInWithResponse(ctx, begun.JSON200.Id, openapi.AccountSignInCallback{})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, empty.StatusCode(), "this kind needs the address")
+
+	begun, err = owner.BeginAccountSignInWithResponse(ctx, claude)
+	require.NoError(t, err)
+
+	done, err := owner.CompleteAccountSignInWithResponse(ctx, begun.JSON200.Id,
+		openapi.AccountSignInCallback{Callback: &right})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, done.StatusCode(), string(done.Body))
+	assert.Equal(t, "work", done.JSON200.Label)
+	assert.Equal(t, "claude", done.JSON200.Runtime)
+	assert.Equal(t, openapi.AccountSignInActive, val(done.JSON200.SignIn))
+
+	coded, err := owner.BeginAccountSignInWithResponse(ctx, openapi.NewAccountSignIn{Runtime: openapi.Codex})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, coded.StatusCode(), string(coded.Body))
+	assert.False(t, coded.JSON200.Paste)
+	assert.Equal(t, "ABCD-1234", val(coded.JSON200.UserCode))
+
+	waited, err := owner.CompleteAccountSignInWithResponse(ctx, coded.JSON200.Id, openapi.AccountSignInCallback{})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, waited.StatusCode(), string(waited.Body))
+	assert.Equal(t, "owner@example.com", waited.JSON200.Label, "an account with no name given takes its e-mail")
+
+	listed, err := owner.ListAccountsWithResponse(ctx)
+	require.NoError(t, err)
+	assert.Len(t, listed.JSON200.Data, 2)
+}
+
+// Scenario: the owner changes which account the gateway tries first. An
+// account moves one place among the accounts of its own runtime, an account
+// at the end stays, and a coordinator moves none.
+func TestTheOwnerChangesTheOrderOfAccounts(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	first, err := w.svc.AddAccount(ctx, "codex", "first")
+	require.NoError(t, err)
+	second, err := w.svc.AddAccount(ctx, "codex", "second")
+	require.NoError(t, err)
+	third, err := w.svc.AddAccount(ctx, "codex", "third")
+	require.NoError(t, err)
+	other, err := w.svc.AddAccount(ctx, "claude", "other")
+	require.NoError(t, err)
+
+	owner, _ := w.token("web", bearertoken.Owner)
+	pi, _ := w.token("pi", bearertoken.Coordinator)
+
+	order := func() []string {
+		listed, err := owner.ListAccountsWithResponse(ctx)
+		require.NoError(t, err)
+
+		var ids []string
+
+		for _, a := range listed.JSON200.Data {
+			if a.Runtime == "codex" {
+				ids = append(ids, a.Id)
+			}
+		}
+
+		return ids
+	}
+
+	up := openapi.AccountMove{Direction: openapi.Up}
+	down := openapi.AccountMove{Direction: openapi.Down}
+
+	refused, err := pi.MoveAccountWithResponse(ctx, third.ID, up)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, refused.StatusCode())
+
+	moved, err := owner.MoveAccountWithResponse(ctx, third.ID, up)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, moved.StatusCode(), string(moved.Body))
+	assert.Equal(t, 2, moved.JSON200.Position)
+	assert.Equal(t, []string{first.ID, third.ID, second.ID}, order())
+
+	_, err = owner.MoveAccountWithResponse(ctx, third.ID, up)
+	require.NoError(t, err)
+	stays, err := owner.MoveAccountWithResponse(ctx, third.ID, up)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, stays.StatusCode(), "the first account has nowhere to go up to")
+	assert.Equal(t, []string{third.ID, first.ID, second.ID}, order())
+
+	_, err = owner.MoveAccountWithResponse(ctx, third.ID, down)
+	require.NoError(t, err)
+	assert.Equal(t, []string{first.ID, third.ID, second.ID}, order())
+
+	alone, err := owner.MoveAccountWithResponse(ctx, other.ID, down)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, alone.StatusCode())
+	assert.Equal(t, []string{first.ID, third.ID, second.ID}, order(), "another runtime's account moves among its own")
+
+	missing, err := owner.MoveAccountWithResponse(ctx, "acc_none", up)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusNotFound, missing.StatusCode())
+}
+
+// noSecrets stands for a vault that is set up: a sign-in is begun only then,
+// since its tokens are kept there.
+type noSecrets struct{}
+
+func (noSecrets) List(context.Context) ([]SecretInfo, error) { return nil, nil }
+
+func (noSecrets) Value(context.Context, string) (map[string]string, error) {
+	return map[string]string{}, nil
+}
+
+func (noSecrets) Put(context.Context, string, map[string]string) (SecretInfo, error) {
+	return SecretInfo{}, nil
+}
+
+func (noSecrets) Delete(context.Context, string) error { return nil }

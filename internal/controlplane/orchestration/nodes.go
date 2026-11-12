@@ -686,6 +686,62 @@ func (s *Service) setAccountStatus(ctx context.Context, id string, status Accoun
 	})
 }
 
+// MoveAccount moves an account one place up or down among the accounts of
+// its runtime, which placement and the gateway take in order. An account at
+// the end it is moved towards stays where it is. Positions are written again
+// from 1, so two accounts never share one.
+func (s *Service) MoveAccount(ctx context.Context, id string, up bool) error {
+	return s.write(ctx, func(q *store.Queries, now int64) error {
+		moved, err := q.GetAccount(ctx, id)
+		if err != nil {
+			return notFound(err, "account", id)
+		}
+
+		all, err := q.ListAccounts(ctx)
+		if err != nil {
+			return fmt.Errorf("listing accounts: %w", err)
+		}
+
+		var order []store.Account
+
+		at := -1
+
+		for _, a := range all {
+			if a.Runtime != moved.Runtime {
+				continue
+			}
+
+			if a.ID == id {
+				at = len(order)
+			}
+
+			order = append(order, a)
+		}
+
+		to := at + 1
+		if up {
+			to = at - 1
+		}
+
+		if to >= 0 && to < len(order) {
+			order[at], order[to] = order[to], order[at]
+		}
+
+		for i, a := range order {
+			if a.Position == int64(i+1) {
+				continue
+			}
+
+			n, err := q.SetAccountPosition(ctx, store.SetAccountPositionParams{Now: now, Position: int64(i + 1), ID: a.ID})
+			if err := oneRow(n, err, "account", a.ID); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+}
+
 // ListAccounts returns every account by runtime and position.
 func (s *Service) ListAccounts(ctx context.Context) ([]Account, error) {
 	p, err := loadPlacement(ctx, s.read(), s.clock.Now().UnixMilli())

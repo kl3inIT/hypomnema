@@ -862,6 +862,24 @@ func (q *Queries) SetAccountLogin(ctx context.Context, arg SetAccountLoginParams
 	return result.RowsAffected()
 }
 
+const setAccountPosition = `-- name: SetAccountPosition :execrows
+UPDATE accounts SET updated_at = ?1, position = ?2 WHERE id = ?3
+`
+
+type SetAccountPositionParams struct {
+	Now      int64
+	Position int64
+	ID       string
+}
+
+func (q *Queries) SetAccountPosition(ctx context.Context, arg SetAccountPositionParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setAccountPosition, arg.Now, arg.Position, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const setAccountRefresh = `-- name: SetAccountRefresh :execrows
 UPDATE accounts
 SET updated_at = ?1, refresh_failures = ?2, refresh_retry_at = ?3,
