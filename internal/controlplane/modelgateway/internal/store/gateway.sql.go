@@ -31,8 +31,40 @@ func (q *Queries) DeleteGatewayModelTargets(ctx context.Context, model string) e
 	return err
 }
 
+const gatewayKeysLastUsed = `-- name: GatewayKeysLastUsed :many
+SELECT key_id, CAST(MAX(created_at) AS INTEGER) AS last_used FROM gateway_usage GROUP BY key_id
+`
+
+type GatewayKeysLastUsedRow struct {
+	KeyID    string
+	LastUsed int64
+}
+
+func (q *Queries) GatewayKeysLastUsed(ctx context.Context) ([]GatewayKeysLastUsedRow, error) {
+	rows, err := q.db.QueryContext(ctx, gatewayKeysLastUsed)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GatewayKeysLastUsedRow{}
+	for rows.Next() {
+		var i GatewayKeysLastUsedRow
+		if err := rows.Scan(&i.KeyID, &i.LastUsed); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getGatewayKey = `-- name: GetGatewayKey :one
-SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id FROM gateway_keys WHERE id = ?1
+SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix FROM gateway_keys WHERE id = ?1
 `
 
 func (q *Queries) GetGatewayKey(ctx context.Context, id string) (GatewayKey, error) {
@@ -47,12 +79,13 @@ func (q *Queries) GetGatewayKey(ctx context.Context, id string) (GatewayKey, err
 		&i.RevokedAt,
 		&i.DispatchID,
 		&i.ChatID,
+		&i.KeyPrefix,
 	)
 	return i, err
 }
 
 const getGatewayKeyByHash = `-- name: GetGatewayKeyByHash :one
-SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id FROM gateway_keys WHERE key_hash = ?1
+SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix FROM gateway_keys WHERE key_hash = ?1
 `
 
 func (q *Queries) GetGatewayKeyByHash(ctx context.Context, keyHash string) (GatewayKey, error) {
@@ -67,6 +100,7 @@ func (q *Queries) GetGatewayKeyByHash(ctx context.Context, keyHash string) (Gate
 		&i.RevokedAt,
 		&i.DispatchID,
 		&i.ChatID,
+		&i.KeyPrefix,
 	)
 	return i, err
 }
@@ -89,14 +123,15 @@ func (q *Queries) GetGatewayModel(ctx context.Context, name string) (GatewayMode
 }
 
 const insertGatewayKey = `-- name: InsertGatewayKey :exec
-INSERT INTO gateway_keys (id, name, key_hash, models, dispatch_id, chat_id, created_at)
-VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+INSERT INTO gateway_keys (id, name, key_hash, key_prefix, models, dispatch_id, chat_id, created_at)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
 `
 
 type InsertGatewayKeyParams struct {
 	ID         string
 	Name       string
 	KeyHash    string
+	KeyPrefix  string
 	Models     string
 	DispatchID sql.NullString
 	ChatID     sql.NullString
@@ -108,6 +143,7 @@ func (q *Queries) InsertGatewayKey(ctx context.Context, arg InsertGatewayKeyPara
 		arg.ID,
 		arg.Name,
 		arg.KeyHash,
+		arg.KeyPrefix,
 		arg.Models,
 		arg.DispatchID,
 		arg.ChatID,
@@ -215,7 +251,7 @@ func (q *Queries) ListDispatchesWithGatewayKeys(ctx context.Context) ([]sql.Null
 }
 
 const listGatewayKeys = `-- name: ListGatewayKeys :many
-SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id FROM gateway_keys ORDER BY name
+SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix FROM gateway_keys ORDER BY name
 `
 
 func (q *Queries) ListGatewayKeys(ctx context.Context) ([]GatewayKey, error) {
@@ -236,6 +272,7 @@ func (q *Queries) ListGatewayKeys(ctx context.Context) ([]GatewayKey, error) {
 			&i.RevokedAt,
 			&i.DispatchID,
 			&i.ChatID,
+			&i.KeyPrefix,
 		); err != nil {
 			return nil, err
 		}

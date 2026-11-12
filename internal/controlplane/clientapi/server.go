@@ -78,6 +78,8 @@ type Server struct {
 	// accounts shows the accounts with the state of their sign-ins and removes one; nil when the control plane
 	// wired none, and then an account shows what orchestration knows of it.
 	accounts Accounts
+	// gatewayKeys manages the gateway's keys; nil when the control plane wired none.
+	gatewayKeys GatewayKeys
 	// tokenAccounts keeps an account from a pasted token; nil when the vault has no key.
 	tokenAccounts TokenAccounts
 	// gatewayModels lists what the model gateway serves; nil when the control plane wired none.
@@ -112,6 +114,21 @@ type Accounts interface {
 // GatewayModels lists the models the model gateway serves.
 type GatewayModels interface {
 	ListModels(ctx context.Context) ([]modelgateway.Model, error)
+}
+
+// GatewayKeys makes, lists and revokes the keys clients give the gateway
+// (modelgateway.Service).
+type GatewayKeys interface {
+	ListKeys(ctx context.Context) ([]modelgateway.Key, error)
+	AddKey(ctx context.Context, name string, models []string) (modelgateway.Key, string, error)
+	RevokeKey(ctx context.Context, id string) error
+}
+
+// WithGatewayKeys lets the owner manage the gateway's keys.
+func (s *Server) WithGatewayKeys(k GatewayKeys) *Server {
+	s.gatewayKeys = k
+
+	return s
 }
 
 // TokenAccounts keeps an account from a token the owner pastes; the control

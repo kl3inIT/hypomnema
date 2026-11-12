@@ -1,6 +1,14 @@
 import { Link } from "@tanstack/react-router"
 import { HypomnemaIcon } from "@/components/icons/brand-icons"
-import { ArrowLeft, Box, KeyRound, MessagesSquare, Plug, type LucideIcon } from "lucide-react"
+import {
+  ArrowLeft,
+  Box,
+  KeyRound,
+  KeySquare,
+  MessagesSquare,
+  Plug,
+  type LucideIcon,
+} from "lucide-react"
 import type { ReactNode } from "react"
 
 import { PageHeader } from "@/features/shell/app-shell"
@@ -16,6 +24,7 @@ import { cn } from "@/lib/utils"
 type Section = {
   to:
     | "/settings/models"
+    | "/settings/gateway-keys"
     | "/settings/repositories"
     | "/settings/integrations"
     | "/settings/channels"
@@ -29,7 +38,10 @@ type Section = {
 const groups: { heading: string; sections: Section[] }[] = [
   {
     heading: "Models",
-    sections: [{ to: "/settings/models", label: "Models", icon: Box }],
+    sections: [
+      { to: "/settings/models", label: "Models", icon: Box },
+      { to: "/settings/gateway-keys", label: "Gateway keys", icon: KeySquare },
+    ],
   },
   {
     heading: "Connections",
