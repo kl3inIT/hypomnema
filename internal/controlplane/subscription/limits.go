@@ -76,13 +76,23 @@ type limitsRefusedError struct {
 	status int
 	// wait is the Retry-After of a 429, zero when it named none.
 	wait time.Duration
+	// said is the vendor's own message, when its answer had one.
+	said string
 }
 
 func (e *limitsRefusedError) Error() string {
 	switch e.status {
 	case http.StatusUnauthorized, http.StatusForbidden:
-		return fmt.Sprintf("the vendor refused the account's token for its limits (%d); sign the account in again",
-			e.status)
+		// The vendor's words are given, as Orca shows them for a token that
+		// lacks the scope (claude-active-usage-fetch.ts, 'missing-scope'): a
+		// token pasted by hand serves models and may still not read limits.
+		said := ""
+		if e.said != "" {
+			said = ": " + e.said
+		}
+
+		return fmt.Sprintf("the vendor refused the account's token for its limits (%d)%s; a token added by hand may "+
+			"lack what this call needs: log the account in with `accounts login` to see its limits", e.status, said)
 	default:
 		return fmt.Sprintf("the vendor answered %d to the limits call", e.status)
 	}
@@ -95,12 +105,23 @@ type limitsEntry struct {
 	read   bool
 	// restUntil is until when the vendor is not asked, after a 429.
 	restUntil time.Time
+	// refused is the vendor's refusal of the token whose version is
+	// refusedVersion: it is not asked again with that token, as Orca ends
+	// there for a token without the scope (claude-usage-error-classification.ts,
+	// terminal). A new login or a refresh makes a new version.
+	refused        error
+	refusedVersion int
+	// heard is what the vendor said of the windows on an answer served
+	// under the account (NoteAnswer).
+	heard Limits
 }
 
 // Limits says how much of an account's windows is used. A reading younger
 // than a minute is given again unless fresh asks for a new one. When the
 // vendor cannot be asked or fails, the last reading is given if there is one,
-// as 9router-go does: a failed call does not blank what was known.
+// as 9router-go does: a failed call does not blank what was known. With no
+// reading of the call, what the vendor said on the account's last answer is
+// given (NoteAnswer), as omp reads the limits from an answer's headers.
 func (s *Service) Limits(ctx context.Context, id string, fresh bool) (Limits, error) {
 	a, err := s.Get(ctx, id)
 	if err != nil {
@@ -123,7 +144,7 @@ func (s *Service) Limits(ctx context.Context, id string, fresh bool) (Limits, er
 	}
 
 	if now.Before(entry.restUntil) {
-		return entry.orElse(ErrLimitsResting)
+		return entry.orElse(ErrLimitsResting, now)
 	}
 
 	token, err := s.usableToken(ctx, a)
@@ -131,41 +152,119 @@ func (s *Service) Limits(ctx context.Context, id string, fresh bool) (Limits, er
 		return Limits{}, err
 	}
 
+	if entry.refused != nil && entry.refusedVersion == token.Version {
+		return entry.orElse(entry.refused, now)
+	}
+
 	windows, err := reader.Limits(ctx, token)
 	if err != nil {
 		var refused *limitsRefusedError
-		if errors.As(err, &refused) && refused.status == http.StatusTooManyRequests {
+
+		switch {
+		case !errors.As(err, &refused):
+		case refused.status == http.StatusTooManyRequests:
 			wait := limitsRest
 			if refused.wait > 0 && refused.wait <= limitsLongestRest {
 				wait = refused.wait
 			}
 
-			entry.restUntil = now.Add(wait)
-			s.keepLimits(id, entry)
+			s.changeLimits(id, func(e *limitsEntry) { e.restUntil = now.Add(wait) })
+		case refused.status == http.StatusUnauthorized || refused.status == http.StatusForbidden:
+			s.changeLimits(id, func(e *limitsEntry) { e.refused, e.refusedVersion = err, token.Version })
 		}
 
-		return entry.orElse(err)
+		return entry.orElse(err, now)
 	}
 
-	entry = limitsEntry{limits: Limits{Windows: windows, ReadAt: now}, read: true}
-	s.keepLimits(id, entry)
+	limits := Limits{Windows: windows, ReadAt: now}
+	s.changeLimits(id, func(e *limitsEntry) {
+		e.limits, e.read, e.restUntil, e.refused = limits, true, time.Time{}, nil
+	})
 
-	return entry.limits, nil
+	return limits, nil
 }
 
-func (e limitsEntry) orElse(err error) (Limits, error) {
+// orElse is the last reading of the call, or what was heard on an answer, or
+// the error. A window heard whose reset has passed has started again and is
+// left out: what it holds now is not known (inferred).
+func (e limitsEntry) orElse(err error, now time.Time) (Limits, error) {
 	if e.read {
 		return e.limits, nil
+	}
+
+	var still []Window
+
+	for _, w := range e.heard.Windows {
+		if w.ResetsAt.IsZero() || w.ResetsAt.After(now) {
+			still = append(still, w)
+		}
+	}
+
+	if len(still) > 0 {
+		return Limits{Windows: still, ReadAt: e.heard.ReadAt}, nil
 	}
 
 	return Limits{}, err
 }
 
-func (s *Service) keepLimits(id string, entry limitsEntry) {
+func (s *Service) changeLimits(id string, change func(*limitsEntry)) {
 	s.limitsMu.Lock()
 	defer s.limitsMu.Unlock()
 
+	entry := s.limits[id]
+	change(&entry)
 	s.limits[id] = entry
+}
+
+// LimitHeaders is a Vendor that says an account's windows in the headers of
+// each answer it serves.
+type LimitHeaders interface {
+	LimitsInHeaders(h http.Header) []Window
+}
+
+// NoteAnswer keeps what the headers of an answer served under an account say
+// of its windows, for when the limits call cannot be made with the account's
+// token. An answer that names no window changes nothing.
+func (s *Service) NoteAnswer(runtime, accountID string, h http.Header) {
+	vendor, ok := s.vendors[runtime].(LimitHeaders)
+	if !ok {
+		return
+	}
+
+	windows := vendor.LimitsInHeaders(h)
+	if len(windows) == 0 {
+		return
+	}
+
+	heard := Limits{Windows: windows, ReadAt: s.clock.Now()}
+	s.changeLimits(accountID, func(e *limitsEntry) { e.heard = heard })
+}
+
+// LimitsInHeaders implements LimitHeaders: Anthropic names each unified
+// window on every answer, its used part from 0 to 1 and its reset in seconds
+// since 1970 (omp packages/ai/src/usage/claude.ts, parseUnifiedWindow and
+// parseClaudeRateLimitHeaders: 5h, 7d, and 7d_oi, the week of one model,
+// which omp calls Fable's).
+func (c *Claude) LimitsInHeaders(h http.Header) []Window {
+	var windows []Window
+
+	for _, w := range []struct{ key, name string }{
+		{"5h", WindowFiveHours}, {"7d", WindowWeek}, {"7d_oi", modelWeek("fable")},
+	} {
+		prefix := "Anthropic-Ratelimit-Unified-" + w.key + "-"
+
+		used, err := strconv.ParseFloat(strings.TrimSpace(h.Get(prefix+"Utilization")), 64)
+		if err != nil {
+			continue
+		}
+
+		windows = append(windows, Window{
+			Name: w.name, UsedPercent: percent(used * 100),
+			ResetsAt: resetTime(json.RawMessage(strings.TrimSpace(h.Get(prefix + "Reset")))),
+		})
+	}
+
+	return windows
 }
 
 // usableToken is an account's access token, refreshed first when it is about
@@ -207,6 +306,19 @@ func getLimits(ctx context.Context, client *http.Client, endpoint string, header
 		refused := &limitsRefusedError{status: resp.StatusCode}
 		if seconds, err := strconv.Atoi(strings.TrimSpace(resp.Header.Get("Retry-After"))); err == nil && seconds > 0 {
 			refused.wait = time.Duration(seconds) * time.Second
+		}
+
+		// The vendor's message, as Orca reads it (claude-oauth-usage-error.ts,
+		// describeOAuthUsageError); cut short, since it is shown.
+		var answer struct {
+			Error struct {
+				Message string `json:"message"`
+			} `json:"error"`
+		}
+
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		if json.Unmarshal(raw, &answer) == nil {
+			refused.said = clip(strings.TrimSpace(answer.Error.Message))
 		}
 
 		return nil, refused

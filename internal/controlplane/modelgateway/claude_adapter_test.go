@@ -243,6 +243,7 @@ func TestAClaudeAnswerSaysWhatIsLeftOfTheAccount(t *testing.T) {
 	left, said := acc.quotaNoted("acc_1")
 	require.True(t, said)
 	assert.InDelta(t, 0.07, left, 1e-9, "one minus the fuller window")
+	assert.Equal(t, "claude 0.42", acc.answerNoted("acc_1"), "the accounts get the answer's headers for the limits")
 
 	status, _, body = g.call(t, g.key, askClaude+`,"stream":true}`)
 	require.Equal(t, http.StatusOK, status, body)

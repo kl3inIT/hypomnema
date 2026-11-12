@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -60,6 +61,10 @@ func (g gatewayAccounts) Quota(ctx context.Context, accountID string) (map[strin
 
 func (g gatewayAccounts) NoteQuota(accountID string, left float64) {
 	g.subs.NoteQuota(accountID, left)
+}
+
+func (g gatewayAccounts) NoteAnswer(runtime, accountID string, h http.Header) {
+	g.subs.NoteAnswer(runtime, accountID, h)
 }
 
 func (g gatewayAccounts) TokenAfterRefusal(

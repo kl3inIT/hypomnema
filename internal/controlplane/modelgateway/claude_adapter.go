@@ -137,6 +137,7 @@ func (s *Server) claudePost(ctx context.Context, token AccountToken, built claud
 	}
 
 	s.noteQuota(token, resp.Header, claudeQuotaLeft)
+	s.accounts.NoteAnswer(claudeAccountRuntime, token.AccountID, resp.Header)
 
 	return resp, nil
 }
