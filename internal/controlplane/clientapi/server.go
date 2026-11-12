@@ -29,6 +29,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/subscription"
+	"github.com/kl3inIT/hypomnema/internal/shared/skillpack"
 )
 
 // BasePath is where the API is served.
@@ -81,6 +82,8 @@ type Server struct {
 	gatewayModels GatewayModels
 	// accountSignIns are the sign-ins of subscription accounts begun and not completed.
 	accountSignIns accountSignIns
+	// skillSources fetches a skill from a repository; nil when the control plane wired none.
+	skillSources SkillSources
 }
 
 // Accounts is what the API asks of the service that signs subscription
@@ -214,11 +217,21 @@ func (s *Server) Register(mux *http.ServeMux) error {
 	mux.HandleFunc("GET "+BasePath+"/browser/views/{ticket}", s.browserViewSocket)
 
 	mux.Handle(BasePath+"/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
+		r.Body = http.MaxBytesReader(w, r.Body, bodyLimit(r))
 		validate(api).ServeHTTP(w, r)
 	}))
 
 	return nil
+}
+
+// bodyLimit is what a request's body may hold: a skill's archive is the one
+// body over the default (skillpack.MaxArchive).
+func bodyLimit(r *http.Request) int64 {
+	if r.Method == http.MethodPost && r.URL.Path == BasePath+"/skills/archive" {
+		return skillpack.MaxArchive
+	}
+
+	return maxBodyBytes
 }
 
 // authenticate returns who makes a request: the user of its session cookie,

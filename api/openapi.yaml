@@ -1407,6 +1407,107 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Bot" }
         default: { $ref: "#/components/responses/Error" }
+  /skills:
+    get:
+      operationId: ListSkills
+      summary: Every skill the owner added, at its newest revision, by name
+      description: >-
+        A skill is a folder in the Agent Skills format (a SKILL.md with a name
+        and a description, and the files beside it), kept whole in revisions
+        that never change. Skills compiled into the binaries are not listed.
+      responses:
+        "200":
+          description: The skills.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SkillList" }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      operationId: AddSkill
+      summary: Add a skill from a public GitHub repository, or its next revision; only the owner
+      description: >-
+        The ref is resolved to its commit and the skill's folder is read at
+        that commit. The skill's name is the one its SKILL.md gives. Files
+        equal to the newest revision's add nothing.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SkillFromGitHub" }
+      responses:
+        "200":
+          description: The files are the newest revision's; the skill as it was.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Skill" }
+        "201":
+          description: A new revision.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Skill" }
+        default: { $ref: "#/components/responses/Error" }
+  /skills/archive:
+    post:
+      operationId: UploadSkill
+      summary: Add a skill from a zip or a gzipped tar, or its next revision; only the owner
+      description: >-
+        The archive is at most 25 MB, holds no links, and has its SKILL.md at
+        its root or in the one folder everything is in.
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: { type: string, format: binary }
+      responses:
+        "200":
+          description: The files are the newest revision's; the skill as it was.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Skill" }
+        "201":
+          description: A new revision.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Skill" }
+        default: { $ref: "#/components/responses/Error" }
+  /skills/{skill}:
+    parameters:
+      - $ref: "#/components/parameters/SkillName"
+    get:
+      operationId: GetSkill
+      summary: A skill with every revision, newest first
+      responses:
+        "200":
+          description: The skill.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Skill" }
+        default: { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: DeleteSkill
+      summary: Remove a skill and its revisions; only the owner
+      responses:
+        "204": { description: The skill is removed. }
+        default: { $ref: "#/components/responses/Error" }
+  /skills/{skill}/everyone:
+    parameters:
+      - $ref: "#/components/parameters/SkillName"
+    put:
+      operationId: SetSkillEveryone
+      summary: Give a skill to every worker and Bot, or take it back; only the owner
+      description: A skill is not given to everyone when it is added.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SkillEveryone" }
+      responses:
+        "200":
+          description: The skill.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Skill" }
+        default: { $ref: "#/components/responses/Error" }
   /profiles:
     get:
       operationId: ListProfiles
@@ -1723,6 +1824,11 @@ components:
       in: path
       required: true
       schema: { type: string, minLength: 1, maxLength: 63 }
+    SkillName:
+      name: skill
+      in: path
+      required: true
+      schema: { type: string, minLength: 1, maxLength: 64 }
     ChatID:
       name: chat_id
       in: path
@@ -3144,6 +3250,63 @@ components:
           minLength: 1
           maxLength: 100000
           description: The YAML document; its name must equal the one in the path.
+    Skill:
+      type: object
+      required: [name, everyone, latest, created_at, updated_at]
+      properties:
+        name: { type: string }
+        everyone:
+          type: boolean
+          description: Given to every worker and Bot that does not turn it off.
+        latest: { $ref: "#/components/schemas/SkillRevision" }
+        revisions:
+          type: array
+          description: Every revision, newest first; only when the skill is read alone.
+          items: { $ref: "#/components/schemas/SkillRevision" }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    SkillRevision:
+      type: object
+      required: [revision, description, digest, size, files, source, created_at]
+      properties:
+        revision: { type: integer }
+        description: { type: string }
+        digest:
+          type: string
+          description: SHA-256 of the files' paths, executable flags and contents.
+        size:
+          type: integer
+          format: int64
+          description: What the files hold, in bytes.
+        files: { type: integer }
+        source:
+          type: string
+          description: upload, or github:owner/repo[/path]@ref.
+        commit:
+          type: string
+          description: The commit the ref was, for a repository.
+        created_at: { type: string, format: date-time }
+    SkillList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/Skill" }
+    SkillFromGitHub:
+      type: object
+      additionalProperties: false
+      required: [github]
+      properties:
+        github:
+          type: string
+          description: owner/repo[/path][@ref]; no ref is the default branch.
+    SkillEveryone:
+      type: object
+      additionalProperties: false
+      required: [everyone]
+      properties:
+        everyone: { type: boolean }
     Bot:
       type: object
       required: [name, persona, memory, memory_limit, created_at, updated_at]

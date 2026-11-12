@@ -513,6 +513,26 @@ type SecretVersion struct {
 	CreatedAt            int64
 }
 
+type Skill struct {
+	Name      string
+	Everyone  int64
+	CreatedAt int64
+	UpdatedAt int64
+}
+
+type SkillRevision struct {
+	Skill        string
+	Revision     int64
+	Description  string
+	Digest       string
+	Size         int64
+	Files        int64
+	Source       string
+	SourceCommit sql.NullString
+	Archive      []byte
+	CreatedAt    int64
+}
+
 type Task struct {
 	ID                string
 	RunID             string

@@ -1,0 +1,156 @@
+package clientapi
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+
+	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/skillsource"
+	"github.com/kl3inIT/hypomnema/internal/shared/skillpack"
+)
+
+// Skills (issue #21). Every token reads them; only the owner adds, gives to
+// everyone and removes one (policy.go).
+
+// SkillSources fetches a skill from a repository.
+type SkillSources interface {
+	Fetch(ctx context.Context, src skillsource.Source) (skillpack.Skill, string, error)
+}
+
+// errNoSkillSource is a control plane that wired no way to reach GitHub.
+var errNoSkillSource = errors.New("this control plane does not fetch skills from repositories")
+
+// WithSkillSources lets the owner add a skill from a repository.
+func (s *Server) WithSkillSources(src SkillSources) *Server {
+	s.skillSources = src
+
+	return s
+}
+
+// ListSkills returns every skill at its newest revision.
+func (s *Server) ListSkills(ctx context.Context, _ openapi.ListSkillsRequestObject,
+) (openapi.ListSkillsResponseObject, error) {
+	skills, err := s.svc.ListSkills(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	out := openapi.ListSkills200JSONResponse{Data: make([]openapi.Skill, 0, len(skills))}
+	for _, sk := range skills {
+		out.Data = append(out.Data, toSkill(sk))
+	}
+
+	return out, nil
+}
+
+// AddSkill keeps a skill from a public GitHub repository.
+func (s *Server) AddSkill(ctx context.Context, req openapi.AddSkillRequestObject,
+) (openapi.AddSkillResponseObject, error) {
+	if s.skillSources == nil {
+		return nil, errNoSkillSource
+	}
+
+	src, err := skillsource.Parse(req.Body.Github)
+	if err != nil {
+		return nil, err
+	}
+
+	sk, commit, err := s.skillSources.Fetch(ctx, src)
+	if err != nil {
+		return nil, err
+	}
+
+	kept, added, err := s.svc.AddSkill(ctx, sk, orchestration.SkillSource{Source: src.String(), Commit: commit})
+	if err != nil {
+		return nil, err
+	}
+
+	if added {
+		return openapi.AddSkill201JSONResponse(toSkill(kept)), nil
+	}
+
+	return openapi.AddSkill200JSONResponse(toSkill(kept)), nil
+}
+
+// UploadSkill keeps a skill given as an archive.
+func (s *Server) UploadSkill(ctx context.Context, req openapi.UploadSkillRequestObject,
+) (openapi.UploadSkillResponseObject, error) {
+	data, err := io.ReadAll(req.Body)
+	if err != nil {
+		return nil, fmt.Errorf("reading the archive: %w", err)
+	}
+
+	sk, err := skillpack.FromArchive(data)
+	if err != nil {
+		return nil, err
+	}
+
+	kept, added, err := s.svc.AddSkill(ctx, sk, orchestration.SkillSource{Source: orchestration.SkillUpload})
+	if err != nil {
+		return nil, err
+	}
+
+	if added {
+		return openapi.UploadSkill201JSONResponse(toSkill(kept)), nil
+	}
+
+	return openapi.UploadSkill200JSONResponse(toSkill(kept)), nil
+}
+
+// GetSkill returns a skill with every revision.
+func (s *Server) GetSkill(ctx context.Context, req openapi.GetSkillRequestObject,
+) (openapi.GetSkillResponseObject, error) {
+	sk, err := s.svc.GetSkill(ctx, req.Skill)
+	if err != nil {
+		return nil, err
+	}
+
+	out := toSkill(sk)
+	revs := make([]openapi.SkillRevision, len(sk.Revisions))
+
+	for i, r := range sk.Revisions {
+		revs[i] = toSkillRevision(r)
+	}
+
+	out.Revisions = &revs
+
+	return openapi.GetSkill200JSONResponse(out), nil
+}
+
+// DeleteSkill removes a skill and its revisions.
+func (s *Server) DeleteSkill(ctx context.Context, req openapi.DeleteSkillRequestObject,
+) (openapi.DeleteSkillResponseObject, error) {
+	if err := s.svc.DeleteSkill(ctx, req.Skill); err != nil {
+		return nil, err
+	}
+
+	return openapi.DeleteSkill204Response{}, nil
+}
+
+// SetSkillEveryone gives a skill to everyone, or takes it back.
+func (s *Server) SetSkillEveryone(ctx context.Context, req openapi.SetSkillEveryoneRequestObject,
+) (openapi.SetSkillEveryoneResponseObject, error) {
+	sk, err := s.svc.SetSkillEveryone(ctx, req.Skill, req.Body.Everyone)
+	if err != nil {
+		return nil, err
+	}
+
+	return openapi.SetSkillEveryone200JSONResponse(toSkill(sk)), nil
+}
+
+func toSkill(sk orchestration.Skill) openapi.Skill {
+	return openapi.Skill{
+		Name: sk.Name, Everyone: sk.Everyone, Latest: toSkillRevision(sk.Latest),
+		CreatedAt: sk.CreatedAt, UpdatedAt: sk.UpdatedAt,
+	}
+}
+
+func toSkillRevision(r orchestration.SkillRevision) openapi.SkillRevision {
+	return openapi.SkillRevision{
+		Revision: r.Revision, Description: r.Description, Digest: r.Digest, Size: r.Size, Files: r.Files,
+		Source: r.Source, Commit: ptr(r.Commit), CreatedAt: r.CreatedAt,
+	}
+}

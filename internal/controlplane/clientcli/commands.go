@@ -459,6 +459,32 @@ var commands = []command{
 		flags: jsonFlag, run: browserStatus,
 	},
 	{
+		name: "skills list", summary: "the skills the owner added, each at its newest revision",
+		flags: jsonFlag, run: skillsList,
+	},
+	{
+		name: "skills show", args: "<skill>", min: 1, max: 1, summary: "a skill the owner added, with every revision",
+		flags: jsonFlag, run: skillsShow,
+	},
+	{
+		name:    "skills add",
+		summary: "add a skill, or its next revision, from a public GitHub repository or an archive (owner)",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("github", "", "owner/repo[/path][@ref]; no ref is the default branch")
+			fs.String("file", "", "a zip or a gzipped tar with SKILL.md at its root or in its one folder")
+			jsonFlag(fs)
+		},
+		run: skillsAdd,
+	},
+	{
+		name: "skills everyone", args: "<skill> on|off", min: 2, max: 2,
+		summary: "give a skill to every worker and Bot, or take it back (owner)", flags: jsonFlag, run: skillsEveryone,
+	},
+	{
+		name: "skills rm", args: "<skill>", min: 1, max: 1, summary: "remove a skill and its revisions (owner)",
+		flags: jsonFlag, run: skillsRemove,
+	},
+	{
 		name: "skills get", args: "[skill]", max: 1, offline: true,
 		summary: "print a skill's guide, as this binary ships it",
 		flags: func(fs *flag.FlagSet) {
