@@ -70,3 +70,64 @@ func TestSkillsFromTheCLI(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, out, "no skills")
 }
+
+// Scenario: the owner gives a Bot a skill. A later change of the Bot that
+// names no skill keeps it. The launcher's `skills sync`, run with pi's
+// token, puts the skill in the Bot's folder, fetches nothing the second time,
+// takes away a skill the Bot no longer gets and keeps what starts with a dot.
+func TestABotsSkillsAreSyncedForPi(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	w.login(t, bearertoken.Owner)
+
+	archive, err := skillpack.Skill{Files: []skillpack.File{
+		{Path: "SKILL.md", Data: []byte("---\nname: review-go\ndescription: Review a Go change.\n---\n")},
+		{Path: "references/style.md", Data: []byte("short names\n")},
+	}}.Archive()
+	require.NoError(t, err)
+
+	file := filepath.Join(t.TempDir(), "review-go.tar.gz")
+	require.NoError(t, os.WriteFile(file, archive, 0o600))
+
+	_, err = w.cmd(t, "skills", "add", "--file", file)
+	require.NoError(t, err)
+
+	out, err := w.cmd(t, "bots", "set", "vmap", "--skills", "review-go")
+	require.NoError(t, err)
+	assert.Contains(t, out, "skills: review-go")
+
+	var bot openapi.Bot
+	w.jsonCmd(t, &bot, "", "bots", "set", "vmap", "--effort", "high")
+	assert.Equal(t, []string{"review-go"}, bot.Skills, "a change that names no skill keeps them")
+
+	pi := &world{svc: w.svc, url: w.url, home: filepath.Join(t.TempDir(), "coordinator")}
+	pi.login(t, bearertoken.Coordinator)
+
+	dir := filepath.Join(t.TempDir(), "skills")
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "gone"), 0o700))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, ".keep"), 0o700))
+
+	out, err = pi.cmd(t, "skills", "sync", "--bot", "vmap", "--dir", dir)
+	require.NoError(t, err)
+	assert.Contains(t, out, "bot vmap: 1 skills in "+dir)
+	assert.FileExists(t, filepath.Join(dir, "review-go", "references", "style.md"))
+	assert.NoDirExists(t, filepath.Join(dir, "gone"), "a skill the Bot does not get is taken away")
+	assert.DirExists(t, filepath.Join(dir, ".keep"))
+
+	// The second time the folder holds the revision: an edit there stays, since nothing is fetched.
+	edited := filepath.Join(dir, "review-go", "SKILL.md")
+	require.NoError(t, os.WriteFile(edited, []byte("edited"), 0o600))
+	_, err = pi.cmd(t, "skills", "sync", "--bot", "vmap", "--dir", dir)
+	require.NoError(t, err)
+
+	b, err := os.ReadFile(edited) //nolint:gosec // the test's own folder
+	require.NoError(t, err)
+	assert.Equal(t, "edited", string(b))
+
+	_, err = w.cmd(t, "bots", "set", "vmap", "--skills", "")
+	require.NoError(t, err)
+	_, err = pi.cmd(t, "skills", "sync", "--bot", "vmap", "--dir", dir)
+	require.NoError(t, err)
+	assert.NoDirExists(t, filepath.Join(dir, "review-go"))
+}

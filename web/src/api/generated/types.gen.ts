@@ -1259,6 +1259,16 @@ export type SkillRevision = {
   created_at: string;
 };
 
+export type SkillRef = {
+  name: string;
+  revision: number;
+  digest: string;
+};
+
+export type SkillRefList = {
+  data: Array<SkillRef>;
+};
+
 export type SkillList = {
   data: Array<Skill>;
 };
@@ -1291,6 +1301,14 @@ export type Bot = {
    * The most characters the memory holds.
    */
   memory_limit: number;
+  /**
+   * The skills the Bot gets beside those given to everyone.
+   */
+  skills: Array<string>;
+  /**
+   * The skills given to everyone that the Bot does not get.
+   */
+  skills_off: Array<string>;
   created_at: string;
   updated_at: string;
 };
@@ -1304,6 +1322,14 @@ export type BotSettings = {
   model?: string;
   effort?: string;
   persona?: string;
+  /**
+   * The skills the Bot adds; left out, the Bot keeps those it has.
+   */
+  skills?: Array<string>;
+  /**
+   * The skills for everyone the Bot turns off; left out, the Bot keeps those it has.
+   */
+  skills_off?: Array<string>;
 };
 
 export type MemoryText = {
@@ -3839,6 +3865,33 @@ export type PutBotResponses = {
 
 export type PutBotResponse = PutBotResponses[keyof PutBotResponses];
 
+export type ListBotSkillsData = {
+  body?: never;
+  path: {
+    name: string;
+  };
+  query?: never;
+  url: '/bots/{name}/skills';
+};
+
+export type ListBotSkillsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListBotSkillsError = ListBotSkillsErrors[keyof ListBotSkillsErrors];
+
+export type ListBotSkillsResponses = {
+  /**
+   * The skills.
+   */
+  200: SkillRefList;
+};
+
+export type ListBotSkillsResponse = ListBotSkillsResponses[keyof ListBotSkillsResponses];
+
 export type ChangeBotMemoryData = {
   body: MemoryChange;
   path: {
@@ -4029,6 +4082,34 @@ export type GetSkillResponses = {
 };
 
 export type GetSkillResponse = GetSkillResponses[keyof GetSkillResponses];
+
+export type GetSkillArchiveData = {
+  body?: never;
+  path: {
+    skill: string;
+    revision: number;
+  };
+  query?: never;
+  url: '/skills/{skill}/revisions/{revision}/archive';
+};
+
+export type GetSkillArchiveErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GetSkillArchiveError = GetSkillArchiveErrors[keyof GetSkillArchiveErrors];
+
+export type GetSkillArchiveResponses = {
+  /**
+   * The archive.
+   */
+  200: Blob | File;
+};
+
+export type GetSkillArchiveResponse = GetSkillArchiveResponses[keyof GetSkillArchiveResponses];
 
 export type SetSkillEveryoneData = {
   body: SkillEveryone;

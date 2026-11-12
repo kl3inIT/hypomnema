@@ -320,8 +320,19 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     them, as Omnigent places them: Claude Code gets a plugin folder of the Dispatch (`run/<dispatch>/plugin`, its
     manifest naming it `hypomnema`) through `--plugin-dir`, since its configuration folder is shared by every
     Dispatch on the account; Codex gets them in the Conversation's `CODEX_HOME/skills`, made again at each start so
-    that a skill taken away is gone, beside Codex's own `.system`. omp, opencode and Bots do not get them yet
-    (step 3 of issue #21); the built-in skills reach workers as before.
+    that a skill taken away is gone, beside Codex's own `.system`. omp gets them in its agent directory's `skills`
+    (`PI_CODING_AGENT_DIR`, which omp reads skills from); opencode in the Conversation's `skills` folder, which its
+    configuration names (`skills: [...]`, its "additional paths ... to discover skills from"). The built-in skills
+    reach workers as before.
+  - A Bot has the same two lists (`bots set --skills a,b --skills-off c`, migration 00052); a change that names
+    neither keeps them, so a client that does not know them does not take them away. A skill a Bot names is not
+    removed. When pi starts for a chat, `hypomnema-pi` runs `hypomnema skills sync --bot <bot> --dir
+    <bot's folder>/.hypomnema/skills` with pi's token: it asks `GET /bots/{name}/skills` for the skills the Bot gets
+    now, each at its newest revision, fetches a revision the folder does not hold from
+    `GET /skills/{skill}/revisions/{revision}/archive`, checks its digest, unpacks it beside the folder's other
+    skills with a `.hypomnema-digest` file (Omnara's `.digest`) and takes away a skill the Bot no longer gets. pi is
+    given the folder with `--skill`, which it loads without asking for the project's trust as it would for
+    `.pi/skills`. When the skills cannot be put in place, pi does not start.
   - Client API: `GET /skills` (each skill at its newest revision), `POST /skills` (`{"github": ...}`),
     `POST /skills/archive` (the archive as the body, the one body allowed over 1 MB), `GET /skills/{skill}` (with
     every revision), `PUT /skills/{skill}/everyone`, `DELETE /skills/{skill}`. Every token reads; only the owner's

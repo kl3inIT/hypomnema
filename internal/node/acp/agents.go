@@ -34,6 +34,9 @@ type launch struct {
 	URL    string
 	Model  string
 	Effort string
+	// Skills is the folder the Dispatch's skills were placed in, which the
+	// CLI is told of when it does not find it by itself; empty without skills.
+	Skills string
 }
 
 // agent is one ACP CLI.
@@ -41,11 +44,18 @@ type agent struct {
 	// prepare writes the CLI's configuration under l.Dir and returns the
 	// arguments after the binary and the environment that names it.
 	prepare func(l launch) (args, env []string, err error)
+	// skills is the folder of the Conversation's directory the Dispatch's
+	// skills are placed in (issue #21).
+	skills func(dir string) string
 }
 
 var agents = map[string]agent{
-	"omp":      {prepare: prepareOmp},
-	"opencode": {prepare: prepareOpencode},
+	// omp reads the skills of its agent directory, PI_CODING_AGENT_DIR (omp
+	// src/config.ts getConfigDirs, src/discovery/agents.ts loadSkills).
+	"omp": {prepare: prepareOmp, skills: func(dir string) string { return filepath.Join(dir, "agent", "skills") }},
+	// opencode is told of the folder in its configuration's skills, its
+	// "additional paths ... to discover skills from" (schema/src/config.ts).
+	"opencode": {prepare: prepareOpencode, skills: func(dir string) string { return filepath.Join(dir, "skills") }},
 }
 
 // Runtimes are the runtimes this runner drives.
@@ -106,7 +116,7 @@ func prepareOpencode(l launch) ([]string, []string, error) {
 		"limit":        map[string]any{"context": contextWindow, "output": maxOutput},
 	}
 
-	config, err := json.MarshalIndent(map[string]any{
+	settings := map[string]any{
 		"model": providerID + "/" + l.Model,
 		"providers": map[string]any{providerID: map[string]any{
 			"package":  "@opencode/ai/providers/openai-compatible",
@@ -117,7 +127,12 @@ func prepareOpencode(l launch) ([]string, []string, error) {
 			{"action": "*", "resource": "*", "effect": "allow"},
 			{"action": "execute", "resource": "*", "effect": "deny"},
 		},
-	}, "", "  ")
+	}
+	if l.Skills != "" {
+		settings["skills"] = []string{l.Skills}
+	}
+
+	config, err := json.MarshalIndent(settings, "", "  ")
 	if err != nil {
 		return nil, nil, fmt.Errorf("encoding opencode's configuration: %w", err)
 	}

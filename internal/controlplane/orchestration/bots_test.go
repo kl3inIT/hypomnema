@@ -28,14 +28,17 @@ func TestTheOwnerMakesASecondBot(t *testing.T) {
 		"base_url: https://router.example/v1\napi_key_ref: ROUTER_KEY\nmodels: [sonnet]\n")
 	require.NoError(t, err)
 
-	for bot, want := range map[Bot]string{
-		{Name: "Bad Name"}:                             "lowercase",
-		{Name: "x", Model: "opus"}:                     "no provider",
-		{Name: "x", Model: "sonnet", Effort: "huge"}:   "unknown effort",
-		{Name: "x", Persona: strings.Repeat("a", 2e4)}: "at most",
+	for _, c := range []struct {
+		bot  Bot
+		want string
+	}{
+		{Bot{Name: "Bad Name"}, "lowercase"},
+		{Bot{Name: "x", Model: "opus"}, "no provider"},
+		{Bot{Name: "x", Model: "sonnet", Effort: "huge"}, "unknown effort"},
+		{Bot{Name: "x", Persona: strings.Repeat("a", 2e4)}, "at most"},
 	} {
-		_, err := w.s.PutBot(ctx, bot)
-		require.ErrorContains(t, err, want, bot.Name)
+		_, err := w.s.PutBot(ctx, c.bot)
+		require.ErrorContains(t, err, c.want, c.bot.Name)
 	}
 
 	vmap, err := w.s.PutBot(ctx, Bot{Name: "vmap", Model: "sonnet", Persona: "  You answer about VMAP.\n"})

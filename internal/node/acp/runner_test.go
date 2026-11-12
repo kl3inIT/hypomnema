@@ -396,6 +396,7 @@ func TestOpencodeThroughTheGateway(t *testing.T) {
 		"baseURL": "https://hypomnema.example/v1", "apiKey": "{env:HYPOMNEMA_MODEL_KEY}",
 	}, config.Providers["hypomnema"].Settings)
 	assert.Contains(t, config.Permissions, map[string]string{"action": "execute", "resource": "*", "effect": "deny"})
+	assert.NotContains(t, string(raw), `"skills"`, "a worker given no skill is told of no folder")
 }
 
 // Scenario: a follow-up Dispatch of a Conversation. The agent resumes its
@@ -490,4 +491,49 @@ func TestHowAnACPTurnEnds(t *testing.T) {
 
 		require.ErrorContains(t, g.runner.Start(t.Context(), d, newReporter()), "no key of the model gateway")
 	})
+}
+
+// Scenario: an omp and an opencode worker are given a skill the node has
+// kept (issue #21). omp finds it in its agent directory's skills; opencode is
+// told of its folder in its configuration.
+func TestOmpAndOpencodeFindTheirSkills(t *testing.T) {
+	t.Parallel()
+
+	for _, runtime := range []string{"omp", "opencode"} {
+		t.Run(runtime, func(t *testing.T) {
+			t.Parallel()
+
+			g := newRig(t, "success")
+			digest := strings.Repeat("ef", 32)
+			kept := filepath.Join(g.runner.Home, "skills", digest)
+			require.NoError(t, os.MkdirAll(kept, 0o700))
+			require.NoError(t, os.WriteFile(filepath.Join(kept, "SKILL.md"), []byte("---\nname: pdf\n---\n"), 0o600))
+
+			d := g.dispatch(runtime, "")
+			d.Offer.Skills = []nodeproto.Skill{{Name: "pdf", Revision: 1, Digest: digest}}
+
+			r := newReporter()
+			require.NoError(t, g.runner.Start(t.Context(), d, r))
+			r.wait(t)
+
+			conversation := filepath.Join(g.runner.Home, "conversations", "cnv_1", runtime)
+			where := map[string]string{
+				"omp": filepath.Join(conversation, "agent", "skills"), "opencode": filepath.Join(conversation, "skills"),
+			}[runtime]
+			assert.FileExists(t, filepath.Join(where, "pdf", "SKILL.md"))
+
+			if runtime != "opencode" {
+				return
+			}
+
+			raw, err := os.ReadFile(filepath.Join(conversation, "opencode.json")) //nolint:gosec // the test's own
+			require.NoError(t, err)
+
+			var config struct {
+				Skills []string `json:"skills"`
+			}
+			require.NoError(t, json.Unmarshal(raw, &config))
+			assert.Equal(t, []string{where}, config.Skills)
+		})
+	}
 }

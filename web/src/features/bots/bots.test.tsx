@@ -34,6 +34,8 @@ const bot = (name: string, m: Partial<Bot> = {}): Bot => ({
   persona: "",
   memory: "",
   memory_limit: 2200,
+  skills: [],
+  skills_off: [],
   created_at: new Date(Date.now() - 48 * 3_600_000).toISOString(),
   updated_at: new Date(Date.now() - 2 * 3_600_000).toISOString(),
   ...m,

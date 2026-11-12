@@ -1,6 +1,7 @@
 package clientapi
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -153,4 +154,33 @@ func toSkillRevision(r orchestration.SkillRevision) openapi.SkillRevision {
 		Revision: r.Revision, Description: r.Description, Digest: r.Digest, Size: r.Size, Files: r.Files,
 		Source: r.Source, Commit: ptr(r.Commit), CreatedAt: r.CreatedAt,
 	}
+}
+
+// ListBotSkills returns the skills a Bot gets now.
+func (s *Server) ListBotSkills(ctx context.Context, req openapi.ListBotSkillsRequestObject,
+) (openapi.ListBotSkillsResponseObject, error) {
+	given, err := s.svc.BotSkills(ctx, req.Name)
+	if err != nil {
+		return nil, err
+	}
+
+	out := openapi.ListBotSkills200JSONResponse{Data: make([]openapi.SkillRef, 0, len(given))}
+	for _, sk := range given {
+		out.Data = append(out.Data, openapi.SkillRef{Name: sk.Name, Revision: sk.Revision, Digest: sk.Digest})
+	}
+
+	return out, nil
+}
+
+// GetSkillArchive returns one revision of a skill as its archive.
+func (s *Server) GetSkillArchive(ctx context.Context, req openapi.GetSkillArchiveRequestObject,
+) (openapi.GetSkillArchiveResponseObject, error) {
+	archive, err := s.svc.SkillArchive(ctx, req.Skill, req.Revision)
+	if err != nil {
+		return nil, err
+	}
+
+	return openapi.GetSkillArchive200ApplicationgzipResponse{
+		Body: bytes.NewReader(archive), ContentLength: int64(len(archive)),
+	}, nil
 }

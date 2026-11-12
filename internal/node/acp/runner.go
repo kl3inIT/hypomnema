@@ -42,6 +42,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/node/claude"
 	"github.com/kl3inIT/hypomnema/internal/node/daemon"
 	"github.com/kl3inIT/hypomnema/internal/node/shim"
+	"github.com/kl3inIT/hypomnema/internal/node/skills"
 	"github.com/kl3inIT/hypomnema/internal/node/statedb"
 	"github.com/kl3inIT/hypomnema/internal/node/transcript"
 	"github.com/kl3inIT/hypomnema/internal/node/worktree"
@@ -188,9 +189,20 @@ func (rn *Runner) Start(ctx context.Context, d statedb.Dispatch, r daemon.Report
 		return fmt.Errorf("making the worktree: %w", err)
 	}
 
+	convDir := filepath.Join(rn.Home, "conversations", o.ConversationID, o.Runtime)
+
+	// The skills the worker is given, placed again at each start so that one taken away is gone (issue #21).
+	given := a.skills(convDir)
+	if err := skills.Place(rn.Home, given, o.Skills); err != nil {
+		return err
+	}
+
+	if len(o.Skills) == 0 {
+		given = ""
+	}
+
 	args, agentEnv, err := a.prepare(launch{
-		Dir: filepath.Join(rn.Home, "conversations", o.ConversationID, o.Runtime),
-		URL: strings.TrimRight(rn.URL, "/") + "/v1", Model: o.Model, Effort: o.Effort,
+		Dir: convDir, URL: strings.TrimRight(rn.URL, "/") + "/v1", Model: o.Model, Effort: o.Effort, Skills: given,
 	})
 	if err != nil {
 		return err

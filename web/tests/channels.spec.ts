@@ -27,6 +27,8 @@ const bot = (name: string, persona: string) => ({
   persona,
   memory: "",
   memory_limit: 2200,
+  skills: [],
+  skills_off: [],
   created_at: now,
   updated_at: now,
 })

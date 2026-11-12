@@ -47,6 +47,14 @@ func memoryEntries(b openapi.Bot) []string {
 func printBot(e *env, b *openapi.Bot) {
 	e.printf("%s\t%s\tmemory %d/%d\n", b.Name, botModel(*b), utf8.RuneCountInString(b.Memory), b.MemoryLimit)
 
+	if len(b.Skills) > 0 {
+		e.printf("skills: %s\n", strings.Join(b.Skills, ", "))
+	}
+
+	if len(b.SkillsOff) > 0 {
+		e.printf("skills off: %s\n", strings.Join(b.SkillsOff, ", "))
+	}
+
 	if b.Persona != "" {
 		e.printf("\n%s\n", b.Persona)
 	}
@@ -115,6 +123,19 @@ func botsSet(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		set = openapi.BotSettings{Provider: b.Provider, Model: b.Model, Effort: b.Effort, Persona: &b.Persona}
 	}
 
+	// Skills are sent only when a flag names them: the server keeps those left out.
+	list := func(v string) *[]string {
+		out := []string{}
+
+		for _, name := range strings.Split(v, ",") {
+			if name = strings.TrimSpace(name); name != "" {
+				out = append(out, name)
+			}
+		}
+
+		return &out
+	}
+
 	var failed error
 
 	fs.Visit(func(f *flag.Flag) {
@@ -127,6 +148,10 @@ func botsSet(ctx context.Context, e *env, fs *flag.FlagSet) error {
 			set.Model = &v
 		case "effort":
 			set.Effort = &v
+		case "skills":
+			set.Skills = list(v)
+		case "skills-off":
+			set.SkillsOff = list(v)
 		case "persona-file":
 			persona, err := e.read(v)
 			if err != nil {
