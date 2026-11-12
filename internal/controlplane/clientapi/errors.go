@@ -9,6 +9,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/skillsource"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/skillssh"
 	"github.com/kl3inIT/hypomnema/internal/shared/skillpack"
 )
 
@@ -62,7 +63,8 @@ func codeOf(err error) openapi.ErrorCode {
 	case errors.Is(err, orchestration.ErrConflict):
 		return openapi.Conflict
 	case errors.Is(err, orchestration.ErrUnavailable), errors.Is(err, orchestration.ErrCoolingDown),
-		errors.Is(err, skillsource.ErrUnavailable), errors.Is(err, errNoSkillSource):
+		errors.Is(err, skillsource.ErrUnavailable), errors.Is(err, errNoSkillSource),
+		errors.Is(err, skillssh.ErrUnavailable), errors.Is(err, errNoSkillDirectory):
 		return openapi.Unavailable
 	case errors.As(err, &tooLarge):
 		return openapi.RequestTooLarge

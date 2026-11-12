@@ -1365,6 +1365,41 @@ export type BuiltinSkillList = {
   data: Array<BuiltinSkill>;
 };
 
+export type SkillSearchResult = {
+  /**
+   * owner/repo/slug, the skill's page on skills.sh.
+   */
+  id: string;
+  name: string;
+  /**
+   * owner/repo, the GitHub repository it is in.
+   */
+  source: string;
+  installs: number;
+};
+
+export type SkillSearchList = {
+  data: Array<SkillSearchResult>;
+  /**
+   * How many of the first results match every word; the rest match some.
+   */
+  exact: number;
+};
+
+export type SkillAudit = {
+  /**
+   * Who audited it, as skills.sh names them (ath for Gen, socket, snyk).
+   */
+  partner: string;
+  risk: 'safe' | 'low' | 'medium' | 'high' | 'critical' | 'unknown';
+  alerts?: number;
+  analyzed_at?: string;
+};
+
+export type SkillAuditList = {
+  data: Array<SkillAudit>;
+};
+
 export type SkillRef = {
   name: string;
   revision: number;
@@ -1384,6 +1419,10 @@ export type SkillFromGitHub = {
    * owner/repo[/path][@ref]; no ref is the default branch.
    */
   github: string;
+  /**
+   * The name of a skill in the repository, as skills.sh gives it, instead of a path: the folder whose SKILL.md has this name is found as the skills CLI finds it, and kept as the source's path.
+   */
+  skill?: string;
 };
 
 export type SkillEveryone = {
@@ -4519,6 +4558,71 @@ export type ListBuiltinSkillsResponses = {
 };
 
 export type ListBuiltinSkillsResponse = ListBuiltinSkillsResponses[keyof ListBuiltinSkillsResponses];
+
+export type SearchSkillsData = {
+  body?: never;
+  path?: never;
+  query: {
+    q: string;
+    /**
+     * Only the skills of this GitHub owner.
+     */
+    owner?: string;
+  };
+  url: '/skill-search';
+};
+
+export type SearchSkillsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type SearchSkillsError = SearchSkillsErrors[keyof SearchSkillsErrors];
+
+export type SearchSkillsResponses = {
+  /**
+   * The skills found.
+   */
+  200: SkillSearchList;
+};
+
+export type SearchSkillsResponse = SearchSkillsResponses[keyof SearchSkillsResponses];
+
+export type ListSkillAuditsData = {
+  body?: never;
+  path?: never;
+  query: {
+    /**
+     * owner/repo.
+     */
+    source: string;
+    /**
+     * The skill's slug on skills.sh, the last part of its id.
+     */
+    skill: string;
+  };
+  url: '/skill-audits';
+};
+
+export type ListSkillAuditsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListSkillAuditsError = ListSkillAuditsErrors[keyof ListSkillAuditsErrors];
+
+export type ListSkillAuditsResponses = {
+  /**
+   * The audits.
+   */
+  200: SkillAuditList;
+};
+
+export type ListSkillAuditsResponse = ListSkillAuditsResponses[keyof ListSkillAuditsResponses];
 
 export type SetSkillEveryoneData = {
   body: SkillEveryone;

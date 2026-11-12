@@ -476,10 +476,20 @@ var commands = []command{
 		summary: "add a skill, or its next revision, from a public GitHub repository or an archive (owner)",
 		flags: func(fs *flag.FlagSet) {
 			fs.String("github", "", "owner/repo[/path][@ref]; no ref is the default branch")
+			fs.String("skill", "", "with --github owner/repo, the skill's name, as `skills search` gives it, "+
+				"instead of its folder")
 			fs.String("file", "", "a zip or a gzipped tar with SKILL.md at its root or in its one folder")
 			jsonFlag(fs)
 		},
 		run: skillsAdd,
+	},
+	{
+		name: "skills search", args: "<words>", min: 1, max: -1, summary: "search the skills on skills.sh (owner)",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("owner", "", "only the skills of this GitHub owner")
+			jsonFlag(fs)
+		},
+		run: skillsSearch,
 	},
 	{
 		name: "skills sync", summary: "put the skills a bot gets in a folder, for pi's --skill (the launcher's)",

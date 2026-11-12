@@ -364,6 +364,16 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     description of each skill the binary ships). Every token reads; only the owner's change. CLI: `skills list`, `skills show`, `skills add --github owner/repo[/path][@ref] | --file <archive>`,
     `skills everyone <skill> on|off`, `skills rm`. `skills get` and `skills install` are still the built-in skills',
     which are not listed.
+  - skills.sh (`internal/controlplane/skillssh`, step 5, after the skills CLI `vercel-labs/skills`): `GET
+    /skill-search?q=&owner=` asks skills.sh's search and, when a query of two to six words finds fewer than ten,
+    asks again without each word and puts those after, at most 25 (`exact` says how many lead); `GET
+    /skill-audits?source=owner/repo&skill=<slug>` gives what skills.sh's auditors (Gen, Socket, Snyk) said, empty
+    when skills.sh does not answer. Both only the owner's. A GitHub source may name a skill instead of a folder
+    (`{"github": "owner/repo", "skill": "pdf"}`): `skillsource` reads the SKILL.md files of the repository's
+    tarball and takes the folder of the first whose name matches, in the CLI's order (the root, `skills/`, the
+    agents' project folders, the `paths` of `skills.sh.json`, three levels deep; else anywhere five deep), and
+    keeps that folder as the source's path. CLI: `skills search <words> [--owner o]`, `skills add --github
+    owner/repo --skill <name>`, which prints the audits first. Nothing else is sent to skills.sh.
 - Profiles (`orchestration/profiles.go`, issue #42, after Omnara's agent configs): a profile is a YAML document
   (`name`, `description` of what it is for, `runtime`, optional `model: {provider, name, effort}`, `instruction`). Applying a changed source makes a
   new immutable version and points the name at it; the same source returns the current version. Providers (kind
