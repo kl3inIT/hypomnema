@@ -242,6 +242,37 @@ func (s *Service) Begin(ctx context.Context, runtime string) (*Attempt, error) {
 	return a, nil
 }
 
+// browserLogin is a vendor whose own login asks for a code first, with a
+// browser login beside it (Codex).
+type browserLogin interface {
+	BeginInBrowser(ctx context.Context) (*Attempt, error)
+}
+
+// BeginInBrowser starts a login whose last address the owner pastes back: the
+// one a web page asks for. 9router's dashboard, CLIProxyAPI's management API
+// and T3 Code sign Codex in on the web this way, and keep its device code to a
+// terminal, as `accounts login` keeps it here.
+func (s *Service) BeginInBrowser(ctx context.Context, runtime string) (*Attempt, error) {
+	vendor, ok := s.vendors[runtime]
+	if !ok {
+		return nil, fmt.Errorf("%w: %q", ErrUnknownVendor, runtime)
+	}
+
+	browser, ok := vendor.(browserLogin)
+	if !ok {
+		return s.Begin(ctx, runtime)
+	}
+
+	a, err := browser.BeginInBrowser(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("starting a %s login: %w", runtime, err)
+	}
+
+	a.Runtime = runtime
+
+	return a, nil
+}
+
 // Complete finishes a login and stores it: a new account, or new tokens for
 // the account the vendor's id already has. pasted is the address the browser
 // ended on, for an attempt that asks for it; label names a new account to the

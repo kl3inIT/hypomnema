@@ -95,15 +95,12 @@ func (s *signedIn) Remove(_ context.Context, id string) error {
 
 // Begin starts a sign-in the way the two kinds do: claude asks for the
 // address the browser ends on, codex shows a code.
-func (s *signedIn) Begin(_ context.Context, runtime string) (*subscription.Attempt, error) {
+func (s *signedIn) BeginInBrowser(_ context.Context, runtime string) (*subscription.Attempt, error) {
 	switch runtime {
-	case "claude":
+	case "claude", "codex":
 		return &subscription.Attempt{
-			Runtime: runtime, URL: "https://claude.example/authorize?state=abc", Paste: true, ExpiresIn: 10 * time.Minute,
-		}, nil
-	case "codex":
-		return &subscription.Attempt{
-			Runtime: runtime, URL: "https://chatgpt.example/device", UserCode: "ABCD-1234", ExpiresIn: 15 * time.Minute,
+			Runtime: runtime, URL: "https://" + runtime + ".example/authorize?state=abc", Paste: true,
+			ExpiresIn: 10 * time.Minute,
 		}, nil
 	default:
 		return nil, fmt.Errorf("%w: %q", subscription.ErrUnknownVendor, runtime)
@@ -340,9 +337,8 @@ func TestTheOwnerReadsAnAccountsLimits(t *testing.T) {
 }
 
 // Scenario: the owner adds accounts from the Models page (issue #199, step
-// 2). A Claude sign-in gives a link and is completed with the address the
-// browser ended on; a Codex sign-in gives a link and a code and is completed
-// by waiting. A sign-in is completed once, a wrong address is refused and the
+// 2). A Claude or Codex sign-in gives a link and is completed with what the
+// browser ended on. A sign-in is completed once, a wrong address is refused and the
 // sign-in is begun again, and a coordinator starts none.
 func TestTheOwnerSignsAccountsInFromTheModelsPage(t *testing.T) {
 	t.Parallel()
@@ -402,17 +398,18 @@ func TestTheOwnerSignsAccountsInFromTheModelsPage(t *testing.T) {
 	assert.Equal(t, "claude", done.JSON200.Runtime)
 	assert.Equal(t, openapi.AccountSignInActive, val(done.JSON200.SignIn))
 
-	coded, err := owner.BeginAccountSignInWithResponse(ctx,
+	codex, err := owner.BeginAccountSignInWithResponse(ctx,
 		openapi.NewAccountSignIn{Runtime: openapi.NewAccountSignInRuntimeCodex})
 	require.NoError(t, err)
-	require.Equal(t, http.StatusOK, coded.StatusCode(), string(coded.Body))
-	assert.False(t, coded.JSON200.Paste)
-	assert.Equal(t, "ABCD-1234", val(coded.JSON200.UserCode))
+	require.Equal(t, http.StatusOK, codex.StatusCode(), string(codex.Body))
+	assert.True(t, codex.JSON200.Paste, "Codex is signed in with the browser on the page, as Claude is")
+	assert.Nil(t, codex.JSON200.UserCode)
 
-	waited, err := owner.CompleteAccountSignInWithResponse(ctx, coded.JSON200.Id, openapi.AccountSignInCallback{})
+	pasted, err := owner.CompleteAccountSignInWithResponse(ctx, codex.JSON200.Id,
+		openapi.AccountSignInCallback{Callback: &right})
 	require.NoError(t, err)
-	require.Equal(t, http.StatusOK, waited.StatusCode(), string(waited.Body))
-	assert.Equal(t, "owner@example.com", waited.JSON200.Label, "an account with no name given takes its e-mail")
+	require.Equal(t, http.StatusOK, pasted.StatusCode(), string(pasted.Body))
+	assert.Equal(t, "owner@example.com", pasted.JSON200.Label, "an account with no name given takes its e-mail")
 
 	listed, err := owner.ListAccountsWithResponse(ctx)
 	require.NoError(t, err)

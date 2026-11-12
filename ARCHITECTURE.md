@@ -1383,7 +1383,9 @@ Node (`internal/node`):
       link, and either `paste` (the owner pastes the address the browser ends on) or a `user_code` to enter at
       the vendor; `POST /account-sign-ins/{id}` completes it, with the address or by waiting. A sign-in begun is
       held in the control plane's memory until it ends, at most 16 at a time, and is completed once.
-      Opening the dialog begins the sign-in, with no step before it, as 9router's dialog does; the account takes
+      The page always asks for the browser login (`BeginInBrowser`): Codex's device code, which `accounts login`
+      offers first, is kept to the terminal, as 9router, CLIProxyAPI's management API and T3 Code sign Codex in on
+      the web. Opening the dialog begins the sign-in, with no step before it, as 9router's dialog does; the account takes
       its e-mail as its name. After a refused answer "Start again" begins a new one. For a new Claude account the
       dialog has a second tab, "Paste a token", as 9router has beside its browser sign-in: a name and the token of
       `claude setup-token`, sent to `POST /accounts` `{runtime, label, token}` (the owner's), which keeps the
