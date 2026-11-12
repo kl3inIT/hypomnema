@@ -163,7 +163,7 @@ test("a card says what the agent runs on and whether it can run now", async () =
 
   const implementer = await agent("implementer")
   expect(implementer).toHaveTextContent("What implementer is for.")
-  expect(implementer).toHaveTextContent("Model:opus(claude-subscription)")
+  expect(implementer).toHaveTextContent("Model:Claude Opus(claude-subscription)")
   expect(implementer).toHaveTextContent("Effort:Extra High")
   expect(implementer).toHaveTextContent("Version:1saved 2h ago")
   expect(implementer).toHaveTextContent("Can run now")
@@ -503,7 +503,7 @@ test("an agent is duplicated into the new agent's form", async () => {
   expect(router.state.location.pathname).toBe("/agents/new")
   expect(screen.getByLabelText("Name")).toHaveValue("reviewer-copy-3")
   expect(screen.getByLabelText("Description")).toHaveValue("Reviews a change.")
-  expect(screen.getByLabelText("Model")).toHaveTextContent("opus")
+  expect(screen.getByLabelText("Model")).toHaveTextContent("Claude Opus")
   expect(screen.getByLabelText("Instructions")).toHaveValue("Be strict.")
 
   await user.click(screen.getByRole("button", { name: "Create profile" }))

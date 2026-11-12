@@ -78,7 +78,7 @@ export function ModelPicker({
         }}
       >
         <span className="flex min-w-0 items-center gap-2">
-          {chosen && chosen.key !== "" && <ModelMark name={chosen.name} className="size-3.5" />}
+          {chosen && chosen.key !== "" && <ModelMark name={chosen.id} className="size-3.5" />}
           <span className="truncate">{chosen?.name ?? defaultLabel}</span>
           {chosen?.provider && (
             <span className="truncate text-xs text-muted-foreground">{chosen.provider}</span>
@@ -107,8 +107,15 @@ export function ModelPicker({
               <ComboboxCollection>
                 {(choice: Choice) => (
                   <ComboboxItem key={choice.key} value={choice}>
-                    {choice.key !== "" && <ModelMark name={choice.name} className="size-3.5" />}
+                    {choice.key !== "" && <ModelMark name={choice.id} className="size-3.5" />}
                     <span className="truncate">{choice.name}</span>
+                    {/* The id beside the name when the two differ, as assistant-ui's row has a quieter line
+                        under its name (issue #208). */}
+                    {choice.id !== choice.name && (
+                      <span className="truncate font-mono text-xs text-muted-foreground">
+                        {choice.id}
+                      </span>
+                    )}
                     {choice.gone && (
                       <span className="shrink-0 text-xs text-muted-foreground">not offered</span>
                     )}

@@ -46,6 +46,8 @@ const reviewer = profile("reviewer", {
 const models = [
   { provider: "claude-subscription", name: "opus", kind: "claude_subscription" },
   { provider: "claude-subscription", name: "sonnet", kind: "claude_subscription" },
+  { provider: "claude-subscription", name: "claude-opus-5-5", kind: "claude_subscription" },
+  { provider: "codex-subscription", name: "gpt-6.1-sol", kind: "codex_subscription" },
   { provider: "gateway", name: "gpt-sol", kind: "model_gateway" },
   { provider: "gateway", name: "gpt-luna", kind: "model_gateway" },
   {
@@ -213,7 +215,7 @@ test("an agent opens to its builder, its YAML and its versions", async ({ page }
   await expect(page.getByRole("heading", { name: "reviewer", level: 2 })).toBeVisible()
   await expect(page.getByText("Version 3 · Claude Code")).toBeVisible()
   await expect(page.getByLabel("Name")).toHaveAttribute("readonly", "")
-  await expect(page.getByLabel("Model", { exact: true })).toContainText("opus")
+  await expect(page.getByLabel("Model", { exact: true })).toContainText("Claude Opus")
   await expect(page.getByLabel("Model", { exact: true })).toContainText("claude-subscription")
   await expect(
     page.getByRole("group", { name: "Effort" }).getByRole("button", { name: "Extra High" }),
@@ -257,7 +259,7 @@ test("a refused save says why, and a saved one becomes the next version", async 
   // The model's picker: every provider's models under the provider's name, and a search that narrows them.
   await page.getByLabel("Model", { exact: true }).click()
   const list = page.getByRole("listbox")
-  await expect(list.getByRole("option")).toHaveCount(8)
+  await expect(list.getByRole("option")).toHaveCount(10)
   // The popup fades in; the picture waits for it.
   await expect(page.locator("[data-slot=combobox-content]")).toHaveCSS("opacity", "1")
   await shot(page, "agent-model-open")
@@ -311,7 +313,7 @@ test("an agent is duplicated", async ({ page }) => {
 
   await page.getByRole("link", { name: "Duplicate" }).click()
   await expect(page.getByLabel("Name")).toHaveValue("reviewer-copy")
-  await expect(page.getByLabel("Model", { exact: true })).toContainText("opus")
+  await expect(page.getByLabel("Model", { exact: true })).toContainText("Claude Opus")
   await shot(page, "agent-duplicate")
 
   await page.getByRole("button", { name: "Create profile" }).click()

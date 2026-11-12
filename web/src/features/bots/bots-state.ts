@@ -1,3 +1,4 @@
+import { modelName } from "@/lib/model-name"
 import type { Bot, BotSettings, Model } from "@/api/generated/types.gen"
 import { modelKey, splitModel } from "@/features/agents/profiles-state"
 
@@ -12,7 +13,7 @@ export const namePattern = /^[a-z][a-z0-9-]{0,62}$/
 
 // modelLine is a Bot's model as a card says it: the name, or that pi chooses.
 export function modelLine(bot: Pick<Bot, "model">) {
-  return bot.model || "pi's default model"
+  return bot.model ? modelName(bot.model) : "pi's default model"
 }
 
 // memoryEntries is a Bot's memory as a list: one entry a line.
