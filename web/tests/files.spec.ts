@@ -177,8 +177,10 @@ test("the Files panel shows a chat's folders, their changes and files", async ({
   // A changed file opens as its diff; a new one as its text, since there is nothing to compare it with.
   await changed.getByRole("button", { name: /app\.ts/ }).click()
   await expect(page.getByRole("tab", { name: "app.ts" })).toHaveAttribute("aria-selected", "true")
-  await expect(page.getByText("Changed since the last commit.")).toBeVisible()
+  await expect(page.getByText("Changed since the last commit")).toBeVisible()
   await expect(page.getByTestId("diff-view").locator(".view-lines").last()).toContainText("health")
+  // The added lines are marked once Monaco has worked the diff out.
+  await expect(page.getByTestId("diff-view").locator(".line-insert").first()).toBeVisible()
   await shot(page, "files-diff")
 
   await (
@@ -187,7 +189,7 @@ test("the Files panel shows a chat's folders, their changes and files", async ({
     .getByRole("list", { name: "Changed files" })
     .getByRole("button", { name: /health\.ts/ })
     .click()
-  await expect(page.getByText("A new file.")).toBeVisible()
+  await expect(page.getByText("New file", { exact: true })).toBeVisible()
   await expect(page.getByTestId("code-view").locator(".view-lines")).toContainText("ok: true")
 
   await (await shown(page)).getByRole("button", { name: "All files" }).click()
