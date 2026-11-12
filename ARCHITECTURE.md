@@ -153,6 +153,35 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     long it lasted. What is typed and shown is not recorded.
   - Not built: a command given in a link, several viewers of one shell, files, a shell for coordinators or
     workers, Windows.
+- A browser every agent shares (issue #193, step 1 in issue #196,
+  [research](docs/research/2026-11-12-embedded-browser.md); `internal/controlplane/browser`). Built so far: the
+  engine on the control plane and an agent's calls to it. Not built: the browser tools on a node, a person watching
+  or taking control, the page in the web client, a node holding the browser instead.
+  - It is one headless Chrome on the control plane's machine with one persistent profile, so a sign-in is made
+    once and every agent has it, driven through agent-browser (Vercel Labs), as OpenMausBot's is. Each agent is an
+    agent-browser session attached to that Chrome and pinned to a tab of its own
+    (`--cdp`, `--pin-tab`); a worker's session is named after its Dispatch.
+  - Both programs are pinned by version, size and SHA-256 (`release.go`) and fetched at the first use into
+    `HYPOMNEMA_BROWSER_DIR` (default: `browser` beside the database), which also holds the profile and
+    agent-browser's sockets: `tools/<name>/<version>/`, `profile/`, `home/`, `run/`. A file that does not match
+    its pin is not installed. agent-browser is run with none of the control plane's environment but `PATH`.
+  - Chrome is started by an agent's first call. A tab unused for 30 minutes is closed, and Chrome once it has had
+    no tab for 5 minutes (T3 Code's rules); the sign-ins stay in the profile. Chrome found gone is started again,
+    and the tabs it held are not used again. A Chrome left by an earlier control plane is closed at the first call.
+  - The agent API has `GET /agent/v1/browser/tools` and `POST /agent/v1/browser/call` (`{tool, arguments}`), for
+    any agent the API knows; the answer is the tool's result as MCP has it, `content` and `isError`, and nothing
+    of how the engine is set up. Which agent used which tool is logged, never the arguments.
+  - The tools are 22 of agent-browser's `core` set: open, snapshot, click, fill, type, press, check, uncheck,
+    select, scroll, back, forward, reload, the waits, screenshot, get text, URL and title, eval. Tabs, `close`,
+    flows and `read` are not offered. A call keeps only the tool's own arguments: the ones agent-browser takes on
+    every tool (`session`, `extraArgs`, `restore` and the like) and a screenshot's path are dropped. `open` takes
+    an http(s) address or `about:blank`; a bare host means https.
+  - Chrome keeps its sandbox. On a machine that blocks it (Ubuntu 23.10 and later) a call fails and says to run
+    `deploy/browser/setup-browser.sh` once with sudo, which writes an AppArmor profile and installs missing
+    libraries (T3 Code's `t3 browser setup`, MIT, its license in `third_party/t3code/`).
+    `HYPOMNEMA_BROWSER_SANDBOX=0` runs Chrome without the sandbox; nothing else does.
+  - Not guarded yet: what the browser may reach. An agent can open an address on the control plane's own machine
+    or network (OpenMausBot has a gate for this, `server/browser/egress/`).
 - Chats (`orchestration/chats.go`, issue #41 PR 3, after Omnara;
   [research](docs/research/2026-11-09-chat-storage.md)): the owner's conversations with pi. Every message is kept
   (`owner`, `coordinator`, `tool`, `system`; replies and tools with JSON `parts`); owner messages and wake-ups wait
@@ -1188,6 +1217,7 @@ the internet, so that a machine created at a provider can install the node from 
 api                       the client API's contract (openapi.yaml) and oapi-codegen's configuration
 internal/controlplane     package controlplane: configuration, migrate, serve and the owner's server commands
 internal/controlplane/bearertoken  client token format: making, checking and hashing
+internal/controlplane/browser  the browser every agent shares: the pinned agent-browser and headless Chrome, one Chrome and a session an agent, the tools offered, the idle rules
 internal/controlplane/clientapi  the client API: policies, handlers, events and their stream; generated code in openapi/
 internal/controlplane/clientcli  the commands that call the client API, and the coordinator skill (skills/)
 internal/controlplane/nodeapi  the node API: hello and the node WebSocket

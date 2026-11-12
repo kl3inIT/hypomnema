@@ -28,7 +28,31 @@ const (
 	// certificate the tool must trust to talk to it.
 	PathTunnel = "/agent/v1/tunnel"
 	PathCA     = "/agent/v1/ca"
+	// PathBrowserTools lists the tools of the browser every agent shares
+	// (issue #193), and PathBrowserCall runs one in the agent's own tab.
+	PathBrowserTools = "/agent/v1/browser/tools"
+	PathBrowserCall  = "/agent/v1/browser/call"
 )
+
+// BrowserTool is one browser tool as PathBrowserTools lists it: an MCP
+// tool's name, description and input schema.
+type BrowserTool struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	InputSchema json.RawMessage `json:"inputSchema"`
+}
+
+// BrowserToolList answers PathBrowserTools.
+type BrowserToolList struct {
+	Data []BrowserTool `json:"data"`
+}
+
+// BrowserCall is the body of PathBrowserCall. Its answer is the tool's
+// result as MCP has it: content, and isError when the tool failed.
+type BrowserCall struct {
+	Tool      string          `json:"tool"`
+	Arguments json.RawMessage `json:"arguments,omitempty"`
+}
 
 // The parameters of PathTunnel.
 const (

@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/browser"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/serviceproxy"
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
@@ -56,11 +57,19 @@ type Token struct {
 // own wiring over the vault: this package never opens a secret.
 type Tokens func(ctx context.Context, integration, label string) (Token, error)
 
+// Browser is the browser every agent shares (issue #193): its tools, and one
+// call of a tool in the tab of the agent named.
+type Browser interface {
+	Tools(ctx context.Context) ([]browser.Tool, error)
+	Call(ctx context.Context, agent, tool string, arguments json.RawMessage) (json.RawMessage, error)
+}
+
 // Server serves the agent API.
 type Server struct {
-	store  Store
-	tokens Tokens
-	logger *slog.Logger
+	store   Store
+	tokens  Tokens
+	browser Browser
+	logger  *slog.Logger
 }
 
 // New returns a Server.
@@ -68,10 +77,20 @@ func New(store Store, tokens Tokens, logger *slog.Logger) *Server {
 	return &Server{store: store, tokens: tokens, logger: logger}
 }
 
+// WithBrowser gives agents the shared browser. Without it the browser's
+// routes answer that there is none.
+func (s *Server) WithBrowser(b Browser) *Server {
+	s.browser = b
+
+	return s
+}
+
 // Register adds the API's routes to mux.
 func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET "+agenttool.PathConnections, s.connections)
 	mux.HandleFunc("POST "+agenttool.PathToken, s.token)
+	mux.HandleFunc("GET "+agenttool.PathBrowserTools, s.browserTools)
+	mux.HandleFunc("POST "+agenttool.PathBrowserCall, s.browserCall)
 }
 
 // agent is who asks: what it is called in the log, and which Connections of
@@ -84,6 +103,9 @@ type agent struct {
 	dispatchID  string
 	coordinator bool
 	owner       bool
+	// key names the agent's own tab in the shared browser: a worker's is its
+	// Dispatch's, so a new Dispatch starts on a new tab.
+	key string
 }
 
 var errNoCredential = errors.New("the agent's credential is missing or no longer works")
@@ -111,7 +133,7 @@ func (s *Server) authenticate(r *http.Request) (agent, error) {
 		}
 
 		return agent{
-			name: "dispatch " + session.DispatchID, dispatchID: session.DispatchID,
+			name: "dispatch " + session.DispatchID, dispatchID: session.DispatchID, key: "d-" + session.DispatchID,
 			// A Run a coordinator created was given only what the coordinator may use, and keeps it only while
 			// the coordinator may: the owner's switch is read now, not when the Run was made.
 			may: func(c orchestration.Connection) bool {
@@ -130,11 +152,12 @@ func (s *Server) authenticate(r *http.Request) (agent, error) {
 	switch token.Kind {
 	case bearertoken.Owner:
 		return agent{
-			name: "owner token " + token.ID, owner: true, may: func(orchestration.Connection) bool { return true },
+			name: "owner token " + token.ID, owner: true, key: "o-" + token.ID,
+			may: func(orchestration.Connection) bool { return true },
 		}, nil
 	case bearertoken.Coordinator:
 		return agent{
-			name: "coordinator token " + token.ID, coordinator: true,
+			name: "coordinator token " + token.ID, coordinator: true, key: "c-" + token.ID,
 			may: func(c orchestration.Connection) bool { return c.Chats },
 		}, nil
 	default:
@@ -272,6 +295,98 @@ func (s *Server) token(w http.ResponseWriter, r *http.Request) {
 	answer(w, agenttool.TokenResponse{
 		AccessToken: token.AccessToken, ExpiresAt: token.ExpiresAt, ClientID: token.ClientID,
 	})
+}
+
+// maxBrowserCallBytes bounds a browser call's body: the text a tool types is
+// the largest part of one.
+const maxBrowserCallBytes = 1 << 20
+
+func (s *Server) browserTools(w http.ResponseWriter, r *http.Request) {
+	if _, err := s.authenticate(r); err != nil {
+		refuse(w, http.StatusUnauthorized, err.Error())
+
+		return
+	}
+
+	if s.browser == nil {
+		refuse(w, http.StatusServiceUnavailable, "this control plane has no browser")
+
+		return
+	}
+
+	tools, err := s.browser.Tools(r.Context())
+	if err != nil {
+		s.failBrowser(w, r, err)
+
+		return
+	}
+
+	out := agenttool.BrowserToolList{Data: make([]agenttool.BrowserTool, 0, len(tools))}
+	for _, t := range tools {
+		out.Data = append(out.Data, agenttool.BrowserTool{
+			Name: t.Name, Description: t.Description, InputSchema: t.InputSchema,
+		})
+	}
+
+	answer(w, out)
+}
+
+func (s *Server) browserCall(w http.ResponseWriter, r *http.Request) {
+	a, err := s.authenticate(r)
+	if err != nil {
+		refuse(w, http.StatusUnauthorized, err.Error())
+
+		return
+	}
+
+	if s.browser == nil {
+		refuse(w, http.StatusServiceUnavailable, "this control plane has no browser")
+
+		return
+	}
+
+	var asked agenttool.BrowserCall
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBrowserCallBytes)).Decode(&asked); err != nil ||
+		asked.Tool == "" {
+		refuse(w, http.StatusBadRequest, "name the tool and give its arguments as a JSON object")
+
+		return
+	}
+
+	result, err := s.browser.Call(r.Context(), a.key, asked.Tool, asked.Arguments)
+	if err != nil {
+		s.failBrowser(w, r, err)
+
+		return
+	}
+
+	// Which agent used which tool, and never what it typed or read.
+	s.logger.InfoContext(r.Context(), "an agent used the browser",
+		slog.String("event", "agentapi.browser_call"), slog.String("agent", a.name),
+		slog.String("tool", asked.Tool))
+
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(result)
+}
+
+// failBrowser answers an error of the browser: a call the agent made wrongly
+// says how, a browser that cannot be used says why, anything else is logged
+// and not told.
+func (s *Server) failBrowser(w http.ResponseWriter, r *http.Request, err error) {
+	switch {
+	case errors.Is(err, browser.ErrNoSuchTool):
+		refuse(w, http.StatusNotFound, err.Error())
+	case errors.Is(err, browser.ErrBadArguments):
+		refuse(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, browser.ErrUnavailable):
+		s.logger.WarnContext(r.Context(), "the browser was not available",
+			slog.String("event", "agentapi.browser_unavailable"), slog.String("error", err.Error()))
+		refuse(w, http.StatusServiceUnavailable, err.Error())
+	default:
+		s.fail(w, r, err)
+	}
 }
 
 // fail answers an error of the store or the vault's wiring. A Connection
