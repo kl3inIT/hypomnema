@@ -34,6 +34,8 @@ type anthropicOAuth struct {
 	lastGrant string
 	// usage answers api.anthropic.com's OAuth usage call; nil answers 404.
 	usage http.HandlerFunc
+	// reset answers the use of a limit reset; nil: not found.
+	reset http.HandlerFunc
 }
 
 func newAnthropicOAuth(t *testing.T) *anthropicOAuth {
@@ -79,8 +81,22 @@ func newAnthropicOAuth(t *testing.T) *anthropicOAuth {
 	mux.HandleFunc("GET /api/oauth/profile", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, map[string]any{
 			"account":      map[string]string{"uuid": "acc-uuid-1", "email_address": "owner@example.com"},
-			"organization": map[string]string{"name": "Max"},
+			"organization": map[string]string{"name": "Max", "uuid": "org-uuid-1"},
 		})
+	})
+
+	mux.HandleFunc("POST /api/organizations/{org}/reset_rate_limits", func(w http.ResponseWriter, r *http.Request) {
+		a.mu.Lock()
+		reset := a.reset
+		a.mu.Unlock()
+
+		if reset == nil {
+			http.NotFound(w, r)
+
+			return
+		}
+
+		reset(w, r)
 	})
 
 	mux.HandleFunc("GET /api/oauth/usage", func(w http.ResponseWriter, r *http.Request) {
@@ -101,6 +117,14 @@ func newAnthropicOAuth(t *testing.T) *anthropicOAuth {
 	t.Cleanup(a.srv.Close)
 
 	return a
+}
+
+// answerReset sets what Anthropic answers when a limit reset is used.
+func (a *anthropicOAuth) answerReset(h http.HandlerFunc) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	a.reset = h
 }
 
 func (a *anthropicOAuth) answerUsage(h http.HandlerFunc) {

@@ -85,6 +85,8 @@ const limits: Record<string, object> = {
       { name: "week", used_percent: 26, resets_at: iso(now + 2 * 86_400_000) },
     ],
     read_at: iso(now - 20_000),
+    // Out of its 5 hours, with two limit resets it can use.
+    resets: { available: 2, expires_at: iso(now + 20 * 86_400_000) },
   },
   acc_main: {
     windows: [
@@ -233,6 +235,29 @@ async function fakeServer(page: Page, start?: Account[]) {
       same.forEach((a, i) => (a.position = i + 1))
 
       return json(moved)
+    }
+
+    // Using a limit reset: the 5 hours start again and one reset fewer is left.
+    if (kind === "accounts" && id && action === "limits" && path.endsWith("/reset")) {
+      calls.push(
+        `${call} ${(request.postDataJSON() as { request_id: string }).request_id ? "with a request id" : ""}`,
+      )
+
+      const reading = limits[id] as {
+        windows: { name: string; used_percent: number }[]
+        resets?: { available: number }
+      }
+      if (!reading?.resets) {
+        return json(
+          { code: "conflict", message: "conflict: the account has no limit reset to use" },
+          409,
+        )
+      }
+
+      reading.windows[0]!.used_percent = 0
+      reading.resets.available -= 1
+
+      return json(reading)
     }
 
     if (kind === "accounts" && id && action === "limits") {
@@ -483,4 +508,35 @@ test("the owner moves an account up", async ({ page }) => {
   await expect.poll(() => calls).toContain("POST /accounts/acc_spare/move")
   await expect(rows.first()).toContainText("spare")
   await shot(page, "models-moved")
+})
+
+// Scenario: an account is out of its 5 hours and has limit resets. The page says how many are left; the owner is
+// told a reset does not come back before one is used; after it the 5 hours start again and one fewer is left.
+test("the owner uses a limit reset", async ({ page }) => {
+  const calls = await fakeServer(page)
+  await page.goto("/settings/models")
+
+  const spare = card(page, "Claude").getByLabel("Claude account spare")
+  await expect(spare.getByTestId("limit-resets")).toContainText("2 limit resets left")
+  // An account with none says nothing of resets.
+  await expect(
+    card(page, "Claude").getByLabel("Claude account work").getByTestId("limit-resets"),
+  ).toHaveCount(0)
+  await shot(page, "models-resets")
+
+  await spare.getByRole("button", { name: "Use a limit reset of spare" }).click()
+  const dialog = page.getByRole("alertdialog")
+  await expect(dialog).toContainText("does not come back")
+  await expect(dialog).toContainText("1 will be left")
+  await shot(page, "models-reset-confirm")
+
+  await dialog.getByRole("button", { name: "Use a reset" }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect(spare.getByTestId("limit-resets")).toContainText("1 limit reset left")
+  await expect(spare.getByRole("meter", { name: "5 hours used by spare" })).toHaveAttribute(
+    "aria-valuenow",
+    "0",
+  )
+  expect(calls).toContain("POST /accounts/acc_spare/limits/reset with a request id")
+  await shot(page, "models-reset-used")
 })

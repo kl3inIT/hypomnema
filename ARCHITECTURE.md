@@ -464,8 +464,9 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       names the most of its path. No launcher asks for a token any more; `POST /agent/v1/token` answers only an
       owner's token.
     - **Lark goes through it too** (issue #175). Its catalog is lark-cli's own (`lark_methods.json`, from
-      lark-cli 1.0.100, MIT): each method's path with the risk lark-cli gives it. A service (messages, mail,
-      calendar, tasks, drive and ten more) has up to three actions: read (allow), create or change (ask), delete
+      lark-cli 1.0.100, MIT): each method's path with the risk lark-cli gives it, from its service catalog and
+      from its shortcut commands, where Base, Docs, Whiteboard and Search are (issue #236). A service (messages,
+      mail, calendar, tasks, drive, base and thirteen more) has up to three actions: read (allow), create or change (ask), delete
       and other high-risk changes (ask). A request to a service's part of the API that lark-cli's list does not
       name, as sending a message is not, is that service's write; a GET it does not name is a read; anything
       else asks as unnamed. The app's id, which lark-cli will not run without, is told with the list of accounts.
@@ -1279,6 +1280,16 @@ Node (`internal/node`):
     option takes it, Enter sends. A question to pi is shown, and the owner can take it over (forward).
   - `/runs` lists the Runs, those that ask the owner first; `/runs/{id}` shows the objective, the open questions
     answered in place, the Tasks and the answered questions; Finish and Cancel.
+  - Several chats on one screen (issue #235, step 1; `web/src/features/workbench`, after Omnigent's grid of
+    sessions, Apache-2.0): up to four panes, two rows by two columns, each axis split once along a path. A chat
+    dragged from the sidebar onto an open chat, or onto a pane, takes the half of the edge it is dropped on (a
+    quarter on the left or the right, the middle above or below), shown as a dashed ghost; one that has no room
+    is not taken. The grid is at `/grid`, with a "Grid" row in the sidebar while there is one. A pane's header
+    dragged onto another pane changes places with it; a pane can fill the screen for a while, or leave the grid,
+    and with one chat left there is no grid and that chat is shown alone. The grid is kept in the browser
+    (`localStorage`, `hypomnema.grid`) and followed across its windows. A phone, or a screen with a coarse
+    pointer, has no grid. Not built yet: a pane's own tabs and "+" (step 2), and the tab's size following its
+    pane (step 3).
   - The sidebar lists the places (New chat, Board with the count that needs the owner, Runs, Machines) above the
     chats.
     Every page follows `GET /events/stream` from the board's cursor and refreshes what an event may have changed.
@@ -1334,6 +1345,17 @@ Node (`internal/node`):
       (`sign_in`: `active`, `login_required`, `no_tokens`; absent for an account signed in on a node);
       `POST /accounts/{id}/enable` and `/disable` and `DELETE /accounts/{id}` are the owner's;
       `GET /gateway/models` lists the gateway's models with their targets.
+    - Limit resets (decision 17 of the issue, after 9router-go's Codex reset credits, 9router's and T3 Code's
+      Claude grants, and Orca's confirmation): `subscription` reads how many an account can use with its limits,
+      for Codex from `chatgpt.com/backend-api/wham/rate-limit-reset-credits` and for Claude from the usage call
+      asked with `cedar_ember=1`, so the two are one call there. `UseReset` reads them again, uses the one the
+      vendor names as next (Codex: `…/consume` with the credit and the request's id; Claude:
+      `/api/organizations/{org}/reset_rate_limits` with the grant, the organization read from the profile), drops
+      the kept reading and reads the limits anew. "Already redeemed" is the reset done; no reset, nothing to
+      reset and a wait are errors of their own. The page shows "N limit resets left" under an account's bars
+      with a button behind a confirmation; `POST /accounts/{id}/limits/reset` `{request_id}` is the owner's and
+      answers the limits after it, 409 when the vendor refuses. The request's id is the page's, one a dialog,
+      so a retry uses no second reset.
     - Signing in and the order (step 2 of the issue): "Add account" on a subscription's card and "Sign in again"
       on an account open a dialog with the two sign-ins `accounts login` has, after 9router's dialog on a remote
       host and CLIProxyAPI's management API. `POST /account-sign-ins` begins one at the vendor and answers with a

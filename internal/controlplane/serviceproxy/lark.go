@@ -12,9 +12,16 @@ import (
 // larkMethods are the methods of Lark's own command-line tool with the risk
 // it gives each: read, write or high-risk-write. Taken from lark-cli 1.0.100
 // (github.com/larksuite/cli, commit ac22a60, MIT, Copyright (c) 2026 Lark
-// Technologies Pte. Ltd.; internal/registry/catalog/services/*.json), keeping
-// only each method's service, HTTP method, path and risk. The tool itself
-// asks for --yes before a high-risk write (extension/command/definition.go).
+// Technologies Pte. Ltd.), keeping only each method's service, HTTP method,
+// path and risk. lark-cli declares what it calls in two places, and the list
+// has both (issue #236): its service catalog
+// (internal/registry/catalog/services/*.json) and its shortcut commands
+// (shortcuts/<group>/*.go: each command's Risk and the calls of its dry-run
+// description). Base, Docs, Whiteboard and Search exist only as shortcuts. A
+// shortcut's call belongs to the service whose part of the API it is; a GET
+// is a read whatever its command, and a call that commands of different
+// risks name has the highest. The tool itself asks for --yes before a
+// high-risk write (extension/command/definition.go).
 //
 //go:embed lark_methods.json
 var larkMethods []byte
@@ -30,11 +37,12 @@ const (
 	larkRisky = "high-risk-write"
 )
 
-// larkServices names a service of lark-cli's catalog as the owner reads it,
+// larkServices names a service of lark-cli's catalog or shortcuts as the owner reads it,
 // in the order they are listed.
 var larkServices = []struct{ key, name string }{
 	{"im", "Messages"}, {"mail", "Mail"}, {"calendar", "Calendar"}, {"task", "Tasks"}, {"drive", "Drive"},
-	{"wiki", "Wiki"}, {"sheets", "Sheets"}, {"slides", "Slides"}, {"mindnotes", "Mind notes"},
+	{"wiki", "Wiki"}, {"doc", "Docs"}, {"sheets", "Sheets"}, {"base", "Base"}, {"slides", "Slides"},
+	{"whiteboard", "Whiteboard"}, {"mindnotes", "Mind notes"}, {"search", "Search"},
 	{"minutes", "Minutes"}, {"vc", "Meetings"}, {"approval", "Approvals"}, {"okr", "OKR"},
 	{"contact", "Contacts"}, {"attendance", "Attendance"},
 }

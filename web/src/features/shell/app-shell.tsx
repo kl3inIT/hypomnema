@@ -5,6 +5,7 @@ import {
   CircleDashed,
   Globe,
   KanbanSquare,
+  LayoutGrid,
   ListTree,
   LogOut,
   Menu,
@@ -21,6 +22,8 @@ import { signOut } from "@/features/auth/session"
 import { needsYou } from "@/features/board/board-state"
 import { useBoard, useLiveUpdates } from "@/features/board/use-board"
 import { since } from "@/lib/time"
+import { gridChats } from "@/features/workbench/grid-layout"
+import { chatDrag, setDragged, useGrid, useGridOffered } from "@/features/workbench/use-grid"
 import { cn } from "@/lib/utils"
 
 import { useChats } from "./chats"
@@ -117,6 +120,7 @@ export function AppSidebar({ currentChat }: { currentChat?: string }) {
       </div>
       <div className="flex min-h-0 flex-1 flex-col gap-2 px-2">
         <Places />
+        <GridLink />
         <ChatList current={currentChat} />
       </div>
       <div className="flex flex-col gap-px p-2">
@@ -143,6 +147,26 @@ export function SignOut() {
       <LogOut className="size-4" />
       Sign out
     </button>
+  )
+}
+
+// GridLink leads to the grid of chats while this browser keeps one (issue #235; Omnigent's GridSidebar).
+function GridLink() {
+  const layout = useGrid()
+  const offered = useGridOffered()
+  if (!offered || layout === null) return null
+
+  return (
+    <Link
+      to="/grid"
+      className={cn(placeClass, "[&.active]:bg-sidebar-row-active [&.active]:text-foreground")}
+    >
+      <LayoutGrid className="size-4" />
+      Grid
+      <span className="ml-auto text-xs text-secondary-label tabular-nums">
+        {gridChats(layout).length} chats
+      </span>
+    </Link>
   )
 }
 
@@ -174,6 +198,13 @@ function ChatRow({ chat, current, waits }: { chat: Chat; current: boolean; waits
       to="/chats/$chatId"
       params={{ chatId: chat.id }}
       aria-current={current ? "page" : undefined}
+      // A chat is dragged onto an open chat, or a pane of the grid, to be shown beside it (issue #235).
+      onDragStart={(event) => {
+        event.dataTransfer.effectAllowed = "move"
+        event.dataTransfer.setData(chatDrag, chat.id)
+        setDragged({ chat: chat.id, from: "list" })
+      }}
+      onDragEnd={() => setDragged(null)}
       className={cn(
         "group/sidebar-row relative flex h-9 w-full items-center gap-2.5 overflow-hidden rounded-md px-2.5 text-left outline-none select-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
         current
