@@ -15,7 +15,7 @@ import type { Skill, SkillRevision } from "@/api/generated/types.gen"
 import { skillFileTree } from "./file-tree"
 import { SkillScreen } from "./skill-screen"
 import { SkillsScreen } from "./skills-screen"
-import { sourceLine, usersLine, usersOf } from "./skills-state"
+import { auditResult, installsLabel, isAdded, sourceLine, usersLine, usersOf } from "./skills-state"
 
 beforeEach(() => {
   // The router scrolls to the top when it opens a page; jsdom has no scrolling.
@@ -83,6 +83,29 @@ function server(
     if (call === "GET /skills") return json({ data: list })
     if (call === "GET /profiles") return json({ data: namers.profiles })
     if (call === "GET /bots") return json({ data: namers.bots })
+    if (call === "GET /skill-search") {
+      return json({
+        exact: 1,
+        data: [
+          {
+            id: "anthropics/skills/pdf",
+            name: "pdf",
+            source: "anthropics/skills",
+            installs: 227931,
+          },
+          { id: "o/r/review-go", name: "review-go", source: "o/r", installs: 1 },
+        ],
+      })
+    }
+    if (call === "GET /skill-audits") {
+      return json({
+        data: [
+          { partner: "ath", risk: "safe" },
+          { partner: "socket", risk: "low", alerts: 2 },
+          { partner: "snyk", risk: "high" },
+        ],
+      })
+    }
     if (call === "GET /built-in-skills") {
       return json({
         data: [{ name: "lark", description: "Lark documents through lark-cli." }],
@@ -241,6 +264,78 @@ test("a refused removal says why and keeps the skill", async () => {
 
   expect(await within(dialog).findByText(refusal)).toBeInTheDocument()
   expect(router.state.location.pathname).toBe("/settings/skills/lark-docs")
+})
+
+// Scenario: the owner searches skills.sh from Add skill, picks a result and reads what its auditors said, then adds
+// it by its repository and name. A skill already here is marked.
+test("a skill found on skills.sh is added by its name", async () => {
+  const user = userEvent.setup()
+  const requests = server([
+    skill("review-go", { latest: revision(1, { source: "github:o/r/skills/review-go@main" }) }),
+  ])
+  const router = open("/settings/skills")
+
+  await user.click((await screen.findAllByRole("button", { name: "Add skill" }))[0]!)
+  await user.click(screen.getByRole("tab", { name: "skills.sh" }))
+  expect(screen.getByRole("button", { name: "Add" })).toBeDisabled()
+  await user.type(screen.getByLabelText("Search skills.sh"), "pdf")
+
+  const found = await screen.findByRole("list", { name: "Skills found" })
+  const pdf = within(found).getByRole("button", { name: /pdf/ })
+  expect(pdf).toHaveTextContent("227.9K installs")
+  expect(within(found).getByRole("button", { name: /review-go/ })).toHaveTextContent("Added")
+
+  await user.click(pdf)
+  expect(await within(found).findByText("High Risk")).toBeInTheDocument()
+  expect(within(found).getByText("2 alerts")).toBeInTheDocument()
+  expect(within(found).getByRole("link", { name: /skills\.sh/ })).toHaveAttribute(
+    "href",
+    "https://skills.sh/anthropics/skills/pdf",
+  )
+
+  await user.click(screen.getByRole("button", { name: "Add" }))
+  expect(await screen.findByRole("heading", { level: 1, name: "pdf" })).toBeInTheDocument()
+  expect(router.state.location.pathname).toBe("/settings/skills/pdf")
+  expect(requests).toEqual([
+    { call: "POST /skills", body: { github: "anthropics/skills", skill: "pdf" } },
+  ])
+})
+
+test("a result is here only when its name and repository are", () => {
+  const github = (where: string) => revision(1, { source: `github:${where}@HEAD` })
+  const result = { name: "pdf", source: "anthropics/skills" }
+
+  expect(isAdded(result, [skill("pdf", { latest: github("anthropics/skills/skills/pdf") })])).toBe(
+    true,
+  )
+  expect(isAdded(result, [skill("pdf", { latest: github("Anthropics/Skills/pdf") })])).toBe(true)
+  expect(isAdded(result, [skill("pdf", { latest: github("openai/skills/skills/pdf") })])).toBe(
+    false,
+  )
+  expect(isAdded(result, [skill("pdf", { latest: github("anthropics/skills-extra/pdf") })])).toBe(
+    false,
+  )
+  expect(isAdded(result, [skill("pdf", { latest: github("anthropics/skills") })])).toBe(true)
+  expect(isAdded(result, [skill("pdf")])).toBe(false)
+  expect(isAdded(result, [skill("pdf-tools", { latest: github("anthropics/skills/pdf") })])).toBe(
+    false,
+  )
+})
+
+test("installs and audits are said as the skills CLI says them", () => {
+  expect(installsLabel(227931)).toBe("227.9K installs")
+  expect(installsLabel(2_000_000)).toBe("2M installs")
+  expect(installsLabel(1)).toBe("1 install")
+  expect(installsLabel(0)).toBe("")
+  expect(auditResult({ partner: "socket", risk: "safe", alerts: 0 })).toEqual({
+    text: "0 alerts",
+    tone: "good",
+  })
+  expect(auditResult({ partner: "snyk", risk: "medium" })).toEqual({
+    text: "Med Risk",
+    tone: "warn",
+  })
+  expect(auditResult({ partner: "ath", risk: "unknown" })).toEqual({ text: "--", tone: "none" })
 })
 
 test("who gets a skill is said in a few words", () => {

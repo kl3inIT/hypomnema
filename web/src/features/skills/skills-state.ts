@@ -1,4 +1,4 @@
-import type { Bot, Profile, Skill, SkillRevision } from "@/api/generated/types.gen"
+import type { Bot, Profile, Skill, SkillAudit, SkillRevision } from "@/api/generated/types.gen"
 
 // What the Skills pages say about a skill (issue #21), apart from how they draw it.
 
@@ -123,4 +123,89 @@ export function errorText(error: unknown) {
   }
 
   return "The server refused. Try again."
+}
+
+// What the skills.sh tab says, as the skills CLI says it (MIT, Copyright (c) 2026 Vercel, Inc.,
+// https://github.com/vercel-labs/skills).
+
+// searchDelay is the CLI's adaptive debounce (src/find.ts): a short query waits longer, the owner is still typing.
+export function searchDelay(query: string) {
+  return Math.max(150, 350 - query.trim().length * 50)
+}
+
+// installsLabel is the CLI's formatInstalls (src/find.ts).
+export function installsLabel(count: number) {
+  const short = (n: number) => n.toFixed(1).replace(/\.0$/, "")
+  if (!count || count <= 0) return ""
+  if (count >= 1_000_000) return `${short(count / 1_000_000)}M installs`
+  if (count >= 1_000) return `${short(count / 1_000)}K installs`
+
+  return `${count} install${count === 1 ? "" : "s"}`
+}
+
+// slugOf is the last part of a skills.sh id (owner/repo/slug), which its audits are kept under.
+export function slugOf(id: string) {
+  return id.split("/").at(-1) ?? id
+}
+
+// auditorName is an auditor as skills.sh's skill page names it.
+export function auditorName(partner: string) {
+  switch (partner) {
+    case "ath":
+      return "Gen Agent Trust Hub"
+    case "socket":
+      return "Socket"
+    case "snyk":
+      return "Snyk"
+    default:
+      return partner
+  }
+}
+
+// auditTone is how worrying a result is: the CLI colours safe and low green, medium yellow, high and critical red
+// (src/add.ts riskLabel), and a count of Socket's alerts red when there is one (socketLabel).
+export type AuditTone = "good" | "warn" | "bad" | "none"
+
+export function auditResult(audit: Pick<SkillAudit, "partner" | "risk" | "alerts">): {
+  text: string
+  tone: AuditTone
+} {
+  if (audit.partner === "socket" && audit.alerts !== undefined) {
+    return audit.alerts > 0
+      ? { text: `${audit.alerts} alert${audit.alerts === 1 ? "" : "s"}`, tone: "bad" }
+      : { text: "0 alerts", tone: "good" }
+  }
+
+  switch (audit.risk) {
+    case "critical":
+      return { text: "Critical Risk", tone: "bad" }
+    case "high":
+      return { text: "High Risk", tone: "bad" }
+    case "medium":
+      return { text: "Med Risk", tone: "warn" }
+    case "low":
+      return { text: "Low Risk", tone: "good" }
+    case "safe":
+      return { text: "Safe", tone: "good" }
+    default:
+      return { text: "--", tone: "none" }
+  }
+}
+
+// isAdded is whether a skills.sh result is a skill here: the same name, from the same repository. A skill of that
+// name uploaded or taken from another repository is another skill that happens to share it.
+export function isAdded(
+  result: { name: string; source: string },
+  skills: Pick<Skill, "name" | "latest">[],
+) {
+  return skills.some((s) => {
+    const source = sourceOf(s.latest)
+
+    if (s.name !== result.name || source.kind !== "github") return false
+
+    const where = source.where.toLowerCase()
+    const repo = result.source.toLowerCase()
+
+    return where === repo || where.startsWith(`${repo}/`)
+  })
 }

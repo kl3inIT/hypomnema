@@ -1,11 +1,11 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { Upload } from "lucide-react"
+import { Search, Upload } from "lucide-react"
 import { useId, useRef, useState, type ReactElement } from "react"
 
 import "@/api/client"
 import { addSkill, uploadSkill } from "@/api/generated/sdk.gen"
-import type { Skill } from "@/api/generated/types.gen"
+import type { Skill, SkillSearchResult } from "@/api/generated/types.gen"
 import { GitHubIcon } from "@/components/icons/brand-icons"
 import { Button } from "@/components/ui/button"
 import {
@@ -26,18 +26,20 @@ import { said } from "@/features/settings/use-integrations"
 import { ErrorAlert } from "@/features/settings/settings-parts"
 import { cn } from "@/lib/utils"
 
+import { SkillsShSearch } from "./skills-sh"
 import { size } from "./skills-state"
 import { skillsKey } from "./use-skills"
 
 // The largest archive the server takes (internal/shared/skillpack MaxArchive).
 const maxArchive = 25 * 1024 * 1024
 
-type Way = "github" | "upload"
+type Way = "github" | "upload" | "skills-sh"
 
 // AddSkill is the button and dialog that add a skill, or its next revision: from a public GitHub repository, as
 // OpenMausBot imports one (src/components/bot-settings/SkillsSection.tsx, one field for owner/repo), or from an
 // archive, as Omnara uploads one (components/skills/SkillSourcePicker.tsx, a place to drop it or a button to choose
-// it). Both under tabs, as Omnara's CreateSkillDialog has its Upload and SKILL.md. The server reads the skill's
+// it), or found on skills.sh (skills-sh.tsx). Under tabs, as Omnara's CreateSkillDialog has its Upload and SKILL.md.
+// The server reads the skill's
 // name from its SKILL.md; files equal to its newest revision add nothing. On success the dialog closes on the
 // skill's page, where it is given to everyone.
 export function AddSkill({
@@ -56,11 +58,21 @@ export function AddSkill({
   const [way, setWay] = useState<Way>(first)
   const [github, setGithub] = useState(given)
   const [file, setFile] = useState<File | null>(null)
+  const [picked, setPicked] = useState<SkillSearchResult | null>(null)
 
   const add = useMutation({
     mutationFn: async (): Promise<{ skill: Skill; added: boolean }> => {
       if (way === "github") {
         const res = await addSkill({ body: { github: github.trim() } })
+
+        return { skill: res.data, added: res.response.status === 201 }
+      }
+
+      if (way === "skills-sh") {
+        if (!picked) throw new Error("Pick a skill first.")
+
+        // skills.sh names the skill, not its folder: the control plane finds the folder as the skills CLI does.
+        const res = await addSkill({ body: { github: picked.source, skill: picked.name } })
 
         return { skill: res.data, added: res.response.status === 201 }
       }
@@ -90,11 +102,13 @@ export function AddSkill({
       setWay(first)
       setGithub(given)
       setFile(null)
+      setPicked(null)
       add.reset()
     }
   }
 
-  const ready = way === "github" ? github.trim() !== "" : file !== null
+  const ready =
+    way === "github" ? github.trim() !== "" : way === "upload" ? file !== null : picked !== null
 
   return (
     <Dialog open={open} onOpenChange={change}>
@@ -129,6 +143,10 @@ export function AddSkill({
                 <Upload className="size-3.5" />
                 Upload
               </TabsTrigger>
+              <TabsTrigger value="skills-sh">
+                <Search className="size-3.5" />
+                skills.sh
+              </TabsTrigger>
             </TabsList>
             <TabsContent value="github">
               <Field>
@@ -150,13 +168,16 @@ export function AddSkill({
             <TabsContent value="upload">
               <DropArchive file={file} onFile={setFile} />
             </TabsContent>
+            <TabsContent value="skills-sh">
+              <SkillsShSearch picked={picked} onPick={setPicked} />
+            </TabsContent>
           </Tabs>
           <ErrorAlert error={add.error} />
           <DialogFooter>
             <DialogClose render={<Button variant="ghost" type="button" />}>Cancel</DialogClose>
             <Button type="submit" disabled={!ready || add.isPending}>
               {add.isPending && <Spinner data-icon="inline-start" />}
-              {way === "github" ? "Add" : "Upload"}
+              {way === "upload" ? "Upload" : "Add"}
             </Button>
           </DialogFooter>
         </form>
