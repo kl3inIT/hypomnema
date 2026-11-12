@@ -300,11 +300,25 @@ export function GeminiIcon(props: SVGProps<SVGSVGElement>) {
 }
 
 // Antigravity's mark, the path OpenMausBot draws (src/components/ProviderIcons.tsx, AntigravityMark; Apache
-// License 2.0, https://github.com/milind-soni/OpenMausBot). It is one colour: it takes the text's.
+// License 2.0, https://github.com/milind-soni/OpenMausBot), in the colours Google gives it: blue at the feet
+// through green and yellow to red at the top. OpenMausBot draws it in one colour; the colours are read off the
+// picture 9router shows for the provider (public/providers/antigravity.png) and are near, not exact (owner,
+// 2026-11-12: the mark had lost its colour).
 export function AntigravityIcon(props: SVGProps<SVGSVGElement>) {
+  const id = useId()
+
   return (
-    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" {...props}>
+    <svg viewBox="0 0 24 24" aria-hidden="true" {...props}>
+      <defs>
+        <linearGradient id={`${id}-rise`} x1="0" y1="1" x2="0.35" y2="0">
+          <stop offset="0" stopColor="#3186FF" />
+          <stop offset="0.45" stopColor="#34A853" />
+          <stop offset="0.75" stopColor="#FBBC04" />
+          <stop offset="1" stopColor="#EA4335" />
+        </linearGradient>
+      </defs>
       <path
+        fill={`url(#${id}-rise)`}
         fillRule="evenodd"
         d="M21.751 22.607c1.34 1.005 3.35.335 1.508-1.508C17.73 15.74 18.904 1 12.037 1 5.17 1 6.342 15.74.815 21.1c-2.01 2.009.167 2.511 1.507 1.506 5.192-3.517 4.857-9.714 9.715-9.714 4.857 0 4.522 6.197 9.714 9.715z"
       />
