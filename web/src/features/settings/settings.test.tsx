@@ -140,8 +140,13 @@ function server(
         chats: false,
         created_at: now,
         updated_at: now,
+        // An account at an address of its own is the user name that signed in there, with what the service runs.
+        ...(body?.username && { account: body.username, address: body.address, version: "6.1.0" }),
       }
-      services = services.map((i) => ({ ...i, connections: [...i.connections, connection] }))
+      services = services.map((i) => ({
+        ...i,
+        connections: [...i.connections.filter((c) => c.label !== connection.label), connection],
+      }))
 
       return json(connection)
     }
@@ -612,6 +617,140 @@ test("a service says what it still needs", async () => {
   expect(dialog.queryByLabelText("Name")).not.toBeInTheDocument()
   expect(dialog.getByLabelText("Gmail")).toHaveValue("read")
   expect(dialog.getByLabelText("Calendar")).toHaveValue("none")
+})
+
+// Scenario: the owner connects his company's Superset. It needs no client: the card offers to add an account at
+// once. The password is typed into a password field. A sign-in that Superset refuses is shown in the dialog,
+// which stays open with what was typed, and nothing is kept.
+test("the owner connects a Superset account with its address, a user name and a password", async () => {
+  const user = userEvent.setup()
+  const superset: Integration = {
+    id: "superset",
+    name: "Superset",
+    kind: "account",
+    services: [],
+    connections: [],
+  }
+  server(
+    { services: [superset] },
+    { "PUT /integrations/superset/connections/vmaps": "the sign-in did not complete" },
+  )
+  await open(IntegrationsScreen, "Integrations")
+
+  const card = async () => within(await screen.findByText("Superset").then(cardOf))
+  expect((await card()).getByText("No account")).toBeInTheDocument()
+  expect((await card()).queryByText(/integrations client set/)).not.toBeInTheDocument()
+
+  await user.click((await card()).getByRole("button", { name: "Add account" }))
+  const dialog = within(await screen.findByRole("dialog"))
+  await user.click(dialog.getByRole("button", { name: "Connect" }))
+  expect(await dialog.findByText(/An address such as/)).toBeInTheDocument()
+
+  await user.type(dialog.getByLabelText("Name"), "vmaps")
+  await user.type(dialog.getByLabelText("Address"), "https://superset.example.com")
+  await user.type(dialog.getByLabelText("User name"), "hypomnema-reader")
+  expect(dialog.getByLabelText("Password")).toHaveAttribute("type", "password")
+  await user.type(dialog.getByLabelText("Password"), "a-wrong-password")
+  await user.click(dialog.getByRole("button", { name: "Connect" }))
+  expect(await dialog.findByText("the sign-in did not complete")).toBeInTheDocument()
+  expect((await card()).getByText("No account")).toBeInTheDocument()
+  expect(dialog.getByLabelText("Address")).toHaveValue("https://superset.example.com")
+})
+
+// Scenario: with the right password the account shows its user name, its address, Superset's version and that
+// the last sign-in worked; the password was sent once and is nowhere on the page. Connecting again starts from
+// what the account has; disconnecting says what is removed.
+test("a connected Superset account shows where it is and that its sign-in works", async () => {
+  const user = userEvent.setup()
+  const requests = server({
+    services: [
+      { id: "superset", name: "Superset", kind: "account", services: [], connections: [] },
+    ],
+  })
+  await open(IntegrationsScreen, "Integrations")
+
+  const card = async () => within(await screen.findByText("Superset").then(cardOf))
+  await user.click((await card()).getByRole("button", { name: "Add account" }))
+  let dialog = within(await screen.findByRole("dialog"))
+  await user.type(dialog.getByLabelText("Name"), "vmaps")
+  await user.type(dialog.getByLabelText("Address"), "https://superset.example.com")
+  await user.type(dialog.getByLabelText("User name"), "hypomnema-reader")
+  await user.type(dialog.getByLabelText("Password"), "the-password")
+  await user.click(dialog.getByRole("button", { name: "Connect" }))
+  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
+
+  const account = within(await screen.findByLabelText("Superset account vmaps"))
+  expect(account.getByText("hypomnema-reader")).toBeInTheDocument()
+  expect(account.getByText("https://superset.example.com")).toBeInTheDocument()
+  expect(account.getByText("Superset 6.1.0")).toBeInTheDocument()
+  expect(account.getByText("The last sign-in worked")).toBeInTheDocument()
+  expect(account.getByRole("switch", { name: "Use in chats" })).not.toBeChecked()
+  expect((await card()).getByText("Connected")).toBeInTheDocument()
+  expect(document.body).not.toHaveTextContent("the-password")
+
+  // Connecting again keeps the name and starts from the address and the user name; the password is typed again.
+  await user.click(account.getByRole("button", { name: "Connect again" }))
+  dialog = within(await screen.findByRole("dialog"))
+  expect(dialog.queryByLabelText("Name")).not.toBeInTheDocument()
+  expect(dialog.getByLabelText("Address")).toHaveValue("https://superset.example.com")
+  expect(dialog.getByLabelText("Password")).toHaveValue("")
+  await user.click(dialog.getByRole("button", { name: "Cancel" }))
+
+  await user.click(account.getByRole("button", { name: "Disconnect vmaps" }))
+  const confirm = within(await screen.findByRole("alertdialog"))
+  expect(confirm.getByText(/removes its password from the vault/)).toBeInTheDocument()
+  await user.click(confirm.getByRole("button", { name: "Disconnect" }))
+  expect(await (await card()).findByText("No account")).toBeInTheDocument()
+
+  expect(requests).toEqual([
+    {
+      call: "PUT /integrations/superset/connections/vmaps",
+      body: {
+        address: "https://superset.example.com",
+        username: "hypomnema-reader",
+        password: "the-password",
+      },
+    },
+    { call: "DELETE /integrations/superset/connections/vmaps", body: undefined },
+  ])
+})
+
+// Scenario: the account's password was changed at Superset, so the last sign-in was refused: the account and
+// its card say so.
+test("a Superset account whose sign-in was refused says so", async () => {
+  const now = new Date().toISOString()
+  server({
+    services: [
+      {
+        id: "superset",
+        name: "Superset",
+        kind: "account",
+        services: [],
+        connections: [
+          {
+            integration: "superset",
+            label: "vmaps",
+            account: "hypomnema-reader",
+            address: "https://superset.example.com",
+            version: "6.1.0",
+            services: [],
+            sign_in_required: true,
+            chats: true,
+            created_at: now,
+            updated_at: now,
+          },
+        ],
+      },
+    ],
+  })
+  await open(IntegrationsScreen, "Integrations")
+
+  const account = within(await screen.findByLabelText("Superset account vmaps"))
+  expect(account.getByText("Superset refused the last sign-in")).toBeInTheDocument()
+  expect(account.getByRole("switch", { name: "Use in chats" })).toBeChecked()
+  expect(
+    within(await screen.findByText("Superset").then(cardOf)).getAllByText("Needs sign-in").length,
+  ).toBeGreaterThan(0)
 })
 
 test("a host and a name are read from what was typed or pasted", () => {

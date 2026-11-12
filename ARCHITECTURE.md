@@ -418,8 +418,8 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       writes. `hypomnema skills install` installs its stub beside the coordinator's.
     - `integrations disconnect google:work` asks Google to revoke the tokens, then forgets the Connection and its
       secret; the answer says when Google could not be asked.
-    - `GET /integrations` lists these Integrations with their Connections and their kind (`oauth`, `app`) for
-      every token; a token or a client secret is in no answer.
+    - `GET /integrations` lists these Integrations with their Connections and their kind (`oauth`, `app`,
+      `account`) for every token; a token, a password or a client secret is in no answer.
   - Lark is an Integration of kind `app` ([issue #135](https://github.com/kl3inIT/hypomnema/issues/135)): its
     client is a custom app of the owner's Lark organization, and nothing is signed in.
     - The owner gives the app's id and secret in a JSON file with `app_id` and `app_secret`
@@ -445,6 +445,67 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     - `integrations disconnect lark:work` forgets the Connection and keeps the app's id and secret.
     - Only Lark international (`open.larksuite.com`) is declared; Feishu is not. A person's own sign-in (their
       mail, calendar and drive) is not built: a Connection acts as the app.
+  - Superset is an Integration of kind `account` ([issue #203](https://github.com/kl3inIT/hypomnema/issues/203),
+    [research](docs/research/2026-11-12-superset-integration.md)): a third kind beside `oauth` and `app`, for a
+    self-hosted service. It has no client and no fixed address: a Connection is one deployment's address, a user
+    name and a password.
+    - `integrations connect superset --label vmaps --url URL --user NAME --password-file FILE`
+      (`PUT /integrations/{integration}/connections/{label}` with a body) signs a local account in once
+      (`POST {address}/api/v1/security/login`, `provider: db`), which shows the address and the account work, and
+      records the Connection with the address, the user name and the version Superset says it runs
+      (`GET {address}/version`). The password is the Connection's vault secret, `conn-superset-<label>`;
+      migration 00049 adds `address`, `version` and `sign_in_failed` to `connections`. A refused sign-in stores
+      nothing.
+    - The access and refresh tokens are kept in memory only (`internal/controlplane/integration/account.go`). A
+      request Superset refuses for its token (401, or the 422 of a token it cannot read) is sent again with a new
+      one: from the refresh token first, then from the password. When the password no longer signs in, the
+      Connection is marked (`sign_in_failed`) and shows "Needs sign-in" until it is connected again. A request
+      that is not a GET carries the CSRF token, the session cookie it came with and a Referer.
+    - **Its catalog** (`internal/controlplane/serviceproxy/superset.go`) is made from Superset's own description
+      of its API (`superset_methods.json`: the resource, method and path of each of its 210 methods on 157
+      paths). A part of Superset (dashboards, charts, datasets, databases, SQL Lab, queries, alerts and reports,
+      annotations, tags, CSS templates, row level security, import and export, logs, the account and the server)
+      has up to three actions: read (allow), create or change (ask), delete (ask). `POST /api/v1/chart/data`,
+      laying SQL out and a dashboard's screenshot are reads though they are POSTs. Running SQL is one action of
+      its own (ask), and so is administering users and roles (ask), beside reading them (allow). A method the
+      description does not name is the read, the change or the delete of its part when that action exists, a GET
+      elsewhere under `/api/v1/` is a read, and anything else asks as unnamed. The routes name no host: a request
+      is matched by method and path and sent to the Connection's own address, and no tunnel is opened for
+      Superset. The owner sets an action's answer as for Google and Lark. 41 actions are listed.
+    - **A relayed request** (`serviceproxy.Proxy.Relay`). Superset has no vendor tool behind the launcher. A
+      caller names a method and a path; the control plane answers the request with the same code as a request
+      through a tunnel (`Proxy.judge`: the request that could be read two ways is refused, the action is matched,
+      its Policy applied, the Approval asked and waited for, the line logged), and then has the service that signs
+      accounts in send it to the Connection's address with the token (`integration.Service.Call`). The answer is
+      returned unchanged. The Approval of a relayed request names the request in its title and first line
+      ("Create or change: PUT /api/v1/chart/69"), since which chart is changed is in its path.
+    - **The reads** (`internal/controlplane/superset`) are made of relayed requests, so each obeys the owner's
+      answer for its action: `GET /integrations/superset/connections/{label}/dashboards?q=` (dashboards by title),
+      `.../dashboards/{dashboard}` (its charts with their kind and dataset, its filters with the value each starts
+      with) and `.../dashboards/{dashboard}/charts/{chart}/data` (column names, rows, the SQL Superset ran, when
+      the figures were computed; JSON, or CSV with `format=csv`). A chart's data is asked with the query Superset
+      saved with the chart when there is one; otherwise with a query built from the chart's settings as
+      Superset's own plugin builds it, for `table`, `big_number_total`, `pie`, `echarts_timeseries_line` and
+      `echarts_timeseries_bar`. Both get the dashboard's filters at the values they start with. Another kind
+      without a saved query is refused as "not read yet" with its name. The chart's own row limit holds.
+      `POST .../api` relays any other request.
+    - **Who may ask**: the owner, and a coordinator token when the Connection is switched on for chats; the
+      chat a coordinator asks from is passed with the request, so an Approval is answered there. A worker has no
+      way to it yet.
+    - **Commands**: `hypomnema superset dashboards [--search S]`, `superset dashboard <dashboard>`,
+      `superset chart <dashboard> <chart> [--format json|csv] [--sql]` and
+      `superset api <METHOD> <path> [--data FILE|-]`, each with `--connection L` (default: the only Superset
+      Connection). They wait up to 240 s, longer than the 100 s an Approval is held.
+    - **Its skill** (`internal/shared/agenttool/skills/superset`) is one guide for a Bot: what the commands
+      return, that figures are as of the call, that a chart's row limit holds, that lists of people are personal
+      data, and that writes and SQL may wait for the owner's approval. It is installed with the coordinator's
+      skills and is not written to a node.
+    - **The log**: each read is one line with who asked, the Connection, the action, the dashboard and chart and
+      the number of rows (`superset.read`); each relayed request one with its action, method and status
+      (`superset.relayed`), beside the proxy's own line with the verdict. Never a row, the password or a token.
+    - **On the web** the Integrations page has a Superset card: add an account (name, address, user name,
+      password), see its user name, address, version and whether the last sign-in worked, what agents may do
+      with it, "Use in chats", connect again, disconnect.
   - Lark Channels (`internal/controlplane/larkbot`, issues
     [#136](https://github.com/kl3inIT/hypomnema/issues/136) and
     [#169](https://github.com/kl3inIT/hypomnema/issues/169)): a Channel is a door to one Bot, a Lark app and who

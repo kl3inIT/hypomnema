@@ -1,0 +1,24 @@
+Apache Superset
+Copyright The Apache Software Foundation
+
+Used under the Apache License, Version 2.0
+(https://www.apache.org/licenses/LICENSE-2.0).
+Source: https://github.com/apache/superset; its description of its own API
+(the OpenAPI document a Superset serves at /api/v1/_openapi) as the file
+superset.spec.json in https://github.com/Winding2020/superset-mcp at ff8e0eb
+(MIT per its package.json) and, with the same bytes, in
+https://github.com/aptro/superset-mcp at b3dd425 (MIT, Copyright (c) 2025
+Aptro).
+
+What is taken from it here: the HTTP method and path of each of the 210
+methods of that description, with the part of the API each belongs to
+(internal/controlplane/serviceproxy/superset_methods.json). Nothing else of
+the description is kept. The catalog of actions made from that list is
+Hypomnema's own (internal/controlplane/serviceproxy/superset.go).
+
+What is learned from the two MCP servers, with no code of theirs copied: how
+a local account signs in, that a request refused for its token signs in again,
+and what a request that is not a GET carries (their src/client/base-client.ts
+and main.py); how a chart is read with its dashboard's filters (their
+src/client/dashboard-client.ts). The Go that does this is in
+internal/controlplane/integration/account.go and internal/controlplane/superset.

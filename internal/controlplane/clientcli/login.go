@@ -53,7 +53,7 @@ func login(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		return errors.New("the token file does not hold a client token (hyp_…)")
 	}
 
-	c, err := newClient(cfg)
+	c, err := newClient(cfg, requestTimeout)
 	if err != nil {
 		return err
 	}

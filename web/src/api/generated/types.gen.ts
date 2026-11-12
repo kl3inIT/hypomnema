@@ -607,9 +607,9 @@ export type Integration = {
   id: string;
   name: string;
   /**
-   * How a Connection is made: oauth signs an account in, in a browser; app has no sign-in, its client being an app of the service.
+   * How a Connection is made: oauth signs an account in, in a browser; app has no sign-in, its client being an app of the service; account is the service's address, a user name and a password.
    */
-  kind: 'oauth' | 'app';
+  kind: 'oauth' | 'app' | 'account';
   /**
    * The id of the OAuth client it signs in with, or of the app it is; absent until one is set. Not secret.
    */
@@ -725,15 +725,153 @@ export type IntegrationConnection = {
    */
   services: Array<string>;
   /**
-   * The service refused the Connection's refresh token for good; sign in again.
+   * The service refused the Connection's refresh token for good, or for an account its password the last time the control plane signed in; connect it again.
    */
   sign_in_required: boolean;
+  /**
+   * Where the service is, for an Integration of kind account.
+   */
+  address?: string;
+  /**
+   * What the service said it runs when the Connection was made, when it said.
+   */
+  version?: string;
   /**
    * Whether the coordinator may use the Connection in chats, and so give it to a Run. Off until the owner turns it on.
    */
   chats: boolean;
   created_at: string;
   updated_at: string;
+};
+
+/**
+ * An account of a service at an address of its own.
+ */
+export type NewAccountConnection = {
+  /**
+   * Where the service is, such as https://superset.example.com.
+   */
+  address?: string;
+  username?: string;
+};
+
+export type SupersetDashboardSummary = {
+  id: number;
+  title: string;
+  slug?: string;
+  published: boolean;
+  changed_at?: string;
+};
+
+export type SupersetDashboardList = {
+  data: Array<SupersetDashboardSummary>;
+};
+
+export type SupersetChart = {
+  id: number;
+  name: string;
+  /**
+   * Superset's name for the kind of chart, such as table or pie.
+   */
+  kind: string;
+  dataset_id: number;
+  /**
+   * The dataset's name; absent when the account may not list the dashboard's datasets.
+   */
+  dataset?: string;
+  /**
+   * Whether the query of a chart of this kind is built here when it has no saved query.
+   */
+  read: boolean;
+};
+
+export type SupersetFilter = {
+  id: string;
+  name: string;
+  /**
+   * Superset's name for the kind of filter, such as filter_select.
+   */
+  kind: string;
+  column?: string;
+  dataset_id?: number;
+  /**
+   * The value the filter has when the dashboard opens; absent when it has none.
+   */
+  default?: unknown;
+  /**
+   * The charts the filter applies to.
+   */
+  charts: Array<number>;
+};
+
+export type SupersetDashboard = {
+  id: number;
+  title: string;
+  slug?: string;
+  charts: Array<SupersetChart>;
+  filters: Array<SupersetFilter>;
+};
+
+export type SupersetChartData = {
+  dashboard_id: number;
+  chart_id: number;
+  name: string;
+  kind: string;
+  /**
+   * How the query was come by: the one Superset saved with the chart, or one built from the chart's settings.
+   */
+  source: 'saved' | 'built';
+  columns: Array<string>;
+  /**
+   * The values of each row, in the order of columns.
+   */
+  rows: Array<Array<unknown>>;
+  row_count: number;
+  /**
+   * The query Superset ran.
+   */
+  sql: string;
+  /**
+   * When the figures were computed: when Superset cached them, or the time of this call when they did not come from its cache.
+   */
+  computed_at: string;
+  /**
+   * Whether the figures came from Superset's cache.
+   */
+  cached: boolean;
+};
+
+export type SupersetRequest = {
+  method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+  /**
+   * The path and the query as Superset reads them, such as /api/v1/chart/?q=(page_size:5).
+   */
+  path: string;
+  /**
+   * The request's body, sent as JSON.
+   */
+  body?: string;
+  /**
+   * The chat a coordinator asks from. Ignored for the owner.
+   */
+  chat_id?: string;
+};
+
+export type SupersetAnswer = {
+  /**
+   * The status Superset answered with.
+   */
+  status: number;
+  content_type: string;
+  /**
+   * Superset's answer; in base64 when it is not text.
+   */
+  body: string;
+  base64: boolean;
+  /**
+   * The action the request was, such as superset.charts.read.
+   */
+  action: string;
 };
 
 export type ActionPolicy = 'allow' | 'ask' | 'never';
@@ -1245,6 +1383,18 @@ export type LarkChannelSettingsWritable = {
   enabled?: boolean;
 };
 
+/**
+ * An account of a service at an address of its own.
+ */
+export type NewAccountConnectionWritable = {
+  /**
+   * Where the service is, such as https://superset.example.com.
+   */
+  address?: string;
+  username?: string;
+  password?: string;
+};
+
 export type NewIntegrationClientWritable = {
   client_id: string;
   client_secret: string;
@@ -1260,6 +1410,16 @@ export type LarkChannelName = string;
 export type IntegrationId = string;
 
 export type ConnectionLabel = string;
+
+/**
+ * The dashboard's number or its slug.
+ */
+export type SupersetDashboardId = string;
+
+/**
+ * The chat a coordinator asks from, so that an Approval the request waits for is answered there. Ignored for the owner.
+ */
+export type AskingChat = string;
 
 export type Name = string;
 
@@ -2497,7 +2657,7 @@ export type PatchIntegrationConnectionResponses = {
 export type PatchIntegrationConnectionResponse = PatchIntegrationConnectionResponses[keyof PatchIntegrationConnectionResponses];
 
 export type PutIntegrationConnectionData = {
-  body?: never;
+  body?: NewAccountConnectionWritable;
   path: {
     integration: string;
     label: string;
@@ -2759,6 +2919,149 @@ export type SetConnectionActionResponses = {
 };
 
 export type SetConnectionActionResponse = SetConnectionActionResponses[keyof SetConnectionActionResponses];
+
+export type ListSupersetDashboardsData = {
+  body?: never;
+  path: {
+    label: string;
+  };
+  query?: {
+    /**
+     * Only the dashboards whose title contains this.
+     */
+    q?: string;
+    /**
+     * The chat a coordinator asks from, so that an Approval the request waits for is answered there. Ignored for the owner.
+     */
+    chat_id?: string;
+  };
+  url: '/integrations/superset/connections/{label}/dashboards';
+};
+
+export type ListSupersetDashboardsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListSupersetDashboardsError = ListSupersetDashboardsErrors[keyof ListSupersetDashboardsErrors];
+
+export type ListSupersetDashboardsResponses = {
+  /**
+   * The dashboards.
+   */
+  200: SupersetDashboardList;
+};
+
+export type ListSupersetDashboardsResponse = ListSupersetDashboardsResponses[keyof ListSupersetDashboardsResponses];
+
+export type GetSupersetDashboardData = {
+  body?: never;
+  path: {
+    label: string;
+    /**
+     * The dashboard's number or its slug.
+     */
+    dashboard: string;
+  };
+  query?: {
+    /**
+     * The chat a coordinator asks from, so that an Approval the request waits for is answered there. Ignored for the owner.
+     */
+    chat_id?: string;
+  };
+  url: '/integrations/superset/connections/{label}/dashboards/{dashboard}';
+};
+
+export type GetSupersetDashboardErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GetSupersetDashboardError = GetSupersetDashboardErrors[keyof GetSupersetDashboardErrors];
+
+export type GetSupersetDashboardResponses = {
+  /**
+   * The dashboard.
+   */
+  200: SupersetDashboard;
+};
+
+export type GetSupersetDashboardResponse = GetSupersetDashboardResponses[keyof GetSupersetDashboardResponses];
+
+export type GetSupersetChartDataData = {
+  body?: never;
+  path: {
+    label: string;
+    /**
+     * The dashboard's number or its slug.
+     */
+    dashboard: string;
+    /**
+     * The chart's number.
+     */
+    chart: number;
+  };
+  query?: {
+    /**
+     * json, the default, or csv for the rows alone with a header line.
+     */
+    format?: 'json' | 'csv';
+    /**
+     * The chat a coordinator asks from, so that an Approval the request waits for is answered there. Ignored for the owner.
+     */
+    chat_id?: string;
+  };
+  url: '/integrations/superset/connections/{label}/dashboards/{dashboard}/charts/{chart}/data';
+};
+
+export type GetSupersetChartDataErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GetSupersetChartDataError = GetSupersetChartDataErrors[keyof GetSupersetChartDataErrors];
+
+export type GetSupersetChartDataResponses = {
+  /**
+   * The chart's data.
+   */
+  200: SupersetChartData;
+};
+
+export type GetSupersetChartDataResponse = GetSupersetChartDataResponses[keyof GetSupersetChartDataResponses];
+
+export type RelaySupersetRequestData = {
+  body: SupersetRequest;
+  path: {
+    label: string;
+  };
+  query?: never;
+  url: '/integrations/superset/connections/{label}/api';
+};
+
+export type RelaySupersetRequestErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type RelaySupersetRequestError = RelaySupersetRequestErrors[keyof RelaySupersetRequestErrors];
+
+export type RelaySupersetRequestResponses = {
+  /**
+   * Superset's answer, whatever its status.
+   */
+  200: SupersetAnswer;
+};
+
+export type RelaySupersetRequestResponse = RelaySupersetRequestResponses[keyof RelaySupersetRequestResponses];
 
 export type ListApprovalsData = {
   body?: never;

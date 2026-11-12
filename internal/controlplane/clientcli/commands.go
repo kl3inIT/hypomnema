@@ -203,15 +203,59 @@ var commands = []command{
 	{
 		name: "integrations connect", args: "<integration>", min: 1, max: 1,
 		summary: "connect an account under a label: a git host with a token read from a file, a service such as " +
-			"google by signing in, an app such as lark with nothing more (owner)",
+			"google by signing in, an app such as lark with nothing more, superset with its address, a user name " +
+			"and a password read from a file (owner)",
 		flags: func(fs *flag.FlagSet) {
 			fs.String("label", "default", "the name of this account, such as work")
 			fs.String("token-file", "", "for a git host: the file holding the token, or - for standard input")
 			fs.String("services", "", "for a service that signs in: what to connect, such as gmail:read,calendar "+
 				"(:read is read only)")
+			fs.String("url", "", "for superset: its address, such as https://superset.example.com")
+			fs.String("user", "", "for superset: the account's user name")
+			fs.String("password-file", "", "for superset: the file holding the password, or - for standard input")
 			jsonFlag(fs)
 		},
 		run: integrationsConnect,
+	},
+	{
+		name: "superset dashboards", summary: "the dashboards of a Superset account, by title", long: true,
+		flags: func(fs *flag.FlagSet) {
+			fs.String("search", "", "only the dashboards whose title contains this")
+			supersetFlags(fs)
+			jsonFlag(fs)
+		},
+		run: supersetDashboards,
+	},
+	{
+		name: "superset dashboard", args: "<dashboard>", min: 1, max: 1, long: true,
+		summary: "a dashboard, by its number or slug, with its charts and its filters",
+		flags: func(fs *flag.FlagSet) {
+			supersetFlags(fs)
+			jsonFlag(fs)
+		},
+		run: supersetDashboard,
+	},
+	{
+		name: "superset chart", args: "<dashboard> <chart>", min: 2, max: 2, long: true,
+		summary: "a chart's rows as its dashboard shows them: columns, rows, the SQL Superset ran and when the " +
+			"figures were computed",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("format", "json", "json, or csv for the rows alone with a header line")
+			fs.Bool("sql", false, "print only the SQL Superset ran")
+			supersetFlags(fs)
+		},
+		run: supersetChart,
+	},
+	{
+		name: "superset api", args: "<METHOD> <path>", min: 2, max: 2, long: true,
+		summary: "send one request to Superset's API and print its answer; the owner's answer for the action " +
+			"decides whether it runs, asks or is refused",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("data", "", "the file holding the request's JSON body, or - for standard input")
+			supersetFlags(fs)
+			jsonFlag(fs)
+		},
+		run: supersetAPI,
 	},
 	{
 		name: "integrations chats", args: "<integration>:<label> on|off", min: 2, max: 2,

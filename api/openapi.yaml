@@ -628,9 +628,10 @@ paths:
       operationId: ListIntegrations
       summary: The services that sign in with an account or are an app, with their Connections
       description: >-
-        An Integration here signs an account in with OAuth, as Google, or is
-        an app of the service, as Lark. A git host is an Integration too and
-        is listed under /hosts. No token and no client secret is ever in the
+        An Integration here signs an account in with OAuth, as Google, is an
+        app of the service, as Lark, or is an account at an address of its
+        own, as Superset. A git host is an Integration too and is listed under
+        /hosts. No token, no password and no client secret is ever in the
         answer.
       responses:
         "200":
@@ -720,12 +721,22 @@ paths:
         schema: { type: string, pattern: "^[a-z0-9][a-z0-9-]{0,30}$" }
     put:
       operationId: PutIntegrationConnection
-      summary: Connect an Integration of kind app, as a Connection under a label; only the owner
+      summary: Connect an Integration of kind app or account, as a Connection under a label; only the owner
       description: >-
-        There is no sign-in: the control plane asks the service for a token
-        with the app's id and secret, reads the app's name with it and records
-        the Connection. A label that exists is checked again. An Integration
-        that signs an account in is refused: it starts a sign-in.
+        For an app there is no sign-in and no body: the control plane asks the
+        service for a token with the app's id and secret, reads the app's name
+        with it and records the Connection. For an account the body is the
+        service's address, a user name and a password: the control plane signs
+        in there once, which shows that they work, keeps the password in the
+        vault and records the Connection with the version the service says it
+        runs. A sign-in that is refused stores nothing. A label that exists is
+        checked again and takes what was given. An Integration that signs an
+        account in with OAuth is refused: it starts a sign-in.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewAccountConnection" }
       responses:
         "200":
           description: The Connection.
@@ -903,6 +914,113 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ConnectionAction" }
+        default: { $ref: "#/components/responses/Error" }
+  /integrations/superset/connections/{label}/dashboards:
+    parameters:
+      - $ref: "#/components/parameters/ConnectionLabel"
+    get:
+      operationId: ListSupersetDashboards
+      summary: The dashboards of a Superset Connection, by title
+      description: >-
+        At most a hundred, by title. The owner may ask, and a coordinator
+        token when the owner switched the Connection on for chats. The request
+        to Superset is the read of dashboards in the Connection's actions and
+        has the owner's answer for it.
+      parameters:
+        - name: q
+          in: query
+          description: Only the dashboards whose title contains this.
+          schema: { type: string, maxLength: 200 }
+        - $ref: "#/components/parameters/AskingChat"
+      responses:
+        "200":
+          description: The dashboards.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SupersetDashboardList" }
+        default: { $ref: "#/components/responses/Error" }
+  /integrations/superset/connections/{label}/dashboards/{dashboard}:
+    parameters:
+      - $ref: "#/components/parameters/ConnectionLabel"
+      - $ref: "#/components/parameters/SupersetDashboardID"
+    get:
+      operationId: GetSupersetDashboard
+      summary: A Superset dashboard with its charts and its filters
+      description: >-
+        Each chart with its kind and its dataset, and whether a chart of that
+        kind can be read as data; each filter with the value it has when the
+        dashboard opens. Who may ask is as for the list of dashboards.
+      parameters:
+        - $ref: "#/components/parameters/AskingChat"
+      responses:
+        "200":
+          description: The dashboard.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SupersetDashboard" }
+        default: { $ref: "#/components/responses/Error" }
+  /integrations/superset/connections/{label}/dashboards/{dashboard}/charts/{chart}/data:
+    parameters:
+      - $ref: "#/components/parameters/ConnectionLabel"
+      - $ref: "#/components/parameters/SupersetDashboardID"
+      - name: chart
+        in: path
+        required: true
+        description: The chart's number.
+        schema: { type: integer, format: int64, minimum: 1 }
+    get:
+      operationId: GetSupersetChartData
+      summary: A chart's rows as its dashboard shows them when it opens
+      description: >-
+        The column names, the rows, the SQL Superset ran and when the figures
+        were computed. The query is the one Superset saved with the chart when
+        it has one, and otherwise one built from the chart's own settings; the
+        dashboard's filters are applied at the values they start with. A chart
+        of a kind whose query is not built yet, and that has no saved query,
+        is refused with the name of its kind. The chart's own row limit holds.
+        Who may ask is as for the list of dashboards.
+      parameters:
+        - name: format
+          in: query
+          description: json, the default, or csv for the rows alone with a header line.
+          schema: { type: string, enum: [json, csv] }
+        - $ref: "#/components/parameters/AskingChat"
+      responses:
+        "200":
+          description: The chart's data.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SupersetChartData" }
+            text/csv:
+              schema: { type: string }
+        default: { $ref: "#/components/responses/Error" }
+  /integrations/superset/connections/{label}/api:
+    parameters:
+      - $ref: "#/components/parameters/ConnectionLabel"
+    post:
+      operationId: RelaySupersetRequest
+      summary: Send one request to a Superset Connection's API and return its answer unchanged
+      description: >-
+        The control plane matches the request to its action in the
+        Connection's actions and applies the owner's answer: allow sends it,
+        never refuses it, ask holds it for the owner's Approval. A request
+        that is held longer than the wait answers that it waits, and the same
+        request sent again after the Approval passes once. The token is added
+        on the control plane and is never in an answer. A request that could
+        be read two ways (a path that climbs, an encoded slash, another
+        address) is refused. The account's roles at Superset still decide what
+        it may do there. Who may ask is as for the list of dashboards.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SupersetRequest" }
+      responses:
+        "200":
+          description: Superset's answer, whatever its status.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SupersetAnswer" }
         default: { $ref: "#/components/responses/Error" }
   /approvals:
     get:
@@ -1483,6 +1601,19 @@ components:
       in: path
       required: true
       schema: { type: string, pattern: "^[a-z0-9][a-z0-9-]{0,30}$" }
+    SupersetDashboardID:
+      name: dashboard
+      in: path
+      required: true
+      description: The dashboard's number or its slug.
+      schema: { type: string, pattern: "^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$" }
+    AskingChat:
+      name: chat_id
+      in: query
+      description: >-
+        The chat a coordinator asks from, so that an Approval the request
+        waits for is answered there. Ignored for the owner.
+      schema: { type: string, maxLength: 64 }
     Name:
       name: name
       in: path
@@ -2239,10 +2370,11 @@ components:
         name: { type: string }
         kind:
           type: string
-          enum: [oauth, app]
+          enum: [oauth, app, account]
           description: >-
             How a Connection is made: oauth signs an account in, in a browser;
-            app has no sign-in, its client being an app of the service.
+            app has no sign-in, its client being an app of the service; account
+            is the service's address, a user name and a password.
         client_id:
           type: string
           description: >-
@@ -2367,7 +2499,16 @@ components:
             write, or with ":read" to read only.
         sign_in_required:
           type: boolean
-          description: The service refused the Connection's refresh token for good; sign in again.
+          description: >-
+            The service refused the Connection's refresh token for good, or for
+            an account its password the last time the control plane signed in;
+            connect it again.
+        address:
+          type: string
+          description: Where the service is, for an Integration of kind account.
+        version:
+          type: string
+          description: What the service said it runs when the Connection was made, when it said.
         chats:
           type: boolean
           description: >-
@@ -2375,6 +2516,141 @@ components:
             turns it on.
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+    NewAccountConnection:
+      type: object
+      description: An account of a service at an address of its own.
+      additionalProperties: false
+      properties:
+        address:
+          type: string
+          maxLength: 1024
+          description: Where the service is, such as https://superset.example.com.
+        username: { type: string, maxLength: 1024 }
+        password:
+          type: string
+          maxLength: 1024
+          writeOnly: true
+    SupersetDashboardSummary:
+      type: object
+      required: [id, title, published]
+      properties:
+        id: { type: integer, format: int64 }
+        title: { type: string }
+        slug: { type: string }
+        published: { type: boolean }
+        changed_at: { type: string, format: date-time }
+    SupersetDashboardList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/SupersetDashboardSummary" }
+    SupersetChart:
+      type: object
+      required: [id, name, kind, dataset_id, read]
+      properties:
+        id: { type: integer, format: int64 }
+        name: { type: string }
+        kind: { type: string, description: "Superset's name for the kind of chart, such as table or pie." }
+        dataset_id: { type: integer, format: int64 }
+        dataset:
+          type: string
+          description: The dataset's name; absent when the account may not list the dashboard's datasets.
+        read:
+          type: boolean
+          description: Whether the query of a chart of this kind is built here when it has no saved query.
+    SupersetFilter:
+      type: object
+      required: [id, name, kind, charts]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        kind: { type: string, description: "Superset's name for the kind of filter, such as filter_select." }
+        column: { type: string }
+        dataset_id: { type: integer, format: int64 }
+        default:
+          description: The value the filter has when the dashboard opens; absent when it has none.
+        charts:
+          type: array
+          items: { type: integer, format: int64 }
+          description: The charts the filter applies to.
+    SupersetDashboard:
+      type: object
+      required: [id, title, charts, filters]
+      properties:
+        id: { type: integer, format: int64 }
+        title: { type: string }
+        slug: { type: string }
+        charts:
+          type: array
+          items: { $ref: "#/components/schemas/SupersetChart" }
+        filters:
+          type: array
+          items: { $ref: "#/components/schemas/SupersetFilter" }
+    SupersetChartData:
+      type: object
+      required: [dashboard_id, chart_id, name, kind, source, columns, rows, row_count, sql, computed_at, cached]
+      properties:
+        dashboard_id: { type: integer, format: int64 }
+        chart_id: { type: integer, format: int64 }
+        name: { type: string }
+        kind: { type: string }
+        source:
+          type: string
+          enum: [saved, built]
+          description: >-
+            How the query was come by: the one Superset saved with the chart,
+            or one built from the chart's settings.
+        columns:
+          type: array
+          items: { type: string }
+        rows:
+          type: array
+          description: The values of each row, in the order of columns.
+          items:
+            type: array
+            items: {}
+        row_count: { type: integer }
+        sql: { type: string, description: The query Superset ran. }
+        computed_at:
+          type: string
+          format: date-time
+          description: >-
+            When the figures were computed: when Superset cached them, or the
+            time of this call when they did not come from its cache.
+        cached: { type: boolean, description: Whether the figures came from Superset's cache. }
+    SupersetRequest:
+      type: object
+      required: [method, path]
+      additionalProperties: false
+      properties:
+        method:
+          type: string
+          enum: [GET, POST, PUT, PATCH, DELETE]
+        path:
+          type: string
+          minLength: 1
+          maxLength: 8192
+          description: The path and the query as Superset reads them, such as /api/v1/chart/?q=(page_size:5).
+        body:
+          type: string
+          description: The request's body, sent as JSON.
+        chat_id:
+          type: string
+          maxLength: 64
+          description: The chat a coordinator asks from. Ignored for the owner.
+    SupersetAnswer:
+      type: object
+      required: [status, content_type, body, base64, action]
+      properties:
+        status: { type: integer, description: The status Superset answered with. }
+        content_type: { type: string }
+        body:
+          type: string
+          description: Superset's answer; in base64 when it is not text.
+        base64: { type: boolean }
+        action: { type: string, description: "The action the request was, such as superset.charts.read." }
     ActionPolicy:
       type: string
       enum: [allow, ask, never]

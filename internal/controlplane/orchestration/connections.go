@@ -37,6 +37,14 @@ type Connection struct {
 	// granted, each to read or to read and write ("gmail:read", "calendar");
 	// empty for a git host.
 	Services []string
+	// Address is where the service is, for an Integration whose Connections
+	// each have their own: a self-hosted Superset. Empty otherwise.
+	Address string
+	// Version is what the service said it runs when the Connection was made.
+	Version string
+	// SignInFailed says the service refused the account the last time the
+	// control plane signed in.
+	SignInFailed bool
 	// Chats says the coordinator may use the Connection in chats.
 	Chats     bool
 	CreatedAt time.Time
@@ -92,7 +100,8 @@ func (s *Service) SaveServiceConnection(ctx context.Context, c Connection) (Conn
 	err := s.write(ctx, func(q *store.Queries, now int64) error {
 		return q.UpsertConnection(ctx, store.UpsertConnectionParams{
 			Integration: c.Integration, Label: c.Label, Account: nullString(c.Account), Secret: c.Secret,
-			Services: nullString(strings.Join(c.Services, ",")), Now: now,
+			Services: nullString(strings.Join(c.Services, ",")), Address: nullString(c.Address),
+			Version: nullString(c.Version), Now: now,
 		})
 	})
 	if err != nil {
@@ -100,6 +109,28 @@ func (s *Service) SaveServiceConnection(ctx context.Context, c Connection) (Conn
 	}
 
 	return s.ConnectionOf(ctx, c.Integration, c.Label)
+}
+
+// SetConnectionSignInFailed records whether the service refused a
+// Connection's account the last time the control plane signed in.
+func (s *Service) SetConnectionSignInFailed(ctx context.Context, integration, label string, failed bool) error {
+	flag := int64(0)
+	if failed {
+		flag = 1
+	}
+
+	err := s.write(ctx, func(q *store.Queries, now int64) error {
+		_, err := q.SetConnectionSignInFailed(ctx, store.SetConnectionSignInFailedParams{
+			Integration: integration, Label: label, Failed: flag, Now: now,
+		})
+
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("recording the sign-in of %s:%s: %w", integration, label, err)
+	}
+
+	return nil
 }
 
 // ConnectionsOf returns an Integration's Connections, oldest first.
@@ -340,6 +371,7 @@ func connectionFromRow(r store.Connection) Connection {
 
 	return Connection{
 		Integration: r.Integration, Label: r.Label, Account: r.Account.String, Secret: r.Secret, Services: services,
+		Address: r.Address.String, Version: r.Version.String, SignInFailed: r.SignInFailed != 0,
 		Chats:     r.Chats != 0,
 		CreatedAt: millis(r.CreatedAt), UpdatedAt: millis(r.UpdatedAt),
 	}
