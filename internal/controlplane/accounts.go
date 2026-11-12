@@ -23,7 +23,7 @@ import (
 
 const accountsUsage = "accounts add <runtime> <label> [--token FILE|-] | " +
 	"accounts login codex|antigravity|claude [--label L] | " +
-	"accounts list | accounts disable <account> | accounts enable <account> | accounts models <account> | " +
+	"accounts list | accounts disable <account> | accounts enable <account> | accounts models <account> | accounts limits <account> | " +
 	"accounts refresh <account> | accounts rm <account>"
 
 // maxPastedBytes bounds the address the owner pastes to finish a login.
@@ -102,6 +102,24 @@ func (o *owner) accounts(ctx context.Context, args []string) error {
 			}
 
 			o.printf("%s\t%s\t%s\n", m.Name, left, reset)
+		}
+
+		return nil
+	case len(args) == 2 && args[0] == "limits":
+		// What is left of each window, as the pages of the references say it
+		// (T3 Code UsageLimits.tsx: "N% left", "Resets …"; issue #199).
+		limits, err := o.subscriptions.Limits(ctx, args[1], true)
+		if err != nil {
+			return err
+		}
+
+		for _, w := range limits.Windows {
+			reset := ""
+			if !w.ResetsAt.IsZero() {
+				reset = "resets " + w.ResetsAt.UTC().Format(time.RFC3339)
+			}
+
+			o.printf("%s\t%d%% left\t%s\n", w.Name, int(100-w.UsedPercent+0.5), reset)
 		}
 
 		return nil

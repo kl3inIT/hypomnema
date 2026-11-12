@@ -35,3 +35,7 @@ func (a *Antigravity) PollWithoutWaiting() {
 		return now
 	}
 }
+
+// ReadLimitsFrom makes the limits of a Codex account be read from a test's
+// server in ChatGPT's place.
+func (c *Codex) ReadLimitsFrom(base string) { c.usageBase = base }
