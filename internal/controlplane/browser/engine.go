@@ -24,13 +24,18 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
+	"github.com/kl3inIT/hypomnema/internal/controlplane/browser/egress"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 )
 
@@ -51,7 +56,9 @@ const (
 	// maxResultBytes bounds a tool's answer; a screenshot is the largest.
 	maxResultBytes = 8 << 20
 	hostSession    = "host"
-	blankPage      = "about:blank"
+	// boundTab ends the name of the file in which agent-browser keeps the tab a session is pinned to.
+	boundTab  = ".target"
+	blankPage = "about:blank"
 )
 
 // ErrUnavailable reports that the browser cannot be used now, with why.
@@ -81,8 +88,14 @@ type Config struct {
 	// only, as in T3 Code (T3CODE_SERVER_BROWSER_SANDBOX=0): a launch that
 	// fails never turns the sandbox off.
 	NoSandbox bool
-	Logger    *slog.Logger
-	Clock     platform.Clock
+	// Allow is the owner's list of private destinations the browser may
+	// reach; everything else off the public internet is refused (issue #202).
+	Allow egress.Allow
+	// OwnPorts are the ports the control plane listens on: the browser never
+	// reaches them on this machine, whatever Allow says.
+	OwnPorts []uint16
+	Logger   *slog.Logger
+	Clock    platform.Clock
 }
 
 // Engine runs the shared browser.
@@ -92,15 +105,25 @@ type Engine struct {
 	// mu guards what follows. It is held while Chrome is installed, started
 	// or checked, so those happen once; a tool call holds only its session's
 	// own lock.
-	mu       sync.Mutex
-	binary   string
-	chrome   string
-	catalog  *catalog
+	mu      sync.Mutex
+	binary  string
+	chrome  string
+	catalog *catalog
+	// gate is what Chrome sends every connection through, and launch the
+	// environment that makes it. They are set before Chrome's first start and
+	// kept: a Chrome keeps the port it was launched with.
+	gate     *egress.Gate
+	launch   []string
 	cdp      string
 	checked  time.Time
 	cleared  bool
 	lastUsed time.Time
 	sessions map[string]*session
+
+	// The gate's port and Chrome's DevTools port, which the gate asks about
+	// from its own goroutines.
+	gatePort     atomic.Uint32
+	devToolsPort atomic.Uint32
 }
 
 // session is one agent's hold on the browser.
@@ -274,6 +297,12 @@ func (e *Engine) running(ctx context.Context) error {
 	// the profile on disk keeps the sign-ins.
 	if !e.cleared {
 		_, _ = e.cli(ctx, hostSession, "", "close")
+
+		bound, _ := filepath.Glob(filepath.Join(e.sockets(), "*"+boundTab))
+		for _, file := range bound {
+			e.end(ctx, strings.TrimSuffix(filepath.Base(file), boundTab), "")
+		}
+
 		e.cleared = true
 	}
 
@@ -294,12 +323,14 @@ func (e *Engine) running(ctx context.Context) error {
 		e.forget(ctx)
 	}
 
-	args := []string{"--profile", e.profile(), "--executable-path", e.chrome}
-	if e.cfg.NoSandbox {
-		args = append(args, "--args", "--no-sandbox")
+	// Chrome is never started without its gate: it would reach the control plane's own machine and network.
+	//nolint:contextcheck // The gate outlives the call that first needs it.
+	if err := e.gated(); err != nil {
+		return fmt.Errorf("%w: %w", ErrUnavailable, err)
 	}
 
-	out, err := e.cli(ctx, hostSession, "", append(args, "open", blankPage)...)
+	out, err := e.cli(ctx, hostSession, "",
+		"--profile", e.profile(), "--executable-path", e.chrome, "open", blankPage)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrUnavailable, err)
 	}
@@ -317,10 +348,67 @@ func (e *Engine) running(ctx context.Context) error {
 		return fmt.Errorf("%w: Chrome started and gave no address", ErrUnavailable)
 	}
 
+	e.devToolsPort.Store(portOf(e.cdp))
 	e.checked, e.lastUsed = now, now
 	e.cfg.Logger.InfoContext(ctx, "the browser started", slog.String("event", "browser.started"))
 
 	return nil
+}
+
+// gated has the gate open and Chrome's launch settings made for it, as
+// OpenMausBot's engine does (server/browser-engine.ts, agentBrowserEgressEnv).
+// The caller holds mu.
+func (e *Engine) gated() error {
+	if e.gate != nil {
+		return nil
+	}
+
+	gate, err := egress.Open(egress.Rules{Allow: e.cfg.Allow, OwnPort: e.ownPort}, e.refused)
+	if err != nil {
+		return err
+	}
+
+	proxy, bypass, args := gate.ChromeSettings()
+	if e.cfg.NoSandbox {
+		args = append(args, "--no-sandbox")
+	}
+
+	e.gate = gate
+	e.gatePort.Store(uint32(gate.Port()))
+	e.launch = []string{
+		"AGENT_BROWSER_PROXY=" + proxy,
+		"AGENT_BROWSER_PROXY_BYPASS=" + bypass,
+		// agent-browser reads one argument a line.
+		"AGENT_BROWSER_ARGS=" + strings.Join(args, "\n"),
+	}
+
+	return nil
+}
+
+// ownPort reports a port of the control plane's or the browser's own.
+func (e *Engine) ownPort(port uint16) bool {
+	return slices.Contains(e.cfg.OwnPorts, port) ||
+		uint32(port) == e.gatePort.Load() || uint32(port) == e.devToolsPort.Load()
+}
+
+func (e *Engine) refused(host string, port uint16, reason egress.Refusal) {
+	e.cfg.Logger.Warn("the browser was refused a connection", slog.String("event", "browser.refused"),
+		slog.String("host", host), slog.Int("port", int(port)), slog.String("reason", string(reason)))
+}
+
+// portOf is the port in Chrome's DevTools address, or 0.
+func portOf(address string) uint32 {
+	parsed, err := url.Parse(address)
+	if err != nil {
+		return 0
+	}
+
+	port, err := strconv.ParseUint(parsed.Port(), 10, 16)
+	if err != nil {
+		return 0
+	}
+
+	return uint32(port)
 }
 
 // address is Chrome's DevTools address, or empty when Chrome is not up. The
@@ -341,12 +429,25 @@ func (e *Engine) address(ctx context.Context) string {
 // forget drops every session after Chrome went away. The caller holds mu.
 func (e *Engine) forget(ctx context.Context) {
 	for agent, s := range e.sessions {
-		_, _ = e.cli(ctx, s.name, e.cdp, "close")
+		e.end(ctx, s.name, e.cdp)
 
 		delete(e.sessions, agent)
 	}
 
 	e.cdp = ""
+}
+
+// end closes a session and drops its hold on its tab. agent-browser keeps a
+// pinned session's tab in a file that outlives the session on purpose
+// (cli/src/native/tab_binding.rs), and answers `tab_gone` to every command
+// once that tab is closed: a session the engine ended starts anew the next
+// time its agent calls.
+func (e *Engine) end(ctx context.Context, name, cdp string) {
+	_, _ = e.cli(ctx, name, cdp, "close")
+
+	if name != hostSession {
+		_ = os.Remove(filepath.Join(e.sockets(), name+boundTab))
+	}
 }
 
 // tool runs one MCP tool of agent-browser in a session.
@@ -458,6 +559,12 @@ func (e *Engine) env(name, cdp string) []string {
 		env = append(env, "AGENT_BROWSER_CDP="+cdp, "AGENT_BROWSER_PIN_TAB=1")
 	}
 
+	// Every command of the session that launches Chrome carries the launch settings: agent-browser starts
+	// Chrome again when a command's differ.
+	if name == hostSession {
+		env = append(env, e.launch...)
+	}
+
 	return env
 }
 
@@ -488,7 +595,7 @@ func (e *Engine) Release(ctx context.Context, agent string) {
 		_, _ = e.cli(ctx, s.name, cdp, "tab", "close")
 	}
 
-	_, _ = e.cli(ctx, s.name, cdp, "close")
+	e.end(ctx, s.name, cdp)
 	s.released = true
 }
 
@@ -552,16 +659,20 @@ func (e *Engine) Run(ctx context.Context) {
 	}
 }
 
-// Close ends every session and Chrome.
+// Close ends every session, Chrome and its gate.
 func (e *Engine) Close(ctx context.Context) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	if e.binary == "" || e.cdp == "" {
-		return
+	if e.binary != "" && e.cdp != "" {
+		e.stop(ctx)
 	}
 
-	e.stop(ctx)
+	if e.gate != nil {
+		e.gate.Close()
+
+		e.gate, e.launch = nil, nil
+	}
 }
 
 // Status is what the engine is doing.

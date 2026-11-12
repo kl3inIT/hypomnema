@@ -18,23 +18,35 @@ import (
 
 // standIn is a program put where the pinned agent-browser is installed. It
 // writes each run to `log` beside itself (the session, the Chrome it was told
-// to attach to, whether its tab is pinned, a variable of the control plane's
-// that it must never see, and its arguments) and answers as agent-browser
+// to attach to, whether its tab is pinned, the proxy and the Chrome arguments
+// it was given, a variable of the control plane's that it must never see, and
+// its arguments) and answers as agent-browser
 // does for the commands the engine runs:
 //
 //   - `get cdp-url` gives the address in `up`, a file a launch writes and the
 //     launching session's `close` removes;
 //   - a launch fails as Chrome does on a machine that blocks its sandbox
 //     while `sandbox-blocked` is there and `--no-sandbox` is not given;
-//   - `mcp call` answers a tool's result with more beside it.
+//   - `mcp call` answers a tool's result with more beside it. As agent-browser
+//     does, it keeps the session's tab in a file beside its sockets, which
+//     outlives the session, and answers `tab_gone` once that tab was closed or
+//     its Chrome went away.
 const standIn = `#!/bin/sh
 dir=$(dirname "$0")
 who="session=$AGENT_BROWSER_SESSION cdp=${AGENT_BROWSER_CDP:-} pin=${AGENT_BROWSER_PIN_TAB:-}"
-echo "$who secret=${HYPOMNEMA_VAULT_KEYS:-} args=$*" >> "$dir/log"
+chrome=$(printf %s "${AGENT_BROWSER_ARGS:-}" | tr '\n' ' ')
+gate="proxy=${AGENT_BROWSER_PROXY:-} bypass=${AGENT_BROWSER_PROXY_BYPASS:-} chrome=$chrome"
+echo "$who $gate secret=${HYPOMNEMA_VAULT_KEYS:-} args=$*" >> "$dir/log"
 case "$1" in
 mcp)
   cat > /dev/null
   if [ "$2" = call ]; then
+    bound="$AGENT_BROWSER_SOCKET_DIR/$AGENT_BROWSER_SESSION.target"
+    if [ -f "$bound" ] && [ "$(cat "$bound")" != "$AGENT_BROWSER_CDP" ]; then
+      echo '{"content":[{"type":"text","text":"tab_gone: bound tab is gone"}],"isError":true}'
+      exit 1
+    fi
+    printf %s "$AGENT_BROWSER_CDP" > "$bound"
     echo '{"content":[{"type":"text","text":"done"}],"isError":false,"structuredContent":{"profile":"/engine/profile"}}'
   else
     cat "$dir/tools"
@@ -47,10 +59,11 @@ close)
   if [ "$AGENT_BROWSER_SESSION" = host ]; then rm -f "$dir/up"; fi
   exit 0 ;;
 tab)
+  echo closed > "$AGENT_BROWSER_SOCKET_DIR/$AGENT_BROWSER_SESSION.target"
   exit 0 ;;
 esac
 if [ -f "$dir/sandbox-blocked" ]; then
-  case "$*" in
+  case "$chrome" in
   *--no-sandbox*) ;;
   *) echo "FATAL: No usable sandbox! If you are running on Ubuntu 23.10+" >&2; exit 1 ;;
   esac
@@ -181,6 +194,9 @@ func TestCallRunsEachAgentInItsOwnPinnedSession(t *testing.T) {
 	launches := containing(runs, "session=host", "--profile", "open about:blank")
 	require.Len(t, launches, 1, "one Chrome is started for both agents")
 	assert.NotContains(t, launches[0], "--no-sandbox")
+	assert.Regexp(t, `proxy=socks5://127\.0\.0\.1:[1-9]\d* bypass=<-loopback> `, launches[0],
+		"Chrome is launched through the gate, loopback included")
+	assert.Contains(t, launches[0], "--force-webrtc-ip-handling-policy=disable_non_proxied_udp")
 
 	const attached = "cdp=ws://127.0.0.1:9/devtools/browser/ pin=1"
 
@@ -222,8 +238,9 @@ func TestSweepClosesIdleTabsAndThenChrome(t *testing.T) {
 	assert.Empty(t, r.Status().Agents)
 	assert.False(t, r.Status().Running, "the tab's last use was over ChromeIdle ago, so Chrome goes with it")
 
-	_, err = r.Call(t.Context(), "d-one", "agent_browser_get_url", nil)
+	result, err := r.Call(t.Context(), "d-one", "agent_browser_get_url", nil)
 	require.NoError(t, err)
+	assert.Contains(t, string(result), `"isError":false`, "the agent is not held to the tab that was closed")
 	assert.Len(t, containing(r.runs(t), "session=host", "open about:blank"), 1, "Chrome is started again")
 }
 
@@ -260,7 +277,7 @@ func TestChromeKeepsItsSandboxUnlessToldOtherwise(t *testing.T) {
 
 	_, err = off.Call(t.Context(), "d-one", "agent_browser_get_url", nil)
 	require.NoError(t, err)
-	assert.Len(t, containing(off.runs(t), "session=host", "--args --no-sandbox"), 1)
+	assert.Len(t, containing(off.runs(t), "session=host", "--no-sandbox", "open about:blank"), 1)
 }
 
 // When Chrome is gone, the tabs are gone with it: the engine starts it again
@@ -276,8 +293,9 @@ func TestCallStartsChromeAgainAfterItWentAway(t *testing.T) {
 	r.clock.pass(time.Minute)
 	r.runs(t)
 
-	_, err = r.Call(t.Context(), "d-one", "agent_browser_get_url", nil)
+	result, err := r.Call(t.Context(), "d-one", "agent_browser_get_url", nil)
 	require.NoError(t, err)
+	assert.Contains(t, string(result), `"isError":false`, "the agent is not held to a tab of the Chrome that went away")
 
 	runs := r.runs(t)
 	assert.Len(t, containing(runs, "session=host", "open about:blank"), 1)
