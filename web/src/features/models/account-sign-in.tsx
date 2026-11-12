@@ -1,7 +1,7 @@
 import { useForm } from "@tanstack/react-form"
 import { useMutation } from "@tanstack/react-query"
 import { Copy, ExternalLink, RotateCcw } from "lucide-react"
-import { useState, type ReactElement } from "react"
+import { useId, useState, type ReactElement } from "react"
 import { z } from "zod"
 
 import "@/api/client"
@@ -15,6 +15,7 @@ import {
   DialogDescription,
   DialogFooter,
   DialogHeader,
+  DialogPanel,
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
@@ -62,6 +63,7 @@ export function AccountSignInDialog({
   account?: Account
   trigger: ReactElement
 }) {
+  const formId = useId()
   const refresh = useRefreshAccounts()
   const [open, setOpen] = useState(false)
   const [way, setWay] = useState<Way>("sign-in")
@@ -151,139 +153,143 @@ export function AccountSignInDialog({
     <Dialog open={open} onOpenChange={change}>
       <DialogTrigger render={trigger} />
       <DialogContent>
-        <form
-          autoComplete="off"
-          noValidate
-          className="flex flex-col gap-4"
-          onSubmit={(event) => {
-            event.preventDefault()
-            void (way === "token" ? token.handleSubmit() : finish.handleSubmit())
-          }}
-        >
-          <DialogHeader>
-            <DialogTitle>
-              {account ? `Sign ${account.label} in again` : `Add a ${name} account`}
-            </DialogTitle>
-            <DialogDescription>
-              {way === "token"
-                ? "On any machine with Claude Code, run claude setup-token and paste the token it prints. It lasts a year; it calls models but may not show the account's limits."
-                : `Sign in on ${name}'s own page, in a browser on any machine. Nothing is opened on the server, and your password does not pass through Hypomnema.`}
-            </DialogDescription>
-          </DialogHeader>
+        <DialogHeader>
+          <DialogTitle>
+            {account ? `Sign ${account.label} in again` : `Add a ${name} account`}
+          </DialogTitle>
+          <DialogDescription>
+            {way === "token"
+              ? "On any machine with Claude Code, run claude setup-token and paste the token it prints. It lasts a year; it calls models but may not show the account's limits."
+              : `Sign in on ${name}'s own page, in a browser on any machine. Nothing is opened on the server, and your password does not pass through Hypomnema.`}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogPanel>
+          <form
+            id={formId}
+            autoComplete="off"
+            noValidate
+            className="flex flex-col gap-4"
+            onSubmit={(event) => {
+              event.preventDefault()
+              void (way === "token" ? token.handleSubmit() : finish.handleSubmit())
+            }}
+          >
+            {pastable && (
+              <Tabs value={way} onValueChange={(next) => setWay(next as Way)}>
+                <TabsList>
+                  <TabsTrigger value="sign-in">Sign in</TabsTrigger>
+                  <TabsTrigger value="token">Paste a token</TabsTrigger>
+                </TabsList>
+              </Tabs>
+            )}
 
-          {pastable && (
-            <Tabs value={way} onValueChange={(next) => setWay(next as Way)}>
-              <TabsList>
-                <TabsTrigger value="sign-in">Sign in</TabsTrigger>
-                <TabsTrigger value="token">Paste a token</TabsTrigger>
-              </TabsList>
-            </Tabs>
-          )}
+            {way === "sign-in" && (
+              <FieldGroup>
+                {begin.isPending && (
+                  <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                    <Spinner />
+                    Getting the sign-in link…
+                  </p>
+                )}
 
-          {way === "sign-in" && (
-            <FieldGroup>
-              {begin.isPending && (
-                <p className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Spinner />
-                  Getting the sign-in link…
-                </p>
-              )}
+                {started && (
+                  <Field>
+                    <FieldLabel>1. Sign in on {name}&apos;s page</FieldLabel>
+                    <div className="flex gap-2">
+                      {/* A link that looks like a button: it leaves this page, so it is an anchor, not a button. */}
+                      <a
+                        href={started.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className={buttonVariants({ variant: "outline", className: "flex-1" })}
+                      >
+                        <ExternalLink data-icon="inline-start" />
+                        Open {name}&apos;s sign-in page
+                      </a>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        onClick={() => {
+                          void navigator.clipboard.writeText(started.url)
+                          said("The link was copied")
+                        }}
+                      >
+                        <Copy data-icon="inline-start" />
+                        Copy link
+                      </Button>
+                    </div>
+                  </Field>
+                )}
 
-              {started && (
-                <Field>
-                  <FieldLabel>1. Sign in on {name}&apos;s page</FieldLabel>
-                  <div className="flex gap-2">
-                    {/* A link that looks like a button: it leaves this page, so it is an anchor, not a button. */}
-                    <a
-                      href={started.url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className={buttonVariants({ variant: "outline", className: "flex-1" })}
-                    >
-                      <ExternalLink data-icon="inline-start" />
-                      Open {name}&apos;s sign-in page
-                    </a>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      onClick={() => {
-                        void navigator.clipboard.writeText(started.url)
-                        said("The link was copied")
-                      }}
-                    >
-                      <Copy data-icon="inline-start" />
-                      Copy link
-                    </Button>
-                  </div>
-                </Field>
-              )}
+                {started && (
+                  <finish.Field name="callback">
+                    {(field) => (
+                      <TextField
+                        field={field}
+                        label="2. Paste what the page gives back"
+                        placeholder={
+                          runtime === "claude"
+                            ? "The code the page shows"
+                            : "http://localhost:…/callback?code=…"
+                        }
+                        description={
+                          runtime === "claude"
+                            ? `${name} shows a code once you sign in: copy it. Within ${minutes} minutes.`
+                            : `The browser ends on an address that does not load: copy the whole address. Within ${minutes} minutes.`
+                        }
+                      />
+                    )}
+                  </finish.Field>
+                )}
+              </FieldGroup>
+            )}
 
-              {started && (
-                <finish.Field name="callback">
+            {way === "token" && (
+              <FieldGroup>
+                <token.Field name="label">
                   {(field) => (
                     <TextField
                       field={field}
-                      label="2. Paste what the page gives back"
-                      placeholder={
-                        runtime === "claude"
-                          ? "The code the page shows"
-                          : "http://localhost:…/callback?code=…"
-                      }
-                      description={
-                        runtime === "claude"
-                          ? `${name} shows a code once you sign in: copy it. Within ${minutes} minutes.`
-                          : `The browser ends on an address that does not load: copy the whole address. Within ${minutes} minutes.`
-                      }
+                      label="Name"
+                      placeholder="personal"
+                      description="What you call this account: a token names no e-mail."
                     />
                   )}
-                </finish.Field>
-              )}
-            </FieldGroup>
-          )}
+                </token.Field>
+                <token.Field name="token">
+                  {(field) => (
+                    <TextField field={field} label="Token" placeholder="sk-ant-oat01-…" secret />
+                  )}
+                </token.Field>
+              </FieldGroup>
+            )}
 
+            <ErrorAlert
+              error={way === "token" ? addToken.error : (begin.error ?? complete.error)}
+            />
+          </form>
+        </DialogPanel>
+        <DialogFooter>
+          <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
+          {way === "sign-in" && spent && (
+            <Button type="button" onClick={startAgain}>
+              <RotateCcw data-icon="inline-start" />
+              Start again
+            </Button>
+          )}
+          {way === "sign-in" && !spent && started && (
+            <Button type="submit" form={formId} disabled={busy}>
+              {busy && <Spinner data-icon="inline-start" />}
+              Sign in
+            </Button>
+          )}
           {way === "token" && (
-            <FieldGroup>
-              <token.Field name="label">
-                {(field) => (
-                  <TextField
-                    field={field}
-                    label="Name"
-                    placeholder="personal"
-                    description="What you call this account: a token names no e-mail."
-                  />
-                )}
-              </token.Field>
-              <token.Field name="token">
-                {(field) => (
-                  <TextField field={field} label="Token" placeholder="sk-ant-oat01-…" secret />
-                )}
-              </token.Field>
-            </FieldGroup>
+            <Button type="submit" form={formId} disabled={busy}>
+              {busy && <Spinner data-icon="inline-start" />}
+              Add account
+            </Button>
           )}
-
-          <ErrorAlert error={way === "token" ? addToken.error : (begin.error ?? complete.error)} />
-          <DialogFooter>
-            <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
-            {way === "sign-in" && spent && (
-              <Button type="button" onClick={startAgain}>
-                <RotateCcw data-icon="inline-start" />
-                Start again
-              </Button>
-            )}
-            {way === "sign-in" && !spent && started && (
-              <Button type="submit" disabled={busy}>
-                {busy && <Spinner data-icon="inline-start" />}
-                Sign in
-              </Button>
-            )}
-            {way === "token" && (
-              <Button type="submit" disabled={busy}>
-                {busy && <Spinner data-icon="inline-start" />}
-                Add account
-              </Button>
-            )}
-          </DialogFooter>
-        </form>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )

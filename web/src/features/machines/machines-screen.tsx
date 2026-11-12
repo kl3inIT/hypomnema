@@ -10,13 +10,16 @@ import { cn } from "@/lib/utils"
 import { AddMachine } from "./add-machine"
 import { RemoveMachine } from "./machine-actions"
 import { IndicatorDot, MachineProblem, StateText } from "./machine-cells"
-import { columns, shownColumns, type Column } from "./machines-columns"
+import { isVisible, useColumnVisibility } from "./column-visibility"
+import { ColumnsMenu } from "./columns-menu"
+import { columns, hiddenColumns, shownColumns, type Column } from "./machines-columns"
 import { errorText, machineNote, machineState, summary } from "./machines-state"
 import { useMachinePower, useMachines } from "./use-machines"
 
 type Layout = "grid" | "table"
 
 const layoutKey = "hypomnema.machines.layout"
+const columnsKey = "hypomnema.machines.columns"
 
 function readLayout(): Layout {
   try {
@@ -29,12 +32,15 @@ function readLayout(): Layout {
 // MachinesScreen lists the nodes, after Beszel's systems-table (MIT, Copyright (c) 2024 henrygd,
 // https://github.com/henrygd/beszel; internal/site/src/components/systems-table/systems-table.tsx): a Grid of
 // cards or a Table, both drawn from one column definition (machines-columns.tsx). Changed: the layout is chosen
-// with the Board's segmented control instead of Beszel's view menu, and kept in this browser; no filter, sorting,
-// column picker or pagination; a machine has no page of its own, so a card or row is not a link.
+// with the Board's segmented control instead of Beszel's view menu, which keeps only its visible columns
+// (columns-menu.tsx), shown with the table; no filter, sorting or pagination; a machine has no page of its own, so
+// a card or row is not a link.
 export function MachinesScreen() {
   const machines = useMachines()
   const [layout, setLayout] = useState<Layout>(readLayout)
+  const [visibility, show] = useColumnVisibility(columnsKey, hiddenColumns)
   const nodes = machines.data ?? []
+  const shown = shownColumns(nodes)
 
   function choose(next: Layout) {
     setLayout(next)
@@ -67,6 +73,13 @@ export function MachinesScreen() {
               </button>
             ))}
           </fieldset>
+          {layout === "table" && nodes.length > 0 && (
+            <ColumnsMenu
+              columns={shown.filter((column) => column.enableHiding !== false)}
+              visibility={visibility}
+              onShow={show}
+            />
+          )}
           <AddMachine />
         </div>
       </PageHeader>
@@ -81,7 +94,10 @@ export function MachinesScreen() {
         ) : nodes.length === 0 ? (
           <Empty />
         ) : layout === "table" ? (
-          <MachinesTable nodes={nodes} />
+          <MachinesTable
+            nodes={nodes}
+            columns={shown.filter((column) => isVisible(visibility, column.id))}
+          />
         ) : (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {nodes.map((node) => (
@@ -95,9 +111,7 @@ export function MachinesScreen() {
 }
 
 // MachinesTable is Beszel's AllSystemsTable: it scrolls inside its box.
-function MachinesTable({ nodes }: { nodes: Node[] }) {
-  const columns = shownColumns(nodes)
-
+function MachinesTable({ nodes, columns }: { nodes: Node[]; columns: Column[] }) {
   return (
     <div className="relative max-w-full overflow-auto rounded-lg border">
       <table className="w-full text-sm">

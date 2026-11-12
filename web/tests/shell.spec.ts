@@ -225,7 +225,7 @@ test("the owner approves a mail pi asked to send, in the chat", async ({ page })
   const row = page.getByRole("navigation", { name: "Chats" }).getByRole("link").first()
   if (await row.isVisible()) await expect(row).toContainText("Needs you")
 
-  await card.getByRole("button", { name: "Approve once" }).click()
+  await card.getByRole("button", { name: "Approve", exact: true }).click()
   await expect(card).toHaveCount(0)
   expect(decisions).toEqual([{ decision: "approve" }])
 })

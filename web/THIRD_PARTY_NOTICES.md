@@ -2,12 +2,14 @@
 
 Each adapted file names its source.
 
-- The web client's look and parts of its chat components are adapted from t3code
-  (https://github.com/pingdotgg/t3code, apps/web), MIT.
+- The web client's look, parts of its chat components and the dialog's scrolling panel
+  (`src/components/ui/dialog.tsx`, `DialogPanel`) are adapted from t3code (https://github.com/pingdotgg/t3code,
+  apps/web), MIT, Copyright (c) 2026 T3 Tools Inc.
 - The board's columns and cards are adapted from Orca (https://github.com/stablyai/orca,
   src/renderer/src/components/dashboard-popout), MIT.
-- The Machines page's cards, table, meters and actions menu (`src/features/machines`) are adapted from Beszel
-  (https://github.com/henrygd/beszel, internal/site/src/components/systems-table), MIT.
+- The Machines page's cards, table, meters and actions menu (`src/features/machines`), and the View menu that
+  shows or hides the columns of the Machines and Agents tables (`columns-menu.tsx`, `column-visibility.ts`), are
+  adapted from Beszel (https://github.com/henrygd/beszel, internal/site/src/components/systems-table), MIT.
 - GitHub's mark (`src/components/icons/brand-icons.tsx`) is the path Orca uses
   (src/renderer/src/components/icons/GitHubIcon.tsx), MIT. The marks of GitLab, Google, Gmail, Google Calendar,
   Google Drive and Google Docs there are copied from Onyx (https://github.com/onyx-dot-app/onyx,
@@ -17,8 +19,10 @@ Each adapted file names its source.
   Foundation.
 - The grid of chats (`src/features/workbench`) is adapted from Omnigent's grid of sessions
   (https://github.com/omnigent-ai/omnigent, web/src/grid/gridLayout.ts, GridDropTargets.tsx, GridSessionPane.tsx,
-  GridSessionsContext.tsx), Apache License 2.0.
-- The Browser page (`src/features/browser`) is adapted from t3code's server browser: its socket client and frame
+  GridSessionsContext.tsx), Apache License 2.0. Where a dropped tab lands in a pane (`dropZone` in
+  `grid-layout.ts`) is adapted from Orca's `resolveDropZone` (src/renderer/src/components/tab-group/tab-drop-zone.ts),
+  MIT License.
+- The browser view (`src/features/browser`) is adapted from t3code's server browser: its socket client and frame
   painter (packages/client-runtime/src/preview/serverBrowserStream.ts), its surface's pointer and key handling
   (apps/web/src/browser/ServerBrowserSurface.tsx) and its address row
   (apps/web/src/components/preview/PreviewChromeRow.tsx), MIT, Copyright (c) 2026 T3 Tools Inc.; and from

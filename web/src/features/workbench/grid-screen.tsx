@@ -10,23 +10,26 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { AppSidebar, PageHeader } from "@/features/shell/app-shell"
 import { cn } from "@/lib/utils"
 
-import { ChatTabs } from "./chat-tabs"
 import { GridDrop } from "./grid-drop"
-import { gridChats, removeChat, splitGrid, swapChats, type GridLayout } from "./grid-layout"
-import { chatDrag, setDragged, setGrid, useGrid, useGridOffered } from "./use-grid"
+import { gridPanes, type GridLayout } from "./grid-layout"
+import { alone, dropTab, withoutPane, type Bench } from "./moves"
+import { frontOf, type Pane } from "./pane"
+import { PaneView } from "./pane-view"
+import { newPaneId, setBench, setPane, soloId, useBench, useGridOffered } from "./use-grid"
 
-// GridScreen is several chats on one screen (issue #235), as Omnigent's grid of sessions (web/src/grid, Apache
-// License 2.0): up to four panes, two rows by two columns. A chat dragged from the sidebar onto a pane's edge takes
-// that half; a pane's chat tab dragged onto another pane changes places with it; a pane can fill the screen for a
-// while, or leave the grid. With one chat left there is no grid any more, and that chat is shown alone. The grid
-// is kept in this browser, and is not offered on a phone.
+// GridScreen is several panes on one screen (issue #235), as Omnigent's grid of sessions (web/src/grid, Apache
+// License 2.0): up to four, two rows by two columns. A pane is a group of tabs, as in Orca: a tab dropped on a
+// pane's side makes a new pane there, one dropped in its middle joins it, and a pane left with no tab leaves the
+// grid. A pane can fill the screen for a while, or leave the grid. With one pane left that has a chat, there is no
+// grid any more, and that chat's page shows the pane. The grid is kept in this browser, and is not offered on a
+// phone.
 export function GridScreen() {
-  const layout = useGrid()
+  const bench = useBench()
   const offered = useGridOffered()
   const navigate = useNavigate()
   const [full, setFull] = useState<string | null>(null)
 
-  if (!offered || layout === null) {
+  if (!offered || bench === null) {
     return (
       <>
         <AppSidebar />
@@ -42,38 +45,57 @@ export function GridScreen() {
     )
   }
 
-  const close = (chat: string) => {
-    const next = removeChat(layout, chat)
-    if (full === chat) setFull(null)
-
-    // One chat is not a grid: it is shown alone, as any chat.
-    if (next === null || typeof next === "string") {
-      setGrid(null)
-      void (next === null
-        ? navigate({ to: "/" })
-        : navigate({ to: "/chats/$chatId", params: { chatId: next } }))
+  // commit keeps what a change made of the grid. One pane with a chat is not a grid: it is that chat's page.
+  const commit = (next: Bench | null) => {
+    if (full !== null && !(next && gridPanes(next.layout).includes(full))) setFull(null)
+    if (next === null) {
+      setBench(null)
+      void navigate({ to: "/" })
 
       return
     }
 
-    setGrid(next)
+    const chat = alone(next)
+    if (chat === null) {
+      setBench(next)
+
+      return
+    }
+
+    setPane(soloId(chat), next.panes[next.layout as string] ?? null)
+    setBench(null)
+    void navigate({ to: "/chats/$chatId", params: { chatId: chat } })
   }
 
   const draw = (node: GridLayout) =>
     typeof node === "string" ? (
-      <Pane
+      <GridPane
         key={node}
-        chat={node}
+        id={node}
+        pane={bench.panes[node] ?? { tabs: [], active: "" }}
         full={full === node}
         onFull={() => setFull(full === node ? null : node)}
-        onClose={() => close(node)}
-        splits={(dragged, edge) => splitGrid(layout, node, dragged, edge) !== null}
-        onSplit={(dragged, edge) => setGrid(splitGrid(layout, node, dragged, edge) ?? layout)}
-        onSwap={(dragged) => setGrid(swapChats(layout, dragged, node))}
+        onRemove={() => commit(withoutPane(bench, node))}
+        onChange={(next) =>
+          commit(
+            next === null
+              ? withoutPane(bench, node)
+              : { ...bench, panes: { ...bench.panes, [node]: next } },
+          )
+        }
+        drop={
+          <GridDrop
+            takes={(dragged, zone) => dropTab(bench, node, zone, dragged, "new") !== null}
+            onDrop={(dragged, zone) => {
+              const next = dropTab(bench, node, zone, dragged, newPaneId())
+              if (next !== null) commit(next)
+            }}
+          />
+        }
       />
     ) : (
       <div
-        key={gridChats(node).join()}
+        key={gridPanes(node).join()}
         className={cn("flex min-h-0 min-w-0 flex-1 gap-1.5", node.axis === "rows" && "flex-col")}
       >
         {node.children.map(draw)}
@@ -84,37 +106,44 @@ export function GridScreen() {
     <>
       <AppSidebar />
       <main aria-label="Grid of chats" className="relative flex min-w-0 flex-1 p-1.5">
-        {draw(layout)}
+        {draw(bench.layout)}
       </main>
     </>
   )
 }
 
-function Pane({
-  chat,
+function GridPane({
+  id,
+  pane,
   full,
   onFull,
-  onClose,
-  splits,
-  onSplit,
-  onSwap,
+  onRemove,
+  onChange,
+  drop,
 }: {
-  chat: string
+  id: string
+  pane: Pane
   full: boolean
   onFull: () => void
-  onClose: () => void
-  splits: React.ComponentProps<typeof GridDrop>["splits"]
-  onSplit: React.ComponentProps<typeof GridDrop>["onSplit"]
-  onSwap: (dragged: string) => void
+  onRemove: () => void
+  onChange: (next: Pane | null) => void
+  drop: React.ReactNode
 }) {
+  // The pane is named by its tab in front.
+  const front = frontOf(pane)
+  const chat = front?.kind === "chat" ? front.chat : null
   const info = useQuery({
     queryKey: ["chat", chat],
-    queryFn: async () => (await getChat({ path: { chat_id: chat } })).data,
+    queryFn: async () => (await getChat({ path: { chat_id: chat ?? "" } })).data,
+    enabled: chat !== null,
   })
-  const title = info.data?.title ?? "Chat"
+  const title =
+    front?.kind === "chat"
+      ? (info.data?.title ?? "Chat")
+      : front?.kind === "draft"
+        ? "New chat"
+        : "Browser"
 
-  // The pane has no header of its own: its tab strip is its top, as a pane's tab bar is in Orca, with the pane's
-  // buttons at its end, and the chat's tab is what is dragged onto another pane to change places.
   return (
     <section
       aria-label={title}
@@ -124,28 +153,22 @@ function Pane({
         full && "absolute inset-1.5 z-20",
       )}
     >
-      <ChatTabs
-        chatId={chat}
-        drag={{
-          onDragStart: (event) => {
-            event.dataTransfer.effectAllowed = "move"
-            event.dataTransfer.setData(chatDrag, chat)
-            setDragged({ chat, from: "pane" })
-          },
-          onDragEnd: () => setDragged(null),
-        }}
+      <PaneView
+        id={id}
+        pane={pane}
+        onChange={onChange}
         end={
           <>
             <PaneButton label={full ? "Back to the grid" : "Full screen"} onClick={onFull}>
               {full ? <Minimize2 /> : <Maximize2 />}
             </PaneButton>
-            <PaneButton label="Remove from the grid" onClick={onClose}>
+            <PaneButton label="Remove from the grid" onClick={onRemove}>
               <X />
             </PaneButton>
           </>
         }
       />
-      <GridDrop chat={chat} splits={splits} onSplit={onSplit} onSwap={onSwap} />
+      {drop}
     </section>
   )
 }

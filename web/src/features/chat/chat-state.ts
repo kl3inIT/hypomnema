@@ -15,6 +15,8 @@ export type ChatView = {
   live: Record<number, LiveBlock>
   running: RunningTool[]
   working: boolean
+  // reconnecting is true while the stream is down and being opened again (Omnigent's ConnectionIndicator).
+  reconnecting: boolean
 }
 
 export type ChatAction =
@@ -23,8 +25,15 @@ export type ChatAction =
   | { type: "delta"; delta: ChatDelta }
   | { type: "tool"; activity: ChatToolActivity }
   | { type: "state"; working: boolean }
+  | { type: "connection"; reconnecting: boolean }
 
-export const emptyChat: ChatView = { messages: [], live: {}, running: [], working: false }
+export const emptyChat: ChatView = {
+  messages: [],
+  live: {},
+  running: [],
+  working: false,
+  reconnecting: false,
+}
 
 export function chatReducer(view: ChatView, action: ChatAction): ChatView {
   switch (action.type) {
@@ -72,6 +81,10 @@ export function chatReducer(view: ChatView, action: ChatAction): ChatView {
       return action.working
         ? { ...view, working: true }
         : { ...view, working: false, live: {}, running: [] }
+    case "connection":
+      return view.reconnecting === action.reconnecting
+        ? view
+        : { ...view, reconnecting: action.reconnecting }
   }
 }
 
@@ -79,6 +92,7 @@ export function chatReducer(view: ChatView, action: ChatAction): ChatView {
 export type ChatItem =
   | { kind: "owner"; key: string; message: ChatMessage }
   | { kind: "notice"; key: string; message: ChatMessage }
+  | { kind: "stopped"; key: string; message: ChatMessage }
   | { kind: "reply"; key: string; text: string; streaming: boolean; createdAt?: string }
   | { kind: "activity"; key: string; steps: Step[]; open: boolean }
 
@@ -87,12 +101,29 @@ export type Step =
   | { kind: "thinking"; key: string; text: string }
   | { kind: "tool"; key: string; name: string; args?: Record<string, unknown>; result?: ChatPart }
 
+// What the owner did in this page that the stream does not carry: the messages sent and not kept yet, shown at once
+// as t3code's optimisticUserMessages.ts, and the last kept message's seq when he pressed Stop.
+export type Local = { sending?: ChatMessage[]; stoppedAfter?: number }
+
+// failed is a notice that the model's call failed, which is how pi reports a turn it was told to stop.
+export function failed(m: ChatMessage) {
+  return m.role === "system" && m.event_seq === undefined
+}
+
 // chatItems turns the view into what is drawn. As Omnara's groupToolRuns
 // (.tmp/omnara/frontend/apps/web/src/components/agents/AgentChatMessage.tsx), consecutive thoughts and tool calls
 // become one group, so a burst of work reads as one line that opens; a reply's text ends the group.
-export function chatItems(view: ChatView): ChatItem[] {
+//
+// pi reports a turn the owner stopped as a failed model call. As the Lark relay (larkbot/channels.go, kept), the
+// first such notice after he pressed Stop, before he wrote again, is the stop and reads as one (t3code's "You
+// stopped this response", MessagesTimeline.logic.ts; assistant-ui's StoppedRun). The server does not say which
+// turn was stopped, so this is known only in the page where Stop was pressed.
+export function chatItems(view: ChatView, local: Local = {}): ChatItem[] {
   const items: ChatItem[] = []
   let group: Step[] | null = null
+  let stopping = local.stoppedAfter !== undefined
+  const kept = new Set(view.messages.map((m) => m.seq))
+  const messages = [...view.messages, ...(local.sending ?? []).filter((m) => !kept.has(m.seq))]
 
   const step = (s: Step, key: string) => {
     if (!group) {
@@ -106,17 +137,24 @@ export function chatItems(view: ChatView): ChatItem[] {
     group = null
   }
 
-  for (const m of view.messages) {
+  for (const m of messages) {
     const key = String(m.seq)
+    const afterStop = stopping && m.seq > (local.stoppedAfter ?? 0)
 
     switch (m.role) {
       case "owner":
         close()
+        if (afterStop) stopping = false
         items.push({ kind: "owner", key, message: m })
         break
       case "system":
         close()
-        items.push({ kind: "notice", key, message: m })
+        if (afterStop && failed(m)) {
+          stopping = false
+          items.push({ kind: "stopped", key, message: m })
+        } else {
+          items.push({ kind: "notice", key, message: m })
+        }
         break
       case "tool":
         for (const p of m.parts ?? []) {

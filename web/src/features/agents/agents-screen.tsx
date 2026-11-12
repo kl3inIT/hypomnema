@@ -1,12 +1,15 @@
 import { Link } from "@tanstack/react-router"
 import { Box, Brain, CircleAlert, CircleCheck, History, LifeBuoy, Search } from "lucide-react"
-import { useState } from "react"
+import { useState, type ReactNode } from "react"
 
 import type { Profile } from "@/api/generated/types.gen"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group"
 import { RuntimeMark } from "@/features/board/runtime-mark"
+import { isVisible, useColumnVisibility } from "@/features/machines/column-visibility"
+import { ColumnsMenu } from "@/features/machines/columns-menu"
 import { PageHeader } from "@/features/shell/app-shell"
+import { modelIsId } from "@/lib/model-name"
 import { cn } from "@/lib/utils"
 
 import { AgentAvatar } from "./agent-avatar"
@@ -17,6 +20,7 @@ import { useProfiles } from "./use-profiles"
 type Layout = "grid" | "table"
 
 const layoutKey = "hypomnema.agents.layout"
+const columnsKey = "hypomnema.agents.columns"
 
 function readLayout(): Layout {
   try {
@@ -38,6 +42,7 @@ export function AgentsScreen() {
   const profiles = useProfiles()
   const [layout, setLayout] = useState<Layout>(readLayout)
   const [query, setQuery] = useState("")
+  const [visibility, show] = useColumnVisibility(columnsKey, hiddenColumns)
   const all = profiles.data ?? []
   const words = query.trim().toLowerCase()
   const list = words
@@ -75,6 +80,13 @@ export function AgentsScreen() {
               </button>
             ))}
           </fieldset>
+          {layout === "table" && all.length > 0 && (
+            <ColumnsMenu
+              columns={tableColumns.filter((column) => column.enableHiding !== false)}
+              visibility={visibility}
+              onShow={show}
+            />
+          )}
           <Link to="/agents/new" className={buttonVariants()}>
             New agent
           </Link>
@@ -133,7 +145,10 @@ export function AgentsScreen() {
             </Link>
           </div>
         ) : layout === "table" ? (
-          <AgentsTable profiles={list} />
+          <AgentsTable
+            profiles={list}
+            columns={tableColumns.filter((column) => isVisible(visibility, column.id))}
+          />
         ) : (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {list.map((profile) => (
@@ -230,7 +245,9 @@ function AgentCard({ profile }: { profile: Profile }) {
       ),
       value: (
         <>
-          <span className="shrink-0 font-mono text-xs">{modelLine(profile)}</span>
+          <span className={cn("shrink-0 text-xs", modelIsId(profile.model) && "font-mono")}>
+            {modelLine(profile)}
+          </span>
           {profile.provider && (
             <span className="ms-1.5 truncate text-xs text-muted-foreground">
               ({profile.provider})
@@ -310,19 +327,108 @@ function AgentCard({ profile }: { profile: Profile }) {
   )
 }
 
-function AgentsTable({ profiles }: { profiles: Profile[] }) {
+type TableColumn = {
+  id: string
+  name: string
+  cell: (profile: Profile) => ReactNode
+  className?: string
+  enableHiding?: false
+}
+
+// hiddenColumns are hidden in the table until the owner shows them in its View menu: with them the table is wider
+// than a 1280 px screen beside the sidebar (issue #242). The version and when it was saved matter when editing an
+// agent, which its page shows, not when choosing one.
+const hiddenColumns = ["version"] as const
+
+// tableColumns are the table's columns, one list that the View menu and the table read, as the Machines page's
+// (machines-columns.tsx, after Beszel's systems-table-columns.tsx).
+const tableColumns: TableColumn[] = [
+  {
+    id: "name",
+    name: "Name",
+    enableHiding: false,
+    className: "max-w-64",
+    cell: (profile) => (
+      <span className="flex min-w-0 items-center gap-2.5">
+        <Face profile={profile} />
+        <span className="min-w-0">
+          <Link
+            to="/agents/$name"
+            params={{ name: profile.name }}
+            className="font-medium hover:underline"
+          >
+            {profile.name}
+          </Link>
+          <span className="block truncate text-xs text-muted-foreground">
+            {profile.description || "No description."}
+          </span>
+        </span>
+      </span>
+    ),
+  },
+  {
+    id: "now",
+    name: "Now",
+    className: "max-w-56 text-xs whitespace-nowrap",
+    cell: (profile) => (
+      <span className="flex min-w-0" title={standing(profile)?.text}>
+        <StandingText profile={profile} />
+      </span>
+    ),
+  },
+  {
+    id: "runtime",
+    name: "Runs on",
+    className: "whitespace-nowrap",
+    cell: (profile) => (
+      <span className="flex items-center gap-2">
+        <RuntimeMark runtime={profile.runtime} className="size-4" />
+        {runtimeName(profile.runtime)}
+      </span>
+    ),
+  },
+  {
+    id: "model",
+    name: "Model",
+    className: "whitespace-nowrap",
+    cell: (profile) => (
+      <>
+        <span className={cn("text-xs", modelIsId(profile.model) && "font-mono")}>
+          {modelLine(profile)}
+        </span>
+        {profile.provider && (
+          <span className="ms-1.5 text-xs text-muted-foreground">({profile.provider})</span>
+        )}
+      </>
+    ),
+  },
+  {
+    id: "effort",
+    name: "Effort",
+    className: "whitespace-nowrap",
+    cell: (profile) => (profile.effort ? effortLabel(profile.effort) : "Default"),
+  },
+  {
+    id: "version",
+    name: "Version",
+    className: "whitespace-nowrap text-muted-foreground",
+    cell: (profile) => [profile.version, savedAgo(profile)].filter(Boolean).join(", "),
+  },
+]
+
+function AgentsTable({ profiles, columns }: { profiles: Profile[]; columns: TableColumn[] }) {
   return (
     <div className="relative max-w-full overflow-auto rounded-lg border">
       <table className="w-full text-sm">
         <thead className="border-b text-muted-foreground">
           <tr>
-            {["Name", "Now", "Runs on", "Model", "Effort", "Version"].map((name) => (
+            {columns.map((column) => (
               <th
-                key={name}
+                key={column.id}
                 scope="col"
                 className="h-10 px-3 text-start text-xs font-medium whitespace-nowrap"
               >
-                {name}
+                {column.name}
               </th>
             ))}
           </tr>
@@ -330,44 +436,11 @@ function AgentsTable({ profiles }: { profiles: Profile[] }) {
         <tbody>
           {profiles.map((profile) => (
             <tr key={profile.name} data-testid="agent" className="border-b last:border-b-0">
-              <td className="max-w-80 px-3 py-2.5">
-                <span className="flex min-w-0 items-center gap-2.5">
-                  <Face profile={profile} />
-                  <span className="min-w-0">
-                    <Link
-                      to="/agents/$name"
-                      params={{ name: profile.name }}
-                      className="font-medium hover:underline"
-                    >
-                      {profile.name}
-                    </Link>
-                    <span className="block truncate text-xs text-muted-foreground">
-                      {profile.description || "No description."}
-                    </span>
-                  </span>
-                </span>
-              </td>
-              <td className="px-3 py-2.5 text-xs whitespace-nowrap">
-                <StandingText profile={profile} />
-              </td>
-              <td className="px-3 py-2.5 whitespace-nowrap">
-                <span className="flex items-center gap-2">
-                  <RuntimeMark runtime={profile.runtime} className="size-4" />
-                  {runtimeName(profile.runtime)}
-                </span>
-              </td>
-              <td className="px-3 py-2.5 whitespace-nowrap">
-                <span className="font-mono text-xs">{modelLine(profile)}</span>
-                {profile.provider && (
-                  <span className="ms-1.5 text-xs text-muted-foreground">({profile.provider})</span>
-                )}
-              </td>
-              <td className="px-3 py-2.5 whitespace-nowrap">
-                {profile.effort ? effortLabel(profile.effort) : "Default"}
-              </td>
-              <td className="px-3 py-2.5 whitespace-nowrap text-muted-foreground">
-                {[profile.version, savedAgo(profile)].filter(Boolean).join(", ")}
-              </td>
+              {columns.map((column) => (
+                <td key={column.id} className={cn("px-3 py-2.5", column.className)}>
+                  {column.cell(profile)}
+                </td>
+              ))}
             </tr>
           ))}
         </tbody>

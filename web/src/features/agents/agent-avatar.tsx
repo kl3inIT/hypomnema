@@ -43,3 +43,16 @@ export function AgentAvatar({ name, className }: { name: string; className?: str
     </svg>
   )
 }
+
+// AvatarName is an agent or a Bot as a choice shows it, in a picker's list and its closed box alike: its face, then
+// its name. A thing that has a mark is shown with it (docs/conventions.md); t3code's model picker puts the
+// provider's mark before each model (apps/web/src/components/chat/ProviderModelPicker.tsx), as the chat's tabs
+// show the Bot's face.
+export function AvatarName({ name }: { name: string }) {
+  return (
+    <span className="flex items-center gap-2">
+      <AgentAvatar name={name} className="size-4 shrink-0" />
+      {name}
+    </span>
+  )
+}

@@ -1,4 +1,4 @@
-import { ShieldQuestion } from "lucide-react"
+import { Ellipsis, ShieldQuestion } from "lucide-react"
 import type { ComponentType, SVGProps } from "react"
 
 import type { Approval } from "@/api/generated/types.gen"
@@ -10,9 +10,15 @@ import {
 } from "@/components/icons/brand-icons"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { toast } from "@/components/ui/toast"
 
-import { sessionOf, useDecide, usePending } from "./use-approvals"
+import { readable, sessionOf, useDecide, usePending } from "./use-approvals"
 
 // The mark of the service an action belongs to, by the first part of the action's id (gmail.send).
 const marks: Record<string, ComponentType<SVGProps<SVGSVGElement>>> = {
@@ -30,7 +36,9 @@ function Mark({ action }: { action: string }) {
 
 // ApprovalCard shows one request that waits for the owner, decoded as he would read it (who a mail goes to, its
 // subject and text), and takes his answer. Its parts follow Onyx's ApprovalCard and PayloadView: what is asked,
-// the request as labelled lines, approve once, approve for the session, reject.
+// the request as labelled lines, approve once, approve for the session, reject. As t3code's
+// ComposerPendingApprovalActions.tsx, Decline and Approve are the two buttons and approving for the session waits
+// in the "…" menu beside them.
 export function ApprovalCard({ approval }: { approval: Approval }) {
   const decide = useDecide(approval)
   const session = sessionOf(approval)
@@ -53,7 +61,7 @@ export function ApprovalCard({ approval }: { approval: Approval }) {
         {approval.payload.map((field) => (
           <div key={field.label} className="contents">
             <dt className="truncate pt-px text-xs text-muted-foreground" title={field.label}>
-              {field.label}
+              {readable(field.label)}
             </dt>
             <dd className="min-w-0 break-words whitespace-pre-wrap">{field.value}</dd>
           </div>
@@ -65,28 +73,44 @@ export function ApprovalCard({ approval }: { approval: Approval }) {
           {approval.integration}:{approval.label} · {approval.action_name} · asked by{" "}
           {approval.asked_by}
         </p>
-        <Button
-          variant="ghost"
-          size="sm"
-          disabled={decide.isPending}
-          onClick={() => answer("reject", "Rejected")}
-        >
-          Reject
-        </Button>
-        {session && (
+        {/* The answers stay together when the footer wraps on a phone. */}
+        <div className="flex items-center gap-2">
           <Button
             variant="outline"
             size="sm"
             disabled={decide.isPending}
-            title={`Stop asking for "${approval.action_name}" for the rest of ${session}`}
-            onClick={() => answer("approve_session", `Approved for ${session}`)}
+            onClick={() => answer("reject", "Declined")}
           >
-            Approve for {session}
+            Decline
           </Button>
-        )}
-        <Button size="sm" disabled={decide.isPending} onClick={() => answer("approve", "Approved")}>
-          Approve once
-        </Button>
+          <Button
+            size="sm"
+            disabled={decide.isPending}
+            onClick={() => answer("approve", "Approved")}
+          >
+            Approve
+          </Button>
+          {session && (
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                disabled={decide.isPending}
+                render={
+                  <Button variant="outline" size="icon-sm" aria-label="More approval options" />
+                }
+              >
+                <Ellipsis />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent side="top" align="end" width="content">
+                <DropdownMenuItem
+                  title={`Stop asking for "${approval.action_name}" for the rest of ${session}`}
+                  onClick={() => answer("approve_session", `Approved for ${session}`)}
+                >
+                  Approve for {session}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </div>
       </footer>
 
       {decide.error && (

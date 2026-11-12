@@ -1,8 +1,12 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useState } from "react"
 
 import "@/api/client"
 import { abortChat, getChat, sendChatMessage } from "@/api/generated/sdk.gen"
+import type { ChatMessage } from "@/api/generated/types.gen"
+import { Spinner } from "@/components/ui/spinner"
 import { PendingApprovals } from "@/features/approvals/approval-card"
+import { firstBot } from "@/features/bots/bots-state"
 import { chatsKey } from "@/features/shell/chats"
 
 import { Composer } from "./composer"
@@ -10,7 +14,9 @@ import { Conversation } from "./conversation"
 import { useChatStream } from "./use-chat-stream"
 
 // ChatBody is a chat without its header: the conversation, what waits for the owner, and the composer. It fills
-// the page of one chat and a pane of the grid alike.
+// the page of one chat and a pane of the grid alike. A message sent shows at once, before the stream keeps it, as
+// t3code's optimisticUserMessages.ts: it waits under a seq of its own until the server answers with its seq, and
+// goes when the kept one arrives; a refused send takes it away again.
 export function ChatBody({ chatId }: { chatId: string }) {
   const queryClient = useQueryClient()
   const view = useChatStream(chatId)
@@ -18,6 +24,30 @@ export function ChatBody({ chatId }: { chatId: string }) {
     queryKey: ["chat", chatId],
     queryFn: async () => (await getChat({ path: { chat_id: chatId } })).data,
   })
+  const [sending, setSending] = useState<ChatMessage[]>([])
+  const [stoppedAfter, setStoppedAfter] = useState<number>()
+  const bot = chat.data?.bot ?? firstBot
+
+  async function send(text: string) {
+    const shown: ChatMessage = {
+      seq: -Date.now(),
+      chat_id: chatId,
+      role: "owner",
+      text,
+      created_at: new Date().toISOString(),
+    }
+    setSending((list) => [...list, shown])
+
+    try {
+      const { data } = await sendChatMessage({ path: { chat_id: chatId }, body: { text } })
+      setSending((list) => list.map((m) => (m === shown ? data : m)))
+    } catch (err) {
+      setSending((list) => list.filter((m) => m !== shown))
+      throw err
+    }
+
+    void queryClient.invalidateQueries({ queryKey: chatsKey })
+  }
 
   return (
     <>
@@ -28,22 +58,33 @@ export function ChatBody({ chatId }: { chatId: string }) {
       )}
       <Conversation
         view={view}
+        local={{ sending, stoppedAfter }}
+        bot={bot}
         empty={
           <p className="text-center text-sm text-muted-foreground">Send a message to start.</p>
         }
       />
       <div className="px-3 pb-[calc(env(safe-area-inset-bottom)+1rem)] sm:px-12 sm:pb-[calc(env(safe-area-inset-bottom)+1.25rem)]">
+        {/* The stream is down and being opened again: a quiet row, as Omnigent's "Connecting…"
+            (web/src/pages/ChatIndicators.tsx, ConnectionIndicator). */}
+        {view.reconnecting && (
+          <output className="mx-auto mb-2 flex w-full max-w-(--chat-content-max-width) items-center justify-center gap-2 text-sm text-muted-foreground">
+            <Spinner aria-hidden="true" />
+            Reconnecting…
+          </output>
+        )}
         {/* What pi asked to do with an account and waits for: answered here, where it was asked. */}
         <div className="mx-auto mb-3 w-full max-w-(--chat-content-max-width) empty:hidden">
           <PendingApprovals chatId={chatId} />
         </div>
         <Composer
           working={view.working}
-          onSend={async (text) => {
-            await sendChatMessage({ path: { chat_id: chatId }, body: { text } })
-            void queryClient.invalidateQueries({ queryKey: chatsKey })
+          bot={bot}
+          onSend={send}
+          onStop={() => {
+            setStoppedAfter(Math.max(0, ...view.messages.map((m) => m.seq)))
+            void abortChat({ path: { chat_id: chatId } })
           }}
-          onStop={() => void abortChat({ path: { chat_id: chatId } })}
         />
       </div>
     </>

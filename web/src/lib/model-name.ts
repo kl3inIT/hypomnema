@@ -33,3 +33,9 @@ function words(name: string) {
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ")
 }
+
+// modelIsId says a model is shown as its id, which modelName leaves as it is: only an id is written in the code
+// font, never a name or a sentence such as "Runtime default" (issue #242).
+export function modelIsId(id: string | undefined) {
+  return id !== undefined && id !== "" && modelName(id) === id
+}
