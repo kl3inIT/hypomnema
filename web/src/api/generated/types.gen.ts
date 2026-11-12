@@ -907,6 +907,41 @@ export type Account = {
   status: 'active' | 'disabled';
   position: number;
   cooling_until?: string;
+  /**
+   * Why it rests, a rate limit or what the gateway recorded.
+   */
+  cooling_reason?: string;
+  email?: string;
+  plan?: string;
+  /**
+   * The state of a sign-in made on the control plane. Absent for an account whose CLI was signed in on a node.
+   */
+  sign_in?: 'active' | 'login_required' | 'no_tokens';
+  /**
+   * When the access token ends, when that is known; it is renewed before then.
+   */
+  token_expires_at?: string;
+};
+
+export type GatewayModelTarget = {
+  provider: string;
+  upstream_model: string;
+};
+
+export type GatewayModel = {
+  /**
+   * What a client calls the model.
+   */
+  name: string;
+  /**
+   * Where it is served from, tried in order.
+   */
+  targets: Array<GatewayModelTarget>;
+  updated_at: string;
+};
+
+export type GatewayModelList = {
+  data: Array<GatewayModel>;
 };
 
 export type AccountList = {
@@ -1010,7 +1045,7 @@ export type ProfileList = {
 
 export type Provider = {
   name: string;
-  kind: 'anthropic' | 'openai_compatible' | 'claude_subscription' | 'codex_subscription';
+  kind: 'anthropic' | 'openai_compatible' | 'claude_subscription' | 'codex_subscription' | 'antigravity_subscription' | 'model_gateway';
   base_url?: string;
   /**
    * Where the API key is kept, by name; never the key.
@@ -1183,6 +1218,8 @@ export type NewIntegrationClientWritable = {
   client_id: string;
   client_secret: string;
 };
+
+export type AccountId = string;
 
 /**
  * The Channel's name.
@@ -2957,6 +2994,112 @@ export type ListAccountsResponses = {
 };
 
 export type ListAccountsResponse = ListAccountsResponses[keyof ListAccountsResponses];
+
+export type RemoveAccountData = {
+  body?: never;
+  path: {
+    account_id: string;
+  };
+  query?: never;
+  url: '/accounts/{account_id}';
+};
+
+export type RemoveAccountErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type RemoveAccountError = RemoveAccountErrors[keyof RemoveAccountErrors];
+
+export type RemoveAccountResponses = {
+  /**
+   * The account and its tokens are removed.
+   */
+  204: void;
+};
+
+export type RemoveAccountResponse = RemoveAccountResponses[keyof RemoveAccountResponses];
+
+export type EnableAccountData = {
+  body?: never;
+  path: {
+    account_id: string;
+  };
+  query?: never;
+  url: '/accounts/{account_id}/enable';
+};
+
+export type EnableAccountErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type EnableAccountError = EnableAccountErrors[keyof EnableAccountErrors];
+
+export type EnableAccountResponses = {
+  /**
+   * The account.
+   */
+  200: Account;
+};
+
+export type EnableAccountResponse = EnableAccountResponses[keyof EnableAccountResponses];
+
+export type DisableAccountData = {
+  body?: never;
+  path: {
+    account_id: string;
+  };
+  query?: never;
+  url: '/accounts/{account_id}/disable';
+};
+
+export type DisableAccountErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type DisableAccountError = DisableAccountErrors[keyof DisableAccountErrors];
+
+export type DisableAccountResponses = {
+  /**
+   * The account.
+   */
+  200: Account;
+};
+
+export type DisableAccountResponse = DisableAccountResponses[keyof DisableAccountResponses];
+
+export type ListGatewayModelsData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/gateway/models';
+};
+
+export type ListGatewayModelsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListGatewayModelsError = ListGatewayModelsErrors[keyof ListGatewayModelsErrors];
+
+export type ListGatewayModelsResponses = {
+  /**
+   * The models.
+   */
+  200: GatewayModelList;
+};
+
+export type ListGatewayModelsResponse = ListGatewayModelsResponses[keyof ListGatewayModelsResponses];
 
 export type ListBotsData = {
   body?: never;

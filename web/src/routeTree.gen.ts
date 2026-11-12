@@ -24,6 +24,7 @@ import { Route as RunsRunIdRouteImport } from './routes/runs.$runId'
 import { Route as SettingsIndexRouteImport } from './routes/settings.index'
 import { Route as SettingsChannelsRouteImport } from './routes/settings.channels'
 import { Route as SettingsIntegrationsRouteImport } from './routes/settings.integrations'
+import { Route as SettingsModelsRouteImport } from './routes/settings.models'
 import { Route as SettingsRepositoriesRouteImport } from './routes/settings.repositories'
 import { Route as SettingsVaultRouteImport } from './routes/settings.vault'
 import { Route as MachinesNodeIdTerminalRouteImport } from './routes/machines_.$nodeId.terminal'
@@ -103,6 +104,11 @@ const SettingsIntegrationsRoute = SettingsIntegrationsRouteImport.update({
   path: '/settings/integrations',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SettingsModelsRoute = SettingsModelsRouteImport.update({
+  id: '/settings/models',
+  path: '/settings/models',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SettingsRepositoriesRoute = SettingsRepositoriesRouteImport.update({
   id: '/settings/repositories',
   path: '/settings/repositories',
@@ -131,6 +137,7 @@ export interface FileRoutesByFullPath {
   '/runs/$runId': typeof RunsRunIdRoute
   '/settings/channels': typeof SettingsChannelsRoute
   '/settings/integrations': typeof SettingsIntegrationsRoute
+  '/settings/models': typeof SettingsModelsRoute
   '/settings/repositories': typeof SettingsRepositoriesRoute
   '/settings/vault': typeof SettingsVaultRoute
   '/agents/': typeof AgentsIndexRoute
@@ -151,6 +158,7 @@ export interface FileRoutesByTo {
   '/runs/$runId': typeof RunsRunIdRoute
   '/settings/channels': typeof SettingsChannelsRoute
   '/settings/integrations': typeof SettingsIntegrationsRoute
+  '/settings/models': typeof SettingsModelsRoute
   '/settings/repositories': typeof SettingsRepositoriesRoute
   '/settings/vault': typeof SettingsVaultRoute
   '/agents': typeof AgentsIndexRoute
@@ -172,6 +180,7 @@ export interface FileRoutesById {
   '/runs/$runId': typeof RunsRunIdRoute
   '/settings/channels': typeof SettingsChannelsRoute
   '/settings/integrations': typeof SettingsIntegrationsRoute
+  '/settings/models': typeof SettingsModelsRoute
   '/settings/repositories': typeof SettingsRepositoriesRoute
   '/settings/vault': typeof SettingsVaultRoute
   '/agents/': typeof AgentsIndexRoute
@@ -194,6 +203,7 @@ export interface FileRouteTypes {
     | '/runs/$runId'
     | '/settings/channels'
     | '/settings/integrations'
+    | '/settings/models'
     | '/settings/repositories'
     | '/settings/vault'
     | '/agents/'
@@ -214,6 +224,7 @@ export interface FileRouteTypes {
     | '/runs/$runId'
     | '/settings/channels'
     | '/settings/integrations'
+    | '/settings/models'
     | '/settings/repositories'
     | '/settings/vault'
     | '/agents'
@@ -234,6 +245,7 @@ export interface FileRouteTypes {
     | '/runs/$runId'
     | '/settings/channels'
     | '/settings/integrations'
+    | '/settings/models'
     | '/settings/repositories'
     | '/settings/vault'
     | '/agents/'
@@ -255,6 +267,7 @@ export interface RootRouteChildren {
   RunsRunIdRoute: typeof RunsRunIdRoute
   SettingsChannelsRoute: typeof SettingsChannelsRoute
   SettingsIntegrationsRoute: typeof SettingsIntegrationsRoute
+  SettingsModelsRoute: typeof SettingsModelsRoute
   SettingsRepositoriesRoute: typeof SettingsRepositoriesRoute
   SettingsVaultRoute: typeof SettingsVaultRoute
   AgentsIndexRoute: typeof AgentsIndexRoute
@@ -371,6 +384,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsIntegrationsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/settings/models': {
+      id: '/settings/models'
+      path: '/settings/models'
+      fullPath: '/settings/models'
+      preLoaderRoute: typeof SettingsModelsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/settings/repositories': {
       id: '/settings/repositories'
       path: '/settings/repositories'
@@ -407,6 +427,7 @@ const rootRouteChildren: RootRouteChildren = {
   RunsRunIdRoute: RunsRunIdRoute,
   SettingsChannelsRoute: SettingsChannelsRoute,
   SettingsIntegrationsRoute: SettingsIntegrationsRoute,
+  SettingsModelsRoute: SettingsModelsRoute,
   SettingsRepositoriesRoute: SettingsRepositoriesRoute,
   SettingsVaultRoute: SettingsVaultRoute,
   AgentsIndexRoute: AgentsIndexRoute,

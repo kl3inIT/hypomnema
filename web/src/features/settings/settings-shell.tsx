@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router"
-import { ArrowLeft, KeyRound, MessagesSquare, Plug, type LucideIcon } from "lucide-react"
+import { ArrowLeft, Box, KeyRound, MessagesSquare, Plug, type LucideIcon } from "lucide-react"
 import type { ReactNode } from "react"
 
 import { PageHeader } from "@/features/shell/app-shell"
@@ -13,12 +13,23 @@ import { cn } from "@/lib/utils"
 // Repositories has a page (/settings/repositories) but no entry: what a registered repository is, and whether it
 // belongs here or in the app's sidebar as a project, is being decided (issue #44, owner, 2026-11-10).
 type Section = {
-  to: "/settings/repositories" | "/settings/integrations" | "/settings/channels" | "/settings/vault"
+  to:
+    | "/settings/models"
+    | "/settings/repositories"
+    | "/settings/integrations"
+    | "/settings/channels"
+    | "/settings/vault"
   label: string
   icon: LucideIcon
 }
 
+// The group "Models" holds what the model gateway serves from (issue #199): the owner named it so, not "Agents",
+// which the app's sidebar already has (2026-11-12).
 const groups: { heading: string; sections: Section[] }[] = [
+  {
+    heading: "Models",
+    sections: [{ to: "/settings/models", label: "Models", icon: Box }],
+  },
   {
     heading: "Connections",
     sections: [
