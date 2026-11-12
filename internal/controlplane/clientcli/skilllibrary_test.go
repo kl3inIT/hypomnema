@@ -1,0 +1,72 @@
+package clientcli
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
+	"github.com/kl3inIT/hypomnema/internal/shared/skillpack"
+)
+
+// Scenario: the owner adds a skill from an archive on the laptop, adds it
+// again unchanged, gives it to everyone, reads it and removes it. A
+// coordinator lists it and cannot add one.
+func TestSkillsFromTheCLI(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	w.login(t, bearertoken.Owner)
+
+	archive, err := skillpack.Skill{Files: []skillpack.File{
+		{Path: "SKILL.md", Data: []byte("---\nname: review-go\ndescription: Review a Go change.\n---\n")},
+		{Path: "scripts/check.sh", Exec: true, Data: []byte("go vet ./...\n")},
+	}}.Archive()
+	require.NoError(t, err)
+
+	file := filepath.Join(t.TempDir(), "review-go.tar.gz")
+	require.NoError(t, os.WriteFile(file, archive, 0o600))
+
+	_, err = w.cmd(t, "skills", "add", "--file", file, "--github", "o/r")
+	require.ErrorIs(t, err, ErrUsage)
+
+	out, err := w.cmd(t, "skills", "add", "--file", file)
+	require.NoError(t, err)
+	assert.Contains(t, out, "skill review-go: revision 1 added")
+	assert.Contains(t, out, "skills everyone review-go on", "the owner is told no one has it yet")
+
+	out, err = w.cmd(t, "skills", "add", "--file", file)
+	require.NoError(t, err)
+	assert.Contains(t, out, "the files are those of revision 1; nothing added")
+
+	out, err = w.cmd(t, "skills", "everyone", "review-go", "on")
+	require.NoError(t, err)
+	assert.Contains(t, out, "is for every worker and Bot")
+
+	out, err = w.cmd(t, "skills", "show", "review-go")
+	require.NoError(t, err)
+	assert.Contains(t, out, "review-go\trevision 1\tupload\tfor everyone\n\nReview a Go change.\n")
+	assert.Contains(t, out, "2 files")
+
+	pi := &world{svc: w.svc, url: w.url, home: filepath.Join(t.TempDir(), "coordinator")}
+	pi.login(t, bearertoken.Coordinator)
+
+	var list openapi.SkillList
+	pi.jsonCmd(t, &list, "", "skills", "list")
+	require.Len(t, list.Data, 1)
+
+	_, err = pi.cmd(t, "skills", "add", "--file", file)
+	require.ErrorContains(t, err, "forbidden")
+
+	out, err = w.cmd(t, "skills", "rm", "review-go")
+	require.NoError(t, err)
+	assert.Contains(t, out, "skill review-go is removed")
+
+	out, err = w.cmd(t, "skills", "list")
+	require.NoError(t, err)
+	assert.Contains(t, out, "no skills")
+}

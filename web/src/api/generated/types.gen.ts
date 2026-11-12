@@ -1202,6 +1202,59 @@ export type Source = {
   source: string;
 };
 
+export type Skill = {
+  name: string;
+  /**
+   * Given to every worker and Bot that does not turn it off.
+   */
+  everyone: boolean;
+  latest: SkillRevision;
+  /**
+   * Every revision, newest first; only when the skill is read alone.
+   */
+  revisions?: Array<SkillRevision>;
+  created_at: string;
+  updated_at: string;
+};
+
+export type SkillRevision = {
+  revision: number;
+  description: string;
+  /**
+   * SHA-256 of the files' paths, executable flags and contents.
+   */
+  digest: string;
+  /**
+   * What the files hold, in bytes.
+   */
+  size: number;
+  files: number;
+  /**
+   * upload, or github:owner/repo[/path]@ref.
+   */
+  source: string;
+  /**
+   * The commit the ref was, for a repository.
+   */
+  commit?: string;
+  created_at: string;
+};
+
+export type SkillList = {
+  data: Array<Skill>;
+};
+
+export type SkillFromGitHub = {
+  /**
+   * owner/repo[/path][@ref]; no ref is the default branch.
+   */
+  github: string;
+};
+
+export type SkillEveryone = {
+  everyone: boolean;
+};
+
 export type Bot = {
   name: string;
   provider?: string;
@@ -1500,6 +1553,8 @@ export type SupersetDashboardId = string;
 export type AskingChat = string;
 
 export type Name = string;
+
+export type SkillName = string;
 
 export type ChatId = string;
 
@@ -3783,6 +3838,170 @@ export type SetBotMemoryResponses = {
 };
 
 export type SetBotMemoryResponse = SetBotMemoryResponses[keyof SetBotMemoryResponses];
+
+export type ListSkillsData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/skills';
+};
+
+export type ListSkillsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListSkillsError = ListSkillsErrors[keyof ListSkillsErrors];
+
+export type ListSkillsResponses = {
+  /**
+   * The skills.
+   */
+  200: SkillList;
+};
+
+export type ListSkillsResponse = ListSkillsResponses[keyof ListSkillsResponses];
+
+export type AddSkillData = {
+  body: SkillFromGitHub;
+  path?: never;
+  query?: never;
+  url: '/skills';
+};
+
+export type AddSkillErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type AddSkillError = AddSkillErrors[keyof AddSkillErrors];
+
+export type AddSkillResponses = {
+  /**
+   * The files are the newest revision's; the skill as it was.
+   */
+  200: Skill;
+  /**
+   * A new revision.
+   */
+  201: Skill;
+};
+
+export type AddSkillResponse = AddSkillResponses[keyof AddSkillResponses];
+
+export type UploadSkillData = {
+  body: Blob | File;
+  path?: never;
+  query?: never;
+  url: '/skills/archive';
+};
+
+export type UploadSkillErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type UploadSkillError = UploadSkillErrors[keyof UploadSkillErrors];
+
+export type UploadSkillResponses = {
+  /**
+   * The files are the newest revision's; the skill as it was.
+   */
+  200: Skill;
+  /**
+   * A new revision.
+   */
+  201: Skill;
+};
+
+export type UploadSkillResponse = UploadSkillResponses[keyof UploadSkillResponses];
+
+export type DeleteSkillData = {
+  body?: never;
+  path: {
+    skill: string;
+  };
+  query?: never;
+  url: '/skills/{skill}';
+};
+
+export type DeleteSkillErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type DeleteSkillError = DeleteSkillErrors[keyof DeleteSkillErrors];
+
+export type DeleteSkillResponses = {
+  /**
+   * The skill is removed.
+   */
+  204: void;
+};
+
+export type DeleteSkillResponse = DeleteSkillResponses[keyof DeleteSkillResponses];
+
+export type GetSkillData = {
+  body?: never;
+  path: {
+    skill: string;
+  };
+  query?: never;
+  url: '/skills/{skill}';
+};
+
+export type GetSkillErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GetSkillError = GetSkillErrors[keyof GetSkillErrors];
+
+export type GetSkillResponses = {
+  /**
+   * The skill.
+   */
+  200: Skill;
+};
+
+export type GetSkillResponse = GetSkillResponses[keyof GetSkillResponses];
+
+export type SetSkillEveryoneData = {
+  body: SkillEveryone;
+  path: {
+    skill: string;
+  };
+  query?: never;
+  url: '/skills/{skill}/everyone';
+};
+
+export type SetSkillEveryoneErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type SetSkillEveryoneError = SetSkillEveryoneErrors[keyof SetSkillEveryoneErrors];
+
+export type SetSkillEveryoneResponses = {
+  /**
+   * The skill.
+   */
+  200: Skill;
+};
+
+export type SetSkillEveryoneResponse = SetSkillEveryoneResponses[keyof SetSkillEveryoneResponses];
 
 export type ListProfilesData = {
   body?: never;

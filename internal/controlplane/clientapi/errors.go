@@ -8,6 +8,8 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/skillsource"
+	"github.com/kl3inIT/hypomnema/internal/shared/skillpack"
 )
 
 // Errors are {code, message}, as Omnara's apierror: the code is stable for
@@ -54,11 +56,13 @@ func codeOf(err error) openapi.ErrorCode {
 		return openapi.IdempotencyKeyConflict
 	case errors.Is(err, orchestration.ErrNotFound):
 		return openapi.NotFound
-	case errors.Is(err, orchestration.ErrInvalid):
+	case errors.Is(err, orchestration.ErrInvalid), errors.Is(err, skillpack.ErrInvalid),
+		errors.Is(err, skillsource.ErrInvalid):
 		return openapi.InvalidRequest
 	case errors.Is(err, orchestration.ErrConflict):
 		return openapi.Conflict
-	case errors.Is(err, orchestration.ErrUnavailable), errors.Is(err, orchestration.ErrCoolingDown):
+	case errors.Is(err, orchestration.ErrUnavailable), errors.Is(err, orchestration.ErrCoolingDown),
+		errors.Is(err, skillsource.ErrUnavailable), errors.Is(err, errNoSkillSource):
 		return openapi.Unavailable
 	case errors.As(err, &tooLarge):
 		return openapi.RequestTooLarge
