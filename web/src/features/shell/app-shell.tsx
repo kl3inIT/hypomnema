@@ -15,6 +15,7 @@ import type { ReactNode } from "react"
 
 import "@/api/client"
 import type { Chat } from "@/api/generated/types.gen"
+import { HypomnemaIcon } from "@/components/icons/brand-icons"
 import { signOut } from "@/features/auth/session"
 import { needsYou } from "@/features/board/board-state"
 import { useBoard, useLiveUpdates } from "@/features/board/use-board"
@@ -101,7 +102,8 @@ export function AppSidebar({ currentChat }: { currentChat?: string }) {
   return (
     <aside className="hidden h-full w-64 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground md:flex">
       <div className="flex h-(--workspace-topbar-height) shrink-0 items-center px-3.5">
-        <Link to="/" className="text-sm font-semibold tracking-tight">
+        <Link to="/" className="flex items-center gap-2 text-sm font-semibold tracking-tight">
+          <HypomnemaIcon className="size-6 shrink-0" />
           Hypomnema
         </Link>
       </div>

@@ -320,3 +320,35 @@ export function SupersetIcon(props: SVGProps<SVGSVGElement>) {
     </svg>
   )
 }
+
+// Hypomnema's own mark, an octopus: many arms, as many agents work at once (owner, 2026-11-12). The same drawing
+// is web/public/favicon.svg. It sits beside the name, as OpenClaw's mascot does in its sidebar.
+export function HypomnemaIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 64 64" fill="none" aria-hidden="true" {...props}>
+      <g stroke="#f97316" strokeWidth="6.5" strokeLinecap="round">
+        <path d="M17 37c-4 6-8.5 8-11.5 12.5" />
+        <path d="M23.5 41.5c-1.5 6-.5 11-4.5 15" />
+        <path d="M32 43v14" />
+        <path d="M40.5 41.5c1.5 6 .5 11 4.5 15" />
+        <path d="M47 37c4 6 8.5 8 11.5 12.5" />
+      </g>
+      <path
+        d="M32 5c12.5 0 21 9 21 21.5C53 36 46 43 32 43S11 36 11 26.5C11 14 19.5 5 32 5Z"
+        fill="#fb923c"
+      />
+      <ellipse cx="24.5" cy="26.5" rx="5" ry="6" fill="#fff" />
+      <ellipse cx="39.5" cy="26.5" rx="5" ry="6" fill="#fff" />
+      <circle cx="25.7" cy="27.6" r="2.9" fill="#431407" />
+      <circle cx="40.7" cy="27.6" r="2.9" fill="#431407" />
+      <path
+        d="M28.5 35.2c2 1.7 5 1.7 7 0"
+        stroke="#431407"
+        strokeWidth="2.2"
+        strokeLinecap="round"
+      />
+      <circle cx="21" cy="13.5" r="2.2" fill="#fed7aa" />
+      <circle cx="26.5" cy="10.3" r="1.4" fill="#fed7aa" />
+    </svg>
+  )
+}
