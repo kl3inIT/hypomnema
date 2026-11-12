@@ -3,12 +3,13 @@ import { useState } from "react"
 
 import type { BrowserTab } from "@/api/generated/types.gen"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { errorText } from "@/features/machines/machines-state"
 import { PageHeader } from "@/features/shell/app-shell"
 import { cn } from "@/lib/utils"
 
-import { ownerTab, tabName, tabsOf, useBrowser, whose } from "./browser-state"
+import { noBrowser, ownerTab, tabName, tabsOf, useBrowser, whose } from "./browser-state"
 import { BrowserView } from "./browser-view"
 
 const kindIcon = { owner: User, coordinator: Bot, worker: Wrench, token: KeyRound } as const
@@ -33,7 +34,19 @@ export function BrowserScreen() {
           </output>
         )}
       </PageHeader>
-      {browser.isError ? (
+      {browser.isError && noBrowser(browser.error) ? (
+        // A control plane without a browser is a normal setup, not a failure: it is said as an empty page, as
+        // t3code's preview says it has nothing to show (PreviewEmptyState.tsx), in the server's words.
+        <Empty>
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <Globe />
+            </EmptyMedia>
+            <EmptyTitle>The browser is not available</EmptyTitle>
+            <EmptyDescription>{sentence(errorText(browser.error))}</EmptyDescription>
+          </EmptyHeader>
+        </Empty>
+      ) : browser.isError ? (
         <div className="p-4">
           <Alert variant="destructive">
             <Globe />
@@ -66,6 +79,11 @@ export function BrowserScreen() {
       )}
     </main>
   )
+}
+
+// sentence is the server's words as a sentence: it writes them in lower case without a full stop.
+function sentence(words: string) {
+  return `${words.charAt(0).toUpperCase()}${words.slice(1)}${words.endsWith(".") ? "" : "."}`
 }
 
 // TabButton is a tab of the strip. It is its own design, not a Button: a row of tabs with the picked one marked

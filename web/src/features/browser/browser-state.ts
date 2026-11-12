@@ -22,6 +22,12 @@ export function useBrowser() {
   })
 }
 
+// noBrowser says the control plane runs without a browser, which the server answers with "unavailable"; any
+// other refusal is a failure.
+export function noBrowser(error: unknown) {
+  return (error as { code?: string } | null)?.code === "unavailable"
+}
+
 // tabsOf is what the strip shows: the owner's own tab first, there or not yet, then the agents'.
 export function tabsOf(tabs: BrowserTab[]): [BrowserTab, ...BrowserTab[]] {
   const mine = tabs.find((t) => t.id === ownerTab) ?? {

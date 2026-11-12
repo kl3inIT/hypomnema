@@ -7,6 +7,7 @@ import { Button, buttonVariants } from "@/components/ui/button"
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group"
 import { RuntimeMark } from "@/features/board/runtime-mark"
 import { PageHeader } from "@/features/shell/app-shell"
+import { modelIsId } from "@/lib/model-name"
 import { cn } from "@/lib/utils"
 
 import { AgentAvatar } from "./agent-avatar"
@@ -230,7 +231,9 @@ function AgentCard({ profile }: { profile: Profile }) {
       ),
       value: (
         <>
-          <span className="shrink-0 font-mono text-xs">{modelLine(profile)}</span>
+          <span className={cn("shrink-0 text-xs", modelIsId(profile.model) && "font-mono")}>
+            {modelLine(profile)}
+          </span>
           {profile.provider && (
             <span className="ms-1.5 truncate text-xs text-muted-foreground">
               ({profile.provider})
@@ -357,7 +360,9 @@ function AgentsTable({ profiles }: { profiles: Profile[] }) {
                 </span>
               </td>
               <td className="px-3 py-2.5 whitespace-nowrap">
-                <span className="font-mono text-xs">{modelLine(profile)}</span>
+                <span className={cn("text-xs", modelIsId(profile.model) && "font-mono")}>
+                  {modelLine(profile)}
+                </span>
                 {profile.provider && (
                   <span className="ms-1.5 text-xs text-muted-foreground">({profile.provider})</span>
                 )}

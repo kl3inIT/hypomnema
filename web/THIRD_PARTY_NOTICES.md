@@ -2,8 +2,9 @@
 
 Each adapted file names its source.
 
-- The web client's look and parts of its chat components are adapted from t3code
-  (https://github.com/pingdotgg/t3code, apps/web), MIT.
+- The web client's look, parts of its chat components and the dialog's scrolling panel
+  (`src/components/ui/dialog.tsx`, `DialogPanel`) are adapted from t3code (https://github.com/pingdotgg/t3code,
+  apps/web), MIT, Copyright (c) 2026 T3 Tools Inc.
 - The board's columns and cards are adapted from Orca (https://github.com/stablyai/orca,
   src/renderer/src/components/dashboard-popout), MIT.
 - The Machines page's cards, table, meters and actions menu (`src/features/machines`) are adapted from Beszel

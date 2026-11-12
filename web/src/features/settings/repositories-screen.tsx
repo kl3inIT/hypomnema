@@ -1,7 +1,7 @@
 import { useForm } from "@tanstack/react-form"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { FolderGit2, Plus } from "lucide-react"
-import { useState } from "react"
+import { useId, useState } from "react"
 import { z } from "zod"
 
 import "@/api/client"
@@ -15,6 +15,7 @@ import {
   DialogDescription,
   DialogFooter,
   DialogHeader,
+  DialogPanel,
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
@@ -126,6 +127,7 @@ const repoSchema = z.object({
 
 // AddRepo registers a repository: where it is, the name to call it by, and the branch work starts from.
 function AddRepo() {
+  const formId = useId()
   const refresh = useRefreshRepos()
   const [open, setOpen] = useState(false)
 
@@ -175,64 +177,67 @@ function AddRepo() {
         }
       />
       <DialogContent>
-        <form
-          autoComplete="off"
-          noValidate
-          className="flex flex-col gap-4"
-          onSubmit={(event) => {
-            event.preventDefault()
-            void form.handleSubmit()
-          }}
-        >
-          <DialogHeader>
-            <DialogTitle>Add a repository</DialogTitle>
-            <DialogDescription>
-              Work can then be given on it by its name instead of its URL.
-            </DialogDescription>
-          </DialogHeader>
-          <FieldGroup>
-            <form.Field
-              name="repo"
-              listeners={{
-                // The name follows what is typed until the owner writes a name of his own.
-                onChange: ({ value }) => {
-                  if (!form.getFieldMeta("name")?.isDirty) {
-                    form.setFieldValue("name", nameOf(value), { dontUpdateMeta: true })
-                  }
-                },
-              }}
-            >
-              {(field) => (
-                <TextField
-                  field={field}
-                  label="Repository"
-                  placeholder="https://gitlab.company.example/team/app"
-                  description="Its URL, or owner/name for one on GitHub. A company's server is added under Integrations first."
-                />
-              )}
-            </form.Field>
-            <form.Field name="name">
-              {(field) => <TextField field={field} label="Name" />}
-            </form.Field>
-            <form.Field name="base">
-              {(field) => (
-                <TextField
-                  field={field}
-                  label="Base branch"
-                  placeholder="The repository's default"
-                />
-              )}
-            </form.Field>
-          </FieldGroup>
-          <ErrorAlert error={add.error} />
-          <DialogFooter>
-            <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
-            <Button type="submit" disabled={add.isPending}>
-              {add.isPending && <Spinner data-icon="inline-start" />}
-              Add
-            </Button>
-          </DialogFooter>
-        </form>
+        <DialogHeader>
+          <DialogTitle>Add a repository</DialogTitle>
+          <DialogDescription>
+            Work can then be given on it by its name instead of its URL.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogPanel>
+          <form
+            id={formId}
+            autoComplete="off"
+            noValidate
+            className="flex flex-col gap-4"
+            onSubmit={(event) => {
+              event.preventDefault()
+              void form.handleSubmit()
+            }}
+          >
+            <FieldGroup>
+              <form.Field
+                name="repo"
+                listeners={{
+                  // The name follows what is typed until the owner writes a name of his own.
+                  onChange: ({ value }) => {
+                    if (!form.getFieldMeta("name")?.isDirty) {
+                      form.setFieldValue("name", nameOf(value), { dontUpdateMeta: true })
+                    }
+                  },
+                }}
+              >
+                {(field) => (
+                  <TextField
+                    field={field}
+                    label="Repository"
+                    placeholder="https://gitlab.company.example/team/app"
+                    description="Its URL, or owner/name for one on GitHub. A company's server is added under Integrations first."
+                  />
+                )}
+              </form.Field>
+              <form.Field name="name">
+                {(field) => <TextField field={field} label="Name" />}
+              </form.Field>
+              <form.Field name="base">
+                {(field) => (
+                  <TextField
+                    field={field}
+                    label="Base branch"
+                    placeholder="The repository's default"
+                  />
+                )}
+              </form.Field>
+            </FieldGroup>
+            <ErrorAlert error={add.error} />
+          </form>
+        </DialogPanel>
+        <DialogFooter>
+          <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
+          <Button type="submit" form={formId} disabled={add.isPending}>
+            {add.isPending && <Spinner data-icon="inline-start" />}
+            Add
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )

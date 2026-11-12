@@ -414,11 +414,11 @@ export function NewBotScreen() {
 
   return (
     <main className="flex min-w-0 flex-1 flex-col">
-      <PageHeader title={<Crumbs here="New Bot" />} />
+      <PageHeader title={<Crumbs here="New bot" />} />
       <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-10 sm:px-5">
         <div className="mx-auto flex w-full max-w-2xl flex-col gap-5 pt-2">
           <header className="flex flex-col gap-0.5">
-            <h2 className="text-lg font-semibold tracking-tight">New Bot</h2>
+            <h2 className="text-lg font-semibold tracking-tight">New bot</h2>
             <p className="text-sm text-muted-foreground">
               A Bot to chat with. It starts with an empty memory.
             </p>
