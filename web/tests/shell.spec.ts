@@ -165,7 +165,7 @@ test("signing in with a name and a password opens the chats", async ({ page }) =
   await expect(page.getByLabel("Password")).toBeVisible()
 })
 
-// Scenario: the sidebar's head shows Hypomnema's mark, the octopus, beside its name, in the dark theme and the
+// Scenario: the sidebar's head shows Hypomnema's mark, the octopus, and its name drawn in Fredoka, in the dark theme and the
 // light one. A phone has no sidebar.
 test("the sidebar shows Hypomnema's mark beside its name", async ({ page, isMobile }) => {
   test.skip(isMobile, "a phone has no sidebar")
@@ -174,13 +174,13 @@ test("the sidebar shows Hypomnema's mark beside its name", async ({ page, isMobi
   await page.goto("/")
 
   const home = page.getByRole("link", { name: "Hypomnema" })
-  await expect(home.locator("svg")).toBeVisible()
+  await expect(home.locator("svg")).toHaveCount(2)
   await shot(page, "sidebar-dark")
 
   await page.evaluate(`localStorage.setItem("theme", "light")`)
   await page.reload()
   await expect(page.locator("html")).not.toHaveClass(/dark/)
-  await expect(home.locator("svg")).toBeVisible()
+  await expect(home.locator("svg")).toHaveCount(2)
   await shot(page, "sidebar-light")
 })
 
