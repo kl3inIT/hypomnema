@@ -1414,7 +1414,7 @@ Node (`internal/node`):
     box (`web/src/features/skills/`). A built-in skill tied to a service wears that service's logo; every other skill
     one book icon. "Add skill" takes a GitHub source or an archive (Omnara's drop zone). A skill's page
     (`/settings/skills/<name>`) has the switch that gives it to everyone, who uses it, the newest revision's files as
-    a tree (Omnara's, Apache-2.0), every revision, "Update from GitHub", "Upload new revision" and Remove, whose
+    a tree (Omnara's, Apache-2.0), every version, "Update from GitHub", "Upload new version" and Remove, whose
     refusal is shown in the dialog.
   - `/settings/vault` (under Connections, [issue #108](https://github.com/kl3inIT/hypomnema/issues/108)) is a
     table of the vault's secrets, after Infisical's secrets dashboard (MIT) and Omnara's secrets list
