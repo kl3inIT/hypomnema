@@ -62,6 +62,12 @@
   branch, commit from a temporary worktree on `origin/main`. A design change that affects an open issue also gets a
   comment on that issue.
 - Run `make verify` before pushing once it exists.
+- The checks need Go at the version `go.mod` names (the linters and generators come through `go tool`), and the
+  web client's need Node 24 and pnpm (`web/package.json`). An agent on a machine that lacks one installs it for its
+  own user, without sudo, and goes on: Go from go.dev's tarball, checked against its SHA-256, under
+  `$HOME/.local/go` (look there first: `$HOME/.local/go/bin/go`). What needs sudo, such as gcc for `make race`, is
+  left to CI and said in the pull request ([research](docs/research/2026-11-12-a-repository-tools-for-workers.md);
+  owner, 2026-11-12).
 - Work in its own `git worktree` when another session may use this checkout; never switch the branch of a checkout
   you did not start.
 - Before an action that reaches many things at once (many PRs, branches, machines, messages, or money), count them
