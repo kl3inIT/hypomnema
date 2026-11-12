@@ -88,6 +88,9 @@ type Subscriptions interface {
 	// 1, as an answer served under it said; Token then keeps an account that
 	// is nearly used up for when no other can serve.
 	NoteQuota(accountID string, left float64)
+	// NoteAnswer gives the headers of an answer served under an account, for
+	// what they say of its limits (issue #199).
+	NoteAnswer(runtime, accountID string, h http.Header)
 }
 
 // codexSubscription serves chat from the Codex backend.

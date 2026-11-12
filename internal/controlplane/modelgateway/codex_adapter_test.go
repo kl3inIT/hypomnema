@@ -49,6 +49,8 @@ type accounts struct {
 	quotaAsks map[string]int
 	// noted is what the gateway said is left of each account's whole quota.
 	noted map[string]float64
+	// answers is what NoteAnswer was given last, by account.
+	answers map[string]string
 }
 
 func (a *accounts) Token(_ context.Context, _, _ string, skip ...string) (modelgateway.AccountToken, error) {
@@ -140,6 +142,25 @@ func (a *accounts) Quota(_ context.Context, id string) (map[string]float64, erro
 	a.quotaAsks[id]++
 
 	return a.quota[id], nil
+}
+
+// NoteAnswer keeps the 5-hour window an answer's headers named, by account.
+func (a *accounts) NoteAnswer(runtime, id string, h http.Header) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	if a.answers == nil {
+		a.answers = map[string]string{}
+	}
+
+	a.answers[id] = runtime + " " + h.Get("Anthropic-Ratelimit-Unified-5h-Utilization")
+}
+
+func (a *accounts) answerNoted(id string) string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	return a.answers[id]
 }
 
 func (a *accounts) NoteQuota(id string, left float64) {

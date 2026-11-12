@@ -879,7 +879,11 @@ The owner's commands:
     with its reset (issue #199, step 3, after 9router-go, Orca and OpenMausBot): one call with the account's
     token to `api.anthropic.com/api/oauth/usage` or `chatgpt.com/backend-api/wham/usage`, neither a published
     API; the service keeps a reading for 60 seconds, does not ask for 3 minutes after a 429 (or the wait it
-    names, up to 15 minutes) and gives the last reading when a call fails; `accounts refresh <account>` and
+    names, up to 15 minutes) and gives the last reading when a call fails; a token the vendor refuses (401 or 403,
+    as a Claude token pasted by hand is) is not sent again until it changes, and the refusal is said in the
+    vendor's words; the limits are then what the headers of the account's last answer through the gateway said
+    (`anthropic-ratelimit-unified-5h|7d|7d_oi-utilization` and `-reset`, after omp), kept in the server's memory,
+    so the command, a process of its own, does not see them; `accounts refresh <account>` and
     `accounts rm <account>` (which removes the tokens too) are for those logged in here;
   - `tokens add <name> [--kind owner|coordinator]` prints a client token once; `tokens list` and
     `tokens revoke <id>`;

@@ -3,6 +3,7 @@ package subscription_test
 import (
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -112,19 +113,64 @@ func TestAClaudeAccountsLimitsRestAfterA429(t *testing.T) {
 	assert.EqualValues(t, 3, calls.Load())
 }
 
-// Scenario: an account whose token the vendor refuses has no reading to
-// give: the owner is told to sign it in again.
-func TestARefusedTokenSaysToSignInAgain(t *testing.T) {
+// Scenario: a Claude account added with a pasted token serves models but
+// Anthropic refuses its token for the limits call. The owner is told why, in
+// Anthropic's own words, and the vendor is not asked again with that token.
+// Once the account has served an answer through the gateway, its limits are
+// what that answer's headers said; a window whose reset has passed is left
+// out.
+func TestARefusedTokenGivesWhatItsAnswersSaid(t *testing.T) {
 	w := newClaudeWorld(t)
 	a, err := w.login()
 	require.NoError(t, err)
 
+	var calls atomic.Int32
+
 	w.oauth.answerUsage(func(rw http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
 		rw.WriteHeader(http.StatusForbidden)
+		_, _ = rw.Write([]byte(`{"error": {"message": "OAuth token does not meet scope requirement user:profile"}}`))
 	})
 
 	_, err = w.subs.Limits(t.Context(), a.ID, false)
-	require.ErrorContains(t, err, "sign the account in again")
+	require.ErrorContains(t, err, "user:profile")
+	require.ErrorContains(t, err, "accounts login")
+
+	_, err = w.subs.Limits(t.Context(), a.ID, true)
+	require.ErrorContains(t, err, "user:profile")
+	assert.EqualValues(t, 1, calls.Load(), "a token the vendor refused is not sent again")
+
+	fiveHours := w.clock.Now().Add(2 * time.Hour)
+	week := w.clock.Now().Add(72 * time.Hour)
+
+	answer := http.Header{}
+	answer.Set("Anthropic-Ratelimit-Unified-5h-Utilization", "0.42")
+	answer.Set("Anthropic-Ratelimit-Unified-5h-Reset", strconv.FormatInt(fiveHours.Unix(), 10))
+	answer.Set("Anthropic-Ratelimit-Unified-7d-Utilization", "0.93")
+	answer.Set("Anthropic-Ratelimit-Unified-7d-Reset", strconv.FormatInt(week.Unix(), 10))
+	w.subs.NoteAnswer("claude", a.ID, answer)
+	// An answer that names no window changes nothing.
+	w.subs.NoteAnswer("claude", a.ID, http.Header{})
+
+	heardAt := w.clock.Now()
+
+	limits, err := w.subs.Limits(t.Context(), a.ID, false)
+	require.NoError(t, err)
+	assert.Equal(t, heardAt, limits.ReadAt)
+	require.Len(t, limits.Windows, 2)
+	assert.Equal(t, "5 hours", limits.Windows[0].Name)
+	assert.InDelta(t, 42, limits.Windows[0].UsedPercent, 1e-9)
+	assert.Equal(t, fiveHours.Unix(), limits.Windows[0].ResetsAt.Unix())
+	assert.Equal(t, "week", limits.Windows[1].Name)
+	assert.InDelta(t, 93, limits.Windows[1].UsedPercent, 1e-9)
+
+	w.clock.advance(3 * time.Hour)
+
+	limits, err = w.subs.Limits(t.Context(), a.ID, false)
+	require.NoError(t, err)
+	require.Len(t, limits.Windows, 1, "the 5 hours started again: what it holds is not known")
+	assert.Equal(t, "week", limits.Windows[0].Name)
+	assert.EqualValues(t, 2, calls.Load(), "the token was refreshed meanwhile: a new token is tried once")
 }
 
 // Scenario: the owner asks how much of a Codex subscription is used. ChatGPT
