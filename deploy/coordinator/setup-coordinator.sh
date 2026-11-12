@@ -4,16 +4,14 @@
 #   sudo sh setup-coordinator.sh <control plane user> <this directory, with the hypomnema binary added>
 #
 # It creates the coordinator user, installs Node and pi for it, the root-owned launcher and one sudoers rule that lets
-# the control plane's user run only that launcher as the coordinator, a coordinator token and pi's gateway key in
-# files of mode 0600, and the coordinator skill. No secret is passed on a command line or printed. Run it again to
-# update pi (package.json and package-lock.json here, which Dependabot updates), the launcher, the binary or the
-# instructions; existing secrets are kept.
+# the control plane's user run only that launcher as the coordinator, a coordinator token in a file of mode 0600,
+# and the coordinator skill. No secret is passed on a command line or printed. Run it again to update pi
+# (package.json and package-lock.json here, which Dependabot updates), the launcher, the binary or the
+# instructions; the existing token is kept.
 #
-# pi reaches its model through the control plane's model gateway (issue #20). Before the first run, the control
-# plane's user declares the model and makes pi's key, kept in a file only until this script moves it:
-#
-#   hypomnema gateway models apply <model>.yaml
-#   (umask 077; hypomnema gateway keys add pi --models <model> | tail -1 > ~/hypomnema-cp/pi-gateway.key)
+# pi reaches its model through the control plane's model gateway (issue #20). Nothing of that is set up here
+# (issue #204): the launcher writes pi's models.json as pi starts, from the providers that are the gateway, and the
+# control plane makes a gateway key for each pi it starts. A Bot names one of those providers and one of its models.
 set -eu
 
 cp_user="${1:?the control plane user, such as dat}"
@@ -22,8 +20,6 @@ src=$(cd "${2:?this directory, with the hypomnema binary added}" && pwd)
 cd /
 cp_home=$(getent passwd "$cp_user" | cut -d: -f6)
 node_src="${NODE_SRC:-$cp_home/.hermes/node}"
-gateway_key="${GATEWAY_KEY_FILE:-$cp_home/hypomnema-cp/pi-gateway.key}"
-gateway_model="${GATEWAY_MODEL:-gpt-6.1-sol}"
 cp_addr="${CP_ADDR:-127.0.0.1:18990}"
 home=/home/coordinator/.hypomnema-coordinator
 
@@ -60,29 +56,10 @@ chmod 0440 "$rule.new"
 visudo -cf "$rule.new" >/dev/null
 mv "$rule.new" "$rule"
 
-echo "== gateway key and pi's models"
-if [ -s "$gateway_key" ]; then
-  install -o coordinator -g coordinator -m 0600 "$gateway_key" "$home/gateway.key"
-  rm -f "$gateway_key"
-fi
-[ -s "$home/gateway.key" ] || { echo "no gateway key: make one into $gateway_key first" >&2; exit 1; }
-# The key of 9router, which pi called itself until 2026-11-10; the gateway now keeps it in the vault.
-rm -f "$home/ninerouter.key"
-cat > "$home/agent/models.json" <<JSON
-{
-  "providers": {
-    "gateway": {
-      "name": "Hypomnema gateway",
-      "baseUrl": "http://$cp_addr/v1",
-      "api": "openai-completions",
-      "apiKey": "!cat $home/gateway.key",
-      "models": [{"id": "$gateway_model", "name": "$gateway_model (gateway)", "reasoning": true}]
-    }
-  }
-}
-JSON
-chown coordinator:coordinator "$home/agent/models.json"
-chmod 0600 "$home/agent/models.json"
+echo "== keys of earlier installations"
+# pi had a gateway key made by hand until issue #204, and before that the key of 9router, which it called itself
+# until 2026-11-10. Neither is read any more; the owner revokes the first with `hypomnema gateway keys revoke`.
+rm -f "$home/gateway.key" "$home/ninerouter.key" "$cp_home/hypomnema-cp/pi-gateway.key"
 
 echo "== coordinator token and skill"
 if [ ! -s /home/coordinator/.hypomnema/client.json ]; then
@@ -95,5 +72,5 @@ if [ ! -s /home/coordinator/.hypomnema/client.json ]; then
 fi
 sudo -u coordinator -H /usr/local/bin/hypomnema skills install --agent agents
 
-echo "pi's model is gateway/$gateway_model: the coordinator profile names that provider and model"
+echo "pi's models are the providers that are the model gateway: a Bot names one of them and one of its models"
 echo "done: add HYPOMNEMA_COORDINATOR_COMMAND='[\"sudo\",\"-n\",\"-u\",\"coordinator\",\"/usr/local/bin/hypomnema-pi\"]' to the control plane's env and restart it"

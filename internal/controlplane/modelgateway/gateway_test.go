@@ -295,10 +295,10 @@ func TestAChatsPiHasAKeyOfItsOwn(t *testing.T) {
 	_, err = g.Authenticate(ctx, first)
 	require.ErrorIs(t, err, modelgateway.ErrUnauthorized, "only the key of the pi that runs now works")
 
-	_, any, err := g.AddChatKey(ctx, "cht_2", "")
+	_, open, err := g.AddChatKey(ctx, "cht_2", "")
 	require.NoError(t, err)
 
-	k, err = g.Authenticate(ctx, any)
+	k, err = g.Authenticate(ctx, open)
 	require.NoError(t, err)
 	assert.True(t, k.Allows("small"), "a Bot that names no model uses pi's default, whichever it is")
 
@@ -307,7 +307,7 @@ func TestAChatsPiHasAKeyOfItsOwn(t *testing.T) {
 
 	require.NoError(t, g.RevokeAllChatKeys(ctx))
 
-	for _, secret := range []string{second, any} {
+	for _, secret := range []string{second, open} {
 		_, err = g.Authenticate(ctx, secret)
 		require.ErrorIs(t, err, modelgateway.ErrUnauthorized)
 	}

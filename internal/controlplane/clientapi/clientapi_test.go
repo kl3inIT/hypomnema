@@ -798,12 +798,10 @@ type fakeCoordinator struct {
 }
 
 func (f *fakeCoordinator) Key(chatID string) (string, bool) {
-	key, ok := f.keys.Load(chatID)
-	if !ok {
-		return "", false
-	}
+	key, _ := f.keys.Load(chatID)
+	secret, ok := key.(string)
 
-	return key.(string), true
+	return secret, ok
 }
 
 func (*fakeCoordinator) Enabled() bool         { return true }

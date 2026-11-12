@@ -60,7 +60,8 @@ const GatewayAccountRef = "gateway"
 var runtimeProviders = map[string][]string{
 	"claude": {ProviderClaudeSubscription, ProviderAnthropic},
 	"codex":  {ProviderCodexSubscription, ProviderOpenAICompatible, ProviderModelGateway},
-	"pi":     {ProviderAnthropic, ProviderOpenAICompatible},
+	// pi reaches its model through the gateway as omp and opencode do (issue #204).
+	"pi": {ProviderAnthropic, ProviderOpenAICompatible, ProviderModelGateway},
 	// omp and opencode are workers whose model the gateway serves (issue #107).
 	"omp":      {ProviderModelGateway},
 	"opencode": {ProviderModelGateway},

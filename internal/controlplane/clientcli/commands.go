@@ -333,6 +333,11 @@ var commands = []command{
 		run:     botsPrompt,
 	},
 	{
+		name:    "pi-models",
+		summary: "pi's models.json: the providers that are the model gateway, with their models; the launcher writes it",
+		run:     piModels,
+	},
+	{
 		name:    "model-key",
 		summary: "the model gateway's key of the chat pi runs for; pi's models.json runs this at each request",
 		run:     modelKey,
