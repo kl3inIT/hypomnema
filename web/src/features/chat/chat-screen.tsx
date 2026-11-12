@@ -23,6 +23,9 @@ import {
   SignOut,
 } from "@/features/shell/app-shell"
 import { chatsKey } from "@/features/shell/chats"
+import { GridDrop } from "@/features/workbench/grid-drop"
+import { splitGrid } from "@/features/workbench/grid-layout"
+import { setGrid, useGridOffered } from "@/features/workbench/use-grid"
 
 import { PendingApprovals } from "@/features/approvals/approval-card"
 
@@ -113,15 +116,15 @@ function NewChat() {
 }
 
 function OpenChat({ chatId }: { chatId: string }) {
-  const queryClient = useQueryClient()
-  const view = useChatStream(chatId)
+  const navigate = useNavigate()
+  const offered = useGridOffered()
   const chat = useQuery({
     queryKey: ["chat", chatId],
     queryFn: async () => (await getChat({ path: { chat_id: chatId } })).data,
   })
 
   return (
-    <main className="flex min-w-0 flex-1 flex-col">
+    <main className="relative flex min-w-0 flex-1 flex-col">
       <PageHeader title={chat.data?.title}>
         {chat.data && (
           <Link
@@ -135,6 +138,34 @@ function OpenChat({ chatId }: { chatId: string }) {
           </Link>
         )}
       </PageHeader>
+      <ChatBody chatId={chatId} />
+      {/* Another chat dragged here from the sidebar makes a grid of the two (issue #235). */}
+      {offered && (
+        <GridDrop
+          chat={chatId}
+          splits={(dragged, edge) => splitGrid(chatId, chatId, dragged, edge) !== null}
+          onSplit={(dragged, edge) => {
+            setGrid(splitGrid(chatId, chatId, dragged, edge))
+            void navigate({ to: "/grid" })
+          }}
+        />
+      )}
+    </main>
+  )
+}
+
+// ChatBody is a chat without its header: the conversation, what waits for the owner, and the composer. It fills
+// the page of one chat and a pane of the grid alike.
+export function ChatBody({ chatId }: { chatId: string }) {
+  const queryClient = useQueryClient()
+  const view = useChatStream(chatId)
+  const chat = useQuery({
+    queryKey: ["chat", chatId],
+    queryFn: async () => (await getChat({ path: { chat_id: chatId } })).data,
+  })
+
+  return (
+    <>
       {chat.data && !chat.data.coordinator && (
         <output className="block px-5 pb-2 text-sm text-muted-foreground">
           No coordinator runs on the server: messages are kept and nothing answers.
@@ -160,6 +191,6 @@ function OpenChat({ chatId }: { chatId: string }) {
           onStop={() => void abortChat({ path: { chat_id: chatId } })}
         />
       </div>
-    </main>
+    </>
   )
 }

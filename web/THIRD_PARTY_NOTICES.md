@@ -15,6 +15,9 @@ Each adapted file names its source.
 - Apache Superset's mark there is the path of Simple Icons (https://github.com/simple-icons/simple-icons,
   icons/apachesuperset.svg), CC0 1.0. Apache Superset and its logo are trademarks of The Apache Software
   Foundation.
+- The grid of chats (`src/features/workbench`) is adapted from Omnigent's grid of sessions
+  (https://github.com/omnigent-ai/omnigent, web/src/grid/gridLayout.ts, GridDropTargets.tsx, GridSessionPane.tsx,
+  GridSessionsContext.tsx), Apache License 2.0.
 - The Browser page (`src/features/browser`) is adapted from t3code's server browser: its socket client and frame
   painter (packages/client-runtime/src/preview/serverBrowserStream.ts), its surface's pointer and key handling
   (apps/web/src/browser/ServerBrowserSurface.tsx) and its address row

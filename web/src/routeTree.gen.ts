@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as BoardRouteImport } from './routes/board'
 import { Route as BrowserRouteImport } from './routes/browser'
+import { Route as GridRouteImport } from './routes/grid'
 import { Route as MachinesRouteImport } from './routes/machines'
 import { Route as AgentsIndexRouteImport } from './routes/agents.index'
 import { Route as AgentsNameRouteImport } from './routes/agents.$name'
@@ -43,6 +44,11 @@ const BoardRoute = BoardRouteImport.update({
 const BrowserRoute = BrowserRouteImport.update({
   id: '/browser',
   path: '/browser',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const GridRoute = GridRouteImport.update({
+  id: '/grid',
+  path: '/grid',
   getParentRoute: () => rootRouteImport,
 } as any)
 const MachinesRoute = MachinesRouteImport.update({
@@ -135,6 +141,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/board': typeof BoardRoute
   '/browser': typeof BrowserRoute
+  '/grid': typeof GridRoute
   '/machines': typeof MachinesRoute
   '/agents/$name': typeof AgentsNameRoute
   '/agents/new': typeof AgentsNewRoute
@@ -157,6 +164,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/board': typeof BoardRoute
   '/browser': typeof BrowserRoute
+  '/grid': typeof GridRoute
   '/machines': typeof MachinesRoute
   '/agents/$name': typeof AgentsNameRoute
   '/agents/new': typeof AgentsNewRoute
@@ -180,6 +188,7 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/board': typeof BoardRoute
   '/browser': typeof BrowserRoute
+  '/grid': typeof GridRoute
   '/machines': typeof MachinesRoute
   '/agents/$name': typeof AgentsNameRoute
   '/agents/new': typeof AgentsNewRoute
@@ -204,6 +213,7 @@ export interface FileRouteTypes {
     | '/'
     | '/board'
     | '/browser'
+    | '/grid'
     | '/machines'
     | '/agents/$name'
     | '/agents/new'
@@ -226,6 +236,7 @@ export interface FileRouteTypes {
     | '/'
     | '/board'
     | '/browser'
+    | '/grid'
     | '/machines'
     | '/agents/$name'
     | '/agents/new'
@@ -248,6 +259,7 @@ export interface FileRouteTypes {
     | '/'
     | '/board'
     | '/browser'
+    | '/grid'
     | '/machines'
     | '/agents/$name'
     | '/agents/new'
@@ -271,6 +283,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   BoardRoute: typeof BoardRoute
   BrowserRoute: typeof BrowserRoute
+  GridRoute: typeof GridRoute
   MachinesRoute: typeof MachinesRoute
   AgentsNameRoute: typeof AgentsNameRoute
   AgentsNewRoute: typeof AgentsNewRoute
@@ -311,6 +324,13 @@ declare module '@tanstack/react-router' {
       path: '/browser'
       fullPath: '/browser'
       preLoaderRoute: typeof BrowserRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/grid': {
+      id: '/grid'
+      path: '/grid'
+      fullPath: '/grid'
+      preLoaderRoute: typeof GridRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/machines': {
@@ -439,6 +459,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   BoardRoute: BoardRoute,
   BrowserRoute: BrowserRoute,
+  GridRoute: GridRoute,
   MachinesRoute: MachinesRoute,
   AgentsNameRoute: AgentsNameRoute,
   AgentsNewRoute: AgentsNewRoute,
