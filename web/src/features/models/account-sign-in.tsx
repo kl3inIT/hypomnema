@@ -1,11 +1,11 @@
 import { useForm } from "@tanstack/react-form"
 import { useMutation } from "@tanstack/react-query"
-import { Copy, ExternalLink } from "lucide-react"
+import { Copy, ExternalLink, RotateCcw } from "lucide-react"
 import { useState, type ReactElement } from "react"
 import { z } from "zod"
 
 import "@/api/client"
-import { beginAccountSignIn, completeAccountSignIn } from "@/api/generated/sdk.gen"
+import { addTokenAccount, beginAccountSignIn, completeAccountSignIn } from "@/api/generated/sdk.gen"
 import type { Account, AccountSignInAttempt } from "@/api/generated/types.gen"
 import { Button, buttonVariants } from "@/components/ui/button"
 import {
@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/dialog"
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Spinner } from "@/components/ui/spinner"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ErrorAlert, TextField } from "@/features/settings/settings-parts"
 import { said } from "@/features/settings/use-integrations"
 
@@ -27,22 +28,27 @@ import { useRefreshAccounts } from "./use-models"
 
 export type SignInRuntime = "claude" | "codex" | "antigravity"
 
-const startSchema = z.object({
-  label: z.string().trim().max(64, "At most 64 characters."),
-})
+type Way = "sign-in" | "token"
 
 const finishSchema = z.object({
-  callback: z
-    .string()
-    .trim()
-    .refine((typed) => typed.includes("code="), "Paste the whole address the browser ended on."),
+  callback: z.string().trim().min(1, "Paste what the page gave you."),
 })
 
-// AccountSignInDialog signs a subscription account in on the control plane (issue #199, step 2): a new one, or
-// one that is there again. It is the Integrations page's sign-in dialog (service-cards.tsx) with the two ways the
-// server has: a link whose last address is pasted back, as 9router's dialog asks on a remote host
-// (OAuthModal.js), or a link and a code, for which the dialog waits. Nothing is opened on the server, and no
-// password passes through Hypomnema.
+const tokenSchema = z.object({
+  label: z.string().trim().min(1, "Give the account a name.").max(64, "At most 64 characters."),
+  token: z
+    .string()
+    .trim()
+    .min(1, "Paste the token.")
+    .refine((typed) => !/\s/.test(typed), "The token is one line without spaces."),
+})
+
+// AccountSignInDialog adds a subscription account on the control plane, or signs one in again (issue #199). It
+// has no step before the sign-in: opening it starts one, as 9router's dialog does (OAuthModal.js), so the link
+// and the field for what the page gives back are there at once. The account takes its e-mail as its name, as
+// 9router names a connection. Claude has a second way beside it, as 9router has "Paste token" beside its browser
+// sign-in and OpenClaw has `models auth paste-token`: the token `claude setup-token` prints, which lasts a year.
+// Nothing is opened on the server, and no password passes through Hypomnema.
 export function AccountSignInDialog({
   runtime,
   name,
@@ -58,12 +64,16 @@ export function AccountSignInDialog({
 }) {
   const refresh = useRefreshAccounts()
   const [open, setOpen] = useState(false)
+  const [way, setWay] = useState<Way>("sign-in")
   const [started, setStarted] = useState<AccountSignInAttempt | null>(null)
+  // A token is pasted only for a new Claude account: a signed-in account is signed in again the same way.
+  const pastable = runtime === "claude" && !account
 
-  const begin = useMutation({
-    mutationFn: async (label: string) =>
-      (await beginAccountSignIn({ body: { runtime, ...(label ? { label } : {}) } })).data,
-  })
+  async function finished(signedIn: Account) {
+    await refresh()
+    change(false)
+    said(`${name} account ${signedIn.label} is signed in`)
+  }
 
   const complete = useMutation({
     mutationFn: async (input: { id: string; callback?: string }) =>
@@ -73,29 +83,26 @@ export function AccountSignInDialog({
           body: input.callback ? { callback: input.callback.trim() } : {},
         })
       ).data,
-    onSuccess: async (signedIn) => {
-      await refresh()
-      change(false)
-      said(`${name} account ${signedIn.label} is signed in`)
-    },
+    onSuccess: finished,
   })
 
-  const start = useForm({
-    defaultValues: { label: "" },
-    validators: { onSubmit: startSchema },
-    onSubmit: async ({ value }) => {
-      let attempt: AccountSignInAttempt
-
-      try {
-        attempt = await begin.mutateAsync(value.label.trim())
-      } catch {
-        return // The dialog stays open and shows what the server refused.
-      }
-
+  const begin = useMutation({
+    mutationFn: async () => (await beginAccountSignIn({ body: { runtime } })).data,
+    onSuccess: (attempt) => {
       setStarted(attempt)
       // A sign-in with a code has nothing to paste: the server waits for the vendor to say it is done.
       if (!attempt.paste) complete.mutate({ id: attempt.id })
     },
+  })
+
+  const addToken = useMutation({
+    mutationFn: async (input: { label: string; token: string }) =>
+      (
+        await addTokenAccount({
+          body: { runtime: "claude", label: input.label, token: input.token },
+        })
+      ).data,
+    onSuccess: finished,
   })
 
   const finish = useForm({
@@ -106,19 +113,41 @@ export function AccountSignInDialog({
     },
   })
 
-  function change(next: boolean) {
-    setOpen(next)
-    if (!next) {
-      setStarted(null)
-      start.reset()
-      finish.reset()
-      begin.reset()
-      complete.reset()
-    }
+  const token = useForm({
+    defaultValues: { label: "", token: "" },
+    validators: { onSubmit: tokenSchema },
+    onSubmit: ({ value }) =>
+      addToken.mutate({ label: value.label.trim(), token: value.token.trim() }),
+  })
+
+  // startAgain begins a new sign-in: one is completed once, so after a refused one the owner opens a new link.
+  function startAgain() {
+    setStarted(null)
+    finish.reset()
+    complete.reset()
+    begin.mutate()
   }
 
-  const waiting = started !== null && !started.paste
+  function change(next: boolean) {
+    setOpen(next)
+    if (next) {
+      begin.mutate()
+      return
+    }
+
+    setWay("sign-in")
+    setStarted(null)
+    finish.reset()
+    token.reset()
+    begin.reset()
+    complete.reset()
+    addToken.reset()
+  }
+
   const minutes = started ? Math.round(started.expires_in_seconds / 60) : 0
+  // A pasted answer is used once: after a refusal only a new link can complete the sign-in.
+  const spent = complete.isError || begin.isError
+  const busy = complete.isPending || addToken.isPending
 
   return (
     <Dialog open={open} onOpenChange={change}>
@@ -130,7 +159,7 @@ export function AccountSignInDialog({
           className="flex flex-col gap-4"
           onSubmit={(event) => {
             event.preventDefault()
-            void (started ? finish.handleSubmit() : start.handleSubmit())
+            void (way === "token" ? token.handleSubmit() : finish.handleSubmit())
           }}
         >
           <DialogHeader>
@@ -138,55 +167,83 @@ export function AccountSignInDialog({
               {account ? `Sign ${account.label} in again` : `Add a ${name} account`}
             </DialogTitle>
             <DialogDescription>
-              {!started
-                ? `You sign in on ${name}'s own page, in a browser on any machine. Nothing is opened on the server, and your password does not pass through Hypomnema.`
-                : started.paste
-                  ? `Sign in on ${name}'s page. The browser then ends on an address that does not load: copy that whole address and paste it here.`
-                  : `Open ${name}'s page, sign in and enter this code there. This dialog closes by itself when it is done.`}
+              {way === "token"
+                ? "On any machine with Claude Code, run claude setup-token and paste the token it prints. It lasts a year; it calls models but may not show the account's limits."
+                : `Sign in on ${name}'s own page, in a browser on any machine. Nothing is opened on the server, and your password does not pass through Hypomnema.`}
             </DialogDescription>
           </DialogHeader>
 
-          {!started && !account && (
-            <FieldGroup>
-              <start.Field name="label">
-                {(field) => (
-                  <TextField
-                    field={field}
-                    label="Name"
-                    placeholder="work"
-                    description="What you call this account. Its e-mail when left empty."
-                  />
-                )}
-              </start.Field>
-            </FieldGroup>
+          {pastable && (
+            <Tabs value={way} onValueChange={(next) => setWay(next as Way)}>
+              <TabsList>
+                <TabsTrigger value="sign-in">Sign in</TabsTrigger>
+                <TabsTrigger value="token">Paste a token</TabsTrigger>
+              </TabsList>
+            </Tabs>
           )}
 
-          {started && (
+          {way === "sign-in" && (
             <FieldGroup>
-              {/* A link that looks like a button: it leaves this page, so it is an anchor, not a button. */}
-              <a
-                href={started.url}
-                target="_blank"
-                rel="noreferrer"
-                className={buttonVariants({ variant: "outline" })}
-              >
-                <ExternalLink data-icon="inline-start" />
-                Open {name}&apos;s sign-in page
-              </a>
-              {started.paste ? (
+              {begin.isPending && (
+                <p className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <Spinner />
+                  Getting the sign-in link…
+                </p>
+              )}
+
+              {started && (
+                <Field>
+                  <FieldLabel>1. Sign in on {name}&apos;s page</FieldLabel>
+                  <div className="flex gap-2">
+                    {/* A link that looks like a button: it leaves this page, so it is an anchor, not a button. */}
+                    <a
+                      href={started.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className={buttonVariants({ variant: "outline", className: "flex-1" })}
+                    >
+                      <ExternalLink data-icon="inline-start" />
+                      Open {name}&apos;s sign-in page
+                    </a>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={() => {
+                        void navigator.clipboard.writeText(started.url)
+                        said("The link was copied")
+                      }}
+                    >
+                      <Copy data-icon="inline-start" />
+                      Copy link
+                    </Button>
+                  </div>
+                </Field>
+              )}
+
+              {started?.paste && (
                 <finish.Field name="callback">
                   {(field) => (
                     <TextField
                       field={field}
-                      label="Address the browser ended on"
-                      placeholder="http://localhost:54545/callback?code=…&state=…"
-                      description={`Within ${minutes} minutes.`}
+                      label="2. Paste what the page gives back"
+                      placeholder={
+                        runtime === "claude"
+                          ? "The code the page shows"
+                          : "http://localhost:…/callback?code=…"
+                      }
+                      description={
+                        runtime === "claude"
+                          ? `${name} shows a code once you sign in: copy it. Within ${minutes} minutes.`
+                          : `The browser ends on an address that does not load: copy the whole address. Within ${minutes} minutes.`
+                      }
                     />
                   )}
                 </finish.Field>
-              ) : (
+              )}
+
+              {started && !started.paste && (
                 <Field>
-                  <FieldLabel>Code to enter there</FieldLabel>
+                  <FieldLabel>2. Enter this code there</FieldLabel>
                   <div className="flex items-center justify-between gap-2 rounded-lg border bg-muted px-3 py-2">
                     <span className="font-mono text-lg tracking-widest" data-testid="user-code">
                       {started.user_code}
@@ -208,8 +265,8 @@ export function AccountSignInDialog({
                     <span className="inline-flex items-center gap-1.5">
                       {complete.isPending && <Spinner />}
                       {complete.isPending
-                        ? `Waiting for you to enter it, for up to ${minutes} minutes.`
-                        : "The sign-in did not complete. Close this and start again."}
+                        ? `Waiting for you to enter it, for up to ${minutes} minutes. This closes by itself.`
+                        : "The sign-in did not complete."}
                     </span>
                   </FieldDescription>
                 </Field>
@@ -217,13 +274,45 @@ export function AccountSignInDialog({
             </FieldGroup>
           )}
 
-          <ErrorAlert error={begin.error ?? complete.error} />
+          {way === "token" && (
+            <FieldGroup>
+              <token.Field name="label">
+                {(field) => (
+                  <TextField
+                    field={field}
+                    label="Name"
+                    placeholder="personal"
+                    description="What you call this account: a token names no e-mail."
+                  />
+                )}
+              </token.Field>
+              <token.Field name="token">
+                {(field) => (
+                  <TextField field={field} label="Token" placeholder="sk-ant-oat01-…" secret />
+                )}
+              </token.Field>
+            </FieldGroup>
+          )}
+
+          <ErrorAlert error={way === "token" ? addToken.error : (begin.error ?? complete.error)} />
           <DialogFooter>
             <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
-            {!waiting && (
-              <Button type="submit" disabled={begin.isPending || complete.isPending}>
-                {(begin.isPending || complete.isPending) && <Spinner data-icon="inline-start" />}
-                {started ? "Sign in" : "Continue"}
+            {way === "sign-in" && spent && (
+              <Button type="button" onClick={startAgain}>
+                <RotateCcw data-icon="inline-start" />
+                Start again
+              </Button>
+            )}
+            {way === "sign-in" && !spent && started?.paste && (
+              <Button type="submit" disabled={busy}>
+                {busy && <Spinner data-icon="inline-start" />}
+                Sign in
+              </Button>
+            )}
+            {way === "token" && (
+              <Button type="submit" disabled={busy}>
+                {busy && <Spinner data-icon="inline-start" />}
+                Add account
               </Button>
             )}
           </DialogFooter>

@@ -78,6 +78,8 @@ type Server struct {
 	// accounts shows the accounts with the state of their sign-ins and removes one; nil when the control plane
 	// wired none, and then an account shows what orchestration knows of it.
 	accounts Accounts
+	// tokenAccounts keeps an account from a pasted token; nil when the vault has no key.
+	tokenAccounts TokenAccounts
 	// gatewayModels lists what the model gateway serves; nil when the control plane wired none.
 	gatewayModels GatewayModels
 	// accountSignIns are the sign-ins of subscription accounts begun and not completed.
@@ -109,6 +111,20 @@ type Accounts interface {
 // GatewayModels lists the models the model gateway serves.
 type GatewayModels interface {
 	ListModels(ctx context.Context) ([]modelgateway.Model, error)
+}
+
+// TokenAccounts keeps an account from a token the owner pastes; the control
+// plane's wiring implements it, as the vault may not be imported here.
+type TokenAccounts interface {
+	// Add keeps the account and its token and returns the account's id.
+	Add(ctx context.Context, runtime, label, token string) (string, error)
+}
+
+// WithTokenAccounts lets the owner add an account by pasting its token.
+func (s *Server) WithTokenAccounts(t TokenAccounts) *Server {
+	s.tokenAccounts = t
+
+	return s
 }
 
 // WithAccounts lets the API show the sign-in of an account and remove one.
