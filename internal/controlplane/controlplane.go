@@ -13,9 +13,11 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"path/filepath"
 	"strings"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/agentapi"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/browser"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/coordinator"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/integration"
@@ -79,6 +81,13 @@ type Config struct {
 	// in the source; empty: no Antigravity account can be logged in or
 	// refreshed. Tests set its addresses.
 	Antigravity subscription.AntigravityOptions
+	// BrowserDir holds the browser every agent shares (issue #193): its
+	// programs, its profile with the owner's sign-ins, and its sockets. From
+	// HYPOMNEMA_BROWSER_DIR; empty: `browser` beside the database.
+	BrowserDir string
+	// BrowserNoSandbox runs Chrome without its sandbox, from
+	// HYPOMNEMA_BROWSER_SANDBOX=0. Nothing else turns the sandbox off.
+	BrowserNoSandbox bool
 }
 
 // LoadConfig reads the configuration and reports every problem at once.
@@ -103,6 +112,12 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 		Antigravity: subscription.AntigravityOptions{
 			ClientSecret: env.String(envPrefix+"_ANTIGRAVITY_CLIENT_SECRET", ""),
 		},
+		BrowserDir:       env.String(envPrefix+"_BROWSER_DIR", ""),
+		BrowserNoSandbox: env.String(envPrefix+"_BROWSER_SANDBOX", "1") == "0",
+	}
+
+	if cfg.BrowserDir == "" {
+		cfg.BrowserDir = filepath.Join(filepath.Dir(cfg.Database.Path), "browser")
 	}
 
 	var cmdErr error
@@ -191,7 +206,16 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 			AccessToken: token.AccessToken, ExpiresAt: token.ExpiresAt, ClientID: token.ClientID,
 		}, err
 	}, logger)
-	agents.Register(mux)
+
+	// The browser every agent shares (issue #193). Nothing is installed or started until an agent uses it. Its
+	// directory is made absolute: agent-browser's sockets are named by their full path.
+	browserDir, err := filepath.Abs(cfg.BrowserDir)
+	if err != nil {
+		return fmt.Errorf("the browser's directory: %w", err)
+	}
+
+	shared := browser.New(browser.Config{Dir: browserDir, NoSandbox: cfg.BrowserNoSandbox, Logger: logger})
+	agents.WithBrowser(shared).Register(mux)
 
 	// The service proxy: an agent's tool reaches a connected service through it and never holds the token.
 	proxy, err := serviceproxy.New(serviceproxy.Config{
@@ -296,9 +320,19 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		_ = larkChannels.Run(ctx)
 	}()
 
+	// Idle tabs and the idle Chrome are closed while the server runs, and Chrome when it stops.
+	browserDone := make(chan struct{})
+
+	go func() {
+		defer close(browserDone)
+
+		shared.Run(ctx)
+	}()
+
 	serveErr := platform.Serve(ctx, ln, mux, logger)
 
 	cancel(nil)
+	<-browserDone
 	<-larkDone
 	<-loopDone
 	<-machinesDone
