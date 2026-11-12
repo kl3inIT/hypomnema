@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io"
 	"log/slog"
+	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -113,4 +114,46 @@ func TestOwnerGivesTheControlPlaneAClaudeToken(t *testing.T) {
 
 	_, err = run("", "accounts", "add", "claude", "second", "--token", file)
 	require.NoError(t, err)
+}
+
+// Scenario: the owner adds a Claude account on the Models page by pasting the
+// token of `claude setup-token` (issue #199). The account is there under the
+// name given, the token is never answered and the node gets it for a worker.
+// A token that is not one line, a vendor with no token to paste, and a
+// coordinator are refused, and nothing is kept for them.
+func TestOwnerPastesAClaudeTokenOnTheModelsPage(t *testing.T) {
+	t.Parallel()
+
+	api := newVaultAPI(t)
+	add := func(token string, body map[string]any) (int, map[string]any, string) {
+		status, out, raw, _ := api.call(token, http.MethodPost, "/accounts", body)
+
+		return status, out, raw
+	}
+
+	status, _, _ := add(api.coordinator, map[string]any{"runtime": "claude", "label": "kept", "token": claudeToken})
+	assert.Equal(t, http.StatusForbidden, status)
+
+	status, _, raw := add(api.owner, map[string]any{"runtime": "claude", "label": "kept", "token": "two words"})
+	assert.Equal(t, http.StatusBadRequest, status, raw)
+	assert.Contains(t, raw, "claude setup-token")
+
+	status, _, _ = add(api.owner, map[string]any{"runtime": "codex", "label": "kept", "token": claudeToken})
+	assert.Equal(t, http.StatusBadRequest, status)
+
+	pasted := " " + claudeToken + "\n"
+	status, out, raw := add(api.owner, map[string]any{"runtime": "claude", "label": "kept", "token": pasted})
+	require.Equal(t, http.StatusCreated, status, raw)
+	assert.Equal(t, "kept", out["label"])
+	assert.Equal(t, "claude", out["runtime"])
+	assert.NotContains(t, raw, claudeToken, "the token is never answered")
+
+	accounts, err := api.svc.ListAccounts(t.Context())
+	require.NoError(t, err)
+	require.Len(t, accounts, 1, "nothing is kept for a refused token")
+
+	tokens := accountTokens{svc: api.svc, vault: api.tokens.vault, logger: slog.New(slog.DiscardHandler)}
+	got, ok := tokens.Token(t.Context(), out["id"].(string)) //nolint:forcetypeassert // the answer names its id
+	require.True(t, ok)
+	assert.Equal(t, claudeToken, got)
 }

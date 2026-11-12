@@ -1099,6 +1099,17 @@ export type Account = {
   token_expires_at?: string;
 };
 
+export type NewTokenAccount = {
+  /**
+   * The kind of subscription; only Claude gives a token to paste.
+   */
+  runtime: 'claude';
+  /**
+   * The account's name for the owner; a token names no e-mail.
+   */
+  label: string;
+};
+
 export type NewAccountSignIn = {
   /**
    * The kind of subscription.
@@ -1556,6 +1567,21 @@ export type NewAccountConnectionWritable = {
 export type NewIntegrationClientWritable = {
   client_id: string;
   client_secret: string;
+};
+
+export type NewTokenAccountWritable = {
+  /**
+   * The kind of subscription; only Claude gives a token to paste.
+   */
+  runtime: 'claude';
+  /**
+   * The account's name for the owner; a token names no e-mail.
+   */
+  label: string;
+  /**
+   * The token `claude setup-token` prints, one line.
+   */
+  token: string;
 };
 
 export type AccountId = string;
@@ -3488,6 +3514,31 @@ export type ListAccountsResponses = {
 };
 
 export type ListAccountsResponse = ListAccountsResponses[keyof ListAccountsResponses];
+
+export type AddTokenAccountData = {
+  body: NewTokenAccountWritable;
+  path?: never;
+  query?: never;
+  url: '/accounts';
+};
+
+export type AddTokenAccountErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type AddTokenAccountError = AddTokenAccountErrors[keyof AddTokenAccountErrors];
+
+export type AddTokenAccountResponses = {
+  /**
+   * The account.
+   */
+  201: Account;
+};
+
+export type AddTokenAccountResponse = AddTokenAccountResponses[keyof AddTokenAccountResponses];
 
 export type BeginAccountSignInData = {
   body: NewAccountSignIn;
