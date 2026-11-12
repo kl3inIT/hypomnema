@@ -1,4 +1,12 @@
-import { CircleAlert, GitPullRequest, LifeBuoy, MessageCircleQuestion } from "lucide-react"
+import {
+  Box,
+  CircleAlert,
+  GitPullRequest,
+  LifeBuoy,
+  MessageCircleQuestion,
+  Server,
+} from "lucide-react"
+import type { ReactNode } from "react"
 
 import { span } from "@/lib/time"
 import { cn } from "@/lib/utils"
@@ -26,8 +34,11 @@ function fallbackTitle(dispatch: {
 
 // TaskCard is one worker's Task on the board, after Orca's AgentKanbanCard (MIT, Copyright (c) 2026 Lovecast Inc.,
 // https://github.com/stablyai/orca; components/dashboard-popout/AgentKanbanCard.tsx): what runs it and what it is
-// for on top, one line of what it does now, then machine, model, pull request and age. A card waiting for the
-// owner is tinted and shows the question; it is answered in the Task's panel, where the whole question is read.
+// for on one line, the Run and what the worker does now as two lines that each begin with a dim label (Orca's "You"
+// and the agent's name), then the machine, the model, the pull request and the age. A card waiting for the owner is
+// tinted and shows the question; it is answered in the Task's panel, where the whole question is read. Orca's foot
+// holds icons alone, each a different repository's or host's; here every machine has the same icon, so a chip
+// keeps its name beside it.
 export function TaskCard({
   card,
   showRun = true,
@@ -57,7 +68,12 @@ export function TaskCard({
     >
       <span className="flex min-w-0 items-start gap-2">
         <RuntimeMark runtime={card.runtime} />
-        <span className="line-clamp-2 min-w-0 flex-1 text-[13px] leading-snug font-medium">
+        <span
+          className={cn(
+            "min-w-0 flex-1 truncate text-[13px] leading-snug",
+            card.column === "you" && "font-semibold",
+          )}
+        >
           {firstLine(task.spec)}
         </span>
         <StatusDot card={card} />
@@ -65,8 +81,8 @@ export function TaskCard({
 
       {showRun && (
         <span className="truncate text-2xs text-muted-foreground">
+          <Label>{run.repo ? run.repo.split("/").at(-1) : "Run"}</Label>
           {firstLine(run.objective, 80)}
-          {run.repo && ` · ${run.repo.split("/").at(-1)}`}
         </span>
       )}
 
@@ -74,14 +90,19 @@ export function TaskCard({
 
       <span className="flex flex-wrap items-center gap-1.5 text-2xs text-muted-foreground">
         {card.node && (
-          <span className="rounded-md bg-foreground/5 px-1.5 leading-[18px]">{card.node}</span>
+          <Chip icon={<Server className="size-3" aria-hidden />} name="Machine">
+            {card.node}
+          </Chip>
         )}
-        {(dispatch?.model || task.model) && <span>{dispatch?.model || task.model}</span>}
+        {(dispatch?.model || task.model) && (
+          <Chip icon={<Box className="size-3" aria-hidden />} name="Model">
+            {dispatch?.model || task.model}
+          </Chip>
+        )}
         {dispatch?.fallback_for && (
-          <span className="inline-flex items-center gap-0.5" title={fallbackTitle(dispatch)}>
-            <LifeBuoy className="size-3" aria-hidden />
+          <Chip icon={<LifeBuoy className="size-3" aria-hidden />} name={fallbackTitle(dispatch)}>
             {dispatch.handoff ? "took over from" : "for"} {dispatch.fallback_for}
-          </span>
+          </Chip>
         )}
         {pr && (
           <span className="inline-flex items-center gap-0.5 font-mono text-done">
@@ -92,6 +113,25 @@ export function TaskCard({
         <span className="ms-auto tabular-nums">{span(task.updated_at)}</span>
       </span>
     </button>
+  )
+}
+
+// Label is the dim word a line begins with, as Orca's card labels whose words a line is.
+function Label({ children }: { children: ReactNode }) {
+  return <span className="me-1 font-medium text-foreground/45">{children}</span>
+}
+
+// Chip is one fact of the foot: its icon and its value, named for a reader that cannot see the icon.
+function Chip({ icon, name, children }: { icon: ReactNode; name: string; children: ReactNode }) {
+  return (
+    <span
+      title={name}
+      className="inline-flex max-w-full items-center gap-1 rounded-md bg-foreground/5 px-1.5 leading-[18px]"
+    >
+      {icon}
+      <span className="sr-only">{name}: </span>
+      <span className="truncate">{children}</span>
+    </span>
   )
 }
 
@@ -112,6 +152,14 @@ function StatusDot({ card }: { card: Card }) {
   }[card.column]
 
   return <span aria-hidden className={cn("mt-1.5 size-[7px] shrink-0 rounded-full", tone)} />
+}
+
+// runtimeLabel names whose words a line is, as Orca's card says "Claude" or "Codex".
+function runtimeLabel(runtime: string) {
+  if (runtime === "claude") return "Claude"
+  if (runtime === "codex") return "Codex"
+
+  return runtime || "Worker"
 }
 
 const blocked: Record<string, string> = {
@@ -180,9 +228,14 @@ function Middle({ card }: { card: Card }) {
 
   if (task.status === "running" && dispatch?.started_at) {
     return (
-      <span className="flex min-w-0 items-baseline gap-1 text-xs text-secondary-label">
-        <span className="min-w-0 live-tool-shine truncate">{dispatch.activity || "Working"}</span>
-        <span className="shrink-0 tabular-nums">· {span(dispatch.started_at)}</span>
+      <span className="flex min-w-0 items-baseline gap-1 text-xs text-foreground/90">
+        <Label>{runtimeLabel(card.runtime)}</Label>
+        <span className="min-w-0 flex-1 live-tool-shine truncate">
+          {dispatch.activity || "Working"}
+        </span>
+        <span className="shrink-0 text-muted-foreground tabular-nums">
+          {span(dispatch.started_at)}
+        </span>
       </span>
     )
   }
@@ -190,6 +243,9 @@ function Middle({ card }: { card: Card }) {
   const summary = dispatch?.result?.summary || task.result
 
   return summary ? (
-    <span className="line-clamp-2 text-xs text-secondary-label">{firstLine(summary, 200)}</span>
+    <span className="line-clamp-2 text-xs text-foreground/90">
+      <Label>{runtimeLabel(card.runtime)}</Label>
+      {firstLine(summary, 200)}
+    </span>
   ) : null
 }

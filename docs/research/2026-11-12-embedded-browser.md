@@ -99,10 +99,40 @@ already put on the machine, and removed afterwards.
 - One session launched Chrome with a profile and set a cookie; two more sessions attached with `--cdp <url>
   --pin-tab` each kept its own tab and its own URL, both read the cookie, and each had a stream of its own. Each
   attach left a blank tab behind.
-- Memory, as the sum of resident sizes (which counts shared pages more than once): about 1.7 GB for the full Chrome
-  with one tab, 2.2 GB with three tabs and three daemons. Not measured: the smaller headless shell.
+- Memory, counting shared pages once (`Pss`): the headless shell took about 180 MB with one tab and 280 MB with
+  three; the full Chrome about 480 MB and 600 MB. (A first figure of 1.7 to 2.2 GB summed resident sizes, which counts
+  shared pages once per process.)
+- A session that attaches with `open <url>` gets one tab; attaching with `tab new <url>` left a blank tab behind.
+- Closing an agent's session leaves its tab open: the tab has to be closed by name.
+- A session that is not pinned follows whichever tab was used last, another session's included; the session that
+  launched Chrome must be pinned too, or not used to act.
+- A cookie set on a site is still there after Chrome is closed and started again on the same profile, closed at once
+  or after 35 s.
 
-## 6. What this means for Hypomnema
+## 6. A browser on another machine, and what happens when that machine is gone
+
+Asked by the owner: can the browser be on a machine with more memory than zm, or on several, and what if that
+machine is killed.
+
+| Reference | Where the browser may be | When that machine is gone |
+|---|---|---|
+| T3 Code, OpenMausBot | The server's own machine only | Nothing of its own: the server is gone with it |
+| OpenClaw | The Gateway's machine by default. A node host on another machine can hold the browser and the Gateway proxies the browser's actions to it; routing "prefers the host" and falls back to a single connected browser node; `gateway.nodes.browser.node` pins one (`docs/tools/browser/remote.md` L12-16, L55-95) | An error. "Launch failures ... stay on that owner; OpenClaw does not replay them on another machine." Profiles are the node's own and are changed only on the node. The Control UI streams the host's browser live and "falls back to screenshots for node-routed browsers" (`docs/tools/browser/profiles.md`) |
+| Hermes, OpenClaw | A hosted browser service reached over CDP (Browserbase, Browser Use, Browserless): `hermes-agent/agent/browser_provider.py`; `docs/tools/browser/remote.md` L97-120 | The provider's concern; sign-ins are kept by a third party, and it is paid for |
+
+No reference copies sign-ins between machines or moves the browser to another machine by itself. agent-browser can
+save and load a signed-in state as a file (`state save`, `state load`, `--restore` with an encryption key:
+`skill-data/core/references/authentication.md` L48-59, L113, L265-274), which OpenMausBot uses to list and remove
+sign-ins of a stopped browser (`docs/plans/browser-engine.md` L127-136), not to move them. Inferred: several Chromes
+each loaded with a copy would not stay one session, since a site that renews its session in one copy leaves the
+others stale.
+
+Stopping an idle browser: T3 Code closes an agent's idle tabs and closes Chrome after five minutes without a context
+(`ServerBrowser.ts` L505, L1502); OpenClaw sweeps idle tabs and caps them per session (`browser.tabCleanup`,
+`docs/tools/browser/configuration.md` L83-108); an agent-browser daemon ends after an hour idle by default
+(`--idle-timeout`).
+
+## 7. What this means for Hypomnema
 
 Nothing exists today; issue #21 names a browser service and has no design. The terminal on a node (issue #116)
 already has the pieces a stream needs: a ticket that opens one WebSocket once from the web client's origin, and the
