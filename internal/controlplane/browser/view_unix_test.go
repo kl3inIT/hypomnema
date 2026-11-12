@@ -183,18 +183,22 @@ func TestACallRunningWhenTheOwnerTakesTheBrowserIsAnsweredAsRefused(t *testing.T
 	}()
 
 	require.Eventually(t, func() bool {
-		raw, _ := os.ReadFile(filepath.Join(r.bin, "log")) //nolint:gosec // The test's own directory.
+		raw, _ := os.ReadFile(filepath.Join(r.bin, "log"))
 
 		return len(containing([]string{string(raw)}, "session=d-one", "agent_browser_get_text")) == 1
 	}, 10*time.Second, 10*time.Millisecond, "the agent's call is running")
 
+	// The call takes a second from when it started.
+	asked := time.Now()
+
 	do(t, v, `{"type":"takeControl"}`)
+	assert.Greater(t, time.Since(asked), 300*time.Millisecond, "taking control waits for the agent's running call")
 
 	select {
 	case result := <-answered:
 		assert.True(t, isRefusal(t, result))
-	default:
-		t.Fatal("taking control did not wait for the agent's running call")
+	case <-time.After(10 * time.Second):
+		t.Fatal("the agent's call was not answered")
 	}
 }
 

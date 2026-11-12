@@ -71,7 +71,8 @@ if [ -f "$dir/sandbox-blocked" ]; then
   *) echo "FATAL: No usable sandbox! If you are running on Ubuntu 23.10+" >&2; exit 1 ;;
   esac
 fi
-echo "ws://127.0.0.1:$(cat "$dir/devtools" 2>/dev/null || echo 9)/devtools/browser/$(cat "$dir/chrome" 2>/dev/null)" > "$dir/up"
+port=$(cat "$dir/devtools" 2>/dev/null || echo 9)
+echo "ws://127.0.0.1:$port/devtools/browser/$(cat "$dir/chrome" 2>/dev/null)" > "$dir/up"
 `
 
 type clock struct {
