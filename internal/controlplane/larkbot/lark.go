@@ -591,18 +591,28 @@ const (
 // leaves it out. A page that cannot be read, or more pages than are read,
 // gives no list, so no group is removed for a list that is not whole.
 func (s *sdk) Groups(ctx context.Context) ([]Group, error) {
+	return groupsOf(func(token string) (*larkim.ListChatResp, error) {
+		req := larkim.NewListChatReqBuilder().PageSize(chatPage)
+		if token != "" {
+			req.PageToken(token)
+		}
+
+		return s.api.Im.V1.Chat.List(ctx, req.Build())
+	})
+}
+
+// groupsOf reads the bot's groups page by page, each page after the token of
+// the one before (MemoryOS, LarkChannelAdapter.groups). An answer without its
+// data, or one that says more follow without saying where, is not a whole
+// list either.
+func groupsOf(page func(token string) (*larkim.ListChatResp, error)) ([]Group, error) {
 	var (
 		out   []Group
 		token string
 	)
 
 	for range chatPages {
-		req := larkim.NewListChatReqBuilder().PageSize(chatPage)
-		if token != "" {
-			req.PageToken(token)
-		}
-
-		resp, err := s.api.Im.V1.Chat.List(ctx, req.Build())
+		resp, err := page(token)
 		if err != nil {
 			return nil, fmt.Errorf("listing the bot's groups: %w", err)
 		}
@@ -612,7 +622,7 @@ func (s *sdk) Groups(ctx context.Context) ([]Group, error) {
 		}
 
 		if resp.Data == nil {
-			return out, nil
+			return nil, errors.New("listing the bot's groups: Lark gave no list")
 		}
 
 		for _, chat := range resp.Data.Items {
@@ -627,9 +637,13 @@ func (s *sdk) Groups(ctx context.Context) ([]Group, error) {
 			out = append(out, Group{ChatID: deref(chat.ChatId), Name: strings.TrimSpace(deref(chat.Name))})
 		}
 
-		token = deref(resp.Data.PageToken)
-		if resp.Data.HasMore == nil || !*resp.Data.HasMore || token == "" {
+		if resp.Data.HasMore == nil || !*resp.Data.HasMore {
 			return out, nil
+		}
+
+		token = deref(resp.Data.PageToken)
+		if token == "" {
+			return nil, errors.New("listing the bot's groups: Lark said more follow and gave no page token")
 		}
 	}
 

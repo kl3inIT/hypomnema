@@ -41,8 +41,8 @@ SELECT * FROM lark_channel_people WHERE channel = @channel ORDER BY created_at, 
 DELETE FROM lark_channel_people WHERE channel = @channel AND open_id = @open_id;
 
 -- name: InsertLarkChannelChat :exec
-INSERT INTO lark_channel_chats (lark_chat_id, channel, open_id, chat_id, sent_seq, is_group, created_at)
-VALUES (@lark_chat_id, @channel, @open_id, @chat_id, 0, @is_group, @now);
+INSERT INTO lark_channel_chats (lark_chat_id, channel, open_id, chat_id, sent_seq, created_at)
+VALUES (@lark_chat_id, @channel, @open_id, @chat_id, 0, @now);
 
 -- name: GetLarkChannelChat :one
 SELECT * FROM lark_channel_chats WHERE channel = @channel AND lark_chat_id = @lark_chat_id;
@@ -81,7 +81,10 @@ SELECT * FROM lark_channel_questions WHERE channel = @channel AND closed_at IS N
 UPDATE lark_channel_questions SET closed_at = @now, seq = @seq WHERE question_id = @question_id;
 
 -- name: IsLarkGroupChat :one
-SELECT is_group FROM lark_channel_chats WHERE chat_id = @chat_id;
+SELECT lark_group FROM chats WHERE id = @chat_id;
+
+-- name: MarkLarkGroupChat :exec
+UPDATE chats SET lark_group = 1 WHERE id = @chat_id;
 
 -- name: UpsertLarkChannelGroup :exec
 INSERT INTO lark_channel_groups (channel, lark_chat_id, name, enabled, created_at)

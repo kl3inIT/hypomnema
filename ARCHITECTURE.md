@@ -669,15 +669,18 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       is added when the bot is added to it (`im.chat.member.bot.added_v1`; `deleted_v1` removes it) and by Lark's
       whole list of the bot's groups (`GET /open-apis/im/v1/chats`), read when the Channel connects and every ten
       minutes; a group the list no longer holds is removed unless it was added or asked in since the list was
-      read. A group is off until the owner switches it on. In a group that is on, a message is served only when
+      read; a list Lark does not give whole changes nothing. A group is off until the owner switches it on, and
+      the Channels page reads them again every half minute. In a group that is on, a message is served only when
       it mentions the bot (`@all` is not a mention; the bot's `open_id` is read once from
       `GET /open-apis/bot/v3/info`) and its sender passes the Channel's mode: the owner, the people he added, or
       every member of the group, of the organization or not; the organization check is for direct messages
       only. Anything else, commands included, is dropped without a word and not recorded. A group mentioning the
       bot before any listing is put on the roster, off. The bot's mention is taken out of the text and another
       person's is written as `@name`.
-    - A group has one chat with the Bot (`lark_channel_chats.is_group`), which `/new` from any member it
-      answers starts over for everyone, as do four hours without a question (`asked_at` of the roster). Every
+    - A group has one chat with the Bot, marked `chats.lark_group`, which stays on a chat the group no longer
+      uses. `/new` from any member it answers starts it over for everyone, as do four hours without a question
+      (`asked_at` of the roster) and the first question after the bot was added to the group again; one message
+      of a group at a time decides which chat it goes to. Every
       group message, the owner's too, opens with `[name]: `, the name from the people the owner added or from
       Lark, with brackets and control characters taken out and cut to 64 characters; a direct message's label
       names the sender the same way. pi starts for a group's chat with `--group`: `hypomnema bots prompt --group`

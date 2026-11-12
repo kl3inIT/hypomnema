@@ -91,6 +91,7 @@ type Chat struct {
 	CreatedAt int64
 	UpdatedAt int64
 	Bot       string
+	LarkGroup int64
 }
 
 type ChatMessage struct {
@@ -304,7 +305,6 @@ type LarkChannelChat struct {
 	ChatID     string
 	SentSeq    int64
 	CreatedAt  int64
-	IsGroup    int64
 }
 
 type LarkChannelGroup struct {

@@ -145,7 +145,7 @@ func (q *Queries) GetLarkChannelByApp(ctx context.Context, appID string) (LarkCh
 }
 
 const getLarkChannelChat = `-- name: GetLarkChannelChat :one
-SELECT lark_chat_id, channel, open_id, chat_id, sent_seq, created_at, is_group FROM lark_channel_chats WHERE channel = ?1 AND lark_chat_id = ?2
+SELECT lark_chat_id, channel, open_id, chat_id, sent_seq, created_at FROM lark_channel_chats WHERE channel = ?1 AND lark_chat_id = ?2
 `
 
 type GetLarkChannelChatParams struct {
@@ -163,7 +163,6 @@ func (q *Queries) GetLarkChannelChat(ctx context.Context, arg GetLarkChannelChat
 		&i.ChatID,
 		&i.SentSeq,
 		&i.CreatedAt,
-		&i.IsGroup,
 	)
 	return i, err
 }
@@ -257,8 +256,8 @@ func (q *Queries) GetLarkChannelQuestionByMessage(ctx context.Context, arg GetLa
 }
 
 const insertLarkChannelChat = `-- name: InsertLarkChannelChat :exec
-INSERT INTO lark_channel_chats (lark_chat_id, channel, open_id, chat_id, sent_seq, is_group, created_at)
-VALUES (?1, ?2, ?3, ?4, 0, ?5, ?6)
+INSERT INTO lark_channel_chats (lark_chat_id, channel, open_id, chat_id, sent_seq, created_at)
+VALUES (?1, ?2, ?3, ?4, 0, ?5)
 `
 
 type InsertLarkChannelChatParams struct {
@@ -266,7 +265,6 @@ type InsertLarkChannelChatParams struct {
 	Channel    string
 	OpenID     string
 	ChatID     string
-	IsGroup    int64
 	Now        int64
 }
 
@@ -276,7 +274,6 @@ func (q *Queries) InsertLarkChannelChat(ctx context.Context, arg InsertLarkChann
 		arg.Channel,
 		arg.OpenID,
 		arg.ChatID,
-		arg.IsGroup,
 		arg.Now,
 	)
 	return err
@@ -326,14 +323,14 @@ func (q *Queries) InsertLarkChannelQuestion(ctx context.Context, arg InsertLarkC
 }
 
 const isLarkGroupChat = `-- name: IsLarkGroupChat :one
-SELECT is_group FROM lark_channel_chats WHERE chat_id = ?1
+SELECT lark_group FROM chats WHERE id = ?1
 `
 
 func (q *Queries) IsLarkGroupChat(ctx context.Context, chatID string) (int64, error) {
 	row := q.db.QueryRowContext(ctx, isLarkGroupChat, chatID)
-	var is_group int64
-	err := row.Scan(&is_group)
-	return is_group, err
+	var lark_group int64
+	err := row.Scan(&lark_group)
+	return lark_group, err
 }
 
 const larkChannelOfRun = `-- name: LarkChannelOfRun :one
@@ -348,7 +345,7 @@ func (q *Queries) LarkChannelOfRun(ctx context.Context, runID string) (string, e
 }
 
 const listLarkChannelChats = `-- name: ListLarkChannelChats :many
-SELECT lark_chat_id, channel, open_id, chat_id, sent_seq, created_at, is_group FROM lark_channel_chats WHERE channel = ?1 ORDER BY created_at, lark_chat_id
+SELECT lark_chat_id, channel, open_id, chat_id, sent_seq, created_at FROM lark_channel_chats WHERE channel = ?1 ORDER BY created_at, lark_chat_id
 `
 
 func (q *Queries) ListLarkChannelChats(ctx context.Context, channel string) ([]LarkChannelChat, error) {
@@ -367,7 +364,6 @@ func (q *Queries) ListLarkChannelChats(ctx context.Context, channel string) ([]L
 			&i.ChatID,
 			&i.SentSeq,
 			&i.CreatedAt,
-			&i.IsGroup,
 		); err != nil {
 			return nil, err
 		}
@@ -520,6 +516,15 @@ func (q *Queries) ListOpenLarkChannelQuestions(ctx context.Context, channel stri
 		return nil, err
 	}
 	return items, nil
+}
+
+const markLarkGroupChat = `-- name: MarkLarkGroupChat :exec
+UPDATE chats SET lark_group = 1 WHERE id = ?1
+`
+
+func (q *Queries) MarkLarkGroupChat(ctx context.Context, chatID string) error {
+	_, err := q.db.ExecContext(ctx, markLarkGroupChat, chatID)
+	return err
 }
 
 const resetLarkChannelChat = `-- name: ResetLarkChannelChat :execrows

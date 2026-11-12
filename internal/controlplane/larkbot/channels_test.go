@@ -1352,8 +1352,8 @@ func TestTheBotAnswersInAGroupTheOwnerSwitchedOn(t *testing.T) {
 	w.lark.say(inGroup("om_3", ownerID, "@_all hello everyone", larkbot.Mention{Key: "@_all", Name: "all"}))
 	w.quiet(0, 0)
 
-	w.lark.say(inGroup("om_4", ownerID, "@_user_1 what did @_user_2 ship?", mentionOfBot,
-		larkbot.Mention{Key: "@_user_2", OpenID: linhID, Name: "Linh"}))
+	w.lark.say(inGroup("om_4", ownerID, "@_user_1 what did @_user_10 ship?", mentionOfBot,
+		larkbot.Mention{Key: "@_user_10", OpenID: linhID, Name: "Linh"}))
 	chat := w.chatOf(team)
 	require.Eventually(t, func() bool { return len(w.texts(chat)) == 1 }, eventual, tick)
 	assert.Equal(t, []string{"owner: [Đạt admin]: what did @Linh ship?"}, w.texts(chat),
@@ -1432,15 +1432,27 @@ func TestWhoMayAskInAGroupIsTheChannelsChoice(t *testing.T) {
 		return second != first && len(w.texts(second)) == 1
 	}, eventual, tick)
 
+	stillGroup, err := w.orch.IsLarkGroupChat(t.Context(), first)
+	require.NoError(t, err)
+	assert.True(t, stillGroup, "a chat the group left behind still starts without the memory")
+
+	// Two members ask at once after four idle hours: both questions are in the one new chat.
 	w.clock.pass(5 * time.Hour)
 	w.lark.say(inGroup("om_8", ownerID, "@_user_1 good morning", mentionOfBot))
+	w.lark.say(inGroup("om_9", linhID, "@_user_1 morning", mentionOfBot))
+
+	var third string
 
 	require.Eventually(t, func() bool {
-		third := w.chatOf(team)
+		third = w.chatOf(team)
 
-		return third != second && len(w.texts(third)) == 1
+		return third != second && len(w.texts(third)) == 2
 	}, eventual, tick, "a group's conversation idle for four hours is over")
 	assert.Len(t, w.texts(second), 1)
+
+	time.Sleep(200 * time.Millisecond)
+	assert.Equal(t, third, w.chatOf(team), "the second question did not start yet another chat")
+	assert.Len(t, w.texts(third), 2)
 }
 
 // Scenario: the roster follows Lark. A group the bot is added to is listed at
@@ -1483,4 +1495,30 @@ func TestAChannelsGroupsFollowLark(t *testing.T) {
 	w.run(main)
 	require.Eventually(t, func() bool { return len(w.groups()) == 1 }, eventual, tick)
 	assert.Equal(t, []string{team + " (Maps team, renamed): off"}, w.groups())
+
+	// The bot leaves a group it talked in and is added again: the group starts as one never seen, off, and its
+	// first question starts a new conversation.
+	_, err := w.svc.SetGroup(t.Context(), main, team, true)
+	require.NoError(t, err)
+	w.lark.say(inGroup("om_2", ownerID, "@_user_1 hello", mentionOfBot))
+	before := w.chatOf(team)
+
+	w.lark.mu.Lock()
+	on = w.lark.on
+	w.lark.mu.Unlock()
+
+	on.Left(team)
+	require.Eventually(t, func() bool { return len(w.groups()) == 0 }, eventual, tick)
+	on.Joined(larkbot.Group{ChatID: team, Name: "Maps team"})
+	require.Eventually(t, func() bool { return len(w.groups()) == 1 }, eventual, tick)
+	assert.Equal(t, []string{team + " (Maps team): off"}, w.groups())
+
+	_, err = w.svc.SetGroup(t.Context(), main, team, true)
+	require.NoError(t, err)
+	w.lark.say(inGroup("om_3", ownerID, "@_user_1 back again", mentionOfBot))
+	require.Eventually(t, func() bool {
+		after := w.chatOf(team)
+
+		return after != before && len(w.texts(after)) == 1
+	}, eventual, tick)
 }

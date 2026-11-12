@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -284,6 +285,8 @@ type conn struct {
 	relays map[string]*relay
 	// botID is the bot's own open_id, read once it is first needed.
 	botID string
+	// turns let one message of each Lark group at a time choose its chat.
+	turns map[string]*sync.Mutex
 }
 
 // WithWebURL sets the web client's address; a reply then ends with a link to
@@ -406,7 +409,7 @@ func (c *Channels) connect(ctx context.Context) {
 
 // start opens one Channel's connection.
 func (c *Channels) start(ctx context.Context, ch orchestration.LarkChannel) {
-	cn := &conn{all: c, name: ch.Name, appID: ch.AppID, relays: map[string]*relay{}}
+	cn := &conn{all: c, name: ch.Name, appID: ch.AppID, relays: map[string]*relay{}, turns: map[string]*sync.Mutex{}}
 
 	lark, err := c.open(ctx, ch)
 	if err == nil {
@@ -666,16 +669,29 @@ func (cn *conn) inGroup(ctx context.Context, ch orchestration.LarkChannel, m Mes
 		title = "Lark: " + g.Name
 	}
 
-	switch strings.ToLower(strings.TrimSpace(text)) {
-	case commandNew:
-		// The group's one conversation starts over for every member (OpenClaw's /new, MemoryOS).
-		return cn.startOver(ctx, m, title)
-	case commandStop:
+	if strings.ToLower(strings.TrimSpace(text)) == commandStop {
 		return cn.stop(ctx, m)
 	}
 
-	// A group's conversation idle for four hours is over: the next question starts a new one (MemoryOS).
-	if g.AskedAt != nil && cn.all.now().Sub(*g.AskedAt) >= groupIdle {
+	// Which chat a group's message goes to, and whether that one is over, is decided for one message of the group
+	// at a time: two messages after an idle spell would otherwise each start a new chat.
+	turn := cn.turnOf(m.ChatID)
+	turn.Lock()
+	defer turn.Unlock()
+
+	if strings.ToLower(strings.TrimSpace(text)) == commandNew {
+		// The group's one conversation starts over for every member (OpenClaw's /new, MemoryOS).
+		return cn.startOver(ctx, m, title)
+	}
+
+	if g, err = store.LarkChannelGroup(ctx, cn.name, m.ChatID); err != nil {
+		return err
+	}
+
+	// A group's conversation idle for four hours is over: the next question starts a new one (MemoryOS). So is
+	// the one of a group nobody asked in since it was added: the bot left it and came back, which starts as a
+	// group never seen does (MemoryOS, ChannelGroupRoster).
+	if g.AskedAt == nil || cn.all.now().Sub(*g.AskedAt) >= groupIdle {
 		if err := cn.restart(ctx, m.ChatID, title); err != nil {
 			return err
 		}
@@ -706,22 +722,50 @@ func (cn *conn) addressed(ctx context.Context, m Message) (string, bool, error) 
 		return "", false, err
 	}
 
-	text, mentioned := m.Text, false
+	mentioned := false
+	mentions := make([]Mention, 0, len(m.Mentions))
 
 	for _, at := range m.Mentions {
-		switch {
-		case at.OpenID != "" && at.OpenID == bot:
+		if at.OpenID != "" && at.OpenID == bot {
 			mentioned = true
+		}
 
-			if at.Key != "" {
-				text = strings.ReplaceAll(text, at.Key, "")
-			}
-		case at.Key != "" && at.Name != "":
-			text = strings.ReplaceAll(text, at.Key, "@"+at.Name)
+		if at.Key != "" {
+			mentions = append(mentions, at)
 		}
 	}
 
-	return strings.TrimSpace(text), mentioned, nil
+	// The placeholders are replaced in one pass, the longest first, so that @_user_1 is not taken out of
+	// @_user_10.
+	sort.SliceStable(mentions, func(i, j int) bool { return len(mentions[i].Key) > len(mentions[j].Key) })
+
+	pairs := make([]string, 0, 2*len(mentions))
+
+	for _, at := range mentions {
+		switch {
+		case at.OpenID != "" && at.OpenID == bot:
+			pairs = append(pairs, at.Key, "")
+		case at.Name != "":
+			pairs = append(pairs, at.Key, "@"+at.Name)
+		}
+	}
+
+	return strings.TrimSpace(strings.NewReplacer(pairs...).Replace(m.Text)), mentioned, nil
+}
+
+// turnOf is what lets one message of a Lark group at a time choose the
+// group's chat.
+func (cn *conn) turnOf(larkChatID string) *sync.Mutex {
+	cn.mu.Lock()
+	defer cn.mu.Unlock()
+
+	turn := cn.turns[larkChatID]
+	if turn == nil {
+		turn = &sync.Mutex{}
+		cn.turns[larkChatID] = turn
+	}
+
+	return turn
 }
 
 // bot is the bot's own open_id, read from Lark the first time it is needed

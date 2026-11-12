@@ -323,7 +323,7 @@ func (s *Service) larkChannelChat(ctx context.Context, r store.LarkChannelChat) 
 
 	return LarkChannelChat{
 		Channel: r.Channel, LarkChatID: r.LarkChatID, OpenID: r.OpenID, ChatID: r.ChatID, Bot: chat.Bot,
-		SentSeq: r.SentSeq, Group: r.IsGroup != 0,
+		SentSeq: r.SentSeq, Group: chat.LarkGroup != 0,
 	}, nil
 }
 
@@ -363,14 +363,16 @@ func (s *Service) larkChatFor(ctx context.Context, channel, larkChatID, openID, 
 		return LarkChannelChat{}, err
 	}
 
-	isGroup := int64(0)
-	if group {
-		isGroup = 1
-	}
-
 	if err := s.write(ctx, func(q *store.Queries, now int64) error {
+		// A group's chat is marked on the chat itself, so it stays one once the group has started another.
+		if group {
+			if err := q.MarkLarkGroupChat(ctx, chat.ID); err != nil {
+				return err
+			}
+		}
+
 		return q.InsertLarkChannelChat(ctx, store.InsertLarkChannelChatParams{
-			LarkChatID: larkChatID, Channel: channel, OpenID: openID, ChatID: chat.ID, IsGroup: isGroup, Now: now,
+			LarkChatID: larkChatID, Channel: channel, OpenID: openID, ChatID: chat.ID, Now: now,
 		})
 	}); err != nil {
 		return LarkChannelChat{}, fmt.Errorf("recording Lark chat %s: %w", larkChatID, err)
@@ -398,12 +400,25 @@ func (s *Service) ResetLarkChannelChat(ctx context.Context, channel, larkChatID,
 		return LarkChannelChat{}, err
 	}
 
+	old, err := s.read().GetChat(ctx, row.ChatID)
+	if err != nil {
+		return LarkChannelChat{}, fmt.Errorf("reading the chat of Lark chat %s: %w", larkChatID, err)
+	}
+
 	chat, err := s.CreateChat(ctx, ch.Bot, title)
 	if err != nil {
 		return LarkChannelChat{}, err
 	}
 
+	group := old.LarkGroup != 0
+
 	if err := s.write(ctx, func(q *store.Queries, _ int64) error {
+		if group {
+			if err := q.MarkLarkGroupChat(ctx, chat.ID); err != nil {
+				return err
+			}
+		}
+
 		_, err := q.ResetLarkChannelChat(ctx, store.ResetLarkChannelChatParams{
 			Channel: channel, LarkChatID: larkChatID, ChatID: chat.ID,
 		})
@@ -415,7 +430,7 @@ func (s *Service) ResetLarkChannelChat(ctx context.Context, channel, larkChatID,
 
 	return LarkChannelChat{
 		Channel: channel, LarkChatID: larkChatID, OpenID: row.OpenID, ChatID: chat.ID, Bot: chat.Bot,
-		Group: row.IsGroup != 0,
+		Group: group,
 	}, nil
 }
 

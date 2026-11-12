@@ -4,8 +4,9 @@
 -- read every ten minutes, which also removes the groups the bot left.
 
 -- +goose Up
--- asked_at is when someone the bot answered last asked there; NULL while nobody has. A group's one conversation is
--- started over after four hours without a question (MemoryOS, ChannelProperties.groupConversationIdle).
+-- asked_at is when someone the bot answers last asked there; NULL while nobody has since the group was added. A
+-- group's one conversation is started over after four hours without a question (MemoryOS,
+-- ChannelProperties.groupConversationIdle).
 CREATE TABLE lark_channel_groups (
     channel      TEXT    NOT NULL REFERENCES lark_channels (name) ON DELETE CASCADE,
     lark_chat_id TEXT    NOT NULL,
@@ -16,10 +17,10 @@ CREATE TABLE lark_channel_groups (
     PRIMARY KEY (channel, lark_chat_id)
 ) STRICT;
 
--- A Lark chat that is a group: its chat with the Bot is the whole group's, and the Bot's memory is not in its prompt
--- (OpenClaw leaves MEMORY.md out of a group session's prompt).
-ALTER TABLE lark_channel_chats ADD COLUMN is_group INTEGER NOT NULL DEFAULT 0;
+-- A chat that is a Lark group's conversation: the Bot's memory is never in its prompt (OpenClaw leaves MEMORY.md out
+-- of a group session's prompt). It is kept on the chat, so a chat a group no longer uses stays one.
+ALTER TABLE chats ADD COLUMN lark_group INTEGER NOT NULL DEFAULT 0;
 
 -- +goose Down
-ALTER TABLE lark_channel_chats DROP COLUMN is_group;
+ALTER TABLE chats DROP COLUMN lark_group;
 DROP TABLE lark_channel_groups;
