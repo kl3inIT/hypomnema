@@ -12,10 +12,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/shared/githost"
 )
@@ -26,6 +28,10 @@ type Maker struct {
 	Root string
 	// URL replaces the host's clone URL in tests: a format with one %s, the repository's path.
 	URL string
+	// Logger takes a setup script that failed; nil logs nothing.
+	Logger *slog.Logger
+	// SetupTimeout replaces how long a setup script may run, in tests.
+	SetupTimeout time.Duration
 }
 
 // Source is the repository a worktree is made from.
@@ -67,7 +73,8 @@ func SourceOf(host, kind, path, token string) (Source, error) {
 func Branch(taskID string) string { return "hyp/" + taskID }
 
 // Ensure makes the worktree at path on the Task's branch, starting from base,
-// or reuses it when it exists (a continued Conversation).
+// or reuses it when it exists (a continued Conversation). A worktree it made
+// has had the repository's setup script run in it (setup.go).
 func (m Maker) Ensure(ctx context.Context, src Source, base, taskID, path string) error {
 	if !filepath.IsAbs(path) {
 		return fmt.Errorf("the worktree %q is not absolute", path)
@@ -90,10 +97,18 @@ func (m Maker) Ensure(ctx context.Context, src Source, base, taskID, path string
 
 	if git(ctx, mirror, nil, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch) == nil {
 		// A retry: the branch keeps what the earlier attempt committed.
-		return git(ctx, mirror, nil, "worktree", "add", path, branch)
+		err = git(ctx, mirror, nil, "worktree", "add", path, branch)
+	} else {
+		err = git(ctx, mirror, nil, "worktree", "add", "--no-track", "-b", branch, path, "refs/remotes/origin/"+base)
 	}
 
-	return git(ctx, mirror, nil, "worktree", "add", "--no-track", "-b", branch, path, "refs/remotes/origin/"+base)
+	if err != nil {
+		return err
+	}
+
+	m.setup(ctx, path)
+
+	return nil
 }
 
 // Remove removes a worktree; its branch stays.

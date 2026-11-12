@@ -224,7 +224,7 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 
 	runner := &claude.Runner{
 		Home: home, Exe: exe, Claude: claudePath, URL: cfg.URL, Accounts: cfg.Accounts, Logger: logger,
-		Worktrees: worktree.Maker{Root: home},
+		Worktrees: worktree.Maker{Root: home, Logger: logger},
 	}
 
 	logger.InfoContext(ctx, "node starting", slog.String("event", "node.starting"), slog.String("url", cfg.URL),
@@ -239,7 +239,8 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 
 	// The agents that speak ACP share one runner (issue #107).
 	acpRunner := &acp.Runner{
-		Home: home, Exe: exe, Paths: paths, URL: cfg.URL, Logger: logger, Worktrees: worktree.Maker{Root: home},
+		Home: home, Exe: exe, Paths: paths, URL: cfg.URL, Logger: logger,
+		Worktrees: worktree.Maker{Root: home, Logger: logger},
 	}
 
 	// Workers' transcripts go to the control plane beside their reports, whatever the runtime (issues #43, #157).
@@ -258,7 +259,8 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 	all.byRuntime["claude"] = runner
 	// A Codex worker's model comes from the control plane's gateway (issue #107).
 	all.byRuntime["codex"] = &codex.Runner{
-		Home: home, Exe: exe, Codex: codexPath, URL: cfg.URL, Logger: logger, Worktrees: worktree.Maker{Root: home},
+		Home: home, Exe: exe, Codex: codexPath, URL: cfg.URL, Logger: logger,
+		Worktrees: worktree.Maker{Root: home, Logger: logger},
 	}
 
 	d := daemon.New(daemon.Config{

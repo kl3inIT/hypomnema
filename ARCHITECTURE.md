@@ -936,6 +936,17 @@ Node (`internal/node`):
   branch on a retry; reused while it exists. Git uses the node user's own credentials. The offer names the
   repository's host and kind; the node checks them and the path before git sees them, and clones from the host's
   address. A GitHub mirror stays under `repos/<owner>/<name>.git`; another host's is under `repos/_hosts/<host>/`.
+- A repository's setup script (issue #186, [research](docs/research/2026-11-12-a-repository-tools-for-workers.md)):
+  a repository may declare one under `scripts.setup` in `hypomnema.yaml` at its root, as Orca's `orca.yaml` and
+  t3code's `t3.json` do. The node runs it in a shell (bash, else sh) in a worktree it has just made, with
+  `HYPOMNEMA_WORKTREE_PATH` set and git's prompts off, and starts the worker when it has ended (Orca's
+  `wait-for-setup`, here always: nobody watches a headless worker that starts before its tools exist). It may run
+  120 seconds, then its process group is killed. A script that fails, runs out of time or cannot be read is written
+  to the node's log with the end of its output, and the worker starts all the same, as in Orca. A worktree that is
+  reused (a continued Conversation) is not set up again. This repository's script (`deploy/worker/setup.sh`) puts
+  Go at the version `go.mod` names under `$HOME/.local/go` on a Linux machine that lacks it, checked against the
+  SHA-256 Go publishes. Not built: the script's failure in the transcript, asking the owner before a script runs
+  the first time (Orca), and putting what it installed on the worker's `PATH`.
 - There is no vault, permission rule or mailbox yet.
 
 ## Web client

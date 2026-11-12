@@ -1,0 +1,4 @@
+# What Hypomnema does for this repository on a node (issue #186).
+scripts:
+  # Run by the node in a Task's new worktree, before the worker starts.
+  setup: sh deploy/worker/setup.sh
