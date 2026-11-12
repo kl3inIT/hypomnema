@@ -16,7 +16,12 @@ export function DraftChat({ bot, onStarted }: { bot: string; onStarted: (chat: s
           <AgentAvatar name={bot || firstBot} className="size-5" />
           A new chat with {bot || firstBot}
         </p>
-        <Composer onSend={(text) => start.mutateAsync(text)} onStop={() => {}} working={false} />
+        <Composer
+          bot={bot || firstBot}
+          onSend={(text) => start.mutateAsync(text)}
+          onStop={() => {}}
+          working={false}
+        />
       </div>
     </div>
   )
