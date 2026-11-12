@@ -110,7 +110,7 @@ test("chats are dragged from the sidebar into a grid of up to four", async ({ pa
   await expect(panes(page)).toHaveCount(4)
 })
 
-// Scenario: the owner rearranges and tidies the grid. A pane's header dragged onto another pane changes places with
+// Scenario: the owner rearranges and tidies the grid. A pane's chat tab dragged onto another pane changes places with
 // it; a pane fills the screen and comes back; taking panes off leaves one chat, shown alone, and no grid.
 test("panes change places, fill the screen, and leave the grid", async ({ page }) => {
   await fakeServer(page)
@@ -120,12 +120,13 @@ test("panes change places, fill the screen, and leave the grid", async ({ page }
   await page.goto("/grid")
   await expect(panes(page)).toHaveCount(2)
 
-  const titles = () => panes(page).getByRole("heading", { level: 2 }).allInnerTexts()
+  const titles = () =>
+    panes(page).evaluateAll((all) => all.map((pane) => pane.getAttribute("aria-label")))
   expect(await titles()).toEqual(["health page", "login button"])
 
   await drag(
     page,
-    pane(page, "health page").getByRole("heading", { level: 2 }),
+    pane(page, "health page").getByRole("tab", { name: "health page" }),
     pane(page, "login button"),
     0.5,
     0.6,
