@@ -297,20 +297,26 @@ export function PageHeading({
   children?: ReactNode
   className?: string
 }) {
+  // The description runs under the title and the actions alike, so a wide set of actions (a search box) does not
+  // squeeze it into a narrow column.
   return (
     <div
       className={cn(
-        "flex flex-col gap-3 border-b border-border/60 pb-5 md:flex-row md:items-start md:justify-between md:gap-4 md:pt-6",
+        "grid grid-cols-1 gap-x-4 gap-y-2 border-b border-border/60 pb-5 md:grid-cols-[minmax(0,1fr)_auto] md:pt-6",
         className,
       )}
     >
-      <div className="flex min-w-0 flex-1 flex-col gap-2">
-        <h1 className="text-2xl leading-tight font-semibold text-foreground">{title}</h1>
-        {description && (
-          <p className="max-w-3xl text-sm leading-6 text-muted-foreground">{description}</p>
-        )}
-      </div>
-      {children && <div className="flex flex-wrap items-center gap-2 md:shrink-0">{children}</div>}
+      <h1 className="self-center text-2xl leading-tight font-semibold text-foreground">{title}</h1>
+      {children && (
+        <div className="flex flex-wrap items-center gap-2 max-md:order-last md:justify-end">
+          {children}
+        </div>
+      )}
+      {description && (
+        <p className="max-w-3xl text-sm leading-6 text-muted-foreground md:col-span-2">
+          {description}
+        </p>
+      )}
     </div>
   )
 }
