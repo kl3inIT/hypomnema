@@ -12,9 +12,9 @@ export function runtimeName(runtime: string) {
   return runtime
 }
 
-// The runtimes a profile may name, as the server knows them (orchestration/profiles.go, runtimeProviders); pi is
-// the coordinator's.
-export const runtimes = ["claude", "codex", "omp", "opencode", "pi"] as const
+// The runtimes a profile may name, as the server knows them (orchestration/profiles.go, runtimeProviders): the
+// workers' CLIs. pi runs a Bot on the server and is not a profile's (issue #169).
+export const runtimes = ["claude", "codex", "omp", "opencode"] as const
 
 // savedAgo says how long ago a version was saved, or nothing for one with no time: the starting profiles were
 // inserted by migrations at time 0.
@@ -43,7 +43,7 @@ export type Standing = { tone: "good" | "warn"; short: string; text: string }
 const clock = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" })
 
 // standing says in words whether a worker can start under a profile now (issue #139). A profile with no answer,
-// the coordinator's, has no standing.
+// one read from a list of versions, has no standing.
 export function standing(profile: Profile): Standing | null {
   if (profile.available === undefined) return null
   if (profile.available) return { tone: "good", short: "Ready", text: "Can run now" }
@@ -128,7 +128,7 @@ export function modelKey(provider: string, name: string) {
 }
 
 // splitModel takes a key apart again, by the models the server lists; a key it does not find is a bare name.
-function splitModel(key: string, models: Model[]) {
+export function splitModel(key: string, models: Model[]) {
   const found = models.find((m) => modelKey(m.provider, m.name) === key)
   if (found) return { provider: found.provider, name: found.name }
 

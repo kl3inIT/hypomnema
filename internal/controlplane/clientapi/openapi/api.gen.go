@@ -432,6 +432,27 @@ func (e MachineProviderKind) Valid() bool {
 	}
 }
 
+// Defines values for MemoryChangeKind.
+const (
+	Add     MemoryChangeKind = "add"
+	Remove  MemoryChangeKind = "remove"
+	Replace MemoryChangeKind = "replace"
+)
+
+// Valid indicates whether the value is a known member of the MemoryChangeKind enum.
+func (e MemoryChangeKind) Valid() bool {
+	switch e {
+	case Add:
+		return true
+	case Remove:
+		return true
+	case Replace:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for NodeStatus.
 const (
 	NodeStatusActive  NodeStatus = "active"
@@ -772,8 +793,43 @@ type ApprovalStatus string
 // BlockedReason defines model for BlockedReason.
 type BlockedReason string
 
+// Bot defines model for Bot.
+type Bot struct {
+	CreatedAt time.Time `json:"created_at"`
+	Effort    *string   `json:"effort,omitempty"`
+
+	// Memory What the Bot keeps across chats, one entry per line.
+	Memory string `json:"memory"`
+
+	// MemoryLimit The most characters the memory holds.
+	MemoryLimit int     `json:"memory_limit"`
+	Model       *string `json:"model,omitempty"`
+	Name        string  `json:"name"`
+
+	// Persona What the Bot is and how it behaves, written by the owner; pi gets it after its built-in instructions.
+	Persona   string    `json:"persona"`
+	Provider  *string   `json:"provider,omitempty"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// BotList defines model for BotList.
+type BotList struct {
+	Data []Bot `json:"data"`
+}
+
+// BotSettings defines model for BotSettings.
+type BotSettings struct {
+	Effort   *string `json:"effort,omitempty"`
+	Model    *string `json:"model,omitempty"`
+	Persona  *string `json:"persona,omitempty"`
+	Provider *string `json:"provider,omitempty"`
+}
+
 // Chat defines model for Chat.
 type Chat struct {
+	// Bot The Bot the chat talks with.
+	Bot string `json:"bot"`
+
 	// Coordinator A coordinator is configured to answer; false means messages are kept and nothing answers.
 	Coordinator bool      `json:"coordinator"`
 	CreatedAt   time.Time `json:"created_at"`
@@ -1157,6 +1213,26 @@ type Me struct {
 	Name string    `json:"name"`
 }
 
+// MemoryChange defines model for MemoryChange.
+type MemoryChange struct {
+	Kind MemoryChangeKind `json:"kind"`
+
+	// Match Part of the one entry to replace or remove.
+	Match *string `json:"match,omitempty"`
+
+	// Text The entry to add, or what replaces the entry found.
+	Text *string `json:"text,omitempty"`
+}
+
+// MemoryChangeKind defines model for MemoryChange.Kind.
+type MemoryChangeKind string
+
+// MemoryText defines model for MemoryText.
+type MemoryText struct {
+	// Memory The entries, one per line.
+	Memory string `json:"memory"`
+}
+
 // Model defines model for Model.
 type Model struct {
 	Kind     string `json:"kind"`
@@ -1171,6 +1247,8 @@ type ModelList struct {
 
 // NewChat defines model for NewChat.
 type NewChat struct {
+	// Bot The Bot the chat talks with; `coordinator` when left out.
+	Bot   *string `json:"bot,omitempty"`
 	Title *string `json:"title,omitempty"`
 }
 
@@ -1417,7 +1495,7 @@ type Option struct {
 
 // Profile defines model for Profile.
 type Profile struct {
-	// Available Whether a worker can start under the profile now: a connected, active node has its CLI, and its runtime has an account that is not cooling down (none is needed for a model the gateway serves). A node at its limit still counts, since the Task waits its turn. Given for a profile's current version; absent for the coordinator's runtime, which no node runs, and in a list of versions.
+	// Available Whether a worker can start under the profile now: a connected, active node has its CLI, and its runtime has an account that is not cooling down (none is needed for a model the gateway serves). A node at its limit still counts, since the Task waits its turn. Given for a profile's current version; absent for a list of versions.
 	Available *bool `json:"available,omitempty"`
 
 	// AvailableAt With `accounts_cooling`, when the first account is free again.
@@ -1888,6 +1966,15 @@ type ListTasksParams struct {
 // DecideApprovalJSONRequestBody defines body for DecideApproval for application/json ContentType.
 type DecideApprovalJSONRequestBody = ApprovalDecision
 
+// PutBotJSONRequestBody defines body for PutBot for application/json ContentType.
+type PutBotJSONRequestBody = BotSettings
+
+// ChangeBotMemoryJSONRequestBody defines body for ChangeBotMemory for application/json ContentType.
+type ChangeBotMemoryJSONRequestBody = MemoryChange
+
+// SetBotMemoryJSONRequestBody defines body for SetBotMemory for application/json ContentType.
+type SetBotMemoryJSONRequestBody = MemoryText
+
 // PutLarkBotJSONRequestBody defines body for PutLarkBot for application/json ContentType.
 type PutLarkBotJSONRequestBody = LarkBotSettings
 
@@ -2058,6 +2145,79 @@ type ClientInterface interface {
 	//
 	// Corresponds with POST /approvals/{approval_id}/decision (the `DecideApproval` operationId).
 	DecideApproval(ctx context.Context, approvalId string, body DecideApprovalJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListBots Every Bot, the oldest first
+	//
+	// A Bot is a long-lived agent of the control plane: its model, its persona and its memory. It talks with people in chats and gives work to workers. It is apart from a Profile, which is a worker's recipe.
+	//
+	// Corresponds with GET /bots (the `ListBots` operationId).
+	ListBots(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DeleteBot Remove a Bot that has no chats and no memory; only the owner
+	//
+	// The Bot `coordinator` is always there and is not removed.
+	//
+	// Corresponds with DELETE /bots/{name} (the `DeleteBot` operationId).
+	DeleteBot(ctx context.Context, name Name, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetBot A Bot, with its persona and memory
+	//
+	// Corresponds with GET /bots/{name} (the `GetBot` operationId).
+	GetBot(ctx context.Context, name Name, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PutBotWithBody Make a Bot, or change its model and persona; only the owner
+	//
+	// The Bot's memory stays as it is.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PUT /bots/{name} (the `PutBot` operationId).
+	PutBotWithBody(ctx context.Context, name Name, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PutBot Make a Bot, or change its model and persona; only the owner
+	//
+	// The Bot's memory stays as it is.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PUT /bots/{name} (the `PutBot` operationId).
+	PutBot(ctx context.Context, name Name, body PutBotJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ChangeBotMemoryWithBody Add, replace or remove one entry of a Bot's memory
+	//
+	// The memory is the Bot's entries, one per line, the same in every chat with it. A change that would pass the memory's limit is refused and changes nothing: replace or remove entries first.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /bots/{name}/memory (the `ChangeBotMemory` operationId).
+	ChangeBotMemoryWithBody(ctx context.Context, name Name, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ChangeBotMemory Add, replace or remove one entry of a Bot's memory
+	//
+	// The memory is the Bot's entries, one per line, the same in every chat with it. A change that would pass the memory's limit is refused and changes nothing: replace or remove entries first.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /bots/{name}/memory (the `ChangeBotMemory` operationId).
+	ChangeBotMemory(ctx context.Context, name Name, body ChangeBotMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetBotMemoryWithBody Replace a Bot's whole memory with the owner's text; only the owner
+	//
+	// Each line is an entry; empty lines and an entry given twice are dropped. A text over the memory's limit is refused.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PUT /bots/{name}/memory (the `SetBotMemory` operationId).
+	SetBotMemoryWithBody(ctx context.Context, name Name, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// SetBotMemory Replace a Bot's whole memory with the owner's text; only the owner
+	//
+	// Each line is an entry; empty lines and an entry given twice are dropped. A text over the memory's limit is refused.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PUT /bots/{name}/memory (the `SetBotMemory` operationId).
+	SetBotMemory(ctx context.Context, name Name, body SetBotMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// DeleteLarkBot Forget the Lark bot and its app's secret; only the owner
 	//
@@ -2749,6 +2909,169 @@ func (c *Client) DecideApprovalWithBody(ctx context.Context, approvalId string, 
 // Corresponds with POST /approvals/{approval_id}/decision (the `DecideApproval` operationId).
 func (c *Client) DecideApproval(ctx context.Context, approvalId string, body DecideApprovalJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewDecideApprovalRequest(c.Server, approvalId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListBots Every Bot, the oldest first
+//
+// A Bot is a long-lived agent of the control plane: its model, its persona and its memory. It talks with people in chats and gives work to workers. It is apart from a Profile, which is a worker's recipe.
+//
+// Corresponds with GET /bots (the `ListBots` operationId).
+func (c *Client) ListBots(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListBotsRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DeleteBot Remove a Bot that has no chats and no memory; only the owner
+//
+// The Bot `coordinator` is always there and is not removed.
+//
+// Corresponds with DELETE /bots/{name} (the `DeleteBot` operationId).
+func (c *Client) DeleteBot(ctx context.Context, name Name, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteBotRequest(c.Server, name)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetBot A Bot, with its persona and memory
+//
+// Corresponds with GET /bots/{name} (the `GetBot` operationId).
+func (c *Client) GetBot(ctx context.Context, name Name, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetBotRequest(c.Server, name)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PutBotWithBody Make a Bot, or change its model and persona; only the owner
+//
+// The Bot's memory stays as it is.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PUT /bots/{name} (the `PutBot` operationId).
+func (c *Client) PutBotWithBody(ctx context.Context, name Name, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPutBotRequestWithBody(c.Server, name, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PutBot Make a Bot, or change its model and persona; only the owner
+//
+// The Bot's memory stays as it is.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PUT /bots/{name} (the `PutBot` operationId).
+func (c *Client) PutBot(ctx context.Context, name Name, body PutBotJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPutBotRequest(c.Server, name, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ChangeBotMemoryWithBody Add, replace or remove one entry of a Bot's memory
+//
+// The memory is the Bot's entries, one per line, the same in every chat with it. A change that would pass the memory's limit is refused and changes nothing: replace or remove entries first.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /bots/{name}/memory (the `ChangeBotMemory` operationId).
+func (c *Client) ChangeBotMemoryWithBody(ctx context.Context, name Name, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewChangeBotMemoryRequestWithBody(c.Server, name, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ChangeBotMemory Add, replace or remove one entry of a Bot's memory
+//
+// The memory is the Bot's entries, one per line, the same in every chat with it. A change that would pass the memory's limit is refused and changes nothing: replace or remove entries first.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /bots/{name}/memory (the `ChangeBotMemory` operationId).
+func (c *Client) ChangeBotMemory(ctx context.Context, name Name, body ChangeBotMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewChangeBotMemoryRequest(c.Server, name, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SetBotMemoryWithBody Replace a Bot's whole memory with the owner's text; only the owner
+//
+// Each line is an entry; empty lines and an entry given twice are dropped. A text over the memory's limit is refused.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PUT /bots/{name}/memory (the `SetBotMemory` operationId).
+func (c *Client) SetBotMemoryWithBody(ctx context.Context, name Name, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetBotMemoryRequestWithBody(c.Server, name, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// SetBotMemory Replace a Bot's whole memory with the owner's text; only the owner
+//
+// Each line is an entry; empty lines and an entry given twice are dropped. A text over the memory's limit is refused.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PUT /bots/{name}/memory (the `SetBotMemory` operationId).
+func (c *Client) SetBotMemory(ctx context.Context, name Name, body SetBotMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewSetBotMemoryRequest(c.Server, name, body)
 	if err != nil {
 		return nil, err
 	}
@@ -4483,6 +4806,242 @@ func NewDecideApprovalRequestWithBody(server string, approvalId string, contentT
 	}
 
 	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewListBotsRequest constructs an http.Request for the ListBots method
+func NewListBotsRequest(server string) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/bots")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewDeleteBotRequest constructs an http.Request for the DeleteBot method
+func NewDeleteBotRequest(server string, name Name) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "name", name, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/bots/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetBotRequest constructs an http.Request for the GetBot method
+func NewGetBotRequest(server string, name Name) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "name", name, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/bots/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewPutBotRequest calls the generic PutBot builder with application/json body
+func NewPutBotRequest(server string, name Name, body PutBotJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPutBotRequestWithBody(server, name, "application/json", bodyReader)
+}
+
+// NewPutBotRequestWithBody constructs an http.Request for the PutBot method, with any body, and a specified content type
+func NewPutBotRequestWithBody(server string, name Name, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "name", name, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/bots/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewChangeBotMemoryRequest calls the generic ChangeBotMemory builder with application/json body
+func NewChangeBotMemoryRequest(server string, name Name, body ChangeBotMemoryJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewChangeBotMemoryRequestWithBody(server, name, "application/json", bodyReader)
+}
+
+// NewChangeBotMemoryRequestWithBody constructs an http.Request for the ChangeBotMemory method, with any body, and a specified content type
+func NewChangeBotMemoryRequestWithBody(server string, name Name, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "name", name, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/bots/%s/memory", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewSetBotMemoryRequest calls the generic SetBotMemory builder with application/json body
+func NewSetBotMemoryRequest(server string, name Name, body SetBotMemoryJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewSetBotMemoryRequestWithBody(server, name, "application/json", bodyReader)
+}
+
+// NewSetBotMemoryRequestWithBody constructs an http.Request for the SetBotMemory method, with any body, and a specified content type
+func NewSetBotMemoryRequestWithBody(server string, name Name, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "name", name, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/bots/%s/memory", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
 	if err != nil {
 		return nil, err
 	}
@@ -7710,6 +8269,85 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with POST /approvals/{approval_id}/decision (the `DecideApproval` operationId).
 	DecideApprovalWithResponse(ctx context.Context, approvalId string, body DecideApprovalJSONRequestBody, reqEditors ...RequestEditorFn) (*DecideApprovalResponse, error)
 
+	// ListBotsWithResponse Every Bot, the oldest first
+	//
+	// A Bot is a long-lived agent of the control plane: its model, its persona and its memory. It talks with people in chats and gives work to workers. It is apart from a Profile, which is a worker's recipe.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /bots (the `ListBots` operationId).
+	ListBotsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListBotsResponse, error)
+
+	// DeleteBotWithResponse Remove a Bot that has no chats and no memory; only the owner
+	//
+	// The Bot `coordinator` is always there and is not removed.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with DELETE /bots/{name} (the `DeleteBot` operationId).
+	DeleteBotWithResponse(ctx context.Context, name Name, reqEditors ...RequestEditorFn) (*DeleteBotResponse, error)
+
+	// GetBotWithResponse A Bot, with its persona and memory
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /bots/{name} (the `GetBot` operationId).
+	GetBotWithResponse(ctx context.Context, name Name, reqEditors ...RequestEditorFn) (*GetBotResponse, error)
+
+	// PutBotWithBodyWithResponse Make a Bot, or change its model and persona; only the owner
+	//
+	// The Bot's memory stays as it is.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /bots/{name} (the `PutBot` operationId).
+	PutBotWithBodyWithResponse(ctx context.Context, name Name, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutBotResponse, error)
+
+	// PutBotWithResponse Make a Bot, or change its model and persona; only the owner
+	//
+	// The Bot's memory stays as it is.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /bots/{name} (the `PutBot` operationId).
+	PutBotWithResponse(ctx context.Context, name Name, body PutBotJSONRequestBody, reqEditors ...RequestEditorFn) (*PutBotResponse, error)
+
+	// ChangeBotMemoryWithBodyWithResponse Add, replace or remove one entry of a Bot's memory
+	//
+	// The memory is the Bot's entries, one per line, the same in every chat with it. A change that would pass the memory's limit is refused and changes nothing: replace or remove entries first.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /bots/{name}/memory (the `ChangeBotMemory` operationId).
+	ChangeBotMemoryWithBodyWithResponse(ctx context.Context, name Name, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ChangeBotMemoryResponse, error)
+
+	// ChangeBotMemoryWithResponse Add, replace or remove one entry of a Bot's memory
+	//
+	// The memory is the Bot's entries, one per line, the same in every chat with it. A change that would pass the memory's limit is refused and changes nothing: replace or remove entries first.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /bots/{name}/memory (the `ChangeBotMemory` operationId).
+	ChangeBotMemoryWithResponse(ctx context.Context, name Name, body ChangeBotMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*ChangeBotMemoryResponse, error)
+
+	// SetBotMemoryWithBodyWithResponse Replace a Bot's whole memory with the owner's text; only the owner
+	//
+	// Each line is an entry; empty lines and an entry given twice are dropped. A text over the memory's limit is refused.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /bots/{name}/memory (the `SetBotMemory` operationId).
+	SetBotMemoryWithBodyWithResponse(ctx context.Context, name Name, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetBotMemoryResponse, error)
+
+	// SetBotMemoryWithResponse Replace a Bot's whole memory with the owner's text; only the owner
+	//
+	// Each line is an entry; empty lines and an entry given twice are dropped. A text over the memory's limit is refused.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /bots/{name}/memory (the `SetBotMemory` operationId).
+	SetBotMemoryWithResponse(ctx context.Context, name Name, body SetBotMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*SetBotMemoryResponse, error)
+
 	// DeleteLarkBotWithResponse Forget the Lark bot and its app's secret; only the owner
 	//
 	// Returns a wrapper object for the known response body format(s).
@@ -8578,6 +9216,287 @@ func (r DecideApprovalResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r DecideApprovalResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListBotsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *BotList
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListBotsResponse) GetJSON200() *BotList {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListBotsResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListBotsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListBotsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListBotsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListBotsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type DeleteBotResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r DeleteBotResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r DeleteBotResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteBotResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteBotResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DeleteBotResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetBotResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Bot
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetBotResponse) GetJSON200() *Bot {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r GetBotResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r GetBotResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetBotResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetBotResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetBotResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type PutBotResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Bot
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r PutBotResponse) GetJSON200() *Bot {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r PutBotResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r PutBotResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r PutBotResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PutBotResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r PutBotResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ChangeBotMemoryResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Bot
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ChangeBotMemoryResponse) GetJSON200() *Bot {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ChangeBotMemoryResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ChangeBotMemoryResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ChangeBotMemoryResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ChangeBotMemoryResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ChangeBotMemoryResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type SetBotMemoryResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Bot
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r SetBotMemoryResponse) GetJSON200() *Bot {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r SetBotMemoryResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r SetBotMemoryResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r SetBotMemoryResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r SetBotMemoryResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r SetBotMemoryResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -12047,6 +12966,139 @@ func (c *ClientWithResponses) DecideApprovalWithResponse(ctx context.Context, ap
 	return ParseDecideApprovalResponse(rsp)
 }
 
+// ListBotsWithResponse Every Bot, the oldest first
+//
+// A Bot is a long-lived agent of the control plane: its model, its persona and its memory. It talks with people in chats and gives work to workers. It is apart from a Profile, which is a worker's recipe.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /bots (the `ListBots` operationId).
+func (c *ClientWithResponses) ListBotsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListBotsResponse, error) {
+	rsp, err := c.ListBots(ctx, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListBotsResponse(rsp)
+}
+
+// DeleteBotWithResponse Remove a Bot that has no chats and no memory; only the owner
+//
+// The Bot `coordinator` is always there and is not removed.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with DELETE /bots/{name} (the `DeleteBot` operationId).
+func (c *ClientWithResponses) DeleteBotWithResponse(ctx context.Context, name Name, reqEditors ...RequestEditorFn) (*DeleteBotResponse, error) {
+	rsp, err := c.DeleteBot(ctx, name, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteBotResponse(rsp)
+}
+
+// GetBotWithResponse A Bot, with its persona and memory
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /bots/{name} (the `GetBot` operationId).
+func (c *ClientWithResponses) GetBotWithResponse(ctx context.Context, name Name, reqEditors ...RequestEditorFn) (*GetBotResponse, error) {
+	rsp, err := c.GetBot(ctx, name, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetBotResponse(rsp)
+}
+
+// PutBotWithBodyWithResponse Make a Bot, or change its model and persona; only the owner
+//
+// The Bot's memory stays as it is.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /bots/{name} (the `PutBot` operationId).
+func (c *ClientWithResponses) PutBotWithBodyWithResponse(ctx context.Context, name Name, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutBotResponse, error) {
+	rsp, err := c.PutBotWithBody(ctx, name, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePutBotResponse(rsp)
+}
+
+// PutBotWithResponse Make a Bot, or change its model and persona; only the owner
+//
+// The Bot's memory stays as it is.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /bots/{name} (the `PutBot` operationId).
+func (c *ClientWithResponses) PutBotWithResponse(ctx context.Context, name Name, body PutBotJSONRequestBody, reqEditors ...RequestEditorFn) (*PutBotResponse, error) {
+	rsp, err := c.PutBot(ctx, name, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePutBotResponse(rsp)
+}
+
+// ChangeBotMemoryWithBodyWithResponse Add, replace or remove one entry of a Bot's memory
+//
+// The memory is the Bot's entries, one per line, the same in every chat with it. A change that would pass the memory's limit is refused and changes nothing: replace or remove entries first.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /bots/{name}/memory (the `ChangeBotMemory` operationId).
+func (c *ClientWithResponses) ChangeBotMemoryWithBodyWithResponse(ctx context.Context, name Name, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*ChangeBotMemoryResponse, error) {
+	rsp, err := c.ChangeBotMemoryWithBody(ctx, name, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseChangeBotMemoryResponse(rsp)
+}
+
+// ChangeBotMemoryWithResponse Add, replace or remove one entry of a Bot's memory
+//
+// The memory is the Bot's entries, one per line, the same in every chat with it. A change that would pass the memory's limit is refused and changes nothing: replace or remove entries first.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /bots/{name}/memory (the `ChangeBotMemory` operationId).
+func (c *ClientWithResponses) ChangeBotMemoryWithResponse(ctx context.Context, name Name, body ChangeBotMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*ChangeBotMemoryResponse, error) {
+	rsp, err := c.ChangeBotMemory(ctx, name, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseChangeBotMemoryResponse(rsp)
+}
+
+// SetBotMemoryWithBodyWithResponse Replace a Bot's whole memory with the owner's text; only the owner
+//
+// Each line is an entry; empty lines and an entry given twice are dropped. A text over the memory's limit is refused.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /bots/{name}/memory (the `SetBotMemory` operationId).
+func (c *ClientWithResponses) SetBotMemoryWithBodyWithResponse(ctx context.Context, name Name, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*SetBotMemoryResponse, error) {
+	rsp, err := c.SetBotMemoryWithBody(ctx, name, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetBotMemoryResponse(rsp)
+}
+
+// SetBotMemoryWithResponse Replace a Bot's whole memory with the owner's text; only the owner
+//
+// Each line is an entry; empty lines and an entry given twice are dropped. A text over the memory's limit is refused.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /bots/{name}/memory (the `SetBotMemory` operationId).
+func (c *ClientWithResponses) SetBotMemoryWithResponse(ctx context.Context, name Name, body SetBotMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*SetBotMemoryResponse, error) {
+	rsp, err := c.SetBotMemory(ctx, name, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseSetBotMemoryResponse(rsp)
+}
+
 // DeleteLarkBotWithResponse Forget the Lark bot and its app's secret; only the owner
 //
 // Returns a wrapper object for the known response body format(s).
@@ -13428,6 +14480,200 @@ func ParseDecideApprovalResponse(rsp *http.Response) (*DecideApprovalResponse, e
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest Approval
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListBotsResponse parses an HTTP response from a ListBotsWithResponse call
+func ParseListBotsResponse(rsp *http.Response) (*ListBotsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListBotsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest BotList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDeleteBotResponse parses an HTTP response from a DeleteBotWithResponse call
+func ParseDeleteBotResponse(rsp *http.Response) (*DeleteBotResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteBotResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetBotResponse parses an HTTP response from a GetBotWithResponse call
+func ParseGetBotResponse(rsp *http.Response) (*GetBotResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetBotResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Bot
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePutBotResponse parses an HTTP response from a PutBotWithResponse call
+func ParsePutBotResponse(rsp *http.Response) (*PutBotResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PutBotResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Bot
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseChangeBotMemoryResponse parses an HTTP response from a ChangeBotMemoryWithResponse call
+func ParseChangeBotMemoryResponse(rsp *http.Response) (*ChangeBotMemoryResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ChangeBotMemoryResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Bot
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseSetBotMemoryResponse parses an HTTP response from a SetBotMemoryWithResponse call
+func ParseSetBotMemoryResponse(rsp *http.Response) (*SetBotMemoryResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &SetBotMemoryResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Bot
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -15828,6 +17074,24 @@ type ServerInterface interface {
 	// DecideApproval Answer a request that waits for approval; only the owner
 	// (POST /approvals/{approval_id}/decision)
 	DecideApproval(w http.ResponseWriter, r *http.Request, approvalId string)
+	// ListBots Every Bot, the oldest first
+	// (GET /bots)
+	ListBots(w http.ResponseWriter, r *http.Request)
+	// DeleteBot Remove a Bot that has no chats and no memory; only the owner
+	// (DELETE /bots/{name})
+	DeleteBot(w http.ResponseWriter, r *http.Request, name Name)
+	// GetBot A Bot, with its persona and memory
+	// (GET /bots/{name})
+	GetBot(w http.ResponseWriter, r *http.Request, name Name)
+	// PutBot Make a Bot, or change its model and persona; only the owner
+	// (PUT /bots/{name})
+	PutBot(w http.ResponseWriter, r *http.Request, name Name)
+	// ChangeBotMemory Add, replace or remove one entry of a Bot's memory
+	// (POST /bots/{name}/memory)
+	ChangeBotMemory(w http.ResponseWriter, r *http.Request, name Name)
+	// SetBotMemory Replace a Bot's whole memory with the owner's text; only the owner
+	// (PUT /bots/{name}/memory)
+	SetBotMemory(w http.ResponseWriter, r *http.Request, name Name)
 	// DeleteLarkBot Forget the Lark bot and its app's secret; only the owner
 	// (DELETE /channels/lark)
 	DeleteLarkBot(w http.ResponseWriter, r *http.Request)
@@ -16145,6 +17409,150 @@ func (siw *ServerInterfaceWrapper) DecideApproval(w http.ResponseWriter, r *http
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.DecideApproval(w, r, approvalId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListBots operation middleware
+func (siw *ServerInterfaceWrapper) ListBots(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListBots(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteBot operation middleware
+func (siw *ServerInterfaceWrapper) DeleteBot(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name Name
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", r.PathValue("name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteBot(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetBot operation middleware
+func (siw *ServerInterfaceWrapper) GetBot(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name Name
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", r.PathValue("name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetBot(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PutBot operation middleware
+func (siw *ServerInterfaceWrapper) PutBot(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name Name
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", r.PathValue("name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PutBot(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ChangeBotMemory operation middleware
+func (siw *ServerInterfaceWrapper) ChangeBotMemory(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name Name
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", r.PathValue("name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ChangeBotMemory(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// SetBotMemory operation middleware
+func (siw *ServerInterfaceWrapper) SetBotMemory(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name Name
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", r.PathValue("name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.SetBotMemory(w, r, name)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -18464,6 +19872,12 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/repos/{name}", wrapper.DeleteRepo)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/repos/{name}", wrapper.PutRepo)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/accounts", wrapper.ListAccounts)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/bots", wrapper.ListBots)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/bots/{name}", wrapper.DeleteBot)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/bots/{name}", wrapper.GetBot)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/bots/{name}", wrapper.PutBot)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/bots/{name}/memory", wrapper.ChangeBotMemory)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/bots/{name}/memory", wrapper.SetBotMemory)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/profiles", wrapper.ListProfiles)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/profiles/{name}", wrapper.GetProfile)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/profiles/{name}", wrapper.ApplyProfile)
@@ -18590,6 +20004,236 @@ type DecideApprovaldefaultJSONResponse struct {
 }
 
 func (response DecideApprovaldefaultJSONResponse) VisitDecideApprovalResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListBotsRequestObject struct {
+}
+
+type ListBotsResponseObject interface {
+	VisitListBotsResponse(w http.ResponseWriter) error
+}
+
+type ListBots200JSONResponse BotList
+
+func (response ListBots200JSONResponse) VisitListBotsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListBotsdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListBotsdefaultJSONResponse) VisitListBotsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteBotRequestObject struct {
+	Name Name `json:"name"`
+}
+
+type DeleteBotResponseObject interface {
+	VisitDeleteBotResponse(w http.ResponseWriter) error
+}
+
+type DeleteBot204Response struct {
+}
+
+func (response DeleteBot204Response) VisitDeleteBotResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteBotdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response DeleteBotdefaultJSONResponse) VisitDeleteBotResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetBotRequestObject struct {
+	Name Name `json:"name"`
+}
+
+type GetBotResponseObject interface {
+	VisitGetBotResponse(w http.ResponseWriter) error
+}
+
+type GetBot200JSONResponse Bot
+
+func (response GetBot200JSONResponse) VisitGetBotResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetBotdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetBotdefaultJSONResponse) VisitGetBotResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutBotRequestObject struct {
+	Name Name `json:"name"`
+	Body *PutBotJSONRequestBody
+}
+
+type PutBotResponseObject interface {
+	VisitPutBotResponse(w http.ResponseWriter) error
+}
+
+type PutBot200JSONResponse Bot
+
+func (response PutBot200JSONResponse) VisitPutBotResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutBotdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response PutBotdefaultJSONResponse) VisitPutBotResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ChangeBotMemoryRequestObject struct {
+	Name Name `json:"name"`
+	Body *ChangeBotMemoryJSONRequestBody
+}
+
+type ChangeBotMemoryResponseObject interface {
+	VisitChangeBotMemoryResponse(w http.ResponseWriter) error
+}
+
+type ChangeBotMemory200JSONResponse Bot
+
+func (response ChangeBotMemory200JSONResponse) VisitChangeBotMemoryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ChangeBotMemorydefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ChangeBotMemorydefaultJSONResponse) VisitChangeBotMemoryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetBotMemoryRequestObject struct {
+	Name Name `json:"name"`
+	Body *SetBotMemoryJSONRequestBody
+}
+
+type SetBotMemoryResponseObject interface {
+	VisitSetBotMemoryResponse(w http.ResponseWriter) error
+}
+
+type SetBotMemory200JSONResponse Bot
+
+func (response SetBotMemory200JSONResponse) VisitSetBotMemoryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type SetBotMemorydefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response SetBotMemorydefaultJSONResponse) VisitSetBotMemoryResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -21482,6 +23126,24 @@ type StrictServerInterface interface {
 	// DecideApproval Answer a request that waits for approval; only the owner
 	// (POST /approvals/{approval_id}/decision)
 	DecideApproval(ctx context.Context, request DecideApprovalRequestObject) (DecideApprovalResponseObject, error)
+	// ListBots Every Bot, the oldest first
+	// (GET /bots)
+	ListBots(ctx context.Context, request ListBotsRequestObject) (ListBotsResponseObject, error)
+	// DeleteBot Remove a Bot that has no chats and no memory; only the owner
+	// (DELETE /bots/{name})
+	DeleteBot(ctx context.Context, request DeleteBotRequestObject) (DeleteBotResponseObject, error)
+	// GetBot A Bot, with its persona and memory
+	// (GET /bots/{name})
+	GetBot(ctx context.Context, request GetBotRequestObject) (GetBotResponseObject, error)
+	// PutBot Make a Bot, or change its model and persona; only the owner
+	// (PUT /bots/{name})
+	PutBot(ctx context.Context, request PutBotRequestObject) (PutBotResponseObject, error)
+	// ChangeBotMemory Add, replace or remove one entry of a Bot's memory
+	// (POST /bots/{name}/memory)
+	ChangeBotMemory(ctx context.Context, request ChangeBotMemoryRequestObject) (ChangeBotMemoryResponseObject, error)
+	// SetBotMemory Replace a Bot's whole memory with the owner's text; only the owner
+	// (PUT /bots/{name}/memory)
+	SetBotMemory(ctx context.Context, request SetBotMemoryRequestObject) (SetBotMemoryResponseObject, error)
 	// DeleteLarkBot Forget the Lark bot and its app's secret; only the owner
 	// (DELETE /channels/lark)
 	DeleteLarkBot(ctx context.Context, request DeleteLarkBotRequestObject) (DeleteLarkBotResponseObject, error)
@@ -21815,6 +23477,181 @@ func (sh *strictHandler) DecideApproval(w http.ResponseWriter, r *http.Request, 
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(DecideApprovalResponseObject); ok {
 		if err := validResponse.VisitDecideApprovalResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListBots operation middleware
+func (sh *strictHandler) ListBots(w http.ResponseWriter, r *http.Request) {
+	var request ListBotsRequestObject
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListBots(ctx, request.(ListBotsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListBots")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListBotsResponseObject); ok {
+		if err := validResponse.VisitListBotsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteBot operation middleware
+func (sh *strictHandler) DeleteBot(w http.ResponseWriter, r *http.Request, name Name) {
+	var request DeleteBotRequestObject
+
+	request.Name = name
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteBot(ctx, request.(DeleteBotRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteBot")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteBotResponseObject); ok {
+		if err := validResponse.VisitDeleteBotResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetBot operation middleware
+func (sh *strictHandler) GetBot(w http.ResponseWriter, r *http.Request, name Name) {
+	var request GetBotRequestObject
+
+	request.Name = name
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetBot(ctx, request.(GetBotRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetBot")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetBotResponseObject); ok {
+		if err := validResponse.VisitGetBotResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PutBot operation middleware
+func (sh *strictHandler) PutBot(w http.ResponseWriter, r *http.Request, name Name) {
+	var request PutBotRequestObject
+
+	request.Name = name
+
+	var body PutBotJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PutBot(ctx, request.(PutBotRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PutBot")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PutBotResponseObject); ok {
+		if err := validResponse.VisitPutBotResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ChangeBotMemory operation middleware
+func (sh *strictHandler) ChangeBotMemory(w http.ResponseWriter, r *http.Request, name Name) {
+	var request ChangeBotMemoryRequestObject
+
+	request.Name = name
+
+	var body ChangeBotMemoryJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ChangeBotMemory(ctx, request.(ChangeBotMemoryRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ChangeBotMemory")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ChangeBotMemoryResponseObject); ok {
+		if err := validResponse.VisitChangeBotMemoryResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// SetBotMemory operation middleware
+func (sh *strictHandler) SetBotMemory(w http.ResponseWriter, r *http.Request, name Name) {
+	var request SetBotMemoryRequestObject
+
+	request.Name = name
+
+	var body SetBotMemoryJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.SetBotMemory(ctx, request.(SetBotMemoryRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "SetBotMemory")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(SetBotMemoryResponseObject); ok {
+		if err := validResponse.VisitSetBotMemoryResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -23837,250 +25674,262 @@ func (sh *strictHandler) ReopenTask(w http.ResponseWriter, r *http.Request, task
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
-	"2wXo4v8OAA==",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

@@ -297,6 +297,56 @@ var commands = []command{
 		flags:   jsonFlag, run: larkBotPersonRemove,
 	},
 	{
+		name: "bots list", summary: "the bots: each a model, a persona and a memory", flags: jsonFlag, run: botsList,
+	},
+	{
+		name: "bots show", args: "<bot>", min: 1, max: 1, summary: "a bot's model, persona and memory",
+		flags: jsonFlag, run: botsShow,
+	},
+	{
+		name: "bots set", args: "<bot>", min: 1, max: 1,
+		summary: "make a bot, or change its model or persona; what is left out stays (owner)",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("provider", "", "the provider of the model, when more than one offers it")
+			fs.String("model", "", "the model pi runs for the bot; empty for pi's default")
+			fs.String("effort", "", "the reasoning effort: low, medium, high, xhigh or max")
+			fs.String("persona-file", "", "a file with what the bot is and how it behaves, or - for standard input")
+			jsonFlag(fs)
+		},
+		run: botsSet,
+	},
+	{
+		name: "bots rm", args: "<bot>", min: 1, max: 1, summary: "remove a bot that has no chats and no memory (owner)",
+		flags: jsonFlag, run: botsRemove,
+	},
+	{
+		name: "bots prompt", args: "<bot>", min: 1, max: 1,
+		summary: "what pi is given about a bot when it starts for a chat: the persona and the memory",
+		run:     botsPrompt,
+	},
+	{
+		name: "memory show", summary: "a bot's memory", flags: memoryFlags, run: memoryShow,
+	},
+	{
+		name: "memory set", args: "<file>", min: 1, max: 1,
+		summary: "replace a bot's whole memory with a file's lines, or - for standard input (owner)",
+		flags:   memoryFlags, run: memorySet,
+	},
+	{
+		name: "memory add", args: "<entry>", min: 1, max: 1, summary: "add one line to a bot's memory",
+		flags: memoryFlags, run: memoryChange(memoryAdd),
+	},
+	{
+		name: "memory replace", args: "<part of an entry> <the new line>", min: 2, max: 2,
+		summary: "replace the one entry of a bot's memory that has the text",
+		flags:   memoryFlags, run: memoryChange(memoryReplace),
+	},
+	{
+		name: "memory remove", args: "<part of an entry>", min: 1, max: 1,
+		summary: "remove the one entry of a bot's memory that has the text",
+		flags:   memoryFlags, run: memoryChange(memoryRemove),
+	},
+	{
 		name: "repos list", summary: "the repositories registered under a name", flags: jsonFlag, run: reposList,
 	},
 	{

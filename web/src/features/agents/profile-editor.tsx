@@ -245,10 +245,6 @@ function Builder({
   models: Model[]
   renamable: boolean
 }) {
-  const providers = [...new Set(models.map((m) => m.provider))].sort()
-  const known =
-    draft.model === "" || models.some((m) => modelKey(m.provider, m.name) === draft.model)
-
   return (
     <div className="flex flex-col gap-5">
       <Field>
@@ -295,73 +291,19 @@ function Builder({
           {runtimes.map((r) => (
             <NativeSelectOption key={r} value={r}>
               {runtimeName(r)}
-              {r === "pi" ? " (the coordinator)" : ""}
             </NativeSelectOption>
           ))}
         </NativeSelect>
         <FieldDescription>The CLI a worker of this agent is, on a machine.</FieldDescription>
       </Field>
 
-      <Field>
-        <FieldLabel htmlFor="profile-model">Model</FieldLabel>
-        <div className="flex flex-wrap items-center gap-2">
-          <NativeSelect
-            id="profile-model"
-            value={draft.model}
-            onChange={(event) => set({ model: event.target.value })}
-          >
-            <NativeSelectOption value="">Runtime default</NativeSelectOption>
-            {!known && (
-              <NativeSelectOption value={draft.model}>
-                {draft.model} (not offered)
-              </NativeSelectOption>
-            )}
-            {providers.map((provider) => (
-              <NativeSelectOptGroup key={provider} label={provider}>
-                {models
-                  .filter((m) => m.provider === provider)
-                  .map((m) => (
-                    <NativeSelectOption
-                      key={modelKey(m.provider, m.name)}
-                      value={modelKey(m.provider, m.name)}
-                    >
-                      {m.name}
-                    </NativeSelectOption>
-                  ))}
-              </NativeSelectOptGroup>
-            ))}
-          </NativeSelect>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Brain className="size-4 text-muted-foreground" aria-hidden />
-          <ToggleGroup
-            variant="outline"
-            size="sm"
-            spacing={0}
-            aria-label="Effort"
-            value={[draft.effort || noEffort]}
-            onValueChange={(next) => {
-              const effort = next[0] as string | undefined
-              if (effort) set({ effort: effort === noEffort ? "" : effort })
-            }}
-          >
-            {[{ value: noEffort, label: "Default" }, ...efforts].map((e) => (
-              <ToggleGroupItem key={e.value} value={e.value}>
-                {(draft.effort || noEffort) === e.value ? (
-                  e.label
-                ) : (
-                  <span className="font-normal text-muted-foreground">{e.label}</span>
-                )}
-              </ToggleGroupItem>
-            ))}
-          </ToggleGroup>
-        </div>
-        <FieldDescription>
-          {known
-            ? "Every provider's models are listed. Saving says so when this runtime cannot use the one chosen."
-            : "No provider offers this model any more. Pick another, or the runtime's default."}
-        </FieldDescription>
-      </Field>
+      <ModelField
+        id="profile-model"
+        model={draft.model}
+        effort={draft.effort}
+        models={models}
+        onChange={set}
+      />
 
       <Field>
         <FieldLabel htmlFor="profile-instruction">Instructions</FieldLabel>
@@ -377,14 +319,94 @@ function Builder({
         </FieldDescription>
       </Field>
 
-      {draft.runtime !== "pi" && (
-        <Fallbacks
-          own={draft.name}
-          chain={draft.fallbacks}
-          onChange={(fallbacks) => set({ fallbacks })}
-        />
-      )}
+      <Fallbacks
+        own={draft.name}
+        chain={draft.fallbacks}
+        onChange={(fallbacks) => set({ fallbacks })}
+      />
     </div>
+  )
+}
+
+// ModelField picks a model and its effort: every provider's models in one select, grouped by provider, with the
+// effort as a row of pills under it. The Bots' page uses it too (features/bots), where the default is pi's.
+export function ModelField({
+  id,
+  model,
+  effort,
+  models,
+  onChange,
+  defaultLabel = "Runtime default",
+  description = "Every provider's models are listed. Saving says so when this runtime cannot use the one chosen.",
+  gone = "No provider offers this model any more. Pick another, or the runtime's default.",
+}: {
+  id: string
+  // model is "provider/name", a bare name, or "" for the default (profiles-state.ts, modelKey).
+  model: string
+  effort: string
+  models: Model[]
+  onChange: (change: { model?: string; effort?: string }) => void
+  defaultLabel?: string
+  description?: string
+  // gone is said in the description's place when no provider offers the model chosen.
+  gone?: string
+}) {
+  const providers = [...new Set(models.map((m) => m.provider))].sort()
+  const known = model === "" || models.some((m) => modelKey(m.provider, m.name) === model)
+
+  return (
+    <Field>
+      <FieldLabel htmlFor={id}>Model</FieldLabel>
+      <div className="flex flex-wrap items-center gap-2">
+        <NativeSelect
+          id={id}
+          value={model}
+          onChange={(event) => onChange({ model: event.target.value })}
+        >
+          <NativeSelectOption value="">{defaultLabel}</NativeSelectOption>
+          {!known && <NativeSelectOption value={model}>{model} (not offered)</NativeSelectOption>}
+          {providers.map((provider) => (
+            <NativeSelectOptGroup key={provider} label={provider}>
+              {models
+                .filter((m) => m.provider === provider)
+                .map((m) => (
+                  <NativeSelectOption
+                    key={modelKey(m.provider, m.name)}
+                    value={modelKey(m.provider, m.name)}
+                  >
+                    {m.name}
+                  </NativeSelectOption>
+                ))}
+            </NativeSelectOptGroup>
+          ))}
+        </NativeSelect>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <Brain className="size-4 text-muted-foreground" aria-hidden />
+        <ToggleGroup
+          variant="outline"
+          size="sm"
+          spacing={0}
+          aria-label="Effort"
+          value={[effort || noEffort]}
+          onValueChange={(next) => {
+            const chosen = next[0] as string | undefined
+            if (chosen) onChange({ effort: chosen === noEffort ? "" : chosen })
+          }}
+        >
+          {[{ value: noEffort, label: "Default" }, ...efforts].map((e) => (
+            <ToggleGroupItem key={e.value} value={e.value}>
+              {(effort || noEffort) === e.value ? (
+                e.label
+              ) : (
+                <span className="font-normal text-muted-foreground">{e.label}</span>
+              )}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
+      </div>
+      <FieldDescription>{known ? description : gone}</FieldDescription>
+    </Field>
   )
 }
 
@@ -401,10 +423,8 @@ function Fallbacks({
   chain: string[]
   onChange: (chain: string[]) => void
 }) {
-  // The agents a Task can run under: every worker's but this one. The coordinator's has no answer to "can run".
-  const workers = (useProfiles().data ?? [])
-    .filter((p) => p.available !== undefined && p.name !== own)
-    .map((p) => p.name)
+  // The agents a Task can run under: every one but this one.
+  const workers = (useProfiles().data ?? []).filter((p) => p.name !== own).map((p) => p.name)
   const free = workers.filter((name) => !chain.includes(name))
 
   return (

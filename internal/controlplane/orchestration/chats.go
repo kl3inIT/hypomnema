@@ -42,8 +42,10 @@ const (
 
 // Chat is one conversation between the owner and the coordinator.
 type Chat struct {
-	ID        string
-	Title     string
+	ID    string
+	Title string
+	// Bot is the Bot the chat talks with.
+	Bot       string
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
@@ -78,8 +80,13 @@ func titleOf(text string) string {
 	return strings.TrimSpace(line)
 }
 
-// CreateChat starts a chat. Without a title, its first owner message names it.
-func (s *Service) CreateChat(ctx context.Context, title string) (Chat, error) {
+// CreateChat starts a chat with a Bot, the first one when none is named.
+// Without a title, its first owner message names it.
+func (s *Service) CreateChat(ctx context.Context, bot, title string) (Chat, error) {
+	if bot == "" {
+		bot = DefaultBot
+	}
+
 	title = strings.TrimSpace(title)
 	if title == "" {
 		title = untitled
@@ -92,7 +99,11 @@ func (s *Service) CreateChat(ctx context.Context, title string) (Chat, error) {
 	id := s.newID("cht")
 
 	if err := s.write(ctx, func(q *store.Queries, now int64) error {
-		return q.InsertChat(ctx, store.InsertChatParams{ID: id, Title: title, Now: now})
+		if _, err := q.GetBot(ctx, bot); err != nil {
+			return notFound(err, "bot", bot)
+		}
+
+		return q.InsertChat(ctx, store.InsertChatParams{ID: id, Title: title, Bot: bot, Now: now})
 	}); err != nil {
 		return Chat{}, fmt.Errorf("creating a chat: %w", err)
 	}
@@ -134,7 +145,7 @@ func pageLimit(limit int) int {
 }
 
 func chatFromRow(r store.Chat) Chat {
-	return Chat{ID: r.ID, Title: r.Title, CreatedAt: millis(r.CreatedAt), UpdatedAt: millis(r.UpdatedAt)}
+	return Chat{ID: r.ID, Title: r.Title, Bot: r.Bot, CreatedAt: millis(r.CreatedAt), UpdatedAt: millis(r.UpdatedAt)}
 }
 
 // AddChatMessage appends a message. An owner message waits for pi until it

@@ -999,7 +999,7 @@ func TestProfilesFromTheCLI(t *testing.T) {
 
 	var profiles openapi.ProfileList
 	coordinator.jsonCmd(t, &profiles, "", "profiles", "list")
-	assert.Len(t, profiles.Data, 4)
+	assert.Len(t, profiles.Data, 3)
 
 	// The list says which profiles no worker can start under now, and why.
 	out, err = coordinator.cmd(t, "profiles", "list")
@@ -1109,7 +1109,7 @@ func TestRunsCreatedByPiRecordItsChat(t *testing.T) { //nolint:paralleltest // s
 	w := newWorld(t)
 	w.login(t, bearertoken.Coordinator)
 
-	chat, err := w.svc.CreateChat(t.Context(), "")
+	chat, err := w.svc.CreateChat(t.Context(), "", "")
 	require.NoError(t, err)
 
 	t.Setenv("HYPOMNEMA_CHAT_ID", chat.ID)
@@ -1399,7 +1399,7 @@ func TestTheOwnerSetsActionsAndAnswersApprovals(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	chat, err := w.svc.CreateChat(ctx, "Reply to the invoice")
+	chat, err := w.svc.CreateChat(ctx, "", "Reply to the invoice")
 	require.NoError(t, err)
 
 	w.login(t, bearertoken.Owner)

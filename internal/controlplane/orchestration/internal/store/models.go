@@ -72,11 +72,23 @@ type Approval struct {
 	DecidedAt   sql.NullInt64
 }
 
+type Bot struct {
+	Name      string
+	Provider  sql.NullString
+	Model     sql.NullString
+	Effort    sql.NullString
+	Persona   string
+	Memory    string
+	CreatedAt int64
+	UpdatedAt int64
+}
+
 type Chat struct {
 	ID        string
 	Title     string
 	CreatedAt int64
 	UpdatedAt int64
+	Bot       string
 }
 
 type ChatMessage struct {

@@ -202,7 +202,7 @@ func (s *Supervisor) procFor(ctx context.Context, chatID string) (*proc, error) 
 		return p, nil
 	}
 
-	args, err := s.modelArgs(ctx)
+	args, err := s.botArgs(ctx, chatID)
 	if err != nil {
 		return nil, err
 	}
@@ -217,18 +217,21 @@ func (s *Supervisor) procFor(ctx context.Context, chatID string) (*proc, error) 
 	return p, nil
 }
 
-// CoordinatorProfile is the profile pi runs with.
-const CoordinatorProfile = "coordinator"
-
-// modelArgs are pi's flags for the coordinator profile's current model:
-// the provider (an id in pi's models.json), the model and the effort.
-func (s *Supervisor) modelArgs(ctx context.Context) ([]string, error) {
-	p, err := s.svc.GetProfile(ctx, CoordinatorProfile)
+// botArgs are the launcher's flags for the chat's Bot: its name, by which the
+// launcher finds its directory, persona and memory, and its model: the
+// provider (an id in pi's models.json), the model and the effort.
+func (s *Supervisor) botArgs(ctx context.Context, chatID string) ([]string, error) {
+	chat, err := s.svc.GetChat(ctx, chatID)
 	if err != nil {
-		return nil, fmt.Errorf("reading the %s profile: %w", CoordinatorProfile, err)
+		return nil, err
 	}
 
-	var args []string
+	p, err := s.svc.GetBot(ctx, chat.Bot)
+	if err != nil {
+		return nil, fmt.Errorf("reading the bot of chat %s: %w", chatID, err)
+	}
+
+	args := []string{"--bot", p.Name}
 
 	if p.Model != "" {
 		if p.Provider != "" {

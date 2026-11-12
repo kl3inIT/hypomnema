@@ -738,7 +738,7 @@ func TestOnlyTheOwnerChangesProfiles(t *testing.T) {
 	list, err := laptop.ListProfilesWithResponse(ctx)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, list.StatusCode())
-	assert.Len(t, list.JSON200.Data, 4)
+	assert.Len(t, list.JSON200.Data, 3)
 
 	// Each worker's profile says whether a worker can start now; no node is connected here.
 	for _, p := range list.JSON200.Data {
@@ -873,7 +873,7 @@ func TestStreamChatShowsPiLive(t *testing.T) {
 	owner, _ := w.token("web", bearertoken.Owner)
 	ctx := t.Context()
 
-	chat, err := w.svc.CreateChat(ctx, "")
+	chat, err := w.svc.CreateChat(ctx, "", "")
 	require.NoError(t, err)
 
 	old, err := w.svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, "first")

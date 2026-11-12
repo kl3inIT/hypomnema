@@ -145,7 +145,7 @@ export function AgentsScreen() {
   )
 }
 
-// StandingText says whether a worker can start under the profile now; nothing for the coordinator's.
+// StandingText says whether a worker can start under the profile now; nothing for a profile with no answer.
 export function StandingText({ profile, className }: { profile: Profile; className?: string }) {
   const s = standing(profile)
   if (!s) return null
@@ -164,8 +164,8 @@ export function StandingText({ profile, className }: { profile: Profile; classNa
   )
 }
 
-// The dot's colour for a profile's standing, as the Machines page's status dot; a profile with no standing, the
-// coordinator's, has a quiet one.
+// The dot's colour for a profile's standing, as the Machines page's status dot; a profile with no standing has a
+// quiet one.
 function StandingDot({ profile }: { profile: Profile }) {
   const s = standing(profile)
 
