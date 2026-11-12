@@ -1064,6 +1064,53 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/AccountList" }
         default: { $ref: "#/components/responses/Error" }
+  /accounts/{account_id}:
+    parameters:
+      - $ref: "#/components/parameters/AccountID"
+    delete:
+      operationId: RemoveAccount
+      summary: Remove an account that was signed in on the control plane, with its tokens; only the owner
+      responses:
+        "204":
+          description: The account and its tokens are removed.
+        default: { $ref: "#/components/responses/Error" }
+  /accounts/{account_id}/enable:
+    parameters:
+      - $ref: "#/components/parameters/AccountID"
+    post:
+      operationId: EnableAccount
+      summary: Put an account back in use; only the owner
+      responses:
+        "200":
+          description: The account.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Account" }
+        default: { $ref: "#/components/responses/Error" }
+  /accounts/{account_id}/disable:
+    parameters:
+      - $ref: "#/components/parameters/AccountID"
+    post:
+      operationId: DisableAccount
+      summary: Take an account out of use; its sign-in is kept; only the owner
+      responses:
+        "200":
+          description: The account.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Account" }
+        default: { $ref: "#/components/responses/Error" }
+  /gateway/models:
+    get:
+      operationId: ListGatewayModels
+      summary: The models the gateway serves, each with the targets it is served from, in order
+      responses:
+        "200":
+          description: The models.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GatewayModelList" }
+        default: { $ref: "#/components/responses/Error" }
   /bots:
     get:
       operationId: ListBots
@@ -1394,6 +1441,11 @@ components:
       type: http
       scheme: bearer
   parameters:
+    AccountID:
+      name: account_id
+      in: path
+      required: true
+      schema: { type: string, pattern: "^acc_[a-z0-9]{1,40}$" }
     LarkChannelName:
       name: channel
       in: path
@@ -2515,6 +2567,46 @@ components:
           enum: [active, disabled]
         position: { type: integer }
         cooling_until: { type: string, format: date-time }
+        cooling_reason:
+          type: string
+          description: Why it rests, a rate limit or what the gateway recorded.
+        email: { type: string }
+        plan: { type: string }
+        sign_in:
+          type: string
+          enum: [active, login_required, no_tokens]
+          description: >-
+            The state of a sign-in made on the control plane. Absent for an
+            account whose CLI was signed in on a node.
+        token_expires_at:
+          type: string
+          format: date-time
+          description: When the access token ends, when that is known; it is renewed before then.
+    GatewayModelTarget:
+      type: object
+      required: [provider, upstream_model]
+      properties:
+        provider: { type: string }
+        upstream_model: { type: string }
+    GatewayModel:
+      type: object
+      required: [name, targets, updated_at]
+      properties:
+        name:
+          type: string
+          description: What a client calls the model.
+        targets:
+          type: array
+          description: Where it is served from, tried in order.
+          items: { $ref: "#/components/schemas/GatewayModelTarget" }
+        updated_at: { type: string, format: date-time }
+    GatewayModelList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/GatewayModel" }
     AccountList:
       type: object
       required: [data]
@@ -2642,7 +2734,13 @@ components:
         name: { type: string }
         kind:
           type: string
-          enum: [anthropic, openai_compatible, claude_subscription, codex_subscription]
+          enum:
+            - anthropic
+            - openai_compatible
+            - claude_subscription
+            - codex_subscription
+            - antigravity_subscription
+            - model_gateway
         base_url: { type: string }
         api_key_ref:
           type: string

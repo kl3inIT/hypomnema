@@ -298,6 +298,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	larkSettings = larkbot.NewService(svc, secrets, larkChannels, larkbot.Connect)
 
 	api := clientapi.New(svc, logger, ctx.Done()).WithCoordinator(sup).WithChatKeyReader(cfg.CoordinatorToken).
+		WithAccounts(subscriptions).WithGatewayModels(gateway).
 		WithHostTokens(tokens).
 		WithMachines(machineMgr).WithTerminals(nodeTerminals(nodes)).
 		WithSecrets(ownerSecrets{vault: secrets, referrers: referrers}).

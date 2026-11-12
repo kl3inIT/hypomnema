@@ -1160,6 +1160,24 @@ Node (`internal/node`):
     or a pasted URL), what it runs and, if wanted, its token. Removing a token or a declared server asks first.
   - `/settings/repositories` has no entry in the menu while its place is being decided (issue #44); it lists the registered repositories, adds one from its URL under a
     proposed name with an optional base branch, and removes one after a confirmation.
+  - `/settings/models` (under Models, [issue #199](https://github.com/kl3inIT/hypomnema/issues/199), step 1;
+    [research](docs/research/2026-11-12-model-gateway-pages.md)) shows where models come from
+    (`web/src/features/models/`).
+    - A subscription (a provider of kind `claude_subscription`, `codex_subscription` or
+      `antigravity_subscription`) is a card with the accounts of its runtime as rows, in the order the gateway tries
+      them, after 9router's provider page, OpenClaw's model providers and Orca's accounts pane. A row shows the
+      account's label, e-mail and plan, whether it was signed in on the control plane or on a machine, and the one
+      thing wrong with it: off, needing a sign-in, or resting until a time.
+    - A switch takes an account out of use and puts it back; the card's switch does so for all its accounts at
+      once, as 9router's card toggle. An account signed in on the control plane can be removed, after a
+      confirmation. Signing in, the order, the limits and the routes are not changed here yet.
+    - A provider reached with a key shows its address and where its key is kept. The gateway's models are listed
+      with the targets each is served from, in order, and whether a provider of kind `model_gateway` offers it to
+      agents: a table on a wide screen, a block a model on a phone.
+    - The client API behind it: `GET /accounts` gives each account's e-mail, plan and the state of its sign-in
+      (`sign_in`: `active`, `login_required`, `no_tokens`; absent for an account signed in on a node);
+      `POST /accounts/{id}/enable` and `/disable` and `DELETE /accounts/{id}` are the owner's;
+      `GET /gateway/models` lists the gateway's models with their targets.
   - `/settings/vault` (under Connections, [issue #108](https://github.com/kl3inIT/hypomnema/issues/108)) is a
     table of the vault's secrets, after Infisical's secrets dashboard (MIT) and Omnara's secrets list
     (Apache-2.0): Name, Value, Type, Version and Updated as columns, sorted by Name or Updated, with a search box

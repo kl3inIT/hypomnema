@@ -510,19 +510,3 @@ func (s *Server) ResumeNode(ctx context.Context, req openapi.ResumeNodeRequestOb
 
 	return openapi.ResumeNode200JSONResponse(toNode(n)), nil
 }
-
-// ListAccounts returns the accounts, which hold no secret.
-func (s *Server) ListAccounts(ctx context.Context, _ openapi.ListAccountsRequestObject,
-) (openapi.ListAccountsResponseObject, error) {
-	accounts, err := s.svc.ListAccounts(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	out := openapi.ListAccounts200JSONResponse{Data: make([]openapi.Account, 0, len(accounts))}
-	for _, a := range accounts {
-		out.Data = append(out.Data, toAccount(a))
-	}
-
-	return out, nil
-}
