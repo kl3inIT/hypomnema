@@ -95,10 +95,20 @@ type Key struct {
 	// DispatchID is set on a key made for one Dispatch.
 	DispatchID string
 	// ChatID is set on a key made for one chat's pi.
-	ChatID    string
+	ChatID string
+	// Prefix is the key's start, shown to tell keys apart; empty for a key made
+	// before it was kept.
+	Prefix    string
 	CreatedAt time.Time
 	RevokedAt *time.Time
+	// LastUsedAt is when the gateway last served a request with the key; nil
+	// for one never used. ListKeys sets it.
+	LastUsedAt *time.Time
 }
+
+// keyPrefixLength is how much of a key is kept in the clear: its kind and six
+// characters of its secret, as Coder shows a key's prefix.
+const keyPrefixLength = len("hyp_gateway_v1_") + 6
 
 // Allows reports whether the key may use a model.
 func (k Key) Allows(model string) bool {
@@ -463,7 +473,8 @@ func (s *Service) addKey(ctx context.Context, name string, models []string, owne
 		}
 
 		if err := q.InsertGatewayKey(ctx, store.InsertGatewayKeyParams{
-			ID: id, Name: name, KeyHash: bearertoken.Hash(secret), Models: string(encoded),
+			ID: id, Name: name, KeyHash: bearertoken.Hash(secret), KeyPrefix: secret[:keyPrefixLength],
+			Models:     string(encoded),
 			DispatchID: sql.NullString{String: owner.dispatchID, Valid: owner.dispatchID != ""},
 			ChatID:     sql.NullString{String: owner.chatID, Valid: owner.chatID != ""}, Now: now,
 		}); err != nil {
@@ -496,9 +507,21 @@ func (s *Service) getKey(ctx context.Context, id string) (Key, error) {
 
 // ListKeys returns every key, revoked ones included, by name.
 func (s *Service) ListKeys(ctx context.Context) ([]Key, error) {
-	rows, err := store.New(s.db).ListGatewayKeys(ctx)
+	q := store.New(s.db)
+
+	rows, err := q.ListGatewayKeys(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("listing keys: %w", err)
+	}
+
+	used, err := q.GatewayKeysLastUsed(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("reading when keys were last used: %w", err)
+	}
+
+	lastUsed := make(map[string]time.Time, len(used))
+	for _, u := range used {
+		lastUsed[u.KeyID] = time.UnixMilli(u.LastUsed).UTC()
 	}
 
 	out := make([]Key, 0, len(rows))
@@ -507,6 +530,10 @@ func (s *Service) ListKeys(ctx context.Context) ([]Key, error) {
 		k, err := keyFromRow(r)
 		if err != nil {
 			return nil, err
+		}
+
+		if t, ok := lastUsed[k.ID]; ok {
+			k.LastUsedAt = &t
 		}
 
 		out = append(out, k)
@@ -580,7 +607,7 @@ func keyFromRow(r store.GatewayKey) (Key, error) {
 
 	k := Key{
 		ID: r.ID, Name: r.Name, Models: models, DispatchID: r.DispatchID.String, ChatID: r.ChatID.String,
-		CreatedAt: time.UnixMilli(r.CreatedAt).UTC(),
+		Prefix: r.KeyPrefix, CreatedAt: time.UnixMilli(r.CreatedAt).UTC(),
 	}
 
 	if r.RevokedAt.Valid {

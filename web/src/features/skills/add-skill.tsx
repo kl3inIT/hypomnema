@@ -77,8 +77,8 @@ export function AddSkill({
       setOpen(false)
       said(
         added
-          ? `${skill.name}: revision ${skill.latest.revision} added`
-          : `${skill.name}: the files are those of revision ${skill.latest.revision}; nothing added`,
+          ? `${skill.name}: version ${skill.latest.revision} added`
+          : `${skill.name}: the files are those of version ${skill.latest.revision}; nothing added`,
       )
       await navigate({ to: "/settings/skills/$name", params: { name: skill.name } })
     },
@@ -110,7 +110,7 @@ export function AddSkill({
           <DialogHeader>
             <DialogTitle>Add a skill</DialogTitle>
             <DialogDescription>
-              A folder with a SKILL.md. One whose name is already here becomes its next revision.
+              A folder with a SKILL.md. One whose name is already here becomes its next version.
             </DialogDescription>
           </DialogHeader>
           <Tabs
@@ -195,7 +195,7 @@ function DropArchive({ file, onFile }: { file: File | null; onFile: (file: File)
       <Upload className="size-5" aria-hidden />
       {file ? (
         <p className="text-foreground">
-          <span className="font-mono">{file.name}</span>{" "}
+          <span>{file.name}</span>{" "}
           <span className="text-muted-foreground">· {size(file.size)}</span>
         </p>
       ) : (

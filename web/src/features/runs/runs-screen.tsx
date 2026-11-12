@@ -96,7 +96,7 @@ function RunRow({ run, cards }: { run: Run; cards?: Card[] }) {
     >
       <span className="truncate text-sm text-foreground/90">{firstLine(run.objective)}</span>
       <span className="flex min-w-0 items-center gap-1.5 text-2xs text-muted-foreground">
-        {run.repo && <span className="truncate font-mono">{repoLabel(run)}</span>}
+        {run.repo && <span className="truncate">{repoLabel(run)}</span>}
         {cards && cards.length > 0 && (
           <span className="shrink-0">
             · {done}/{cards.length} Tasks done

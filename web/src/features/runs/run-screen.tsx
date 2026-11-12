@@ -141,7 +141,7 @@ function Overview({ run }: { run: RunDetail }) {
           {run.status}
         </span>
         {run.repo && (
-          <span className="inline-flex h-6 items-center rounded-md bg-foreground/5 px-2 font-mono">
+          <span className="inline-flex h-6 items-center rounded-md bg-foreground/5 px-2">
             {repoLabel(run)}
           </span>
         )}
@@ -217,7 +217,7 @@ function Tasks({
                   {firstLine(t.spec)}
                 </span>
                 {pr && (
-                  <span className="inline-flex shrink-0 items-center gap-0.5 font-mono text-2xs text-done">
+                  <span className="inline-flex shrink-0 items-center gap-0.5 text-2xs text-done">
                     <GitPullRequest className="size-3" aria-hidden />
                     {pr.label}
                   </span>

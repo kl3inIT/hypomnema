@@ -5,6 +5,7 @@ import {
   BookOpen,
   Box,
   KeyRound,
+  KeySquare,
   MessagesSquare,
   Plug,
   type LucideIcon,
@@ -24,6 +25,7 @@ import { cn } from "@/lib/utils"
 type Section = {
   to:
     | "/settings/models"
+    | "/settings/gateway-keys"
     | "/settings/repositories"
     | "/settings/integrations"
     | "/settings/channels"
@@ -39,7 +41,10 @@ type Section = {
 const groups: { heading: string; sections: Section[] }[] = [
   {
     heading: "Models",
-    sections: [{ to: "/settings/models", label: "Models", icon: Box }],
+    sections: [
+      { to: "/settings/models", label: "Models", icon: Box },
+      { to: "/settings/gateway-keys", label: "Gateway keys", icon: KeySquare },
+    ],
   },
   {
     heading: "Agents",
