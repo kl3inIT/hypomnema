@@ -234,6 +234,7 @@ type GatewayKey struct {
 	RevokedAt  sql.NullInt64
 	DispatchID sql.NullString
 	ChatID     sql.NullString
+	KeyPrefix  string
 }
 
 type GatewayModel struct {

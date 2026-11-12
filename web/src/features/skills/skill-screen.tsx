@@ -98,7 +98,7 @@ function Loaded({ skill }: { skill: Skill }) {
             trigger={
               <Button variant="outline" size="sm">
                 <Upload data-icon="inline-start" />
-                Upload new revision
+                Upload new version
               </Button>
             }
           />
@@ -109,7 +109,7 @@ function Loaded({ skill }: { skill: Skill }) {
               </Button>
             }
             title={`Remove ${skill.name}?`}
-            consequence={`Its ${revisions.length === 1 ? "revision goes" : `${revisions.length} revisions go`} with it. Work already running keeps what it was given. This cannot be undone.`}
+            consequence={`Its ${revisions.length === 1 ? "version goes" : `${revisions.length} versions go`} with it. Work already running keeps what it was given. This cannot be undone.`}
             action="Remove"
             run={() => deleteSkill({ path: { skill: skill.name } })}
             onDone={async () => {
@@ -160,8 +160,8 @@ function Loaded({ skill }: { skill: Skill }) {
         </Panel>
       </div>
 
-      <section aria-label="Revisions" className="flex flex-col gap-3">
-        <h2 className="text-sm font-medium">Revisions</h2>
+      <section aria-label="Versions" className="flex flex-col gap-3">
+        <h2 className="text-sm font-medium">Versions</h2>
         <div className="relative max-w-full overflow-auto rounded-lg border">
           <table className="w-full text-sm">
             <thead className="border-b text-muted-foreground">
@@ -206,7 +206,7 @@ function Loaded({ skill }: { skill: Skill }) {
           </table>
         </div>
         <p className="text-xs text-muted-foreground">
-          A worker keeps the revision it was given when its work started; the next one gets the
+          A worker keeps the version it was given when its work started; the next one gets the
           newest.
         </p>
       </section>

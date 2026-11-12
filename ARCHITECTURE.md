@@ -643,7 +643,7 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       by the mode: the people he added, or every member of the organization. People are kept per Channel
       (`lark_channel_people`): Lark gives a person another `open_id` in each app. A refusal, a message that is
       not text and a pi that is not running are answered with a short notice.
-    - Groups ([#246](https://github.com/kl3inIT/hypomnema/issues/246), migration 00053): each Channel keeps a
+    - Groups ([#246](https://github.com/kl3inIT/hypomnema/issues/246), migration 00054): each Channel keeps a
       roster of the Lark groups its bot is in (`lark_channel_groups`, MemoryOS's `ChannelGroupRoster`): a group
       is added when the bot is added to it (`im.chat.member.bot.added_v1`; `deleted_v1` removes it) and by Lark's
       whole list of the bot's groups (`GET /open-apis/im/v1/chats`), read when the Channel connects and every ten
@@ -854,6 +854,12 @@ Claude subscriptions. Other provider formats and other capabilities do not exist
     keeps its status and body.
   - Not served: a model with no Codex target (400 `model_not_served_here`), an answer that is not a stream (400),
     `/v1/responses/compact`, a WebSocket.
+- The owner manages the keys a tool outside (opencode, omp) uses on Settings → Gateway keys (issue #199, step 6, after
+  Coder's AI Gateway keys and 9router's Endpoint & Key): `GET /gateway/keys` lists the keys the owner made that work,
+  with their start (`key_prefix`, the kind and six characters, migration 00053; empty for older keys), models,
+  creation and last use (the latest usage row); the keys of a Dispatch or a chat are only counted
+  (`live_worker_keys`). `POST /gateway/keys` `{name, models?}` answers the value once; `DELETE /gateway/keys/{id}`
+  revokes one the owner made. All are the owner's. The page shows its own origin with `/v1` as the base URL.
 - `GET /v1/models` with `Authorization: Bearer <key>` answers OpenAI's list shape with the models the key may use;
   errors are OpenAI's `{"error": {message, type, code}}`, 401 without a valid key.
 - `POST /v1/chat/completions` forwards the request to the model's first target, as 9router-go does: the body is
@@ -1434,7 +1440,7 @@ Node (`internal/node`):
     box (`web/src/features/skills/`). A built-in skill tied to a service wears that service's logo; every other skill
     one book icon. "Add skill" takes a GitHub source or an archive (Omnara's drop zone). A skill's page
     (`/settings/skills/<name>`) has the switch that gives it to everyone, who uses it, the newest revision's files as
-    a tree (Omnara's, Apache-2.0), every revision, "Update from GitHub", "Upload new revision" and Remove, whose
+    a tree (Omnara's, Apache-2.0), every version, "Update from GitHub", "Upload new version" and Remove, whose
     refusal is shown in the dialog.
   - `/settings/vault` (under Connections, [issue #108](https://github.com/kl3inIT/hypomnema/issues/108)) is a
     table of the vault's secrets, after Infisical's secrets dashboard (MIT) and Omnara's secrets list

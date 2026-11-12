@@ -1130,6 +1130,51 @@ export type Account = {
   token_expires_at?: string;
 };
 
+export type GatewayKey = {
+  id: string;
+  name: string;
+  /**
+   * The key's start, to tell keys apart; empty for a key made before it was kept.
+   */
+  prefix: string;
+  /**
+   * The model names it may use; `*` is every model.
+   */
+  models: Array<string>;
+  created_at: string;
+  /**
+   * When the gateway last served a request with it; absent when never.
+   */
+  last_used_at?: string;
+};
+
+export type GatewayKeyList = {
+  data: Array<GatewayKey>;
+  /**
+   * How many keys made for a Dispatch or a chat's pi work now.
+   */
+  live_worker_keys: number;
+};
+
+export type NewGatewayKey = {
+  /**
+   * What the owner calls the client that uses it, such as opencode-laptop.
+   */
+  name: string;
+  /**
+   * The model names it may use; every model when left out or empty.
+   */
+  models?: Array<string>;
+};
+
+export type CreatedGatewayKey = {
+  key: GatewayKey;
+  /**
+   * The key's value, answered this once; only its hash is kept.
+   */
+  secret: string;
+};
+
 export type NewTokenAccount = {
   /**
    * The kind of subscription; only Claude gives a token to paste.
@@ -3893,6 +3938,83 @@ export type ListGatewayModelsResponses = {
 };
 
 export type ListGatewayModelsResponse = ListGatewayModelsResponses[keyof ListGatewayModelsResponses];
+
+export type ListGatewayKeysData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/gateway/keys';
+};
+
+export type ListGatewayKeysErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListGatewayKeysError = ListGatewayKeysErrors[keyof ListGatewayKeysErrors];
+
+export type ListGatewayKeysResponses = {
+  /**
+   * The keys.
+   */
+  200: GatewayKeyList;
+};
+
+export type ListGatewayKeysResponse = ListGatewayKeysResponses[keyof ListGatewayKeysResponses];
+
+export type CreateGatewayKeyData = {
+  body: NewGatewayKey;
+  path?: never;
+  query?: never;
+  url: '/gateway/keys';
+};
+
+export type CreateGatewayKeyErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type CreateGatewayKeyError = CreateGatewayKeyErrors[keyof CreateGatewayKeyErrors];
+
+export type CreateGatewayKeyResponses = {
+  /**
+   * The key and its value.
+   */
+  201: CreatedGatewayKey;
+};
+
+export type CreateGatewayKeyResponse = CreateGatewayKeyResponses[keyof CreateGatewayKeyResponses];
+
+export type RevokeGatewayKeyData = {
+  body?: never;
+  path: {
+    key_id: string;
+  };
+  query?: never;
+  url: '/gateway/keys/{key_id}';
+};
+
+export type RevokeGatewayKeyErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type RevokeGatewayKeyError = RevokeGatewayKeyErrors[keyof RevokeGatewayKeyErrors];
+
+export type RevokeGatewayKeyResponses = {
+  /**
+   * Revoked.
+   */
+  204: void;
+};
+
+export type RevokeGatewayKeyResponse = RevokeGatewayKeyResponses[keyof RevokeGatewayKeyResponses];
 
 export type ListBotsData = {
   body?: never;
