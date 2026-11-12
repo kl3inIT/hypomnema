@@ -446,8 +446,9 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       names the most of its path. No launcher asks for a token any more; `POST /agent/v1/token` answers only an
       owner's token.
     - **Lark goes through it too** (issue #175). Its catalog is lark-cli's own (`lark_methods.json`, from
-      lark-cli 1.0.100, MIT): each method's path with the risk lark-cli gives it. A service (messages, mail,
-      calendar, tasks, drive and ten more) has up to three actions: read (allow), create or change (ask), delete
+      lark-cli 1.0.100, MIT): each method's path with the risk lark-cli gives it, from its service catalog and
+      from its shortcut commands, where Base, Docs, Whiteboard and Search are (issue #236). A service (messages,
+      mail, calendar, tasks, drive, base and thirteen more) has up to three actions: read (allow), create or change (ask), delete
       and other high-risk changes (ask). A request to a service's part of the API that lark-cli's list does not
       name, as sending a message is not, is that service's write; a GET it does not name is a read; anything
       else asks as unnamed. The app's id, which lark-cli will not run without, is told with the list of accounts.

@@ -753,7 +753,7 @@ func TestLarkGoesThroughTheProxyByLarkCLIsOwnRisks(t *testing.T) {
 
 	for name, path := range map[string]string{
 		"a chat":                 "/open-apis/im/v1/chats/oc_1",
-		"a read that is unnamed": "/open-apis/docx/v1/documents/doc_1/raw_content",
+		"a read that is unnamed": "/open-apis/hire/v1/jobs/job_1",
 	} {
 		assert.Equal(t, http.StatusOK, lark.do(http.MethodGet, path, "", nil).Status, name)
 	}
@@ -781,7 +781,7 @@ func TestLarkGoesThroughTheProxyByLarkCLIsOwnRisks(t *testing.T) {
 	got = lark.do(http.MethodDelete, "/open-apis/calendar/v4/calendars/cal_1", "", nil)
 	assert.Equal(t, http.StatusForbidden, got.Status)
 
-	got = lark.do(http.MethodPost, "/open-apis/docx/v1/documents", "application/json", []byte(`{"title":"Notes"}`))
+	got = lark.do(http.MethodPost, "/open-apis/hire/v1/jobs", "application/json", []byte(`{"title":"Notes"}`))
 	assert.Equal(t, http.StatusForbidden, got.Status)
 
 	actions := map[string]bool{}
@@ -794,8 +794,8 @@ func TestLarkGoesThroughTheProxyByLarkCLIsOwnRisks(t *testing.T) {
 	// What is no action of the catalog says which request it is.
 	for _, a := range w.approvals(orchestration.ApprovalPending) {
 		if a.Action == "lark.unlisted" {
-			assert.Equal(t, "Something this list does not name: POST /open-apis/docx/v1/documents", a.Title)
-			assert.Equal(t, orchestration.Field{Label: "Request", Value: "POST /open-apis/docx/v1/documents"}, a.Payload[0])
+			assert.Equal(t, "Something this list does not name: POST /open-apis/hire/v1/jobs", a.Title)
+			assert.Equal(t, orchestration.Field{Label: "Request", Value: "POST /open-apis/hire/v1/jobs"}, a.Payload[0])
 			assert.Contains(t, a.Payload, orchestration.Field{Label: "title", Value: "Notes"})
 		}
 	}
@@ -810,8 +810,25 @@ func TestLarkGoesThroughTheProxyByLarkCLIsOwnRisks(t *testing.T) {
 	assert.Equal(t, "lark.im.read", catalog.Match(http.MethodGet, "open.larksuite.com", "/open-apis/im/v1/chats").ID,
 		"a GET lark-cli's list does not name is its service's read")
 	assert.Equal(t, "lark.other.read",
-		catalog.Match(http.MethodGet, "open.larksuite.com", "/open-apis/docx/v1/documents/doc_1/raw_content").ID,
+		catalog.Match(http.MethodGet, "open.larksuite.com", "/open-apis/hire/v1/jobs/job_1").ID,
 		"and one to a part of Lark the list does not have is a read of everything else")
+
+	// Base exists only as lark-cli's shortcut commands (issue #236): a search is a read though it is a POST,
+	// writing rows is Base's write, deleting a table is what lark-cli itself asks to confirm, and a call the
+	// shortcuts do not name is answered by its verb.
+	for request, action := range map[[2]string]string{
+		{http.MethodGet, "/open-apis/base/v3/bases/bas_1/tables"}:                               "lark.base.read",
+		{http.MethodPost, "/open-apis/base/v3/bases/bas_1/tables/tbl_1/records/search"}:         "lark.base.read",
+		{http.MethodPost, "/open-apis/base/v3/bases/bas_1/tables"}:                              "lark.base.write",
+		{http.MethodPost, "/open-apis/base/v3/bases/bas_1/tables/tbl_1/records/batch_create"}:   "lark.base.write",
+		{http.MethodDelete, "/open-apis/base/v3/bases/bas_1/tables/tbl_1"}:                      "lark.base.risky",
+		{http.MethodPost, "/open-apis/base/v3/bases/bas_1/something_the_shortcuts_do_not_name"}: "lark.base.write",
+		{http.MethodGet, "/open-apis/docx/v1/documents/doc_1/raw_content"}:                      "lark.doc.read",
+		{http.MethodPost, "/open-apis/docx/v1/documents"}:                                       "lark.doc.write",
+	} {
+		assert.Equal(t, action, catalog.Match(request[0], "open.larksuite.com", request[1]).ID, request[0]+" "+request[1])
+	}
+
 	assert.Equal(t, "Messages", catalog.Listed()[0].Service)
 	assert.Equal(t, "lark.im.read", catalog.Listed()[0].ID)
 
