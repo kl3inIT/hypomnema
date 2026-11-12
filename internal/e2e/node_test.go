@@ -297,6 +297,79 @@ func TestNodeRunsATaskToSuccess(t *testing.T) {
 	require.NoError(t, stop())
 }
 
+// slowStart is a Runner whose first Start does not return until released,
+// as a repository's setup script that runs for minutes.
+type slowStart struct {
+	*fakeRunner
+
+	once    sync.Once
+	entered chan struct{}
+	release chan struct{}
+
+	mu      sync.Mutex
+	started []string // the Tasks whose start returned, in order
+}
+
+func (r *slowStart) Start(ctx context.Context, d statedb.Dispatch, w daemon.Reporter) error {
+	first := false
+	r.once.Do(func() { first = true })
+
+	if first {
+		close(r.entered)
+		<-r.release
+	}
+
+	r.mu.Lock()
+	r.started = append(r.started, d.Offer.TaskID)
+	r.mu.Unlock()
+
+	return r.fakeRunner.Start(ctx, d, w)
+}
+
+func (r *slowStart) startedTasks() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	return append([]string(nil), r.started...)
+}
+
+// Scenario: issue #218. One worker's start takes long (its worktree's setup
+// script runs); the node keeps reading meanwhile and starts the next
+// Dispatch, and the slow one starts when its setup ends.
+func TestASlowStartDoesNotHoldTheNode(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	r := &slowStart{fakeRunner: newFakeRunner(), entered: make(chan struct{}), release: make(chan struct{})}
+	w.startNode(r, w.token)
+
+	// Released before the node stops (cleanups run last first), so a failure ends the test rather than hangs it.
+	var released sync.Once
+
+	free := func() { released.Do(func() { close(r.release) }) }
+	t.Cleanup(free)
+
+	first := w.task()
+
+	select {
+	case <-r.entered:
+	case <-time.After(wait):
+		t.Fatal("the first worker's start is not called")
+	}
+
+	second := w.task()
+
+	require.Eventually(t, func() bool { return len(r.startedTasks()) == 1 }, wait, 5*time.Millisecond,
+		"the second worker starts while the first one's setup runs")
+	assert.Equal(t, []string{second.ID}, r.startedTasks())
+
+	free()
+
+	require.Eventually(t, func() bool { return len(r.startedTasks()) == 2 }, wait, 5*time.Millisecond,
+		"the slow worker starts once its setup ends")
+	assert.Equal(t, []string{second.ID, first.ID}, r.startedTasks())
+}
+
 // Scenario: the daemon restarts while its worker runs, and the worker
 // finishes while no daemon is connected. The new daemon claims the
 // Dispatch, is told to retain it, adopts the worker, and the queued final
