@@ -10,7 +10,8 @@
 // types in, so it lives with the git hosts (the control plane's own wiring).
 // This package is for the Integrations whose credential the control plane
 // mints: Google signs an account in with OAuth; Lark is an app, whose id and
-// secret give a token with no sign-in (issue #135).
+// secret give a token with no sign-in (issue #135); Superset is an account at
+// an address of its own, whose user name and password give one (issue #203).
 package integration
 
 import (
@@ -30,6 +31,10 @@ const (
 	// KindApp: the client is an app of the service; its id and secret give an
 	// access token that acts as the app, with no sign-in.
 	KindApp Kind = "app"
+	// KindAccount: a Connection is an address of the service, a user name and
+	// a password; the control plane signs in there and keeps the tokens. The
+	// address belongs to the Connection, because the service is self-hosted.
+	KindAccount Kind = "account"
 )
 
 // Definition is what an Integration declares. It is code, not something the
@@ -44,6 +49,14 @@ type Definition struct {
 	// AppInfoURL says which app the token is; both are for KindApp.
 	AppTokenURL string
 	AppInfoURL  string
+	// LoginPath signs an account in, RefreshPath gives a new access token for
+	// a refresh token, CSRFPath gives the token a request that is not a GET
+	// carries, and VersionPath says what the service runs; all are paths on a
+	// Connection's own address, for KindAccount.
+	LoginPath   string
+	RefreshPath string
+	CSRFPath    string
+	VersionPath string
 	// AuthURL is the consent page; TokenURL exchanges a code or a refresh
 	// token; RevokeURL ends a token; UserInfoURL says whose account signed in.
 	AuthURL     string
@@ -194,6 +207,10 @@ func (d Definition) granted(asked []Grant, scopes []string) []Grant {
 // IsApp says whether the Integration's credential is an app's.
 func (d Definition) IsApp() bool { return d.Kind == KindApp }
 
+// IsAccount says whether a Connection of the Integration is an address, a
+// user name and a password.
+func (d Definition) IsAccount() bool { return d.Kind == KindAccount }
+
 // CredentialKind is the Integration's Kind, with the default spelled out.
 func (d Definition) CredentialKind() Kind {
 	if d.Kind == "" {
@@ -260,5 +277,27 @@ func Lark() Definition {
 		Kind:        KindApp,
 		AppTokenURL: host + "/open-apis/auth/v3/tenant_access_token/internal",
 		AppInfoURL:  host + "/open-apis/bot/v3/info",
+	}
+}
+
+// SupersetID is the id of the Superset Integration.
+const SupersetID = "superset"
+
+// Superset is Apache Superset as an account of one deployment (issue #203):
+// its address, a user name and a password, as both Superset MCP servers take
+// them (Winding2020/superset-mcp, src/client/base-client.ts; aptro/superset-mcp,
+// main.py). The sign-in is Superset's own for a local account, which answers
+// with an access and a refresh token; what the account may read and change
+// is what its roles at Superset allow, so a Connection has no services to
+// choose here. Tried against Superset 6.1.0 on 2026-11-12.
+func Superset() Definition {
+	return Definition{
+		ID:          SupersetID,
+		Name:        "Superset",
+		Kind:        KindAccount,
+		LoginPath:   "/api/v1/security/login",
+		RefreshPath: "/api/v1/security/refresh",
+		CSRFPath:    "/api/v1/security/csrf_token/",
+		VersionPath: "/version",
 	}
 }

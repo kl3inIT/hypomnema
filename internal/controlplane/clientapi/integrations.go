@@ -21,6 +21,8 @@ type Integrations interface {
 	Begin(ctx context.Context, id, label string, services []string) (integration.SignIn, error)
 	Complete(ctx context.Context, id, signInID, pasted string) (integration.Connection, error)
 	Connect(ctx context.Context, id, label string) (integration.Connection, error)
+	// ConnectAccount connects an Integration of kind account: an address, a user name and a password.
+	ConnectAccount(ctx context.Context, id, label string, a integration.Account) (integration.Connection, error)
 	Disconnect(ctx context.Context, id, label string) (revoked bool, err error)
 	// SetChats says whether the coordinator may use a Connection in chats.
 	SetChats(ctx context.Context, id, label string, allowed bool) (integration.Connection, error)
@@ -40,6 +42,7 @@ func toIntegrationConnection(c integration.Connection) openapi.IntegrationConnec
 	out := openapi.IntegrationConnection{
 		Integration: c.Integration, Label: c.Label, Account: c.Account, Services: make([]string, 0, len(c.Grants)),
 		SignInRequired: c.SignInRequired, Chats: c.Chats, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt,
+		Address: opt(c.Address), Version: opt(c.Version),
 	}
 	for _, g := range c.Grants {
 		out.Services = append(out.Services, g.String())
@@ -148,14 +151,28 @@ func (s *Server) CompleteIntegrationSignIn(ctx context.Context, req openapi.Comp
 	return openapi.CompleteIntegrationSignIn200JSONResponse(toIntegrationConnection(conn)), nil
 }
 
-// PutIntegrationConnection connects an Integration of kind app under a label.
+// PutIntegrationConnection connects an Integration of kind app under a
+// label, or one of kind account when the body gives its address, user name
+// and password. The password is not logged and is not in the answer.
 func (s *Server) PutIntegrationConnection(ctx context.Context, req openapi.PutIntegrationConnectionRequestObject,
 ) (openapi.PutIntegrationConnectionResponseObject, error) {
 	if s.integrations == nil {
 		return nil, errNoIntegrations
 	}
 
-	conn, err := s.integrations.Connect(ctx, req.Integration, req.Label)
+	var (
+		conn integration.Connection
+		err  error
+	)
+
+	if b := req.Body; b != nil && (val(b.Address) != "" || val(b.Username) != "" || val(b.Password) != "") {
+		conn, err = s.integrations.ConnectAccount(ctx, req.Integration, req.Label, integration.Account{
+			Address: val(b.Address), User: val(b.Username), Password: val(b.Password),
+		})
+	} else {
+		conn, err = s.integrations.Connect(ctx, req.Integration, req.Label)
+	}
+
 	if err != nil {
 		return nil, err
 	}

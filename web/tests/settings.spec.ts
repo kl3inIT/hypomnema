@@ -75,6 +75,28 @@ async function fakeServer(
     action("drive.read", "Drive", "Read files", "Search, list and download", "allow"),
     action("drive.share", "Drive", "Share a file", "Give someone access", "ask"),
   ]
+  // Superset, an account at an address of its own: connected with what the owner types. Its actions are the parts
+  // of Superset's API: reading runs on its own, the rest asks.
+  let supersets: (typeof accounts)[number][] = []
+  const supersetActions = [
+    action("superset.dashboards.read", "Dashboards", "Read", "Every GET", "allow"),
+    action(
+      "superset.dashboards.write",
+      "Dashboards",
+      "Create or change",
+      "Creating, changing",
+      "ask",
+    ),
+    action("superset.charts.read", "Charts", "Read", "Every GET, and a chart's data", "allow"),
+    action("superset.charts.delete", "Charts", "Delete", "", "ask"),
+    action(
+      "superset.sql.run",
+      "SQL Lab",
+      "Run SQL",
+      "Run SQL the agent wrote on a database",
+      "ask",
+    ),
+  ]
   const calls: string[] = []
 
   await page.route("**/api/v1/**", async (route) => {
@@ -91,7 +113,9 @@ async function fakeServer(
     const [, kind, name, sub] = path.split("/")
 
     if (kind === "integrations" && path.endsWith("/actions")) {
-      return json({ data: name === "google" ? actions : [] })
+      return json({
+        data: name === "google" ? actions : name === "superset" ? supersetActions : [],
+      })
     }
 
     if (kind === "integrations" && path.includes("/actions/")) {
@@ -143,6 +167,55 @@ async function fakeServer(
       accounts = [...accounts.filter((a) => a.label !== added.label), added]
 
       return json(added)
+    }
+
+    if (kind === "integrations" && sub === "connections" && name === "superset") {
+      const label = path.split("/")[4] ?? ""
+
+      if (request.method() === "PUT") {
+        const body = request.postDataJSON() as {
+          address: string
+          username: string
+          password: string
+        }
+        if (body.password !== "the-right-password") {
+          return json(
+            {
+              code: "invalid_request",
+              message:
+                "invalid: the sign-in did not complete: Superset refused the user name and password, or the address is not its API: status 401",
+            },
+            400,
+          )
+        }
+
+        const added = {
+          integration: "superset",
+          label,
+          account: body.username,
+          address: body.address,
+          version: "6.1.0",
+          services: [],
+          sign_in_required: false,
+          chats: false,
+          created_at: now,
+          updated_at: now,
+        }
+        supersets = [...supersets.filter((a) => a.label !== label), added]
+
+        return json(added)
+      }
+
+      if (request.method() === "PATCH") {
+        const asked = request.postDataJSON() as { chats: boolean }
+        supersets = supersets.map((a) => (a.label === label ? { ...a, chats: asked.chats } : a))
+
+        return json(supersets.find((a) => a.label === label))
+      }
+
+      supersets = supersets.filter((a) => a.label !== label)
+
+      return json({ revoked: true })
     }
 
     if (kind === "integrations" && sub === "connections" && request.method() === "PUT") {
@@ -222,6 +295,13 @@ async function fakeServer(
               client_id: start.larkApp === false ? undefined : "cli_a1b2c3d4e5f6a7b8",
               services: [],
               connections: apps,
+            },
+            {
+              id: "superset",
+              name: "Superset",
+              kind: "account",
+              services: [],
+              connections: supersets,
             },
           ],
         })
@@ -460,4 +540,72 @@ test("a Lark app that is not set up says how to give its id and secret", async (
   await expect(lark).toContainText("integrations client set lark")
   expect(await fits(page)).toBe(true)
   await shot(page, "integrations-lark-unset")
+})
+
+// Scenario: the owner connects his company's Superset: its address, a user name and a password, with no client to
+// set up first. A password Superset refuses is said in the dialog, which keeps what was typed, and nothing is
+// connected. With the right one the account shows its user name, its address, Superset's version and that the
+// last sign-in worked, with what agents may do with it and the switch for chats. He disconnects it after being
+// told what is removed. On a phone nothing runs off the side.
+test("the owner connects his Superset account and disconnects it", async ({ page }) => {
+  const calls = await fakeServer(page)
+  await page.goto("/settings/integrations")
+
+  const superset = card(page, "Superset")
+  await expect(superset).toContainText("No account")
+  await expect(superset).toContainText("Dashboards and charts, read as data")
+  await superset.scrollIntoViewIfNeeded()
+  expect(await fits(page)).toBe(true)
+  await shot(page, "integrations-superset-ready")
+
+  await superset.getByRole("button", { name: "Add account" }).click()
+  const dialog = page.locator("[data-slot=dialog-content]")
+  await dialog.getByLabel("Name", { exact: true }).fill("vmaps")
+  await dialog.getByLabel("Address").fill("https://superset.example.com")
+  await dialog.getByLabel("User name").fill("hypomnema-reader")
+  await expect(dialog.getByLabel("Password")).toHaveAttribute("type", "password")
+  await dialog.getByLabel("Password").fill("a-wrong-password")
+  await shot(page, "integrations-superset-connect")
+  await dialog.getByRole("button", { name: "Connect" }).click()
+
+  await expect(dialog.getByRole("alert")).toContainText(
+    "Superset refused the user name and password",
+  )
+  await expect(dialog.getByLabel("Address")).toHaveValue("https://superset.example.com")
+  await shot(page, "integrations-superset-refused")
+  await expect(superset).toContainText("No account")
+
+  await dialog.getByLabel("Password").fill("the-right-password")
+  await dialog.getByRole("button", { name: "Connect" }).click()
+  await expect(dialog).toBeHidden()
+
+  const account = superset.getByLabel("Superset account vmaps")
+  await expect(account).toContainText("hypomnema-reader")
+  await expect(account).toContainText("https://superset.example.com")
+  await expect(account).toContainText("Superset 6.1.0")
+  await expect(account).toContainText("The last sign-in worked")
+  await expect(superset).toContainText("Connected")
+  await expect(page.getByText("the-right-password")).toHaveCount(0)
+  await expect(page.getByRole("button", { name: "What agents may do with vmaps" })).toContainText(
+    "2 on their own · ask before 3",
+  )
+  await superset.scrollIntoViewIfNeeded()
+  expect(await fits(page)).toBe(true)
+  await shot(page, "integrations-superset-connected")
+
+  await account.getByRole("switch", { name: "Use in chats" }).click()
+  await expect(account.getByRole("switch", { name: "Use in chats" })).toBeChecked()
+
+  await superset.getByRole("button", { name: "Disconnect vmaps" }).click()
+  const confirm = page.getByRole("alertdialog")
+  await expect(confirm).toContainText("removes its password from the vault")
+  await confirm.getByRole("button", { name: "Disconnect" }).click()
+  await expect(superset.getByLabel("Superset account vmaps")).toHaveCount(0)
+
+  expect(calls).toEqual([
+    "PUT /integrations/superset/connections/vmaps",
+    "PUT /integrations/superset/connections/vmaps",
+    "PATCH /integrations/superset/connections/vmaps",
+    "DELETE /integrations/superset/connections/vmaps",
+  ])
 })

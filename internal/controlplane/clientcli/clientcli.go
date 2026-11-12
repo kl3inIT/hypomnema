@@ -38,6 +38,9 @@ const (
 	waitSeconds = 50
 	// requestTimeout covers that wait.
 	requestTimeout = 70 * time.Second
+	// longTimeout covers a request the control plane may hold for the owner's Approval (100 s) and then send
+	// on to a service that takes its time (120 s).
+	longTimeout = 240 * time.Second
 )
 
 // command is one hypomnema command that this package runs. Its flags are
@@ -53,7 +56,9 @@ type command struct {
 	flags    func(fs *flag.FlagSet)
 	// offline commands need no login.
 	offline bool
-	run     func(ctx context.Context, e *env, fs *flag.FlagSet) error
+	// long commands make a request the control plane may hold for the owner's Approval.
+	long bool
+	run  func(ctx context.Context, e *env, fs *flag.FlagSet) error
 }
 
 // Commands lists the first word of every command this package runs.
@@ -112,7 +117,12 @@ func Command(ctx context.Context, home string, args []string, in io.Reader, out 
 			return err
 		}
 
-		if e.api, err = newClient(cfg); err != nil {
+		timeout := requestTimeout
+		if c.long {
+			timeout = longTimeout
+		}
+
+		if e.api, err = newClient(cfg, timeout); err != nil {
 			return err
 		}
 
@@ -221,9 +231,9 @@ func usage(args []string) string {
 	return "commands:\n" + strings.Join(lines, "\n")
 }
 
-func newClient(cfg Config) (*openapi.ClientWithResponses, error) {
+func newClient(cfg Config, timeout time.Duration) (*openapi.ClientWithResponses, error) {
 	c, err := openapi.NewClientWithResponses(cfg.URL+basePath,
-		openapi.WithHTTPClient(&http.Client{Timeout: requestTimeout}),
+		openapi.WithHTTPClient(&http.Client{Timeout: timeout}),
 		openapi.WithRequestEditorFn(func(_ context.Context, r *http.Request) error {
 			r.Header.Set("Authorization", "Bearer "+cfg.Token)
 

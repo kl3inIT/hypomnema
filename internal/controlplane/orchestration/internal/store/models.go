@@ -113,14 +113,17 @@ type ClientToken struct {
 }
 
 type Connection struct {
-	Integration string
-	Label       string
-	Account     sql.NullString
-	Secret      string
-	CreatedAt   int64
-	UpdatedAt   int64
-	Services    sql.NullString
-	Chats       int64
+	Integration  string
+	Label        string
+	Account      sql.NullString
+	Secret       string
+	CreatedAt    int64
+	UpdatedAt    int64
+	Services     sql.NullString
+	Chats        int64
+	Address      sql.NullString
+	Version      sql.NullString
+	SignInFailed int64
 }
 
 type Conversation struct {

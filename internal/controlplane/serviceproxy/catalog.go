@@ -24,7 +24,9 @@ const (
 // Route recognizes a request as an action by its method, host and path, as
 // Onyx's RestRoute does (backend/onyx/external_apps/providers/actions.py). A
 // "{name}" segment of the path matches exactly one segment; a last segment
-// "{name...}" matches one or more.
+// "{name...}" matches one or more. Host is empty for an Integration whose
+// Connections each have their own address (Superset): its requests are
+// matched by method and path, and never come through a tunnel.
 type Route struct {
 	Method string
 	Host   string
@@ -207,6 +209,8 @@ func CatalogOf(integration string) (Catalog, bool) {
 		return google(), true
 	case "lark":
 		return larkCatalog(), true
+	case SupersetID:
+		return supersetCatalog(), true
 	}
 
 	return Catalog{}, false

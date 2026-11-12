@@ -66,6 +66,7 @@ type Store interface {
 	SetConnectionChats(ctx context.Context, integration, label string, allowed bool) (orchestration.Connection, error)
 	SetIntegrationClient(ctx context.Context, integration, clientID, secret string) error
 	IntegrationClientOf(ctx context.Context, integration string) (orchestration.IntegrationClient, error)
+	SetConnectionSignInFailed(ctx context.Context, integration, label string, failed bool) error
 }
 
 // Service signs in and refreshes the Connections of the Integrations it was
@@ -82,6 +83,10 @@ type Service struct {
 	signIns map[string]*signIn
 	// appTokens is the token in use of each app Integration, by its id.
 	appTokens map[string]Token
+	// accounts is what each Connection of kind account is signed in with, by
+	// "integration:label"; accountClient sends its requests.
+	accounts      map[string]accountSession
+	accountClient *http.Client
 }
 
 // signIn is one sign-in the owner started and has not completed.
@@ -100,6 +105,7 @@ func New(store Store, secrets *vault.Service, clock platform.Clock, newID func(s
 	return &Service{
 		store: store, vault: secrets, defs: defs, client: &http.Client{Timeout: httpTimeout}, clock: clock,
 		newID: newID, signIns: map[string]*signIn{}, appTokens: map[string]Token{},
+		accounts: map[string]accountSession{}, accountClient: newAccountClient(),
 	}
 }
 
@@ -112,6 +118,10 @@ type Connection struct {
 	Grants  []Grant
 	// SignInRequired says the provider refused the refresh token for good.
 	SignInRequired bool
+	// Address is where the service is and Version what it said it runs when
+	// the Connection was made, for an Integration of kind account.
+	Address string
+	Version string
 	// Chats says the coordinator may use the Connection in chats.
 	Chats     bool
 	CreatedAt time.Time
@@ -197,14 +207,15 @@ func (s *Service) List(ctx context.Context) ([]Integration, error) {
 func (s *Service) view(ctx context.Context, d Definition, c orchestration.Connection) Connection {
 	out := Connection{
 		Integration: c.Integration, Label: c.Label, Account: c.Account, Chats: c.Chats,
-		CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt,
+		Address: c.Address, Version: c.Version, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt,
 	}
 
 	// What is stored was checked when it was written; a service since removed from the catalog is left out.
 	out.Grants, _ = d.ParseGrants(c.Services)
 
 	secret, err := s.vault.Get(ctx, c.Secret)
-	out.SignInRequired = err != nil || secret.LoginRequired || secret.KeyMissing
+	// An account's password does not expire: it needs a sign-in when the service refused it the last time.
+	out.SignInRequired = err != nil || secret.LoginRequired || secret.KeyMissing || c.SignInFailed
 
 	return out
 }
@@ -278,6 +289,10 @@ func (s *Service) Begin(ctx context.Context, integration, label string, services
 
 	if d.IsApp() {
 		return SignIn{}, fmt.Errorf("%w: %s is connected as an app, with no sign-in", ErrInvalid, d.ID)
+	}
+
+	if d.IsAccount() {
+		return SignIn{}, fmt.Errorf("%w: %s is connected with its address, a user name and a password", ErrInvalid, d.ID)
 	}
 
 	if !orchestration.ValidConnectionLabel(label) {
@@ -478,6 +493,12 @@ func (s *Service) Token(ctx context.Context, integration, label string) (Token, 
 		return s.appToken(ctx, d)
 	}
 
+	if d.IsAccount() {
+		session, err := s.accountSession(ctx, d, conn)
+
+		return Token{AccessToken: session.access}, err
+	}
+
 	opened, err := s.vault.Open(ctx, conn.Secret)
 	if err != nil {
 		return Token{}, vaultError(err)
@@ -570,6 +591,10 @@ func (s *Service) Disconnect(ctx context.Context, integration, label string) (re
 		}
 
 		return true, nil
+	}
+
+	if d.IsAccount() {
+		return true, s.forgetAccount(ctx, d, conn)
 	}
 
 	if opened, err := s.vault.Open(ctx, conn.Secret); err == nil {

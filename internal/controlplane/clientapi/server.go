@@ -68,6 +68,8 @@ type Server struct {
 	// integrations signs accounts in; nil when the control plane wired none.
 	integrations Integrations
 	approvals    Approvals
+	// relay sends requests to a Connection that has its own address; nil when the control plane wired none.
+	relay        Relay
 	larkChannels LarkChannels
 	// accounts shows the accounts with the state of their sign-ins and removes one; nil when the control plane
 	// wired none, and then an account shows what orchestration knows of it.

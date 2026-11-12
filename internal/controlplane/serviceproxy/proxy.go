@@ -93,6 +93,9 @@ type Config struct {
 	Upstream http.RoundTripper
 	// Hold is how long a request waits for the owner; zero is DefaultHold.
 	Hold time.Duration
+	// Send sends a relayed request to the address of a Connection that has
+	// its own, with its token (Relay); nil when no Integration has one.
+	Send Sender
 }
 
 // Proxy serves the tunnel a tool's requests come through.
@@ -281,6 +284,20 @@ func (p *Proxy) answer(ctx context.Context, out io.Writer, req *http.Request, s 
 		return false
 	}
 
+	action, message := p.judge(ctx, req, body, s)
+	if message != "" {
+		return p.reply(out, http.StatusForbidden, message) == nil
+	}
+
+	return p.forward(ctx, out, req, body, action, s) == nil
+}
+
+// judge answers one request, whichever way it came: through a tunnel, or
+// relayed for a Connection that has its own address (Relay). It refuses a
+// request that could be read two ways, matches the request to its action,
+// applies the action's Policy and writes the log line. An empty message
+// means the request runs; otherwise it is what the caller is told.
+func (p *Proxy) judge(ctx context.Context, req *http.Request, body []byte, s session) (Action, string) {
 	// A request is what it says it is in one way only. One written so that the proxy and the service could
 	// read it differently is refused: another host in its address, a path that does not stay where it
 	// starts, a header or a parameter that asks the service to treat it as another method.
@@ -289,7 +306,7 @@ func (p *Proxy) answer(ctx context.Context, out io.Writer, req *http.Request, s 
 			slog.String("event", "serviceproxy.request"), slog.String("agent", s.caller.Name),
 			slog.String("connection", s.connection()), slog.String("verdict", "malformed: "+reason))
 
-		return p.reply(out, http.StatusForbidden, "Refused: "+reason+". The request was not run") == nil
+		return Action{}, "Refused: " + reason + ". The request was not run"
 	}
 
 	action := s.catalog.Match(req.Method, s.host, req.URL.Path)
@@ -307,11 +324,7 @@ func (p *Proxy) answer(ctx context.Context, out io.Writer, req *http.Request, s 
 		slog.String("event", "serviceproxy.request"), slog.String("agent", s.caller.Name),
 		slog.String("connection", s.connection()), slog.String("action", action.ID), slog.String("verdict", verdict))
 
-	if message != "" {
-		return p.reply(out, http.StatusForbidden, message) == nil
-	}
-
-	return p.forward(ctx, out, req, body, action, s) == nil
+	return action, message
 }
 
 // decide applies the action's Policy. An empty message means the request
@@ -363,8 +376,10 @@ func (p *Proxy) ask(ctx context.Context, req *http.Request, body []byte, action 
 	fields := d.Fields
 
 	// A request that is no action of the catalog has no name of its own to go by: the owner is told which
-	// request it is, in the title and as the first line. So is one with nothing to show.
-	if _, listed := s.catalog.Action(action.ID); !listed {
+	// request it is, in the title and as the first line. So is one with nothing to show. A relayed request
+	// (it has no host) was written by its caller, and its action is a whole part of the service: which chart
+	// is changed is in its path, so the owner is told the request too.
+	if _, listed := s.catalog.Action(action.ID); !listed || s.host == "" {
 		title = action.Name + ": " + clipTitle(asked)
 		fields = append([]orchestration.Field{{Label: "Request", Value: asked}}, fields...)
 	} else if len(fields) == 0 {

@@ -218,7 +218,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	workerKeys := dispatchKeys{gateway: gateway, svc: svc, logger: logger}
 
 	integrations := integration.New(svc, secrets, platform.SystemClock{}, platform.NewID,
-		integration.Google(), integration.Lark())
+		integration.Google(), integration.Lark(), integration.Superset())
 
 	nodes := nodeapi.New(svc, logger).WithHostTokens(tokens.Token).WithModelKeys(workerKeys.Key).
 		WithAccountTokens(accountTokens{svc: svc, vault: secrets, logger: logger}.Token).
@@ -266,6 +266,15 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 
 			return token.AccessToken, err
 		},
+		// A Connection that has its own address (Superset) is sent a relayed request by the service that signs
+		// it in, which adds the token there.
+		Send: func(ctx context.Context, id, label string, r serviceproxy.Sent) (serviceproxy.Answer, error) {
+			answer, err := integrations.Call(ctx, id, label, integration.AccountRequest{
+				Method: r.Method, Path: r.Path, RawQuery: r.RawQuery, ContentType: r.ContentType, Body: r.Body,
+			})
+
+			return serviceproxy.Answer{Status: answer.Status, ContentType: answer.ContentType, Body: answer.Body}, err
+		},
 	})
 	if err != nil {
 		return err
@@ -302,7 +311,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		WithHostTokens(tokens).
 		WithMachines(machineMgr).WithTerminals(nodeTerminals(nodes)).
 		WithSecrets(ownerSecrets{vault: secrets, referrers: referrers}).
-		WithIntegrations(integrations).WithApprovals(proxy).WithLarkChannels(larkSettings)
+		WithIntegrations(integrations).WithApprovals(proxy).WithRelay(proxy).WithLarkChannels(larkSettings)
 	if err := api.Register(mux); err != nil {
 		return err
 	}

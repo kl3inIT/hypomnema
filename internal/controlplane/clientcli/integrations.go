@@ -54,6 +54,10 @@ func serviceOf(ctx context.Context, e *env, id string) (*openapi.Integration, er
 
 func connectionNote(c openapi.IntegrationConnection) string {
 	note := c.Label + " (" + c.Account
+	if c.Address != nil {
+		note += " at " + *c.Address
+	}
+
 	if len(c.Services) > 0 {
 		note += ": " + strings.Join(c.Services, ",")
 	}
@@ -136,7 +140,7 @@ func integrationsClientSet(ctx context.Context, e *env, fs *flag.FlagSet) error 
 	}
 
 	return e.print(fs, resp.JSON200, func() {
-		if resp.JSON200.Kind == openapi.App {
+		if resp.JSON200.Kind == openapi.IntegrationKindApp {
 			e.printf("%s is app %s\n", id, c.ClientID)
 
 			return
@@ -152,7 +156,7 @@ func integrationsClientSet(ctx context.Context, e *env, fs *flag.FlagSet) error 
 func integrationsConnectApp(ctx context.Context, e *env, fs *flag.FlagSet, id string) error {
 	label := str(fs, "label")
 
-	resp, err := e.api.PutIntegrationConnectionWithResponse(ctx, id, label)
+	resp, err := e.api.PutIntegrationConnectionWithResponse(ctx, id, label, openapi.NewAccountConnection{})
 	if err != nil {
 		return fmt.Errorf("connecting %s:%s: %w", id, label, err)
 	}

@@ -38,6 +38,11 @@ func (s *Service) Connect(ctx context.Context, integration, label string) (Conne
 		return Connection{}, err
 	}
 
+	if d.IsAccount() {
+		return Connection{}, fmt.Errorf("%w: %s is connected with its address, a user name and a password: "+
+			"`hypomnema integrations connect %s --url URL --user NAME --password-file FILE`", ErrInvalid, d.ID, d.ID)
+	}
+
 	if !d.IsApp() {
 		return Connection{}, fmt.Errorf("%w: %s connects an account by signing in, not as an app", ErrInvalid, d.ID)
 	}

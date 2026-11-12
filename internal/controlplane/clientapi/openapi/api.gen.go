@@ -425,16 +425,19 @@ func (e GitHostKind) Valid() bool {
 
 // Defines values for IntegrationKind.
 const (
-	App   IntegrationKind = "app"
-	Oauth IntegrationKind = "oauth"
+	IntegrationKindAccount IntegrationKind = "account"
+	IntegrationKindApp     IntegrationKind = "app"
+	IntegrationKindOauth   IntegrationKind = "oauth"
 )
 
 // Valid indicates whether the value is a known member of the IntegrationKind enum.
 func (e IntegrationKind) Valid() bool {
 	switch e {
-	case App:
+	case IntegrationKindAccount:
 		return true
-	case Oauth:
+	case IntegrationKindApp:
+		return true
+	case IntegrationKindOauth:
 		return true
 	default:
 		return false
@@ -675,6 +678,51 @@ func (e RunStatus) Valid() bool {
 	}
 }
 
+// Defines values for SupersetChartDataSource.
+const (
+	Built SupersetChartDataSource = "built"
+	Saved SupersetChartDataSource = "saved"
+)
+
+// Valid indicates whether the value is a known member of the SupersetChartDataSource enum.
+func (e SupersetChartDataSource) Valid() bool {
+	switch e {
+	case Built:
+		return true
+	case Saved:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for SupersetRequestMethod.
+const (
+	DELETE SupersetRequestMethod = "DELETE"
+	GET    SupersetRequestMethod = "GET"
+	PATCH  SupersetRequestMethod = "PATCH"
+	POST   SupersetRequestMethod = "POST"
+	PUT    SupersetRequestMethod = "PUT"
+)
+
+// Valid indicates whether the value is a known member of the SupersetRequestMethod enum.
+func (e SupersetRequestMethod) Valid() bool {
+	switch e {
+	case DELETE:
+		return true
+	case GET:
+		return true
+	case PATCH:
+		return true
+	case POST:
+		return true
+	case PUT:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for TaskStatus.
 const (
 	TaskStatusBlocked   TaskStatus = "blocked"
@@ -747,6 +795,24 @@ func (e TranscriptItemKind) Valid() bool {
 	case TranscriptItemKindToolCall:
 		return true
 	case TranscriptItemKindToolResult:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for GetSupersetChartDataParamsFormat.
+const (
+	Csv  GetSupersetChartDataParamsFormat = "csv"
+	Json GetSupersetChartDataParamsFormat = "json"
+)
+
+// Valid indicates whether the value is a known member of the GetSupersetChartDataParamsFormat enum.
+func (e GetSupersetChartDataParamsFormat) Valid() bool {
+	switch e {
+	case Csv:
+		return true
+	case Json:
 		return true
 	default:
 		return false
@@ -1211,7 +1277,7 @@ type Integration struct {
 	Connections []IntegrationConnection `json:"connections"`
 	Id          string                  `json:"id"`
 
-	// Kind How a Connection is made: oauth signs an account in, in a browser; app has no sign-in, its client being an app of the service.
+	// Kind How a Connection is made: oauth signs an account in, in a browser; app has no sign-in, its client being an app of the service; account is the service's address, a user name and a password.
 	Kind IntegrationKind `json:"kind"`
 	Name string          `json:"name"`
 
@@ -1219,13 +1285,16 @@ type Integration struct {
 	Services []string `json:"services"`
 }
 
-// IntegrationKind How a Connection is made: oauth signs an account in, in a browser; app has no sign-in, its client being an app of the service.
+// IntegrationKind How a Connection is made: oauth signs an account in, in a browser; app has no sign-in, its client being an app of the service; account is the service's address, a user name and a password.
 type IntegrationKind string
 
 // IntegrationConnection One account of an Integration the owner signed in, under a label.
 type IntegrationConnection struct {
 	// Account The account's own name at the service, such as its email; an app's name.
 	Account string `json:"account"`
+
+	// Address Where the service is, for an Integration of kind account.
+	Address *string `json:"address,omitempty"`
 
 	// Chats Whether the coordinator may use the Connection in chats, and so give it to a Run. Off until the owner turns it on.
 	Chats       bool      `json:"chats"`
@@ -1236,9 +1305,12 @@ type IntegrationConnection struct {
 	// Services What the Connection was granted: a service alone to read and write, or with ":read" to read only.
 	Services []string `json:"services"`
 
-	// SignInRequired The service refused the Connection's refresh token for good; sign in again.
+	// SignInRequired The service refused the Connection's refresh token for good, or for an account its password the last time the control plane signed in; connect it again.
 	SignInRequired bool      `json:"sign_in_required"`
 	UpdatedAt      time.Time `json:"updated_at"`
+
+	// Version What the service said it runs when the Connection was made, when it said.
+	Version *string `json:"version,omitempty"`
 }
 
 // IntegrationList defines model for IntegrationList.
@@ -1379,6 +1451,14 @@ type Model struct {
 // ModelList defines model for ModelList.
 type ModelList struct {
 	Data []Model `json:"data"`
+}
+
+// NewAccountConnection An account of a service at an address of its own.
+type NewAccountConnection struct {
+	// Address Where the service is, such as https://superset.example.com.
+	Address  *string `json:"address,omitempty"`
+	Password *string `json:"password,omitempty"`
+	Username *string `json:"username,omitempty"`
 }
 
 // NewChat defines model for NewChat.
@@ -1866,6 +1946,117 @@ type Source struct {
 	Source string `json:"source"`
 }
 
+// SupersetAnswer defines model for SupersetAnswer.
+type SupersetAnswer struct {
+	// Action The action the request was, such as superset.charts.read.
+	Action string `json:"action"`
+	Base64 bool   `json:"base64"`
+
+	// Body Superset's answer; in base64 when it is not text.
+	Body        string `json:"body"`
+	ContentType string `json:"content_type"`
+
+	// Status The status Superset answered with.
+	Status int `json:"status"`
+}
+
+// SupersetChart defines model for SupersetChart.
+type SupersetChart struct {
+	// Dataset The dataset's name; absent when the account may not list the dashboard's datasets.
+	Dataset   *string `json:"dataset,omitempty"`
+	DatasetId int64   `json:"dataset_id"`
+	Id        int64   `json:"id"`
+
+	// Kind Superset's name for the kind of chart, such as table or pie.
+	Kind string `json:"kind"`
+	Name string `json:"name"`
+
+	// Read Whether the query of a chart of this kind is built here when it has no saved query.
+	Read bool `json:"read"`
+}
+
+// SupersetChartData defines model for SupersetChartData.
+type SupersetChartData struct {
+	// Cached Whether the figures came from Superset's cache.
+	Cached  bool     `json:"cached"`
+	ChartId int64    `json:"chart_id"`
+	Columns []string `json:"columns"`
+
+	// ComputedAt When the figures were computed: when Superset cached them, or the time of this call when they did not come from its cache.
+	ComputedAt  time.Time `json:"computed_at"`
+	DashboardId int64     `json:"dashboard_id"`
+	Kind        string    `json:"kind"`
+	Name        string    `json:"name"`
+	RowCount    int       `json:"row_count"`
+
+	// Rows The values of each row, in the order of columns.
+	Rows [][]interface{} `json:"rows"`
+
+	// Source How the query was come by: the one Superset saved with the chart, or one built from the chart's settings.
+	Source SupersetChartDataSource `json:"source"`
+
+	// Sql The query Superset ran.
+	Sql string `json:"sql"`
+}
+
+// SupersetChartDataSource How the query was come by: the one Superset saved with the chart, or one built from the chart's settings.
+type SupersetChartDataSource string
+
+// SupersetDashboard defines model for SupersetDashboard.
+type SupersetDashboard struct {
+	Charts  []SupersetChart  `json:"charts"`
+	Filters []SupersetFilter `json:"filters"`
+	Id      int64            `json:"id"`
+	Slug    *string          `json:"slug,omitempty"`
+	Title   string           `json:"title"`
+}
+
+// SupersetDashboardList defines model for SupersetDashboardList.
+type SupersetDashboardList struct {
+	Data []SupersetDashboardSummary `json:"data"`
+}
+
+// SupersetDashboardSummary defines model for SupersetDashboardSummary.
+type SupersetDashboardSummary struct {
+	ChangedAt *time.Time `json:"changed_at,omitempty"`
+	Id        int64      `json:"id"`
+	Published bool       `json:"published"`
+	Slug      *string    `json:"slug,omitempty"`
+	Title     string     `json:"title"`
+}
+
+// SupersetFilter defines model for SupersetFilter.
+type SupersetFilter struct {
+	// Charts The charts the filter applies to.
+	Charts    []int64 `json:"charts"`
+	Column    *string `json:"column,omitempty"`
+	DatasetId *int64  `json:"dataset_id,omitempty"`
+
+	// Default The value the filter has when the dashboard opens; absent when it has none.
+	Default interface{} `json:"default,omitempty"`
+	Id      string      `json:"id"`
+
+	// Kind Superset's name for the kind of filter, such as filter_select.
+	Kind string `json:"kind"`
+	Name string `json:"name"`
+}
+
+// SupersetRequest defines model for SupersetRequest.
+type SupersetRequest struct {
+	// Body The request's body, sent as JSON.
+	Body *string `json:"body,omitempty"`
+
+	// ChatId The chat a coordinator asks from. Ignored for the owner.
+	ChatId *string               `json:"chat_id,omitempty"`
+	Method SupersetRequestMethod `json:"method"`
+
+	// Path The path and the query as Superset reads them, such as /api/v1/chart/?q=(page_size:5).
+	Path string `json:"path"`
+}
+
+// SupersetRequestMethod defines model for SupersetRequest.Method.
+type SupersetRequestMethod string
+
 // Task defines model for Task.
 type Task struct {
 	BlockedReason     *BlockedReason `json:"blocked_reason,omitempty"`
@@ -1972,6 +2163,9 @@ type AccountID = string
 // After defines model for After.
 type After = int64
 
+// AskingChat defines model for AskingChat.
+type AskingChat = string
+
 // ChatID defines model for ChatID.
 type ChatID = string
 
@@ -1998,6 +2192,9 @@ type QuestionID = string
 
 // RunID defines model for RunID.
 type RunID = string
+
+// SupersetDashboardID defines model for SupersetDashboardID.
+type SupersetDashboardID = string
 
 // TaskID defines model for TaskID.
 type TaskID = string
@@ -2075,6 +2272,33 @@ type StreamEventsParams struct {
 	LastEventID *int64 `json:"Last-Event-ID,omitempty"`
 }
 
+// ListSupersetDashboardsParams defines parameters for ListSupersetDashboards.
+type ListSupersetDashboardsParams struct {
+	// Q Only the dashboards whose title contains this.
+	Q *string `form:"q,omitempty" json:"q,omitempty"`
+
+	// ChatId The chat a coordinator asks from, so that an Approval the request waits for is answered there. Ignored for the owner.
+	ChatId *AskingChat `form:"chat_id,omitempty" json:"chat_id,omitempty"`
+}
+
+// GetSupersetDashboardParams defines parameters for GetSupersetDashboard.
+type GetSupersetDashboardParams struct {
+	// ChatId The chat a coordinator asks from, so that an Approval the request waits for is answered there. Ignored for the owner.
+	ChatId *AskingChat `form:"chat_id,omitempty" json:"chat_id,omitempty"`
+}
+
+// GetSupersetChartDataParams defines parameters for GetSupersetChartData.
+type GetSupersetChartDataParams struct {
+	// Format json, the default, or csv for the rows alone with a header line.
+	Format *GetSupersetChartDataParamsFormat `form:"format,omitempty" json:"format,omitempty"`
+
+	// ChatId The chat a coordinator asks from, so that an Approval the request waits for is answered there. Ignored for the owner.
+	ChatId *AskingChat `form:"chat_id,omitempty" json:"chat_id,omitempty"`
+}
+
+// GetSupersetChartDataParamsFormat defines parameters for GetSupersetChartData.
+type GetSupersetChartDataParamsFormat string
+
 // ListQuestionsParams defines parameters for ListQuestions.
 type ListQuestionsParams struct {
 	Status      *QuestionStatus `form:"status,omitempty" json:"status,omitempty"`
@@ -2144,11 +2368,17 @@ type PutGitHostConnectionJSONRequestBody = NewGitHostToken
 // PutGitHostTokenJSONRequestBody defines body for PutGitHostToken for application/json ContentType.
 type PutGitHostTokenJSONRequestBody = NewGitHostToken
 
+// RelaySupersetRequestJSONRequestBody defines body for RelaySupersetRequest for application/json ContentType.
+type RelaySupersetRequestJSONRequestBody = SupersetRequest
+
 // PutIntegrationClientJSONRequestBody defines body for PutIntegrationClient for application/json ContentType.
 type PutIntegrationClientJSONRequestBody = NewIntegrationClient
 
 // PatchIntegrationConnectionJSONRequestBody defines body for PatchIntegrationConnection for application/json ContentType.
 type PatchIntegrationConnectionJSONRequestBody = ConnectionUse
+
+// PutIntegrationConnectionJSONRequestBody defines body for PutIntegrationConnection for application/json ContentType.
+type PutIntegrationConnectionJSONRequestBody = NewAccountConnection
 
 // SetConnectionActionJSONRequestBody defines body for SetConnectionAction for application/json ContentType.
 type SetConnectionActionJSONRequestBody = ActionPolicyChange
@@ -2609,10 +2839,49 @@ type ClientInterface interface {
 
 	// ListIntegrations The services that sign in with an account or are an app, with their Connections
 	//
-	// An Integration here signs an account in with OAuth, as Google, or is an app of the service, as Lark. A git host is an Integration too and is listed under /hosts. No token and no client secret is ever in the answer.
+	// An Integration here signs an account in with OAuth, as Google, is an app of the service, as Lark, or is an account at an address of its own, as Superset. A git host is an Integration too and is listed under /hosts. No token, no password and no client secret is ever in the answer.
 	//
 	// Corresponds with GET /integrations (the `ListIntegrations` operationId).
 	ListIntegrations(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RelaySupersetRequestWithBody Send one request to a Superset Connection's API and return its answer unchanged
+	//
+	// The control plane matches the request to its action in the Connection's actions and applies the owner's answer: allow sends it, never refuses it, ask holds it for the owner's Approval. A request that is held longer than the wait answers that it waits, and the same request sent again after the Approval passes once. The token is added on the control plane and is never in an answer. A request that could be read two ways (a path that climbs, an encoded slash, another address) is refused. The account's roles at Superset still decide what it may do there. Who may ask is as for the list of dashboards.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /integrations/superset/connections/{label}/api (the `RelaySupersetRequest` operationId).
+	RelaySupersetRequestWithBody(ctx context.Context, label ConnectionLabel, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RelaySupersetRequest Send one request to a Superset Connection's API and return its answer unchanged
+	//
+	// The control plane matches the request to its action in the Connection's actions and applies the owner's answer: allow sends it, never refuses it, ask holds it for the owner's Approval. A request that is held longer than the wait answers that it waits, and the same request sent again after the Approval passes once. The token is added on the control plane and is never in an answer. A request that could be read two ways (a path that climbs, an encoded slash, another address) is refused. The account's roles at Superset still decide what it may do there. Who may ask is as for the list of dashboards.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /integrations/superset/connections/{label}/api (the `RelaySupersetRequest` operationId).
+	RelaySupersetRequest(ctx context.Context, label ConnectionLabel, body RelaySupersetRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListSupersetDashboards The dashboards of a Superset Connection, by title
+	//
+	// At most a hundred, by title. The owner may ask, and a coordinator token when the owner switched the Connection on for chats. The request to Superset is the read of dashboards in the Connection's actions and has the owner's answer for it.
+	//
+	// Corresponds with GET /integrations/superset/connections/{label}/dashboards (the `ListSupersetDashboards` operationId).
+	ListSupersetDashboards(ctx context.Context, label ConnectionLabel, params *ListSupersetDashboardsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetSupersetDashboard A Superset dashboard with its charts and its filters
+	//
+	// Each chart with its kind and its dataset, and whether a chart of that kind can be read as data; each filter with the value it has when the dashboard opens. Who may ask is as for the list of dashboards.
+	//
+	// Corresponds with GET /integrations/superset/connections/{label}/dashboards/{dashboard} (the `GetSupersetDashboard` operationId).
+	GetSupersetDashboard(ctx context.Context, label ConnectionLabel, dashboard SupersetDashboardID, params *GetSupersetDashboardParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetSupersetChartData A chart's rows as its dashboard shows them when it opens
+	//
+	// The column names, the rows, the SQL Superset ran and when the figures were computed. The query is the one Superset saved with the chart when it has one, and otherwise one built from the chart's own settings; the dashboard's filters are applied at the values they start with. A chart of a kind whose query is not built yet, and that has no saved query, is refused with the name of its kind. The chart's own row limit holds. Who may ask is as for the list of dashboards.
+	//
+	// Corresponds with GET /integrations/superset/connections/{label}/dashboards/{dashboard}/charts/{chart}/data (the `GetSupersetChartData` operationId).
+	GetSupersetChartData(ctx context.Context, label ConnectionLabel, dashboard SupersetDashboardID, chart int64, params *GetSupersetChartDataParams, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// PutIntegrationClientWithBody Keep the OAuth client an Integration signs in with, or the app it is; only the owner
 	//
@@ -2657,12 +2926,23 @@ type ClientInterface interface {
 	// Corresponds with PATCH /integrations/{integration}/connections/{label} (the `PatchIntegrationConnection` operationId).
 	PatchIntegrationConnection(ctx context.Context, integration IntegrationID, label string, body PatchIntegrationConnectionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
-	// PutIntegrationConnection Connect an Integration of kind app, as a Connection under a label; only the owner
+	// PutIntegrationConnectionWithBody Connect an Integration of kind app or account, as a Connection under a label; only the owner
 	//
-	// There is no sign-in: the control plane asks the service for a token with the app's id and secret, reads the app's name with it and records the Connection. A label that exists is checked again. An Integration that signs an account in is refused: it starts a sign-in.
+	// For an app there is no sign-in and no body: the control plane asks the service for a token with the app's id and secret, reads the app's name with it and records the Connection. For an account the body is the service's address, a user name and a password: the control plane signs in there once, which shows that they work, keeps the password in the vault and records the Connection with the version the service says it runs. A sign-in that is refused stores nothing. A label that exists is checked again and takes what was given. An Integration that signs an account in with OAuth is refused: it starts a sign-in.
+	//
+	// Takes any type of body and a specified content type.
 	//
 	// Corresponds with PUT /integrations/{integration}/connections/{label} (the `PutIntegrationConnection` operationId).
-	PutIntegrationConnection(ctx context.Context, integration IntegrationID, label string, reqEditors ...RequestEditorFn) (*http.Response, error)
+	PutIntegrationConnectionWithBody(ctx context.Context, integration IntegrationID, label string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PutIntegrationConnection Connect an Integration of kind app or account, as a Connection under a label; only the owner
+	//
+	// For an app there is no sign-in and no body: the control plane asks the service for a token with the app's id and secret, reads the app's name with it and records the Connection. For an account the body is the service's address, a user name and a password: the control plane signs in there once, which shows that they work, keeps the password in the vault and records the Connection with the version the service says it runs. A sign-in that is refused stores nothing. A label that exists is checked again and takes what was given. An Integration that signs an account in with OAuth is refused: it starts a sign-in.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PUT /integrations/{integration}/connections/{label} (the `PutIntegrationConnection` operationId).
+	PutIntegrationConnection(ctx context.Context, integration IntegrationID, label string, body PutIntegrationConnectionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListConnectionActions What agents may do with a Connection, action by action; only the owner
 	//
@@ -3877,11 +4157,100 @@ func (c *Client) PutGitHostToken(ctx context.Context, host string, body PutGitHo
 
 // ListIntegrations The services that sign in with an account or are an app, with their Connections
 //
-// An Integration here signs an account in with OAuth, as Google, or is an app of the service, as Lark. A git host is an Integration too and is listed under /hosts. No token and no client secret is ever in the answer.
+// An Integration here signs an account in with OAuth, as Google, is an app of the service, as Lark, or is an account at an address of its own, as Superset. A git host is an Integration too and is listed under /hosts. No token, no password and no client secret is ever in the answer.
 //
 // Corresponds with GET /integrations (the `ListIntegrations` operationId).
 func (c *Client) ListIntegrations(ctx context.Context, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewListIntegrationsRequest(c.Server)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RelaySupersetRequestWithBody Send one request to a Superset Connection's API and return its answer unchanged
+//
+// The control plane matches the request to its action in the Connection's actions and applies the owner's answer: allow sends it, never refuses it, ask holds it for the owner's Approval. A request that is held longer than the wait answers that it waits, and the same request sent again after the Approval passes once. The token is added on the control plane and is never in an answer. A request that could be read two ways (a path that climbs, an encoded slash, another address) is refused. The account's roles at Superset still decide what it may do there. Who may ask is as for the list of dashboards.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /integrations/superset/connections/{label}/api (the `RelaySupersetRequest` operationId).
+func (c *Client) RelaySupersetRequestWithBody(ctx context.Context, label ConnectionLabel, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRelaySupersetRequestRequestWithBody(c.Server, label, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RelaySupersetRequest Send one request to a Superset Connection's API and return its answer unchanged
+//
+// The control plane matches the request to its action in the Connection's actions and applies the owner's answer: allow sends it, never refuses it, ask holds it for the owner's Approval. A request that is held longer than the wait answers that it waits, and the same request sent again after the Approval passes once. The token is added on the control plane and is never in an answer. A request that could be read two ways (a path that climbs, an encoded slash, another address) is refused. The account's roles at Superset still decide what it may do there. Who may ask is as for the list of dashboards.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /integrations/superset/connections/{label}/api (the `RelaySupersetRequest` operationId).
+func (c *Client) RelaySupersetRequest(ctx context.Context, label ConnectionLabel, body RelaySupersetRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRelaySupersetRequestRequest(c.Server, label, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListSupersetDashboards The dashboards of a Superset Connection, by title
+//
+// At most a hundred, by title. The owner may ask, and a coordinator token when the owner switched the Connection on for chats. The request to Superset is the read of dashboards in the Connection's actions and has the owner's answer for it.
+//
+// Corresponds with GET /integrations/superset/connections/{label}/dashboards (the `ListSupersetDashboards` operationId).
+func (c *Client) ListSupersetDashboards(ctx context.Context, label ConnectionLabel, params *ListSupersetDashboardsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListSupersetDashboardsRequest(c.Server, label, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetSupersetDashboard A Superset dashboard with its charts and its filters
+//
+// Each chart with its kind and its dataset, and whether a chart of that kind can be read as data; each filter with the value it has when the dashboard opens. Who may ask is as for the list of dashboards.
+//
+// Corresponds with GET /integrations/superset/connections/{label}/dashboards/{dashboard} (the `GetSupersetDashboard` operationId).
+func (c *Client) GetSupersetDashboard(ctx context.Context, label ConnectionLabel, dashboard SupersetDashboardID, params *GetSupersetDashboardParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetSupersetDashboardRequest(c.Server, label, dashboard, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetSupersetChartData A chart's rows as its dashboard shows them when it opens
+//
+// The column names, the rows, the SQL Superset ran and when the figures were computed. The query is the one Superset saved with the chart when it has one, and otherwise one built from the chart's own settings; the dashboard's filters are applied at the values they start with. A chart of a kind whose query is not built yet, and that has no saved query, is refused with the name of its kind. The chart's own row limit holds. Who may ask is as for the list of dashboards.
+//
+// Corresponds with GET /integrations/superset/connections/{label}/dashboards/{dashboard}/charts/{chart}/data (the `GetSupersetChartData` operationId).
+func (c *Client) GetSupersetChartData(ctx context.Context, label ConnectionLabel, dashboard SupersetDashboardID, chart int64, params *GetSupersetChartDataParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetSupersetChartDataRequest(c.Server, label, dashboard, chart, params)
 	if err != nil {
 		return nil, err
 	}
@@ -3985,13 +4354,34 @@ func (c *Client) PatchIntegrationConnection(ctx context.Context, integration Int
 	return c.Client.Do(req)
 }
 
-// PutIntegrationConnection Connect an Integration of kind app, as a Connection under a label; only the owner
+// PutIntegrationConnectionWithBody Connect an Integration of kind app or account, as a Connection under a label; only the owner
 //
-// There is no sign-in: the control plane asks the service for a token with the app's id and secret, reads the app's name with it and records the Connection. A label that exists is checked again. An Integration that signs an account in is refused: it starts a sign-in.
+// For an app there is no sign-in and no body: the control plane asks the service for a token with the app's id and secret, reads the app's name with it and records the Connection. For an account the body is the service's address, a user name and a password: the control plane signs in there once, which shows that they work, keeps the password in the vault and records the Connection with the version the service says it runs. A sign-in that is refused stores nothing. A label that exists is checked again and takes what was given. An Integration that signs an account in with OAuth is refused: it starts a sign-in.
+//
+// Takes any type of body and a specified content type.
 //
 // Corresponds with PUT /integrations/{integration}/connections/{label} (the `PutIntegrationConnection` operationId).
-func (c *Client) PutIntegrationConnection(ctx context.Context, integration IntegrationID, label string, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewPutIntegrationConnectionRequest(c.Server, integration, label)
+func (c *Client) PutIntegrationConnectionWithBody(ctx context.Context, integration IntegrationID, label string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPutIntegrationConnectionRequestWithBody(c.Server, integration, label, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PutIntegrationConnection Connect an Integration of kind app or account, as a Connection under a label; only the owner
+//
+// For an app there is no sign-in and no body: the control plane asks the service for a token with the app's id and secret, reads the app's name with it and records the Connection. For an account the body is the service's address, a user name and a password: the control plane signs in there once, which shows that they work, keeps the password in the vault and records the Connection with the version the service says it runs. A sign-in that is refused stores nothing. A label that exists is checked again and takes what was given. An Integration that signs an account in with OAuth is refused: it starts a sign-in.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PUT /integrations/{integration}/connections/{label} (the `PutIntegrationConnection` operationId).
+func (c *Client) PutIntegrationConnection(ctx context.Context, integration IntegrationID, label string, body PutIntegrationConnectionJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPutIntegrationConnectionRequest(c.Server, integration, label, body)
 	if err != nil {
 		return nil, err
 	}
@@ -6786,6 +7176,281 @@ func NewListIntegrationsRequest(server string) (*http.Request, error) {
 	return req, nil
 }
 
+// NewRelaySupersetRequestRequest calls the generic RelaySupersetRequest builder with application/json body
+func NewRelaySupersetRequestRequest(server string, label ConnectionLabel, body RelaySupersetRequestJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewRelaySupersetRequestRequestWithBody(server, label, "application/json", bodyReader)
+}
+
+// NewRelaySupersetRequestRequestWithBody constructs an http.Request for the RelaySupersetRequest method, with any body, and a specified content type
+func NewRelaySupersetRequestRequestWithBody(server string, label ConnectionLabel, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "label", label, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/integrations/superset/connections/%s/api", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewListSupersetDashboardsRequest constructs an http.Request for the ListSupersetDashboards method
+func NewListSupersetDashboardsRequest(server string, label ConnectionLabel, params *ListSupersetDashboardsParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "label", label, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/integrations/superset/connections/%s/dashboards", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Q != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "q", *params.Q, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.ChatId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "chat_id", *params.ChatId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetSupersetDashboardRequest constructs an http.Request for the GetSupersetDashboard method
+func NewGetSupersetDashboardRequest(server string, label ConnectionLabel, dashboard SupersetDashboardID, params *GetSupersetDashboardParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "label", label, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "dashboard", dashboard, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/integrations/superset/connections/%s/dashboards/%s", pathParam0, pathParam1)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.ChatId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "chat_id", *params.ChatId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetSupersetChartDataRequest constructs an http.Request for the GetSupersetChartData method
+func NewGetSupersetChartDataRequest(server string, label ConnectionLabel, dashboard SupersetDashboardID, chart int64, params *GetSupersetChartDataParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "label", label, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "dashboard", dashboard, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam2 string
+
+	pathParam2, err = runtime.StyleParamWithOptions("simple", false, "chart", chart, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "integer", Format: "int64"})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/integrations/superset/connections/%s/dashboards/%s/charts/%s/data", pathParam0, pathParam1, pathParam2)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Format != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "format", *params.Format, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.ChatId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "chat_id", *params.ChatId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
 // NewPutIntegrationClientRequest calls the generic PutIntegrationClient builder with application/json body
 func NewPutIntegrationClientRequest(server string, integration IntegrationID, body PutIntegrationClientJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
@@ -6928,8 +7593,19 @@ func NewPatchIntegrationConnectionRequestWithBody(server string, integration Int
 	return req, nil
 }
 
-// NewPutIntegrationConnectionRequest constructs an http.Request for the PutIntegrationConnection method
-func NewPutIntegrationConnectionRequest(server string, integration IntegrationID, label string) (*http.Request, error) {
+// NewPutIntegrationConnectionRequest calls the generic PutIntegrationConnection builder with application/json body
+func NewPutIntegrationConnectionRequest(server string, integration IntegrationID, label string, body PutIntegrationConnectionJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPutIntegrationConnectionRequestWithBody(server, integration, label, "application/json", bodyReader)
+}
+
+// NewPutIntegrationConnectionRequestWithBody constructs an http.Request for the PutIntegrationConnection method, with any body, and a specified content type
+func NewPutIntegrationConnectionRequestWithBody(server string, integration IntegrationID, label string, contentType string, body io.Reader) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -6961,10 +7637,12 @@ func NewPutIntegrationConnectionRequest(server string, integration IntegrationID
 		return nil, err
 	}
 
-	req, err := http.NewRequest(http.MethodPut, queryURL.String(), nil)
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
 	if err != nil {
 		return nil, err
 	}
+
+	req.Header.Add("Content-Type", contentType)
 
 	return req, nil
 }
@@ -9228,12 +9906,57 @@ type ClientWithResponsesInterface interface {
 
 	// ListIntegrationsWithResponse The services that sign in with an account or are an app, with their Connections
 	//
-	// An Integration here signs an account in with OAuth, as Google, or is an app of the service, as Lark. A git host is an Integration too and is listed under /hosts. No token and no client secret is ever in the answer.
+	// An Integration here signs an account in with OAuth, as Google, is an app of the service, as Lark, or is an account at an address of its own, as Superset. A git host is an Integration too and is listed under /hosts. No token, no password and no client secret is ever in the answer.
 	//
 	// Returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with GET /integrations (the `ListIntegrations` operationId).
 	ListIntegrationsWithResponse(ctx context.Context, reqEditors ...RequestEditorFn) (*ListIntegrationsResponse, error)
+
+	// RelaySupersetRequestWithBodyWithResponse Send one request to a Superset Connection's API and return its answer unchanged
+	//
+	// The control plane matches the request to its action in the Connection's actions and applies the owner's answer: allow sends it, never refuses it, ask holds it for the owner's Approval. A request that is held longer than the wait answers that it waits, and the same request sent again after the Approval passes once. The token is added on the control plane and is never in an answer. A request that could be read two ways (a path that climbs, an encoded slash, another address) is refused. The account's roles at Superset still decide what it may do there. Who may ask is as for the list of dashboards.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /integrations/superset/connections/{label}/api (the `RelaySupersetRequest` operationId).
+	RelaySupersetRequestWithBodyWithResponse(ctx context.Context, label ConnectionLabel, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RelaySupersetRequestResponse, error)
+
+	// RelaySupersetRequestWithResponse Send one request to a Superset Connection's API and return its answer unchanged
+	//
+	// The control plane matches the request to its action in the Connection's actions and applies the owner's answer: allow sends it, never refuses it, ask holds it for the owner's Approval. A request that is held longer than the wait answers that it waits, and the same request sent again after the Approval passes once. The token is added on the control plane and is never in an answer. A request that could be read two ways (a path that climbs, an encoded slash, another address) is refused. The account's roles at Superset still decide what it may do there. Who may ask is as for the list of dashboards.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /integrations/superset/connections/{label}/api (the `RelaySupersetRequest` operationId).
+	RelaySupersetRequestWithResponse(ctx context.Context, label ConnectionLabel, body RelaySupersetRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*RelaySupersetRequestResponse, error)
+
+	// ListSupersetDashboardsWithResponse The dashboards of a Superset Connection, by title
+	//
+	// At most a hundred, by title. The owner may ask, and a coordinator token when the owner switched the Connection on for chats. The request to Superset is the read of dashboards in the Connection's actions and has the owner's answer for it.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /integrations/superset/connections/{label}/dashboards (the `ListSupersetDashboards` operationId).
+	ListSupersetDashboardsWithResponse(ctx context.Context, label ConnectionLabel, params *ListSupersetDashboardsParams, reqEditors ...RequestEditorFn) (*ListSupersetDashboardsResponse, error)
+
+	// GetSupersetDashboardWithResponse A Superset dashboard with its charts and its filters
+	//
+	// Each chart with its kind and its dataset, and whether a chart of that kind can be read as data; each filter with the value it has when the dashboard opens. Who may ask is as for the list of dashboards.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /integrations/superset/connections/{label}/dashboards/{dashboard} (the `GetSupersetDashboard` operationId).
+	GetSupersetDashboardWithResponse(ctx context.Context, label ConnectionLabel, dashboard SupersetDashboardID, params *GetSupersetDashboardParams, reqEditors ...RequestEditorFn) (*GetSupersetDashboardResponse, error)
+
+	// GetSupersetChartDataWithResponse A chart's rows as its dashboard shows them when it opens
+	//
+	// The column names, the rows, the SQL Superset ran and when the figures were computed. The query is the one Superset saved with the chart when it has one, and otherwise one built from the chart's own settings; the dashboard's filters are applied at the values they start with. A chart of a kind whose query is not built yet, and that has no saved query, is refused with the name of its kind. The chart's own row limit holds. Who may ask is as for the list of dashboards.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /integrations/superset/connections/{label}/dashboards/{dashboard}/charts/{chart}/data (the `GetSupersetChartData` operationId).
+	GetSupersetChartDataWithResponse(ctx context.Context, label ConnectionLabel, dashboard SupersetDashboardID, chart int64, params *GetSupersetChartDataParams, reqEditors ...RequestEditorFn) (*GetSupersetChartDataResponse, error)
 
 	// PutIntegrationClientWithBodyWithResponse Keep the OAuth client an Integration signs in with, or the app it is; only the owner
 	//
@@ -9280,14 +10003,23 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with PATCH /integrations/{integration}/connections/{label} (the `PatchIntegrationConnection` operationId).
 	PatchIntegrationConnectionWithResponse(ctx context.Context, integration IntegrationID, label string, body PatchIntegrationConnectionJSONRequestBody, reqEditors ...RequestEditorFn) (*PatchIntegrationConnectionResponse, error)
 
-	// PutIntegrationConnectionWithResponse Connect an Integration of kind app, as a Connection under a label; only the owner
+	// PutIntegrationConnectionWithBodyWithResponse Connect an Integration of kind app or account, as a Connection under a label; only the owner
 	//
-	// There is no sign-in: the control plane asks the service for a token with the app's id and secret, reads the app's name with it and records the Connection. A label that exists is checked again. An Integration that signs an account in is refused: it starts a sign-in.
+	// For an app there is no sign-in and no body: the control plane asks the service for a token with the app's id and secret, reads the app's name with it and records the Connection. For an account the body is the service's address, a user name and a password: the control plane signs in there once, which shows that they work, keeps the password in the vault and records the Connection with the version the service says it runs. A sign-in that is refused stores nothing. A label that exists is checked again and takes what was given. An Integration that signs an account in with OAuth is refused: it starts a sign-in.
 	//
-	// Returns a wrapper object for the known response body format(s).
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with PUT /integrations/{integration}/connections/{label} (the `PutIntegrationConnection` operationId).
-	PutIntegrationConnectionWithResponse(ctx context.Context, integration IntegrationID, label string, reqEditors ...RequestEditorFn) (*PutIntegrationConnectionResponse, error)
+	PutIntegrationConnectionWithBodyWithResponse(ctx context.Context, integration IntegrationID, label string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutIntegrationConnectionResponse, error)
+
+	// PutIntegrationConnectionWithResponse Connect an Integration of kind app or account, as a Connection under a label; only the owner
+	//
+	// For an app there is no sign-in and no body: the control plane asks the service for a token with the app's id and secret, reads the app's name with it and records the Connection. For an account the body is the service's address, a user name and a password: the control plane signs in there once, which shows that they work, keeps the password in the vault and records the Connection with the version the service says it runs. A sign-in that is refused stores nothing. A label that exists is checked again and takes what was given. An Integration that signs an account in with OAuth is refused: it starts a sign-in.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /integrations/{integration}/connections/{label} (the `PutIntegrationConnection` operationId).
+	PutIntegrationConnectionWithResponse(ctx context.Context, integration IntegrationID, label string, body PutIntegrationConnectionJSONRequestBody, reqEditors ...RequestEditorFn) (*PutIntegrationConnectionResponse, error)
 
 	// ListConnectionActionsWithResponse What agents may do with a Connection, action by action; only the owner
 	//
@@ -11548,6 +12280,198 @@ func (r ListIntegrationsResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r ListIntegrationsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type RelaySupersetRequestResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *SupersetAnswer
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r RelaySupersetRequestResponse) GetJSON200() *SupersetAnswer {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r RelaySupersetRequestResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r RelaySupersetRequestResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r RelaySupersetRequestResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RelaySupersetRequestResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r RelaySupersetRequestResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListSupersetDashboardsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *SupersetDashboardList
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListSupersetDashboardsResponse) GetJSON200() *SupersetDashboardList {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListSupersetDashboardsResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListSupersetDashboardsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListSupersetDashboardsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListSupersetDashboardsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListSupersetDashboardsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetSupersetDashboardResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *SupersetDashboard
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetSupersetDashboardResponse) GetJSON200() *SupersetDashboard {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r GetSupersetDashboardResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r GetSupersetDashboardResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetSupersetDashboardResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetSupersetDashboardResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetSupersetDashboardResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetSupersetChartDataResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *SupersetChartData
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetSupersetChartDataResponse) GetJSON200() *SupersetChartData {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r GetSupersetChartDataResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r GetSupersetChartDataResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetSupersetChartDataResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetSupersetChartDataResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetSupersetChartDataResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -14590,7 +15514,7 @@ func (c *ClientWithResponses) PutGitHostTokenWithResponse(ctx context.Context, h
 
 // ListIntegrationsWithResponse The services that sign in with an account or are an app, with their Connections
 //
-// An Integration here signs an account in with OAuth, as Google, or is an app of the service, as Lark. A git host is an Integration too and is listed under /hosts. No token and no client secret is ever in the answer.
+// An Integration here signs an account in with OAuth, as Google, is an app of the service, as Lark, or is an account at an address of its own, as Superset. A git host is an Integration too and is listed under /hosts. No token, no password and no client secret is ever in the answer.
 //
 // Returns a wrapper object for the known response body format(s).
 //
@@ -14601,6 +15525,81 @@ func (c *ClientWithResponses) ListIntegrationsWithResponse(ctx context.Context, 
 		return nil, err
 	}
 	return ParseListIntegrationsResponse(rsp)
+}
+
+// RelaySupersetRequestWithBodyWithResponse Send one request to a Superset Connection's API and return its answer unchanged
+//
+// The control plane matches the request to its action in the Connection's actions and applies the owner's answer: allow sends it, never refuses it, ask holds it for the owner's Approval. A request that is held longer than the wait answers that it waits, and the same request sent again after the Approval passes once. The token is added on the control plane and is never in an answer. A request that could be read two ways (a path that climbs, an encoded slash, another address) is refused. The account's roles at Superset still decide what it may do there. Who may ask is as for the list of dashboards.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /integrations/superset/connections/{label}/api (the `RelaySupersetRequest` operationId).
+func (c *ClientWithResponses) RelaySupersetRequestWithBodyWithResponse(ctx context.Context, label ConnectionLabel, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RelaySupersetRequestResponse, error) {
+	rsp, err := c.RelaySupersetRequestWithBody(ctx, label, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRelaySupersetRequestResponse(rsp)
+}
+
+// RelaySupersetRequestWithResponse Send one request to a Superset Connection's API and return its answer unchanged
+//
+// The control plane matches the request to its action in the Connection's actions and applies the owner's answer: allow sends it, never refuses it, ask holds it for the owner's Approval. A request that is held longer than the wait answers that it waits, and the same request sent again after the Approval passes once. The token is added on the control plane and is never in an answer. A request that could be read two ways (a path that climbs, an encoded slash, another address) is refused. The account's roles at Superset still decide what it may do there. Who may ask is as for the list of dashboards.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /integrations/superset/connections/{label}/api (the `RelaySupersetRequest` operationId).
+func (c *ClientWithResponses) RelaySupersetRequestWithResponse(ctx context.Context, label ConnectionLabel, body RelaySupersetRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*RelaySupersetRequestResponse, error) {
+	rsp, err := c.RelaySupersetRequest(ctx, label, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRelaySupersetRequestResponse(rsp)
+}
+
+// ListSupersetDashboardsWithResponse The dashboards of a Superset Connection, by title
+//
+// At most a hundred, by title. The owner may ask, and a coordinator token when the owner switched the Connection on for chats. The request to Superset is the read of dashboards in the Connection's actions and has the owner's answer for it.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /integrations/superset/connections/{label}/dashboards (the `ListSupersetDashboards` operationId).
+func (c *ClientWithResponses) ListSupersetDashboardsWithResponse(ctx context.Context, label ConnectionLabel, params *ListSupersetDashboardsParams, reqEditors ...RequestEditorFn) (*ListSupersetDashboardsResponse, error) {
+	rsp, err := c.ListSupersetDashboards(ctx, label, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListSupersetDashboardsResponse(rsp)
+}
+
+// GetSupersetDashboardWithResponse A Superset dashboard with its charts and its filters
+//
+// Each chart with its kind and its dataset, and whether a chart of that kind can be read as data; each filter with the value it has when the dashboard opens. Who may ask is as for the list of dashboards.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /integrations/superset/connections/{label}/dashboards/{dashboard} (the `GetSupersetDashboard` operationId).
+func (c *ClientWithResponses) GetSupersetDashboardWithResponse(ctx context.Context, label ConnectionLabel, dashboard SupersetDashboardID, params *GetSupersetDashboardParams, reqEditors ...RequestEditorFn) (*GetSupersetDashboardResponse, error) {
+	rsp, err := c.GetSupersetDashboard(ctx, label, dashboard, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetSupersetDashboardResponse(rsp)
+}
+
+// GetSupersetChartDataWithResponse A chart's rows as its dashboard shows them when it opens
+//
+// The column names, the rows, the SQL Superset ran and when the figures were computed. The query is the one Superset saved with the chart when it has one, and otherwise one built from the chart's own settings; the dashboard's filters are applied at the values they start with. A chart of a kind whose query is not built yet, and that has no saved query, is refused with the name of its kind. The chart's own row limit holds. Who may ask is as for the list of dashboards.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /integrations/superset/connections/{label}/dashboards/{dashboard}/charts/{chart}/data (the `GetSupersetChartData` operationId).
+func (c *ClientWithResponses) GetSupersetChartDataWithResponse(ctx context.Context, label ConnectionLabel, dashboard SupersetDashboardID, chart int64, params *GetSupersetChartDataParams, reqEditors ...RequestEditorFn) (*GetSupersetChartDataResponse, error) {
+	rsp, err := c.GetSupersetChartData(ctx, label, dashboard, chart, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetSupersetChartDataResponse(rsp)
 }
 
 // PutIntegrationClientWithBodyWithResponse Keep the OAuth client an Integration signs in with, or the app it is; only the owner
@@ -14678,15 +15677,30 @@ func (c *ClientWithResponses) PatchIntegrationConnectionWithResponse(ctx context
 	return ParsePatchIntegrationConnectionResponse(rsp)
 }
 
-// PutIntegrationConnectionWithResponse Connect an Integration of kind app, as a Connection under a label; only the owner
+// PutIntegrationConnectionWithBodyWithResponse Connect an Integration of kind app or account, as a Connection under a label; only the owner
 //
-// There is no sign-in: the control plane asks the service for a token with the app's id and secret, reads the app's name with it and records the Connection. A label that exists is checked again. An Integration that signs an account in is refused: it starts a sign-in.
+// For an app there is no sign-in and no body: the control plane asks the service for a token with the app's id and secret, reads the app's name with it and records the Connection. For an account the body is the service's address, a user name and a password: the control plane signs in there once, which shows that they work, keeps the password in the vault and records the Connection with the version the service says it runs. A sign-in that is refused stores nothing. A label that exists is checked again and takes what was given. An Integration that signs an account in with OAuth is refused: it starts a sign-in.
 //
-// Returns a wrapper object for the known response body format(s).
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
 // Corresponds with PUT /integrations/{integration}/connections/{label} (the `PutIntegrationConnection` operationId).
-func (c *ClientWithResponses) PutIntegrationConnectionWithResponse(ctx context.Context, integration IntegrationID, label string, reqEditors ...RequestEditorFn) (*PutIntegrationConnectionResponse, error) {
-	rsp, err := c.PutIntegrationConnection(ctx, integration, label, reqEditors...)
+func (c *ClientWithResponses) PutIntegrationConnectionWithBodyWithResponse(ctx context.Context, integration IntegrationID, label string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutIntegrationConnectionResponse, error) {
+	rsp, err := c.PutIntegrationConnectionWithBody(ctx, integration, label, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePutIntegrationConnectionResponse(rsp)
+}
+
+// PutIntegrationConnectionWithResponse Connect an Integration of kind app or account, as a Connection under a label; only the owner
+//
+// For an app there is no sign-in and no body: the control plane asks the service for a token with the app's id and secret, reads the app's name with it and records the Connection. For an account the body is the service's address, a user name and a password: the control plane signs in there once, which shows that they work, keeps the password in the vault and records the Connection with the version the service says it runs. A sign-in that is refused stores nothing. A label that exists is checked again and takes what was given. An Integration that signs an account in with OAuth is refused: it starts a sign-in.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /integrations/{integration}/connections/{label} (the `PutIntegrationConnection` operationId).
+func (c *ClientWithResponses) PutIntegrationConnectionWithResponse(ctx context.Context, integration IntegrationID, label string, body PutIntegrationConnectionJSONRequestBody, reqEditors ...RequestEditorFn) (*PutIntegrationConnectionResponse, error) {
+	rsp, err := c.PutIntegrationConnection(ctx, integration, label, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
@@ -16750,6 +17764,141 @@ func ParseListIntegrationsResponse(rsp *http.Response) (*ListIntegrationsRespons
 	return response, nil
 }
 
+// ParseRelaySupersetRequestResponse parses an HTTP response from a RelaySupersetRequestWithResponse call
+func ParseRelaySupersetRequestResponse(rsp *http.Response) (*RelaySupersetRequestResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RelaySupersetRequestResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest SupersetAnswer
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListSupersetDashboardsResponse parses an HTTP response from a ListSupersetDashboardsWithResponse call
+func ParseListSupersetDashboardsResponse(rsp *http.Response) (*ListSupersetDashboardsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListSupersetDashboardsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest SupersetDashboardList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetSupersetDashboardResponse parses an HTTP response from a GetSupersetDashboardWithResponse call
+func ParseGetSupersetDashboardResponse(rsp *http.Response) (*GetSupersetDashboardResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetSupersetDashboardResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest SupersetDashboard
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetSupersetChartDataResponse parses an HTTP response from a GetSupersetChartDataWithResponse call
+func ParseGetSupersetChartDataResponse(rsp *http.Response) (*GetSupersetChartDataResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetSupersetChartDataResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest SupersetChartData
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	case rsp.StatusCode == 200:
+		// Content-type (text/csv) unsupported
+
+	}
+
+	return response, nil
+}
+
 // ParsePutIntegrationClientResponse parses an HTTP response from a PutIntegrationClientWithResponse call
 func ParsePutIntegrationClientResponse(rsp *http.Response) (*PutIntegrationClientResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -18512,6 +19661,18 @@ type ServerInterface interface {
 	// ListIntegrations The services that sign in with an account or are an app, with their Connections
 	// (GET /integrations)
 	ListIntegrations(w http.ResponseWriter, r *http.Request)
+	// RelaySupersetRequest Send one request to a Superset Connection's API and return its answer unchanged
+	// (POST /integrations/superset/connections/{label}/api)
+	RelaySupersetRequest(w http.ResponseWriter, r *http.Request, label ConnectionLabel)
+	// ListSupersetDashboards The dashboards of a Superset Connection, by title
+	// (GET /integrations/superset/connections/{label}/dashboards)
+	ListSupersetDashboards(w http.ResponseWriter, r *http.Request, label ConnectionLabel, params ListSupersetDashboardsParams)
+	// GetSupersetDashboard A Superset dashboard with its charts and its filters
+	// (GET /integrations/superset/connections/{label}/dashboards/{dashboard})
+	GetSupersetDashboard(w http.ResponseWriter, r *http.Request, label ConnectionLabel, dashboard SupersetDashboardID, params GetSupersetDashboardParams)
+	// GetSupersetChartData A chart's rows as its dashboard shows them when it opens
+	// (GET /integrations/superset/connections/{label}/dashboards/{dashboard}/charts/{chart}/data)
+	GetSupersetChartData(w http.ResponseWriter, r *http.Request, label ConnectionLabel, dashboard SupersetDashboardID, chart int64, params GetSupersetChartDataParams)
 	// PutIntegrationClient Keep the OAuth client an Integration signs in with, or the app it is; only the owner
 	// (PUT /integrations/{integration}/client)
 	PutIntegrationClient(w http.ResponseWriter, r *http.Request, integration IntegrationID)
@@ -18521,7 +19682,7 @@ type ServerInterface interface {
 	// PatchIntegrationConnection Say whether the coordinator may use a Connection in chats; only the owner
 	// (PATCH /integrations/{integration}/connections/{label})
 	PatchIntegrationConnection(w http.ResponseWriter, r *http.Request, integration IntegrationID, label string)
-	// PutIntegrationConnection Connect an Integration of kind app, as a Connection under a label; only the owner
+	// PutIntegrationConnection Connect an Integration of kind app or account, as a Connection under a label; only the owner
 	// (PUT /integrations/{integration}/connections/{label})
 	PutIntegrationConnection(w http.ResponseWriter, r *http.Request, integration IntegrationID, label string)
 	// ListConnectionActions What agents may do with a Connection, action by action; only the owner
@@ -19921,6 +21082,211 @@ func (siw *ServerInterfaceWrapper) ListIntegrations(w http.ResponseWriter, r *ht
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListIntegrations(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RelaySupersetRequest operation middleware
+func (siw *ServerInterfaceWrapper) RelaySupersetRequest(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "label" -------------
+	var label ConnectionLabel
+
+	err = runtime.BindStyledParameterWithOptions("simple", "label", r.PathValue("label"), &label, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "label", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RelaySupersetRequest(w, r, label)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListSupersetDashboards operation middleware
+func (siw *ServerInterfaceWrapper) ListSupersetDashboards(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "label" -------------
+	var label ConnectionLabel
+
+	err = runtime.BindStyledParameterWithOptions("simple", "label", r.PathValue("label"), &label, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "label", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListSupersetDashboardsParams
+
+	// ------------- Optional query parameter "q" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "q", r.URL.Query(), &params.Q, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "q"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "q", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "chat_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "chat_id", r.URL.Query(), &params.ChatId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "chat_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "chat_id", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListSupersetDashboards(w, r, label, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetSupersetDashboard operation middleware
+func (siw *ServerInterfaceWrapper) GetSupersetDashboard(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "label" -------------
+	var label ConnectionLabel
+
+	err = runtime.BindStyledParameterWithOptions("simple", "label", r.PathValue("label"), &label, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "label", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "dashboard" -------------
+	var dashboard SupersetDashboardID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "dashboard", r.PathValue("dashboard"), &dashboard, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "dashboard", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetSupersetDashboardParams
+
+	// ------------- Optional query parameter "chat_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "chat_id", r.URL.Query(), &params.ChatId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "chat_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "chat_id", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetSupersetDashboard(w, r, label, dashboard, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetSupersetChartData operation middleware
+func (siw *ServerInterfaceWrapper) GetSupersetChartData(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "label" -------------
+	var label ConnectionLabel
+
+	err = runtime.BindStyledParameterWithOptions("simple", "label", r.PathValue("label"), &label, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "label", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "dashboard" -------------
+	var dashboard SupersetDashboardID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "dashboard", r.PathValue("dashboard"), &dashboard, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "dashboard", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "chart" -------------
+	var chart int64
+
+	err = runtime.BindStyledParameterWithOptions("simple", "chart", r.PathValue("chart"), &chart, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "integer", Format: "int64", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "chart", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params GetSupersetChartDataParams
+
+	// ------------- Optional query parameter "format" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "format", r.URL.Query(), &params.Format, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "format"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "format", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "chat_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "chat_id", r.URL.Query(), &params.ChatId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "chat_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "chat_id", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetSupersetChartData(w, r, label, dashboard, chart, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -21445,6 +22811,10 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/channels/lark/{channel}/people/{person}", wrapper.RemoveLarkChannelPerson)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/integrations/{integration}/connections/{label}/actions", wrapper.ListConnectionActions)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/integrations/{integration}/connections/{label}/actions/{action}", wrapper.SetConnectionAction)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/integrations/superset/connections/{label}/dashboards", wrapper.ListSupersetDashboards)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/integrations/superset/connections/{label}/dashboards/{dashboard}", wrapper.GetSupersetDashboard)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/integrations/superset/connections/{label}/dashboards/{dashboard}/charts/{chart}/data", wrapper.GetSupersetChartData)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/integrations/superset/connections/{label}/api", wrapper.RelaySupersetRequest)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/approvals", wrapper.ListApprovals)
 	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/approvals/{approval_id}/decision", wrapper.DecideApproval)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/secrets", wrapper.ListSecrets)
@@ -23051,6 +24421,189 @@ func (response ListIntegrationsdefaultJSONResponse) VisitListIntegrationsRespons
 	return err
 }
 
+type RelaySupersetRequestRequestObject struct {
+	Label ConnectionLabel `json:"label"`
+	Body  *RelaySupersetRequestJSONRequestBody
+}
+
+type RelaySupersetRequestResponseObject interface {
+	VisitRelaySupersetRequestResponse(w http.ResponseWriter) error
+}
+
+type RelaySupersetRequest200JSONResponse SupersetAnswer
+
+func (response RelaySupersetRequest200JSONResponse) VisitRelaySupersetRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RelaySupersetRequestdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response RelaySupersetRequestdefaultJSONResponse) VisitRelaySupersetRequestResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSupersetDashboardsRequestObject struct {
+	Label  ConnectionLabel `json:"label"`
+	Params ListSupersetDashboardsParams
+}
+
+type ListSupersetDashboardsResponseObject interface {
+	VisitListSupersetDashboardsResponse(w http.ResponseWriter) error
+}
+
+type ListSupersetDashboards200JSONResponse SupersetDashboardList
+
+func (response ListSupersetDashboards200JSONResponse) VisitListSupersetDashboardsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListSupersetDashboardsdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListSupersetDashboardsdefaultJSONResponse) VisitListSupersetDashboardsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSupersetDashboardRequestObject struct {
+	Label     ConnectionLabel     `json:"label"`
+	Dashboard SupersetDashboardID `json:"dashboard"`
+	Params    GetSupersetDashboardParams
+}
+
+type GetSupersetDashboardResponseObject interface {
+	VisitGetSupersetDashboardResponse(w http.ResponseWriter) error
+}
+
+type GetSupersetDashboard200JSONResponse SupersetDashboard
+
+func (response GetSupersetDashboard200JSONResponse) VisitGetSupersetDashboardResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSupersetDashboarddefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetSupersetDashboarddefaultJSONResponse) VisitGetSupersetDashboardResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSupersetChartDataRequestObject struct {
+	Label     ConnectionLabel     `json:"label"`
+	Dashboard SupersetDashboardID `json:"dashboard"`
+	Chart     int64               `json:"chart"`
+	Params    GetSupersetChartDataParams
+}
+
+type GetSupersetChartDataResponseObject interface {
+	VisitGetSupersetChartDataResponse(w http.ResponseWriter) error
+}
+
+type GetSupersetChartData200JSONResponse SupersetChartData
+
+func (response GetSupersetChartData200JSONResponse) VisitGetSupersetChartDataResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetSupersetChartData200TextcsvResponse struct {
+	Body          io.Reader
+	ContentLength int64
+}
+
+func (response GetSupersetChartData200TextcsvResponse) VisitGetSupersetChartDataResponse(w http.ResponseWriter) error {
+
+	w.Header().Set("Content-Type", "text/csv")
+	if response.ContentLength != 0 {
+		w.Header().Set("Content-Length", fmt.Sprint(response.ContentLength))
+	}
+	w.WriteHeader(200)
+
+	if closer, ok := response.Body.(io.ReadCloser); ok {
+		defer closer.Close()
+	}
+	_, err := io.Copy(w, response.Body)
+	return err
+}
+
+type GetSupersetChartDatadefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetSupersetChartDatadefaultJSONResponse) VisitGetSupersetChartDataResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type PutIntegrationClientRequestObject struct {
 	Integration IntegrationID `json:"integration"`
 	Body        *PutIntegrationClientJSONRequestBody
@@ -23175,6 +24728,7 @@ func (response PatchIntegrationConnectiondefaultJSONResponse) VisitPatchIntegrat
 type PutIntegrationConnectionRequestObject struct {
 	Integration IntegrationID `json:"integration"`
 	Label       string        `json:"label"`
+	Body        *PutIntegrationConnectionJSONRequestBody
 }
 
 type PutIntegrationConnectionResponseObject interface {
@@ -25104,6 +26658,18 @@ type StrictServerInterface interface {
 	// ListIntegrations The services that sign in with an account or are an app, with their Connections
 	// (GET /integrations)
 	ListIntegrations(ctx context.Context, request ListIntegrationsRequestObject) (ListIntegrationsResponseObject, error)
+	// RelaySupersetRequest Send one request to a Superset Connection's API and return its answer unchanged
+	// (POST /integrations/superset/connections/{label}/api)
+	RelaySupersetRequest(ctx context.Context, request RelaySupersetRequestRequestObject) (RelaySupersetRequestResponseObject, error)
+	// ListSupersetDashboards The dashboards of a Superset Connection, by title
+	// (GET /integrations/superset/connections/{label}/dashboards)
+	ListSupersetDashboards(ctx context.Context, request ListSupersetDashboardsRequestObject) (ListSupersetDashboardsResponseObject, error)
+	// GetSupersetDashboard A Superset dashboard with its charts and its filters
+	// (GET /integrations/superset/connections/{label}/dashboards/{dashboard})
+	GetSupersetDashboard(ctx context.Context, request GetSupersetDashboardRequestObject) (GetSupersetDashboardResponseObject, error)
+	// GetSupersetChartData A chart's rows as its dashboard shows them when it opens
+	// (GET /integrations/superset/connections/{label}/dashboards/{dashboard}/charts/{chart}/data)
+	GetSupersetChartData(ctx context.Context, request GetSupersetChartDataRequestObject) (GetSupersetChartDataResponseObject, error)
 	// PutIntegrationClient Keep the OAuth client an Integration signs in with, or the app it is; only the owner
 	// (PUT /integrations/{integration}/client)
 	PutIntegrationClient(ctx context.Context, request PutIntegrationClientRequestObject) (PutIntegrationClientResponseObject, error)
@@ -25113,7 +26679,7 @@ type StrictServerInterface interface {
 	// PatchIntegrationConnection Say whether the coordinator may use a Connection in chats; only the owner
 	// (PATCH /integrations/{integration}/connections/{label})
 	PatchIntegrationConnection(ctx context.Context, request PatchIntegrationConnectionRequestObject) (PatchIntegrationConnectionResponseObject, error)
-	// PutIntegrationConnection Connect an Integration of kind app, as a Connection under a label; only the owner
+	// PutIntegrationConnection Connect an Integration of kind app or account, as a Connection under a label; only the owner
 	// (PUT /integrations/{integration}/connections/{label})
 	PutIntegrationConnection(ctx context.Context, request PutIntegrationConnectionRequestObject) (PutIntegrationConnectionResponseObject, error)
 	// ListConnectionActions What agents may do with a Connection, action by action; only the owner
@@ -26376,6 +27942,123 @@ func (sh *strictHandler) ListIntegrations(w http.ResponseWriter, r *http.Request
 	}
 }
 
+// RelaySupersetRequest operation middleware
+func (sh *strictHandler) RelaySupersetRequest(w http.ResponseWriter, r *http.Request, label ConnectionLabel) {
+	var request RelaySupersetRequestRequestObject
+
+	request.Label = label
+
+	var body RelaySupersetRequestJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RelaySupersetRequest(ctx, request.(RelaySupersetRequestRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RelaySupersetRequest")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RelaySupersetRequestResponseObject); ok {
+		if err := validResponse.VisitRelaySupersetRequestResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListSupersetDashboards operation middleware
+func (sh *strictHandler) ListSupersetDashboards(w http.ResponseWriter, r *http.Request, label ConnectionLabel, params ListSupersetDashboardsParams) {
+	var request ListSupersetDashboardsRequestObject
+
+	request.Label = label
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListSupersetDashboards(ctx, request.(ListSupersetDashboardsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListSupersetDashboards")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListSupersetDashboardsResponseObject); ok {
+		if err := validResponse.VisitListSupersetDashboardsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetSupersetDashboard operation middleware
+func (sh *strictHandler) GetSupersetDashboard(w http.ResponseWriter, r *http.Request, label ConnectionLabel, dashboard SupersetDashboardID, params GetSupersetDashboardParams) {
+	var request GetSupersetDashboardRequestObject
+
+	request.Label = label
+	request.Dashboard = dashboard
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetSupersetDashboard(ctx, request.(GetSupersetDashboardRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetSupersetDashboard")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetSupersetDashboardResponseObject); ok {
+		if err := validResponse.VisitGetSupersetDashboardResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetSupersetChartData operation middleware
+func (sh *strictHandler) GetSupersetChartData(w http.ResponseWriter, r *http.Request, label ConnectionLabel, dashboard SupersetDashboardID, chart int64, params GetSupersetChartDataParams) {
+	var request GetSupersetChartDataRequestObject
+
+	request.Label = label
+	request.Dashboard = dashboard
+	request.Chart = chart
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetSupersetChartData(ctx, request.(GetSupersetChartDataRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetSupersetChartData")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetSupersetChartDataResponseObject); ok {
+		if err := validResponse.VisitGetSupersetChartDataResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // PutIntegrationClient operation middleware
 func (sh *strictHandler) PutIntegrationClient(w http.ResponseWriter, r *http.Request, integration IntegrationID) {
 	var request PutIntegrationClientRequestObject
@@ -26476,6 +28159,16 @@ func (sh *strictHandler) PutIntegrationConnection(w http.ResponseWriter, r *http
 
 	request.Integration = integration
 	request.Label = label
+
+	var body PutIntegrationConnectionJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		if !errors.Is(err, io.EOF) {
+			sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+			return
+		}
+	} else {
+		request.Body = &body
+	}
 
 	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
 		return sh.ssi.PutIntegrationConnection(ctx, request.(PutIntegrationConnectionRequestObject))
@@ -27753,286 +29446,321 @@ func (sh *strictHandler) ReopenTask(w http.ResponseWriter, r *http.Request, task
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
+	"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",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

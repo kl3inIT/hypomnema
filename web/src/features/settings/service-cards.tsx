@@ -20,6 +20,7 @@ import {
   GoogleDriveIcon,
   GoogleIcon,
   LarkIcon,
+  SupersetIcon,
 } from "@/components/icons/brand-icons"
 import { Badge } from "@/components/ui/badge"
 import { Button, buttonVariants } from "@/components/ui/button"
@@ -68,7 +69,8 @@ import { said, servicesKey } from "./use-integrations"
 
 // The services that sign in with an account (issue #103, step 4): Google is the first. A card a service, as the
 // git hosts have theirs, with the accounts the owner signed in under it. A service of kind app (Lark, issue #135)
-// has the same card: its client is an app of the service, and it is connected with no sign-in.
+// has the same card: its client is an app of the service, and it is connected with no sign-in. A service of kind
+// account (Superset, issue #203) has it too: an account is the service's address, a user name and a password.
 
 function useRefreshServices() {
   const queryClient = useQueryClient()
@@ -79,6 +81,12 @@ function useRefreshServices() {
 const marks: Record<string, ComponentType<SVGProps<SVGSVGElement>>> = {
   google: GoogleIcon,
   lark: LarkIcon,
+  superset: SupersetIcon,
+}
+
+// What a service of kind account is for, under its name.
+const accountHolds: Record<string, string> = {
+  superset: "Dashboards and charts, read as data",
 }
 
 type Mark = ComponentType<SVGProps<SVGSVGElement>>
@@ -120,6 +128,9 @@ export function ServiceCard({ service }: { service: Integration }) {
   const accounts = service.connections.length
   const needsSignIn = service.connections.some((c) => c.sign_in_required)
   const app = service.kind === "app"
+  // An account at an address of its own needs no client: it is connected with what the owner types.
+  const account = service.kind === "account"
+  const ready = account || Boolean(service.client_id)
   const add = (
     <Button variant="outline" size="sm">
       <Plus data-icon="inline-start" />
@@ -136,13 +147,18 @@ export function ServiceCard({ service }: { service: Integration }) {
             <span className="flex flex-col gap-0.5">
               <span>{service.name}</span>
               <CardDescription>
-                {app ? "Works as your app" : service.services.map(serviceName).join(" · ")}
+                {app
+                  ? "Works as your app"
+                  : account
+                    ? (accountHolds[service.id] ?? "An account at its own address")
+                    : service.services.map(serviceName).join(" · ")}
               </CardDescription>
             </span>
           </span>
         </CardTitle>
         <CardAction>
           <span className="flex flex-wrap items-center justify-end gap-1.5">
+            {account && <ConnectAccountDialog service={service} trigger={add} />}
             {service.client_id &&
               (app ? (
                 // An app is one thing: once it is connected there is no second one to add.
@@ -151,7 +167,7 @@ export function ServiceCard({ service }: { service: Integration }) {
                 <SignInDialog service={service} trigger={add} />
               ))}
             <Badge variant={accounts > 0 && !needsSignIn ? "success" : "warning"}>
-              {!service.client_id
+              {!ready
                 ? "Not set up"
                 : accounts === 0
                   ? app
@@ -164,7 +180,7 @@ export function ServiceCard({ service }: { service: Integration }) {
           </span>
         </CardAction>
       </CardHeader>
-      {!service.client_id && (
+      {!ready && (
         <CardContent>
           <div className="flex flex-col gap-2 border-t pt-3 text-xs text-muted-foreground">
             <p>
@@ -216,6 +232,7 @@ function AccountItem({
 }) {
   const refresh = useRefreshServices()
   const app = service.kind === "app"
+  const account = service.kind === "account"
 
   return (
     <Item variant="muted" size="sm" aria-label={`${service.name} account ${connection.label}`}>
@@ -230,12 +247,35 @@ function AccountItem({
             {connection.services.map((grant) => (
               <Grant key={grant} grant={grant} />
             ))}
+            {account && (
+              <>
+                <span className="break-all">{connection.address}</span>
+                {connection.version && <span>{`${service.name} ${connection.version}`}</span>}
+                <span>
+                  {connection.sign_in_required
+                    ? `${service.name} refused the last sign-in`
+                    : "The last sign-in worked"}
+                </span>
+              </>
+            )}
           </span>
         </ItemDescription>
       </ItemContent>
       <ItemActions>
         <ChatsSwitch service={service} connection={connection} />
-        {!app && (
+        {account && (
+          <ConnectAccountDialog
+            service={service}
+            connection={connection}
+            trigger={
+              <Button variant="ghost" size="sm">
+                <RefreshCw data-icon="inline-start" />
+                Connect again
+              </Button>
+            }
+          />
+        )}
+        {!app && !account && (
           <SignInDialog
             service={service}
             connection={connection}
@@ -255,9 +295,11 @@ function AccountItem({
           }
           title={`Disconnect ${connection.label} (${connection.account})?`}
           consequence={
-            app
-              ? `Hypomnema stops working as this app. The app's id and secret stay in the vault, for when you connect it again; the app itself is removed in ${service.name}'s developer console.`
-              : `${service.name} is asked to end Hypomnema's access to this account, and its tokens are removed from the vault. If ${service.name} cannot be reached, remove the access in the account's own security settings.`
+            account
+              ? `Hypomnema forgets this account's address and removes its password from the vault. The account itself stays at ${service.name}.`
+              : app
+                ? `Hypomnema stops working as this app. The app's id and secret stay in the vault, for when you connect it again; the app itself is removed in ${service.name}'s developer console.`
+                : `${service.name} is asked to end Hypomnema's access to this account, and its tokens are removed from the vault. If ${service.name} cannot be reached, remove the access in the account's own security settings.`
           }
           action="Disconnect"
           run={() =>
@@ -340,6 +382,145 @@ function ConnectAppDialog({ service, trigger }: { service: Integration; trigger:
                   description="What you call this app here, such as work."
                 />
               )}
+            </form.Field>
+          </FieldGroup>
+          <ErrorAlert error={connect.error} />
+          <DialogFooter>
+            <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
+            <Button type="submit" disabled={connect.isPending}>
+              {connect.isPending && <Spinner data-icon="inline-start" />}
+              Connect
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+const accountSchema = z.object({
+  label: labelSchema,
+  address: z
+    .string()
+    .trim()
+    .regex(/^https?:\/\/[^\s/?#]+[^\s?#]*$/i, "An address such as https://superset.example.com."),
+  username: z.string().trim().min(1, "Give the account's user name."),
+  password: z.string().min(1, "Give the account's password."),
+})
+
+// ConnectAccountDialog connects a service that is an account at an address of its own (Superset): the address,
+// a user name and a password. The control plane signs in there once, which shows that they work, and keeps the
+// password in the vault; a refused sign-in keeps nothing and is shown here. For an account that exists the name
+// is fixed and the address and user name start as they are; the password is typed again, as it is never shown.
+// The arrangement is the Lark dialog's, with the fields both Superset MCP servers ask for.
+function ConnectAccountDialog({
+  service,
+  connection,
+  trigger,
+}: {
+  service: Integration
+  connection?: IntegrationConnection
+  trigger: ReactElement
+}) {
+  const refresh = useRefreshServices()
+  const [open, setOpen] = useState(false)
+
+  const connect = useMutation({
+    mutationFn: (value: z.infer<typeof accountSchema>) =>
+      putIntegrationConnection({
+        path: { integration: service.id, label: value.label },
+        body: {
+          address: value.address.trim(),
+          username: value.username.trim(),
+          password: value.password,
+        },
+      }),
+  })
+
+  const form = useForm({
+    defaultValues: {
+      label: connection?.label ?? "",
+      address: connection?.address ?? "",
+      username: connection?.account ?? "",
+      password: "",
+    },
+    validators: { onSubmit: accountSchema },
+    onSubmit: async ({ value }) => {
+      try {
+        await connect.mutateAsync(value)
+      } catch {
+        return // The dialog stays open and shows what the server refused.
+      }
+
+      await refresh()
+      change(false)
+      said(`${service.name} account ${value.label} is connected`)
+    },
+  })
+
+  function change(next: boolean) {
+    setOpen(next)
+    if (!next) {
+      form.reset()
+      connect.reset()
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={change}>
+      <DialogTrigger render={trigger} />
+      <DialogContent>
+        <form
+          autoComplete="off"
+          noValidate
+          className="flex flex-col gap-4"
+          onSubmit={(event) => {
+            event.preventDefault()
+            void form.handleSubmit()
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>
+              {connection ? `Connect ${connection.label} again` : `Add a ${service.name} account`}
+            </DialogTitle>
+            <DialogDescription>
+              {`Hypomnema signs in to your ${service.name} with this account and reads what the account may read there. The password is kept encrypted in the vault and is not shown again.`}
+            </DialogDescription>
+          </DialogHeader>
+          <FieldGroup>
+            {!connection && (
+              <form.Field name="label">
+                {(field) => (
+                  <TextField
+                    field={field}
+                    label="Name"
+                    placeholder="work"
+                    description="What you call this account here, such as work."
+                  />
+                )}
+              </form.Field>
+            )}
+            <form.Field name="address">
+              {(field) => (
+                <TextField
+                  field={field}
+                  label="Address"
+                  placeholder="https://superset.example.com"
+                  description={`Where your ${service.name} is, as you open it in a browser.`}
+                />
+              )}
+            </form.Field>
+            <form.Field name="username">
+              {(field) => (
+                <TextField
+                  field={field}
+                  label="User name"
+                  description={`An account of ${service.name}'s own, not one that signs in through another service.`}
+                />
+              )}
+            </form.Field>
+            <form.Field name="password">
+              {(field) => <TextField field={field} label="Password" secret />}
             </form.Field>
           </FieldGroup>
           <ErrorAlert error={connect.error} />

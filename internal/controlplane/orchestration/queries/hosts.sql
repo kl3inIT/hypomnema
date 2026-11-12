@@ -33,11 +33,17 @@ SELECT * FROM repos ORDER BY name;
 DELETE FROM repos WHERE name = @name;
 
 -- name: UpsertConnection :exec
-INSERT INTO connections (integration, label, account, secret, services, created_at, updated_at)
-VALUES (@integration, @label, @account, @secret, @services, @now, @now)
+INSERT INTO connections (integration, label, account, secret, services, address, version, created_at, updated_at)
+VALUES (@integration, @label, @account, @secret, @services, @address, @version, @now, @now)
 ON CONFLICT (integration, label) DO UPDATE
 SET account = excluded.account, secret = excluded.secret, services = excluded.services,
+    address = excluded.address, version = excluded.version, sign_in_failed = 0,
     updated_at = excluded.updated_at;
+
+-- name: SetConnectionSignInFailed :execrows
+-- Whether the service refused the account the last time the control plane signed in. Only a change is written.
+UPDATE connections SET sign_in_failed = @failed, updated_at = @now
+WHERE integration = @integration AND label = @label AND sign_in_failed <> @failed;
 
 -- name: SetConnectionChats :execrows
 UPDATE connections SET chats = @chats, updated_at = @now WHERE integration = @integration AND label = @label;
