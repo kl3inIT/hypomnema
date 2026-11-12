@@ -622,24 +622,32 @@ export type Integration = {
 };
 
 /**
- * The Lark bot as the owner set it up, and whether it is connected.
+ * A Lark Channel as the owner set it up, and whether it is connected.
  */
-export type LarkBot = {
+export type LarkChannel = {
+  /**
+   * The Channel's name.
+   */
+  name: string;
+  /**
+   * The Bot a chat opened through the Channel talks with.
+   */
+  bot: string;
   /**
    * The Lark app's id. Not secret.
    */
   app_id: string;
-  mode: LarkBotMode;
+  mode: LarkChannelMode;
   /**
-   * The owner's id at Lark.
+   * The owner's id at Lark
    */
   owner_open_id: string;
   /**
-   * Whether the bot takes messages.
+   * Whether the Channel takes messages.
    */
   enabled: boolean;
   /**
-   * Whether the persistent connection to Lark is open.
+   * Whether the Channel's persistent connection to Lark is open.
    */
   connected: boolean;
   /**
@@ -650,26 +658,35 @@ export type LarkBot = {
    * Why the last attempt to connect failed.
    */
   last_error?: string;
-  people: Array<LarkBotPerson>;
+  people: Array<LarkChannelPerson>;
+  created_at: string;
   updated_at: string;
 };
 
-/**
- * Who may talk to the bot: its owner only, the owner and the people he added, or every member of the app's Lark organization. Someone of another organization is refused in every mode.
- */
-export type LarkBotMode = 'owner' | 'allowlist' | 'everyone';
+export type LarkChannelList = {
+  data: Array<LarkChannel>;
+};
 
-export type LarkBotSettings = {
+/**
+ * Who may talk through the Channel: its owner only, the owner and the people he added, or every member of the app's Lark organization. Someone of another organization is refused in every mode.
+ */
+export type LarkChannelMode = 'owner' | 'allowlist' | 'everyone';
+
+export type LarkChannelSettings = {
+  /**
+   * The Bot the Channel talks to, which must exist; coordinator for a new Channel that names none. A chat that is open keeps its Bot; the next one is with the new Bot.
+   */
+  bot?: string;
   app_id?: string;
   /**
    * The owner's email in the app's Lark organization, or his open_id.
    */
   owner?: string;
-  mode?: LarkBotMode;
+  mode?: LarkChannelMode;
   enabled?: boolean;
 };
 
-export type LarkBotPerson = {
+export type LarkChannelPerson = {
   open_id: string;
   /**
    * The email they were added with; empty when added by open_id.
@@ -682,7 +699,7 @@ export type LarkBotPerson = {
   created_at: string;
 };
 
-export type NewLarkBotPerson = {
+export type NewLarkChannelPerson = {
   /**
    * Their email in the app's Lark organization, or their open_id.
    */
@@ -1143,14 +1160,18 @@ export type ChatMessageList = {
   next_after: number;
 };
 
-export type LarkBotSettingsWritable = {
+export type LarkChannelSettingsWritable = {
+  /**
+   * The Bot the Channel talks to, which must exist; coordinator for a new Channel that names none. A chat that is open keeps its Bot; the next one is with the new Bot.
+   */
+  bot?: string;
   app_id?: string;
   app_secret?: string;
   /**
    * The owner's email in the app's Lark organization, or his open_id.
    */
   owner?: string;
-  mode?: LarkBotMode;
+  mode?: LarkChannelMode;
   enabled?: boolean;
 };
 
@@ -1158,6 +1179,11 @@ export type NewIntegrationClientWritable = {
   client_id: string;
   client_secret: string;
 };
+
+/**
+ * The Channel's name.
+ */
+export type LarkChannelName = string;
 
 export type IntegrationId = string;
 
@@ -2426,135 +2452,184 @@ export type PutIntegrationConnectionResponses = {
 
 export type PutIntegrationConnectionResponse = PutIntegrationConnectionResponses[keyof PutIntegrationConnectionResponses];
 
-export type DeleteLarkBotData = {
+export type ListLarkChannelsData = {
   body?: never;
   path?: never;
   query?: never;
   url: '/channels/lark';
 };
 
-export type DeleteLarkBotErrors = {
+export type ListLarkChannelsErrors = {
   /**
    * An error.
    */
   default: Error;
 };
 
-export type DeleteLarkBotError = DeleteLarkBotErrors[keyof DeleteLarkBotErrors];
+export type ListLarkChannelsError = ListLarkChannelsErrors[keyof ListLarkChannelsErrors];
 
-export type DeleteLarkBotResponses = {
+export type ListLarkChannelsResponses = {
   /**
-   * The bot is forgotten.
+   * The Channels.
+   */
+  200: LarkChannelList;
+};
+
+export type ListLarkChannelsResponse = ListLarkChannelsResponses[keyof ListLarkChannelsResponses];
+
+export type DeleteLarkChannelData = {
+  body?: never;
+  path: {
+    /**
+     * The Channel's name.
+     */
+    channel: string;
+  };
+  query?: never;
+  url: '/channels/lark/{channel}';
+};
+
+export type DeleteLarkChannelErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type DeleteLarkChannelError = DeleteLarkChannelErrors[keyof DeleteLarkChannelErrors];
+
+export type DeleteLarkChannelResponses = {
+  /**
+   * The Channel is forgotten.
    */
   204: void;
 };
 
-export type DeleteLarkBotResponse = DeleteLarkBotResponses[keyof DeleteLarkBotResponses];
+export type DeleteLarkChannelResponse = DeleteLarkChannelResponses[keyof DeleteLarkChannelResponses];
 
-export type GetLarkBotData = {
+export type GetLarkChannelData = {
   body?: never;
-  path?: never;
+  path: {
+    /**
+     * The Channel's name.
+     */
+    channel: string;
+  };
   query?: never;
-  url: '/channels/lark';
+  url: '/channels/lark/{channel}';
 };
 
-export type GetLarkBotErrors = {
+export type GetLarkChannelErrors = {
   /**
    * An error.
    */
   default: Error;
 };
 
-export type GetLarkBotError = GetLarkBotErrors[keyof GetLarkBotErrors];
+export type GetLarkChannelError = GetLarkChannelErrors[keyof GetLarkChannelErrors];
 
-export type GetLarkBotResponses = {
+export type GetLarkChannelResponses = {
   /**
-   * The bot.
+   * The Channel.
    */
-  200: LarkBot;
+  200: LarkChannel;
 };
 
-export type GetLarkBotResponse = GetLarkBotResponses[keyof GetLarkBotResponses];
+export type GetLarkChannelResponse = GetLarkChannelResponses[keyof GetLarkChannelResponses];
 
-export type PutLarkBotData = {
-  body: LarkBotSettingsWritable;
-  path?: never;
+export type PutLarkChannelData = {
+  body: LarkChannelSettingsWritable;
+  path: {
+    /**
+     * The Channel's name.
+     */
+    channel: string;
+  };
   query?: never;
-  url: '/channels/lark';
+  url: '/channels/lark/{channel}';
 };
 
-export type PutLarkBotErrors = {
+export type PutLarkChannelErrors = {
   /**
    * An error.
    */
   default: Error;
 };
 
-export type PutLarkBotError = PutLarkBotErrors[keyof PutLarkBotErrors];
+export type PutLarkChannelError = PutLarkChannelErrors[keyof PutLarkChannelErrors];
 
-export type PutLarkBotResponses = {
+export type PutLarkChannelResponses = {
   /**
-   * The bot.
+   * The Channel.
    */
-  200: LarkBot;
+  200: LarkChannel;
 };
 
-export type PutLarkBotResponse = PutLarkBotResponses[keyof PutLarkBotResponses];
+export type PutLarkChannelResponse = PutLarkChannelResponses[keyof PutLarkChannelResponses];
 
-export type AddLarkBotPersonData = {
-  body: NewLarkBotPerson;
-  path?: never;
+export type AddLarkChannelPersonData = {
+  body: NewLarkChannelPerson;
+  path: {
+    /**
+     * The Channel's name.
+     */
+    channel: string;
+  };
   query?: never;
-  url: '/channels/lark/people';
+  url: '/channels/lark/{channel}/people';
 };
 
-export type AddLarkBotPersonErrors = {
+export type AddLarkChannelPersonErrors = {
   /**
    * An error.
    */
   default: Error;
 };
 
-export type AddLarkBotPersonError = AddLarkBotPersonErrors[keyof AddLarkBotPersonErrors];
+export type AddLarkChannelPersonError = AddLarkChannelPersonErrors[keyof AddLarkChannelPersonErrors];
 
-export type AddLarkBotPersonResponses = {
+export type AddLarkChannelPersonResponses = {
   /**
    * The person.
    */
-  200: LarkBotPerson;
+  200: LarkChannelPerson;
 };
 
-export type AddLarkBotPersonResponse = AddLarkBotPersonResponses[keyof AddLarkBotPersonResponses];
+export type AddLarkChannelPersonResponse = AddLarkChannelPersonResponses[keyof AddLarkChannelPersonResponses];
 
-export type RemoveLarkBotPersonData = {
+export type RemoveLarkChannelPersonData = {
   body?: never;
   path: {
+    /**
+     * The Channel's name.
+     */
+    channel: string;
     /**
      * The person's open_id at Lark, or the email they were added with.
      */
     person: string;
   };
   query?: never;
-  url: '/channels/lark/people/{person}';
+  url: '/channels/lark/{channel}/people/{person}';
 };
 
-export type RemoveLarkBotPersonErrors = {
+export type RemoveLarkChannelPersonErrors = {
   /**
    * An error.
    */
   default: Error;
 };
 
-export type RemoveLarkBotPersonError = RemoveLarkBotPersonErrors[keyof RemoveLarkBotPersonErrors];
+export type RemoveLarkChannelPersonError = RemoveLarkChannelPersonErrors[keyof RemoveLarkChannelPersonErrors];
 
-export type RemoveLarkBotPersonResponses = {
+export type RemoveLarkChannelPersonResponses = {
   /**
    * The person is off the list.
    */
   204: void;
 };
 
-export type RemoveLarkBotPersonResponse = RemoveLarkBotPersonResponses[keyof RemoveLarkBotPersonResponses];
+export type RemoveLarkChannelPersonResponse = RemoveLarkChannelPersonResponses[keyof RemoveLarkChannelPersonResponses];
 
 export type ListConnectionActionsData = {
   body?: never;

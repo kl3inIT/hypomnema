@@ -1,13 +1,15 @@
-// Package larkbot is the Lark bot the owner gives work through (issue #136):
-// a Channel. A person's direct message to the bot at Lark becomes a message
-// of a chat with the coordinator, and what the coordinator says in that chat
-// is sent back as a card that fills as the text is written.
+// Package larkbot runs the Lark Channels (issues #136 and #169). A Channel is
+// a door to one Bot: a Lark app and who may talk through it. A person's
+// direct message to the app at Lark becomes a message of a chat with the
+// Channel's Bot, and what the Bot says in that chat is sent back as a card
+// that fills as the text is written. Each Channel has its own connection to
+// Lark; several Channels may talk to one Bot (OpenClaw's bindings).
 //
 // It follows the Feishu channels of OpenClaw (extensions/feishu) and Hermes
 // (plugins/platforms/feishu) and the owner's MemoryOS (mem-246-lark-bot):
 // events come over a persistent connection, so no public address is opened;
 // a delivery repeated by Lark is dropped by the message's id; who may talk to
-// the bot is closed by default.
+// a Channel is closed by default.
 package larkbot
 
 import (
@@ -25,7 +27,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 )
 
-// Message is a message a person sent, as the bot needs it.
+// Message is a message a person sent, as a Channel needs it.
 type Message struct {
 	// ID is the message's id at Lark; ChatID the chat it is in.
 	ID     string
@@ -76,7 +78,8 @@ type Button struct {
 	Value map[string]string
 }
 
-// Lark is what the bot does at Lark. The SDK is behind it (lark.go).
+// Lark is what a Channel does at Lark as its app. The SDK is behind it
+// (lark.go).
 type Lark interface {
 	// Listen opens the persistent connection and gives each message to take
 	// and each press of a card's button to press, whose answer is shown to
@@ -106,24 +109,27 @@ type Lark interface {
 	NameOf(ctx context.Context, openID string) (string, error)
 }
 
-// Store is what the bot keeps (orchestration.Service).
+// Store is what the Channels keep (orchestration.Service).
 type Store interface {
-	LarkBot(ctx context.Context) (orchestration.LarkBot, error)
-	LarkBotPerson(ctx context.Context, openID string) (orchestration.LarkBotPerson, error)
-	TakeLarkMessage(ctx context.Context, messageID string) (bool, error)
+	LarkChannel(ctx context.Context, name string) (orchestration.LarkChannel, error)
+	LarkChannels(ctx context.Context) ([]orchestration.LarkChannel, error)
+	LarkChannelPerson(ctx context.Context, channel, openID string) (orchestration.LarkChannelPerson, error)
+	TakeLarkMessage(ctx context.Context, channel, messageID string) (bool, error)
 	ForgetLarkMessagesBefore(ctx context.Context, before time.Time) error
-	LarkBotChatFor(ctx context.Context, larkChatID, openID, title string) (orchestration.LarkBotChat, error)
-	LarkBotChats(ctx context.Context) ([]orchestration.LarkBotChat, error)
-	ResetLarkBotChat(ctx context.Context, larkChatID, title string) (orchestration.LarkBotChat, error)
-	MarkLarkBotSent(ctx context.Context, larkChatID string, seq int64) error
+	LarkChannelChatFor(ctx context.Context, channel, larkChatID, openID, title string,
+	) (orchestration.LarkChannelChat, error)
+	LarkChannelChats(ctx context.Context, channel string) ([]orchestration.LarkChannelChat, error)
+	ResetLarkChannelChat(ctx context.Context, channel, larkChatID, title string) (orchestration.LarkChannelChat, error)
+	MarkLarkChannelSent(ctx context.Context, larkChatID string, seq int64) error
 	ListQuestions(ctx context.Context, f orchestration.QuestionFilter) ([]orchestration.Question, error)
 	GetQuestion(ctx context.Context, id string) (orchestration.Question, error)
 	AnswerQuestion(ctx context.Context, id string, by orchestration.Addressee, a orchestration.Answer,
 	) (orchestration.Question, error)
+	LarkChannelForRun(ctx context.Context, runID string) (string, error)
 	RecordLarkQuestionCard(ctx context.Context, c orchestration.LarkQuestionCard) error
 	LarkQuestionCardOf(ctx context.Context, questionID string) (orchestration.LarkQuestionCard, error)
-	LarkQuestionCardByMessage(ctx context.Context, messageID string) (orchestration.LarkQuestionCard, error)
-	OpenLarkQuestionCards(ctx context.Context) ([]orchestration.LarkQuestionCard, error)
+	LarkQuestionCardByMessage(ctx context.Context, channel, messageID string) (orchestration.LarkQuestionCard, error)
+	OpenLarkQuestionCards(ctx context.Context, channel string) ([]orchestration.LarkQuestionCard, error)
 	CloseLarkQuestionCard(ctx context.Context, questionID string, seq int) error
 	AddChatMessage(ctx context.Context, chatID string, role orchestration.ChatRole, text string,
 	) (orchestration.ChatMessage, error)
@@ -131,7 +137,7 @@ type Store interface {
 	Subscribe(ctx context.Context) <-chan struct{}
 }
 
-// Coordinator is the part of the coordinator's supervisor the bot uses.
+// Coordinator is the part of the supervisor of the Bots' pi the Channels use.
 type Coordinator interface {
 	Enabled() bool
 	Working(chatID string) bool
@@ -139,19 +145,21 @@ type Coordinator interface {
 	Watch(chatID string) (frames <-chan coordinator.Frame, stop func())
 }
 
-// What the bot says in its own voice. English, as the web client is.
+// What a Channel says in its own voice. English, as the web client is. To a
+// person at Lark the Channel's app is "this bot", which is Lark's word for it.
+// The notices with %s name the Bot of the chat.
 const (
 	noticeOwnerOnly = "This bot takes messages from its owner only."
 	noticeAllowlist = "This bot takes messages from its owner and the people he added."
 	noticeOutsider  = "This bot serves members of its Lark organization only."
 	noticeTextOnly  = "This bot reads text messages only for now."
-	noticeNoAnswer  = "The coordinator is not running, so nothing will answer. Your message is kept."
+	noticeNoAnswer  = "%s is not running, so nothing will answer. Your message is kept."
 	noticeFailed    = "This message could not be taken. Try again."
-	noticeQueued    = "⏳ Queued: the coordinator is still working on the message before."
+	noticeQueued    = "⏳ Queued: %s is still working on the message before."
 	noticeNew       = "A new conversation has started."
 	noticeStopped   = "Stopped."
 	noticeIdle      = "Nothing is running."
-	noticeNoReply   = "The coordinator could not answer this. Try again."
+	noticeNoReply   = "%s could not answer this. Try again."
 	writing         = "…"
 )
 
@@ -162,8 +170,8 @@ const (
 	commandStop = "/stop"
 )
 
-// The emoji the bot puts on a person's message, as OpenClaw and Hermes do:
-// Typing while the coordinator works on it, taken off when the reply is
+// The emoji a Channel puts on a person's message, as OpenClaw and Hermes do:
+// Typing while the Bot works on it, taken off when the reply is
 // there, and a cross when it failed. Nothing marks success: the reply does.
 const (
 	emojiWorking = "Typing"
@@ -175,7 +183,7 @@ const (
 	// five a second on one card (MemoryOS, from Lark's limits).
 	cardEvery = 500 * time.Millisecond
 	// closeAfter is how long a card waits for its kept message once the
-	// coordinator stopped working, before it is closed with what was shown.
+	// Bot stopped working, before it is closed with what was shown.
 	closeAfter = 5 * time.Second
 	// cardLimit is the most characters one card shows: a card holds 30 KB and
 	// a character may take three bytes. A longer reply goes on in further
@@ -186,51 +194,68 @@ const (
 	// forgetAfter is how long a taken message is remembered: Lark's last
 	// delivery of an event comes about seven hours after the first.
 	forgetAfter = 24 * time.Hour
-	// retryEvery is how often a bot that is not set up, or could not connect,
-	// is looked at again.
+	// retryEvery is how often the Channels are looked at again, for one that
+	// could not connect.
 	retryEvery  = 30 * time.Second
 	sendTimeout = 30 * time.Second
 )
 
-// Bot is the running bot.
-type Bot struct {
+// Channels runs the Lark Channels: one connection to Lark for each.
+type Channels struct {
 	store  Store
 	coord  Coordinator
-	open   func(ctx context.Context, bot orchestration.LarkBot) (Lark, error)
+	open   func(ctx context.Context, channel orchestration.LarkChannel) (Lark, error)
 	logger *slog.Logger
 	now    func() time.Time
-
-	mu sync.Mutex
-	// lark is the connection in use; relays the Lark chats being answered.
-	lark      Lark
-	appID     string
-	connected bool
-	lastError string
-	relays    map[string]*relay
 	// webURL is the web client's address, for the link under a reply.
 	webURL string
+	// look asks Run to look at the Channels now: one was set up or changed.
+	look chan struct{}
+
+	mu sync.Mutex
+	// conns are the connections that were opened, by their Channel's name;
+	// starting the Channels whose connection is being opened; failures why a
+	// Channel's last attempt to connect failed.
+	conns    map[string]*conn
+	starting map[string]bool
+	failures map[string]string
+}
+
+// conn is one Channel's connection to Lark and the Lark chats it answers in.
+type conn struct {
+	all *Channels
+	// name is the Channel's; appID the app the connection was opened as.
+	name  string
+	appID string
+	lark  Lark
+
+	mu     sync.Mutex
+	relays map[string]*relay
 }
 
 // WithWebURL sets the web client's address; a reply then ends with a link to
 // its chat there (MemoryOS's "Continue in MemoryOS", after Dust).
-func (b *Bot) WithWebURL(url string) *Bot {
-	b.webURL = strings.TrimSuffix(url, "/")
+func (c *Channels) WithWebURL(url string) *Channels {
+	c.webURL = strings.TrimSuffix(url, "/")
 
-	return b
+	return c
 }
 
-// New returns a bot. open makes the bot's connection to Lark from what the
-// owner set up; it is where the app's secret is read.
-func New(store Store, coord Coordinator, open func(context.Context, orchestration.LarkBot) (Lark, error),
+// New returns the Channels' runner. open makes a Channel's connection to
+// Lark from what the owner set up; it is where the app's secret is read.
+func New(store Store, coord Coordinator, open func(context.Context, orchestration.LarkChannel) (Lark, error),
 	logger *slog.Logger,
-) *Bot {
-	return &Bot{store: store, coord: coord, open: open, logger: logger, now: time.Now, relays: map[string]*relay{}}
+) *Channels {
+	return &Channels{
+		store: store, coord: coord, open: open, logger: logger, now: time.Now, look: make(chan struct{}, 1),
+		conns: map[string]*conn{}, starting: map[string]bool{}, failures: map[string]string{},
+	}
 }
 
-// State is whether the bot is connected to Lark.
+// State is whether a Channel is connected to Lark.
 type State struct {
 	// Connected says the persistent connection was opened; AppID is the app
-	// it was opened as, which a later change of the bot's app does not
+	// it was opened as, which a later change of the Channel's app does not
 	// replace until the control plane starts again.
 	Connected bool
 	AppID     string
@@ -238,147 +263,181 @@ type State struct {
 	LastError string
 }
 
-// State returns the bot's state.
-func (b *Bot) State() State {
-	b.mu.Lock()
-	defer b.mu.Unlock()
+// State returns a Channel's state.
+func (c *Channels) State(channel string) State {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 
-	return State{Connected: b.connected, AppID: b.appID, LastError: b.lastError}
-}
-
-// Run connects the bot once it is set up and switched on, and keeps it. A bot
-// that is not set up yet is looked at again every half minute, so setting one
-// up needs no restart. Lark's SDK cannot close a persistent connection, so a
-// connection once opened stays until the process ends: switching the bot off
-// makes it take no message, and another app is used from the next start.
-func (b *Bot) Run(ctx context.Context) error {
-	for {
-		if b.start(ctx) {
-			break
-		}
-
-		select {
-		case <-ctx.Done():
-			return nil
-		case <-time.After(retryEvery):
-		}
+	if cn := c.conns[channel]; cn != nil {
+		return State{Connected: true, AppID: cn.appID}
 	}
 
-	ticker := time.NewTicker(time.Hour)
-	defer ticker.Stop()
+	return State{LastError: c.failures[channel]}
+}
+
+// Look has Run look at the Channels now, so that one the owner just set up
+// or switched on connects at once.
+func (c *Channels) Look() {
+	select {
+	case c.look <- struct{}{}:
+	default:
+	}
+}
+
+// Run connects each Channel that is set up and switched on, and keeps them.
+// The Channels are looked at again when one is set (Look) and every half
+// minute, so a new Channel needs no restart and one that could not connect
+// is tried again. Lark's SDK cannot close a persistent connection, so a
+// connection once opened stays until the process ends: a Channel that is
+// switched off or removed takes no message, and another app is used from the
+// next start.
+func (c *Channels) Run(ctx context.Context) error {
+	retry := time.NewTicker(retryEvery)
+	defer retry.Stop()
+
+	forget := time.NewTicker(time.Hour)
+	defer forget.Stop()
 
 	for {
+		c.connect(ctx)
+
 		select {
 		case <-ctx.Done():
 			return nil
-		case <-ticker.C:
-			if err := b.store.ForgetLarkMessagesBefore(ctx, b.now().Add(-forgetAfter)); err != nil {
-				b.logger.WarnContext(ctx, "old Lark messages were not forgotten", slog.String("event", "larkbot.forget_failed"),
-					slog.Any("error", err))
+		case <-c.look:
+		case <-retry.C:
+		case <-forget.C:
+			if err := c.store.ForgetLarkMessagesBefore(ctx, c.now().Add(-forgetAfter)); err != nil {
+				c.logger.WarnContext(ctx, "old Lark messages were not forgotten",
+					slog.String("event", "larkbot.forget_failed"), slog.Any("error", err))
 			}
 		}
 	}
 }
 
-// start opens the connection when the bot is set up and on, and says whether
-// it did.
-func (b *Bot) start(ctx context.Context) bool {
-	bot, err := b.store.LarkBot(ctx)
-	if err != nil || !bot.Enabled {
-		return false
-	}
-
-	lark, err := b.open(ctx, bot)
-	if err == nil {
-		err = lark.Listen(ctx, func(m Message) { b.Take(ctx, m) }, func(p Press) string { return b.Press(ctx, p) })
-	}
-
-	b.mu.Lock()
-	defer b.mu.Unlock()
-
+// connect opens the connection of every Channel that is on and has none.
+// Each is opened on its own goroutine: one that Lark keeps waiting does not
+// hold the others back.
+func (c *Channels) connect(ctx context.Context) {
+	channels, err := c.store.LarkChannels(ctx)
 	if err != nil {
-		b.lastError = err.Error()
-		b.logger.WarnContext(ctx, "the Lark bot did not connect", slog.String("event", "larkbot.connect_failed"),
-			slog.Any("error", err))
+		if ctx.Err() == nil {
+			c.logger.WarnContext(ctx, "the Lark channels were not read", slog.String("event", "larkbot.channels_failed"),
+				slog.Any("error", err))
+		}
 
-		return false
-	}
-
-	b.lark, b.appID, b.connected, b.lastError = lark, bot.AppID, true, ""
-	b.logger.InfoContext(ctx, "the Lark bot is connected", slog.String("event", "larkbot.connected"),
-		slog.String("app_id", bot.AppID))
-
-	chats, err := b.store.LarkBotChats(ctx)
-	if err != nil {
-		b.logger.WarnContext(ctx, "the Lark bot's chats were not read", slog.String("event", "larkbot.chats_failed"),
-			slog.Any("error", err))
-	}
-
-	for _, c := range chats {
-		b.relayLocked(ctx, lark, c)
-	}
-
-	go b.questions(ctx, lark)
-
-	return true
-}
-
-// Take handles one message from Lark. It is called from the connection, which
-// must acknowledge the event within three seconds, so it does its work on its
-// own goroutine.
-func (b *Bot) Take(ctx context.Context, m Message) {
-	b.mu.Lock()
-	lark := b.lark
-	b.mu.Unlock()
-
-	if lark == nil {
 		return
 	}
 
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	for _, ch := range channels {
+		if !ch.Enabled || c.conns[ch.Name] != nil || c.starting[ch.Name] {
+			continue
+		}
+
+		c.starting[ch.Name] = true
+
+		go c.start(ctx, ch)
+	}
+}
+
+// start opens one Channel's connection.
+func (c *Channels) start(ctx context.Context, ch orchestration.LarkChannel) {
+	cn := &conn{all: c, name: ch.Name, appID: ch.AppID, relays: map[string]*relay{}}
+
+	lark, err := c.open(ctx, ch)
+	if err == nil {
+		cn.lark = lark
+		err = lark.Listen(ctx, func(m Message) { cn.take(ctx, m) }, func(p Press) string { return cn.press(ctx, p) })
+	}
+
+	c.mu.Lock()
+	delete(c.starting, ch.Name)
+
+	if err != nil {
+		c.failures[ch.Name] = err.Error()
+		c.mu.Unlock()
+		c.logger.WarnContext(ctx, "a Lark channel did not connect", slog.String("event", "larkbot.connect_failed"),
+			slog.String("channel", ch.Name), slog.Any("error", err))
+
+		return
+	}
+
+	c.conns[ch.Name] = cn
+	delete(c.failures, ch.Name)
+	c.mu.Unlock()
+
+	c.logger.InfoContext(ctx, "a Lark channel is connected", slog.String("event", "larkbot.connected"),
+		slog.String("channel", ch.Name), slog.String("app_id", ch.AppID))
+
+	chats, err := c.store.LarkChannelChats(ctx, ch.Name)
+	if err != nil {
+		c.logger.WarnContext(ctx, "a Lark channel's chats were not read", slog.String("event", "larkbot.chats_failed"),
+			slog.String("channel", ch.Name), slog.Any("error", err))
+	}
+
+	cn.mu.Lock()
+	for _, chat := range chats {
+		cn.relayLocked(ctx, chat)
+	}
+	cn.mu.Unlock()
+
+	go cn.questions(ctx)
+}
+
+// take handles one message from Lark. It is called from the connection, which
+// must acknowledge the event within three seconds, so it does its work on its
+// own goroutine. A message that arrives before the connection is known to be
+// open is taken all the same.
+func (cn *conn) take(ctx context.Context, m Message) {
 	go func() {
-		if err := b.take(ctx, lark, m); err != nil {
-			b.logger.WarnContext(ctx, "a Lark message was not taken", slog.String("event", "larkbot.take_failed"),
-				slog.String("message_id", m.ID), slog.Any("error", err))
-			b.notice(ctx, lark, m.ChatID, noticeFailed)
+		if err := cn.taken(ctx, m); err != nil {
+			cn.all.logger.WarnContext(ctx, "a Lark message was not taken", slog.String("event", "larkbot.take_failed"),
+				slog.String("channel", cn.name), slog.String("message_id", m.ID), slog.Any("error", err))
+			cn.notice(ctx, m.ChatID, noticeFailed)
 		}
 	}()
 }
 
-func (b *Bot) take(ctx context.Context, lark Lark, m Message) error {
-	bot, err := b.store.LarkBot(ctx)
-	if err != nil || !bot.Enabled {
-		return nil //nolint:nilerr // A bot that was switched off or removed takes nothing and says nothing.
+func (cn *conn) taken(ctx context.Context, m Message) error {
+	store := cn.all.store
+
+	ch, err := store.LarkChannel(ctx, cn.name)
+	if err != nil || !ch.Enabled {
+		return nil //nolint:nilerr // A Channel that was switched off or removed takes nothing and says nothing.
 	}
 
-	// Only what a person wrote to the bot directly: a group is not served yet, and another app's message is
+	// Only what a person wrote to the app directly: a group is not served yet, and another app's message is
 	// never an instruction.
 	if !m.FromPerson || !m.Direct || m.ID == "" || m.ChatID == "" {
 		return nil
 	}
 
-	first, err := b.store.TakeLarkMessage(ctx, m.ID)
+	first, err := store.TakeLarkMessage(ctx, cn.name, m.ID)
 	if err != nil || !first {
 		return err
 	}
 
-	if refusal := b.refusal(ctx, bot, m); refusal != "" {
-		b.logger.InfoContext(ctx, "a Lark message was refused", slog.String("event", "larkbot.refused"),
-			slog.String("sender", m.Sender), slog.String("reason", refusal))
-		b.notice(ctx, lark, m.ChatID, refusal)
+	if refusal := cn.refusal(ctx, ch, m); refusal != "" {
+		cn.all.logger.InfoContext(ctx, "a Lark message was refused", slog.String("event", "larkbot.refused"),
+			slog.String("channel", cn.name), slog.String("sender", m.Sender), slog.String("reason", refusal))
+		cn.notice(ctx, m.ChatID, refusal)
 
 		return nil
 	}
 
 	if !m.IsText || strings.TrimSpace(m.Text) == "" {
-		b.notice(ctx, lark, m.ChatID, noticeTextOnly)
+		cn.notice(ctx, m.ChatID, noticeTextOnly)
 
 		return nil
 	}
 
-	// The owner's reply to a question's card is his answer in his own words, not a message for the coordinator.
-	if m.Sender == bot.OwnerOpenID && m.ReplyTo != "" {
-		if card, err := b.store.LarkQuestionCardByMessage(ctx, m.ReplyTo); err == nil {
-			b.notice(ctx, lark, m.ChatID, b.answer(ctx, card.QuestionID, orchestration.Answer{Text: m.Text}))
+	// The owner's reply to a question's card is his answer in his own words, not a message for the Bot.
+	if m.Sender == ch.OwnerOpenID && m.ReplyTo != "" {
+		if card, err := store.LarkQuestionCardByMessage(ctx, cn.name, m.ReplyTo); err == nil {
+			cn.notice(ctx, m.ChatID, cn.answer(ctx, card.QuestionID, orchestration.Answer{Text: m.Text}))
 
 			return nil
 		}
@@ -386,45 +445,45 @@ func (b *Bot) take(ctx context.Context, lark Lark, m Message) error {
 
 	switch strings.ToLower(strings.TrimSpace(m.Text)) {
 	case commandNew:
-		return b.startOver(ctx, lark, m)
+		return cn.startOver(ctx, m)
 	case commandStop:
-		return b.stop(ctx, lark, m)
+		return cn.stop(ctx, m)
 	}
 
 	text, title := m.Text, ""
-	if m.Sender != bot.OwnerOpenID {
+	if m.Sender != ch.OwnerOpenID {
 		// Someone the owner let in may give work, and is named: the name is a label of the message, not an
 		// instruction, as OpenClaw and MemoryOS fence a sender's name.
-		name := b.nameOf(ctx, lark, m.Sender)
+		name := cn.nameOf(ctx, m.Sender)
 		text = fmt.Sprintf("[Lark message from %s, who is not the owner. Questions for approval go to the owner.]\n%s",
 			name, m.Text)
 		title = "Lark: " + name
 	}
 
-	chat, err := b.store.LarkBotChatFor(ctx, m.ChatID, m.Sender, title)
+	chat, err := store.LarkChannelChatFor(ctx, cn.name, m.ChatID, m.Sender, title)
 	if err != nil {
 		return err
 	}
 
-	b.mu.Lock()
-	r := b.relayLocked(ctx, lark, chat)
-	b.mu.Unlock()
+	cn.mu.Lock()
+	r := cn.relayLocked(ctx, chat)
+	cn.mu.Unlock()
 
-	busy := b.coord.Working(chat.ChatID)
+	busy := cn.all.coord.Working(chat.ChatID)
 
-	if _, err := b.store.AddChatMessage(ctx, chat.ChatID, orchestration.ChatOwner, text); err != nil {
+	if _, err := store.AddChatMessage(ctx, chat.ChatID, orchestration.ChatOwner, text); err != nil {
 		return err
 	}
 
 	switch {
-	case !b.coord.Enabled():
-		b.notice(ctx, lark, m.ChatID, noticeNoAnswer)
+	case !cn.all.coord.Enabled():
+		cn.notice(ctx, m.ChatID, fmt.Sprintf(noticeNoAnswer, chat.Bot))
 
 		return nil
 	case busy:
 		// The message waits for the turn that is running, and the person is told, as Hermes tells one who
 		// writes while it works.
-		b.notice(ctx, lark, m.ChatID, noticeQueued)
+		cn.notice(ctx, m.ChatID, fmt.Sprintf(noticeQueued, chat.Bot))
 	}
 
 	r.asked(ctx, m.ID)
@@ -433,11 +492,11 @@ func (b *Bot) take(ctx context.Context, lark Lark, m Message) error {
 }
 
 // startOver is /new: the person's next message starts a new chat with the
-// coordinator.
-func (b *Bot) startOver(ctx context.Context, lark Lark, m Message) error {
-	chat, err := b.store.ResetLarkBotChat(ctx, m.ChatID, "")
+// Channel's Bot.
+func (cn *conn) startOver(ctx context.Context, m Message) error {
+	chat, err := cn.all.store.ResetLarkChannelChat(ctx, cn.name, m.ChatID, "")
 	if errors.Is(err, orchestration.ErrNotFound) {
-		b.notice(ctx, lark, m.ChatID, noticeNew)
+		cn.notice(ctx, m.ChatID, noticeNew)
 
 		return nil
 	}
@@ -446,59 +505,63 @@ func (b *Bot) startOver(ctx context.Context, lark Lark, m Message) error {
 		return err
 	}
 
-	b.mu.Lock()
-	if old := b.relays[m.ChatID]; old != nil {
+	cn.mu.Lock()
+	if old := cn.relays[m.ChatID]; old != nil {
 		old.stop()
-		delete(b.relays, m.ChatID)
+		delete(cn.relays, m.ChatID)
 	}
 
-	b.relayLocked(ctx, lark, chat)
-	b.mu.Unlock()
+	cn.relayLocked(ctx, chat)
+	cn.mu.Unlock()
 
-	b.notice(ctx, lark, m.ChatID, noticeNew)
+	cn.notice(ctx, m.ChatID, noticeNew)
 
 	return nil
 }
 
-// stop is /stop: the coordinator stops the turn it is running in the
-// person's chat.
-func (b *Bot) stop(ctx context.Context, lark Lark, m Message) error {
-	b.mu.Lock()
-	r := b.relays[m.ChatID]
-	b.mu.Unlock()
+// stop is /stop: the Bot stops the turn it is running in the person's chat.
+// The card of that turn then closes as stopped, not as failed.
+func (cn *conn) stop(ctx context.Context, m Message) error {
+	cn.mu.Lock()
+	r := cn.relays[m.ChatID]
+	cn.mu.Unlock()
 
-	if r == nil || !b.coord.Working(r.chat.ChatID) {
-		b.notice(ctx, lark, m.ChatID, noticeIdle)
+	if r == nil || !cn.all.coord.Working(r.chat.ChatID) {
+		cn.notice(ctx, m.ChatID, noticeIdle)
 
 		return nil
 	}
 
-	if err := b.coord.Abort(ctx, r.chat.ChatID); err != nil {
+	r.halt(haltNone, haltAsked)
+
+	if err := cn.all.coord.Abort(ctx, r.chat.ChatID); err != nil {
+		r.halt(haltAsked, haltNone)
+
 		return err
 	}
 
-	b.notice(ctx, lark, m.ChatID, noticeStopped)
+	cn.notice(ctx, m.ChatID, noticeStopped)
 
 	return nil
 }
 
-// refusal says why a sender may not talk to the bot, or nothing when they
-// may.
-func (b *Bot) refusal(ctx context.Context, bot orchestration.LarkBot, m Message) string {
+// refusal says why a sender may not talk through the Channel, or nothing
+// when they may.
+func (cn *conn) refusal(ctx context.Context, ch orchestration.LarkChannel, m Message) string {
 	// A custom app belongs to one organization, which every event names (MemoryOS, rule 2).
 	if m.SenderOrg == "" || m.SenderOrg != m.Org {
 		return noticeOutsider
 	}
 
-	if m.Sender == bot.OwnerOpenID {
+	if m.Sender == ch.OwnerOpenID {
 		return ""
 	}
 
-	switch bot.Mode {
-	case orchestration.LarkBotEveryone:
+	switch ch.Mode {
+	case orchestration.LarkChannelEveryone:
 		return ""
-	case orchestration.LarkBotAllowlist:
-		if _, err := b.store.LarkBotPerson(ctx, m.Sender); err == nil {
+	case orchestration.LarkChannelAllowlist:
+		if _, err := cn.all.store.LarkChannelPerson(ctx, cn.name, m.Sender); err == nil {
 			return ""
 		}
 
@@ -508,65 +571,64 @@ func (b *Bot) refusal(ctx context.Context, bot orchestration.LarkBot, m Message)
 	}
 }
 
-// nameOf is how a sender who is not the owner is named to the coordinator:
-// the name the owner added them under, else their name at Lark, else their
-// id.
-func (b *Bot) nameOf(ctx context.Context, lark Lark, openID string) string {
-	if p, err := b.store.LarkBotPerson(ctx, openID); err == nil && p.Name != "" {
+// nameOf is how a sender who is not the owner is named to the Bot: the name
+// the owner added them under, else their name at Lark, else their id.
+func (cn *conn) nameOf(ctx context.Context, openID string) string {
+	if p, err := cn.all.store.LarkChannelPerson(ctx, cn.name, openID); err == nil && p.Name != "" {
 		return p.Name
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, sendTimeout)
 	defer cancel()
 
-	if name, err := lark.NameOf(ctx, openID); err == nil && name != "" {
+	if name, err := cn.lark.NameOf(ctx, openID); err == nil && name != "" {
 		return name
 	}
 
 	return openID
 }
 
-func (b *Bot) notice(ctx context.Context, lark Lark, chatID, text string) {
+func (cn *conn) notice(ctx context.Context, chatID, text string) {
 	ctx, cancel := context.WithTimeout(ctx, sendTimeout)
 	defer cancel()
 
-	if err := lark.SendText(ctx, chatID, text); err != nil {
-		b.logger.WarnContext(ctx, "a notice was not sent to Lark", slog.String("event", "larkbot.notice_failed"),
-			slog.Any("error", err))
+	if err := cn.lark.SendText(ctx, chatID, text); err != nil {
+		cn.all.logger.WarnContext(ctx, "a notice was not sent to Lark", slog.String("event", "larkbot.notice_failed"),
+			slog.String("channel", cn.name), slog.Any("error", err))
 	}
 }
 
 // relayLocked starts sending a chat's replies to its Lark chat, once, and
 // returns what sends them.
-func (b *Bot) relayLocked(ctx context.Context, lark Lark, chat orchestration.LarkBotChat) *relay {
-	if r, running := b.relays[chat.LarkChatID]; running {
+func (cn *conn) relayLocked(ctx context.Context, chat orchestration.LarkChannelChat) *relay {
+	if r, running := cn.relays[chat.LarkChatID]; running {
 		return r
 	}
 
 	ctx, stop := context.WithCancel(ctx)
-	r := &relay{bot: b, lark: lark, chat: chat, sent: chat.SentSeq, stop: stop}
-	b.relays[chat.LarkChatID] = r
+	r := &relay{all: cn.all, lark: cn.lark, chat: chat, sent: chat.SentSeq, stop: stop}
+	cn.relays[chat.LarkChatID] = r
 
 	go r.run(ctx)
 
 	return r
 }
 
-// relay sends what the coordinator says in one chat to its Lark chat. The
+// relay sends what the Bot says in one chat to its Lark chat. The
 // text as it is written comes from the supervisor's live frames and fills a
 // card; the kept message that follows is what the card ends as, so a frame
 // that was lost changes nothing (the web client is put right the same way).
 type relay struct {
-	bot  *Bot
+	all  *Channels
 	lark Lark
-	chat orchestration.LarkBotChat
+	chat orchestration.LarkChannelChat
 	stop context.CancelFunc
 	// sent is the last kept message that was sent.
 	sent int64
-	// frames is the coordinator's live frames of the chat.
+	// frames is the Bot's live frames of the chat.
 	frames <-chan coordinator.Frame
 
-	// The card being written: its id, the text the coordinator wrote, what a
+	// The card being written: its id, the text the Bot wrote, what a
 	// tool that runs is doing, what the card shows, when it was last updated
 	// and its next sequence.
 	card    string
@@ -578,11 +640,55 @@ type relay struct {
 
 	mu sync.Mutex
 	// waiting are the person's messages that have no reply yet, with the
-	// reaction that says the coordinator works on each.
+	// reaction that says the Bot works on each.
 	waiting []waiting
+	// halted says the person stopped the turn that runs (/stop), and whether
+	// its card already says so.
+	halted int
 }
 
-// waiting is a message of a person the coordinator has not answered.
+// What a relay knows of a turn the person stopped.
+const (
+	haltNone = iota
+	// haltAsked: the turn was told to stop; its card is to close as stopped.
+	haltAsked
+	// haltSaid: the card closed as stopped; a failure pi reports for that turn
+	// is not another card.
+	haltSaid
+)
+
+// halt moves what the relay knows of a stopped turn from one state to the
+// next and says whether it was in the first.
+func (r *relay) halt(from, to int) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.halted != from {
+		return false
+	}
+
+	r.halted = to
+
+	return true
+}
+
+// stopped closes the card of a turn the person stopped: with the text it had
+// and a line that says so. With no card and no text the notice that answered
+// /stop has said it.
+func (r *relay) stopped(ctx context.Context, text string) {
+	text = strings.TrimSpace(text)
+
+	switch {
+	case text != "":
+		text += "\n\n" + noticeStopped
+	case r.card != "":
+		text = noticeStopped
+	}
+
+	r.finish(ctx, text)
+}
+
+// waiting is a message of a person the Bot has not answered.
 type waiting struct {
 	message  string
 	reaction string
@@ -618,7 +724,7 @@ func (r *relay) replyTo() string {
 }
 
 // settle takes the mark off every message that waited: the reply is there,
-// or the coordinator stopped. With failed, the last one is marked as failed.
+// or the Bot stopped. With failed, the last one is marked as failed.
 func (r *relay) settle(ctx context.Context, failed bool) {
 	r.mu.Lock()
 	waited := r.waiting
@@ -644,12 +750,12 @@ func (r *relay) settle(ctx context.Context, failed bool) {
 }
 
 func (r *relay) run(ctx context.Context) {
-	frames, stop := r.bot.coord.Watch(r.chat.ChatID)
+	frames, stop := r.all.coord.Watch(r.chat.ChatID)
 	defer stop()
 
 	r.frames = frames
 
-	wake := r.bot.store.Subscribe(ctx)
+	wake := r.all.store.Subscribe(ctx)
 
 	var closing <-chan time.Time
 
@@ -668,14 +774,21 @@ func (r *relay) run(ctx context.Context) {
 		case <-closing:
 			closing = nil
 
-			// The coordinator stopped and kept no reply: what was written stays, and nothing waits any more.
-			r.finish(ctx, r.text.String())
+			// The Bot stopped and kept no reply: what was written stays, and nothing waits any more. A turn the
+			// person stopped says so, and is over either way.
+			if r.halt(haltAsked, haltNone) {
+				r.stopped(ctx, r.text.String())
+			} else {
+				r.halt(haltSaid, haltNone)
+				r.finish(ctx, r.text.String())
+			}
+
 			r.settle(ctx, false)
 		}
 	}
 }
 
-// frame handles one live frame and says whether the coordinator stopped, so
+// frame handles one live frame and says whether the Bot stopped, so
 // that a card still open is closed soon if no reply comes.
 func (r *relay) frame(ctx context.Context, f coordinator.Frame) bool {
 	data, _ := f.Data.(map[string]any)
@@ -736,7 +849,7 @@ func statusOf(data map[string]any) string {
 	return "⚡ " + name + ": " + inert(preview)
 }
 
-// show brings the card up to what the coordinator wrote and is doing: it
+// show brings the card up to what the Bot wrote and is doing: it
 // opens the card with the first thing to show, and updates it at most twice a
 // second unless now is set.
 func (r *relay) show(ctx context.Context, now bool) {
@@ -768,12 +881,12 @@ func (r *relay) show(ctx context.Context, now bool) {
 			return
 		}
 
-		r.card, r.shown, r.updated, r.seq = id, body, r.bot.now(), 1
+		r.card, r.shown, r.updated, r.seq = id, body, r.all.now(), 1
 
 		return
 	}
 
-	if !now && r.bot.now().Sub(r.updated) < cardEvery {
+	if !now && r.all.now().Sub(r.updated) < cardEvery {
 		return
 	}
 
@@ -781,15 +894,15 @@ func (r *relay) show(ctx context.Context, now bool) {
 		r.failed(ctx, "updating a card", err)
 	}
 
-	r.shown, r.updated = body, r.bot.now()
+	r.shown, r.updated = body, r.all.now()
 	r.seq++
 }
 
-// kept sends the coordinator's kept messages that were not sent yet: each
+// kept sends the Bot's kept messages that were not sent yet: each
 // ends the card being written, or is a card of its own when none is.
 func (r *relay) kept(ctx context.Context) {
 	for {
-		msgs, err := r.bot.store.ListChatMessages(ctx, r.chat.ChatID, r.sent, orchestration.ChatPageDefault)
+		msgs, err := r.all.store.ListChatMessages(ctx, r.chat.ChatID, r.sent, orchestration.ChatPageDefault)
 		if err != nil || len(msgs) == 0 {
 			return
 		}
@@ -809,8 +922,20 @@ func (r *relay) kept(ctx context.Context) {
 		for _, m := range msgs {
 			switch {
 			case m.Role == orchestration.ChatCoordinator && strings.TrimSpace(m.Text) != "":
-				r.finish(ctx, m.Text)
+				// What a turn the person stopped had written is kept as a reply: its card says it was stopped.
+				if r.halt(haltAsked, haltSaid) {
+					r.stopped(ctx, m.Text)
+				} else {
+					r.finish(ctx, m.Text)
+				}
+
 				r.settle(ctx, false)
+			case m.Role == orchestration.ChatSystem && m.EventSeq == 0 && r.halt(haltAsked, haltNone):
+				// pi reports the turn the person stopped as a failed call: it was stopped, not failed.
+				r.stopped(ctx, r.text.String())
+				r.settle(ctx, false)
+			case m.Role == orchestration.ChatSystem && m.EventSeq == 0 && r.halt(haltSaid, haltNone):
+				// The card of the stopped turn is closed already.
 			case m.Role == orchestration.ChatSystem && m.EventSeq == 0:
 				// The model's call failed: what was written stays, with a line that says why it stops there
 				// (MemoryOS), and the message is marked as failed (Hermes).
@@ -819,14 +944,14 @@ func (r *relay) kept(ctx context.Context) {
 					partial += "\n\n"
 				}
 
-				r.finish(ctx, partial+noticeNoReply)
+				r.finish(ctx, partial+fmt.Sprintf(noticeNoReply, r.chat.Bot))
 				r.settle(ctx, true)
 			}
 
 			r.sent = m.Seq
 		}
 
-		if err := r.bot.store.MarkLarkBotSent(ctx, r.chat.LarkChatID, r.sent); err != nil {
+		if err := r.all.store.MarkLarkChannelSent(ctx, r.chat.LarkChatID, r.sent); err != nil {
 			r.failed(ctx, "recording what was sent", err)
 
 			return
@@ -852,8 +977,8 @@ func (r *relay) finish(ctx context.Context, text string) {
 	}
 
 	parts := split(inert(text))
-	if r.bot.webURL != "" {
-		parts[len(parts)-1] += "\n\n[Open in Hypomnema](" + r.bot.webURL + "/chats/" + r.chat.ChatID + ")"
+	if r.all.webURL != "" {
+		parts[len(parts)-1] += "\n\n[Open in Hypomnema](" + r.all.webURL + "/chats/" + r.chat.ChatID + ")"
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, sendTimeout)
@@ -882,8 +1007,8 @@ func (r *relay) failed(ctx context.Context, doing string, err error) {
 		return
 	}
 
-	r.bot.logger.WarnContext(ctx, "the Lark bot failed "+doing, slog.String("event", "larkbot.send_failed"),
-		slog.String("chat_id", r.chat.ChatID), slog.Any("error", err))
+	r.all.logger.WarnContext(ctx, "a Lark channel failed "+doing, slog.String("event", "larkbot.send_failed"),
+		slog.String("channel", r.chat.Channel), slog.String("chat_id", r.chat.ChatID), slog.Any("error", err))
 }
 
 // inert writes Lark's mention tags out instead of letting them act: an <at>
@@ -957,15 +1082,16 @@ const (
 	buttonOption   = "option"
 )
 
-// questions sends the owner's open questions as cards and closes the cards
-// of questions that ended, on every change of the store.
-func (b *Bot) questions(ctx context.Context, lark Lark) {
-	wake := b.store.Subscribe(ctx)
+// questions sends the owner's open questions that go out through this
+// Channel as cards and closes the cards of questions that ended, on every
+// change of the store.
+func (cn *conn) questions(ctx context.Context) {
+	wake := cn.all.store.Subscribe(ctx)
 
 	for {
-		if err := b.syncQuestions(ctx, lark); err != nil && ctx.Err() == nil {
-			b.logger.WarnContext(ctx, "the owner's questions were not brought to Lark",
-				slog.String("event", "larkbot.questions_failed"), slog.Any("error", err))
+		if err := cn.syncQuestions(ctx); err != nil && ctx.Err() == nil {
+			cn.all.logger.WarnContext(ctx, "the owner's questions were not brought to Lark",
+				slog.String("event", "larkbot.questions_failed"), slog.String("channel", cn.name), slog.Any("error", err))
 		}
 
 		select {
@@ -976,14 +1102,16 @@ func (b *Bot) questions(ctx context.Context, lark Lark) {
 	}
 }
 
-func (b *Bot) syncQuestions(ctx context.Context, lark Lark) error {
-	bot, err := b.store.LarkBot(ctx)
-	if err != nil || !bot.Enabled {
-		// A bot that was switched off or removed sends nothing.
+func (cn *conn) syncQuestions(ctx context.Context) error {
+	store := cn.all.store
+
+	ch, err := store.LarkChannel(ctx, cn.name)
+	if err != nil || !ch.Enabled {
+		// A Channel that was switched off or removed sends nothing.
 		return nil
 	}
 
-	open, err := b.store.ListQuestions(ctx, orchestration.QuestionFilter{
+	open, err := store.ListQuestions(ctx, orchestration.QuestionFilter{
 		AddressedTo: orchestration.AddressOwner, Status: orchestration.QuestionOpen,
 	})
 	if err != nil {
@@ -994,38 +1122,43 @@ func (b *Bot) syncQuestions(ctx context.Context, lark Lark) error {
 	defer cancel()
 
 	for _, q := range open {
-		if _, err := b.store.LarkQuestionCardOf(ctx, q.ID); !errors.Is(err, orchestration.ErrNotFound) {
+		if _, err := store.LarkQuestionCardOf(ctx, q.ID); !errors.Is(err, orchestration.ErrNotFound) {
 			continue
 		}
 
-		cardID, messageID, err := lark.SendCard(ctx, bot.OwnerOpenID, questionCard(q))
+		// A question goes out through one Channel: the one its Run's chat came in through, else the first.
+		if via, err := store.LarkChannelForRun(ctx, q.RunID); err != nil || via != cn.name {
+			continue
+		}
+
+		cardID, messageID, err := cn.lark.SendCard(ctx, ch.OwnerOpenID, questionCard(q))
 		if err != nil {
 			return fmt.Errorf("sending question %s: %w", q.ID, err)
 		}
 
-		if err := b.store.RecordLarkQuestionCard(ctx, orchestration.LarkQuestionCard{
-			QuestionID: q.ID, CardID: cardID, MessageID: messageID,
+		if err := store.RecordLarkQuestionCard(ctx, orchestration.LarkQuestionCard{
+			QuestionID: q.ID, Channel: cn.name, CardID: cardID, MessageID: messageID,
 		}); err != nil {
 			return err
 		}
 	}
 
-	cards, err := b.store.OpenLarkQuestionCards(ctx)
+	cards, err := store.OpenLarkQuestionCards(ctx, cn.name)
 	if err != nil {
 		return err
 	}
 
 	for _, c := range cards {
-		q, err := b.store.GetQuestion(ctx, c.QuestionID)
+		q, err := store.GetQuestion(ctx, c.QuestionID)
 		if err != nil || q.Status == orchestration.QuestionOpen {
 			continue
 		}
 
-		if err := lark.ReplaceCard(ctx, c.CardID, endedCard(q), c.Seq+1); err != nil {
+		if err := cn.lark.ReplaceCard(ctx, c.CardID, endedCard(q), c.Seq+1); err != nil {
 			return fmt.Errorf("closing the card of question %s: %w", q.ID, err)
 		}
 
-		if err := b.store.CloseLarkQuestionCard(ctx, c.QuestionID, c.Seq+1); err != nil {
+		if err := store.CloseLarkQuestionCard(ctx, c.QuestionID, c.Seq+1); err != nil {
 			return err
 		}
 	}
@@ -1079,16 +1212,16 @@ func endedCard(q orchestration.Question) Card {
 	return card
 }
 
-// Press handles a press of a card's button and returns what the person who
+// press handles a press of a card's button and returns what the person who
 // pressed is told. It is called from the connection, which must answer Lark
 // within three seconds; an answer is one write.
-func (b *Bot) Press(ctx context.Context, p Press) string {
-	bot, err := b.store.LarkBot(ctx)
-	if err != nil || !bot.Enabled {
+func (cn *conn) press(ctx context.Context, p Press) string {
+	ch, err := cn.all.store.LarkChannel(ctx, cn.name)
+	if err != nil || !ch.Enabled {
 		return ""
 	}
 
-	if p.Operator != bot.OwnerOpenID {
+	if p.Operator != ch.OwnerOpenID {
 		return onlyTheOwner
 	}
 
@@ -1097,14 +1230,14 @@ func (b *Bot) Press(ctx context.Context, p Press) string {
 		return ""
 	}
 
-	return b.answer(ctx, p.Value[buttonQuestion], orchestration.Answer{Option: &option})
+	return cn.answer(ctx, p.Value[buttonQuestion], orchestration.Answer{Option: &option})
 }
 
 // answer records the owner's answer and returns what he is told.
-func (b *Bot) answer(ctx context.Context, questionID string, a orchestration.Answer) string {
-	if _, err := b.store.AnswerQuestion(ctx, questionID, orchestration.AddressOwner, a); err != nil {
-		b.logger.InfoContext(ctx, "an answer from Lark was not taken", slog.String("event", "larkbot.answer_refused"),
-			slog.String("question_id", questionID), slog.Any("error", err))
+func (cn *conn) answer(ctx context.Context, questionID string, a orchestration.Answer) string {
+	if _, err := cn.all.store.AnswerQuestion(ctx, questionID, orchestration.AddressOwner, a); err != nil {
+		cn.all.logger.InfoContext(ctx, "an answer from Lark was not taken", slog.String("event", "larkbot.answer_refused"),
+			slog.String("channel", cn.name), slog.String("question_id", questionID), slog.Any("error", err))
 
 		return "That answer was not taken: " + err.Error()
 	}
