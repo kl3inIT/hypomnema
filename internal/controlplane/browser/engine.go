@@ -47,6 +47,8 @@ const (
 	// ChromeIdle is how long Chrome runs with no agent's tab.
 	ChromeIdle = 5 * time.Minute
 	sweepEvery = time.Minute
+	// holdEvery is how often the owner's hold is looked at for its end.
+	holdEvery = 5 * time.Second
 )
 
 const (
@@ -119,6 +121,8 @@ type Engine struct {
 	cleared  bool
 	lastUsed time.Time
 	sessions map[string]*session
+	// control says who drives the browser: the agents, or the owner.
+	control *control
 
 	// The gate's port and Chrome's DevTools port, which the gate asks about
 	// from its own goroutines.
@@ -136,6 +140,8 @@ type session struct {
 	// released is set once the session's tab was closed: it is not used again.
 	released bool
 	used     time.Time
+	// views counts the owner's views of the tab; a tab that is watched is in use. Guarded by the engine's mu.
+	views int
 }
 
 // New returns an Engine. Nothing is installed or started until it is used.
@@ -148,7 +154,7 @@ func New(cfg Config) *Engine {
 		cfg.Logger = slog.New(slog.DiscardHandler)
 	}
 
-	return &Engine{cfg: cfg, sessions: map[string]*session{}}
+	return &Engine{cfg: cfg, sessions: map[string]*session{}, control: newControl()}
 }
 
 func (e *Engine) download(ctx context.Context) (string, string, error) {
@@ -182,6 +188,32 @@ func (e *Engine) Tools(ctx context.Context) ([]Tool, error) {
 // Call runs one tool for an agent, in the agent's own tab, and returns
 // agent-browser's answer: an MCP tool result.
 func (e *Engine) Call(ctx context.Context, agent, tool string, arguments json.RawMessage) (json.RawMessage, error) {
+	// While the owner holds the browser no agent's call runs, and one that was running when the owner took it
+	// is answered as if it had not: what it read may be what the owner typed.
+	if !e.control.enter() {
+		return refusal(), nil
+	}
+
+	result, err := e.call(ctx, agent, tool, arguments)
+
+	if e.control.leave() {
+		return refusal(), nil
+	}
+
+	return result, err
+}
+
+// refusal is the answer to an agent's call while the owner holds the browser.
+func refusal() json.RawMessage {
+	//nolint:errchkjson // Strings and a boolean.
+	raw, _ := json.Marshal(map[string]any{
+		"content": []map[string]string{{"type": "text", "text": Refusal}}, "isError": true,
+	})
+
+	return raw
+}
+
+func (e *Engine) call(ctx context.Context, agent, tool string, arguments json.RawMessage) (json.RawMessage, error) {
 	ctx, cancel := context.WithTimeout(ctx, callTimeout)
 	defer cancel()
 
@@ -387,8 +419,11 @@ func (e *Engine) gated() error {
 
 // ownPort reports a port of the control plane's or the browser's own.
 func (e *Engine) ownPort(port uint16) bool {
+	// A session's stream takes input for its tab from anything that reaches it (OpenMausBot's registry.ts,
+	// agentBrowserStreamPorts).
 	return slices.Contains(e.cfg.OwnPorts, port) ||
-		uint32(port) == e.gatePort.Load() || uint32(port) == e.devToolsPort.Load()
+		uint32(port) == e.gatePort.Load() || uint32(port) == e.devToolsPort.Load() ||
+		slices.Contains(e.streamPorts(), port)
 }
 
 func (e *Engine) refused(host string, port uint16, reason egress.Refusal) {
@@ -553,6 +588,7 @@ func (e *Engine) env(name, cdp string) []string {
 		"AGENT_BROWSER_SESSION=" + name,
 		// The engine ends what is idle; agent-browser's own hour would end a daemon under a tab still in use.
 		"AGENT_BROWSER_IDLE_TIMEOUT_MS=0",
+		"AGENT_BROWSER_STREAM_QUALITY=" + streamQuality,
 	}
 
 	if cdp != "" {
@@ -604,12 +640,14 @@ func (e *Engine) Release(ctx context.Context, agent string) {
 func (e *Engine) Sweep(ctx context.Context) {
 	now := e.cfg.Clock.Now()
 
+	e.expire(ctx)
+
 	e.mu.Lock()
 
 	var idle []string
 
 	for agent, s := range e.sessions {
-		if now.Sub(s.used) >= TabIdle {
+		if s.views == 0 && now.Sub(s.used) >= TabIdle {
 			idle = append(idle, agent)
 		}
 	}
@@ -631,6 +669,14 @@ func (e *Engine) Sweep(ctx context.Context) {
 	e.cfg.Logger.InfoContext(ctx, "the idle browser was closed", slog.String("event", "browser.stopped"))
 }
 
+// expire gives the browser back to the agents when the owner's hold outlived
+// its view or the owner's last input.
+func (e *Engine) expire(ctx context.Context) {
+	if reason := e.control.expire(e.cfg.Clock.Now()); reason != "" {
+		e.released(ctx, reason)
+	}
+}
+
 // stop closes Chrome. The caller holds mu.
 func (e *Engine) stop(ctx context.Context) {
 	e.forget(ctx)
@@ -642,6 +688,9 @@ func (e *Engine) stop(ctx context.Context) {
 func (e *Engine) Run(ctx context.Context) {
 	tick := time.NewTicker(sweepEvery)
 	defer tick.Stop()
+
+	hold := time.NewTicker(holdEvery)
+	defer hold.Stop()
 
 	for {
 		select {
@@ -655,6 +704,8 @@ func (e *Engine) Run(ctx context.Context) {
 			return
 		case <-tick.C:
 			e.Sweep(ctx)
+		case <-hold.C:
+			e.expire(ctx)
 		}
 	}
 }

@@ -368,6 +368,44 @@ export type TerminalTicket = {
   expires_at: string;
 };
 
+export type Browser = {
+  /**
+   * Whether the browser's programs were fetched; they are at the first use.
+   */
+  installed: boolean;
+  running: boolean;
+  /**
+   * Whether the owner holds the browser; agents' calls are refused meanwhile.
+   */
+  held: boolean;
+  tabs: Array<BrowserTab>;
+};
+
+export type BrowserTab = {
+  id: string;
+  /**
+   * Whose tab it is: a worker's (a Dispatch), the coordinator's, one opened with the owner's own token, or the owner's own tab in the web client.
+   */
+  kind: 'worker' | 'coordinator' | 'token' | 'owner';
+  /**
+   * The worker's Dispatch.
+   */
+  dispatch_id?: string;
+  task_id?: string;
+  run_id?: string;
+  url: string;
+  title: string;
+  /**
+   * How many views of it are open.
+   */
+  views: number;
+};
+
+export type BrowserViewTicket = {
+  ticket: string;
+  expires_at: string;
+};
+
 /**
  * Set for a node whose machine was created at a provider; left out for one the owner installed. Removing the node destroys the machine.
  */
@@ -3932,6 +3970,61 @@ export type ListModelsResponses = {
 };
 
 export type ListModelsResponse = ListModelsResponses[keyof ListModelsResponses];
+
+export type GetBrowserData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/browser';
+};
+
+export type GetBrowserErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GetBrowserError = GetBrowserErrors[keyof GetBrowserErrors];
+
+export type GetBrowserResponses = {
+  /**
+   * The browser.
+   */
+  200: Browser;
+};
+
+export type GetBrowserResponse = GetBrowserResponses[keyof GetBrowserResponses];
+
+export type OpenBrowserViewData = {
+  body?: never;
+  path: {
+    /**
+     * A tab's id as `GET /browser` lists it, or `owner` for the owner's own tab, which is made then.
+     */
+    tab_id: string;
+  };
+  query?: never;
+  url: '/browser/tabs/{tab_id}/views';
+};
+
+export type OpenBrowserViewErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type OpenBrowserViewError = OpenBrowserViewErrors[keyof OpenBrowserViewErrors];
+
+export type OpenBrowserViewResponses = {
+  /**
+   * The ticket.
+   */
+  201: BrowserViewTicket;
+};
+
+export type OpenBrowserViewResponse = OpenBrowserViewResponses[keyof OpenBrowserViewResponses];
 
 export type ListChatsData = {
   body?: never;

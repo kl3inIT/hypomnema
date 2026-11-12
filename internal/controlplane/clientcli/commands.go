@@ -455,6 +455,10 @@ var commands = []command{
 		name: "models list", summary: "every model, with its provider", flags: jsonFlag, run: modelsList,
 	},
 	{
+		name: "browser status", summary: "the browser every agent shares: its state and its tabs (owner)",
+		flags: jsonFlag, run: browserStatus,
+	},
+	{
 		name: "skills get", args: "[skill]", max: 1, offline: true,
 		summary: "print a skill's guide, as this binary ships it",
 		flags: func(fs *flag.FlagSet) {

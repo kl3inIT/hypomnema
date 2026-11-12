@@ -153,8 +153,9 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     workers, Windows.
 - A browser every agent shares (issue #193, step 1 in issue #196,
   [research](docs/research/2026-11-12-embedded-browser.md); `internal/controlplane/browser`). Built so far: the
-  engine on the control plane, an agent's calls to it, and the tools in a worker's hands. Not built: a person
-  watching or taking control, the page in the web client, a node holding the browser instead.
+  engine on the control plane, an agent's calls to it, the tools in a worker's hands, and the control plane's
+  side of the owner watching a tab and taking control. Not built: the page in the web client, a node holding the
+  browser instead.
   - It is one headless Chrome on the control plane's machine with one persistent profile, so a sign-in is made
     once and every agent has it, driven through agent-browser (Vercel Labs), as OpenMausBot's is. Each agent is an
     agent-browser session attached to that Chrome and pinned to a tab of its own
@@ -188,6 +189,34 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     passed to `POST /agent/v1/browser/call` and its answer, a screenshot as image content, is passed back as it
     is. A control plane that gives no browser leaves the worker `ask` and `finish`. The tab is not closed when
     the Dispatch settles: the idle rules close it.
+  - Who drives the browser (issue #219; `control.go`, after OpenMausBot's `server/browser/control.ts`): the
+    agents, or the owner who took control. The profile is shared, so the owner holding any tab holds the whole
+    browser: every agent's call is then answered, as a tool's result, that the browser is paused, a read included,
+    and nothing reaches agent-browser. Taking control holds at once and lets an agent's running call end for up
+    to 15 seconds; that call is answered as refused too. Control goes back to the agents when the owner releases
+    it, at once when the owner's view is closed, 2 minutes after a view dropped, and 5 minutes after the owner's
+    last input (OpenMausBot's limits).
+  - The owner watches a tab (issue #219; `view.go`, `clientapi/browser.go`): an agent's, or the owner's own tab
+    `owner`, which is made when it is first watched and is where a sign-in is made. `POST
+    /api/v1/browser/tabs/{tab}/views` gives a ticket (owner only, once, 30 seconds), which opens the WebSocket
+    `/api/v1/browser/views/{ticket}`, as a terminal's does. The control plane connects to that session's stream,
+    which agent-browser serves on a loopback port named in `run/<session>.stream`, with `pacing=ack`: a frame
+    (JPEG, quality 70) goes to the page as a binary message and the next one waits for the page's `ack`; a page
+    that does not take a message within 10 seconds is disconnected. The JSON messages are T3 Code's: to the page
+    `control` (`agent` or `you`), `viewport` and `url`; from it `takeControl`, `releaseControl`, `mouse`,
+    `wheel`, `key`, `navigate`, `history` and `reload`. Mouse, wheel and keys go to the stream as agent-browser's
+    `input_mouse` and `input_keyboard`, navigation runs as the session's own command, and all of them need
+    control: without it they are dropped and the page is told again who controls. At most 4 views are open; a
+    tab that is watched is not closed as idle. Each view and each take-over is logged
+    (`clientapi.browser_view_opened`, `_closed`, `browser.taken`, `browser.released`) with who, which tab, from
+    where and how long; frames and keys are not.
+  - `GET /api/v1/browser` (owner only) and `hypomnema browser status` say whether the browser is installed and
+    running, whether the owner holds it, and list the tabs: whose each is (a worker's with its Dispatch, Task and
+    Run), and its address and title as Chrome's own DevTools port lists them.
+  - Others on the control plane's machine: agent-browser serves each session's stream, and a route that runs
+    commands in it, on `127.0.0.1` with no key, and Chrome's DevTools port is on `127.0.0.1` too, as in T3 Code
+    and OpenMausBot. Any user or program on that machine can reach them, and with them the signed-in browser.
+    A page in the browser cannot: the gate below never opens those ports.
   - What the browser may reach is limited by a gate (issue #202; `internal/controlplane/browser/egress`, adapted
     from OpenMausBot's `server/browser/egress/`, Apache-2.0, its notice in `third_party/openmausbot/`). Chrome is
     launched with a SOCKS5 server inside the control plane, on a loopback port, as its proxy for every connection,
@@ -197,8 +226,8 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     Loopback, the machine's own addresses and private networks (10/8, 100.64/10, 172.16/12, 192.168/16, fc00::/7)
     pass only where `HYPOMNEMA_BROWSER_ALLOW` lists them (`10.0.0.5`, `192.168.1.0/24`, `10.0.0.5:8080`,
     `[fd12::1]:443`, separated by commas; empty by default; a page opened as `localhost` needs its port listed, as
-    `127.0.0.1:3000`, which covers `::1` too), and the control plane's own port, the gate's and
-    Chrome's DevTools port never open on that machine. A refusal is logged as `browser.refused` with the host, the
+    `127.0.0.1:3000`, which covers `::1` too), and the control plane's own port, the gate's,
+    Chrome's DevTools port and the sessions' stream ports never open on that machine. A refusal is logged as `browser.refused` with the host, the
     port and the reason; the agent sees Chrome's connection error.
 - Chats (`orchestration/chats.go`, issue #41 PR 3, after Omnara;
   [research](docs/research/2026-11-09-chat-storage.md)): the owner's conversations with pi. Every message is kept
@@ -1361,7 +1390,7 @@ the internet, so that a machine created at a provider can install the node from 
 api                       the client API's contract (openapi.yaml) and oapi-codegen's configuration
 internal/controlplane     package controlplane: configuration, migrate, serve and the owner's server commands
 internal/controlplane/bearertoken  client token format: making, checking and hashing
-internal/controlplane/browser  the browser every agent shares: the pinned agent-browser and headless Chrome, one Chrome and a session an agent, the tools offered, the idle rules
+internal/controlplane/browser  the browser every agent shares: the pinned agent-browser and headless Chrome, one Chrome and a session an agent, the tools offered, the idle rules, who drives it, the owner's views
 internal/controlplane/browser/egress  the gate on what the shared browser may reach: the SOCKS5 server Chrome goes through, the address classes, the owner's allow list
 internal/controlplane/clientapi  the client API: policies, handlers, events and their stream; generated code in openapi/
 internal/controlplane/clientcli  the commands that call the client API, and the coordinator skill (skills/)

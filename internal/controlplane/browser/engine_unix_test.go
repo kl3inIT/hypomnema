@@ -30,7 +30,9 @@ import (
 //   - `mcp call` answers a tool's result with more beside it. As agent-browser
 //     does, it keeps the session's tab in a file beside its sockets, which
 //     outlives the session, and answers `tab_gone` once that tab was closed or
-//     its Chrome went away.
+//     its Chrome went away. A call takes a second while `slow` is there.
+//
+// Chrome's DevTools port is the one in `devtools`, or one nothing listens on.
 const standIn = `#!/bin/sh
 dir=$(dirname "$0")
 who="session=$AGENT_BROWSER_SESSION cdp=${AGENT_BROWSER_CDP:-} pin=${AGENT_BROWSER_PIN_TAB:-}"
@@ -42,11 +44,12 @@ mcp)
   cat > /dev/null
   if [ "$2" = call ]; then
     bound="$AGENT_BROWSER_SOCKET_DIR/$AGENT_BROWSER_SESSION.target"
-    if [ -f "$bound" ] && [ "$(cat "$bound")" != "$AGENT_BROWSER_CDP" ]; then
+    if [ -f "$bound" ] && ! grep -q "\"cdp\":\"$AGENT_BROWSER_CDP\"" "$bound"; then
       echo '{"content":[{"type":"text","text":"tab_gone: bound tab is gone"}],"isError":true}'
       exit 1
     fi
-    printf %s "$AGENT_BROWSER_CDP" > "$bound"
+    printf '{"targetId":"T-%s","url":"about:blank","cdp":"%s"}' "$AGENT_BROWSER_SESSION" "$AGENT_BROWSER_CDP" > "$bound"
+    if [ -f "$dir/slow" ]; then sleep 1; fi
     echo '{"content":[{"type":"text","text":"done"}],"isError":false,"structuredContent":{"profile":"/engine/profile"}}'
   else
     cat "$dir/tools"
@@ -68,7 +71,8 @@ if [ -f "$dir/sandbox-blocked" ]; then
   *) echo "FATAL: No usable sandbox! If you are running on Ubuntu 23.10+" >&2; exit 1 ;;
   esac
 fi
-echo "ws://127.0.0.1:9/devtools/browser/$(cat "$dir/chrome" 2>/dev/null)" > "$dir/up"
+port=$(cat "$dir/devtools" 2>/dev/null || echo 9)
+echo "ws://127.0.0.1:$port/devtools/browser/$(cat "$dir/chrome" 2>/dev/null)" > "$dir/up"
 `
 
 type clock struct {
