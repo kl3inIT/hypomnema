@@ -1,8 +1,12 @@
 const ago = new Intl.RelativeTimeFormat(undefined, { style: "narrow" })
 
-// since says how long ago a moment was: "5m ago", "3h ago", "2d ago".
+// since says how long ago a moment was: "just now" under a minute, as t3code's formatRelativeElapsed
+// (apps/web/src/timestampFormat.ts), then "5m ago", "3h ago", "2d ago".
 export function since(iso: string, now = Date.now()) {
-  const minutes = Math.max(0, Math.round((now - new Date(iso).getTime()) / 60_000))
+  const seconds = Math.max(0, (now - new Date(iso).getTime()) / 1000)
+  if (seconds < 60) return "just now"
+
+  const minutes = Math.round(seconds / 60)
   if (minutes < 60) return ago.format(-minutes, "minute")
   if (minutes < 60 * 24) return ago.format(-Math.round(minutes / 60), "hour")
 

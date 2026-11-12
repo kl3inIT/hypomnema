@@ -1,7 +1,7 @@
 import { useForm } from "@tanstack/react-form"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { ExternalLink, Plus } from "lucide-react"
-import { useState, type ReactNode } from "react"
+import { useId, useState, type ReactNode } from "react"
 import { z } from "zod"
 
 import "@/api/client"
@@ -30,6 +30,7 @@ import {
   DialogDescription,
   DialogFooter,
   DialogHeader,
+  DialogPanel,
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
@@ -114,6 +115,18 @@ export function IntegrationsScreen() {
 // What a company's own git server runs, as the owner picks it.
 const hostKindNames: Record<GitHostKind, string> = { gitlab: "GitLab", github: "GitHub Enterprise" }
 
+// HostKindName is what a company's git server runs, as the picker shows it: the product's mark, then its name.
+function HostKindName({ kind }: { kind: GitHostKind }) {
+  const Icon = kind === "github" ? GitHubIcon : GitLabIcon
+
+  return (
+    <span className="flex items-center gap-2">
+      <Icon className="size-4 shrink-0" />
+      {hostKindNames[kind]}
+    </span>
+  )
+}
+
 // HostIcon is the mark of what a host runs: GitHub's or GitLab's. A company's own server carries the mark of the
 // product it runs, as its address alone says nothing.
 function HostIcon({ host }: { host: GitHost }) {
@@ -162,8 +175,8 @@ function HostCard({ host }: { host: GitHost }) {
             </span>
           </span>
         </CardTitle>
-        <CardAction>
-          <span className="flex flex-wrap items-center justify-end gap-1.5">
+        <CardAction wrap>
+          <span className="flex flex-wrap items-center gap-1.5 sm:justify-end">
             <SetToken host={host} />
             {host.has_token && (
               <ConfirmDialog
@@ -247,33 +260,37 @@ function FormDialog({
   onSubmit: () => void
   children: ReactNode
 }) {
+  const formId = useId()
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {trigger}
       <DialogContent>
-        <form
-          autoComplete="off"
-          noValidate
-          className="flex flex-col gap-4"
-          onSubmit={(event) => {
-            event.preventDefault()
-            onSubmit()
-          }}
-        >
-          <DialogHeader>
-            <DialogTitle>{title}</DialogTitle>
-            <DialogDescription>{about}</DialogDescription>
-          </DialogHeader>
-          {children}
-          <ErrorAlert error={error} />
-          <DialogFooter>
-            <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
-            <Button type="submit" disabled={pending}>
-              {pending && <Spinner data-icon="inline-start" />}
-              {action}
-            </Button>
-          </DialogFooter>
-        </form>
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{about}</DialogDescription>
+        </DialogHeader>
+        <DialogPanel>
+          <form
+            id={formId}
+            autoComplete="off"
+            noValidate
+            className="flex flex-col gap-4"
+            onSubmit={(event) => {
+              event.preventDefault()
+              onSubmit()
+            }}
+          >
+            {children}
+            <ErrorAlert error={error} />
+          </form>
+        </DialogPanel>
+        <DialogFooter>
+          <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
+          <Button type="submit" form={formId} disabled={pending}>
+            {pending && <Spinner data-icon="inline-start" />}
+            {action}
+          </Button>
+        </DialogFooter>
       </DialogContent>
     </Dialog>
   )
@@ -445,11 +462,15 @@ function AddHost() {
                 items={hostKindNames}
               >
                 <SelectTrigger id={field.name} onBlur={field.handleBlur} width="full">
-                  <SelectValue />
+                  <SelectValue>{(value: GitHostKind) => <HostKindName kind={value} />}</SelectValue>
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="gitlab">{hostKindNames.gitlab}</SelectItem>
-                  <SelectItem value="github">{hostKindNames.github}</SelectItem>
+                  <SelectItem value="gitlab">
+                    <HostKindName kind="gitlab" />
+                  </SelectItem>
+                  <SelectItem value="github">
+                    <HostKindName kind="github" />
+                  </SelectItem>
                 </SelectContent>
               </Select>
             </Field>

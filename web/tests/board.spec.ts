@@ -251,7 +251,7 @@ test("a Run that asks comes first and is answered on its page", async ({ page })
 
 // Scenario: a running worker asked to share a file from the owner's Drive, and the request is held. Its Task
 // shows what would be shared and with whom, above the transcript. The owner approves sharing for the rest of the
-// Run, and the card goes.
+// Run from the card's menu, and the card goes.
 test("the owner approves what a worker asked to do with an account", async ({ page }) => {
   await fakeServer(page, { approval: true })
   await page.goto("/board")
@@ -268,12 +268,17 @@ test("the owner approves what a worker asked to do with an account", async ({ pa
   })
   await expect(card).toContainText("team@example.com")
   await expect(card).toContainText("google:work · Share a file · asked by worker")
+  // The request's own field names read as words.
+  await expect(card.getByRole("term")).toHaveText(["Email address", "Role", "Type"])
   expect(await page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")).toBe(
     true,
   )
   await shot(page, "task-approval")
 
-  await card.getByRole("button", { name: "Approve for this Run" }).click()
+  // Approving for the rest of the Run waits in the menu beside Decline and Approve.
+  await card.getByRole("button", { name: "More approval options" }).click()
+  await shot(page, "task-approval-menu")
+  await page.getByRole("menuitem", { name: "Approve for this Run" }).click()
   await expect(card).toHaveCount(0)
   expect(decisions).toEqual([{ decision: "approve_session" }])
 })

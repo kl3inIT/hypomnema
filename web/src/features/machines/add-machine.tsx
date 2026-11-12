@@ -14,6 +14,7 @@ import {
   DialogDescription,
   DialogFooter,
   DialogHeader,
+  DialogPanel,
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
@@ -32,6 +33,7 @@ const own = ""
 // providers, the dialog also offers a new machine at one of them, which installs the node itself and needs no token.
 export function AddMachine() {
   const queryClient = useQueryClient()
+  const formId = useId()
   const [open, setOpen] = useState(false)
   const [where, setWhere] = useState(own)
   const [name, setName] = useState("")
@@ -86,119 +88,128 @@ export function AddMachine() {
             <Created created={create.data} />
           )
         ) : (
-          <form
-            className="flex flex-col gap-4"
-            onSubmit={(event) => {
-              event.preventDefault()
-              create.mutate()
-            }}
-          >
+          <>
             <DialogHeader>
               <DialogTitle>Add a machine</DialogTitle>
             </DialogHeader>
-            {providers.length > 0 && (
-              <fieldset className="flex flex-col gap-1.5 text-sm">
-                <legend className="mb-1.5">Where</legend>
-                <Choice
-                  value={own}
-                  chosen={where}
-                  onChoose={setWhere}
-                  title="A machine of your own"
-                  detail="You run one install line on it."
-                />
-                {providers.map((p) => (
-                  <Choice
-                    key={p.id}
-                    value={p.name}
-                    chosen={where}
-                    onChoose={setWhere}
-                    title={`A new machine at ${p.name}`}
-                    detail={`${p.size} in ${p.region} · ${p.machines} of ${p.max_machines} machines`}
+            <DialogPanel>
+              <form
+                id={formId}
+                className="flex flex-col gap-4"
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  create.mutate()
+                }}
+              >
+                {providers.length > 0 && (
+                  <fieldset className="flex flex-col gap-1.5 text-sm">
+                    <legend className="mb-1.5">Where</legend>
+                    <Choice
+                      value={own}
+                      chosen={where}
+                      onChoose={setWhere}
+                      title="A machine of your own"
+                      detail="You run one install line on it."
+                    />
+                    {providers.map((p) => (
+                      <Choice
+                        key={p.id}
+                        value={p.name}
+                        chosen={where}
+                        onChoose={setWhere}
+                        title={`A new machine at ${p.name}`}
+                        detail={`${p.size} in ${p.region} · ${p.machines} of ${p.max_machines} machines`}
+                      />
+                    ))}
+                  </fieldset>
+                )}
+                <Field>
+                  <FieldLabel htmlFor="machine-name">Name</FieldLabel>
+                  <Input
+                    id="machine-name"
+                    required
+                    autoComplete="off"
+                    value={name}
+                    onChange={(event) => setName(event.target.value)}
                   />
-                ))}
-              </fieldset>
-            )}
-            <Field>
-              <FieldLabel htmlFor="machine-name">Name</FieldLabel>
-              <Input
-                id="machine-name"
-                required
-                autoComplete="off"
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-              />
-            </Field>
-            {provider && (
-              <Field>
-                <div className="grid grid-cols-2 gap-3">
+                </Field>
+                {provider && (
                   <Field>
-                    <FieldLabel htmlFor="machine-size">Size</FieldLabel>
-                    <Input
-                      id="machine-size"
-                      autoComplete="off"
-                      spellCheck={false}
-                      placeholder={provider.size}
-                      value={size}
-                      onChange={(event) => setSize(event.target.value)}
-                    />
+                    <div className="grid grid-cols-2 gap-3">
+                      <Field>
+                        <FieldLabel htmlFor="machine-size">Size</FieldLabel>
+                        <Input
+                          id="machine-size"
+                          autoComplete="off"
+                          spellCheck={false}
+                          placeholder={provider.size}
+                          value={size}
+                          onChange={(event) => setSize(event.target.value)}
+                        />
+                      </Field>
+                      <Field>
+                        <FieldLabel htmlFor="machine-region">Region</FieldLabel>
+                        <Input
+                          id="machine-region"
+                          autoComplete="off"
+                          spellCheck={false}
+                          placeholder={provider.region}
+                          value={region}
+                          onChange={(event) => setRegion(event.target.value)}
+                        />
+                      </Field>
+                    </div>
+                    <FieldDescription>
+                      The provider&apos;s own names, such as t3.large. Leave empty for the defaults
+                      shown.
+                    </FieldDescription>
                   </Field>
-                  <Field>
-                    <FieldLabel htmlFor="machine-region">Region</FieldLabel>
-                    <Input
-                      id="machine-region"
-                      autoComplete="off"
-                      spellCheck={false}
-                      placeholder={provider.region}
-                      value={region}
-                      onChange={(event) => setRegion(event.target.value)}
-                    />
-                  </Field>
-                </div>
-                <FieldDescription>
-                  The provider&apos;s own names, such as t3.large. Leave empty for the defaults
-                  shown.
-                </FieldDescription>
-              </Field>
-            )}
-            <Field>
-              <FieldLabel htmlFor="machine-max">Max Dispatches</FieldLabel>
-              <Input
-                id="machine-max"
-                type="number"
-                min={1}
-                step={1}
-                inputMode="numeric"
-                placeholder="Default"
-                value={max}
-                onChange={(event) => setMax(event.target.value)}
-              />
-              <FieldDescription>
-                How many Dispatches it runs at once. Leave empty for the default.
-              </FieldDescription>
-            </Field>
-            {provider && !full && (
-              <p className="text-xs text-muted-foreground">
-                The provider bills for the machine from now until you remove it.
-              </p>
-            )}
-            {full && (
-              <p className="text-sm text-muted-foreground">
-                {provider.name} is at its limit of {provider.max_machines} machines. Remove one
-                first.
-              </p>
-            )}
-            {create.error && (
-              <Alert variant="destructive">
-                <AlertDescription>{errorText(create.error)}</AlertDescription>
-              </Alert>
-            )}
+                )}
+                <Field>
+                  <FieldLabel htmlFor="machine-max">Max Dispatches</FieldLabel>
+                  <Input
+                    id="machine-max"
+                    type="number"
+                    min={1}
+                    step={1}
+                    inputMode="numeric"
+                    placeholder="Default"
+                    value={max}
+                    onChange={(event) => setMax(event.target.value)}
+                  />
+                  <FieldDescription>
+                    How many Dispatches it runs at once. Leave empty for the default.
+                  </FieldDescription>
+                </Field>
+                {provider && !full && (
+                  <p className="text-xs text-muted-foreground">
+                    The provider bills for the machine from now until you remove it.
+                  </p>
+                )}
+                {full && (
+                  <p className="text-sm text-muted-foreground">
+                    {provider.name} is at its limit of {provider.max_machines} machines. Remove one
+                    first.
+                  </p>
+                )}
+                {create.error && (
+                  <Alert variant="destructive">
+                    <AlertDescription>{errorText(create.error)}</AlertDescription>
+                  </Alert>
+                )}
+              </form>
+            </DialogPanel>
             <DialogFooter>
               <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
-              <Button type="submit" disabled={create.isPending || name.trim() === "" || full}>
+              <Button
+                type="submit"
+                form={formId}
+                disabled={create.isPending || name.trim() === "" || full}
+              >
                 {submitText(provider !== undefined, create.isPending)}
               </Button>
             </DialogFooter>
-          </form>
+          </>
         )}
       </DialogContent>
     </Dialog>

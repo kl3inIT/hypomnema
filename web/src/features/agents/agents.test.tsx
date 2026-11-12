@@ -193,6 +193,30 @@ test("the table shows the same agents and the layout is remembered", async () =>
   expect(window.localStorage.getItem("hypomnema.agents.layout")).toBe("table")
 })
 
+// Scenario: the table starts without the version, which is for editing an agent and is on its page; the owner shows
+// it from the View menu, as on the Machines page, and the choice is kept (issue #242).
+test("the table hides the version until the owner shows it", async () => {
+  const user = userEvent.setup()
+  server([profile("implementer")])
+  open("/agents")
+  await agent("implementer")
+
+  await user.click(screen.getByRole("button", { name: "table" }))
+  expect(screen.getByRole("columnheader", { name: "Effort" })).toBeInTheDocument()
+  expect(screen.queryByRole("columnheader", { name: "Version" })).toBeNull()
+
+  await user.click(screen.getByRole("button", { name: "View" }))
+  expect(await screen.findByRole("menuitemcheckbox", { name: "Model" })).toBeChecked()
+  expect(screen.queryByRole("menuitemcheckbox", { name: "Name" })).toBeNull()
+  await user.click(screen.getByRole("menuitemcheckbox", { name: "Version" }))
+
+  expect(screen.getByRole("columnheader", { name: "Version" })).toBeInTheDocument()
+  expect(screen.getByTestId("agent")).toHaveTextContent("1, 2h ago")
+  expect(JSON.parse(window.localStorage.getItem("hypomnema.agents.columns")!)).toEqual({
+    version: true,
+  })
+})
+
 test("a list that cannot be read offers to try again, and an empty one says what an agent is", async () => {
   const fetch = vi
     .spyOn(globalThis, "fetch")

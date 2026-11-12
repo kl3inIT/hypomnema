@@ -7,7 +7,7 @@ const plugins = { code }
 const controls = { table: false, code: { copy: true, download: false } } as const
 
 // Markdown renders pi's replies with streamdown and shiki, styled as t3code's chat markdown (.chat-markdown in
-// index.css). It is loaded apart from the chat screen, so the conversation shows while the renderer arrives.
+// index.css). It is imported with the chat (chat-items.tsx), so a reply never shows its raw marks.
 export default function Markdown({ text, streaming }: { text: string; streaming: boolean }) {
   return (
     <Streamdown

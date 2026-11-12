@@ -158,9 +158,62 @@ test("the layout switches between cards and a table and is remembered", async ()
   expect(within(row).getAllByTitle("Claude Code").length).toBeGreaterThan(0)
   expect(within(row).getAllByTitle("Codex").length).toBeGreaterThan(0)
   expect(row).toHaveTextContent("claudecodex")
-  expect(row).toHaveTextContent("0.4.0 · linux/amd64")
   expect(screen.queryByRole("article")).not.toBeInTheDocument()
   expect(window.localStorage.getItem("hypomnema.machines.layout")).toBe("table")
+})
+
+// Scenario: the table is too wide for a laptop with every column, so it starts without the load average, the
+// agent's version and the source (issue #242). The owner shows the agent's version from the View menu, as in
+// Beszel, and the choice is kept for the next visit.
+test("the table hides its low-value columns until the owner shows them", async () => {
+  const user = userEvent.setup()
+  nodesServer([node("builder")])
+  await open()
+  await machine("builder")
+
+  // The menu belongs to the table.
+  expect(screen.queryByRole("button", { name: "View" })).not.toBeInTheDocument()
+  await user.click(screen.getByRole("button", { name: "table" }))
+  expect(await screen.findByRole("columnheader", { name: "CPU" })).toBeVisible()
+  for (const hidden of ["Load Avg", "Agent", "Source"]) {
+    expect(screen.queryByRole("columnheader", { name: hidden })).toBeNull()
+  }
+  const row = () => within(screen.getByRole("table")).getByRole("row", { name: /builder/ })
+  expect(row()).not.toHaveTextContent("0.4.0")
+
+  await user.click(screen.getByRole("button", { name: "View" }))
+  const items = await screen.findAllByRole("menuitemcheckbox")
+  // The machine's name cannot be hidden: a row would not say which machine it is.
+  expect(items.map((item) => item.textContent)).not.toContain("Machine")
+  expect(screen.getByRole("menuitemcheckbox", { name: "CPU" })).toBeChecked()
+  expect(screen.getByRole("menuitemcheckbox", { name: "Agent" })).not.toBeChecked()
+
+  await user.click(screen.getByRole("menuitemcheckbox", { name: "Agent" }))
+  expect(row()).toHaveTextContent("0.4.0 · linux/amd64")
+  await user.click(screen.getByRole("menuitemcheckbox", { name: "CPU" }))
+  expect(screen.queryByRole("columnheader", { name: "CPU" })).toBeNull()
+
+  expect(JSON.parse(window.localStorage.getItem("hypomnema.machines.columns")!)).toEqual({
+    load: false,
+    agent: true,
+    source: false,
+    cpu: false,
+  })
+})
+
+// Scenario: the owner chose the columns on an earlier visit; the table opens with them.
+test("the table opens with the columns the owner chose", async () => {
+  window.localStorage.setItem("hypomnema.machines.layout", "table")
+  window.localStorage.setItem(
+    "hypomnema.machines.columns",
+    JSON.stringify({ source: true, cpu: false }),
+  )
+  nodesServer([node("builder")])
+  await open()
+
+  expect(await screen.findByRole("columnheader", { name: "Source" })).toBeVisible()
+  expect(screen.queryByRole("columnheader", { name: "CPU" })).toBeNull()
+  expect(screen.queryByRole("columnheader", { name: "Agent" })).toBeNull()
 })
 
 // Scenario: the owner adds a machine. The token the server gives is shown with the install line, and is gone
