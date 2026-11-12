@@ -38,6 +38,27 @@ func (q *Queries) GetSkill(ctx context.Context, name string) (Skill, error) {
 	return i, err
 }
 
+const insertDispatchSkill = `-- name: InsertDispatchSkill :exec
+INSERT INTO dispatch_skills (dispatch_id, skill, revision, digest) VALUES (?1, ?2, ?3, ?4)
+`
+
+type InsertDispatchSkillParams struct {
+	DispatchID string
+	Skill      string
+	Revision   int64
+	Digest     string
+}
+
+func (q *Queries) InsertDispatchSkill(ctx context.Context, arg InsertDispatchSkillParams) error {
+	_, err := q.db.ExecContext(ctx, insertDispatchSkill,
+		arg.DispatchID,
+		arg.Skill,
+		arg.Revision,
+		arg.Digest,
+	)
+	return err
+}
+
 const insertSkill = `-- name: InsertSkill :exec
 INSERT INTO skills (name, created_at, updated_at) VALUES (?1, ?2, ?2) ON CONFLICT (name) DO NOTHING
 `
@@ -101,6 +122,81 @@ func (q *Queries) LatestSkillRevision(ctx context.Context, skill string) (Latest
 	var i LatestSkillRevisionRow
 	err := row.Scan(&i.Revision, &i.Digest)
 	return i, err
+}
+
+const latestSkillRevisions = `-- name: LatestSkillRevisions :many
+SELECT s.name, s.everyone, r.revision, r.digest
+FROM skills s JOIN skill_revisions r ON r.skill = s.name
+WHERE r.revision = (SELECT max(revision) FROM skill_revisions WHERE skill = s.name)
+ORDER BY s.name
+`
+
+type LatestSkillRevisionsRow struct {
+	Name     string
+	Everyone int64
+	Revision int64
+	Digest   string
+}
+
+func (q *Queries) LatestSkillRevisions(ctx context.Context) ([]LatestSkillRevisionsRow, error) {
+	rows, err := q.db.QueryContext(ctx, latestSkillRevisions)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []LatestSkillRevisionsRow{}
+	for rows.Next() {
+		var i LatestSkillRevisionsRow
+		if err := rows.Scan(
+			&i.Name,
+			&i.Everyone,
+			&i.Revision,
+			&i.Digest,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDispatchSkills = `-- name: ListDispatchSkills :many
+SELECT skill, revision, digest FROM dispatch_skills WHERE dispatch_id = ?1 ORDER BY skill
+`
+
+type ListDispatchSkillsRow struct {
+	Skill    string
+	Revision int64
+	Digest   string
+}
+
+func (q *Queries) ListDispatchSkills(ctx context.Context, dispatchID string) ([]ListDispatchSkillsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listDispatchSkills, dispatchID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListDispatchSkillsRow{}
+	for rows.Next() {
+		var i ListDispatchSkillsRow
+		if err := rows.Scan(&i.Skill, &i.Revision, &i.Digest); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listSkillRevisions = `-- name: ListSkillRevisions :many
@@ -212,6 +308,35 @@ func (q *Queries) ListSkills(ctx context.Context) ([]ListSkillsRow, error) {
 	return items, nil
 }
 
+const profilesNamingSkill = `-- name: ProfilesNamingSkill :many
+SELECT p.name FROM profiles p JOIN profile_versions v ON v.id = p.current_version_id
+WHERE ',' || v.skills || ',' LIKE '%,' || ?1 || ',%' OR ',' || v.skills_off || ',' LIKE '%,' || ?1 || ',%'
+ORDER BY p.name
+`
+
+func (q *Queries) ProfilesNamingSkill(ctx context.Context, skill sql.NullString) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, profilesNamingSkill, skill)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		items = append(items, name)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const setSkillEveryone = `-- name: SetSkillEveryone :execrows
 UPDATE skills SET everyone = ?1, updated_at = ?2 WHERE name = ?3
 `
@@ -228,6 +353,26 @@ func (q *Queries) SetSkillEveryone(ctx context.Context, arg SetSkillEveryonePara
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const skillArchiveForNode = `-- name: SkillArchiveForNode :one
+SELECT r.archive FROM dispatch_skills ds
+JOIN dispatches d ON d.id = ds.dispatch_id
+JOIN skill_revisions r ON r.skill = ds.skill AND r.revision = ds.revision
+WHERE ds.digest = ?1 AND d.node_id = ?2 AND d.status IN ('queued', 'starting', 'running')
+LIMIT 1
+`
+
+type SkillArchiveForNodeParams struct {
+	Digest string
+	NodeID string
+}
+
+func (q *Queries) SkillArchiveForNode(ctx context.Context, arg SkillArchiveForNodeParams) ([]byte, error) {
+	row := q.db.QueryRowContext(ctx, skillArchiveForNode, arg.Digest, arg.NodeID)
+	var archive []byte
+	err := row.Scan(&archive)
+	return archive, err
 }
 
 const touchSkill = `-- name: TouchSkill :exec

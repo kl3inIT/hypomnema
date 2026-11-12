@@ -36,9 +36,9 @@ UPDATE profiles SET current_version_id = @version_id, updated_at = @now WHERE na
 
 -- name: InsertProfileVersion :exec
 INSERT INTO profile_versions (id, profile, version, source, digest, description, runtime, provider, model, effort,
-                              instruction, fallbacks, created_at)
+                              instruction, fallbacks, skills, skills_off, created_at)
 VALUES (@id, @profile, @version, @source, @digest, @description, @runtime, @provider, @model, @effort, @instruction,
-        @fallbacks, @now);
+        @fallbacks, @skills, @skills_off, @now);
 
 -- name: GetProfileVersion :one
 SELECT * FROM profile_versions WHERE id = @id;

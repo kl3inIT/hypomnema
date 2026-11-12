@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
@@ -24,6 +25,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/node/claude"
 	"github.com/kl3inIT/hypomnema/internal/node/codex"
 	"github.com/kl3inIT/hypomnema/internal/node/daemon"
+	"github.com/kl3inIT/hypomnema/internal/node/skills"
 	"github.com/kl3inIT/hypomnema/internal/node/statedb"
 	"github.com/kl3inIT/hypomnema/internal/node/terminal"
 	"github.com/kl3inIT/hypomnema/internal/node/transcript"
@@ -251,7 +253,9 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 		},
 	}
 
-	all := runners{byRuntime: map[string]worker{}, transcripts: transcripts}
+	all := runners{byRuntime: map[string]worker{}, transcripts: transcripts, skills: skills.Cache{
+		Home: home, URL: cfg.URL, Token: cfg.Token, Client: &http.Client{Timeout: 5 * time.Minute},
+	}}
 	for _, runtime := range acp.Runtimes() {
 		all.byRuntime[runtime] = acpRunner
 	}

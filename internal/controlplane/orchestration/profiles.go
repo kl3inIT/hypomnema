@@ -91,6 +91,11 @@ type Profile struct {
 	// runs under while every account of its runtime waits for a limit to
 	// reset (issue #171). Empty: the Task waits.
 	Fallbacks []string
+	// Skills are the skills the profile's workers get beside those given to
+	// everyone; SkillsOff the ones given to everyone they do not get
+	// (issue #21).
+	Skills    []string
+	SkillsOff []string
 	// Source is the YAML as applied.
 	Source    string
 	CreatedAt time.Time
@@ -140,6 +145,8 @@ type profileSource struct {
 	} `yaml:"model"`
 	Instruction string   `yaml:"instruction"`
 	Fallbacks   []string `yaml:"fallbacks"`
+	Skills      []string `yaml:"skills"`
+	SkillsOff   []string `yaml:"skills_off"`
 }
 
 type providerSource struct {
@@ -181,7 +188,7 @@ func (s *Service) ApplyProfile(ctx context.Context, name, source string) (Profil
 
 	p := Profile{
 		Name: in.Name, Description: strings.TrimSpace(in.Description), Runtime: in.Runtime,
-		Instruction: in.Instruction, Fallbacks: in.Fallbacks, Source: source,
+		Instruction: in.Instruction, Fallbacks: in.Fallbacks, Skills: in.Skills, SkillsOff: in.SkillsOff, Source: source,
 	}
 	if in.Model != nil {
 		p.Provider, p.Model, p.Effort = in.Model.Provider, in.Model.Name, in.Model.Effort
@@ -221,6 +228,10 @@ func (s *Service) ApplyProfile(ctx context.Context, name, source string) (Profil
 			return fmt.Errorf("profile %s: %w", p.Name, err)
 		}
 
+		if err := checkSkills(ctx, q, p.Skills, p.SkillsOff); err != nil {
+			return fmt.Errorf("profile %s: %w", p.Name, err)
+		}
+
 		p.Provider = provider
 		digest := sourceDigest(source)
 
@@ -253,7 +264,8 @@ func (s *Service) ApplyProfile(ctx context.Context, name, source string) (Profil
 			ID: id, Profile: p.Name, Version: current.Version + 1, Source: source, Digest: digest, Description: p.Description,
 			Runtime: p.Runtime, Provider: nullString(p.Provider), Model: nullString(p.Model),
 			Effort: nullString(p.Effort), Instruction: nullString(p.Instruction),
-			Fallbacks: strings.Join(p.Fallbacks, ","), Now: now,
+			Fallbacks: strings.Join(p.Fallbacks, ","), Skills: strings.Join(p.Skills, ","),
+			SkillsOff: strings.Join(p.SkillsOff, ","), Now: now,
 		}); err != nil {
 			return fmt.Errorf("inserting a version of profile %s: %w", p.Name, err)
 		}
@@ -451,7 +463,8 @@ func profileFromRow(v store.ProfileVersion) Profile {
 		Name: v.Profile, Description: v.Description, VersionID: v.ID, Version: int(v.Version), Runtime: v.Runtime,
 		Provider: v.Provider.String,
 		Model:    v.Model.String, Effort: v.Effort.String, Instruction: v.Instruction.String, Source: v.Source,
-		Fallbacks: splitNames(v.Fallbacks), CreatedAt: millis(v.CreatedAt),
+		Fallbacks: splitNames(v.Fallbacks), Skills: splitNames(v.Skills), SkillsOff: splitNames(v.SkillsOff),
+		CreatedAt: millis(v.CreatedAt),
 	}
 }
 

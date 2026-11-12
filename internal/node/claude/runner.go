@@ -36,6 +36,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/node/bridge"
 	"github.com/kl3inIT/hypomnema/internal/node/daemon"
 	"github.com/kl3inIT/hypomnema/internal/node/shim"
+	"github.com/kl3inIT/hypomnema/internal/node/skills"
 	"github.com/kl3inIT/hypomnema/internal/node/statedb"
 	"github.com/kl3inIT/hypomnema/internal/node/transcript"
 	"github.com/kl3inIT/hypomnema/internal/node/worktree"
@@ -216,6 +217,16 @@ func (rn *Runner) Start(ctx context.Context, d statedb.Dispatch, r daemon.Report
 
 	if err := os.RemoveAll(dir); err != nil {
 		return fmt.Errorf("clearing %s: %w", dir, err)
+	}
+
+	// The skills the worker is given are a plugin of its own (issue #21).
+	if len(o.Skills) > 0 {
+		plugin := filepath.Join(dir, "plugin")
+		if err := skills.PlacePlugin(rn.Home, plugin, o.Skills); err != nil {
+			return err
+		}
+
+		argv = append(argv, "--plugin-dir", plugin)
 	}
 
 	toolEnv, err := agenttool.ForDispatch(rn.Home, rn.Exe, rn.URL, o.Uses, o.AgentKey)

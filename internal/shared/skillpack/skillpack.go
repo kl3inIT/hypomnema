@@ -22,7 +22,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -455,4 +457,31 @@ func readTarGz(r io.Reader, keep func(string) (string, bool)) ([]File, error) {
 
 		out = append(out, File{Path: p, Exec: h.Mode&0o111 != 0, Data: b})
 	}
+}
+
+// WriteTo writes the skill's files under dir, which must not exist yet:
+// folders 0755, files 0644 or 0755.
+func (s Skill) WriteTo(dir string) error {
+	if err := os.Mkdir(dir, 0o755); err != nil { //nolint:gosec // a skill is read by the worker's CLI
+		return fmt.Errorf("making %s: %w", dir, err)
+	}
+
+	for _, f := range s.Files {
+		target := filepath.Join(dir, filepath.FromSlash(f.Path))
+
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil { //nolint:gosec // as above
+			return fmt.Errorf("making the folder of %s: %w", f.Path, err)
+		}
+
+		mode := os.FileMode(0o644)
+		if f.Exec {
+			mode = 0o755
+		}
+
+		if err := os.WriteFile(target, f.Data, mode); err != nil {
+			return fmt.Errorf("writing %s: %w", f.Path, err)
+		}
+	}
+
+	return nil
 }
