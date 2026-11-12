@@ -19,7 +19,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field"
+import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Spinner } from "@/components/ui/spinner"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ErrorAlert, TextField } from "@/features/settings/settings-parts"
@@ -90,11 +90,9 @@ export function AccountSignInDialog({
 
   const begin = useMutation({
     mutationFn: async () => (await beginAccountSignIn({ body: { runtime } })).data,
-    onSuccess: (attempt) => {
-      setStarted(attempt)
-      // A sign-in with a code has nothing to paste: the server waits for the vendor to say it is done.
-      if (!attempt.paste) complete.mutate({ id: attempt.id })
-    },
+    // Every vendor signs in here with the browser, as 9router, CLIProxyAPI and T3 Code do on the web; Codex's
+    // device code is for `accounts login` in a terminal.
+    onSuccess: setStarted,
   })
 
   const addToken = useMutation({
@@ -223,7 +221,7 @@ export function AccountSignInDialog({
                   </Field>
                 )}
 
-                {started?.paste && (
+                {started && (
                   <finish.Field name="callback">
                     {(field) => (
                       <TextField
@@ -242,37 +240,6 @@ export function AccountSignInDialog({
                       />
                     )}
                   </finish.Field>
-                )}
-
-                {started && !started.paste && (
-                  <Field>
-                    <FieldLabel>2. Enter this code there</FieldLabel>
-                    <div className="flex items-center justify-between gap-2 rounded-lg border bg-muted px-3 py-2">
-                      <span className="font-mono text-lg tracking-widest" data-testid="user-code">
-                        {started.user_code}
-                      </span>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          void navigator.clipboard.writeText(started.user_code ?? "")
-                          said("The code was copied")
-                        }}
-                      >
-                        <Copy data-icon="inline-start" />
-                        Copy
-                      </Button>
-                    </div>
-                    <FieldDescription>
-                      <span className="inline-flex items-center gap-1.5">
-                        {complete.isPending && <Spinner />}
-                        {complete.isPending
-                          ? `Waiting for you to enter it, for up to ${minutes} minutes. This closes by itself.`
-                          : "The sign-in did not complete."}
-                      </span>
-                    </FieldDescription>
-                  </Field>
                 )}
               </FieldGroup>
             )}
@@ -310,7 +277,7 @@ export function AccountSignInDialog({
               Start again
             </Button>
           )}
-          {way === "sign-in" && !spent && started?.paste && (
+          {way === "sign-in" && !spent && started && (
             <Button type="submit" form={formId} disabled={busy}>
               {busy && <Spinner data-icon="inline-start" />}
               Sign in
