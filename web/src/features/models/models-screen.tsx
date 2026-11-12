@@ -2,6 +2,7 @@ import { useMutation } from "@tanstack/react-query"
 import {
   Bot,
   Box,
+  CalendarDays,
   Crown,
   KeyRound,
   Link2,
@@ -9,6 +10,7 @@ import {
   MonitorSmartphone,
   Plug,
   Power,
+  RefreshCw,
   Route as RouteIcon,
   Tag,
   Timer,
@@ -50,10 +52,12 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { ModelMark, ProviderMark } from "@/features/agents/model-mark"
+import { Meter } from "@/features/machines/machine-cells"
 import { ConfirmDialog, ErrorAlert } from "@/features/settings/settings-parts"
 import { SettingsPage } from "@/features/settings/settings-shell"
 import { said } from "@/features/settings/use-integrations"
 import { modelName } from "@/lib/model-name"
+import { since } from "@/lib/time"
 
 import {
   accountState,
@@ -65,8 +69,16 @@ import {
   type Route,
   type Subscription,
   type Tone,
+  until,
 } from "./models-state"
-import { useAccounts, useGatewayModels, useProviders, useRefreshAccounts } from "./use-models"
+import {
+  useAccountLimits,
+  useAccounts,
+  useGatewayModels,
+  useProviders,
+  useRefreshAccounts,
+  useRefreshLimits,
+} from "./use-models"
 
 // ModelsScreen is where the owner sees where models come from and looks after the accounts they are served
 // from (issue #199). A subscription is a card with its accounts as rows, as an Integrations card has its
@@ -322,6 +334,7 @@ function AccountRow({
               </Fact>
             </span>
           </ItemDescription>
+          <LimitBars account={account} />
           <ErrorAlert error={change.error} />
         </ItemContent>
         <ItemActions>
@@ -358,6 +371,86 @@ function AccountRow({
       </Item>
     </div>
   )
+}
+
+// LimitBars are an account's limits: a meter a window with the part used and when it starts again, as the
+// Machines page shows a machine's shares (machine-cells.tsx, after Beszel) and as 9router's quota cards
+// (usage/components/ProviderLimits), T3 Code's limits (usage/UsageLimits.tsx) and Orca's status bar do for a
+// subscription. Only an account signed in here can be asked. An account with nothing to show has no bars, and a
+// line says so when the reading failed; the button asks the vendor now.
+function LimitBars({ account }: { account: Account }) {
+  const limits = useAccountLimits(account.id, account.sign_in === "active")
+  const refresh = useRefreshLimits(account.id)
+  const data = limits.data
+
+  if (!data || data.unavailable === "not_given" || data.unavailable === "sign_in") return null
+
+  const again = (
+    <Button
+      variant="ghost"
+      size="icon-xs"
+      aria-label={`Read the limits of ${account.label} again`}
+      title="Read the limits again"
+      disabled={refresh.isPending}
+      onClick={() => refresh.mutate()}
+    >
+      <RefreshCw className={refresh.isPending ? "animate-spin" : undefined} />
+    </Button>
+  )
+
+  if (data.windows.length === 0) {
+    return (
+      <p
+        className="flex items-center gap-1.5 text-xs text-muted-foreground"
+        title={data.detail}
+        data-testid="limits-unavailable"
+      >
+        <TriangleAlert className="size-3 shrink-0" aria-hidden />
+        {data.unavailable === "resting"
+          ? "Its limits are read again in a few minutes."
+          : "Its limits could not be read."}
+        {again}
+      </p>
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-1 pt-0.5 text-xs" data-testid="limits">
+      {data.windows.map((window) => (
+        <div
+          key={window.name}
+          className="grid grid-cols-[7.5rem_minmax(0,1fr)] items-center gap-x-2 sm:grid-cols-[7.5rem_minmax(0,14rem)_minmax(0,1fr)]"
+        >
+          <span className="inline-flex items-center gap-1 text-muted-foreground">
+            {window.name.startsWith("week") ? (
+              <CalendarDays className="size-3 shrink-0" aria-hidden />
+            ) : (
+              <Timer className="size-3 shrink-0" aria-hidden />
+            )}
+            <span className="truncate">{windowName(window.name)}</span>
+          </span>
+          <Meter
+            label={`${windowName(window.name)} used by ${account.label}`}
+            value={window.used_percent}
+            connected={account.status === "active"}
+            title={`${Math.round(100 - window.used_percent)}% left`}
+          />
+          <span className="col-start-2 truncate text-muted-foreground sm:col-start-auto">
+            {window.resets_at ? `resets ${until(window.resets_at)}` : ""}
+          </span>
+        </div>
+      ))}
+      <p className="flex items-center gap-1 text-2xs text-muted-foreground">
+        {data.read_at ? `Used, read ${since(data.read_at)}` : "Used"}
+        {again}
+      </p>
+    </div>
+  )
+}
+
+// windowName is a window as the page calls it: the server's name with a capital.
+function windowName(name: string) {
+  return name.charAt(0).toUpperCase() + name.slice(1)
 }
 
 // StateIcon says what kind of state a badge is: resting, off, or something the owner must look at.

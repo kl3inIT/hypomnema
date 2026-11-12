@@ -1182,6 +1182,12 @@ Node (`internal/node`):
       (`sign_in`: `active`, `login_required`, `no_tokens`; absent for an account signed in on a node);
       `POST /accounts/{id}/enable` and `/disable` and `DELETE /accounts/{id}` are the owner's;
       `GET /gateway/models` lists the gateway's models with their targets.
+    - An account signed in on the control plane shows its limits under its row (step 3 of the issue): a meter a
+      window (5 hours, week, a model's own week) with the part used, the Machines page's meter, and when the
+      window starts again; a button asks the vendor now. `GET /accounts/{id}/limits` (the owner's; `fresh` asks
+      now) gives the reading the subscription service keeps for a minute. An account with nothing to show is
+      answered without windows and with the reason (`unavailable`: `not_given`, `sign_in`, `resting`, `failed`),
+      and the page then shows no bars, or one line when the reading failed.
   - `/settings/vault` (under Connections, [issue #108](https://github.com/kl3inIT/hypomnema/issues/108)) is a
     table of the vault's secrets, after Infisical's secrets dashboard (MIT) and Omnara's secrets list
     (Apache-2.0): Name, Value, Type, Version and Updated as columns, sorted by Name or Updated, with a search box

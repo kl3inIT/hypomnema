@@ -923,6 +923,37 @@ export type Account = {
   token_expires_at?: string;
 };
 
+export type AccountLimitWindow = {
+  /**
+   * The window, such as "5 hours", "week" or "week (Opus)".
+   */
+  name: string;
+  /**
+   * The part used, from 0 to 100.
+   */
+  used_percent: number;
+  /**
+   * When the window starts again, when the vendor says.
+   */
+  resets_at?: string;
+};
+
+export type AccountLimits = {
+  windows: Array<AccountLimitWindow>;
+  /**
+   * When the vendor gave this reading.
+   */
+  read_at?: string;
+  /**
+   * Why there are no windows: this kind of account says none; the account has no sign-in here that can ask; the vendor asked to wait; the call failed.
+   */
+  unavailable?: 'not_given' | 'sign_in' | 'resting' | 'failed';
+  /**
+   * What went wrong, in the server's words, when the call failed.
+   */
+  detail?: string;
+};
+
 export type GatewayModelTarget = {
   provider: string;
   upstream_model: string;
@@ -3075,6 +3106,38 @@ export type DisableAccountResponses = {
 };
 
 export type DisableAccountResponse = DisableAccountResponses[keyof DisableAccountResponses];
+
+export type GetAccountLimitsData = {
+  body?: never;
+  path: {
+    account_id: string;
+  };
+  query?: {
+    /**
+     * Ask the vendor now instead of giving a reading of the last minute.
+     */
+    fresh?: boolean;
+  };
+  url: '/accounts/{account_id}/limits';
+};
+
+export type GetAccountLimitsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GetAccountLimitsError = GetAccountLimitsErrors[keyof GetAccountLimitsErrors];
+
+export type GetAccountLimitsResponses = {
+  /**
+   * The windows, or why there are none.
+   */
+  200: AccountLimits;
+};
+
+export type GetAccountLimitsResponse = GetAccountLimitsResponses[keyof GetAccountLimitsResponses];
 
 export type ListGatewayModelsData = {
   body?: never;

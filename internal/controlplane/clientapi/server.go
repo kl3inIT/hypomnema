@@ -83,6 +83,9 @@ type Accounts interface {
 	List(ctx context.Context) ([]subscription.Account, error)
 	// Remove deletes an account that was signed in here, and its tokens.
 	Remove(ctx context.Context, id string) error
+	// Limits says how much of an account's windows is used; fresh asks the
+	// vendor now.
+	Limits(ctx context.Context, id string, fresh bool) (subscription.Limits, error)
 }
 
 // GatewayModels lists the models the model gateway serves.
