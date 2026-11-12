@@ -127,7 +127,7 @@ func TestSkillsArePlacedWhereEachCLIReadsThem(t *testing.T) {
 	plugin := t.TempDir()
 	require.NoError(t, PlacePlugin(c.Home, plugin, []nodeproto.Skill{sk}))
 
-	b, err := os.ReadFile(filepath.Join(plugin, ".claude-plugin", "plugin.json"))
+	b, err := os.ReadFile(filepath.Join(plugin, ".claude-plugin", "plugin.json")) //nolint:gosec // the test's own folder
 	require.NoError(t, err)
 
 	var manifest map[string]string

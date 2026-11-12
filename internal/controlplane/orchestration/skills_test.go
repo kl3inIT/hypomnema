@@ -181,7 +181,7 @@ func TestAWorkerIsGivenTheSkillsOfItsProfile(t *testing.T) {
 
 	err = w.s.DeleteSkill(ctx, "lark-docs")
 	require.ErrorIs(t, err, ErrConflict)
-	assert.ErrorContains(t, err, "implementer")
+	require.ErrorContains(t, err, "implementer")
 	require.ErrorIs(t, w.s.DeleteSkill(ctx, "pdf"), ErrConflict, "turned off is named too")
 
 	// Once its Dispatch has ended, a skill no profile names is removed though the Dispatch had it.

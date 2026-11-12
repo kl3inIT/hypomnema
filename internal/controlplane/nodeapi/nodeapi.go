@@ -153,7 +153,7 @@ func (s *Server) skill(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/gzip")
 	w.Header().Set("Content-Length", strconv.Itoa(len(archive)))
-	_, _ = w.Write(archive)
+	_, _ = w.Write(archive) //nolint:gosec // a gzipped tar served as application/gzip, not a page
 }
 
 // authenticate returns the node a request's bearer token belongs to, and the token's id.
