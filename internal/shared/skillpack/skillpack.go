@@ -149,6 +149,21 @@ func FromTarball(r io.Reader, dir string) (Skill, error) {
 	return build(files)
 }
 
+// TarballFiles reads the files of a repository's gzipped tar, as GitHub
+// serves one, whose paths want takes: a path is relative to the repository,
+// without the top folder named after the commit. It is how the folder of a
+// skill named but not placed is found, by reading only the SKILL.md files.
+func TarballFiles(r io.Reader, want func(path string) bool) ([]File, error) {
+	return readTarGz(r, func(p string) (string, bool) {
+		_, rest, ok := strings.Cut(p, "/")
+		if !ok || !want(rest) {
+			return "", false
+		}
+
+		return rest, true
+	})
+}
+
 // Archive is the skill as a gzipped tar that does not depend on how it was
 // given: files in order of path, no times, no owners, modes 0644 or 0755.
 func (s Skill) Archive() ([]byte, error) {
