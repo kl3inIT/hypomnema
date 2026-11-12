@@ -113,7 +113,7 @@ function PanelBody({ taskId }: { taskId: string }) {
             >
               {firstLine(run.objective, 60)}
             </Link>
-            {run.repo && <Chip mono>{repoLabel(run)}</Chip>}
+            {run.repo && <Chip>{repoLabel(run)}</Chip>}
             {card.node && <Chip>{card.node}</Chip>}
             {(dispatch?.model || task.model) && <Chip>{dispatch?.model || task.model}</Chip>}
             <Chip>{task.profile}</Chip>
@@ -122,7 +122,7 @@ function PanelBody({ taskId }: { taskId: string }) {
                 href={pr.url}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex h-6 items-center gap-1 rounded-md bg-foreground/5 px-2 font-mono text-done hover:underline"
+                className="inline-flex h-6 items-center gap-1 rounded-md bg-foreground/5 px-2 text-done hover:underline"
               >
                 {pr.label}
                 <ExternalLink className="size-3" aria-hidden />
@@ -233,13 +233,9 @@ function statusText(card: Card) {
   }[card.task.status]
 }
 
-function Chip({ children, mono }: { children: ReactNode; mono?: boolean }) {
+function Chip({ children }: { children: ReactNode }) {
   return (
-    <span
-      className={`inline-flex h-6 items-center rounded-md bg-foreground/5 px-2 ${mono ? "font-mono" : ""}`}
-    >
-      {children}
-    </span>
+    <span className="inline-flex h-6 items-center rounded-md bg-foreground/5 px-2">{children}</span>
   )
 }
 

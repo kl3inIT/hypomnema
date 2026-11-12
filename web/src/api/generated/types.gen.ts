@@ -1099,6 +1099,51 @@ export type Account = {
   token_expires_at?: string;
 };
 
+export type GatewayKey = {
+  id: string;
+  name: string;
+  /**
+   * The key's start, to tell keys apart; empty for a key made before it was kept.
+   */
+  prefix: string;
+  /**
+   * The model names it may use; `*` is every model.
+   */
+  models: Array<string>;
+  created_at: string;
+  /**
+   * When the gateway last served a request with it; absent when never.
+   */
+  last_used_at?: string;
+};
+
+export type GatewayKeyList = {
+  data: Array<GatewayKey>;
+  /**
+   * How many keys made for a Dispatch or a chat's pi work now.
+   */
+  live_worker_keys: number;
+};
+
+export type NewGatewayKey = {
+  /**
+   * What the owner calls the client that uses it, such as opencode-laptop.
+   */
+  name: string;
+  /**
+   * The model names it may use; every model when left out or empty.
+   */
+  models?: Array<string>;
+};
+
+export type CreatedGatewayKey = {
+  key: GatewayKey;
+  /**
+   * The key's value, answered this once; only its hash is kept.
+   */
+  secret: string;
+};
+
 export type NewTokenAccount = {
   /**
    * The kind of subscription; only Claude gives a token to paste.
@@ -1268,6 +1313,25 @@ export type SkillRevision = {
    */
   commit?: string;
   created_at: string;
+};
+
+export type SkillFile = {
+  path: string;
+  size: number;
+  executable: boolean;
+};
+
+export type SkillFileList = {
+  data: Array<SkillFile>;
+};
+
+export type BuiltinSkill = {
+  name: string;
+  description: string;
+};
+
+export type BuiltinSkillList = {
+  data: Array<BuiltinSkill>;
 };
 
 export type SkillRef = {
@@ -3909,6 +3973,83 @@ export type ListGatewayModelsResponses = {
 
 export type ListGatewayModelsResponse = ListGatewayModelsResponses[keyof ListGatewayModelsResponses];
 
+export type ListGatewayKeysData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/gateway/keys';
+};
+
+export type ListGatewayKeysErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListGatewayKeysError = ListGatewayKeysErrors[keyof ListGatewayKeysErrors];
+
+export type ListGatewayKeysResponses = {
+  /**
+   * The keys.
+   */
+  200: GatewayKeyList;
+};
+
+export type ListGatewayKeysResponse = ListGatewayKeysResponses[keyof ListGatewayKeysResponses];
+
+export type CreateGatewayKeyData = {
+  body: NewGatewayKey;
+  path?: never;
+  query?: never;
+  url: '/gateway/keys';
+};
+
+export type CreateGatewayKeyErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type CreateGatewayKeyError = CreateGatewayKeyErrors[keyof CreateGatewayKeyErrors];
+
+export type CreateGatewayKeyResponses = {
+  /**
+   * The key and its value.
+   */
+  201: CreatedGatewayKey;
+};
+
+export type CreateGatewayKeyResponse = CreateGatewayKeyResponses[keyof CreateGatewayKeyResponses];
+
+export type RevokeGatewayKeyData = {
+  body?: never;
+  path: {
+    key_id: string;
+  };
+  query?: never;
+  url: '/gateway/keys/{key_id}';
+};
+
+export type RevokeGatewayKeyErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type RevokeGatewayKeyError = RevokeGatewayKeyErrors[keyof RevokeGatewayKeyErrors];
+
+export type RevokeGatewayKeyResponses = {
+  /**
+   * Revoked.
+   */
+  204: void;
+};
+
+export type RevokeGatewayKeyResponse = RevokeGatewayKeyResponses[keyof RevokeGatewayKeyResponses];
+
 export type ListBotsData = {
   body?: never;
   path?: never;
@@ -4260,6 +4401,59 @@ export type GetSkillArchiveResponses = {
 };
 
 export type GetSkillArchiveResponse = GetSkillArchiveResponses[keyof GetSkillArchiveResponses];
+
+export type ListSkillFilesData = {
+  body?: never;
+  path: {
+    skill: string;
+    revision: number;
+  };
+  query?: never;
+  url: '/skills/{skill}/revisions/{revision}/files';
+};
+
+export type ListSkillFilesErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListSkillFilesError = ListSkillFilesErrors[keyof ListSkillFilesErrors];
+
+export type ListSkillFilesResponses = {
+  /**
+   * The files.
+   */
+  200: SkillFileList;
+};
+
+export type ListSkillFilesResponse = ListSkillFilesResponses[keyof ListSkillFilesResponses];
+
+export type ListBuiltinSkillsData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/built-in-skills';
+};
+
+export type ListBuiltinSkillsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListBuiltinSkillsError = ListBuiltinSkillsErrors[keyof ListBuiltinSkillsErrors];
+
+export type ListBuiltinSkillsResponses = {
+  /**
+   * The skills.
+   */
+  200: BuiltinSkillList;
+};
+
+export type ListBuiltinSkillsResponse = ListBuiltinSkillsResponses[keyof ListBuiltinSkillsResponses];
 
 export type SetSkillEveryoneData = {
   body: SkillEveryone;

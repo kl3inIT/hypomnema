@@ -24,11 +24,14 @@ import { Route as RunsIndexRouteImport } from './routes/runs.index'
 import { Route as RunsRunIdRouteImport } from './routes/runs.$runId'
 import { Route as SettingsIndexRouteImport } from './routes/settings.index'
 import { Route as SettingsChannelsRouteImport } from './routes/settings.channels'
+import { Route as SettingsGatewayKeysRouteImport } from './routes/settings.gateway-keys'
 import { Route as SettingsIntegrationsRouteImport } from './routes/settings.integrations'
 import { Route as SettingsModelsRouteImport } from './routes/settings.models'
 import { Route as SettingsRepositoriesRouteImport } from './routes/settings.repositories'
 import { Route as SettingsVaultRouteImport } from './routes/settings.vault'
 import { Route as MachinesNodeIdTerminalRouteImport } from './routes/machines_.$nodeId.terminal'
+import { Route as SettingsSkillsIndexRouteImport } from './routes/settings.skills.index'
+import { Route as SettingsSkillsNameRouteImport } from './routes/settings.skills.$name'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -105,6 +108,11 @@ const SettingsChannelsRoute = SettingsChannelsRouteImport.update({
   path: '/settings/channels',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SettingsGatewayKeysRoute = SettingsGatewayKeysRouteImport.update({
+  id: '/settings/gateway-keys',
+  path: '/settings/gateway-keys',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SettingsIntegrationsRoute = SettingsIntegrationsRouteImport.update({
   id: '/settings/integrations',
   path: '/settings/integrations',
@@ -130,6 +138,16 @@ const MachinesNodeIdTerminalRoute = MachinesNodeIdTerminalRouteImport.update({
   path: '/machines/$nodeId/terminal',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SettingsSkillsIndexRoute = SettingsSkillsIndexRouteImport.update({
+  id: '/settings/skills/',
+  path: '/settings/skills/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SettingsSkillsNameRoute = SettingsSkillsNameRouteImport.update({
+  id: '/settings/skills/$name',
+  path: '/settings/skills/$name',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -143,6 +161,7 @@ export interface FileRoutesByFullPath {
   '/chats/$chatId': typeof ChatsChatIdRoute
   '/runs/$runId': typeof RunsRunIdRoute
   '/settings/channels': typeof SettingsChannelsRoute
+  '/settings/gateway-keys': typeof SettingsGatewayKeysRoute
   '/settings/integrations': typeof SettingsIntegrationsRoute
   '/settings/models': typeof SettingsModelsRoute
   '/settings/repositories': typeof SettingsRepositoriesRoute
@@ -152,6 +171,8 @@ export interface FileRoutesByFullPath {
   '/runs/': typeof RunsIndexRoute
   '/settings/': typeof SettingsIndexRoute
   '/machines/$nodeId/terminal': typeof MachinesNodeIdTerminalRoute
+  '/settings/skills/$name': typeof SettingsSkillsNameRoute
+  '/settings/skills/': typeof SettingsSkillsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -165,6 +186,7 @@ export interface FileRoutesByTo {
   '/chats/$chatId': typeof ChatsChatIdRoute
   '/runs/$runId': typeof RunsRunIdRoute
   '/settings/channels': typeof SettingsChannelsRoute
+  '/settings/gateway-keys': typeof SettingsGatewayKeysRoute
   '/settings/integrations': typeof SettingsIntegrationsRoute
   '/settings/models': typeof SettingsModelsRoute
   '/settings/repositories': typeof SettingsRepositoriesRoute
@@ -174,6 +196,8 @@ export interface FileRoutesByTo {
   '/runs': typeof RunsIndexRoute
   '/settings': typeof SettingsIndexRoute
   '/machines/$nodeId/terminal': typeof MachinesNodeIdTerminalRoute
+  '/settings/skills/$name': typeof SettingsSkillsNameRoute
+  '/settings/skills': typeof SettingsSkillsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -188,6 +212,7 @@ export interface FileRoutesById {
   '/chats/$chatId': typeof ChatsChatIdRoute
   '/runs/$runId': typeof RunsRunIdRoute
   '/settings/channels': typeof SettingsChannelsRoute
+  '/settings/gateway-keys': typeof SettingsGatewayKeysRoute
   '/settings/integrations': typeof SettingsIntegrationsRoute
   '/settings/models': typeof SettingsModelsRoute
   '/settings/repositories': typeof SettingsRepositoriesRoute
@@ -197,6 +222,8 @@ export interface FileRoutesById {
   '/runs/': typeof RunsIndexRoute
   '/settings/': typeof SettingsIndexRoute
   '/machines_/$nodeId/terminal': typeof MachinesNodeIdTerminalRoute
+  '/settings/skills/$name': typeof SettingsSkillsNameRoute
+  '/settings/skills/': typeof SettingsSkillsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -212,6 +239,7 @@ export interface FileRouteTypes {
     | '/chats/$chatId'
     | '/runs/$runId'
     | '/settings/channels'
+    | '/settings/gateway-keys'
     | '/settings/integrations'
     | '/settings/models'
     | '/settings/repositories'
@@ -221,6 +249,8 @@ export interface FileRouteTypes {
     | '/runs/'
     | '/settings/'
     | '/machines/$nodeId/terminal'
+    | '/settings/skills/$name'
+    | '/settings/skills/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -234,6 +264,7 @@ export interface FileRouteTypes {
     | '/chats/$chatId'
     | '/runs/$runId'
     | '/settings/channels'
+    | '/settings/gateway-keys'
     | '/settings/integrations'
     | '/settings/models'
     | '/settings/repositories'
@@ -243,6 +274,8 @@ export interface FileRouteTypes {
     | '/runs'
     | '/settings'
     | '/machines/$nodeId/terminal'
+    | '/settings/skills/$name'
+    | '/settings/skills'
   id:
     | '__root__'
     | '/'
@@ -256,6 +289,7 @@ export interface FileRouteTypes {
     | '/chats/$chatId'
     | '/runs/$runId'
     | '/settings/channels'
+    | '/settings/gateway-keys'
     | '/settings/integrations'
     | '/settings/models'
     | '/settings/repositories'
@@ -265,6 +299,8 @@ export interface FileRouteTypes {
     | '/runs/'
     | '/settings/'
     | '/machines_/$nodeId/terminal'
+    | '/settings/skills/$name'
+    | '/settings/skills/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -279,6 +315,7 @@ export interface RootRouteChildren {
   ChatsChatIdRoute: typeof ChatsChatIdRoute
   RunsRunIdRoute: typeof RunsRunIdRoute
   SettingsChannelsRoute: typeof SettingsChannelsRoute
+  SettingsGatewayKeysRoute: typeof SettingsGatewayKeysRoute
   SettingsIntegrationsRoute: typeof SettingsIntegrationsRoute
   SettingsModelsRoute: typeof SettingsModelsRoute
   SettingsRepositoriesRoute: typeof SettingsRepositoriesRoute
@@ -288,6 +325,8 @@ export interface RootRouteChildren {
   RunsIndexRoute: typeof RunsIndexRoute
   SettingsIndexRoute: typeof SettingsIndexRoute
   MachinesNodeIdTerminalRoute: typeof MachinesNodeIdTerminalRoute
+  SettingsSkillsNameRoute: typeof SettingsSkillsNameRoute
+  SettingsSkillsIndexRoute: typeof SettingsSkillsIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -397,6 +436,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsChannelsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/settings/gateway-keys': {
+      id: '/settings/gateway-keys'
+      path: '/settings/gateway-keys'
+      fullPath: '/settings/gateway-keys'
+      preLoaderRoute: typeof SettingsGatewayKeysRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/settings/integrations': {
       id: '/settings/integrations'
       path: '/settings/integrations'
@@ -432,6 +478,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MachinesNodeIdTerminalRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/settings/skills/': {
+      id: '/settings/skills/'
+      path: '/settings/skills'
+      fullPath: '/settings/skills/'
+      preLoaderRoute: typeof SettingsSkillsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/settings/skills/$name': {
+      id: '/settings/skills/$name'
+      path: '/settings/skills/$name'
+      fullPath: '/settings/skills/$name'
+      preLoaderRoute: typeof SettingsSkillsNameRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -447,6 +507,7 @@ const rootRouteChildren: RootRouteChildren = {
   ChatsChatIdRoute: ChatsChatIdRoute,
   RunsRunIdRoute: RunsRunIdRoute,
   SettingsChannelsRoute: SettingsChannelsRoute,
+  SettingsGatewayKeysRoute: SettingsGatewayKeysRoute,
   SettingsIntegrationsRoute: SettingsIntegrationsRoute,
   SettingsModelsRoute: SettingsModelsRoute,
   SettingsRepositoriesRoute: SettingsRepositoriesRoute,
@@ -456,6 +517,8 @@ const rootRouteChildren: RootRouteChildren = {
   RunsIndexRoute: RunsIndexRoute,
   SettingsIndexRoute: SettingsIndexRoute,
   MachinesNodeIdTerminalRoute: MachinesNodeIdTerminalRoute,
+  SettingsSkillsNameRoute: SettingsSkillsNameRoute,
+  SettingsSkillsIndexRoute: SettingsSkillsIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

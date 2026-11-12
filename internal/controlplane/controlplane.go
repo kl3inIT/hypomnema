@@ -22,6 +22,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/browser"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/browser/egress"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/clientcli"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/coordinator"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/integration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/larkbot"
@@ -320,13 +321,14 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	larkSettings = larkbot.NewService(svc, secrets, larkChannels, larkbot.Connect)
 
 	api := clientapi.New(svc, logger, ctx.Done()).WithCoordinator(sup).WithChatKeyReader(cfg.CoordinatorToken).
-		WithAccounts(subscriptions).WithGatewayModels(gateway).
+		WithAccounts(subscriptions).WithGatewayModels(gateway).WithGatewayKeys(gateway).
 		WithHostTokens(tokens).
 		WithMachines(machineMgr).WithTerminals(nodeTerminals(nodes)).
 		WithWorkspaces(nodes.Files, newBotFiles(cfg.BotFilesCommand)).
 		WithSecrets(ownerSecrets{vault: secrets, referrers: referrers}).
 		WithIntegrations(integrations).WithApprovals(proxy).WithRelay(proxy).WithLarkChannels(larkSettings).
-		WithSkillSources(skillsource.NewGitHub(&http.Client{Timeout: 2 * time.Minute}))
+		WithSkillSources(skillsource.NewGitHub(&http.Client{Timeout: 2 * time.Minute})).
+		WithBuiltinSkills(builtinSkills)
 	if cfg.VaultKeys != nil {
 		api.WithTokenAccounts(accountTokens{svc: svc, vault: secrets, logger: logger})
 	}
@@ -452,4 +454,19 @@ func nodeTerminals(nodes *nodeapi.Server) clientapi.Terminals {
 
 		return end, nil
 	}
+}
+
+// builtinSkills lists the skills this binary ships for the client API (issue #21).
+func builtinSkills() ([]clientapi.BuiltinSkill, error) {
+	skills, err := clientcli.BuiltinSkills()
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]clientapi.BuiltinSkill, len(skills))
+	for i, s := range skills {
+		out[i] = clientapi.BuiltinSkill{Name: s.Name, Description: s.Description}
+	}
+
+	return out, nil
 }

@@ -1360,6 +1360,49 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/GatewayModelList" }
         default: { $ref: "#/components/responses/Error" }
+  /gateway/keys:
+    get:
+      operationId: ListGatewayKeys
+      summary: The gateway keys the owner made, not revoked; only the owner
+      description: >-
+        A key is what a client outside, such as opencode or omp, gives the
+        gateway as its API key. The keys made for one Dispatch or one chat's
+        pi are not listed: `live_worker_keys` says how many work now.
+      responses:
+        "200":
+          description: The keys.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GatewayKeyList" }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      operationId: CreateGatewayKey
+      summary: Make a gateway key; its value is answered this once; only the owner
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewGatewayKey" }
+      responses:
+        "201":
+          description: The key and its value.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/CreatedGatewayKey" }
+        default: { $ref: "#/components/responses/Error" }
+  /gateway/keys/{key_id}:
+    parameters:
+      - name: key_id
+        in: path
+        required: true
+        schema: { type: string, minLength: 1, maxLength: 64 }
+    delete:
+      operationId: RevokeGatewayKey
+      summary: Revoke a gateway key; a client using it is refused from now on; only the owner
+      responses:
+        "204":
+          description: Revoked.
+        default: { $ref: "#/components/responses/Error" }
   /bots:
     get:
       operationId: ListBots
@@ -1565,6 +1608,38 @@ paths:
           content:
             application/gzip:
               schema: { type: string, format: binary }
+        default: { $ref: "#/components/responses/Error" }
+  /skills/{skill}/revisions/{revision}/files:
+    parameters:
+      - $ref: "#/components/parameters/SkillName"
+      - name: revision
+        in: path
+        required: true
+        schema: { type: integer, minimum: 1 }
+    get:
+      operationId: ListSkillFiles
+      summary: The files of one revision of a skill, by path
+      responses:
+        "200":
+          description: The files.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SkillFileList" }
+        default: { $ref: "#/components/responses/Error" }
+  /built-in-skills:
+    get:
+      operationId: ListBuiltinSkills
+      summary: The skills the control plane's binary ships, by name
+      description: >-
+        They come with each release and cannot be removed. Each reaches an
+        agent by its own rule: the coordinator's every Bot, an Integration's an
+        agent given one of its accounts.
+      responses:
+        "200":
+          description: The skills.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BuiltinSkillList" }
         default: { $ref: "#/components/responses/Error" }
   /skills/{skill}/everyone:
     parameters:
@@ -3295,6 +3370,56 @@ components:
           type: string
           format: date-time
           description: When the access token ends, when that is known; it is renewed before then.
+    GatewayKey:
+      type: object
+      required: [id, name, prefix, models, created_at]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        prefix:
+          type: string
+          description: The key's start, to tell keys apart; empty for a key made before it was kept.
+        models:
+          type: array
+          items: { type: string }
+          description: The model names it may use; `*` is every model.
+        created_at: { type: string, format: date-time }
+        last_used_at:
+          type: string
+          format: date-time
+          description: When the gateway last served a request with it; absent when never.
+    GatewayKeyList:
+      type: object
+      required: [data, live_worker_keys]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/GatewayKey" }
+        live_worker_keys:
+          type: integer
+          description: How many keys made for a Dispatch or a chat's pi work now.
+    NewGatewayKey:
+      type: object
+      required: [name]
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          pattern: "^[a-z0-9][a-z0-9-]{0,62}$"
+          description: What the owner calls the client that uses it, such as opencode-laptop.
+        models:
+          type: array
+          maxItems: 200
+          items: { type: string, minLength: 1, maxLength: 128 }
+          description: The model names it may use; every model when left out or empty.
+    CreatedGatewayKey:
+      type: object
+      required: [key, secret]
+      properties:
+        key: { $ref: "#/components/schemas/GatewayKey" }
+        secret:
+          type: string
+          description: The key's value, answered this once; only its hash is kept.
     NewTokenAccount:
       type: object
       required: [runtime, label, token]
@@ -3496,6 +3621,35 @@ components:
           type: string
           description: The commit the ref was, for a repository.
         created_at: { type: string, format: date-time }
+    SkillFile:
+      type: object
+      required: [path, size, executable]
+      properties:
+        path: { type: string }
+        size:
+          type: integer
+          format: int64
+        executable: { type: boolean }
+    SkillFileList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/SkillFile" }
+    BuiltinSkill:
+      type: object
+      required: [name, description]
+      properties:
+        name: { type: string }
+        description: { type: string }
+    BuiltinSkillList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/BuiltinSkill" }
     SkillRef:
       type: object
       required: [name, revision, digest]
