@@ -158,7 +158,8 @@ async function fakeServer(page: Page, start?: Account[]) {
     {
       id: "acc_trial",
       runtime: "antigravity",
-      label: "trial",
+      // Named by its e-mail, as an account signed in without a name is.
+      label: "owner@example.com",
       status: "disabled",
       position: 1,
       email: "owner@example.com",
@@ -303,7 +304,7 @@ test("the owner sees where models come from", async ({ page }) => {
   await expect(page.getByRole("heading", { name: "Models", level: 1 })).toBeVisible()
 
   const claude = card(page, "Claude")
-  await expect(claude).toContainText("Claude subscription · 3 accounts")
+  await expect(claude).toContainText("Claude subscription")
 
   // An account signed in here shows how much of each window is used and when it starts again.
   const work = claude.getByLabel("Claude account work")
@@ -329,7 +330,10 @@ test("the owner sees where models come from", async ({ page }) => {
   // An account that was signed in on a machine is not removed from here.
   await expect(codex.getByRole("button", { name: "Remove kdlstc-dev" })).toHaveCount(0)
 
-  await expect(card(page, "Antigravity")).toContainText("Off")
+  const google = card(page, "Antigravity")
+  await expect(google).toContainText("Off")
+  // An account named by its e-mail shows the e-mail once.
+  await expect(google.getByText("owner@example.com")).toHaveCount(1)
   await expect(page.getByTestId("api-provider-card")).toContainText("vault:openrouter-key")
 
   expect(await fits(page)).toBe(true)

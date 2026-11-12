@@ -231,9 +231,7 @@ function SubscriptionCard({ subscription }: { subscription: Subscription }) {
             <ProviderMark kind={provider.kind} className="size-6 shrink-0" />
             <span className="flex flex-col gap-0.5">
               <span>{subscription.name}</span>
-              <CardDescription>
-                {subscription.account} · {count(accounts.length, "account")}
-              </CardDescription>
+              <CardDescription>{subscription.account}</CardDescription>
             </span>
           </span>
         </CardTitle>
@@ -361,7 +359,8 @@ function AccountRow({
         <ItemContent>
           <ItemTitle>
             {account.label}
-            {account.email && (
+            {/* An account named by its e-mail shows it once. */}
+            {account.email && account.email !== account.label && (
               <span className="inline-flex items-center gap-1 font-normal text-muted-foreground">
                 <Mail className="size-3" aria-hidden />
                 {account.email}
@@ -717,8 +716,4 @@ function Offered({ route }: { route: Route }) {
   ) : (
     <span className="text-xs text-muted-foreground">—</span>
   )
-}
-
-function count(n: number, noun: string) {
-  return `${n} ${noun}${n === 1 ? "" : "s"}`
 }
