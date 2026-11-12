@@ -955,6 +955,7 @@ func TestTaskUnderWayIsHandedToABackupInItsWorktree(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, strings.HasPrefix(offer.Spec, "do a\n\nAnother worker began this task"), offer.Spec)
 	assert.Contains(t, offer.Spec, "The files are what is true")
+	assert.Contains(t, offer.Spec, "Do not redo or rewrite a finished step")
 	assert.Contains(t, offer.Spec, "worker: I will write the handler first.\n"+
 		"tool Bash: {\"command\":\"go test ./...\"}\nresult: ok\n---\n")
 	assert.NotContains(t, offer.Spec, "private thoughts")
