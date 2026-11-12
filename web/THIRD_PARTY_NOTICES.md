@@ -17,8 +17,10 @@ Each adapted file names its source.
   Foundation.
 - The grid of chats (`src/features/workbench`) is adapted from Omnigent's grid of sessions
   (https://github.com/omnigent-ai/omnigent, web/src/grid/gridLayout.ts, GridDropTargets.tsx, GridSessionPane.tsx,
-  GridSessionsContext.tsx), Apache License 2.0.
-- The Browser page (`src/features/browser`) is adapted from t3code's server browser: its socket client and frame
+  GridSessionsContext.tsx), Apache License 2.0. Where a dropped tab lands in a pane (`dropZone` in
+  `grid-layout.ts`) is adapted from Orca's `resolveDropZone` (src/renderer/src/components/tab-group/tab-drop-zone.ts),
+  MIT License.
+- The browser view (`src/features/browser`) is adapted from t3code's server browser: its socket client and frame
   painter (packages/client-runtime/src/preview/serverBrowserStream.ts), its surface's pointer and key handling
   (apps/web/src/browser/ServerBrowserSurface.tsx) and its address row
   (apps/web/src/components/preview/PreviewChromeRow.tsx), MIT, Copyright (c) 2026 T3 Tools Inc.; and from

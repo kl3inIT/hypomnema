@@ -22,8 +22,9 @@ import { needsYou } from "@/features/board/board-state"
 import { useBoard, useLiveUpdates } from "@/features/board/use-board"
 import { since } from "@/lib/time"
 import { useBrowser } from "@/features/browser/browser-state"
-import { gridChats } from "@/features/workbench/grid-layout"
-import { chatDrag, setDragged, useGrid, useGridOffered } from "@/features/workbench/use-grid"
+import { gridPanes } from "@/features/workbench/grid-layout"
+import { paneChats } from "@/features/workbench/pane"
+import { setDragged, tabDrag, useBench, useGridOffered } from "@/features/workbench/use-grid"
 import { cn } from "@/lib/utils"
 
 import { useChats } from "./chats"
@@ -160,9 +161,11 @@ function BrowserHeld() {
 
 // GridLink leads to the grid of chats while this browser keeps one (issue #235; Omnigent's GridSidebar).
 function GridLink() {
-  const layout = useGrid()
+  const bench = useBench()
   const offered = useGridOffered()
-  if (!offered || layout === null) return null
+  if (!offered || bench === null) return null
+
+  const chats = gridPanes(bench.layout).flatMap((id) => paneChats(bench.panes[id])).length
 
   return (
     <Link
@@ -172,7 +175,7 @@ function GridLink() {
       <LayoutGrid className="size-4" />
       Grid
       <span className="ml-auto text-xs text-secondary-label tabular-nums">
-        {gridChats(layout).length} chats
+        {chats} {chats === 1 ? "chat" : "chats"}
       </span>
     </Link>
   )
@@ -209,8 +212,8 @@ function ChatRow({ chat, current, waits }: { chat: Chat; current: boolean; waits
       // A chat is dragged onto an open chat, or a pane of the grid, to be shown beside it (issue #235).
       onDragStart={(event) => {
         event.dataTransfer.effectAllowed = "move"
-        event.dataTransfer.setData(chatDrag, chat.id)
-        setDragged({ chat: chat.id, from: "list" })
+        event.dataTransfer.setData(tabDrag, `chat:${chat.id}`)
+        setDragged({ tab: { kind: "chat", chat: chat.id }, from: null })
       }}
       onDragEnd={() => setDragged(null)}
       className={cn(
