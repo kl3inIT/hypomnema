@@ -170,6 +170,7 @@ type Dispatch struct {
 	Activity         sql.NullString
 	FallbackFor      sql.NullString
 	FallbackUntil    sql.NullInt64
+	Handoff          int64
 }
 
 type DispatchEffect struct {

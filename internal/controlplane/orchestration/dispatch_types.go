@@ -128,6 +128,10 @@ type Dispatch struct {
 	// free (issue #171).
 	FallbackFor   string
 	FallbackUntil *time.Time
+	// Handoff: the Dispatch takes over a Task another worker began and left
+	// when its account met a limit (issue #187). It runs in that worker's
+	// worktree with a session of its own, and its worker is told so.
+	Handoff bool
 	// Activity is one line about the newest thing the worker said or did.
 	Activity string
 }

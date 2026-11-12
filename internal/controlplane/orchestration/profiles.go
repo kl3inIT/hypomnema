@@ -722,12 +722,42 @@ type resolved struct {
 	// and fallbackUntil when that profile's accounts are free again.
 	fallbackFor   string
 	fallbackUntil int64
+	// handoff says the backup takes over work another worker began.
+	handoff bool
 }
 
 func resolve(ctx context.Context, q *store.Queries, task store.Task) (resolved, error) {
 	v, err := q.CurrentProfileVersion(ctx, task.Profile)
 	if err != nil {
 		return resolved{}, notFound(err, "profile", task.Profile)
+	}
+
+	// A Task that runs under a backup of its profile keeps that backup for
+	// the rest of its open Conversation: a later Dispatch continues a session
+	// of the backup's CLI, with the backup's model and instruction.
+	last, err := q.LastDispatchOfTask(ctx, task.ID)
+
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+	case err != nil:
+		return resolved{}, fmt.Errorf("reading the last dispatch of task %s: %w", task.ID, err)
+	case last.FallbackFor.Valid && last.ProfileVersionID.Valid:
+		conv, open, err := openConversation(ctx, q, task.ID)
+		if err != nil {
+			return resolved{}, err
+		}
+
+		if open && conv.ID == last.ConversationID {
+			b, err := q.GetProfileVersion(ctx, last.ProfileVersionID.String)
+			if err != nil {
+				return resolved{}, notFound(err, "profile version", last.ProfileVersionID.String)
+			}
+
+			r, err := resolveVersion(ctx, q, task, b)
+			r.fallbackFor, r.fallbackUntil = last.FallbackFor.String, last.FallbackUntil.Int64
+
+			return r, err
+		}
 	}
 
 	return resolveVersion(ctx, q, task, v)

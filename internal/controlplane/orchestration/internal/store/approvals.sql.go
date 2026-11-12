@@ -10,6 +10,18 @@ import (
 	"database/sql"
 )
 
+const countApprovedOfTask = `-- name: CountApprovedOfTask :one
+SELECT COUNT(*) FROM approvals WHERE task_id = ?1 AND status = 'approved'
+`
+
+// The requests to a service the owner approved for a Task: what its worker did outside the worktree.
+func (q *Queries) CountApprovedOfTask(ctx context.Context, taskID sql.NullString) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countApprovedOfTask, taskID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countSessionApprovals = `-- name: CountSessionApprovals :one
 SELECT COUNT(*) FROM approvals
 WHERE status = 'approved' AND scope = 'session'
