@@ -453,3 +453,8 @@ OpenMausBot's license:
    See the License for the specific language governing permissions and
    limitations under the License.
 ```
+
+- Hypomnema's name beside its mark (`HypomnemaWordmark` in `src/components/icons/brand-icons.tsx`) is drawn with the
+  outlines of Fredoka Bold (https://github.com/google/fonts/tree/main/ofl/fredoka), Copyright 2016 The Fredoka
+  Project Authors (https://github.com/hafontia/Fredoka-One), SIL Open Font License 1.1
+  (https://openfontlicense.org). The font itself is not shipped.

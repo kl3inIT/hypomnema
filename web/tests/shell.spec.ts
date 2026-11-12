@@ -165,6 +165,25 @@ test("signing in with a name and a password opens the chats", async ({ page }) =
   await expect(page.getByLabel("Password")).toBeVisible()
 })
 
+// Scenario: the sidebar's head shows Hypomnema's mark, the octopus, and its name drawn in Fredoka, in the dark theme and the
+// light one. A phone has no sidebar.
+test("the sidebar shows Hypomnema's mark beside its name", async ({ page, isMobile }) => {
+  test.skip(isMobile, "a phone has no sidebar")
+
+  await fakeServer(page, true)
+  await page.goto("/")
+
+  const home = page.getByRole("link", { name: "Hypomnema" })
+  await expect(home.locator("svg")).toHaveCount(2)
+  await shot(page, "sidebar-dark")
+
+  await page.evaluate(`localStorage.setItem("theme", "light")`)
+  await page.reload()
+  await expect(page.locator("html")).not.toHaveClass(/dark/)
+  await expect(home.locator("svg")).toHaveCount(2)
+  await shot(page, "sidebar-light")
+})
+
 // Scenario: the owner starts a chat; pi's work shows as one line that opens on its thought and the command with
 // its output, and its reply is rendered as markdown.
 test("a chat shows pi's work and reply", async ({ page }) => {
