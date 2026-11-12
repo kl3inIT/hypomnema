@@ -351,3 +351,37 @@ func TestHowACodexTurnEnds(t *testing.T) {
 		require.ErrorContains(t, err, "no key of the model gateway")
 	})
 }
+
+// Scenario: a follow-up Dispatch of a Conversation is given one skill, where
+// the first was given another. Codex finds only the one now given in its
+// CODEX_HOME's skills, beside its own .system (issue #21).
+func TestCodexFindsTheSkillsOfItsDispatch(t *testing.T) {
+	t.Parallel()
+
+	g := newRig(t, "success")
+	digest := strings.Repeat("cd", 32)
+	kept := filepath.Join(g.runner.Home, "skills", digest)
+	require.NoError(t, os.MkdirAll(kept, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(kept, "SKILL.md"), []byte("---\nname: pdf\n---\n"), 0o600))
+
+	skillsDir := filepath.Join(g.runner.Home, "conversations", "cnv_1", "codex", "skills")
+	require.NoError(t, os.MkdirAll(filepath.Join(skillsDir, "review-go"), 0o700))
+	require.NoError(t, os.MkdirAll(filepath.Join(skillsDir, ".system"), 0o700))
+
+	d := g.dispatch("0199-thread")
+	d.Offer.Skills = []nodeproto.Skill{{Name: "pdf", Revision: 1, Digest: digest}}
+
+	r := newReporter()
+	require.NoError(t, g.runner.Start(t.Context(), d, r))
+	r.wait(t)
+
+	entries, err := os.ReadDir(skillsDir)
+	require.NoError(t, err)
+
+	var names []string
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+
+	assert.Equal(t, []string{".system", "pdf"}, names)
+}

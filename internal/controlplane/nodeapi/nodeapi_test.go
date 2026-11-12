@@ -22,6 +22,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
+	"github.com/kl3inIT/hypomnema/internal/shared/skillpack"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite/sqlitetest"
 )
@@ -816,4 +817,68 @@ func TestAnOfferCarriesTheAccountsToken(t *testing.T) {
 	var held nodeproto.Offer
 	require.NoError(t, json.Unmarshal(other.next(conn, nodeproto.TypeOffer).Payload, &held))
 	assert.Empty(t, held.AccountToken)
+}
+
+// Scenario: a skill for every worker is offered with the Dispatch, and the
+// node fetches its archive over HTTP with its token. Without the token, or
+// for a digest no offer of the node names, nothing is served (issue #21).
+func TestANodeFetchesTheSkillsItsOfferNames(t *testing.T) {
+	t.Parallel()
+
+	p := newPlane(t)
+	ctx := t.Context()
+
+	archive, err := skillpack.Skill{Files: []skillpack.File{
+		{Path: "SKILL.md", Data: []byte("---\nname: review-go\ndescription: d.\n---\n")},
+	}}.Archive()
+	require.NoError(t, err)
+
+	sk, err := skillpack.FromArchive(archive)
+	require.NoError(t, err)
+
+	_, _, err = p.svc.AddSkill(ctx, sk, orchestration.SkillSource{Source: orchestration.SkillUpload})
+	require.NoError(t, err)
+	_, err = p.svc.SetSkillEveryone(ctx, "review-go", true)
+	require.NoError(t, err)
+
+	conn := p.connect()
+	p.task()
+
+	var offer nodeproto.Offer
+	require.NoError(t, json.Unmarshal(p.next(conn, nodeproto.TypeOffer).Payload, &offer))
+	require.Equal(t, []nodeproto.Skill{{Name: "review-go", Revision: 1, Digest: sk.Digest}}, offer.Skills)
+
+	get := func(token, digest string) (int, []byte) {
+		t.Helper()
+
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.srv.URL+nodeproto.PathSkills+digest, nil)
+		require.NoError(t, err)
+
+		if token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+
+		resp, err := p.srv.Client().Do(req)
+		require.NoError(t, err)
+
+		defer func() { _ = resp.Body.Close() }()
+
+		body, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+
+		return resp.StatusCode, body
+	}
+
+	status, body := get(p.token, sk.Digest)
+	require.Equal(t, http.StatusOK, status)
+
+	got, err := skillpack.FromArchive(body)
+	require.NoError(t, err)
+	assert.Equal(t, sk.Digest, got.Digest)
+
+	status, _ = get("", sk.Digest)
+	assert.Equal(t, http.StatusUnauthorized, status)
+
+	status, _ = get(p.token, strings.Repeat("0", 64))
+	assert.Equal(t, http.StatusNotFound, status)
 }

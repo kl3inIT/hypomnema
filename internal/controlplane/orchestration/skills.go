@@ -5,9 +5,12 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
+	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
 	"github.com/kl3inIT/hypomnema/internal/shared/skillpack"
 )
 
@@ -174,10 +177,21 @@ func (s *Service) SetSkillEveryone(ctx context.Context, name string, on bool) (S
 	return s.GetSkill(ctx, name)
 }
 
-// DeleteSkill removes a skill and its revisions. Nothing names a skill yet;
-// a Profile or a Bot that does will keep it (issue #21).
+// DeleteSkill removes a skill and its revisions, unless a profile names it,
+// as Omnara refuses while an agent config does. What a Dispatch was given
+// stays recorded.
 func (s *Service) DeleteSkill(ctx context.Context, name string) error {
 	return s.write(ctx, func(q *store.Queries, _ int64) error {
+		profiles, err := q.ProfilesNamingSkill(ctx, nullString(name))
+		if err != nil {
+			return fmt.Errorf("finding the profiles of skill %s: %w", name, err)
+		}
+
+		if len(profiles) > 0 {
+			return fmt.Errorf("%w: profiles %s name skill %s; take it out of them first", ErrConflict,
+				strings.Join(profiles, ", "), name)
+		}
+
 		n, err := q.DeleteSkill(ctx, name)
 		if err != nil {
 			return fmt.Errorf("removing skill %s: %w", name, err)
@@ -189,4 +203,86 @@ func (s *Service) DeleteSkill(ctx context.Context, name string) error {
 
 		return nil
 	})
+}
+
+// checkSkills checks the skills a profile adds and turns off: each one that
+// exists, named once, and not in both lists.
+func checkSkills(ctx context.Context, q *store.Queries, add, off []string) error {
+	seen := map[string]bool{}
+
+	for _, name := range slices.Concat(add, off) {
+		if seen[name] {
+			return fmt.Errorf("%w: skill %q is named twice", ErrInvalid, name)
+		}
+
+		seen[name] = true
+
+		if _, err := q.GetSkill(ctx, name); err != nil {
+			return fmt.Errorf("skills: %w", notFound(err, "skill", name))
+		}
+	}
+
+	return nil
+}
+
+// recordSkills gives a new Dispatch its skills at their newest revisions:
+// those for everyone that its profile version does not turn off, and those it
+// adds.
+func recordSkills(ctx context.Context, q *store.Queries, dispatchID, versionID string) error {
+	var add, off []string
+
+	if versionID != "" {
+		v, err := q.GetProfileVersion(ctx, versionID)
+		if err != nil {
+			return notFound(err, "profile version", versionID)
+		}
+
+		add, off = splitNames(v.Skills), splitNames(v.SkillsOff)
+	}
+
+	latest, err := q.LatestSkillRevisions(ctx)
+	if err != nil {
+		return fmt.Errorf("reading the skills: %w", err)
+	}
+
+	for _, r := range latest {
+		given := slices.Contains(add, r.Name) || (r.Everyone == 1 && !slices.Contains(off, r.Name))
+		if !given {
+			continue
+		}
+
+		if err := q.InsertDispatchSkill(ctx, store.InsertDispatchSkillParams{
+			DispatchID: dispatchID, Skill: r.Name, Revision: r.Revision, Digest: r.Digest,
+		}); err != nil {
+			return fmt.Errorf("recording skill %s of dispatch %s: %w", r.Name, dispatchID, err)
+		}
+	}
+
+	return nil
+}
+
+func dispatchSkills(ctx context.Context, q *store.Queries, dispatchID string) ([]nodeproto.Skill, error) {
+	rows, err := q.ListDispatchSkills(ctx, dispatchID)
+	if err != nil {
+		return nil, fmt.Errorf("reading the skills of dispatch %s: %w", dispatchID, err)
+	}
+
+	out := make([]nodeproto.Skill, len(rows))
+	for i, r := range rows {
+		out[i] = nodeproto.Skill{Name: r.Skill, Revision: int(r.Revision), Digest: r.Digest}
+	}
+
+	return out, nil
+}
+
+// SkillArchiveForNode returns the archive of a skill revision a Dispatch on
+// the node that has not ended was given, and nothing else: a node fetches
+// only what an offer it holds names.
+func (s *Service) SkillArchiveForNode(ctx context.Context, nodeID, digest string) ([]byte, error) {
+	archive, err := s.read().SkillArchiveForNode(ctx, store.SkillArchiveForNodeParams{Digest: digest, NodeID: nodeID})
+	if err != nil {
+		return nil, notFound(err, "skill revision", digest)
+	}
+
+	return archive, nil
 }

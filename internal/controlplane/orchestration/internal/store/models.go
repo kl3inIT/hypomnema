@@ -204,6 +204,13 @@ type DispatchResource struct {
 	ReleasedAt sql.NullInt64
 }
 
+type DispatchSkill struct {
+	DispatchID string
+	Skill      string
+	Revision   int64
+	Digest     string
+}
+
 type Event struct {
 	Seq        int64
 	Kind       string
@@ -407,6 +414,8 @@ type ProfileVersion struct {
 	CreatedAt   int64
 	Description string
 	Fallbacks   string
+	Skills      string
+	SkillsOff   string
 }
 
 type Provider struct {
