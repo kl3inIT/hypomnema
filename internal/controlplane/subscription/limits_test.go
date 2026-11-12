@@ -181,6 +181,13 @@ func TestACodexAccountSaysItsLimits(t *testing.T) {
 	a := w.login()
 
 	chatgpt := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		// The account's limit resets are read after its windows; this account has none.
+		if r.URL.Path == "/backend-api/wham/rate-limit-reset-credits" {
+			_, _ = rw.Write([]byte(`[]`))
+
+			return
+		}
+
 		assert.Equal(t, "/backend-api/wham/usage", r.URL.Path)
 		assert.NotEmpty(t, r.Header.Get("Authorization"))
 		assert.Equal(t, a.ExternalID, r.Header.Get("Chatgpt-Account-Id"))

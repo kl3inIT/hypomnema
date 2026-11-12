@@ -57,6 +57,9 @@ type Limits struct {
 	Windows []Window
 	// ReadAt is when the vendor answered.
 	ReadAt time.Time
+	// Resets are the limit resets the account can use (resets.go); none for a
+	// vendor that gives none, or when they could not be read.
+	Resets Resets
 }
 
 // LimitReader is a Vendor that can say how much of an account's limits is used.
@@ -156,7 +159,17 @@ func (s *Service) Limits(ctx context.Context, id string, fresh bool) (Limits, er
 		return entry.orElse(entry.refused, now)
 	}
 
-	windows, err := reader.Limits(ctx, token)
+	var (
+		windows []Window
+		resets  Resets
+	)
+
+	if both, ok := reader.(limitsWithResets); ok {
+		windows, resets, err = both.limitsAndResets(ctx, token)
+	} else {
+		windows, err = reader.Limits(ctx, token)
+	}
+
 	if err != nil {
 		var refused *limitsRefusedError
 
@@ -176,7 +189,11 @@ func (s *Service) Limits(ctx context.Context, id string, fresh bool) (Limits, er
 		return entry.orElse(err, now)
 	}
 
-	limits := Limits{Windows: windows, ReadAt: now}
+	if _, ok := reader.(limitsWithResets); !ok {
+		resets = readResets(ctx, s.vendors[a.Runtime], token)
+	}
+
+	limits := Limits{Windows: windows, ReadAt: now, Resets: resets}
 	s.changeLimits(id, func(e *limitsEntry) {
 		e.limits, e.read, e.restUntil, e.refused = limits, true, time.Time{}, nil
 	})
@@ -342,20 +359,33 @@ type claudeUsageWindow struct {
 // `limits` of kind weekly_scoped (Orca claude-oauth-usage-request.ts,
 // mapFableWeeklyWindow; OpenMausBot plan-usage.ts, parseClaudeUsage).
 func (c *Claude) Limits(ctx context.Context, token Token) ([]Window, error) {
-	header := http.Header{}
-	header.Set("Authorization", "Bearer "+token.AccessToken)
-	header.Set("Anthropic-Beta", "oauth-2025-04-20")
-	header.Set("Anthropic-Version", "2023-06-01")
-	header.Set("User-Agent", claudeLimitsUserAgent)
+	windows, _, err := c.limitsAndResets(ctx, token)
 
-	body, err := getLimits(ctx, c.client, c.profileBase+"/api/oauth/usage", header)
+	return windows, err
+}
+
+// limitsAndResets reads the windows and the account's limit resets with one
+// call: asked with cedar_ember=1, as Claude Code asks, the usage answer names
+// the resets too (9router open-sse/services/usage/claude.js). The call is
+// refused when made often, so the two are not asked for apart.
+func (c *Claude) limitsAndResets(ctx context.Context, token Token) ([]Window, Resets, error) {
+	windows, answer, err := c.usageWindows(ctx, token)
 	if err != nil {
-		return nil, err
+		return nil, Resets{}, err
+	}
+
+	return windows, claudeResets(answer[claudeResetProgram], c.clock.Now()), nil
+}
+
+func (c *Claude) usageWindows(ctx context.Context, token Token) ([]Window, map[string]json.RawMessage, error) {
+	body, err := getLimits(ctx, c.client, c.profileBase+"/api/oauth/usage?"+claudeResetProgram+"=1", c.usageHeader(token))
+	if err != nil {
+		return nil, nil, err
 	}
 
 	var answer map[string]json.RawMessage
 	if err := json.Unmarshal(body, &answer); err != nil {
-		return nil, fmt.Errorf("reading Claude's limits: %w", err)
+		return nil, nil, fmt.Errorf("reading Claude's limits: %w", err)
 	}
 
 	var windows []Window
@@ -409,10 +439,10 @@ func (c *Claude) Limits(ctx context.Context, token Token) ([]Window, error) {
 	}
 
 	if len(windows) == 0 {
-		return nil, errors.New("Claude's answer named no window") //nolint:staticcheck // Claude is a name
+		return nil, nil, errors.New("Claude's answer named no window") //nolint:staticcheck // Claude is a name
 	}
 
-	return windows, nil
+	return windows, answer, nil
 }
 
 // claudeLimitsUserAgent is Claude Code's, as 9router-go sends it to this call.
