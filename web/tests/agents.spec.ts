@@ -206,7 +206,8 @@ test("an agent opens to its builder, its YAML and its versions", async ({ page }
   await expect(page.getByRole("heading", { name: "reviewer", level: 2 })).toBeVisible()
   await expect(page.getByText("Version 3 · Claude Code")).toBeVisible()
   await expect(page.getByLabel("Name")).toHaveAttribute("readonly", "")
-  await expect(page.getByLabel("Model")).toHaveValue("claude-subscription/opus")
+  await expect(page.getByLabel("Model", { exact: true })).toContainText("opus")
+  await expect(page.getByLabel("Model", { exact: true })).toContainText("claude-subscription")
   await expect(
     page.getByRole("group", { name: "Effort" }).getByRole("button", { name: "Extra High" }),
   ).toHaveAttribute("aria-pressed", "true")
@@ -246,14 +247,27 @@ test("a refused save says why, and a saved one becomes the next version", async 
   const applied = await fakeServer(page)
   await page.goto("/agents/reviewer")
 
-  await page.getByLabel("Model").selectOption("gateway/gpt-sol")
+  // The model's picker: every provider's models under the provider's name, and a search that narrows them.
+  await page.getByLabel("Model", { exact: true }).click()
+  const list = page.getByRole("listbox")
+  await expect(list.getByRole("option")).toHaveCount(5)
+  await shot(page, "agent-model-open")
+  await page.getByLabel("Search models").fill("nothing like this")
+  await expect(page.getByText("No models found.")).toBeVisible()
+  await shot(page, "agent-model-none")
+  await page.getByLabel("Search models").fill("gate sol")
+  await expect(list.getByRole("option")).toHaveText(["gpt-sol"])
+  await shot(page, "agent-model-search")
+  await page.keyboard.press("Enter")
+  await expect(page.getByLabel("Model", { exact: true })).toContainText("gpt-sol")
   await page.getByRole("button", { name: "Save revision" }).click()
   await expect(
     page.getByText("claude cannot run against the provider gateway (model_gateway)"),
   ).toBeVisible()
   await shot(page, "agent-refused")
 
-  await page.getByLabel("Model").selectOption("claude-subscription/sonnet")
+  await page.getByLabel("Model", { exact: true }).click()
+  await page.getByRole("option", { name: "sonnet" }).click()
   await page.getByRole("button", { name: "Save revision" }).click()
   await expect(page.getByText("Version 4 · Claude Code")).toBeVisible()
   expect(applied.at(-1)?.source).toContain("  name: sonnet\n")
@@ -268,7 +282,8 @@ test("a new agent is made from the builder", async ({ page }) => {
   await page.getByLabel("Name").fill("codex-reviewer")
   await page.getByLabel("Description").fill("Reviews a change made on Claude Code, on Codex.")
   await page.getByLabel("Runs on").selectOption("codex")
-  await page.getByLabel("Model").selectOption("gateway/gpt-sol")
+  await page.getByLabel("Model", { exact: true }).click()
+  await page.getByRole("option", { name: "gpt-sol" }).click()
   await page
     .getByRole("group", { name: "Effort" })
     .getByRole("button", { name: "Extra High" })
@@ -278,4 +293,19 @@ test("a new agent is made from the builder", async ({ page }) => {
   await page.getByRole("button", { name: "Create profile" }).click()
   await expect(page.getByRole("heading", { name: "codex-reviewer", level: 2 })).toBeVisible()
   expect(applied[0]?.name).toBe("codex-reviewer")
+})
+
+// Scenario: the owner makes a second agent like one that exists.
+test("an agent is duplicated", async ({ page }) => {
+  const applied = await fakeServer(page)
+  await page.goto("/agents/reviewer")
+
+  await page.getByRole("link", { name: "Duplicate" }).click()
+  await expect(page.getByLabel("Name")).toHaveValue("reviewer-copy")
+  await expect(page.getByLabel("Model", { exact: true })).toContainText("opus")
+  await shot(page, "agent-duplicate")
+
+  await page.getByRole("button", { name: "Create profile" }).click()
+  await expect(page.getByRole("heading", { name: "reviewer-copy", level: 2 })).toBeVisible()
+  expect(applied.at(-1)?.name).toBe("reviewer-copy")
 })

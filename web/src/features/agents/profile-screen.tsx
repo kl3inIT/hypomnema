@@ -1,8 +1,8 @@
 import { Link, useNavigate } from "@tanstack/react-router"
-import { ChevronRight } from "lucide-react"
+import { ChevronRight, Copy } from "lucide-react"
 import { useState } from "react"
 
-import type { Profile } from "@/api/generated/types.gen"
+import type { Model, Profile } from "@/api/generated/types.gen"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { RuntimeMark } from "@/features/board/runtime-mark"
 import { ConfirmDialog } from "@/features/settings/settings-parts"
@@ -10,8 +10,14 @@ import { PageHeader } from "@/features/shell/app-shell"
 import { AgentAvatar } from "./agent-avatar"
 import { StandingText } from "./agents-screen"
 import { ProfileEditor } from "./profile-editor"
-import { draftOf, emptyDraft, runtimeName, savedAgo } from "./profiles-state"
-import { useApplyProfile, useModels, useProfile, useProfileVersions } from "./use-profiles"
+import { copyName, draftOf, emptyDraft, runtimeName, savedAgo, type Draft } from "./profiles-state"
+import {
+  useApplyProfile,
+  useModels,
+  useProfile,
+  useProfiles,
+  useProfileVersions,
+} from "./use-profiles"
 
 type View = "configuration" | "versions"
 
@@ -65,6 +71,16 @@ export function ProfileScreen({ name }: { name: string }) {
                     <StandingText profile={p} />
                   </p>
                 </div>
+                {/* OpenMausBot's "Duplicate" in a bot's menu (Apache License 2.0,
+                    https://github.com/milind-soni/OpenMausBot; src/components/SidebarBotMenu.tsx). */}
+                <Link
+                  to="/agents/new"
+                  search={{ from: p.name }}
+                  className={buttonVariants({ variant: "outline", size: "sm" })}
+                >
+                  <Copy data-icon="inline-start" />
+                  Duplicate
+                </Link>
               </header>
 
               <fieldset className="m-0 inline-flex w-fit gap-0.5 rounded-lg border border-solid bg-muted p-0.5">
@@ -166,11 +182,46 @@ function Versions({ profile }: { profile: Profile }) {
   )
 }
 
+// NewAgentForm keeps the draft it started from. The list of agents is read again once the copy is stored, and a
+// start worked out again from it (the next free name) would replace the form while it is saving.
+function NewAgentForm({
+  initial,
+  models,
+  onSaved,
+}: {
+  initial: Draft
+  models: Model[]
+  onSaved: (profile: Profile) => void
+}) {
+  const [start] = useState(initial)
+
+  return <ProfileEditor start={start} models={models} onSaved={onSaved} />
+}
+
 // NewAgentScreen makes a profile: the name, then the same editor. It is a page, as Omnara's "New agent"
 // (CreateAgentFormView.tsx), and opens the new profile once the server stored it.
-export function NewAgentScreen() {
+//
+// With from it starts as a copy of that agent (issue #200): the form filled in and nothing stored until
+// "Create profile", as Hermes's create form clones a profile (MIT License,
+// https://github.com/NousResearch/hermes-agent; web/src/pages/ProfilesPage.tsx, cloneFrom). What the copy takes,
+// everything but the name, and the name's "copy" are OpenMausBot's (src/lib/bot-duplicate.ts,
+// duplicateBotProfile).
+export function NewAgentScreen({ from }: { from?: string }) {
   const models = useModels()
   const navigate = useNavigate()
+  const source = useProfile(from ?? "", Boolean(from))
+  const all = useProfiles()
+  const waiting = Boolean(from) && !source.error && (!source.data || !all.data)
+  const start =
+    from && source.data
+      ? {
+          ...draftOf(source.data),
+          name: copyName(
+            source.data.name,
+            (all.data ?? []).map((p) => p.name),
+          ),
+        }
+      : emptyDraft
 
   return (
     <main className="flex min-w-0 flex-1 flex-col">
@@ -180,14 +231,22 @@ export function NewAgentScreen() {
           <header className="flex flex-col gap-0.5">
             <h2 className="text-lg font-semibold tracking-tight">New agent</h2>
             <p className="text-sm text-muted-foreground">
-              A profile a worker runs with. The coordinator can give Tasks to it once it is saved.
+              {from && source.data
+                ? `A copy of ${from}. Change what differs, then create it.`
+                : from && source.error
+                  ? `${from} could not be read, so this starts empty.`
+                  : "A profile a worker runs with. The coordinator can give Tasks to it once it is saved."}
             </p>
           </header>
-          <ProfileEditor
-            start={emptyDraft}
-            models={models.data ?? []}
-            onSaved={(p) => void navigate({ to: "/agents/$name", params: { name: p.name } })}
-          />
+          {waiting ? (
+            <p className="py-10 text-center text-sm text-muted-foreground">Loading…</p>
+          ) : (
+            <NewAgentForm
+              initial={start}
+              models={models.data ?? []}
+              onSaved={(p) => void navigate({ to: "/agents/$name", params: { name: p.name } })}
+            />
+          )}
         </div>
       </div>
     </main>

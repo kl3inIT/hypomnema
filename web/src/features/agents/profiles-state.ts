@@ -135,6 +135,19 @@ export function splitModel(key: string, models: Model[]) {
   return { provider: "", name: key }
 }
 
+// copyName names a copy of an agent: "<name>-copy", as OpenMausBot's "<name> copy" (src/lib/bot-duplicate.ts)
+// with a hyphen, since a profile's name has no spaces. A profile is stored under its name, so a name already
+// taken would save over that agent: then a number follows (inferred; OpenMausBot's bots have ids).
+export function copyName(name: string, taken: string[]) {
+  const base = `${name}-copy`
+  if (!taken.includes(base)) return base
+
+  let n = 2
+  while (taken.includes(`${base}-${n}`)) n++
+
+  return `${base}-${n}`
+}
+
 export function sameDraft(a: Draft, b: Draft) {
   return (
     a.name === b.name &&
