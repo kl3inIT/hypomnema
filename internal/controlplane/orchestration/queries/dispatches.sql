@@ -17,9 +17,20 @@ UPDATE conversations SET cli_session_ref = @cli_session_ref, updated_at = @now W
 
 -- name: InsertDispatch :exec
 INSERT INTO dispatches (id, task_id, conversation_id, node_id, status, recovery, gate_question_id,
-                        model, effort, profile_version_id, fallback_for, fallback_until, created_at, updated_at)
+                        model, effort, profile_version_id, fallback_for, fallback_until, handoff, created_at,
+                        updated_at)
 VALUES (@id, @task_id, @conversation_id, @node_id, 'queued', @recovery, @gate_question_id,
-        @model, @effort, @profile_version_id, @fallback_for, @fallback_until, @now, @now);
+        @model, @effort, @profile_version_id, @fallback_for, @fallback_until, @handoff, @now, @now);
+
+-- name: CountFallbacksOfTask :one
+-- The Dispatches of a Task that ran under a backup of its profile: a Task is handed off once.
+SELECT count(*) FROM dispatches WHERE task_id = @task_id AND fallback_for IS NOT NULL;
+
+-- name: PreviousDispatchOfTask :one
+-- The Dispatch of a Task before this one: the worker a hand-off takes over from.
+SELECT p.* FROM dispatches p JOIN dispatches d ON d.task_id = p.task_id
+WHERE d.id = @id AND (p.created_at < d.created_at OR (p.created_at = d.created_at AND p.rowid < d.rowid))
+ORDER BY p.created_at DESC, p.rowid DESC LIMIT 1;
 
 -- name: CountFallbacksOfRun :one
 -- The Dispatches of a Run that ran under a backup of a profile in one stretch of its limit.

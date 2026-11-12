@@ -10,12 +10,18 @@ const clock = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-d
 
 // fallbackTitle says why a Task ran under a backup of its agent (issue #171), in one line as OpenMausBot's notice
 // does ("Codex reached its limit until 14:00, so Kai is using Claude meanwhile.").
-function fallbackTitle(dispatch: { fallback_for?: string; fallback_until?: string }) {
+function fallbackTitle(dispatch: {
+  fallback_for?: string
+  fallback_until?: string
+  handoff?: boolean
+}) {
   const until = dispatch.fallback_until
     ? ` until ${clock.format(new Date(dispatch.fallback_until))}`
     : ""
 
-  return `${dispatch.fallback_for} reached its limit${until}, so a fallback runs this Task`
+  return dispatch.handoff
+    ? `${dispatch.fallback_for} reached its limit${until} under way, so a fallback took this Task over in its worktree`
+    : `${dispatch.fallback_for} reached its limit${until}, so a fallback runs this Task`
 }
 
 // TaskCard is one worker's Task on the board, after Orca's AgentKanbanCard (MIT, Copyright (c) 2026 Lovecast Inc.,
@@ -74,7 +80,7 @@ export function TaskCard({
         {dispatch?.fallback_for && (
           <span className="inline-flex items-center gap-0.5" title={fallbackTitle(dispatch)}>
             <LifeBuoy className="size-3" aria-hidden />
-            for {dispatch.fallback_for}
+            {dispatch.handoff ? "took over from" : "for"} {dispatch.fallback_for}
           </span>
         )}
         {pr && (

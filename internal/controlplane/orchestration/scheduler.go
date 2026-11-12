@@ -3,7 +3,6 @@ package orchestration
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"fmt"
 	"path"
 	"time"
@@ -130,18 +129,22 @@ func (s *Service) scheduleTask(ctx context.Context, q *store.Queries, now int64,
 
 // placeBackup places a Task under the first backup of its profile a worker
 // can start under now, when every account of the profile's runtime waits for
-// a limit to reset (issue #171). The owner orders the backups, as
-// OpenMausBot's list per bot (server/host/limit-takeover.ts, chosen) and
-// OpenClaw's fallbacks per agent. It returns no spec, and r as given, when
-// the Task waits:
+// a limit to reset. The owner orders the backups, as OpenMausBot's list per
+// bot (server/host/limit-takeover.ts, chosen) and OpenClaw's fallbacks per
+// agent. It returns no spec, and r as given, when the Task waits.
 //
-//   - a Task that has had a Conversation: its worker may have acted
-//     (OpenMausBot does not move an accepted prompt; t3code moves new threads only);
-//   - a Task that names its own runtime or model: that choice is strict
-//     (OpenClaw, t3code);
-//   - a backup no worker can start under now (OpenMausBot's usable, t3code).
+// A Task that has not started (issue #171) goes to any node the backup can
+// run on. A Task whose worker met the limit under way (issue #187) is handed
+// off: the backup takes it over in the same worktree, on the Conversation's
+// node, with a session of its own, as Orca hands a session to another agent
+// (agent-session-continuation.ts) and OpenMausBot sends a limited turn's
+// request again on a backup (server/quota-switch.ts, turnFailed).
 //
-// A backup's own backups are not followed (t3code: one hop).
+// The Task waits when it names its own runtime or model (that choice is
+// strict: OpenClaw, t3code), when its last Conversation is closed, when it
+// may not be handed off (mayHandOff), and when no backup can run now
+// (OpenMausBot's usable, t3code). A backup's own backups are not followed
+// (t3code: one hop).
 func placeBackup(ctx context.Context, q *store.Queries, p *placement, task store.Task, r resolved, host where,
 ) (*DispatchSpec, resolved, error) {
 	if task.Runtime.String != "" || task.Model.String != "" {
@@ -153,12 +156,21 @@ func placeBackup(ctx context.Context, q *store.Queries, p *placement, task store
 		return nil, r, nil
 	}
 
-	if _, err := q.LatestConversationOfTask(ctx, task.ID); !errors.Is(err, sql.ErrNoRows) {
-		if err != nil {
-			return nil, r, fmt.Errorf("reading the conversation of task %s: %w", task.ID, err)
+	conv, open, err := openConversation(ctx, q, task.ID)
+	if err != nil {
+		return nil, r, err
+	}
+
+	started := conv.ID != ""
+
+	if started {
+		if !open {
+			return nil, r, nil
 		}
 
-		return nil, r, nil
+		if may, err := mayHandOff(ctx, q, task); err != nil || !may {
+			return nil, r, err
+		}
 	}
 
 	own, err := q.GetProfileVersion(ctx, r.versionID)
@@ -177,14 +189,84 @@ func placeBackup(ctx context.Context, q *store.Queries, p *placement, task store
 			return nil, r, err
 		}
 
-		if spec, _ := placeNew(p, task, b, host); spec != nil {
-			b.fallbackFor, b.fallbackUntil = task.Profile, a.At.UnixMilli()
+		spec, _ := placeNew(p, task, b, host)
+		if started {
+			spec = placeHandoff(p, conv, b, host)
+		}
+
+		if spec != nil {
+			b.fallbackFor, b.fallbackUntil, b.handoff = task.Profile, a.At.UnixMilli(), started
 
 			return spec, b, nil
 		}
 	}
 
 	return nil, r, nil
+}
+
+// placeHandoff is where a backup takes over a Conversation's work: on its
+// node, where the worktree is, in that worktree. No reference has more than
+// one machine; Orca and t3code keep the working directory when a session
+// moves to another agent, and here that directory is on one node (inferred).
+func placeHandoff(p *placement, conv store.Conversation, b resolved, host where) *DispatchSpec {
+	if !p.nodeReady(conv.NodeID, b.runtime, host) {
+		return nil
+	}
+
+	account := GatewayAccountRef
+	if !b.gateway {
+		account, _ = p.pickAccount(b.runtime)
+	}
+
+	if account == "" {
+		return nil
+	}
+
+	return &DispatchSpec{NodeID: conv.NodeID, Worktree: conv.Worktree, Runtime: b.runtime, AccountRef: account}
+}
+
+// mayHandOff reports whether a Task whose worker met a limit under way may
+// be taken over by a backup of its profile:
+//
+//   - it names no runtime or model of its own, and its profile lists backups;
+//   - it was not handed off before (t3code: one hop; omp: each model once);
+//   - no request to a service was approved for it: what its worker did
+//     outside the worktree cannot be seen there, and could be done twice
+//     (OpenClaw, replay-state.ts: a tool with side effects makes a run unsafe
+//     to replay; omp, turn-recovery.ts). A write the owner's policy allows
+//     without asking leaves no record with the Task and is not seen.
+//
+// A Task that waits on a question or a gate is not ready, so the scheduler
+// never asks about it (OpenMausBot sends nothing again while a question waits).
+func mayHandOff(ctx context.Context, q *store.Queries, task store.Task) (bool, error) {
+	if task.Runtime.String != "" || task.Model.String != "" {
+		return false, nil
+	}
+
+	v, err := q.CurrentProfileVersion(ctx, task.Profile)
+	if err != nil {
+		return false, notFound(err, "profile", task.Profile)
+	}
+
+	if v.Fallbacks == "" {
+		return false, nil
+	}
+
+	moved, err := q.CountFallbacksOfTask(ctx, task.ID)
+	if err != nil {
+		return false, fmt.Errorf("reading the fallbacks of task %s: %w", task.ID, err)
+	}
+
+	if moved > 0 {
+		return false, nil
+	}
+
+	wrote, err := q.CountApprovedOfTask(ctx, nullString(task.ID))
+	if err != nil {
+		return false, fmt.Errorf("reading the approvals of task %s: %w", task.ID, err)
+	}
+
+	return wrote == 0, nil
 }
 
 // placeTask chooses where a ready Task runs. It returns no spec when the Task

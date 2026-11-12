@@ -79,6 +79,9 @@ what a profile was called or did before.
   starts a Task that has not begun under the first of them that can run; the Task's latest Dispatch then has
   `fallback_for`, and one escalation of kind `fallback` tells you. Tell the owner once which profile ran in place
   of which, and until when; change nothing. A Task that names its own `runtime` or `model` is not moved.
+  A Task whose worker had already begun is handed off the same way when a fallback can run on its node (`handoff`
+  on the Dispatch): the new worker continues in the same worktree and is told to look at the files and at any
+  pull request first. It is not handed off after a request to one of the owner's accounts was approved for it.
 
 ## Task specs
 

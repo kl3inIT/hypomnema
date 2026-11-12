@@ -54,3 +54,7 @@ DELETE FROM action_policies WHERE integration = @integration AND label = @label;
 -- The question a Dispatch's worker waits on; a worker waits on one at a time.
 SELECT id FROM questions WHERE dispatch_id = @dispatch_id AND status = 'open' AND addressed_to = 'owner'
 ORDER BY created_at DESC LIMIT 1;
+
+-- name: CountApprovedOfTask :one
+-- The requests to a service the owner approved for a Task: what its worker did outside the worktree.
+SELECT COUNT(*) FROM approvals WHERE task_id = @task_id AND status = 'approved';

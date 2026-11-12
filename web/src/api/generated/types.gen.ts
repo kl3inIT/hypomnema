@@ -180,6 +180,10 @@ export type Dispatch = {
    * With `fallback_for`, when the first of those accounts was to be free again.
    */
   fallback_until?: string;
+  /**
+   * With `fallback_for`: this Dispatch took over a Task whose worker had begun and met a usage limit. It ran in the same worktree with a session of its own, and its worker was given the Task again, a note and the end of the previous worker's transcript.
+   */
+  handoff?: boolean;
   result?: DispatchResult;
   created_at: string;
   updated_at: string;
