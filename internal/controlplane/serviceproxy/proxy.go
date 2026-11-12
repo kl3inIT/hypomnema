@@ -59,6 +59,9 @@ type Caller struct {
 	DispatchID string
 	// Coordinator says the caller is a chat's coordinator.
 	Coordinator bool
+	// ChatID is the chat a pi's own token is bound to (issue #260): its
+	// Approvals are shown there, whatever chat the request names.
+	ChatID string
 }
 
 // Agents says who a request's credential belongs to and what it may use: the
@@ -209,6 +212,17 @@ func (p *Proxy) tunnel(w http.ResponseWriter, r *http.Request) {
 
 	if caller.Coordinator {
 		s.chatID = query.Get(agenttool.QueryChat)
+	}
+
+	// A pi's token works in its own chat: naming another is refused (issue #260).
+	if caller.ChatID != "" {
+		if s.chatID != "" && s.chatID != caller.ChatID {
+			refuse(w, http.StatusForbidden, "this agent's token is of another chat")
+
+			return
+		}
+
+		s.chatID = caller.ChatID
 	}
 
 	conn, err := websocket.Accept(w, r, nil)

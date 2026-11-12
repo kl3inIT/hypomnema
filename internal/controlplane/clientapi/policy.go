@@ -199,6 +199,46 @@ func (s *Server) checkPolicy(ctx context.Context, p policy, tok orchestration.To
 		return fmt.Errorf("%w: run %s is coordinated by another token or by the owner", errForbidden, runID)
 	}
 
+	// A pi's token changes only the Runs of its own chat (issue #260).
+	if tok.Kind == bearertoken.Bot && run.ChatID != tok.Chat {
+		return fmt.Errorf("%w: run %s belongs to another chat", errForbidden, runID)
+	}
+
+	return nil
+}
+
+// chatOf is the chat a request acts in. A pi's token acts in its own chat
+// (issue #260): a request that names another is refused, and one that names
+// none is its chat's. Any other token acts in the chat it names, if any.
+func chatOf(tok orchestration.Token, named string) (string, error) {
+	if tok.Kind != bearertoken.Bot {
+		return named, nil
+	}
+
+	if named != "" && named != tok.Chat {
+		return "", fmt.Errorf("%w: this token is of chat %s, not of chat %s", errForbidden, tok.Chat, named)
+	}
+
+	return tok.Chat, nil
+}
+
+// callerName is what the log calls a coordinator: a pi's token by its chat
+// and Bot, never by its secret.
+func callerName(tok orchestration.Token) string {
+	if tok.Kind == bearertoken.Bot {
+		return fmt.Sprintf("bot %s in chat %s", tok.Bot, tok.Chat)
+	}
+
+	return "coordinator token " + tok.ID
+}
+
+// botAllowed refuses a pi's token anything of a Bot other than its own
+// (issue #260): its persona, its memory and its skills.
+func botAllowed(tok orchestration.Token, bot string) error {
+	if tok.Kind == bearertoken.Bot && bot != tok.Bot {
+		return fmt.Errorf("%w: this token is of bot %s, not of bot %s", errForbidden, tok.Bot, bot)
+	}
+
 	return nil
 }
 

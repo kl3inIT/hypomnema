@@ -36,9 +36,10 @@ row. `abort` stops pi's turn and marks it as stopped by the owner (issue #267, a
 and a `stopped` row ("Stopped") in one write instead of a failure, and a turn that ends with neither gets the row at
 `agent_settled`, where the mark clears. On
 the server pi runs as the `coordinator` user through `deploy/coordinator/`: a root-owned launcher (`hypomnema-pi`,
-a clean environment, only a chat id, a Bot's name and model flags), one sudoers rule limited to it, the instructions
-every Bot gets, pi's version with its lockfile (`package.json`, which Dependabot
-updates; the setup installs it with `npm ci`), and the setup script the owner runs with sudo.
+a clean environment, only a chat id, a Bot's name and model flags, pi's own token on the first line of stdin), one
+sudoers rule limited to it, the instructions every Bot gets, pi's version with its lockfile (`package.json`, which
+Dependabot updates; the setup installs it with `npm ci`), and the setup script the owner runs with sudo. Each pi
+runs in a bubblewrap box with a token of its own (issue #260, see Bots).
 Logs are JSON on stdout; `serve` stops on SIGINT or SIGTERM and lets requests in flight finish. `/readyz` answers 503
 with `Retry-After` while the database does not answer.
 
@@ -185,7 +186,8 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   - It is one headless Chrome on the control plane's machine with one persistent profile, so a sign-in is made
     once and every agent has it, driven through agent-browser (Vercel Labs), as OpenMausBot's is. Each agent is an
     agent-browser session attached to that Chrome and pinned to a tab of its own
-    (`--cdp`, `--pin-tab`); a worker's session is named after its Dispatch.
+    (`--cdp`, `--pin-tab`); a worker's session is named after its Dispatch, and a chat's pi's after its chat
+    (issue #260), so the pi that follows goes on in the same tab.
   - Both programs are pinned by version, size and SHA-256 (`release.go`) and fetched at the first use into
     `HYPOMNEMA_BROWSER_DIR` (default: `browser` beside the database), which also holds the profile and
     agent-browser's sockets: `tools/<name>/<version>/`, `profile/`, `home/`, `run/`. A file that does not match
@@ -303,17 +305,52 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     limit), from the Bot's page or `hypomnema memory set`. No journal, no undo.
   - When pi starts for a chat the launcher makes the Bot's directory (`~/.hypomnema-coordinator/bots/<name>/`, pi's
     working directory; for `coordinator` a link to the directory pi always worked in, so its chats go on), reads
-    `hypomnema bots prompt <name>` with pi's own token (the persona, the memory and how to change it) and gives it
-    to pi with `--append-system-prompt`. The memory is thus read once per pi process, as Hermes gives its memory
-    once per session; a change is in the prompt from pi's next start. pi's sessions stay in one directory for all
-    Bots. pi changes the memory with `hypomnema memory add|replace|remove`, which knows the Bot from
-    `HYPOMNEMA_BOT`. When the Bot cannot be read pi does not start.
-  - Every token reads Bots and changes a memory an entry at a time; only the owner makes, changes and removes a
-    Bot (`hypomnema bots list|show|set|rm`) and replaces a whole memory. Bots run as one server user with one token: a Bot's directory and memory are its own by
-    convention, not by a wall.
+    `hypomnema bots prompt <name>` with the coordinator token (the persona, the memory and how to change it) and
+    gives it to pi with `--append-system-prompt`. The memory is thus read once per pi process, as Hermes gives its
+    memory once per session; a change is in the prompt from pi's next start. pi changes the memory with
+    `hypomnema memory add|replace|remove`, which names the Bot of `HYPOMNEMA_BOT`; pi's token decides which Bot it
+    is. When the Bot cannot be read pi does not start.
+  - Every owner's and coordinator's token reads Bots and changes a memory an entry at a time; only the owner makes,
+    changes and removes a Bot (`hypomnema bots list|show|set|rm`) and replaces a whole memory.
+  - **pi's own token** (issue #260, after OpenMausBot's broker token per process, `docs/bot-box.md`): when the
+    supervisor starts pi for a chat it makes a token of kind `bot` (`hyp_bot_v1_…`), bound to the chat and its
+    Bot, under the coordinator token named by `HYPOMNEMA_COORDINATOR_TOKEN` (`pi-coordinator` when unset, as the
+    setup script names it). It is kept in the control plane's memory only, as its SHA-256
+    (`orchestration/bottokens.go`): it ends when that pi exits or is stopped, when its coordinator token is
+    revoked, and when the control plane starts again, as no pi outlives it. The supervisor writes it as the first
+    line of the launcher's stdin, before pi's commands (sudo passes no environment, and a command line is seen by
+    every process); `tokens add` cannot make one. It does what its coordinator token does, in its own chat and as
+    its own Bot only:
+    - a Run it creates is its coordinator token's (so the chat's next pi goes on with it) and is in its chat; a
+      Run, Task, question or transcript of another chat is refused (403), as is a create that names another chat;
+    - it reads its Bot alone (`GET /bots` lists only it) and changes only its memory and reads only its skills;
+    - the model key, the Superset commands and the service proxy's tunnel take the chat from the token: a request
+      that names another chat is refused, one that names none is the token's chat's;
+    - other reads (Runs, Tasks, events, nodes, skills, integrations) are the coordinator's: every token reads them.
+    `HYPOMNEMA_CHAT_ID` and `HYPOMNEMA_BOT` stay in pi's environment as hints that name the chat and Bot in a
+    request; they decide nothing.
+  - **The box** (issue #260, after OpenMausBot's bot box, `docs/bot-box.md`, and Codex's `linux-sandbox`): the
+    launcher runs every chat's pi, a Lark group's too, in an unprivileged bubblewrap box, its own PID, IPC and UTS
+    namespaces, ended with the launcher. Read-only: `/usr` (with merged `/bin`, `/lib`, `/lib64`, `/sbin`), `/etc`, the resolver Ubuntu's
+    `/etc/resolv.conf` links to (`/run/systemd/resolve`), the CPU list, `/opt/hypomnema-node`, pi, the
+    integrations' tools and guides, the skills every Bot gets (`~/.agents/skills`), and this pi's prompt, skills and
+    `models.json` (`run/<chat>/`, made by the launcher outside the box). Private: `/tmp`, `/var/tmp`, `/proc`,
+    `/dev`, and an empty home in which `~/.hypomnema/client.json` holds the control plane's address and pi's token
+    (bubblewrap's `--file`), so the coordinator token's `client.json` is not there. pi's agent directory is private
+    too, since pi locks files there as it reads them; the instructions every Bot gets (`AGENTS.md`), the tools pi
+    fetched (`bin/`) and this chat's `models.json` are bound into it read-only. Read-write: the Bot's directory and
+    the chat's sessions (`sessions/<chat>/`; pi names a session `<time>_<chat>.jsonl`, and one kept with the others
+    before is moved in). Other Bots' directories, other chats' sessions and other pi processes are not in it. The
+    network is the host's (OpenMausBot's `net: "shared"`; owner, 2026-11-12): a Bot's shell still reaches every
+    local port of the machine. The launcher refuses to start pi without its token or without bubblewrap, and
+    bubblewrap refuses when it cannot make the box: pi never runs outside it.
+  - `deploy/coordinator/setup-box.sh`, which `setup-coordinator.sh` runs, installs `bubblewrap` and, where Ubuntu
+    refuses an unprivileged user namespace (`kernel.apparmor_restrict_unprivileged_userns = 1`) and the box cannot
+    be made, an AppArmor profile that lets `/usr/bin/bwrap` make one (as `deploy/browser/setup-browser.sh` does for
+    Chrome); it then checks that the coordinator can make a box, and fails when it cannot.
   - A Bot's page lists the Lark Channels that talk to it, each a link to `/settings/channels`.
-  - Not built: the accounts and tools a Bot may use, MCP servers and pi extensions per Bot, isolation between
-    Bots, a Bot on another CLI than pi (issue #169).
+  - Not built: the accounts and tools a Bot may use, MCP servers and pi extensions per Bot, a Bot on another CLI
+    than pi (issue #169); a network namespace, an egress gate, and a Unix user or a container per Bot (issue #260).
 - Skills (`orchestration/skills.go`, issue #21, [research](docs/research/2026-11-12-skills.md)): a skill the owner
   adds, in the Agent Skills format (a folder with a `SKILL.md` whose frontmatter has `name` and `description`, and
   the files beside it), kept whole in revisions that never change, after Omnara's `skills` and `skill_revisions`
@@ -358,7 +395,9 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   - A Bot has the same two lists (`bots set --skills a,b --skills-off c`, migration 00052); a change that names
     neither keeps them, so a client that does not know them does not take them away. A skill a Bot names is not
     removed. When pi starts for a chat, `hypomnema-pi` runs `hypomnema skills sync --bot <bot> --dir
-    <bot's folder>/.hypomnema/skills` with pi's token: it asks `GET /bots/{name}/skills` for the skills the Bot gets
+    run/<chat>/skills` with the coordinator token, as the `coordinator` user, outside the box: a folder pi cannot
+    write, so no link pi leaves sends the writes elsewhere, and the sync refuses a folder, a folder holding it, or
+    a skill's folder that is a link (issue #260). It asks `GET /bots/{name}/skills` for the skills the Bot gets
     now, each at its newest revision, fetches a revision the folder does not hold from
     `GET /skills/{skill}/revisions/{revision}/archive`, checks its digest, unpacks it beside the folder's other
     skills with a `.hypomnema-digest` file (Omnara's `.digest`) and takes away a skill the Bot no longer gets. pi is
@@ -538,8 +577,8 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       opens the list of actions.
     - **Who an agent is decides what it gets.** A worker presents its Dispatch's own key (`agent_sessions`,
       migration 00037): made by the node API as the offer is sent, for the Run's Connections, and revoked when the
-      Dispatch settles, as its model gateway key is. The coordinator presents its coordinator token and gets the
-      Connections allowed for chats. An owner's token gets every Connection. Each token handed out is logged with
+      Dispatch settles, as its model gateway key is. A coordinator presents its coordinator token, and pi its own
+      token (issue #260), and gets the Connections allowed for chats. An owner's token gets every Connection. Each token handed out is logged with
       who got it, never the token.
       The key of a Dispatch whose Run a coordinator created works for a Connection only while the owner still
       allows it for chats: the switch is read at every request, so what he takes back from the coordinator its
@@ -552,7 +591,7 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       first message names the accounts, the command and the guide. **On the control plane's machine**,
       `deploy/coordinator/setup-coordinator.sh` installs the tools for the coordinator's user
       (`hypomnema tool install`), `hypomnema-pi` puts the scripts on pi's `PATH`, and the launcher uses the token
-      pi is logged in with.
+      of pi's client configuration: in pi's box, pi's own (issue #260).
     - **The skill** (`internal/shared/agenttool/skills/google-workspace`) is taken from the Google Workspace
       CLI's skills (Apache-2.0) and Hermes' references (MIT), each file naming its source and what was changed:
       Gmail, Calendar and Drive commands, the mail search operators and a morning brief. Its guide replaces the
@@ -631,9 +670,10 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       `echarts_timeseries_bar`. Both get the dashboard's filters at the values they start with. Another kind
       without a saved query is refused as "not read yet" with its name. The chart's own row limit holds.
       `POST .../api` relays any other request.
-    - **Who may ask**: the owner, and a coordinator token when the Connection is switched on for chats; the
-      chat a coordinator asks from is passed with the request, so an Approval is answered there. A worker has no
-      way to it yet.
+    - **Who may ask**: the owner, and a coordinator token or pi's own token when the Connection is switched on for
+      chats; the chat a coordinator asks from is passed with the request, so an Approval is answered there. pi's
+      token asks from its own chat, and one that names another chat is refused (issue #260). A worker has no way
+      to it yet.
     - **Commands**: `hypomnema superset dashboards [--search S]`, `superset dashboard <dashboard>`,
       `superset chart <dashboard> <chart> [--format json|csv] [--sql]` and
       `superset api <METHOD> <path> [--data FILE|-]`, each with `--connection L` (default: the only Superset
@@ -764,7 +804,8 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     The control plane never calls a git host itself.
 - Client tokens: kind `owner` or `coordinator`, in Omnara's format (`hyp_<kind>_v1_`, 43 Base62 characters and a
   CRC32 checksum, checked before the database is read; `internal/controlplane/bearertoken`). Shown once; only the
-  SHA-256 is stored; a revoked token no longer authenticates.
+  SHA-256 is stored; a revoked token no longer authenticates. A token of kind `bot` is a pi process's own (issue
+  #260, see Bots): made by the supervisor, kept in memory only, never by `tokens add`.
 - Users and web sessions (issue #114; [research](docs/research/2026-11-10-web-login.md), each rule from a
   reference): a user is a name and a password kept as bcrypt at cost 10, made on the server; none is shipped. Signing
   in opens a web session: a row with the SHA-256 of a random secret, good for 30 days after its last use (extended
@@ -875,11 +916,11 @@ Claude subscriptions. Other provider formats and other capabilities do not exist
   - The key is revoked when that pi exits or is stopped, and every chat's key is revoked as the control plane
     starts, since no pi outlives it.
   - pi reads it at each model request: the `apiKey` of its `models.json` is the command `hypomnema model-key`,
-    which calls `GET /chats/{chat_id}/gateway-key` with pi's coordinator token and the chat of
-    `HYPOMNEMA_CHAT_ID`. No pi running for the chat is 404. Only pi's own token gets it, by its name
-    (`HYPOMNEMA_COORDINATOR_TOKEN`, `pi-coordinator` when unset, as the setup script names it): a chat's id is on
-    the Runs every token reads, so another coordinator and the owner are refused with 403.
-  - pi's `models.json` is written by the launcher as pi starts, from `hypomnema pi-models`: one provider of pi for
+    which calls `GET /chats/{chat_id}/gateway-key` with pi's own token (issue #260) and the chat of
+    `HYPOMNEMA_CHAT_ID`. No pi running for the chat is 404. Only the token of that chat's pi gets it: a chat's id
+    is on the Runs every token reads, so a coordinator token, the owner and another chat's pi are refused with 403.
+  - pi's `models.json` is written by the launcher as pi starts, for that chat's pi alone (issue #260), from
+    `hypomnema pi-models`: one provider of pi for
     each provider of the control plane that is the gateway (kind `model_gateway`, or an OpenAI-compatible provider
     whose address is the gateway's own), with the models that provider lists. A Bot may name a provider of kind
     `model_gateway`. No key is made by hand for pi, and the setup script installs none.
@@ -1159,7 +1200,7 @@ The owner's commands:
     `--json` for one item a line); `--follow` keeps printing until the worker has ended and nothing more comes.
 - `chat [message]` writes to pi and prints its replies and the tools it ran until it is idle (`--chat`, `--new`,
   `--text-file`); without a message it shows the chat. `chats` lists them. `runs create` sends `HYPOMNEMA_CHAT_ID`
-  when pi's environment has it.
+  when pi's environment has it; with pi's own token the Run is in pi's chat whatever it sends (issue #260).
 - The coordinator skill (`internal/controlplane/clientcli/skills`, after Orca's
   [decision](docs/decisions/2026-11-09-coordinator-cli-and-skill.md)): `skills get hypomnema-coordinator` prints
   the guide compiled into the binary, `--reference <name>` one reference (`recovery`, `investigate`, `review`).

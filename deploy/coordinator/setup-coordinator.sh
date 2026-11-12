@@ -6,7 +6,9 @@
 # It creates the coordinator user, installs Node and pi for it, the root-owned launcher and a sudoers rule that lets
 # the control plane's user run, as the coordinator, only that launcher and the reader of the Bots' folders (issue #255:
 # `hypomnema files serve` with its root, which only reads), a coordinator token in a file of mode 0600, and the
-# coordinator skill. No secret is passed on a command line or printed. Run it again to update pi
+# coordinator skill. The launcher reads the token's address and runs pi's setup with it; pi itself runs in a
+# bubblewrap box (setup-box.sh, issue #260) with a token of its own and never sees this one. No secret is passed on a
+# command line or printed. Run it again to update pi
 # (package.json and package-lock.json here, which Dependabot updates), the launcher, the binary or the
 # instructions; the existing token is kept.
 #
@@ -26,7 +28,12 @@ home=/home/coordinator/.hypomnema-coordinator
 
 echo "== user"
 id coordinator >/dev/null 2>&1 || useradd --create-home --shell /bin/bash coordinator
-install -d -o coordinator -g coordinator -m 0700 "$home" "$home/agent" "$home/sessions" "$home/work" "$home/pi"
+install -d -o coordinator -g coordinator -m 0700 "$home" "$home/agent" "$home/sessions" "$home/work" "$home/pi" \
+  "$home/bots" "$home/run"
+
+echo "== the box"
+# Each Bot's pi runs in a bubblewrap box (issue #260): bubblewrap, and the AppArmor profile Ubuntu needs for it.
+sh "$src/setup-box.sh" coordinator
 
 echo "== node and pi"
 if [ ! -x /opt/hypomnema-node/bin/node ]; then

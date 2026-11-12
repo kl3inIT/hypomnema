@@ -11,7 +11,7 @@ export type Error = {
 
 export type ErrorCode = 'validation_failed' | 'invalid_request' | 'unauthorized' | 'forbidden' | 'not_found' | 'conflict' | 'idempotency_key_conflict' | 'unavailable' | 'request_too_large' | 'rate_limited' | 'internal_error';
 
-export type TokenKind = 'owner' | 'coordinator';
+export type TokenKind = 'owner' | 'coordinator' | 'bot';
 
 export type Credentials = {
   username: string;

@@ -1324,7 +1324,7 @@ export const abortChat = <ThrowOnError extends boolean = true>(options: Options<
 /**
  * The model gateway's key of the chat's running pi
  *
- * pi asks for it at each model request, with its coordinator token. The key is made when pi starts for the chat and ends with that pi; no pi running for the chat is 404.
+ * pi asks for it at each model request, with its own token (a bot token of that chat; any other token is refused with 403). The key is made when pi starts for the chat and ends with that pi; no pi running for the chat is 404.
  */
 export const getChatGatewayKey = <ThrowOnError extends boolean = true>(options: Options<GetChatGatewayKeyData, ThrowOnError>): RequestResult<GetChatGatewayKeyResponses, GetChatGatewayKeyErrors, ThrowOnError> => (options.client ?? client).get<GetChatGatewayKeyResponses, GetChatGatewayKeyErrors, ThrowOnError>({
   security: [{ scheme: 'bearer', type: 'http' }],

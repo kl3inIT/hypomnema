@@ -445,4 +445,23 @@ func TestABotUsesSupersetOnlyWhenTheAccountIsOnForChats(t *testing.T) { //nolint
 
 	assert.Contains(t, w.logs.String(), `agent="coordinator token `)
 	w.neverShown(t, out, raw)
+
+	// With its own token (issue #260) the Bot asks from its own chat: one that names another is refused.
+	secret, err := w.svc.AddBotToken(t.Context(), "cli-coordinator", chat.ID, chat.Bot)
+	require.NoError(t, err)
+	w.loginWith(t, secret)
+
+	other, err := w.svc.CreateChat(t.Context(), "", "Another chat")
+	require.NoError(t, err)
+	t.Setenv(chatEnv, other.ID)
+
+	_, err = w.cmd(t, "superset", "dashboards")
+	require.ErrorContains(t, err, "not of chat "+other.ID)
+
+	t.Setenv(chatEnv, chat.ID)
+
+	out, err = w.cmd(t, "superset", "dashboards")
+	require.NoError(t, err)
+	assert.Contains(t, out, "9\tProduct usage\n")
+	assert.Contains(t, w.logs.String(), `agent="bot coordinator in chat `+chat.ID+`"`)
 }

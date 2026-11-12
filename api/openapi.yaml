@@ -7,7 +7,9 @@ info:
     hypomnema CLI, and coordinators (pi on the server, or the owner's own agent
     over MCP). Issue #41. Every request carries a bearer token: an owner token
     may do everything; a coordinator token changes only the Runs it
-    coordinates and reads the rest.
+    coordinates and reads the rest; the token of a pi process (a bot token,
+    issue #260) does what its coordinator token does, in its own chat and as
+    its own Bot only.
 servers:
   - url: /api/v1
 security:
@@ -2034,7 +2036,8 @@ paths:
       operationId: GetChatGatewayKey
       summary: The model gateway's key of the chat's running pi
       description: >-
-        pi asks for it at each model request, with its coordinator token. The
+        pi asks for it at each model request, with its own token (a bot token
+        of that chat; any other token is refused with 403). The
         key is made when pi starts for the chat and ends with that pi; no pi
         running for the chat is 404.
       responses:
@@ -2213,7 +2216,7 @@ components:
         - internal_error
     TokenKind:
       type: string
-      enum: [owner, coordinator]
+      enum: [owner, coordinator, bot]
     Credentials:
       type: object
       required: [username, password]

@@ -83,6 +83,13 @@ func (w *world) login(t *testing.T, kind bearertoken.Kind) string {
 	_, secret, err := w.svc.AddToken(t.Context(), "cli-"+string(kind), kind)
 	require.NoError(t, err)
 
+	return w.loginWith(t, secret)
+}
+
+// loginWith logs the CLI in with a token's secret.
+func (w *world) loginWith(t *testing.T, secret string) string {
+	t.Helper()
+
 	file := filepath.Join(t.TempDir(), "token")
 	require.NoError(t, os.WriteFile(file, []byte(secret+"\n"), 0o600))
 
