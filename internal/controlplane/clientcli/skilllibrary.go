@@ -244,7 +244,8 @@ func syncSkill(ctx context.Context, e *env, dir string, s openapi.SkillRef) erro
 
 	target := filepath.Join(dir, s.Name)
 
-	if had, err := os.ReadFile(filepath.Join(target, digestFile)); err == nil && string(had) == s.Digest { //nolint:gosec // the folder the caller names
+	had, err := os.ReadFile(filepath.Join(target, digestFile)) //nolint:gosec // the folder the caller names
+	if err == nil && string(had) == s.Digest {
 		return nil
 	}
 
