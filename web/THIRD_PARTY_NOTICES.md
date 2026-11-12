@@ -15,6 +15,14 @@ Each adapted file names its source.
 - Apache Superset's mark there is the path of Simple Icons (https://github.com/simple-icons/simple-icons,
   icons/apachesuperset.svg), CC0 1.0. Apache Superset and its logo are trademarks of The Apache Software
   Foundation.
+- The Browser page (`src/features/browser`) is adapted from t3code's server browser: its socket client and frame
+  painter (packages/client-runtime/src/preview/serverBrowserStream.ts), its surface's pointer and key handling
+  (apps/web/src/browser/ServerBrowserSurface.tsx) and its address row
+  (apps/web/src/components/preview/PreviewChromeRow.tsx), MIT, Copyright (c) 2026 T3 Tools Inc.; and from
+  OpenMausBot's copy of them, for the letterbox and the pointer's mapping as two functions, the control button
+  and its hint, and the strip of tabs (src/components/browser/StreamSurface.tsx, ChromeRow.tsx, Apache License
+  2.0, Copyright 2026 Milind Soni and OpenMausBot contributors). A tab is named as Orca's is
+  (src/renderer/src/components/tab-bar/BrowserTab.tsx, MIT).
 - The runtime marks (Claude, Codex, pi, opencode) are copied from OpenMausBot
   (https://github.com/milind-soni/OpenMausBot, src/components/ProviderIcons.tsx), Apache License 2.0. omp's mark is
   its own icon (https://github.com/can1357/oh-my-pi, assets/icon.svg), MIT, with its bars in the text colour.
