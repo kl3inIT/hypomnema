@@ -9,6 +9,7 @@ import { Button, buttonVariants } from "@/components/ui/button"
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
+import { ModelMark } from "@/features/agents/model-mark"
 import { AgentAvatar } from "@/features/agents/agent-avatar"
 import { ModelField } from "@/features/agents/profile-editor"
 import { errorText } from "@/features/agents/profiles-state"
@@ -72,8 +73,9 @@ export function BotScreen({ name }: { name: string }) {
                 <AgentAvatar name={b.name} className="size-12 shrink-0" />
                 <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                   <h2 className="truncate text-lg font-semibold tracking-tight">{b.name}</h2>
-                  <p className="text-xs text-muted-foreground">
-                    Bot · {modelLine(b)}
+                  <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                    Bot · <ModelMark name={b.model ?? ""} className="size-3.5 shrink-0" />
+                    {modelLine(b)}
                     {b.provider ? ` (${b.provider})` : ""}
                   </p>
                 </div>

@@ -393,8 +393,11 @@ const tableColumns: TableColumn[] = [
     className: "whitespace-nowrap",
     cell: (profile) => (
       <>
-        <span className={cn("text-xs", modelIsId(profile.model) && "font-mono")}>
-          {modelLine(profile)}
+        <span className="inline-flex items-center gap-1.5">
+          <ModelMark name={profile.model ?? ""} className="size-3.5 shrink-0" />
+          <span className={cn("text-xs", modelIsId(profile.model) && "font-mono")}>
+            {modelLine(profile)}
+          </span>
         </span>
         {profile.provider && (
           <span className="ms-1.5 text-xs text-muted-foreground">({profile.provider})</span>
