@@ -150,17 +150,32 @@ func (w *boxWorld) command(t *testing.T, env ...string) *exec.Cmd {
 	return cmd
 }
 
+// held starts cmd with stdin written to its input, which is then held open
+// as the control plane holds it while a run goes on (its end stops the run),
+// and returns how cmd ended.
+func held(t *testing.T, cmd *exec.Cmd, stdin string) error {
+	t.Helper()
+
+	in, err := cmd.StdinPipe()
+	require.NoError(t, err)
+	require.NoError(t, cmd.Start())
+
+	// A launcher that refuses ends before it reads all of it.
+	_, _ = io.WriteString(in, stdin)
+
+	return cmd.Wait()
+}
+
 // run runs the launcher to its end with stdin, and returns what the script
 // printed, a line each, and how it ended.
 func (w *boxWorld) run(t *testing.T, stdin string) (map[string]string, string, error) {
 	t.Helper()
 
 	cmd := w.command(t)
-	cmd.Stdin = strings.NewReader(stdin)
 
 	var out, errOut bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errOut
-	err := cmd.Run()
+	err := held(t, cmd, stdin)
 
 	seen := map[string]string{}
 	for line := range strings.Lines(out.String()) {
@@ -257,12 +272,13 @@ func TestARoutinesScriptIsStoppedWithItsBox(t *testing.T) {
 
 	limited := newBoxWorld(t, bwrapPath, long)
 	cmd := limited.command(t, "ROUTINE_LIMIT=1")
-	cmd.Stdin = strings.NewReader("hyp_bot_v1_run\n")
 
-	out, err := cmd.CombinedOutput()
+	var out bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &out
+	err := held(t, cmd, "hyp_bot_v1_run\n")
 
 	var exit *exec.ExitError
-	require.ErrorAs(t, err, &exit, string(out))
+	require.ErrorAs(t, err, &exit, out.String())
 	assert.Equal(t, 124, exit.ExitCode(), "timeout's code: the runner reads it as the limit")
 
 	stopped := newBoxWorld(t, bwrapPath, long)
