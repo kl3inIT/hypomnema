@@ -1546,3 +1546,40 @@ func TestAChannelsGroupsFollowLark(t *testing.T) {
 		return after != before && len(w.texts(after)) == 1
 	}, eventual, tick)
 }
+
+// Scenario: a Routine of the Bot vmap keeps failing and nobody is in a chat.
+// The owner is told on a card through the Channel that talks to vmap, and
+// not through the Channel of another Bot. When the Routine was made in a
+// chat that came in through that Channel, he reads it there already and no
+// card is sent. A Channel that is off tells nothing.
+func TestTheOwnerIsToldThroughTheChannelsOfABot(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+	w.setUp(orchestration.LarkChannelOwner)
+	w.setUpMaps(orchestration.LarkChannelOwner)
+
+	w.channels.TellOwner(ctx, "vmap", "", "A routine keeps failing",
+		`Routine "depots" failed 2 times in a row. <at id=all>`)
+
+	card, ok := w.larkMaps.askedCard("ask-1")
+	require.True(t, ok)
+	assert.Equal(t, "A routine keeps failing", card.Title)
+	assert.Equal(t, "red", card.Color)
+	assert.Contains(t, card.Text, `Routine "depots" failed 2 times in a row.`)
+	assert.NotContains(t, card.Text, "<at", "what a routine printed mentions nobody")
+	assert.Empty(t, card.Buttons)
+	assert.Zero(t, w.lark.askedCount(), "the Channel of another Bot says nothing")
+
+	w.larkMaps.say(direct("om_1", mapsDM, mapsOwner, "sync the depots every hour"))
+	w.channels.TellOwner(ctx, "vmap", w.chatOf(mapsDM), "A routine keeps failing", "again")
+	assert.Equal(t, 1, w.larkMaps.askedCount(), "he reads that chat at Lark already")
+
+	off := false
+	_, err := w.svc.Set(ctx, maps, larkbot.Settings{Enabled: &off})
+	require.NoError(t, err)
+
+	w.channels.TellOwner(ctx, "vmap", "", "A routine keeps failing", "once more")
+	assert.Equal(t, 1, w.larkMaps.askedCount(), "a Channel that is off sends nothing")
+}

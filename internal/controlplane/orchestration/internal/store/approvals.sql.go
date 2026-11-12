@@ -52,20 +52,23 @@ func (q *Queries) CountSessionApprovals(ctx context.Context, arg CountSessionApp
 }
 
 const decideApproval = `-- name: DecideApproval :execrows
-UPDATE approvals SET status = ?1, scope = ?2, decided_at = ?3 WHERE id = ?4 AND status = 'pending'
+UPDATE approvals SET status = ?1, scope = ?2, standing = ?3, decided_at = ?4
+WHERE id = ?5 AND status = 'pending'
 `
 
 type DecideApprovalParams struct {
-	Status string
-	Scope  sql.NullString
-	Now    sql.NullInt64
-	ID     string
+	Status   string
+	Scope    sql.NullString
+	Standing int64
+	Now      sql.NullInt64
+	ID       string
 }
 
 func (q *Queries) DecideApproval(ctx context.Context, arg DecideApprovalParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, decideApproval,
 		arg.Status,
 		arg.Scope,
+		arg.Standing,
 		arg.Now,
 		arg.ID,
 	)
@@ -105,7 +108,7 @@ func (q *Queries) DeleteActionPolicy(ctx context.Context, arg DeleteActionPolicy
 }
 
 const getApproval = `-- name: GetApproval :one
-SELECT id, integration, label, "action", action_name, dispatch_id, task_id, run_id, chat_id, asked_by, title, payload, match_hash, status, scope, used_at, created_at, decided_at FROM approvals WHERE id = ?1
+SELECT id, integration, label, "action", action_name, dispatch_id, task_id, run_id, chat_id, asked_by, title, payload, match_hash, status, scope, used_at, created_at, decided_at, routine_id, routine_run_id, standing, expired FROM approvals WHERE id = ?1
 `
 
 func (q *Queries) GetApproval(ctx context.Context, id string) (Approval, error) {
@@ -130,32 +133,38 @@ func (q *Queries) GetApproval(ctx context.Context, id string) (Approval, error) 
 		&i.UsedAt,
 		&i.CreatedAt,
 		&i.DecidedAt,
+		&i.RoutineID,
+		&i.RoutineRunID,
+		&i.Standing,
+		&i.Expired,
 	)
 	return i, err
 }
 
 const insertApproval = `-- name: InsertApproval :exec
 INSERT INTO approvals (id, integration, label, action, action_name, dispatch_id, task_id, run_id, chat_id, asked_by,
-                       title, payload, match_hash, created_at)
+                       title, payload, match_hash, routine_id, routine_run_id, created_at)
 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10,
-        ?11, ?12, ?13, ?14)
+        ?11, ?12, ?13, ?14, ?15, ?16)
 `
 
 type InsertApprovalParams struct {
-	ID          string
-	Integration string
-	Label       string
-	Action      string
-	ActionName  string
-	DispatchID  sql.NullString
-	TaskID      sql.NullString
-	RunID       sql.NullString
-	ChatID      sql.NullString
-	AskedBy     string
-	Title       string
-	Payload     string
-	MatchHash   string
-	Now         int64
+	ID           string
+	Integration  string
+	Label        string
+	Action       string
+	ActionName   string
+	DispatchID   sql.NullString
+	TaskID       sql.NullString
+	RunID        sql.NullString
+	ChatID       sql.NullString
+	AskedBy      string
+	Title        string
+	Payload      string
+	MatchHash    string
+	RoutineID    sql.NullString
+	RoutineRunID sql.NullString
+	Now          int64
 }
 
 func (q *Queries) InsertApproval(ctx context.Context, arg InsertApprovalParams) error {
@@ -173,6 +182,8 @@ func (q *Queries) InsertApproval(ctx context.Context, arg InsertApprovalParams) 
 		arg.Title,
 		arg.Payload,
 		arg.MatchHash,
+		arg.RoutineID,
+		arg.RoutineRunID,
 		arg.Now,
 	)
 	return err
@@ -217,19 +228,21 @@ func (q *Queries) ListActionPolicies(ctx context.Context, arg ListActionPolicies
 }
 
 const listApprovals = `-- name: ListApprovals :many
-SELECT id, integration, label, "action", action_name, dispatch_id, task_id, run_id, chat_id, asked_by, title, payload, match_hash, status, scope, used_at, created_at, decided_at FROM approvals
+SELECT id, integration, label, "action", action_name, dispatch_id, task_id, run_id, chat_id, asked_by, title, payload, match_hash, status, scope, used_at, created_at, decided_at, routine_id, routine_run_id, standing, expired FROM approvals
 WHERE (CAST(?1 AS TEXT) = '' OR status = ?1)
   AND (CAST(?2 AS TEXT) = '' OR chat_id = ?2)
   AND (CAST(?3 AS TEXT) = '' OR task_id = ?3)
+  AND (CAST(?4 AS TEXT) = '' OR routine_id = ?4)
 ORDER BY created_at DESC, id DESC
-LIMIT ?4
+LIMIT ?5
 `
 
 type ListApprovalsParams struct {
-	Status  string
-	ChatID  string
-	TaskID  string
-	MaxRows int64
+	Status    string
+	ChatID    string
+	TaskID    string
+	RoutineID string
+	MaxRows   int64
 }
 
 // Empty filters match everything. The newest first.
@@ -238,6 +251,7 @@ func (q *Queries) ListApprovals(ctx context.Context, arg ListApprovalsParams) ([
 		arg.Status,
 		arg.ChatID,
 		arg.TaskID,
+		arg.RoutineID,
 		arg.MaxRows,
 	)
 	if err != nil {
@@ -266,6 +280,10 @@ func (q *Queries) ListApprovals(ctx context.Context, arg ListApprovalsParams) ([
 			&i.UsedAt,
 			&i.CreatedAt,
 			&i.DecidedAt,
+			&i.RoutineID,
+			&i.RoutineRunID,
+			&i.Standing,
+			&i.Expired,
 		); err != nil {
 			return nil, err
 		}
@@ -281,7 +299,7 @@ func (q *Queries) ListApprovals(ctx context.Context, arg ListApprovalsParams) ([
 }
 
 const listApprovalsByMatch = `-- name: ListApprovalsByMatch :many
-SELECT id, integration, label, "action", action_name, dispatch_id, task_id, run_id, chat_id, asked_by, title, payload, match_hash, status, scope, used_at, created_at, decided_at FROM approvals
+SELECT id, integration, label, "action", action_name, dispatch_id, task_id, run_id, chat_id, asked_by, title, payload, match_hash, status, scope, used_at, created_at, decided_at, routine_id, routine_run_id, standing, expired FROM approvals
 WHERE match_hash = ?1 AND integration = ?2 AND label = ?3 AND action = ?4
 ORDER BY created_at DESC, id DESC
 `
@@ -327,6 +345,10 @@ func (q *Queries) ListApprovalsByMatch(ctx context.Context, arg ListApprovalsByM
 			&i.UsedAt,
 			&i.CreatedAt,
 			&i.DecidedAt,
+			&i.RoutineID,
+			&i.RoutineRunID,
+			&i.Standing,
+			&i.Expired,
 		); err != nil {
 			return nil, err
 		}

@@ -164,6 +164,14 @@ func (s *Server) authenticate(r *http.Request) (agent, error) {
 			may: func(c orchestration.Connection) bool { return c.Chats },
 		}, nil
 	case bearertoken.Bot:
+		// A Routine's script's token (issue #211) is bound to its Bot and no chat: its tab is its Routine's.
+		if token.Routine != "" {
+			return agent{
+				name: fmt.Sprintf("bot %s in routine %s", token.Bot, token.Routine), coordinator: true,
+				key: "r-" + token.Routine, may: func(c orchestration.Connection) bool { return c.Chats },
+			}, nil
+		}
+
 		// A pi's own token (issue #260): what the coordinator gets, and the chat it is bound to. Its ID is its
 		// coordinator token's, which every chat's pi shares, so its tab is its chat's: a chat has one Bot and
 		// one pi at a time, and the pi that follows goes on in the same tab.

@@ -86,3 +86,26 @@ func TestABotTokenNeedsItsCoordinatorAndItsChatsBot(t *testing.T) {
 	_, err = s.AddBotToken(ctx, "pi-coordinator", "cht_missing", DefaultBot)
 	require.ErrorIs(t, err, ErrNotFound)
 }
+
+// A Routine's token (issue #211) is made only for a script Routine that
+// exists: a prompt Routine's run is a chat's, whose pi has its own.
+func TestARoutineTokenIsMadeForAScriptRoutineOnly(t *testing.T) {
+	t.Parallel()
+
+	s, _, _ := newTestService(t)
+	ctx := t.Context()
+
+	_, _, err := s.AddToken(ctx, "pi-coordinator", bearertoken.Coordinator)
+	require.NoError(t, err)
+
+	asked, err := s.PutRoutine(ctx, RoutineSpec{
+		Bot: DefaultBot, Name: "digest", Kind: RoutinePrompt, Prompt: "Sum up the day.", EveryMinutes: 60,
+	}, RoutineAuthor{})
+	require.NoError(t, err)
+
+	_, err = s.AddRoutineToken(ctx, "pi-coordinator", asked.ID)
+	require.ErrorIs(t, err, ErrInvalid)
+
+	_, err = s.AddRoutineToken(ctx, "pi-coordinator", "rtn_missing")
+	require.ErrorIs(t, err, ErrNotFound)
+}

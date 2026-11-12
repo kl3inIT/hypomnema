@@ -9,6 +9,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
 )
 
@@ -36,6 +37,12 @@ type ApprovalScope string
 const (
 	ScopeOnce    ApprovalScope = "once"
 	ScopeSession ApprovalScope = "session"
+	// ScopeRoutine is "always for this Routine" (issue #211): the action
+	// passes in the later runs of the Routine whose run asked, until the
+	// Routine's prompt, script or schedule changes or the owner takes the
+	// grant back (OpenClaw's standing grant, bound to the job and its config
+	// revision: src/gateway/operator-approval-standing-grants.types.ts).
+	ScopeRoutine ApprovalScope = "routine"
 )
 
 // The answers an action of a Connection may have.
@@ -70,6 +77,9 @@ type Approval struct {
 	TaskID     string
 	RunID      string
 	ChatID     string
+	// RoutineID and RoutineRunID are set when a Routine's run asked.
+	RoutineID    string
+	RoutineRunID string
 	// AskedBy names the agent in words: "pi" or "worker".
 	AskedBy string
 	Title   string
@@ -77,7 +87,10 @@ type Approval struct {
 	Status  ApprovalStatus
 	Scope   ApprovalScope
 	// Used says an approval for one request has run.
-	Used      bool
+	Used bool
+	// Expired says nobody answered: it was refused when the wait of its
+	// Routine's run ran out, or when the run ended.
+	Expired   bool
 	CreatedAt time.Time
 	DecidedAt *time.Time
 }
@@ -90,9 +103,12 @@ type NewApproval struct {
 	ActionName  string
 	DispatchID  string
 	ChatID      string
-	AskedBy     string
-	Title       string
-	Payload     []Field
+	// RunKey is the key of the Routine's run whose script asks, which its
+	// launcher was given; a prompt run is known by its chat.
+	RunKey  string
+	AskedBy string
+	Title   string
+	Payload []Field
 	// MatchHash is a digest of the decoded request: a repeat of the same
 	// request has the same one, whatever its bytes.
 	MatchHash string
@@ -100,9 +116,10 @@ type NewApproval struct {
 
 // ApprovalFilter selects Approvals; empty fields match everything.
 type ApprovalFilter struct {
-	Status ApprovalStatus
-	ChatID string
-	TaskID string
+	Status    ApprovalStatus
+	ChatID    string
+	TaskID    string
+	RoutineID string
 }
 
 // AskApproval answers a held request from what the owner already said, or
@@ -125,6 +142,26 @@ func (s *Service) AskApproval(ctx context.Context, n NewApproval) (approval Appr
 		taskID, runID, err := runOfDispatch(ctx, q, n.DispatchID)
 		if err != nil {
 			return err
+		}
+
+		routineID, routineRunID, err := routineRunOfAsker(ctx, q, n)
+		if err != nil {
+			return err
+		}
+
+		if routineID != "" {
+			grants, err := q.CountRoutineGrants(ctx, store.CountRoutineGrantsParams{
+				RoutineID: routineID, Integration: n.Integration, Label: n.Label, Action: n.Action,
+			})
+			if err != nil {
+				return fmt.Errorf("reading the grants of routine %s: %w", routineID, err)
+			}
+
+			if grants > 0 {
+				granted = true
+
+				return nil
+			}
 		}
 
 		if runID != "" || n.ChatID != "" {
@@ -151,7 +188,7 @@ func (s *Service) AskApproval(ctx context.Context, n NewApproval) (approval Appr
 
 		for _, row := range same {
 			// Only what the same Run or the same chat asked: an approval never crosses to another.
-			if row.RunID.String != runID || row.ChatID.String != n.ChatID {
+			if row.RunID.String != runID || row.ChatID.String != n.ChatID || row.RoutineRunID.String != routineRunID {
 				continue
 			}
 
@@ -180,9 +217,16 @@ func (s *Service) AskApproval(ctx context.Context, n NewApproval) (approval Appr
 			ID: id, Integration: n.Integration, Label: n.Label, Action: n.Action, ActionName: n.ActionName,
 			DispatchID: nullString(n.DispatchID), TaskID: nullString(taskID), RunID: nullString(runID),
 			ChatID: nullString(n.ChatID), AskedBy: n.AskedBy, Title: n.Title, Payload: string(payload),
-			MatchHash: n.MatchHash, Now: now,
+			MatchHash: n.MatchHash, RoutineID: nullString(routineID), RoutineRunID: nullString(routineRunID), Now: now,
 		}); err != nil {
 			return fmt.Errorf("recording the approval: %w", err)
+		}
+
+		// The run waits for the owner while its call does.
+		if routineRunID != "" {
+			if _, err := q.WaitRoutineRun(ctx, routineRunID); err != nil {
+				return fmt.Errorf("recording that run %s waits: %w", routineRunID, err)
+			}
 		}
 
 		row, err := q.GetApproval(ctx, id)
@@ -199,6 +243,89 @@ func (s *Service) AskApproval(ctx context.Context, n NewApproval) (approval Appr
 	}
 
 	return approval, granted, nil
+}
+
+// resumeRunOf lets a Routine's run go on once nothing it asked is open.
+func resumeRunOf(ctx context.Context, q *store.Queries, now int64, runID sql.NullString) error {
+	if !runID.Valid {
+		return nil
+	}
+
+	pending, err := q.CountPendingApprovalsOfRoutineRun(ctx, runID)
+	if err != nil {
+		return fmt.Errorf("counting the open approvals of run %s: %w", runID.String, err)
+	}
+
+	if pending > 0 {
+		return nil
+	}
+
+	if _, err := q.ResumeRoutineRun(ctx, runID.String); err != nil {
+		return fmt.Errorf("resuming run %s: %w", runID.String, err)
+	}
+
+	return nil
+}
+
+// ExpireApproval refuses an Approval nobody answered while the call of a
+// Routine's run waited for it. An Approval that was answered meanwhile is
+// returned as answered.
+func (s *Service) ExpireApproval(ctx context.Context, id string) (Approval, error) {
+	var out Approval
+
+	err := s.write(ctx, func(q *store.Queries, now int64) error {
+		if _, err := q.ExpireApproval(ctx, store.ExpireApprovalParams{
+			ID: id, Now: sql.NullInt64{Int64: now, Valid: true},
+		}); err != nil {
+			return fmt.Errorf("refusing approval %s: %w", id, err)
+		}
+
+		row, err := q.GetApproval(ctx, id)
+		if err != nil {
+			return notFound(err, "approval", id)
+		}
+
+		if err := resumeRunOf(ctx, q, now, row.RoutineRunID); err != nil {
+			return err
+		}
+
+		out, err = approvalFromRow(row)
+
+		return err
+	})
+	if err != nil {
+		return Approval{}, err
+	}
+
+	return out, nil
+}
+
+// routineRunOfAsker finds the live run of a Routine a request belongs to:
+// the run whose chat asks, or the run whose key the script presents. A key
+// is given once, to the launcher that starts the run's script, so naming a
+// Routine is not enough to be its run. Both are empty for a request no live
+// run made.
+func routineRunOfAsker(ctx context.Context, q *store.Queries, n NewApproval) (routineID, runID string, err error) {
+	var run store.RoutineRun
+
+	switch {
+	case n.RunKey != "":
+		run, err = q.LiveRoutineRunOfKey(ctx, nullString(bearertoken.Hash(n.RunKey)))
+	case n.ChatID != "":
+		run, err = q.LiveRoutineRunOfChat(ctx, nullString(n.ChatID))
+	default:
+		return "", "", nil
+	}
+
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", "", nil
+	}
+
+	if err != nil {
+		return "", "", fmt.Errorf("reading the routine's run that asks: %w", err)
+	}
+
+	return run.RoutineID, run.ID, nil
 }
 
 // runOfDispatch returns a Dispatch's Task and Run; both empty for no
@@ -242,7 +369,7 @@ func (s *Service) GetApproval(ctx context.Context, id string) (Approval, error) 
 // ListApprovals lists Approvals, the newest first.
 func (s *Service) ListApprovals(ctx context.Context, f ApprovalFilter) ([]Approval, error) {
 	rows, err := s.read().ListApprovals(ctx, store.ListApprovalsParams{
-		Status: string(f.Status), ChatID: f.ChatID, TaskID: f.TaskID, MaxRows: maxApprovals,
+		Status: string(f.Status), ChatID: f.ChatID, TaskID: f.TaskID, RoutineID: f.RoutineID, MaxRows: maxApprovals,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("listing approvals: %w", err)
@@ -268,13 +395,21 @@ func (s *Service) ListApprovals(ctx context.Context, f ApprovalFilter) ([]Approv
 func (s *Service) DecideApproval(ctx context.Context, id string, approve bool, scope ApprovalScope) (Approval, error) {
 	status := ApprovalRejected
 	stored := sql.NullString{}
+	standing := int64(0)
 
 	if approve {
-		if scope != ScopeOnce && scope != ScopeSession {
-			return Approval{}, fmt.Errorf("%w: an approval is for this once or for the session", ErrInvalid)
+		if scope != ScopeOnce && scope != ScopeSession && scope != ScopeRoutine {
+			return Approval{}, fmt.Errorf("%w: an approval is for this once, for the session or always for the routine",
+				ErrInvalid)
 		}
 
 		status, stored = ApprovalApproved, nullString(string(scope))
+
+		// The table's check knows once and session: "always for this Routine" is kept as a session's approval
+		// that stands (migration 00056).
+		if scope == ScopeRoutine {
+			stored, standing = nullString(string(ScopeSession)), 1
+		}
 	}
 
 	var out Approval
@@ -286,7 +421,7 @@ func (s *Service) DecideApproval(ctx context.Context, id string, approve bool, s
 		}
 
 		if row.Status != string(ApprovalPending) {
-			if row.Status == string(status) && row.Scope == stored {
+			if row.Status == string(status) && row.Scope == stored && row.Standing == standing {
 				out, err = approvalFromRow(row)
 
 				return err
@@ -295,14 +430,37 @@ func (s *Service) DecideApproval(ctx context.Context, id string, approve bool, s
 			return fmt.Errorf("%w: approval %s was already answered", ErrConflict, id)
 		}
 
-		if stored.String == string(ScopeSession) && !row.RunID.Valid && !row.ChatID.Valid {
+		switch {
+		case standing == 1 && !row.RoutineID.Valid:
+			return fmt.Errorf("%w: approval %s was not asked in a routine's run", ErrInvalid, id)
+		case standing == 0 && stored.String == string(ScopeSession) && !row.RunID.Valid && !row.ChatID.Valid:
 			return fmt.Errorf("%w: approval %s has no Run or chat to approve for", ErrInvalid, id)
 		}
 
 		if _, err := q.DecideApproval(ctx, store.DecideApprovalParams{
-			ID: id, Status: string(status), Scope: stored, Now: sql.NullInt64{Int64: now, Valid: true},
+			ID: id, Status: string(status), Scope: stored, Standing: standing,
+			Now: sql.NullInt64{Int64: now, Valid: true},
 		}); err != nil {
 			return fmt.Errorf("answering approval %s: %w", id, err)
+		}
+
+		if standing == 1 {
+			routine, err := q.GetRoutine(ctx, row.RoutineID.String)
+			if err != nil {
+				return notFound(err, "routine", row.RoutineID.String)
+			}
+
+			// The grant is for the Routine as it is now: a change of what it runs, or when, ends it.
+			if err := q.UpsertRoutineGrant(ctx, store.UpsertRoutineGrantParams{
+				RoutineID: row.RoutineID.String, Integration: row.Integration, Label: row.Label, Action: row.Action,
+				ActionName: row.ActionName, Revision: routine.Revision, ApprovalID: id, Now: now,
+			}); err != nil {
+				return fmt.Errorf("keeping the grant of routine %s: %w", row.RoutineID.String, err)
+			}
+		}
+
+		if err := resumeRunOf(ctx, q, now, row.RoutineRunID); err != nil {
+			return err
 		}
 
 		row, err = q.GetApproval(ctx, id)
@@ -350,9 +508,14 @@ func (s *Service) TellAgentOfApproval(ctx context.Context, a Approval) (told boo
 		said = fmt.Sprintf("The owner approved %q (%s). Run the same command again, unchanged: it will pass once.",
 			a.Title, a.ID)
 
-		if a.Scope == ScopeSession {
+		switch a.Scope {
+		case ScopeSession:
 			said = fmt.Sprintf("The owner approved %q (%s), and %s for the rest of this session. Run the same "+
 				"command again.", a.Title, a.ID, a.ActionName)
+		case ScopeRoutine:
+			said = fmt.Sprintf("The owner approved %q (%s), and %s always for this routine. Run the same command "+
+				"again.", a.Title, a.ID, a.ActionName)
+		default:
 		}
 	}
 
@@ -451,11 +614,17 @@ func approvalFromRow(row store.Approval) (Approval, error) {
 		return Approval{}, fmt.Errorf("reading the request of approval %s: %w", row.ID, err)
 	}
 
+	scope := ApprovalScope(row.Scope.String)
+	if row.Standing == 1 {
+		scope = ScopeRoutine
+	}
+
 	return Approval{
+		RoutineID: row.RoutineID.String, RoutineRunID: row.RoutineRunID.String,
 		ID: row.ID, Integration: row.Integration, Label: row.Label, Action: row.Action, ActionName: row.ActionName,
 		DispatchID: row.DispatchID.String, TaskID: row.TaskID.String, RunID: row.RunID.String,
 		ChatID: row.ChatID.String, AskedBy: row.AskedBy, Title: row.Title, Payload: payload,
-		Status: ApprovalStatus(row.Status), Scope: ApprovalScope(row.Scope.String), Used: row.UsedAt.Valid,
+		Status: ApprovalStatus(row.Status), Scope: scope, Used: row.UsedAt.Valid, Expired: row.Expired == 1,
 		CreatedAt: millis(row.CreatedAt), DecidedAt: optionalTime(row.DecidedAt),
 	}, nil
 }

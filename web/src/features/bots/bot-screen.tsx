@@ -18,6 +18,7 @@ import { LarkIcon } from "@/components/icons/brand-icons"
 import { channelsOf, channelState } from "@/features/settings/channels-state"
 import { ConfirmDialog } from "@/features/settings/settings-parts"
 import { useLarkChannels } from "@/features/settings/use-channels"
+import { BotRoutines } from "@/features/routines/bot-routines"
 import { PageHeader } from "@/features/shell/app-shell"
 
 import {
@@ -83,6 +84,7 @@ export function BotScreen({ name }: { name: string }) {
 
               <BotForm start={draftOf(b)} models={models.data ?? []} stored={b} />
               <Memory bot={b} />
+              <BotRoutines bot={b.name} />
               <Channels bot={b} />
               <Removal bot={b} />
             </>

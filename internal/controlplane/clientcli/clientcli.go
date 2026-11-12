@@ -38,9 +38,10 @@ const (
 	waitSeconds = 50
 	// requestTimeout covers that wait.
 	requestTimeout = 70 * time.Second
-	// longTimeout covers a request the control plane may hold for the owner's Approval (100 s) and then send
-	// on to a service that takes its time (120 s).
-	longTimeout = 240 * time.Second
+	// longTimeout covers a request the control plane may hold for the owner's Approval, which is 100 s in a chat
+	// and 30 minutes in a Routine's run, and then send on to a service that takes its time (120 s). The control
+	// plane decides how long it holds; this only outlasts it.
+	longTimeout = 35 * time.Minute
 )
 
 // command is one hypomnema command that this package runs. Its flags are

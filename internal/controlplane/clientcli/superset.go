@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
+	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 )
 
 // Superset from the terminal (issue #203): a dashboard's charts read as
@@ -66,6 +67,16 @@ func askingChat() *string {
 	return nil
 }
 
+// askingRun is the key of the Routine's run whose script runs the command,
+// so that an Approval its request waits for belongs to that run.
+func askingRun() *string {
+	if key := agenttool.RoutineRunKey(); key != "" {
+		return &key
+	}
+
+	return nil
+}
+
 // integrationsConnectAccount connects an Integration that is an account at
 // an address of its own. The password is read from a file and is never an
 // argument: arguments show in the shell's history and in the process list.
@@ -113,7 +124,7 @@ func supersetDashboards(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	}
 
 	resp, err := e.api.ListSupersetDashboardsWithResponse(ctx, label, &openapi.ListSupersetDashboardsParams{
-		Q: optional(fs, "search"), ChatId: askingChat(),
+		Q: optional(fs, "search"), ChatId: askingChat(), HypomnemaRoutineRun: askingRun(),
 	})
 	if err != nil {
 		return fmt.Errorf("listing the dashboards of superset:%s: %w", label, err)
@@ -141,7 +152,7 @@ func supersetDashboard(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	}
 
 	resp, err := e.api.GetSupersetDashboardWithResponse(ctx, label, fs.Arg(0), &openapi.GetSupersetDashboardParams{
-		ChatId: askingChat(),
+		ChatId: askingChat(), HypomnemaRoutineRun: askingRun(),
 	})
 	if err != nil {
 		return fmt.Errorf("reading dashboard %s of superset:%s: %w", fs.Arg(0), label, err)
@@ -216,7 +227,7 @@ func supersetChart(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	doing := fmt.Sprintf("reading chart %d of dashboard %s of superset:%s", chart, fs.Arg(0), label)
 
 	resp, err := e.api.GetSupersetChartDataWithResponse(ctx, label, fs.Arg(0), chart, &openapi.GetSupersetChartDataParams{
-		Format: &format, ChatId: askingChat(),
+		Format: &format, ChatId: askingChat(), HypomnemaRoutineRun: askingRun(),
 	})
 	if err != nil {
 		return fmt.Errorf("%s: %w", doing, err)
@@ -268,7 +279,8 @@ func supersetAPI(ctx context.Context, e *env, fs *flag.FlagSet) error {
 
 	doing := fmt.Sprintf("%s %s on superset:%s", method, fs.Arg(1), label)
 
-	resp, err := e.api.RelaySupersetRequestWithResponse(ctx, label, request)
+	resp, err := e.api.RelaySupersetRequestWithResponse(ctx, label,
+		&openapi.RelaySupersetRequestParams{HypomnemaRoutineRun: askingRun()}, request)
 	if err != nil {
 		return fmt.Errorf("%s: %w", doing, err)
 	}

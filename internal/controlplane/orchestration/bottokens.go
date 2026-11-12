@@ -26,7 +26,10 @@ type botToken struct {
 	coordinatorID string
 	chat          string
 	bot           string
-	createdAt     time.Time
+	// routine is the Routine whose script's run it is made for (issue #211);
+	// chat is empty then.
+	routine   string
+	createdAt time.Time
 }
 
 type botTokens struct {
@@ -54,15 +57,43 @@ func (s *Service) AddBotToken(ctx context.Context, coordinator, chatID, bot stri
 		return "", fmt.Errorf("%w: chat %s talks with bot %q, not %q", ErrInvalid, chatID, chat.Bot, bot)
 	}
 
+	return s.addBotToken(botToken{coordinatorID: parent.ID, chat: chatID, bot: bot})
+}
+
+// AddRoutineToken makes the key of a script Routine's run starting (issue
+// #211), under the coordinator token named coordinator, and returns its
+// secret. It is bound to the Routine's Bot and to no chat, as #211's
+// comment of 2026-11-12 says: a script answers no chat. It ends when the run
+// does. The secret is shown only here.
+func (s *Service) AddRoutineToken(ctx context.Context, coordinator, routineID string) (string, error) {
+	parent, err := s.coordinatorTokenNamed(ctx, coordinator)
+	if err != nil {
+		return "", err
+	}
+
+	r, err := s.GetRoutine(ctx, routineID)
+	if err != nil {
+		return "", err
+	}
+
+	if r.Kind != RoutineScript {
+		return "", fmt.Errorf("%w: routine %s runs no script", ErrInvalid, routineID)
+	}
+
+	return s.addBotToken(botToken{coordinatorID: parent.ID, bot: r.Bot, routine: r.ID})
+}
+
+// addBotToken keeps a new Bot token and returns its secret.
+func (s *Service) addBotToken(b botToken) (string, error) {
 	secret, err := bearertoken.Generate(bearertoken.Bot)
 	if err != nil {
 		return "", err
 	}
 
+	b.createdAt = s.clock.Now()
+
 	s.botTokens.mu.Lock()
-	s.botTokens.byHash[bearertoken.Hash(secret)] = botToken{
-		coordinatorID: parent.ID, chat: chatID, bot: bot, createdAt: s.clock.Now(),
-	}
+	s.botTokens.byHash[bearertoken.Hash(secret)] = b
 	s.botTokens.mu.Unlock()
 
 	return secret, nil
@@ -98,6 +129,7 @@ func (s *Service) authenticateBotToken(ctx context.Context, secret string) (Toke
 
 	return Token{
 		ID: parent.ID, Name: parent.Name, Kind: bearertoken.Bot, CreatedAt: b.createdAt, Chat: b.chat, Bot: b.bot,
+		Routine: b.routine,
 	}, nil
 }
 

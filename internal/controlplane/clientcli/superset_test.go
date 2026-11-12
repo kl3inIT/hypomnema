@@ -72,7 +72,7 @@ func newSupersetWorld(t *testing.T, hold time.Duration) *supersetWorld {
 	}, logger)
 
 	proxy, err := serviceproxy.New(serviceproxy.Config{
-		Agents: agents, Store: svc, Logger: logger, Hold: hold,
+		Agents: agents, Store: svc, Logger: logger, Hold: hold, RunHold: hold,
 		Token: func(context.Context, string, string) (string, error) { return "", orchestration.ErrNotFound },
 		Send: func(ctx context.Context, id, label string, r serviceproxy.Sent) (serviceproxy.Answer, error) {
 			answer, err := integrations.Call(ctx, id, label, integration.AccountRequest{

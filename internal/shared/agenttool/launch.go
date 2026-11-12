@@ -62,6 +62,26 @@ const (
 	QueryChat        = "chat"
 )
 
+// HeaderRoutineRun carries the key of a Routine's run on a request its
+// script makes: on the tunnel's opening and on the client API.
+const HeaderRoutineRun = "Hypomnema-Routine-Run"
+
+// RoutineRunKey reads the key of the Routine's run this process runs in, or
+// "" outside one.
+func RoutineRunKey() string {
+	file := os.Getenv(EnvRoutineRun)
+	if file == "" {
+		return ""
+	}
+
+	raw, err := os.ReadFile(file) //nolint:gosec // The file the launcher of this run named.
+	if err != nil {
+		return ""
+	}
+
+	return strings.TrimSpace(string(raw))
+}
+
 // Placeholder is what a tool is given in place of a token when its
 // Integration goes through the service proxy, for a tool that will not send
 // a request without one. The proxy puts the real token in its place;
@@ -80,6 +100,11 @@ const (
 	// owner to approve is shown there. A pi's own token is bound to its chat
 	// and decides instead (issue #260).
 	EnvChat = "HYPOMNEMA_CHAT_ID"
+	// EnvRoutineRun names the file that holds the key of the Routine's run a
+	// script runs in, written by its launcher (issue #211): a request that
+	// presents the key is that run's, so what the script asks the owner to
+	// approve belongs to the run.
+	EnvRoutineRun = "HYPOMNEMA_ROUTINE_RUN_FILE"
 )
 
 // accountFlag names the account to act as when the agent may use several of
@@ -131,7 +156,10 @@ type Launcher struct {
 	// ToolsHome is the directory the real tools are installed under.
 	ToolsHome string
 	// Chat is the chat a coordinator works in; empty for a worker.
-	Chat   string
+	Chat string
+	// RunKey is the key of the Routine's run whose script runs the tool;
+	// empty otherwise.
+	RunKey string
 	Client *http.Client
 	Stdin  io.Reader
 	Stdout io.Writer
@@ -142,7 +170,8 @@ type Launcher struct {
 func FromEnv() Launcher {
 	return Launcher{
 		URL: os.Getenv(EnvURL), Key: os.Getenv(EnvKey), ToolsHome: os.Getenv(EnvTools), Chat: os.Getenv(EnvChat),
-		Stdin: os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr,
+		RunKey: RoutineRunKey(),
+		Stdin:  os.Stdin, Stdout: os.Stdout, Stderr: os.Stderr,
 	}
 }
 

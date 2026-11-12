@@ -16,6 +16,7 @@ import {
 import { useState, type ReactNode } from "react"
 
 import type { ChatMessage } from "@/api/generated/types.gen"
+import { RunCard, SetUpCard } from "@/features/routines/chat-cards"
 import { cn } from "@/lib/utils"
 
 import { argLine, failed, type ChatItem, type Step } from "./chat-state"
@@ -53,6 +54,17 @@ export function ChatItemView({
       )
     case "activity":
       return <Activity steps={item.steps} live={item.open && working} />
+    case "routine-setup":
+      return <SetUpCard routineId={item.routineId} />
+    case "routine-run":
+      return (
+        <RunCard
+          routineId={item.routineId}
+          runId={item.runId}
+          text={item.text}
+          createdAt={item.createdAt}
+        />
+      )
   }
 }
 

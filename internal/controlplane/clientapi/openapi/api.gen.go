@@ -146,16 +146,19 @@ func (e Addressee) Valid() bool {
 
 // Defines values for ApprovalScope.
 const (
-	Once    ApprovalScope = "once"
-	Session ApprovalScope = "session"
+	ApprovalScopeOnce    ApprovalScope = "once"
+	ApprovalScopeRoutine ApprovalScope = "routine"
+	ApprovalScopeSession ApprovalScope = "session"
 )
 
 // Valid indicates whether the value is a known member of the ApprovalScope enum.
 func (e ApprovalScope) Valid() bool {
 	switch e {
-	case Once:
+	case ApprovalScopeOnce:
 		return true
-	case Session:
+	case ApprovalScopeRoutine:
+		return true
+	case ApprovalScopeSession:
 		return true
 	default:
 		return false
@@ -165,6 +168,7 @@ func (e ApprovalScope) Valid() bool {
 // Defines values for ApprovalDecisionDecision.
 const (
 	Approve        ApprovalDecisionDecision = "approve"
+	ApproveRoutine ApprovalDecisionDecision = "approve_routine"
 	ApproveSession ApprovalDecisionDecision = "approve_session"
 	Reject         ApprovalDecisionDecision = "reject"
 )
@@ -173,6 +177,8 @@ const (
 func (e ApprovalDecisionDecision) Valid() bool {
 	switch e {
 	case Approve:
+		return true
+	case ApproveRoutine:
 		return true
 	case ApproveSession:
 		return true
@@ -296,6 +302,7 @@ func (e ChatKind) Valid() bool {
 
 // Defines values for ChatPartType.
 const (
+	ChatPartTypeRoutineRun ChatPartType = "routine_run"
 	ChatPartTypeText       ChatPartType = "text"
 	ChatPartTypeThinking   ChatPartType = "thinking"
 	ChatPartTypeToolResult ChatPartType = "tool_result"
@@ -304,6 +311,8 @@ const (
 // Valid indicates whether the value is a known member of the ChatPartType enum.
 func (e ChatPartType) Valid() bool {
 	switch e {
+	case ChatPartTypeRoutineRun:
+		return true
 	case ChatPartTypeText:
 		return true
 	case ChatPartTypeThinking:
@@ -759,6 +768,87 @@ func (e QuestionStatus) Valid() bool {
 	}
 }
 
+// Defines values for RoutineKind.
+const (
+	Prompt RoutineKind = "prompt"
+	Script RoutineKind = "script"
+)
+
+// Valid indicates whether the value is a known member of the RoutineKind enum.
+func (e RoutineKind) Valid() bool {
+	switch e {
+	case Prompt:
+		return true
+	case Script:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RoutineRunStartedBy.
+const (
+	Manual   RoutineRunStartedBy = "manual"
+	Schedule RoutineRunStartedBy = "schedule"
+)
+
+// Valid indicates whether the value is a known member of the RoutineRunStartedBy enum.
+func (e RoutineRunStartedBy) Valid() bool {
+	switch e {
+	case Manual:
+		return true
+	case Schedule:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RoutineRunState.
+const (
+	RoutineRunStateCanceled  RoutineRunState = "canceled"
+	RoutineRunStateFailed    RoutineRunState = "failed"
+	RoutineRunStateRunning   RoutineRunState = "running"
+	RoutineRunStateSucceeded RoutineRunState = "succeeded"
+	RoutineRunStateWaiting   RoutineRunState = "waiting"
+)
+
+// Valid indicates whether the value is a known member of the RoutineRunState enum.
+func (e RoutineRunState) Valid() bool {
+	switch e {
+	case RoutineRunStateCanceled:
+		return true
+	case RoutineRunStateFailed:
+		return true
+	case RoutineRunStateRunning:
+		return true
+	case RoutineRunStateSucceeded:
+		return true
+	case RoutineRunStateWaiting:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for RoutineState.
+const (
+	On     RoutineState = "on"
+	Paused RoutineState = "paused"
+)
+
+// Valid indicates whether the value is a known member of the RoutineState enum.
+func (e RoutineState) Valid() bool {
+	switch e {
+	case On:
+		return true
+	case Paused:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for RunStatus.
 const (
 	RunStatusCanceled RunStatus = "canceled"
@@ -1139,18 +1229,25 @@ type Approval struct {
 	ActionName string `json:"action_name"`
 
 	// AskedBy pi, worker or owner.
-	AskedBy     string          `json:"asked_by"`
-	ChatId      *string         `json:"chat_id,omitempty"`
-	CreatedAt   time.Time       `json:"created_at"`
-	DecidedAt   *time.Time      `json:"decided_at,omitempty"`
-	DispatchId  *string         `json:"dispatch_id,omitempty"`
+	AskedBy    string     `json:"asked_by"`
+	ChatId     *string    `json:"chat_id,omitempty"`
+	CreatedAt  time.Time  `json:"created_at"`
+	DecidedAt  *time.Time `json:"decided_at,omitempty"`
+	DispatchId *string    `json:"dispatch_id,omitempty"`
+
+	// Expired Nobody answered while a Routine's run waited, or the run ended; it counts as rejected.
+	Expired     *bool           `json:"expired,omitempty"`
 	Id          string          `json:"id"`
 	Integration string          `json:"integration"`
 	Label       string          `json:"label"`
 	Payload     []ApprovalField `json:"payload"`
-	RunId       *string         `json:"run_id,omitempty"`
 
-	// Scope How far an approval reaches; absent until approved.
+	// RoutineId The Routine whose run asked.
+	RoutineId    *string `json:"routine_id,omitempty"`
+	RoutineRunId *string `json:"routine_run_id,omitempty"`
+	RunId        *string `json:"run_id,omitempty"`
+
+	// Scope How far an approval reaches; absent until approved. routine is always for the Routine whose run asked.
 	Scope  *ApprovalScope `json:"scope,omitempty"`
 	Status ApprovalStatus `json:"status"`
 	TaskId *string        `json:"task_id,omitempty"`
@@ -1160,16 +1257,16 @@ type Approval struct {
 	Used bool `json:"used"`
 }
 
-// ApprovalScope How far an approval reaches; absent until approved.
+// ApprovalScope How far an approval reaches; absent until approved. routine is always for the Routine whose run asked.
 type ApprovalScope string
 
 // ApprovalDecision defines model for ApprovalDecision.
 type ApprovalDecision struct {
-	// Decision approve lets this one request run; approve_session also stops asking for the action for the rest of the Run or the chat that asked; reject refuses it.
+	// Decision approve lets this one request run; approve_session also stops asking for the action for the rest of the Run or the chat that asked; approve_routine, for a request a Routine's run made, stops asking for the action in that Routine's later runs too, until its prompt, script or schedule changes or the owner takes it back; reject refuses it.
 	Decision ApprovalDecisionDecision `json:"decision"`
 }
 
-// ApprovalDecisionDecision approve lets this one request run; approve_session also stops asking for the action for the rest of the Run or the chat that asked; reject refuses it.
+// ApprovalDecisionDecision approve lets this one request run; approve_session also stops asking for the action for the rest of the Run or the chat that asked; approve_routine, for a request a Routine's run made, stops asking for the action in that Routine's later runs too, until its prompt, script or schedule changes or the owner takes it back; reject refuses it.
 type ApprovalDecisionDecision string
 
 // ApprovalField defines model for ApprovalField.
@@ -1351,7 +1448,7 @@ type ChatMessageList struct {
 	NextAfter int64 `json:"next_after"`
 }
 
-// ChatPart One piece of a reply (text, thinking) or of a tool pi ran (tool_result).
+// ChatPart One piece of a reply (text, thinking), of a tool pi ran (tool_result), or the result of a Routine's run told in the chat it was made in (routine_run: id is the run's).
 type ChatPart struct {
 	// Args The tool's arguments.
 	Args       *map[string]interface{} `json:"args,omitempty"`
@@ -1366,7 +1463,10 @@ type ChatPart struct {
 
 	// Output The tool's result, at most 16 KiB.
 	Output *string `json:"output,omitempty"`
-	Text   *string `json:"text,omitempty"`
+
+	// RoutineId The Routine of a routine_run part.
+	RoutineId *string `json:"routine_id,omitempty"`
+	Text      *string `json:"text,omitempty"`
 
 	// Truncated The output was cut.
 	Truncated *bool        `json:"truncated,omitempty"`
@@ -2216,6 +2316,193 @@ type RepoList struct {
 	Data []Repo `json:"data"`
 }
 
+// Routine Work a Bot does on a schedule: a prompt the Bot works on with its model in a new chat, or a script that runs with the Bot's tools and no model.
+type Routine struct {
+	// Announce A run's answer or a script's output goes to the chat it was made in.
+	Announce bool   `json:"announce"`
+	Bot      string `json:"bot"`
+
+	// CanUndo The last change was a Bot's and can be undone.
+	CanUndo bool `json:"can_undo"`
+
+	// ChatId The chat it was made in.
+	ChatId    *string   `json:"chat_id,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+
+	// CreatedBy owner or bot.
+	CreatedBy    string  `json:"created_by"`
+	Cron         *string `json:"cron,omitempty"`
+	EveryMinutes *int    `json:"every_minutes,omitempty"`
+
+	// Failures The runs that failed in a row.
+	Failures int `json:"failures"`
+
+	// Grants What the owner allowed this Routine always.
+	Grants        []RoutineGrant `json:"grants"`
+	Id            string         `json:"id"`
+	Kind          RoutineKind    `json:"kind"`
+	LastRun       *RoutineRun    `json:"last_run,omitempty"`
+	LastSkippedAt *time.Time     `json:"last_skipped_at,omitempty"`
+	Name          string         `json:"name"`
+	NextRunAt     *time.Time     `json:"next_run_at,omitempty"`
+	PausedReason  *string        `json:"paused_reason,omitempty"`
+
+	// Prompt What a prompt Routine gives its Bot.
+	Prompt *string `json:"prompt,omitempty"`
+
+	// Schedule The schedule in words: every hour.
+	Schedule string `json:"schedule"`
+
+	// Script The file a script Routine runs, under the Bot's routines directory.
+	Script *string `json:"script,omitempty"`
+
+	// ScriptText What the script's file holds.
+	ScriptText *string `json:"script_text,omitempty"`
+
+	// Sentence One sentence that restates the schedule and the work.
+	Sentence string `json:"sentence"`
+
+	// Skipped The due times that passed while a run was still going; they have no run of their own.
+	Skipped int `json:"skipped"`
+
+	// State on: it runs by its schedule. paused: it does not, by the owner or after repeated failures.
+	State RoutineState `json:"state"`
+
+	// Summary What the work is, in the words of whoever made it.
+	Summary        *string   `json:"summary,omitempty"`
+	TimeoutSeconds int       `json:"timeout_seconds"`
+	Timezone       *string   `json:"timezone,omitempty"`
+	UpdatedAt      time.Time `json:"updated_at"`
+}
+
+// RoutineGrant An action of a Connection that passes in the Routine's runs without asking.
+type RoutineGrant struct {
+	Action      string    `json:"action"`
+	ActionName  string    `json:"action_name"`
+	CreatedAt   time.Time `json:"created_at"`
+	Integration string    `json:"integration"`
+	Label       string    `json:"label"`
+}
+
+// RoutineKind defines model for RoutineKind.
+type RoutineKind string
+
+// RoutineLaunchRequest defines model for RoutineLaunchRequest.
+type RoutineLaunchRequest struct {
+	// Bot The Bot the Routine must belong to.
+	Bot string `json:"bot"`
+}
+
+// RoutineList defines model for RoutineList.
+type RoutineList struct {
+	Data []Routine `json:"data"`
+}
+
+// RoutineRun defines model for RoutineRun.
+type RoutineRun struct {
+	// ChatId A prompt run's chat.
+	ChatId  *string    `json:"chat_id,omitempty"`
+	EndedAt *time.Time `json:"ended_at,omitempty"`
+	Error   string     `json:"error"`
+
+	// ExitCode A script's exit code.
+	ExitCode *int   `json:"exit_code,omitempty"`
+	Id       string `json:"id"`
+
+	// Output The end of what a script printed, or a prompt run's answer.
+	Output    string    `json:"output"`
+	RoutineId string    `json:"routine_id"`
+	StartedAt time.Time `json:"started_at"`
+
+	// StartedBy By the schedule or by hand.
+	StartedBy RoutineRunStartedBy `json:"started_by"`
+
+	// State waiting is waiting for the owner's answer to an Approval; canceled is ended by his no, or by the Routine's removal.
+	State RoutineRunState `json:"state"`
+}
+
+// RoutineRunStartedBy By the schedule or by hand.
+type RoutineRunStartedBy string
+
+// RoutineRunState waiting is waiting for the owner's answer to an Approval; canceled is ended by his no, or by the Routine's removal.
+type RoutineRunState string
+
+// RoutineRunList defines model for RoutineRunList.
+type RoutineRunList struct {
+	Data []RoutineRun `json:"data"`
+
+	// NextOffset The offset of the next page; absent on the last.
+	NextOffset *int `json:"next_offset,omitempty"`
+
+	// Total How many runs the Routine has.
+	Total int `json:"total"`
+}
+
+// RoutineSchedule defines model for RoutineSchedule.
+type RoutineSchedule struct {
+	Cron         *string `json:"cron,omitempty"`
+	EveryMinutes *int    `json:"every_minutes,omitempty"`
+	Timezone     *string `json:"timezone,omitempty"`
+}
+
+// RoutineSchedulePreview defines model for RoutineSchedulePreview.
+type RoutineSchedulePreview struct {
+	Next []time.Time `json:"next"`
+
+	// Schedule The schedule in words: every weekday at 7:00 Ho Chi Minh time.
+	Schedule string `json:"schedule"`
+}
+
+// RoutineScriptLaunch defines model for RoutineScriptLaunch.
+type RoutineScriptLaunch struct {
+	// Key The run's key, given once.
+	Key            string `json:"key"`
+	Script         string `json:"script"`
+	ScriptText     string `json:"script_text"`
+	TimeoutSeconds int    `json:"timeout_seconds"`
+}
+
+// RoutineSettings defines model for RoutineSettings.
+type RoutineSettings struct {
+	// Announce Whether a run's result goes to that chat; it does when absent.
+	Announce *bool `json:"announce,omitempty"`
+
+	// ChatId The chat the Routine is made in; a Bot names the chat it works in.
+	ChatId *string `json:"chat_id,omitempty"`
+
+	// Cron Five fields; needs timezone.
+	Cron         *string `json:"cron,omitempty"`
+	EveryMinutes *int    `json:"every_minutes,omitempty"`
+
+	// FromRoutine The Routine whose run asks, when one does; it is refused.
+	FromRoutine *string     `json:"from_routine,omitempty"`
+	Kind        RoutineKind `json:"kind"`
+	Prompt      *string     `json:"prompt,omitempty"`
+
+	// Script A file name, never a path or a command line.
+	Script     *string `json:"script,omitempty"`
+	ScriptText *string `json:"script_text,omitempty"`
+	Summary    *string `json:"summary,omitempty"`
+
+	// TimeoutSeconds How long a script may run; 600 when absent. A prompt run works for at most an hour.
+	TimeoutSeconds *int `json:"timeout_seconds,omitempty"`
+
+	// Timezone An IANA time zone, such as Asia/Ho_Chi_Minh.
+	Timezone *string `json:"timezone,omitempty"`
+}
+
+// RoutineState on: it runs by its schedule. paused: it does not, by the owner or after repeated failures.
+type RoutineState string
+
+// RoutineUndone defines model for RoutineUndone.
+type RoutineUndone struct {
+	// Removed The Routine was one the Bot made and is gone.
+	Removed bool `json:"removed"`
+
+	// Routine Work a Bot does on a schedule: a prompt the Bot works on with its model in a new chat, or a script that runs with the Bot's tools and no model.
+	Routine *Routine `json:"routine,omitempty"`
+}
+
 // Run defines model for Run.
 type Run struct {
 	Base *string `json:"base,omitempty"`
@@ -2774,6 +3061,9 @@ type After = int64
 // AskingChat defines model for AskingChat.
 type AskingChat = string
 
+// AskingRoutineRun defines model for AskingRoutineRun.
+type AskingRoutineRun = string
+
 // ChatID defines model for ChatID.
 type ChatID = string
 
@@ -2797,6 +3087,9 @@ type NodeID = string
 
 // QuestionID defines model for QuestionID.
 type QuestionID = string
+
+// RoutineID defines model for RoutineID.
+type RoutineID = string
 
 // RunID defines model for RunID.
 type RunID = string
@@ -2827,6 +3120,9 @@ type ListApprovalsParams struct {
 	Status *ApprovalStatus `form:"status,omitempty" json:"status,omitempty"`
 	ChatId *string         `form:"chat_id,omitempty" json:"chat_id,omitempty"`
 	TaskId *string         `form:"task_id,omitempty" json:"task_id,omitempty"`
+
+	// RoutineId Only those asked in this Routine's runs.
+	RoutineId *string `form:"routine_id,omitempty" json:"routine_id,omitempty"`
 }
 
 // ListChatsParams defines parameters for ListChats.
@@ -2910,6 +3206,12 @@ type StreamEventsParams struct {
 	LastEventID *int64 `json:"Last-Event-ID,omitempty"`
 }
 
+// RelaySupersetRequestParams defines parameters for RelaySupersetRequest.
+type RelaySupersetRequestParams struct {
+	// HypomnemaRoutineRun The key of the Routine's run whose script asks, which its launcher was given, so that an Approval the request waits for belongs to that run. Ignored for the owner.
+	HypomnemaRoutineRun *AskingRoutineRun `json:"Hypomnema-Routine-Run,omitempty"`
+}
+
 // ListSupersetDashboardsParams defines parameters for ListSupersetDashboards.
 type ListSupersetDashboardsParams struct {
 	// Q Only the dashboards whose title contains this.
@@ -2917,12 +3219,18 @@ type ListSupersetDashboardsParams struct {
 
 	// ChatId The chat a coordinator asks from, so that an Approval the request waits for is answered there. Ignored for the owner.
 	ChatId *AskingChat `form:"chat_id,omitempty" json:"chat_id,omitempty"`
+
+	// HypomnemaRoutineRun The key of the Routine's run whose script asks, which its launcher was given, so that an Approval the request waits for belongs to that run. Ignored for the owner.
+	HypomnemaRoutineRun *AskingRoutineRun `json:"Hypomnema-Routine-Run,omitempty"`
 }
 
 // GetSupersetDashboardParams defines parameters for GetSupersetDashboard.
 type GetSupersetDashboardParams struct {
 	// ChatId The chat a coordinator asks from, so that an Approval the request waits for is answered there. Ignored for the owner.
 	ChatId *AskingChat `form:"chat_id,omitempty" json:"chat_id,omitempty"`
+
+	// HypomnemaRoutineRun The key of the Routine's run whose script asks, which its launcher was given, so that an Approval the request waits for belongs to that run. Ignored for the owner.
+	HypomnemaRoutineRun *AskingRoutineRun `json:"Hypomnema-Routine-Run,omitempty"`
 }
 
 // GetSupersetChartDataParams defines parameters for GetSupersetChartData.
@@ -2932,6 +3240,9 @@ type GetSupersetChartDataParams struct {
 
 	// ChatId The chat a coordinator asks from, so that an Approval the request waits for is answered there. Ignored for the owner.
 	ChatId *AskingChat `form:"chat_id,omitempty" json:"chat_id,omitempty"`
+
+	// HypomnemaRoutineRun The key of the Routine's run whose script asks, which its launcher was given, so that an Approval the request waits for belongs to that run. Ignored for the owner.
+	HypomnemaRoutineRun *AskingRoutineRun `json:"Hypomnema-Routine-Run,omitempty"`
 }
 
 // GetSupersetChartDataParamsFormat defines parameters for GetSupersetChartData.
@@ -2943,6 +3254,23 @@ type ListQuestionsParams struct {
 	AddressedTo *Addressee      `form:"addressed_to,omitempty" json:"addressed_to,omitempty"`
 	RunId       *string         `form:"run_id,omitempty" json:"run_id,omitempty"`
 	TaskId      *string         `form:"task_id,omitempty" json:"task_id,omitempty"`
+}
+
+// ListRoutinesParams defines parameters for ListRoutines.
+type ListRoutinesParams struct {
+	// Bot Only this Bot's.
+	Bot *string `form:"bot,omitempty" json:"bot,omitempty"`
+
+	// ChatId Only those made in this chat.
+	ChatId *string `form:"chat_id,omitempty" json:"chat_id,omitempty"`
+}
+
+// ListRoutineRunsParams defines parameters for ListRoutineRuns.
+type ListRoutineRunsParams struct {
+	Limit *int `form:"limit,omitempty" json:"limit,omitempty"`
+
+	// Offset How many of the newest runs to pass over.
+	Offset *int `form:"offset,omitempty" json:"offset,omitempty"`
 }
 
 // ListRunsParams defines parameters for ListRuns.
@@ -3017,6 +3345,9 @@ type ChangeBotMemoryJSONRequestBody = MemoryChange
 // SetBotMemoryJSONRequestBody defines body for SetBotMemory for application/json ContentType.
 type SetBotMemoryJSONRequestBody = MemoryText
 
+// PutRoutineJSONRequestBody defines body for PutRoutine for application/json ContentType.
+type PutRoutineJSONRequestBody = RoutineSettings
+
 // PutLarkChannelJSONRequestBody defines body for PutLarkChannel for application/json ContentType.
 type PutLarkChannelJSONRequestBody = LarkChannelSettings
 
@@ -3085,6 +3416,12 @@ type AnswerQuestionJSONRequestBody = Answer
 
 // PutRepoJSONRequestBody defines body for PutRepo for application/json ContentType.
 type PutRepoJSONRequestBody = NewRepo
+
+// PreviewRoutineScheduleJSONRequestBody defines body for PreviewRoutineSchedule for application/json ContentType.
+type PreviewRoutineScheduleJSONRequestBody = RoutineSchedule
+
+// LaunchRoutineScriptJSONRequestBody defines body for LaunchRoutineScript for application/json ContentType.
+type LaunchRoutineScriptJSONRequestBody = RoutineLaunchRequest
 
 // CreateRunJSONRequestBody defines body for CreateRun for application/json ContentType.
 type CreateRunJSONRequestBody = NewRun
@@ -3386,6 +3723,24 @@ type ClientInterface interface {
 	//
 	// Corresponds with PUT /bots/{name}/memory (the `SetBotMemory` operationId).
 	SetBotMemory(ctx context.Context, name Name, body SetBotMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PutRoutineWithBody Make a Routine of a Bot, or change the one of that name
+	//
+	// A Routine is work a Bot does on a schedule: a prompt the Bot works on with its model in a new chat, or a script that runs with the Bot's tools and no model. A new one is switched on at once. A change keeps the Routine's state and its runs; a changed schedule starts from now, and a change of the prompt, the script or the schedule ends what the Routine was allowed always. The owner may, and a Bot with its coordinator's token from a chat it talks in, which it names: its change can be undone. A Routine's own run is refused.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with PUT /bots/{name}/routines/{routine} (the `PutRoutine` operationId).
+	PutRoutineWithBody(ctx context.Context, name Name, routine string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PutRoutine Make a Routine of a Bot, or change the one of that name
+	//
+	// A Routine is work a Bot does on a schedule: a prompt the Bot works on with its model in a new chat, or a script that runs with the Bot's tools and no model. A new one is switched on at once. A change keeps the Routine's state and its runs; a changed schedule starts from now, and a change of the prompt, the script or the schedule ends what the Routine was allowed always. The owner may, and a Bot with its coordinator's token from a chat it talks in, which it names: its change can be undone. A Routine's own run is refused.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with PUT /bots/{name}/routines/{routine} (the `PutRoutine` operationId).
+	PutRoutine(ctx context.Context, name Name, routine string, body PutRoutineJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListBotSkills The skills a Bot gets now, each at its newest revision
 	//
@@ -3712,7 +4067,7 @@ type ClientInterface interface {
 	// Takes any type of body and a specified content type.
 	//
 	// Corresponds with POST /integrations/superset/connections/{label}/api (the `RelaySupersetRequest` operationId).
-	RelaySupersetRequestWithBody(ctx context.Context, label ConnectionLabel, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+	RelaySupersetRequestWithBody(ctx context.Context, label ConnectionLabel, params *RelaySupersetRequestParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// RelaySupersetRequest Send one request to a Superset Connection's API and return its answer unchanged
 	//
@@ -3721,7 +4076,7 @@ type ClientInterface interface {
 	// Takes a body of the `application/json` content type.
 	//
 	// Corresponds with POST /integrations/superset/connections/{label}/api (the `RelaySupersetRequest` operationId).
-	RelaySupersetRequest(ctx context.Context, label ConnectionLabel, body RelaySupersetRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+	RelaySupersetRequest(ctx context.Context, label ConnectionLabel, params *RelaySupersetRequestParams, body RelaySupersetRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListSupersetDashboards The dashboards of a Superset Connection, by title
 	//
@@ -4053,6 +4408,101 @@ type ClientInterface interface {
 	//
 	// Corresponds with PUT /repos/{name} (the `PutRepo` operationId).
 	PutRepo(ctx context.Context, name Name, body PutRepoJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PreviewRoutineScheduleWithBody A schedule in words and its next three times, as a Routine made now would have them
+	//
+	// The schedule is checked as a Routine's is: every N minutes, or a five-field cron expression with its IANA time zone. Nothing is kept.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /routine-schedule (the `PreviewRoutineSchedule` operationId).
+	PreviewRoutineScheduleWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PreviewRoutineSchedule A schedule in words and its next three times, as a Routine made now would have them
+	//
+	// The schedule is checked as a Routine's is: every N minutes, or a five-field cron expression with its IANA time zone. Nothing is kept.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /routine-schedule (the `PreviewRoutineSchedule` operationId).
+	PreviewRoutineSchedule(ctx context.Context, body PreviewRoutineScheduleJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListRoutines The Routines, the oldest first, each with its last run
+	//
+	// Corresponds with GET /routines (the `ListRoutines` operationId).
+	ListRoutines(ctx context.Context, params *ListRoutinesParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// DeleteRoutine Remove a Routine with its runs and its grants; only the owner
+	//
+	// A run of it that still goes is stopped.
+	//
+	// Corresponds with DELETE /routines/{routine_id} (the `DeleteRoutine` operationId).
+	DeleteRoutine(ctx context.Context, routineId RoutineID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// GetRoutine A Routine, with a script's text, its last run and what it is allowed always
+	//
+	// Corresponds with GET /routines/{routine_id} (the `GetRoutine` operationId).
+	GetRoutine(ctx context.Context, routineId RoutineID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RevokeRoutineGrant Take back an "always for this Routine"; only the owner
+	//
+	// The action asks again from the Routine's next request.
+	//
+	// Corresponds with DELETE /routines/{routine_id}/grants/{integration}/{label}/{action} (the `RevokeRoutineGrant` operationId).
+	RevokeRoutineGrant(ctx context.Context, routineId RoutineID, integration IntegrationID, label ConnectionLabel, action string, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// LaunchRoutineScriptWithBody What the launcher of a script Routine's run runs, given once a run
+	//
+	// The file's name, its text, its limit and the run's key. Only while a run of the Routine has started and its script has not: the first caller is the launcher, and whoever asks again is refused. A request that presents the key is that run's, so what it asks the owner belongs to the run and what the Routine is allowed always holds for it.
+	//
+	// Takes any type of body and a specified content type.
+	//
+	// Corresponds with POST /routines/{routine_id}/launch (the `LaunchRoutineScript` operationId).
+	LaunchRoutineScriptWithBody(ctx context.Context, routineId RoutineID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// LaunchRoutineScript What the launcher of a script Routine's run runs, given once a run
+	//
+	// The file's name, its text, its limit and the run's key. Only while a run of the Routine has started and its script has not: the first caller is the launcher, and whoever asks again is refused. A request that presents the key is that run's, so what it asks the owner belongs to the run and what the Routine is allowed always holds for it.
+	//
+	// Takes a body of the `application/json` content type.
+	//
+	// Corresponds with POST /routines/{routine_id}/launch (the `LaunchRoutineScript` operationId).
+	LaunchRoutineScript(ctx context.Context, routineId RoutineID, body LaunchRoutineScriptJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// PauseRoutine Stop a Routine's schedule; only the owner
+	//
+	// A run still going goes on.
+	//
+	// Corresponds with POST /routines/{routine_id}/pause (the `PauseRoutine` operationId).
+	PauseRoutine(ctx context.Context, routineId RoutineID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ResumeRoutine Switch a paused Routine on again, from now; only the owner
+	//
+	// Its failures in a row are forgotten.
+	//
+	// Corresponds with POST /routines/{routine_id}/resume (the `ResumeRoutine` operationId).
+	ResumeRoutine(ctx context.Context, routineId RoutineID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// ListRoutineRuns A Routine's runs, the newest first
+	//
+	// The newest 2,000 runs of a Routine are kept, for 7 days.
+	//
+	// Corresponds with GET /routines/{routine_id}/runs (the `ListRoutineRuns` operationId).
+	ListRoutineRuns(ctx context.Context, routineId RoutineID, params *ListRoutineRunsParams, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// RunRoutine Run a Routine now
+	//
+	// While a run of the Routine still goes or waits for the owner, the answer is a conflict that names it. A run by hand that fails counts as any failed run. The owner may, and a Bot, which runs a Routine once after it made it.
+	//
+	// Corresponds with POST /routines/{routine_id}/runs (the `RunRoutine` operationId).
+	RunRoutine(ctx context.Context, routineId RoutineID, reqEditors ...RequestEditorFn) (*http.Response, error)
+
+	// UndoRoutine Undo a Bot's last change of a Routine; only the owner
+	//
+	// A Routine the Bot made is removed, and a run of it that still goes is stopped; one the Bot changed is what it was before. A Routine that was changed since, or whose last change was not a Bot's, is refused.
+	//
+	// Corresponds with POST /routines/{routine_id}/undo (the `UndoRoutine` operationId).
+	UndoRoutine(ctx context.Context, routineId RoutineID, reqEditors ...RequestEditorFn) (*http.Response, error)
 
 	// ListRuns Runs, newest first
 	//
@@ -4740,6 +5190,44 @@ func (c *Client) SetBotMemoryWithBody(ctx context.Context, name Name, contentTyp
 // Corresponds with PUT /bots/{name}/memory (the `SetBotMemory` operationId).
 func (c *Client) SetBotMemory(ctx context.Context, name Name, body SetBotMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewSetBotMemoryRequest(c.Server, name, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PutRoutineWithBody Make a Routine of a Bot, or change the one of that name
+//
+// A Routine is work a Bot does on a schedule: a prompt the Bot works on with its model in a new chat, or a script that runs with the Bot's tools and no model. A new one is switched on at once. A change keeps the Routine's state and its runs; a changed schedule starts from now, and a change of the prompt, the script or the schedule ends what the Routine was allowed always. The owner may, and a Bot with its coordinator's token from a chat it talks in, which it names: its change can be undone. A Routine's own run is refused.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with PUT /bots/{name}/routines/{routine} (the `PutRoutine` operationId).
+func (c *Client) PutRoutineWithBody(ctx context.Context, name Name, routine string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPutRoutineRequestWithBody(c.Server, name, routine, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PutRoutine Make a Routine of a Bot, or change the one of that name
+//
+// A Routine is work a Bot does on a schedule: a prompt the Bot works on with its model in a new chat, or a script that runs with the Bot's tools and no model. A new one is switched on at once. A change keeps the Routine's state and its runs; a changed schedule starts from now, and a change of the prompt, the script or the schedule ends what the Routine was allowed always. The owner may, and a Bot with its coordinator's token from a chat it talks in, which it names: its change can be undone. A Routine's own run is refused.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with PUT /bots/{name}/routines/{routine} (the `PutRoutine` operationId).
+func (c *Client) PutRoutine(ctx context.Context, name Name, routine string, body PutRoutineJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPutRoutineRequest(c.Server, name, routine, body)
 	if err != nil {
 		return nil, err
 	}
@@ -5555,8 +6043,8 @@ func (c *Client) ListIntegrations(ctx context.Context, reqEditors ...RequestEdit
 // Takes any type of body and a specified content type.
 //
 // Corresponds with POST /integrations/superset/connections/{label}/api (the `RelaySupersetRequest` operationId).
-func (c *Client) RelaySupersetRequestWithBody(ctx context.Context, label ConnectionLabel, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewRelaySupersetRequestRequestWithBody(c.Server, label, contentType, body)
+func (c *Client) RelaySupersetRequestWithBody(ctx context.Context, label ConnectionLabel, params *RelaySupersetRequestParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRelaySupersetRequestRequestWithBody(c.Server, label, params, contentType, body)
 	if err != nil {
 		return nil, err
 	}
@@ -5574,8 +6062,8 @@ func (c *Client) RelaySupersetRequestWithBody(ctx context.Context, label Connect
 // Takes a body of the `application/json` content type.
 //
 // Corresponds with POST /integrations/superset/connections/{label}/api (the `RelaySupersetRequest` operationId).
-func (c *Client) RelaySupersetRequest(ctx context.Context, label ConnectionLabel, body RelaySupersetRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
-	req, err := NewRelaySupersetRequestRequest(c.Server, label, body)
+func (c *Client) RelaySupersetRequest(ctx context.Context, label ConnectionLabel, params *RelaySupersetRequestParams, body RelaySupersetRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRelaySupersetRequestRequest(c.Server, label, params, body)
 	if err != nil {
 		return nil, err
 	}
@@ -6397,6 +6885,231 @@ func (c *Client) PutRepoWithBody(ctx context.Context, name Name, contentType str
 // Corresponds with PUT /repos/{name} (the `PutRepo` operationId).
 func (c *Client) PutRepo(ctx context.Context, name Name, body PutRepoJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
 	req, err := NewPutRepoRequest(c.Server, name, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PreviewRoutineScheduleWithBody A schedule in words and its next three times, as a Routine made now would have them
+//
+// The schedule is checked as a Routine's is: every N minutes, or a five-field cron expression with its IANA time zone. Nothing is kept.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /routine-schedule (the `PreviewRoutineSchedule` operationId).
+func (c *Client) PreviewRoutineScheduleWithBody(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPreviewRoutineScheduleRequestWithBody(c.Server, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PreviewRoutineSchedule A schedule in words and its next three times, as a Routine made now would have them
+//
+// The schedule is checked as a Routine's is: every N minutes, or a five-field cron expression with its IANA time zone. Nothing is kept.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /routine-schedule (the `PreviewRoutineSchedule` operationId).
+func (c *Client) PreviewRoutineSchedule(ctx context.Context, body PreviewRoutineScheduleJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPreviewRoutineScheduleRequest(c.Server, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListRoutines The Routines, the oldest first, each with its last run
+//
+// Corresponds with GET /routines (the `ListRoutines` operationId).
+func (c *Client) ListRoutines(ctx context.Context, params *ListRoutinesParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListRoutinesRequest(c.Server, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// DeleteRoutine Remove a Routine with its runs and its grants; only the owner
+//
+// A run of it that still goes is stopped.
+//
+// Corresponds with DELETE /routines/{routine_id} (the `DeleteRoutine` operationId).
+func (c *Client) DeleteRoutine(ctx context.Context, routineId RoutineID, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewDeleteRoutineRequest(c.Server, routineId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// GetRoutine A Routine, with a script's text, its last run and what it is allowed always
+//
+// Corresponds with GET /routines/{routine_id} (the `GetRoutine` operationId).
+func (c *Client) GetRoutine(ctx context.Context, routineId RoutineID, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewGetRoutineRequest(c.Server, routineId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RevokeRoutineGrant Take back an "always for this Routine"; only the owner
+//
+// The action asks again from the Routine's next request.
+//
+// Corresponds with DELETE /routines/{routine_id}/grants/{integration}/{label}/{action} (the `RevokeRoutineGrant` operationId).
+func (c *Client) RevokeRoutineGrant(ctx context.Context, routineId RoutineID, integration IntegrationID, label ConnectionLabel, action string, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRevokeRoutineGrantRequest(c.Server, routineId, integration, label, action)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// LaunchRoutineScriptWithBody What the launcher of a script Routine's run runs, given once a run
+//
+// The file's name, its text, its limit and the run's key. Only while a run of the Routine has started and its script has not: the first caller is the launcher, and whoever asks again is refused. A request that presents the key is that run's, so what it asks the owner belongs to the run and what the Routine is allowed always holds for it.
+//
+// Takes any type of body and a specified content type.
+//
+// Corresponds with POST /routines/{routine_id}/launch (the `LaunchRoutineScript` operationId).
+func (c *Client) LaunchRoutineScriptWithBody(ctx context.Context, routineId RoutineID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewLaunchRoutineScriptRequestWithBody(c.Server, routineId, contentType, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// LaunchRoutineScript What the launcher of a script Routine's run runs, given once a run
+//
+// The file's name, its text, its limit and the run's key. Only while a run of the Routine has started and its script has not: the first caller is the launcher, and whoever asks again is refused. A request that presents the key is that run's, so what it asks the owner belongs to the run and what the Routine is allowed always holds for it.
+//
+// Takes a body of the `application/json` content type.
+//
+// Corresponds with POST /routines/{routine_id}/launch (the `LaunchRoutineScript` operationId).
+func (c *Client) LaunchRoutineScript(ctx context.Context, routineId RoutineID, body LaunchRoutineScriptJSONRequestBody, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewLaunchRoutineScriptRequest(c.Server, routineId, body)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// PauseRoutine Stop a Routine's schedule; only the owner
+//
+// A run still going goes on.
+//
+// Corresponds with POST /routines/{routine_id}/pause (the `PauseRoutine` operationId).
+func (c *Client) PauseRoutine(ctx context.Context, routineId RoutineID, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewPauseRoutineRequest(c.Server, routineId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ResumeRoutine Switch a paused Routine on again, from now; only the owner
+//
+// Its failures in a row are forgotten.
+//
+// Corresponds with POST /routines/{routine_id}/resume (the `ResumeRoutine` operationId).
+func (c *Client) ResumeRoutine(ctx context.Context, routineId RoutineID, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewResumeRoutineRequest(c.Server, routineId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// ListRoutineRuns A Routine's runs, the newest first
+//
+// The newest 2,000 runs of a Routine are kept, for 7 days.
+//
+// Corresponds with GET /routines/{routine_id}/runs (the `ListRoutineRuns` operationId).
+func (c *Client) ListRoutineRuns(ctx context.Context, routineId RoutineID, params *ListRoutineRunsParams, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewListRoutineRunsRequest(c.Server, routineId, params)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// RunRoutine Run a Routine now
+//
+// While a run of the Routine still goes or waits for the owner, the answer is a conflict that names it. A run by hand that fails counts as any failed run. The owner may, and a Bot, which runs a Routine once after it made it.
+//
+// Corresponds with POST /routines/{routine_id}/runs (the `RunRoutine` operationId).
+func (c *Client) RunRoutine(ctx context.Context, routineId RoutineID, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewRunRoutineRequest(c.Server, routineId)
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(ctx)
+	if err := c.applyEditors(ctx, req, reqEditors); err != nil {
+		return nil, err
+	}
+	return c.Client.Do(req)
+}
+
+// UndoRoutine Undo a Bot's last change of a Routine; only the owner
+//
+// A Routine the Bot made is removed, and a run of it that still goes is stopped; one the Bot changed is what it was before. A Routine that was changed since, or whose last change was not a Bot's, is refused.
+//
+// Corresponds with POST /routines/{routine_id}/undo (the `UndoRoutine` operationId).
+func (c *Client) UndoRoutine(ctx context.Context, routineId RoutineID, reqEditors ...RequestEditorFn) (*http.Response, error) {
+	req, err := NewUndoRoutineRequest(c.Server, routineId)
 	if err != nil {
 		return nil, err
 	}
@@ -7418,6 +8131,18 @@ func NewListApprovalsRequest(server string, params *ListApprovalsParams) (*http.
 
 		}
 
+		if params.RoutineId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "routine_id", *params.RoutineId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
 		if encoded := queryValues.Encode(); encoded != "" {
 			rawQueryFragments = append(rawQueryFragments, encoded)
 		}
@@ -7696,6 +8421,60 @@ func NewSetBotMemoryRequestWithBody(server string, name Name, contentType string
 	}
 
 	operationPath := fmt.Sprintf("/bots/%s/memory", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPut, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewPutRoutineRequest calls the generic PutRoutine builder with application/json body
+func NewPutRoutineRequest(server string, name Name, routine string, body PutRoutineJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPutRoutineRequestWithBody(server, name, routine, "application/json", bodyReader)
+}
+
+// NewPutRoutineRequestWithBody constructs an http.Request for the PutRoutine method, with any body, and a specified content type
+func NewPutRoutineRequestWithBody(server string, name Name, routine string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "name", name, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "routine", routine, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/bots/%s/routines/%s", pathParam0, pathParam1)
 	if operationPath[0] == '/' {
 		operationPath = "." + operationPath
 	}
@@ -9548,18 +10327,18 @@ func NewListIntegrationsRequest(server string) (*http.Request, error) {
 }
 
 // NewRelaySupersetRequestRequest calls the generic RelaySupersetRequest builder with application/json body
-func NewRelaySupersetRequestRequest(server string, label ConnectionLabel, body RelaySupersetRequestJSONRequestBody) (*http.Request, error) {
+func NewRelaySupersetRequestRequest(server string, label ConnectionLabel, params *RelaySupersetRequestParams, body RelaySupersetRequestJSONRequestBody) (*http.Request, error) {
 	var bodyReader io.Reader
 	buf, err := json.Marshal(body)
 	if err != nil {
 		return nil, err
 	}
 	bodyReader = bytes.NewReader(buf)
-	return NewRelaySupersetRequestRequestWithBody(server, label, "application/json", bodyReader)
+	return NewRelaySupersetRequestRequestWithBody(server, label, params, "application/json", bodyReader)
 }
 
 // NewRelaySupersetRequestRequestWithBody constructs an http.Request for the RelaySupersetRequest method, with any body, and a specified content type
-func NewRelaySupersetRequestRequestWithBody(server string, label ConnectionLabel, contentType string, body io.Reader) (*http.Request, error) {
+func NewRelaySupersetRequestRequestWithBody(server string, label ConnectionLabel, params *RelaySupersetRequestParams, contentType string, body io.Reader) (*http.Request, error) {
 	var err error
 
 	var pathParam0 string
@@ -9590,6 +10369,21 @@ func NewRelaySupersetRequestRequestWithBody(server string, label ConnectionLabel
 	}
 
 	req.Header.Add("Content-Type", contentType)
+
+	if params != nil {
+
+		if params.HypomnemaRoutineRun != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Hypomnema-Routine-Run", *params.HypomnemaRoutineRun, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("Hypomnema-Routine-Run", headerParam0)
+		}
+
+	}
 
 	return req, nil
 }
@@ -9664,6 +10458,21 @@ func NewListSupersetDashboardsRequest(server string, label ConnectionLabel, para
 		return nil, err
 	}
 
+	if params != nil {
+
+		if params.HypomnemaRoutineRun != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Hypomnema-Routine-Run", *params.HypomnemaRoutineRun, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("Hypomnema-Routine-Run", headerParam0)
+		}
+
+	}
+
 	return req, nil
 }
 
@@ -9730,6 +10539,21 @@ func NewGetSupersetDashboardRequest(server string, label ConnectionLabel, dashbo
 	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
 	if err != nil {
 		return nil, err
+	}
+
+	if params != nil {
+
+		if params.HypomnemaRoutineRun != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Hypomnema-Routine-Run", *params.HypomnemaRoutineRun, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("Hypomnema-Routine-Run", headerParam0)
+		}
+
 	}
 
 	return req, nil
@@ -9817,6 +10641,21 @@ func NewGetSupersetChartDataRequest(server string, label ConnectionLabel, dashbo
 	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
 	if err != nil {
 		return nil, err
+	}
+
+	if params != nil {
+
+		if params.HypomnemaRoutineRun != nil {
+			var headerParam0 string
+
+			headerParam0, err = runtime.StyleParamWithOptions("simple", false, "Hypomnema-Routine-Run", *params.HypomnemaRoutineRun, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationHeader, Type: "string", Format: ""})
+			if err != nil {
+				return nil, err
+			}
+
+			req.Header.Set("Hypomnema-Routine-Run", headerParam0)
+		}
+
 	}
 
 	return req, nil
@@ -11158,6 +11997,491 @@ func NewPutRepoRequestWithBody(server string, name Name, contentType string, bod
 	}
 
 	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewPreviewRoutineScheduleRequest calls the generic PreviewRoutineSchedule builder with application/json body
+func NewPreviewRoutineScheduleRequest(server string, body PreviewRoutineScheduleJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewPreviewRoutineScheduleRequestWithBody(server, "application/json", bodyReader)
+}
+
+// NewPreviewRoutineScheduleRequestWithBody constructs an http.Request for the PreviewRoutineSchedule method, with any body, and a specified content type
+func NewPreviewRoutineScheduleRequestWithBody(server string, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/routine-schedule")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewListRoutinesRequest constructs an http.Request for the ListRoutines method
+func NewListRoutinesRequest(server string, params *ListRoutinesParams) (*http.Request, error) {
+	var err error
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/routines")
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Bot != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "bot", *params.Bot, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.ChatId != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "chat_id", *params.ChatId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "string", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewDeleteRoutineRequest constructs an http.Request for the DeleteRoutine method
+func NewDeleteRoutineRequest(server string, routineId RoutineID) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "routine_id", routineId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/routines/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewGetRoutineRequest constructs an http.Request for the GetRoutine method
+func NewGetRoutineRequest(server string, routineId RoutineID) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "routine_id", routineId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/routines/%s", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewRevokeRoutineGrantRequest constructs an http.Request for the RevokeRoutineGrant method
+func NewRevokeRoutineGrantRequest(server string, routineId RoutineID, integration IntegrationID, label ConnectionLabel, action string) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "routine_id", routineId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam1 string
+
+	pathParam1, err = runtime.StyleParamWithOptions("simple", false, "integration", integration, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam2 string
+
+	pathParam2, err = runtime.StyleParamWithOptions("simple", false, "label", label, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	var pathParam3 string
+
+	pathParam3, err = runtime.StyleParamWithOptions("simple", false, "action", action, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/routines/%s/grants/%s/%s/%s", pathParam0, pathParam1, pathParam2, pathParam3)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodDelete, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewLaunchRoutineScriptRequest calls the generic LaunchRoutineScript builder with application/json body
+func NewLaunchRoutineScriptRequest(server string, routineId RoutineID, body LaunchRoutineScriptJSONRequestBody) (*http.Request, error) {
+	var bodyReader io.Reader
+	buf, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+	bodyReader = bytes.NewReader(buf)
+	return NewLaunchRoutineScriptRequestWithBody(server, routineId, "application/json", bodyReader)
+}
+
+// NewLaunchRoutineScriptRequestWithBody constructs an http.Request for the LaunchRoutineScript method, with any body, and a specified content type
+func NewLaunchRoutineScriptRequestWithBody(server string, routineId RoutineID, contentType string, body io.Reader) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "routine_id", routineId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/routines/%s/launch", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), body)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Content-Type", contentType)
+
+	return req, nil
+}
+
+// NewPauseRoutineRequest constructs an http.Request for the PauseRoutine method
+func NewPauseRoutineRequest(server string, routineId RoutineID) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "routine_id", routineId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/routines/%s/pause", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewResumeRoutineRequest constructs an http.Request for the ResumeRoutine method
+func NewResumeRoutineRequest(server string, routineId RoutineID) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "routine_id", routineId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/routines/%s/resume", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewListRoutineRunsRequest constructs an http.Request for the ListRoutineRuns method
+func NewListRoutineRunsRequest(server string, routineId RoutineID, params *ListRoutineRunsParams) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "routine_id", routineId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/routines/%s/runs", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if params != nil {
+		// queryValues collects non-styled parameters (passthrough, JSON)
+		// that are safe to round-trip through url.Values.Encode().
+		queryValues := queryURL.Query()
+		// rawQueryFragments collects pre-encoded query fragments from
+		// styled parameters, preserving literal commas as delimiters
+		// per the OpenAPI spec (e.g. "color=blue,black,brown").
+		var rawQueryFragments []string
+
+		if params.Limit != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "limit", *params.Limit, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if params.Offset != nil {
+
+			if queryFrag, err := runtime.StyleParamWithOptions("form", true, "offset", *params.Offset, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationQuery, Type: "integer", Format: ""}); err != nil {
+				return nil, err
+			} else {
+				for _, qp := range strings.Split(queryFrag, "&") {
+					rawQueryFragments = append(rawQueryFragments, qp)
+				}
+			}
+
+		}
+
+		if encoded := queryValues.Encode(); encoded != "" {
+			rawQueryFragments = append(rawQueryFragments, encoded)
+		}
+		queryURL.RawQuery = strings.Join(rawQueryFragments, "&")
+	}
+
+	req, err := http.NewRequest(http.MethodGet, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewRunRoutineRequest constructs an http.Request for the RunRoutine method
+func NewRunRoutineRequest(server string, routineId RoutineID) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "routine_id", routineId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/routines/%s/runs", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// NewUndoRoutineRequest constructs an http.Request for the UndoRoutine method
+func NewUndoRoutineRequest(server string, routineId RoutineID) (*http.Request, error) {
+	var err error
+
+	var pathParam0 string
+
+	pathParam0, err = runtime.StyleParamWithOptions("simple", false, "routine_id", routineId, runtime.StyleParamOptions{ParamLocation: runtime.ParamLocationPath, Type: "string", Format: ""})
+	if err != nil {
+		return nil, err
+	}
+
+	serverURL, err := url.Parse(server)
+	if err != nil {
+		return nil, err
+	}
+
+	operationPath := fmt.Sprintf("/routines/%s/undo", pathParam0)
+	if operationPath[0] == '/' {
+		operationPath = "." + operationPath
+	}
+
+	queryURL, err := serverURL.Parse(operationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, queryURL.String(), nil)
+	if err != nil {
+		return nil, err
+	}
 
 	return req, nil
 }
@@ -12520,6 +13844,24 @@ type ClientWithResponsesInterface interface {
 	// Corresponds with PUT /bots/{name}/memory (the `SetBotMemory` operationId).
 	SetBotMemoryWithResponse(ctx context.Context, name Name, body SetBotMemoryJSONRequestBody, reqEditors ...RequestEditorFn) (*SetBotMemoryResponse, error)
 
+	// PutRoutineWithBodyWithResponse Make a Routine of a Bot, or change the one of that name
+	//
+	// A Routine is work a Bot does on a schedule: a prompt the Bot works on with its model in a new chat, or a script that runs with the Bot's tools and no model. A new one is switched on at once. A change keeps the Routine's state and its runs; a changed schedule starts from now, and a change of the prompt, the script or the schedule ends what the Routine was allowed always. The owner may, and a Bot with its coordinator's token from a chat it talks in, which it names: its change can be undone. A Routine's own run is refused.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /bots/{name}/routines/{routine} (the `PutRoutine` operationId).
+	PutRoutineWithBodyWithResponse(ctx context.Context, name Name, routine string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutRoutineResponse, error)
+
+	// PutRoutineWithResponse Make a Routine of a Bot, or change the one of that name
+	//
+	// A Routine is work a Bot does on a schedule: a prompt the Bot works on with its model in a new chat, or a script that runs with the Bot's tools and no model. A new one is switched on at once. A change keeps the Routine's state and its runs; a changed schedule starts from now, and a change of the prompt, the script or the schedule ends what the Routine was allowed always. The owner may, and a Bot with its coordinator's token from a chat it talks in, which it names: its change can be undone. A Routine's own run is refused.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with PUT /bots/{name}/routines/{routine} (the `PutRoutine` operationId).
+	PutRoutineWithResponse(ctx context.Context, name Name, routine string, body PutRoutineJSONRequestBody, reqEditors ...RequestEditorFn) (*PutRoutineResponse, error)
+
 	// ListBotSkillsWithResponse The skills a Bot gets now, each at its newest revision
 	//
 	// Those given to everyone that the Bot does not turn off, and those it adds. Its launcher fetches them when pi starts for a chat.
@@ -12905,7 +14247,7 @@ type ClientWithResponsesInterface interface {
 	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with POST /integrations/superset/connections/{label}/api (the `RelaySupersetRequest` operationId).
-	RelaySupersetRequestWithBodyWithResponse(ctx context.Context, label ConnectionLabel, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RelaySupersetRequestResponse, error)
+	RelaySupersetRequestWithBodyWithResponse(ctx context.Context, label ConnectionLabel, params *RelaySupersetRequestParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RelaySupersetRequestResponse, error)
 
 	// RelaySupersetRequestWithResponse Send one request to a Superset Connection's API and return its answer unchanged
 	//
@@ -12914,7 +14256,7 @@ type ClientWithResponsesInterface interface {
 	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 	//
 	// Corresponds with POST /integrations/superset/connections/{label}/api (the `RelaySupersetRequest` operationId).
-	RelaySupersetRequestWithResponse(ctx context.Context, label ConnectionLabel, body RelaySupersetRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*RelaySupersetRequestResponse, error)
+	RelaySupersetRequestWithResponse(ctx context.Context, label ConnectionLabel, params *RelaySupersetRequestParams, body RelaySupersetRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*RelaySupersetRequestResponse, error)
 
 	// ListSupersetDashboardsWithResponse The dashboards of a Superset Connection, by title
 	//
@@ -13292,6 +14634,119 @@ type ClientWithResponsesInterface interface {
 	//
 	// Corresponds with PUT /repos/{name} (the `PutRepo` operationId).
 	PutRepoWithResponse(ctx context.Context, name Name, body PutRepoJSONRequestBody, reqEditors ...RequestEditorFn) (*PutRepoResponse, error)
+
+	// PreviewRoutineScheduleWithBodyWithResponse A schedule in words and its next three times, as a Routine made now would have them
+	//
+	// The schedule is checked as a Routine's is: every N minutes, or a five-field cron expression with its IANA time zone. Nothing is kept.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /routine-schedule (the `PreviewRoutineSchedule` operationId).
+	PreviewRoutineScheduleWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PreviewRoutineScheduleResponse, error)
+
+	// PreviewRoutineScheduleWithResponse A schedule in words and its next three times, as a Routine made now would have them
+	//
+	// The schedule is checked as a Routine's is: every N minutes, or a five-field cron expression with its IANA time zone. Nothing is kept.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /routine-schedule (the `PreviewRoutineSchedule` operationId).
+	PreviewRoutineScheduleWithResponse(ctx context.Context, body PreviewRoutineScheduleJSONRequestBody, reqEditors ...RequestEditorFn) (*PreviewRoutineScheduleResponse, error)
+
+	// ListRoutinesWithResponse The Routines, the oldest first, each with its last run
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /routines (the `ListRoutines` operationId).
+	ListRoutinesWithResponse(ctx context.Context, params *ListRoutinesParams, reqEditors ...RequestEditorFn) (*ListRoutinesResponse, error)
+
+	// DeleteRoutineWithResponse Remove a Routine with its runs and its grants; only the owner
+	//
+	// A run of it that still goes is stopped.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with DELETE /routines/{routine_id} (the `DeleteRoutine` operationId).
+	DeleteRoutineWithResponse(ctx context.Context, routineId RoutineID, reqEditors ...RequestEditorFn) (*DeleteRoutineResponse, error)
+
+	// GetRoutineWithResponse A Routine, with a script's text, its last run and what it is allowed always
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /routines/{routine_id} (the `GetRoutine` operationId).
+	GetRoutineWithResponse(ctx context.Context, routineId RoutineID, reqEditors ...RequestEditorFn) (*GetRoutineResponse, error)
+
+	// RevokeRoutineGrantWithResponse Take back an "always for this Routine"; only the owner
+	//
+	// The action asks again from the Routine's next request.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with DELETE /routines/{routine_id}/grants/{integration}/{label}/{action} (the `RevokeRoutineGrant` operationId).
+	RevokeRoutineGrantWithResponse(ctx context.Context, routineId RoutineID, integration IntegrationID, label ConnectionLabel, action string, reqEditors ...RequestEditorFn) (*RevokeRoutineGrantResponse, error)
+
+	// LaunchRoutineScriptWithBodyWithResponse What the launcher of a script Routine's run runs, given once a run
+	//
+	// The file's name, its text, its limit and the run's key. Only while a run of the Routine has started and its script has not: the first caller is the launcher, and whoever asks again is refused. A request that presents the key is that run's, so what it asks the owner belongs to the run and what the Routine is allowed always holds for it.
+	//
+	// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /routines/{routine_id}/launch (the `LaunchRoutineScript` operationId).
+	LaunchRoutineScriptWithBodyWithResponse(ctx context.Context, routineId RoutineID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*LaunchRoutineScriptResponse, error)
+
+	// LaunchRoutineScriptWithResponse What the launcher of a script Routine's run runs, given once a run
+	//
+	// The file's name, its text, its limit and the run's key. Only while a run of the Routine has started and its script has not: the first caller is the launcher, and whoever asks again is refused. A request that presents the key is that run's, so what it asks the owner belongs to the run and what the Routine is allowed always holds for it.
+	//
+	// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /routines/{routine_id}/launch (the `LaunchRoutineScript` operationId).
+	LaunchRoutineScriptWithResponse(ctx context.Context, routineId RoutineID, body LaunchRoutineScriptJSONRequestBody, reqEditors ...RequestEditorFn) (*LaunchRoutineScriptResponse, error)
+
+	// PauseRoutineWithResponse Stop a Routine's schedule; only the owner
+	//
+	// A run still going goes on.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /routines/{routine_id}/pause (the `PauseRoutine` operationId).
+	PauseRoutineWithResponse(ctx context.Context, routineId RoutineID, reqEditors ...RequestEditorFn) (*PauseRoutineResponse, error)
+
+	// ResumeRoutineWithResponse Switch a paused Routine on again, from now; only the owner
+	//
+	// Its failures in a row are forgotten.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /routines/{routine_id}/resume (the `ResumeRoutine` operationId).
+	ResumeRoutineWithResponse(ctx context.Context, routineId RoutineID, reqEditors ...RequestEditorFn) (*ResumeRoutineResponse, error)
+
+	// ListRoutineRunsWithResponse A Routine's runs, the newest first
+	//
+	// The newest 2,000 runs of a Routine are kept, for 7 days.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with GET /routines/{routine_id}/runs (the `ListRoutineRuns` operationId).
+	ListRoutineRunsWithResponse(ctx context.Context, routineId RoutineID, params *ListRoutineRunsParams, reqEditors ...RequestEditorFn) (*ListRoutineRunsResponse, error)
+
+	// RunRoutineWithResponse Run a Routine now
+	//
+	// While a run of the Routine still goes or waits for the owner, the answer is a conflict that names it. A run by hand that fails counts as any failed run. The owner may, and a Bot, which runs a Routine once after it made it.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /routines/{routine_id}/runs (the `RunRoutine` operationId).
+	RunRoutineWithResponse(ctx context.Context, routineId RoutineID, reqEditors ...RequestEditorFn) (*RunRoutineResponse, error)
+
+	// UndoRoutineWithResponse Undo a Bot's last change of a Routine; only the owner
+	//
+	// A Routine the Bot made is removed, and a run of it that still goes is stopped; one the Bot changed is what it was before. A Routine that was changed since, or whose last change was not a Bot's, is refused.
+	//
+	// Returns a wrapper object for the known response body format(s).
+	//
+	// Corresponds with POST /routines/{routine_id}/undo (the `UndoRoutine` operationId).
+	UndoRoutineWithResponse(ctx context.Context, routineId RoutineID, reqEditors ...RequestEditorFn) (*UndoRoutineResponse, error)
 
 	// ListRunsWithResponse Runs, newest first
 	//
@@ -14392,6 +15847,54 @@ func (r SetBotMemoryResponse) StatusCode() int {
 
 // ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
 func (r SetBotMemoryResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type PutRoutineResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Routine
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r PutRoutineResponse) GetJSON200() *Routine {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r PutRoutineResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r PutRoutineResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r PutRoutineResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PutRoutineResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r PutRoutineResponse) ContentType() string {
 	if r.HTTPResponse != nil {
 		return r.HTTPResponse.Header.Get("Content-Type")
 	}
@@ -17997,6 +19500,520 @@ func (r PutRepoResponse) ContentType() string {
 	return ""
 }
 
+type PreviewRoutineScheduleResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *RoutineSchedulePreview
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r PreviewRoutineScheduleResponse) GetJSON200() *RoutineSchedulePreview {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r PreviewRoutineScheduleResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r PreviewRoutineScheduleResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r PreviewRoutineScheduleResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PreviewRoutineScheduleResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r PreviewRoutineScheduleResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListRoutinesResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *RoutineList
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListRoutinesResponse) GetJSON200() *RoutineList {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListRoutinesResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListRoutinesResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListRoutinesResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListRoutinesResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListRoutinesResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type DeleteRoutineResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r DeleteRoutineResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r DeleteRoutineResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r DeleteRoutineResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r DeleteRoutineResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r DeleteRoutineResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type GetRoutineResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Routine
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r GetRoutineResponse) GetJSON200() *Routine {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r GetRoutineResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r GetRoutineResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r GetRoutineResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r GetRoutineResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r GetRoutineResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type RevokeRoutineGrantResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r RevokeRoutineGrantResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r RevokeRoutineGrantResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r RevokeRoutineGrantResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RevokeRoutineGrantResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r RevokeRoutineGrantResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type LaunchRoutineScriptResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *RoutineScriptLaunch
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r LaunchRoutineScriptResponse) GetJSON200() *RoutineScriptLaunch {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r LaunchRoutineScriptResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r LaunchRoutineScriptResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r LaunchRoutineScriptResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r LaunchRoutineScriptResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r LaunchRoutineScriptResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type PauseRoutineResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Routine
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r PauseRoutineResponse) GetJSON200() *Routine {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r PauseRoutineResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r PauseRoutineResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r PauseRoutineResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r PauseRoutineResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r PauseRoutineResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ResumeRoutineResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *Routine
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ResumeRoutineResponse) GetJSON200() *Routine {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ResumeRoutineResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ResumeRoutineResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ResumeRoutineResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ResumeRoutineResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ResumeRoutineResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type ListRoutineRunsResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *RoutineRunList
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r ListRoutineRunsResponse) GetJSON200() *RoutineRunList {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r ListRoutineRunsResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r ListRoutineRunsResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r ListRoutineRunsResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r ListRoutineRunsResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r ListRoutineRunsResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type RunRoutineResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *RoutineRun
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r RunRoutineResponse) GetJSON200() *RoutineRun {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r RunRoutineResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r RunRoutineResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r RunRoutineResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r RunRoutineResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r RunRoutineResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
+type UndoRoutineResponse struct {
+	Body         []byte
+	HTTPResponse *http.Response
+	// JSON200 the response for an HTTP 200 `application/json` response
+	JSON200 *RoutineUndone
+	// JSONDefault the response for an HTTP default `application/json` response
+	JSONDefault *Error
+}
+
+// GetJSON200 returns the response for an HTTP 200 `application/json` response
+func (r UndoRoutineResponse) GetJSON200() *RoutineUndone {
+	return r.JSON200
+}
+
+// GetJSONDefault returns the response for an HTTP default `application/json` response
+func (r UndoRoutineResponse) GetJSONDefault() *Error {
+	return r.JSONDefault
+}
+
+// GetBody returns the raw response body bytes
+func (r UndoRoutineResponse) GetBody() []byte {
+	return r.Body
+}
+
+// Status returns HTTPResponse.Status
+func (r UndoRoutineResponse) Status() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Status
+	}
+	return http.StatusText(0)
+}
+
+// StatusCode returns HTTPResponse.StatusCode
+func (r UndoRoutineResponse) StatusCode() int {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.StatusCode
+	}
+	return 0
+}
+
+// ContentType is a convenience method to retrieve the Content-Type value from the HTTP response headers
+func (r UndoRoutineResponse) ContentType() string {
+	if r.HTTPResponse != nil {
+		return r.HTTPResponse.Header.Get("Content-Type")
+	}
+	return ""
+}
+
 type ListRunsResponse struct {
 	Body         []byte
 	HTTPResponse *http.Response
@@ -19634,6 +21651,36 @@ func (c *ClientWithResponses) SetBotMemoryWithResponse(ctx context.Context, name
 	return ParseSetBotMemoryResponse(rsp)
 }
 
+// PutRoutineWithBodyWithResponse Make a Routine of a Bot, or change the one of that name
+//
+// A Routine is work a Bot does on a schedule: a prompt the Bot works on with its model in a new chat, or a script that runs with the Bot's tools and no model. A new one is switched on at once. A change keeps the Routine's state and its runs; a changed schedule starts from now, and a change of the prompt, the script or the schedule ends what the Routine was allowed always. The owner may, and a Bot with its coordinator's token from a chat it talks in, which it names: its change can be undone. A Routine's own run is refused.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /bots/{name}/routines/{routine} (the `PutRoutine` operationId).
+func (c *ClientWithResponses) PutRoutineWithBodyWithResponse(ctx context.Context, name Name, routine string, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PutRoutineResponse, error) {
+	rsp, err := c.PutRoutineWithBody(ctx, name, routine, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePutRoutineResponse(rsp)
+}
+
+// PutRoutineWithResponse Make a Routine of a Bot, or change the one of that name
+//
+// A Routine is work a Bot does on a schedule: a prompt the Bot works on with its model in a new chat, or a script that runs with the Bot's tools and no model. A new one is switched on at once. A change keeps the Routine's state and its runs; a changed schedule starts from now, and a change of the prompt, the script or the schedule ends what the Routine was allowed always. The owner may, and a Bot with its coordinator's token from a chat it talks in, which it names: its change can be undone. A Routine's own run is refused.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with PUT /bots/{name}/routines/{routine} (the `PutRoutine` operationId).
+func (c *ClientWithResponses) PutRoutineWithResponse(ctx context.Context, name Name, routine string, body PutRoutineJSONRequestBody, reqEditors ...RequestEditorFn) (*PutRoutineResponse, error) {
+	rsp, err := c.PutRoutine(ctx, name, routine, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePutRoutineResponse(rsp)
+}
+
 // ListBotSkillsWithResponse The skills a Bot gets now, each at its newest revision
 //
 // Those given to everyone that the Bot does not turn off, and those it adds. Its launcher fetches them when pi starts for a chat.
@@ -20307,8 +22354,8 @@ func (c *ClientWithResponses) ListIntegrationsWithResponse(ctx context.Context, 
 // Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
 //
 // Corresponds with POST /integrations/superset/connections/{label}/api (the `RelaySupersetRequest` operationId).
-func (c *ClientWithResponses) RelaySupersetRequestWithBodyWithResponse(ctx context.Context, label ConnectionLabel, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RelaySupersetRequestResponse, error) {
-	rsp, err := c.RelaySupersetRequestWithBody(ctx, label, contentType, body, reqEditors...)
+func (c *ClientWithResponses) RelaySupersetRequestWithBodyWithResponse(ctx context.Context, label ConnectionLabel, params *RelaySupersetRequestParams, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*RelaySupersetRequestResponse, error) {
+	rsp, err := c.RelaySupersetRequestWithBody(ctx, label, params, contentType, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
@@ -20322,8 +22369,8 @@ func (c *ClientWithResponses) RelaySupersetRequestWithBodyWithResponse(ctx conte
 // Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
 //
 // Corresponds with POST /integrations/superset/connections/{label}/api (the `RelaySupersetRequest` operationId).
-func (c *ClientWithResponses) RelaySupersetRequestWithResponse(ctx context.Context, label ConnectionLabel, body RelaySupersetRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*RelaySupersetRequestResponse, error) {
-	rsp, err := c.RelaySupersetRequest(ctx, label, body, reqEditors...)
+func (c *ClientWithResponses) RelaySupersetRequestWithResponse(ctx context.Context, label ConnectionLabel, params *RelaySupersetRequestParams, body RelaySupersetRequestJSONRequestBody, reqEditors ...RequestEditorFn) (*RelaySupersetRequestResponse, error) {
+	rsp, err := c.RelaySupersetRequest(ctx, label, params, body, reqEditors...)
 	if err != nil {
 		return nil, err
 	}
@@ -20999,6 +23046,197 @@ func (c *ClientWithResponses) PutRepoWithResponse(ctx context.Context, name Name
 		return nil, err
 	}
 	return ParsePutRepoResponse(rsp)
+}
+
+// PreviewRoutineScheduleWithBodyWithResponse A schedule in words and its next three times, as a Routine made now would have them
+//
+// The schedule is checked as a Routine's is: every N minutes, or a five-field cron expression with its IANA time zone. Nothing is kept.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /routine-schedule (the `PreviewRoutineSchedule` operationId).
+func (c *ClientWithResponses) PreviewRoutineScheduleWithBodyWithResponse(ctx context.Context, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*PreviewRoutineScheduleResponse, error) {
+	rsp, err := c.PreviewRoutineScheduleWithBody(ctx, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePreviewRoutineScheduleResponse(rsp)
+}
+
+// PreviewRoutineScheduleWithResponse A schedule in words and its next three times, as a Routine made now would have them
+//
+// The schedule is checked as a Routine's is: every N minutes, or a five-field cron expression with its IANA time zone. Nothing is kept.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /routine-schedule (the `PreviewRoutineSchedule` operationId).
+func (c *ClientWithResponses) PreviewRoutineScheduleWithResponse(ctx context.Context, body PreviewRoutineScheduleJSONRequestBody, reqEditors ...RequestEditorFn) (*PreviewRoutineScheduleResponse, error) {
+	rsp, err := c.PreviewRoutineSchedule(ctx, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePreviewRoutineScheduleResponse(rsp)
+}
+
+// ListRoutinesWithResponse The Routines, the oldest first, each with its last run
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /routines (the `ListRoutines` operationId).
+func (c *ClientWithResponses) ListRoutinesWithResponse(ctx context.Context, params *ListRoutinesParams, reqEditors ...RequestEditorFn) (*ListRoutinesResponse, error) {
+	rsp, err := c.ListRoutines(ctx, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListRoutinesResponse(rsp)
+}
+
+// DeleteRoutineWithResponse Remove a Routine with its runs and its grants; only the owner
+//
+// A run of it that still goes is stopped.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with DELETE /routines/{routine_id} (the `DeleteRoutine` operationId).
+func (c *ClientWithResponses) DeleteRoutineWithResponse(ctx context.Context, routineId RoutineID, reqEditors ...RequestEditorFn) (*DeleteRoutineResponse, error) {
+	rsp, err := c.DeleteRoutine(ctx, routineId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseDeleteRoutineResponse(rsp)
+}
+
+// GetRoutineWithResponse A Routine, with a script's text, its last run and what it is allowed always
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /routines/{routine_id} (the `GetRoutine` operationId).
+func (c *ClientWithResponses) GetRoutineWithResponse(ctx context.Context, routineId RoutineID, reqEditors ...RequestEditorFn) (*GetRoutineResponse, error) {
+	rsp, err := c.GetRoutine(ctx, routineId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseGetRoutineResponse(rsp)
+}
+
+// RevokeRoutineGrantWithResponse Take back an "always for this Routine"; only the owner
+//
+// The action asks again from the Routine's next request.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with DELETE /routines/{routine_id}/grants/{integration}/{label}/{action} (the `RevokeRoutineGrant` operationId).
+func (c *ClientWithResponses) RevokeRoutineGrantWithResponse(ctx context.Context, routineId RoutineID, integration IntegrationID, label ConnectionLabel, action string, reqEditors ...RequestEditorFn) (*RevokeRoutineGrantResponse, error) {
+	rsp, err := c.RevokeRoutineGrant(ctx, routineId, integration, label, action, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRevokeRoutineGrantResponse(rsp)
+}
+
+// LaunchRoutineScriptWithBodyWithResponse What the launcher of a script Routine's run runs, given once a run
+//
+// The file's name, its text, its limit and the run's key. Only while a run of the Routine has started and its script has not: the first caller is the launcher, and whoever asks again is refused. A request that presents the key is that run's, so what it asks the owner belongs to the run and what the Routine is allowed always holds for it.
+//
+// Takes any type of body and a specified content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /routines/{routine_id}/launch (the `LaunchRoutineScript` operationId).
+func (c *ClientWithResponses) LaunchRoutineScriptWithBodyWithResponse(ctx context.Context, routineId RoutineID, contentType string, body io.Reader, reqEditors ...RequestEditorFn) (*LaunchRoutineScriptResponse, error) {
+	rsp, err := c.LaunchRoutineScriptWithBody(ctx, routineId, contentType, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseLaunchRoutineScriptResponse(rsp)
+}
+
+// LaunchRoutineScriptWithResponse What the launcher of a script Routine's run runs, given once a run
+//
+// The file's name, its text, its limit and the run's key. Only while a run of the Routine has started and its script has not: the first caller is the launcher, and whoever asks again is refused. A request that presents the key is that run's, so what it asks the owner belongs to the run and what the Routine is allowed always holds for it.
+//
+// Takes a body of the `application/json` content type, and returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /routines/{routine_id}/launch (the `LaunchRoutineScript` operationId).
+func (c *ClientWithResponses) LaunchRoutineScriptWithResponse(ctx context.Context, routineId RoutineID, body LaunchRoutineScriptJSONRequestBody, reqEditors ...RequestEditorFn) (*LaunchRoutineScriptResponse, error) {
+	rsp, err := c.LaunchRoutineScript(ctx, routineId, body, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseLaunchRoutineScriptResponse(rsp)
+}
+
+// PauseRoutineWithResponse Stop a Routine's schedule; only the owner
+//
+// A run still going goes on.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /routines/{routine_id}/pause (the `PauseRoutine` operationId).
+func (c *ClientWithResponses) PauseRoutineWithResponse(ctx context.Context, routineId RoutineID, reqEditors ...RequestEditorFn) (*PauseRoutineResponse, error) {
+	rsp, err := c.PauseRoutine(ctx, routineId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParsePauseRoutineResponse(rsp)
+}
+
+// ResumeRoutineWithResponse Switch a paused Routine on again, from now; only the owner
+//
+// Its failures in a row are forgotten.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /routines/{routine_id}/resume (the `ResumeRoutine` operationId).
+func (c *ClientWithResponses) ResumeRoutineWithResponse(ctx context.Context, routineId RoutineID, reqEditors ...RequestEditorFn) (*ResumeRoutineResponse, error) {
+	rsp, err := c.ResumeRoutine(ctx, routineId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseResumeRoutineResponse(rsp)
+}
+
+// ListRoutineRunsWithResponse A Routine's runs, the newest first
+//
+// The newest 2,000 runs of a Routine are kept, for 7 days.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with GET /routines/{routine_id}/runs (the `ListRoutineRuns` operationId).
+func (c *ClientWithResponses) ListRoutineRunsWithResponse(ctx context.Context, routineId RoutineID, params *ListRoutineRunsParams, reqEditors ...RequestEditorFn) (*ListRoutineRunsResponse, error) {
+	rsp, err := c.ListRoutineRuns(ctx, routineId, params, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseListRoutineRunsResponse(rsp)
+}
+
+// RunRoutineWithResponse Run a Routine now
+//
+// While a run of the Routine still goes or waits for the owner, the answer is a conflict that names it. A run by hand that fails counts as any failed run. The owner may, and a Bot, which runs a Routine once after it made it.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /routines/{routine_id}/runs (the `RunRoutine` operationId).
+func (c *ClientWithResponses) RunRoutineWithResponse(ctx context.Context, routineId RoutineID, reqEditors ...RequestEditorFn) (*RunRoutineResponse, error) {
+	rsp, err := c.RunRoutine(ctx, routineId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseRunRoutineResponse(rsp)
+}
+
+// UndoRoutineWithResponse Undo a Bot's last change of a Routine; only the owner
+//
+// A Routine the Bot made is removed, and a run of it that still goes is stopped; one the Bot changed is what it was before. A Routine that was changed since, or whose last change was not a Bot's, is refused.
+//
+// Returns a wrapper object for the known response body format(s).
+//
+// Corresponds with POST /routines/{routine_id}/undo (the `UndoRoutine` operationId).
+func (c *ClientWithResponses) UndoRoutineWithResponse(ctx context.Context, routineId RoutineID, reqEditors ...RequestEditorFn) (*UndoRoutineResponse, error) {
+	rsp, err := c.UndoRoutine(ctx, routineId, reqEditors...)
+	if err != nil {
+		return nil, err
+	}
+	return ParseUndoRoutineResponse(rsp)
 }
 
 // ListRunsWithResponse Runs, newest first
@@ -22016,6 +24254,39 @@ func ParseSetBotMemoryResponse(rsp *http.Response) (*SetBotMemoryResponse, error
 	switch {
 	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
 		var dest Bot
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePutRoutineResponse parses an HTTP response from a PutRoutineWithResponse call
+func ParsePutRoutineResponse(rsp *http.Response) (*PutRoutineResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PutRoutineResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Routine
 		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
 			return nil, err
 		}
@@ -24522,6 +26793,361 @@ func ParsePutRepoResponse(rsp *http.Response) (*PutRepoResponse, error) {
 	return response, nil
 }
 
+// ParsePreviewRoutineScheduleResponse parses an HTTP response from a PreviewRoutineScheduleWithResponse call
+func ParsePreviewRoutineScheduleResponse(rsp *http.Response) (*PreviewRoutineScheduleResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PreviewRoutineScheduleResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest RoutineSchedulePreview
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListRoutinesResponse parses an HTTP response from a ListRoutinesWithResponse call
+func ParseListRoutinesResponse(rsp *http.Response) (*ListRoutinesResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListRoutinesResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest RoutineList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseDeleteRoutineResponse parses an HTTP response from a DeleteRoutineWithResponse call
+func ParseDeleteRoutineResponse(rsp *http.Response) (*DeleteRoutineResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &DeleteRoutineResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseGetRoutineResponse parses an HTTP response from a GetRoutineWithResponse call
+func ParseGetRoutineResponse(rsp *http.Response) (*GetRoutineResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &GetRoutineResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Routine
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseRevokeRoutineGrantResponse parses an HTTP response from a RevokeRoutineGrantWithResponse call
+func ParseRevokeRoutineGrantResponse(rsp *http.Response) (*RevokeRoutineGrantResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RevokeRoutineGrantResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case rsp.StatusCode == 204:
+		break // No content-type
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseLaunchRoutineScriptResponse parses an HTTP response from a LaunchRoutineScriptWithResponse call
+func ParseLaunchRoutineScriptResponse(rsp *http.Response) (*LaunchRoutineScriptResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &LaunchRoutineScriptResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest RoutineScriptLaunch
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParsePauseRoutineResponse parses an HTTP response from a PauseRoutineWithResponse call
+func ParsePauseRoutineResponse(rsp *http.Response) (*PauseRoutineResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &PauseRoutineResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Routine
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseResumeRoutineResponse parses an HTTP response from a ResumeRoutineWithResponse call
+func ParseResumeRoutineResponse(rsp *http.Response) (*ResumeRoutineResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ResumeRoutineResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest Routine
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseListRoutineRunsResponse parses an HTTP response from a ListRoutineRunsWithResponse call
+func ParseListRoutineRunsResponse(rsp *http.Response) (*ListRoutineRunsResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &ListRoutineRunsResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest RoutineRunList
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseRunRoutineResponse parses an HTTP response from a RunRoutineWithResponse call
+func ParseRunRoutineResponse(rsp *http.Response) (*RunRoutineResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &RunRoutineResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest RoutineRun
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
+// ParseUndoRoutineResponse parses an HTTP response from a UndoRoutineWithResponse call
+func ParseUndoRoutineResponse(rsp *http.Response) (*UndoRoutineResponse, error) {
+	bodyBytes, err := io.ReadAll(rsp.Body)
+	defer func() { _ = rsp.Body.Close() }()
+	if err != nil {
+		return nil, err
+	}
+
+	response := &UndoRoutineResponse{
+		Body:         bodyBytes,
+		HTTPResponse: rsp,
+	}
+
+	switch {
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && rsp.StatusCode == 200:
+		var dest RoutineUndone
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSON200 = &dest
+
+	case strings.Contains(rsp.Header.Get("Content-Type"), "json") && true:
+		var dest Error
+		if err := json.Unmarshal(bodyBytes, &dest); err != nil {
+			return nil, err
+		}
+		response.JSONDefault = &dest
+
+	}
+
+	return response, nil
+}
+
 // ParseListRunsResponse parses an HTTP response from a ListRunsWithResponse call
 func ParseListRunsResponse(rsp *http.Response) (*ListRunsResponse, error) {
 	bodyBytes, err := io.ReadAll(rsp.Body)
@@ -25466,6 +28092,9 @@ type ServerInterface interface {
 	// SetBotMemory Replace a Bot's whole memory with the owner's text; only the owner
 	// (PUT /bots/{name}/memory)
 	SetBotMemory(w http.ResponseWriter, r *http.Request, name Name)
+	// PutRoutine Make a Routine of a Bot, or change the one of that name
+	// (PUT /bots/{name}/routines/{routine})
+	PutRoutine(w http.ResponseWriter, r *http.Request, name Name, routine string)
 	// ListBotSkills The skills a Bot gets now, each at its newest revision
 	// (GET /bots/{name}/skills)
 	ListBotSkills(w http.ResponseWriter, r *http.Request, name Name)
@@ -25585,7 +28214,7 @@ type ServerInterface interface {
 	ListIntegrations(w http.ResponseWriter, r *http.Request)
 	// RelaySupersetRequest Send one request to a Superset Connection's API and return its answer unchanged
 	// (POST /integrations/superset/connections/{label}/api)
-	RelaySupersetRequest(w http.ResponseWriter, r *http.Request, label ConnectionLabel)
+	RelaySupersetRequest(w http.ResponseWriter, r *http.Request, label ConnectionLabel, params RelaySupersetRequestParams)
 	// ListSupersetDashboards The dashboards of a Superset Connection, by title
 	// (GET /integrations/superset/connections/{label}/dashboards)
 	ListSupersetDashboards(w http.ResponseWriter, r *http.Request, label ConnectionLabel, params ListSupersetDashboardsParams)
@@ -25694,6 +28323,39 @@ type ServerInterface interface {
 	// PutRepo Register a repository under a name, or change what the name means; only the owner
 	// (PUT /repos/{name})
 	PutRepo(w http.ResponseWriter, r *http.Request, name Name)
+	// PreviewRoutineSchedule A schedule in words and its next three times, as a Routine made now would have them
+	// (POST /routine-schedule)
+	PreviewRoutineSchedule(w http.ResponseWriter, r *http.Request)
+	// ListRoutines The Routines, the oldest first, each with its last run
+	// (GET /routines)
+	ListRoutines(w http.ResponseWriter, r *http.Request, params ListRoutinesParams)
+	// DeleteRoutine Remove a Routine with its runs and its grants; only the owner
+	// (DELETE /routines/{routine_id})
+	DeleteRoutine(w http.ResponseWriter, r *http.Request, routineId RoutineID)
+	// GetRoutine A Routine, with a script's text, its last run and what it is allowed always
+	// (GET /routines/{routine_id})
+	GetRoutine(w http.ResponseWriter, r *http.Request, routineId RoutineID)
+	// RevokeRoutineGrant Take back an "always for this Routine"; only the owner
+	// (DELETE /routines/{routine_id}/grants/{integration}/{label}/{action})
+	RevokeRoutineGrant(w http.ResponseWriter, r *http.Request, routineId RoutineID, integration IntegrationID, label ConnectionLabel, action string)
+	// LaunchRoutineScript What the launcher of a script Routine's run runs, given once a run
+	// (POST /routines/{routine_id}/launch)
+	LaunchRoutineScript(w http.ResponseWriter, r *http.Request, routineId RoutineID)
+	// PauseRoutine Stop a Routine's schedule; only the owner
+	// (POST /routines/{routine_id}/pause)
+	PauseRoutine(w http.ResponseWriter, r *http.Request, routineId RoutineID)
+	// ResumeRoutine Switch a paused Routine on again, from now; only the owner
+	// (POST /routines/{routine_id}/resume)
+	ResumeRoutine(w http.ResponseWriter, r *http.Request, routineId RoutineID)
+	// ListRoutineRuns A Routine's runs, the newest first
+	// (GET /routines/{routine_id}/runs)
+	ListRoutineRuns(w http.ResponseWriter, r *http.Request, routineId RoutineID, params ListRoutineRunsParams)
+	// RunRoutine Run a Routine now
+	// (POST /routines/{routine_id}/runs)
+	RunRoutine(w http.ResponseWriter, r *http.Request, routineId RoutineID)
+	// UndoRoutine Undo a Bot's last change of a Routine; only the owner
+	// (POST /routines/{routine_id}/undo)
+	UndoRoutine(w http.ResponseWriter, r *http.Request, routineId RoutineID)
 	// ListRuns Runs, newest first
 	// (GET /runs)
 	ListRuns(w http.ResponseWriter, r *http.Request, params ListRunsParams)
@@ -26071,6 +28733,19 @@ func (siw *ServerInterfaceWrapper) ListApprovals(w http.ResponseWriter, r *http.
 		return
 	}
 
+	// ------------- Optional query parameter "routine_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "routine_id", r.URL.Query(), &params.RoutineId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "routine_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "routine_id", Err: err})
+		}
+		return
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListApprovals(w, r, params)
 	}))
@@ -26243,6 +28918,41 @@ func (siw *ServerInterfaceWrapper) SetBotMemory(w http.ResponseWriter, r *http.R
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.SetBotMemory(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PutRoutine operation middleware
+func (siw *ServerInterfaceWrapper) PutRoutine(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "name" -------------
+	var name Name
+
+	err = runtime.BindStyledParameterWithOptions("simple", "name", r.PathValue("name"), &name, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "name", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "routine" -------------
+	var routine string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "routine", r.PathValue("routine"), &routine, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "routine", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PutRoutine(w, r, name, routine)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -27560,8 +30270,32 @@ func (siw *ServerInterfaceWrapper) RelaySupersetRequest(w http.ResponseWriter, r
 		return
 	}
 
+	// Parameter object where we will unmarshal all parameters from the context
+	var params RelaySupersetRequestParams
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Hypomnema-Routine-Run" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Hypomnema-Routine-Run")]; found {
+		var HypomnemaRoutineRun AskingRoutineRun
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Hypomnema-Routine-Run", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Hypomnema-Routine-Run", valueList[0], &HypomnemaRoutineRun, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Hypomnema-Routine-Run", Err: err})
+			return
+		}
+
+		params.HypomnemaRoutineRun = &HypomnemaRoutineRun
+
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		siw.Handler.RelaySupersetRequest(w, r, label)
+		siw.Handler.RelaySupersetRequest(w, r, label, params)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -27615,6 +30349,27 @@ func (siw *ServerInterfaceWrapper) ListSupersetDashboards(w http.ResponseWriter,
 		return
 	}
 
+	headers := r.Header
+
+	// ------------- Optional header parameter "Hypomnema-Routine-Run" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Hypomnema-Routine-Run")]; found {
+		var HypomnemaRoutineRun AskingRoutineRun
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Hypomnema-Routine-Run", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Hypomnema-Routine-Run", valueList[0], &HypomnemaRoutineRun, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Hypomnema-Routine-Run", Err: err})
+			return
+		}
+
+		params.HypomnemaRoutineRun = &HypomnemaRoutineRun
+
+	}
+
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.ListSupersetDashboards(w, r, label, params)
 	}))
@@ -27664,6 +30419,27 @@ func (siw *ServerInterfaceWrapper) GetSupersetDashboard(w http.ResponseWriter, r
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "chat_id", Err: err})
 		}
 		return
+	}
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Hypomnema-Routine-Run" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Hypomnema-Routine-Run")]; found {
+		var HypomnemaRoutineRun AskingRoutineRun
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Hypomnema-Routine-Run", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Hypomnema-Routine-Run", valueList[0], &HypomnemaRoutineRun, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Hypomnema-Routine-Run", Err: err})
+			return
+		}
+
+		params.HypomnemaRoutineRun = &HypomnemaRoutineRun
+
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -27737,6 +30513,27 @@ func (siw *ServerInterfaceWrapper) GetSupersetChartData(w http.ResponseWriter, r
 			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "chat_id", Err: err})
 		}
 		return
+	}
+
+	headers := r.Header
+
+	// ------------- Optional header parameter "Hypomnema-Routine-Run" -------------
+	if valueList, found := headers[http.CanonicalHeaderKey("Hypomnema-Routine-Run")]; found {
+		var HypomnemaRoutineRun AskingRoutineRun
+		n := len(valueList)
+		if n != 1 {
+			siw.ErrorHandlerFunc(w, r, &TooManyValuesForParamError{ParamName: "Hypomnema-Routine-Run", Count: n})
+			return
+		}
+
+		err = runtime.BindStyledParameterWithOptions("simple", "Hypomnema-Routine-Run", valueList[0], &HypomnemaRoutineRun, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationHeader, Explode: false, Required: false, Type: "string", Format: ""})
+		if err != nil {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "Hypomnema-Routine-Run", Err: err})
+			return
+		}
+
+		params.HypomnemaRoutineRun = &HypomnemaRoutineRun
+
 	}
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -28612,6 +31409,356 @@ func (siw *ServerInterfaceWrapper) PutRepo(w http.ResponseWriter, r *http.Reques
 
 	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		siw.Handler.PutRepo(w, r, name)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PreviewRoutineSchedule operation middleware
+func (siw *ServerInterfaceWrapper) PreviewRoutineSchedule(w http.ResponseWriter, r *http.Request) {
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PreviewRoutineSchedule(w, r)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListRoutines operation middleware
+func (siw *ServerInterfaceWrapper) ListRoutines(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListRoutinesParams
+
+	// ------------- Optional query parameter "bot" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "bot", r.URL.Query(), &params.Bot, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "bot"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "bot", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "chat_id" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "chat_id", r.URL.Query(), &params.ChatId, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "chat_id"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "chat_id", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListRoutines(w, r, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// DeleteRoutine operation middleware
+func (siw *ServerInterfaceWrapper) DeleteRoutine(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "routine_id" -------------
+	var routineId RoutineID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "routine_id", r.PathValue("routine_id"), &routineId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "routine_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.DeleteRoutine(w, r, routineId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// GetRoutine operation middleware
+func (siw *ServerInterfaceWrapper) GetRoutine(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "routine_id" -------------
+	var routineId RoutineID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "routine_id", r.PathValue("routine_id"), &routineId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "routine_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.GetRoutine(w, r, routineId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RevokeRoutineGrant operation middleware
+func (siw *ServerInterfaceWrapper) RevokeRoutineGrant(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "routine_id" -------------
+	var routineId RoutineID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "routine_id", r.PathValue("routine_id"), &routineId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "routine_id", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "integration" -------------
+	var integration IntegrationID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "integration", r.PathValue("integration"), &integration, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "integration", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "label" -------------
+	var label ConnectionLabel
+
+	err = runtime.BindStyledParameterWithOptions("simple", "label", r.PathValue("label"), &label, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "label", Err: err})
+		return
+	}
+
+	// ------------- Path parameter "action" -------------
+	var action string
+
+	err = runtime.BindStyledParameterWithOptions("simple", "action", r.PathValue("action"), &action, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "action", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RevokeRoutineGrant(w, r, routineId, integration, label, action)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// LaunchRoutineScript operation middleware
+func (siw *ServerInterfaceWrapper) LaunchRoutineScript(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "routine_id" -------------
+	var routineId RoutineID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "routine_id", r.PathValue("routine_id"), &routineId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "routine_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.LaunchRoutineScript(w, r, routineId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// PauseRoutine operation middleware
+func (siw *ServerInterfaceWrapper) PauseRoutine(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "routine_id" -------------
+	var routineId RoutineID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "routine_id", r.PathValue("routine_id"), &routineId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "routine_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.PauseRoutine(w, r, routineId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ResumeRoutine operation middleware
+func (siw *ServerInterfaceWrapper) ResumeRoutine(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "routine_id" -------------
+	var routineId RoutineID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "routine_id", r.PathValue("routine_id"), &routineId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "routine_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ResumeRoutine(w, r, routineId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// ListRoutineRuns operation middleware
+func (siw *ServerInterfaceWrapper) ListRoutineRuns(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "routine_id" -------------
+	var routineId RoutineID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "routine_id", r.PathValue("routine_id"), &routineId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "routine_id", Err: err})
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListRoutineRunsParams
+
+	// ------------- Optional query parameter "limit" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "limit", r.URL.Query(), &params.Limit, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "limit"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "limit", Err: err})
+		}
+		return
+	}
+
+	// ------------- Optional query parameter "offset" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "offset", r.URL.Query(), &params.Offset, runtime.BindQueryParameterOptions{Type: "integer", Format: ""})
+	if err != nil {
+		var requiredError *runtime.RequiredParameterError
+		if errors.As(err, &requiredError) {
+			siw.ErrorHandlerFunc(w, r, &RequiredParamError{ParamName: "offset"})
+		} else {
+			siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "offset", Err: err})
+		}
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.ListRoutineRuns(w, r, routineId, params)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// RunRoutine operation middleware
+func (siw *ServerInterfaceWrapper) RunRoutine(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "routine_id" -------------
+	var routineId RoutineID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "routine_id", r.PathValue("routine_id"), &routineId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "routine_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.RunRoutine(w, r, routineId)
+	}))
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		handler = middleware(handler)
+	}
+
+	handler.ServeHTTP(w, r)
+}
+
+// UndoRoutine operation middleware
+func (siw *ServerInterfaceWrapper) UndoRoutine(w http.ResponseWriter, r *http.Request) {
+
+	var err error
+	_ = err
+
+	// ------------- Path parameter "routine_id" -------------
+	var routineId RoutineID
+
+	err = runtime.BindStyledParameterWithOptions("simple", "routine_id", r.PathValue("routine_id"), &routineId, runtime.BindStyledParameterOptions{ParamLocation: runtime.ParamLocationPath, Explode: false, Required: true, Type: "string", Format: "", ValueIsUnescaped: true})
+	if err != nil {
+		siw.ErrorHandlerFunc(w, r, &InvalidParamFormatError{ParamName: "routine_id", Err: err})
+		return
+	}
+
+	handler := http.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		siw.Handler.UndoRoutine(w, r, routineId)
 	}))
 
 	for _, middleware := range siw.HandlerMiddlewares {
@@ -29593,6 +32740,18 @@ func HandlerWithOptions(si ServerInterface, options StdHTTPServerOptions) http.H
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/skill-search", wrapper.SearchSkills)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/skill-audits", wrapper.ListSkillAudits)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/skills/{skill}/everyone", wrapper.SetSkillEveryone)
+	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/bots/{name}/routines/{routine}", wrapper.PutRoutine)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/routines", wrapper.ListRoutines)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/routine-schedule", wrapper.PreviewRoutineSchedule)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/routines/{routine_id}", wrapper.DeleteRoutine)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/routines/{routine_id}", wrapper.GetRoutine)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/routines/{routine_id}/undo", wrapper.UndoRoutine)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/routines/{routine_id}/launch", wrapper.LaunchRoutineScript)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/routines/{routine_id}/pause", wrapper.PauseRoutine)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/routines/{routine_id}/resume", wrapper.ResumeRoutine)
+	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/routines/{routine_id}/runs", wrapper.ListRoutineRuns)
+	m.HandleFunc(http.MethodPost+" "+options.BaseURL+"/routines/{routine_id}/runs", wrapper.RunRoutine)
+	m.HandleFunc(http.MethodDelete+" "+options.BaseURL+"/routines/{routine_id}/grants/{integration}/{label}/{action}", wrapper.RevokeRoutineGrant)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/profiles", wrapper.ListProfiles)
 	m.HandleFunc(http.MethodGet+" "+options.BaseURL+"/profiles/{name}", wrapper.GetProfile)
 	m.HandleFunc(http.MethodPut+" "+options.BaseURL+"/profiles/{name}", wrapper.ApplyProfile)
@@ -30306,6 +33465,47 @@ type SetBotMemorydefaultJSONResponse struct {
 }
 
 func (response SetBotMemorydefaultJSONResponse) VisitSetBotMemoryResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutRoutineRequestObject struct {
+	Name    Name   `json:"name"`
+	Routine string `json:"routine"`
+	Body    *PutRoutineJSONRequestBody
+}
+
+type PutRoutineResponseObject interface {
+	VisitPutRoutineResponse(w http.ResponseWriter) error
+}
+
+type PutRoutine200JSONResponse Routine
+
+func (response PutRoutine200JSONResponse) VisitPutRoutineResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PutRoutinedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response PutRoutinedefaultJSONResponse) VisitPutRoutineResponse(w http.ResponseWriter) error {
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
@@ -31891,8 +35091,9 @@ func (response ListIntegrationsdefaultJSONResponse) VisitListIntegrationsRespons
 }
 
 type RelaySupersetRequestRequestObject struct {
-	Label ConnectionLabel `json:"label"`
-	Body  *RelaySupersetRequestJSONRequestBody
+	Label  ConnectionLabel `json:"label"`
+	Params RelaySupersetRequestParams
+	Body   *RelaySupersetRequestJSONRequestBody
 }
 
 type RelaySupersetRequestResponseObject interface {
@@ -33374,6 +36575,428 @@ func (response PutRepodefaultJSONResponse) VisitPutRepoResponse(w http.ResponseW
 	return err
 }
 
+type PreviewRoutineScheduleRequestObject struct {
+	Body *PreviewRoutineScheduleJSONRequestBody
+}
+
+type PreviewRoutineScheduleResponseObject interface {
+	VisitPreviewRoutineScheduleResponse(w http.ResponseWriter) error
+}
+
+type PreviewRoutineSchedule200JSONResponse RoutineSchedulePreview
+
+func (response PreviewRoutineSchedule200JSONResponse) VisitPreviewRoutineScheduleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PreviewRoutineScheduledefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response PreviewRoutineScheduledefaultJSONResponse) VisitPreviewRoutineScheduleResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListRoutinesRequestObject struct {
+	Params ListRoutinesParams
+}
+
+type ListRoutinesResponseObject interface {
+	VisitListRoutinesResponse(w http.ResponseWriter) error
+}
+
+type ListRoutines200JSONResponse RoutineList
+
+func (response ListRoutines200JSONResponse) VisitListRoutinesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListRoutinesdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListRoutinesdefaultJSONResponse) VisitListRoutinesResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type DeleteRoutineRequestObject struct {
+	RoutineId RoutineID `json:"routine_id"`
+}
+
+type DeleteRoutineResponseObject interface {
+	VisitDeleteRoutineResponse(w http.ResponseWriter) error
+}
+
+type DeleteRoutine204Response struct {
+}
+
+func (response DeleteRoutine204Response) VisitDeleteRoutineResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type DeleteRoutinedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response DeleteRoutinedefaultJSONResponse) VisitDeleteRoutineResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetRoutineRequestObject struct {
+	RoutineId RoutineID `json:"routine_id"`
+}
+
+type GetRoutineResponseObject interface {
+	VisitGetRoutineResponse(w http.ResponseWriter) error
+}
+
+type GetRoutine200JSONResponse Routine
+
+func (response GetRoutine200JSONResponse) VisitGetRoutineResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type GetRoutinedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response GetRoutinedefaultJSONResponse) VisitGetRoutineResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RevokeRoutineGrantRequestObject struct {
+	RoutineId   RoutineID       `json:"routine_id"`
+	Integration IntegrationID   `json:"integration"`
+	Label       ConnectionLabel `json:"label"`
+	Action      string          `json:"action"`
+}
+
+type RevokeRoutineGrantResponseObject interface {
+	VisitRevokeRoutineGrantResponse(w http.ResponseWriter) error
+}
+
+type RevokeRoutineGrant204Response struct {
+}
+
+func (response RevokeRoutineGrant204Response) VisitRevokeRoutineGrantResponse(w http.ResponseWriter) error {
+	w.WriteHeader(204)
+	return nil
+}
+
+type RevokeRoutineGrantdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response RevokeRoutineGrantdefaultJSONResponse) VisitRevokeRoutineGrantResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LaunchRoutineScriptRequestObject struct {
+	RoutineId RoutineID `json:"routine_id"`
+	Body      *LaunchRoutineScriptJSONRequestBody
+}
+
+type LaunchRoutineScriptResponseObject interface {
+	VisitLaunchRoutineScriptResponse(w http.ResponseWriter) error
+}
+
+type LaunchRoutineScript200JSONResponse RoutineScriptLaunch
+
+func (response LaunchRoutineScript200JSONResponse) VisitLaunchRoutineScriptResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type LaunchRoutineScriptdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response LaunchRoutineScriptdefaultJSONResponse) VisitLaunchRoutineScriptResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PauseRoutineRequestObject struct {
+	RoutineId RoutineID `json:"routine_id"`
+}
+
+type PauseRoutineResponseObject interface {
+	VisitPauseRoutineResponse(w http.ResponseWriter) error
+}
+
+type PauseRoutine200JSONResponse Routine
+
+func (response PauseRoutine200JSONResponse) VisitPauseRoutineResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type PauseRoutinedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response PauseRoutinedefaultJSONResponse) VisitPauseRoutineResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResumeRoutineRequestObject struct {
+	RoutineId RoutineID `json:"routine_id"`
+}
+
+type ResumeRoutineResponseObject interface {
+	VisitResumeRoutineResponse(w http.ResponseWriter) error
+}
+
+type ResumeRoutine200JSONResponse Routine
+
+func (response ResumeRoutine200JSONResponse) VisitResumeRoutineResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ResumeRoutinedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ResumeRoutinedefaultJSONResponse) VisitResumeRoutineResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListRoutineRunsRequestObject struct {
+	RoutineId RoutineID `json:"routine_id"`
+	Params    ListRoutineRunsParams
+}
+
+type ListRoutineRunsResponseObject interface {
+	VisitListRoutineRunsResponse(w http.ResponseWriter) error
+}
+
+type ListRoutineRuns200JSONResponse RoutineRunList
+
+func (response ListRoutineRuns200JSONResponse) VisitListRoutineRunsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type ListRoutineRunsdefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response ListRoutineRunsdefaultJSONResponse) VisitListRoutineRunsResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RunRoutineRequestObject struct {
+	RoutineId RoutineID `json:"routine_id"`
+}
+
+type RunRoutineResponseObject interface {
+	VisitRunRoutineResponse(w http.ResponseWriter) error
+}
+
+type RunRoutine200JSONResponse RoutineRun
+
+func (response RunRoutine200JSONResponse) VisitRunRoutineResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type RunRoutinedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response RunRoutinedefaultJSONResponse) VisitRunRoutineResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UndoRoutineRequestObject struct {
+	RoutineId RoutineID `json:"routine_id"`
+}
+
+type UndoRoutineResponseObject interface {
+	VisitUndoRoutineResponse(w http.ResponseWriter) error
+}
+
+type UndoRoutine200JSONResponse RoutineUndone
+
+func (response UndoRoutine200JSONResponse) VisitUndoRoutineResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(200)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
+type UndoRoutinedefaultJSONResponse struct {
+	Body       Error
+	StatusCode int
+}
+
+func (response UndoRoutinedefaultJSONResponse) VisitUndoRoutineResponse(w http.ResponseWriter) error {
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response.Body); err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(response.StatusCode)
+	_, err := buf.WriteTo(w)
+	return err
+}
+
 type ListRunsRequestObject struct {
 	Params ListRunsParams
 }
@@ -34484,6 +38107,9 @@ type StrictServerInterface interface {
 	// SetBotMemory Replace a Bot's whole memory with the owner's text; only the owner
 	// (PUT /bots/{name}/memory)
 	SetBotMemory(ctx context.Context, request SetBotMemoryRequestObject) (SetBotMemoryResponseObject, error)
+	// PutRoutine Make a Routine of a Bot, or change the one of that name
+	// (PUT /bots/{name}/routines/{routine})
+	PutRoutine(ctx context.Context, request PutRoutineRequestObject) (PutRoutineResponseObject, error)
 	// ListBotSkills The skills a Bot gets now, each at its newest revision
 	// (GET /bots/{name}/skills)
 	ListBotSkills(ctx context.Context, request ListBotSkillsRequestObject) (ListBotSkillsResponseObject, error)
@@ -34712,6 +38338,39 @@ type StrictServerInterface interface {
 	// PutRepo Register a repository under a name, or change what the name means; only the owner
 	// (PUT /repos/{name})
 	PutRepo(ctx context.Context, request PutRepoRequestObject) (PutRepoResponseObject, error)
+	// PreviewRoutineSchedule A schedule in words and its next three times, as a Routine made now would have them
+	// (POST /routine-schedule)
+	PreviewRoutineSchedule(ctx context.Context, request PreviewRoutineScheduleRequestObject) (PreviewRoutineScheduleResponseObject, error)
+	// ListRoutines The Routines, the oldest first, each with its last run
+	// (GET /routines)
+	ListRoutines(ctx context.Context, request ListRoutinesRequestObject) (ListRoutinesResponseObject, error)
+	// DeleteRoutine Remove a Routine with its runs and its grants; only the owner
+	// (DELETE /routines/{routine_id})
+	DeleteRoutine(ctx context.Context, request DeleteRoutineRequestObject) (DeleteRoutineResponseObject, error)
+	// GetRoutine A Routine, with a script's text, its last run and what it is allowed always
+	// (GET /routines/{routine_id})
+	GetRoutine(ctx context.Context, request GetRoutineRequestObject) (GetRoutineResponseObject, error)
+	// RevokeRoutineGrant Take back an "always for this Routine"; only the owner
+	// (DELETE /routines/{routine_id}/grants/{integration}/{label}/{action})
+	RevokeRoutineGrant(ctx context.Context, request RevokeRoutineGrantRequestObject) (RevokeRoutineGrantResponseObject, error)
+	// LaunchRoutineScript What the launcher of a script Routine's run runs, given once a run
+	// (POST /routines/{routine_id}/launch)
+	LaunchRoutineScript(ctx context.Context, request LaunchRoutineScriptRequestObject) (LaunchRoutineScriptResponseObject, error)
+	// PauseRoutine Stop a Routine's schedule; only the owner
+	// (POST /routines/{routine_id}/pause)
+	PauseRoutine(ctx context.Context, request PauseRoutineRequestObject) (PauseRoutineResponseObject, error)
+	// ResumeRoutine Switch a paused Routine on again, from now; only the owner
+	// (POST /routines/{routine_id}/resume)
+	ResumeRoutine(ctx context.Context, request ResumeRoutineRequestObject) (ResumeRoutineResponseObject, error)
+	// ListRoutineRuns A Routine's runs, the newest first
+	// (GET /routines/{routine_id}/runs)
+	ListRoutineRuns(ctx context.Context, request ListRoutineRunsRequestObject) (ListRoutineRunsResponseObject, error)
+	// RunRoutine Run a Routine now
+	// (POST /routines/{routine_id}/runs)
+	RunRoutine(ctx context.Context, request RunRoutineRequestObject) (RunRoutineResponseObject, error)
+	// UndoRoutine Undo a Bot's last change of a Routine; only the owner
+	// (POST /routines/{routine_id}/undo)
+	UndoRoutine(ctx context.Context, request UndoRoutineRequestObject) (UndoRoutineResponseObject, error)
 	// ListRuns Runs, newest first
 	// (GET /runs)
 	ListRuns(ctx context.Context, request ListRunsRequestObject) (ListRunsResponseObject, error)
@@ -35348,6 +39007,40 @@ func (sh *strictHandler) SetBotMemory(w http.ResponseWriter, r *http.Request, na
 		sh.options.ResponseErrorHandlerFunc(w, r, err)
 	} else if validResponse, ok := response.(SetBotMemoryResponseObject); ok {
 		if err := validResponse.VisitSetBotMemoryResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PutRoutine operation middleware
+func (sh *strictHandler) PutRoutine(w http.ResponseWriter, r *http.Request, name Name, routine string) {
+	var request PutRoutineRequestObject
+
+	request.Name = name
+	request.Routine = routine
+
+	var body PutRoutineJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PutRoutine(ctx, request.(PutRoutineRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PutRoutine")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PutRoutineResponseObject); ok {
+		if err := validResponse.VisitPutRoutineResponse(w); err != nil {
 			sh.options.ResponseErrorHandlerFunc(w, r, err)
 		}
 	} else if response != nil {
@@ -36429,10 +40122,11 @@ func (sh *strictHandler) ListIntegrations(w http.ResponseWriter, r *http.Request
 }
 
 // RelaySupersetRequest operation middleware
-func (sh *strictHandler) RelaySupersetRequest(w http.ResponseWriter, r *http.Request, label ConnectionLabel) {
+func (sh *strictHandler) RelaySupersetRequest(w http.ResponseWriter, r *http.Request, label ConnectionLabel, params RelaySupersetRequestParams) {
 	var request RelaySupersetRequestRequestObject
 
 	request.Label = label
+	request.Params = params
 
 	var body RelaySupersetRequestJSONRequestBody
 	if err := runtime.BindJSONBody(r, &body); err != nil {
@@ -37488,6 +41182,308 @@ func (sh *strictHandler) PutRepo(w http.ResponseWriter, r *http.Request, name Na
 	}
 }
 
+// PreviewRoutineSchedule operation middleware
+func (sh *strictHandler) PreviewRoutineSchedule(w http.ResponseWriter, r *http.Request) {
+	var request PreviewRoutineScheduleRequestObject
+
+	var body PreviewRoutineScheduleJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PreviewRoutineSchedule(ctx, request.(PreviewRoutineScheduleRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PreviewRoutineSchedule")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PreviewRoutineScheduleResponseObject); ok {
+		if err := validResponse.VisitPreviewRoutineScheduleResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListRoutines operation middleware
+func (sh *strictHandler) ListRoutines(w http.ResponseWriter, r *http.Request, params ListRoutinesParams) {
+	var request ListRoutinesRequestObject
+
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListRoutines(ctx, request.(ListRoutinesRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListRoutines")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListRoutinesResponseObject); ok {
+		if err := validResponse.VisitListRoutinesResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// DeleteRoutine operation middleware
+func (sh *strictHandler) DeleteRoutine(w http.ResponseWriter, r *http.Request, routineId RoutineID) {
+	var request DeleteRoutineRequestObject
+
+	request.RoutineId = routineId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.DeleteRoutine(ctx, request.(DeleteRoutineRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "DeleteRoutine")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(DeleteRoutineResponseObject); ok {
+		if err := validResponse.VisitDeleteRoutineResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// GetRoutine operation middleware
+func (sh *strictHandler) GetRoutine(w http.ResponseWriter, r *http.Request, routineId RoutineID) {
+	var request GetRoutineRequestObject
+
+	request.RoutineId = routineId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.GetRoutine(ctx, request.(GetRoutineRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "GetRoutine")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(GetRoutineResponseObject); ok {
+		if err := validResponse.VisitGetRoutineResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RevokeRoutineGrant operation middleware
+func (sh *strictHandler) RevokeRoutineGrant(w http.ResponseWriter, r *http.Request, routineId RoutineID, integration IntegrationID, label ConnectionLabel, action string) {
+	var request RevokeRoutineGrantRequestObject
+
+	request.RoutineId = routineId
+	request.Integration = integration
+	request.Label = label
+	request.Action = action
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RevokeRoutineGrant(ctx, request.(RevokeRoutineGrantRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RevokeRoutineGrant")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RevokeRoutineGrantResponseObject); ok {
+		if err := validResponse.VisitRevokeRoutineGrantResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// LaunchRoutineScript operation middleware
+func (sh *strictHandler) LaunchRoutineScript(w http.ResponseWriter, r *http.Request, routineId RoutineID) {
+	var request LaunchRoutineScriptRequestObject
+
+	request.RoutineId = routineId
+
+	var body LaunchRoutineScriptJSONRequestBody
+	if err := runtime.BindJSONBody(r, &body); err != nil {
+		sh.options.RequestErrorHandlerFunc(w, r, fmt.Errorf("can't decode JSON body: %w", err))
+		return
+	}
+	request.Body = &body
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.LaunchRoutineScript(ctx, request.(LaunchRoutineScriptRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "LaunchRoutineScript")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(LaunchRoutineScriptResponseObject); ok {
+		if err := validResponse.VisitLaunchRoutineScriptResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// PauseRoutine operation middleware
+func (sh *strictHandler) PauseRoutine(w http.ResponseWriter, r *http.Request, routineId RoutineID) {
+	var request PauseRoutineRequestObject
+
+	request.RoutineId = routineId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.PauseRoutine(ctx, request.(PauseRoutineRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "PauseRoutine")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(PauseRoutineResponseObject); ok {
+		if err := validResponse.VisitPauseRoutineResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ResumeRoutine operation middleware
+func (sh *strictHandler) ResumeRoutine(w http.ResponseWriter, r *http.Request, routineId RoutineID) {
+	var request ResumeRoutineRequestObject
+
+	request.RoutineId = routineId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ResumeRoutine(ctx, request.(ResumeRoutineRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ResumeRoutine")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ResumeRoutineResponseObject); ok {
+		if err := validResponse.VisitResumeRoutineResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// ListRoutineRuns operation middleware
+func (sh *strictHandler) ListRoutineRuns(w http.ResponseWriter, r *http.Request, routineId RoutineID, params ListRoutineRunsParams) {
+	var request ListRoutineRunsRequestObject
+
+	request.RoutineId = routineId
+	request.Params = params
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.ListRoutineRuns(ctx, request.(ListRoutineRunsRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "ListRoutineRuns")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(ListRoutineRunsResponseObject); ok {
+		if err := validResponse.VisitListRoutineRunsResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// RunRoutine operation middleware
+func (sh *strictHandler) RunRoutine(w http.ResponseWriter, r *http.Request, routineId RoutineID) {
+	var request RunRoutineRequestObject
+
+	request.RoutineId = routineId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.RunRoutine(ctx, request.(RunRoutineRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "RunRoutine")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(RunRoutineResponseObject); ok {
+		if err := validResponse.VisitRunRoutineResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
+// UndoRoutine operation middleware
+func (sh *strictHandler) UndoRoutine(w http.ResponseWriter, r *http.Request, routineId RoutineID) {
+	var request UndoRoutineRequestObject
+
+	request.RoutineId = routineId
+
+	handler := func(ctx context.Context, w http.ResponseWriter, r *http.Request, request interface{}) (interface{}, error) {
+		return sh.ssi.UndoRoutine(ctx, request.(UndoRoutineRequestObject))
+	}
+	for _, middleware := range sh.middlewares {
+		handler = middleware(handler, "UndoRoutine")
+	}
+
+	response, err := handler(r.Context(), w, r, request)
+
+	if err != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, err)
+	} else if validResponse, ok := response.(UndoRoutineResponseObject); ok {
+		if err := validResponse.VisitUndoRoutineResponse(w); err != nil {
+			sh.options.ResponseErrorHandlerFunc(w, r, err)
+		}
+	} else if response != nil {
+		sh.options.ResponseErrorHandlerFunc(w, r, fmt.Errorf("unexpected response type: %T", response))
+	}
+}
+
 // ListRuns operation middleware
 func (sh *strictHandler) ListRuns(w http.ResponseWriter, r *http.Request, params ListRunsParams) {
 	var request ListRunsRequestObject
@@ -38204,421 +42200,469 @@ func (sh *strictHandler) ReopenTask(w http.ResponseWriter, r *http.Request, task
 // const string: with thousands of chunks the chained `+` fold is several
 // times slower for the Go compiler than parsing a slice literal.
 var swaggerSpec = []string{
-	"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",
+	"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",
+	"vPUL8NAC9Zxq3geat001OZ1wRQHYF//fAA==",
 }
 
 // decodeSpec returns the embedded OpenAPI spec as raw JSON bytes,

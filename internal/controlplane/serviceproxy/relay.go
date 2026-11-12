@@ -53,6 +53,9 @@ type Call struct {
 	// ChatID is the chat a coordinator works in, so that the Approval it
 	// waits for is answered there.
 	ChatID string
+	// RunKey is the key of the Routine's run whose script asks, so that the
+	// Approval it waits for belongs to that run.
+	RunKey string
 	Method string
 	// Target is the path and the query, as the service reads them:
 	// /api/v1/dashboard/?q=(page_size:5).
@@ -99,7 +102,10 @@ func (p *Proxy) Relay(ctx context.Context, c Call) (Answer, Action, error) {
 		req.Header.Set("Content-Type", c.ContentType)
 	}
 
-	s := session{caller: c.Caller, integration: c.Integration, label: c.Label, chatID: c.ChatID, catalog: catalog}
+	s := session{
+		caller: c.Caller, integration: c.Integration, label: c.Label, chatID: c.ChatID, runKey: c.RunKey,
+		catalog: catalog,
+	}
 
 	action, message := p.judge(ctx, req, c.Body, s)
 	if message != "" {

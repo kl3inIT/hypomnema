@@ -1,8 +1,8 @@
 -- name: InsertApproval :exec
 INSERT INTO approvals (id, integration, label, action, action_name, dispatch_id, task_id, run_id, chat_id, asked_by,
-                       title, payload, match_hash, created_at)
+                       title, payload, match_hash, routine_id, routine_run_id, created_at)
 VALUES (@id, @integration, @label, @action, @action_name, @dispatch_id, @task_id, @run_id, @chat_id, @asked_by,
-        @title, @payload, @match_hash, @now);
+        @title, @payload, @match_hash, @routine_id, @routine_run_id, @now);
 
 -- name: GetApproval :one
 SELECT * FROM approvals WHERE id = @id;
@@ -13,6 +13,7 @@ SELECT * FROM approvals
 WHERE (CAST(@status AS TEXT) = '' OR status = @status)
   AND (CAST(@chat_id AS TEXT) = '' OR chat_id = @chat_id)
   AND (CAST(@task_id AS TEXT) = '' OR task_id = @task_id)
+  AND (CAST(@routine_id AS TEXT) = '' OR routine_id = @routine_id)
 ORDER BY created_at DESC, id DESC
 LIMIT @max_rows;
 
@@ -30,7 +31,8 @@ WHERE status = 'approved' AND scope = 'session'
   AND ((CAST(@run_id AS TEXT) <> '' AND run_id = @run_id) OR (CAST(@chat_id AS TEXT) <> '' AND chat_id = @chat_id));
 
 -- name: DecideApproval :execrows
-UPDATE approvals SET status = @status, scope = @scope, decided_at = @now WHERE id = @id AND status = 'pending';
+UPDATE approvals SET status = @status, scope = @scope, standing = @standing, decided_at = @now
+WHERE id = @id AND status = 'pending';
 
 -- name: UseApproval :execrows
 -- An approval for one request runs once.

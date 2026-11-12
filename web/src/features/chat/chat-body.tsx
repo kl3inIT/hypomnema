@@ -7,6 +7,7 @@ import type { ChatMessage } from "@/api/generated/types.gen"
 import { Spinner } from "@/components/ui/spinner"
 import { PendingApprovals } from "@/features/approvals/approval-card"
 import { firstBot } from "@/features/bots/bots-state"
+import { useRoutines } from "@/features/routines/use-routines"
 import { chatsKey } from "@/features/shell/chats"
 
 import { Composer } from "./composer"
@@ -26,6 +27,11 @@ export function ChatBody({ chatId }: { chatId: string }) {
   })
   const [sending, setSending] = useState<ChatMessage[]>([])
   const bot = chat.data?.bot ?? firstBot
+  // The Routines the Bot set up from this chat have their card where they were set up.
+  const routines = useRoutines({ chatId })
+  const setups = (routines.data ?? [])
+    .filter((r) => r.created_by === "bot")
+    .map((r) => ({ id: r.id, at: r.created_at }))
 
   async function send(text: string) {
     const shown: ChatMessage = {
@@ -59,6 +65,7 @@ export function ChatBody({ chatId }: { chatId: string }) {
         view={view}
         local={{ sending }}
         bot={bot}
+        setups={setups}
         empty={
           <p className="text-center text-sm text-muted-foreground">Send a message to start.</p>
         }
@@ -72,8 +79,9 @@ export function ChatBody({ chatId }: { chatId: string }) {
             Reconnecting…
           </output>
         )}
-        {/* What pi asked to do with an account and waits for: answered here, where it was asked. */}
-        <div className="mx-auto mb-3 w-full max-w-(--chat-content-max-width) empty:hidden">
+        {/* What pi asked to do with an account and waits for: answered here, where it was asked. The cards
+            scroll in their own box, so that the message box stays on the screen under them. */}
+        <div className="mx-auto mb-3 flex max-h-[50dvh] w-full max-w-(--chat-content-max-width) flex-col gap-3 overflow-y-auto empty:hidden">
           <PendingApprovals chatId={chatId} />
         </div>
         <Composer

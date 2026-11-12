@@ -136,7 +136,14 @@ func (s *Service) DeleteBot(ctx context.Context, name string) error {
 			return err
 		}
 
+		routines, err := q.CountRoutinesOfBot(ctx, name)
+		if err != nil {
+			return err
+		}
+
 		switch {
+		case routines > 0:
+			return fmt.Errorf("%w: bot %s has %d routines; remove them first", ErrConflict, name, routines)
 		case channels > 0:
 			return fmt.Errorf("%w: %d Lark channels talk to bot %s; give them another bot or remove them first",
 				ErrConflict, channels, name)

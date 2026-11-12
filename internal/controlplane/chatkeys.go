@@ -35,7 +35,13 @@ func (b botTokens) AddBotToken(ctx context.Context, chatID, bot string) (string,
 	return b.svc.AddBotToken(ctx, b.coordinator, chatID, bot)
 }
 
-// RevokeBotToken ends a pi's token.
+// AddRoutineToken makes the token of a Routine's script starting (issue
+// #211), as a pi's is made.
+func (b botTokens) AddRoutineToken(ctx context.Context, routineID string) (string, error) {
+	return b.svc.AddRoutineToken(ctx, b.coordinator, routineID)
+}
+
+// RevokeBotToken ends a pi's token, or a Routine's script's.
 func (b botTokens) RevokeBotToken(secret string) { b.svc.RevokeBotToken(secret) }
 
 // RevokeKey ends a pi's key. One already ended is no error: a pi that fails

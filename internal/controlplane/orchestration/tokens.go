@@ -29,6 +29,9 @@ type Token struct {
 	// chat its pi runs for and the Bot it runs as. Empty for other kinds.
 	Chat string
 	Bot  string
+	// Routine is the Routine whose script's run a Bot token is made for
+	// (issue #211); such a token has no chat. Empty for a pi's.
+	Routine string
 }
 
 // AddToken records a client token and returns it with its secret, which is

@@ -8,6 +8,7 @@ import {
   ListTree,
   LogOut,
   Menu,
+  Repeat2,
   Server,
   Settings,
   SquarePen,
@@ -32,7 +33,7 @@ import { usePending } from "@/features/approvals/use-approvals"
 
 // The app's frame, as t3code's (MIT, Copyright (c) 2026 T3 Tools Inc., https://github.com/pingdotgg/t3code;
 // components/ui/sidebar.tsx, sidebar/SidebarThreadRow.tsx): a full-height sidebar with the places (a new chat, the
-// board with what waits for the owner, the Runs, the Bots, the agents, the machines) and the chats, and a quiet 52px header over each page. On a phone
+// board with what waits for the owner, the Runs, the Bots and their Routines, the agents, the machines) and the chats, and a quiet 52px header over each page. On a phone
 // the sidebar hides; the header's menu leads to the start page, which lists the same places.
 
 // LiveUpdates keeps every page current from the event stream, from the board's cursor.
@@ -84,6 +85,13 @@ export function Places() {
       >
         <BotMessageSquare className="size-4" />
         Bots
+      </Link>
+      <Link
+        to="/routines"
+        className={cn(placeClass, "[&.active]:bg-sidebar-row-active [&.active]:text-foreground")}
+      >
+        <Repeat2 className="size-4" />
+        Routines
       </Link>
       <Link
         to="/agents"

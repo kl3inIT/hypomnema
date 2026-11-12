@@ -3,11 +3,12 @@
 #
 #   sudo sh setup-coordinator.sh <control plane user> <this directory, with the hypomnema binary added>
 #
-# It creates the coordinator user, installs Node and pi for it, the root-owned launcher and a sudoers rule that lets
-# the control plane's user run, as the coordinator, only that launcher and the reader of the Bots' folders (issue #255:
-# `hypomnema files serve` with its root, which only reads), a coordinator token in a file of mode 0600, and the
-# coordinator skill. The launcher reads the token's address and runs pi's setup with it; pi itself runs in a
-# bubblewrap box (setup-box.sh, issue #260) with a token of its own and never sees this one. No secret is passed on a
+# It creates the coordinator user, installs Node and pi for it, the root-owned launchers (hypomnema-pi for a chat,
+# hypomnema-routine for a Routine's script, issue #211) and a sudoers rule that lets the control plane's user run, as
+# the coordinator, only those launchers and the reader of the Bots' folders (issue #255: `hypomnema files serve` with
+# its root, which only reads), a coordinator token in a file of mode 0600, and the coordinator skill. The launchers
+# read the token's address and run their setup with it; pi and a Routine's script run in a bubblewrap box
+# (setup-box.sh, issues #260 and #211) with a token of their own and never see this one. No secret is passed on a
 # command line or printed. Run it again to update pi
 # (package.json and package-lock.json here, which Dependabot updates), the launcher, the binary or the
 # instructions; the existing token is kept.
@@ -49,6 +50,7 @@ sudo -u coordinator -H env PATH=/opt/hypomnema-node/bin:/usr/bin:/bin "$home/pi/
 
 echo "== launcher, binary, instructions"
 install -o root -g root -m 0755 "$src/hypomnema-pi" /usr/local/bin/hypomnema-pi
+install -o root -g root -m 0755 "$src/hypomnema-routine" /usr/local/bin/hypomnema-routine
 install -o root -g root -m 0755 "$src/hypomnema" /usr/local/bin/hypomnema
 install -o coordinator -g coordinator -m 0600 "$src/AGENTS.md" "$home/agent/AGENTS.md"
 
@@ -60,7 +62,7 @@ sudo -u coordinator -H /usr/local/bin/hypomnema tool install --dir "$home"
 echo "== sudoers"
 rule=/etc/sudoers.d/hypomnema-coordinator
 {
-  printf '%s ALL=(coordinator) NOPASSWD: /usr/local/bin/hypomnema-pi\n' "$cp_user"
+  printf '%s ALL=(coordinator) NOPASSWD: /usr/local/bin/hypomnema-pi, /usr/local/bin/hypomnema-routine\n' "$cp_user"
   printf '%s ALL=(coordinator) NOPASSWD: /usr/local/bin/hypomnema files serve --root %s/bots\n' "$cp_user" "$home"
 } > "$rule.new"
 chmod 0440 "$rule.new"
@@ -86,3 +88,4 @@ sudo -u coordinator -H /usr/local/bin/hypomnema skills install --agent agents
 echo "pi's models are the providers that are the model gateway: a Bot names one of them and one of its models"
 echo "the Files panel reads the Bots' folders with HYPOMNEMA_BOT_FILES_COMMAND='[\"sudo\",\"-n\",\"-u\",\"coordinator\",\"/usr/local/bin/hypomnema\",\"files\",\"serve\",\"--root\",\"$home/bots\"]' in the control plane's env"
 echo "done: add HYPOMNEMA_COORDINATOR_COMMAND='[\"sudo\",\"-n\",\"-u\",\"coordinator\",\"/usr/local/bin/hypomnema-pi\"]' to the control plane's env and restart it"
+echo "for script routines also add HYPOMNEMA_ROUTINE_COMMAND='[\"sudo\",\"-n\",\"-u\",\"coordinator\",\"/usr/local/bin/hypomnema-routine\"]'"

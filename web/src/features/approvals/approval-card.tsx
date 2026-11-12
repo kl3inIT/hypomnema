@@ -1,7 +1,7 @@
 import { Ellipsis, ShieldQuestion } from "lucide-react"
 import type { ComponentType, SVGProps } from "react"
 
-import type { Approval } from "@/api/generated/types.gen"
+import type { Approval, ApprovalDecision } from "@/api/generated/types.gen"
 import {
   GmailIcon,
   GoogleCalendarIcon,
@@ -38,12 +38,13 @@ function Mark({ action }: { action: string }) {
 // subject and text), and takes his answer. Its parts follow Onyx's ApprovalCard and PayloadView: what is asked,
 // the request as labelled lines, approve once, approve for the session, reject. As t3code's
 // ComposerPendingApprovalActions.tsx, Decline and Approve are the two buttons and approving for the session waits
-// in the "…" menu beside them.
+// in the "…" menu beside them. A request a Routine's run made has one more answer there (issue #211, after
+// OpenClaw's standing grant scoped to the job): always for this Routine.
 export function ApprovalCard({ approval }: { approval: Approval }) {
   const decide = useDecide(approval)
   const session = sessionOf(approval)
 
-  const answer = (decision: "approve" | "approve_session" | "reject", done: string) =>
+  const answer = (decision: ApprovalDecision["decision"], done: string) =>
     decide.mutate(decision, { onSuccess: () => toast.add({ title: done, type: "success" }) })
 
   return (
@@ -90,7 +91,7 @@ export function ApprovalCard({ approval }: { approval: Approval }) {
           >
             Approve
           </Button>
-          {session && (
+          {(session || approval.routine_id) && (
             <DropdownMenu>
               <DropdownMenuTrigger
                 disabled={decide.isPending}
@@ -101,12 +102,22 @@ export function ApprovalCard({ approval }: { approval: Approval }) {
                 <Ellipsis />
               </DropdownMenuTrigger>
               <DropdownMenuContent side="top" align="end" width="content">
-                <DropdownMenuItem
-                  title={`Stop asking for "${approval.action_name}" for the rest of ${session}`}
-                  onClick={() => answer("approve_session", `Approved for ${session}`)}
-                >
-                  Approve for {session}
-                </DropdownMenuItem>
+                {session && (
+                  <DropdownMenuItem
+                    title={`Stop asking for "${approval.action_name}" for the rest of ${session}`}
+                    onClick={() => answer("approve_session", `Approved for ${session}`)}
+                  >
+                    Approve for {session}
+                  </DropdownMenuItem>
+                )}
+                {approval.routine_id && (
+                  <DropdownMenuItem
+                    title={`Stop asking for "${approval.action_name}" in this Routine's later runs too, until you take it back on the Routine's page`}
+                    onClick={() => answer("approve_routine", "Approved always for this Routine")}
+                  >
+                    Always for this Routine
+                  </DropdownMenuItem>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           )}
@@ -122,9 +133,18 @@ export function ApprovalCard({ approval }: { approval: Approval }) {
   )
 }
 
-// PendingApprovals lists what waits for the owner in one chat or for one Task; nothing when nothing waits.
-export function PendingApprovals({ chatId, taskId }: { chatId?: string; taskId?: string }) {
-  const pending = usePending({ chatId, taskId })
+// PendingApprovals lists what waits for the owner in one chat, for one Task or in one Routine's runs; nothing
+// when nothing waits.
+export function PendingApprovals({
+  chatId,
+  taskId,
+  routineId,
+}: {
+  chatId?: string
+  taskId?: string
+  routineId?: string
+}) {
+  const pending = usePending({ chatId, taskId, routineId })
 
   if (!pending.data?.length) return null
 

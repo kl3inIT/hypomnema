@@ -117,6 +117,22 @@ var policies = map[string]policy{
 	"ListConnectionActions":       {scope: scopeOwner},
 	"SetConnectionAction":         {scope: scopeOwner},
 
+	// Routines (issue #211). Every token reads them. A Bot, with its pi's token, makes or changes one of its own
+	// from its chat and runs it once; a Routine's script's token does neither (routines.go). The launcher, with
+	// the coordinator's token, is given a run's script once. The rest is the owner's.
+	"ListRoutines":           {},
+	"GetRoutine":             {},
+	"ListRoutineRuns":        {},
+	"PreviewRoutineSchedule": {},
+	"PutRoutine":             {},
+	"RunRoutine":             {},
+	"LaunchRoutineScript":    {},
+	"UndoRoutine":            {scope: scopeOwner},
+	"DeleteRoutine":          {scope: scopeOwner},
+	"PauseRoutine":           {scope: scopeOwner},
+	"ResumeRoutine":          {scope: scopeOwner},
+	"RevokeRoutineGrant":     {scope: scopeOwner},
+
 	// Superset (issue #203). The owner, or a coordinator when the Connection is on for chats: the handler decides
 	// (superset.go). A request may wait for the owner's Approval, longer than the write timeout.
 	"ListSupersetDashboards": {long: true},
@@ -225,6 +241,10 @@ func chatOf(tok orchestration.Token, named string) (string, error) {
 // callerName is what the log calls a coordinator: a pi's token by its chat
 // and Bot, never by its secret.
 func callerName(tok orchestration.Token) string {
+	if tok.Kind == bearertoken.Bot && tok.Routine != "" {
+		return fmt.Sprintf("bot %s in routine %s", tok.Bot, tok.Routine)
+	}
+
 	if tok.Kind == bearertoken.Bot {
 		return fmt.Sprintf("bot %s in chat %s", tok.Bot, tok.Chat)
 	}
