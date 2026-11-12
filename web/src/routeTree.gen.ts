@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as BoardRouteImport } from './routes/board'
+import { Route as BrowserRouteImport } from './routes/browser'
 import { Route as MachinesRouteImport } from './routes/machines'
 import { Route as AgentsIndexRouteImport } from './routes/agents.index'
 import { Route as AgentsNameRouteImport } from './routes/agents.$name'
@@ -37,6 +38,11 @@ const IndexRoute = IndexRouteImport.update({
 const BoardRoute = BoardRouteImport.update({
   id: '/board',
   path: '/board',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BrowserRoute = BrowserRouteImport.update({
+  id: '/browser',
+  path: '/browser',
   getParentRoute: () => rootRouteImport,
 } as any)
 const MachinesRoute = MachinesRouteImport.update({
@@ -128,6 +134,7 @@ const MachinesNodeIdTerminalRoute = MachinesNodeIdTerminalRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/board': typeof BoardRoute
+  '/browser': typeof BrowserRoute
   '/machines': typeof MachinesRoute
   '/agents/$name': typeof AgentsNameRoute
   '/agents/new': typeof AgentsNewRoute
@@ -149,6 +156,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/board': typeof BoardRoute
+  '/browser': typeof BrowserRoute
   '/machines': typeof MachinesRoute
   '/agents/$name': typeof AgentsNameRoute
   '/agents/new': typeof AgentsNewRoute
@@ -171,6 +179,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/board': typeof BoardRoute
+  '/browser': typeof BrowserRoute
   '/machines': typeof MachinesRoute
   '/agents/$name': typeof AgentsNameRoute
   '/agents/new': typeof AgentsNewRoute
@@ -194,6 +203,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/board'
+    | '/browser'
     | '/machines'
     | '/agents/$name'
     | '/agents/new'
@@ -215,6 +225,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/board'
+    | '/browser'
     | '/machines'
     | '/agents/$name'
     | '/agents/new'
@@ -236,6 +247,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/board'
+    | '/browser'
     | '/machines'
     | '/agents/$name'
     | '/agents/new'
@@ -258,6 +270,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   BoardRoute: typeof BoardRoute
+  BrowserRoute: typeof BrowserRoute
   MachinesRoute: typeof MachinesRoute
   AgentsNameRoute: typeof AgentsNameRoute
   AgentsNewRoute: typeof AgentsNewRoute
@@ -291,6 +304,13 @@ declare module '@tanstack/react-router' {
       path: '/board'
       fullPath: '/board'
       preLoaderRoute: typeof BoardRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/browser': {
+      id: '/browser'
+      path: '/browser'
+      fullPath: '/browser'
+      preLoaderRoute: typeof BrowserRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/machines': {
@@ -418,6 +438,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   BoardRoute: BoardRoute,
+  BrowserRoute: BrowserRoute,
   MachinesRoute: MachinesRoute,
   AgentsNameRoute: AgentsNameRoute,
   AgentsNewRoute: AgentsNewRoute,

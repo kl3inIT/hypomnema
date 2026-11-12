@@ -1,21 +1,17 @@
 import { useMutation } from "@tanstack/react-query"
 import {
-  Bot,
   ArrowDown,
   ArrowUp,
   Box,
   CalendarDays,
   Crown,
   KeyRound,
-  Link2,
   Mail,
   MonitorSmartphone,
   Plug,
   Plus,
   Power,
   RefreshCw,
-  Route as RouteIcon,
-  Tag,
   Timer,
   Trash2,
   TriangleAlert,
@@ -46,14 +42,6 @@ import {
   ItemTitle,
 } from "@/components/ui/item"
 import { Switch } from "@/components/ui/switch"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
 import { ModelMark, ProviderMark } from "@/features/agents/model-mark"
 import { Meter } from "@/features/machines/machine-cells"
 import { ConfirmDialog, ErrorAlert } from "@/features/settings/settings-parts"
@@ -67,10 +55,8 @@ import {
   accountState,
   apiProvidersOf,
   inUse,
-  routesOf,
   subscriptionState,
   subscriptionsOf,
-  type Route,
   type Subscription,
   type Tone,
   until,
@@ -78,7 +64,6 @@ import {
 import {
   useAccountLimits,
   useAccounts,
-  useGatewayModels,
   useProviders,
   useRefreshAccounts,
   useRefreshLimits,
@@ -88,23 +73,22 @@ import {
 // from (issue #199). A subscription is a card with its accounts as rows, as an Integrations card has its
 // accounts and as 9router's provider page (providers/[id]/ConnectionRow.js), OpenClaw's model providers
 // (ui/src/pages/model-providers) and Orca's accounts pane (settings/accounts) have theirs. What the server
-// cannot do yet is not here: signing an account in, changing the order, the limits, editing a route.
+// cannot change yet is not here: the gateway's models and where each is served from come back with the
+// step that edits them (the owner asked what the read-only table was for, 2026-11-12).
 export function ModelsScreen() {
   const accounts = useAccounts()
   const providers = useProviders()
-  const models = useGatewayModels()
 
   const subscriptions = subscriptionsOf(providers.data ?? [], accounts.data ?? [])
   const apis = apiProvidersOf(providers.data ?? [])
-  const routes = routesOf(models.data ?? [], providers.data ?? [])
-  const loading = accounts.isPending || providers.isPending || models.isPending
+  const loading = accounts.isPending || providers.isPending
 
   return (
     <SettingsPage
       title="Models"
       description="Where models come from: the subscriptions and providers the gateway serves agents from."
     >
-      <ErrorAlert error={accounts.error ?? providers.error ?? models.error} />
+      <ErrorAlert error={accounts.error ?? providers.error} />
       {loading ? (
         <p className="py-10 text-center text-sm text-muted-foreground">Loading…</p>
       ) : (
@@ -139,19 +123,6 @@ export function ModelsScreen() {
               ))}
             </Section>
           )}
-
-          <Section
-            id="routes"
-            icon={RouteIcon}
-            title="Models"
-            note="The names a client of the gateway asks for, and where each is served from."
-          >
-            {routes.length === 0 ? (
-              <Empty>The gateway serves no model yet.</Empty>
-            ) : (
-              <Routes routes={routes} />
-            )}
-          </Section>
         </>
       )}
     </SettingsPage>
@@ -384,50 +355,52 @@ function AccountRow({
           <LimitBars account={account} />
           <ErrorAlert error={change.error ?? move.error} />
         </ItemContent>
-        <ItemActions>
-          <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <label htmlFor={id} className="inline-flex items-center gap-1">
-              <Power className="size-3" aria-hidden />
-              In use
-            </label>
-            <Switch
-              id={id}
-              size="sm"
-              checked={account.status === "active"}
-              disabled={change.isPending}
-              onCheckedChange={(next) => change.mutate(next)}
-            />
-          </span>
-          {here && (
-            <AccountSignInDialog
-              runtime={owner.runtime as SignInRuntime}
-              name={subscription}
-              account={account}
-              trigger={
-                <Button variant="ghost" size="sm" aria-label={`Sign ${account.label} in again`}>
-                  <RefreshCw data-icon="inline-start" />
-                  Sign in again
-                </Button>
-              }
-            />
-          )}
-          {here && (
-            <ConfirmDialog
-              trigger={
-                <Button variant="ghost" size="sm" aria-label={`Remove ${account.label}`}>
-                  <Trash2 data-icon="inline-start" />
-                  Remove
-                </Button>
-              }
-              title={`Remove ${account.label}${account.email ? ` (${account.email})` : ""}?`}
-              consequence={`Its sign-in is deleted from Hypomnema. Work that runs under it now ends with an error; later work uses the next ${subscription} account.`}
-              action="Remove"
-              run={() => removeAccount({ path: { account_id: account.id } })}
-              onDone={refresh}
-              done={`${account.label} was removed`}
-            />
-          )}
-        </ItemActions>
+        <div className="self-start">
+          <ItemActions>
+            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <label htmlFor={id} className="inline-flex items-center gap-1">
+                <Power className="size-3" aria-hidden />
+                In use
+              </label>
+              <Switch
+                id={id}
+                size="sm"
+                checked={account.status === "active"}
+                disabled={change.isPending}
+                onCheckedChange={(next) => change.mutate(next)}
+              />
+            </span>
+            {here && (
+              <AccountSignInDialog
+                runtime={owner.runtime as SignInRuntime}
+                name={subscription}
+                account={account}
+                trigger={
+                  <Button variant="ghost" size="sm" aria-label={`Sign ${account.label} in again`}>
+                    <RefreshCw data-icon="inline-start" />
+                    Sign in again
+                  </Button>
+                }
+              />
+            )}
+            {here && (
+              <ConfirmDialog
+                trigger={
+                  <Button variant="ghost" size="sm" aria-label={`Remove ${account.label}`}>
+                    <Trash2 data-icon="inline-start" />
+                    Remove
+                  </Button>
+                }
+                title={`Remove ${account.label}${account.email ? ` (${account.email})` : ""}?`}
+                consequence={`Its sign-in is deleted from Hypomnema. Work that runs under it now ends with an error; later work uses the next ${subscription} account.`}
+                action="Remove"
+                run={() => removeAccount({ path: { account_id: account.id } })}
+                onDone={refresh}
+                done={`${account.label} was removed`}
+              />
+            )}
+          </ItemActions>
+        </div>
       </Item>
     </div>
   )
@@ -495,7 +468,7 @@ function LimitBars({ account }: { account: Account }) {
             connected={account.status === "active"}
             title={`${Math.round(100 - window.used_percent)}% left`}
           />
-          <span className="col-start-2 truncate text-muted-foreground">
+          <span className="col-start-2 text-muted-foreground">
             {window.resets_at ? `resets ${until(window.resets_at)}` : ""}
           </span>
         </div>
@@ -597,123 +570,5 @@ function ApiProviderCard({ provider }: { provider: Provider }) {
         </div>
       </CardContent>
     </Card>
-  )
-}
-
-// Routes are the gateway's models: on a wide screen a table, on a phone one block a model, since a row of
-// targets does not fit beside a name there.
-function Routes({ routes }: { routes: Route[] }) {
-  return (
-    <>
-      <div className="hidden min-w-0 overflow-hidden rounded-xl border bg-card md:block">
-        <Table aria-label="Models the gateway serves">
-          <TableHeader>
-            <TableRow>
-              <TableHead>
-                <span className="flex items-center gap-2">
-                  <Tag className="size-4 text-muted-foreground" aria-hidden />
-                  Name
-                </span>
-              </TableHead>
-              <TableHead>
-                <span className="flex items-center gap-2">
-                  <RouteIcon className="size-4 text-muted-foreground" aria-hidden />
-                  Served by, in order
-                </span>
-              </TableHead>
-              <TableHead>
-                <span className="flex items-center gap-2">
-                  <Bot className="size-4 text-muted-foreground" aria-hidden />
-                  Agents
-                </span>
-              </TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {routes.map((route) => (
-              <TableRow key={route.model.name}>
-                <TableCell>
-                  <RouteName route={route} />
-                </TableCell>
-                <TableCell>
-                  <Targets route={route} />
-                </TableCell>
-                <TableCell>
-                  <Offered route={route} />
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
-      <div className="md:hidden">
-        <ItemGroup>
-          {routes.map((route) => (
-            <Item key={route.model.name} variant="outline" size="sm">
-              <ItemContent>
-                <ItemTitle>
-                  <RouteName route={route} />
-                </ItemTitle>
-                <Targets route={route} />
-              </ItemContent>
-              <ItemActions>
-                <Offered route={route} />
-              </ItemActions>
-            </Item>
-          ))}
-        </ItemGroup>
-      </div>
-    </>
-  )
-}
-
-function RouteName({ route }: { route: Route }) {
-  return (
-    <span className="inline-flex min-w-0 items-center gap-2">
-      <ModelMark name={route.model.name} className="size-4 shrink-0" />
-      <span className="flex min-w-0 flex-col">
-        <span className="font-medium">{modelName(route.model.name)}</span>
-        <span className="font-mono text-2xs text-muted-foreground">{route.model.name}</span>
-      </span>
-    </span>
-  )
-}
-
-function Targets({ route }: { route: Route }) {
-  if (route.targets.length === 0) {
-    return <span className="text-sm text-muted-foreground">Nowhere yet</span>
-  }
-
-  return (
-    <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm whitespace-normal">
-      {route.targets.map((target, index) => (
-        <span
-          key={`${target.provider}:${target.upstream}`}
-          className={
-            index > 0
-              ? "inline-flex items-center gap-1.5 text-muted-foreground"
-              : "inline-flex items-center gap-1.5"
-          }
-        >
-          {index > 0 && <span>then</span>}
-          <ProviderMark kind={target.kind} className="size-3.5 shrink-0" />
-          {target.provider}
-          {target.upstream !== route.model.name && (
-            <span className="font-mono text-2xs text-muted-foreground">{target.upstream}</span>
-          )}
-        </span>
-      ))}
-    </span>
-  )
-}
-
-function Offered({ route }: { route: Route }) {
-  return route.offered ? (
-    <Badge variant="success" title="A profile or a Bot may name this model">
-      <Link2 aria-hidden />
-      Offered
-    </Badge>
-  ) : (
-    <span className="text-xs text-muted-foreground">—</span>
   )
 }
