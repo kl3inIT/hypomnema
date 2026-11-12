@@ -165,11 +165,7 @@ func (d *Daemon) applied(ctx context.Context, r nodeproto.Report, ack nodeproto.
 			return err
 		}
 
-		if err := d.runner.Start(ctx, h, d.worker(h.ID)); err != nil {
-			return d.worker(h.ID).finish(ctx, nodeproto.Finished{
-				Class: "start_failed", Summary: err.Error(), Exit: nodeproto.Exit{Kind: "not_started"},
-			})
-		}
+		d.start(h) //nolint:contextcheck // under Run's context, not the session's: a reconnect must not cut a setup short
 
 		return nil
 	case nodeproto.ReportQuestion:
@@ -192,6 +188,29 @@ func (d *Daemon) applied(ctx context.Context, r nodeproto.Report, ack nodeproto.
 	default:
 		return nil
 	}
+}
+
+// start runs the worker of an accepted Dispatch away from the session loop:
+// making its worktree fetches the repository and runs its setup script, which
+// may take minutes, and the loop must keep reading, beating and renewing
+// leases meanwhile (issue #218; Omnara starts an accepted process in a worker
+// goroutine, client_socket.go launchWorker). It runs under Run's context, not
+// the session's, so a reconnect does not cut a setup short; a Runner keeps
+// its worker apart from either.
+func (d *Daemon) start(h statedb.Dispatch) {
+	ctx := d.base
+
+	d.starting.Go(func() {
+		if err := d.runner.Start(ctx, h, d.worker(h.ID)); err != nil {
+			if err := d.worker(h.ID).finish(ctx, nodeproto.Finished{
+				Class: "start_failed", Summary: err.Error(), Exit: nodeproto.Exit{Kind: "not_started"},
+			}); err != nil {
+				d.logger.WarnContext(ctx, "reporting a failed start",
+					slog.String("event", "node.start_report_failed"), slog.String("dispatch_id", h.ID),
+					slog.String("error", err.Error()))
+			}
+		}
+	})
 }
 
 // beat acts on a lease renewal's answer: a stop requested, answers waiting.

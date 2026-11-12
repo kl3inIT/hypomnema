@@ -60,10 +60,11 @@ type Reporter interface {
 	Stopped(ctx context.Context) error
 }
 
-// Runner runs workers. Its methods return quickly; what a worker does comes
-// back through its Reporter.
+// Runner runs workers. Its methods return quickly, but for Start; what a
+// worker does comes back through its Reporter.
 type Runner interface {
-	// Start runs the worker of an accepted Dispatch.
+	// Start runs the worker of an accepted Dispatch. It may take minutes, as
+	// it makes the worktree first; the daemon calls it on its own goroutine.
 	Start(ctx context.Context, d statedb.Dispatch, r Reporter) error
 	// Adopt takes back a Dispatch whose worker may still run, after the
 	// daemon restarted or the outcome was marked unknown.
@@ -123,6 +124,8 @@ type Daemon struct {
 	base context.Context //nolint:containedctx // set once by Run, read by goroutines Run owns
 	// tools has the tools the control plane names installed; nil when the node installs none.
 	tools *toolWatch
+	// starting holds the workers being started; Run waits for them before it returns.
+	starting sync.WaitGroup
 }
 
 // New returns a Daemon.
@@ -156,6 +159,15 @@ func (d *Daemon) ReleaseURL() string {
 // Run keeps the node connected until ctx ends or the token is refused.
 func (d *Daemon) Run(ctx context.Context) error {
 	d.base = ctx
+	err := d.run(ctx)
+
+	// A worker being started ends its start with ctx; its report waits in the outbox.
+	d.starting.Wait()
+
+	return err
+}
+
+func (d *Daemon) run(ctx context.Context) error {
 	wait := backoffMin
 
 	if d.hosts != nil {

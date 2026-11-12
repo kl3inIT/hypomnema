@@ -1051,7 +1051,10 @@ Node (`internal/node`):
   `wait-for-setup`, here always: nobody watches a headless worker that starts before its tools exist). It may run
   120 seconds, then its process group is killed. A script that fails, runs out of time or cannot be read is written
   to the node's log with the end of its output, and the worker starts all the same, as in Orca. A worktree that is
-  reused (a continued Conversation) is not set up again. This repository's script (`deploy/worker/setup.sh`) puts
+  reused (a continued Conversation) is not set up again. The daemon starts an accepted worker, fetch and setup
+  included, on a goroutine of its own, so the session keeps reading, beating and renewing leases while a script runs
+  (issue #218; Omnara's `launchWorker`); it runs under the daemon's context, so a reconnect does not cut it short.
+  This repository's script (`deploy/worker/setup.sh`) puts
   Go at the version `go.mod` names under `$HOME/.local/go` on a Linux machine that lacks it, checked against the
   SHA-256 Go publishes. Not built: the script's failure in the transcript, asking the owner before a script runs
   the first time (Orca), and putting what it installed on the worker's `PATH`.
