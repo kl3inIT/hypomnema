@@ -130,7 +130,7 @@ export function ChatTabs({
                 >
                   <Plus />
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="start">
+                <DropdownMenuContent align="start" width="content">
                   <DropdownMenuGroup>
                     <DropdownMenuLabel>Open new</DropdownMenuLabel>
                     <DropdownMenuItem onClick={() => openBrowser(chatId, ownerTab)}>
@@ -149,7 +149,7 @@ export function ChatTabs({
                             onClick={() => openBrowser(chatId, tab.id)}
                           >
                             <Globe />
-                            {tabName(tab)}
+                            <span className="truncate">{tabName(tab)}</span>
                           </DropdownMenuItem>
                         ))}
                       </DropdownMenuGroup>
