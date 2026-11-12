@@ -1154,7 +1154,26 @@ export type AccountLimitWindow = {
   resets_at?: string;
 };
 
+export type AccountLimitReset = {
+  /**
+   * The caller's id of this use; the same id again uses no second reset.
+   */
+  request_id: string;
+};
+
+export type AccountLimitResets = {
+  /**
+   * How many limit resets the account can use.
+   */
+  available: number;
+  /**
+   * When the one used next ends, when the vendor says.
+   */
+  expires_at?: string;
+};
+
 export type AccountLimits = {
+  resets?: AccountLimitResets;
   windows: Array<AccountLimitWindow>;
   /**
    * When the vendor gave this reading.
@@ -3653,6 +3672,33 @@ export type GetAccountLimitsResponses = {
 };
 
 export type GetAccountLimitsResponse = GetAccountLimitsResponses[keyof GetAccountLimitsResponses];
+
+export type RedeemAccountLimitResetData = {
+  body: AccountLimitReset;
+  path: {
+    account_id: string;
+  };
+  query?: never;
+  url: '/accounts/{account_id}/limits/reset';
+};
+
+export type RedeemAccountLimitResetErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type RedeemAccountLimitResetError = RedeemAccountLimitResetErrors[keyof RedeemAccountLimitResetErrors];
+
+export type RedeemAccountLimitResetResponses = {
+  /**
+   * The limits after the reset.
+   */
+  200: AccountLimits;
+};
+
+export type RedeemAccountLimitResetResponse = RedeemAccountLimitResetResponses[keyof RedeemAccountLimitResetResponses];
 
 export type ListGatewayModelsData = {
   body?: never;
