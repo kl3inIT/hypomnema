@@ -1593,6 +1593,38 @@ paths:
             application/gzip:
               schema: { type: string, format: binary }
         default: { $ref: "#/components/responses/Error" }
+  /skills/{skill}/revisions/{revision}/files:
+    parameters:
+      - $ref: "#/components/parameters/SkillName"
+      - name: revision
+        in: path
+        required: true
+        schema: { type: integer, minimum: 1 }
+    get:
+      operationId: ListSkillFiles
+      summary: The files of one revision of a skill, by path
+      responses:
+        "200":
+          description: The files.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SkillFileList" }
+        default: { $ref: "#/components/responses/Error" }
+  /built-in-skills:
+    get:
+      operationId: ListBuiltinSkills
+      summary: The skills the control plane's binary ships, by name
+      description: >-
+        They come with each release and cannot be removed. Each reaches an
+        agent by its own rule: the coordinator's every Bot, an Integration's an
+        agent given one of its accounts.
+      responses:
+        "200":
+          description: The skills.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/BuiltinSkillList" }
+        default: { $ref: "#/components/responses/Error" }
   /skills/{skill}/everyone:
     parameters:
       - $ref: "#/components/parameters/SkillName"
@@ -3463,6 +3495,35 @@ components:
           type: string
           description: The commit the ref was, for a repository.
         created_at: { type: string, format: date-time }
+    SkillFile:
+      type: object
+      required: [path, size, executable]
+      properties:
+        path: { type: string }
+        size:
+          type: integer
+          format: int64
+        executable: { type: boolean }
+    SkillFileList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/SkillFile" }
+    BuiltinSkill:
+      type: object
+      required: [name, description]
+      properties:
+        name: { type: string }
+        description: { type: string }
+    BuiltinSkillList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/BuiltinSkill" }
     SkillRef:
       type: object
       required: [name, revision, digest]

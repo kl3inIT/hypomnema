@@ -184,3 +184,57 @@ func (s *Server) GetSkillArchive(ctx context.Context, req openapi.GetSkillArchiv
 		Body: bytes.NewReader(archive), ContentLength: int64(len(archive)),
 	}, nil
 }
+
+// BuiltinSkill is a skill the control plane's binary ships.
+type BuiltinSkill struct {
+	Name        string
+	Description string
+}
+
+// WithBuiltinSkills says where the skills the binary ships are listed from.
+func (s *Server) WithBuiltinSkills(list func() ([]BuiltinSkill, error)) *Server {
+	s.builtinSkills = list
+
+	return s
+}
+
+// ListBuiltinSkills returns the skills the binary ships.
+func (s *Server) ListBuiltinSkills(_ context.Context, _ openapi.ListBuiltinSkillsRequestObject,
+) (openapi.ListBuiltinSkillsResponseObject, error) {
+	out := openapi.ListBuiltinSkills200JSONResponse{Data: []openapi.BuiltinSkill{}}
+	if s.builtinSkills == nil {
+		return out, nil
+	}
+
+	skills, err := s.builtinSkills()
+	if err != nil {
+		return nil, err
+	}
+
+	for _, sk := range skills {
+		out.Data = append(out.Data, openapi.BuiltinSkill{Name: sk.Name, Description: sk.Description})
+	}
+
+	return out, nil
+}
+
+// ListSkillFiles returns the files of one revision of a skill.
+func (s *Server) ListSkillFiles(ctx context.Context, req openapi.ListSkillFilesRequestObject,
+) (openapi.ListSkillFilesResponseObject, error) {
+	archive, err := s.svc.SkillArchive(ctx, req.Skill, req.Revision)
+	if err != nil {
+		return nil, err
+	}
+
+	sk, err := skillpack.FromArchive(archive)
+	if err != nil {
+		return nil, fmt.Errorf("reading skill %s revision %d: %w", req.Skill, req.Revision, err)
+	}
+
+	out := openapi.ListSkillFiles200JSONResponse{Data: make([]openapi.SkillFile, 0, len(sk.Files))}
+	for _, f := range sk.Files {
+		out.Data = append(out.Data, openapi.SkillFile{Path: f.Path, Size: int64(len(f.Data)), Executable: f.Exec})
+	}
+
+	return out, nil
+}

@@ -1301,6 +1301,25 @@ export type SkillRevision = {
   created_at: string;
 };
 
+export type SkillFile = {
+  path: string;
+  size: number;
+  executable: boolean;
+};
+
+export type SkillFileList = {
+  data: Array<SkillFile>;
+};
+
+export type BuiltinSkill = {
+  name: string;
+  description: string;
+};
+
+export type BuiltinSkillList = {
+  data: Array<BuiltinSkill>;
+};
+
 export type SkillRef = {
   name: string;
   revision: number;
@@ -4226,6 +4245,59 @@ export type GetSkillArchiveResponses = {
 };
 
 export type GetSkillArchiveResponse = GetSkillArchiveResponses[keyof GetSkillArchiveResponses];
+
+export type ListSkillFilesData = {
+  body?: never;
+  path: {
+    skill: string;
+    revision: number;
+  };
+  query?: never;
+  url: '/skills/{skill}/revisions/{revision}/files';
+};
+
+export type ListSkillFilesErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListSkillFilesError = ListSkillFilesErrors[keyof ListSkillFilesErrors];
+
+export type ListSkillFilesResponses = {
+  /**
+   * The files.
+   */
+  200: SkillFileList;
+};
+
+export type ListSkillFilesResponse = ListSkillFilesResponses[keyof ListSkillFilesResponses];
+
+export type ListBuiltinSkillsData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/built-in-skills';
+};
+
+export type ListBuiltinSkillsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListBuiltinSkillsError = ListBuiltinSkillsErrors[keyof ListBuiltinSkillsErrors];
+
+export type ListBuiltinSkillsResponses = {
+  /**
+   * The skills.
+   */
+  200: BuiltinSkillList;
+};
+
+export type ListBuiltinSkillsResponse = ListBuiltinSkillsResponses[keyof ListBuiltinSkillsResponses];
 
 export type SetSkillEveryoneData = {
   body: SkillEveryone;

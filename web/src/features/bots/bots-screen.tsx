@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router"
-import { Box, Brain, History, NotebookText } from "lucide-react"
+import { Brain, History, NotebookText } from "lucide-react"
 import { useState } from "react"
 
 import type { Bot } from "@/api/generated/types.gen"
@@ -8,6 +8,7 @@ import { AgentAvatar } from "@/features/agents/agent-avatar"
 import { effortLabel } from "@/features/agents/profiles-state"
 import { PageHeader } from "@/features/shell/app-shell"
 import { modelIsId } from "@/lib/model-name"
+import { ModelMark } from "@/features/agents/model-mark"
 import { since } from "@/lib/time"
 import { cn } from "@/lib/utils"
 
@@ -117,7 +118,8 @@ function BotCard({ bot }: { bot: Bot }) {
   const rows = [
     {
       name: "Model",
-      icon: <Box className="size-4 text-muted-foreground" aria-hidden />,
+      // The model's maker, as the Agents cards show it (memory of a model: its logo and full name).
+      icon: <ModelMark name={bot.model ?? ""} className="size-4" />,
       value: (
         <>
           <span className={cn("shrink-0 text-xs", modelIsId(bot.model) && "font-mono")}>
@@ -221,8 +223,11 @@ function BotsTable({ bots }: { bots: Bot[] }) {
                 </span>
               </td>
               <td className="px-3 py-2.5 whitespace-nowrap">
-                <span className={cn("text-xs", modelIsId(bot.model) && "font-mono")}>
-                  {modelLine(bot)}
+                <span className="inline-flex items-center gap-1.5">
+                  <ModelMark name={bot.model ?? ""} className="size-3.5 shrink-0" />
+                  <span className={cn("text-xs", modelIsId(bot.model) && "font-mono")}>
+                    {modelLine(bot)}
+                  </span>
                 </span>
                 {bot.provider && (
                   <span className="ms-1.5 text-xs text-muted-foreground">({bot.provider})</span>

@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
+	"github.com/kl3inIT/hypomnema/internal/shared/skillpack"
 )
 
 // Skills, after Orca's (skills/orchestration, `orca skills get|install`): the
@@ -309,4 +310,33 @@ func digest(b []byte) string {
 	sum := sha256.Sum256([]byte(strings.ReplaceAll(string(b), "\r\n", "\n")))
 
 	return hex.EncodeToString(sum[:])
+}
+
+// BuiltinSkill is a skill this binary ships, as the control plane lists it
+// beside the skills the owner added (issue #21).
+type BuiltinSkill struct {
+	Name        string
+	Description string
+}
+
+// BuiltinSkills are the skills this binary ships, by name: the coordinator's
+// and those of the Integrations' tools.
+func BuiltinSkills() ([]BuiltinSkill, error) {
+	var out []BuiltinSkill
+
+	for _, name := range skillNames() {
+		stub, err := skillFiles.ReadFile(path.Join("skills", name, "SKILL.md"))
+		if err != nil {
+			return nil, fmt.Errorf("reading the %s stub: %w", name, err)
+		}
+
+		_, description, err := skillpack.Frontmatter(stub)
+		if err != nil {
+			return nil, fmt.Errorf("the %s stub: %w", name, err)
+		}
+
+		out = append(out, BuiltinSkill{Name: name, Description: description})
+	}
+
+	return out, nil
 }

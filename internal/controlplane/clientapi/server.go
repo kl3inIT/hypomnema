@@ -86,6 +86,8 @@ type Server struct {
 	accountSignIns accountSignIns
 	// skillSources fetches a skill from a repository; nil when the control plane wired none.
 	skillSources SkillSources
+	// builtinSkills lists the skills the binary ships; nil when the control plane wired none.
+	builtinSkills func() ([]BuiltinSkill, error)
 }
 
 // Accounts is what the API asks of the service that signs subscription
