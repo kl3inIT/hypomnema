@@ -180,7 +180,7 @@ async function fakeServer(page: Page, start?: Account[]) {
 
     const [, kind, id, action] = path.split("/")
 
-    // A sign-in: claude asks for the address the browser ends on, codex shows a code and completes by itself.
+    // A sign-in: claude asks for the code its page shows, codex shows a code and completes by itself.
     if (kind === "account-sign-ins") {
       calls.push(call)
 
@@ -199,7 +199,7 @@ async function fakeServer(page: Page, start?: Account[]) {
       }
 
       const body = request.postDataJSON() as { callback?: string }
-      if (pending?.runtime === "claude" && !body.callback?.includes("code=xyz")) {
+      if (pending?.runtime === "claude" && body.callback !== "xyz#abc") {
         return json(
           { code: "invalid", message: "invalid request: the login did not complete: no code" },
           400,
@@ -218,6 +218,24 @@ async function fakeServer(page: Page, start?: Account[]) {
       accounts = [...accounts, made]
 
       return json(made)
+    }
+
+    // A Claude account from a pasted token, which is never answered.
+    if (kind === "accounts" && !id && request.method() === "POST") {
+      calls.push(call)
+
+      const body = request.postDataJSON() as { runtime: string; label: string; token: string }
+      const made: Account = {
+        id: `acc_${accounts.length + 1}`,
+        runtime: body.runtime,
+        label: body.label,
+        status: "active",
+        position: 9,
+        sign_in: "active",
+      }
+      accounts = [...accounts, made]
+
+      return json(made, 201)
     }
 
     if (kind === "accounts" && id && action === "move") {
@@ -420,9 +438,10 @@ test("an installation with no subscription says how to add one", async ({ page }
   await shot(page, "models-empty")
 })
 
-// Scenario: the owner adds a Claude account from the page. The dialog gives a link to Claude's own page and asks
-// for the address the browser ends on; a wrong address is refused and the dialog stays; the right one signs the
-// account in. A Codex account shows a code instead and the dialog closes by itself.
+// Scenario: the owner adds a Claude account from the page. Opening the dialog starts the sign-in, with no step
+// before it: the link to Claude's own page and the field for the code it shows are there at once. A wrong code is
+// refused and the owner starts again with a new link; the right one signs the account in, named by its e-mail.
+// Signing a Codex account in again shows a code instead, and the dialog closes by itself.
 test("the owner signs accounts in from the page", async ({ page }) => {
   const calls = await fakeServer(page)
   await page.goto("/settings/models")
@@ -433,45 +452,60 @@ test("the owner signs accounts in from the page", async ({ page }) => {
   // A toast is a dialog too; the sign-in dialog is found by its title.
   const dialog = page.getByRole("dialog", { name: /^(Add a .* account|Sign .* in again)$/ })
   await expect(dialog).toContainText("Add a Claude account")
-  await shot(page, "models-sign-in-start")
-
-  await dialog.getByLabel("Name").fill("team")
-  await dialog.getByRole("button", { name: "Continue" }).click()
-
   await expect(dialog.getByRole("link", { name: "Open Claude's sign-in page" })).toHaveAttribute(
     "href",
     "https://claude.example/sign-in",
   )
-  await dialog
-    .getByLabel("Address the browser ended on")
-    .fill("http://localhost:54545/callback?code=no")
+  await expect(dialog.getByLabel("Name")).toHaveCount(0)
+  await shot(page, "models-sign-in-start")
+
+  await dialog.getByLabel("2. Paste what the page gives back").fill("no#abc")
   await dialog.getByRole("button", { name: "Sign in" }).click()
   await expect(dialog.getByRole("alert")).toContainText("did not complete")
-  await shot(page, "models-sign-in-paste")
+  await shot(page, "models-sign-in-refused")
 
-  // A sign-in is completed once, so the owner starts it again.
-  await dialog.getByRole("button", { name: "Cancel" }).click()
-  await claude.getByRole("button", { name: "Add account" }).click()
-  await dialog.getByLabel("Name").fill("team")
-  await dialog.getByRole("button", { name: "Continue" }).click()
-  await dialog
-    .getByLabel("Address the browser ended on")
-    .fill("http://localhost:54545/callback?code=xyz&state=abc")
+  // A sign-in is completed once, so the owner starts it again with a new link.
+  await dialog.getByRole("button", { name: "Start again" }).click()
+  await dialog.getByLabel("2. Paste what the page gives back").fill("xyz#abc")
   await dialog.getByRole("button", { name: "Sign in" }).click()
 
   await expect(dialog).toHaveCount(0)
-  await expect(claude.getByLabel("Claude account team")).toBeVisible()
-  await expect(page.getByText("Claude account team is signed in")).toBeVisible()
+  await expect(claude.getByLabel("Claude account owner@example.com")).toBeVisible()
+  await expect(page.getByText("Claude account owner@example.com is signed in")).toBeVisible()
 
   const codex = card(page, "Codex")
+  // Codex gives a code; the vendor here answers at once, so the dialog closes by itself.
   await codex.getByRole("button", { name: "Sign old in again" }).click()
-  await expect(dialog).toContainText("Sign old in again")
-  // An account that is there keeps its name: there is none to give.
-  await expect(dialog.getByLabel("Name")).toHaveCount(0)
-  await dialog.getByRole("button", { name: "Continue" }).click()
-
+  await expect(page.getByText("Codex account owner@example.com is signed in")).toBeVisible()
   await expect(dialog).toHaveCount(0)
   expect(calls.filter((c) => c === "POST /account-sign-ins")).toHaveLength(3)
+})
+
+// Scenario: the owner adds a Claude account with the token `claude setup-token` prints, which lasts a year. A token
+// names no e-mail, so the name is asked; a token with a space is refused before it is sent.
+test("the owner adds a Claude account by pasting a token", async ({ page }) => {
+  const calls = await fakeServer(page)
+  await page.goto("/settings/models")
+
+  const claude = card(page, "Claude")
+  await claude.getByRole("button", { name: "Add account" }).click()
+
+  const dialog = page.getByRole("dialog", { name: /^(Add a .* account|Sign .* in again)$/ })
+  await dialog.getByRole("tab", { name: "Paste a token" }).click()
+  await expect(dialog).toContainText("claude setup-token")
+
+  await dialog.getByLabel("Name").fill("personal")
+  await dialog.getByLabel("Token").fill("two words")
+  await dialog.getByRole("button", { name: "Add account" }).click()
+  await expect(dialog).toContainText("one line without spaces")
+  await shot(page, "models-paste-token")
+
+  await dialog.getByLabel("Token").fill("sk-ant-oat01-made-up")
+  await dialog.getByRole("button", { name: "Add account" }).click()
+
+  await expect(dialog).toHaveCount(0)
+  await expect(claude.getByLabel("Claude account personal")).toBeVisible()
+  expect(calls).toContain("POST /accounts")
 })
 
 // A sign-in with a code shows the code while the server waits for the vendor.
@@ -485,11 +519,11 @@ test("a sign-in with a code shows the code to enter", async ({ page }) => {
 
   // A toast is a dialog too; the sign-in dialog is found by its title.
   const dialog = page.getByRole("dialog", { name: /^(Add a .* account|Sign .* in again)$/ })
-  await dialog.getByRole("button", { name: "Continue" }).click()
 
   await expect(dialog.getByTestId("user-code")).toHaveText("ABCD-1234")
   await expect(dialog).toContainText("Waiting for you to enter it")
   await expect(dialog.getByRole("button", { name: "Sign in" })).toHaveCount(0)
+  await expect(dialog.getByRole("tab", { name: "Paste a token" })).toHaveCount(0)
   await shot(page, "models-sign-in-code")
 })
 

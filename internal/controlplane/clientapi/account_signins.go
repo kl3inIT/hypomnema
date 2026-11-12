@@ -151,6 +151,31 @@ func (s *Server) CompleteAccountSignIn(ctx context.Context, req openapi.Complete
 	return openapi.CompleteAccountSignIn200JSONResponse(toAccount(a)), nil
 }
 
+// AddTokenAccount keeps an account from the token of `claude setup-token`
+// the owner pastes (issue #199): the other way to add a Claude account,
+// beside signing in, as 9router's dialog has "Paste token" beside its browser
+// sign-in (OAuthModal.js) and OpenClaw has `models auth paste-token`. The
+// token is not logged and never answered.
+func (s *Server) AddTokenAccount(ctx context.Context, req openapi.AddTokenAccountRequestObject,
+) (openapi.AddTokenAccountResponseObject, error) {
+	if s.tokenAccounts == nil {
+		return nil, fmt.Errorf("%w: a pasted token is kept in the vault, which has no key here",
+			orchestration.ErrUnavailable)
+	}
+
+	id, err := s.tokenAccounts.Add(ctx, string(req.Body.Runtime), req.Body.Label, val(req.Body.Token))
+	if err != nil {
+		return nil, err
+	}
+
+	a, err := s.account(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	return openapi.AddTokenAccount201JSONResponse(a), nil
+}
+
 // MoveAccount moves an account one place among the accounts of its runtime:
 // the gateway and placement take the first that can serve (9router moves a
 // connection up and down the same way, providers/[id]/page.js).

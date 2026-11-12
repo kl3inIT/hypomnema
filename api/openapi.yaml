@@ -1182,6 +1182,26 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/AccountList" }
         default: { $ref: "#/components/responses/Error" }
+    post:
+      operationId: AddTokenAccount
+      summary: Keep an account from a token the owner pastes; only the owner
+      description: >-
+        The token is the one `claude setup-token` prints, which lasts a year.
+        It is sealed in the vault and never answered; the gateway serves with
+        it and a node gets it for a worker. Its limits may not be readable,
+        as the token can only call models.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewTokenAccount" }
+      responses:
+        "201":
+          description: The account.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Account" }
+        default: { $ref: "#/components/responses/Error" }
   /account-sign-ins:
     post:
       operationId: BeginAccountSignIn
@@ -3150,6 +3170,26 @@ components:
           type: string
           format: date-time
           description: When the access token ends, when that is known; it is renewed before then.
+    NewTokenAccount:
+      type: object
+      required: [runtime, label, token]
+      additionalProperties: false
+      properties:
+        runtime:
+          type: string
+          enum: [claude]
+          description: The kind of subscription; only Claude gives a token to paste.
+        label:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: The account's name for the owner; a token names no e-mail.
+        token:
+          type: string
+          minLength: 1
+          maxLength: 4096
+          writeOnly: true
+          description: The token `claude setup-token` prints, one line.
     NewAccountSignIn:
       type: object
       required: [runtime]

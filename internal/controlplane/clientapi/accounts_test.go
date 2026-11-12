@@ -356,12 +356,13 @@ func TestTheOwnerSignsAccountsInFromTheModelsPage(t *testing.T) {
 	owner, _ := w.token("web", bearertoken.Owner)
 	pi, _ := w.token("pi", bearertoken.Coordinator)
 
-	refused, err := pi.BeginAccountSignInWithResponse(ctx, openapi.NewAccountSignIn{Runtime: openapi.Claude})
+	refused, err := pi.BeginAccountSignInWithResponse(ctx,
+		openapi.NewAccountSignIn{Runtime: openapi.NewAccountSignInRuntimeClaude})
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusForbidden, refused.StatusCode())
 
 	label := "work"
-	claude := openapi.NewAccountSignIn{Runtime: openapi.Claude, Label: &label}
+	claude := openapi.NewAccountSignIn{Runtime: openapi.NewAccountSignInRuntimeClaude, Label: &label}
 
 	begun, err := owner.BeginAccountSignInWithResponse(ctx, claude)
 	require.NoError(t, err)
@@ -401,7 +402,8 @@ func TestTheOwnerSignsAccountsInFromTheModelsPage(t *testing.T) {
 	assert.Equal(t, "claude", done.JSON200.Runtime)
 	assert.Equal(t, openapi.AccountSignInActive, val(done.JSON200.SignIn))
 
-	coded, err := owner.BeginAccountSignInWithResponse(ctx, openapi.NewAccountSignIn{Runtime: openapi.Codex})
+	coded, err := owner.BeginAccountSignInWithResponse(ctx,
+		openapi.NewAccountSignIn{Runtime: openapi.NewAccountSignInRuntimeCodex})
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, coded.StatusCode(), string(coded.Body))
 	assert.False(t, coded.JSON200.Paste)

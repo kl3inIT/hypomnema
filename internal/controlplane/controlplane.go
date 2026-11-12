@@ -315,6 +315,9 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		WithSecrets(ownerSecrets{vault: secrets, referrers: referrers}).
 		WithIntegrations(integrations).WithApprovals(proxy).WithRelay(proxy).WithLarkChannels(larkSettings).
 		WithSkillSources(skillsource.NewGitHub(&http.Client{Timeout: 2 * time.Minute}))
+	if cfg.VaultKeys != nil {
+		api.WithTokenAccounts(accountTokens{svc: svc, vault: secrets, logger: logger})
+	}
 	if !cfg.BrowserOff {
 		api.WithBrowser(ownersBrowser{shared})
 	}
