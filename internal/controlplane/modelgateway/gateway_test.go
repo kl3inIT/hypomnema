@@ -263,6 +263,61 @@ func TestListModelsOverHTTP(t *testing.T) {
 // for the Dispatch's model and no other; an offer sent again brings a new key
 // and the old one stops; when the Dispatch settles none of its keys works,
 // and the owner's keys are untouched.
+// Scenario: pi is started for a chat, started again, and the control plane
+// restarts. Each pi has a key of its own, good for its Bot's model; the key
+// of the pi before stops working; a restart ends every chat's key and leaves
+// the owner's and a worker's alone.
+func TestAChatsPiHasAKeyOfItsOwn(t *testing.T) {
+	t.Parallel()
+
+	g := newGateway(t)
+	ctx := t.Context()
+
+	_, owner, err := g.AddKey(ctx, "laptop", nil)
+	require.NoError(t, err)
+
+	worker, err := g.AddDispatchKey(ctx, "dsp_1", "gpt-sol")
+	require.NoError(t, err)
+
+	made, first, err := g.AddChatKey(ctx, "cht_1", "gpt-sol")
+	require.NoError(t, err)
+
+	k, err := g.Authenticate(ctx, first)
+	require.NoError(t, err)
+	assert.Equal(t, made.ID, k.ID)
+	assert.Equal(t, "cht_1", k.ChatID)
+	assert.True(t, k.Allows("gpt-sol"))
+	assert.False(t, k.Allows("small"), "the key is for the Bot's model")
+
+	_, second, err := g.AddChatKey(ctx, "cht_1", "small")
+	require.NoError(t, err)
+
+	_, err = g.Authenticate(ctx, first)
+	require.ErrorIs(t, err, modelgateway.ErrUnauthorized, "only the key of the pi that runs now works")
+
+	_, open, err := g.AddChatKey(ctx, "cht_2", "")
+	require.NoError(t, err)
+
+	k, err = g.Authenticate(ctx, open)
+	require.NoError(t, err)
+	assert.True(t, k.Allows("small"), "a Bot that names no model uses pi's default, whichever it is")
+
+	_, _, err = g.AddChatKey(ctx, "", "gpt-sol")
+	require.ErrorIs(t, err, modelgateway.ErrInvalid)
+
+	require.NoError(t, g.RevokeAllChatKeys(ctx))
+
+	for _, secret := range []string{second, open} {
+		_, err = g.Authenticate(ctx, secret)
+		require.ErrorIs(t, err, modelgateway.ErrUnauthorized)
+	}
+
+	for _, secret := range []string{owner, worker} {
+		_, err = g.Authenticate(ctx, secret)
+		require.NoError(t, err, "a restart ends the keys of chats only")
+	}
+}
+
 func TestADispatchHasAKeyOfItsOwn(t *testing.T) {
 	t.Parallel()
 

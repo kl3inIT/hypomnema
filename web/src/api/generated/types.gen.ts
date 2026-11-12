@@ -1124,6 +1124,10 @@ export type ChatToolActivity = {
   };
 };
 
+export type ChatGatewayKey = {
+  key: string;
+};
+
 export type ChatState = {
   working: boolean;
 };
@@ -3444,6 +3448,33 @@ export type AbortChatResponses = {
 };
 
 export type AbortChatResponse = AbortChatResponses[keyof AbortChatResponses];
+
+export type GetChatGatewayKeyData = {
+  body?: never;
+  path: {
+    chat_id: string;
+  };
+  query?: never;
+  url: '/chats/{chat_id}/gateway-key';
+};
+
+export type GetChatGatewayKeyErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GetChatGatewayKeyError = GetChatGatewayKeyErrors[keyof GetChatGatewayKeyErrors];
+
+export type GetChatGatewayKeyResponses = {
+  /**
+   * The key.
+   */
+  200: ChatGatewayKey;
+};
+
+export type GetChatGatewayKeyResponse = GetChatGatewayKeyResponses[keyof GetChatGatewayKeyResponses];
 
 export type ListChatMessagesData = {
   body?: never;

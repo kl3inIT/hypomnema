@@ -93,6 +93,8 @@ type Coordinator interface {
 	Watch(chatID string) (frames <-chan coordinator.Frame, stop func())
 	// Abort asks pi to stop its current turn in the chat.
 	Abort(ctx context.Context, chatID string) error
+	// Key returns the model gateway's key of the chat's running pi.
+	Key(chatID string) (string, bool)
 }
 
 // WithCoordinator lets chats report whether pi is working on them.

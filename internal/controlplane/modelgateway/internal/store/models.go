@@ -16,6 +16,7 @@ type GatewayKey struct {
 	CreatedAt  int64
 	RevokedAt  sql.NullInt64
 	DispatchID sql.NullString
+	ChatID     sql.NullString
 }
 
 type GatewayModel struct {

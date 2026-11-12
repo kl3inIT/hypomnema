@@ -121,7 +121,10 @@ var policies = map[string]policy{
 	"ListChatMessages":            {scope: scopeOwner, long: true},
 	"StreamChat":                  {scope: scopeOwner, long: true},
 	"AbortChat":                   {scope: scopeOwner},
-	"SendChatMessage":             {scope: scopeOwner},
+	// pi reads its own key with its coordinator token (issue #204). The chat's id is what a caller must know:
+	// chats are listed for the owner only.
+	"GetChatGatewayKey": {},
+	"SendChatMessage":   {scope: scopeOwner},
 }
 
 var (

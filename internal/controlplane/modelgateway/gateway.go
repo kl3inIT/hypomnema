@@ -94,8 +94,10 @@ type Key struct {
 	Models []string
 	// DispatchID is set on a key made for one Dispatch.
 	DispatchID string
-	CreatedAt  time.Time
-	RevokedAt  *time.Time
+	// ChatID is set on a key made for one chat's pi.
+	ChatID    string
+	CreatedAt time.Time
+	RevokedAt *time.Time
 }
 
 // Allows reports whether the key may use a model.
@@ -341,7 +343,7 @@ func (s *Service) AddKey(ctx context.Context, name string, models []string) (Key
 		}
 	}
 
-	return s.addKey(ctx, name, models, "")
+	return s.addKey(ctx, name, models, keyOwner{})
 }
 
 // AddDispatchKey makes the key a Dispatch's worker calls the gateway with,
@@ -355,9 +357,42 @@ func (s *Service) AddDispatchKey(ctx context.Context, dispatchID, model string) 
 	// The name is only for the owner's list; the dispatch is what finds the key.
 	name := strings.ToLower(strings.ReplaceAll(s.newID("dispatch"), "_", "-"))
 
-	_, secret, err := s.addKey(ctx, name, []string{model}, dispatchID)
+	_, secret, err := s.addKey(ctx, name, []string{model}, keyOwner{dispatchID: dispatchID})
 
 	return secret, err
+}
+
+// AddChatKey makes the key a chat's pi calls the gateway with and returns
+// it with its secret (issue #204). It is good for model, or for every model
+// when model is empty: a Bot that names no model uses pi's own default. A
+// key made earlier for the chat stops working: a pi started again gets a
+// new one.
+func (s *Service) AddChatKey(ctx context.Context, chatID, model string) (Key, string, error) {
+	if chatID == "" || (model != "" && !modelNamePattern.MatchString(model)) {
+		return Key{}, "", fmt.Errorf("%w: a chat's key needs the chat, and a model name when it names one", ErrInvalid)
+	}
+
+	models := []string{AllModels}
+	if model != "" {
+		models = []string{model}
+	}
+
+	// The name is only for the owner's list; the chat is what finds the key.
+	name := strings.ToLower(strings.ReplaceAll(s.newID("chat"), "_", "-"))
+
+	return s.addKey(ctx, name, models, keyOwner{chatID: chatID})
+}
+
+// RevokeAllChatKeys stops the key of every chat from working. The control
+// plane calls it as it starts: no pi outlives it, so none is left to use one.
+func (s *Service) RevokeAllChatKeys(ctx context.Context) error {
+	return s.write(ctx, func(q *store.Queries, now int64) error {
+		if _, err := q.RevokeGatewayChatKeys(ctx, sql.NullInt64{Int64: now, Valid: true}); err != nil {
+			return fmt.Errorf("revoking the keys of chats: %w", err)
+		}
+
+		return nil
+	})
 }
 
 // RevokeDispatchKeys stops every key of a Dispatch from working; none is no error.
@@ -389,7 +424,14 @@ func (s *Service) DispatchesWithKeys(ctx context.Context) ([]string, error) {
 	return out, nil
 }
 
-func (s *Service) addKey(ctx context.Context, name string, models []string, dispatchID string) (Key, string, error) {
+// keyOwner is what a key was made for, when it is not the owner's own: one
+// Dispatch or one chat. Its earlier keys end as the new one is made.
+type keyOwner struct {
+	dispatchID string
+	chatID     string
+}
+
+func (s *Service) addKey(ctx context.Context, name string, models []string, owner keyOwner) (Key, string, error) {
 	secret, err := bearertoken.Generate(bearertoken.Gateway)
 	if err != nil {
 		return Key{}, "", err
@@ -403,17 +445,27 @@ func (s *Service) addKey(ctx context.Context, name string, models []string, disp
 	id := s.newID("gwk")
 
 	err = s.write(ctx, func(q *store.Queries, now int64) error {
-		if dispatchID != "" {
+		if owner.dispatchID != "" {
 			if _, err := q.RevokeGatewayKeysOfDispatch(ctx, store.RevokeGatewayKeysOfDispatchParams{
-				Now: sql.NullInt64{Int64: now, Valid: true}, DispatchID: sql.NullString{String: dispatchID, Valid: true},
+				Now:        sql.NullInt64{Int64: now, Valid: true},
+				DispatchID: sql.NullString{String: owner.dispatchID, Valid: true},
 			}); err != nil {
-				return fmt.Errorf("revoking the earlier keys of dispatch %s: %w", dispatchID, err)
+				return fmt.Errorf("revoking the earlier keys of dispatch %s: %w", owner.dispatchID, err)
+			}
+		}
+
+		if owner.chatID != "" {
+			if _, err := q.RevokeGatewayKeysOfChat(ctx, store.RevokeGatewayKeysOfChatParams{
+				Now: sql.NullInt64{Int64: now, Valid: true}, ChatID: sql.NullString{String: owner.chatID, Valid: true},
+			}); err != nil {
+				return fmt.Errorf("revoking the earlier keys of chat %s: %w", owner.chatID, err)
 			}
 		}
 
 		if err := q.InsertGatewayKey(ctx, store.InsertGatewayKeyParams{
 			ID: id, Name: name, KeyHash: bearertoken.Hash(secret), Models: string(encoded),
-			DispatchID: sql.NullString{String: dispatchID, Valid: dispatchID != ""}, Now: now,
+			DispatchID: sql.NullString{String: owner.dispatchID, Valid: owner.dispatchID != ""},
+			ChatID:     sql.NullString{String: owner.chatID, Valid: owner.chatID != ""}, Now: now,
 		}); err != nil {
 			return fmt.Errorf("%w: storing key %q: %w", ErrConflict, name, err)
 		}
@@ -527,7 +579,7 @@ func keyFromRow(r store.GatewayKey) (Key, error) {
 	}
 
 	k := Key{
-		ID: r.ID, Name: r.Name, Models: models, DispatchID: r.DispatchID.String,
+		ID: r.ID, Name: r.Name, Models: models, DispatchID: r.DispatchID.String, ChatID: r.ChatID.String,
 		CreatedAt: time.UnixMilli(r.CreatedAt).UTC(),
 	}
 

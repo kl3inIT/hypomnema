@@ -77,9 +77,11 @@ func Commands() []string {
 // env is what a command runs with.
 type env struct {
 	home string
-	in   io.Reader
-	out  io.Writer
-	api  *openapi.ClientWithResponses
+	// url is the control plane's address, without the API's path.
+	url string
+	in  io.Reader
+	out io.Writer
+	api *openapi.ClientWithResponses
 }
 
 // Command runs one client command with the configuration in home.
@@ -113,6 +115,8 @@ func Command(ctx context.Context, home string, args []string, in io.Reader, out 
 		if e.api, err = newClient(cfg); err != nil {
 			return err
 		}
+
+		e.url = cfg.URL
 	}
 
 	return c.run(ctx, e, fs)

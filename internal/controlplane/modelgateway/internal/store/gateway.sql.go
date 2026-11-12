@@ -32,7 +32,7 @@ func (q *Queries) DeleteGatewayModelTargets(ctx context.Context, model string) e
 }
 
 const getGatewayKey = `-- name: GetGatewayKey :one
-SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id FROM gateway_keys WHERE id = ?1
+SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id FROM gateway_keys WHERE id = ?1
 `
 
 func (q *Queries) GetGatewayKey(ctx context.Context, id string) (GatewayKey, error) {
@@ -46,12 +46,13 @@ func (q *Queries) GetGatewayKey(ctx context.Context, id string) (GatewayKey, err
 		&i.CreatedAt,
 		&i.RevokedAt,
 		&i.DispatchID,
+		&i.ChatID,
 	)
 	return i, err
 }
 
 const getGatewayKeyByHash = `-- name: GetGatewayKeyByHash :one
-SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id FROM gateway_keys WHERE key_hash = ?1
+SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id FROM gateway_keys WHERE key_hash = ?1
 `
 
 func (q *Queries) GetGatewayKeyByHash(ctx context.Context, keyHash string) (GatewayKey, error) {
@@ -65,6 +66,7 @@ func (q *Queries) GetGatewayKeyByHash(ctx context.Context, keyHash string) (Gate
 		&i.CreatedAt,
 		&i.RevokedAt,
 		&i.DispatchID,
+		&i.ChatID,
 	)
 	return i, err
 }
@@ -87,8 +89,8 @@ func (q *Queries) GetGatewayModel(ctx context.Context, name string) (GatewayMode
 }
 
 const insertGatewayKey = `-- name: InsertGatewayKey :exec
-INSERT INTO gateway_keys (id, name, key_hash, models, dispatch_id, created_at)
-VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+INSERT INTO gateway_keys (id, name, key_hash, models, dispatch_id, chat_id, created_at)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
 `
 
 type InsertGatewayKeyParams struct {
@@ -97,6 +99,7 @@ type InsertGatewayKeyParams struct {
 	KeyHash    string
 	Models     string
 	DispatchID sql.NullString
+	ChatID     sql.NullString
 	Now        int64
 }
 
@@ -107,6 +110,7 @@ func (q *Queries) InsertGatewayKey(ctx context.Context, arg InsertGatewayKeyPara
 		arg.KeyHash,
 		arg.Models,
 		arg.DispatchID,
+		arg.ChatID,
 		arg.Now,
 	)
 	return err
@@ -211,7 +215,7 @@ func (q *Queries) ListDispatchesWithGatewayKeys(ctx context.Context) ([]sql.Null
 }
 
 const listGatewayKeys = `-- name: ListGatewayKeys :many
-SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id FROM gateway_keys ORDER BY name
+SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id FROM gateway_keys ORDER BY name
 `
 
 func (q *Queries) ListGatewayKeys(ctx context.Context) ([]GatewayKey, error) {
@@ -231,6 +235,7 @@ func (q *Queries) ListGatewayKeys(ctx context.Context) ([]GatewayKey, error) {
 			&i.CreatedAt,
 			&i.RevokedAt,
 			&i.DispatchID,
+			&i.ChatID,
 		); err != nil {
 			return nil, err
 		}
@@ -408,6 +413,18 @@ func (q *Queries) ListGatewayUsage(ctx context.Context, rowLimit int64) ([]ListG
 	return items, nil
 }
 
+const revokeGatewayChatKeys = `-- name: RevokeGatewayChatKeys :execrows
+UPDATE gateway_keys SET revoked_at = ?1 WHERE chat_id IS NOT NULL AND revoked_at IS NULL
+`
+
+func (q *Queries) RevokeGatewayChatKeys(ctx context.Context, now sql.NullInt64) (int64, error) {
+	result, err := q.db.ExecContext(ctx, revokeGatewayChatKeys, now)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const revokeGatewayKey = `-- name: RevokeGatewayKey :execrows
 UPDATE gateway_keys SET revoked_at = ?1 WHERE id = ?2 AND revoked_at IS NULL
 `
@@ -419,6 +436,23 @@ type RevokeGatewayKeyParams struct {
 
 func (q *Queries) RevokeGatewayKey(ctx context.Context, arg RevokeGatewayKeyParams) (int64, error) {
 	result, err := q.db.ExecContext(ctx, revokeGatewayKey, arg.Now, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+const revokeGatewayKeysOfChat = `-- name: RevokeGatewayKeysOfChat :execrows
+UPDATE gateway_keys SET revoked_at = ?1 WHERE chat_id = ?2 AND revoked_at IS NULL
+`
+
+type RevokeGatewayKeysOfChatParams struct {
+	Now    sql.NullInt64
+	ChatID sql.NullString
+}
+
+func (q *Queries) RevokeGatewayKeysOfChat(ctx context.Context, arg RevokeGatewayKeysOfChatParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, revokeGatewayKeysOfChat, arg.Now, arg.ChatID)
 	if err != nil {
 		return 0, err
 	}

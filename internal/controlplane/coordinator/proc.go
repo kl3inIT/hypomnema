@@ -22,6 +22,10 @@ type proc struct {
 	cmd    *exec.Cmd
 	stdin  io.WriteCloser
 	done   chan struct{}
+	// keyID and key are the model gateway's key this pi asks for; empty when
+	// the supervisor makes none.
+	keyID string
+	key   string
 
 	mu         sync.Mutex
 	working    bool
@@ -39,9 +43,15 @@ type response struct {
 	Data    json.RawMessage `json:"data"`
 }
 
+// gatewayKey is the model gateway's key made for one pi.
+type gatewayKey struct {
+	id     string
+	secret string
+}
+
 // start runs the configured command with the chat id and turns pi's own
-// retries off.
-func start(ctx context.Context, s *Supervisor, chatID string, modelArgs []string) (*proc, error) {
+// retries off. The key is held with the process and ends with it.
+func start(ctx context.Context, s *Supervisor, chatID string, modelArgs []string, key gatewayKey) (*proc, error) {
 	argv := append(append(append([]string{}, s.cfg.Command...), chatID), modelArgs...)
 	//nolint:gosec // the owner's configured command
 	cmd := exec.CommandContext(context.WithoutCancel(ctx), argv[0], argv[1:]...)
@@ -68,6 +78,7 @@ func start(ctx context.Context, s *Supervisor, chatID string, modelArgs []string
 
 	p := &proc{
 		s: s, chatID: chatID, cmd: cmd, stdin: stdin, done: make(chan struct{}), lastActive: time.Now(),
+		keyID: key.id, key: key.secret,
 		waiting: map[string]chan response{}, calls: map[string]json.RawMessage{},
 	}
 
@@ -161,6 +172,7 @@ func (p *proc) read(ctx context.Context, stdout io.Reader) {
 
 		p.setWorking(false)
 		close(p.done)
+		p.s.revoke(ctx, p.chatID, p.keyID)
 		p.s.cfg.Logger.InfoContext(ctx, "pi exited", slog.String("event", "coordinator.exited"),
 			slog.String("chat_id", p.chatID), slog.String("stderr", p.stderrTail()))
 		p.s.settled()

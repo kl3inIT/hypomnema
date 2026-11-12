@@ -262,7 +262,14 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		AntigravityBaseURL: cfg.AntigravityBaseURL,
 	}).Register(mux)
 
-	sup := coordinator.New(svc, coordinator.Config{Command: cfg.CoordinatorCommand, Logger: logger})
+	// No pi outlives the control plane, so a chat's key left from an earlier run has nobody to use it (issue #204).
+	if err := gateway.RevokeAllChatKeys(ctx); err != nil {
+		return fmt.Errorf("ending the gateway keys of earlier chats: %w", err)
+	}
+
+	sup := coordinator.New(svc, coordinator.Config{
+		Command: cfg.CoordinatorCommand, Keys: chatKeys{gateway: gateway}, Logger: logger,
+	})
 
 	// The Lark Channels (issues #136 and #169): their settings read each app's secret from the vault, and a
 	// Channel opens its connection through them.

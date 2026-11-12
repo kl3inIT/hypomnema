@@ -30,9 +30,7 @@ its arguments and result (at most 16 KiB). Text as pi writes it, tools starting 
 the chat's watchers from memory only and are never stored; `abort` stops pi's turn. On
 the server pi runs as the `coordinator` user through `deploy/coordinator/`: a root-owned launcher (`hypomnema-pi`,
 a clean environment, only a chat id, a Bot's name and model flags), one sudoers rule limited to it, the instructions
-every Bot gets, a
-`models.json` that names the model gateway (`/v1` of the control plane) and reads pi's gateway key from a 0600
-file, pi's version with its lockfile (`package.json`, which Dependabot
+every Bot gets, pi's version with its lockfile (`package.json`, which Dependabot
 updates; the setup installs it with `npm ci`), and the setup script the owner runs with sudo.
 Logs are JSON on stdout; `serve` stops on SIGINT or SIGTERM and lets requests in flight finish. `/readyz` answers 503
 with `Retry-After` while the database does not answer.
@@ -627,6 +625,20 @@ Claude subscriptions. Other provider formats and other capabilities do not exist
   made as its offer is sent to the node, good for the Dispatch's model only, carried in the offer (`model_key`). An
   offer sent again carries a new key and the earlier one stops. The control plane revokes a Dispatch's keys when the
   Dispatch settles, looked for at every commit of orchestration and every minute. The Codex runner uses it.
+- A chat's pi gets a key of its own too (issue #204, after Omnigent, whose pi asks the process that started it):
+  - The coordinator's supervisor asks for it as it starts pi for the chat (`AddChatKey`): good for the Bot's model,
+    or for every model when the Bot names none. Its value stays in the supervisor's memory with that process; the
+    row records the chat (`gateway_keys.chat_id`). A key made earlier for the chat stops as the new one is made.
+  - The key is revoked when that pi exits or is stopped, and every chat's key is revoked as the control plane
+    starts, since no pi outlives it.
+  - pi reads it at each model request: the `apiKey` of its `models.json` is the command `hypomnema model-key`,
+    which calls `GET /chats/{chat_id}/gateway-key` with pi's coordinator token and the chat of
+    `HYPOMNEMA_CHAT_ID`. No pi running for the chat is 404. Any token of the client API may call it; chats are
+    listed for the owner only, so a caller must already know the chat's id.
+  - pi's `models.json` is written by the launcher as pi starts, from `hypomnema pi-models`: one provider of pi for
+    each provider of the control plane that is the gateway (kind `model_gateway`, or an OpenAI-compatible provider
+    whose address is the gateway's own), with the models that provider lists. A Bot may name a provider of kind
+    `model_gateway`. No key is made by hand for pi, and the setup script installs none.
 - `POST /v1/responses` (issue #107, after 9router-go;
   [research](docs/research/2026-11-10-codex-responses-passthrough.md)) is for a client that speaks OpenAI's Responses
   format, which the Codex CLI does and nothing else. It serves a model's `codex_subscription` targets only:

@@ -87,6 +87,20 @@ if [ -n "$bot" ]; then
   set -- "$@" --append-system-prompt "$prompt"
 fi
 
+# pi's models.json is written here, as pi starts (issue #204): the providers that are the model gateway and their
+# models, as the control plane lists them now, so a Bot given another model needs nothing changed on this machine.
+# Omnigent writes one for each of its pi sessions. The file holds no key: its apiKey is a command, `hypomnema
+# model-key`, which pi runs at each request and which asks the control plane for the key made for this chat's pi.
+# It is written beside the file and moved over it, so a pi of another chat never reads half of one. Without it pi
+# would start with models of another day, so pi does not start.
+models="$home/agent/models.json"
+if ! HOME=/home/coordinator /usr/local/bin/hypomnema pi-models > "$models.$$"; then
+  rm -f "$models.$$"
+  echo "hypomnema-pi: reading pi's models failed" >&2
+  exit 1
+fi
+mv -f "$models.$$" "$models"
+
 cd "$dir"
 
 # The tools of the integrations (gws for Google) are first on pi's PATH as scripts that run them through

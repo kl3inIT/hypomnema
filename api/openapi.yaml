@@ -1330,6 +1330,27 @@ paths:
         "204":
           description: pi was asked to stop, or was not working.
         default: { $ref: "#/components/responses/Error" }
+  /chats/{chat_id}/gateway-key:
+    parameters:
+      - $ref: "#/components/parameters/ChatID"
+    get:
+      operationId: GetChatGatewayKey
+      summary: The model gateway's key of the chat's running pi
+      description: >-
+        pi asks for it at each model request, with its coordinator token. The
+        key is made when pi starts for the chat and ends with that pi; no pi
+        running for the chat is 404.
+      responses:
+        "200":
+          description: The key.
+          headers:
+            Cache-Control:
+              schema: { type: string }
+              description: Always `no-store`.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ChatGatewayKey" }
+        default: { $ref: "#/components/responses/Error" }
   /chats/{chat_id}/messages:
     parameters:
       - $ref: "#/components/parameters/ChatID"
@@ -2724,6 +2745,11 @@ components:
         args:
           type: object
           additionalProperties: true
+    ChatGatewayKey:
+      type: object
+      required: [key]
+      properties:
+        key: { type: string }
     ChatState:
       type: object
       required: [working]

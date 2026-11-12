@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -115,12 +116,18 @@ func emit(out *json.Encoder, v map[string]any) {
 func newSupervisor(t *testing.T) (*orchestration.Service, *Supervisor) {
 	t.Helper()
 
+	return newSupervisorWith(t, nil)
+}
+
+func newSupervisorWith(t *testing.T, keys Keys) (*orchestration.Service, *Supervisor) {
+	t.Helper()
+
 	db, err := sqlite.Open(t.Context(), sqlite.Config{Path: sqlitetest.Migrated(t, orchestration.Migrate)})
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 
 	svc := orchestration.New(db, platform.SystemClock{}, platform.NewID)
-	sup := New(svc, Config{Command: []string{os.Args[0], "fake-pi"}})
+	sup := New(svc, Config{Command: []string{os.Args[0], "fake-pi"}, Keys: keys})
 
 	done := make(chan error, 1)
 	ctx, cancel := contextWithCancel(t)
@@ -287,7 +294,7 @@ func TestPiRunsAsTheChatsBotWithItsModel(t *testing.T) {
 	first, err := svc.CreateChat(ctx, "", "")
 	require.NoError(t, err)
 
-	args, err := sup.botArgs(ctx, first.ID)
+	args, _, err := sup.botArgs(ctx, first.ID)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"--bot", "coordinator"}, args, "the starting set leaves pi's own default model")
 
@@ -303,13 +310,14 @@ func TestPiRunsAsTheChatsBotWithItsModel(t *testing.T) {
 	second, err := svc.CreateChat(ctx, "vmap", "")
 	require.NoError(t, err)
 
-	args, err = sup.botArgs(ctx, second.ID)
+	args, model, err := sup.botArgs(ctx, second.ID)
 	require.NoError(t, err)
 	assert.Equal(t, []string{
 		"--bot", "vmap", "--provider", "ninerouter", "--model", "cx/gpt-6.1-sol", "--thinking", "high",
 	}, args)
+	assert.Equal(t, "cx/gpt-6.1-sol", model, "the chat's gateway key is made for this model")
 
-	args, err = sup.botArgs(ctx, first.ID)
+	args, _, err = sup.botArgs(ctx, first.ID)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"--bot", "coordinator"}, args, "the first chat keeps its Bot")
 }
@@ -378,4 +386,89 @@ func TestToolOutputIsCappedOnACharacter(t *testing.T) {
 	out, cut = capText("short", 5)
 	assert.False(t, cut)
 	assert.Equal(t, "short", out)
+}
+
+// fakeKeys stands for the model gateway: it hands out keys and remembers
+// which it was asked to end.
+type fakeKeys struct {
+	mu      sync.Mutex
+	made    int
+	models  []string
+	revoked map[string]bool
+}
+
+func (f *fakeKeys) AddChatKey(_ context.Context, chatID, model string) (string, string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	f.made++
+	f.models = append(f.models, model)
+	id := fmt.Sprintf("gwk_%d", f.made)
+
+	return id, "secret-" + chatID + "-" + id, nil
+}
+
+func (f *fakeKeys) RevokeKey(_ context.Context, id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	if f.revoked == nil {
+		f.revoked = map[string]bool{}
+	}
+
+	f.revoked[id] = true
+
+	return nil
+}
+
+func (f *fakeKeys) ended(id string) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	return f.revoked[id]
+}
+
+// Scenario: a chat's pi asks the control plane for its gateway key at each
+// model request (issue #204). The key exists for as long as that pi runs: a
+// chat with no pi has none, a pi that exits loses its key, and the pi started
+// after it gets another.
+func TestAChatsKeyLivesAsLongAsItsPi(t *testing.T) {
+	t.Parallel()
+
+	keys := &fakeKeys{}
+	svc, sup := newSupervisorWith(t, keys)
+	ctx := t.Context()
+
+	chat, err := svc.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+
+	_, ok := sup.Key(chat.ID)
+	assert.False(t, ok, "no pi runs for the chat yet")
+
+	_, err = svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, "hello")
+	require.NoError(t, err)
+	waitFor(t, svc, chat.ID, orchestration.ChatCoordinator, "echo: hello")
+
+	first, ok := sup.Key(chat.ID)
+	require.True(t, ok)
+	assert.Equal(t, "secret-"+chat.ID+"-gwk_1", first)
+	assert.False(t, keys.ended("gwk_1"))
+
+	_, err = svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, "crash please")
+	require.NoError(t, err)
+
+	require.Eventually(t, func() bool { return keys.ended("gwk_1") }, 10*time.Second, 20*time.Millisecond,
+		"the key ends with the pi it was made for")
+
+	_, ok = sup.Key(chat.ID)
+	assert.False(t, ok, "a pi that exited has no key to give")
+
+	_, err = svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, "are you back?")
+	require.NoError(t, err)
+	waitFor(t, svc, chat.ID, orchestration.ChatCoordinator, "echo: are you back?")
+
+	second, ok := sup.Key(chat.ID)
+	require.True(t, ok)
+	assert.Equal(t, "secret-"+chat.ID+"-gwk_2", second)
+	assert.False(t, keys.ended("gwk_2"))
 }
