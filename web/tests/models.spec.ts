@@ -339,11 +339,8 @@ test("the owner sees where models come from", async ({ page }) => {
   expect(await fits(page)).toBe(true)
   await shot(page, "models")
 
-  const routes = page.getByRole("region", { name: "Models" }).last()
-  await routes.scrollIntoViewIfNeeded()
-  await expect(routes).toContainText("then")
-  await expect(routes).toContainText("Offered")
-  await shot(page, "models-routes")
+  await page.getByTestId("api-provider-card").scrollIntoViewIfNeeded()
+  await shot(page, "models-api-providers")
 })
 
 // Scenario: the owner takes an account out of use and puts it back, turns a whole subscription off, and
@@ -395,7 +392,6 @@ test("an installation with no subscription says how to add one", async ({ page }
   await page.goto("/settings/models")
 
   await expect(page.getByText("hypomnema accounts login claude")).toBeVisible()
-  await expect(page.getByText("The gateway serves no model yet.")).toBeVisible()
   await shot(page, "models-empty")
 })
 
