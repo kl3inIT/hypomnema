@@ -141,9 +141,27 @@ test("the machines show as cards and as a table", async ({ page }) => {
   expect(await page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")).toBe(
     true,
   )
+  // On a laptop the table fits without scrolling: its low-value columns start hidden (issue #242).
+  const table = page.getByRole("table")
+  if (test.info().project.name === "desktop") {
+    expect(
+      await table.evaluate((t) => t.parentElement!.scrollWidth <= t.parentElement!.clientWidth),
+    ).toBe(true)
+  }
+  await expect(page.getByRole("columnheader", { name: "Load Avg" })).toHaveCount(0)
+
+  // The View menu shows a hidden column, as Beszel's; the menu stays open for the next one.
+  await page.getByRole("button", { name: "View" }).click()
+  await page.getByRole("menuitemcheckbox", { name: "Agent" }).click()
+  await expect(page.getByRole("menuitemcheckbox", { name: "Agent" })).toBeChecked()
+  await shot(page, "machines-table-view")
+  await page.keyboard.press("Escape")
+  await expect(page.getByRole("columnheader", { name: "Agent" })).toBeVisible()
 
   await page.reload()
   await expect(page.getByRole("table")).toBeVisible()
+  // The columns chosen are kept too.
+  await expect(page.getByRole("columnheader", { name: "Agent" })).toBeVisible()
 })
 
 // Scenario: the owner adds a machine and gets its token and install line once; then resumes a drained machine,
