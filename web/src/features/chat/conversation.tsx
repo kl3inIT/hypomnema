@@ -3,7 +3,7 @@ import { useEffect, useState } from "react"
 import { StickToBottom, useStickToBottomContext } from "use-stick-to-bottom"
 
 import { ChatItemView } from "./chat-items"
-import { chatItems, type ChatView, type Local } from "./chat-state"
+import { chatItems, type ChatView, type Local, type Setup } from "./chat-state"
 
 // The scrolling conversation in t3code's lane (MIT, Copyright (c) 2026 T3 Tools Inc.,
 // https://github.com/pingdotgg/t3code; MessagesTimeline.tsx): 46rem centred, rows spaced by their own bottom
@@ -14,14 +14,17 @@ export function Conversation({
   local,
   bot,
   empty,
+  setups,
 }: {
   view: ChatView
   local?: Local
+  // setups are the Routines the Bot set up from this chat.
+  setups?: Setup[]
   // bot names who answers, for a reply's heading.
   bot: string
   empty: React.ReactNode
 }) {
-  const items = chatItems(view, local)
+  const items = chatItems(view, local, setups)
 
   return (
     <StickToBottom

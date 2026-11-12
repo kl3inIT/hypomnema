@@ -959,6 +959,7 @@ paths:
           description: Only the dashboards whose title contains this.
           schema: { type: string, maxLength: 200 }
         - $ref: "#/components/parameters/AskingChat"
+        - $ref: "#/components/parameters/AskingRoutineRun"
       responses:
         "200":
           description: The dashboards.
@@ -979,6 +980,7 @@ paths:
         dashboard opens. Who may ask is as for the list of dashboards.
       parameters:
         - $ref: "#/components/parameters/AskingChat"
+        - $ref: "#/components/parameters/AskingRoutineRun"
       responses:
         "200":
           description: The dashboard.
@@ -1012,6 +1014,7 @@ paths:
           description: json, the default, or csv for the rows alone with a header line.
           schema: { type: string, enum: [json, csv] }
         - $ref: "#/components/parameters/AskingChat"
+        - $ref: "#/components/parameters/AskingRoutineRun"
       responses:
         "200":
           description: The chart's data.
@@ -1026,6 +1029,8 @@ paths:
       - $ref: "#/components/parameters/ConnectionLabel"
     post:
       operationId: RelaySupersetRequest
+      parameters:
+        - $ref: "#/components/parameters/AskingRoutineRun"
       summary: Send one request to a Superset Connection's API and return its answer unchanged
       description: >-
         The control plane matches the request to its action in the
@@ -1062,6 +1067,10 @@ paths:
           schema: { type: string, maxLength: 64 }
         - name: task_id
           in: query
+          schema: { type: string, maxLength: 64 }
+        - name: routine_id
+          in: query
+          description: Only those asked in this Routine's runs.
           schema: { type: string, maxLength: 64 }
       responses:
         "200":
@@ -1733,6 +1742,219 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Skill" }
         default: { $ref: "#/components/responses/Error" }
+  /bots/{name}/routines/{routine}:
+    parameters:
+      - $ref: "#/components/parameters/Name"
+      - name: routine
+        in: path
+        required: true
+        description: The Routine's name, its own among its Bot's.
+        schema: { type: string, pattern: "^[a-z][a-z0-9-]{0,62}$" }
+    put:
+      operationId: PutRoutine
+      summary: Make a Routine of a Bot, or change the one of that name
+      description: >-
+        A Routine is work a Bot does on a schedule: a prompt the Bot works on
+        with its model in a new chat, or a script that runs with the Bot's
+        tools and no model. A new one is switched on at once. A change keeps
+        the Routine's state and its runs; a changed schedule starts from now,
+        and a change of the prompt, the script or the schedule ends what the
+        Routine was allowed always. The owner may, and a Bot with its
+        coordinator's token from a chat it talks in, which it names: its
+        change can be undone. A Routine's own run is refused.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RoutineSettings" }
+      responses:
+        "200":
+          description: The Routine.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Routine" }
+        default: { $ref: "#/components/responses/Error" }
+  /routines:
+    get:
+      operationId: ListRoutines
+      summary: The Routines, the oldest first, each with its last run
+      parameters:
+        - name: bot
+          in: query
+          description: Only this Bot's.
+          schema: { type: string, maxLength: 63 }
+        - name: chat_id
+          in: query
+          description: Only those made in this chat.
+          schema: { type: string, maxLength: 64 }
+      responses:
+        "200":
+          description: The Routines.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RoutineList" }
+        default: { $ref: "#/components/responses/Error" }
+  /routine-schedule:
+    post:
+      operationId: PreviewRoutineSchedule
+      summary: A schedule in words and its next three times, as a Routine made now would have them
+      description: >-
+        The schedule is checked as a Routine's is: every N minutes, or a
+        five-field cron expression with its IANA time zone. Nothing is kept.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RoutineSchedule" }
+      responses:
+        "200":
+          description: The schedule in words and its next times.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RoutineSchedulePreview" }
+        default: { $ref: "#/components/responses/Error" }
+  /routines/{routine_id}:
+    parameters:
+      - $ref: "#/components/parameters/RoutineID"
+    get:
+      operationId: GetRoutine
+      summary: A Routine, with a script's text, its last run and what it is allowed always
+      responses:
+        "200":
+          description: The Routine.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Routine" }
+        default: { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: DeleteRoutine
+      summary: Remove a Routine with its runs and its grants; only the owner
+      description: A run of it that still goes is stopped.
+      responses:
+        "204": { description: The Routine is removed. }
+        default: { $ref: "#/components/responses/Error" }
+  /routines/{routine_id}/undo:
+    parameters:
+      - $ref: "#/components/parameters/RoutineID"
+    post:
+      operationId: UndoRoutine
+      summary: Undo a Bot's last change of a Routine; only the owner
+      description: >-
+        A Routine the Bot made is removed, and a run of it that still goes is
+        stopped; one the Bot changed is what it was before. A Routine that was
+        changed since, or whose last change was not a Bot's, is refused.
+      responses:
+        "200":
+          description: What the undo did.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RoutineUndone" }
+        default: { $ref: "#/components/responses/Error" }
+  /routines/{routine_id}/launch:
+    parameters:
+      - $ref: "#/components/parameters/RoutineID"
+    post:
+      operationId: LaunchRoutineScript
+      summary: What the launcher of a script Routine's run runs, given once a run
+      description: >-
+        The file's name, its text, its limit and the run's key. Only while a
+        run of the Routine has started and its script has not: the first
+        caller is the launcher, and whoever asks again is refused. A request
+        that presents the key is that run's, so what it asks the owner belongs
+        to the run and what the Routine is allowed always holds for it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RoutineLaunchRequest" }
+      responses:
+        "200":
+          description: What to run.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RoutineScriptLaunch" }
+        default: { $ref: "#/components/responses/Error" }
+  /routines/{routine_id}/pause:
+    parameters:
+      - $ref: "#/components/parameters/RoutineID"
+    post:
+      operationId: PauseRoutine
+      summary: Stop a Routine's schedule; only the owner
+      description: A run still going goes on.
+      responses:
+        "200":
+          description: The Routine.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Routine" }
+        default: { $ref: "#/components/responses/Error" }
+  /routines/{routine_id}/resume:
+    parameters:
+      - $ref: "#/components/parameters/RoutineID"
+    post:
+      operationId: ResumeRoutine
+      summary: Switch a paused Routine on again, from now; only the owner
+      description: Its failures in a row are forgotten.
+      responses:
+        "200":
+          description: The Routine.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Routine" }
+        default: { $ref: "#/components/responses/Error" }
+  /routines/{routine_id}/runs:
+    parameters:
+      - $ref: "#/components/parameters/RoutineID"
+    get:
+      operationId: ListRoutineRuns
+      summary: A Routine's runs, the newest first
+      description: The newest 2,000 runs of a Routine are kept, for 7 days.
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200 }
+        - name: offset
+          in: query
+          description: How many of the newest runs to pass over.
+          schema: { type: integer, minimum: 0 }
+      responses:
+        "200":
+          description: The runs.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RoutineRunList" }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      operationId: RunRoutine
+      summary: Run a Routine now
+      description: >-
+        While a run of the Routine still goes or waits for the owner, the
+        answer is a conflict that names it. A run by hand that fails counts
+        as any failed run. The owner may, and a Bot, which runs a Routine once
+        after it made it.
+      responses:
+        "200":
+          description: The run.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RoutineRun" }
+        default: { $ref: "#/components/responses/Error" }
+  /routines/{routine_id}/grants/{integration}/{label}/{action}:
+    parameters:
+      - $ref: "#/components/parameters/RoutineID"
+      - $ref: "#/components/parameters/IntegrationID"
+      - $ref: "#/components/parameters/ConnectionLabel"
+      - name: action
+        in: path
+        required: true
+        schema: { type: string, minLength: 1, maxLength: 128 }
+    delete:
+      operationId: RevokeRoutineGrant
+      summary: Take back an "always for this Routine"; only the owner
+      description: The action asks again from the Routine's next request.
+      responses:
+        "204": { description: The grant is taken back. }
+        default: { $ref: "#/components/responses/Error" }
   /profiles:
     get:
       operationId: ListProfiles
@@ -2125,6 +2347,19 @@ components:
         The chat a coordinator asks from, so that an Approval the request
         waits for is answered there. Ignored for the owner.
       schema: { type: string, maxLength: 64 }
+    RoutineID:
+      name: routine_id
+      in: path
+      required: true
+      schema: { type: string, pattern: "^rtn_[A-Za-z0-9_]{1,60}$" }
+    AskingRoutineRun:
+      name: Hypomnema-Routine-Run
+      in: header
+      description: >-
+        The key of the Routine's run whose script asks, which its launcher
+        was given, so that an Approval the request waits for belongs to that
+        run. Ignored for the owner.
+      schema: { type: string, maxLength: 128 }
     Name:
       name: name
       in: path
@@ -3302,6 +3537,8 @@ components:
         task_id: { type: string }
         run_id: { type: string }
         chat_id: { type: string }
+        routine_id: { type: string, description: The Routine whose run asked. }
+        routine_run_id: { type: string }
         title: { type: string }
         payload:
           type: array
@@ -3309,9 +3546,14 @@ components:
         status: { $ref: "#/components/schemas/ApprovalStatus" }
         scope:
           type: string
-          enum: [once, session]
-          description: How far an approval reaches; absent until approved.
+          enum: [once, session, routine]
+          description: >-
+            How far an approval reaches; absent until approved. routine is
+            always for the Routine whose run asked.
         used: { type: boolean, description: "An approval for one request has run." }
+        expired:
+          type: boolean
+          description: Nobody answered while a Routine's run waited, or the run ended; it counts as rejected.
         created_at: { type: string, format: date-time }
         decided_at: { type: string, format: date-time }
     ApprovalList:
@@ -3328,10 +3570,12 @@ components:
       properties:
         decision:
           type: string
-          enum: [approve, approve_session, reject]
+          enum: [approve, approve_session, approve_routine, reject]
           description: >-
             approve lets this one request run; approve_session also stops asking for the action for the rest of
-            the Run or the chat that asked; reject refuses it.
+            the Run or the chat that asked; approve_routine, for a request a Routine's run made, stops asking
+            for the action in that Routine's later runs too, until its prompt, script or schedule changes or the
+            owner takes it back; reject refuses it.
     ConnectionUse:
       type: object
       required: [chats]
@@ -3864,6 +4108,183 @@ components:
           description: The skills given to everyone that the Bot does not get.
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+    RoutineState:
+      type: string
+      enum: ["on", paused]
+      description: >-
+        on: it runs by its schedule. paused: it does not, by the owner or
+        after repeated failures.
+    RoutineKind:
+      type: string
+      enum: [prompt, script]
+    Routine:
+      type: object
+      description: >-
+        Work a Bot does on a schedule: a prompt the Bot works on with its
+        model in a new chat, or a script that runs with the Bot's tools and
+        no model.
+      required:
+        [id, bot, name, kind, schedule, sentence, timeout_seconds, state, announce, failures, skipped, created_by,
+         can_undo, created_at, updated_at, grants]
+      properties:
+        id: { type: string }
+        bot: { type: string }
+        name: { type: string }
+        kind: { $ref: "#/components/schemas/RoutineKind" }
+        prompt: { type: string, description: What a prompt Routine gives its Bot. }
+        script:
+          type: string
+          description: The file a script Routine runs, under the Bot's routines directory.
+        script_text: { type: string, description: What the script's file holds. }
+        every_minutes: { type: integer }
+        cron: { type: string }
+        timezone: { type: string }
+        schedule: { type: string, description: "The schedule in words: every hour." }
+        sentence:
+          type: string
+          description: One sentence that restates the schedule and the work.
+        timeout_seconds: { type: integer }
+        state: { $ref: "#/components/schemas/RoutineState" }
+        paused_reason: { type: string }
+        summary: { type: string, description: "What the work is, in the words of whoever made it." }
+        chat_id: { type: string, description: The chat it was made in. }
+        announce:
+          type: boolean
+          description: A run's answer or a script's output goes to the chat it was made in.
+        next_run_at: { type: string, format: date-time }
+        failures: { type: integer, description: The runs that failed in a row. }
+        skipped:
+          type: integer
+          description: The due times that passed while a run was still going; they have no run of their own.
+        last_skipped_at: { type: string, format: date-time }
+        created_by: { type: string, description: owner or bot. }
+        can_undo:
+          type: boolean
+          description: The last change was a Bot's and can be undone.
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        last_run: { $ref: "#/components/schemas/RoutineRun" }
+        grants:
+          type: array
+          description: What the owner allowed this Routine always.
+          items: { $ref: "#/components/schemas/RoutineGrant" }
+    RoutineList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/Routine" }
+    RoutineSettings:
+      type: object
+      additionalProperties: false
+      required: [kind]
+      properties:
+        kind: { $ref: "#/components/schemas/RoutineKind" }
+        prompt: { type: string }
+        script:
+          type: string
+          description: A file name, never a path or a command line.
+        script_text: { type: string }
+        every_minutes: { type: integer, minimum: 5, maximum: 1440 }
+        cron:
+          type: string
+          description: Five fields; needs timezone.
+        timezone: { type: string, description: "An IANA time zone, such as Asia/Ho_Chi_Minh." }
+        timeout_seconds:
+          type: integer
+          minimum: 1
+          description: How long a script may run; 600 when absent. A prompt run works for at most an hour.
+        summary: { type: string }
+        chat_id:
+          type: string
+          maxLength: 64
+          description: The chat the Routine is made in; a Bot names the chat it works in.
+        announce:
+          type: boolean
+          description: Whether a run's result goes to that chat; it does when absent.
+        from_routine:
+          type: string
+          maxLength: 64
+          description: The Routine whose run asks, when one does; it is refused.
+    RoutineUndone:
+      type: object
+      required: [removed]
+      properties:
+        removed: { type: boolean, description: The Routine was one the Bot made and is gone. }
+        routine: { $ref: "#/components/schemas/Routine" }
+    RoutineLaunchRequest:
+      type: object
+      additionalProperties: false
+      required: [bot]
+      properties:
+        bot: { type: string, maxLength: 63, description: The Bot the Routine must belong to. }
+    RoutineScriptLaunch:
+      type: object
+      required: [script, script_text, timeout_seconds, key]
+      properties:
+        script: { type: string }
+        script_text: { type: string }
+        timeout_seconds: { type: integer }
+        key: { type: string, description: "The run's key, given once." }
+    RoutineRun:
+      type: object
+      required: [id, routine_id, started_by, state, started_at, output, error]
+      properties:
+        id: { type: string }
+        routine_id: { type: string }
+        started_by:
+          type: string
+          enum: [schedule, manual]
+          description: By the schedule or by hand.
+        state:
+          type: string
+          enum: [running, waiting, succeeded, failed, canceled]
+          description: >-
+            waiting is waiting for the owner's answer to an Approval; canceled is ended by his no, or by the
+            Routine's removal.
+        started_at: { type: string, format: date-time }
+        ended_at: { type: string, format: date-time }
+        exit_code: { type: integer, description: A script's exit code. }
+        output: { type: string, description: "The end of what a script printed, or a prompt run's answer." }
+        error: { type: string }
+        chat_id: { type: string, description: A prompt run's chat. }
+    RoutineRunList:
+      type: object
+      required: [data, total]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/RoutineRun" }
+        total: { type: integer, description: How many runs the Routine has. }
+        next_offset:
+          type: integer
+          description: The offset of the next page; absent on the last.
+    RoutineSchedule:
+      type: object
+      additionalProperties: false
+      properties:
+        every_minutes: { type: integer }
+        cron: { type: string }
+        timezone: { type: string }
+    RoutineSchedulePreview:
+      type: object
+      required: [schedule, next]
+      properties:
+        schedule: { type: string, description: "The schedule in words: every weekday at 7:00 Ho Chi Minh time." }
+        next:
+          type: array
+          items: { type: string, format: date-time }
+    RoutineGrant:
+      type: object
+      description: An action of a Connection that passes in the Routine's runs without asking.
+      required: [integration, label, action, action_name, created_at]
+      properties:
+        integration: { type: string }
+        label: { type: string }
+        action: { type: string }
+        action_name: { type: string }
+        created_at: { type: string, format: date-time }
     BotList:
       type: object
       required: [data]
@@ -4127,10 +4548,14 @@ components:
       enum: [wake, failed, stopped, approval]
     ChatPart:
       type: object
-      description: One piece of a reply (text, thinking) or of a tool pi ran (tool_result).
+      description: >-
+        One piece of a reply (text, thinking), of a tool pi ran
+        (tool_result), or the result of a Routine's run told in the chat it
+        was made in (routine_run: id is the run's).
       required: [type]
       properties:
-        type: { type: string, enum: [text, thinking, tool_result] }
+        type: { type: string, enum: [text, thinking, tool_result, routine_run] }
+        routine_id: { type: string, description: "The Routine of a routine_run part." }
         text: { type: string }
         id: { type: string, description: The tool call. }
         name: { type: string, description: The tool. }

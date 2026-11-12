@@ -20,7 +20,8 @@ configured.
 `HYPOMNEMA_COORDINATOR_COMMAND` (a JSON array) starts pi for a chat id appended to it; unset, chats keep their
 messages and nothing answers. `HYPOMNEMA_BOT_FILES_COMMAND` (a JSON array, `sudo -n -u coordinator
 /usr/local/bin/hypomnema files serve --root <the Bots' folders>`) reads a Bot's folder for the Files panel; unset,
-the panel shows only the Tasks' worktrees.
+the panel shows only the Tasks' worktrees. `HYPOMNEMA_ROUTINE_COMMAND` (a JSON array) runs a script Routine for
+the Bot's name and the Routine's id appended to it; unset, a script Routine's run fails and says so.
 
 The coordinator (`internal/controlplane/coordinator`, issue #41 PR 3): `serve` runs one `pi --mode rpc` per chat
 that has something for pi, as the chat's Bot (`--bot`, and `--group` for a Lark group's chat) with the Bot's model
@@ -36,7 +37,8 @@ row. `abort` stops pi's turn and marks it as stopped by the owner (issue #267, a
 and a `stopped` row ("Stopped") in one write instead of a failure, and a turn that ends with neither gets the row at
 `agent_settled`, where the mark clears. On
 the server pi runs as the `coordinator` user through `deploy/coordinator/`: a root-owned launcher (`hypomnema-pi`,
-a clean environment, only a chat id, a Bot's name and model flags), one sudoers rule limited to it, the instructions
+a clean environment, only a chat id, a Bot's name and model flags), a second one for a Routine's script
+(`hypomnema-routine`, below), one sudoers rule limited to the two, the instructions
 every Bot gets, pi's version with its lockfile (`package.json`, which Dependabot
 updates; the setup installs it with `npm ci`), and the setup script the owner runs with sudo.
 Logs are JSON on stdout; `serve` stops on SIGINT or SIGTERM and lets requests in flight finish. `/readyz` answers 503
@@ -381,6 +383,118 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     agents' project folders, the `paths` of `skills.sh.json`, three levels deep; else anywhere five deep), and
     keeps that folder as the source's path. CLI: `skills search <words> [--owner o]`, `skills add --github
     owner/repo --skill <name>`, which prints the audits first. Nothing else is sent to skills.sh.
+- Routines (`orchestration/routines.go` keeps the record, `internal/controlplane/routines` runs them;
+  [issue #211](https://github.com/kl3inIT/hypomnema/issues/211), migration 00056,
+  [research](docs/research/2026-11-12-work-on-a-schedule.md)): a Routine is work a Bot does on a schedule. What
+  the work is, is not built in.
+  - **What it is.** A row of `routines`: its Bot, a name of its own among the Bot's, a kind, a schedule, on or
+    paused (with the reason), when it runs next, the chat it was made in, and whether a run's result is told
+    there. A `prompt` Routine gives the Bot its text in a new chat each run. A `script` Routine names a file
+    under the Bot's `routines/` directory, never a path or a command line (Hermes, `cron/jobs_invariants.py`),
+    and the control plane keeps the file's text (at most 100,000 bytes), which is what the owner reads. A Bot with
+    Routines is not removed.
+  - **Schedule** (OpenMausBot, `server/routine-schedules.ts`): every N minutes, 5 to 1440, or a 5-field cron
+    expression with an IANA time zone, which is required (`github.com/robfig/cron/v3` parses it; the zones are
+    compiled in). An interval stays on the grid of its first due time (`anchor_at`), also after a failure or
+    downtime (`routine-intervals.ts`, `nextAlignedInterval`). No seconds field, no `@every`, no one-time Routine.
+    A schedule is said in words ("every hour", "every weekday at 7:00 Ho Chi Minh time"): a familiar cron
+    expression as what it means and any other as itself, with its zone as people say it
+    (`orchestration/schedule_words.go`, after OpenMausBot's `shared/cron-label.ts` and `plain-time-zone.ts`).
+    `POST /routine-schedule` checks a schedule as a Routine's is and answers its words and its next three times,
+    counted from now, without keeping anything.
+  - **The tick.** The runner looks every 60 s (`ClaimDueRoutines`): each Routine that is on and due gets its next
+    time set and its run recorded in one transaction, so a crash does not run it twice (Hermes). A Routine found
+    overdue runs once and the times it missed are not replayed. When the control plane starts, at most 5 overdue
+    Routines begin at once and the rest 5 s apart (OpenClaw, `timer-constants.ts`). One live run a Routine is kept
+    by a partial unique index (MemoryOS). A due time that comes while a run is live is skipped: it adds to the
+    Routine's `skipped` count with `last_skipped_at` and has no run row (OpenMausBot, `routines.ts`). "Run now"
+    during a live run is a conflict that names that run (OpenClaw, "already-running").
+  - **A run** (`routine_runs`): started by the schedule or by hand; `running`, `waiting` (for the owner),
+    `succeeded`, `failed` or `canceled`; when it started and ended; a script's exit code and the last 16 KiB of
+    what it printed; a prompt run's chat and the Bot's last answer. The newest 2,000 runs of a Routine are kept,
+    for 7 days after they ended (OpenClaw); a run still going is never removed.
+  - **A script run.** The control plane runs `HYPOMNEMA_ROUTINE_COMMAND` with the Bot's name and the Routine's
+    id. On the server that is `sudo -n -u coordinator /usr/local/bin/hypomnema-routine`
+    (`deploy/coordinator/hypomnema-routine`, root-owned), which accepts those two arguments only. It runs
+    `hypomnema routines script <id> --bot B --into DIR` with the coordinator's token
+    (`POST /routines/{id}/launch`): the control plane answers the file's name, its text, its limit and the run's
+    key, once a run and only while a run of that Bot's Routine has started and its script has not. The helper
+    writes the text to `bots/<bot>/routines/<file>` and the key to `.run-<id>` beside it (0600), and prints the
+    name and the limit. The launcher then runs the file in the Bot's directory under `timeout` with a clean
+    environment: the Bot's tools on `PATH`, `HYPOMNEMA_BOT`, `HYPOMNEMA_ROUTINE`,
+    `HYPOMNEMA_ROUTINE_RUN_FILE`, no model and no token of a service. The file is written from the control
+    plane's text before every run, so what runs is what the owner read. A script stops after 10 minutes unless
+    the Routine says otherwise; there is no upper bound (OpenClaw, `timeout-policy.ts`). The control plane holds
+    the launcher's standard input open and closes it to stop the script, since its user cannot signal the
+    coordinator's processes. Exit code 0 is success.
+  - **A prompt run.** The run's chat is made with the prompt in it as a wake-up of the control plane, and the
+    coordinator's supervisor starts pi for it as for any chat. The runner reads the chat: while something waits
+    for pi or pi works, the run goes on; when pi has answered and stopped, the run succeeded with that answer;
+    a kept failure of pi's model call fails it; a run still going 60 minutes after it started, the time it waited
+    for the owner included, is stopped and fails (OpenClaw's wall-clock timeout, `timeout-policy.ts`).
+  - **Result** (OpenClaw, `delivery-defaults.ts`). A run's answer, or what a script printed, is added to the chat
+    the Routine was made in, unless the owner chose none (`announce` false, `--quiet`). A Routine made without a
+    chat tells its result nowhere. The message names its run in a part (`routine_run`, with the Routine's id),
+    which the web draws as the run's card; its text is for every other reader.
+  - **Who makes one.** The owner and a Bot use the same operation, `PUT /bots/{name}/routines/{routine}`
+    (`hypomnema routines set`), and the Routine is on at once (OpenMausBot, `routine-requests.ts` `submit`).
+    A coordinator's token is taken for a Bot: it must name a chat that talks with that Bot, and its change
+    records what undoes it. `POST /routines/{id}/undo` (`routines undo`, the owner's) removes a Routine the Bot
+    made, or puts back what it was before the Bot's change; it is refused once the Routine was changed again
+    (OpenMausBot's undo, `routine-requests.ts` L1099-1147). That the Bot first restates the schedule and the work
+    in one sentence, has the owner's yes and then runs it once is in the Bots' instructions
+    (`deploy/coordinator/AGENTS.md`, after OpenClaw's `how-it-works.md`), not a state the server keeps. A
+    Routine's run makes and changes no Routines: the chat of a run, and a request that says it comes from a run
+    (`HYPOMNEMA_ROUTINE`), are refused (Hermes's loop prevention, not a wall).
+  - **An Approval in a run.** A request is a run's when it presents the run's key (the header
+    `Hypomnema-Routine-Run`, which the tool launcher and `hypomnema superset` read from
+    `HYPOMNEMA_ROUTINE_RUN_FILE`), or comes from the chat of a live prompt run. The key is random, kept as a hash
+    on the run, given once to the launcher and good while the run is live, so naming a Routine's id opens
+    nothing. The Approval records the Routine and the run, and the run is `waiting` while any of its Approvals is
+    open. The service proxy holds such a request in place for up to 30 minutes (`serviceproxy.DefaultRunHold`;
+    100 s in a chat, where the agent is told that it waits): on the owner's yes the same call goes on, and a
+    script is never started again; unanswered, the request is refused, the Approval is closed as `expired` and
+    the run fails. His no ends the run `canceled` when its script or its turn ends. What a run still asked when
+    it ended is closed as expired (OpenClaw, `docs/tools/exec-approvals.md`).
+  - **"Always for this Routine"** (`approve_routine`; OpenClaw's standing grant) keeps a row of `routine_grants`
+    with the Routine's `revision`: that action of that Connection passes in the Routine's later runs without
+    asking. The revision rises when the prompt, the script or the schedule changes, which ends the grants; the
+    owner also takes one back (`DELETE /routines/{id}/grants/{integration}/{label}/{action}`, `routines revoke`).
+  - **Failure** (OpenClaw, `service/timer-outcomes.ts`). A failed run, by the schedule or by hand, adds to the
+    failures in a row; a success resets them. The next run is the later of the schedule's next time and the
+    run's end plus 30 s, 60 s, 5 min, 15 min or 60 min by that count; a cron schedule takes its first time not
+    before it. Only a passing error (a rate limit, an overloaded or failing server, the network, a timeout;
+    OpenClaw's patterns in `routines/passing.go`) is tried again earlier than the schedule's next time, after
+    30 s, 60 s and 5 min, at most 3 in a row. A script's non-zero exit is not passing; a script stopped at its
+    limit, or one that could not be started, is (`script-failure.ts`). A run the owner's no ended, and one a
+    restart of the control plane ended, are recorded and not counted; after a restart a prompt Routine is run
+    again after the backoff, a script waits for its schedule. After 2 failures in a row the owner is told, at
+    most once an hour: a line in the chat the Routine was made in, and a card through each Lark Channel of the
+    Bot that is on, except one through which he reads that chat already (`larkbot.Channels.TellOwner`). After 10
+    the Routine is paused and he is told the same way, with the reason and the command that switches it on
+    again. Removing a Routine stops its live run (the script is told to end, pi's turn is aborted); pausing lets
+    it finish.
+  - **On the web** (`web/src/features/routines`, after OpenMausBot's Automations page, panel, routine editor and
+    chat cards): the sidebar's Routines (`/routines?bot=&open=`) lists every Bot's Routines, or one Bot's.
+    Each row has a status mark, the name, the sentence, and a status line ("On · last ran today 9:02 AM · next:
+    today 10:00 AM") or, when it needs the owner (a run waits for his answer, or it failed twice or more in a
+    row), the reason and its one button ("Answer", "Run now"); a switch pauses and resumes it. The Routines that
+    need him come first. A Routine opens in a panel beside the list (over it on a phone) with its facts, the
+    Approvals its runs wait on, its script or prompt, what it is allowed always with "Take back", and its runs
+    one line each, twenty at a time with "Load more" (`GET /routines/{id}/runs?offset=`, `total` and
+    `next_offset`, after OpenClaw); a prompt run opens its chat. Run now, Pause or Resume, Edit and Delete are
+    at its foot. A Routine is made or changed in a form: the schedule as quick choices (hourly, daily, weekdays,
+    weekly, every N minutes) with a raw cron expression last and an IANA time zone, its words and next three
+    runs from `POST /routine-schedule`, a prompt or a script's file, text and limit, and a summary. A Bot's page
+    has a short list of its Routines that leads to the page. In a chat, a Routine the Bot set up there has a
+    card where it was set up ("Set up: <sentence>", its status, Pause · Edit · Undo), a run's result is a card
+    with its state, when, what it said and Open, and an Approval card offers "Always for this Routine" in its
+    "…" menu when a Routine's run asked.
+  - **Commands**: `hypomnema routines list|show|set|pause|resume|run|rm|undo|revoke`, and `routines script` for
+    the launcher. Every token reads Routines; a coordinator's token makes, changes and runs one; pausing,
+    removing, undoing and revoking are the owner's.
+  - Not built: a Routine on a node, a one-time Routine, a run started by an outside event, a Routine that feeds
+    another, stopping a run by hand. A prompt run's chat is listed among the chats like any other.
 - Profiles (`orchestration/profiles.go`, issue #42, after Omnara's agent configs): a profile is a YAML document
   (`name`, `description` of what it is for, `runtime`, optional `model: {provider, name, effort}`, `instruction`). Applying a changed source makes a
   new immutable version and points the name at it; the same source returns the current version. Providers (kind
@@ -526,7 +640,9 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     - **An Approval** (migration 00039) is the owner's answer to a request that asked. The request is held up to
       100 s; the Approval keeps who asked (a Dispatch with its Task and Run, or a chat), the action and the request
       decoded for reading: a mail's recipients, subject and text, a file's name and size, a JSON body's values.
-      The owner approves once, approves the action for the rest of the Run or the chat, or rejects. An Approval
+      The owner approves once, approves the action for the rest of the Run or the chat, approves it always for
+      the Routine whose run asked (issue #211, under Routines), or rejects. A request of a Routine's run is held
+      in place up to 30 minutes instead and then refused. An Approval
       not answered in time stays open (owner, 2026-11-11): the tool is told it waits; a coordinator ends its turn
       and a worker asks the owner and waits. When it is answered later, the coordinator is woken in its chat, or
       the question the worker waits on is answered, and the repeat of the same request, recognized by its decoded
@@ -1621,6 +1737,7 @@ internal/node/workertools the worker's MCP server: ask and finish, and the share
 internal/node/worktree    bare mirrors and git worktrees per Task
 internal/controlplane/cloudcode  what is presented to Google's Cloud Code backend: its hosts, the Antigravity IDE's user agent and version
 internal/controlplane/coordinator  the supervisor of pi, the coordinator: one pi in RPC mode per chat
+internal/controlplane/routines  the runner of the Bots' Routines: the tick, a script's run through its launcher, a prompt run followed in its chat
 internal/controlplane/machines  machines created at a provider: the Provider interface, the AWS (EC2) provider, the first-boot script, create, remove and the pass that settles what is left between
 internal/controlplane/orchestration  Runs, Tasks, Dispatches, Conversations, questions, events, nodes, accounts, machine providers, skills, the scheduler; migrations; queries generated by sqlc (internal/store)
 internal/controlplane/skillsource  fetches a skill from a public GitHub repository at the commit its ref names

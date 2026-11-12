@@ -123,7 +123,7 @@ func newWorld(t *testing.T, hold time.Duration) *world {
 	}, logger)
 
 	w.proxy, err = serviceproxy.New(serviceproxy.Config{
-		Agents: agents, Store: w.svc, Logger: logger, Upstream: w.service, Hold: hold,
+		Agents: agents, Store: w.svc, Logger: logger, Upstream: w.service, Hold: hold, RunHold: runHold,
 		Token: func(context.Context, string, string) (string, error) { return realToken, nil },
 	})
 	require.NoError(t, err)
@@ -178,6 +178,14 @@ func (w *world) open(key, label, host, chat string) (tl *tool, refused int) {
 func (w *world) openTo(integration, key, label, host, chat string) (tl *tool, refused int) {
 	w.t.Helper()
 
+	return w.openAs(integration, key, label, host, chat, "")
+}
+
+// openAs opens a tool's connection with what its launcher says of who runs
+// it: a chat, or the key of the Routine's run whose script it is.
+func (w *world) openAs(integration, key, label, host, chat, runKey string) (tl *tool, refused int) {
+	w.t.Helper()
+
 	query := url.Values{
 		agenttool.QueryIntegration: {integration}, agenttool.QueryLabel: {label}, agenttool.QueryHost: {host + ":443"},
 	}
@@ -188,6 +196,10 @@ func (w *world) openTo(integration, key, label, host, chat string) (tl *tool, re
 	header := http.Header{}
 	if key != "" {
 		header.Set("Authorization", "Bearer "+key)
+	}
+
+	if runKey != "" {
+		header.Set(agenttool.HeaderRoutineRun, runKey)
 	}
 
 	//nolint:bodyclose // The library closes the handshake's body.
@@ -491,6 +503,137 @@ func TestApprovingForTheSessionStopsAskingInThatChatOnly(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusForbidden, (<-answered).Status)
 	assert.Len(t, w.service.received(), 2)
+}
+
+// runHold is how long a request of a Routine's run waits for the owner in
+// these tests, where a chat's waits for the hold a test names.
+const runHold = 300 * time.Millisecond
+
+// routineRun starts a run of a script Routine and returns the key its
+// launcher is given.
+func (w *world) routineRun(routineID string) (orchestration.RoutineRun, string) {
+	w.t.Helper()
+
+	started, err := w.svc.RunRoutineNow(w.t.Context(), routineID)
+	require.NoError(w.t, err)
+
+	launch, err := w.svc.ClaimRoutineScript(w.t.Context(), routineID, orchestration.DefaultBot)
+	require.NoError(w.t, err)
+
+	return started.Run, launch.Key
+}
+
+// Scenario: a script Routine sends a mail through gws at each run. Its
+// launcher was given the run's key, which the tool presents: the request
+// that waits is the run's. The owner answers "always for this Routine" while
+// the request waits where it is: it goes on, and the next run's mail goes
+// without a question. The same tool run from a chat still asks, and so does
+// a request that only names the Routine.
+func TestAlwaysForARoutineStopsAskingInItsRunsOnly(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t, time.Minute)
+	ctx := t.Context()
+
+	routine, err := w.svc.PutRoutine(ctx, orchestration.RoutineSpec{
+		Bot: orchestration.DefaultBot, Name: "digest", Kind: orchestration.RoutineScript, Script: "digest.sh",
+		ScriptText: "#!/bin/sh\ngws gmail +send\n", EveryMinutes: 60,
+	}, orchestration.RoutineAuthor{})
+	require.NoError(t, err)
+
+	first, key := w.routineRun(routine.ID)
+
+	open := func(runKey string) *tool {
+		tl, refused := w.openAs("google", w.pi, "work", "gmail.googleapis.com", "", runKey)
+		require.Zero(t, refused)
+
+		return tl
+	}
+
+	contentType, body := mail("minh@example.com", "The digest", "Monday.", 1)
+
+	answered := make(chan answer, 1)
+	go func() { answered <- open(key).do(http.MethodPost, sendPath, contentType, body) }()
+
+	asked := w.pending()
+	assert.Equal(t, routine.ID, asked.RoutineID)
+	assert.Equal(t, first.ID, asked.RoutineRunID)
+	assert.Empty(t, asked.ChatID)
+
+	decided, err := w.proxy.Decide(ctx, asked.ID, true, orchestration.ScopeRoutine)
+	require.NoError(t, err)
+	assert.Equal(t, orchestration.ScopeRoutine, decided.Scope)
+	require.Equal(t, http.StatusOK, (<-answered).Status, "the same call goes on")
+	assert.Contains(t, w.logs.String(), `verdict="approved for the routine"`)
+
+	_, err = w.svc.FinishRoutineRun(ctx, first.ID, orchestration.RunResult{State: orchestration.RunSucceeded})
+	require.NoError(t, err)
+
+	_, next := w.routineRun(routine.ID)
+
+	contentType, body = mail("minh@example.com", "The digest", "Tuesday.", 2)
+	require.Equal(t, http.StatusOK, open(next).do(http.MethodPost, sendPath, contentType, body).Status)
+	assert.Empty(t, w.approvals(orchestration.ApprovalPending), "a later run is not asked")
+
+	// Naming the Routine, or an old run's key, is not being its run.
+	for _, claimed := range []string{routine.ID, key} {
+		go func() { answered <- open(claimed).do(http.MethodPost, sendPath, contentType, body) }()
+
+		stray := w.pending()
+		assert.Empty(t, stray.RoutineID, "%q is no live run's key", claimed)
+
+		_, err = w.proxy.Decide(ctx, stray.ID, false, "")
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusForbidden, (<-answered).Status)
+	}
+
+	go func() { answered <- w.piTool("gmail.googleapis.com").do(http.MethodPost, sendPath, contentType, body) }()
+
+	inChat := w.pending()
+	assert.Empty(t, inChat.RoutineID, "the chat is no run of the routine")
+
+	_, err = w.proxy.Decide(ctx, inChat.ID, false, "")
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, (<-answered).Status)
+}
+
+// Scenario: a Routine's run asks and nobody answers. In a chat the tool
+// would be told that its request waits, and the Approval would stay open.
+// In a run nobody is there to ask again: the call waits as long as a run
+// waits, then the request is refused, the Approval is closed as expired and
+// the run is the one to fail.
+func TestARunsRequestNobodyAnswersIsRefused(t *testing.T) {
+	t.Parallel()
+
+	// The chat's hold is far longer than the run's here: the run's is the one that ends the wait.
+	w := newWorld(t, time.Minute)
+	ctx := t.Context()
+
+	routine, err := w.svc.PutRoutine(ctx, orchestration.RoutineSpec{
+		Bot: orchestration.DefaultBot, Name: "digest", Kind: orchestration.RoutineScript, Script: "digest.sh",
+		ScriptText: "#!/bin/sh\ngws gmail +send\n", EveryMinutes: 60,
+	}, orchestration.RoutineAuthor{})
+	require.NoError(t, err)
+
+	run, key := w.routineRun(routine.ID)
+
+	tl, refused := w.openAs("google", w.pi, "work", "gmail.googleapis.com", "", key)
+	require.Zero(t, refused)
+
+	contentType, body := mail("minh@example.com", "The digest", "Monday.", 1)
+
+	got := tl.do(http.MethodPost, sendPath, contentType, body)
+	assert.Equal(t, http.StatusForbidden, got.Status)
+	assert.Contains(t, got.message(), "nobody answered the approval")
+	assert.Contains(t, got.message(), "this run fails")
+	assert.Empty(t, w.service.received(), "nothing was sent")
+
+	assert.Empty(t, w.approvals(orchestration.ApprovalPending))
+
+	answers, err := w.svc.RoutineRunAnswers(ctx, run.ID)
+	require.NoError(t, err)
+	require.NotNil(t, answers.Expired)
+	assert.Contains(t, w.logs.String(), "verdict=expired")
 }
 
 // Scenario: the owner's answers for an account's actions. Set to never,

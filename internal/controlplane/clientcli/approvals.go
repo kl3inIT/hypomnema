@@ -83,6 +83,10 @@ func decide(ctx context.Context, e *env, fs *flag.FlagSet, decision openapi.Appr
 }
 
 func approvalsApprove(ctx context.Context, e *env, fs *flag.FlagSet) error {
+	if boolean(fs, "routine") {
+		return decide(ctx, e, fs, openapi.ApproveRoutine)
+	}
+
 	if fs.Lookup("session").Value.String() == "true" {
 		return decide(ctx, e, fs, openapi.ApproveSession)
 	}

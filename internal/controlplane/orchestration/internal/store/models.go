@@ -52,24 +52,28 @@ type AgentSession struct {
 }
 
 type Approval struct {
-	ID          string
-	Integration string
-	Label       string
-	Action      string
-	ActionName  string
-	DispatchID  sql.NullString
-	TaskID      sql.NullString
-	RunID       sql.NullString
-	ChatID      sql.NullString
-	AskedBy     string
-	Title       string
-	Payload     string
-	MatchHash   string
-	Status      string
-	Scope       sql.NullString
-	UsedAt      sql.NullInt64
-	CreatedAt   int64
-	DecidedAt   sql.NullInt64
+	ID           string
+	Integration  string
+	Label        string
+	Action       string
+	ActionName   string
+	DispatchID   sql.NullString
+	TaskID       sql.NullString
+	RunID        sql.NullString
+	ChatID       sql.NullString
+	AskedBy      string
+	Title        string
+	Payload      string
+	MatchHash    string
+	Status       string
+	Scope        sql.NullString
+	UsedAt       sql.NullInt64
+	CreatedAt    int64
+	DecidedAt    sql.NullInt64
+	RoutineID    sql.NullString
+	RoutineRunID sql.NullString
+	Standing     int64
+	Expired      int64
 }
 
 type Bot struct {
@@ -478,6 +482,61 @@ type Repo struct {
 	Base       sql.NullString
 	CreatedAt  int64
 	Connection sql.NullString
+}
+
+type Routine struct {
+	ID             string
+	Bot            string
+	Name           string
+	Kind           string
+	Prompt         string
+	Script         string
+	ScriptText     string
+	EveryMinutes   sql.NullInt64
+	AnchorAt       sql.NullInt64
+	Cron           sql.NullString
+	Timezone       sql.NullString
+	TimeoutSeconds int64
+	Revision       int64
+	State          string
+	PausedReason   string
+	Summary        string
+	ChatID         sql.NullString
+	Announce       int64
+	NextRunAt      sql.NullInt64
+	Failures       int64
+	AlertedAt      sql.NullInt64
+	Skipped        int64
+	LastSkippedAt  sql.NullInt64
+	CreatedBy      string
+	Undo           sql.NullString
+	CreatedAt      int64
+	UpdatedAt      int64
+}
+
+type RoutineGrant struct {
+	RoutineID   string
+	Integration string
+	Label       string
+	Action      string
+	ActionName  string
+	Revision    int64
+	ApprovalID  string
+	CreatedAt   int64
+}
+
+type RoutineRun struct {
+	ID        string
+	RoutineID string
+	StartedBy string
+	State     string
+	StartedAt int64
+	EndedAt   sql.NullInt64
+	ExitCode  sql.NullInt64
+	Output    string
+	Error     string
+	ChatID    sql.NullString
+	KeyHash   sql.NullString
 }
 
 type Run struct {

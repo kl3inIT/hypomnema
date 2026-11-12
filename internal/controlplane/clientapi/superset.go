@@ -42,7 +42,8 @@ func (s *Server) WithRelay(r Relay) *Server {
 // A coordinator token is refused a Connection the owner did not switch on
 // for chats, with the same answer as for one that does not exist: an agent
 // learns nothing of accounts it may not use (the agent API's rule).
-func (s *Server) supersetCall(ctx context.Context, label string, chatID *string) (serviceproxy.Call, error) {
+func (s *Server) supersetCall(ctx context.Context, label string, chatID, runKey *string,
+) (serviceproxy.Call, error) {
 	if s.relay == nil {
 		return serviceproxy.Call{}, errNoApprovals
 	}
@@ -70,6 +71,7 @@ func (s *Server) supersetCall(ctx context.Context, label string, chatID *string)
 
 		call.Caller = serviceproxy.Caller{Name: "coordinator token " + tok.ID, Coordinator: true}
 		call.ChatID = val(chatID)
+		call.RunKey = val(runKey)
 	default:
 		return serviceproxy.Call{}, fmt.Errorf("%w: only the owner and a coordinator may use a Superset connection",
 			errForbidden)
@@ -129,7 +131,7 @@ func (s *Server) logSupersetRead(
 // ListSupersetDashboards lists a Connection's dashboards by title.
 func (s *Server) ListSupersetDashboards(ctx context.Context, req openapi.ListSupersetDashboardsRequestObject,
 ) (openapi.ListSupersetDashboardsResponseObject, error) {
-	call, err := s.supersetCall(ctx, req.Label, req.Params.ChatId)
+	call, err := s.supersetCall(ctx, req.Label, req.Params.ChatId, req.Params.HypomnemaRoutineRun)
 	if err != nil {
 		return nil, err
 	}
@@ -158,7 +160,7 @@ func (s *Server) ListSupersetDashboards(ctx context.Context, req openapi.ListSup
 // GetSupersetDashboard returns a dashboard with its charts and its filters.
 func (s *Server) GetSupersetDashboard(ctx context.Context, req openapi.GetSupersetDashboardRequestObject,
 ) (openapi.GetSupersetDashboardResponseObject, error) {
-	call, err := s.supersetCall(ctx, req.Label, req.Params.ChatId)
+	call, err := s.supersetCall(ctx, req.Label, req.Params.ChatId, req.Params.HypomnemaRoutineRun)
 	if err != nil {
 		return nil, err
 	}
@@ -201,7 +203,7 @@ func (s *Server) GetSupersetDashboard(ctx context.Context, req openapi.GetSupers
 // GetSupersetChartData returns a chart's rows as its dashboard shows them.
 func (s *Server) GetSupersetChartData(ctx context.Context, req openapi.GetSupersetChartDataRequestObject,
 ) (openapi.GetSupersetChartDataResponseObject, error) {
-	call, err := s.supersetCall(ctx, req.Label, req.Params.ChatId)
+	call, err := s.supersetCall(ctx, req.Label, req.Params.ChatId, req.Params.HypomnemaRoutineRun)
 	if err != nil {
 		return nil, err
 	}
@@ -235,7 +237,7 @@ func (s *Server) GetSupersetChartData(ctx context.Context, req openapi.GetSupers
 // Superset's answer unchanged, whatever its status.
 func (s *Server) RelaySupersetRequest(ctx context.Context, req openapi.RelaySupersetRequestRequestObject,
 ) (openapi.RelaySupersetRequestResponseObject, error) {
-	call, err := s.supersetCall(ctx, req.Label, req.Body.ChatId)
+	call, err := s.supersetCall(ctx, req.Label, req.Body.ChatId, req.Params.HypomnemaRoutineRun)
 	if err != nil {
 		return nil, err
 	}

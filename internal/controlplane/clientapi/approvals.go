@@ -34,6 +34,7 @@ func toApproval(a orchestration.Approval) openapi.Approval {
 		AskedBy: a.AskedBy, Title: a.Title, Payload: make([]openapi.ApprovalField, 0, len(a.Payload)),
 		Status: openapi.ApprovalStatus(a.Status), Used: a.Used, CreatedAt: a.CreatedAt, DecidedAt: a.DecidedAt,
 		DispatchId: opt(a.DispatchID), TaskId: opt(a.TaskID), RunId: opt(a.RunID), ChatId: opt(a.ChatID),
+		RoutineId: opt(a.RoutineID), RoutineRunId: opt(a.RoutineRunID),
 	}
 
 	for _, f := range a.Payload {
@@ -67,6 +68,7 @@ func (s *Server) ListApprovals(ctx context.Context, req openapi.ListApprovalsReq
 
 	all, err := s.svc.ListApprovals(ctx, orchestration.ApprovalFilter{
 		Status: status, ChatID: val(req.Params.ChatId), TaskID: val(req.Params.TaskId),
+		RoutineID: val(req.Params.RoutineId),
 	})
 	if err != nil {
 		return nil, err
@@ -93,10 +95,12 @@ func (s *Server) DecideApproval(ctx context.Context, req openapi.DecideApprovalR
 	case openapi.Approve:
 	case openapi.ApproveSession:
 		scope = orchestration.ScopeSession
+	case openapi.ApproveRoutine:
+		scope = orchestration.ScopeRoutine
 	case openapi.Reject:
 		approve = false
 	default:
-		return nil, fmt.Errorf("%w: answer approve, approve_session or reject", orchestration.ErrInvalid)
+		return nil, fmt.Errorf("%w: answer approve, approve_session, approve_routine or reject", orchestration.ErrInvalid)
 	}
 
 	decided, err := s.approvals.Decide(ctx, req.ApprovalId, approve, scope)

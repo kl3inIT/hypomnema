@@ -29,6 +29,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/nodeapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/routines"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/serviceproxy"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/skillsource"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/skillssh"
@@ -63,6 +64,10 @@ type Config struct {
 	// it as pi-coordinator. Only that token reads the gateway key of a
 	// chat's pi (issue #204).
 	CoordinatorToken string
+	// RoutineCommand runs a script Routine for the Bot's name and the
+	// Routine's id appended to it, from HYPOMNEMA_ROUTINE_COMMAND as a JSON
+	// array; empty: a script Routine's run fails, saying so (issue #211).
+	RoutineCommand []string
 	// VaultKeys holds the vault's root keys, from HYPOMNEMA_VAULT_KEYS (a
 	// comma-separated list of id:base64 entries) and
 	// HYPOMNEMA_VAULT_ACTIVE_KEY_ID; nil: the vault is not configured.
@@ -158,6 +163,12 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 	if raw := env.String(envPrefix+"_BOT_FILES_COMMAND", ""); raw != "" && cmdErr == nil {
 		if err := json.Unmarshal([]byte(raw), &cfg.BotFilesCommand); err != nil || len(cfg.BotFilesCommand) == 0 {
 			cmdErr = fmt.Errorf("%s_BOT_FILES_COMMAND is not a JSON array of strings", envPrefix)
+		}
+	}
+
+	if raw := env.String(envPrefix+"_ROUTINE_COMMAND", ""); raw != "" {
+		if err := json.Unmarshal([]byte(raw), &cfg.RoutineCommand); err != nil || len(cfg.RoutineCommand) == 0 {
+			cmdErr = errors.Join(cmdErr, fmt.Errorf("%s_ROUTINE_COMMAND is not a JSON array of strings", envPrefix))
 		}
 	}
 
@@ -321,6 +332,11 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		}, logger).WithWebURL(cfg.PublicURL)
 	larkSettings = larkbot.NewService(svc, secrets, larkChannels, larkbot.Connect)
 
+	// The Routines of the Bots (issue #211): the tick, and the runs it starts.
+	routineRunner := routines.New(svc, routines.Config{
+		Command: cfg.RoutineCommand, Coordinator: sup, Owner: larkChannels, Logger: logger,
+	})
+
 	api := clientapi.New(svc, logger, ctx.Done()).WithCoordinator(sup).WithChatKeyReader(cfg.CoordinatorToken).
 		WithAccounts(subscriptions).WithGatewayModels(gateway).WithGatewayKeys(gateway).
 		WithHostTokens(tokens).
@@ -330,7 +346,8 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		WithIntegrations(integrations).WithApprovals(proxy).WithRelay(proxy).WithLarkChannels(larkSettings).
 		WithSkillSources(skillsource.NewGitHub(&http.Client{Timeout: 2 * time.Minute})).
 		WithSkillDirectory(skillssh.New(&http.Client{Timeout: 30 * time.Second})).
-		WithBuiltinSkills(builtinSkills)
+		WithBuiltinSkills(builtinSkills).
+		WithRoutines(routineRunner)
 	if cfg.VaultKeys != nil {
 		api.WithTokenAccounts(accountTokens{svc: svc, vault: secrets, logger: logger})
 	}
@@ -397,6 +414,14 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		_ = sup.Run(ctx)
 	}()
 
+	routinesDone := make(chan struct{})
+
+	go func() {
+		defer close(routinesDone)
+
+		_ = routineRunner.Run(ctx)
+	}()
+
 	larkDone := make(chan struct{})
 
 	go func() {
@@ -418,6 +443,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 
 	cancel(nil)
 	<-browserDone
+	<-routinesDone
 	<-larkDone
 	<-loopDone
 	<-machinesDone

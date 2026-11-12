@@ -1,0 +1,90 @@
+#!/bin/sh
+# Runs the script of one Routine of a Bot (issue #211). Installed root-owned as /usr/local/bin/hypomnema-routine;
+# the control plane's user runs it as the coordinator user through the sudoers rule limited to this file and
+# hypomnema-pi. It accepts only a Bot's name and a Routine's id: which file runs, what it holds and how long it may
+# run are read from the control plane, never from the caller, so no command line reaches the coordinator's user
+# (Hermes: a script is a file under the profile's scripts/, never a command line). The script gets a clean
+# environment, as pi does: no variable of the caller reaches it.
+set -eu
+umask 077
+
+usage() {
+  echo "usage: hypomnema-routine <bot> <routine id>" >&2
+  exit 2
+}
+
+[ $# -eq 2 ] || usage
+bot=$1
+routine=$2
+
+case "$bot" in
+  "" | [!a-z]* | *[!a-z0-9-]*) usage ;;
+esac
+case "$routine" in
+  rtn_*) ;;
+  *) usage ;;
+esac
+case "$routine" in
+  *[!A-Za-z0-9_]*) usage ;;
+esac
+
+home=/home/coordinator/.hypomnema-coordinator
+
+# The Bot's own directory, as hypomnema-pi makes it: the script works where the Bot does.
+mkdir -p "$home/bots"
+dir="$home/bots/$bot"
+if [ "$bot" = coordinator ] && [ ! -e "$dir" ]; then
+  mkdir -p "$home/work"
+  ln -s ../work "$dir"
+fi
+mkdir -p "$dir/routines"
+
+# The control plane keeps the script's text, which is what the owner read. It is asked for with the coordinator's
+# own token and given once for the run that is starting: the helper writes it into the Bot's routines directory,
+# so the file that runs is that text whatever was left there, and writes the run's key beside it. The answer is
+# the file's name and the seconds it may run.
+if ! said=$(HOME=/home/coordinator /usr/local/bin/hypomnema routines script "$routine" --bot "$bot" \
+  --into "$dir/routines"); then
+  echo "hypomnema-routine: reading routine $routine of bot $bot failed" >&2
+  exit 1
+fi
+name=$(printf '%s\n' "$said" | sed -n 1p)
+limit=$(printf '%s\n' "$said" | sed -n 2p)
+key="$dir/routines/.run-$routine"
+
+case "$name" in
+  "" | .* | *[!A-Za-z0-9._-]*) echo "hypomnema-routine: the routine names no file" >&2; exit 1 ;;
+esac
+case "$limit" in
+  "" | *[!0-9]*) echo "hypomnema-routine: the routine has no limit" >&2; exit 1 ;;
+esac
+
+cd "$dir"
+
+# The control plane holds this launcher's standard input open for as long as the run should go on, and closes it to
+# stop the run (the Routine was removed, or the control plane ended): its user cannot signal the coordinator's.
+exec 3<&0
+
+# The script has the Bot's tools on its PATH and the Bot's token, as pi has, and no model. HYPOMNEMA_ROUTINE says
+# that it is a Routine's run, which makes no Routines; HYPOMNEMA_ROUTINE_RUN_FILE names the file with the run's
+# key, by which what the script asks the owner to approve is known as this run's. It is ended at its limit here.
+env -i \
+  HOME=/home/coordinator USER=coordinator LOGNAME=coordinator LANG=C.UTF-8 TERM=dumb \
+  PATH="$home/tools/bin:/opt/hypomnema-node/bin:/usr/local/bin:/usr/bin:/bin" \
+  HYPOMNEMA_BOT="$bot" HYPOMNEMA_ROUTINE="$routine" HYPOMNEMA_ROUTINE_RUN_FILE="$key" HYPOMNEMA_TOOLS_HOME="$home" \
+  timeout -k 10 "$limit" "$dir/routines/$name" < /dev/null 3<&- &
+script=$!
+
+(
+  cat <&3 > /dev/null 2>&1 || true
+  kill -TERM "$script" 2> /dev/null || true
+) > /dev/null 2>&1 &
+watcher=$!
+exec 3<&-
+
+set +e
+wait "$script"
+code=$?
+kill "$watcher" 2> /dev/null
+rm -f "$key"
+exit "$code"

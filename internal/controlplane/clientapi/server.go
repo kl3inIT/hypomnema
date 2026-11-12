@@ -94,6 +94,8 @@ type Server struct {
 	skillDirectory SkillDirectory
 	// builtinSkills lists the skills the binary ships; nil when the control plane wired none.
 	builtinSkills func() ([]BuiltinSkill, error)
+	// routines starts the runs of Routines the owner asks for; nil when the control plane wired none.
+	routines Routines
 }
 
 // Accounts is what the API asks of the service that signs subscription

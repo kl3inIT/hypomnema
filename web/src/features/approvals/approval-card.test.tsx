@@ -197,3 +197,39 @@ test("a request's field names read as words", () => {
   expect(readable("Subject")).toBe("Subject")
   expect(readable("…")).toBe("…")
 })
+
+// Scenario: a prompt Routine's run asked, in the run's own chat. Beside once and the chat, the owner may allow
+// the action always for that Routine; a request no Routine's run made has no such answer.
+test("a Routine's run offers always for this Routine", async () => {
+  const user = userEvent.setup()
+  const requests = server([
+    mail({ id: "apr_4", routine_id: "rtn_brief", routine_run_id: "rrn_1" }),
+    mail({ id: "apr_5", title: "Send mail: lan@example.com" }),
+  ])
+  show({ chatId: "cht_1" })
+
+  const plain = within(
+    await screen.findByRole("region", { name: "Approval needed: Send mail: lan@example.com" }),
+  )
+  await user.click(plain.getByRole("button", { name: "More approval options" }))
+  expect(await screen.findByRole("menuitem", { name: "Approve for this chat" })).toBeInTheDocument()
+  expect(
+    screen.queryByRole("menuitem", { name: "Always for this Routine" }),
+  ).not.toBeInTheDocument()
+  await user.keyboard("{Escape}")
+
+  const card = within(
+    screen.getByRole("region", { name: "Approval needed: Send mail: minh@example.com" }),
+  )
+  await user.click(card.getByRole("button", { name: "More approval options" }))
+  expect(await screen.findByRole("menuitem", { name: "Approve for this chat" })).toBeInTheDocument()
+  await user.click(screen.getByRole("menuitem", { name: "Always for this Routine" }))
+
+  await waitFor(() =>
+    expect(requests).toContainEqual({
+      call: "POST /approvals/apr_4/decision",
+      query: "",
+      body: { decision: "approve_routine" },
+    }),
+  )
+})

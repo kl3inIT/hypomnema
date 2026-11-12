@@ -47,6 +47,12 @@ const (
 	// maxBody bounds a request's body: it is read whole, to be decoded and
 	// matched. Gmail takes a message of 35 MB at most.
 	maxBody = 48 << 20
+	// DefaultRunHold is how long a request of a Routine's run waits for the
+	// owner, in the call that made it: nobody is there to be told that it
+	// waits and to ask again. Then it is refused (OpenClaw holds an exec
+	// approval in place for DEFAULT_EXEC_APPROVAL_TIMEOUT_MS, 30 minutes:
+	// src/infra/exec-approvals-core.ts L266).
+	DefaultRunHold = 30 * time.Minute
 	// handshakeTimeout bounds the TLS handshake with a tool.
 	handshakeTimeout = 20 * time.Second
 )
@@ -75,6 +81,7 @@ type Store interface {
 	DecideApproval(ctx context.Context, id string, approve bool, scope orchestration.ApprovalScope,
 	) (orchestration.Approval, error)
 	UseApproval(ctx context.Context, id string) (bool, error)
+	ExpireApproval(ctx context.Context, id string) (orchestration.Approval, error)
 	TellAgentOfApproval(ctx context.Context, a orchestration.Approval) (bool, error)
 	ActionPolicies(ctx context.Context, integration, label string) (map[string]string, error)
 }
@@ -93,6 +100,9 @@ type Config struct {
 	Upstream http.RoundTripper
 	// Hold is how long a request waits for the owner; zero is DefaultHold.
 	Hold time.Duration
+	// RunHold is how long a request of a Routine's run waits for the owner
+	// before it is refused; zero is DefaultRunHold.
+	RunHold time.Duration
 	// Send sends a relayed request to the address of a Connection that has
 	// its own, with its token (Relay); nil when no Integration has one.
 	Send Sender
@@ -127,6 +137,10 @@ func New(cfg Config) (*Proxy, error) {
 		cfg.Hold = DefaultHold
 	}
 
+	if cfg.RunHold == 0 {
+		cfg.RunHold = DefaultRunHold
+	}
+
 	return &Proxy{cfg: cfg, ca: ca, waiting: map[string][]chan orchestration.Approval{}}, nil
 }
 
@@ -153,8 +167,10 @@ type session struct {
 	integration string
 	label       string
 	chatID      string
-	host        string
-	catalog     Catalog
+	// runKey is the key of the Routine's run whose script asks (issue #211); a prompt run is known by its chat.
+	runKey  string
+	host    string
+	catalog Catalog
 }
 
 func (s session) connection() string { return orchestration.Use(s.integration, s.label) }
@@ -209,6 +225,7 @@ func (p *Proxy) tunnel(w http.ResponseWriter, r *http.Request) {
 
 	if caller.Coordinator {
 		s.chatID = query.Get(agenttool.QueryChat)
+		s.runKey = r.Header.Get(agenttool.HeaderRoutineRun)
 	}
 
 	conn, err := websocket.Accept(w, r, nil)
@@ -395,7 +412,8 @@ func (p *Proxy) ask(ctx context.Context, req *http.Request, body []byte, action 
 
 	approval, granted, err := p.cfg.Store.AskApproval(ctx, orchestration.NewApproval{
 		Integration: s.integration, Label: s.label, Action: action.ID, ActionName: action.Name,
-		DispatchID: s.caller.DispatchID, ChatID: s.chatID, AskedBy: askedBy, Title: title, Payload: fields,
+		DispatchID: s.caller.DispatchID, ChatID: s.chatID, RunKey: s.runKey, AskedBy: askedBy, Title: title,
+		Payload:   fields,
 		MatchHash: d.Hash,
 	})
 	if err != nil {
@@ -406,9 +424,31 @@ func (p *Proxy) ask(ctx context.Context, req *http.Request, body []byte, action 
 		return "approved before", "", nil
 	}
 
-	decided, answered, err := p.wait(ctx, approval.ID)
+	// A request of a Routine's run waits where it is, for as long as a run waits, and is then refused: nobody is
+	// in a run to be told that it waits and to ask again.
+	hold := p.cfg.Hold
+	if approval.RoutineRunID != "" {
+		hold = p.cfg.RunHold
+	}
+
+	decided, answered, err := p.wait(ctx, approval.ID, hold)
 	if err != nil {
 		return "", "", err
+	}
+
+	if !answered && approval.RoutineRunID != "" {
+		decided, err = p.cfg.Store.ExpireApproval(ctx, approval.ID)
+		if err != nil {
+			return "", "", err
+		}
+
+		if decided.Expired {
+			return "expired", fmt.Sprintf("Refused: nobody answered the approval of %q in %s. It was not run and "+
+				"this run fails; do not try another way.", approval.Title, hold), nil
+		}
+
+		// He answered as the wait ran out.
+		answered = true
 	}
 
 	switch {
@@ -419,6 +459,8 @@ func (p *Proxy) ask(ctx context.Context, req *http.Request, body []byte, action 
 			"your answer.", approval.Title), nil
 	case decided.Scope == orchestration.ScopeSession:
 		return "approved for the session", "", nil
+	case decided.Scope == orchestration.ScopeRoutine:
+		return "approved for the routine", "", nil
 	}
 
 	// An approval for one request runs once, whoever waited for it.
@@ -454,7 +496,8 @@ func (p *Proxy) waitingMessage(a orchestration.Approval, s session) string {
 
 // wait blocks until the Approval is answered or the hold ends. answered is
 // false when the hold ended first: the Approval stays open.
-func (p *Proxy) wait(ctx context.Context, id string) (decided orchestration.Approval, answered bool, err error) {
+func (p *Proxy) wait(ctx context.Context, id string, hold time.Duration,
+) (decided orchestration.Approval, answered bool, err error) {
 	notified := make(chan orchestration.Approval, 1)
 
 	p.mu.Lock()
@@ -473,7 +516,7 @@ func (p *Proxy) wait(ctx context.Context, id string) (decided orchestration.Appr
 		return now, true, nil
 	}
 
-	timer := time.NewTimer(p.cfg.Hold)
+	timer := time.NewTimer(hold)
 	defer timer.Stop()
 
 	select {

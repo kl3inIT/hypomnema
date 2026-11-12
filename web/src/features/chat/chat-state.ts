@@ -95,6 +95,21 @@ export type ChatItem =
   | { kind: "stopped"; key: string; message: ChatMessage }
   | { kind: "reply"; key: string; text: string; streaming: boolean; createdAt?: string }
   | { kind: "activity"; key: string; steps: Step[]; open: boolean }
+  // A Routine the Bot set up from this chat, where it was set up (issue #211).
+  | { kind: "routine-setup"; key: string; routineId: string }
+  // A Routine's run told its result here.
+  | {
+      kind: "routine-run"
+      key: string
+      runId: string
+      routineId: string
+      text: string
+      createdAt: string
+    }
+
+// Setup is a Routine the Bot set up from the chat and when: its card goes among the messages at that moment, as
+// OpenMausBot's TriggerCard stands in the conversation where the Bot made it.
+export type Setup = { id: string; at: string }
 
 // One step of pi's work: a thought, or a tool with its result (absent while it runs).
 export type Step =
@@ -116,8 +131,9 @@ export function failed(m: ChatMessage) {
 //
 // A turn the owner stopped ends in a row the server keeps as stopped, which reads as one (t3code's "You stopped
 // this response", MessagesTimeline.logic.ts; assistant-ui's StoppedRun).
-export function chatItems(view: ChatView, local: Local = {}): ChatItem[] {
+export function chatItems(view: ChatView, local: Local = {}, setups: Setup[] = []): ChatItem[] {
   const items: ChatItem[] = []
+  const waiting = [...setups].sort((a, b) => a.at.localeCompare(b.at))
   let group: Step[] | null = null
   const kept = new Set(view.messages.map((m) => m.seq))
   const messages = [...view.messages, ...(local.sending ?? []).filter((m) => !kept.has(m.seq))]
@@ -134,8 +150,18 @@ export function chatItems(view: ChatView, local: Local = {}): ChatItem[] {
     group = null
   }
 
+  // place puts the cards of the Routines set up before a moment; all that are left when no moment is given.
+  const place = (before?: string) => {
+    for (let s = waiting[0]; s && (before === undefined || s.at < before); s = waiting[0]) {
+      waiting.shift()
+      close()
+      items.push({ kind: "routine-setup", key: `setup-${s.id}`, routineId: s.id })
+    }
+  }
+
   for (const m of messages) {
     const key = String(m.seq)
+    place(m.created_at)
 
     switch (m.role) {
       case "owner":
@@ -169,6 +195,16 @@ export function chatItems(view: ChatView, local: Local = {}): ChatItem[] {
         parts.forEach((p, i) => {
           if (p.type === "thinking" && p.text) {
             step({ kind: "thinking", key: `${key}-${i}`, text: p.text }, `a${key}`)
+          } else if (p.type === "routine_run" && p.id && p.routine_id) {
+            close()
+            items.push({
+              kind: "routine-run",
+              key: `${key}-${i}`,
+              runId: p.id,
+              routineId: p.routine_id,
+              text: m.text,
+              createdAt: m.created_at,
+            })
           } else if (p.type === "text" && p.text) {
             close()
             items.push({
@@ -184,6 +220,8 @@ export function chatItems(view: ChatView, local: Local = {}): ChatItem[] {
       }
     }
   }
+
+  place()
 
   // What is live comes last: thinking and running tools join the open group, text is the reply being written.
   const blocks = Object.entries(view.live).sort(([a], [b]) => Number(a) - Number(b))

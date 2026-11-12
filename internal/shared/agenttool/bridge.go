@@ -181,9 +181,14 @@ func (l Launcher) carry(ctx context.Context, conn net.Conn, target, integration,
 		query.Set(QueryChat, l.Chat)
 	}
 
+	header := http.Header{"Authorization": {"Bearer " + l.Key}}
+	if l.RunKey != "" {
+		header.Set(HeaderRoutineRun, l.RunKey)
+	}
+
 	//nolint:bodyclose // The library closes the handshake's body.
 	ws, resp, err := websocket.Dial(ctx, target+"?"+query.Encode(), &websocket.DialOptions{
-		HTTPHeader: http.Header{"Authorization": {"Bearer " + l.Key}}, HTTPClient: l.Client,
+		HTTPHeader: header, HTTPClient: l.Client,
 	})
 	if err != nil {
 		// The tool only sees that its proxy refused; the reason is kept for the agent.

@@ -996,17 +996,26 @@ export type Approval = {
   task_id?: string;
   run_id?: string;
   chat_id?: string;
+  /**
+   * The Routine whose run asked.
+   */
+  routine_id?: string;
+  routine_run_id?: string;
   title: string;
   payload: Array<ApprovalField>;
   status: ApprovalStatus;
   /**
-   * How far an approval reaches; absent until approved.
+   * How far an approval reaches; absent until approved. routine is always for the Routine whose run asked.
    */
-  scope?: 'once' | 'session';
+  scope?: 'once' | 'session' | 'routine';
   /**
    * An approval for one request has run.
    */
   used: boolean;
+  /**
+   * Nobody answered while a Routine's run waited, or the run ended; it counts as rejected.
+   */
+  expired?: boolean;
   created_at: string;
   decided_at?: string;
 };
@@ -1017,9 +1026,9 @@ export type ApprovalList = {
 
 export type ApprovalDecision = {
   /**
-   * approve lets this one request run; approve_session also stops asking for the action for the rest of the Run or the chat that asked; reject refuses it.
+   * approve lets this one request run; approve_session also stops asking for the action for the rest of the Run or the chat that asked; approve_routine, for a request a Routine's run made, stops asking for the action in that Routine's later runs too, until its prompt, script or schedule changes or the owner takes it back; reject refuses it.
    */
-  decision: 'approve' | 'approve_session' | 'reject';
+  decision: 'approve' | 'approve_session' | 'approve_routine' | 'reject';
 };
 
 export type ConnectionUse = {
@@ -1458,6 +1467,216 @@ export type Bot = {
   updated_at: string;
 };
 
+/**
+ * on: it runs by its schedule. paused: it does not, by the owner or after repeated failures.
+ */
+export type RoutineState = 'on' | 'paused';
+
+export type RoutineKind = 'prompt' | 'script';
+
+/**
+ * Work a Bot does on a schedule: a prompt the Bot works on with its model in a new chat, or a script that runs with the Bot's tools and no model.
+ */
+export type Routine = {
+  id: string;
+  bot: string;
+  name: string;
+  kind: RoutineKind;
+  /**
+   * What a prompt Routine gives its Bot.
+   */
+  prompt?: string;
+  /**
+   * The file a script Routine runs, under the Bot's routines directory.
+   */
+  script?: string;
+  /**
+   * What the script's file holds.
+   */
+  script_text?: string;
+  every_minutes?: number;
+  cron?: string;
+  timezone?: string;
+  /**
+   * The schedule in words: every hour.
+   */
+  schedule: string;
+  /**
+   * One sentence that restates the schedule and the work.
+   */
+  sentence: string;
+  timeout_seconds: number;
+  state: RoutineState;
+  paused_reason?: string;
+  /**
+   * What the work is, in the words of whoever made it.
+   */
+  summary?: string;
+  /**
+   * The chat it was made in.
+   */
+  chat_id?: string;
+  /**
+   * A run's answer or a script's output goes to the chat it was made in.
+   */
+  announce: boolean;
+  next_run_at?: string;
+  /**
+   * The runs that failed in a row.
+   */
+  failures: number;
+  /**
+   * The due times that passed while a run was still going; they have no run of their own.
+   */
+  skipped: number;
+  last_skipped_at?: string;
+  /**
+   * owner or bot.
+   */
+  created_by: string;
+  /**
+   * The last change was a Bot's and can be undone.
+   */
+  can_undo: boolean;
+  created_at: string;
+  updated_at: string;
+  last_run?: RoutineRun;
+  /**
+   * What the owner allowed this Routine always.
+   */
+  grants: Array<RoutineGrant>;
+};
+
+export type RoutineList = {
+  data: Array<Routine>;
+};
+
+export type RoutineSettings = {
+  kind: RoutineKind;
+  prompt?: string;
+  /**
+   * A file name, never a path or a command line.
+   */
+  script?: string;
+  script_text?: string;
+  every_minutes?: number;
+  /**
+   * Five fields; needs timezone.
+   */
+  cron?: string;
+  /**
+   * An IANA time zone, such as Asia/Ho_Chi_Minh.
+   */
+  timezone?: string;
+  /**
+   * How long a script may run; 600 when absent. A prompt run works for at most an hour.
+   */
+  timeout_seconds?: number;
+  summary?: string;
+  /**
+   * The chat the Routine is made in; a Bot names the chat it works in.
+   */
+  chat_id?: string;
+  /**
+   * Whether a run's result goes to that chat; it does when absent.
+   */
+  announce?: boolean;
+  /**
+   * The Routine whose run asks, when one does; it is refused.
+   */
+  from_routine?: string;
+};
+
+export type RoutineUndone = {
+  /**
+   * The Routine was one the Bot made and is gone.
+   */
+  removed: boolean;
+  routine?: Routine;
+};
+
+export type RoutineLaunchRequest = {
+  /**
+   * The Bot the Routine must belong to.
+   */
+  bot: string;
+};
+
+export type RoutineScriptLaunch = {
+  script: string;
+  script_text: string;
+  timeout_seconds: number;
+  /**
+   * The run's key, given once.
+   */
+  key: string;
+};
+
+export type RoutineRun = {
+  id: string;
+  routine_id: string;
+  /**
+   * By the schedule or by hand.
+   */
+  started_by: 'schedule' | 'manual';
+  /**
+   * waiting is waiting for the owner's answer to an Approval; canceled is ended by his no, or by the Routine's removal.
+   */
+  state: 'running' | 'waiting' | 'succeeded' | 'failed' | 'canceled';
+  started_at: string;
+  ended_at?: string;
+  /**
+   * A script's exit code.
+   */
+  exit_code?: number;
+  /**
+   * The end of what a script printed, or a prompt run's answer.
+   */
+  output: string;
+  error: string;
+  /**
+   * A prompt run's chat.
+   */
+  chat_id?: string;
+};
+
+export type RoutineRunList = {
+  data: Array<RoutineRun>;
+  /**
+   * How many runs the Routine has.
+   */
+  total: number;
+  /**
+   * The offset of the next page; absent on the last.
+   */
+  next_offset?: number;
+};
+
+export type RoutineSchedule = {
+  every_minutes?: number;
+  cron?: string;
+  timezone?: string;
+};
+
+export type RoutineSchedulePreview = {
+  /**
+   * The schedule in words: every weekday at 7:00 Ho Chi Minh time.
+   */
+  schedule: string;
+  next: Array<string>;
+};
+
+/**
+ * An action of a Connection that passes in the Routine's runs without asking.
+ */
+export type RoutineGrant = {
+  integration: string;
+  label: string;
+  action: string;
+  action_name: string;
+  created_at: string;
+};
+
 export type BotList = {
   data: Array<Bot>;
 };
@@ -1699,10 +1918,14 @@ export type ChatRole = 'owner' | 'coordinator' | 'tool' | 'system';
 export type ChatKind = 'wake' | 'failed' | 'stopped' | 'approval';
 
 /**
- * One piece of a reply (text, thinking) or of a tool pi ran (tool_result).
+ * One piece of a reply (text, thinking), of a tool pi ran (tool_result), or the result of a Routine's run told in the chat it was made in (routine_run: id is the run's).
  */
 export type ChatPart = {
-  type: 'text' | 'thinking' | 'tool_result';
+  type: 'text' | 'thinking' | 'tool_result' | 'routine_run';
+  /**
+   * The Routine of a routine_run part.
+   */
+  routine_id?: string;
   text?: string;
   /**
    * The tool call.
@@ -1859,6 +2082,13 @@ export type SupersetDashboardId = string;
  * The chat a coordinator asks from, so that an Approval the request waits for is answered there. Ignored for the owner.
  */
 export type AskingChat = string;
+
+export type RoutineId = string;
+
+/**
+ * The key of the Routine's run whose script asks, which its launcher was given, so that an Approval the request waits for belongs to that run. Ignored for the owner.
+ */
+export type AskingRoutineRun = string;
 
 export type Name = string;
 
@@ -3407,6 +3637,12 @@ export type SetConnectionActionResponse = SetConnectionActionResponses[keyof Set
 
 export type ListSupersetDashboardsData = {
   body?: never;
+  headers?: {
+    /**
+     * The key of the Routine's run whose script asks, which its launcher was given, so that an Approval the request waits for belongs to that run. Ignored for the owner.
+     */
+    'Hypomnema-Routine-Run'?: string;
+  };
   path: {
     label: string;
   };
@@ -3443,6 +3679,12 @@ export type ListSupersetDashboardsResponse = ListSupersetDashboardsResponses[key
 
 export type GetSupersetDashboardData = {
   body?: never;
+  headers?: {
+    /**
+     * The key of the Routine's run whose script asks, which its launcher was given, so that an Approval the request waits for belongs to that run. Ignored for the owner.
+     */
+    'Hypomnema-Routine-Run'?: string;
+  };
   path: {
     label: string;
     /**
@@ -3479,6 +3721,12 @@ export type GetSupersetDashboardResponse = GetSupersetDashboardResponses[keyof G
 
 export type GetSupersetChartDataData = {
   body?: never;
+  headers?: {
+    /**
+     * The key of the Routine's run whose script asks, which its launcher was given, so that an Approval the request waits for belongs to that run. Ignored for the owner.
+     */
+    'Hypomnema-Routine-Run'?: string;
+  };
   path: {
     label: string;
     /**
@@ -3523,6 +3771,12 @@ export type GetSupersetChartDataResponse = GetSupersetChartDataResponses[keyof G
 
 export type RelaySupersetRequestData = {
   body: SupersetRequest;
+  headers?: {
+    /**
+     * The key of the Routine's run whose script asks, which its launcher was given, so that an Approval the request waits for belongs to that run. Ignored for the owner.
+     */
+    'Hypomnema-Routine-Run'?: string;
+  };
   path: {
     label: string;
   };
@@ -3555,6 +3809,10 @@ export type ListApprovalsData = {
     status?: ApprovalStatus;
     chat_id?: string;
     task_id?: string;
+    /**
+     * Only those asked in this Routine's runs.
+     */
+    routine_id?: string;
   };
   url: '/approvals';
 };
@@ -4656,6 +4914,348 @@ export type SetSkillEveryoneResponses = {
 };
 
 export type SetSkillEveryoneResponse = SetSkillEveryoneResponses[keyof SetSkillEveryoneResponses];
+
+export type PutRoutineData = {
+  body: RoutineSettings;
+  path: {
+    name: string;
+    /**
+     * The Routine's name, its own among its Bot's.
+     */
+    routine: string;
+  };
+  query?: never;
+  url: '/bots/{name}/routines/{routine}';
+};
+
+export type PutRoutineErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type PutRoutineError = PutRoutineErrors[keyof PutRoutineErrors];
+
+export type PutRoutineResponses = {
+  /**
+   * The Routine.
+   */
+  200: Routine;
+};
+
+export type PutRoutineResponse = PutRoutineResponses[keyof PutRoutineResponses];
+
+export type ListRoutinesData = {
+  body?: never;
+  path?: never;
+  query?: {
+    /**
+     * Only this Bot's.
+     */
+    bot?: string;
+    /**
+     * Only those made in this chat.
+     */
+    chat_id?: string;
+  };
+  url: '/routines';
+};
+
+export type ListRoutinesErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListRoutinesError = ListRoutinesErrors[keyof ListRoutinesErrors];
+
+export type ListRoutinesResponses = {
+  /**
+   * The Routines.
+   */
+  200: RoutineList;
+};
+
+export type ListRoutinesResponse = ListRoutinesResponses[keyof ListRoutinesResponses];
+
+export type PreviewRoutineScheduleData = {
+  body: RoutineSchedule;
+  path?: never;
+  query?: never;
+  url: '/routine-schedule';
+};
+
+export type PreviewRoutineScheduleErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type PreviewRoutineScheduleError = PreviewRoutineScheduleErrors[keyof PreviewRoutineScheduleErrors];
+
+export type PreviewRoutineScheduleResponses = {
+  /**
+   * The schedule in words and its next times.
+   */
+  200: RoutineSchedulePreview;
+};
+
+export type PreviewRoutineScheduleResponse = PreviewRoutineScheduleResponses[keyof PreviewRoutineScheduleResponses];
+
+export type DeleteRoutineData = {
+  body?: never;
+  path: {
+    routine_id: string;
+  };
+  query?: never;
+  url: '/routines/{routine_id}';
+};
+
+export type DeleteRoutineErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type DeleteRoutineError = DeleteRoutineErrors[keyof DeleteRoutineErrors];
+
+export type DeleteRoutineResponses = {
+  /**
+   * The Routine is removed.
+   */
+  204: void;
+};
+
+export type DeleteRoutineResponse = DeleteRoutineResponses[keyof DeleteRoutineResponses];
+
+export type GetRoutineData = {
+  body?: never;
+  path: {
+    routine_id: string;
+  };
+  query?: never;
+  url: '/routines/{routine_id}';
+};
+
+export type GetRoutineErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GetRoutineError = GetRoutineErrors[keyof GetRoutineErrors];
+
+export type GetRoutineResponses = {
+  /**
+   * The Routine.
+   */
+  200: Routine;
+};
+
+export type GetRoutineResponse = GetRoutineResponses[keyof GetRoutineResponses];
+
+export type UndoRoutineData = {
+  body?: never;
+  path: {
+    routine_id: string;
+  };
+  query?: never;
+  url: '/routines/{routine_id}/undo';
+};
+
+export type UndoRoutineErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type UndoRoutineError = UndoRoutineErrors[keyof UndoRoutineErrors];
+
+export type UndoRoutineResponses = {
+  /**
+   * What the undo did.
+   */
+  200: RoutineUndone;
+};
+
+export type UndoRoutineResponse = UndoRoutineResponses[keyof UndoRoutineResponses];
+
+export type LaunchRoutineScriptData = {
+  body: RoutineLaunchRequest;
+  path: {
+    routine_id: string;
+  };
+  query?: never;
+  url: '/routines/{routine_id}/launch';
+};
+
+export type LaunchRoutineScriptErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type LaunchRoutineScriptError = LaunchRoutineScriptErrors[keyof LaunchRoutineScriptErrors];
+
+export type LaunchRoutineScriptResponses = {
+  /**
+   * What to run.
+   */
+  200: RoutineScriptLaunch;
+};
+
+export type LaunchRoutineScriptResponse = LaunchRoutineScriptResponses[keyof LaunchRoutineScriptResponses];
+
+export type PauseRoutineData = {
+  body?: never;
+  path: {
+    routine_id: string;
+  };
+  query?: never;
+  url: '/routines/{routine_id}/pause';
+};
+
+export type PauseRoutineErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type PauseRoutineError = PauseRoutineErrors[keyof PauseRoutineErrors];
+
+export type PauseRoutineResponses = {
+  /**
+   * The Routine.
+   */
+  200: Routine;
+};
+
+export type PauseRoutineResponse = PauseRoutineResponses[keyof PauseRoutineResponses];
+
+export type ResumeRoutineData = {
+  body?: never;
+  path: {
+    routine_id: string;
+  };
+  query?: never;
+  url: '/routines/{routine_id}/resume';
+};
+
+export type ResumeRoutineErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ResumeRoutineError = ResumeRoutineErrors[keyof ResumeRoutineErrors];
+
+export type ResumeRoutineResponses = {
+  /**
+   * The Routine.
+   */
+  200: Routine;
+};
+
+export type ResumeRoutineResponse = ResumeRoutineResponses[keyof ResumeRoutineResponses];
+
+export type ListRoutineRunsData = {
+  body?: never;
+  path: {
+    routine_id: string;
+  };
+  query?: {
+    limit?: number;
+    /**
+     * How many of the newest runs to pass over.
+     */
+    offset?: number;
+  };
+  url: '/routines/{routine_id}/runs';
+};
+
+export type ListRoutineRunsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListRoutineRunsError = ListRoutineRunsErrors[keyof ListRoutineRunsErrors];
+
+export type ListRoutineRunsResponses = {
+  /**
+   * The runs.
+   */
+  200: RoutineRunList;
+};
+
+export type ListRoutineRunsResponse = ListRoutineRunsResponses[keyof ListRoutineRunsResponses];
+
+export type RunRoutineData = {
+  body?: never;
+  path: {
+    routine_id: string;
+  };
+  query?: never;
+  url: '/routines/{routine_id}/runs';
+};
+
+export type RunRoutineErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type RunRoutineError = RunRoutineErrors[keyof RunRoutineErrors];
+
+export type RunRoutineResponses = {
+  /**
+   * The run.
+   */
+  200: RoutineRun;
+};
+
+export type RunRoutineResponse = RunRoutineResponses[keyof RunRoutineResponses];
+
+export type RevokeRoutineGrantData = {
+  body?: never;
+  path: {
+    routine_id: string;
+    integration: string;
+    label: string;
+    action: string;
+  };
+  query?: never;
+  url: '/routines/{routine_id}/grants/{integration}/{label}/{action}';
+};
+
+export type RevokeRoutineGrantErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type RevokeRoutineGrantError = RevokeRoutineGrantErrors[keyof RevokeRoutineGrantErrors];
+
+export type RevokeRoutineGrantResponses = {
+  /**
+   * The grant is taken back.
+   */
+  204: void;
+};
+
+export type RevokeRoutineGrantResponse = RevokeRoutineGrantResponses[keyof RevokeRoutineGrantResponses];
 
 export type ListProfilesData = {
   body?: never;

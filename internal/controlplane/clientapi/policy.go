@@ -117,6 +117,22 @@ var policies = map[string]policy{
 	"ListConnectionActions":       {scope: scopeOwner},
 	"SetConnectionAction":         {scope: scopeOwner},
 
+	// Routines (issue #211). Every token reads them. A Bot, with its coordinator's token, makes or changes one
+	// from its chat and runs it once (the handler takes a coordinator for a Bot), and its launcher is given a
+	// run's script once. The rest is the owner's.
+	"ListRoutines":           {},
+	"GetRoutine":             {},
+	"ListRoutineRuns":        {},
+	"PreviewRoutineSchedule": {},
+	"PutRoutine":             {},
+	"RunRoutine":             {},
+	"LaunchRoutineScript":    {},
+	"UndoRoutine":            {scope: scopeOwner},
+	"DeleteRoutine":          {scope: scopeOwner},
+	"PauseRoutine":           {scope: scopeOwner},
+	"ResumeRoutine":          {scope: scopeOwner},
+	"RevokeRoutineGrant":     {scope: scopeOwner},
+
 	// Superset (issue #203). The owner, or a coordinator when the Connection is on for chats: the handler decides
 	// (superset.go). A request may wait for the owner's Approval, longer than the write timeout.
 	"ListSupersetDashboards": {long: true},

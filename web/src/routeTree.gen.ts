@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as BoardRouteImport } from './routes/board'
 import { Route as GridRouteImport } from './routes/grid'
 import { Route as MachinesRouteImport } from './routes/machines'
+import { Route as RoutinesRouteImport } from './routes/routines'
 import { Route as AgentsIndexRouteImport } from './routes/agents.index'
 import { Route as AgentsNameRouteImport } from './routes/agents.$name'
 import { Route as AgentsNewRouteImport } from './routes/agents.new'
@@ -51,6 +52,11 @@ const GridRoute = GridRouteImport.update({
 const MachinesRoute = MachinesRouteImport.update({
   id: '/machines',
   path: '/machines',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RoutinesRoute = RoutinesRouteImport.update({
+  id: '/routines',
+  path: '/routines',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AgentsIndexRoute = AgentsIndexRouteImport.update({
@@ -154,6 +160,7 @@ export interface FileRoutesByFullPath {
   '/board': typeof BoardRoute
   '/grid': typeof GridRoute
   '/machines': typeof MachinesRoute
+  '/routines': typeof RoutinesRoute
   '/agents/$name': typeof AgentsNameRoute
   '/agents/new': typeof AgentsNewRoute
   '/bots/$name': typeof BotsNameRoute
@@ -179,6 +186,7 @@ export interface FileRoutesByTo {
   '/board': typeof BoardRoute
   '/grid': typeof GridRoute
   '/machines': typeof MachinesRoute
+  '/routines': typeof RoutinesRoute
   '/agents/$name': typeof AgentsNameRoute
   '/agents/new': typeof AgentsNewRoute
   '/bots/$name': typeof BotsNameRoute
@@ -205,6 +213,7 @@ export interface FileRoutesById {
   '/board': typeof BoardRoute
   '/grid': typeof GridRoute
   '/machines': typeof MachinesRoute
+  '/routines': typeof RoutinesRoute
   '/agents/$name': typeof AgentsNameRoute
   '/agents/new': typeof AgentsNewRoute
   '/bots/$name': typeof BotsNameRoute
@@ -232,6 +241,7 @@ export interface FileRouteTypes {
     | '/board'
     | '/grid'
     | '/machines'
+    | '/routines'
     | '/agents/$name'
     | '/agents/new'
     | '/bots/$name'
@@ -257,6 +267,7 @@ export interface FileRouteTypes {
     | '/board'
     | '/grid'
     | '/machines'
+    | '/routines'
     | '/agents/$name'
     | '/agents/new'
     | '/bots/$name'
@@ -282,6 +293,7 @@ export interface FileRouteTypes {
     | '/board'
     | '/grid'
     | '/machines'
+    | '/routines'
     | '/agents/$name'
     | '/agents/new'
     | '/bots/$name'
@@ -308,6 +320,7 @@ export interface RootRouteChildren {
   BoardRoute: typeof BoardRoute
   GridRoute: typeof GridRoute
   MachinesRoute: typeof MachinesRoute
+  RoutinesRoute: typeof RoutinesRoute
   AgentsNameRoute: typeof AgentsNameRoute
   AgentsNewRoute: typeof AgentsNewRoute
   BotsNameRoute: typeof BotsNameRoute
@@ -357,6 +370,13 @@ declare module '@tanstack/react-router' {
       path: '/machines'
       fullPath: '/machines'
       preLoaderRoute: typeof MachinesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/routines': {
+      id: '/routines'
+      path: '/routines'
+      fullPath: '/routines'
+      preLoaderRoute: typeof RoutinesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/agents/': {
@@ -500,6 +520,7 @@ const rootRouteChildren: RootRouteChildren = {
   BoardRoute: BoardRoute,
   GridRoute: GridRoute,
   MachinesRoute: MachinesRoute,
+  RoutinesRoute: RoutinesRoute,
   AgentsNameRoute: AgentsNameRoute,
   AgentsNewRoute: AgentsNewRoute,
   BotsNameRoute: BotsNameRoute,

@@ -2,7 +2,7 @@
 
 import type { Client, ClientMeta, Options as Options2, RequestResult, ServerSentEventsResult, TDataShape } from './client';
 import { client } from './client.gen';
-import type { AbortChatData, AbortChatErrors, AbortChatResponses, AddLarkChannelPersonData, AddLarkChannelPersonErrors, AddLarkChannelPersonResponses, AddSkillData, AddSkillErrors, AddSkillResponses, AddTokenAccountData, AddTokenAccountErrors, AddTokenAccountResponses, AnswerQuestionData, AnswerQuestionErrors, AnswerQuestionResponses, ApplyProfileData, ApplyProfileErrors, ApplyProfileResponses, ApplyProviderData, ApplyProviderErrors, ApplyProviderResponses, BeginAccountSignInData, BeginAccountSignInErrors, BeginAccountSignInResponses, BeginIntegrationSignInData, BeginIntegrationSignInErrors, BeginIntegrationSignInResponses, CancelRunData, CancelRunErrors, CancelRunResponses, CancelTaskData, CancelTaskErrors, CancelTaskResponses, ChangeBotMemoryData, ChangeBotMemoryErrors, ChangeBotMemoryResponses, CompleteAccountSignInData, CompleteAccountSignInErrors, CompleteAccountSignInResponses, CompleteIntegrationSignInData, CompleteIntegrationSignInErrors, CompleteIntegrationSignInResponses, CreateChatData, CreateChatErrors, CreateChatResponses, CreateGatewayKeyData, CreateGatewayKeyErrors, CreateGatewayKeyResponses, CreateNodeData, CreateNodeErrors, CreateNodeResponses, CreateRunData, CreateRunErrors, CreateRunResponses, CreateSessionData, CreateSessionErrors, CreateSessionResponses, CreateTasksData, CreateTasksErrors, CreateTasksResponses, DecideApprovalData, DecideApprovalErrors, DecideApprovalResponses, DeleteBotData, DeleteBotErrors, DeleteBotResponses, DeleteGitHostConnectionData, DeleteGitHostConnectionErrors, DeleteGitHostConnectionResponses, DeleteGitHostData, DeleteGitHostErrors, DeleteGitHostResponses, DeleteGitHostTokenData, DeleteGitHostTokenErrors, DeleteGitHostTokenResponses, DeleteIntegrationConnectionData, DeleteIntegrationConnectionErrors, DeleteIntegrationConnectionResponses, DeleteLarkChannelData, DeleteLarkChannelErrors, DeleteLarkChannelResponses, DeleteRepoData, DeleteRepoErrors, DeleteRepoResponses, DeleteSecretData, DeleteSecretErrors, DeleteSecretResponses, DeleteSessionData, DeleteSessionErrors, DeleteSessionResponses, DeleteSkillData, DeleteSkillErrors, DeleteSkillResponses, DiffWorkspaceFileData, DiffWorkspaceFileErrors, DiffWorkspaceFileResponses, DisableAccountData, DisableAccountErrors, DisableAccountResponses, DrainNodeData, DrainNodeErrors, DrainNodeResponses, EnableAccountData, EnableAccountErrors, EnableAccountResponses, FinishRunData, FinishRunErrors, FinishRunResponses, ForwardQuestionData, ForwardQuestionErrors, ForwardQuestionResponses, GetAccountLimitsData, GetAccountLimitsErrors, GetAccountLimitsResponses, GetBotData, GetBotErrors, GetBotResponses, GetBrowserData, GetBrowserErrors, GetBrowserResponses, GetChatData, GetChatErrors, GetChatGatewayKeyData, GetChatGatewayKeyErrors, GetChatGatewayKeyResponses, GetChatResponses, GetLarkChannelData, GetLarkChannelErrors, GetLarkChannelResponses, GetMeData, GetMeErrors, GetMeResponses, GetProfileData, GetProfileErrors, GetProfileResponses, GetQuestionData, GetQuestionErrors, GetQuestionResponses, GetRunData, GetRunErrors, GetRunResponses, GetSecretValueData, GetSecretValueErrors, GetSecretValueResponses, GetSkillArchiveData, GetSkillArchiveErrors, GetSkillArchiveResponses, GetSkillData, GetSkillErrors, GetSkillResponses, GetSupersetChartDataData, GetSupersetChartDataErrors, GetSupersetChartDataResponses, GetSupersetDashboardData, GetSupersetDashboardErrors, GetSupersetDashboardResponses, GetTaskData, GetTaskErrors, GetTaskResponses, ListAccountsData, ListAccountsErrors, ListAccountsResponses, ListApprovalsData, ListApprovalsErrors, ListApprovalsResponses, ListBotsData, ListBotsErrors, ListBotSkillsData, ListBotSkillsErrors, ListBotSkillsResponses, ListBotsResponses, ListBuiltinSkillsData, ListBuiltinSkillsErrors, ListBuiltinSkillsResponses, ListChatMessagesData, ListChatMessagesErrors, ListChatMessagesResponses, ListChatsData, ListChatsErrors, ListChatsResponses, ListChatWorkspacesData, ListChatWorkspacesErrors, ListChatWorkspacesResponses, ListConnectionActionsData, ListConnectionActionsErrors, ListConnectionActionsResponses, ListDispatchItemsData, ListDispatchItemsErrors, ListDispatchItemsResponses, ListEventsData, ListEventsErrors, ListEventsResponses, ListGatewayKeysData, ListGatewayKeysErrors, ListGatewayKeysResponses, ListGatewayModelsData, ListGatewayModelsErrors, ListGatewayModelsResponses, ListGitHostsData, ListGitHostsErrors, ListGitHostsResponses, ListIntegrationsData, ListIntegrationsErrors, ListIntegrationsResponses, ListLarkChannelsData, ListLarkChannelsErrors, ListLarkChannelsResponses, ListMachineProvidersData, ListMachineProvidersErrors, ListMachineProvidersResponses, ListModelsData, ListModelsErrors, ListModelsResponses, ListNodesData, ListNodesErrors, ListNodesResponses, ListProfilesData, ListProfilesErrors, ListProfilesResponses, ListProfileVersionsData, ListProfileVersionsErrors, ListProfileVersionsResponses, ListProvidersData, ListProvidersErrors, ListProvidersResponses, ListQuestionsData, ListQuestionsErrors, ListQuestionsResponses, ListReposData, ListReposErrors, ListReposResponses, ListRunsData, ListRunsErrors, ListRunsResponses, ListSecretsData, ListSecretsErrors, ListSecretsResponses, ListSkillAuditsData, ListSkillAuditsErrors, ListSkillAuditsResponses, ListSkillFilesData, ListSkillFilesErrors, ListSkillFilesResponses, ListSkillsData, ListSkillsErrors, ListSkillsResponses, ListSupersetDashboardsData, ListSupersetDashboardsErrors, ListSupersetDashboardsResponses, ListTasksData, ListTasksErrors, ListTasksResponses, ListWorkspaceChangesData, ListWorkspaceChangesErrors, ListWorkspaceChangesResponses, ListWorkspaceDirectoryData, ListWorkspaceDirectoryErrors, ListWorkspaceDirectoryResponses, MoveAccountData, MoveAccountErrors, MoveAccountResponses, OpenBrowserViewData, OpenBrowserViewErrors, OpenBrowserViewResponses, OpenNodeTerminalData, OpenNodeTerminalErrors, OpenNodeTerminalResponses, PatchIntegrationConnectionData, PatchIntegrationConnectionErrors, PatchIntegrationConnectionResponses, PutBotData, PutBotErrors, PutBotResponses, PutGitHostConnectionData, PutGitHostConnectionErrors, PutGitHostConnectionResponses, PutGitHostData, PutGitHostErrors, PutGitHostResponses, PutGitHostTokenData, PutGitHostTokenErrors, PutGitHostTokenResponses, PutIntegrationClientData, PutIntegrationClientErrors, PutIntegrationClientResponses, PutIntegrationConnectionData, PutIntegrationConnectionErrors, PutIntegrationConnectionResponses, PutLarkChannelData, PutLarkChannelErrors, PutLarkChannelResponses, PutRepoData, PutRepoErrors, PutRepoResponses, PutSecretData, PutSecretErrors, PutSecretResponses, ReadWorkspaceFileData, ReadWorkspaceFileErrors, ReadWorkspaceFileResponses, RedeemAccountLimitResetData, RedeemAccountLimitResetErrors, RedeemAccountLimitResetResponses, RelaySupersetRequestData, RelaySupersetRequestErrors, RelaySupersetRequestResponses, RemoveAccountData, RemoveAccountErrors, RemoveAccountResponses, RemoveLarkChannelPersonData, RemoveLarkChannelPersonErrors, RemoveLarkChannelPersonResponses, RemoveNodeData, RemoveNodeErrors, RemoveNodeResponses, ReopenTaskData, ReopenTaskErrors, ReopenTaskResponses, ResumeNodeData, ResumeNodeErrors, ResumeNodeResponses, RevokeGatewayKeyData, RevokeGatewayKeyErrors, RevokeGatewayKeyResponses, SearchSkillsData, SearchSkillsErrors, SearchSkillsResponses, SendChatMessageData, SendChatMessageErrors, SendChatMessageResponses, SetBotMemoryData, SetBotMemoryErrors, SetBotMemoryResponses, SetConnectionActionData, SetConnectionActionErrors, SetConnectionActionResponses, SetLarkChannelGroupData, SetLarkChannelGroupErrors, SetLarkChannelGroupResponses, SetSkillEveryoneData, SetSkillEveryoneErrors, SetSkillEveryoneResponses, StartNodeMachineData, StartNodeMachineErrors, StartNodeMachineResponses, StopNodeMachineData, StopNodeMachineErrors, StopNodeMachineResponses, StreamChatData, StreamChatErrors, StreamChatResponse, StreamChatResponses, StreamEventsData, StreamEventsErrors, StreamEventsResponse, StreamEventsResponses, UpdateNodeData, UpdateNodeErrors, UpdateNodeResponses, UploadSkillData, UploadSkillErrors, UploadSkillResponses } from './types.gen';
+import type { AbortChatData, AbortChatErrors, AbortChatResponses, AddLarkChannelPersonData, AddLarkChannelPersonErrors, AddLarkChannelPersonResponses, AddSkillData, AddSkillErrors, AddSkillResponses, AddTokenAccountData, AddTokenAccountErrors, AddTokenAccountResponses, AnswerQuestionData, AnswerQuestionErrors, AnswerQuestionResponses, ApplyProfileData, ApplyProfileErrors, ApplyProfileResponses, ApplyProviderData, ApplyProviderErrors, ApplyProviderResponses, BeginAccountSignInData, BeginAccountSignInErrors, BeginAccountSignInResponses, BeginIntegrationSignInData, BeginIntegrationSignInErrors, BeginIntegrationSignInResponses, CancelRunData, CancelRunErrors, CancelRunResponses, CancelTaskData, CancelTaskErrors, CancelTaskResponses, ChangeBotMemoryData, ChangeBotMemoryErrors, ChangeBotMemoryResponses, CompleteAccountSignInData, CompleteAccountSignInErrors, CompleteAccountSignInResponses, CompleteIntegrationSignInData, CompleteIntegrationSignInErrors, CompleteIntegrationSignInResponses, CreateChatData, CreateChatErrors, CreateChatResponses, CreateGatewayKeyData, CreateGatewayKeyErrors, CreateGatewayKeyResponses, CreateNodeData, CreateNodeErrors, CreateNodeResponses, CreateRunData, CreateRunErrors, CreateRunResponses, CreateSessionData, CreateSessionErrors, CreateSessionResponses, CreateTasksData, CreateTasksErrors, CreateTasksResponses, DecideApprovalData, DecideApprovalErrors, DecideApprovalResponses, DeleteBotData, DeleteBotErrors, DeleteBotResponses, DeleteGitHostConnectionData, DeleteGitHostConnectionErrors, DeleteGitHostConnectionResponses, DeleteGitHostData, DeleteGitHostErrors, DeleteGitHostResponses, DeleteGitHostTokenData, DeleteGitHostTokenErrors, DeleteGitHostTokenResponses, DeleteIntegrationConnectionData, DeleteIntegrationConnectionErrors, DeleteIntegrationConnectionResponses, DeleteLarkChannelData, DeleteLarkChannelErrors, DeleteLarkChannelResponses, DeleteRepoData, DeleteRepoErrors, DeleteRepoResponses, DeleteRoutineData, DeleteRoutineErrors, DeleteRoutineResponses, DeleteSecretData, DeleteSecretErrors, DeleteSecretResponses, DeleteSessionData, DeleteSessionErrors, DeleteSessionResponses, DeleteSkillData, DeleteSkillErrors, DeleteSkillResponses, DiffWorkspaceFileData, DiffWorkspaceFileErrors, DiffWorkspaceFileResponses, DisableAccountData, DisableAccountErrors, DisableAccountResponses, DrainNodeData, DrainNodeErrors, DrainNodeResponses, EnableAccountData, EnableAccountErrors, EnableAccountResponses, FinishRunData, FinishRunErrors, FinishRunResponses, ForwardQuestionData, ForwardQuestionErrors, ForwardQuestionResponses, GetAccountLimitsData, GetAccountLimitsErrors, GetAccountLimitsResponses, GetBotData, GetBotErrors, GetBotResponses, GetBrowserData, GetBrowserErrors, GetBrowserResponses, GetChatData, GetChatErrors, GetChatGatewayKeyData, GetChatGatewayKeyErrors, GetChatGatewayKeyResponses, GetChatResponses, GetLarkChannelData, GetLarkChannelErrors, GetLarkChannelResponses, GetMeData, GetMeErrors, GetMeResponses, GetProfileData, GetProfileErrors, GetProfileResponses, GetQuestionData, GetQuestionErrors, GetQuestionResponses, GetRoutineData, GetRoutineErrors, GetRoutineResponses, GetRunData, GetRunErrors, GetRunResponses, GetSecretValueData, GetSecretValueErrors, GetSecretValueResponses, GetSkillArchiveData, GetSkillArchiveErrors, GetSkillArchiveResponses, GetSkillData, GetSkillErrors, GetSkillResponses, GetSupersetChartDataData, GetSupersetChartDataErrors, GetSupersetChartDataResponses, GetSupersetDashboardData, GetSupersetDashboardErrors, GetSupersetDashboardResponses, GetTaskData, GetTaskErrors, GetTaskResponses, LaunchRoutineScriptData, LaunchRoutineScriptErrors, LaunchRoutineScriptResponses, ListAccountsData, ListAccountsErrors, ListAccountsResponses, ListApprovalsData, ListApprovalsErrors, ListApprovalsResponses, ListBotsData, ListBotsErrors, ListBotSkillsData, ListBotSkillsErrors, ListBotSkillsResponses, ListBotsResponses, ListBuiltinSkillsData, ListBuiltinSkillsErrors, ListBuiltinSkillsResponses, ListChatMessagesData, ListChatMessagesErrors, ListChatMessagesResponses, ListChatsData, ListChatsErrors, ListChatsResponses, ListChatWorkspacesData, ListChatWorkspacesErrors, ListChatWorkspacesResponses, ListConnectionActionsData, ListConnectionActionsErrors, ListConnectionActionsResponses, ListDispatchItemsData, ListDispatchItemsErrors, ListDispatchItemsResponses, ListEventsData, ListEventsErrors, ListEventsResponses, ListGatewayKeysData, ListGatewayKeysErrors, ListGatewayKeysResponses, ListGatewayModelsData, ListGatewayModelsErrors, ListGatewayModelsResponses, ListGitHostsData, ListGitHostsErrors, ListGitHostsResponses, ListIntegrationsData, ListIntegrationsErrors, ListIntegrationsResponses, ListLarkChannelsData, ListLarkChannelsErrors, ListLarkChannelsResponses, ListMachineProvidersData, ListMachineProvidersErrors, ListMachineProvidersResponses, ListModelsData, ListModelsErrors, ListModelsResponses, ListNodesData, ListNodesErrors, ListNodesResponses, ListProfilesData, ListProfilesErrors, ListProfilesResponses, ListProfileVersionsData, ListProfileVersionsErrors, ListProfileVersionsResponses, ListProvidersData, ListProvidersErrors, ListProvidersResponses, ListQuestionsData, ListQuestionsErrors, ListQuestionsResponses, ListReposData, ListReposErrors, ListReposResponses, ListRoutineRunsData, ListRoutineRunsErrors, ListRoutineRunsResponses, ListRoutinesData, ListRoutinesErrors, ListRoutinesResponses, ListRunsData, ListRunsErrors, ListRunsResponses, ListSecretsData, ListSecretsErrors, ListSecretsResponses, ListSkillAuditsData, ListSkillAuditsErrors, ListSkillAuditsResponses, ListSkillFilesData, ListSkillFilesErrors, ListSkillFilesResponses, ListSkillsData, ListSkillsErrors, ListSkillsResponses, ListSupersetDashboardsData, ListSupersetDashboardsErrors, ListSupersetDashboardsResponses, ListTasksData, ListTasksErrors, ListTasksResponses, ListWorkspaceChangesData, ListWorkspaceChangesErrors, ListWorkspaceChangesResponses, ListWorkspaceDirectoryData, ListWorkspaceDirectoryErrors, ListWorkspaceDirectoryResponses, MoveAccountData, MoveAccountErrors, MoveAccountResponses, OpenBrowserViewData, OpenBrowserViewErrors, OpenBrowserViewResponses, OpenNodeTerminalData, OpenNodeTerminalErrors, OpenNodeTerminalResponses, PatchIntegrationConnectionData, PatchIntegrationConnectionErrors, PatchIntegrationConnectionResponses, PauseRoutineData, PauseRoutineErrors, PauseRoutineResponses, PreviewRoutineScheduleData, PreviewRoutineScheduleErrors, PreviewRoutineScheduleResponses, PutBotData, PutBotErrors, PutBotResponses, PutGitHostConnectionData, PutGitHostConnectionErrors, PutGitHostConnectionResponses, PutGitHostData, PutGitHostErrors, PutGitHostResponses, PutGitHostTokenData, PutGitHostTokenErrors, PutGitHostTokenResponses, PutIntegrationClientData, PutIntegrationClientErrors, PutIntegrationClientResponses, PutIntegrationConnectionData, PutIntegrationConnectionErrors, PutIntegrationConnectionResponses, PutLarkChannelData, PutLarkChannelErrors, PutLarkChannelResponses, PutRepoData, PutRepoErrors, PutRepoResponses, PutRoutineData, PutRoutineErrors, PutRoutineResponses, PutSecretData, PutSecretErrors, PutSecretResponses, ReadWorkspaceFileData, ReadWorkspaceFileErrors, ReadWorkspaceFileResponses, RedeemAccountLimitResetData, RedeemAccountLimitResetErrors, RedeemAccountLimitResetResponses, RelaySupersetRequestData, RelaySupersetRequestErrors, RelaySupersetRequestResponses, RemoveAccountData, RemoveAccountErrors, RemoveAccountResponses, RemoveLarkChannelPersonData, RemoveLarkChannelPersonErrors, RemoveLarkChannelPersonResponses, RemoveNodeData, RemoveNodeErrors, RemoveNodeResponses, ReopenTaskData, ReopenTaskErrors, ReopenTaskResponses, ResumeNodeData, ResumeNodeErrors, ResumeNodeResponses, ResumeRoutineData, ResumeRoutineErrors, ResumeRoutineResponses, RevokeGatewayKeyData, RevokeGatewayKeyErrors, RevokeGatewayKeyResponses, RevokeRoutineGrantData, RevokeRoutineGrantErrors, RevokeRoutineGrantResponses, RunRoutineData, RunRoutineErrors, RunRoutineResponses, SearchSkillsData, SearchSkillsErrors, SearchSkillsResponses, SendChatMessageData, SendChatMessageErrors, SendChatMessageResponses, SetBotMemoryData, SetBotMemoryErrors, SetBotMemoryResponses, SetConnectionActionData, SetConnectionActionErrors, SetConnectionActionResponses, SetLarkChannelGroupData, SetLarkChannelGroupErrors, SetLarkChannelGroupResponses, SetSkillEveryoneData, SetSkillEveryoneErrors, SetSkillEveryoneResponses, StartNodeMachineData, StartNodeMachineErrors, StartNodeMachineResponses, StopNodeMachineData, StopNodeMachineErrors, StopNodeMachineResponses, StreamChatData, StreamChatErrors, StreamChatResponse, StreamChatResponses, StreamEventsData, StreamEventsErrors, StreamEventsResponse, StreamEventsResponses, UndoRoutineData, UndoRoutineErrors, UndoRoutineResponses, UpdateNodeData, UpdateNodeErrors, UpdateNodeResponses, UploadSkillData, UploadSkillErrors, UploadSkillResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean, TResponse = unknown> = Options2<TData, ThrowOnError, TResponse> & {
   /**
@@ -1134,6 +1134,146 @@ export const setSkillEveryone = <ThrowOnError extends boolean = true>(options: O
     'Content-Type': 'application/json',
     ...options.headers
   }
+});
+
+/**
+ * Make a Routine of a Bot, or change the one of that name
+ *
+ * A Routine is work a Bot does on a schedule: a prompt the Bot works on with its model in a new chat, or a script that runs with the Bot's tools and no model. A new one is switched on at once. A change keeps the Routine's state and its runs; a changed schedule starts from now, and a change of the prompt, the script or the schedule ends what the Routine was allowed always. The owner may, and a Bot with its coordinator's token from a chat it talks in, which it names: its change can be undone. A Routine's own run is refused.
+ */
+export const putRoutine = <ThrowOnError extends boolean = true>(options: Options<PutRoutineData, ThrowOnError>): RequestResult<PutRoutineResponses, PutRoutineErrors, ThrowOnError> => (options.client ?? client).put<PutRoutineResponses, PutRoutineErrors, ThrowOnError>({
+  security: [{ scheme: 'bearer', type: 'http' }],
+  url: '/bots/{name}/routines/{routine}',
+  ...options,
+  headers: {
+    'Content-Type': 'application/json',
+    ...options.headers
+  }
+});
+
+/**
+ * The Routines, the oldest first, each with its last run
+ */
+export const listRoutines = <ThrowOnError extends boolean = true>(options?: Options<ListRoutinesData, ThrowOnError>): RequestResult<ListRoutinesResponses, ListRoutinesErrors, ThrowOnError> => (options?.client ?? client).get<ListRoutinesResponses, ListRoutinesErrors, ThrowOnError>({
+  security: [{ scheme: 'bearer', type: 'http' }],
+  url: '/routines',
+  ...options
+});
+
+/**
+ * A schedule in words and its next three times, as a Routine made now would have them
+ *
+ * The schedule is checked as a Routine's is: every N minutes, or a five-field cron expression with its IANA time zone. Nothing is kept.
+ */
+export const previewRoutineSchedule = <ThrowOnError extends boolean = true>(options: Options<PreviewRoutineScheduleData, ThrowOnError>): RequestResult<PreviewRoutineScheduleResponses, PreviewRoutineScheduleErrors, ThrowOnError> => (options.client ?? client).post<PreviewRoutineScheduleResponses, PreviewRoutineScheduleErrors, ThrowOnError>({
+  security: [{ scheme: 'bearer', type: 'http' }],
+  url: '/routine-schedule',
+  ...options,
+  headers: {
+    'Content-Type': 'application/json',
+    ...options.headers
+  }
+});
+
+/**
+ * Remove a Routine with its runs and its grants; only the owner
+ *
+ * A run of it that still goes is stopped.
+ */
+export const deleteRoutine = <ThrowOnError extends boolean = true>(options: Options<DeleteRoutineData, ThrowOnError>): RequestResult<DeleteRoutineResponses, DeleteRoutineErrors, ThrowOnError> => (options.client ?? client).delete<DeleteRoutineResponses, DeleteRoutineErrors, ThrowOnError>({
+  security: [{ scheme: 'bearer', type: 'http' }],
+  url: '/routines/{routine_id}',
+  ...options
+});
+
+/**
+ * A Routine, with a script's text, its last run and what it is allowed always
+ */
+export const getRoutine = <ThrowOnError extends boolean = true>(options: Options<GetRoutineData, ThrowOnError>): RequestResult<GetRoutineResponses, GetRoutineErrors, ThrowOnError> => (options.client ?? client).get<GetRoutineResponses, GetRoutineErrors, ThrowOnError>({
+  security: [{ scheme: 'bearer', type: 'http' }],
+  url: '/routines/{routine_id}',
+  ...options
+});
+
+/**
+ * Undo a Bot's last change of a Routine; only the owner
+ *
+ * A Routine the Bot made is removed, and a run of it that still goes is stopped; one the Bot changed is what it was before. A Routine that was changed since, or whose last change was not a Bot's, is refused.
+ */
+export const undoRoutine = <ThrowOnError extends boolean = true>(options: Options<UndoRoutineData, ThrowOnError>): RequestResult<UndoRoutineResponses, UndoRoutineErrors, ThrowOnError> => (options.client ?? client).post<UndoRoutineResponses, UndoRoutineErrors, ThrowOnError>({
+  security: [{ scheme: 'bearer', type: 'http' }],
+  url: '/routines/{routine_id}/undo',
+  ...options
+});
+
+/**
+ * What the launcher of a script Routine's run runs, given once a run
+ *
+ * The file's name, its text, its limit and the run's key. Only while a run of the Routine has started and its script has not: the first caller is the launcher, and whoever asks again is refused. A request that presents the key is that run's, so what it asks the owner belongs to the run and what the Routine is allowed always holds for it.
+ */
+export const launchRoutineScript = <ThrowOnError extends boolean = true>(options: Options<LaunchRoutineScriptData, ThrowOnError>): RequestResult<LaunchRoutineScriptResponses, LaunchRoutineScriptErrors, ThrowOnError> => (options.client ?? client).post<LaunchRoutineScriptResponses, LaunchRoutineScriptErrors, ThrowOnError>({
+  security: [{ scheme: 'bearer', type: 'http' }],
+  url: '/routines/{routine_id}/launch',
+  ...options,
+  headers: {
+    'Content-Type': 'application/json',
+    ...options.headers
+  }
+});
+
+/**
+ * Stop a Routine's schedule; only the owner
+ *
+ * A run still going goes on.
+ */
+export const pauseRoutine = <ThrowOnError extends boolean = true>(options: Options<PauseRoutineData, ThrowOnError>): RequestResult<PauseRoutineResponses, PauseRoutineErrors, ThrowOnError> => (options.client ?? client).post<PauseRoutineResponses, PauseRoutineErrors, ThrowOnError>({
+  security: [{ scheme: 'bearer', type: 'http' }],
+  url: '/routines/{routine_id}/pause',
+  ...options
+});
+
+/**
+ * Switch a paused Routine on again, from now; only the owner
+ *
+ * Its failures in a row are forgotten.
+ */
+export const resumeRoutine = <ThrowOnError extends boolean = true>(options: Options<ResumeRoutineData, ThrowOnError>): RequestResult<ResumeRoutineResponses, ResumeRoutineErrors, ThrowOnError> => (options.client ?? client).post<ResumeRoutineResponses, ResumeRoutineErrors, ThrowOnError>({
+  security: [{ scheme: 'bearer', type: 'http' }],
+  url: '/routines/{routine_id}/resume',
+  ...options
+});
+
+/**
+ * A Routine's runs, the newest first
+ *
+ * The newest 2,000 runs of a Routine are kept, for 7 days.
+ */
+export const listRoutineRuns = <ThrowOnError extends boolean = true>(options: Options<ListRoutineRunsData, ThrowOnError>): RequestResult<ListRoutineRunsResponses, ListRoutineRunsErrors, ThrowOnError> => (options.client ?? client).get<ListRoutineRunsResponses, ListRoutineRunsErrors, ThrowOnError>({
+  security: [{ scheme: 'bearer', type: 'http' }],
+  url: '/routines/{routine_id}/runs',
+  ...options
+});
+
+/**
+ * Run a Routine now
+ *
+ * While a run of the Routine still goes or waits for the owner, the answer is a conflict that names it. A run by hand that fails counts as any failed run. The owner may, and a Bot, which runs a Routine once after it made it.
+ */
+export const runRoutine = <ThrowOnError extends boolean = true>(options: Options<RunRoutineData, ThrowOnError>): RequestResult<RunRoutineResponses, RunRoutineErrors, ThrowOnError> => (options.client ?? client).post<RunRoutineResponses, RunRoutineErrors, ThrowOnError>({
+  security: [{ scheme: 'bearer', type: 'http' }],
+  url: '/routines/{routine_id}/runs',
+  ...options
+});
+
+/**
+ * Take back an "always for this Routine"; only the owner
+ *
+ * The action asks again from the Routine's next request.
+ */
+export const revokeRoutineGrant = <ThrowOnError extends boolean = true>(options: Options<RevokeRoutineGrantData, ThrowOnError>): RequestResult<RevokeRoutineGrantResponses, RevokeRoutineGrantErrors, ThrowOnError> => (options.client ?? client).delete<RevokeRoutineGrantResponses, RevokeRoutineGrantErrors, ThrowOnError>({
+  security: [{ scheme: 'bearer', type: 'http' }],
+  url: '/routines/{routine_id}/grants/{integration}/{label}/{action}',
+  ...options
 });
 
 /**

@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -969,6 +970,56 @@ func (cn *conn) notice(ctx context.Context, chatID, text string) {
 		cn.all.logger.WarnContext(ctx, "a notice was not sent to Lark", slog.String("event", "larkbot.notice_failed"),
 			slog.String("channel", cn.name), slog.Any("error", err))
 	}
+}
+
+// TellOwner sends the owner a card through every Channel of a Bot that is on
+// and connected: what a Routine of the Bot has to tell him when nobody is in
+// a chat (issue #211; OpenClaw sends a failure alert to the job's owner). A
+// Channel through which he already reads the chat named is left out, so he
+// is told once.
+func (c *Channels) TellOwner(ctx context.Context, bot, chatID, title, text string) {
+	channels, err := c.store.LarkChannels(ctx)
+	if err != nil {
+		c.logger.WarnContext(ctx, "the Lark channels were not read", slog.String("event", "larkbot.channels_failed"),
+			slog.Any("error", err))
+
+		return
+	}
+
+	for _, ch := range channels {
+		c.mu.Lock()
+		cn := c.conns[ch.Name]
+		c.mu.Unlock()
+
+		if ch.Bot != bot || !ch.Enabled || cn == nil || ch.OwnerOpenID == "" || cn.reads(ctx, chatID) {
+			continue
+		}
+
+		sendCtx, cancel := context.WithTimeout(ctx, sendTimeout)
+		_, _, err := cn.lark.SendCard(sendCtx, ch.OwnerOpenID, Card{Title: title, Color: "red", Text: inert(text)})
+
+		cancel()
+
+		if err != nil {
+			c.logger.WarnContext(ctx, "the owner was not told at Lark", slog.String("event", "larkbot.notice_failed"),
+				slog.String("channel", ch.Name), slog.Any("error", err))
+		}
+	}
+}
+
+// reads reports whether a chat is one of the Channel's: what is said in it
+// reaches Lark already.
+func (cn *conn) reads(ctx context.Context, chatID string) bool {
+	if chatID == "" {
+		return false
+	}
+
+	chats, err := cn.all.store.LarkChannelChats(ctx, cn.name)
+	if err != nil {
+		return false
+	}
+
+	return slices.ContainsFunc(chats, func(c orchestration.LarkChannelChat) bool { return c.ChatID == chatID })
 }
 
 // relayLocked starts sending a chat's replies to its Lark chat, once, and

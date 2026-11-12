@@ -81,6 +81,34 @@ func TestLoadConfigRequiresTheDatabasePath(t *testing.T) {
 	require.ErrorContains(t, err, "HYPOMNEMA_DATABASE_PATH")
 }
 
+// The command that runs a script Routine is a JSON array, as the one that
+// starts pi is; anything else is refused when the control plane starts.
+func TestLoadConfigReadsTheCommandForScriptRoutines(t *testing.T) {
+	t.Parallel()
+
+	load := func(command string) (controlplane.Config, error) {
+		return controlplane.LoadConfig(func(name string) string {
+			return map[string]string{
+				"HYPOMNEMA_DATABASE_PATH":   filepath.Join(t.TempDir(), "hypomnema.db"),
+				"HYPOMNEMA_ROUTINE_COMMAND": command,
+			}[name]
+		})
+	}
+
+	cfg, err := load(`["sudo","-n","-u","coordinator","/usr/local/bin/hypomnema-routine"]`)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"sudo", "-n", "-u", "coordinator", "/usr/local/bin/hypomnema-routine"}, cfg.RoutineCommand)
+
+	cfg, err = load("")
+	require.NoError(t, err)
+	assert.Empty(t, cfg.RoutineCommand)
+
+	for _, bad := range []string{"sudo -n -u coordinator hypomnema-routine", "[]", `{"command":"sh"}`} {
+		_, err = load(bad)
+		require.ErrorContains(t, err, "HYPOMNEMA_ROUTINE_COMMAND is not a JSON array of strings", bad)
+	}
+}
+
 func freeAddr(t *testing.T) string {
 	t.Helper()
 

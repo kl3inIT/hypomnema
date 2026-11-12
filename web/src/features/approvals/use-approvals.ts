@@ -10,14 +10,25 @@ export const approvalsKey = ["approvals"] as const
 
 const everyMs = 3000
 
-// usePending lists what waits for the owner: everywhere, in one chat, or for one Task.
-export function usePending(where: { chatId?: string; taskId?: string } = {}) {
+// usePending lists what waits for the owner: everywhere, in one chat, for one Task, or in one Routine's runs.
+export function usePending(where: { chatId?: string; taskId?: string; routineId?: string } = {}) {
   return useQuery({
-    queryKey: [...approvalsKey, "pending", where.chatId ?? "", where.taskId ?? ""],
+    queryKey: [
+      ...approvalsKey,
+      "pending",
+      where.chatId ?? "",
+      where.taskId ?? "",
+      where.routineId ?? "",
+    ],
     queryFn: async () =>
       (
         await listApprovals({
-          query: { status: "pending", chat_id: where.chatId, task_id: where.taskId },
+          query: {
+            status: "pending",
+            chat_id: where.chatId,
+            task_id: where.taskId,
+            routine_id: where.routineId,
+          },
         })
       ).data.data,
     refetchInterval: everyMs,

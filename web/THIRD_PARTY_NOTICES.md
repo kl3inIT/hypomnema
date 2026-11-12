@@ -476,6 +476,19 @@ OpenMausBot's license:
    limitations under the License.
 ```
 
+- The Routines pages and cards (`src/features/routines`) are adapted from OpenMausBot
+  (https://github.com/milind-soni/OpenMausBot, Apache License 2.0, Copyright 2026 Milind Soni and OpenMausBot
+  contributors): the list with its status mark, one fix and switch (src/components/TriggersPage.tsx,
+  automations/parts.tsx, src/lib/automations.ts), the panel (automations/AutomationPanel.tsx), the Bot's short
+  list (bot-settings/RoutinesSection.tsx, routines/RoutineList.tsx), the schedule's quick choices, time zone and
+  next runs (RoutineCalendarPage.tsx, routines/CronScheduleFields.tsx, routines/cron-editor.ts) and the chat's
+  cards (TriggerCard.tsx, RoutineRunCard.tsx); the pills' `choice` variant (`src/components/ui/toggle.tsx`)
+  follows its repeat choices. The runs' "Load more" with how many are shown follows OpenClaw
+  (https://github.com/openclaw/openclaw, ui/src/components/cron-jobs-pagination.tsx, MIT, Copyright (c) 2026
+  OpenClaw Foundation), and the box with the schedule in words beside its expression follows Hermes Agent
+  (https://github.com/NousResearch/hermes-agent, apps/desktop/src/app/cron/index.tsx, MIT, Copyright (c) 2025
+  Nous Research). Each file says what was changed. The words of a cron schedule on the server
+  (`internal/controlplane/orchestration/schedule_words.go`) are adapted from OpenMausBot's shared/cron-label.ts.
 - Hypomnema's name beside its mark (`HypomnemaWordmark` in `src/components/icons/brand-icons.tsx`) is drawn with the
   outlines of Fredoka Bold (https://github.com/google/fonts/tree/main/ofl/fredoka), Copyright 2016 The Fredoka
   Project Authors (https://github.com/hafontia/Fredoka-One), SIL Open Font License 1.1

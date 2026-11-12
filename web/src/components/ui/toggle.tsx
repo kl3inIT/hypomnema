@@ -9,6 +9,10 @@ const toggleVariants = cva(
       variant: {
         default: "bg-transparent",
         outline: "border border-input bg-transparent hover:bg-muted",
+        // choice is one of a row of pills, the chosen one in the primary colour, as OpenMausBot's repeat choices
+        // (src/components/RoutineCalendarPage.tsx L895-911, Apache License 2.0).
+        choice:
+          "rounded-full border border-input bg-transparent px-3 hover:bg-muted aria-pressed:border-primary/60 aria-pressed:bg-primary/15 aria-pressed:text-primary",
       },
       size: {
         default:

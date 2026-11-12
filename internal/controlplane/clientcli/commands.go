@@ -285,6 +285,7 @@ var commands = []command{
 		summary: "let a request run (owner)",
 		flags: func(fs *flag.FlagSet) {
 			fs.Bool("session", false, "also stop asking for this action for the rest of the Run or the chat")
+			fs.Bool("routine", false, "also stop asking for this action in the later runs of the routine that asked")
 			jsonFlag(fs)
 		},
 		run: approvalsApprove,
@@ -380,6 +381,66 @@ var commands = []command{
 			fs.Bool("group", false, "for the chat of a Lark group: without the memory, and saying who writes there")
 		},
 		run: botsPrompt,
+	},
+	{
+		name: "routines list", summary: "the routines: work a bot does on a schedule, a prompt or a script",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("bot", "", "only this bot's")
+			jsonFlag(fs)
+		},
+		run: routinesList,
+	},
+	{
+		name: "routines show", args: "<routine_id>", min: 1, max: 1,
+		summary: "a routine with its prompt or script, what it is always allowed, and its runs",
+		flags: func(fs *flag.FlagSet) {
+			fs.Int("runs", 10, "how many runs, the newest first")
+			jsonFlag(fs)
+		},
+		run: routinesShow,
+	},
+	{
+		name: "routines set", args: "<name>", min: 1, max: 1,
+		summary: "make a routine of a bot, switched on at once, or change it; what is left out stays",
+		flags:   routineFlags, run: routinesSet,
+	},
+	{
+		name: "routines undo", args: "<routine_id>", min: 1, max: 1,
+		summary: "undo a bot's last change of a routine: one it made is removed, one it changed is as before (owner)",
+		flags:   jsonFlag, run: routinesUndo,
+	},
+	{
+		name: "routines pause", args: "<routine_id>", min: 1, max: 1, summary: "stop a routine's schedule (owner)",
+		flags: jsonFlag, run: routinesPause,
+	},
+	{
+		name: "routines resume", args: "<routine_id>", min: 1, max: 1,
+		summary: "switch a paused routine on again, from now (owner)", flags: jsonFlag, run: routinesResume,
+	},
+	{
+		name: "routines run", args: "<routine_id>", min: 1, max: 1,
+		summary: "run a routine now; refused while a run of it still goes or waits",
+		flags:   jsonFlag, run: routinesRun,
+	},
+	{
+		name: "routines rm", args: "<routine_id>", min: 1, max: 1,
+		summary: "remove a routine with its runs, and stop the run that still goes (owner)",
+		flags:   jsonFlag, run: routinesRemove,
+	},
+	{
+		name: "routines revoke", args: "<routine_id> <integration>:<label> <action>", min: 3, max: 3,
+		summary: "take back an action a routine was allowed always: it asks again (owner)",
+		flags:   jsonFlag, run: routinesRevoke,
+	},
+	{
+		name: "routines script", args: "<routine_id>", min: 1, max: 1,
+		summary: "write a script routine's file and its run's key into a directory and print the file's name and " +
+			"limit; the launcher runs this, once a run",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("bot", "", "the bot the routine must belong to")
+			fs.String("into", "", "the bot's routines directory")
+		},
+		run: routinesScript,
 	},
 	{
 		name:    "pi-models",
