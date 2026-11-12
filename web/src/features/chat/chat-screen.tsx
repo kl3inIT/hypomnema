@@ -1,9 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Link, useNavigate } from "@tanstack/react-router"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { useNavigate } from "@tanstack/react-router"
 import { useState } from "react"
 
 import "@/api/client"
-import { abortChat, createChat, getChat, sendChatMessage } from "@/api/generated/sdk.gen"
+import { createChat, sendChatMessage } from "@/api/generated/sdk.gen"
 import {
   Select,
   SelectContent,
@@ -11,27 +11,24 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { AgentAvatar } from "@/features/agents/agent-avatar"
 import { firstBot } from "@/features/bots/bots-state"
 import { useBots } from "@/features/bots/use-bots"
 import {
   AppSidebar,
   ChatList,
+  MenuLink,
   PageHeader,
   Places,
   SettingsLink,
   SignOut,
 } from "@/features/shell/app-shell"
 import { chatsKey } from "@/features/shell/chats"
+import { ChatTabs } from "@/features/workbench/chat-tabs"
 import { GridDrop } from "@/features/workbench/grid-drop"
 import { splitGrid } from "@/features/workbench/grid-layout"
 import { setGrid, useGridOffered } from "@/features/workbench/use-grid"
 
-import { PendingApprovals } from "@/features/approvals/approval-card"
-
 import { Composer } from "./composer"
-import { Conversation } from "./conversation"
-import { useChatStream } from "./use-chat-stream"
 
 // The chat with pi, laid out as t3code's app (MIT, Copyright (c) 2026 T3 Tools Inc.,
 // https://github.com/pingdotgg/t3code): the app's sidebar (features/shell), and beside it a column with a quiet
@@ -118,27 +115,12 @@ function NewChat() {
 function OpenChat({ chatId }: { chatId: string }) {
   const navigate = useNavigate()
   const offered = useGridOffered()
-  const chat = useQuery({
-    queryKey: ["chat", chatId],
-    queryFn: async () => (await getChat({ path: { chat_id: chatId } })).data,
-  })
 
+  // The chat's tabs are the top of the page, with no header above them (issue #235): its title and its Bot's
+  // avatar are on its own tab.
   return (
     <main className="relative flex min-w-0 flex-1 flex-col">
-      <PageHeader title={chat.data?.title}>
-        {chat.data && (
-          <Link
-            to="/bots/$name"
-            params={{ name: chat.data.bot }}
-            aria-label={`Bot ${chat.data.bot}`}
-            className="ms-auto flex shrink-0 items-center gap-1.5 rounded-md px-1.5 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
-          >
-            <AgentAvatar name={chat.data.bot} className="size-5" />
-            {chat.data.bot}
-          </Link>
-        )}
-      </PageHeader>
-      <ChatBody chatId={chatId} />
+      <ChatTabs chatId={chatId} start={<MenuLink />} />
       {/* Another chat dragged here from the sidebar makes a grid of the two (issue #235). */}
       {offered && (
         <GridDrop
@@ -151,46 +133,5 @@ function OpenChat({ chatId }: { chatId: string }) {
         />
       )}
     </main>
-  )
-}
-
-// ChatBody is a chat without its header: the conversation, what waits for the owner, and the composer. It fills
-// the page of one chat and a pane of the grid alike.
-export function ChatBody({ chatId }: { chatId: string }) {
-  const queryClient = useQueryClient()
-  const view = useChatStream(chatId)
-  const chat = useQuery({
-    queryKey: ["chat", chatId],
-    queryFn: async () => (await getChat({ path: { chat_id: chatId } })).data,
-  })
-
-  return (
-    <>
-      {chat.data && !chat.data.coordinator && (
-        <output className="block px-5 pb-2 text-sm text-muted-foreground">
-          No coordinator runs on the server: messages are kept and nothing answers.
-        </output>
-      )}
-      <Conversation
-        view={view}
-        empty={
-          <p className="text-center text-sm text-muted-foreground">Send a message to start.</p>
-        }
-      />
-      <div className="px-3 pb-[calc(env(safe-area-inset-bottom)+1rem)] sm:px-12 sm:pb-[calc(env(safe-area-inset-bottom)+1.25rem)]">
-        {/* What pi asked to do with an account and waits for: answered here, where it was asked. */}
-        <div className="mx-auto mb-3 w-full max-w-(--chat-content-max-width) empty:hidden">
-          <PendingApprovals chatId={chatId} />
-        </div>
-        <Composer
-          working={view.working}
-          onSend={async (text) => {
-            await sendChatMessage({ path: { chat_id: chatId }, body: { text } })
-            void queryClient.invalidateQueries({ queryKey: chatsKey })
-          }}
-          onStop={() => void abortChat({ path: { chat_id: chatId } })}
-        />
-      </div>
-    </>
   )
 }

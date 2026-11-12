@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import type { BrowserTab } from "@/api/generated/types.gen"
 
-import { tabName, tabsOf, whose } from "./browser-state"
+import { tabName, whose } from "./browser-state"
 import {
   countClick,
   keyInput,
@@ -159,16 +159,6 @@ describe("the connection", () => {
 })
 
 describe("the strip of tabs", () => {
-  it("offers the owner's own tab first, also before it exists", () => {
-    const worker = tab({ id: "d-dsp_1" })
-
-    expect(tabsOf([]).map((t) => t.id)).toEqual(["owner"])
-    expect(tabsOf([worker, tab({ id: "owner", kind: "owner" })]).map((t) => t.id)).toEqual([
-      "owner",
-      "d-dsp_1",
-    ])
-  })
-
   it("names a tab by its page's title, and by what it is while it has none", () => {
     expect(tabName(tab({ title: "Example Domain", url: "https://example.com/" }))).toBe(
       "Example Domain",

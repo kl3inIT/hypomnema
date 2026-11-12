@@ -58,7 +58,9 @@ func newVaultAPI(t *testing.T) *vaultAPI {
 
 	mux := http.NewServeMux()
 	require.NoError(t, clientapi.New(svc, slog.New(slog.DiscardHandler), stop).WithHostTokens(tokens).
-		WithSecrets(ownerSecrets{vault: tokens.vault, referrers: referrers}).Register(mux))
+		WithSecrets(ownerSecrets{vault: tokens.vault, referrers: referrers}).
+		WithTokenAccounts(accountTokens{svc: svc, vault: tokens.vault, logger: slog.New(slog.DiscardHandler)}).
+		Register(mux))
 
 	hs := httptest.NewServer(mux)
 	t.Cleanup(hs.Close)

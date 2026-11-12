@@ -338,7 +338,10 @@ test("a new chat is started with the Bot the owner picks", async ({ page }) => {
   await page.keyboard.press("Enter")
 
   await expect(page).toHaveURL(/\/chats\/cht_1$/)
-  await expect(page.getByRole("link", { name: "Bot researcher" })).toBeVisible()
+  await expect(page.getByRole("tab", { name: "what changed in pi this week?" })).toHaveAttribute(
+    "title",
+    "Chat with researcher",
+  )
   await shot(page, "chat-bot")
   expect(calls[0]).toEqual({
     call: "POST /chats",
@@ -356,6 +359,9 @@ test("with one Bot the start screen offers no choice", async ({ page }) => {
   await expect(page.getByLabel("Bot", { exact: true })).toHaveCount(0)
   await page.keyboard.press("Enter")
 
-  await expect(page.getByRole("link", { name: "Bot coordinator" })).toBeVisible()
+  await expect(page.getByRole("tab", { name: "add a health page" })).toHaveAttribute(
+    "title",
+    "Chat with coordinator",
+  )
   expect(calls[0]).toEqual({ call: "POST /chats", body: { title: "add a health page" } })
 })

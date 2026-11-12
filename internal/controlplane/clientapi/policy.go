@@ -120,6 +120,7 @@ var policies = map[string]policy{
 	"PutRepo":                 {scope: scopeOwner},
 	"DeleteRepo":              {scope: scopeOwner},
 	"ListAccounts":            {},
+	"AddTokenAccount":         {scope: scopeOwner},
 	"EnableAccount":           {scope: scopeOwner},
 	"DisableAccount":          {scope: scopeOwner},
 	"RemoveAccount":           {scope: scopeOwner},
