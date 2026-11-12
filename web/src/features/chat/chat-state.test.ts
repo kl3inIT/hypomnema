@@ -2,7 +2,14 @@ import { describe, expect, test } from "vitest"
 
 import type { ChatMessage } from "@/api/generated/types.gen"
 
-import { chatItems, chatReducer, emptyChat, type ChatAction, type ChatView } from "./chat-state"
+import {
+  chatItems,
+  chatReducer,
+  emptyChat,
+  failed,
+  type ChatAction,
+  type ChatView,
+} from "./chat-state"
 
 let seq = 0
 const msg = (m: Partial<ChatMessage> & Pick<ChatMessage, "role">): ChatMessage => ({
@@ -126,7 +133,15 @@ describe("the conversation items", () => {
           ],
         }),
       },
-      { type: "message", message: msg({ role: "system", text: "Task t1 of run r1 is succeeded" }) },
+      {
+        type: "message",
+        message: msg({
+          role: "system",
+          kind: "wake",
+          event_seq: 7,
+          text: "Task t1 of run r1 is succeeded",
+        }),
+      },
     )
 
     const items = chatItems(view)
@@ -159,31 +174,33 @@ describe("the conversation items", () => {
     expect(chatItems(view)).toMatchObject([{ kind: "reply", text: "Hello" }])
   })
 
-  // Scenario: the owner pressed Stop; pi reports the stopped turn as a failed call. That notice reads as the stop.
-  // A failure after he wrote again is a failure.
-  test("the failure after Stop is the stop", () => {
-    const asked = msg({ role: "owner", text: "refactor everything" })
-    const stoppedAfter = asked.seq
+  // Scenario: the owner pressed Stop, here or elsewhere; the server ends the turn with a stopped row, which reads
+  // as the stop. A failure after he wrote again is a failure, and an answered Approval is neither.
+  test("a stopped row is the stop, a failed row a failure", () => {
     const view = run(
-      { type: "message", message: asked },
-      {
-        type: "message",
-        message: msg({ role: "system", text: "pi's model call failed: Request was aborted" }),
-      },
+      { type: "message", message: msg({ role: "owner", text: "refactor everything" }) },
+      { type: "message", message: msg({ role: "system", kind: "stopped", text: "Stopped" }) },
       { type: "message", message: msg({ role: "owner", text: "only the page" }) },
       {
         type: "message",
-        message: msg({ role: "system", text: "pi's model call failed: overloaded" }),
+        message: msg({ role: "system", kind: "approval", text: 'The owner approved "Send".' }),
+      },
+      {
+        type: "message",
+        message: msg({
+          role: "system",
+          kind: "failed",
+          text: "pi's model call failed: overloaded",
+        }),
       },
     )
+    const items = chatItems(view)
 
-    expect(chatItems(view, { stoppedAfter }).map((i) => i.kind)).toEqual([
-      "owner",
-      "stopped",
-      "owner",
-      "notice",
+    expect(items.map((i) => i.kind)).toEqual(["owner", "stopped", "owner", "notice", "notice"])
+    expect(items.filter((i) => i.kind === "notice").map((i) => failed(i.message))).toEqual([
+      false,
+      true,
     ])
-    expect(chatItems(view).map((i) => i.kind)).toEqual(["owner", "notice", "owner", "notice"])
   })
 
   // Scenario: the owner sends a message; it shows at once, and once the stream keeps it, it shows once.

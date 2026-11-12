@@ -68,17 +68,22 @@ func (s *Supervisor) publish(chatID string, f Frame) {
 }
 
 // Abort asks pi to stop the chat's current turn; nothing happens when pi is
-// not working on it.
+// not working on it. The turn then ends in a stopped row, not a failed one
+// (issue #267, after OpenMausBot's server/person-stops.ts): the server records
+// the stop, so the web and Lark read it rather than guess.
 func (s *Supervisor) Abort(ctx context.Context, chatID string) error {
 	s.mu.Lock()
 	p := s.procs[chatID]
 	s.mu.Unlock()
 
-	if p == nil || p.exited() || !p.isWorking() {
+	// The turn is marked before pi is told, so its end, which may come before pi's answer, reads as stopped.
+	if p == nil || p.exited() || !p.askStop() {
 		return nil
 	}
 
 	if _, err := p.call(ctx, map[string]any{"type": "abort"}); err != nil {
+		p.stopSettled()
+
 		return fmt.Errorf("stopping pi in chat %s: %w", chatID, err)
 	}
 

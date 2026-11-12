@@ -4058,6 +4058,14 @@ components:
         owner: typed by the owner; coordinator: pi's reply; tool: a tool pi
         ran, with its result; system: a wake-up or a notice.
       enum: [owner, coordinator, tool, system]
+    ChatKind:
+      type: string
+      description: >-
+        What a system message is: wake, a wake-up for an event of one of the
+        chat's Runs; failed, pi's model call failed; stopped, the owner stopped
+        the turn; approval, the coordinator is told the owner answered an
+        Approval.
+      enum: [wake, failed, stopped, approval]
     ChatPart:
       type: object
       description: One piece of a reply (text, thinking) or of a tool pi ran (tool_result).
@@ -4117,6 +4125,9 @@ components:
         seq: { type: integer, format: int64 }
         chat_id: { type: string }
         role: { $ref: "#/components/schemas/ChatRole" }
+        kind:
+          $ref: "#/components/schemas/ChatKind"
+          description: What a system message is; absent for other messages.
         text: { type: string }
         parts:
           type: array

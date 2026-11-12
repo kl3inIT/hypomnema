@@ -135,8 +135,8 @@ test("a message shows at once, and a refused one is kept to send again", async (
   await shot(page, "chat-send-failed")
 })
 
-// Scenario: the Bot is working and the owner presses Stop. pi reports the stopped turn as a failed model call;
-// the chat says it was stopped, quietly, not that it failed.
+// Scenario: the Bot is working and the owner presses Stop. The server ends the turn with a stopped row; the chat
+// says it was stopped, quietly, not that it failed.
 test("a turn the owner stopped says Stopped", async ({ page }) => {
   const calls = await fakeServer(page, (text) => ({
     status: 201,
@@ -152,14 +152,11 @@ test("a turn the owner stopped says Stopped", async ({ page }) => {
   await page.getByRole("button", { name: "Stop" }).click()
   await expect.poll(() => calls).toContain(`POST /chats/${chat.id}/abort`)
 
-  await write(
-    page,
-    kept(2, { role: "system", text: "pi's model call failed: Request was aborted" }) + state(false),
-  )
+  await write(page, kept(2, { role: "system", kind: "stopped", text: "Stopped" }) + state(false))
 
   const log = page.getByRole("log")
   await expect(log.getByRole("note", { name: "Stopped" })).toBeVisible()
-  await expect(log.getByText("model call failed")).toHaveCount(0)
+  await expect(log.getByRole("note", { name: "Notice" })).toHaveCount(0)
   await shot(page, "chat-stopped")
 })
 
