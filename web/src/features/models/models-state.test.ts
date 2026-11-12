@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest"
 
-import type { Account, GatewayModel, Provider } from "@/api/generated/types.gen"
+import type { Account, Provider } from "@/api/generated/types.gen"
 
-import { accountState, inUse, routesOf, subscriptionState, subscriptionsOf } from "./models-state"
+import { accountState, inUse, subscriptionState, subscriptionsOf } from "./models-state"
 
 const now = new Date("2026-11-12T10:00:00Z").getTime()
 const later = "2026-11-12T12:00:00Z"
@@ -87,38 +87,5 @@ describe("a subscription", () => {
   it("is in use while any of its accounts is", () => {
     expect(inUse([account("a", { status: "disabled" }), account("b")])).toBe(true)
     expect(inUse([account("a", { status: "disabled" })])).toBe(false)
-  })
-})
-
-describe("the gateway's models", () => {
-  it("carry each target's kind of provider and whether an agent may name the model", () => {
-    const models: GatewayModel[] = [
-      {
-        name: "claude-sonnet-5-5",
-        updated_at: later,
-        targets: [
-          { provider: "claude-subscription", upstream_model: "claude-sonnet-5-5" },
-          { provider: "gone", upstream_model: "x" },
-        ],
-      },
-      { name: "fable", updated_at: later, targets: [] },
-    ]
-
-    const [sonnet, fable] = routesOf(models, [
-      provider("claude-subscription", "claude_subscription"),
-      provider("model-gateway", "model_gateway", ["claude-sonnet-5-5"]),
-    ])
-
-    expect(sonnet?.offered).toBe(true)
-    expect(sonnet?.targets).toEqual([
-      {
-        provider: "claude-subscription",
-        kind: "claude_subscription",
-        upstream: "claude-sonnet-5-5",
-      },
-      // A target whose provider is not listed keeps its name and has no kind.
-      { provider: "gone", kind: "", upstream: "x" },
-    ])
-    expect(fable?.offered).toBe(false)
   })
 })

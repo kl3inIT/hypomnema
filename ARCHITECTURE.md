@@ -1268,9 +1268,9 @@ Node (`internal/node`):
     - A switch takes an account out of use and puts it back; the card's switch does so for all its accounts at
       once, as 9router's card toggle. An account signed in on the control plane can be removed, after a
       confirmation. Signing in, the order, the limits and the routes are not changed here yet.
-    - A provider reached with a key shows its address and where its key is kept. The gateway's models are listed
-      with the targets each is served from, in order, and whether a provider of kind `model_gateway` offers it to
-      agents: a table on a wide screen, a block a model on a phone.
+    - A provider reached with a key shows its address and where its key is kept. The gateway's models and where
+      each is served from are not on the page: the owner asked what the read-only table was for (2026-11-12),
+      and it comes back with the step that edits a route. `GET /gateway/models` stays.
     - The client API behind it: `GET /accounts` gives each account's e-mail, plan and the state of its sign-in
       (`sign_in`: `active`, `login_required`, `no_tokens`; absent for an account signed in on a node);
       `POST /accounts/{id}/enable` and `/disable` and `DELETE /accounts/{id}` are the owner's;

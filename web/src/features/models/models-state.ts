@@ -1,4 +1,4 @@
-import type { Account, GatewayModel, Provider } from "@/api/generated/types.gen"
+import type { Account, Provider } from "@/api/generated/types.gen"
 
 // What the Models page shows, worked out from what the server lists (issue #199). The references that keep
 // subscription accounts put an account under its provider (9router's providers/[id]/ConnectionRow.js, OpenClaw's
@@ -124,36 +124,4 @@ export function subscriptionState(
 // off when every connection of the provider is).
 export function inUse(accounts: Account[]) {
   return accounts.some((account) => account.status === "active")
-}
-
-// offered are the models agents may name: the ones a provider that is the gateway lists.
-export function offered(providers: Provider[]): Set<string> {
-  return new Set(
-    providers
-      .filter((provider) => provider.kind === "model_gateway")
-      .flatMap((provider) => provider.models),
-  )
-}
-
-export type Route = {
-  model: GatewayModel
-  // offered: a profile or a Bot may name it.
-  offered: boolean
-  targets: { provider: string; kind: string; upstream: string }[]
-}
-
-// routesOf are the gateway's models with what each target's provider is.
-export function routesOf(models: GatewayModel[], providers: Provider[]): Route[] {
-  const kinds = new Map(providers.map((provider) => [provider.name, provider.kind as string]))
-  const names = offered(providers)
-
-  return models.map((model) => ({
-    model,
-    offered: names.has(model.name),
-    targets: model.targets.map((target) => ({
-      provider: target.provider,
-      kind: kinds.get(target.provider) ?? "",
-      upstream: target.upstream_model,
-    })),
-  }))
 }
