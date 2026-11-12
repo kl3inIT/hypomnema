@@ -120,7 +120,7 @@ function DialogFooter({
 // panel names it with the submit button's form attribute, as t3code's do.
 function DialogPanel({ className, ...props }: React.ComponentProps<"div">) {
   return (
-    <ScrollArea className="-mx-4 -my-1 min-h-0">
+    <ScrollArea className="-mx-4 -my-1 min-h-0 overflow-hidden">
       <div
         data-slot="dialog-panel"
         className={cn("flex flex-col gap-4 px-4 py-1", className)}
