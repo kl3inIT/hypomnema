@@ -334,7 +334,7 @@ test("a new Bot is made with a name, a model and a persona", async () => {
   await user.clear(name)
   await user.type(name, "researcher")
   await user.click(screen.getByLabelText("Model"))
-  await user.click(await screen.findByRole("option", { name: "opus" }))
+  await user.click(await screen.findByRole("option", { name: /Claude Opus/ }))
   await user.type(screen.getByLabelText("Persona"), "You are the team's researcher.")
   await user.click(create)
 

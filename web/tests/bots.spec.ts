@@ -228,7 +228,7 @@ test("a new Bot is made with a name, a model and a persona", async ({ page }) =>
 
   await expect(page).toHaveURL(/\/bots\/researcher$/)
   await expect(page.getByRole("heading", { name: "researcher", level: 2 })).toBeVisible()
-  await expect(page.getByText("Bot · opus (claude-subscription)")).toBeVisible()
+  await expect(page.getByText("Bot · Claude Opus (claude-subscription)")).toBeVisible()
   await expect(page.getByRole("textbox", { name: "Memory" })).toHaveValue("")
   expect(calls.at(-1)).toEqual({
     call: "PUT /bots/researcher",

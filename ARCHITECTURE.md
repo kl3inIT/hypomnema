@@ -1046,7 +1046,9 @@ Node (`internal/node`):
   again every 10 s. `/agents/$name` shows one profile: a builder (the name, which cannot change, the description,
   the runtime, a model from `GET /models` in a picker with a search (issue #200, after Omnara's model combobox
   and t3code's model search: grouped by provider, every word typed found in the name or the provider; the Bots
-  page uses the same field), its effort as a row of choices, the instructions,
+  page uses the same field; a row leads with the mark of the model's maker, issue #205, and says the model by
+  name with its id beside it, "Claude Opus 5.5" for `claude-opus-5-5`, issue #208, after t3code's
+  `formatModelSlugName`; the cards say the same name and a profile still stores the id), its effort as a row of choices, the instructions,
   the fallbacks) and the YAML in Monaco with `monaco-yaml` (issue #177, as Omnara's editor): completion, hover and
   marks against a schema of the profile document written in the client, fetched when the YAML tab first opens.
   Both are saved with `PUT /profiles/{name}` as a new version, a refusal shown in the server's words; and its

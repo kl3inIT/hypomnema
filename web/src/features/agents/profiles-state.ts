@@ -1,4 +1,5 @@
 import type { Model, Profile } from "@/api/generated/types.gen"
+import { modelName } from "@/lib/model-name"
 import { since } from "@/lib/time"
 
 // What the Agents pages say about a profile, apart from how they draw it.
@@ -79,7 +80,7 @@ export function summary(profiles: Profile[]) {
 
 // modelLine is a profile's model as a card says it: the name, or that the runtime chooses.
 export function modelLine(profile: Pick<Profile, "model">) {
-  return profile.model || "Runtime default"
+  return profile.model ? modelName(profile.model) : "Runtime default"
 }
 
 // A Draft is a profile as the builder holds it. model is "provider/name", a bare name when the profile names no
