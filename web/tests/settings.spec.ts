@@ -1,5 +1,7 @@
 import { expect, test, type Page } from "@playwright/test"
 
+import { choose } from "./choose.js"
+
 // Settings, built, against a fake client API, on a phone and a desktop.
 
 type Host = { host: string; kind: string; known: boolean; has_token: boolean }
@@ -430,8 +432,8 @@ test("the owner signs a second Google account in and disconnects the first", asy
   await google.getByRole("button", { name: "Add account" }).click()
   const dialog = page.locator("[data-slot=dialog-content]")
   await dialog.getByLabel("Name").fill("work")
-  await dialog.getByLabel("Gmail").selectOption("Read only")
-  await dialog.getByLabel("Sheets").selectOption("Not connected")
+  await choose(page, dialog.getByLabel("Gmail"), "Read only")
+  await choose(page, dialog.getByLabel("Sheets"), "Not connected")
   await shot(page, "integrations-google-add")
   await dialog.getByRole("button", { name: "Continue" }).click()
 

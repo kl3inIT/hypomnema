@@ -77,7 +77,8 @@ export function AddMachine() {
   return (
     <Dialog open={open} onOpenChange={change}>
       <DialogTrigger render={<Button />}>Add machine</DialogTrigger>
-      <DialogContent>
+      {/* Wide only once it shows the install line, which a narrow dialog would wrap. */}
+      <DialogContent size={create.data && !create.data.node.machine ? "lg" : "default"}>
         {create.data ? (
           create.data.node.machine ? (
             <Requested node={create.data.node} />

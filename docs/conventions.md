@@ -256,6 +256,12 @@ How the references keep a UI consistent is in
 - **A label that is not plain to a newcomer explains itself when pointed at**, with a `Tooltip` (owner,
   2026-11-10). A list that does not fit its line shows less of each item, with the rest in a tooltip, rather than
   wrapping (Coder's `MCPServerIconStack`, Orca's `CrewAgentIcons`, Beszel).
+- **A choice is a `Select`**, never a `NativeSelect`: the native one's open list is drawn by the system, grey on
+  Windows, unlike the rest of the app (t3code and Orca use their `Select` almost everywhere). The linter refuses
+  `native-select` (owner, 2026-11-12).
+- **A dialog is as wide as what it holds**: the primitive's default is t3code's `max-w-lg`; a dialog with one
+  field narrows it, one with a command or a table of choices widens it, by the dialog's `size` (t3code, Orca: each dialog sets
+  its own).
 - **Icons** are lucide's. A brand's mark, which lucide does not carry, is an SVG component in
   `web/src/components/icons` (Orca, Omnigent).
 - **A thing that has a logo is shown with it** beside its name: a git host, a runtime, a service, a model's

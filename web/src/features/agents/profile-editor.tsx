@@ -17,7 +17,13 @@ import {
 import { Button } from "@/components/ui/button"
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
-import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 
@@ -284,17 +290,22 @@ function Builder({
 
       <Field>
         <FieldLabel htmlFor="profile-runtime">Runs on</FieldLabel>
-        <NativeSelect
-          id="profile-runtime"
+        <Select
           value={draft.runtime}
-          onChange={(event) => set({ runtime: event.target.value })}
+          onValueChange={(runtime) => runtime && set({ runtime })}
+          items={runtimes.map((r) => ({ value: r, label: runtimeName(r) }))}
         >
-          {runtimes.map((r) => (
-            <NativeSelectOption key={r} value={r}>
-              {runtimeName(r)}
-            </NativeSelectOption>
-          ))}
-        </NativeSelect>
+          <SelectTrigger id="profile-runtime" width="full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {runtimes.map((r) => (
+              <SelectItem key={r} value={r}>
+                {runtimeName(r)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <FieldDescription>The CLI a worker of this agent is, on a machine.</FieldDescription>
       </Field>
 
@@ -422,20 +433,26 @@ function Fallbacks({
               <span className="w-3 text-xs text-muted-foreground tabular-nums" aria-hidden>
                 {index + 1}
               </span>
-              <NativeSelect
-                aria-label={`Fallback ${index + 1}`}
-                value={name}
-                onChange={(event) =>
-                  onChange(chain.map((n, at) => (at === index ? event.target.value : n)))
-                }
-              >
-                <NativeSelectOption value={name}>{name}</NativeSelectOption>
-                {free.map((n) => (
-                  <NativeSelectOption key={n} value={n}>
-                    {n}
-                  </NativeSelectOption>
-                ))}
-              </NativeSelect>
+              <div className="min-w-0 flex-1">
+                <Select
+                  value={name}
+                  onValueChange={(picked) =>
+                    picked && onChange(chain.map((n, at) => (at === index ? picked : n)))
+                  }
+                >
+                  <SelectTrigger aria-label={`Fallback ${index + 1}`} width="full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={name}>{name}</SelectItem>
+                    {free.map((n) => (
+                      <SelectItem key={n} value={n}>
+                        {n}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
               <Button
                 type="button"
                 variant="ghost"
@@ -450,21 +467,24 @@ function Fallbacks({
         </ol>
       )}
       {chain.length < maxFallbacks && (
-        <NativeSelect
-          id="profile-fallback-add"
-          value=""
+        <Select
+          value={null}
           disabled={free.length === 0}
-          onChange={(event) => {
-            if (event.target.value) onChange([...chain, event.target.value])
+          onValueChange={(picked) => {
+            if (picked) onChange([...chain, picked])
           }}
         >
-          <NativeSelectOption value="">Add a fallback…</NativeSelectOption>
-          {free.map((n) => (
-            <NativeSelectOption key={n} value={n}>
-              {n}
-            </NativeSelectOption>
-          ))}
-        </NativeSelect>
+          <SelectTrigger id="profile-fallback-add" width="full">
+            <SelectValue placeholder="Add a fallback…" />
+          </SelectTrigger>
+          <SelectContent>
+            {free.map((n) => (
+              <SelectItem key={n} value={n}>
+                {n}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       )}
       <FieldDescription>
         While this agent&apos;s accounts wait for a limit to reset, a Task that has not started runs

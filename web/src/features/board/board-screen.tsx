@@ -1,4 +1,10 @@
-import { NativeSelect, NativeSelectOption } from "@/components/ui/native-select"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { cn } from "@/lib/utils"
 import { PageHeader } from "@/features/shell/app-shell"
 
@@ -51,19 +57,26 @@ export function BoardScreen({
               </button>
             ))}
           </fieldset>
-          <NativeSelect
-            aria-label="Repository"
-            size="sm"
+          <Select
             value={repo}
-            onChange={(e) => onChange({ repo: e.target.value })}
+            onValueChange={(value) => onChange({ repo: value ?? "" })}
+            items={[
+              { value: "", label: "All repos" },
+              ...known.map((r) => ({ value: r, label: r })),
+            ]}
           >
-            <NativeSelectOption value="">All repos</NativeSelectOption>
-            {known.map((r) => (
-              <NativeSelectOption key={r} value={r}>
-                {r}
-              </NativeSelectOption>
-            ))}
-          </NativeSelect>
+            <SelectTrigger aria-label="Repository" size="sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="">All repos</SelectItem>
+              {known.map((r) => (
+                <SelectItem key={r} value={r}>
+                  {r}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
       </PageHeader>
 
