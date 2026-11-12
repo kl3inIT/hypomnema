@@ -343,11 +343,11 @@ func (c *Codex) UseReset(ctx context.Context, token Token, id, requestID string)
 	case status == http.StatusTooManyRequests:
 		return ErrResetWait
 	case status < 200 || status >= 300:
-		return fmt.Errorf("Codex answered %d to the reset", status) //nolint:staticcheck // Codex is a name
+		return fmt.Errorf("the reset was answered with %d", status)
 	case outcome == "reset" || outcome == "alreadyredeemed":
 		return nil
 	default:
-		return errors.New("Codex gave an answer to the reset that is not known; look at the account's limits") //nolint:staticcheck // Codex is a name
+		return errors.New("the reset's answer is not one that is known; look at the account's limits")
 	}
 }
 
@@ -426,7 +426,7 @@ func (c *Claude) UseReset(ctx context.Context, token Token, id, requestID string
 	}
 
 	if profile.Organization.UUID == "" {
-		return errors.New("Claude's profile names no organization to use the reset in") //nolint:staticcheck // Claude is a name
+		return errors.New("the profile names no organization to use the reset in")
 	}
 
 	endpoint := c.profileBase + "/api/organizations/" + url.PathEscape(profile.Organization.UUID) + "/reset_rate_limits"
@@ -441,9 +441,9 @@ func (c *Claude) UseReset(ctx context.Context, token Token, id, requestID string
 	case status == http.StatusTooManyRequests:
 		return ErrResetWait
 	case status == http.StatusUnauthorized || status == http.StatusForbidden:
-		return fmt.Errorf("Claude refused the account's token for the reset (%d); sign the account in again", status) //nolint:staticcheck // Claude is a name
+		return fmt.Errorf("the account's token was refused for the reset (%d); sign the account in again", status)
 	case status < 200 || status >= 300:
-		return fmt.Errorf("Claude answered %d to the reset", status) //nolint:staticcheck // Claude is a name
+		return fmt.Errorf("the reset was answered with %d", status)
 	}
 
 	var answer struct {
@@ -462,6 +462,6 @@ func (c *Claude) UseReset(ctx context.Context, token Token, id, requestID string
 	case "ineligible":
 		return ErrNoResets
 	default:
-		return errors.New("Claude could not confirm the reset; look at the account's limits before trying again") //nolint:staticcheck // Claude is a name
+		return errors.New("the reset could not be confirmed; look at the account's limits before trying again")
 	}
 }

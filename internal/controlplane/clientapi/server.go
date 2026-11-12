@@ -96,6 +96,9 @@ type Accounts interface {
 	// Limits says how much of an account's windows is used; fresh asks the
 	// vendor now.
 	Limits(ctx context.Context, id string, fresh bool) (subscription.Limits, error)
+	// UseReset uses one of an account's limit resets and returns its limits
+	// after it; requestID makes a repeated call the same use.
+	UseReset(ctx context.Context, id, requestID string) (subscription.Limits, error)
 	// Begin starts a sign-in at the vendor of a runtime.
 	Begin(ctx context.Context, runtime string) (*subscription.Attempt, error)
 	// Complete finishes a sign-in and stores it: a new account, or new tokens

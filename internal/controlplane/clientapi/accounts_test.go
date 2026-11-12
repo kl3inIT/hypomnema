@@ -32,6 +32,8 @@ type signedIn struct {
 	limits  map[string]subscription.Limits
 	refused map[string]error
 	fresh   map[string]bool
+	// usedResets are the requests that used a reset.
+	usedResets map[string]bool
 }
 
 func (s *signedIn) Limits(ctx context.Context, id string, fresh bool) (subscription.Limits, error) {
@@ -128,6 +130,41 @@ func (s *signedIn) Complete(ctx context.Context, a *subscription.Attempt, pasted
 	s.states[made.ID] = subscription.StateActive
 
 	return subscription.Account{Account: made, State: subscription.StateActive}, nil
+}
+
+// UseReset uses one of the account's resets as a vendor does: the same
+// request sent again uses no second one, an account with none is refused,
+// and the windows start again.
+func (s *signedIn) UseReset(_ context.Context, id, requestID string) (subscription.Limits, error) {
+	if strings.ContainsAny(requestID, " !") {
+		return subscription.Limits{}, subscription.ErrBadResetRequest
+	}
+
+	limits, ok := s.limits[id]
+	if !ok {
+		return subscription.Limits{}, fmt.Errorf("%w: account %s", orchestration.ErrNotFound, id)
+	}
+
+	if s.usedResets == nil {
+		s.usedResets = map[string]bool{}
+	}
+
+	if !s.usedResets[requestID] {
+		if limits.Resets.Available == 0 {
+			return subscription.Limits{}, subscription.ErrNoResets
+		}
+
+		s.usedResets[requestID] = true
+		limits.Resets.Available--
+	}
+
+	for i := range limits.Windows {
+		limits.Windows[i].UsedPercent = 0
+	}
+
+	s.limits[id] = limits
+
+	return limits, nil
 }
 
 type servedModels []modelgateway.Model
@@ -465,3 +502,77 @@ func (noSecrets) Put(context.Context, string, map[string]string) (SecretInfo, er
 }
 
 func (noSecrets) Delete(context.Context, string) error { return nil }
+
+// Scenario: an account is out of its 5 hours and has limit resets (issue
+// #199, decision 17). The page shows how many are left; the owner uses one
+// and gets the limits as they are after it, with one reset fewer. The same
+// request sent again uses no second reset. An account with none left is
+// refused with the reason, and a coordinator uses none.
+func TestTheOwnerUsesAnAccountsLimitReset(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	codex, err := w.svc.AddAccount(ctx, "codex", "main")
+	require.NoError(t, err)
+	spent, err := w.svc.AddAccount(ctx, "claude", "spent")
+	require.NoError(t, err)
+
+	expires := time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)
+	fake := &signedIn{
+		svc: w.svc, states: map[string]subscription.State{}, removed: map[string]bool{},
+		limits: map[string]subscription.Limits{
+			codex.ID: {
+				Windows: []subscription.Window{{Name: "5 hours", UsedPercent: 100}},
+				Resets:  subscription.Resets{Available: 2, ExpiresAt: expires},
+			},
+			spent.ID: {Windows: []subscription.Window{{Name: "5 hours", UsedPercent: 100}}},
+		},
+	}
+	w.srv.WithAccounts(fake)
+
+	owner, _ := w.token("web", bearertoken.Owner)
+	pi, _ := w.token("pi", bearertoken.Coordinator)
+
+	read, err := owner.GetAccountLimitsWithResponse(ctx, codex.ID, nil)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, read.StatusCode(), string(read.Body))
+	require.NotNil(t, read.JSON200.Resets)
+	assert.Equal(t, 2, read.JSON200.Resets.Available)
+	assert.Equal(t, expires, val(read.JSON200.Resets.ExpiresAt))
+
+	none, err := owner.GetAccountLimitsWithResponse(ctx, spent.ID, nil)
+	require.NoError(t, err)
+	assert.Nil(t, none.JSON200.Resets, "an account with no reset says nothing of resets")
+
+	refused, err := pi.RedeemAccountLimitResetWithResponse(ctx, codex.ID, openapi.AccountLimitReset{RequestId: "req-1"})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, refused.StatusCode())
+
+	used, err := owner.RedeemAccountLimitResetWithResponse(ctx, codex.ID, openapi.AccountLimitReset{RequestId: "req-1"})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, used.StatusCode(), string(used.Body))
+	assert.InDelta(t, 0, used.JSON200.Windows[0].UsedPercent, 0.001, "the limits come back as they are after the reset")
+	assert.Equal(t, 1, used.JSON200.Resets.Available)
+
+	again, err := owner.RedeemAccountLimitResetWithResponse(ctx, codex.ID, openapi.AccountLimitReset{RequestId: "req-1"})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, again.StatusCode(), string(again.Body))
+	assert.Equal(t, 1, again.JSON200.Resets.Available, "the same request uses no second reset")
+
+	empty, err := owner.RedeemAccountLimitResetWithResponse(ctx, spent.ID, openapi.AccountLimitReset{RequestId: "req-2"})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusConflict, empty.StatusCode())
+	assert.Contains(t, string(empty.Body), "no limit reset to use")
+
+	bad, err := owner.RedeemAccountLimitResetWithResponse(ctx, codex.ID,
+		openapi.AccountLimitReset{RequestId: "not an id!"})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, bad.StatusCode())
+
+	missing, err := owner.RedeemAccountLimitResetWithResponse(ctx, "acc_none",
+		openapi.AccountLimitReset{RequestId: "req-3"})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusNotFound, missing.StatusCode())
+}

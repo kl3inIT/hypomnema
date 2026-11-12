@@ -1316,6 +1316,17 @@ Node (`internal/node`):
       (`sign_in`: `active`, `login_required`, `no_tokens`; absent for an account signed in on a node);
       `POST /accounts/{id}/enable` and `/disable` and `DELETE /accounts/{id}` are the owner's;
       `GET /gateway/models` lists the gateway's models with their targets.
+    - Limit resets (decision 17 of the issue, after 9router-go's Codex reset credits, 9router's and T3 Code's
+      Claude grants, and Orca's confirmation): `subscription` reads how many an account can use with its limits,
+      for Codex from `chatgpt.com/backend-api/wham/rate-limit-reset-credits` and for Claude from the usage call
+      asked with `cedar_ember=1`, so the two are one call there. `UseReset` reads them again, uses the one the
+      vendor names as next (Codex: `…/consume` with the credit and the request's id; Claude:
+      `/api/organizations/{org}/reset_rate_limits` with the grant, the organization read from the profile), drops
+      the kept reading and reads the limits anew. "Already redeemed" is the reset done; no reset, nothing to
+      reset and a wait are errors of their own. The page shows "N limit resets left" under an account's bars
+      with a button behind a confirmation; `POST /accounts/{id}/limits/reset` `{request_id}` is the owner's and
+      answers the limits after it, 409 when the vendor refuses. The request's id is the page's, one a dialog,
+      so a retry uses no second reset.
     - Signing in and the order (step 2 of the issue): "Add account" on a subscription's card and "Sign in again"
       on an account open a dialog with the two sign-ins `accounts login` has, after 9router's dialog on a remote
       host and CLIProxyAPI's management API. `POST /account-sign-ins` begins one at the vendor and answers with a

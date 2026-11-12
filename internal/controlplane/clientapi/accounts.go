@@ -149,6 +149,40 @@ func (s *Server) GetAccountLimits(ctx context.Context, req openapi.GetAccountLim
 		return openapi.GetAccountLimits200JSONResponse(out), nil
 	}
 
+	return openapi.GetAccountLimits200JSONResponse(toLimits(limits)), nil
+}
+
+// RedeemAccountLimitReset uses one of an account's limit resets (issue #199,
+// decision 17). It cannot be taken back, so the page asks first; the request
+// id is the page's, and a request sent twice uses one reset.
+func (s *Server) RedeemAccountLimitReset(ctx context.Context, req openapi.RedeemAccountLimitResetRequestObject,
+) (openapi.RedeemAccountLimitResetResponseObject, error) {
+	if s.accounts == nil {
+		return nil, fmt.Errorf("%w: accounts are not signed in on this control plane", orchestration.ErrUnavailable)
+	}
+
+	limits, err := s.accounts.UseReset(ctx, req.AccountId, req.Body.RequestId)
+
+	switch {
+	case err == nil:
+		return openapi.RedeemAccountLimitReset200JSONResponse(toLimits(limits)), nil
+	case errors.Is(err, orchestration.ErrNotFound):
+		return nil, err
+	case errors.Is(err, subscription.ErrBadResetRequest):
+		return nil, fmt.Errorf("%w: %w", orchestration.ErrInvalid, err)
+	case errors.Is(err, subscription.ErrNoResets), errors.Is(err, subscription.ErrNothingToReset),
+		errors.Is(err, subscription.ErrResetWait), errors.Is(err, subscription.ErrNoTokens),
+		errors.Is(err, subscription.ErrNoLimits):
+		return nil, fmt.Errorf("%w: %w", orchestration.ErrConflict, err)
+	default:
+		return nil, fmt.Errorf("%w: %w", orchestration.ErrUnavailable, err)
+	}
+}
+
+// toLimits is a reading as the API shows it.
+func toLimits(limits subscription.Limits) openapi.AccountLimits {
+	out := openapi.AccountLimits{Windows: []openapi.AccountLimitWindow{}}
+
 	for _, w := range limits.Windows {
 		window := openapi.AccountLimitWindow{Name: w.Name, UsedPercent: float32(w.UsedPercent)}
 		if !w.ResetsAt.IsZero() {
@@ -162,7 +196,16 @@ func (s *Server) GetAccountLimits(ctx context.Context, req openapi.GetAccountLim
 		out.ReadAt = &limits.ReadAt
 	}
 
-	return openapi.GetAccountLimits200JSONResponse(out), nil
+	if limits.Resets.Available > 0 {
+		resets := openapi.AccountLimitResets{Available: limits.Resets.Available}
+		if !limits.Resets.ExpiresAt.IsZero() {
+			resets.ExpiresAt = &limits.Resets.ExpiresAt
+		}
+
+		out.Resets = &resets
+	}
+
+	return out
 }
 
 // limitsUnavailable says why an account has no limits to show.

@@ -1,4 +1,4 @@
-import { useMutation } from "@tanstack/react-query"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
 import {
   ArrowDown,
   ArrowUp,
@@ -12,17 +12,24 @@ import {
   Plus,
   Power,
   RefreshCw,
+  RotateCcw,
   Timer,
   Trash2,
   TriangleAlert,
   Users,
   type LucideIcon,
 } from "lucide-react"
-import type { ReactNode } from "react"
+import { useState, type ReactNode } from "react"
 
 import "@/api/client"
-import { disableAccount, enableAccount, moveAccount, removeAccount } from "@/api/generated/sdk.gen"
-import type { Account, Provider } from "@/api/generated/types.gen"
+import {
+  disableAccount,
+  enableAccount,
+  moveAccount,
+  redeemAccountLimitReset,
+  removeAccount,
+} from "@/api/generated/sdk.gen"
+import type { Account, AccountLimitResets, Provider } from "@/api/generated/types.gen"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -62,6 +69,7 @@ import {
   until,
 } from "./models-state"
 import {
+  limitsKey,
   useAccountLimits,
   useAccounts,
   useProviders,
@@ -473,11 +481,56 @@ function LimitBars({ account }: { account: Account }) {
           </span>
         </div>
       ))}
+      {data.resets && <LimitResets account={account} resets={data.resets} />}
       <p className="flex items-center gap-1 text-2xs text-muted-foreground">
         {data.read_at ? `Used, read ${since(data.read_at)}` : "Used"}
         {again}
       </p>
     </div>
+  )
+}
+
+// LimitResets says how many limit resets an account has and uses one (issue #199, decision 17): a reset starts
+// the account's used-up limits again at once and does not come back, so the owner is asked first, as Orca asks
+// (status-bar/CodexResetCredits.tsx) and as T3 Code's "Use reset" does. The request's id is made once a dialog
+// and sent again on a retry, so a second click never uses a second reset (9router-go's idempotency key).
+function LimitResets({ account, resets }: { account: Account; resets: AccountLimitResets }) {
+  const queryClient = useQueryClient()
+  const [requestId, setRequestId] = useState(() => crypto.randomUUID())
+
+  return (
+    <p
+      className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground"
+      data-testid="limit-resets"
+    >
+      <span className="inline-flex items-center gap-1">
+        <RotateCcw className="size-3 shrink-0" aria-hidden />
+        {resets.available === 1 ? "1 limit reset left" : `${resets.available} limit resets left`}
+        {resets.expires_at && ` · the next ends ${until(resets.expires_at)}`}
+      </span>
+      <ConfirmDialog
+        trigger={
+          <Button variant="outline" size="xs" aria-label={`Use a limit reset of ${account.label}`}>
+            Use a reset
+          </Button>
+        }
+        title={`Use a limit reset of ${account.label}?`}
+        consequence={`It starts the account's used-up limits again now. A reset that is used does not come back: ${
+          resets.available === 1 ? "this is the last one" : `${resets.available - 1} will be left`
+        }. If no limit is used up, the vendor refuses and nothing is spent.`}
+        action="Use a reset"
+        run={async () => {
+          const after = await redeemAccountLimitReset({
+            path: { account_id: account.id },
+            body: { request_id: requestId },
+          })
+
+          queryClient.setQueryData(limitsKey(account.id), after.data)
+        }}
+        onDone={() => setRequestId(crypto.randomUUID())}
+        done={`A limit reset of ${account.label} was used`}
+      />
+    </p>
   )
 }
 
