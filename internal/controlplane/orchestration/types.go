@@ -55,6 +55,9 @@ type Run struct {
 	CoordinatorTokenID string
 	// ChatID is the chat whose coordinator created the Run, if any.
 	ChatID string
+	// Bot is the Bot of that chat; empty for a Run without a chat. Filled by
+	// GetRun and ListRuns.
+	Bot string
 	// Uses are the Connections the Run's workers may use ("google:work").
 	Uses       []string
 	CreatedAt  time.Time

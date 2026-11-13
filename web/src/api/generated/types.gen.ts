@@ -48,6 +48,10 @@ export type Run = {
    * The chat whose coordinator created the Run.
    */
   chat_id?: string;
+  /**
+   * The Bot of the Run's chat (Chat.bot); absent for a Run without a chat.
+   */
+  bot?: string;
   created_at: string;
   updated_at: string;
   /**

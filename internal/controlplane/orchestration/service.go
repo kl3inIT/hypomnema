@@ -156,7 +156,9 @@ func (s *Service) ListRuns(ctx context.Context, f RunFilter, after *RunCursor, l
 
 	page := RunPage{Runs: make([]Run, 0, min(len(rows), limit))}
 	for _, r := range rows[:min(len(rows), limit)] {
-		page.Runs = append(page.Runs, runFromRow(r))
+		run := runFromRow(r.Run)
+		run.Bot = r.Bot
+		page.Runs = append(page.Runs, run)
 	}
 
 	if len(rows) > limit {
@@ -167,14 +169,17 @@ func (s *Service) ListRuns(ctx context.Context, f RunFilter, after *RunCursor, l
 	return page, nil
 }
 
-// GetRun returns one Run.
+// GetRun returns one Run with the Bot of its chat.
 func (s *Service) GetRun(ctx context.Context, id string) (Run, error) {
-	row, err := s.read().GetRun(ctx, id)
+	row, err := s.read().GetRunWithBot(ctx, id)
 	if err != nil {
 		return Run{}, notFound(err, "run", id)
 	}
 
-	return runFromRow(row), nil
+	run := runFromRow(row.Run)
+	run.Bot = row.Bot
+
+	return run, nil
 }
 
 // FinishRun closes a Run whose Tasks have all ended.

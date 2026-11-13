@@ -133,3 +133,43 @@ func TestABotKeepsAMemory(t *testing.T) {
 	_, err = w.s.ChangeBotMemory(ctx, "nobody", MemoryOp{Kind: MemoryAdd, Text: "x"})
 	require.ErrorIs(t, err, ErrNotFound)
 }
+
+// Scenario: a Run started from a Bot's chat names that Bot when it is read
+// and when Runs are listed; a Run the owner started without a chat names
+// none.
+func TestARunNamesTheBotOfItsChat(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	_, err := w.s.PutBot(ctx, Bot{Name: "vmap"})
+	require.NoError(t, err)
+
+	chat, err := w.s.CreateChat(ctx, "vmap", "")
+	require.NoError(t, err)
+
+	fromChat, err := w.s.CreateRun(ctx, NewRun{Objective: "add the depot", CreatedBy: "vmap", ChatID: chat.ID})
+	require.NoError(t, err)
+	assert.Equal(t, "vmap", fromChat.Bot)
+
+	byOwner, err := w.s.CreateRun(ctx, NewRun{Objective: "rotate the keys", CreatedBy: "owner"})
+	require.NoError(t, err)
+	assert.Empty(t, byOwner.Bot)
+
+	read, err := w.s.GetRun(ctx, fromChat.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "vmap", read.Bot)
+
+	page, err := w.s.ListRuns(ctx, RunFilter{}, nil, 0)
+	require.NoError(t, err)
+
+	bots := map[string]string{}
+	for _, r := range page.Runs {
+		bots[r.ID] = r.Bot
+	}
+
+	assert.Equal(t, "vmap", bots[fromChat.ID])
+	assert.Contains(t, bots, byOwner.ID)
+	assert.Empty(t, bots[byOwner.ID])
+}
