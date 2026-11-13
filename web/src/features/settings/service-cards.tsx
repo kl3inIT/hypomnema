@@ -20,6 +20,7 @@ import {
   GoogleDriveIcon,
   GoogleIcon,
   LarkIcon,
+  AwsIcon,
   SupersetIcon,
 } from "@/components/icons/brand-icons"
 import { Badge } from "@/components/ui/badge"
@@ -89,6 +90,7 @@ const marks: Record<string, ComponentType<SVGProps<SVGSVGElement>>> = {
   google: GoogleIcon,
   lark: LarkIcon,
   superset: SupersetIcon,
+  aws: AwsIcon,
 }
 
 // IntegrationMark is an Integration's logo, or a plain plug for one that has none here. The Bot page shows it beside
