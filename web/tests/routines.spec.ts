@@ -626,10 +626,13 @@ test("a Routine's panel shows its facts, script, grants and runs, and its run's 
   })
 
   await panel.getByRole("button", { name: "Take back" }).click()
-  expect(calls).toContainEqual({
-    call: "DELETE /routines/rtn_sync/grants/lark/work/base.write",
-    body: null,
-  })
+  // The click sends the request after it returns: wait for it rather than look at once.
+  await expect
+    .poll(() => calls)
+    .toContainEqual({
+      call: "DELETE /routines/rtn_sync/grants/lark/work/base.write",
+      body: null,
+    })
 })
 
 // Scenario: the owner makes a Routine from the page. The quick choices say the schedule in words with its next
