@@ -1645,7 +1645,7 @@ Node (`internal/node`):
   read from a file, and the worktree root.
 - At connect the node finds `claude`, `codex`, `omp` and `opencode` and reads their `--version`: omp and opencode
   where the control plane had it install them, else on its PATH.
-- Since issue #107 the control plane tells every node, from node release v0.9.16 on, to have omp and opencode, as it
+- Since issue #107 the control plane tells every node, from node release v0.9.17 on, to have omp and opencode, as it
   tells it an Integration's tools (`agenttool.Runtimes`): omp 18.18.6 from its GitHub release (one binary per
   system), opencode 2.2.7 from npm's `@opencode/cli-<os>-<arch>` (linux x64: the baseline build, which needs no
   AVX2, as opencode's own installer picks on such a CPU), each pinned by SHA-256 and installed under

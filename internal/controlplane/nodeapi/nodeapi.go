@@ -92,7 +92,7 @@ func (s *Server) WithRuntimeTools(tools func(os, arch string) []nodeproto.Tool) 
 
 // runtimeToolsSince is the first node release that installs the agent CLIs (issue #107): one before it cannot
 // install a release file that is a bare binary, nor one of omp's size, and would fetch it again every five minutes.
-const runtimeToolsSince = "v0.9.16"
+const runtimeToolsSince = "v0.9.17"
 
 // toolsFor are the tools a node of this system and this version is told to have: the agent CLIs when it can
 // install them, then the Integrations' tools.

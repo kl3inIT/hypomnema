@@ -696,8 +696,8 @@ func TestOnlyANodeThatInstallsThemIsToldToHaveTheAgentCLIs(t *testing.T) {
 		WithRuntimeTools(func(string, string) []nodeproto.Tool { return []nodeproto.Tool{omp} })
 
 	for version, want := range map[string][]nodeproto.Tool{
-		"v0.9.15": {gws}, "v0.9.15-4-gabcdef0": {gws},
-		"v0.9.16": {omp, gws}, "v0.10.0": {omp, gws}, "v0.9.16-2-gabcdef0": {omp, gws},
+		"v0.9.16": {gws}, "v0.9.16-4-gabcdef0": {gws},
+		"v0.9.17": {omp, gws}, "v0.10.0": {omp, gws}, "v0.9.17-2-gabcdef0": {omp, gws},
 	} {
 		assert.Equal(t, want, s.toolsFor(t.Context(), "linux", "amd64", version), version)
 	}
