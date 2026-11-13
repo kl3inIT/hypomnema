@@ -80,6 +80,13 @@ transaction, every status change a guarded `UPDATE` checked against a transition
 - `Reap` applies the timers in `limits.go`: queued Dispatches expire after 5 min, lost leases and unconfirmed stops
   are marked, stalls (15 min without progress), Dispatches past 4 h and nodes with three expiries in a row are
   returned as escalations, as are open questions to the owner after 1 h, then daily; nothing is killed.
+- A worker that loops is judged from its transcript (issue #359, after OpenMausBot's runtime contract, OpenHands'
+  `StuckDetector` and Gemini CLI's loop detection): progress for the stall timer is a tool result that succeeded,
+  not the node's progress report. The same tool with the same input failing with the same text three times in a
+  row stops the worker; once the stop is confirmed the Dispatch ends `failed` (`worker_error`, counted by the
+  breaker) with "Stopped after 3 identical errors: <tool>: <error>" as its summary (`dispatches.stalled_reason`),
+  not `canceled`. A Task whose last two Dispatches failed with tool results and not one success fails at once,
+  "Stopped after 2 attempts without a successful tool call", instead of being retried.
 - Questions: a worker asks the coordinator or the owner. A `wait` question keeps the worker running, pauses its stall
   and duration timers, and its answer reaches the node in the heartbeat reply until the node acknowledges it. A
   Gate is a final report: the Dispatch ends `gated`, the Task is blocked until the answer, and the next Dispatch
@@ -2025,7 +2032,12 @@ Node (`internal/node`):
     resuming a broken upload, rich Markdown editing, PDF, CSV and notebook views, a Trash and undo, content search,
     writes over 1 MiB from the editor, more than the first 1000 entries of a directory.
   - The sidebar lists the places (New chat, Team with the count that needs the owner, Bots, Routines, Agents,
-    Machines) above the chats.
+    Machines) above the Bots (issue #361, after OpenMausBot's sidebar): a row a Bot that has chats, and
+    `coordinator` always, ordered by its latest chat. A row shows the Bot's avatar with a dot when one of its chats
+    is working or needs the owner, its name, its latest chat's title, and "Needs you", "Working" or the time.
+    Clicking it opens the latest chat; a chevron, on a Bot with more than one chat, opens its chats newest first,
+    each draggable to the grid, and which Bots are open is kept in `localStorage`; a `+` on hover opens New chat
+    with that Bot picked (`/?bot=`). The phone's start page lists the same Bots.
     Every page follows `GET /events/stream` from the Tasks' cursor and refreshes what an event may have changed.
 - The machines (issue #69): `/machines` lists the nodes after Beszel's systems table (MIT), as cards (Grid, the
   default) or a Table, both from one column definition; the choice is kept in `localStorage`. A machine shows its

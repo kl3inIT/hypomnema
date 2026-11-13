@@ -94,6 +94,25 @@ WHERE id = @id AND epoch = @epoch AND status = 'starting';
 UPDATE dispatches SET updated_at = @now, progress_at = @now, stalled_at = NULL
 WHERE id = @id AND epoch = @epoch AND status = 'running';
 
+-- name: SetStalledReason :execrows
+-- The worker loops (issue #359): the reason is kept so that the stop it asks for ends the Dispatch failed.
+UPDATE dispatches SET updated_at = @now, stalled_reason = @reason
+WHERE id = @id AND epoch = @epoch AND status = 'running';
+
+-- name: RecentAttemptEvidence :many
+-- The Task's last settled Dispatches, newest first, with how many tool results each had and how many succeeded
+-- (issue #359). A tool result's item has "failed": true only when it failed.
+SELECT d.id, d.status,
+       CAST((SELECT count(*) FROM dispatch_items i WHERE i.dispatch_id = d.id AND i.kind = 'tool_result') AS INTEGER)
+           AS results,
+       CAST((SELECT count(*) FROM dispatch_items i
+             WHERE i.dispatch_id = d.id AND i.kind = 'tool_result'
+               AND coalesce(json_extract(i.data, '$.failed'), 0) = 0) AS INTEGER) AS ok
+FROM dispatches d
+WHERE d.task_id = @task_id AND d.settled_at IS NOT NULL
+ORDER BY d.settled_at DESC, d.rowid DESC
+LIMIT @lim;
+
 -- name: RequestStop :execrows
 UPDATE dispatches SET updated_at = @now, status = 'stopping', stop_requested_at = @now
 WHERE id = @id AND status IN ('starting', 'running');

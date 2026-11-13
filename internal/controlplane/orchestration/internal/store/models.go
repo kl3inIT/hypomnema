@@ -186,6 +186,7 @@ type Dispatch struct {
 	FallbackFor      sql.NullString
 	FallbackUntil    sql.NullInt64
 	Handoff          int64
+	StalledReason    sql.NullString
 }
 
 type DispatchEffect struct {

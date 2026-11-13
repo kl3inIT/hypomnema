@@ -33,8 +33,9 @@ var dispatchTransitions = map[DispatchStatus][]DispatchStatus{
 	DispatchQueued:   {DispatchStarting, DispatchExpired, DispatchCanceled},
 	DispatchStarting: {DispatchRunning, DispatchFailed, DispatchStopping, DispatchUnknown},
 	// gated: the worker ended to wait for a decision.
-	DispatchRunning:  {DispatchSucceeded, DispatchFailed, DispatchGated, DispatchStopping, DispatchUnknown},
-	DispatchStopping: {DispatchCanceled, DispatchStopUnknown},
+	DispatchRunning: {DispatchSucceeded, DispatchFailed, DispatchGated, DispatchStopping, DispatchUnknown},
+	// failed: the control plane stopped a worker that looped (issue #359).
+	DispatchStopping: {DispatchCanceled, DispatchFailed, DispatchStopUnknown},
 	// running: reattached; abandoned: the coordinator or the owner gave up finding out.
 	DispatchUnknown: {
 		DispatchRunning, DispatchSucceeded, DispatchFailed, DispatchGated, DispatchCanceled, DispatchAbandoned,

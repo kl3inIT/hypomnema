@@ -2,7 +2,6 @@ import { Link } from "@tanstack/react-router"
 import {
   Bot,
   BotMessageSquare,
-  CircleDashed,
   LayoutGrid,
   LogOut,
   Menu,
@@ -15,26 +14,23 @@ import {
 import type { ReactNode } from "react"
 
 import "@/api/client"
-import type { Chat } from "@/api/generated/types.gen"
 import { HypomnemaIcon, HypomnemaWordmark } from "@/components/icons/brand-icons"
 import { signOut } from "@/features/auth/session"
 import { useLiveUpdates, useWork } from "@/features/work/use-work"
 import { needsYou } from "@/features/work/work-state"
-import { since } from "@/lib/time"
 import { useBrowser } from "@/features/browser/browser-state"
 import { gridPanes } from "@/features/workbench/grid-layout"
 import { paneChats } from "@/features/workbench/pane"
-import { setDragged, tabDrag, useBench, useGridOffered } from "@/features/workbench/use-grid"
+import { useBench, useGridOffered } from "@/features/workbench/use-grid"
 import { cn } from "@/lib/utils"
 
-import { useChats } from "./chats"
-import { usePending } from "@/features/approvals/use-approvals"
+import { BotList } from "./bot-list"
 
 // The app's frame, as t3code's (MIT, Copyright (c) 2026 T3 Tools Inc., https://github.com/pingdotgg/t3code;
 // components/ui/sidebar.tsx, sidebar/SidebarThreadRow.tsx): a full-height sidebar with the places (a new chat, the
-// Team with what waits for the owner, the Bots and their Routines, the agents, the machines) and the chats, and a
-// quiet 52px header over each page. On a phone
-// the sidebar hides; the header's menu leads to the start page, which lists the same places.
+// Team with what waits for the owner, the Bots and their Routines, the agents, the machines) and the Bots with
+// their chats (bot-list.tsx), and a quiet 52px header over each page. On a phone the sidebar
+// hides; the header's menu leads to the start page, which lists the same places.
 
 // LiveUpdates keeps every page current from the event stream, from the Tasks' cursor.
 export function LiveUpdates() {
@@ -117,7 +113,7 @@ export function AppSidebar({ currentChat }: { currentChat?: string }) {
         <Places />
         <BrowserHeld />
         <GridLink />
-        <ChatList current={currentChat} />
+        <BotList current={currentChat} />
       </div>
       <div className="flex flex-col gap-px p-2">
         <SettingsLink />
@@ -177,72 +173,6 @@ function GridLink() {
       Grid
       <span className="ml-auto text-xs text-secondary-label tabular-nums">
         {chats} {chats === 1 ? "chat" : "chats"}
-      </span>
-    </Link>
-  )
-}
-
-export function ChatList({ current, label = "Chats" }: { current?: string; label?: string }) {
-  const chats = useChats()
-  // A chat in which pi asked for an approval says so here: the owner may not have it open.
-  const pending = usePending()
-  const waiting = new Set(pending.data?.map((a) => a.chat_id))
-
-  if (chats.data?.length === 0) {
-    return <p className="px-2 py-6 text-center text-xs text-muted-foreground">No chats yet.</p>
-  }
-
-  return (
-    <nav aria-label="Chats" className="-mx-2 min-h-0 flex-1 overflow-y-auto px-2">
-      <p className="px-2.5 pt-2 pb-1 text-xs font-medium text-muted-foreground">{label}</p>
-      <div className="flex flex-col gap-px">
-        {chats.data?.map((c) => (
-          <ChatRow key={c.id} chat={c} current={c.id === current} waits={waiting.has(c.id)} />
-        ))}
-      </div>
-    </nav>
-  )
-}
-
-function ChatRow({ chat, current, waits }: { chat: Chat; current: boolean; waits: boolean }) {
-  return (
-    <Link
-      to="/chats/$chatId"
-      params={{ chatId: chat.id }}
-      aria-current={current ? "page" : undefined}
-      // A chat is dragged onto an open chat, or a pane of the grid, to be shown beside it (issue #235).
-      onDragStart={(event) => {
-        event.dataTransfer.effectAllowed = "move"
-        event.dataTransfer.setData(tabDrag, `chat:${chat.id}`)
-        setDragged({ tab: { kind: "chat", chat: chat.id }, from: null })
-      }}
-      onDragEnd={() => setDragged(null)}
-      className={cn(
-        "group/sidebar-row relative flex h-9 w-full items-center gap-2.5 overflow-hidden rounded-md px-2.5 text-left outline-none select-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
-        current
-          ? "bg-sidebar-row-active [:root:not(.dark)_&]:ring-1 [:root:not(.dark)_&]:ring-sidebar-border/70 [:root:not(.dark)_&]:ring-inset"
-          : "hover:bg-sidebar-row-hover",
-      )}
-    >
-      <span
-        className={cn(
-          "min-w-0 flex-1 truncate text-sm",
-          current || chat.working ? "font-medium text-foreground" : "text-foreground/75",
-        )}
-      >
-        {chat.title}
-      </span>
-      <span className="ml-auto flex h-6 min-w-8 shrink-0 items-center justify-end text-xs text-secondary-label tabular-nums">
-        {waits ? (
-          <span className="font-medium text-needs-you">Needs you</span>
-        ) : chat.working ? (
-          <span className="inline-flex items-center gap-1 font-medium text-info-foreground">
-            <CircleDashed className="size-3.5 animate-spin [animation-duration:3s]" aria-hidden />
-            Working
-          </span>
-        ) : (
-          since(chat.updated_at)
-        )}
       </span>
     </Link>
   )
