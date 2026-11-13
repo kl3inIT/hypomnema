@@ -25,7 +25,7 @@ func (o Options) printf(format string, args ...any) {
 	}
 }
 
-// waitReady polls Ready until it answers 200 or ReadyWithin passes.
+// waitReady polls Ready until it answers 2xx or ReadyWithin passes.
 func (o Options) waitReady(ctx context.Context) error {
 	within := o.ReadyWithin
 	if within <= 0 {
@@ -49,7 +49,8 @@ func (o Options) waitReady(ctx context.Context) error {
 		if resp, err := client.Do(req); err == nil {
 			_ = resp.Body.Close()
 
-			if resp.StatusCode == http.StatusOK {
+			// /readyz answers 204 (platform.PathReady); any 2xx is ready.
+			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 				return nil
 			}
 		}
