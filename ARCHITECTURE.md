@@ -1246,7 +1246,31 @@ Node API (`internal/controlplane/nodeapi`, protocol in `internal/shared/nodeprot
   `HYPOMNEMA_NODE_TOKEN` or asks for it on the terminal, writes the configuration, says hello once, and on Linux
   installs and starts a systemd user unit. Linux and macOS, amd64 and arm64.
 - Releases: a tag `v*` runs `.github/workflows/release.yml`, which builds the node for those four platforms with
-  their manifests (`make release-node`) and publishes them as a GitHub release.
+  their manifests (`make release-node`), and the control plane, with the web client in it, for linux-amd64 and
+  linux-arm64 with manifests `controlplane-<platform>.txt` in the same format (`make release-controlplane`), and
+  publishes them as a GitHub release.
+- The control plane updates itself (issue #279, after Beszel's `beszel update` and its update timer,
+  `internal/ghupdate/ghupdate.go`, `supplemental/scripts/install-hub.sh`, and OpenMausBot's `deploy/update.sh`):
+  - `deploy/controlplane/setup-controlplane.sh`, run once with sudo, runs the control plane as
+    `hypomnema-cp.service` (its user, its `env` sourced, logging to `serve.log`) and installs
+    `hypomnema-update.service`, a root oneshot, with `hypomnema-update.timer`, two minutes after boot and every five
+    minutes after.
+  - The oneshot runs the root-owned `/usr/local/bin/hypomnema update --user U --home DIR`
+    (`internal/controlplane/selfupdate`). It holds a `flock` on `/var/lib/hypomnema-update/lock` (a second update
+    gives up), reads the latest release's manifest, and does nothing unless the release is newer than its own
+    version (a build of a commit after vX.Y.Z counts as later than vX.Y.Z). It downloads into
+    `/var/lib/hypomnema-update`, requires the manifest's SHA-256 and the version the binary reports, and runs that
+    binary's `update install`, so the steps are the release's own. The control plane's own binary belongs to its
+    user and is never run as root.
+  - `update install`: stops the unit, copies the database and its WAL files to `data/predeploy-<time>/`, keeps the
+    binary as `bin/hypomnema.previous` and puts the new one in place, runs `hypomnema migrate` as the user (the
+    migration stays an explicit step, `docs/conventions.md`), starts the unit and waits up to a minute for
+    `/readyz`. A control plane that does not become ready is stopped and its old binary and database put back and
+    started. Once it is ready, the release's `deploy/coordinator` files, built into the binary
+    (`deploy/coordinator/files.go`), are written to a root-owned folder and its `setup-coordinator.sh` run, so the
+    launchers, the sudoers rule and `/usr/local/bin/hypomnema` are always the running release's.
+  - Deploying is pushing a tag; nothing on GitHub holds a key to the control plane's machine. A build of a commit is
+    not deployed this way.
 - The control plane offers the node its queued Dispatches with what it needs (Task, repository, worktree, runtime,
   account, model), sends stops and answers, and acknowledges every heartbeat and report. Each is sent once per
   connection, and again after a reconnect. It looks again on every commit and every 30 s.
