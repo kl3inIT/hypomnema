@@ -90,10 +90,20 @@ func NewServer(svc *Service, logger *slog.Logger, cfg Config) *Server {
 // Register adds the gateway's routes to a mux.
 func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/models", s.listModels)
-	mux.HandleFunc("POST /v1/chat/completions", s.chatCompletions)
-	mux.HandleFunc("POST /v1/responses", s.responses)
-	mux.HandleFunc("POST /v1/messages", s.messages)
+	mux.HandleFunc("POST /v1/chat/completions", longAnswer(s.chatCompletions))
+	mux.HandleFunc("POST /v1/responses", longAnswer(s.responses))
+	mux.HandleFunc("POST /v1/messages", longAnswer(s.messages))
 	mux.HandleFunc("POST /v1/messages/count_tokens", s.countTokens)
+}
+
+// longAnswer lifts the server's write timeout for a model's answer, which streams for as long as the model works:
+// the client API does the same for its streams (clientapi/server.go). A provider that stops sending is ended by the
+// stream idle timeout instead.
+func longAnswer(h http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
+		h(w, r)
+	}
 }
 
 type errorBody struct {

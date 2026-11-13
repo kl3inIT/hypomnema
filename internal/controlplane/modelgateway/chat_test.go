@@ -520,3 +520,47 @@ func TestAPlainAnswerToAStreamRequestIsPassedAsPlain(t *testing.T) {
 	assert.Equal(t, answer, body) //nolint:testifylint // byte for byte: the answer is passed on, not re-encoded
 	assert.Equal(t, modelgateway.Tokens{Prompt: 12, Completion: 5, Cached: 4, Reasoning: 2}, g.lastUsage(t).Tokens)
 }
+
+// Scenario: the control plane's server ends every response after its write
+// timeout (30 s on zm). A model that answers for longer than that streams
+// through the gateway to the end: the gateway lifts the deadline for its
+// answers, as the client API does for its streams.
+func TestAnAnswerLongerThanTheServersWriteTimeoutArrivesWhole(t *testing.T) {
+	t.Parallel()
+
+	p, _ := provider(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+
+		for _, f := range []string{frame(chunkRole), frame(chunkText), frame(chunkFinish), frameDone} {
+			_, _ = io.WriteString(w, f)
+
+			if flusher, ok := w.(http.Flusher); ok {
+				flusher.Flush()
+			}
+
+			time.Sleep(150 * time.Millisecond)
+		}
+	})
+	g := newChatGateway(t, modelgateway.Config{}, p)
+
+	srv := httptest.NewUnstartedServer(g.mux)
+	srv.Config.WriteTimeout = 200 * time.Millisecond
+	srv.Start()
+	t.Cleanup(srv.Close)
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, srv.URL+"/v1/chat/completions",
+		strings.NewReader(`{"model":"gpt","stream":true,"messages":[{"role":"user","content":"hi"}]}`))
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+g.key)
+
+	res, err := srv.Client().Do(req)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = res.Body.Close() })
+
+	body, err := io.ReadAll(res.Body)
+	require.NoError(t, err, "the answer was cut: %s", body)
+	assert.Equal(t, http.StatusOK, res.StatusCode)
+	assert.Contains(t, string(body), `"finish_reason":"stop"`)
+	assert.Contains(t, string(body), "[DONE]")
+}
