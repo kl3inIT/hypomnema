@@ -248,7 +248,8 @@ func TestEveryDispatchTransitionPair(t *testing.T) {
 		{DispatchStarting, DispatchStopping}, {DispatchStarting, DispatchUnknown},
 		{DispatchRunning, DispatchSucceeded}, {DispatchRunning, DispatchFailed},
 		{DispatchRunning, DispatchStopping}, {DispatchRunning, DispatchUnknown}, {DispatchRunning, DispatchGated},
-		{DispatchStopping, DispatchCanceled}, {DispatchStopping, DispatchStopUnknown},
+		{DispatchStopping, DispatchCanceled}, {DispatchStopping, DispatchFailed},
+		{DispatchStopping, DispatchStopUnknown},
 		{DispatchUnknown, DispatchRunning}, {DispatchUnknown, DispatchSucceeded}, {DispatchUnknown, DispatchFailed},
 		{DispatchUnknown, DispatchCanceled}, {DispatchUnknown, DispatchAbandoned}, {DispatchUnknown, DispatchGated},
 		{DispatchStopUnknown, DispatchSucceeded}, {DispatchStopUnknown, DispatchFailed},
@@ -819,8 +820,8 @@ func TestContinuingAConversation(t *testing.T) {
 	assert.False(t, fresh.Recovery)
 }
 
-// Scenario: the worker is alive but does nothing, or runs very long. Both are
-// escalated once, and nothing is killed.
+// Scenario: the worker is alive but gets nothing done, or runs very long. Both
+// are escalated once, and nothing is killed.
 func TestStallAndOverrunAreEscalatedNotKilled(t *testing.T) {
 	t.Parallel()
 
@@ -836,7 +837,7 @@ func TestStallAndOverrunAreEscalatedNotKilled(t *testing.T) {
 	}
 
 	keepAlive(StallAfter - time.Minute)
-	require.NoError(t, w.s.ReportProgress(t.Context(), w.again(c)))
+	w.tools(d, working("go build ./..."))
 	keepAlive(StallAfter - time.Minute)
 	assert.Empty(t, w.reap().Escalations)
 
@@ -845,7 +846,7 @@ func TestStallAndOverrunAreEscalatedNotKilled(t *testing.T) {
 	assert.Empty(t, w.reap().Escalations, "escalated once")
 	assert.NotNil(t, w.dispatchOf(d.ID).StalledAt)
 
-	require.NoError(t, w.s.ReportProgress(t.Context(), w.again(c)))
+	w.tools(d, working("go test ./..."))
 	assert.Nil(t, w.dispatchOf(d.ID).StalledAt)
 
 	keepAlive(MaxDuration - 2*StallAfter + time.Minute)

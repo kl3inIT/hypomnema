@@ -134,6 +134,9 @@ type Dispatch struct {
 	Handoff bool
 	// Activity is one line about the newest thing the worker said or did.
 	Activity string
+	// StalledReason says why the control plane stopped the worker, which
+	// looped (issue #359): the Dispatch ends failed with it as its summary.
+	StalledReason string
 }
 
 // Conversation is the worker's CLI session for one Task: one node, worktree,

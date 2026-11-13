@@ -117,6 +117,7 @@ func (s *Service) AddItems(ctx context.Context, nodeID, dispatchID string, items
 		}
 
 		activity := ""
+		fresh := make([]Item, 0, len(rows))
 
 		for i, row := range rows {
 			row.Now = now
@@ -126,9 +127,17 @@ func (s *Service) AddItems(ctx context.Context, nodeID, dispatchID string, items
 				return fmt.Errorf("storing item %d of %s: %w", row.Seq, dispatchID, err)
 			}
 
+			if n == 1 {
+				fresh = append(fresh, items[i])
+			}
+
 			if a := activityOf(items[i]); n == 1 && a != "" {
 				activity = a
 			}
+		}
+
+		if err := judgeProgress(ctx, q, now, d, fresh); err != nil {
+			return err
 		}
 
 		if activity != "" {
