@@ -30,6 +30,9 @@ type Usage struct {
 	PromptDetails    struct {
 		CachedTokens int64 `json:"cached_tokens"`
 	} `json:"prompt_tokens_details"`
+	// CacheCreationInputTokens is what was written to the cache, part of the
+	// prompt; outside OpenAI's shape, as LiteLLM and 9router-go carry it.
+	CacheCreationInputTokens int64 `json:"cache_creation_input_tokens,omitempty"`
 }
 
 // Stream turns Anthropic's Messages events into chat chunks.
@@ -226,6 +229,7 @@ func (s *Stream) recordUsage(u rawUsage) {
 	if u.InputTokens > 0 {
 		s.usage.PromptTokens = u.InputTokens + u.CacheReadInput + u.CacheCreationInput
 		s.usage.PromptDetails.CachedTokens = u.CacheReadInput
+		s.usage.CacheCreationInputTokens = u.CacheCreationInput
 	}
 
 	if u.OutputTokens > 0 {
