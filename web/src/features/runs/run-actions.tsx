@@ -19,7 +19,7 @@ import { firstLine } from "@/features/work/work-state"
 
 import { allEnded, useRunActions } from "./use-run-actions"
 
-// RunActions are a Run's Finish and Cancel, on the Run's page and on the Run docked in its chat (issue #314). Each
+// RunActions are a Run's Finish and Cancel, on the Run docked in its chat (issue #314). Each
 // asks first, as every action that ends something does here (docs/conventions.md, AlertDialog), and says the
 // server's words when it refuses. Finish waits until every Task has ended, which the server also requires.
 export function RunActions({ run, size = "default" }: { run: RunDetail; size?: "default" | "xs" }) {

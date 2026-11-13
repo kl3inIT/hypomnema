@@ -3,9 +3,7 @@ import {
   Bot,
   BotMessageSquare,
   CircleDashed,
-  KanbanSquare,
   LayoutGrid,
-  ListTree,
   LogOut,
   Menu,
   Repeat2,
@@ -34,7 +32,8 @@ import { usePending } from "@/features/approvals/use-approvals"
 
 // The app's frame, as t3code's (MIT, Copyright (c) 2026 T3 Tools Inc., https://github.com/pingdotgg/t3code;
 // components/ui/sidebar.tsx, sidebar/SidebarThreadRow.tsx): a full-height sidebar with the places (a new chat, the
-// Team with what waits for the owner, the board, the Runs, the Bots and their Routines, the agents, the machines) and the chats, and a quiet 52px header over each page. On a phone
+// Team with what waits for the owner, the Bots and their Routines, the agents, the machines) and the chats, and a
+// quiet 52px header over each page. On a phone
 // the sidebar hides; the header's menu leads to the start page, which lists the same places.
 
 // LiveUpdates keeps every page current from the event stream, from the Tasks' cursor.
@@ -72,20 +71,6 @@ export function Places() {
             {waiting}
           </span>
         )}
-      </Link>
-      <Link
-        to="/board"
-        className={cn(placeClass, "[&.active]:bg-sidebar-row-active [&.active]:text-foreground")}
-      >
-        <KanbanSquare className="size-4" />
-        Board
-      </Link>
-      <Link
-        to="/runs"
-        className={cn(placeClass, "[&.active]:bg-sidebar-row-active [&.active]:text-foreground")}
-      >
-        <ListTree className="size-4" />
-        Runs
       </Link>
       <Link
         to="/bots"

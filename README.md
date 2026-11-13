@@ -64,8 +64,8 @@ ask the agent to give the work to Hypomnema workers.
 The control plane serves the web client at its own URL, the one the CLI logs in to. Open it in a browser and paste an
 owner token to sign in.
 
-`/board` shows the Tasks in flight in three columns: Needs you, Working and Done. `/runs` lists the Runs. A Task opens
-to its question, its result and the worker's transcript.
+`/team` shows the Bots and the machines their work runs on. A chat shows its Runs above the composer, with their
+Tasks and questions. A Task opens to its question, its result and the worker's transcript.
 
 ## Setting up a node machine
 

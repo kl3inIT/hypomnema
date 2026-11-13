@@ -27,13 +27,13 @@ func get(t *testing.T, method, target string) *httptest.ResponseRecorder {
 	return rec
 }
 
-// Scenario: the browser loads the client. A page path such as /runs/x gets
+// Scenario: the browser loads the client. A page path such as /chats/x gets
 // index.html so the client's router takes it; built assets are cached for a
 // year; what is not in the build, or belongs to the server, is a 404.
 func TestHandlerServesTheClient(t *testing.T) {
 	t.Parallel()
 
-	for _, target := range []string{"/", "/runs/run_1", "/index.html"} {
+	for _, target := range []string{"/", "/chats/cht_1", "/index.html"} {
 		rec := get(t, http.MethodGet, target)
 		require.Equal(t, http.StatusOK, rec.Code, target)
 		assert.Contains(t, rec.Body.String(), "<title>Hypomnema</title>", target)
@@ -53,7 +53,7 @@ func TestHandlerServesTheClient(t *testing.T) {
 
 	assert.Equal(t, http.StatusMethodNotAllowed, get(t, http.MethodPost, "/").Code)
 
-	head := get(t, http.MethodHead, "/runs/run_1")
+	head := get(t, http.MethodHead, "/chats/cht_1")
 	assert.Equal(t, http.StatusOK, head.Code)
 	assert.Empty(t, head.Body.String())
 }

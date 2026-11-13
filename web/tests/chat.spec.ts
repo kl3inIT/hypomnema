@@ -262,7 +262,7 @@ test("the chat says when its stream is reconnecting", async ({ page }) => {
 
 // Scenario: the chat's Run moved on while the owner was away. Each wake-up is a card across the lane that says
 // what happened in words, the Task by its title: one done, one failed with its reason, and a worker's question.
-// The Task's chip opens its panel over the chat, kept in the URL; the Run's goes to its page.
+// The Task's chip opens its panel over the chat, kept in the URL; the Run's shows it docked.
 test("wake-ups are cards that name their Task and open it", async ({ page }) => {
   await fakeServer(page, (text) => ({ status: 201, body: message(2, { role: "owner", text }) }))
   await open(page)
@@ -317,7 +317,7 @@ test("wake-ups are cards that name their Task and open it", async ({ page }) => 
   await expect(log.getByRole("note", { name: /^Task tsk_/ })).toHaveCount(0)
   await shot(page, "chat-wake-ups")
 
-  // The Run is this chat's: its chip shows it docked above the composer, finished, rather than leaving for its page.
+  // The Run is this chat's: its chip shows it docked above the composer, finished, rather than leaving the chat.
   await log
     .getByRole("button", { name: "Show Run Add a /health page to the control plane" })
     .click()
@@ -331,6 +331,45 @@ test("wake-ups are cards that name their Task and open it", async ({ page }) => 
   await expect(page).toHaveURL(/[?&]task=tsk_2/)
   await expect(page.getByRole("dialog")).toBeVisible()
   await shot(page, "chat-wake-task-open")
+})
+
+// Scenario: a wake-up names a Run of another chat and one made from the command line. Neither docks here: once
+// read, the first's chip opens the chat it belongs to, and the second's, with no chat, opens its first Task's panel
+// over this chat.
+test("a wake-up's Run of another chat opens that chat", async ({ page }) => {
+  const other = { ...run, id: "run_7", chat_id: "cht_9", status: "finished", tasks: [] }
+  const cli = {
+    ...run,
+    id: "run_8",
+    chat_id: undefined,
+    status: "finished",
+    tasks: [task("tsk_8", 1, "Check the release notes", "succeeded")],
+  }
+  await fakeServer(page, (text) => ({ status: 201, body: message(2, { role: "owner", text }) }), {
+    runs: [other, cli],
+    questions: [],
+  })
+  await open(page)
+
+  const wake = (seq: number, runId: string) =>
+    kept(seq, {
+      role: "system",
+      kind: "wake",
+      event_seq: seq,
+      text: `Run ${runId} is finished`,
+      wake: { run_id: runId, event: "run.finished", status: "finished" },
+    })
+  await write(page, state(false) + wake(1, "run_7") + wake(2, "run_8"))
+
+  const log = page.getByRole("log")
+  await log.getByRole("button", { name: "Show Run run_8" }).click()
+  await log.getByRole("button", { name: "Open Run run_8" }).click()
+  await expect(page).toHaveURL(/[?&]task=tsk_8/)
+  await page.keyboard.press("Escape")
+
+  await log.getByRole("button", { name: "Show Run run_7" }).click()
+  await log.getByRole("link", { name: "Open Run run_7 in its chat" }).click()
+  await expect(page).toHaveURL(/\/chats\/cht_9$/)
 })
 
 const openRun = (id: string, objective: string, list: object[]) => ({

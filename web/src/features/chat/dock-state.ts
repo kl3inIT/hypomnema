@@ -7,7 +7,7 @@ import { allEnded } from "@/features/runs/use-run-actions"
 // a collapsed row with "n of m" done that opens to the list, a status icon a row and the status in words beside
 // it). Which strips start open follows t3code's ThreadDetailsPanel.tsx with ThreadDetailsCard.tsx (MIT, Copyright
 // (c) 2026 T3 Tools Inc., https://github.com/pingdotgg/t3code), whose card shows less when the room it has is
-// short. The words a status is said in are the Board's and the Team page's.
+// short. The words a status is said in are the Team page's.
 
 export type DockTone = "running" | "done" | "failed" | "needs-you" | "quiet"
 
@@ -22,7 +22,7 @@ export type DockIcon =
 
 export type DockState = { word: string; tone: DockTone; icon: DockIcon }
 
-// taskState says one Task's status in words: an open question to the owner first, as the Board's Needs you does.
+// taskState says one Task's status in words: an open question to the owner first, as the Team page's Needs you does.
 export function taskState(task: TaskDetail, asking = false): DockState {
   if (asking) return { word: "Waiting for you", tone: "needs-you", icon: "question" }
 
@@ -127,7 +127,7 @@ export function toRead(open: string[], pinned: string[]): string[] {
 }
 
 // docked picks the Runs to show from those read: this chat's, open, or ended but asked for by a chip. foreign are
-// the Runs read that belong to another chat, whose chip keeps its link to the Run's page.
+// the Runs read that belong to another chat, whose chip links to the Run's own chat.
 export function docked(
   read: RunDetail[],
   chatId: string,

@@ -8,8 +8,11 @@ import {
   TriangleAlert,
   type LucideIcon,
 } from "lucide-react"
+import { useQuery } from "@tanstack/react-query"
 import { useMemo } from "react"
 
+import "@/api/client"
+import { getRun } from "@/api/generated/sdk.gen"
 import type { ChatWake } from "@/api/generated/types.gen"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
@@ -26,8 +29,8 @@ import { wakeLine, type WakeIcon, type WakeLink, type WakeNames, type WakeTone }
 // its title, as a chip that opens it). The icon by status follows Orca's task rows (MIT, Copyright (c) 2026
 // Lovecast Inc., https://github.com/stablyai/orca; native-chat/tools/tasks/NativeChatTaskList.tsx), whose status
 // is in words beside the icon. Changed: the Task opens its panel over the chat, and the Run opens its strip docked
-// above the composer (issue #314), or its page when it is not docked in this chat; nothing is read again live, as
-// neither reference does on such a line.
+// above the composer (issue #314), or its own chat when it is another chat's (issue #327); the line is not read
+// again live, as neither reference does on such a line.
 
 const icons: Record<WakeIcon, LucideIcon> = {
   done: CircleCheck,
@@ -91,7 +94,7 @@ export function WakeCard({ wake }: { wake: ChatWake }) {
 }
 
 // WakeChip opens the work a line names: a Task in its panel over the chat (the page keeps it in its URL, as the
-// board and the Team page do), a Run in the dock above the composer when this chat docks it, else on its page.
+// Team page does), a Run in the dock above the composer when this chat docks it, else in its own chat.
 function WakeChip({ link }: { link: WakeLink }) {
   const navigate = useNavigate()
   const dock = useDock()
@@ -110,18 +113,7 @@ function WakeChip({ link }: { link: WakeLink }) {
     )
   }
 
-  if (link.kind === "run") {
-    return (
-      <Link
-        to="/runs/$runId"
-        params={{ runId: link.id }}
-        aria-label={`Open Run ${link.label}`}
-        className={cn(buttonVariants({ variant: "outline", size: "chip" }))}
-      >
-        {label}
-      </Link>
-    )
-  }
+  if (link.kind === "run") return <RunChatChip runId={link.id} label={link.label} />
 
   return (
     <Button
@@ -136,6 +128,50 @@ function WakeChip({ link }: { link: WakeLink }) {
       }
     >
       {label}
+    </Button>
+  )
+}
+
+// RunChatChip opens another chat's Run in that chat, where it is docked (issue #327). The Run is read as the dock
+// reads it, so a chip the dock already found foreign opens at once. A Run with no chat opens its first Task's panel
+// over this chat, as a Task's chip does; until the Run is read, the chip only names it.
+function RunChatChip({ runId, label }: { runId: string; label: string }) {
+  const navigate = useNavigate()
+  const run = useQuery({
+    queryKey: ["run", runId],
+    queryFn: async () => (await getRun({ path: { run_id: runId } })).data,
+  })
+  const chatId = run.data?.chat_id
+  const first = run.data?.tasks[0]?.id
+  const text = <span className="truncate">{label}</span>
+
+  if (chatId) {
+    return (
+      <Link
+        to="/chats/$chatId"
+        params={{ chatId }}
+        aria-label={`Open Run ${label} in its chat`}
+        className={cn(buttonVariants({ variant: "outline", size: "chip" }))}
+      >
+        {text}
+      </Link>
+    )
+  }
+
+  return (
+    <Button
+      variant="outline"
+      size="chip"
+      aria-label={`Open Run ${label}`}
+      disabled={!first}
+      onClick={() =>
+        void navigate({
+          to: ".",
+          search: (prev: Record<string, unknown>) => ({ ...prev, task: first }),
+        })
+      }
+    >
+      {text}
     </Button>
   )
 }

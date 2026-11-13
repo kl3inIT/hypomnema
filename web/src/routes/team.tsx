@@ -6,7 +6,7 @@ import { TeamScreen } from "@/features/team/team-screen"
 
 type Search = { task?: string }
 
-// The Team page keeps the open Task in the URL, as the board does, so a link or a reload opens it again.
+// The Team page keeps the open Task in the URL, so a link or a reload opens it again.
 export const Route = createFileRoute("/team")({
   validateSearch: (s: Record<string, unknown>): Search => ({
     task: typeof s.task === "string" && s.task ? s.task : undefined,
