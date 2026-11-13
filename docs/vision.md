@@ -29,8 +29,8 @@ Two deployables, all Go:
 
 | Deployable | Runs | Owns |
 |---|---|---|
-| `hypomnema` (control plane) | One place, public TLS endpoint or Tailscale | Channels, the coordinator, Run → Task → Dispatch → Gate as an event log in SQLite, the client API with policy (CLI, web; MCP later), node registry and placement, the vault (secrets and credential sessions), the API |
-| `hypomnema-node` | Every machine, cloud and sandbox | Outbound connection, worktrees, running and parsing the CLIs, egress proxy that attaches credentials, process isolation, local journal |
+| `hypomnema` (control plane) | One place, public TLS endpoint or Tailscale | Channels, the coordinator, Run → Task → Dispatch → Gate as an event log in SQLite, the client API with policy (CLI, web; MCP later), node registry and placement, the vault (secrets), the API |
+| `hypomnema-node` | Every machine, cloud and sandbox | Outbound connection, worktrees, running and parsing the CLIs, process isolation, local journal |
 
 - **The coordinator is pi** (`earendil-works/pi`), run as a child process over `pi --mode rpc`, not forked. It is a
   coordinator in Orca's shape: it decides, and the control plane holds every piece of state, so a pi crash loses
@@ -42,8 +42,9 @@ Two deployables, all Go:
   jobs.
 - **Nodes dial out.** No machine opens an inbound port. SSH is only how the owner installs a node (a one-time token,
   as Omnara's installer); no work runs over SSH.
-- **Credentials are per Dispatch.** The node's proxy attaches credentials from a vault session opened for one
-  Dispatch and revoked when it closes, as Infisical's Agent Vault. The vault lives in the control plane; it moves to
+- **Credentials are per Dispatch.** An Integration's token stays in the control plane, behind its service proxy; a
+  worker's Claude and git host tokens go to its Dispatch alone, as environment, with no proxy on the node
+  ([decision, 2026-11-13](decisions/2026-11-13-worker-credentials-in-the-environment.md): until then a proxy as Infisical's Agent Vault). The vault lives in the control plane; it moves to
   its own host only when the control plane has to run somewhere less trusted.
 - **A worker that is a vendor's CLI talks to its vendor directly** (Claude Code, Codex), with its subscription and
   a token the control plane hands it for the Dispatch, as Orca, Omnigent and OpenHands run theirs. Its usage comes

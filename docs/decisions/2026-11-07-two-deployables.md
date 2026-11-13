@@ -1,5 +1,8 @@
 # Two deployables in one Go module, the vault inside the control plane
 
+> The proxy on the node and the credential sessions per Dispatch planned here are superseded by
+> [2026-11-13-worker-credentials-in-the-environment.md](2026-11-13-worker-credentials-in-the-environment.md).
+
 > The database part is superseded by [SQLite for the control plane](2026-11-07-sqlite.md).
 
 Date: 2026-11-07. Status: accepted, implemented by issue #3 (repository skeleton).

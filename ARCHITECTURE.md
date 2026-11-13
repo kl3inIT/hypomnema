@@ -1075,8 +1075,8 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     `GH_ENTERPRISE_TOKEN` with `GH_HOST`), `glab` reads `GITLAB_TOKEN` and `GITLAB_HOST`. It is in no command's
     arguments and no clone URL. On the node it is in the offer kept in the node's state database until the
     Dispatch ends, and in the worker's spec file until the worker starts, as the Claude token is. The worker
-    itself can read it: this stands in for the vault's credential sessions and the node's proxy
-    ([issue #66](https://github.com/kl3inIT/hypomnema/issues/66)), with which a worker would never see it.
+    itself can read it, as with the Claude token; there is no proxy on the node
+    ([decision, 2026-11-13](docs/decisions/2026-11-13-worker-credentials-in-the-environment.md)).
   - A host without a token works as before: git and the host's tool use the node user's own logins.
   - A node says which hosts it reaches. The control plane names the hosts it knows in the answer to hello and to
     every heartbeat; the node tries each when the list changes and every minute (an HTTPS request with no
@@ -1099,8 +1099,8 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   result, with another request it is a conflict. The key is kept as a receipt, as node calls are.
 
 The vault (`internal/controlplane/vault`, issue #66, after Omnara's `internal/secrets`) is the secret store: API keys
-and subscription token sets, encrypted at rest. Its other half, credential Sessions per Dispatch and the node's
-proxy, does not exist yet.
+and subscription token sets, encrypted at rest. A worker's Claude and git host tokens reach its Dispatch as
+environment, with no proxy on the node ([decision, 2026-11-13](docs/decisions/2026-11-13-worker-credentials-in-the-environment.md)).
 - A secret has a name, a kind (`generic`: one value; `oauth_token_set`: a refresh token with, optionally, the access
   and id tokens), metadata that is not secret, and versions. `Rotate` adds a version and points the secret at it;
   earlier versions stay, encrypted.

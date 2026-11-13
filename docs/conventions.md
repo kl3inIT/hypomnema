@@ -209,12 +209,11 @@ The three boundaries that matter:
   2026-11-10). It is encrypted as Omnara's `internal/secrets`: a data key per secret version, wrapped by a root key chosen
   by ID from a keyring, with the secret's identity as associated data. The root key comes from the environment of the
   control plane host, with an offline backup and a rotation procedure that rewraps data keys.
-- Workers get credentials as Infisical's Agent Vault does: the control plane opens a session per Dispatch with the
-  services it may reach; the node's proxy, running as another OS user than the worker, decrypts HTTPS with its own CA,
-  attaches the credential (or replaces a placeholder for tools that insist on a token) only for allowed hosts, methods
-  and paths, logs every request, and stops when the session is revoked. No tool returns a secret value to the Coordinator or
-  a worker. A secret the proxy cannot attach (SSH keys, AWS SigV4, local database passwords) is given in clear only
-  through a Gate the owner approves. Research: [secrets for agents](research/2026-11-07-secrets-for-agents.md).
+- A worker's Claude token and a git host's token go to its Dispatch alone, as environment, as OpenHands and Omnara
+  deliver them; the node is the boundary and there is no proxy on it
+  ([decision, 2026-11-13](decisions/2026-11-13-worker-credentials-in-the-environment.md), which replaced the plan of a proxy as
+  Infisical's Agent Vault). No tool returns a vault value to the Coordinator or a worker. Research:
+  [secrets for agents](research/2026-11-07-secrets-for-agents.md).
 - Logs and transcripts are scrubbed of secret patterns before they are stored.
 
 ## Testing
