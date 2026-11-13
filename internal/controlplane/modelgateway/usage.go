@@ -31,9 +31,10 @@ type Tokens struct {
 	Prompt     int64
 	Completion int64
 	// Cached and Reasoning are parts of Prompt and Completion, when the
-	// provider says.
-	Cached    int64
-	Reasoning int64
+	// provider says; CacheWrite is the part of Prompt written to the cache.
+	Cached     int64
+	CacheWrite int64
+	Reasoning  int64
 	// Estimated says the provider reported none and the counts are bytes
 	// divided by four, as 9router-go estimates
 	// (internal/handlers/chat/usage.go): a rough size, not a bill.
@@ -59,10 +60,15 @@ type Usage struct {
 	// API provider.
 	AccountID string
 	// Error is the provider's message for a request that failed.
-	Error     string
-	Tokens    Tokens
-	Duration  time.Duration
-	CreatedAt time.Time
+	Error string
+	// CostMicros is what the tokens cost at the vendor's API, in
+	// micro-dollars, and PricedModel the model priced; nil and empty when the
+	// price book has none (issue #304).
+	CostMicros  *int64
+	PricedModel string
+	Tokens      Tokens
+	Duration    time.Duration
+	CreatedAt   time.Time
 }
 
 func flag(b bool) int64 {
@@ -79,13 +85,16 @@ func (s *Service) recordUsage(ctx context.Context, u Usage) error {
 		u.Error = defaultError(u.Outcome)
 	}
 
+	s.price(ctx, &u)
+
 	return s.write(ctx, func(q *store.Queries, now int64) error {
 		if err := q.InsertGatewayUsage(ctx, store.InsertGatewayUsageParams{
 			ID: s.newID("gwu"), KeyID: u.KeyID, Model: u.Model, Provider: u.Provider, UpstreamModel: u.UpstreamModel,
 			Stream: flag(u.Stream), Attempts: int64(u.Attempts), Outcome: string(u.Outcome), Status: int64(u.Status),
 			PromptTokens: u.Tokens.Prompt, CompletionTokens: u.Tokens.Completion, CachedTokens: u.Tokens.Cached,
 			ReasoningTokens: u.Tokens.Reasoning, Estimated: flag(u.Tokens.Estimated),
-			DurationMs: u.Duration.Milliseconds(), AccountID: u.AccountID, Error: clip(u.Error, maxErrorText), Now: now,
+			DurationMs: u.Duration.Milliseconds(), AccountID: u.AccountID, Error: clip(u.Error, maxErrorText),
+			CacheWriteTokens: u.Tokens.CacheWrite, CostMicros: nullable(u.CostMicros), PricedModel: u.PricedModel, Now: now,
 		}); err != nil {
 			return fmt.Errorf("recording usage: %w", err)
 		}
@@ -119,9 +128,10 @@ func usageOf(r store.ListGatewayUsageRow) Usage {
 		ID: r.ID, KeyID: r.KeyID, KeyName: r.KeyName, Model: r.Model, Provider: r.Provider,
 		UpstreamModel: r.UpstreamModel, Stream: r.Stream == 1, Attempts: int(r.Attempts),
 		Outcome: Outcome(r.Outcome), Status: int(r.Status), AccountID: r.AccountID, Error: r.Error,
+		CostMicros: fromNullable(r.CostMicros), PricedModel: r.PricedModel,
 		Tokens: Tokens{
 			Prompt: r.PromptTokens, Completion: r.CompletionTokens, Cached: r.CachedTokens,
-			Reasoning: r.ReasoningTokens, Estimated: r.Estimated == 1,
+			CacheWrite: r.CacheWriteTokens, Reasoning: r.ReasoningTokens, Estimated: r.Estimated == 1,
 		},
 		Duration:  time.Duration(r.DurationMs) * time.Millisecond,
 		CreatedAt: time.UnixMilli(r.CreatedAt).UTC(),
@@ -138,6 +148,7 @@ type openAIUsage struct {
 	CompletionTokensDetails struct {
 		ReasoningTokens int64 `json:"reasoning_tokens"`
 	} `json:"completion_tokens_details"`
+	CacheCreationInputTokens int64 `json:"cache_creation_input_tokens"`
 }
 
 // merge keeps the largest count seen. Some OpenAI-compatible upstreams report
@@ -153,6 +164,7 @@ func (t *Tokens) merge(raw json.RawMessage) {
 	t.Completion = max(t.Completion, u.CompletionTokens)
 	t.Cached = max(t.Cached, u.PromptTokensDetails.CachedTokens)
 	t.Reasoning = max(t.Reasoning, u.CompletionTokensDetails.ReasoningTokens)
+	t.CacheWrite = max(t.CacheWrite, u.CacheCreationInputTokens)
 }
 
 // estimate fills counts the provider did not report from the sizes of what
