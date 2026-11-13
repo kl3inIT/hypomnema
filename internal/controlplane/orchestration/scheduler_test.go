@@ -583,6 +583,43 @@ func TestMembersOfOneWorkspaceAreTwoAccounts(t *testing.T) {
 	assert.Equal(t, first.ID, again.ID)
 }
 
+// Scenario: a Claude account was recorded under its user's id before logins
+// named the organization. The same person signs in again: the account takes
+// the organization's id and keeps its secret. Then they sign in to their seat
+// in a Team organization: a second account (issue #333).
+func TestAClaudeAccountIsItsOrganizations(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ref := func(id string) string { return "vault:account-" + id }
+
+	before, err := w.s.SaveAccountLogin(t.Context(), AccountLogin{
+		Runtime: "claude", ExternalID: "user-1", Email: "me@example.com",
+	}, ref)
+	require.NoError(t, err)
+
+	personal, err := w.s.SaveAccountLogin(t.Context(), AccountLogin{
+		Runtime: "claude", ExternalID: "org-personal", FormerExternalID: "user-1", Email: "me@example.com",
+	}, ref)
+	require.NoError(t, err)
+	assert.Equal(t, before.ID, personal.ID)
+	assert.Equal(t, before.SecretRef, personal.SecretRef)
+
+	team, err := w.s.SaveAccountLogin(t.Context(), AccountLogin{
+		Runtime: "claude", ExternalID: "org-team", FormerExternalID: "user-1", Email: "me@example.com",
+		Plan: "team",
+	}, ref)
+	require.NoError(t, err)
+	assert.NotEqual(t, personal.ID, team.ID)
+	assert.Equal(t, "me@example.com (team)", team.Label, "its e-mail is taken: the plan tells them apart")
+
+	again, err := w.s.SaveAccountLogin(t.Context(), AccountLogin{
+		Runtime: "claude", ExternalID: "org-personal", FormerExternalID: "user-1", Email: "me@example.com",
+	}, ref)
+	require.NoError(t, err)
+	assert.Equal(t, personal.ID, again.ID)
+}
+
 // Scenario: the database of a running control plane is migrated past the
 // rebuild of the providers table. The providers the owner declared, their
 // models, the profile that names one and the gateway model served from one

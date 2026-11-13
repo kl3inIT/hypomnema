@@ -213,7 +213,7 @@ func TestOwnerLogsAClaudeSubscriptionIn(t *testing.T) {
 
 	assert.Equal(t, "claude", a.Runtime)
 	assert.Equal(t, "owner-1@example.com", a.Label)
-	assert.Equal(t, "acc-uuid-1", a.ExternalID)
+	assert.Equal(t, "org-uuid-1", a.ExternalID, "an account is its organization's")
 	assert.Equal(t, subscription.StateActive, a.State)
 	assert.Equal(t, t0.Add(3600*time.Second), *a.AccessTokenExpiresAt)
 

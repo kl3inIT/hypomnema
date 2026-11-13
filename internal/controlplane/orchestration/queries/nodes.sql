@@ -109,6 +109,13 @@ UPDATE accounts SET updated_at = @now, email = @email, plan = @plan WHERE id = @
 -- A new login of an account: who it is now, and the project it works in.
 UPDATE accounts SET updated_at = @now, email = @email, plan = @plan, project = @project WHERE id = @id;
 
+-- name: AccountLabelTaken :one
+SELECT EXISTS (SELECT 1 FROM accounts WHERE runtime = @runtime AND label = @label);
+
+-- name: SetAccountExternalID :execrows
+-- A login takes over an account recorded under a former vendor id.
+UPDATE accounts SET external_id = @external_id WHERE id = @id;
+
 -- name: SetAccountRefresh :execrows
 UPDATE accounts
 SET updated_at = @now, refresh_failures = @refresh_failures, refresh_retry_at = @refresh_retry_at,

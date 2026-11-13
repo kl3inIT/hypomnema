@@ -11,6 +11,22 @@ import (
 	"strings"
 )
 
+const accountLabelTaken = `-- name: AccountLabelTaken :one
+SELECT EXISTS (SELECT 1 FROM accounts WHERE runtime = ?1 AND label = ?2)
+`
+
+type AccountLabelTakenParams struct {
+	Runtime string
+	Label   string
+}
+
+func (q *Queries) AccountLabelTaken(ctx context.Context, arg AccountLabelTakenParams) (bool, error) {
+	row := q.db.QueryRowContext(ctx, accountLabelTaken, arg.Runtime, arg.Label)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
 const countAccountsFreeAfter = `-- name: CountAccountsFreeAfter :one
 SELECT count(*) FROM accounts a
 WHERE a.runtime = ?1 AND a.status = 'active' AND (a.secret_ref IS NULL OR a.sent_to_node = 1)
@@ -811,6 +827,24 @@ type RevokeNodeTokensParams struct {
 func (q *Queries) RevokeNodeTokens(ctx context.Context, arg RevokeNodeTokensParams) error {
 	_, err := q.db.ExecContext(ctx, revokeNodeTokens, arg.Now, arg.NodeID)
 	return err
+}
+
+const setAccountExternalID = `-- name: SetAccountExternalID :execrows
+UPDATE accounts SET external_id = ?1 WHERE id = ?2
+`
+
+type SetAccountExternalIDParams struct {
+	ExternalID sql.NullString
+	ID         string
+}
+
+// A login takes over an account recorded under a former vendor id.
+func (q *Queries) SetAccountExternalID(ctx context.Context, arg SetAccountExternalIDParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setAccountExternalID, arg.ExternalID, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 const setAccountIdentity = `-- name: SetAccountIdentity :execrows
