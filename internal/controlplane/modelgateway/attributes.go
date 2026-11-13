@@ -48,8 +48,21 @@ type Source string
 const (
 	SourceSet       Source = "set"
 	SourceModelsDev Source = "models_dev"
-	SourceUnknown   Source = "unknown"
+	// SourceCodex is the window of a Codex subscription's model, from Codex's own list.
+	SourceCodex   Source = "codex"
+	SourceUnknown Source = "unknown"
 )
+
+// codexWindows are the context windows Codex itself gives its models, which a
+// Codex subscription serves, and codexWindow the one it gives a model it does
+// not list. models.dev gives the API's larger window (1,050,000 for
+// gpt-6.1-sol), past which the subscription's backend refuses a request.
+// From Codex (Apache License 2.0, https://github.com/openai/codex, f5ac7a7):
+// codex-rs/models-manager/models.json context_window, and
+// codex-rs/models-manager/src/model_info.rs:129.
+var codexWindows = map[string]int64{"gpt-6.1-terra": 500000, "gpt-daybreak-red-latest": 372000}
+
+const codexWindow int64 = 272000
 
 // Value is one resolved attribute: the value used (nil when unknown), where
 // it came from, and what models.dev gives (nil when nothing), which a model
@@ -128,7 +141,7 @@ func resolveAttributes(name string, set Attributes, kind, upstream string) Resol
 	}
 
 	out := Resolved{
-		ContextWindow: resolve(set.ContextWindow, seed.Context),
+		ContextWindow: contextWindowOf(set.ContextWindow, seed.Context, kind, upstream),
 		MaxOutput:     resolve(set.MaxOutput, seed.MaxOutput),
 		Input:         resolve(listOf(set.Input), listOf(seed.Inputs)),
 		Reasoning:     resolve(set.Reasoning, seed.Reasoning),
@@ -142,6 +155,21 @@ func resolveAttributes(name string, set Attributes, kind, upstream string) Resol
 	}
 
 	return out
+}
+
+// contextWindowOf resolves a model's window as resolve does, but a Codex
+// subscription's model takes Codex's own window before models.dev's.
+func contextWindowOf(set, seed *int64, kind, upstream string) Value[int64] {
+	if set != nil || kind != "codex_subscription" {
+		return resolve(set, seed)
+	}
+
+	w, ok := codexWindows[upstream]
+	if !ok {
+		w = codexWindow
+	}
+
+	return Value[int64]{Value: &w, Source: SourceCodex, ModelsDev: seed}
 }
 
 // effortsOf are the effort levels a provider's adapter passes on as levels of

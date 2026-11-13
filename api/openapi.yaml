@@ -4625,7 +4625,8 @@ components:
         price: { $ref: "#/components/schemas/GatewayModelPrice" }
     GatewayModelSource:
       type: string
-      enum: [set, models_dev, unknown]
+      description: Where a value comes from; codex is the window Codex itself gives a Codex subscription's model.
+      enum: [set, models_dev, codex, unknown]
     GatewayModelInputKind:
       type: string
       enum: [text, image]

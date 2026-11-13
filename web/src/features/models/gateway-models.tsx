@@ -138,6 +138,7 @@ function GatewayModelRow({ model }: { model: GatewayModel }) {
 const sourceNames: Record<GatewayModelSource, string> = {
   set: "Set on this model",
   models_dev: "From models.dev",
+  codex: "From Codex's own list of models",
   unknown: "Not known",
 }
 
@@ -258,8 +259,18 @@ export function EditGatewayModel({ model }: { model: GatewayModel }) {
                     <TextField
                       field={field}
                       label="Context window (tokens)"
-                      placeholder={devTokens(a.context_window.models_dev) ?? "128,000"}
-                      description={fromModelsDev(devTokens(a.context_window.models_dev))}
+                      placeholder={
+                        devTokens(
+                          a.context_window.source === "codex"
+                            ? a.context_window.value
+                            : a.context_window.models_dev,
+                        ) ?? "128,000"
+                      }
+                      description={
+                        a.context_window.source === "codex"
+                          ? `From Codex's own list: ${devTokens(a.context_window.value)}; models.dev gives the API's ${devTokens(a.context_window.models_dev) ?? "–"}.`
+                          : fromModelsDev(devTokens(a.context_window.models_dev))
+                      }
                     />
                   )}
                 </form.Field>

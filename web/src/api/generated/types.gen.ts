@@ -1538,7 +1538,10 @@ export type GatewayModelAttributes = {
   price?: GatewayModelPrice;
 };
 
-export type GatewayModelSource = 'set' | 'models_dev' | 'unknown';
+/**
+ * Where a value comes from; codex is the window Codex itself gives a Codex subscription's model.
+ */
+export type GatewayModelSource = 'set' | 'models_dev' | 'codex' | 'unknown';
 
 export type GatewayModelInputKind = 'text' | 'image';
 

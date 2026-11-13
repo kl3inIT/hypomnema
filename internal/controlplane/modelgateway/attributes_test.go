@@ -13,8 +13,10 @@ import (
 func ptr[T any](v T) *T { return &v }
 
 // Scenario: the owner serves the Codex subscription's model under a public
-// name and sets nothing (issue #367). Its window, largest output, inputs,
-// reasoning and effort levels come from models.dev, with the effort levels
+// name and sets nothing (issue #367). Its window is the one Codex itself
+// gives the model, smaller than the API's that models.dev gives, past which
+// the subscription refuses a request. Its largest output, inputs, reasoning
+// and effort levels come from models.dev, with the effort levels
 // the gateway gives Codex as levels of their own: max is sent as xhigh, so it
 // is not one.
 func TestAModelThatSetsNothingHasWhatModelsDevSays(t *testing.T) {
@@ -31,8 +33,9 @@ func TestAModelThatSetsNothingHasWhatModelsDevSays(t *testing.T) {
 	seed, ok := prices.Find("codex_subscription", "gpt-6.1-sol")
 	require.True(t, ok)
 
-	assert.Equal(t, modelgateway.Value[int64]{Value: seed.Context, Source: modelgateway.SourceModelsDev,
+	assert.Equal(t, modelgateway.Value[int64]{Value: ptr(int64(272000)), Source: modelgateway.SourceCodex,
 		ModelsDev: seed.Context}, got.ContextWindow)
+	assert.Greater(t, *seed.Context, int64(272000), "models.dev gives the API's window")
 	assert.Equal(t, modelgateway.SourceModelsDev, got.MaxOutput.Source)
 	assert.Equal(t, seed.MaxOutput, got.MaxOutput.Value)
 	assert.Equal(t, &[]string{"text", "image"}, got.Input.Value)
@@ -88,7 +91,7 @@ func TestAValueSetOnTheModelWins(t *testing.T) {
 
 	got, err = g.Resolve(t.Context(), m)
 	require.NoError(t, err)
-	assert.Equal(t, modelgateway.SourceModelsDev, got.ContextWindow.Source)
+	assert.Equal(t, modelgateway.SourceCodex, got.ContextWindow.Source, "taken out, it is Codex's again")
 
 	_, err = g.SetAttributes(t.Context(), "missing", modelgateway.Attributes{})
 	require.ErrorIs(t, err, modelgateway.ErrNotFound)

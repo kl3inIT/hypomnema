@@ -71,9 +71,10 @@ func TestTheOwnerSetsAGatewayModelsAttributes(t *testing.T) {
 
 	sol := listed.JSON200.Data[0]
 	assert.Equal(t, "cx/sol", sol.Name)
+	codexWindow := int64(272_000)
 	assert.Equal(t, openapi.GatewayModelTokens{
-		Value: seed.Context, Source: openapi.GatewayModelSourceModelsDev, ModelsDev: seed.Context,
-	}, sol.Attributes.ContextWindow)
+		Value: &codexWindow, Source: openapi.GatewayModelSourceCodex, ModelsDev: seed.Context,
+	}, sol.Attributes.ContextWindow, "a Codex subscription's window is Codex's own")
 	assert.Equal(t, &[]openapi.GatewayModelInputKind{"text", "image"}, sol.Attributes.Input.Value)
 	require.NotNil(t, sol.Attributes.Price)
 	assert.InDelta(t, float64(*seed.Input)/1e6, sol.Attributes.Price.Input, 1e-9, "dollars per million tokens")
@@ -97,7 +98,7 @@ func TestTheOwnerSetsAGatewayModelsAttributes(t *testing.T) {
 	cleared, err := owner.SetGatewayModelAttributesWithResponse(ctx, "cx/sol", openapi.GatewayModelSettings{})
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, cleared.StatusCode(), string(cleared.Body))
-	assert.Equal(t, openapi.GatewayModelSourceModelsDev, cleared.JSON200.Attributes.ContextWindow.Source)
+	assert.Equal(t, openapi.GatewayModelSourceCodex, cleared.JSON200.Attributes.ContextWindow.Source)
 
 	minimal := []openapi.GatewayModelEffort{openapi.GatewayModelEffortMinimal}
 	bad, err := owner.SetGatewayModelAttributesWithResponse(ctx, "sonnet",
