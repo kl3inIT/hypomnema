@@ -146,7 +146,10 @@ function Totals({ usage }: { usage: GatewayUsage }) {
       className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border bg-border sm:grid-cols-4 lg:grid-cols-7"
     >
       {tiles(usage.totals).map((t) => (
-        <div key={t.label} className="flex flex-col gap-1 bg-card p-4 last:col-span-2 sm:last:col-span-1">
+        <div
+          key={t.label}
+          className="flex flex-col gap-1 bg-card p-4 last:col-span-2 sm:last:col-span-1"
+        >
           <dt className="text-sm text-muted-foreground">{t.label}</dt>
           <dd className="flex flex-wrap items-baseline gap-x-2">
             <span className="text-2xl font-semibold tabular-nums">{t.value}</span>
