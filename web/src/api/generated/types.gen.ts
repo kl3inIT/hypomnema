@@ -2011,6 +2011,39 @@ export type WorkspaceFile = {
    */
   truncated: boolean;
   content: string;
+  /**
+   * The whole file's SHA-256, which a write names as the text it replaces; absent past 10 MiB.
+   */
+  sha256?: string;
+};
+
+export type WorkspaceWrite = {
+  path: string;
+  /**
+   * The file's whole text
+   */
+  content: string;
+  /**
+   * The SHA-256 the file must still have; absent for a new file.
+   */
+  expect_sha256?: string;
+};
+
+export type WorkspacePathBody = {
+  path: string;
+};
+
+export type WorkspaceMove = {
+  path: string;
+  to: string;
+};
+
+export type WorkspaceDone = {
+  path: string;
+  /**
+   * A written file's SHA-256.
+   */
+  sha256?: string;
 };
 
 export type WorkspaceChange = {
@@ -6119,6 +6152,42 @@ export type ListWorkspaceDirectoryResponses = {
 
 export type ListWorkspaceDirectoryResponse = ListWorkspaceDirectoryResponses[keyof ListWorkspaceDirectoryResponses];
 
+export type DeleteWorkspaceEntryData = {
+  body?: never;
+  path: {
+    chat_id: string;
+    /**
+     * `bot` for the Bot's folder, or a Task's id for its worktree.
+     */
+    workspace_id: string;
+  };
+  query?: {
+    /**
+     * A path in the folder, with forward slashes; empty or absent is the folder itself.
+     */
+    path?: string;
+  };
+  url: '/chats/{chat_id}/workspaces/{workspace_id}/file';
+};
+
+export type DeleteWorkspaceEntryErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type DeleteWorkspaceEntryError = DeleteWorkspaceEntryErrors[keyof DeleteWorkspaceEntryErrors];
+
+export type DeleteWorkspaceEntryResponses = {
+  /**
+   * Deleted.
+   */
+  204: void;
+};
+
+export type DeleteWorkspaceEntryResponse = DeleteWorkspaceEntryResponses[keyof DeleteWorkspaceEntryResponses];
+
 export type ReadWorkspaceFileData = {
   body?: never;
   path: {
@@ -6154,6 +6223,135 @@ export type ReadWorkspaceFileResponses = {
 };
 
 export type ReadWorkspaceFileResponse = ReadWorkspaceFileResponses[keyof ReadWorkspaceFileResponses];
+
+export type WriteWorkspaceFileData = {
+  body: WorkspaceWrite;
+  path: {
+    chat_id: string;
+    /**
+     * `bot` for the Bot's folder, or a Task's id for its worktree.
+     */
+    workspace_id: string;
+  };
+  query?: never;
+  url: '/chats/{chat_id}/workspaces/{workspace_id}/file';
+};
+
+export type WriteWorkspaceFileErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type WriteWorkspaceFileError = WriteWorkspaceFileErrors[keyof WriteWorkspaceFileErrors];
+
+export type WriteWorkspaceFileResponses = {
+  /**
+   * The file as written.
+   */
+  200: WorkspaceDone;
+};
+
+export type WriteWorkspaceFileResponse = WriteWorkspaceFileResponses[keyof WriteWorkspaceFileResponses];
+
+export type ReadWorkspaceRawData = {
+  body?: never;
+  path: {
+    chat_id: string;
+    /**
+     * `bot` for the Bot's folder, or a Task's id for its worktree.
+     */
+    workspace_id: string;
+  };
+  query?: {
+    /**
+     * A path in the folder, with forward slashes; empty or absent is the folder itself.
+     */
+    path?: string;
+  };
+  url: '/chats/{chat_id}/workspaces/{workspace_id}/raw';
+};
+
+export type ReadWorkspaceRawErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ReadWorkspaceRawError = ReadWorkspaceRawErrors[keyof ReadWorkspaceRawErrors];
+
+export type ReadWorkspaceRawResponses = {
+  /**
+   * The bytes, never served as a page.
+   */
+  200: Blob | File;
+};
+
+export type ReadWorkspaceRawResponse = ReadWorkspaceRawResponses[keyof ReadWorkspaceRawResponses];
+
+export type MakeWorkspaceFolderData = {
+  body: WorkspacePathBody;
+  path: {
+    chat_id: string;
+    /**
+     * `bot` for the Bot's folder, or a Task's id for its worktree.
+     */
+    workspace_id: string;
+  };
+  query?: never;
+  url: '/chats/{chat_id}/workspaces/{workspace_id}/folders';
+};
+
+export type MakeWorkspaceFolderErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type MakeWorkspaceFolderError = MakeWorkspaceFolderErrors[keyof MakeWorkspaceFolderErrors];
+
+export type MakeWorkspaceFolderResponses = {
+  /**
+   * The folder.
+   */
+  201: WorkspaceDone;
+};
+
+export type MakeWorkspaceFolderResponse = MakeWorkspaceFolderResponses[keyof MakeWorkspaceFolderResponses];
+
+export type MoveWorkspaceEntryData = {
+  body: WorkspaceMove;
+  path: {
+    chat_id: string;
+    /**
+     * `bot` for the Bot's folder, or a Task's id for its worktree.
+     */
+    workspace_id: string;
+  };
+  query?: never;
+  url: '/chats/{chat_id}/workspaces/{workspace_id}/move';
+};
+
+export type MoveWorkspaceEntryErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type MoveWorkspaceEntryError = MoveWorkspaceEntryErrors[keyof MoveWorkspaceEntryErrors];
+
+export type MoveWorkspaceEntryResponses = {
+  /**
+   * Where it is now.
+   */
+  200: WorkspaceDone;
+};
+
+export type MoveWorkspaceEntryResponse = MoveWorkspaceEntryResponses[keyof MoveWorkspaceEntryResponses];
 
 export type ListWorkspaceChangesData = {
   body?: never;

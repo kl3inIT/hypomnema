@@ -1,6 +1,7 @@
-// Package workspacefs reads a working folder for the owner (issue #255): a
+// Package workspacefs reads and changes a working folder for the owner (issues #255 and #297): a
 // directory's entries, a file, what git says changed, and a changed file
-// before and after. The node reads a Task's worktree with it, and the Bot's
+// before and after; a file written only over the text it was read as, a file
+// or folder made, renamed or deleted. The node reads a Task's worktree with it, and the Bot's
 // helper on the control plane's machine reads a Bot's folder.
 //
 // It follows Omnigent's runner (omnigent/runner/environment_filesystem.py and
@@ -26,6 +27,9 @@ const (
 	sniffBytes  = 8 << 10
 	MaxChanges  = 10_000
 	GitTimeout  = 30 * time.Second
+	// MaxWrite is the largest text written: what fits the message that carries it to a node (Orca caps a remote
+	// write per request, staged-file-save.ts).
+	MaxWrite = 1 << 20
 )
 
 // Op is what a request asks for.
@@ -37,6 +41,15 @@ const (
 	OpRead    Op = "read"
 	OpChanges Op = "changes"
 	OpDiff    Op = "diff"
+	// OpWrite replaces a file's text, only when the file is still what Expect's SHA-256 says (Orca's
+	// writeIfUnchanged), or makes it when Expect is empty and nothing is there.
+	OpWrite Op = "write"
+	// OpMkdir makes a folder where nothing is.
+	OpMkdir Op = "mkdir"
+	// OpRename moves Path to To, where nothing is.
+	OpRename Op = "rename"
+	// OpDelete deletes a file, or a folder with what it holds.
+	OpDelete Op = "delete"
 )
 
 // Request is one question about a folder. Path is relative to the folder,
@@ -45,6 +58,14 @@ type Request struct {
 	Op    Op     `json:"op"`
 	Path  string `json:"path,omitempty"`
 	After string `json:"after,omitempty"`
+	// Raw asks a read for the file's bytes, whatever they are, up to MaxRead (an image, a download).
+	Raw bool `json:"raw,omitempty"`
+	// Content is the text a write puts in the file; Expect the SHA-256 of the file it replaces, empty for a new
+	// file.
+	Content string `json:"content,omitempty"`
+	Expect  string `json:"expect,omitempty"`
+	// To is where a rename moves the path.
+	To string `json:"to,omitempty"`
 }
 
 // Entry is one name in a directory. A link is listed as what it points to.
@@ -63,13 +84,22 @@ type Listing struct {
 	HasMore bool    `json:"has_more"`
 }
 
-// File is a file's text. A binary file has no content.
+// File is a file's text. A binary file has no content. SHA256 is the whole file's, which a write names as the
+// text it replaces; Data is its bytes, when they were asked for.
 type File struct {
 	Path      string `json:"path"`
 	Bytes     int64  `json:"bytes"`
 	Binary    bool   `json:"binary"`
 	Truncated bool   `json:"truncated"`
 	Content   string `json:"content"`
+	SHA256    string `json:"sha256,omitempty"`
+	Data      []byte `json:"data,omitempty"`
+}
+
+// Done says what a change left: the path, and a written file's SHA-256.
+type Done struct {
+	Path   string `json:"path"`
+	SHA256 string `json:"sha256,omitempty"`
 }
 
 // Change is one file git says changed since HEAD.
@@ -108,6 +138,7 @@ type Result struct {
 	File    *File    `json:"file,omitempty"`
 	Changes *Changes `json:"changes,omitempty"`
 	Diff    *Diff    `json:"diff,omitempty"`
+	Done    *Done    `json:"done,omitempty"`
 }
 
 // Error is why a request was not answered, with a code the caller maps.
@@ -135,6 +166,10 @@ const (
 	CodeTooLarge Code = "too_large"
 	// CodeGitFailed: git did not answer, or failed; the message says how.
 	CodeGitFailed Code = "git_failed"
+	// CodeChanged: the file is not the text the write was based on any more.
+	CodeChanged Code = "changed"
+	// CodeExists: something is already where a file or folder was to be made.
+	CodeExists Code = "exists"
 	// CodeFailed: anything else.
 	CodeFailed Code = "failed"
 )
@@ -154,11 +189,19 @@ func Serve(ctx context.Context, root string, req Request) Result {
 	case OpList:
 		res.Listing, err = List(root, req.Path, req.After)
 	case OpRead:
-		res.File, err = Read(root, req.Path)
+		res.File, err = Read(root, req.Path, req.Raw)
 	case OpChanges:
 		res.Changes, err = Status(ctx, root)
 	case OpDiff:
 		res.Diff, err = DiffOf(ctx, root, req.Path)
+	case OpWrite:
+		res.Done, err = Write(root, req.Path, req.Content, req.Expect)
+	case OpMkdir:
+		res.Done, err = Mkdir(root, req.Path)
+	case OpRename:
+		res.Done, err = Rename(root, req.Path, req.To)
+	case OpDelete:
+		res.Done, err = Delete(root, req.Path)
 	default:
 		err = failure(CodeFailed, "unknown operation %q", req.Op)
 	}

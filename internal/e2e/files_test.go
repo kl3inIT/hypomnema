@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -87,6 +88,29 @@ func TestAWorktreeIsReadThroughItsNode(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, res.Error)
 	assert.Equal(t, "package api\n", res.File.Content)
+
+	// The owner saves over the text the file was read as (issue #297); a second save from that text is refused, as
+	// the file changed; a text larger than a node's message is not sent.
+	saved, err := nodes.Files(t.Context(), node.ID, worktree, workspacefs.Request{Op: workspacefs.OpWrite,
+		Path: "src/health.go", Content: "package health\n", Expect: res.File.SHA256})
+	require.NoError(t, err)
+	require.Nil(t, saved.Error)
+
+	written, err := os.ReadFile(filepath.Join(worktree, "src", "health.go")) //nolint:gosec // the test's folder
+	require.NoError(t, err)
+	assert.Equal(t, "package health\n", string(written))
+
+	stale, err := nodes.Files(t.Context(), node.ID, worktree, workspacefs.Request{Op: workspacefs.OpWrite,
+		Path: "src/health.go", Content: "package other\n", Expect: res.File.SHA256})
+	require.NoError(t, err)
+	require.NotNil(t, stale.Error)
+	assert.Equal(t, workspacefs.CodeChanged, stale.Error.Code)
+
+	big, err := nodes.Files(t.Context(), node.ID, worktree, workspacefs.Request{Op: workspacefs.OpWrite,
+		Path: "big.txt", Content: strings.Repeat("x", workspacefs.MaxWrite)})
+	require.NoError(t, err)
+	require.NotNil(t, big.Error)
+	assert.Equal(t, workspacefs.CodeTooLarge, big.Error.Code)
 
 	res, err = nodes.Files(t.Context(), node.ID, worktree, workspacefs.Request{Op: workspacefs.OpList})
 	require.NoError(t, err)

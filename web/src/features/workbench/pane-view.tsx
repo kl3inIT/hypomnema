@@ -1,10 +1,20 @@
 import { useQuery } from "@tanstack/react-query"
 import { FileDiff, FileText, FolderTree, Globe, MessageSquarePlus, Plus, X } from "lucide-react"
-import type { ReactNode } from "react"
+import { useState, type ReactNode } from "react"
 
 import "@/api/client"
 import { getChat, listRuns } from "@/api/generated/sdk.gen"
 import type { BrowserTab } from "@/api/generated/types.gen"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -26,7 +36,7 @@ import { BrowserView } from "@/features/browser/browser-view"
 import { ChatBody } from "@/features/chat/chat-body"
 import { FileTab } from "@/features/files/file-tab"
 import { FilesPanel } from "@/features/files/files-panel"
-import { baseName } from "@/features/files/files-state"
+import { baseName, isUnsaved, useUnsaved } from "@/features/files/files-state"
 import { cn } from "@/lib/utils"
 
 import { DraftChat } from "./draft-chat"
@@ -94,6 +104,8 @@ export function PaneView({
   const label = (tab: BrowserTab) => (tab.id === ownerTab ? "My browser" : tabName(tab))
 
   const front = frontOf(pane)
+  // A file tab with text not saved, which the owner asked to close.
+  const [closing, setClosing] = useState<string | null>(null)
   const frontKey = front === undefined ? "" : tabKey(front)
   const open = (tab: PaneTab) => onChange(openTab(pane, tab))
   const newChat = (bot: string) => open({ kind: "draft", id: crypto.randomUUID().slice(0, 8), bot })
@@ -112,7 +124,12 @@ export function PaneView({
         >
           {pane.tabs.map((tab) => {
             const key = tabKey(tab)
-            const close = key === kept ? undefined : () => onChange(closeTab(pane, key))
+            const close =
+              key === kept
+                ? undefined
+                : () =>
+                    // A file with text not saved asks first (Orca marks such a tab and asks on close).
+                    isUnsaved(key) ? setClosing(key) : onChange(closeTab(pane, key))
             const common = {
               selected: key === frontKey,
               onPick: () => onChange({ ...pane, active: key }),
@@ -154,6 +171,7 @@ export function PaneView({
                       <FileText className="size-3.5 shrink-0" aria-hidden />
                     )}
                     <span className="truncate">{baseName(tab.path)}</span>
+                    <UnsavedMark tab={key} />
                   </TabButton>
                 )
               case "browser": {
@@ -270,18 +288,21 @@ export function PaneView({
               )
             }
             if (tab.kind === "file") {
+              // Kept behind other tabs, as a chat is, so that text not saved stays.
               return (
-                shown && (
-                  <div key={key} className="flex min-h-0 min-w-0 flex-1 flex-col">
-                    <FileTab
-                      chat={tab.chat}
-                      workspace={tab.workspace}
-                      path={tab.path}
-                      view={tab.view}
-                      shown={shown}
-                    />
-                  </div>
-                )
+                <div
+                  key={key}
+                  className={cn("min-h-0 min-w-0 flex-1 flex-col", shown ? "flex" : "hidden")}
+                >
+                  <FileTab
+                    tab={key}
+                    chat={tab.chat}
+                    workspace={tab.workspace}
+                    path={tab.path}
+                    view={tab.view}
+                    shown={shown}
+                  />
+                </div>
               )
             }
 
@@ -313,11 +334,57 @@ export function PaneView({
               })
             }
             onClose={() => onChange({ ...pane, files: false })}
+            onGone={(workspace, path) => {
+              // A file or folder deleted or moved from the panel takes its tabs with it.
+              let next: Pane | null = pane
+              for (const tab of pane.tabs) {
+                if (
+                  tab.kind === "file" &&
+                  tab.chat === filesOf &&
+                  tab.workspace === workspace &&
+                  (tab.path === path || tab.path.startsWith(`${path}/`))
+                ) {
+                  next = next && closeTab(next, tabKey(tab))
+                }
+              }
+              if (next) onChange(next)
+            }}
           />
         )}
       </div>
+      <AlertDialog open={closing !== null} onOpenChange={(open) => !open && setClosing(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Close without saving?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Your changes to this file are not saved. Closing the tab drops them.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep editing</AlertDialogCancel>
+            <AlertDialogAction
+              variant="destructive"
+              onClick={() => {
+                if (closing) onChange(closeTab(pane, closing))
+                setClosing(null)
+              }}
+            >
+              Close without saving
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   )
+}
+
+// UnsavedMark is a file tab's dot while its text is not saved.
+function UnsavedMark({ tab }: { tab: string }) {
+  const unsaved = useUnsaved(tab)
+
+  return unsaved ? (
+    <span aria-label="not saved" className="size-1.5 shrink-0 rounded-full bg-foreground/70" />
+  ) : null
 }
 
 type TabProps = {

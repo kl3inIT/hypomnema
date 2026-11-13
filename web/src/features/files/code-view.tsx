@@ -10,8 +10,16 @@ import { appearance } from "@/lib/monaco-appearance"
 // diff unified with unchanged lines folded to three of context, side by side once there is room (920 px,
 // SPLIT_DIFF_MIN_WIDTH); a file read again keeps where the owner had scrolled. Orca shows files and diffs in Monaco
 // too (editor/monaco-view, editor/diff).
+// A file is editable when onChange is given (issue #297): its text is then the owner's, sent back on each change,
+// and Ctrl+S (Cmd+S) calls onSave.
 export type CodeViewProps =
-  | { kind: "file"; path: string; content: string }
+  | {
+      kind: "file"
+      path: string
+      content: string
+      onChange?: (text: string) => void
+      onSave?: () => void
+    }
   | { kind: "diff"; path: string; before: string; after: string }
 
 const splitFrom = 920
@@ -59,8 +67,6 @@ function keep(editor: monaco.editor.ICodeEditor, m: monaco.editor.ITextModel, te
 // first line, smooth scrolling. Changed: the overview ruler shows no cursor and no border, which on a read-only
 // view is only a stray mark (owner, 2026-11-13).
 const common = {
-  readOnly: true,
-  domReadOnly: true,
   automaticLayout: true,
   minimap: { enabled: false },
   scrollBeyondLastLine: false,
@@ -82,6 +88,11 @@ const diffScrollbar = {
 
 export default function CodeView(props: CodeViewProps) {
   const host = useRef<HTMLDivElement>(null)
+  // The latest callbacks, for the editor's own events, which are wired once.
+  const handlers = useRef(props.kind === "file" ? props : undefined)
+  useEffect(() => {
+    handlers.current = props.kind === "file" ? props : undefined
+  })
   const file = useRef<{
     editor: monaco.editor.IStandaloneCodeEditor
     model: monaco.editor.ITextModel
@@ -105,10 +116,26 @@ export default function CodeView(props: CodeViewProps) {
 
     if (first.kind === "file") {
       const m = model(first.content, first.path)
-      const editor = monaco.editor.create(element, { ...common, ...look, model: m })
+      const editable = first.onChange !== undefined
+      const editor = monaco.editor.create(element, {
+        ...common,
+        ...look,
+        model: m,
+        readOnly: !editable,
+        domReadOnly: !editable,
+      })
       file.current = { editor, model: m }
 
+      const typed = m.onDidChangeContent((event) => {
+        // Text put in from outside (a reload) is not the owner's typing.
+        if (!event.isFlush) handlers.current?.onChange?.(m.getValue())
+      })
+      editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () =>
+        handlers.current?.onSave?.(),
+      )
+
       return () => {
+        typed.dispose()
         themes.disconnect()
         editor.dispose()
         m.dispose()
@@ -121,6 +148,9 @@ export default function CodeView(props: CodeViewProps) {
     const editor = monaco.editor.createDiffEditor(element, {
       ...common,
       ...look,
+      readOnly: true,
+      domReadOnly: true,
+      originalEditable: false,
       renderSideBySide: element.clientWidth >= splitFrom,
       useInlineViewWhenSpaceIsLimited: false,
       hideUnchangedRegions: { enabled: true, contextLineCount: 3 },

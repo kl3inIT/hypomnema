@@ -1,6 +1,20 @@
 import { useQueries, useQueryClient } from "@tanstack/react-query"
 import { useVirtualizer } from "@tanstack/react-virtual"
-import { ChevronRight, Copy, File, Folder, FolderOpen, RefreshCw, X } from "lucide-react"
+import {
+  ChevronRight,
+  Copy,
+  Download,
+  File,
+  FilePlus,
+  Folder,
+  FolderOpen,
+  FolderPlus,
+  MoreHorizontal,
+  Pencil,
+  RefreshCw,
+  Trash2,
+  X,
+} from "lucide-react"
 import { useRef, useState } from "react"
 
 import "@/api/client"
@@ -11,6 +25,13 @@ import type {
   WorkspaceListing as Listing,
 } from "@/api/generated/types.gen"
 import { Button } from "@/components/ui/button"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import {
   Select,
@@ -25,7 +46,8 @@ import { Spinner } from "@/components/ui/spinner"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 
-import { problemOf, useChanges, useWorkspaces, workspaceKey } from "./files-state"
+import { type FileAction, FileActionDialogs } from "./file-actions"
+import { problemOf, rawURL, useChanges, useWorkspaces, workspaceKey } from "./files-state"
 
 // FilesPanel shows a chat's working folders beside its pane (issue #255), as Omnigent's FilesPanel.tsx: the folder
 // picked from those of the chat (its Bot's own, and each Task's worktree on its machine), its path with a copy
@@ -38,10 +60,13 @@ export function FilesPanel({
   chat,
   onOpen,
   onClose,
+  onGone,
 }: {
   chat: string
   onOpen: (workspace: string, path: string, view: "file" | "diff") => void
   onClose: () => void
+  // A file or folder deleted or moved from here.
+  onGone: (workspace: string, path: string) => void
 }) {
   const workspaces = useWorkspaces(chat)
   const [picked, setPicked] = useState<string | null>(null)
@@ -182,6 +207,7 @@ export function FilesPanel({
           workspace={workspace.id}
           filter={filter}
           onOpen={(path) => onOpen(workspace.id, path, "file")}
+          onGone={(path) => onGone(workspace.id, path)}
         />
       )}
     </aside>
@@ -380,13 +406,16 @@ function FileTree({
   workspace,
   filter,
   onOpen,
+  onGone,
 }: {
   chat: string
   workspace: string
   filter: string
   onOpen: (path: string) => void
+  onGone: (path: string) => void
 }) {
   const [open, setOpen] = useState<string[]>([])
+  const [action, setAction] = useState<FileAction | null>(null)
   const scroller = useRef<HTMLDivElement>(null)
   const dirs = ["", ...open]
   // The open directories are read together, as Omnigent fetches its expanded directories centrally.
@@ -418,81 +447,198 @@ function FileTree({
   })
 
   const root = byDir.get("")
-  if (root?.isSuccess && root.data.entries.length === 0) return <Note>This folder is empty.</Note>
+  const dialogs = (
+    <FileActionDialogs
+      chat={chat}
+      workspace={workspace}
+      action={action}
+      onDone={() => setAction(null)}
+      onMade={(path, kind) => {
+        const parents = path.split("/").slice(0, -1)
+        const shownDirs = parents.map((_, i) => parents.slice(0, i + 1).join("/"))
+        setOpen([...new Set([...open, ...shownDirs, ...(kind === "directory" ? [path] : [])])])
+        if (kind === "file") onOpen(path)
+      }}
+      onGone={onGone}
+    />
+  )
+  const top = (
+    <div className="flex items-center gap-0.5 px-1 pb-1">
+      <span className="min-w-0 flex-1 truncate px-1 text-xs text-muted-foreground">
+        At the folder's top
+      </span>
+      <PanelButton label="New file" onClick={() => setAction({ kind: "new-file", dir: "" })}>
+        <FilePlus />
+      </PanelButton>
+      <PanelButton label="New folder" onClick={() => setAction({ kind: "new-folder", dir: "" })}>
+        <FolderPlus />
+      </PanelButton>
+    </div>
+  )
+
+  if (root?.isSuccess && root.data.entries.length === 0) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col pt-1">
+        {top}
+        <Note>This folder is empty.</Note>
+        {dialogs}
+      </div>
+    )
+  }
 
   return (
-    <div
-      ref={scroller}
-      role="tree"
-      aria-label="All files"
-      className="min-h-0 flex-1 overflow-y-auto p-1 text-sm"
-    >
-      <div className="relative w-full" style={{ height: virtual.getTotalSize() }}>
-        {virtual.getVirtualItems().map((item) => {
-          const row = rows[item.index]
-          if (!row) return null
-          const style = {
-            transform: `translateY(${item.start}px)`,
-            paddingInlineStart: 8 + row.depth * 12,
-          }
+    <div className="flex min-h-0 flex-1 flex-col pt-1">
+      {top}
+      {dialogs}
+      <div
+        ref={scroller}
+        role="tree"
+        aria-label="All files"
+        className="min-h-0 flex-1 overflow-y-auto p-1 pt-0 text-sm"
+      >
+        <div className="relative w-full" style={{ height: virtual.getTotalSize() }}>
+          {virtual.getVirtualItems().map((item) => {
+            const row = rows[item.index]
+            if (!row) return null
+            const style = {
+              transform: `translateY(${item.start}px)`,
+              paddingInlineStart: 8 + row.depth * 12,
+            }
 
-          if (row.kind === "note") {
+            if (row.kind === "note") {
+              return (
+                <div
+                  key={row.key}
+                  className="absolute inset-x-0 top-0 flex h-[25px] items-center text-xs text-muted-foreground"
+                  style={style}
+                >
+                  {row.text}
+                </div>
+              )
+            }
+
+            const { entry } = row
+            const dir = entry.type === "directory"
+            const expanded = dir && open.includes(entry.path)
+
             return (
               <div
-                key={row.key}
-                className="absolute inset-x-0 top-0 flex h-[25px] items-center text-xs text-muted-foreground"
-                style={style}
+                key={entry.path}
+                role="none"
+                className="group/row absolute inset-x-0 top-0 flex h-[25px] items-center rounded-md hover:bg-accent has-[:focus-visible]:bg-accent"
+                style={{ transform: style.transform }}
               >
-                {row.text}
+                <button
+                  type="button"
+                  role="treeitem"
+                  aria-expanded={dir ? expanded : undefined}
+                  title={entry.path}
+                  onClick={() =>
+                    dir
+                      ? setOpen(
+                          expanded
+                            ? open.filter(
+                                (p) => p !== entry.path && !p.startsWith(`${entry.path}/`),
+                              )
+                            : [...open, entry.path],
+                        )
+                      : onOpen(entry.path)
+                  }
+                  className="flex h-full min-w-0 flex-1 items-center gap-1.5 pe-1 text-left focus-visible:outline-none"
+                  style={{ paddingInlineStart: style.paddingInlineStart }}
+                >
+                  <ChevronRight
+                    aria-hidden
+                    className={cn(
+                      "size-3.5 shrink-0 text-muted-foreground transition-transform",
+                      !dir && "invisible",
+                      expanded && "rotate-90",
+                    )}
+                  />
+                  {dir ? (
+                    expanded ? (
+                      <FolderOpen aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+                    ) : (
+                      <Folder aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+                    )
+                  ) : (
+                    <File aria-hidden className="size-4 shrink-0 text-muted-foreground" />
+                  )}
+                  <span className="truncate">{entry.name}</span>
+                </button>
+                <RowMenu
+                  name={entry.name}
+                  directory={dir}
+                  download={dir ? undefined : rawURL(chat, workspace, entry.path)}
+                  onAction={(kind) =>
+                    setAction(
+                      kind === "new-file" || kind === "new-folder"
+                        ? { kind, dir: entry.path }
+                        : { kind, path: entry.path, directory: dir },
+                    )
+                  }
+                  onCopy={() => void navigator.clipboard?.writeText(entry.path)}
+                />
               </div>
             )
-          }
-
-          const { entry } = row
-          const dir = entry.type === "directory"
-          const expanded = dir && open.includes(entry.path)
-
-          return (
-            <button
-              key={entry.path}
-              type="button"
-              role="treeitem"
-              aria-expanded={dir ? expanded : undefined}
-              title={entry.path}
-              onClick={() =>
-                dir
-                  ? setOpen(
-                      expanded
-                        ? open.filter((p) => p !== entry.path && !p.startsWith(`${entry.path}/`))
-                        : [...open, entry.path],
-                    )
-                  : onOpen(entry.path)
-              }
-              className="absolute inset-x-0 top-0 flex h-[25px] items-center gap-1.5 rounded-md pe-2 text-left hover:bg-accent focus-visible:bg-accent focus-visible:outline-none"
-              style={style}
-            >
-              <ChevronRight
-                aria-hidden
-                className={cn(
-                  "size-3.5 shrink-0 text-muted-foreground transition-transform",
-                  !dir && "invisible",
-                  expanded && "rotate-90",
-                )}
-              />
-              {dir ? (
-                expanded ? (
-                  <FolderOpen aria-hidden className="size-4 shrink-0 text-muted-foreground" />
-                ) : (
-                  <Folder aria-hidden className="size-4 shrink-0 text-muted-foreground" />
-                )
-              ) : (
-                <File aria-hidden className="size-4 shrink-0 text-muted-foreground" />
-              )}
-              <span className="truncate">{entry.name}</span>
-            </button>
-          )
-        })}
+          })}
+        </div>
       </div>
     </div>
+  )
+}
+
+// RowMenu is a row's actions, behind a button that shows on hover and focus (Orca's row context menu).
+function RowMenu({
+  name,
+  directory,
+  download,
+  onAction,
+  onCopy,
+}: {
+  name: string
+  directory: boolean
+  download?: string
+  onAction: (kind: FileAction["kind"]) => void
+  onCopy: () => void
+}) {
+  return (
+    <DropdownMenu>
+      <span className="me-1 flex opacity-0 group-hover/row:opacity-100 focus-within:opacity-100 has-[[data-popup-open]]:opacity-100">
+        <DropdownMenuTrigger
+          render={<Button variant="ghost" size="icon-xs" aria-label={`Actions for ${name}`} />}
+        >
+          <MoreHorizontal />
+        </DropdownMenuTrigger>
+      </span>
+      <DropdownMenuContent align="end" width="content">
+        {directory && (
+          <>
+            <DropdownMenuItem onClick={() => onAction("new-file")}>
+              <FilePlus /> New file
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onAction("new-folder")}>
+              <FolderPlus /> New folder
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+          </>
+        )}
+        <DropdownMenuItem onClick={() => onAction("rename")}>
+          <Pencil /> Rename
+        </DropdownMenuItem>
+        {download && (
+          <DropdownMenuItem render={<a href={download} aria-label="Download" />}>
+            <Download /> Download
+          </DropdownMenuItem>
+        )}
+        <DropdownMenuItem onClick={onCopy}>
+          <Copy /> Copy path
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem variant="destructive" onClick={() => onAction("delete")}>
+          <Trash2 /> Delete
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }

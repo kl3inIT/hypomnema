@@ -50,12 +50,12 @@ func TestPathsStayInsideTheFolder(t *testing.T) {
 	write(t, root, "src/a.txt", "a")
 
 	for _, rel := range []string{"../x", "src/../../x", "/etc/passwd", `src\a.txt`, "a\x00b"} {
-		if _, err := Read(root, rel); codeOf(err) != CodeInvalidPath {
+		if _, err := Read(root, rel, false); codeOf(err) != CodeInvalidPath {
 			t.Errorf("Read(%q) = %v, want invalid_path", rel, err)
 		}
 	}
 
-	if _, err := Read(root, "src/missing.txt"); codeOf(err) != CodeNotFound {
+	if _, err := Read(root, "src/missing.txt", false); codeOf(err) != CodeNotFound {
 		t.Errorf("a missing file: %v", err)
 	}
 
@@ -74,7 +74,7 @@ func TestPathsStayInsideTheFolder(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := Read(root, "out/secret"); codeOf(err) != CodeInvalidPath {
+	if _, err := Read(root, "out/secret", false); codeOf(err) != CodeInvalidPath {
 		t.Errorf("a link out of the folder: %v", err)
 	}
 
@@ -82,7 +82,7 @@ func TestPathsStayInsideTheFolder(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if f, err := Read(root, "in"); err != nil || f.Content != "a" {
+	if f, err := Read(root, "in", false); err != nil || f.Content != "a" {
 		t.Errorf("a link inside the folder: %v, %v", f, err)
 	}
 }
@@ -128,17 +128,17 @@ func TestReadKnowsBinaryAndCutsAtACharacter(t *testing.T) {
 	write(t, root, "image.png", "\x89PNG\x00\x01")
 	write(t, root, "latin1.txt", "caf\xe9")
 
-	if f, err := Read(root, "text.md"); err != nil || f.Binary || f.Content != "xin chào" {
+	if f, err := Read(root, "text.md", false); err != nil || f.Binary || f.Content != "xin chào" {
 		t.Errorf("text: %+v, %v", f, err)
 	}
 
 	for _, name := range []string{"image.png", "latin1.txt"} {
-		if f, err := Read(root, name); err != nil || !f.Binary || f.Content != "" {
+		if f, err := Read(root, name, false); err != nil || !f.Binary || f.Content != "" {
 			t.Errorf("%s is binary: %+v, %v", name, f, err)
 		}
 	}
 
-	if _, err := Read(root, ""); codeOf(err) != CodeInvalidPath {
+	if _, err := Read(root, "", false); codeOf(err) != CodeInvalidPath {
 		t.Errorf("the folder is not a file: %v", err)
 	}
 
