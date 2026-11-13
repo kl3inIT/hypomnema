@@ -79,8 +79,12 @@ type Token struct {
 type Identity struct {
 	// ExternalID is the vendor's own id of the account.
 	ExternalID string
-	Email      string
-	Plan       string
+	// FormerExternalID is the id an earlier login of the same account may be
+	// recorded under, which this login takes over (Claude: the user's, before
+	// the organization's).
+	FormerExternalID string
+	Email            string
+	Plan             string
 	// Project is the vendor's project the account works in, when it has one.
 	Project string
 }
@@ -287,7 +291,8 @@ func (s *Service) Complete(ctx context.Context, a *Attempt, pasted, label string
 	}
 
 	acct, err := s.accounts.SaveAccountLogin(ctx, orchestration.AccountLogin{
-		Runtime: a.Runtime, ExternalID: login.ExternalID, Email: login.Email, Plan: login.Plan,
+		Runtime: a.Runtime, ExternalID: login.ExternalID, FormerExternalID: login.FormerExternalID,
+		Email: login.Email, Plan: login.Plan,
 		Project: login.Project, Label: label,
 	}, func(id string) string { return vault.Ref(secretName(id)) })
 	if err != nil {

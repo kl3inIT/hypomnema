@@ -28,8 +28,13 @@ type AccountLogin struct {
 	// asked because Codex's id is the workspace's, shared by its members
 	// (issue #326; omp keys a Codex credential by e-mail and workspace).
 	ExternalID string
-	Email      string
-	Plan       string
+	// FormerExternalID is the id an earlier login of the same account may be
+	// recorded under: an account found by it and the Email takes ExternalID,
+	// as CLIProxyAPI's FindMatchingLegacyCredential moves an account-keyed
+	// Claude credential to its organization's (issue #333).
+	FormerExternalID string
+	Email            string
+	Plan             string
 	// Project is the vendor's project the account works in, when it has one.
 	Project string
 	// Label names the account to the owner; empty means the email.
@@ -53,7 +58,9 @@ func (s *Service) SaveAccountLogin(
 	ctx context.Context, in AccountLogin, secretRef func(accountID string) string,
 ) (Account, error) {
 	in.ExternalID, in.Label = strings.TrimSpace(in.ExternalID), strings.TrimSpace(in.Label)
-	if in.Label == "" {
+
+	named := in.Label != ""
+	if !named {
 		in.Label = in.Email
 	}
 
@@ -67,6 +74,21 @@ func (s *Service) SaveAccountLogin(
 		row, err := q.GetAccountByExternalID(ctx, store.GetAccountByExternalIDParams{
 			Runtime: in.Runtime, ExternalID: nullString(in.ExternalID), Email: strings.TrimSpace(in.Email),
 		})
+		if errors.Is(err, sql.ErrNoRows) && strings.TrimSpace(in.FormerExternalID) != "" {
+			row, err = q.GetAccountByExternalID(ctx, store.GetAccountByExternalIDParams{
+				Runtime: in.Runtime, ExternalID: nullString(strings.TrimSpace(in.FormerExternalID)),
+				Email: strings.TrimSpace(in.Email),
+			})
+			if err == nil {
+				n, err := q.SetAccountExternalID(ctx, store.SetAccountExternalIDParams{
+					ExternalID: nullString(in.ExternalID), ID: row.ID,
+				})
+				if err := oneRow(n, err, "account", row.ID); err != nil {
+					return err
+				}
+			}
+		}
+
 		if err == nil {
 			id = row.ID
 
@@ -83,6 +105,15 @@ func (s *Service) SaveAccountLogin(
 
 		id = s.newID("acc")
 
+		if !named {
+			label, err := freeLoginLabel(ctx, q, in)
+			if err != nil {
+				return err
+			}
+
+			in.Label = label
+		}
+
 		if err := q.InsertLoginAccount(ctx, store.InsertLoginAccountParams{
 			ID: id, Runtime: in.Runtime, Label: in.Label, ExternalID: nullString(in.ExternalID),
 			Email: nullString(in.Email), Plan: nullString(in.Plan), Project: nullString(in.Project),
@@ -98,6 +129,35 @@ func (s *Service) SaveAccountLogin(
 	}
 
 	return s.getAccount(ctx, id)
+}
+
+// freeLoginLabel is the label a new account is given when the owner named
+// none: its e-mail, and when another account of the runtime has that label
+// (one e-mail with two subscriptions, such as a personal plan and a Team seat)
+// the e-mail with the plan, then with a number (inferred: CLIProxyAPI names
+// such files by e-mail and plan, codex/filename.go).
+func freeLoginLabel(ctx context.Context, q *store.Queries, in AccountLogin) (string, error) {
+	tries := []string{in.Label}
+	if plan := strings.TrimSpace(in.Plan); plan != "" {
+		tries = append(tries, fmt.Sprintf("%s (%s)", in.Label, plan))
+	}
+
+	for n := 2; n <= 9; n++ {
+		tries = append(tries, fmt.Sprintf("%s (%d)", in.Label, n))
+	}
+
+	for _, label := range tries {
+		taken, err := q.AccountLabelTaken(ctx, store.AccountLabelTakenParams{Runtime: in.Runtime, Label: label})
+		if err != nil {
+			return "", fmt.Errorf("reading the labels of %s accounts: %w", in.Runtime, err)
+		}
+
+		if !taken {
+			return label, nil
+		}
+	}
+
+	return in.Label, nil
 }
 
 // SetAccountPlan records the plan a refresh reported.
