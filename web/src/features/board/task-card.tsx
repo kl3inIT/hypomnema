@@ -11,8 +11,8 @@ import type { ReactNode } from "react"
 import { span } from "@/lib/time"
 import { cn } from "@/lib/utils"
 
-import { firstLine, pullRequest, type Card } from "./board-state"
-import { RuntimeMark } from "./runtime-mark"
+import { RuntimeMark } from "@/features/agents/runtime-mark"
+import { firstLine, pullRequest, type Card } from "@/features/work/work-state"
 
 const clock = new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" })
 

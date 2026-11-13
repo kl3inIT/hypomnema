@@ -9,11 +9,11 @@
         "rules": ["react/only-export-components"]
       },
       {
-        "files": ["src/features/board/task-panel.tsx"],
+        "files": ["src/features/tasks/task-panel.tsx"],
         "rules": ["react-doctor/query-mutation-missing-invalidation"]
       },
       {
-        "files": ["src/features/board/use-transcript.ts"],
+        "files": ["src/features/tasks/use-transcript.ts"],
         "rules": ["react-doctor/no-set-state-after-await-in-effect"]
       }
     ]

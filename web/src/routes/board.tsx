@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router"
 
 import { BoardScreen } from "@/features/board/board-screen"
 import type { Group } from "@/features/board/board-state"
-import { TaskPanel } from "@/features/board/task-panel"
+import { TaskPanel } from "@/features/tasks/task-panel"
 import { AppSidebar } from "@/features/shell/app-shell"
 
 type Search = { group?: Group; repo?: string; task?: string }

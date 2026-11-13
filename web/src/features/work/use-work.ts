@@ -11,18 +11,18 @@ import {
 } from "@/api/generated/sdk.gen"
 import { isFileQuery, workspaceKey } from "@/features/files/files-state"
 
-import { boardCards } from "./board-state"
+import { boardCards } from "./work-state"
 
 export const boardKey = ["board"] as const
 export const questionsKey = ["questions"] as const
 
-// whileWorking is how often the board is read again while a worker runs: what a worker does now changes
+// whileWorking is how often the Tasks are read again while a worker runs: what a worker does now changes
 // without an event.
 const whileWorking = 10_000
 
-// useBoard reads the work in flight: the Tasks (GET /tasks), the open questions, and the machines and profiles
-// that name a card's machine and runtime. LiveUpdates keeps them current.
-export function useBoard() {
+// useWork reads the work in flight: the Tasks (GET /tasks), the open questions, and the machines and profiles
+// that name a card's machine and runtime. LiveUpdates keeps them current, from the cursor this returns as after.
+export function useWork() {
   const board = useQuery({
     queryKey: boardKey,
     queryFn: async () => (await listTasks()).data,
@@ -55,7 +55,7 @@ const reopenAfter = 2000
 // settle gathers a burst of events (a Run's Tasks created together) into one refresh.
 const settle = 250
 
-// useLiveUpdates follows GET /events/stream from the board's own cursor, so nothing between the snapshot and the
+// useLiveUpdates follows GET /events/stream from the Tasks' own cursor, so nothing between the snapshot and the
 // stream is missed and no history is replayed (Omnara's agent-event-stream follows the same way), and refreshes
 // what an event may have changed. The generated client reconnects with Last-Event-ID after a network error.
 export function useLiveUpdates(after: number | undefined) {

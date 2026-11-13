@@ -4,8 +4,8 @@ import { Link } from "@tanstack/react-router"
 import "@/api/client"
 import { listRuns } from "@/api/generated/sdk.gen"
 import type { Run } from "@/api/generated/types.gen"
-import { firstLine, repoLabel, type Card } from "@/features/board/board-state"
-import { useBoard } from "@/features/board/use-board"
+import { useWork } from "@/features/work/use-work"
+import { firstLine, repoLabel, type Card } from "@/features/work/work-state"
 import { PageHeader, PageHeading } from "@/features/shell/app-shell"
 import { since } from "@/lib/time"
 import { cn } from "@/lib/utils"
@@ -18,7 +18,7 @@ export function RunsScreen() {
     queryKey: ["runs"],
     queryFn: async () => (await listRuns({ query: { limit: 100 } })).data,
   })
-  const { cards } = useBoard()
+  const { cards } = useWork()
 
   const byRun = new Map<string, Card[]>()
   for (const c of cards) byRun.set(c.run.id, [...(byRun.get(c.run.id) ?? []), c])

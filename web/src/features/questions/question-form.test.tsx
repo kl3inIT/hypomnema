@@ -5,7 +5,7 @@ import { afterEach, expect, test, vi } from "vitest"
 
 import type { Question } from "@/api/generated/types.gen"
 
-import { question, task } from "./fixtures"
+import { question, task } from "@/features/work/fixtures"
 import { QuestionForm } from "./question-form"
 
 afterEach(() => vi.restoreAllMocks())

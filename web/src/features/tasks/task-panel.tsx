@@ -11,6 +11,10 @@ import type { Dispatch } from "@/api/generated/types.gen"
 import { Button } from "@/components/ui/button"
 import { since, span } from "@/lib/time"
 
+import { RuntimeMark } from "@/features/agents/runtime-mark"
+import { PendingApprovals } from "@/features/approvals/approval-card"
+import { QuestionForm } from "@/features/questions/question-form"
+import { boardKey, questionsKey, useWork } from "@/features/work/use-work"
 import {
   boardCards,
   firstLine,
@@ -18,13 +22,9 @@ import {
   pullRequest,
   repoLabel,
   type Card,
-} from "./board-state"
-import { PendingApprovals } from "@/features/approvals/approval-card"
+} from "@/features/work/work-state"
 
-import { QuestionForm } from "./question-form"
-import { RuntimeMark } from "./runtime-mark"
 import { Transcript } from "./transcript"
-import { boardKey, questionsKey, useBoard } from "./use-board"
 
 // TaskPanel opens one Task over the page it came from, as Omnigent opens a session over its canvas
 // (web/src/canvas/CanvasWorkspace.tsx): Escape or the close button returns to the board as it was. The page keeps
@@ -43,7 +43,7 @@ export function TaskPanel({ taskId, onClose }: { taskId?: string; onClose: () =>
 }
 
 function useCard(taskId: string): Card | undefined {
-  const { cards } = useBoard()
+  const { cards } = useWork()
   const onBoard = cards.find((c) => c.task.id === taskId)
 
   // A Task off the board (an old Run's) is read on its own.

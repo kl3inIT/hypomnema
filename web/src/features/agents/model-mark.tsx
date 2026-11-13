@@ -1,7 +1,7 @@
 import { Box, Waypoints } from "lucide-react"
 
 import { AntigravityIcon, GeminiIcon } from "@/components/icons/brand-icons"
-import { ClaudeMark, CodexMark } from "@/features/board/runtime-mark"
+import { ClaudeMark, CodexMark } from "./runtime-mark"
 import { cn } from "@/lib/utils"
 
 // The marks a model picker shows (issue #205). A row leads with its model's logo in assistant-ui's selector
