@@ -27,6 +27,8 @@ const bot = (name: string, m: Partial<Bot> = {}): Bot => ({
   memory_limit: 2200,
   skills: [],
   skills_off: [],
+  connections: { limited: false, names: [] },
+  workers: { limited: false, names: [] },
   created_at: "2026-11-01T00:00:00Z",
   updated_at: "2026-11-01T00:00:00Z",
   ...m,

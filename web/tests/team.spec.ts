@@ -15,6 +15,8 @@ const bot = (name: string, model?: string) => ({
   memory_limit: 2200,
   skills: [],
   skills_off: [],
+  connections: { limited: false, names: [] },
+  workers: { limited: false, names: [] },
   created_at: ago(86400),
   updated_at: ago(86400),
 })
