@@ -150,7 +150,7 @@ const panel = (page: Page) => page.getByRole("complementary", { name: "Files" })
 
 // shown opens the panel when it is not: on a phone it gives way to a file it opened.
 async function shown(page: Page) {
-  if (!(await panel(page).isVisible())) await page.getByRole("button", { name: "Files" }).click()
+  if (!(await panel(page).isVisible())) await page.getByRole("button", { name: "Files", exact: true }).click()
 
   return panel(page)
 }
@@ -163,7 +163,7 @@ test("the Files panel shows a chat's folders, their changes and files", async ({
   const asked = await fakeServer(page)
   await page.goto("/chats/cht_1")
 
-  await page.getByRole("button", { name: "Files" }).click()
+  await page.getByRole("button", { name: "Files", exact: true }).click()
   await expect(panel(page).getByRole("combobox", { name: "Folder" })).toContainText(
     "add GET /health",
   )
