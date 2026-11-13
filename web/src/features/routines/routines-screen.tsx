@@ -13,7 +13,8 @@ import {
 } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { useBots } from "@/features/bots/use-bots"
-import { PageHeader } from "@/features/shell/app-shell"
+import { AvatarName } from "@/features/agents/agent-avatar"
+import { PageHeader, PageHeading } from "@/features/shell/app-shell"
 import { cn } from "@/lib/utils"
 
 import { FixButton, StatusMark } from "./parts"
@@ -60,36 +61,39 @@ export function RoutinesScreen({
 
   return (
     <main className="flex min-w-0 flex-1 flex-col">
-      <PageHeader title="Routines">
-        <div className="ms-auto flex items-center gap-2">
-          <div className="max-w-44">
-            <Select
-              value={bot || "all"}
-              onValueChange={(next) => onChange({ bot: next === "all" ? "" : (next ?? "") })}
-            >
-              <SelectTrigger size="sm" aria-label="Bot">
-                <SelectValue>{(v: string) => (v === "all" ? "All Bots" : v)}</SelectValue>
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Bots</SelectItem>
-                {(bots.data ?? []).map((b) => (
-                  <SelectItem key={b.name} value={b.name}>
-                    {b.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <Button size="sm" onClick={() => setEditing("new")}>
-            <Plus />
-            New
-          </Button>
-        </div>
-      </PageHeader>
+      <PageHeader />
 
       <div className="relative flex min-h-0 flex-1">
         <div className="min-h-0 flex-1 overflow-y-auto">
-          <div className="mx-auto w-full max-w-3xl px-3 pt-1 pb-8 sm:px-5">
+          <div className="w-full px-3 pt-1 pb-8 sm:px-5">
+            <PageHeading
+              title="Routines"
+              description="Work a Bot does on its own, on a schedule."
+              className="mb-5"
+            >
+              <Select
+                value={bot || "all"}
+                onValueChange={(next) => onChange({ bot: next === "all" ? "" : (next ?? "") })}
+              >
+                <SelectTrigger size="sm" aria-label="Bot">
+                  <SelectValue>
+                    {(v: string) => (v === "all" ? "All Bots" : <AvatarName name={v} />)}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Bots</SelectItem>
+                  {(bots.data ?? []).map((b) => (
+                    <SelectItem key={b.name} value={b.name}>
+                      <AvatarName name={b.name} />
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button size="sm" onClick={() => setEditing("new")}>
+                <Plus />
+                New Routine
+              </Button>
+            </PageHeading>
             {routines.error ? (
               <div className="flex flex-col items-center gap-3 py-12 text-sm text-muted-foreground">
                 <p>The Routines could not be read.</p>

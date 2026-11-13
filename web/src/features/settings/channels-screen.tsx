@@ -1,6 +1,16 @@
 import { useForm } from "@tanstack/react-form"
 import { useMutation } from "@tanstack/react-query"
-import { ChevronRight, Plus, Users } from "lucide-react"
+import {
+  Bot,
+  ChevronRight,
+  Info,
+  MessagesSquare,
+  Pencil,
+  Plus,
+  ShieldCheck,
+  Trash2,
+  Users,
+} from "lucide-react"
 import { useId, useState, type ReactElement } from "react"
 import { z } from "zod"
 
@@ -108,8 +118,7 @@ export function ChannelsScreen() {
               Lark
             </h2>
             <p className="text-xs text-muted-foreground">
-              Lark apps of yours. A message to one, direct or in a group you switch on, is a message
-              to its Bot.
+              Each Lark app of yours is a door to one Bot.
             </p>
           </div>
           {list.length > 0 && (
@@ -216,7 +225,7 @@ function LarkChannelCard({
             <span className="flex min-w-0 flex-col gap-0.5">
               <span className="truncate">{channel.name}</span>
               <CardDescription>
-                A message to this Lark app is a message to {channel.bot}
+                <span className="font-mono">{channel.app_id}</span>
               </CardDescription>
             </span>
           </span>
@@ -228,15 +237,15 @@ function LarkChannelCard({
               bots={bots}
               taken={taken}
               trigger={
-                <Button variant="outline" size="sm">
-                  Change app
+                <Button variant="ghost" size="icon-sm" aria-label="Change app" title="Change app">
+                  <Pencil />
                 </Button>
               }
             />
             <ConfirmDialog
               trigger={
-                <Button variant="ghost" size="sm">
-                  Remove
+                <Button variant="ghost" size="icon-sm" aria-label="Remove" title="Remove">
+                  <Trash2 />
                 </Button>
               }
               title={`Remove the channel ${channel.name}?`}
@@ -285,12 +294,10 @@ function LarkChannelCard({
             </output>
           )}
           <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-muted-foreground">
-            <span>
-              App <span className="font-mono text-foreground">{channel.app_id}</span>
-            </span>
             <span className="flex flex-wrap items-center gap-2">
-              <label htmlFor={`${id}-bot`} className="whitespace-nowrap">
-                Bot
+              <label htmlFor={`${id}-bot`} title="Bot">
+                <Bot className="size-4" aria-hidden />
+                <span className="sr-only">Bot</span>
               </label>
               <Select
                 value={channel.bot}
@@ -317,8 +324,12 @@ function LarkChannelCard({
               </Select>
             </span>
             <span className="flex flex-wrap items-center gap-2">
-              <label htmlFor={`${id}-mode`} className="whitespace-nowrap">
-                Who may talk to it
+              <label
+                htmlFor={`${id}-mode`}
+                title="Who may talk to it. In a group you switch on, it applies to each member who mentions the bot."
+              >
+                <ShieldCheck className="size-4" aria-hidden />
+                <span className="sr-only">Who may talk to it</span>
               </label>
               <Select
                 value={channel.mode}
@@ -339,11 +350,9 @@ function LarkChannelCard({
               </Select>
             </span>
           </div>
-          <p className="text-xs text-muted-foreground">
-            Someone you let in can give work. In a group chat you switch on, the same rule applies
-            to each member who mentions the bot, and everyone there is any member of the group.
-            Questions for approval come to you alone, in your direct chat. A chat that is open keeps
-            its Bot; the next one is with the Bot chosen here.
+          <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Info className="size-3.5 shrink-0" aria-hidden />
+            Approvals always come to your direct chat.
           </p>
           <GroupChats channel={channel} />
           <People channel={channel} />
@@ -361,11 +370,13 @@ function LarkChannelCard({
 function GroupChats({ channel }: { channel: LarkChannel }) {
   return (
     <section aria-label="Group chats" className="flex flex-col gap-2">
-      <p className="text-xs font-medium text-foreground">Group chats</p>
+      <p className="flex items-center gap-1.5 text-xs font-medium text-foreground">
+        <MessagesSquare className="size-3.5" aria-hidden />
+        Group chats
+      </p>
       {channel.groups.length === 0 ? (
         <output className="text-xs text-muted-foreground">
-          No group chats yet. A group shows here within ten minutes of the bot being added to it,
-          and stays off until you switch it on.
+          No group chats yet. Add the bot to a group: it shows here, off until you switch it on.
         </output>
       ) : (
         <ItemGroup>
@@ -432,9 +443,9 @@ function People({ channel }: { channel: LarkChannel }) {
           }
         >
           <Users data-icon="inline-start" />
-          <span className="font-medium">People you added</span>
+          <span className="font-medium">People</span>
           <span className="min-w-0 truncate font-normal text-muted-foreground">
-            {count === 0 ? "nobody yet" : count === 1 ? "1 person" : `${count} people`}
+            {count === 0 ? "none" : count === 1 ? "1" : `${count}`}
             {channel.mode !== "allowlist" && " · not used now"}
           </span>
           <ChevronRight data-icon="inline-end" />
