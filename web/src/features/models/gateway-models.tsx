@@ -1,11 +1,22 @@
 import { useForm } from "@tanstack/react-form"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { Brain, CircleDollarSign, Image, Pencil, Route, ScrollText, Type } from "lucide-react"
+import {
+  Brain,
+  CircleAlert,
+  CircleDollarSign,
+  Image,
+  Pencil,
+  RotateCcw,
+  Route,
+  ScrollText,
+  Type,
+} from "lucide-react"
 import { useId, useState, type ReactNode } from "react"
 
 import "@/api/client"
 import { setGatewayModelAttributes } from "@/api/generated/sdk.gen"
 import type { GatewayModel, GatewayModelSource } from "@/api/generated/types.gen"
+import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import {
@@ -92,12 +103,20 @@ function GatewayModelRow({ model }: { model: GatewayModel }) {
                 {model.targets.map((t) => `${t.provider} · ${t.upstream_model}`).join(", then ")}
               </span>
             </span>
-            <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
-              <Fact icon={ScrollText} source={a.context_window.source}>
-                {a.context_window.value
-                  ? `${shortTokens(a.context_window.value)} context`
-                  : "Context not known"}
-              </Fact>
+            <span className="flex flex-wrap items-center gap-1.5">
+              {a.context_window.value ? (
+                <Fact icon={ScrollText} source={a.context_window.source}>
+                  {`${shortTokens(a.context_window.value)} context`}
+                </Fact>
+              ) : (
+                <Badge
+                  variant="warning"
+                  title="models.dev does not know this model: set its window"
+                >
+                  <CircleAlert data-icon="inline-start" aria-hidden />
+                  Context not known, set it
+                </Badge>
+              )}
               {a.max_output.value !== undefined && (
                 <Fact icon={Type} source={a.max_output.source}>
                   {`${shortTokens(a.max_output.value)} out`}
@@ -142,7 +161,8 @@ const sourceNames: Record<GatewayModelSource, string> = {
   unknown: "Not known",
 }
 
-// Fact is one thing a client is told of a model; one the model sets is marked, and each says where it came from.
+// Fact is one thing a client is told of a model, a chip with its icon as omniroute's CapabilityBadge and new-api's
+// capability pills are; one the model sets is marked, and each says where it came from.
 function Fact({
   icon: Icon,
   source,
@@ -153,15 +173,34 @@ function Fact({
   children: ReactNode
 }) {
   return (
-    <span
-      className="inline-flex items-center gap-1 whitespace-nowrap"
+    <Badge
+      variant={source === "set" ? "secondary" : "outline"}
       title={sourceNames[source]}
       data-source={source}
     >
-      <Icon className="size-3" aria-hidden />
+      <Icon data-icon="inline-start" aria-hidden />
       {children}
       {source === "set" && <span className="text-foreground">· set</span>}
-    </span>
+    </Badge>
+  )
+}
+
+// Reset puts a field back to its default, as omniroute's override editor does: shown only while the field sets
+// a value of its own.
+function Reset({ shown, onReset, label }: { shown: boolean; onReset: () => void; label: string }) {
+  if (!shown) return null
+
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="xs"
+      aria-label={`Use the default ${label}`}
+      onClick={onReset}
+    >
+      <RotateCcw data-icon="inline-start" />
+      Default
+    </Button>
   )
 }
 
@@ -259,6 +298,13 @@ export function EditGatewayModel({ model }: { model: GatewayModel }) {
                     <TextField
                       field={field}
                       label="Context window (tokens)"
+                      action={
+                        <Reset
+                          shown={field.state.value !== ""}
+                          onReset={() => field.handleChange("")}
+                          label="context window"
+                        />
+                      }
                       placeholder={
                         devTokens(
                           a.context_window.source === "codex"
@@ -279,6 +325,13 @@ export function EditGatewayModel({ model }: { model: GatewayModel }) {
                     <TextField
                       field={field}
                       label="Largest output (tokens)"
+                      action={
+                        <Reset
+                          shown={field.state.value !== ""}
+                          onReset={() => field.handleChange("")}
+                          label="largest output"
+                        />
+                      }
                       placeholder={devTokens(a.max_output.models_dev) ?? "16,384"}
                       description={fromModelsDev(devTokens(a.max_output.models_dev))}
                     />
@@ -287,7 +340,14 @@ export function EditGatewayModel({ model }: { model: GatewayModel }) {
                 <form.Field name="input">
                   {(field) => (
                     <Field>
-                      <FieldLabel htmlFor={`${formId}-input`}>Input</FieldLabel>
+                      <div className="flex items-center justify-between gap-2">
+                        <FieldLabel htmlFor={`${formId}-input`}>Input</FieldLabel>
+                        <Reset
+                          shown={field.state.value !== "auto"}
+                          onReset={() => field.handleChange("auto")}
+                          label="input"
+                        />
+                      </div>
                       <Select
                         value={field.state.value}
                         onValueChange={(next) => next && field.handleChange(next)}
@@ -313,7 +373,14 @@ export function EditGatewayModel({ model }: { model: GatewayModel }) {
                 <form.Field name="reasoning">
                   {(field) => (
                     <Field>
-                      <FieldLabel htmlFor={`${formId}-reasoning`}>Reasoning</FieldLabel>
+                      <div className="flex items-center justify-between gap-2">
+                        <FieldLabel htmlFor={`${formId}-reasoning`}>Reasoning</FieldLabel>
+                        <Reset
+                          shown={field.state.value !== "auto"}
+                          onReset={() => field.handleChange("auto")}
+                          label="reasoning"
+                        />
+                      </div>
                       <Select
                         value={field.state.value}
                         onValueChange={(next) => next && field.handleChange(next)}
@@ -343,6 +410,13 @@ export function EditGatewayModel({ model }: { model: GatewayModel }) {
                   <TextField
                     field={field}
                     label="Effort levels"
+                    action={
+                      <Reset
+                        shown={field.state.value !== ""}
+                        onReset={() => field.handleChange("")}
+                        label="effort levels"
+                      />
+                    }
                     placeholder={a.efforts.models_dev?.join(", ") ?? "low, medium, high"}
                     description={`${fromModelsDev(a.efforts.models_dev?.join(", "))}. Levels among none, minimal, low, medium, high, xhigh and max, separated by commas.`}
                   />

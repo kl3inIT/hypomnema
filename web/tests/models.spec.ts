@@ -48,7 +48,7 @@ const providers = [
   provider("model-gateway", "model_gateway", ["gpt-6.1-sol", "claude-sonnet-5-5"]),
 ]
 
-type Source = "set" | "models_dev" | "unknown"
+type Source = "set" | "models_dev" | "codex" | "unknown"
 type Attribute<T> = { value?: T; source: Source; models_dev?: T }
 type Attributes = {
   context_window: Attribute<number>
@@ -70,7 +70,8 @@ const models: { name: string; targets: object[]; updated_at: string; attributes:
     targets: [{ provider: "codex-subscription", upstream_model: "gpt-6.1-sol" }],
     updated_at: iso(now),
     attributes: {
-      context_window: seeded(1050000),
+      // A Codex subscription's window is Codex's own, not the API's that models.dev gives.
+      context_window: { value: 272000, source: "codex", models_dev: 1050000 },
       max_output: seeded(128000),
       input: seeded(["text", "image"]),
       reasoning: seeded(true),
@@ -108,18 +109,18 @@ const models: { name: string; targets: object[]; updated_at: string; attributes:
   },
 ]
 
-// set is what the server makes of a model's settings: each one set wins, the rest are models.dev's.
+// defaults are each model's attributes before the owner sets any.
+const defaults = structuredClone(models)
+
+// set is what the server makes of a model's settings: each one set wins, the rest are what they were before.
 function applySettings(model: (typeof models)[number], body: Record<string, unknown>) {
   const a = model.attributes
+  const before = defaults.find((m) => m.name === model.name)!.attributes
   for (const key of ["context_window", "max_output", "input", "reasoning", "efforts"] as const) {
     const attribute = a[key] as Attribute<unknown>
     const value = body[key]
     a[key] = (
-      value === undefined
-        ? attribute.models_dev === undefined
-          ? unknown
-          : seeded(attribute.models_dev)
-        : { value, source: "set", models_dev: attribute.models_dev }
+      value === undefined ? before[key] : { value, source: "set", models_dev: attribute.models_dev }
     ) as never
   }
 }
@@ -634,9 +635,9 @@ test("the owner uses a limit reset", async ({ page }) => {
 })
 
 // Scenario: the owner looks at the gateway's models (issue #367): each says where it is served from and what a
-// client is told of it, from models.dev; one models.dev does not know says so. The owner opens the Codex model,
-// sees models.dev's window where the field is empty, sets the window its subscription serves and text only, and
-// the row then shows them as set. Cleared again, the window is models.dev's.
+// client is told of it, as chips; the Codex model's window is Codex's own; one models.dev does not know asks for
+// its window. The owner opens the Codex model, sees the default where the field is empty, sets a smaller window
+// and text only, and the row then shows them as set. Put back with Default, the window is Codex's again.
 test("the owner edits a gateway model", async ({ page }) => {
   const calls = await fakeServer(page)
   await page.goto("/settings/models")
@@ -644,10 +645,13 @@ test("the owner edits a gateway model", async ({ page }) => {
   const section = page.getByTestId("gateway-models")
   const sol = section.getByLabel("Gateway model gpt-6.1-sol")
   await expect(sol).toContainText("codex-subscription · gpt-6.1-sol")
-  await expect(sol).toContainText("1.05M context")
+  await expect(sol).toContainText("272K context")
+  await expect(sol.locator('[data-source="codex"]')).toHaveCount(1)
   await expect(sol).toContainText("Text and image")
   await expect(sol).toContainText("Reasons: low, medium, high, xhigh")
-  await expect(section.getByLabel("Gateway model deepseek")).toContainText("Context not known")
+  await expect(section.getByLabel("Gateway model deepseek")).toContainText(
+    "Context not known, set it",
+  )
   await section.scrollIntoViewIfNeeded()
   expect(await fits(page)).toBe(true)
   await shot(page, "models-gateway")
@@ -657,28 +661,33 @@ test("the owner edits a gateway model", async ({ page }) => {
   const dialog = page.getByRole("dialog", { name: "GPT-6.1-Sol", exact: true })
   const window = dialog.getByLabel("Context window (tokens)")
   await expect(window).toHaveValue("")
-  await expect(window).toHaveAttribute("placeholder", "1,050,000")
-  await expect(dialog).toContainText("From models.dev: 1,050,000")
+  await expect(window).toHaveAttribute("placeholder", "272,000")
+  await expect(dialog).toContainText("From Codex's own list: 272,000")
+  await expect(dialog.getByRole("button", { name: "Use the default context window" })).toHaveCount(
+    0,
+  )
 
-  await window.fill("272000")
+  await window.fill("200000")
   await dialog.getByRole("combobox", { name: "Input" }).click()
   await page.getByRole("option", { name: "Text only" }).click()
+  await expect(dialog.getByRole("button", { name: "Use the default input" })).toBeVisible()
   await shot(page, "models-gateway-edit")
 
   await dialog.getByRole("button", { name: "Save" }).click()
   await expect(dialog).toHaveCount(0)
   expect(calls).toContain(
-    'PUT /gateway/models/gpt-6.1-sol/attributes {"context_window":272000,"input":["text"]}',
+    'PUT /gateway/models/gpt-6.1-sol/attributes {"context_window":200000,"input":["text"]}',
   )
-  await expect(sol).toContainText("272K context")
+  await expect(sol).toContainText("200K context")
   await expect(sol).toContainText("Text only")
   await expect(sol.locator('[data-source="set"]')).toHaveCount(2)
   await shot(page, "models-gateway-set")
 
   await sol.getByRole("button", { name: "Edit gpt-6.1-sol" }).click()
-  await expect(dialog.getByLabel("Context window (tokens)")).toHaveValue("272000")
-  await dialog.getByLabel("Context window (tokens)").fill("")
+  await expect(dialog.getByLabel("Context window (tokens)")).toHaveValue("200000")
+  await dialog.getByRole("button", { name: "Use the default context window" }).click()
+  await expect(dialog.getByLabel("Context window (tokens)")).toHaveValue("")
   await dialog.getByRole("button", { name: "Save" }).click()
   await expect(dialog).toHaveCount(0)
-  await expect(sol).toContainText("1.05M context")
+  await expect(sol).toContainText("272K context")
 })

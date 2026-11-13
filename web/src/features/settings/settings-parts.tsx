@@ -1,7 +1,7 @@
 import type { AnyFieldApi } from "@tanstack/react-form"
 import { useMutation } from "@tanstack/react-query"
 import { CircleAlert } from "lucide-react"
-import { useState, type ReactElement } from "react"
+import { useState, type ReactElement, type ReactNode } from "react"
 
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import {
@@ -104,18 +104,28 @@ export function TextField({
   description,
   placeholder,
   secret,
+  action,
 }: {
   field: AnyFieldApi
   label: string
   description?: string
   placeholder?: string
   secret?: boolean
+  // action sits at the end of the label's line, such as a button that puts the field back to its default.
+  action?: ReactNode
 }) {
   const invalid = field.state.meta.isTouched && !field.state.meta.isValid
 
   return (
     <Field data-invalid={invalid || undefined}>
-      <FieldLabel htmlFor={field.name}>{label}</FieldLabel>
+      {action ? (
+        <div className="flex items-center justify-between gap-2">
+          <FieldLabel htmlFor={field.name}>{label}</FieldLabel>
+          {action}
+        </div>
+      ) : (
+        <FieldLabel htmlFor={field.name}>{label}</FieldLabel>
+      )}
       <Input
         id={field.name}
         name={field.name}
