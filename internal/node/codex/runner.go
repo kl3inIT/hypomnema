@@ -160,6 +160,10 @@ func (rn *Runner) argv(o nodeproto.Offer, dir, session string) []string {
 		"-c", provider + ".env_key=" + quote(keyVariable),
 		"-c", provider + ".wire_api=" + quote("responses"),
 		"-c", provider + ".supports_websockets=false",
+		// The gateway answers Codex's standalone search, its web.run tool, at <base URL>/alpha/search (issue #354);
+		// Codex offers the tool only to a provider that says so (codex-rs ext/web-search/src/extension.rs), as
+		// OpenClaw sets it for a provider that serves the endpoint (docs/plugins/codex-harness/runtime-behavior.md).
+		"-c", provider + ".supports_standalone_web_search=true",
 		"-c", tools + ".command=" + quote(rn.Exe),
 		"-c", tools + ".args=" + string(args),
 		"-c", tools + ".tool_timeout_sec=" + strconv.Itoa(int(toolTimeout.Seconds())),

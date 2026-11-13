@@ -23,7 +23,8 @@ import (
 // Which worker gets which is the owner's (2026-11-13): a Claude Code worker
 // keeps its own WebSearch and WebFetch and gets neither, as OpenClaw keeps
 // Claude Code's WebSearch by default; a Codex worker keeps its own search,
-// which its subscription serves, and gets web_fetch, Codex having no fetch
+// which the gateway answers from the search chain (/v1/alpha/search), and
+// gets web_fetch, Codex having no fetch
 // (codex/core/src/tools/hosted_spec.rs); omp and opencode get both, their own
 // being turned off where the node writes their configuration. A runtime not
 // named gets none.
@@ -86,7 +87,7 @@ func webToolList(names []string) []agenttool.BrowserTool {
 			InputSchema: json.RawMessage(`{"type":"object","properties":{` +
 				`"query":{"type":"string","description":"What to search for."},` +
 				`"max_results":{"type":"integer","minimum":1,"maximum":20,"description":"How many results (default 5)."},` +
-				`"provider":{"type":"string","enum":["exa","searxng","parallel"],` +
+				`"provider":{"type":"string","enum":["exa","searxng","parallel","codex","claude","antigravity"],` +
 				`"description":"Ask only this provider; leave it out to use the first that answers."}},` +
 				`"required":["query"]}`),
 		})

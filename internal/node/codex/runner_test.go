@@ -260,6 +260,7 @@ func TestACodexWorkerRunsThroughTheGateway(t *testing.T) {
 		`model_providers.hypomnema.base_url="https://hypomnema.example/v1"`,
 		`model_providers.hypomnema.env_key="HYPOMNEMA_MODEL_KEY"`,
 		`model_providers.hypomnema.wire_api="responses"`,
+		`model_providers.hypomnema.supports_standalone_web_search=true`,
 		`model="gpt-sol"`,
 		`model_reasoning_effort="xhigh"`,
 		`mcp_servers.hypomnema.args=["mcp","--dir",`,

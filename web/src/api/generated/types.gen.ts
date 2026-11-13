@@ -381,7 +381,7 @@ export type WebSearchRequest = {
   /**
    * Ask only this provider; left out, the first that answers.
    */
-  provider?: 'exa' | 'searxng' | 'parallel';
+  provider?: 'exa' | 'searxng' | 'parallel' | 'codex' | 'claude' | 'antigravity';
 };
 
 export type WebSearchAnswer = {
