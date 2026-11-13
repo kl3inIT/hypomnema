@@ -435,6 +435,24 @@ func (q *Queries) SetMachinePowerError(ctx context.Context, arg SetMachinePowerE
 	return result.RowsAffected()
 }
 
+const setMachineProviderKeyRef = `-- name: SetMachineProviderKeyRef :execrows
+UPDATE machine_providers SET key_ref = ?1, updated_at = ?2 WHERE id = ?3
+`
+
+type SetMachineProviderKeyRefParams struct {
+	KeyRef string
+	Now    int64
+	ID     string
+}
+
+func (q *Queries) SetMachineProviderKeyRef(ctx context.Context, arg SetMachineProviderKeyRefParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setMachineProviderKeyRef, arg.KeyRef, arg.Now, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const setMachineResource = `-- name: SetMachineResource :execrows
 UPDATE nodes SET updated_at = ?1, provider_resource_id = ?2
 WHERE id = ?3 AND status <> 'deleted' AND provider_id IS NOT NULL

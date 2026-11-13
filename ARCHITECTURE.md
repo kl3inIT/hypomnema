@@ -100,9 +100,10 @@ transaction, every status change a guarded `UPDATE` checked against a transition
 - Machines created at a provider (issue #69, step 3; `orchestration/machines.go` keeps the record,
   `internal/controlplane/machines` calls the provider, after Omnara's `internal/machinepool`). One kind exists, `aws`
   (EC2); [setup](deploy/machines/aws.md).
-  - A machine provider (`machine_providers`) has a name, a kind, the vault secret that holds its key, a default
-    region and size, a limit on machines (3 by default) and the options its kind takes. The vault refuses to delete
-    a secret one names, and a provider with a machine that is not removed is not removed.
+  - A machine provider (`machine_providers`) has a name, a kind, where its key is (a vault secret, or a role of
+    the AWS Integration, issue #331), a default region and size, a limit on machines (3 by default) and the options
+    its kind takes. The vault refuses to delete a secret one names, and a provider with a machine that is not
+    removed is not removed.
   - A node created at a provider records the provider, the provider's id for the machine, its region and size, and
     a machine state: `provisioning`, `ready`, `provision_failed`, `deleting`, `delete_failed`. A node the owner
     installed has none. `GET /nodes` shows it as `machine`.
@@ -947,6 +948,26 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     - **On the web** the Integrations page has a Superset card: add an account (name, address, user name,
       password), see its user name, address, version and whether the last sign-in worked, what agents may do
       with it, "Use in chats", connect again, disconnect.
+  - AWS is an Integration of kind `role` ([issue #331](https://github.com/kl3inIT/hypomnema/issues/331),
+    `internal/controlplane/integration/aws.go`; [setup](deploy/integrations/aws.md)): the owner's AWS accounts,
+    one role a Connection, as the AWS CLI has a profile with the key and a profile a role.
+    - A key is the access key of an IAM user that may only assume roles, given once under a name
+      (`integrations connect aws --label main-read --role ARN --key main --key-file FILE`, the console's `.csv` or
+      `ID:SECRET`) and kept as the vault secret `integration-aws-<key>`. A role is a Connection: its ARN, its AWS
+      account and the key that assumes it. Several keys may be kept, and one key serves every role that trusts it.
+      What a role may do is what its policies at AWS allow (owner, 2026-11-13); Hypomnema narrows nothing.
+    - Connecting assumes the role once with the key; a role AWS refuses stores nothing. A new key under a name
+      replaces it for every role assumed with it. Disconnecting a role keeps its key while another role uses it,
+      and refuses while a machine provider takes its key from the role.
+    - The control plane assumes a role for 12 hours (`DurationSeconds` 43200, session name `hypomnema`) and keeps
+      the session in memory in the AWS SDK's credentials cache, renewed 30 s before it ends, as Omnara's
+      `internal/sigv4/sigv4.go` does. A role AWS stops letting the key assume marks its Connection as needing to be
+      connected again. The key and the sessions never leave the control plane.
+    - A machine provider takes its key from a role (`--key aws:<label>`, `machines providers key <name> --key
+      aws:<label>` for one that exists).
+    - On the web the Integrations page shows AWS with the command that connects a role.
+    - Not built yet: agents' use of a role through the service proxy with the AWS CLI, and adding a role on the
+      web.
   - Lark Channels (`internal/controlplane/larkbot`, issues
     [#136](https://github.com/kl3inIT/hypomnema/issues/136) and
     [#169](https://github.com/kl3inIT/hypomnema/issues/169)): a Channel is a door to one Bot, a Lark app and who
@@ -1512,8 +1533,9 @@ The owner's commands:
     tokens and what it runs stay, and the name of another node that is not removed is refused;
   - `nodes token add <node> <name>` prints one more token once; `nodes token list <node>` and
     `nodes token revoke <id>`. A node connected with a revoked token is refused at its next heartbeat;
-  - `machines providers add <name> --kind aws --key vault:<secret> --region R --size S [--max N]
-    [--option name=value]…`, `machines providers list`, `machines providers rm|check <name>` and
+  - `machines providers add <name> --kind aws --key vault:<secret>|aws:<role> --region R --size S [--max N]
+    [--option name=value]…`, `machines providers key <name> --key …`, `machines providers list`,
+    `machines providers rm|check <name>` and
     `machines create <name> --provider P [--region R] [--size S] [--max N]` manage provider machines; a machine
     is removed with `nodes rm`;
   - `accounts add claude <label> --token FILE|-` records an account whose token the control plane keeps (issue

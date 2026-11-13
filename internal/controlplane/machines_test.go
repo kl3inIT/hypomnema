@@ -11,6 +11,8 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/machines"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/shared/platform"
+	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 )
 
 // Scenario: the owner sets up AWS as a machine provider. Its key must
@@ -68,4 +70,52 @@ func TestOwnerSetsUpAMachineProvider(t *testing.T) {
 
 	_, err = command(t, cfg, "machines", "teleport")
 	require.ErrorIs(t, err, ErrUsage)
+}
+
+// Scenario: the owner moves a machine provider from a key of its own to the
+// role of the AWS Integration that makes machines (issue #331). A role not
+// connected is refused; once it is, the provider takes its key from it, the
+// old key can be deleted, and the role cannot be removed while the provider
+// uses it.
+func TestOwnerMovesAMachineProviderToAnAWSRole(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "hypomnema.db")
+	cfg := vaultConfig(t, path, "k1", keygen(t, "k1"))
+	require.NoError(t, Migrate(t.Context(), cfg, io.Discard))
+
+	file := filepath.Join(t.TempDir(), "aws.key")
+	require.NoError(t, os.WriteFile(file, []byte("AKIAEXAMPLE:not-a-real-secret\n"), 0o600))
+
+	_, err := command(t, cfg, "secrets", "add", "aws", "--from-file", file)
+	require.NoError(t, err)
+
+	_, err = command(t, cfg, "machines", "providers", "add", "aws", "--kind", "aws", "--key", "vault:aws", "--region",
+		"ap-southeast-1", "--size", "t3.medium")
+	require.NoError(t, err)
+
+	_, err = command(t, cfg, "machines", "providers", "key", "aws", "--key", "aws:main-machines")
+	require.ErrorContains(t, err, "connect the role first")
+
+	db, err := sqlite.Open(t.Context(), sqlite.Config{Path: path})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	svc := orchestration.New(db, platform.SystemClock{}, platform.NewID)
+	_, err = svc.SaveServiceConnection(t.Context(), orchestration.Connection{
+		Integration: "aws", Label: "main-machines", Account: "123456789012", Secret: "integration-aws-main",
+		Address: "arn:aws:iam::123456789012:role/hypomnema/machines",
+	})
+	require.NoError(t, err)
+
+	out, err := command(t, cfg, "machines", "providers", "key", "aws", "--key", "aws:main-machines")
+	require.NoError(t, err)
+	assert.Contains(t, out, "machine provider aws takes its key from aws:main-machines")
+
+	_, err = command(t, cfg, "secrets", "rm", "aws")
+	require.NoError(t, err, "the old key is no longer named")
+
+	_, err = svc.RemoveConnection(t.Context(), "aws", "main-machines")
+	require.ErrorIs(t, err, orchestration.ErrConflict)
+	assert.ErrorContains(t, err, "machine provider aws takes its key from aws:main-machines")
 }

@@ -206,7 +206,8 @@ var commands = []command{
 		name: "integrations connect", args: "<integration>", min: 1, max: 1,
 		summary: "connect an account under a label: a git host with a token read from a file, a service such as " +
 			"google by signing in, an app of lark with its app_id and app_secret read from a file, superset with " +
-			"its address, a user name and a password read from a file (owner)",
+			"its address, a user name and a password read from a file, a role of an aws account with its ARN and " +
+			"the key that assumes it (owner)",
 		flags: func(fs *flag.FlagSet) {
 			fs.String("label", "default", "the name of this account, such as work")
 			fs.String("token-file", "", "for a git host: the file holding the token, or - for standard input")
@@ -217,6 +218,10 @@ var commands = []command{
 			fs.String("url", "", "for superset: its address, such as https://superset.example.com")
 			fs.String("user", "", "for superset: the account's user name")
 			fs.String("password-file", "", "for superset: the file holding the password, or - for standard input")
+			fs.String("role", "", "for aws: the role's ARN, such as arn:aws:iam::123456789012:role/hypomnema/read")
+			fs.String("key", "main", "for aws: the name of the key that assumes the role")
+			fs.String("key-file", "", "for aws, when the key is new or replaced: the access key file the AWS "+
+				"console gives (.csv), or a file with ACCESS_KEY_ID:SECRET_ACCESS_KEY, or - for standard input")
 			jsonFlag(fs)
 		},
 		run: integrationsConnect,

@@ -3531,7 +3531,7 @@ components:
         name: { type: string }
         kind:
           type: string
-          enum: [oauth, app, account]
+          enum: [oauth, app, account, role]
           description: >-
             How a Connection is made: oauth signs an account in, in a browser;
             app has no sign-in, each Connection being an app of the service
@@ -3719,6 +3719,12 @@ components:
         app_id:
           type: string
           description: The id of the app the Connection is, for an Integration of kind app. Not secret.
+        role_arn:
+          type: string
+          description: The role the Connection is, for an Integration of kind role (AWS); account is its AWS account.
+        key:
+          type: string
+          description: The name of the key the role is assumed with, for an Integration of kind role. Not secret.
         chats:
           type: boolean
           description: >-
@@ -3730,7 +3736,9 @@ components:
       type: object
       description: >-
         An account of a service at an address of its own (address, username,
-        password), or an app of a service (app_id, app_secret).
+        password), an app of a service (app_id, app_secret), or a role of an
+        AWS account (role_arn, key, and access_key_id with secret_access_key
+        when the key is new or replaced).
       additionalProperties: false
       properties:
         app_id:
@@ -3747,6 +3755,19 @@ components:
           description: Where the service is, such as https://superset.example.com.
         username: { type: string, maxLength: 1024 }
         password:
+          type: string
+          maxLength: 1024
+          writeOnly: true
+        role_arn:
+          type: string
+          maxLength: 2048
+          description: The ARN of the role, such as arn:aws:iam::123456789012:role/hypomnema/read.
+        key:
+          type: string
+          maxLength: 31
+          description: The name the key that assumes the role is kept under, such as main.
+        access_key_id: { type: string, maxLength: 128 }
+        secret_access_key:
           type: string
           maxLength: 1024
           writeOnly: true

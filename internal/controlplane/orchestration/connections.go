@@ -252,6 +252,17 @@ func (s *Service) RemoveConnection(ctx context.Context, integration, label strin
 			return fmt.Errorf("%w: %d registered repositories use %s:%s", ErrConflict, repos, integration, label)
 		}
 
+		// A role a machine provider takes its key from (issue #331) stays while the provider does.
+		providers, err := q.ListMachineProviderNamesByKeyRef(ctx, Use(integration, label))
+		if err != nil {
+			return fmt.Errorf("reading the machine providers that use %s:%s: %w", integration, label, err)
+		}
+
+		if len(providers) > 0 {
+			return fmt.Errorf("%w: machine provider %s takes its key from %s:%s; give it another key first",
+				ErrConflict, strings.Join(providers, ", "), integration, label)
+		}
+
 		_, err = q.DeleteConnection(ctx, store.DeleteConnectionParams{Integration: integration, Label: label})
 		if err != nil {
 			return fmt.Errorf("removing connection %s:%s: %w", integration, label, err)

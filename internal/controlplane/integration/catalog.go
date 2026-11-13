@@ -35,6 +35,10 @@ const (
 	// a password; the control plane signs in there and keeps the tokens. The
 	// address belongs to the Connection, because the service is self-hosted.
 	KindAccount Kind = "account"
+	// KindRole: a Connection is a role of the owner's cloud account, assumed
+	// with a key the owner gave once; the control plane keeps the role's
+	// session (issue #331).
+	KindRole Kind = "role"
 )
 
 // Definition is what an Integration declares. It is code, not something the
@@ -211,6 +215,10 @@ func (d Definition) IsApp() bool { return d.Kind == KindApp }
 // user name and a password.
 func (d Definition) IsAccount() bool { return d.Kind == KindAccount }
 
+// IsRole says whether a Connection of the Integration is a role assumed
+// with a key.
+func (d Definition) IsRole() bool { return d.Kind == KindRole }
+
 // CredentialKind is the Integration's Kind, with the default spelled out.
 func (d Definition) CredentialKind() Kind {
 	if d.Kind == "" {
@@ -300,4 +308,17 @@ func Superset() Definition {
 		CSRFPath:    "/api/v1/security/csrf_token/",
 		VersionPath: "/version",
 	}
+}
+
+// AWSID is the id of the AWS Integration.
+const AWSID = "aws"
+
+// AWS is the owner's AWS accounts, a role a Connection (issue #331): the
+// owner gives an IAM user's access key once, which may only assume roles, and
+// each role has the rights its work needs, as the AWS CLI has one profile
+// with the key and one profile a role (role_arn, source_profile). What a role
+// may do is what its policies at AWS allow, so a Connection has no services to
+// choose here.
+func AWS() Definition {
+	return Definition{ID: AWSID, Name: "AWS", Kind: KindRole}
 }

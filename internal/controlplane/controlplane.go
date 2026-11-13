@@ -235,7 +235,9 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	referrers := secretReferrers(svc)
 	secrets := vault.New(db, platform.SystemClock{}, platform.NewID, cfg.VaultKeys, referrers)
 	tokens := connections{svc: svc, vault: secrets}
-	machineMgr := machineManager(svc, secrets, cfg.PublicURL, logger)
+	integrations := integration.New(svc, secrets, platform.SystemClock{}, platform.NewID,
+		integration.Google(), integration.Lark(), integration.Superset(), integration.AWS())
+	machineMgr := machineManager(svc, secrets, awsRoles(integrations), cfg.PublicURL, logger)
 
 	mux.Handle("GET "+nodeapi.PathInstallScript, nodeapi.InstallScript(cfg.PublicURL, cfg.NodeReleaseURL))
 
@@ -243,9 +245,6 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	gateway := modelgateway.New(db, platform.SystemClock{}, platform.NewID, gatewayProviders(svc),
 		gatewaySecrets(secrets))
 	workerKeys := dispatchKeys{gateway: gateway, svc: svc, logger: logger}
-
-	integrations := integration.New(svc, secrets, platform.SystemClock{}, platform.NewID,
-		integration.Google(), integration.Lark(), integration.Superset())
 
 	nodes := nodeapi.New(svc, logger).WithHostTokens(tokens.Token).WithModelKeys(workerKeys.Key).
 		WithAccountTokens(accountTokens{svc: svc, vault: secrets, logger: logger}.Token).

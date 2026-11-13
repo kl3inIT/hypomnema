@@ -11,6 +11,9 @@ SELECT * FROM machine_providers WHERE name = @name;
 -- name: ListMachineProviders :many
 SELECT * FROM machine_providers ORDER BY name;
 
+-- name: SetMachineProviderKeyRef :execrows
+UPDATE machine_providers SET key_ref = @key_ref, updated_at = @now WHERE id = @id;
+
 -- name: DeleteMachineProvider :execrows
 DELETE FROM machine_providers WHERE id = @id;
 

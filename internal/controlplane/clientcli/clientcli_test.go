@@ -1186,6 +1186,10 @@ func (s *signIns) ConnectAccount(context.Context, string, string, integration.Ac
 	return integration.Connection{}, integration.ErrInvalid
 }
 
+func (s *signIns) ConnectRole(context.Context, string, string, integration.Role) (integration.Connection, error) {
+	return integration.Connection{}, integration.ErrInvalid
+}
+
 func (s *signIns) Begin(_ context.Context, _, label string, services []string) (integration.SignIn, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
