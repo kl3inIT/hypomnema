@@ -9,7 +9,7 @@ export type WakeTone = "done" | "failed" | "needs-you" | "quiet"
 
 export type WakeIcon = "done" | "failed" | "blocked" | "canceled" | "question" | "escalation"
 
-// A link of the card: a Task opens its panel over the chat, a Run its page.
+// A link of the card: a Task opens its panel over the chat, a Run its strip in its chat.
 export type WakeLink = { kind: "task" | "run"; id: string; label: string }
 
 export type WakeLine = {

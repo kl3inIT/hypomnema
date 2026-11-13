@@ -27,7 +27,7 @@ import {
 import { Transcript } from "./transcript"
 
 // TaskPanel opens one Task over the page it came from, as Omnigent opens a session over its canvas
-// (web/src/canvas/CanvasWorkspace.tsx): Escape or the close button returns to the board as it was. The page keeps
+// (web/src/canvas/CanvasWorkspace.tsx): Escape or the close button returns to the page as it was. The page keeps
 // the open Task in its URL, so a link or a reload opens it again.
 export function TaskPanel({ taskId, onClose }: { taskId?: string; onClose: () => void }) {
   return (
@@ -106,13 +106,20 @@ function PanelBody({ taskId }: { taskId: string }) {
         <StickToBottom.Content className="flex flex-col gap-5 px-5 pt-4 pb-8">
           <div className="flex flex-wrap gap-1.5 text-xs text-muted-foreground">
             <Chip>{statusText(card)}</Chip>
-            <Link
-              to="/runs/$runId"
-              params={{ runId: run.id }}
-              className="inline-flex h-6 max-w-full items-center truncate rounded-md bg-foreground/5 px-2 hover:text-foreground"
-            >
-              {firstLine(run.objective, 60)}
-            </Link>
+            {/* The Run opens in the chat that started it, where it is docked (issue #327); one made from the
+                command line has no chat and is only named. */}
+            {run.chat_id ? (
+              <Link
+                to="/chats/$chatId"
+                params={{ chatId: run.chat_id }}
+                aria-label={`Open Run ${firstLine(run.objective, 60)} in its chat`}
+                className="inline-flex h-6 max-w-full items-center truncate rounded-md bg-foreground/5 px-2 hover:text-foreground"
+              >
+                {firstLine(run.objective, 60)}
+              </Link>
+            ) : (
+              <Chip>{firstLine(run.objective, 60)}</Chip>
+            )}
             {run.repo && <Chip>{repoLabel(run)}</Chip>}
             {card.node && <Chip>{card.node}</Chip>}
             {(dispatch?.model || task.model) && <Chip>{dispatch?.model || task.model}</Chip>}

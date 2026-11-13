@@ -309,8 +309,8 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   pi reads the row's text. The web draws a wake row as a card across the lane (after t3code's
   `TimelineSystemDivider.tsx` and `MarkdownThreadLink.tsx`, Orca's `NativeChatTaskList.tsx`): an icon by status,
   the status in words, and the Task or Run by its title as a chip that opens the Task's panel over the chat (the
-  page's `?task=`, as the board's) or shows the Run docked above the composer (below); a Run the chat does not
-  dock keeps the link to its page.
+  page's `?task=`, as the Team page's) or shows the Run docked above the composer (below); a Run the chat does not
+  dock opens its own chat, or, with no chat, its first Task's panel (issue #327).
 - The chat's work docked above its composer (issue #314, `web/src/features/chat/docked-work.tsx`), beside the
   pending Approval cards and in their scrolling box:
   - Each open question to the owner from the chat's Runs, with the Task it comes from, answered with the
@@ -319,7 +319,7 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     Run's status icon and words (Needs you, Failed, Working, Queued, Ready to finish), its objective and "n of m
     Tasks done". A strip opens to its Tasks, a row each with its status icon and words and the runtime's mark,
     which opens the Task's panel (`?task=`), and to the Run's Finish Run and Cancel Run, each asked first in a
-    dialog (`features/runs/run-actions.tsx`, shared with the Run's page). The Runs are read every 10 s and at once
+    dialog (`features/runs/run-actions.tsx`). The Runs are read every 10 s and at once
     when a wake-up row arrives.
   - One Run opens by itself when, opened, it takes at most 30 % of the window with the cards that wait; with
     several Runs, or without the room, every strip starts closed (after t3code's `ThreadDetailsCard.tsx`, which
@@ -1483,7 +1483,7 @@ Client API (`internal/controlplane/clientapi`, contract `api/openapi.yaml`, afte
   (403 otherwise), and so does reading a worker's transcript. An answer is recorded as the owner's or the
   coordinator's by the token's kind.
 - Operations: who am I; list, create, show (with each Task's latest Dispatch), finish and cancel Runs; create Tasks
-  with dependencies; show, cancel and reopen a Task; list the Tasks a board shows (`GET /tasks`: every Task of an
+  with dependencies; show, cancel and reopen a Task; list the Tasks in flight (`GET /tasks`: every Task of an
   open Run and other Runs' Tasks changed in the last 24 h, with their latest Dispatch, their Runs, and the newest
   event's seq to follow the stream from); read a worker's transcript (`GET /dispatches/{id}/items`: the items after a
   seq, or the newest ones before a seq, 100 a page; it can wait up to 50 s for the next item); list, show, answer
@@ -1563,7 +1563,7 @@ The owner's commands:
   - `runs wait <run>` returns when a Task of the Run ended or was blocked, a question reached the coordinator, an
     escalation came or the Run ended, with the cursor for the next wait and the next commands (`questions show`,
     `tasks show`, `runs finish` once every Task ended); it sends one request per 50 s while nothing happens.
-  - `tasks list` prints the board's Tasks (`GET /tasks`), a line a Task with what its worker does now or its
+  - `tasks list` prints the Tasks in flight (`GET /tasks`), a line a Task with what its worker does now or its
     result. `tasks transcript <task>` prints the latest attempt's transcript, a line an item (`--after`,
     `--json` for one item a line); `--follow` keeps printing until the worker has ended and nothing more comes.
 - `chat [message]` writes to pi and prints its replies and the tools it ran until it is idle (`--chat`, `--new`,
@@ -1773,18 +1773,19 @@ Node (`internal/node`):
     row a Bot and agent pair, Running (with how long), Queued, or Done within the last 24 hours, with the newest
     Run's objective. A row opens the Run's chat, or the Task when the Run has no chat.
   - Live: the Tasks, Runs and questions by the event stream; the chats every 3 s and the machines every 5 s while
-    the page is visible; the pending Approvals every 3 s. Board and Runs stay until the chat shows the work.
-- The board and the Runs (issue #41 PR 5; [research](docs/research/2026-11-09-board-and-questions-ui.md)):
-  - `/board`: the Tasks in flight in three columns, Needs you, Working and Done (the last 24 h), after Orca's agent
-    kanban (MIT). Needs you holds an open question to the owner, a failure in an open Run, a stop for a decision
-    and a missing login. Rows per Run or per repository and a repository filter are kept in the URL. A card shows
-    the runtime's mark (from OpenMausBot, Apache 2.0), the Task, its Run, what its worker does now (the Dispatch's
-    `activity`) and how long it has run, the machine, the model and the pull request (a worker reports its URL; `owner/repo#N` from earlier workers is
-    linked on GitHub; a GitLab merge request reads as a pull request with its number). While a worker runs the
-    board is read again every 10 s, since its activity changes without an event. On a phone the columns stack,
-    Needs you first.
-  - A card opens the Task over the page, as Omnigent opens a session over its canvas (`?task=` in the URL; Escape
-    closes it): the question to answer, start again or cancel, the result, the Task and the worker's transcript.
+    the page is visible; the pending Approvals every 3 s.
+- The work in flight (issue #41 PR 5; [research](docs/research/2026-11-09-board-and-questions-ui.md)): there is no
+  page of its own for the Tasks or the Runs; the Board and Run pages were removed (issue #327). The Team page shows
+  who works where, and a chat shows its Runs docked above the composer with their Tasks, questions, Finish and
+  Cancel. Every Task falls in Needs you, Working or Done (the last 24 h), after Orca's agent dashboard (MIT): Needs
+  you holds an open question to the owner, a failure in an open Run, a stop for a decision and a missing login.
+  - A Task opens over the page it came from (the Team page or a chat), as Omnigent opens a session over its canvas
+    (`?task=` in the URL; Escape closes it): the question to answer, start again or cancel, the result, the Task
+    and the worker's transcript. Its chips name the status, the Run (a link to the Run's chat when it has one),
+    the repository, the machine, the model, the agent and the pull request (a worker reports its URL;
+    `owner/repo#N` from earlier workers is linked on GitHub; a GitLab merge request reads as a pull request with
+    its number). A wake-up's chip for another chat's Run opens that chat, and for a Run with no chat its first
+    Task.
   - The transcript (issue #43; [research](docs/research/2026-11-10-worker-sessions.md)) is read from its end, 100
     items a page with "Load earlier", and followed by waiting on `GET /dispatches/{id}/items`.
     - The worker's messages are prose. Its thoughts and tool calls between two messages are one group: a line
@@ -1800,8 +1801,6 @@ Node (`internal/node`):
       (`use-stick-to-bottom`); with a question, or for a finished Task, it opens at the top.
   - Questions are answered as in t3code's pending-input panel: options as radios that 1 to 9 pick, text where the
     option takes it, Enter sends. A question to pi is shown, and the owner can take it over (forward).
-  - `/runs` lists the Runs, those that ask the owner first; `/runs/{id}` shows the objective, the open questions
-    answered in place, the Tasks and the answered questions; Finish Run and Cancel Run, each asked first (issue #314).
   - Several panes on one screen (issue #235; `web/src/features/workbench`, after Omnigent's grid of sessions,
     Apache-2.0, and Orca's tab groups, MIT): up to four panes, two rows by two columns, each axis split once
     along a path. A pane is a group of tabs, as in Orca (`pane.ts`, `moves.ts`): a chat, a tab of the shared
@@ -1854,9 +1853,9 @@ Node (`internal/node`):
     the SHA-256 of the file it replaces. Each shows its progress and can be cancelled. Not built: a folder upload,
     resuming a broken upload, rich Markdown editing, PDF, CSV and notebook views, a Trash and undo, content search,
     writes over 1 MiB from the editor, more than the first 1000 entries of a directory.
-  - The sidebar lists the places (New chat, Board with the count that needs the owner, Runs, Machines) above the
-    chats.
-    Every page follows `GET /events/stream` from the board's cursor and refreshes what an event may have changed.
+  - The sidebar lists the places (New chat, Team with the count that needs the owner, Bots, Routines, Agents,
+    Machines) above the chats.
+    Every page follows `GET /events/stream` from the Tasks' cursor and refreshes what an event may have changed.
 - The machines (issue #69): `/machines` lists the nodes after Beszel's systems table (MIT), as cards (Grid, the
   default) or a Table, both from one column definition; the choice is kept in `localStorage`. A machine shows its
   state (Online, Drained, or Offline with when it was last seen), meters for CPU, memory and disk that turn amber
@@ -1978,10 +1977,10 @@ Node (`internal/node`):
     an alert dialog; what the server refused shows as an alert. The rules are in
     [conventions](docs/conventions.md#web-client).
   - The other screens use the standard components where a control is an ordinary one
-    ([issue #131](https://github.com/kl3inIT/hypomnema/issues/131)): the Board's repository select, the buttons of
+    ([issue #131](https://github.com/kl3inIT/hypomnema/issues/131)): the buttons of
     a Task's panel and of a Run, the sign-in form, the Add machine dialog. Left as they are, each for a stated
-    reason in that issue: the chat, the question form, a Task's card and a Run's rows, a transcript's rows, the
-    Machines cards, table, switch and menu, the Board's "Group by" switch, the Task panel as a side panel.
+    reason in that issue: the chat, the question form, a transcript's rows, the
+    Machines cards, table, switch and menu, the Task panel as a side panel.
   - A change the owner made in Settings that succeeded says so in a toast (`said` in
     `web/src/features/settings/use-integrations.ts`).
   - The build runs the React Compiler (`babel-plugin-react-compiler` through `@rolldown/plugin-babel`,

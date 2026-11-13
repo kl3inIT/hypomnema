@@ -41,7 +41,7 @@ function readLayout(): Layout {
 // MachinesScreen lists the nodes, after Beszel's systems-table (MIT, Copyright (c) 2024 henrygd,
 // https://github.com/henrygd/beszel; internal/site/src/components/systems-table/systems-table.tsx): a Grid of
 // cards or a Table, both drawn from one column definition (machines-columns.tsx), filtered by the View menu's
-// status (columns-menu.tsx). Changed: the layout is chosen with the Board's segmented control instead of Beszel's
+// status (columns-menu.tsx). Changed: the layout is chosen with a segmented control instead of Beszel's
 // view menu, which keeps its status and its visible columns, those with the table only; no text filter, sorting or
 // pagination; a machine has no page of its own, so a card or row is not a link.
 export function MachinesScreen() {

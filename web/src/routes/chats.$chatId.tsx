@@ -7,7 +7,7 @@ import { TaskPanel } from "@/features/tasks/task-panel"
 
 type Search = { task?: string }
 
-// A chat keeps the Task a wake-up opened in its URL (issue #303), as the board and the Team page do, so a link or a
+// A chat keeps the Task a wake-up opened in its URL (issue #303), as the Team page does, so a link or a
 // reload opens it again over the chat.
 export const Route = createFileRoute("/chats/$chatId")({
   validateSearch: (s: Record<string, unknown>): Search => ({

@@ -12,7 +12,7 @@ import { docked, startOpen, toRead } from "./dock-state"
 // The chat's own work docked above its composer (issue #314), read for docked-work.tsx: its open Runs with their
 // Tasks, the Runs a wake-up's chip asked to see, and the open questions to the owner from those Runs.
 
-// The Runs are read every 10 s, as the board is while a worker runs; the questions every 3 s, as the Approvals
+// The Runs are read every 10 s, while a worker runs; the questions every 3 s, as the Approvals
 // (use-approvals.ts).
 const runsEvery = 10_000
 const questionsEvery = 3_000

@@ -15,8 +15,9 @@ Each adapted file names its source.
   NativeChatTaskList.tsx (MIT, Copyright (c) 2026 Lovecast Inc.): the strip that opens to its list, its "n of m"
   and a status icon a row. Which strips start open follows t3code's apps/web/src/components/chat/ThreadDetailsCard.tsx
   (MIT, Copyright (c) 2026 T3 Tools Inc.).
-- The board's columns and cards are adapted from Orca (https://github.com/stablyai/orca,
-  src/renderer/src/components/dashboard-popout), MIT.
+- The grouping of the work in flight into what needs the owner, what works and what is done
+  (`src/features/work/work-state.ts`) is adapted from Orca (https://github.com/stablyai/orca,
+  src/renderer/src/components/dashboard), MIT.
 - The Machines page's cards, table, meters and actions menu (`src/features/machines`), the View menu of the
   Machines and Agents pages, with its Status group that counts and filters the list and its columns to show or
   hide (`columns-menu.tsx`, `column-visibility.ts`), and the list pages' header (`PageHeading` in

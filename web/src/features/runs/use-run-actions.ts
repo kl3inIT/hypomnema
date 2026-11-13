@@ -5,7 +5,7 @@ import { cancelRun, finishRun } from "@/api/generated/sdk.gen"
 import type { TaskDetail } from "@/api/generated/types.gen"
 import { boardKey } from "@/features/work/use-work"
 
-// useRunActions finishes or cancels one Run, for the Run's page and the Run docked in its chat (issue #314). Every
+// useRunActions finishes or cancels one Run, for the Run docked in its chat (issue #314). Every
 // view of Runs and Tasks is read again after either.
 export function useRunActions(runId: string) {
   const queryClient = useQueryClient()

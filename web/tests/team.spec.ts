@@ -176,17 +176,76 @@ const nodes = [
 
 const item = (seq: number, m: object) => ({ seq, kind: "message", created_at: ago(60), ...m })
 
+// What the worker of tsk_1 said and did so far.
 const transcript = [
   item(1, { text: "I will look at the existing end-to-end tests first." }),
-  item(2, {
+  item(2, { kind: "tool_call", call_id: "c1", tool: "Grep", input: { pattern: "TestNode" } }),
+  item(3, { kind: "tool_result", call_id: "c1", text: "internal/e2e/node_test.go:264" }),
+  item(4, {
     kind: "tool_call",
-    call_id: "c1",
+    call_id: "c2",
+    tool: "Read",
+    input: { file_path: "internal/e2e/node_test.go" },
+  }),
+  item(5, { kind: "tool_result", call_id: "c2", text: "package e2e" }),
+  item(6, {
+    kind: "tool_call",
+    call_id: "c3",
+    tool: "Edit",
+    input: {
+      file_path: "internal/e2e/health_test.go",
+      old_string: "t.Skip()",
+      new_string: 'resp := get(t, "/health")\nrequire.Equal(t, 200, resp.StatusCode)',
+    },
+  }),
+  item(7, { kind: "tool_result", call_id: "c3", text: "edited" }),
+  item(8, {
+    kind: "tool_call",
+    call_id: "c4",
     tool: "Bash",
     input: { command: "go test ./internal/e2e/" },
   }),
+  item(9, { kind: "tool_result", call_id: "c4", text: "FAIL TestHealth: got 404", failed: true }),
+  item(10, {
+    kind: "tool_call",
+    call_id: "c5",
+    tool: "Bash",
+    input: { command: "CGO_ENABLED=0 go build ./cmd/hypomnema" },
+  }),
 ]
 
-async function fakeServer(page: Page, start: { bots?: object[] } = {}) {
+// What the worker of tsk_1 asked to do with the owner's Google account, held for his approval.
+const held = {
+  id: "apr_2",
+  integration: "google",
+  label: "work",
+  action: "drive.share",
+  action_name: "Share a file",
+  asked_by: "worker",
+  dispatch_id: "dsp_1",
+  task_id: "tsk_1",
+  run_id: "run_1",
+  title: "Share a file: Release notes v0.6.docx",
+  payload: [
+    { label: "emailAddress", value: "team@example.com" },
+    { label: "role", value: "commenter" },
+    { label: "type", value: "group" },
+  ],
+  status: "pending",
+  used: false,
+  created_at: ago(60),
+}
+
+// What the fake server was sent: the answers to questions and the decisions on held requests.
+type Sent = { answers: unknown[]; decisions: unknown[] }
+
+async function fakeServer(
+  page: Page,
+  start: { bots?: object[]; held?: boolean } = {},
+): Promise<Sent> {
+  const sent: Sent = { answers: [], decisions: [] }
+  let pending = start.held ? [held] : []
+
   await page.route("**/api/v1/**", async (route) => {
     const url = new URL(route.request().url())
     const path = url.pathname.replace("/api/v1", "")
@@ -200,12 +259,24 @@ async function fakeServer(page: Page, start: { bots?: object[] } = {}) {
         return json({ data: start.bots ?? bots })
       case "/chats":
         return json({ data: start.bots ? [] : chats })
-      case "/approvals":
-        return json({ data: url.searchParams.get("task_id") ? [] : [approval] })
+      case "/approvals": {
+        const task = url.searchParams.get("task_id")
+
+        return json({ data: task ? pending.filter((a) => a.task_id === task) : [approval] })
+      }
+      case `/approvals/${held.id}/decision`:
+        sent.decisions.push(route.request().postDataJSON())
+        pending = []
+
+        return json({ ...held, status: "approved", scope: "session" })
       case "/tasks":
         return json({ data: tasks, runs, after: 5 })
       case "/questions":
-        return json({ data: [asked] })
+        return json({ data: sent.answers.length ? [] : [asked] })
+      case `/questions/${asked.id}/answer`:
+        sent.answers.push(route.request().postDataJSON())
+
+        return json({ ...asked, status: "answered" })
       case "/nodes":
         return json({ data: nodes })
       case "/profiles":
@@ -222,6 +293,8 @@ async function fakeServer(page: Page, start: { bots?: object[] } = {}) {
         return json({ code: "not_found", message: "not found" }, 404)
     }
   })
+
+  return sent
 }
 
 // Scenario: the owner opens the Team page. Each Bot says in words what it is doing and why; each machine lists
@@ -305,6 +378,83 @@ test("a Task on a machine opens its panel over the map", async ({ page }) => {
   await page.keyboard.press("Escape")
   await expect(panel).toBeHidden()
   await expect(page).not.toHaveURL(/task=/)
+})
+
+// Scenario: a worker asks the owner. Its Task opens from the URL, the owner reads the whole question and answers
+// it in the panel. The Run, made from the command line, has no chat, so the panel only names it.
+test("the owner answers a worker in its Task's panel", async ({ page }) => {
+  const sent = await fakeServer(page)
+  await page.goto("/team?task=tsk_3")
+
+  const panel = page.getByRole("dialog")
+  await expect(
+    panel.getByRole("heading", { name: "Decide whether /health needs a login" }),
+  ).toBeVisible()
+  await expect(panel).toContainText("Decide the /health access")
+  await expect(panel.getByRole("link", { name: /Open Run/ })).toHaveCount(0)
+
+  await panel.getByText("Behind a login", { exact: true }).click()
+  await expect(panel.getByRole("radio", { name: "Behind a login" })).toBeChecked()
+  await panel.getByRole("button", { name: "Send answer" }).click()
+  await expect.poll(() => sent.answers).toEqual([{ option: 1 }])
+})
+
+// Scenario: a running worker's Task names its Run; the Run opens in the chat that started it.
+test("a Task's Run opens in its chat", async ({ page }) => {
+  await fakeServer(page)
+  await page.goto("/team?task=tsk_1")
+
+  await page
+    .getByRole("dialog")
+    .getByRole("link", { name: "Open Run Add a /health page to the control plane in its chat" })
+    .click()
+  await expect(page).toHaveURL(/\/chats\/cht_1$/)
+})
+
+// Scenario: a running worker asked to share a file from the owner's Drive, and the request is held. Its Task
+// shows what would be shared and with whom, above the transcript. The owner approves sharing for the rest of the
+// Run from the card's menu, and the card goes.
+test("the owner approves what a worker asked to do with an account", async ({ page }) => {
+  const sent = await fakeServer(page, { held: true })
+  await page.goto("/team?task=tsk_1")
+
+  const panel = page.getByRole("dialog")
+  const card = panel.getByRole("region", {
+    name: "Approval needed: Share a file: Release notes v0.6.docx",
+  })
+  await expect(card).toContainText("team@example.com")
+  await expect(card).toContainText("google:work · Share a file · asked by worker")
+  // The request's own field names read as words.
+  await expect(card.getByRole("term")).toHaveText(["Email address", "Role", "Type"])
+  expect(await page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")).toBe(
+    true,
+  )
+  await shot(page, "task-approval")
+
+  // Approving for the rest of the Run waits in the menu beside Decline and Approve.
+  await card.getByRole("button", { name: "More approval options" }).click()
+  await shot(page, "task-approval-menu")
+  await page.getByRole("menuitem", { name: "Approve for this Run" }).click()
+  await expect(card).toHaveCount(0)
+  expect(sent.decisions).toEqual([{ decision: "approve_session" }])
+})
+
+// Scenario: a worker is running. Its Task opens at the transcript, where its last steps are in view; the reads and
+// searches fold into one line, an edit says how much it changed, and a failed step opens to what it printed.
+test("a running worker's transcript is read in its Task's panel", async ({ page }) => {
+  await fakeServer(page)
+  await page.goto("/team?task=tsk_1")
+
+  const log = page.getByRole("dialog").getByRole("log", { name: "Transcript" })
+  await expect(log).toContainText("I will look at the existing end-to-end tests first.")
+  await shot(page, "task-panel")
+  await expect(log.getByRole("button", { name: /Read 1 file, ran 1 search/ })).toBeVisible()
+  await expect(
+    log.getByRole("button", { name: /Edit internal\/e2e\/health_test\.go/ }),
+  ).toContainText("+2 -1")
+
+  await log.getByRole("button", { name: /go test \.\/internal\/e2e\// }).click()
+  await expect(log).toContainText("FAIL TestHealth: got 404")
 })
 
 // Scenario: a Bot opens the chat that waits for the owner; a Bot with no chat opens a new chat with it.

@@ -5,7 +5,7 @@ import { AppSidebar } from "@/features/shell/app-shell"
 
 type Search = { bot?: string; open?: string }
 
-// The Routines page keeps its view in the URL, as the board does: the Bot it shows and the open Routine.
+// The Routines page keeps its view in the URL, as the Team page does: the Bot it shows and the open Routine.
 export const Route = createFileRoute("/routines")({
   validateSearch: (s: Record<string, unknown>): Search => ({
     bot: typeof s.bot === "string" && s.bot ? s.bot : undefined,

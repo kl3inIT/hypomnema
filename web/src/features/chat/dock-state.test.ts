@@ -59,8 +59,8 @@ describe("a docked Run", () => {
   })
 
   // Scenario: each Task row says its status in words; a block on a failed dependency waits on that Task, any
-  // other block waits for the owner, as on the Board.
-  test("says a Task's status in the Board's words", () => {
+  // other block waits for the owner, as on the Team page.
+  test("says a Task's status in the Team page's words", () => {
     expect(taskState(task("a", "ready")).word).toBe("Queued")
     expect(taskState(task("a", "running"), true).word).toBe("Waiting for you")
     expect(taskState(task("a", "blocked", { blocked_reason: "gate" })).tone).toBe("needs-you")
@@ -97,7 +97,7 @@ describe("which strips start open", () => {
 
 describe("the Runs a chat docks", () => {
   // Scenario: a wake-up's chip asks to see a Run that has finished; it stays docked. A Run of another chat is
-  // never docked, so its chip keeps the link to its page.
+  // never docked, so its chip links to that Run's chat.
   test("are the chat's open Runs and the ended ones a chip asked for", () => {
     const open = run("r1", [])
     const finished = run("r2", [], { status: "finished" })
