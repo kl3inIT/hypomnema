@@ -63,8 +63,10 @@ func TestAWarmConversationKeepsItsAccount(t *testing.T) {
 	now = w.clock.Now()
 	w.subs.NoteAnswer("claude", ids[1], claudeWindows(now, 0.1, 3*time.Hour, 0.2, 2*time.Hour))
 
-	w.clock.advance(30 * time.Minute)
-	assert.Equal(t, ids[0], w.account("conversation-1"), "half an hour later its cache is warm: it stays")
+	// Twenty minutes, not thirty: a reading is believed for thirty minutes (quotaTrusted), and past it both
+	// accounts would rank alike and the order would hang on their random ids.
+	w.clock.advance(20 * time.Minute)
+	assert.Equal(t, ids[0], w.account("conversation-1"), "twenty minutes later its cache is warm: it stays")
 	assert.Equal(t, ids[1], w.account("conversation-2"), "a new conversation goes to the other")
 
 	w.clock.advance(61 * time.Minute)
