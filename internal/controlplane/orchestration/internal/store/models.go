@@ -111,6 +111,7 @@ type ChatMessage struct {
 	CreatedAt     int64
 	ToCoordinator int64
 	Kind          string
+	Attachments   sql.NullString
 }
 
 type ClientToken struct {

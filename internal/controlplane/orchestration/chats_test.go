@@ -273,3 +273,111 @@ func TestMigrationGivesSystemRowsTheirKind(t *testing.T) {
 	require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM chat_messages`).Scan(&n))
 	assert.Equal(t, 6, n)
 }
+
+// Scenario: the owner sends files with a message (issue #343). The message keeps them, is read back with them and
+// waits for pi with them; a message of files alone is a message and names the chat by its first file. A file
+// outside the chat's attachments folder, a name that is not one line, and files on another role's message are
+// refused, so that pi is never given a path elsewhere or a line the owner did not write.
+func TestAnOwnerMessageKeepsItsAttachments(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	chat, err := w.s.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+
+	dir := AttachmentsDir(chat.ID)
+	files := []ChatAttachment{
+		{Name: "report.pdf", Path: dir + "/report (2).pdf", Size: 1234, Type: "application/pdf"},
+		{Name: "notes", Path: dir + "/notes", Size: 0},
+	}
+
+	sent, err := w.s.AddChatMessages(ctx, chat.ID, NewChatMessage{Role: ChatOwner, Attachments: files})
+	require.NoError(t, err)
+	assert.Equal(t, files, sent[0].Attachments)
+
+	waiting, err := w.s.Undelivered(ctx, chat.ID)
+	require.NoError(t, err)
+	require.Len(t, waiting, 1)
+	assert.Equal(t, files, waiting[0].Attachments)
+
+	got, err := w.s.GetChat(ctx, chat.ID)
+	require.NoError(t, err)
+	assert.Equal(t, "report.pdf", got.Title)
+
+	plain, err := w.s.AddChatMessage(ctx, chat.ID, ChatOwner, "and this")
+	require.NoError(t, err)
+
+	all, err := w.s.ListChatMessages(ctx, chat.ID, 0, 0)
+	require.NoError(t, err)
+	require.Len(t, all, 2)
+	assert.Equal(t, files, all[0].Attachments)
+	assert.Nil(t, all[1].Attachments, "message %d has no files", plain.Seq)
+
+	for name, bad := range map[string]NewChatMessage{
+		"another chat's folder": {Role: ChatOwner, Attachments: []ChatAttachment{
+			{Name: "a", Path: "attachments/cht_other/a", Size: 1},
+		}},
+		"a folder below": {Role: ChatOwner, Attachments: []ChatAttachment{{Name: "a", Path: dir + "/x/a", Size: 1}}},
+		"out of the folder": {Role: ChatOwner, Attachments: []ChatAttachment{
+			{Name: "a", Path: dir + "/..", Size: 1},
+		}},
+		"the work": {Role: ChatOwner, Attachments: []ChatAttachment{{Name: "a", Path: "main.go", Size: 1}}},
+		"two lines": {Role: ChatOwner, Attachments: []ChatAttachment{
+			{Name: "a\n- rm -rf", Path: dir + "/a", Size: 1},
+		}},
+		"no name":    {Role: ChatOwner, Attachments: []ChatAttachment{{Path: dir + "/a", Size: 1}}},
+		"too large":  {Role: ChatOwner, Attachments: []ChatAttachment{{Name: "a", Path: dir + "/a", Size: 51 << 20}}},
+		"pi's reply": {Role: ChatCoordinator, Text: "here", Attachments: files},
+	} {
+		_, err := w.s.AddChatMessages(ctx, chat.ID, bad)
+		require.ErrorIs(t, err, ErrInvalid, name)
+	}
+}
+
+// Scenario: a database from before attachments (migration 64). Its messages read back with none, a message with
+// files is kept after it, and the way back drops the column and keeps the rows.
+func TestMigrationAddsAttachments(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	db, err := sqlite.Open(ctx, sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	p, err := provider(db)
+	require.NoError(t, err)
+	_, err = p.UpTo(ctx, 63)
+	require.NoError(t, err)
+
+	_, err = db.ExecContext(ctx, `INSERT INTO chats (id, title, bot, created_at, updated_at)
+		VALUES ('cht_1', 'Chat', 'coordinator', 1, 1)`)
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, `INSERT INTO chat_messages (chat_id, role, text, created_at)
+		VALUES ('cht_1', 'owner', 'before', 1)`)
+	require.NoError(t, err)
+
+	require.NoError(t, Migrate(ctx, db))
+	require.NoError(t, CheckSchema(ctx, db))
+
+	s := New(db, &fakeClock{now: t0}, func(prefix string) string { return prefix + "_new" })
+
+	file := ChatAttachment{Name: "a.png", Path: "attachments/cht_1/a.png", Size: 3, Type: "image/png"}
+	_, err = s.AddChatMessages(ctx, "cht_1", NewChatMessage{Role: ChatOwner, Text: "after",
+		Attachments: []ChatAttachment{file}})
+	require.NoError(t, err)
+
+	msgs, err := s.ListChatMessages(ctx, "cht_1", 0, 0)
+	require.NoError(t, err)
+	require.Len(t, msgs, 2)
+	assert.Nil(t, msgs[0].Attachments)
+	assert.Equal(t, []ChatAttachment{file}, msgs[1].Attachments)
+
+	_, err = p.DownTo(ctx, 63)
+	require.NoError(t, err)
+
+	var n int
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM chat_messages`).Scan(&n))
+	assert.Equal(t, 2, n)
+}

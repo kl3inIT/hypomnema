@@ -10,6 +10,14 @@ Each adapted file names its source.
   Copyright (c) 2026 T3 Tools Inc.), with the icon by status of Orca's
   src/renderer/src/components/native-chat/tools/tasks/NativeChatTaskList.tsx (MIT, Copyright (c) 2026 Lovecast
   Inc.).
+- Attaching files in the chat (`src/features/chat/attachments.ts`, `attachment-strip.tsx`, `message-files.tsx`) is
+  adapted from t3code's apps/web/src/components/chat/useComposerAttachmentIntake.ts, ComposerAttachmentStrip.tsx,
+  ComposerImageThumbnail.tsx, TimelineUserMessageRow.tsx and ExpandedImageDialog.tsx and
+  apps/web/src/lib/attachmentUploadQueue.ts (MIT, Copyright (c) 2026 T3 Tools Inc.), with the chips of Omnigent's
+  web/src/components/ComposerAttachments.tsx (Apache License 2.0), AI Elements' packages/elements/src/attachments.tsx
+  (https://github.com/vercel/ai-elements, Apache License 2.0), OpenMausBot's src/components/AttachmentGallery.tsx
+  (Apache License 2.0) and assistant-ui's packages/ui/src/components/react/assistant-ui/elements/message-attachment.tsx
+  (MIT, Copyright (c) 2026 AgentbaseAI Inc.).
 - The chat's Runs docked above its composer (`src/features/chat/docked-work.tsx`, `dock-state.ts`) are adapted
   from Orca's src/renderer/src/components/native-chat/tools/tasks/NativeChatDockedTaskList.tsx and
   NativeChatTaskList.tsx (MIT, Copyright (c) 2026 Lovecast Inc.): the strip that opens to its list, its "n of m"

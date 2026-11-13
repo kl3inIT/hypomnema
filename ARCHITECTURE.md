@@ -36,7 +36,11 @@ the chat's watchers from memory only and are never stored. A reply that ends in 
 row. `abort` stops pi's turn and marks it as stopped by the owner (issue #267, after OpenMausBot's
 `server/person-stops.ts`): while marked, the `message_end` whose `stopReason` is `error` or `aborted` keeps its text
 and a `stopped` row ("Stopped") in one write instead of a failure, and a turn that ends with neither gets the row at
-`agent_settled`, where the mark clears. On
+`agent_settled`, where the mark clears. An owner message may carry files (issue #343): each is kept on the
+message (`chat_messages.attachments`, a JSON array of name, path, size and type; migration 64) and must be a file of
+`attachments/<chat id>/` in the Bot's folder. pi gets the text and a line a file with that path, relative to the Bot's
+folder, which is pi's working directory in its box (the launcher's `--chdir`) and against which pi's tools resolve a
+relative path, after OpenMausBot's `pathForFile` and Orca's attachment paths. A Lark message carries none. On
 the server pi runs as the `coordinator` user through `deploy/coordinator/`: a root-owned launcher (`hypomnema-pi`,
 a clean environment, only a chat id, a Bot's name and model flags, pi's own token on the first line of stdin), a
 second one for a Routine's script (`hypomnema-routine`, below), one sudoers rule limited to the two, the instructions
@@ -1806,6 +1810,19 @@ Node (`internal/node`):
   the last kept message when the server ends it. pi's thoughts and tools between replies form one line that opens,
   with each command and its output; replies render as markdown with streamdown and shiki, loaded apart from the
   screen. Enter sends unless an input method is composing; Stop asks pi to end its turn.
+  - Attaching files (issue #343, `features/chat/attachments.ts`, after t3code's `useComposerAttachmentIntake.ts`):
+    in an open chat, with the paperclip, by pasting (a screenshot) or by dropping files on the chat. A file over
+    50 MiB or empty is refused and said above the box; the others are chips with a thumbnail or an icon, the name,
+    the size or "Uploading n%", and a remove button, and start uploading at once with the Files panel's upload
+    (#315) into `attachments/<chat id>/` in the Bot's folder, made with the folder call when it is not there; a
+    name already there or given to another file takes a number ("report (2).pdf"), and a commit refused because one
+    came meanwhile is tried under the next. Removing a chip stops its upload or deletes the file it put there
+    (t3code's release of a persisted upload). Send waits for the uploads in flight and sends the text with the
+    files (`POST /chats/{id}/messages` `attachments`), or refuses while one was not uploaded. In the chat the
+    owner's message shows its images above its text, read with `/raw`, one 12rem high or several in a grid, each
+    opening large in a dialog, and its other files as chips that open in the pane beside the Files panel. Not
+    built: attaching in a chat that has no message yet (the New chat page, a new chat's tab), a Lark message's
+    files, retrying a failed upload in place.
 - The Team page (issue #262, `web/src/features/team`; [design](https://github.com/kl3inIT/hypomnema/issues/262)),
   adapted from OpenMausBot's team map (Apache 2.0): `/team`, first in the sidebar after New chat, carries the
   count of what needs the owner. A canvas draws the Bots in a column and every machine in a column beside it,
