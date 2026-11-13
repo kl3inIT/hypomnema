@@ -177,9 +177,10 @@ func (q *Queries) InsertGatewayModelTarget(ctx context.Context, arg InsertGatewa
 const insertGatewayUsage = `-- name: InsertGatewayUsage :exec
 INSERT INTO gateway_usage (id, key_id, model, provider, upstream_model, stream, attempts, outcome, status,
                            prompt_tokens, completion_tokens, cached_tokens, reasoning_tokens, estimated, duration_ms,
-                           created_at)
+                           account_id, error, created_at)
 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9,
-        ?10, ?11, ?12, ?13, ?14, ?15, ?16)
+        ?10, ?11, ?12, ?13, ?14, ?15,
+        ?16, ?17, ?18)
 `
 
 type InsertGatewayUsageParams struct {
@@ -198,6 +199,8 @@ type InsertGatewayUsageParams struct {
 	ReasoningTokens  int64
 	Estimated        int64
 	DurationMs       int64
+	AccountID        string
+	Error            string
 	Now              int64
 }
 
@@ -218,6 +221,8 @@ func (q *Queries) InsertGatewayUsage(ctx context.Context, arg InsertGatewayUsage
 		arg.ReasoningTokens,
 		arg.Estimated,
 		arg.DurationMs,
+		arg.AccountID,
+		arg.Error,
 		arg.Now,
 	)
 	return err
@@ -385,7 +390,7 @@ func (q *Queries) ListGatewayModels(ctx context.Context) ([]GatewayModel, error)
 }
 
 const listGatewayUsage = `-- name: ListGatewayUsage :many
-SELECT u.id, u.key_id, u.model, u.provider, u.upstream_model, u.stream, u.attempts, u.outcome, u.status, u.prompt_tokens, u.completion_tokens, u.cached_tokens, u.reasoning_tokens, u.estimated, u.duration_ms, u.created_at, k.name AS key_name FROM gateway_usage u JOIN gateway_keys k ON k.id = u.key_id
+SELECT u.id, u.key_id, u.model, u.provider, u.upstream_model, u.stream, u.attempts, u.outcome, u.status, u.prompt_tokens, u.completion_tokens, u.cached_tokens, u.reasoning_tokens, u.estimated, u.duration_ms, u.created_at, u.account_id, u.error, k.name AS key_name FROM gateway_usage u JOIN gateway_keys k ON k.id = u.key_id
 ORDER BY u.created_at DESC, u.id DESC LIMIT ?1
 `
 
@@ -406,6 +411,8 @@ type ListGatewayUsageRow struct {
 	Estimated        int64
 	DurationMs       int64
 	CreatedAt        int64
+	AccountID        string
+	Error            string
 	KeyName          string
 }
 
@@ -435,6 +442,92 @@ func (q *Queries) ListGatewayUsage(ctx context.Context, rowLimit int64) ([]ListG
 			&i.Estimated,
 			&i.DurationMs,
 			&i.CreatedAt,
+			&i.AccountID,
+			&i.Error,
+			&i.KeyName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listUsageRequests = `-- name: ListUsageRequests :many
+SELECT u.id, u.key_id, u.model, u.provider, u.upstream_model, u.stream, u.attempts, u.outcome, u.status, u.prompt_tokens, u.completion_tokens, u.cached_tokens, u.reasoning_tokens, u.estimated, u.duration_ms, u.created_at, u.account_id, u.error, k.name AS key_name FROM gateway_usage u JOIN gateway_keys k ON k.id = u.key_id
+WHERE u.created_at >= ?1
+  AND (CAST(?2 AS INTEGER) = 0 OR u.outcome IN ('upstream_error', 'transport_error', 'truncated'))
+ORDER BY u.created_at DESC, u.id DESC LIMIT ?4 OFFSET ?3
+`
+
+type ListUsageRequestsParams struct {
+	Since      int64
+	FailedOnly int64
+	RowOffset  int64
+	RowLimit   int64
+}
+
+type ListUsageRequestsRow struct {
+	ID               string
+	KeyID            string
+	Model            string
+	Provider         string
+	UpstreamModel    string
+	Stream           int64
+	Attempts         int64
+	Outcome          string
+	Status           int64
+	PromptTokens     int64
+	CompletionTokens int64
+	CachedTokens     int64
+	ReasoningTokens  int64
+	Estimated        int64
+	DurationMs       int64
+	CreatedAt        int64
+	AccountID        string
+	Error            string
+	KeyName          string
+}
+
+func (q *Queries) ListUsageRequests(ctx context.Context, arg ListUsageRequestsParams) ([]ListUsageRequestsRow, error) {
+	rows, err := q.db.QueryContext(ctx, listUsageRequests,
+		arg.Since,
+		arg.FailedOnly,
+		arg.RowOffset,
+		arg.RowLimit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListUsageRequestsRow{}
+	for rows.Next() {
+		var i ListUsageRequestsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.KeyID,
+			&i.Model,
+			&i.Provider,
+			&i.UpstreamModel,
+			&i.Stream,
+			&i.Attempts,
+			&i.Outcome,
+			&i.Status,
+			&i.PromptTokens,
+			&i.CompletionTokens,
+			&i.CachedTokens,
+			&i.ReasoningTokens,
+			&i.Estimated,
+			&i.DurationMs,
+			&i.CreatedAt,
+			&i.AccountID,
+			&i.Error,
 			&i.KeyName,
 		); err != nil {
 			return nil, err
@@ -535,4 +628,259 @@ func (q *Queries) UpsertGatewayModel(ctx context.Context, arg UpsertGatewayModel
 		arg.Now,
 	)
 	return err
+}
+
+const usageBuckets = `-- name: UsageBuckets :many
+SELECT CAST((created_at - ?1) / ?2 AS INTEGER) AS bucket,
+       CAST(COUNT(*) AS INTEGER) AS requests,
+       CAST(SUM(outcome IN ('upstream_error', 'transport_error', 'truncated')) AS INTEGER) AS failed,
+       CAST(SUM(prompt_tokens) AS INTEGER) AS prompt_tokens,
+       CAST(SUM(cached_tokens) AS INTEGER) AS cached_tokens,
+       CAST(SUM(completion_tokens) AS INTEGER) AS completion_tokens,
+       CAST(SUM(reasoning_tokens) AS INTEGER) AS reasoning_tokens
+FROM gateway_usage WHERE created_at >= ?1
+GROUP BY bucket ORDER BY bucket
+`
+
+type UsageBucketsParams struct {
+	Origin   int64
+	BucketMs int64
+}
+
+type UsageBucketsRow struct {
+	Bucket           int64
+	Requests         int64
+	Failed           int64
+	PromptTokens     int64
+	CachedTokens     int64
+	CompletionTokens int64
+	ReasoningTokens  int64
+}
+
+func (q *Queries) UsageBuckets(ctx context.Context, arg UsageBucketsParams) ([]UsageBucketsRow, error) {
+	rows, err := q.db.QueryContext(ctx, usageBuckets, arg.Origin, arg.BucketMs)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []UsageBucketsRow{}
+	for rows.Next() {
+		var i UsageBucketsRow
+		if err := rows.Scan(
+			&i.Bucket,
+			&i.Requests,
+			&i.Failed,
+			&i.PromptTokens,
+			&i.CachedTokens,
+			&i.CompletionTokens,
+			&i.ReasoningTokens,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const usageByAccount = `-- name: UsageByAccount :many
+SELECT account_id AS id,
+       CAST(COUNT(*) AS INTEGER) AS requests,
+       CAST(SUM(outcome IN ('upstream_error', 'transport_error', 'truncated')) AS INTEGER) AS failed,
+       CAST(SUM(prompt_tokens) AS INTEGER) AS prompt_tokens,
+       CAST(SUM(cached_tokens) AS INTEGER) AS cached_tokens,
+       CAST(SUM(completion_tokens) AS INTEGER) AS completion_tokens,
+       CAST(SUM(reasoning_tokens) AS INTEGER) AS reasoning_tokens
+FROM gateway_usage WHERE created_at >= ?1 AND account_id != ''
+GROUP BY account_id ORDER BY SUM(prompt_tokens + completion_tokens) DESC, account_id
+`
+
+type UsageByAccountRow struct {
+	ID               string
+	Requests         int64
+	Failed           int64
+	PromptTokens     int64
+	CachedTokens     int64
+	CompletionTokens int64
+	ReasoningTokens  int64
+}
+
+func (q *Queries) UsageByAccount(ctx context.Context, since int64) ([]UsageByAccountRow, error) {
+	rows, err := q.db.QueryContext(ctx, usageByAccount, since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []UsageByAccountRow{}
+	for rows.Next() {
+		var i UsageByAccountRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Requests,
+			&i.Failed,
+			&i.PromptTokens,
+			&i.CachedTokens,
+			&i.CompletionTokens,
+			&i.ReasoningTokens,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const usageByKey = `-- name: UsageByKey :many
+SELECT u.key_id AS id, k.name AS name,
+       CAST(COUNT(*) AS INTEGER) AS requests,
+       CAST(SUM(u.outcome IN ('upstream_error', 'transport_error', 'truncated')) AS INTEGER) AS failed,
+       CAST(SUM(u.prompt_tokens) AS INTEGER) AS prompt_tokens,
+       CAST(SUM(u.cached_tokens) AS INTEGER) AS cached_tokens,
+       CAST(SUM(u.completion_tokens) AS INTEGER) AS completion_tokens,
+       CAST(SUM(u.reasoning_tokens) AS INTEGER) AS reasoning_tokens
+FROM gateway_usage u JOIN gateway_keys k ON k.id = u.key_id WHERE u.created_at >= ?1
+GROUP BY u.key_id, k.name ORDER BY SUM(u.prompt_tokens + u.completion_tokens) DESC, k.name
+`
+
+type UsageByKeyRow struct {
+	ID               string
+	Name             string
+	Requests         int64
+	Failed           int64
+	PromptTokens     int64
+	CachedTokens     int64
+	CompletionTokens int64
+	ReasoningTokens  int64
+}
+
+func (q *Queries) UsageByKey(ctx context.Context, since int64) ([]UsageByKeyRow, error) {
+	rows, err := q.db.QueryContext(ctx, usageByKey, since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []UsageByKeyRow{}
+	for rows.Next() {
+		var i UsageByKeyRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Name,
+			&i.Requests,
+			&i.Failed,
+			&i.PromptTokens,
+			&i.CachedTokens,
+			&i.CompletionTokens,
+			&i.ReasoningTokens,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const usageByModel = `-- name: UsageByModel :many
+SELECT model AS name,
+       CAST(COUNT(*) AS INTEGER) AS requests,
+       CAST(SUM(outcome IN ('upstream_error', 'transport_error', 'truncated')) AS INTEGER) AS failed,
+       CAST(SUM(prompt_tokens) AS INTEGER) AS prompt_tokens,
+       CAST(SUM(cached_tokens) AS INTEGER) AS cached_tokens,
+       CAST(SUM(completion_tokens) AS INTEGER) AS completion_tokens,
+       CAST(SUM(reasoning_tokens) AS INTEGER) AS reasoning_tokens
+FROM gateway_usage WHERE created_at >= ?1
+GROUP BY model ORDER BY SUM(prompt_tokens + completion_tokens) DESC, model
+`
+
+type UsageByModelRow struct {
+	Name             string
+	Requests         int64
+	Failed           int64
+	PromptTokens     int64
+	CachedTokens     int64
+	CompletionTokens int64
+	ReasoningTokens  int64
+}
+
+func (q *Queries) UsageByModel(ctx context.Context, since int64) ([]UsageByModelRow, error) {
+	rows, err := q.db.QueryContext(ctx, usageByModel, since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []UsageByModelRow{}
+	for rows.Next() {
+		var i UsageByModelRow
+		if err := rows.Scan(
+			&i.Name,
+			&i.Requests,
+			&i.Failed,
+			&i.PromptTokens,
+			&i.CachedTokens,
+			&i.CompletionTokens,
+			&i.ReasoningTokens,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const usageTotals = `-- name: UsageTotals :one
+
+SELECT CAST(COUNT(*) AS INTEGER) AS requests,
+       CAST(COALESCE(SUM(outcome IN ('upstream_error', 'transport_error', 'truncated')), 0) AS INTEGER) AS failed,
+       CAST(COALESCE(SUM(prompt_tokens), 0) AS INTEGER) AS prompt_tokens,
+       CAST(COALESCE(SUM(cached_tokens), 0) AS INTEGER) AS cached_tokens,
+       CAST(COALESCE(SUM(completion_tokens), 0) AS INTEGER) AS completion_tokens,
+       CAST(COALESCE(SUM(reasoning_tokens), 0) AS INTEGER) AS reasoning_tokens
+FROM gateway_usage WHERE created_at >= ?1
+`
+
+type UsageTotalsRow struct {
+	Requests         int64
+	Failed           int64
+	PromptTokens     int64
+	CachedTokens     int64
+	CompletionTokens int64
+	ReasoningTokens  int64
+}
+
+// The Usage page (issue #199, step 4). A request failed when its outcome is upstream_error, transport_error or
+// truncated; a client that left is not the gateway's failure.
+func (q *Queries) UsageTotals(ctx context.Context, since int64) (UsageTotalsRow, error) {
+	row := q.db.QueryRowContext(ctx, usageTotals, since)
+	var i UsageTotalsRow
+	err := row.Scan(
+		&i.Requests,
+		&i.Failed,
+		&i.PromptTokens,
+		&i.CachedTokens,
+		&i.CompletionTokens,
+		&i.ReasoningTokens,
+	)
+	return i, err
 }

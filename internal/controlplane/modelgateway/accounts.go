@@ -107,6 +107,8 @@ func (s *Server) underAccounts(
 	)
 
 	try := func(token AccountToken) (*http.Response, bool, error) {
+		noteServed(ctx, token.AccountID)
+
 		resp, err := attempt(token)
 		if err != nil || !movesOn(resp.StatusCode) {
 			return resp, true, err

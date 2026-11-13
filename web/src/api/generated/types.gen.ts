@@ -1188,6 +1188,105 @@ export type CreatedGatewayKey = {
   secret: string;
 };
 
+export type GatewayUsageCounts = {
+  requests: number;
+  /**
+   * The requests the provider refused, none answered, or whose answer ended early.
+   */
+  failed: number;
+  /**
+   * Tokens in, those read from the provider's cache included.
+   */
+  prompt_tokens: number;
+  cached_tokens: number;
+  completion_tokens: number;
+  reasoning_tokens: number;
+};
+
+export type GatewayUsageBucket = {
+  start: string;
+  counts: GatewayUsageCounts;
+};
+
+export type GatewayUsageGroup = {
+  /**
+   * The key's or the account's id; for a model, its name.
+   */
+  id: string;
+  /**
+   * The model's or the key's name, or the account's label; empty for an account since removed.
+   */
+  name: string;
+  /**
+   * An account's runtime (claude, codex, antigravity).
+   */
+  runtime?: string;
+  counts: GatewayUsageCounts;
+};
+
+export type GatewayUsage = {
+  since: string;
+  until: string;
+  /**
+   * How long a bar is, an hour or a day.
+   */
+  bucket_seconds: number;
+  totals: GatewayUsageCounts;
+  buckets: Array<GatewayUsageBucket>;
+  by_model: Array<GatewayUsageGroup>;
+  by_key: Array<GatewayUsageGroup>;
+  by_account: Array<GatewayUsageGroup>;
+};
+
+export type GatewayRequest = {
+  id: string;
+  created_at: string;
+  key_id: string;
+  key_name: string;
+  /**
+   * The name the client asked for.
+   */
+  model: string;
+  /**
+   * Where the last attempt went.
+   */
+  provider: string;
+  upstream_model: string;
+  /**
+   * The subscription account of the last attempt; absent for an API provider.
+   */
+  account_id?: string;
+  account_label?: string;
+  stream: boolean;
+  attempts: number;
+  outcome: 'ok' | 'upstream_error' | 'transport_error' | 'truncated' | 'client_gone';
+  /**
+   * The provider's HTTP status; 0 when it gave none.
+   */
+  status: number;
+  /**
+   * The provider's message for a request that failed.
+   */
+  error?: string;
+  prompt_tokens: number;
+  cached_tokens: number;
+  completion_tokens: number;
+  reasoning_tokens: number;
+  /**
+   * The provider reported no usage; the counts are the sizes divided by four.
+   */
+  estimated: boolean;
+  duration_ms: number;
+};
+
+export type GatewayRequestList = {
+  data: Array<GatewayRequest>;
+  /**
+   * Older requests of the period follow.
+   */
+  has_more: boolean;
+};
+
 export type NewTokenAccount = {
   /**
    * The kind of subscription; only Claude gives a token to paste.
@@ -4440,6 +4539,70 @@ export type RevokeGatewayKeyResponses = {
 };
 
 export type RevokeGatewayKeyResponse = RevokeGatewayKeyResponses[keyof RevokeGatewayKeyResponses];
+
+export type GetGatewayUsageData = {
+  body?: never;
+  path?: never;
+  query: {
+    period: '24h' | '7d' | '30d';
+    /**
+     * The viewer's distance from UTC, so a day's bar starts at the viewer's midnight.
+     */
+    utc_offset_minutes?: number;
+  };
+  url: '/gateway/usage';
+};
+
+export type GetGatewayUsageErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GetGatewayUsageError = GetGatewayUsageErrors[keyof GetGatewayUsageErrors];
+
+export type GetGatewayUsageResponses = {
+  /**
+   * The usage.
+   */
+  200: GatewayUsage;
+};
+
+export type GetGatewayUsageResponse = GetGatewayUsageResponses[keyof GetGatewayUsageResponses];
+
+export type ListGatewayRequestsData = {
+  body?: never;
+  path?: never;
+  query: {
+    period: '24h' | '7d' | '30d';
+    /**
+     * Only the requests that failed.
+     */
+    failed?: boolean;
+    offset?: number;
+    limit?: number;
+  };
+  url: '/gateway/usage/requests';
+};
+
+export type ListGatewayRequestsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListGatewayRequestsError = ListGatewayRequestsErrors[keyof ListGatewayRequestsErrors];
+
+export type ListGatewayRequestsResponses = {
+  /**
+   * A page of requests.
+   */
+  200: GatewayRequestList;
+};
+
+export type ListGatewayRequestsResponse = ListGatewayRequestsResponses[keyof ListGatewayRequestsResponses];
 
 export type ListBotsData = {
   body?: never;

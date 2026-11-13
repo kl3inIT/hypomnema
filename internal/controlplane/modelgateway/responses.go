@@ -130,7 +130,9 @@ func (s *Server) responses(w http.ResponseWriter, r *http.Request) {
 	}
 
 	record := Usage{KeyID: key.ID, Model: model.Name, Stream: true}
-	s.serveResponses(w, r, raw, session, model, &record)
+	serving, served := withServed(r)
+	s.serveResponses(w, serving, raw, session, model, &record)
+	record.AccountID = served.id
 	record.Duration = s.svc.clock.Now().Sub(started)
 
 	// The client may be gone by now; the record is kept all the same.
@@ -166,6 +168,7 @@ func (s *Server) serveResponses(
 
 	for i, target := range targets {
 		last := i == len(targets)-1
+		noteServed(ctx, "")
 		record.Attempts, record.Provider, record.UpstreamModel = i+1, target.Provider, target.Model
 		record.Status = 0
 
@@ -221,7 +224,7 @@ func (s *Server) serveResponses(
 				w.Header().Set("Retry-After", retry)
 			}
 
-			copyBody(w, resp, resp.Header.Get("Content-Type"), maxErrorBytes)
+			record.Error = errorText(copyBody(w, resp, resp.Header.Get("Content-Type"), maxErrorBytes))
 			_ = resp.Body.Close()
 
 			return

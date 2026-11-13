@@ -293,7 +293,9 @@ func (s *Server) chatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	record := Usage{KeyID: key.ID, Model: model.Name, Stream: req.stream}
-	s.serveChat(w, r, req, model, key.ID, &record)
+	serving, served := withServed(r)
+	s.serveChat(w, serving, req, model, key.ID, &record)
+	record.AccountID = served.id
 	record.Duration = s.svc.clock.Now().Sub(started)
 
 	// The client may be gone by now; the record is kept all the same.
@@ -311,6 +313,7 @@ func (s *Server) serveChat(
 ) {
 	for i, target := range model.Targets {
 		last := i == len(model.Targets)-1
+		noteServed(r.Context(), "")
 		record.Attempts, record.Provider, record.UpstreamModel = i+1, target.Provider, target.UpstreamModel
 		record.Status = 0
 
@@ -377,7 +380,7 @@ func (s *Server) relay(w http.ResponseWriter, r *http.Request, req chatRequest, 
 			w.Header().Set("Retry-After", retry)
 		}
 
-		copyBody(w, resp, contentType, maxErrorBytes)
+		record.Error = errorText(copyBody(w, resp, contentType, maxErrorBytes))
 	case req.stream && strings.HasPrefix(contentType, "text/event-stream"):
 		s.relayStream(w, r, req, resp, record)
 	default:

@@ -79,7 +79,8 @@ type Server struct {
 	// wired none, and then an account shows what orchestration knows of it.
 	accounts Accounts
 	// gatewayKeys manages the gateway's keys; nil when the control plane wired none.
-	gatewayKeys GatewayKeys
+	gatewayKeys  GatewayKeys
+	gatewayUsage GatewayUsage
 	// tokenAccounts keeps an account from a pasted token; nil when the vault has no key.
 	tokenAccounts TokenAccounts
 	// gatewayModels lists what the model gateway serves; nil when the control plane wired none.
