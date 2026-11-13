@@ -22,6 +22,9 @@ import {
 } from "@/features/shell/app-shell"
 import { SoloPane } from "@/features/workbench/solo-pane"
 
+import { AttachDrop } from "./attach-drop"
+import { useAttachments } from "./attachments"
+import { newChatId } from "./chat-id"
 import { Composer } from "./composer"
 import { useStartChat } from "./start-chat"
 
@@ -30,7 +33,8 @@ import { useStartChat } from "./start-chat"
 // header (ChatView.tsx, ChatHeader.tsx), the conversation and the composer. On a phone the sidebar hides and the
 // header's menu opens the start screen, which lists the places and the chats. Without a chat open, the start
 // screen's composer starts one (chat/DraftHeroHeadline.tsx). A chat talks with one Bot (issue #169): the start
-// screen offers the Bots when there are several, and an open chat's header names its Bot.
+// screen offers the Bots when there are several, and an open chat's header names its Bot. The start screen chooses
+// its chat's id when it opens (issue #357), so that files are attached there before the chat is made.
 export function ChatScreen({ chatId, bot }: { chatId?: string; bot?: string }) {
   return (
     <>
@@ -47,15 +51,20 @@ function NewChat({ initialBot }: { initialBot?: string }) {
   const [picked, setPicked] = useState(initialBot ?? firstBot)
   const choice = bots.length > 1
   const bot = bots.some((b) => b.name === picked) ? picked : firstBot
+  const [chatId] = useState(newChatId)
+  const attachments = useAttachments(chatId, bot)
 
-  const start = useStartChat(choice ? bot : undefined, (chat) =>
+  const start = useStartChat(chatId, choice ? bot : undefined, (chat) =>
     navigate({ to: "/chats/$chatId", params: { chatId: chat.id } }),
   )
 
   return (
     <main className="flex min-w-0 flex-1 flex-col">
       <PageHeader />
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-3 sm:px-12">
+      <AttachDrop
+        attachments={attachments}
+        className="flex min-h-0 flex-1 flex-col overflow-y-auto px-3 sm:px-12"
+      >
         <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col items-center justify-center gap-6 py-8">
           <h1 className="w-full text-center text-2xl font-normal tracking-tight text-foreground sm:text-3xl">
             What should be built?
@@ -78,10 +87,11 @@ function NewChat({ initialBot }: { initialBot?: string }) {
             </div>
           )}
           <Composer
-            onSend={(text) => start.mutateAsync(text)}
+            onSend={(text, files) => start.mutateAsync({ text, files })}
             onStop={() => {}}
             working={false}
             bot={bot}
+            attachments={attachments}
           />
           <p className="max-w-(--chat-content-max-width) text-center text-sm text-muted-foreground">
             pi plans the work, gives it to workers on your machines, and reports back here.
@@ -95,7 +105,7 @@ function NewChat({ initialBot }: { initialBot?: string }) {
             </div>
           </div>
         </div>
-      </div>
+      </AttachDrop>
     </main>
   )
 }

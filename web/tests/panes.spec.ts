@@ -104,7 +104,10 @@ test("a new chat is opened from + as a tab beside the chat", async ({ page }) =>
     "aria-selected",
     "true",
   )
-  expect(calls[0]).toEqual({ call: "POST /chats", body: { title: "a login button" } })
+  expect(calls[0]).toEqual({
+    call: "POST /chats",
+    body: { id: expect.stringMatching(/^cht_[a-z2-7]{26}$/), title: "a login button" },
+  })
   await expect(page).toHaveURL(/\/chats\/cht_1$/)
   await expect(page.getByRole("tab")).toHaveText(["health page", "a login button"])
 
@@ -135,6 +138,10 @@ test("with several Bots, a new chat is opened with the Bot picked", async ({ pag
   )
   expect(calls[0]).toEqual({
     call: "POST /chats",
-    body: { title: "what changed in pi?", bot: "researcher" },
+    body: {
+      id: expect.stringMatching(/^cht_[a-z2-7]{26}$/),
+      title: "what changed in pi?",
+      bot: "researcher",
+    },
   })
 })

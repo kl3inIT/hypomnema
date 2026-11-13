@@ -1069,6 +1069,43 @@ func TestAMessageCarriesItsAttachments(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, empty.StatusCode())
 }
 
+// Scenario: the New chat page chose its chat's id when it opened (issue #357) and starts the chat under it. A
+// malformed id is refused, and so is an id taken, in words that say so; without an id the server makes one.
+func TestAChatIsMadeUnderTheIDItsPageChose(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	owner, _ := w.token("web", bearertoken.Owner)
+	ctx := t.Context()
+
+	_, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "vmap", Persona: "You answer about VMAP."})
+	require.NoError(t, err)
+
+	id := "cht_k3xq2m7ab4cdefghijklmnopqr"
+	created, err := owner.CreateChatWithResponse(ctx, openapi.NewChat{Id: &id, Bot: ptr("vmap")})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, created.StatusCode(), string(created.Body))
+	assert.Equal(t, id, created.JSON201.Id)
+	assert.Equal(t, "vmap", created.JSON201.Bot)
+
+	taken, err := owner.CreateChatWithResponse(ctx, openapi.NewChat{Id: &id})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusConflict, taken.StatusCode())
+	assert.Contains(t, taken.JSONDefault.Message, id+" exists")
+
+	for _, bad := range []string{"cht_short", "run_k3xq2m7ab4cdefghijklmnopqr", "cht_K3XQ2M7AB4CDEFGHIJKLMNOPQR",
+		"cht_k3xq2m7ab4cdefghijklmnop1r"} {
+		malformed, err := owner.CreateChatWithResponse(ctx, openapi.NewChat{Id: &bad})
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusBadRequest, malformed.StatusCode(), bad)
+	}
+
+	fresh, err := owner.CreateChatWithResponse(ctx, openapi.NewChat{})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, fresh.StatusCode(), string(fresh.Body))
+	assert.NotEqual(t, id, fresh.JSON201.Id)
+}
+
 // piToken is the token of a pi running for the chat as the Bot (issue #260),
 // made under the coordinator token named coordinator.
 func (w *world) piToken(coordinator, chat, bot string) *openapi.ClientWithResponses {
