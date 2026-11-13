@@ -54,9 +54,16 @@ func (s *Server) Files(ctx context.Context, nodeID, worktree string, req workspa
 		s.mu.Unlock()
 	}()
 
-	if err := sess.send(ctx, nodeproto.TypeFilesRequest, nodeproto.FilesRequest{
-		RequestID: id, Worktree: worktree, Request: req,
-	}); err != nil {
+	ask := nodeproto.FilesRequest{RequestID: id, Worktree: worktree, Request: req}
+
+	// A write's text goes in the request; a node closes a socket whose message is larger than it reads (issue #297).
+	if encoded, err := json.Marshal(ask); err != nil || len(encoded) > nodeproto.MaxMessageBytes-4<<10 {
+		return workspacefs.Result{Error: &workspacefs.Error{
+			Code: workspacefs.CodeTooLarge, Message: "this text is too large to be written on the machine from here",
+		}}, nil
+	}
+
+	if err := sess.send(ctx, nodeproto.TypeFilesRequest, ask); err != nil {
 		return workspacefs.Result{}, err
 	}
 

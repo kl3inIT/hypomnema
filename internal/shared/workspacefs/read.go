@@ -2,6 +2,8 @@ package workspacefs
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"io"
 	"io/fs"
@@ -114,8 +116,9 @@ func List(root, rel, after string) (*Listing, error) {
 }
 
 // Read is a file's text, up to MaxRead, cut at a character. A file whose first
-// bytes hold a NUL or are not UTF-8 is binary and is not sent.
-func Read(root, rel string) (*File, error) {
+// bytes hold a NUL or are not UTF-8 is binary and is not sent. With raw, the
+// bytes are sent whatever they are, and a file over MaxRead is too large.
+func Read(root, rel string, raw bool) (*File, error) {
 	place, clean, err := resolve(root, rel)
 	if err != nil {
 		return nil, err
@@ -142,6 +145,21 @@ func Read(root, rel string) (*File, error) {
 	}
 
 	out := &File{Path: clean, Bytes: info.Size()}
+
+	if len(data) <= MaxRead {
+		out.SHA256 = sha(data)
+	}
+
+	if raw {
+		if len(data) > MaxRead {
+			return nil, failure(CodeTooLarge, "%s is larger than %d MiB", clean, MaxRead>>20)
+		}
+
+		out.Data = data
+		out.Binary = binary(data, false)
+
+		return out, nil
+	}
 
 	if out.Truncated = len(data) > MaxRead; out.Truncated {
 		data = data[:MaxRead]
@@ -192,4 +210,11 @@ func cut(data []byte) []byte {
 	}
 
 	return data
+}
+
+// sha is the SHA-256 of bytes, in hex.
+func sha(data []byte) string {
+	sum := sha256.Sum256(data)
+
+	return hex.EncodeToString(sum[:])
 }

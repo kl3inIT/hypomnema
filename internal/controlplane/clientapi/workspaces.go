@@ -4,6 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"mime"
+	"net/http"
+	"path"
+	"strconv"
 	"strings"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
@@ -157,7 +161,7 @@ func refusal(e *workspacefs.Error) error {
 		kind = orchestration.ErrInvalid
 	case workspacefs.CodeNotFound, workspacefs.CodeGone:
 		kind = orchestration.ErrNotFound
-	case workspacefs.CodeNotGit:
+	case workspacefs.CodeNotGit, workspacefs.CodeChanged, workspacefs.CodeExists:
 		kind = orchestration.ErrConflict
 	case workspacefs.CodeGitFailed:
 		kind = orchestration.ErrUnavailable
@@ -209,7 +213,130 @@ func (s *Server) ReadWorkspaceFile(ctx context.Context, req openapi.ReadWorkspac
 
 	return openapi.ReadWorkspaceFile200JSONResponse(openapi.WorkspaceFile{
 		Path: f.Path, Bytes: f.Bytes, Binary: f.Binary, Truncated: f.Truncated, Content: f.Content,
+		Sha256: optional(f.SHA256),
 	}), nil
+}
+
+// The changes (issue #297): each is one request to the machine that holds the folder, which keeps the path inside
+// it and writes over a file only while it is the text it was read as.
+
+func (s *Server) WriteWorkspaceFile(ctx context.Context, req openapi.WriteWorkspaceFileRequestObject,
+) (openapi.WriteWorkspaceFileResponseObject, error) {
+	if req.Body == nil {
+		return nil, fmt.Errorf("%w: the file to write is missing", orchestration.ErrInvalid)
+	}
+
+	done, err := s.change(ctx, req.ChatId, req.WorkspaceId, workspacefs.Request{
+		Op: workspacefs.OpWrite, Path: req.Body.Path, Content: req.Body.Content, Expect: deref(req.Body.ExpectSha256),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return openapi.WriteWorkspaceFile200JSONResponse(done), nil
+}
+
+func (s *Server) DeleteWorkspaceEntry(ctx context.Context, req openapi.DeleteWorkspaceEntryRequestObject,
+) (openapi.DeleteWorkspaceEntryResponseObject, error) {
+	if _, err := s.change(ctx, req.ChatId, req.WorkspaceId, workspacefs.Request{
+		Op: workspacefs.OpDelete, Path: deref(req.Params.Path),
+	}); err != nil {
+		return nil, err
+	}
+
+	return openapi.DeleteWorkspaceEntry204Response{}, nil
+}
+
+func (s *Server) MakeWorkspaceFolder(ctx context.Context, req openapi.MakeWorkspaceFolderRequestObject,
+) (openapi.MakeWorkspaceFolderResponseObject, error) {
+	if req.Body == nil {
+		return nil, fmt.Errorf("%w: the folder to make is missing", orchestration.ErrInvalid)
+	}
+
+	done, err := s.change(ctx, req.ChatId, req.WorkspaceId, workspacefs.Request{
+		Op: workspacefs.OpMkdir, Path: req.Body.Path,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return openapi.MakeWorkspaceFolder201JSONResponse(done), nil
+}
+
+func (s *Server) MoveWorkspaceEntry(ctx context.Context, req openapi.MoveWorkspaceEntryRequestObject,
+) (openapi.MoveWorkspaceEntryResponseObject, error) {
+	if req.Body == nil {
+		return nil, fmt.Errorf("%w: what to move is missing", orchestration.ErrInvalid)
+	}
+
+	done, err := s.change(ctx, req.ChatId, req.WorkspaceId, workspacefs.Request{
+		Op: workspacefs.OpRename, Path: req.Body.Path, To: req.Body.To,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return openapi.MoveWorkspaceEntry200JSONResponse(done), nil
+}
+
+func (s *Server) change(ctx context.Context, chatID, workspaceID string, req workspacefs.Request,
+) (openapi.WorkspaceDone, error) {
+	res, err := s.ask(ctx, chatID, workspaceID, req)
+	if err != nil {
+		return openapi.WorkspaceDone{}, err
+	}
+
+	if res.Done == nil {
+		return openapi.WorkspaceDone{}, errors.New("the machine answered without saying what it did")
+	}
+
+	return openapi.WorkspaceDone{Path: res.Done.Path, Sha256: optional(res.Done.SHA256)}, nil
+}
+
+// ReadWorkspaceRaw sends a file's bytes for an image or a download. They are never served as a page of this origin:
+// the type is opaque, a browser may not sniff another, and a page it is opened as runs in a sandbox (an SVG's
+// script would otherwise run with the owner's session).
+func (s *Server) ReadWorkspaceRaw(ctx context.Context, req openapi.ReadWorkspaceRawRequestObject,
+) (openapi.ReadWorkspaceRawResponseObject, error) {
+	res, err := s.ask(ctx, req.ChatId, req.WorkspaceId, workspacefs.Request{
+		Op: workspacefs.OpRead, Path: deref(req.Params.Path), Raw: true,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	if res.File == nil {
+		return nil, errors.New("the machine answered without a file")
+	}
+
+	return rawFile{name: path.Base(res.File.Path), data: res.File.Data}, nil
+}
+
+type rawFile struct {
+	name string
+	data []byte
+}
+
+func (r rawFile) VisitReadWorkspaceRawResponse(w http.ResponseWriter) error {
+	h := w.Header()
+	h.Set("Content-Type", "application/octet-stream")
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("Content-Security-Policy", "sandbox; default-src 'none'")
+	h.Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": r.name}))
+	h.Set("Content-Length", strconv.Itoa(len(r.data)))
+	w.WriteHeader(http.StatusOK)
+
+	_, err := w.Write(r.data)
+
+	return err
+}
+
+func optional(s string) *string {
+	if s == "" {
+		return nil
+	}
+
+	return &s
 }
 
 func (s *Server) ListWorkspaceChanges(ctx context.Context, req openapi.ListWorkspaceChangesRequestObject,

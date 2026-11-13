@@ -161,25 +161,36 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     long it lasted. What is typed and shown is not recorded.
   - Not built: a command given in a link, several viewers of one shell, files, a shell for coordinators or
     workers, Windows.
-- A chat's working folders, for the owner (issue #255; after Omnigent's resource routes and runner, read for
-  behaviour): its Bot's own folder on the control plane's machine and the worktree of each Task of its Runs that has
-  run (its newest Conversation's, on that Conversation's node). Read only.
+- A chat's working folders, for the owner (issues #255 and #297; after Omnigent's resource routes and runner and
+  Orca's file methods, read for behaviour): its Bot's own folder on the control plane's machine and the worktree of
+  each Task of its Runs that has run (its newest Conversation's, on that Conversation's node). The owner reads and
+  changes them.
   - `internal/shared/workspacefs` answers a question about a folder: a page of a directory (1000 entries by name,
     with an `after` cursor), a file (10 MiB, binary when its first 8 KiB hold a NUL or are not UTF-8, cut at a
     character), what changed (`git status --porcelain=v1 -z --untracked-files=all` without optional locks,
     `node_modules`, `.venv` and the like left out; untracked or added is created, deleted is deleted, else modified;
     line counts from `git diff --numstat HEAD`; 30 s), and a changed file at HEAD and now. A path is relative,
-    without `..`, and refused when its links lead out of the folder.
+    without `..`, and refused when its links lead out of the folder. A read gives the file's SHA-256, and with `raw`
+    its bytes whatever they are (10 MiB). It also changes a folder (`write.go`, after Orca's `writeIfUnchanged`): a
+    write of at most 1 MiB replaces a file only while it still has the SHA-256 the write names (`changed` or
+    `not_found` otherwise) or makes one where nothing is (`exists`), through a file beside it renamed over it; a
+    folder is made where nothing is; a rename moves to where nothing is and not into itself; a delete is for good.
+    The folder itself is never changed, a link never written through (a link is renamed or deleted as itself), and
+    one change runs at a time in the process.
   - A Task's worktree: the control plane sends `files_request` on the node's socket and waits up to 35 s for the
     node's answer, which the node posts to `POST /node/v1/files?request=` since a file is larger than a socket
     message. The node answers only for a folder under its worktree root, not the root itself. A node that is not
-    connected is not asked.
+    connected is not asked. A write whose request would not fit one socket message (1 MiB) is refused before it is
+    sent, as a node closes a socket on a larger message.
   - A Bot's folder: the control plane's user cannot read the coordinator's home, so it runs `hypomnema files serve
     --root <bots>` as the coordinator for each question, one JSON request on stdin and one answer on stdout, through
     a second sudoers rule that `deploy/coordinator/setup-coordinator.sh` writes beside the launcher's.
   - `GET /api/v1/chats/{id}/workspaces` lists the folders (owner only), `.../workspaces/{bot|task id}/tree`, `/file`,
-    `/changes` and `/diff` ask the machine that holds one; its refusal keeps its words (a path refused is 400,
-    nothing there 404, no git 409, git failing or a machine offline 503).
+    `/changes` and `/diff` ask the machine that holds one; `PUT .../file` (with `expect_sha256`), `DELETE .../file`,
+    `POST .../folders` and `POST .../move` change it; `GET .../raw` sends a file's bytes as an attachment of type
+    `application/octet-stream` with `nosniff` and a sandboxing CSP, so that none is ever a page of this origin. A
+    refusal keeps its words (a path refused or too large is 400, nothing there 404, no git, a changed file or a name
+    taken 409, git failing or a machine offline 503).
 - A browser every agent shares (issue #193, step 1 in issue #196,
   [research](docs/research/2026-11-12-embedded-browser.md); `internal/controlplane/browser`). Built so far: the
   engine on the control plane, an agent's calls to it, the tools in a worker's hands, and the control plane's
@@ -1650,13 +1661,25 @@ Node (`internal/node`):
     button; Refresh; "Changed | All files" (the Machines page's segmented control); a filter by name. Changed lists
     what git says changed with lines added and removed; All files is a tree read a directory at a time when it is
     opened, its rows virtualized (`@tanstack/react-virtual`, 25 px rows, as Orca and Omnigent). A file opens as a
-    read-only tab of the pane in Monaco (`code-view.tsx`, loaded with the first file); a changed file opens as its
+    tab of the pane in Monaco (`code-view.tsx`, loaded with the first file), kept behind other tabs; a changed file
+    opens as its
     diff in Monaco's diff editor, unified, side by side from 920 px, unchanged lines folded to three of context;
     a created or deleted file as its one side. Nothing polls: the lists are read again on each event of
     `GET /events/stream` (a quarter second after), when the window comes back and with Refresh, and an open file of
     256 KiB or less every two seconds while it is shown. On a phone the panel lies over the pane and gives way to
-    the file it opens. Not built: editing, file actions, previews, content search, more than the first 1000 entries
-    of a directory.
+    the file it opens.
+  - Editing (issue #297, `file-tab.tsx`, after Orca's editor): a file of 1 MiB or less is edited and saved with Save
+    or Ctrl+S, not on its own (Orca's default); its tab is marked while not saved and asks before it closes. A save
+    names the SHA-256 the text started from. When the file changed on its machine meanwhile (seen in the reads every
+    two seconds, or refused by the save) a bar says so with Compare (the diff of the file now and the owner's text),
+    Reload and Overwrite (Orca's external-change banner); a file that went offers to be saved again. A Markdown
+    file opens as its preview, with the chat's renderer (Streamdown), its images at paths of the folder read
+    through `/raw` as `blob:` URLs (Orca's `useLocalImageSrc.ts`), and switches to its source. An image (png, jpg,
+    gif, webp, svg, avif, ico, bmp) opens as one, from its bytes. All files has New file and New folder at its top,
+    and a menu on each row (New file and New folder on a folder, Rename, Download, Copy path, Delete), as Orca's
+    row menu; a delete says it is for good and asks; a file or folder deleted or moved closes its tabs. Not built:
+    upload, rich Markdown editing, PDF, CSV and notebook views, a Trash and undo, content search, writes over 1 MiB,
+    more than the first 1000 entries of a directory.
   - The sidebar lists the places (New chat, Board with the count that needs the owner, Runs, Machines) above the
     chats.
     Every page follows `GET /events/stream` from the board's cursor and refreshes what an event may have changed.

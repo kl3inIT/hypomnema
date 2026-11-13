@@ -5,9 +5,10 @@
 #
 # It creates the coordinator user, installs Node and pi for it, the root-owned launchers (hypomnema-pi for a chat,
 # hypomnema-routine for a Routine's script, issue #211) and a sudoers rule that lets the control plane's user run, as
-# the coordinator, only those launchers and the reader of the Bots' folders (issue #255: `hypomnema files serve` with
-# its root, which only reads), a coordinator token in a file of mode 0600, and the coordinator skill. The launchers
-# read the token's address and run their setup with it; pi and a Routine's script run in a bubblewrap box
+# the coordinator, only those launchers and the helper of the Bots' folders (issue #255: `hypomnema files serve`
+# with its root, which reads a Bot's folder and, for the owner, changes it, issue #297), a coordinator token in a
+# file of mode 0600, and the coordinator skill. The launchers read the token's address and run their setup with it;
+# pi and a Routine's script run in a bubblewrap box
 # (setup-box.sh, issues #260 and #211) with a token of their own and never see this one. No secret is passed on a
 # command line or printed. Run it again to update pi
 # (package.json and package-lock.json here, which Dependabot updates), the launcher, the binary or the

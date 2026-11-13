@@ -196,3 +196,90 @@ func TestAChatsFoldersAreReadOnTheirMachines(t *testing.T) {
 	assert.Equal(t, "a", firstLine("a\nb"))
 	assert.Equal(t, strings.Repeat("x", 79)+"…", firstLine(strings.Repeat("x", 100)))
 }
+
+// Scenario: the owner changes a chat's folders (issue #297). A save names the text it was opened as and is asked
+// of the machine; the machine's "changed" is a conflict, "missing" not found. A folder is made, a file moved and
+// deleted on the machine that holds them. A file's bytes come as an opaque download that is never a page of this
+// origin. A coordinator changes nothing.
+func TestAChatsFoldersAreChangedOnTheirMachines(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	owner, _ := w.token("owner", bearertoken.Owner)
+	pi, _ := w.token("pi", bearertoken.Coordinator)
+	ctx := t.Context()
+	chat, tree := w.chatWithATask(owner)
+
+	var writes []workspacefs.Request
+
+	f := &folders{answer: func(_ string, req workspacefs.Request) workspacefs.Result {
+		switch {
+		case req.Op == workspacefs.OpWrite && req.Expect == "old":
+			return workspacefs.Result{Error: &workspacefs.Error{Code: workspacefs.CodeChanged, Message: "it changed"}}
+		case req.Op == workspacefs.OpWrite:
+			writes = append(writes, req)
+
+			return workspacefs.Result{Done: &workspacefs.Done{Path: req.Path, SHA256: "new"}}
+		case req.Op == workspacefs.OpRead && req.Raw:
+			return workspacefs.Result{File: &workspacefs.File{Path: req.Path, Binary: true, Data: []byte("<svg/>")}}
+		case req.Op == workspacefs.OpRename:
+			return workspacefs.Result{Done: &workspacefs.Done{Path: req.To}}
+		default:
+			return workspacefs.Result{Done: &workspacefs.Done{Path: req.Path}}
+		}
+	}}
+	w.srv.WithWorkspaces(f.node, f)
+
+	saved, err := owner.WriteWorkspaceFileWithResponse(ctx, chat.ID, tree.TaskID, openapi.WorkspaceWrite{
+		Path: "src/app.ts", Content: "two\n", ExpectSha256: ptr("current"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, saved.JSON200, "%s", saved.Body)
+	assert.Equal(t, "new", *saved.JSON200.Sha256)
+	require.Len(t, writes, 1)
+	assert.Equal(t, workspacefs.Request{Op: workspacefs.OpWrite, Path: "src/app.ts", Content: "two\n",
+		Expect: "current"}, writes[0])
+
+	stale, err := owner.WriteWorkspaceFileWithResponse(ctx, chat.ID, tree.TaskID, openapi.WorkspaceWrite{
+		Path: "src/app.ts", Content: "three\n", ExpectSha256: ptr("old"),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, openapi.Conflict, errorCode(t, stale.Body, stale.StatusCode(), http.StatusConflict))
+
+	folder, err := owner.MakeWorkspaceFolderWithResponse(ctx, chat.ID, "bot",
+		openapi.WorkspacePathBody{Path: "notes"})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusCreated, folder.StatusCode(), "%s", folder.Body)
+
+	moved, err := owner.MoveWorkspaceEntryWithResponse(ctx, chat.ID, tree.TaskID,
+		openapi.WorkspaceMove{Path: "a.md", To: "docs/a.md"})
+	require.NoError(t, err)
+	require.NotNil(t, moved.JSON200, "%s", moved.Body)
+	assert.Equal(t, "docs/a.md", moved.JSON200.Path)
+
+	deleted, err := owner.DeleteWorkspaceEntryWithResponse(ctx, chat.ID, tree.TaskID,
+		&openapi.DeleteWorkspaceEntryParams{Path: ptr("docs")})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusNoContent, deleted.StatusCode())
+
+	raw, err := owner.ReadWorkspaceRawWithResponse(ctx, chat.ID, tree.TaskID,
+		&openapi.ReadWorkspaceRawParams{Path: ptr("img/logo.svg")})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, raw.StatusCode())
+	assert.Equal(t, "<svg/>", string(raw.Body))
+	assert.Equal(t, "application/octet-stream", raw.HTTPResponse.Header.Get("Content-Type"))
+	assert.Equal(t, "nosniff", raw.HTTPResponse.Header.Get("X-Content-Type-Options"))
+	assert.Contains(t, raw.HTTPResponse.Header.Get("Content-Security-Policy"), "sandbox")
+	assert.Equal(t, "attachment; filename=logo.svg", raw.HTTPResponse.Header.Get("Content-Disposition"))
+
+	node := "node " + tree.NodeID + " " + tree.Worktree
+	assert.Equal(t, []string{
+		node + " write src/app.ts", node + " write src/app.ts", "bot coordinator mkdir notes",
+		node + " rename a.md", node + " delete docs", node + " read img/logo.svg",
+	}, f.asked)
+
+	forbidden, err := pi.DeleteWorkspaceEntryWithResponse(ctx, chat.ID, tree.TaskID,
+		&openapi.DeleteWorkspaceEntryParams{Path: ptr("src")})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, forbidden.StatusCode(), "the folders are the owner's to change")
+}

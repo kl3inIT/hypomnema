@@ -1,12 +1,18 @@
-import { useQuery } from "@tanstack/react-query"
+import { useQuery, type QueryClient } from "@tanstack/react-query"
+import { useEffect, useMemo, useSyncExternalStore } from "react"
 
-import "@/api/client"
+import { client } from "@/api/client"
 import {
+  deleteWorkspaceEntry,
   diffWorkspaceFile,
   listChatWorkspaces,
   listWorkspaceChanges,
   listWorkspaceDirectory,
+  makeWorkspaceFolder,
+  moveWorkspaceEntry,
   readWorkspaceFile,
+  readWorkspaceRaw,
+  writeWorkspaceFile,
 } from "@/api/generated/sdk.gen"
 
 // A chat's working folders, as the Files panel reads them (issue #255). As Omnigent's useWorkspaceChangedFiles.ts:
@@ -23,9 +29,9 @@ const key = (chat: string, workspace: string, ...rest: unknown[]) => [
   ...rest,
 ]
 
-// Whether a query of the panel is the content of a file, which an event does not refresh.
+// Whether a query of the panel is the content of a file or an image, which an event does not refresh.
 export const isFileQuery = (queryKey: readonly unknown[]) =>
-  queryKey[0] === workspaceKey[0] && queryKey[3] === "file"
+  queryKey[0] === workspaceKey[0] && (queryKey[3] === "file" || queryKey[3] === "raw")
 
 const liveFileBytes = 256 << 10
 
@@ -63,9 +69,13 @@ export function useChanges(chat: string, workspace: string, enabled = true) {
   })
 }
 
+// fileKey is the query of a file's text, which a save sets to what it wrote.
+export const fileKey = (chat: string, workspace: string, path: string) =>
+  key(chat, workspace, "file", path)
+
 export function useFile(chat: string, workspace: string, path: string, shown: boolean) {
   return useQuery({
-    queryKey: key(chat, workspace, "file", path),
+    queryKey: fileKey(chat, workspace, path),
     queryFn: async () =>
       (
         await readWorkspaceFile({
@@ -114,3 +124,144 @@ export function problemOf(error: unknown): { code: string; message: string } {
 
 // baseName is the last part of a path.
 export const baseName = (path: string) => path.slice(path.lastIndexOf("/") + 1) || path
+
+// The changes (issue #297). Each is one request; what the machine refuses comes back in its words, a save over a
+// file that changed meanwhile as the code "conflict" and one over a file that went as "not_found".
+
+// MaxWrite is the largest text saved from here: what fits the message that carries it to a node.
+export const maxWrite = 1 << 20
+
+const where = (chat: string, workspace: string) => ({ chat_id: chat, workspace_id: workspace })
+
+export async function saveFile(
+  chat: string,
+  workspace: string,
+  path: string,
+  content: string,
+  expect?: string,
+) {
+  return (
+    await writeWorkspaceFile({
+      path: where(chat, workspace),
+      body: { path, content, ...(expect !== undefined && { expect_sha256: expect }) },
+    })
+  ).data
+}
+
+export async function makeFolder(chat: string, workspace: string, path: string) {
+  return (await makeWorkspaceFolder({ path: where(chat, workspace), body: { path } })).data
+}
+
+export async function moveEntry(chat: string, workspace: string, path: string, to: string) {
+  return (await moveWorkspaceEntry({ path: where(chat, workspace), body: { path, to } })).data
+}
+
+export async function deleteEntry(chat: string, workspace: string, path: string) {
+  await deleteWorkspaceEntry({ path: where(chat, workspace), query: { path } })
+}
+
+// refreshFolder reads a folder's lists again after a change made here.
+export function refreshFolder(queryClient: QueryClient, chat: string, workspace: string) {
+  void queryClient.invalidateQueries({ queryKey: [...workspaceKey, chat, workspace] })
+}
+
+// rawURL is where a file's bytes are downloaded, as an attachment.
+export function rawURL(chat: string, workspace: string, path: string) {
+  const base = client.getConfig().baseUrl ?? ""
+
+  return `${base}/chats/${encodeURIComponent(chat)}/workspaces/${encodeURIComponent(workspace)}/raw?path=${encodeURIComponent(path)}`
+}
+
+const images: Record<string, string> = {
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  svg: "image/svg+xml",
+  avif: "image/avif",
+  ico: "image/x-icon",
+  bmp: "image/bmp",
+}
+
+const extension = (path: string) => baseName(path).split(".").pop()?.toLowerCase() ?? ""
+
+// imageType is an image file's type by its name, or undefined. The server sends every file as opaque bytes; the
+// page gives them their type, in an <img>, where an SVG's script does not run.
+export const imageType = (path: string) => images[extension(path)]
+
+export const isMarkdown = (path: string) => ["md", "markdown", "mdx"].includes(extension(path))
+
+// useImage is an image's bytes as an object URL, for as long as it is shown (Orca's useLocalImageSrc, Omnigent's
+// CodeViewer: bytes, a Blob, a URL revoked after).
+export function useImage(chat: string, workspace: string, path: string, enabled = true) {
+  return useQuery({
+    queryKey: key(chat, workspace, "raw", path),
+    queryFn: async () => {
+      const bytes = (
+        await readWorkspaceRaw({
+          path: where(chat, workspace),
+          query: { path },
+          parseAs: "blob",
+        })
+      ).data as Blob
+
+      return new Blob([bytes], { type: imageType(path) ?? "application/octet-stream" })
+    },
+    enabled: enabled && imageType(path) !== undefined,
+    staleTime: 30_000,
+  })
+}
+
+// Tabs with text not saved yet, by their tab's key, so that closing one asks first (Orca marks such a tab).
+const unsaved = new Set<string>()
+const listeners = new Set<() => void>()
+
+export function setUnsaved(tab: string, value: boolean) {
+  if (unsaved.has(tab) === value) return
+  if (value) unsaved.add(tab)
+  else unsaved.delete(tab)
+  for (const listener of listeners) listener()
+}
+
+export const isUnsaved = (tab: string) => unsaved.has(tab)
+
+export function useUnsaved(tab: string) {
+  return useSyncExternalStore(
+    (listener) => {
+      listeners.add(listener)
+
+      return () => listeners.delete(listener)
+    },
+    () => unsaved.has(tab),
+  )
+}
+
+// useObjectURL is a blob: URL for bytes, revoked when they change or are no longer shown.
+export function useObjectURL(blob: Blob | undefined) {
+  const url = useMemo(() => (blob ? URL.createObjectURL(blob) : null), [blob])
+  useEffect(() => () => (url ? URL.revokeObjectURL(url) : undefined), [url])
+
+  return url
+}
+
+// inFolder is the path of the folder that a link in the file at `from` names, or null when it is an address or
+// leaves the folder (Orca's useLocalImageSrc resolves a document's image against its folder).
+export function inFolder(from: string, src: string): string | null {
+  if (src === "" || /^[a-z][a-z0-9+.-]*:/i.test(src) || src.startsWith("//")) return null
+
+  const target = src.split(/[?#]/)[0] ?? ""
+  const parts = target.startsWith("/") ? [] : from.split("/").slice(0, -1)
+
+  for (const part of target.split("/")) {
+    if (part === "" || part === ".") continue
+    if (part === "..") {
+      if (parts.length === 0) return null
+      parts.pop()
+    } else {
+      parts.push(decodeURIComponent(part))
+    }
+  }
+
+  return parts.length > 0 ? parts.join("/") : null
+}

@@ -15,13 +15,14 @@ import (
 // The `files serve` command (issue #255): the control plane's user cannot read
 // the coordinator's home, so the control plane runs this as the coordinator,
 // through a sudoers rule that names it with its root, for each question about
-// a Bot's folder. As Omnigent reads a workspace through a helper run as the
-// agent's identity, not as its server.
+// a Bot's folder, and for each change the owner makes in it (issue #297). As
+// Omnigent reads and writes a workspace through a helper run as the agent's
+// identity, not as its server.
 //
 //	hypomnema files serve --root DIR
 //
 // It reads one BotFilesRequest as JSON on stdin and writes one
-// workspacefs.Result to stdout. It only reads.
+// workspacefs.Result to stdout.
 
 // BotFilesRequest is a question about the folder DIR/<bot>.
 type BotFilesRequest struct {
@@ -49,7 +50,7 @@ func files(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer
 	}
 
 	var req BotFilesRequest
-	if err := json.NewDecoder(io.LimitReader(stdin, 64<<10)).Decode(&req); err != nil {
+	if err := json.NewDecoder(io.LimitReader(stdin, 8*workspacefs.MaxWrite)).Decode(&req); err != nil {
 		return fmt.Errorf("reading the request: %w", err)
 	}
 

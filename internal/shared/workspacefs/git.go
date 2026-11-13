@@ -225,7 +225,7 @@ func DiffOf(ctx context.Context, root, rel string) (*Diff, error) {
 
 	out := &Diff{Path: path.Clean(rel)}
 
-	now, err := Read(root, rel)
+	now, err := Read(root, rel, false)
 
 	var known *Error
 

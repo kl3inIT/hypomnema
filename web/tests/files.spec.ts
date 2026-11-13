@@ -178,9 +178,11 @@ test("the Files panel shows a chat's folders, their changes and files", async ({
   await changed.getByRole("button", { name: /app\.ts/ }).click()
   await expect(page.getByRole("tab", { name: "app.ts" })).toHaveAttribute("aria-selected", "true")
   await expect(page.getByText("Changed since the last commit")).toBeVisible()
-  await expect(page.getByTestId("diff-view").locator(".view-lines").last()).toContainText("health")
+  await expect(page.locator('[data-testid="diff-view"]:visible .view-lines').last()).toContainText(
+    "health",
+  )
   // The added lines are marked once Monaco has worked the diff out.
-  await expect(page.getByTestId("diff-view").locator(".line-insert").first()).toBeVisible()
+  await expect(page.locator('[data-testid="diff-view"]:visible .line-insert').first()).toBeVisible()
   await shot(page, "files-diff")
 
   await (
@@ -190,7 +192,9 @@ test("the Files panel shows a chat's folders, their changes and files", async ({
     .getByRole("button", { name: /health\.ts/ })
     .click()
   await expect(page.getByText("New file", { exact: true })).toBeVisible()
-  await expect(page.getByTestId("code-view").locator(".view-lines")).toContainText("ok: true")
+  await expect(page.locator('[data-testid="code-view"]:visible .view-lines')).toContainText(
+    "ok: true",
+  )
 
   await (await shown(page)).getByRole("button", { name: "All files" }).click()
   const tree = panel(page).getByRole("tree", { name: "All files" })
@@ -202,7 +206,9 @@ test("the Files panel shows a chat's folders, their changes and files", async ({
     "aria-selected",
     "true",
   )
-  await expect(page.getByTestId("code-view").locator(".view-lines")).toContainText("express")
+  await expect(page.locator('[data-testid="code-view"]:visible .view-lines')).toContainText(
+    "express",
+  )
   await shot(page, "files-tree-file")
   expect(asked).toEqual(
     expect.arrayContaining(["tsk_1 tree ", "tsk_1 tree src", "tsk_1 file src/app.ts"]),

@@ -2312,6 +2312,87 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/WorkspaceFile" }
         default: { $ref: "#/components/responses/Error" }
+    put:
+      operationId: WriteWorkspaceFile
+      summary: Write a file of a chat's folder, only over the text it was read as (owner only)
+      description: >-
+        With expect_sha256 the file must still have that SHA-256, or the write is refused as a conflict (it changed)
+        or not found (it went); without, nothing may be at the path (a conflict when something is). At most 1 MiB.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WorkspaceWrite" }
+      responses:
+        "200":
+          description: The file as written.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkspaceDone" }
+        default: { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: DeleteWorkspaceEntry
+      summary: Delete a file, or a folder with what it holds, for good (owner only)
+      parameters:
+        - $ref: "#/components/parameters/WorkspacePath"
+      responses:
+        "204":
+          description: Deleted.
+        default: { $ref: "#/components/responses/Error" }
+  /chats/{chat_id}/workspaces/{workspace_id}/raw:
+    parameters:
+      - $ref: "#/components/parameters/ChatID"
+      - $ref: "#/components/parameters/WorkspaceID"
+    get:
+      operationId: ReadWorkspaceRaw
+      summary: A file's bytes, up to 10 MiB, as an opaque download (owner only)
+      parameters:
+        - $ref: "#/components/parameters/WorkspacePath"
+      responses:
+        "200":
+          description: The bytes, never served as a page.
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        default: { $ref: "#/components/responses/Error" }
+  /chats/{chat_id}/workspaces/{workspace_id}/folders:
+    parameters:
+      - $ref: "#/components/parameters/ChatID"
+      - $ref: "#/components/parameters/WorkspaceID"
+    post:
+      operationId: MakeWorkspaceFolder
+      summary: Make a folder where nothing is (owner only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WorkspacePathBody" }
+      responses:
+        "201":
+          description: The folder.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkspaceDone" }
+        default: { $ref: "#/components/responses/Error" }
+  /chats/{chat_id}/workspaces/{workspace_id}/move:
+    parameters:
+      - $ref: "#/components/parameters/ChatID"
+      - $ref: "#/components/parameters/WorkspaceID"
+    post:
+      operationId: MoveWorkspaceEntry
+      summary: Rename or move a file or folder to where nothing is (owner only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WorkspaceMove" }
+      responses:
+        "200":
+          description: Where it is now.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkspaceDone" }
+        default: { $ref: "#/components/responses/Error" }
   /chats/{chat_id}/workspaces/{workspace_id}/changes:
     parameters:
       - $ref: "#/components/parameters/ChatID"
@@ -4609,6 +4690,33 @@ components:
         binary: { type: boolean, description: A binary file has no content. }
         truncated: { type: boolean, description: The content is the first 10 MiB, cut at a character. }
         content: { type: string }
+        sha256:
+          type: string
+          description: The whole file's SHA-256, which a write names as the text it replaces; absent past 10 MiB.
+    WorkspaceWrite:
+      type: object
+      required: [path, content]
+      properties:
+        path: { type: string }
+        content: { type: string, description: The file's whole text, at most 1 MiB. }
+        expect_sha256: { type: string, description: The SHA-256 the file must still have; absent for a new file. }
+    WorkspacePathBody:
+      type: object
+      required: [path]
+      properties:
+        path: { type: string }
+    WorkspaceMove:
+      type: object
+      required: [path, to]
+      properties:
+        path: { type: string }
+        to: { type: string }
+    WorkspaceDone:
+      type: object
+      required: [path]
+      properties:
+        path: { type: string }
+        sha256: { type: string, description: A written file's SHA-256. }
     WorkspaceChange:
       type: object
       required: [path, status, modified_at]
