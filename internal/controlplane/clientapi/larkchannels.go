@@ -42,7 +42,7 @@ func toLarkChannel(st larkbot.Status) openapi.LarkChannel {
 	out := openapi.LarkChannel{
 		Name: st.Channel.Name, Bot: st.Channel.Bot, AppId: st.Channel.AppID,
 		Mode: openapi.LarkChannelMode(st.Channel.Mode), OwnerOpenId: st.Channel.OwnerOpenID,
-		Enabled: st.Channel.Enabled, Connected: st.State.Connected,
+		Enabled: st.Channel.Enabled, WebLink: st.Channel.WebLink, Connected: st.State.Connected,
 		CreatedAt: st.Channel.CreatedAt, UpdatedAt: st.Channel.UpdatedAt,
 		People: make([]openapi.LarkChannelPerson, 0, len(st.People)),
 	}
@@ -133,7 +133,7 @@ func (s *Server) PutLarkChannel(ctx context.Context, req openapi.PutLarkChannelR
 
 	set := larkbot.Settings{
 		AppID: val(req.Body.AppId), AppSecret: val(req.Body.AppSecret), Owner: val(req.Body.Owner),
-		Bot: val(req.Body.Bot), Enabled: req.Body.Enabled,
+		Bot: val(req.Body.Bot), Enabled: req.Body.Enabled, WebLink: req.Body.WebLink,
 	}
 	if req.Body.Mode != nil {
 		set.Mode = orchestration.LarkChannelMode(*req.Body.Mode)

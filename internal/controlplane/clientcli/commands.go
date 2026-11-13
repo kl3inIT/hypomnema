@@ -326,7 +326,8 @@ var commands = []command{
 	{
 		name: "channels lark set", args: "<channel>", min: 1, max: 1,
 		summary: "set a Lark channel up or change it: the bot it talks to, its app from a JSON file with app_id " +
-			"and app_secret, the owner's email at Lark, who may talk through it, and whether it is on (owner)",
+			"and app_secret, the owner's email at Lark, who may talk through it, whether it is on, and whether " +
+			"a reply ends with a link to the web client (owner)",
 		flags: func(fs *flag.FlagSet) {
 			fs.String("bot", "", "the bot the channel talks to; coordinator for a new channel")
 			fs.String("app-file", "", "a JSON file with the app's app_id and app_secret, or - for standard input")
@@ -334,6 +335,8 @@ var commands = []command{
 			fs.String("mode", "", "who may talk through the channel: owner, allowlist or everyone")
 			fs.Bool("on", false, "switch the channel on")
 			fs.Bool("off", false, "switch the channel off")
+			fs.Bool("web-link", false, "end a direct chat's reply with a link to the chat in the web client; "+
+				"-web-link=false takes it off. On for the first channel, off for the next")
 			jsonFlag(fs)
 		},
 		run: larkChannelSet,

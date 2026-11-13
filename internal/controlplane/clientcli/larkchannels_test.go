@@ -90,6 +90,14 @@ func (l *larkChannelSettings) Set(_ context.Context, channel string, set larkbot
 		st.Channel.Mode = set.Mode
 	}
 
+	if !known {
+		st.Channel.WebLink = len(l.names) == 0
+	}
+
+	if set.WebLink != nil {
+		st.Channel.WebLink = *set.WebLink
+	}
+
 	if set.Enabled != nil {
 		st.Channel.Enabled = *set.Enabled
 		st.State = larkbot.State{Connected: *set.Enabled, AppID: st.Channel.AppID}
@@ -191,7 +199,7 @@ func TestSettingLarkChannelsUpFromTheCLI(t *testing.T) {
 	out, err = w.cmdIn(t, `{"app_id":"cli_a1b2","app_secret":"never-printed"}`, "channels", "lark", "set", "main",
 		"--app-file", "-", "--owner", "owner@example.com")
 	require.NoError(t, err)
-	assert.Equal(t, "main\tbot coordinator\tapp cli_a1b2\toff\tmode owner\towner ou_owner\n", out)
+	assert.Equal(t, "main\tbot coordinator\tapp cli_a1b2\toff\tmode owner\tweb link on\towner ou_owner\n", out)
 	assert.Equal(t, "never-printed", channels.secrets["main"])
 
 	_, err = w.cmd(t, "channels", "lark", "set", "main", "--on", "--off")
@@ -203,7 +211,8 @@ func TestSettingLarkChannelsUpFromTheCLI(t *testing.T) {
 
 	out, err = w.cmd(t, "channels", "lark", "set", "main", "--mode", "allowlist", "--on")
 	require.NoError(t, err)
-	assert.Equal(t, "main\tbot coordinator\tapp cli_a1b2\ton, connected\tmode allowlist\towner ou_owner\n"+
+	assert.Equal(t, "main\tbot coordinator\tapp cli_a1b2\ton, connected\tmode allowlist\tweb link on\t"+
+		"owner ou_owner\n"+
 		"ou_linh\tlinh@example.com\tLinh\n", out)
 
 	_, err = w.cmdIn(t, `{"app_id":"cli_a1b2","app_secret":"again"}`, "channels", "lark", "set", "maps",
@@ -213,12 +222,25 @@ func TestSettingLarkChannelsUpFromTheCLI(t *testing.T) {
 	out, err = w.cmdIn(t, `{"app_id":"cli_m4p5","app_secret":"never-printed-either"}`, "channels", "lark", "set",
 		"maps", "--app-file", "-", "--owner", "owner@example.com", "--bot", "vmap")
 	require.NoError(t, err)
-	assert.Equal(t, "maps\tbot vmap\tapp cli_m4p5\toff\tmode owner\towner ou_owner\n", out)
+	assert.Equal(t, "maps\tbot vmap\tapp cli_m4p5\toff\tmode owner\tweb link off\towner ou_owner\n", out,
+		"only the first Channel has the link")
 
 	out, err = w.cmd(t, "channels", "lark", "list")
 	require.NoError(t, err)
-	assert.Equal(t, "main\tbot coordinator\tapp cli_a1b2\ton, connected\tmode allowlist\n"+
-		"maps\tbot vmap\tapp cli_m4p5\toff\tmode owner\n", out)
+	assert.Equal(t, "main\tbot coordinator\tapp cli_a1b2\ton, connected\tmode allowlist\tweb link on\n"+
+		"maps\tbot vmap\tapp cli_m4p5\toff\tmode owner\tweb link off\n", out)
+
+	_, err = w.cmd(t, "channels", "lark", "set", "maps", "-web-link")
+	require.NoError(t, err)
+
+	out, err = w.cmd(t, "channels", "lark", "set", "main", "-web-link=false")
+	require.NoError(t, err)
+	assert.Contains(t, out, "\tweb link off\t")
+
+	out, err = w.cmd(t, "channels", "lark", "list")
+	require.NoError(t, err)
+	assert.Equal(t, "main\tbot coordinator\tapp cli_a1b2\ton, connected\tmode allowlist\tweb link off\n"+
+		"maps\tbot vmap\tapp cli_m4p5\toff\tmode owner\tweb link on\n", out)
 
 	_, err = w.cmd(t, "channels", "lark", "disallow", "main", "linh@example.com")
 	require.NoError(t, err)

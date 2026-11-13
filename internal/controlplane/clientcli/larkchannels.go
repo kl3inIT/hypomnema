@@ -27,9 +27,19 @@ func larkChannelState(c *openapi.LarkChannel) string {
 	}
 }
 
+// larkChannelLink says whether a Channel's replies end with a link to the web
+// client.
+func larkChannelLink(c *openapi.LarkChannel) string {
+	if c.WebLink {
+		return "web link on"
+	}
+
+	return "web link off"
+}
+
 func printLarkChannel(e *env, c *openapi.LarkChannel) {
-	e.printf("%s\tbot %s\tapp %s\t%s\tmode %s\towner %s\n", c.Name, c.Bot, c.AppId, larkChannelState(c), c.Mode,
-		c.OwnerOpenId)
+	e.printf("%s\tbot %s\tapp %s\t%s\tmode %s\t%s\towner %s\n", c.Name, c.Bot, c.AppId, larkChannelState(c), c.Mode,
+		larkChannelLink(c), c.OwnerOpenId)
 
 	if c.ConnectedAppId != nil {
 		e.printf("connected as app %s until the control plane starts again\n", *c.ConnectedAppId)
@@ -53,7 +63,8 @@ func larkChannelsList(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	return e.print(fs, resp.JSON200, func() {
 		for i := range resp.JSON200.Data {
 			c := &resp.JSON200.Data[i]
-			e.printf("%s\tbot %s\tapp %s\t%s\tmode %s\n", c.Name, c.Bot, c.AppId, larkChannelState(c), c.Mode)
+			e.printf("%s\tbot %s\tapp %s\t%s\tmode %s\t%s\n", c.Name, c.Bot, c.AppId, larkChannelState(c), c.Mode,
+				larkChannelLink(c))
 		}
 	})
 }
@@ -117,6 +128,14 @@ func larkChannelSet(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	case on || off:
 		set.Enabled = &on
 	}
+
+	// Only a -web-link that was given changes the link.
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "web-link" {
+			link := boolean(fs, "web-link")
+			set.WebLink = &link
+		}
+	})
 
 	resp, err := e.api.PutLarkChannelWithResponse(ctx, channel, set)
 	if err != nil {

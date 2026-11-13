@@ -60,7 +60,10 @@ type LarkChannel struct {
 	// OwnerOpenID is the owner's id at Lark, in the app's own namespace.
 	OwnerOpenID string
 	// Enabled says the Channel answers. One that is off takes no message.
-	Enabled   bool
+	Enabled bool
+	// WebLink says a reply in a direct chat ends with a link to the chat in
+	// the web client (issue #305); a group's reply never has one.
+	WebLink   bool
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
@@ -95,7 +98,7 @@ type LarkChannelChat struct {
 func larkChannelFromRow(r store.LarkChannel) LarkChannel {
 	return LarkChannel{
 		Name: r.Name, AppID: r.AppID, Secret: r.Secret, Bot: r.Bot, Mode: LarkChannelMode(r.Mode),
-		OwnerOpenID: r.OwnerOpenID, Enabled: r.Enabled != 0,
+		OwnerOpenID: r.OwnerOpenID, Enabled: r.Enabled != 0, WebLink: r.WebLink != 0,
 		CreatedAt: millis(r.CreatedAt), UpdatedAt: millis(r.UpdatedAt),
 	}
 }
@@ -119,9 +122,13 @@ func (s *Service) SetLarkChannel(ctx context.Context, c LarkChannel) (LarkChanne
 			ErrInvalid)
 	}
 
-	enabled := int64(0)
+	enabled, webLink := int64(0), int64(0)
 	if c.Enabled {
 		enabled = 1
+	}
+
+	if c.WebLink {
+		webLink = 1
 	}
 
 	if err := s.write(ctx, func(q *store.Queries, now int64) error {
@@ -145,7 +152,7 @@ func (s *Service) SetLarkChannel(ctx context.Context, c LarkChannel) (LarkChanne
 
 		return q.UpsertLarkChannel(ctx, store.UpsertLarkChannelParams{
 			Name: c.Name, AppID: c.AppID, Secret: c.Secret, Bot: c.Bot, Mode: string(c.Mode),
-			OwnerOpenID: c.OwnerOpenID, Enabled: enabled, Now: now,
+			OwnerOpenID: c.OwnerOpenID, Enabled: enabled, WebLink: webLink, Now: now,
 		})
 	}); err != nil {
 		return LarkChannel{}, fmt.Errorf("recording Lark channel %s: %w", c.Name, err)

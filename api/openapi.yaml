@@ -3555,7 +3555,8 @@ components:
     LarkChannel:
       type: object
       description: A Lark Channel as the owner set it up, and whether it is connected.
-      required: [name, bot, app_id, mode, owner_open_id, enabled, connected, people, groups, created_at, updated_at]
+      required:
+        [name, bot, app_id, mode, owner_open_id, enabled, web_link, connected, people, groups, created_at, updated_at]
       properties:
         name: { type: string, description: The Channel's name. }
         bot:
@@ -3565,6 +3566,11 @@ components:
         mode: { $ref: "#/components/schemas/LarkChannelMode" }
         owner_open_id: { type: string, description: The owner's id at Lark, in the Channel's app. }
         enabled: { type: boolean, description: Whether the Channel takes messages. }
+        web_link:
+          type: boolean
+          description: >-
+            Whether a reply in a direct chat ends with a link to the chat in
+            the web client. A reply in a group never has one.
         connected:
           type: boolean
           description: Whether the Channel's persistent connection to Lark is open.
@@ -3651,6 +3657,12 @@ components:
           description: The owner's email in the app's Lark organization, or his open_id.
         mode: { $ref: "#/components/schemas/LarkChannelMode" }
         enabled: { type: boolean }
+        web_link:
+          type: boolean
+          description: >-
+            Whether a reply in a direct chat ends with a link to the chat in
+            the web client. A new Channel has it when it is the first
+            Channel, the owner's own, unless told otherwise.
     LarkChannelPerson:
       type: object
       required: [open_id, email, name, created_at]

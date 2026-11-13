@@ -58,6 +58,8 @@ func TestMigrationTurnsTheLarkBotIntoTheChannelMain(t *testing.T) {
 	assert.Equal(t, LarkChannel{
 		Name: "main", AppID: "cli_a1b2", Secret: "lark-bot-app", Bot: DefaultBot, Mode: LarkChannelAllowlist,
 		OwnerOpenID: "ou_owner", Enabled: true, CreatedAt: main.CreatedAt, UpdatedAt: main.UpdatedAt,
+		// A Channel that existed keeps the link under its replies (migration 62).
+		WebLink: true,
 	}, main)
 
 	people, err := s.LarkChannelPeople(ctx, "main")

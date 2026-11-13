@@ -955,9 +955,9 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     talk to one Bot (OpenClaw's `bindings[]`: one channel account routed to one agent). What Lark calls a bot is
     a Channel's app.
     - A Channel is a row of `lark_channels`: its name (as a Bot's, at most 50 characters), its app's id, the
-      name of the vault secret with the app's secret, the Bot it talks to, its mode, the owner's `open_id` and
-      whether it is on. One app is one Channel: an app that another Channel has is refused (Hermes refuses two
-      profiles on one app). The one Lark bot there was before migration 00047 is the Channel `main`, which talks
+      name of the vault secret with the app's secret, the Bot it talks to, its mode, the owner's `open_id`,
+      whether it is on and whether its replies link to the web (`web_link`, migration 00062). One app is one
+      Channel: an app that another Channel has is refused (Hermes refuses two profiles on one app). The one Lark bot there was before migration 00047 is the Channel `main`, which talks
       to `coordinator`.
     - It talks to Lark through Lark's Go SDK (`github.com/larksuite/oapi-sdk-go/v3`): events come over a
       persistent connection the control plane opens, one per Channel, so nothing public is opened for it. Only
@@ -966,10 +966,13 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       (`PUT /channels/lark/{channel}`) sets one up: the app's id, its secret (the vault secret
       `lark-channel-<channel>`, apart from the Lark Integration's; `main` keeps `lark-bot-app`, which it had as
       the one bot), the owner, whose email is looked up at Lark with the app and kept as his `open_id`, and the
-      Bot, which must exist and is `coordinator` unless named. A new Channel is off and in mode `owner`.
-      `--bot`, `--mode owner|allowlist|everyone` and `--on`/`--off` change it;
-      `channels lark allow|disallow <channel> <email>` keep its allowlist; `channels lark list` and
-      `channels lark show <channel>` say whether each is connected and why not; `channels lark rm <channel>`
+      Bot, which must exist and is `coordinator` unless named. A new Channel is off and in mode `owner`, and
+      its replies link to the web only when it is the first Channel, the owner's own
+      ([#305](https://github.com/kl3inIT/hypomnema/issues/305)); the Channels there were before migration 00062
+      keep the link. `--bot`, `--mode owner|allowlist|everyone`, `--on`/`--off` and `-web-link=true|false`
+      change it; `channels lark allow|disallow <channel> <email>` keep its allowlist; `channels lark list` and
+      `channels lark show <channel>` say whether each is connected and why not, and whether its replies link to
+      the web; `channels lark rm <channel>`
       forgets it with its people, its Lark chats' rows and its secret, and the chats stay. All are the owner's.
     - A Channel that is set up and on connects at start, or at once when it is set up or switched on; one that
       could not connect is tried again every half minute. The SDK cannot close a persistent connection:
@@ -1024,7 +1027,8 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     - On the web, `/settings/channels` (under Connections) is laid out as the Integrations page: a Lark section
       with "Add channel" and a card for each Channel: add one (its name, its app with the secret in a password
       field, the owner's email, its Bot), change its app, switch it on and off, choose its Bot (each with its
-      icon, as on the Bots page) and who may talk to it, add and remove people in a side sheet, remove it; it
+      icon, as on the Bots page) and who may talk to it, switch "Link to Hypomnema" on and off beside them
+      (saved on change), add and remove people in a side sheet, remove it; it
       says whether it is connected and why not. It does what `channels lark ...` does. Its "Group chats" list
       (after MemoryOS's channel page) shows each group with when it was last asked and a switch, which
       `PUT /channels/lark/{channel}/groups/{group}` saves; `GET /channels/lark...` gives the groups with each
@@ -1032,7 +1036,8 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     - What a person sees while the Bot works: their message carries the emoji `Typing` until the reply is
       there, and `CrossMark` when the model's call failed; the card answers that message (Lark shows it
       quoted), shows the tool that is running (`⚡ name: arguments`) before and under the text, and ends with a
-      link to the same chat on the web when `HYPOMNEMA_PUBLIC_URL` is set. A message sent while a turn runs is
+      link to the same chat on the web when `HYPOMNEMA_PUBLIC_URL` is set and the Channel's `web_link` is on,
+      read at each reply. A message sent while a turn runs is
       told it is queued, by the name of the chat's Bot. A reply longer than 8,000 characters goes on in further
       cards. Lark's mention tags in a reply are written out, so nobody is notified. A card Lark stopped writing
       after ten minutes is switched on again. `/new` gives the person's next message a new chat; `/stop` stops
