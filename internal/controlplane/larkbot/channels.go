@@ -165,6 +165,9 @@ type Lark interface {
 	OpenIDOf(ctx context.Context, email string) (string, error)
 	// NameOf reads a member's name.
 	NameOf(ctx context.Context, openID string) (string, error)
+	// Member is nil when the app can read a person as a member of its
+	// organization.
+	Member(ctx context.Context, openID string) error
 }
 
 // Store is what the Channels keep (orchestration.Service).
@@ -646,26 +649,78 @@ func (cn *conn) menued(ctx context.Context, p MenuPress) error {
 		return err
 	}
 
-	text := commandMenu + " " + key
+	m := Message{
+		ID: id, Direct: true, Text: commandMenu + " " + key, IsText: true, Sender: p.Operator, FromPerson: true,
+		SenderOrg: cn.orgOf(ctx, ch, p.Operator, p.Org), Org: p.Org, Menu: true,
+	}
 
-	chatID, err := cn.directChat(ctx, p.Operator, key)
+	known, err := cn.directChat(ctx, p.Operator)
 	if err != nil {
 		return err
 	}
 
-	// The event names the app's organization and not the presser's: Lark shows a custom app's menu to members
-	// of its organization only, so the press is taken as a member's.
-	return cn.direct(ctx, ch, Message{
-		ID: id, ChatID: chatID, Direct: true, Text: text, IsText: true, Sender: p.Operator, FromPerson: true,
-		SenderOrg: p.Org, Org: p.Org, Menu: true,
-	})
+	// Who may send is decided before anything is sent: a refused presser is told only in a chat they already
+	// have with the bot, where a message they typed was refused, and someone the bot never spoke with gets
+	// nothing.
+	if refusal := cn.refusal(ctx, ch, m); refusal != "" {
+		cn.all.logger.InfoContext(ctx, "a press of the Lark menu was refused", slog.String("event", "larkbot.refused"),
+			slog.String("channel", cn.name), slog.String("sender", m.Sender), slog.String("reason", refusal))
+
+		if known != "" {
+			cn.notice(ctx, known, refusal)
+		}
+
+		return nil
+	}
+
+	m.ChatID = known
+	if m.ChatID == "" {
+		// Lark names the chat when the press is first answered there, as OpenClaw answers a press to the person
+		// (user:<open_id>).
+		sendCtx, cancel := context.WithTimeout(ctx, sendTimeout)
+		m.ChatID, err = cn.lark.SendTextTo(sendCtx, p.Operator, fmt.Sprintf(noticeMenu, key))
+
+		cancel()
+
+		if err != nil {
+			return err
+		}
+	}
+
+	return cn.served(ctx, ch, m)
 }
 
-// directChat is the id of a person's direct chat with the bot. A press of the
-// menu does not name it: it is the one the person wrote in before, else Lark
-// names it when the press is first answered there, as OpenClaw answers a
-// press to the person (user:<open_id>).
-func (cn *conn) directChat(ctx context.Context, openID, key string) (string, error) {
+// orgOf is the organization of who pressed the menu. The event names only
+// the app's (OpenClaw's handleBotMenu reads no tenant of the operator), so a
+// presser is of the app's organization when the owner set them up there (the
+// owner, someone he added) or when the app can read them as a member of it,
+// which it cannot for anyone else; otherwise it is not known, and the press
+// is refused as a stranger's message is.
+func (cn *conn) orgOf(ctx context.Context, ch orchestration.LarkChannel, openID, appOrg string) string {
+	if openID == ch.OwnerOpenID {
+		return appOrg
+	}
+
+	if _, err := cn.all.store.LarkChannelPerson(ctx, cn.name, openID); err == nil {
+		return appOrg
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, sendTimeout)
+	defer cancel()
+
+	if err := cn.lark.Member(ctx, openID); err != nil {
+		cn.all.logger.InfoContext(ctx, "who pressed the Lark menu is not a member the app can read",
+			slog.String("event", "larkbot.not_member"), slog.String("channel", cn.name), slog.Any("error", err))
+
+		return ""
+	}
+
+	return appOrg
+}
+
+// directChat is the id of the direct chat a person has with the bot, which a
+// press of the menu does not name: the one they wrote in before, or none.
+func (cn *conn) directChat(ctx context.Context, openID string) (string, error) {
 	chats, err := cn.all.store.LarkChannelChats(ctx, cn.name)
 	if err != nil {
 		return "", err
@@ -677,17 +732,12 @@ func (cn *conn) directChat(ctx context.Context, openID, key string) (string, err
 		}
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, sendTimeout)
-	defer cancel()
-
-	return cn.lark.SendTextTo(ctx, openID, fmt.Sprintf(noticeMenu, key))
+	return "", nil
 }
 
 // direct handles a direct message that was taken: who may send it, then what
 // it is.
 func (cn *conn) direct(ctx context.Context, ch orchestration.LarkChannel, m Message) error {
-	store := cn.all.store
-
 	if refusal := cn.refusal(ctx, ch, m); refusal != "" {
 		cn.all.logger.InfoContext(ctx, "a Lark message was refused", slog.String("event", "larkbot.refused"),
 			slog.String("channel", cn.name), slog.String("sender", m.Sender), slog.String("reason", refusal))
@@ -695,6 +745,13 @@ func (cn *conn) direct(ctx context.Context, ch orchestration.LarkChannel, m Mess
 
 		return nil
 	}
+
+	return cn.served(ctx, ch, m)
+}
+
+// served handles a direct message whose sender may send it.
+func (cn *conn) served(ctx context.Context, ch orchestration.LarkChannel, m Message) error {
+	store := cn.all.store
 
 	if !m.IsText || strings.TrimSpace(m.Text) == "" {
 		cn.notice(ctx, m.ChatID, noticeTextOnly)

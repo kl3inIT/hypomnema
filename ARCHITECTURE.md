@@ -1023,9 +1023,13 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     - The bot's menu ([#312](https://github.com/kl3inIT/hypomnema/issues/312)): a press of an item
       (`application.bot.menu_v6`, subscribed in Lark's console, where the menu is made) is a message
       `/menu <event key>` from who pressed, in their direct chat, through the rules of a typed one and taken
-      once (`bot-menu:<key>:<timestamp>`). The event names no chat: it is the person's direct chat the Channel
-      has, else a line "Menu: <key>" is sent to them by `open_id` and Lark's answer names the chat. Nothing
-      marks or quotes a press.
+      once (`bot-menu:<key>:<timestamp>`). The event names the app's organization, not the presser's: a presser
+      is of it when they are the owner, someone he added, or a member the app can read
+      (`GET /open-apis/contact/v3/users/:open_id`); anyone else is refused as a stranger. Who may press is decided
+      before anything is sent; a refused presser is told only in a direct chat the Channel already has with them.
+      The event names no chat either: it is the person's direct chat the Channel has, else a line
+      "Menu: <key>" is sent to them by `open_id` and Lark's answer names the chat. Nothing marks or quotes a
+      press.
     - Not built: an option that also takes text; a person's reaction as an answer; images and voice received,
       and images sent as images; a group menu; refusing
       a group with members of another organization; a conversation per sender in a group.

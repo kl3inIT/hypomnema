@@ -645,6 +645,27 @@ func (s *sdk) NameOf(ctx context.Context, openID string) (string, error) {
 	return deref(resp.Data.User.Name), nil
 }
 
+// Member reads a person at Lark (GET /open-apis/contact/v3/users/:open_id),
+// which answers only for a member of the app's organization the app may see
+// (scope contact:user.base:readonly, which NameOf needs too).
+func (s *sdk) Member(ctx context.Context, openID string) error {
+	resp, err := s.api.Contact.V3.User.Get(ctx, larkcontact.NewGetUserReqBuilder().UserId(openID).
+		UserIdType("open_id").Build())
+	if err != nil {
+		return fmt.Errorf("reading %s at Lark: %w", openID, err)
+	}
+
+	if err := refused("reading "+openID+" at Lark", resp.Success(), resp.Code, resp.Msg); err != nil {
+		return err
+	}
+
+	if resp.Data == nil || resp.Data.User == nil {
+		return fmt.Errorf("reading %s at Lark: Lark gave no member", openID)
+	}
+
+	return nil
+}
+
 // BotOpenID reads the bot's own open_id (GET /open-apis/bot/v3/info), which
 // a mention of the bot carries. The SDK has no typed call for it, so it is
 // asked as a raw request with the app's token, as MemoryOS's checkBot asks.

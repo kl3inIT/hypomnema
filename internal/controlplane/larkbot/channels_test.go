@@ -296,6 +296,18 @@ func (l *lark) OpenIDOf(_ context.Context, email string) (string, error) {
 
 func (l *lark) NameOf(_ context.Context, openID string) (string, error) { return l.names[openID], nil }
 
+// Member reads as members the people of the app's organization: those its
+// emails name.
+func (l *lark) Member(_ context.Context, openID string) error {
+	for _, id := range l.emails {
+		if id == openID {
+			return nil
+		}
+	}
+
+	return errors.New("no member has the open_id " + openID)
+}
+
 // sent is what Lark was sent, in order: each card as "chat: text" with
 // "(writing)" while it is not closed.
 func (l *lark) sent() []string {
@@ -1721,9 +1733,42 @@ func TestAPressOfTheBotsMenuIsAMessageFromWhoPressed(t *testing.T) {
 	assert.Equal(t, "owner: /menu export", w.texts(chat)[2])
 	assert.Len(t, w.lark.noticed(), 1, "the chat he has is not named again")
 
-	w.lark.pressedMenu(larkbot.MenuPress{Operator: linhID, Key: "export", At: "1700000200", Org: org})
-	require.Eventually(t, func() bool { return len(w.lark.noticed()) == 3 }, eventual, tick)
-	assert.Equal(t, dmOf(linhID)+": This bot takes messages from its owner only.", w.lark.noticed()[2])
-	assert.Len(t, w.larkChats(), 1, "a refused press starts no chat")
 	assert.Len(t, w.texts(chat), 3, "the press Lark delivered twice was taken once")
+}
+
+// Scenario: who may press the bot's menu is who may write to it (issue
+// #312). The event names the app's organization, not the presser's, so a
+// presser counts as a member only when the app can read them as one: someone
+// of another organization is refused in every mode, and is sent nothing. A
+// member the mode does not take is refused too, told so only in a chat they
+// already have with the bot. Once the owner opens the Channel to his
+// organization, a member's press reaches the Bot.
+func TestOnlyWhoMayWriteMayPressTheBotsMenu(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	w.setUp(orchestration.LarkChannelOwner)
+
+	w.lark.pressedMenu(larkbot.MenuPress{Operator: linhID, Key: "export", At: "1", Org: org})
+	w.lark.say(direct("om_1", linhDM, linhID, "export"))
+	require.Eventually(t, func() bool { return len(w.lark.noticed()) == 1 }, eventual, tick)
+	assert.Equal(t, []string{linhDM + ": This bot takes messages from its owner only."}, w.lark.noticed(),
+		"the press of a member the mode does not take sends nothing to a chat the bot does not know")
+
+	_, err := w.svc.Set(t.Context(), main, larkbot.Settings{Mode: orchestration.LarkChannelEveryone})
+	require.NoError(t, err)
+
+	w.lark.pressedMenu(larkbot.MenuPress{Operator: "ou_stranger", Key: "export", At: "2", Org: org})
+
+	w.lark.pressedMenu(larkbot.MenuPress{Operator: linhID, Key: "export", At: "3", Org: org})
+	hers := w.chatOf(dmOf(linhID))
+	require.Eventually(t, func() bool { return len(w.texts(hers)) == 1 }, eventual, tick)
+	assert.Contains(t, w.texts(hers)[0], "/menu export")
+
+	assert.Equal(t, []string{
+		linhDM + ": This bot takes messages from its owner only.", dmOf(linhID) + ": Menu: export",
+	}, w.lark.noticed())
+	require.Never(t, func() bool { return len(w.lark.noticed()) > 2 }, 200*time.Millisecond, tick,
+		"the stranger was sent nothing")
+	assert.Len(t, w.larkChats(), 1, "a refused press starts no chat")
 }
