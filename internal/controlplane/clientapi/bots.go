@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 
-	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 )
@@ -29,7 +28,7 @@ func (s *Server) ListBots(ctx context.Context, _ openapi.ListBotsRequestObject,
 	out := openapi.ListBots200JSONResponse{Data: make([]openapi.Bot, 0, len(bots))}
 	for _, b := range bots {
 		if botReadable(tok, b.Name) == nil {
-			out.Data = append(out.Data, shownBot(tok, b))
+			out.Data = append(out.Data, toBot(b))
 		}
 	}
 
@@ -47,7 +46,7 @@ func (s *Server) GetBot(ctx context.Context, req openapi.GetBotRequestObject) (o
 		return nil, err
 	}
 
-	return openapi.GetBot200JSONResponse(shownBot(principal(ctx), b)), nil
+	return openapi.GetBot200JSONResponse(toBot(b)), nil
 }
 
 // PutBot makes a Bot or changes its settings.
@@ -102,7 +101,7 @@ func (s *Server) PutBot(ctx context.Context, req openapi.PutBotRequestObject) (o
 		return nil, err
 	}
 
-	return openapi.PutBot200JSONResponse(shownBot(principal(ctx), b)), nil
+	return openapi.PutBot200JSONResponse(toBot(b)), nil
 }
 
 // DeleteBot removes a Bot nothing depends on.
@@ -152,16 +151,6 @@ func (s *Server) SetBotMemory(ctx context.Context, req openapi.SetBotMemoryReque
 	}
 
 	return openapi.SetBotMemory200JSONResponse(toBot(b)), nil
-}
-
-// shownBot is a Bot as a token reads it: the Bot coordinator, which manages other Bots, reads their settings but
-// not their memory, which stays the owner's and the Bot's own.
-func shownBot(tok orchestration.Token, b orchestration.Bot) openapi.Bot {
-	if tok.Kind == bearertoken.Bot && tok.Bot != b.Name {
-		b.Memory = ""
-	}
-
-	return toBot(b)
 }
 
 func toBot(b orchestration.Bot) openapi.Bot {

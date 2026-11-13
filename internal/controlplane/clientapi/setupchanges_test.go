@@ -73,7 +73,7 @@ func TestOnlyTheCoordinatorBotManagesBotsAndProfiles(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, made.StatusCode(), string(made.Body))
 
-	// What a change answers is the Bot as the coordinator reads it: without another Bot's memory.
+	// What a change answers is the whole Bot, its memory too: the coordinator has every right on Bots.
 	_, err = w.svc.SetBotMemory(ctx, "vmap", "Linh leads the maps team.")
 	require.NoError(t, err)
 
@@ -81,7 +81,7 @@ func TestOnlyTheCoordinatorBotManagesBotsAndProfiles(t *testing.T) {
 	changed, err := pi.PutBotWithResponse(ctx, "vmap", openapi.BotSettings{Persona: &vmapPersona})
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, changed.StatusCode(), string(changed.Body))
-	assert.NotContains(t, string(changed.Body), "Linh leads")
+	assert.Contains(t, string(changed.Body), "Linh leads")
 
 	applied, err := pi.ApplyProfileWithResponse(ctx, "checker", source)
 	require.NoError(t, err)

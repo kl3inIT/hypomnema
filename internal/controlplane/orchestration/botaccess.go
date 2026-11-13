@@ -137,65 +137,6 @@ func checkNames(l, before AllowList, exists func(string) error) error {
 	return nil
 }
 
-// noWiderThan refuses a change of the Bot coordinator that would let a Bot
-// use more than it may: a Bot it changes may not get a Connection or a worker
-// it did not have, a Bot it makes no more than the Bot coordinator has, and
-// it does not change its own lists. Widening stays with the owner. After
-// OpenMausBot (server/inherited-apps.ts L18-31: a new bot never gets more
-// than its creator) and OpenClaw (docs/gateway/permission-modes.md L94-97: an
-// agent cannot raise its own rights).
-func noWiderThan(ctx context.Context, q *store.Queries, b Bot, had *Bot) error {
-	if had != nil && b.Name == DefaultBot {
-		if !sameList(b.Connections, had.Connections) || !sameList(b.Workers, had.Workers) {
-			return fmt.Errorf("%w: the bot %s does not change its own connections or workers; the owner does",
-				ErrForbidden, DefaultBot)
-		}
-
-		return nil
-	}
-
-	bound := had
-	if bound == nil {
-		creator, found, err := botIfAny(ctx, q, DefaultBot)
-		if err != nil {
-			return err
-		}
-
-		if found {
-			bound = &creator
-		}
-	}
-
-	if bound == nil {
-		return nil
-	}
-
-	if widens(b.Connections, bound.Connections) || widens(b.Workers, bound.Workers) {
-		return fmt.Errorf("%w: only the owner gives bot %s a connection or a worker it did not have", ErrForbidden,
-			b.Name)
-	}
-
-	return nil
-}
-
-// widens says whether a list lets a Bot use something the bound does not.
-func widens(l, bound AllowList) bool {
-	if !bound.Limited {
-		return false
-	}
-
-	if !l.Limited {
-		return true
-	}
-
-	return slices.ContainsFunc(l.Names, func(n string) bool { return !slices.Contains(bound.Names, n) })
-}
-
-func sameList(a, b AllowList) bool {
-	return a.Limited == b.Limited && slices.Equal(slices.Sorted(slices.Values(a.Names)),
-		slices.Sorted(slices.Values(b.Names)))
-}
-
 // botIfAny reads a Bot inside a transaction; found is false when there is
 // none of that name.
 func botIfAny(ctx context.Context, q *store.Queries, name string) (b Bot, found bool, err error) {
