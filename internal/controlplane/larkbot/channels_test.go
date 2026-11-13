@@ -176,13 +176,14 @@ func (l *lark) SendText(_ context.Context, chatID, text string) error {
 // dmOf is the direct chat a person has with the bot, as Lark names it.
 func dmOf(openID string) string { return "oc_dm_" + openID }
 
-func (l *lark) SendTextTo(_ context.Context, openID, text string) (string, error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
+// chatOf is the chat Lark puts a message in that is sent to chatID: a
+// person's direct chat when it is their open_id.
+func chatOf(chatID string) string {
+	if strings.HasPrefix(chatID, "ou_") {
+		return dmOf(chatID)
+	}
 
-	l.notices = append(l.notices, dmOf(openID)+": "+text)
-
-	return dmOf(openID), nil
+	return chatID
 }
 
 func (l *lark) SendFile(_ context.Context, chatID string, a larkbot.Attachment) error {
@@ -256,7 +257,7 @@ func (l *lark) cardAt(n int) card {
 	return *l.cards[l.order[n]]
 }
 
-func (l *lark) OpenCard(_ context.Context, chatID, replyTo, text string) (string, error) {
+func (l *lark) OpenCard(_ context.Context, chatID, replyTo, text string) (string, string, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
@@ -264,7 +265,7 @@ func (l *lark) OpenCard(_ context.Context, chatID, replyTo, text string) (string
 	l.cards[id] = &card{chat: chatID, text: text, replyTo: replyTo}
 	l.order = append(l.order, id)
 
-	return id, nil
+	return id, chatOf(chatID), nil
 }
 
 func (l *lark) UpdateCard(_ context.Context, cardID, text string, _ int) error {
@@ -295,18 +296,6 @@ func (l *lark) OpenIDOf(_ context.Context, email string) (string, error) {
 }
 
 func (l *lark) NameOf(_ context.Context, openID string) (string, error) { return l.names[openID], nil }
-
-// Member reads as members the people of the app's organization: those its
-// emails name.
-func (l *lark) Member(_ context.Context, openID string) error {
-	for _, id := range l.emails {
-		if id == openID {
-			return nil
-		}
-	}
-
-	return errors.New("no member has the open_id " + openID)
-}
 
 // sent is what Lark was sent, in order: each card as "chat: text" with
 // "(writing)" while it is not closed.
@@ -1703,10 +1692,10 @@ func TestTheBotSendsAFileIntoTheChat(t *testing.T) {
 
 // Scenario: a press of the bot's menu is a message "/menu <key>" from who
 // pressed, in their direct chat, through the rules of a typed one (issue
-// #312). The owner's first press, before he ever wrote, is answered in the
-// chat Lark names for him; Lark delivering the press again adds nothing; a
-// later press goes to the chat he has. There is no message to mark or to
-// quote. Someone the Channel does not take is refused as when they write.
+// #312). The owner's first press, before he ever wrote, is answered by his
+// open_id, with no line before the reply, and the chat Lark answers with is
+// recorded: the next reply and his typed message go to it. Lark delivering a
+// press again adds nothing. There is no message to mark or to quote.
 func TestAPressOfTheBotsMenuIsAMessageFromWhoPressed(t *testing.T) {
 	t.Parallel()
 
@@ -1715,60 +1704,57 @@ func TestAPressOfTheBotsMenuIsAMessageFromWhoPressed(t *testing.T) {
 
 	press := larkbot.MenuPress{Operator: ownerID, Key: "export", At: "1700000000", Org: org}
 	w.lark.pressedMenu(press)
-	chat := w.chatOf(dmOf(ownerID))
+	chat := w.chatOf(ownerID)
 	require.Eventually(t, func() bool { return len(w.texts(chat)) == 1 }, eventual, tick)
 	assert.Equal(t, []string{"owner: /menu export"}, w.texts(chat))
-	assert.Equal(t, []string{dmOf(ownerID) + ": Menu: export"}, w.lark.noticed())
 
 	w.lark.pressedMenu(press)
 
 	w.answer(chat, "The workbook is coming.")
 	require.Eventually(t, func() bool { return len(w.lark.sent()) == 1 && w.lark.cardAt(0).closed }, eventual, tick)
+	assert.Equal(t, []string{ownerID + ": The workbook is coming."}, w.lark.sent(), "sent by his open_id")
 	assert.Empty(t, w.lark.cardAt(0).replyTo, "a press has no message to quote")
 	assert.Empty(t, w.lark.marked("bot-menu:export:1700000000"))
+	require.Eventually(t, func() bool { return w.chatOf(dmOf(ownerID)) == chat }, eventual, tick,
+		"the chat Lark named is recorded")
 
 	press.At = "1700000100"
 	w.lark.pressedMenu(press)
-	require.Eventually(t, func() bool { return len(w.texts(chat)) == 3 }, eventual, tick)
-	assert.Equal(t, "owner: /menu export", w.texts(chat)[2])
-	assert.Len(t, w.lark.noticed(), 1, "the chat he has is not named again")
+	w.lark.say(direct("om_1", dmOf(ownerID), ownerID, "thanks"))
+	require.Eventually(t, func() bool { return len(w.texts(chat)) == 4 }, eventual, tick)
+	assert.ElementsMatch(t, []string{
+		"owner: /menu export", "coordinator: The workbook is coming.", "owner: /menu export", "owner: thanks",
+	}, w.texts(chat), "the press Lark delivered twice was taken once")
 
-	assert.Len(t, w.texts(chat), 3, "the press Lark delivered twice was taken once")
+	_, err := w.orch.AddChatMessage(t.Context(), chat, orchestration.ChatCoordinator, "Here it is.")
+	require.NoError(t, err)
+	require.Eventually(t, func() bool { return len(w.lark.sent()) == 2 && w.lark.cardAt(1).closed }, eventual, tick)
+	assert.Equal(t, dmOf(ownerID)+": Here it is.", w.lark.sent()[1])
+	assert.Empty(t, w.lark.noticed(), "no line comes before the reply")
+	assert.Len(t, w.larkChats(), 1)
 }
 
-// Scenario: who may press the bot's menu is who may write to it (issue
-// #312). The event names the app's organization, not the presser's, so a
-// presser counts as a member only when the app can read them as one: someone
-// of another organization is refused in every mode, and is sent nothing. A
-// member the mode does not take is refused too, told so only in a chat they
-// already have with the bot. Once the owner opens the Channel to his
-// organization, a member's press reaches the Bot.
-func TestOnlyWhoMayWriteMayPressTheBotsMenu(t *testing.T) {
+// Scenario: who presses the menu is taken as a member of the app's
+// organization, which nobody outside can open (owner, 2026-11-13), and the
+// Channel's mode applies to them as to a typed message: refused while the
+// Channel is the owner's, told so in their direct chat, and heard once it is
+// open to everyone.
+func TestTheChannelsModeAppliesToWhoPressesTheMenu(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
 	w.setUp(orchestration.LarkChannelOwner)
 
-	w.lark.pressedMenu(larkbot.MenuPress{Operator: linhID, Key: "export", At: "1", Org: org})
-	w.lark.say(direct("om_1", linhDM, linhID, "export"))
+	w.lark.pressedMenu(larkbot.MenuPress{Operator: "ou_someone", Key: "export", At: "1", Org: org})
 	require.Eventually(t, func() bool { return len(w.lark.noticed()) == 1 }, eventual, tick)
-	assert.Equal(t, []string{linhDM + ": This bot takes messages from its owner only."}, w.lark.noticed(),
-		"the press of a member the mode does not take sends nothing to a chat the bot does not know")
+	assert.Equal(t, "ou_someone: This bot takes messages from its owner only.", w.lark.noticed()[0])
+	assert.Empty(t, w.larkChats(), "a refused press starts no chat")
 
 	_, err := w.svc.Set(t.Context(), main, larkbot.Settings{Mode: orchestration.LarkChannelEveryone})
 	require.NoError(t, err)
 
-	w.lark.pressedMenu(larkbot.MenuPress{Operator: "ou_stranger", Key: "export", At: "2", Org: org})
-
-	w.lark.pressedMenu(larkbot.MenuPress{Operator: linhID, Key: "export", At: "3", Org: org})
-	hers := w.chatOf(dmOf(linhID))
-	require.Eventually(t, func() bool { return len(w.texts(hers)) == 1 }, eventual, tick)
-	assert.Contains(t, w.texts(hers)[0], "/menu export")
-
-	assert.Equal(t, []string{
-		linhDM + ": This bot takes messages from its owner only.", dmOf(linhID) + ": Menu: export",
-	}, w.lark.noticed())
-	require.Never(t, func() bool { return len(w.lark.noticed()) > 2 }, 200*time.Millisecond, tick,
-		"the stranger was sent nothing")
-	assert.Len(t, w.larkChats(), 1, "a refused press starts no chat")
+	w.lark.pressedMenu(larkbot.MenuPress{Operator: "ou_someone", Key: "export", At: "2", Org: org})
+	theirs := w.chatOf("ou_someone")
+	require.Eventually(t, func() bool { return len(w.texts(theirs)) == 1 }, eventual, tick)
+	assert.Contains(t, w.texts(theirs)[0], "/menu export")
 }

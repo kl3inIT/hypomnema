@@ -53,6 +53,10 @@ SELECT * FROM lark_channel_chats WHERE channel = @channel ORDER BY created_at, l
 -- name: SetLarkChannelChatSent :exec
 UPDATE lark_channel_chats SET sent_seq = @sent_seq WHERE lark_chat_id = @lark_chat_id AND sent_seq < @sent_seq;
 
+-- name: RenameLarkChannelChat :execrows
+UPDATE lark_channel_chats SET lark_chat_id = @new_lark_chat_id
+WHERE channel = @channel AND lark_chat_id = @lark_chat_id;
+
 -- name: ResetLarkChannelChat :execrows
 UPDATE lark_channel_chats SET chat_id = @chat_id, sent_seq = 0
 WHERE channel = @channel AND lark_chat_id = @lark_chat_id;
