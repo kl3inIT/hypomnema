@@ -48,11 +48,35 @@ const providers = [
   provider("model-gateway", "model_gateway", ["gpt-6.1-sol", "claude-sonnet-5-5"]),
 ]
 
-const models = [
+type Source = "set" | "models_dev" | "unknown"
+type Attribute<T> = { value?: T; source: Source; models_dev?: T }
+type Attributes = {
+  context_window: Attribute<number>
+  max_output: Attribute<number>
+  input: Attribute<string[]>
+  reasoning: Attribute<boolean>
+  efforts: Attribute<string[]>
+  price?: { input: number; output: number; cache_read?: number; cache_write?: number }
+}
+
+const seeded = <T>(v: T): Attribute<T> => ({ value: v, source: "models_dev", models_dev: v })
+const unknown = { source: "unknown" as const }
+
+// What the server answers of each model (issue #367): from models.dev for the model of its first target, the
+// effort levels those the gateway gives that provider.
+const models: { name: string; targets: object[]; updated_at: string; attributes: Attributes }[] = [
   {
     name: "gpt-6.1-sol",
     targets: [{ provider: "codex-subscription", upstream_model: "gpt-6.1-sol" }],
     updated_at: iso(now),
+    attributes: {
+      context_window: seeded(1050000),
+      max_output: seeded(128000),
+      input: seeded(["text", "image"]),
+      reasoning: seeded(true),
+      efforts: seeded(["low", "medium", "high", "xhigh"]),
+      price: { input: 2, output: 10, cache_read: 0.1 },
+    },
   },
   {
     name: "claude-sonnet-5-5",
@@ -61,13 +85,44 @@ const models = [
       { provider: "openrouter", upstream_model: "deepseek-v4" },
     ],
     updated_at: iso(now),
+    attributes: {
+      context_window: seeded(1000000),
+      max_output: seeded(128000),
+      input: seeded(["text", "image"]),
+      reasoning: seeded(true),
+      efforts: seeded(["low", "medium", "high", "xhigh", "max"]),
+      price: { input: 2, output: 10, cache_read: 0.1, cache_write: 2.5 },
+    },
   },
   {
-    name: "claude-sonnet",
-    targets: [{ provider: "antigravity-subscription", upstream_model: "claude-sonnet-4-6" }],
+    name: "deepseek",
+    targets: [{ provider: "openrouter", upstream_model: "deepseek-v4" }],
     updated_at: iso(now),
+    attributes: {
+      context_window: unknown,
+      max_output: unknown,
+      input: unknown,
+      reasoning: unknown,
+      efforts: unknown,
+    },
   },
 ]
+
+// set is what the server makes of a model's settings: each one set wins, the rest are models.dev's.
+function applySettings(model: (typeof models)[number], body: Record<string, unknown>) {
+  const a = model.attributes
+  for (const key of ["context_window", "max_output", "input", "reasoning", "efforts"] as const) {
+    const attribute = a[key] as Attribute<unknown>
+    const value = body[key]
+    a[key] = (
+      value === undefined
+        ? attribute.models_dev === undefined
+          ? unknown
+          : seeded(attribute.models_dev)
+        : { value, source: "set", models_dev: attribute.models_dev }
+    ) as never
+  }
+}
 
 // What each account's limits call answers. An account that is not here has a kind that says no limits.
 const limits: Record<string, object> = {
@@ -310,6 +365,18 @@ async function fakeServer(page: Page, start?: Account[]) {
       account.status = action === "enable" ? "active" : "disabled"
 
       return json(account)
+    }
+
+    if (kind === "gateway" && id === "models" && request.method() === "PUT") {
+      const name = path.split("/")[3]
+      const model = models.find((m) => m.name === name)
+      if (!model) return json({ code: "not_found", message: `not found: model ${name}` }, 404)
+
+      const body = request.postDataJSON() as Record<string, unknown>
+      calls.push(`${call} ${JSON.stringify(body)}`)
+      applySettings(model, body)
+
+      return json(model)
     }
 
     switch (call) {
@@ -564,4 +631,54 @@ test("the owner uses a limit reset", async ({ page }) => {
   )
   expect(calls).toContain("POST /accounts/acc_spare/limits/reset with a request id")
   await shot(page, "models-reset-used")
+})
+
+// Scenario: the owner looks at the gateway's models (issue #367): each says where it is served from and what a
+// client is told of it, from models.dev; one models.dev does not know says so. The owner opens the Codex model,
+// sees models.dev's window where the field is empty, sets the window its subscription serves and text only, and
+// the row then shows them as set. Cleared again, the window is models.dev's.
+test("the owner edits a gateway model", async ({ page }) => {
+  const calls = await fakeServer(page)
+  await page.goto("/settings/models")
+
+  const section = page.getByTestId("gateway-models")
+  const sol = section.getByLabel("Gateway model gpt-6.1-sol")
+  await expect(sol).toContainText("codex-subscription · gpt-6.1-sol")
+  await expect(sol).toContainText("1.05M context")
+  await expect(sol).toContainText("Text and image")
+  await expect(sol).toContainText("Reasons: low, medium, high, xhigh")
+  await expect(section.getByLabel("Gateway model deepseek")).toContainText("Context not known")
+  await section.scrollIntoViewIfNeeded()
+  expect(await fits(page)).toBe(true)
+  await shot(page, "models-gateway")
+
+  await sol.getByRole("button", { name: "Edit gpt-6.1-sol" }).click()
+  // The toast that says it was saved is a dialog too.
+  const dialog = page.getByRole("dialog", { name: "GPT-6.1-Sol", exact: true })
+  const window = dialog.getByLabel("Context window (tokens)")
+  await expect(window).toHaveValue("")
+  await expect(window).toHaveAttribute("placeholder", "1,050,000")
+  await expect(dialog).toContainText("From models.dev: 1,050,000")
+
+  await window.fill("272000")
+  await dialog.getByRole("combobox", { name: "Input" }).click()
+  await page.getByRole("option", { name: "Text only" }).click()
+  await shot(page, "models-gateway-edit")
+
+  await dialog.getByRole("button", { name: "Save" }).click()
+  await expect(dialog).toHaveCount(0)
+  expect(calls).toContain(
+    'PUT /gateway/models/gpt-6.1-sol/attributes {"context_window":272000,"input":["text"]}',
+  )
+  await expect(sol).toContainText("272K context")
+  await expect(sol).toContainText("Text only")
+  await expect(sol.locator('[data-source="set"]')).toHaveCount(2)
+  await shot(page, "models-gateway-set")
+
+  await sol.getByRole("button", { name: "Edit gpt-6.1-sol" }).click()
+  await expect(dialog.getByLabel("Context window (tokens)")).toHaveValue("272000")
+  await dialog.getByLabel("Context window (tokens)").fill("")
+  await dialog.getByRole("button", { name: "Save" }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect(sol).toContainText("1.05M context")
 })

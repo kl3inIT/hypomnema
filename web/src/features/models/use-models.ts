@@ -1,10 +1,16 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 
 import "@/api/client"
-import { getAccountLimits, listAccounts, listProviders } from "@/api/generated/sdk.gen"
+import {
+  getAccountLimits,
+  listAccounts,
+  listGatewayModels,
+  listProviders,
+} from "@/api/generated/sdk.gen"
 
 export const accountsKey = ["accounts"] as const
 export const providersKey = ["model-providers"] as const
+export const gatewayModelsKey = ["gateway-models"] as const
 
 // An account rests and comes back on its own, so the list is read again now and then while the page is open.
 export function useAccounts() {
@@ -19,6 +25,14 @@ export function useProviders() {
   return useQuery({
     queryKey: providersKey,
     queryFn: async () => (await listProviders()).data.data,
+  })
+}
+
+// The models the gateway serves, with their attributes (issue #367).
+export function useGatewayModels() {
+  return useQuery({
+    queryKey: gatewayModelsKey,
+    queryFn: async () => (await listGatewayModels()).data.data,
   })
 }
 

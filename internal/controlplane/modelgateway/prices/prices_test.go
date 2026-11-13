@@ -53,3 +53,22 @@ func TestLookupFollowsTheAskedModelThenTheProvidersModel(t *testing.T) {
 	_, ok = prices.Lookup("openai_compatible", "deepseek-v4")
 	assert.False(t, ok)
 }
+
+// What models.dev says of a model is found as its price is: a Codex model
+// takes images and has its window, its largest output and its effort levels.
+func TestFindGivesWhatModelsDevSaysOfAModel(t *testing.T) {
+	t.Parallel()
+
+	m, ok := prices.Find("codex_subscription", "gpt-6.1-sol")
+	require.True(t, ok)
+	require.NotNil(t, m.Context)
+	assert.Positive(t, *m.Context)
+	require.NotNil(t, m.MaxOutput)
+	assert.Equal(t, []string{"text", "image"}, m.Inputs)
+	require.NotNil(t, m.Reasoning)
+	assert.True(t, *m.Reasoning)
+	assert.NotEmpty(t, m.Efforts)
+
+	_, ok = prices.Find("openai_compatible", "deepseek-v4")
+	assert.False(t, ok)
+}

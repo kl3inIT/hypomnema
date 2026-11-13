@@ -222,8 +222,8 @@ func limitsUnavailable(err error) (openapi.AccountLimitsUnavailable, string) {
 	}
 }
 
-// ListGatewayModels returns the models the gateway serves and where each is
-// served from, in the order its targets are tried.
+// ListGatewayModels returns the models the gateway serves, where each is
+// served from, in the order its targets are tried, and its attributes.
 func (s *Server) ListGatewayModels(ctx context.Context, _ openapi.ListGatewayModelsRequestObject,
 ) (openapi.ListGatewayModelsResponseObject, error) {
 	out := openapi.ListGatewayModels200JSONResponse{Data: []openapi.GatewayModel{}}
@@ -237,14 +237,75 @@ func (s *Server) ListGatewayModels(ctx context.Context, _ openapi.ListGatewayMod
 	}
 
 	for _, m := range models {
-		out.Data = append(out.Data, toGatewayModel(m))
+		resolved, err := s.gatewayModels.Resolve(ctx, m)
+		if err != nil {
+			return nil, err
+		}
+
+		out.Data = append(out.Data, toGatewayModel(m, resolved))
 	}
 
 	return out, nil
 }
 
-func toGatewayModel(m modelgateway.Model) openapi.GatewayModel {
-	out := openapi.GatewayModel{Name: m.Name, UpdatedAt: m.UpdatedAt, Targets: []openapi.GatewayModelTarget{}}
+// SetGatewayModelAttributes sets the attributes a gateway model's YAML holds
+// (issue #367); one left out comes from models.dev again.
+func (s *Server) SetGatewayModelAttributes(ctx context.Context, req openapi.SetGatewayModelAttributesRequestObject,
+) (openapi.SetGatewayModelAttributesResponseObject, error) {
+	if s.gatewayModels == nil {
+		return nil, fmt.Errorf("%w: this control plane runs no model gateway", orchestration.ErrUnavailable)
+	}
+
+	b := req.Body
+	m, err := s.gatewayModels.SetAttributes(ctx, req.Model, modelgateway.Attributes{
+		ContextWindow: b.ContextWindow, MaxOutput: b.MaxOutput, Reasoning: b.Reasoning,
+		Input: words(val(b.Input)), Efforts: words(val(b.Efforts)),
+	})
+	if err != nil {
+		return nil, gatewayKeyError(err)
+	}
+
+	resolved, err := s.gatewayModels.Resolve(ctx, m)
+	if err != nil {
+		return nil, err
+	}
+
+	return openapi.SetGatewayModelAttributes200JSONResponse(toGatewayModel(m, resolved)), nil
+}
+
+func toGatewayModel(m modelgateway.Model, r modelgateway.Resolved) openapi.GatewayModel {
+	out := openapi.GatewayModel{
+		Name: m.Name, UpdatedAt: m.UpdatedAt, Targets: []openapi.GatewayModelTarget{},
+		Attributes: openapi.GatewayModelAttributes{
+			ContextWindow: openapi.GatewayModelTokens{
+				Value: r.ContextWindow.Value, Source: openapi.GatewayModelSource(r.ContextWindow.Source),
+				ModelsDev: r.ContextWindow.ModelsDev,
+			},
+			MaxOutput: openapi.GatewayModelTokens{
+				Value: r.MaxOutput.Value, Source: openapi.GatewayModelSource(r.MaxOutput.Source),
+				ModelsDev: r.MaxOutput.ModelsDev,
+			},
+			Input: openapi.GatewayModelInput{
+				Value: kinds[openapi.GatewayModelInputKind](r.Input.Value), Source: openapi.GatewayModelSource(r.Input.Source),
+				ModelsDev: kinds[openapi.GatewayModelInputKind](r.Input.ModelsDev),
+			},
+			Reasoning: openapi.GatewayModelReasoning{
+				Value: r.Reasoning.Value, Source: openapi.GatewayModelSource(r.Reasoning.Source),
+				ModelsDev: r.Reasoning.ModelsDev,
+			},
+			Efforts: openapi.GatewayModelEfforts{
+				Value: kinds[openapi.GatewayModelEffort](r.Efforts.Value), Source: openapi.GatewayModelSource(r.Efforts.Source),
+				ModelsDev: kinds[openapi.GatewayModelEffort](r.Efforts.ModelsDev),
+			},
+		},
+	}
+
+	if p := r.Price; p != nil {
+		out.Attributes.Price = &openapi.GatewayModelPrice{
+			Input: dollars(p.Input), Output: dollars(p.Output), CacheRead: dollarsOrNil(p.CacheRead),
+			CacheWrite: dollarsOrNil(p.CacheWrite),
+		}
+	}
 
 	for _, t := range m.Targets {
 		out.Targets = append(out.Targets, openapi.GatewayModelTarget{
@@ -253,6 +314,43 @@ func toGatewayModel(m modelgateway.Model) openapi.GatewayModel {
 	}
 
 	return out
+}
+
+// kinds is a list of words as the API's enum, nil when there is none.
+func kinds[T ~string](l *[]string) *[]T {
+	if l == nil {
+		return nil
+	}
+
+	out := make([]T, 0, len(*l))
+	for _, w := range *l {
+		out = append(out, T(w))
+	}
+
+	return &out
+}
+
+// words is a list of the API's enum as words.
+func words[T ~string](l []T) []string {
+	out := make([]string, 0, len(l))
+	for _, w := range l {
+		out = append(out, string(w))
+	}
+
+	return out
+}
+
+// dollars is a price in micro-dollars per million tokens as dollars.
+func dollars(micros *int64) float64 { return float64(val(micros)) / 1_000_000 }
+
+func dollarsOrNil(micros *int64) *float64 {
+	if micros == nil {
+		return nil
+	}
+
+	d := dollars(micros)
+
+	return &d
 }
 
 func toAccount(a subscription.Account) openapi.Account {

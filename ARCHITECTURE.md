@@ -1268,6 +1268,20 @@ not exist yet.
   `claude_subscription`) and
   a model that provider offers, so a model that cannot
   be served is refused when applied.
+- A model's attributes (issue #367, after 9router-go, omniroute, LiteLLM's `model_info`, CLIProxyAPI and omp) are
+  what a client is told of it: `context_window`, `max_output`, `input` (`text`, `image`), `reasoning` and `efforts`
+  (its reasoning effort levels, among `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`). The YAML may set
+  each; the YAML is their one home (`modelgateway/attributes.go`). One it does not set is models.dev's for the model
+  of its first target, under that provider's vendor (the snapshot of `modelgateway/prices`: `limit.context`,
+  `limit.output`, `modalities.input`, `reasoning` and `reasoning_options` of type `effort`); else it is unknown.
+  Effort levels are only those the gateway gives the first target's provider as levels of their own: Codex none to
+  xhigh (max is sent as xhigh), Claude none, low to max (minimal's budget is low's), Antigravity's Gemini low,
+  medium and high and its other models none; an OpenAI-compatible provider gets any. A level set that the provider
+  is not given is refused when applied. `GET /gateway/models` answers each model's `attributes`: each value with its
+  `source` (`set`, `models_dev`, `unknown`) and models.dev's value beside it, and the `price` its usage is counted
+  at, in dollars per million tokens. `PUT /gateway/models/{model}/attributes` (the owner's; a slash in the name as
+  `%2F`) sets them in the model's YAML, keeping the rest of it; one left out comes from models.dev again. The Models
+  page lists the gateway's models with them, each with an edit form whose empty fields show models.dev's values.
 - A gateway key (`hyp_gateway_v1_…`, the client tokens' format) is shown once and kept as its SHA-256, with the
   public model names it may use (`*`: every model). It is not a client token: the client API refuses it, and
   `tokens add` cannot make one.
@@ -1288,9 +1302,14 @@ not exist yet.
   - pi's `models.json` is written by the launcher as pi starts, for that chat's pi alone (issue #260), from
     `hypomnema pi-models`: one provider of pi for
     each provider of the control plane that is the gateway (kind `model_gateway`, or an OpenAI-compatible provider
-    whose address is the gateway's own), with the models that provider lists, each reading text and pictures
-    (`input: ["text", "image"]`, issue #368: pi takes a model without it as text-only). A Bot may name a provider of kind
-    `model_gateway`. No key is made by hand for pi, and the setup script installs none.
+    whose address is the gateway's own), with the models that provider lists. A Bot may name a provider of kind
+    `model_gateway`. No key is made by hand for pi, and the setup script installs none. Each model of the gateway
+    has its attributes (above, issue #367): `contextWindow`, `maxTokens`, `input`, `reasoning` (true only when
+    known), `thinkingLevelMap` (pi's minimal to max as the model's level of that name, null for one it lacks; off
+    as `none` when the model has it, else left out, which sends no effort) and `cost` (input, output, cache read
+    and cache write per million tokens; a missing cache price is the input's). An unknown one is left out, so pi
+    keeps its default (128000, 16384), but for `input`: a model whose input is not known reads text and pictures
+    (`["text", "image"]`, issue #368: pi takes a model without it as text-only, and the gateway passes pictures on).
 - `POST /v1/responses` (issue #107, after 9router-go;
   [research](docs/research/2026-11-10-codex-responses-passthrough.md)) is for a client that speaks OpenAI's Responses
   format, which the Codex CLI does and nothing else. It serves a model's `codex_subscription` targets only:
@@ -2135,9 +2154,11 @@ Node (`internal/node`):
     - A switch takes an account out of use and puts it back; the card's switch does so for all its accounts at
       once, as 9router's card toggle. An account signed in on the control plane can be removed, after a
       confirmation. Signing in, the order, the limits and the routes are not changed here yet.
-    - A provider reached with a key shows its address and where its key is kept. The gateway's models and where
-      each is served from are not on the page: the owner asked what the read-only table was for (2026-11-12),
-      and it comes back with the step that edits a route. `GET /gateway/models` stays.
+    - A provider reached with a key shows its address and where its key is kept.
+    - The gateway's models (issue #367) are rows under "Gateway models": each with where it is served from, its
+      context window, largest output, inputs, reasoning with its effort levels and its price, a value the model
+      sets marked "set". "Edit" opens a dialog that sets them (`PUT /gateway/models/{model}/attributes`); an empty
+      field shows models.dev's value and takes it.
     - The client API behind it: `GET /accounts` gives each account's e-mail, plan and the state of its sign-in
       (`sign_in`: `active`, `login_required`, `no_tokens`; absent for an account signed in on a node);
       `POST /accounts/{id}/enable` and `/disable` and `DELETE /accounts/{id}` are the owner's;

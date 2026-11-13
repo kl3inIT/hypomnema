@@ -5,6 +5,12 @@
 // new snapshot changes only what changed. A price models.dev does not give is
 // left out (null). Only the base tier is kept; a long context's tier is not.
 //
+// Each model also keeps what a client needs to know of it (issue #367, as
+// 9router-go and omp seed theirs from models.dev): its context window and
+// largest output (limit.context, limit.output), the inputs it takes of those a
+// gateway client sends (text, image), whether it reasons and its effort levels
+// (reasoning, reasoning_options of type effort). A limit of 0 is not given.
+//
 //	curl -sSo api.json https://models.dev/api.json
 //	go run ./internal/controlplane/modelgateway/prices/gen api.json > internal/controlplane/modelgateway/prices/prices.json
 package main
@@ -14,12 +20,16 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"slices"
 	"sort"
 )
 
 // vendors are the models.dev providers kept: the makers whose models the
 // gateway serves from subscriptions.
 var vendors = []string{"anthropic", "google", "openai"}
+
+// inputs are the inputs kept: those a client of the gateway's chat sends.
+var inputs = []string{"text", "image"}
 
 type snapshot map[string]struct {
 	Models map[string]struct {
@@ -29,16 +39,33 @@ type snapshot map[string]struct {
 			CacheRead  *float64 `json:"cache_read"`
 			CacheWrite *float64 `json:"cache_write"`
 		} `json:"cost"`
+		Limit struct {
+			Context int64 `json:"context"`
+			Output  int64 `json:"output"`
+		} `json:"limit"`
+		Modalities struct {
+			Input []string `json:"input"`
+		} `json:"modalities"`
+		Reasoning        *bool `json:"reasoning"`
+		ReasoningOptions []struct {
+			Type   string   `json:"type"`
+			Values []string `json:"values"`
+		} `json:"reasoning_options"`
 	} `json:"models"`
 }
 
 type price struct {
-	Vendor     string `json:"vendor"`
-	Model      string `json:"model"`
-	Input      *int64 `json:"input"`
-	Output     *int64 `json:"output"`
-	CacheRead  *int64 `json:"cache_read"`
-	CacheWrite *int64 `json:"cache_write"`
+	Vendor     string   `json:"vendor"`
+	Model      string   `json:"model"`
+	Input      *int64   `json:"input"`
+	Output     *int64   `json:"output"`
+	CacheRead  *int64   `json:"cache_read"`
+	CacheWrite *int64   `json:"cache_write"`
+	Context    *int64   `json:"context,omitempty"`
+	MaxOutput  *int64   `json:"max_output,omitempty"`
+	Inputs     []string `json:"inputs,omitempty"`
+	Reasoning  *bool    `json:"reasoning,omitempty"`
+	Efforts    []string `json:"efforts,omitempty"`
 }
 
 func main() {
@@ -61,14 +88,33 @@ func main() {
 
 	for _, vendor := range vendors {
 		for model, m := range snap[vendor].Models {
-			if m.Cost == nil || m.Cost.Input == nil || m.Cost.Output == nil {
+			p := price{
+				Vendor: vendor, Model: model, Context: positive(m.Limit.Context), MaxOutput: positive(m.Limit.Output),
+				Reasoning: m.Reasoning,
+			}
+
+			if m.Cost != nil && m.Cost.Input != nil && m.Cost.Output != nil {
+				p.Input, p.Output = micros(m.Cost.Input), micros(m.Cost.Output)
+				p.CacheRead, p.CacheWrite = micros(m.Cost.CacheRead), micros(m.Cost.CacheWrite)
+			}
+
+			for _, in := range inputs {
+				if slices.Contains(m.Modalities.Input, in) {
+					p.Inputs = append(p.Inputs, in)
+				}
+			}
+
+			for _, o := range m.ReasoningOptions {
+				if o.Type == "effort" {
+					p.Efforts = append(p.Efforts, o.Values...)
+				}
+			}
+
+			if p.Input == nil && p.Context == nil {
 				continue
 			}
 
-			out = append(out, price{
-				Vendor: vendor, Model: model, Input: micros(m.Cost.Input), Output: micros(m.Cost.Output),
-				CacheRead: micros(m.Cost.CacheRead), CacheWrite: micros(m.Cost.CacheWrite),
-			})
+			out = append(out, p)
 		}
 	}
 
@@ -88,6 +134,15 @@ func main() {
 	if _, err := os.Stdout.Write(append(encoded, '\n')); err != nil {
 		fail(err)
 	}
+}
+
+// positive is a limit models.dev gives; 0 is one it does not.
+func positive(n int64) *int64 {
+	if n <= 0 {
+		return nil
+	}
+
+	return &n
 }
 
 // micros is dollars per million tokens as micro-dollars per million tokens.

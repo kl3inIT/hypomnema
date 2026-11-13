@@ -80,6 +80,9 @@ type Model struct {
 	Capability Capability
 	// Targets are tried in order.
 	Targets []Target
+	// Attributes are what the YAML sets of the model's attributes; Resolve
+	// gives them with models.dev's for the rest.
+	Attributes Attributes
 	// Source is the YAML as applied.
 	Source    string
 	CreatedAt time.Time
@@ -170,10 +173,11 @@ type modelSource struct {
 		Provider string `yaml:"provider"`
 		Model    string `yaml:"model"`
 	} `yaml:"targets"`
+	Attributes `yaml:",inline"`
 }
 
-// ApplyModel stores a model's YAML: its public name, what it does and where
-// it is served from. Applying a name again replaces the model. Every target
+// ApplyModel stores a model's YAML: its public name, what it does, where
+// it is served from and the attributes it sets. Applying a name again replaces the model. Every target
 // must name a provider the gateway has an adapter for and a model that
 // provider offers, so a model that cannot be served is refused here and not
 // at the first request.
@@ -201,8 +205,15 @@ func (s *Service) ApplyModel(ctx context.Context, source string) (Model, error) 
 	}
 
 	for i, t := range in.Targets {
-		if err := s.checkTarget(ctx, t.Provider, t.Model); err != nil {
+		kind, err := s.checkTarget(ctx, t.Provider, t.Model)
+		if err != nil {
 			return Model{}, fmt.Errorf("target %d: %w", i+1, err)
+		}
+
+		if i == 0 {
+			if err := checkAttributes(in.Attributes, kind, t.Model); err != nil {
+				return Model{}, err
+			}
 		}
 	}
 
@@ -234,29 +245,31 @@ func (s *Service) ApplyModel(ctx context.Context, source string) (Model, error) 
 	return s.GetModel(ctx, in.Name)
 }
 
-func (s *Service) checkTarget(ctx context.Context, provider, model string) error {
+// checkTarget returns the kind of a target's provider, or why it cannot be
+// served.
+func (s *Service) checkTarget(ctx context.Context, provider, model string) (string, error) {
 	if provider == "" || model == "" {
-		return fmt.Errorf("%w: a target names a provider and a model", ErrInvalid)
+		return "", fmt.Errorf("%w: a target names a provider and a model", ErrInvalid)
 	}
 
 	p, err := s.providers(ctx, provider)
 	if errors.Is(err, ErrNotFound) {
-		return fmt.Errorf("%w: no provider %q; apply it first", ErrInvalid, provider)
+		return "", fmt.Errorf("%w: no provider %q; apply it first", ErrInvalid, provider)
 	}
 
 	if err != nil {
-		return fmt.Errorf("reading provider %q: %w", provider, err)
+		return "", fmt.Errorf("reading provider %q: %w", provider, err)
 	}
 
 	switch {
 	case !slices.Contains(servedKinds, p.Kind):
-		return fmt.Errorf("%w: the gateway does not serve providers of kind %s yet (it serves %s)",
+		return "", fmt.Errorf("%w: the gateway does not serve providers of kind %s yet (it serves %s)",
 			ErrInvalid, p.Kind, strings.Join(servedKinds, ", "))
 	case !slices.Contains(p.Models, model):
-		return fmt.Errorf("%w: provider %q does not offer %q", ErrInvalid, provider, model)
+		return "", fmt.Errorf("%w: provider %q does not offer %q", ErrInvalid, provider, model)
 	}
 
-	return nil
+	return p.Kind, nil
 }
 
 // GetModel returns one model with its targets.
@@ -331,6 +344,13 @@ func modelFromRow(row store.GatewayModel, targets []store.GatewayModelTarget) Mo
 
 	for _, t := range targets {
 		m.Targets = append(m.Targets, Target{Provider: t.Provider, UpstreamModel: t.UpstreamModel})
+	}
+
+	// The YAML was checked as it was applied; it is the one home of the
+	// attributes.
+	var in modelSource
+	if yaml.Unmarshal([]byte(row.Source), &in) == nil {
+		m.Attributes = in.Attributes
 	}
 
 	return m
