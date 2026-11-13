@@ -1,6 +1,5 @@
-import { useBlocker } from "@tanstack/react-router"
 import { Brain, Trash2 } from "lucide-react"
-import { lazy, Suspense, useRef, useState } from "react"
+import { lazy, Suspense, useState } from "react"
 
 import type { Model, Profile } from "@/api/generated/types.gen"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -89,26 +88,14 @@ export function ProfileEditor({
   const built = toYaml(draft, models)
   const untouched = sameDraft(draft, start)
   const shown = yaml ?? (untouched && startSource ? startSource : built)
-  // changed is what leaving the page would lose. A new agent that starts as a copy (issue #200) has nothing to
+  // changed is what has not been saved. A new agent that starts as a copy (issue #200) has nothing to
   // lose until it is edited, yet can be created as it is: there is something to save while it is not empty.
   const changed = yaml !== null ? yaml !== (startSource ?? "") : !untouched
   const dirty = stored || yaml !== null ? changed : !sameDraft(draft, emptyDraft)
   const wrong = yaml === null ? problem(draft) : yaml.trim() === "" ? "The YAML is empty." : null
 
-  // Omnara's guard (hooks/use-unsaved-changes-warning.ts): a confirm before unsaved changes are left behind.
-  // saved is set as the server stores the profile, before the page moves on: the changes are no longer unsaved.
-  const saved = useRef(false)
-
-  useBlocker({
-    shouldBlockFn: () =>
-      !saved.current && !window.confirm("You have unsaved changes. Discard them?"),
-    enableBeforeUnload: () => !saved.current,
-    disabled: !changed,
-  })
-
   const set = (change: Partial<Draft>) => {
     apply.reset()
-    saved.current = false
     setDraft((d) => ({ ...d, ...change }))
   }
 
@@ -135,10 +122,7 @@ export function ProfileEditor({
     apply.mutate(
       { name, source: shown },
       {
-        onSuccess: (profile) => {
-          saved.current = true
-          onSaved(profile)
-        },
+        onSuccess: onSaved,
       },
     )
   }
