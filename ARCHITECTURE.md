@@ -1286,7 +1286,8 @@ not exist yet.
   - pi's `models.json` is written by the launcher as pi starts, for that chat's pi alone (issue #260), from
     `hypomnema pi-models`: one provider of pi for
     each provider of the control plane that is the gateway (kind `model_gateway`, or an OpenAI-compatible provider
-    whose address is the gateway's own), with the models that provider lists. A Bot may name a provider of kind
+    whose address is the gateway's own), with the models that provider lists, each reading text and pictures
+    (`input: ["text", "image"]`, issue #368: pi takes a model without it as text-only). A Bot may name a provider of kind
     `model_gateway`. No key is made by hand for pi, and the setup script installs none.
 - `POST /v1/responses` (issue #107, after 9router-go;
   [research](docs/research/2026-11-10-codex-responses-passthrough.md)) is for a client that speaks OpenAI's Responses

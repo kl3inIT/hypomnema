@@ -64,8 +64,8 @@ func TestPiStartsWithTheGatewaysModelsAndItsChatsKey(t *testing.T) { //nolint:pa
 	assert.Equal(t, "openai-completions", workers.API)
 	assert.Equal(t, "!hypomnema model-key", workers.APIKey, "pi runs the command at each request; no key is in the file")
 	assert.Equal(t, []piModel{
-		{ID: "claude-sonnet", Name: "claude-sonnet (gateway)", Reasoning: true},
-		{ID: "gpt-sol", Name: "gpt-sol (gateway)", Reasoning: true},
+		{ID: "claude-sonnet", Name: "claude-sonnet (gateway)", Reasoning: true, Input: []string{"text", "image"}},
+		{ID: "gpt-sol", Name: "gpt-sol (gateway)", Reasoning: true, Input: []string{"text", "image"}},
 	}, workers.Models)
 
 	assert.Equal(t, w.url+"/v1", file.Providers["gateway"].BaseURL, "the provider pi had before is still one of pi's")

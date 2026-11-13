@@ -39,6 +39,12 @@ type piModel struct {
 	ID        string `json:"id"`
 	Name      string `json:"name"`
 	Reasoning bool   `json:"reasoning"`
+	// Input is what the model reads. pi takes a custom model as text-only
+	// when it is left out (src/core/model-config.ts), and drops a picture
+	// before the gateway sees it; the gateway passes pictures on to every
+	// vendor it serves (issue #368, as Omnigent declares a gateway model,
+	// omnigent/harnesses/pi_native/credentials.py).
+	Input []string `json:"input"`
 }
 
 // piModels prints the models.json pi starts with (issue #204): one provider
@@ -73,7 +79,7 @@ func piModels(ctx context.Context, e *env, _ *flag.FlagSet) error {
 
 		models := make([]piModel, 0, len(p.Models))
 		for _, m := range p.Models {
-			models = append(models, piModel{ID: m, Name: m + " (gateway)", Reasoning: true})
+			models = append(models, piModel{ID: m, Name: m + " (gateway)", Reasoning: true, Input: []string{"text", "image"}})
 		}
 
 		file.Providers[p.Name] = piProvider{
