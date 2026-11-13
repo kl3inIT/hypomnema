@@ -1775,8 +1775,9 @@ Node (`internal/node`):
 Since 2026-11-09, on the owner's tailnet (Tailscale). Since 2026-11-10 the control plane is also reachable from
 the internet, so that a machine created at a provider can install the node from it and connect to it:
 
-- Control plane: zm, user `dat`, `~/hypomnema-cp` (binary, `env`, SQLite in `data/`), tmux session `hyp-cp`,
-  listening on `127.0.0.1:18990`. Tailscale runs without root (userspace networking, tmux `hyp-ts`, state in
+- Control plane: zm, user `dat`, `~/hypomnema-cp` (binary, `env`, SQLite in `data/`), since 2026-11-13 the systemd
+  unit `hypomnema-cp.service` (a tmux session `hyp-cp` until then) updated from each release by
+  `hypomnema-update.timer` (v0.9.7 was the first), listening on `127.0.0.1:18990`. Tailscale runs without root (userspace networking, tmux `hyp-ts`, state in
   `~/hypomnema-cp/tailscale`) and Tailscale Funnel publishes it to the internet as
   `https://hypomnema.taild3b6dc.ts.net`, which is `HYPOMNEMA_PUBLIC_URL` in `env`. The client API still refuses a
   call without a token. `tailscale funnel --https=443 off` makes it tailnet-only again, and then no machine can
@@ -1819,8 +1820,8 @@ the internet, so that a machine created at a provider can install the node from 
   provider `model-gateway`.
 - The owner's laptop joined as `laptop` and is logged in with a coordinator token; the coordinator skill is
   installed.
-- Each machine joins the tailnet once, approved in the owner's Tailscale account. There is no service manager yet:
-  a reboot needs the tmux sessions started again.
+- Each machine joins the tailnet once, approved in the owner's Tailscale account. The control plane starts with the
+  machine; Tailscale does not yet: a reboot needs the tmux session `hyp-ts` started again.
 
 ## Code
 
