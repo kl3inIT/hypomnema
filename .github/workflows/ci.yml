@@ -8,8 +8,11 @@ on:
 permissions:
   contents: read
 
+# A pull request's newer push cancels its older run; each commit pushed to main has a run of its own, since a release
+# is built only from a commit whose run passed (issue #334). One group for main kept one pending run and cancelled the
+# others.
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}
+  group: ci-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
