@@ -281,9 +281,7 @@ test("the owner sets the first Lark channel up, switches it on and lets a person
   await expect(sheet.getByLabel("Person Linh")).toHaveCount(0)
   await sheet.getByRole("button", { name: "Close" }).click()
   await expect(sheet).toHaveCount(0)
-  await expect(card.getByRole("button", { name: "People you added to main" })).toContainText(
-    "none",
-  )
+  await expect(card.getByRole("button", { name: "People you added to main" })).toContainText("none")
 
   expect(calls).toEqual([
     {
