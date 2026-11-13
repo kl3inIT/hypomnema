@@ -956,7 +956,7 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     a Channel's app.
     - A Channel is a row of `lark_channels`: its name (as a Bot's, at most 50 characters), its app's id, the
       name of the vault secret with the app's secret, the Bot it talks to, its mode, the owner's `open_id`,
-      whether it is on and whether its replies link to the web (`web_link`, migration 00062). One app is one
+      whether it is on and whether its replies link to the web (`web_link`, migration 00063). One app is one
       Channel: an app that another Channel has is refused (Hermes refuses two profiles on one app). The one Lark bot there was before migration 00047 is the Channel `main`, which talks
       to `coordinator`.
     - It talks to Lark through Lark's Go SDK (`github.com/larksuite/oapi-sdk-go/v3`): events come over a
@@ -968,7 +968,7 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       the one bot), the owner, whose email is looked up at Lark with the app and kept as his `open_id`, and the
       Bot, which must exist and is `coordinator` unless named. A new Channel is off and in mode `owner`, and
       its replies link to the web only when it is the first Channel, the owner's own
-      ([#305](https://github.com/kl3inIT/hypomnema/issues/305)); the Channels there were before migration 00062
+      ([#305](https://github.com/kl3inIT/hypomnema/issues/305)); the Channels there were before migration 00063
       keep the link. `--bot`, `--mode owner|allowlist|everyone`, `--on`/`--off` and `-web-link=true|false`
       change it; `channels lark allow|disallow <channel> <email>` keep its allowlist; `channels lark list` and
       `channels lark show <channel>` say whether each is connected and why not, and whether its replies link to
