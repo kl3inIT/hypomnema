@@ -4,6 +4,7 @@ import {
   Bot,
   ChevronRight,
   Info,
+  Link,
   MessagesSquare,
   Pencil,
   Plus,
@@ -211,8 +212,12 @@ function LarkChannelCard({
   const id = `lark-${channel.name}`
 
   const change = useMutation({
-    mutationFn: (body: { mode?: LarkChannelMode; enabled?: boolean; bot?: string }) =>
-      putLarkChannel({ path: { channel: channel.name }, body }),
+    mutationFn: (body: {
+      mode?: LarkChannelMode
+      enabled?: boolean
+      bot?: string
+      web_link?: boolean
+    }) => putLarkChannel({ path: { channel: channel.name }, body }),
     onSuccess: refresh,
   })
 
@@ -348,6 +353,35 @@ function LarkChannelCard({
                   ))}
                 </SelectContent>
               </Select>
+            </span>
+            <span className="flex items-center gap-2">
+              <label
+                htmlFor={`${id}-web-link`}
+                className="flex items-center gap-1.5"
+                title="End a reply in a direct chat with a link to the chat here. A reply in a group never has one."
+              >
+                <Link className="size-4" aria-hidden />
+                Link to Hypomnema
+              </label>
+              <Switch
+                id={`${id}-web-link`}
+                size="sm"
+                checked={channel.web_link}
+                disabled={change.isPending}
+                onCheckedChange={(link) =>
+                  change.mutate(
+                    { web_link: link },
+                    {
+                      onSuccess: () =>
+                        said(
+                          link
+                            ? `${channel.name}'s replies link to Hypomnema`
+                            : `${channel.name}'s replies no longer link to Hypomnema`,
+                        ),
+                    },
+                  )
+                }
+              />
             </span>
           </div>
           <p className="flex items-center gap-1.5 text-xs text-muted-foreground">

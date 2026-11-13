@@ -1484,6 +1484,15 @@ func (r *relay) kept(ctx context.Context) {
 	}
 }
 
+// webLink says the Channel's replies end with a link to the web client. The
+// Channel is read at each reply, so the owner's switch counts from the next
+// one; a Channel that cannot be read goes without the link.
+func (r *relay) webLink(ctx context.Context) bool {
+	ch, err := r.all.store.LarkChannel(ctx, r.chat.Channel)
+
+	return err == nil && ch.WebLink
+}
+
 // finish ends the card being written with its final text, or sends the text
 // as a card of its own. A text longer than a card goes on in further cards.
 // The files the text asks for follow it (issue #312). With no card, no text
@@ -1516,8 +1525,9 @@ func (r *relay) finish(ctx context.Context, text string) {
 
 	parts := split(inert(text))
 	// A group's reply has no link: its conversation goes on in the group, and only the owner opens the web
-	// client (MemoryOS, ChannelInboundService: a group answer has no closing line).
-	if r.all.webURL != "" && !r.chat.Group {
+	// client (MemoryOS, ChannelInboundService: a group answer has no closing line). A Channel for other people
+	// has it switched off (owner, 2026-11-13).
+	if r.all.webURL != "" && !r.chat.Group && r.webLink(ctx) {
 		parts[len(parts)-1] += "\n\n[Open in Hypomnema](" + r.all.webURL + "/chats/" + r.chat.ChatID + ")"
 	}
 

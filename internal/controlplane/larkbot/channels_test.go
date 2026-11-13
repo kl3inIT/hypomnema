@@ -1292,6 +1292,51 @@ func TestTwoChannelsAreDoorsToTwoBots(t *testing.T) {
 	require.ErrorContains(t, err, "Lark channels talk to")
 }
 
+// Scenario: the owner's first Channel, main, ends a reply with a link to the
+// chat in the web client; maps, set up for other people, does not. He
+// switches the link on for maps and off for main, and the next replies
+// follow (issue #305).
+func TestOnlyAChannelWithTheLinkEndsAReplyWithIt(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+	w.web = "https://hyp.example/"
+	w.start()
+	w.setUp(orchestration.LarkChannelOwner)
+	w.setUpMaps(orchestration.LarkChannelOwner)
+
+	w.lark.say(direct("om_1", ownerDM, ownerID, "fix the login page"))
+	w.larkMaps.say(direct("om_2", mapsDM, mapsOwner, "where is the depot"))
+
+	first, second := w.chatOf(ownerDM), w.chatOf(mapsDM)
+	link := func(chat string) string { return "\n\n[Open in Hypomnema](https://hyp.example/chats/" + chat + ")" }
+
+	w.answer(first, "On it.")
+	w.answer(second, "At the north gate.")
+	require.Eventually(t, func() bool {
+		return assert.ObjectsAreEqual([]string{ownerDM + ": On it." + link(first)}, w.lark.sent()) &&
+			assert.ObjectsAreEqual([]string{mapsDM + ": At the north gate."}, w.larkMaps.sent())
+	}, eventual, tick, "the first Channel has the link, the next does not")
+
+	on, off := true, false
+	st, err := w.svc.Set(ctx, maps, larkbot.Settings{WebLink: &on})
+	require.NoError(t, err)
+	assert.True(t, st.Channel.WebLink)
+	_, err = w.svc.Set(ctx, main, larkbot.Settings{WebLink: &off})
+	require.NoError(t, err)
+
+	w.answer(first, "Done.")
+	w.answer(second, "Open from eight.")
+	require.Eventually(t, func() bool {
+		return assert.ObjectsAreEqual([]string{ownerDM + ": On it." + link(first), ownerDM + ": Done."},
+			w.lark.sent()) &&
+			assert.ObjectsAreEqual([]string{
+				mapsDM + ": At the north gate.", mapsDM + ": Open from eight." + link(second),
+			}, w.larkMaps.sent())
+	}, eventual, tick, "the owner's switch counts from the next reply")
+}
+
 // asked counts the question cards an app was sent.
 func (l *lark) askedCount() int {
 	l.mu.Lock()

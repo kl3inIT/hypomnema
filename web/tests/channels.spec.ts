@@ -21,6 +21,7 @@ type Channel = {
   mode: string
   owner_open_id: string
   enabled: boolean
+  web_link: boolean
   connected: boolean
   last_error?: string
   people: Person[]
@@ -56,6 +57,7 @@ const main: Channel = {
   mode: "owner",
   owner_open_id: "ou_owner",
   enabled: true,
+  web_link: true,
   connected: true,
   people: [],
   groups: [],
@@ -116,6 +118,7 @@ async function fakeServer(page: Page, start: Channel[] = []) {
         owner?: string
         mode?: string
         enabled?: boolean
+        web_link?: boolean
       }
 
       if (set.owner === "nobody@example.com") {
@@ -143,6 +146,8 @@ async function fakeServer(page: Page, start: Channel[] = []) {
         mode: set.mode ?? found?.mode ?? "owner",
         owner_open_id: found?.owner_open_id ?? "ou_owner",
         enabled: set.enabled ?? found?.enabled ?? false,
+        // Only the first channel, the owner's own, starts with the link.
+        web_link: set.web_link ?? found?.web_link ?? channels.length === 0,
         connected: set.enabled ?? found?.connected ?? false,
         people: found?.people ?? [],
         groups: found?.groups ?? [],
@@ -398,6 +403,39 @@ test("the owner adds a second channel for another Bot", async ({ page }) => {
     },
     { call: "PUT /channels/lark/main", body: { bot: "vmap" } },
     { call: "DELETE /channels/lark/maps", body: null },
+  ])
+})
+
+// Scenario: the channel main, the owner's own, ends a reply with a link to Hypomnema; maps, for other people, does
+// not (issue #305). The owner switches the link on for maps and off for main, each saved as he does.
+test("the owner switches the link to Hypomnema of a channel on and off", async ({ page }) => {
+  const calls = await fakeServer(page, [
+    main,
+    { ...main, name: "maps", bot: "vmap", app_id: "cli_m4p5", web_link: false },
+  ])
+  await page.goto("/settings/channels")
+
+  const mainLink = page
+    .getByLabel("Channel main", { exact: true })
+    .getByRole("switch", { name: "Link to Hypomnema" })
+  const mapsLink = page
+    .getByLabel("Channel maps", { exact: true })
+    .getByRole("switch", { name: "Link to Hypomnema" })
+  await expect(mainLink).toBeChecked()
+  await expect(mapsLink).not.toBeChecked()
+  expect(await fits(page)).toBe(true)
+  await shot(page, "channels-web-link")
+
+  await mapsLink.click()
+  await expect(mapsLink).toBeChecked()
+  await mainLink.click()
+  await expect(mainLink).not.toBeChecked()
+  expect(await fits(page)).toBe(true)
+  await shot(page, "channels-web-link-switched")
+
+  expect(calls).toEqual([
+    { call: "PUT /channels/lark/maps", body: { web_link: true } },
+    { call: "PUT /channels/lark/main", body: { web_link: false } },
   ])
 })
 

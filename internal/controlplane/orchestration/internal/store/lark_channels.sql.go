@@ -103,7 +103,7 @@ func (q *Queries) FirstEnabledLarkChannel(ctx context.Context) (string, error) {
 }
 
 const getLarkChannel = `-- name: GetLarkChannel :one
-SELECT name, app_id, secret, bot, mode, owner_open_id, enabled, created_at, updated_at FROM lark_channels WHERE name = ?1
+SELECT name, app_id, secret, bot, mode, owner_open_id, enabled, created_at, updated_at, web_link FROM lark_channels WHERE name = ?1
 `
 
 func (q *Queries) GetLarkChannel(ctx context.Context, name string) (LarkChannel, error) {
@@ -119,12 +119,13 @@ func (q *Queries) GetLarkChannel(ctx context.Context, name string) (LarkChannel,
 		&i.Enabled,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.WebLink,
 	)
 	return i, err
 }
 
 const getLarkChannelByApp = `-- name: GetLarkChannelByApp :one
-SELECT name, app_id, secret, bot, mode, owner_open_id, enabled, created_at, updated_at FROM lark_channels WHERE app_id = ?1
+SELECT name, app_id, secret, bot, mode, owner_open_id, enabled, created_at, updated_at, web_link FROM lark_channels WHERE app_id = ?1
 `
 
 func (q *Queries) GetLarkChannelByApp(ctx context.Context, appID string) (LarkChannel, error) {
@@ -140,6 +141,7 @@ func (q *Queries) GetLarkChannelByApp(ctx context.Context, appID string) (LarkCh
 		&i.Enabled,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.WebLink,
 	)
 	return i, err
 }
@@ -447,7 +449,7 @@ func (q *Queries) ListLarkChannelPeople(ctx context.Context, channel string) ([]
 }
 
 const listLarkChannels = `-- name: ListLarkChannels :many
-SELECT name, app_id, secret, bot, mode, owner_open_id, enabled, created_at, updated_at FROM lark_channels ORDER BY created_at, name
+SELECT name, app_id, secret, bot, mode, owner_open_id, enabled, created_at, updated_at, web_link FROM lark_channels ORDER BY created_at, name
 `
 
 func (q *Queries) ListLarkChannels(ctx context.Context) ([]LarkChannel, error) {
@@ -469,6 +471,7 @@ func (q *Queries) ListLarkChannels(ctx context.Context) ([]LarkChannel, error) {
 			&i.Enabled,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.WebLink,
 		); err != nil {
 			return nil, err
 		}
@@ -613,11 +616,12 @@ func (q *Queries) SetLarkChannelGroupEnabled(ctx context.Context, arg SetLarkCha
 }
 
 const upsertLarkChannel = `-- name: UpsertLarkChannel :exec
-INSERT INTO lark_channels (name, app_id, secret, bot, mode, owner_open_id, enabled, created_at, updated_at)
-VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)
+INSERT INTO lark_channels (name, app_id, secret, bot, mode, owner_open_id, enabled, web_link, created_at,
+    updated_at)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9)
 ON CONFLICT (name) DO UPDATE SET app_id = excluded.app_id, secret = excluded.secret, bot = excluded.bot,
     mode = excluded.mode, owner_open_id = excluded.owner_open_id, enabled = excluded.enabled,
-    updated_at = excluded.updated_at
+    web_link = excluded.web_link, updated_at = excluded.updated_at
 `
 
 type UpsertLarkChannelParams struct {
@@ -628,6 +632,7 @@ type UpsertLarkChannelParams struct {
 	Mode        string
 	OwnerOpenID string
 	Enabled     int64
+	WebLink     int64
 	Now         int64
 }
 
@@ -640,6 +645,7 @@ func (q *Queries) UpsertLarkChannel(ctx context.Context, arg UpsertLarkChannelPa
 		arg.Mode,
 		arg.OwnerOpenID,
 		arg.Enabled,
+		arg.WebLink,
 		arg.Now,
 	)
 	return err

@@ -1,9 +1,10 @@
 -- name: UpsertLarkChannel :exec
-INSERT INTO lark_channels (name, app_id, secret, bot, mode, owner_open_id, enabled, created_at, updated_at)
-VALUES (@name, @app_id, @secret, @bot, @mode, @owner_open_id, @enabled, @now, @now)
+INSERT INTO lark_channels (name, app_id, secret, bot, mode, owner_open_id, enabled, web_link, created_at,
+    updated_at)
+VALUES (@name, @app_id, @secret, @bot, @mode, @owner_open_id, @enabled, @web_link, @now, @now)
 ON CONFLICT (name) DO UPDATE SET app_id = excluded.app_id, secret = excluded.secret, bot = excluded.bot,
     mode = excluded.mode, owner_open_id = excluded.owner_open_id, enabled = excluded.enabled,
-    updated_at = excluded.updated_at;
+    web_link = excluded.web_link, updated_at = excluded.updated_at;
 
 -- name: GetLarkChannel :one
 SELECT * FROM lark_channels WHERE name = @name;

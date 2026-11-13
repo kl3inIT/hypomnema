@@ -309,6 +309,7 @@ type LarkChannel struct {
 	Enabled     int64
 	CreatedAt   int64
 	UpdatedAt   int64
+	WebLink     int64
 }
 
 type LarkChannelChat struct {

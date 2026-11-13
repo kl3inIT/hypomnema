@@ -35,6 +35,9 @@ type Settings struct {
 	Bot     string
 	Mode    orchestration.LarkChannelMode
 	Enabled *bool
+	// WebLink says a direct chat's reply ends with a link to the web client;
+	// a new Channel has it only when it is the first (the owner's own).
+	WebLink *bool
 }
 
 // Status is a Channel as the owner sees it.
@@ -222,6 +225,21 @@ func (s *Service) Set(ctx context.Context, name string, set Settings) (Status, e
 
 	if set.Enabled != nil {
 		ch.Enabled = *set.Enabled
+	}
+
+	if fresh {
+		// The first Channel is the owner's own, who opens the web client; the next are for other people, who
+		// do not (owner, 2026-11-13).
+		others, err := s.store.LarkChannels(ctx)
+		if err != nil {
+			return Status{}, err
+		}
+
+		ch.WebLink = len(others) == 0
+	}
+
+	if set.WebLink != nil {
+		ch.WebLink = *set.WebLink
 	}
 
 	if set.AppSecret != "" {

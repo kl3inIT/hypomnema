@@ -689,6 +689,10 @@ export type LarkChannel = {
    */
   enabled: boolean;
   /**
+   * Whether a reply in a direct chat ends with a link to the chat in the web client. A reply in a group never has one.
+   */
+  web_link: boolean;
+  /**
    * Whether the Channel's persistent connection to Lark is open.
    */
   connected: boolean;
@@ -757,6 +761,10 @@ export type LarkChannelSettings = {
   owner?: string;
   mode?: LarkChannelMode;
   enabled?: boolean;
+  /**
+   * Whether a reply in a direct chat ends with a link to the chat in the web client. A new Channel has it when it is the first Channel, the owner's own, unless told otherwise.
+   */
+  web_link?: boolean;
 };
 
 export type LarkChannelPerson = {
@@ -2299,6 +2307,10 @@ export type LarkChannelSettingsWritable = {
   owner?: string;
   mode?: LarkChannelMode;
   enabled?: boolean;
+  /**
+   * Whether a reply in a direct chat ends with a link to the chat in the web client. A new Channel has it when it is the first Channel, the owner's own, unless told otherwise.
+   */
+  web_link?: boolean;
 };
 
 /**
