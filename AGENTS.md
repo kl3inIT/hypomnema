@@ -61,7 +61,8 @@
   `docs: summary`: no issue, branch or pull request (owner, 2026-11-07). If the checkout is on another session's
   branch, commit from a temporary worktree on `origin/main`. A design change that affects an open issue also gets a
   comment on that issue.
-- Run `make verify` before pushing once it exists.
+- Run `make verify` before pushing once it exists. A pull request that adds a migration merges main and runs
+  `make migration-check` again right before it is merged: another may have taken its number meanwhile (#334).
 - The checks need Go at the version `go.mod` names (the linters and generators come through `go tool`), and the
   web client's need Node 24 and pnpm (`web/package.json`). An agent on a machine that lacks one installs it for its
   own user, without sudo, and goes on: Go from go.dev's tarball, checked against its SHA-256, under

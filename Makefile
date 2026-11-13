@@ -66,10 +66,20 @@ openapi-check: ## Fail when the generated client API code is not what the contra
 		{ echo 'oapi-codegen generated files that are not committed'; exit 1; }
 
 # As Omnara's migration-check: a migration that is on main is released and never edited or removed.
-migration-check: ## Fail when a migration already on origin/main was changed or removed
-	@git rev-parse --verify -q origin/main >/dev/null || { echo 'migration-check needs origin/main'; exit 1; }
-	@changed="$$(git diff --name-status origin/main -- $(MIGRATIONS) | grep -v '^A' || true)"; \
-	test -z "$$changed" || { printf 'released migrations must not change:\n%s\n' "$$changed"; exit 1; }
+# MIGRATION_BASE is what the migrations are checked against: origin/main for a branch; CI passes its own (issue #334).
+MIGRATION_BASE ?= origin/main
+
+migration-check: ## Fail when a migration on main changed, two share a number, or a new one is not after main's
+	@git rev-parse --verify -q $(MIGRATION_BASE) >/dev/null || { echo 'migration-check needs $(MIGRATION_BASE)'; exit 1; }
+	@changed="$$(git diff --name-status $(MIGRATION_BASE) -- $(MIGRATIONS) | grep -v '^A' || true)"; \
+	test -z "$$changed" || { printf 'migrations on main must not change (behind main? merge it):\n%s\n' "$$changed"; exit 1; }
+	@dup="$$(ls $(MIGRATIONS) | sed -n 's/^\([0-9]*\)_.*\.sql$$/\1/p' | sort | uniq -d)"; \
+	test -z "$$dup" || { printf 'two migrations share the number %s\n' "$$dup"; exit 1; }
+	@last="$$(git ls-tree --name-only $(MIGRATION_BASE) $(MIGRATIONS)/ | sed -n 's|.*/\([0-9]*\)_.*\.sql$$|\1|p' | sort | tail -1)"; \
+	for f in $$(git diff --name-only --diff-filter=A $(MIGRATION_BASE) -- $(MIGRATIONS)); do \
+	  n="$$(basename $$f | sed -n 's/^\([0-9]*\)_.*/\1/p')"; \
+	  test "$$n" \> "$$last" || { printf '%s must be numbered after %s, the last on main\n' "$$f" "$$last"; exit 1; }; \
+	done
 
 unit: ## Unit tests
 	$(GO) test -count=1 ./...
