@@ -116,6 +116,9 @@ type NewRun struct {
 	ChatID string
 	// Uses are the Connections the Run's workers may use ("google:work").
 	Uses []string
+	// Bot is the Bot whose token creates it, if any: it gives the Run only
+	// Connections it may use itself (issue #169).
+	Bot string
 }
 
 // RunFilter selects Runs; empty fields match everything.

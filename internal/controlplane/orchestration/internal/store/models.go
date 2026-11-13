@@ -77,16 +77,18 @@ type Approval struct {
 }
 
 type Bot struct {
-	Name      string
-	Provider  sql.NullString
-	Model     sql.NullString
-	Effort    sql.NullString
-	Persona   string
-	Memory    string
-	CreatedAt int64
-	UpdatedAt int64
-	Skills    string
-	SkillsOff string
+	Name        string
+	Provider    sql.NullString
+	Model       sql.NullString
+	Effort      sql.NullString
+	Persona     string
+	Memory      string
+	CreatedAt   int64
+	UpdatedAt   int64
+	Skills      string
+	SkillsOff   string
+	Connections sql.NullString
+	Workers     sql.NullString
 }
 
 type Chat struct {
@@ -562,6 +564,7 @@ type Run struct {
 	ChatID             sql.NullString
 	RepoHost           sql.NullString
 	Uses               sql.NullString
+	Bot                sql.NullString
 }
 
 type Secret struct {
@@ -602,6 +605,18 @@ type SecretVersion struct {
 	Ciphertext           []byte
 	AccessTokenExpiresAt sql.NullInt64
 	CreatedAt            int64
+}
+
+type SetupChange struct {
+	ID        string
+	ChatID    string
+	Kind      string
+	Name      string
+	Action    string
+	Before    sql.NullString
+	After     string
+	CreatedAt int64
+	UndoneAt  sql.NullInt64
 }
 
 type Skill struct {

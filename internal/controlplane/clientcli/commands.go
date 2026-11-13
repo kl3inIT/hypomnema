@@ -358,7 +358,7 @@ var commands = []command{
 	},
 	{
 		name: "bots set", args: "<bot>", min: 1, max: 1,
-		summary: "make a bot, or change its model or persona; what is left out stays (owner)",
+		summary: "make a bot, or change its settings; what is left out stays (owner, or the bot coordinator)",
 		flags: func(fs *flag.FlagSet) {
 			fs.String("provider", "", "the provider of the model, when more than one offers it")
 			fs.String("model", "", "the model pi runs for the bot; empty for pi's default")
@@ -366,13 +366,18 @@ var commands = []command{
 			fs.String("persona-file", "", "a file with what the bot is and how it behaves, or - for standard input")
 			fs.String("skills", "", "the skills the bot gets beside those for everyone, separated by commas; \"\" for none")
 			fs.String("skills-off", "", "the skills for everyone the bot does not get, separated by commas; \"\" for none")
+			fs.String("connections", "", "only these connections, integration:label separated by commas; \"\" for none")
+			fs.Bool("all-connections", false, "every connection the owner switched on for chats")
+			fs.String("workers", "", "only these worker profiles, separated by commas; \"\" for none")
+			fs.Bool("all-workers", false, "every worker profile")
 			jsonFlag(fs)
 		},
 		run: botsSet,
 	},
 	{
-		name: "bots rm", args: "<bot>", min: 1, max: 1, summary: "remove a bot that has no chats and no memory (owner)",
-		flags: jsonFlag, run: botsRemove,
+		name: "bots rm", args: "<bot>", min: 1, max: 1,
+		summary: "remove a bot that has no chats and no memory (owner, or the bot coordinator)",
+		flags:   jsonFlag, run: botsRemove,
 	},
 	{
 		name: "bots prompt", args: "<bot>", min: 1, max: 1,
@@ -381,6 +386,20 @@ var commands = []command{
 			fs.Bool("group", false, "for the chat of a Lark group: without the memory, and saying who writes there")
 		},
 		run: botsPrompt,
+	},
+	{
+		name:    "setup list",
+		summary: "what the bot coordinator made, changed or removed of bots and profiles in a chat (owner)",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("chat", "", "the chat")
+			jsonFlag(fs)
+		},
+		run: setupList,
+	},
+	{
+		name: "setup undo", args: "<change_id>", min: 1, max: 1,
+		summary: "undo a change of the bot coordinator, unless what it changed was changed or used since (owner)",
+		flags:   jsonFlag, run: setupUndo,
 	},
 	{
 		name: "routines list", summary: "the routines: work a bot does on a schedule, a prompt or a script",
@@ -507,7 +526,7 @@ var commands = []command{
 	},
 	{
 		name: "profiles apply", args: "<file>", min: 1, max: 1,
-		summary: "store a profile's YAML (owner); a changed source makes a new version",
+		summary: "store a profile's YAML (owner, or the bot coordinator); a changed source makes a new version",
 		flags:   jsonFlag, run: profilesApply,
 	},
 	{

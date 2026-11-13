@@ -11,8 +11,9 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
 )
 
-// Bots, from the terminal (issue #169): the owner makes and changes them; pi
-// reads its Bot's prompt when it starts and writes its memory.
+// Bots, from the terminal (issue #169): the owner makes and changes them, and
+// the Bot coordinator from its chat; pi reads its Bot's prompt when it starts
+// and writes its memory.
 
 // botEnv names the Bot a pi process is, set by its launcher, so that
 // `hypomnema memory` needs no name. It is a hint: pi's own token is bound to
@@ -55,6 +56,9 @@ func printBot(e *env, b *openapi.Bot) {
 		e.printf("skills off: %s\n", strings.Join(b.SkillsOff, ", "))
 	}
 
+	e.printf("connections: %s\n", allowLine(b.Connections, "every one switched on for chats"))
+	e.printf("workers: %s\n", allowLine(b.Workers, "every profile"))
+
 	if b.Persona != "" {
 		e.printf("\n%s\n", b.Persona)
 	}
@@ -65,6 +69,18 @@ func printBot(e *env, b *openapi.Bot) {
 		for _, m := range entries {
 			e.printf("- %s\n", m)
 		}
+	}
+}
+
+// allowLine says what a Bot's list lets it use.
+func allowLine(l openapi.AllowList, all string) string {
+	switch {
+	case !l.Limited:
+		return all
+	case len(l.Names) == 0:
+		return "none"
+	default:
+		return strings.Join(l.Names, ", ")
 	}
 }
 
@@ -152,6 +168,18 @@ func botsSet(ctx context.Context, e *env, fs *flag.FlagSet) error {
 			set.Skills = list(v)
 		case "skills-off":
 			set.SkillsOff = list(v)
+		case "connections":
+			set.Connections = &openapi.AllowList{Limited: true, Names: *list(v)}
+		case "all-connections":
+			if v == "true" {
+				set.Connections = &openapi.AllowList{Names: []string{}}
+			}
+		case "workers":
+			set.Workers = &openapi.AllowList{Limited: true, Names: *list(v)}
+		case "all-workers":
+			if v == "true" {
+				set.Workers = &openapi.AllowList{Names: []string{}}
+			}
 		case "persona-file":
 			persona, err := e.read(v)
 			if err != nil {
@@ -306,15 +334,51 @@ func botPrompt(b openapi.Bot, owner kept) string {
 	entries := memoryEntries(b)
 	if len(entries) == 0 {
 		out.WriteString("Your memory is empty.\n")
+	} else {
+		out.WriteString("Your memory now:\n\n")
 
-		return out.String()
+		for _, m := range entries {
+			out.WriteString("- " + m + "\n")
+		}
 	}
 
-	out.WriteString("Your memory now:\n\n")
+	out.WriteString(accessPrompt(b))
 
-	for _, m := range entries {
-		out.WriteString("- " + m + "\n")
+	return out.String()
+}
+
+// accessPrompt is what pi is told of what its Bot may use (issue #169): the
+// worker profiles it may give work to when it has a list, as Hermes shows a
+// profile's model only the profiles its routes name, and for the Bot
+// coordinator, that it manages Bots and profiles, adding one without asking
+// and saying so, as OpenMausBot's Chief does (server/chief-of-staff.ts L21).
+func accessPrompt(b openapi.Bot) string {
+	var out strings.Builder
+
+	if b.Workers.Limited {
+		out.WriteString("\n## Workers\n\n")
+
+		if len(b.Workers.Names) == 0 {
+			out.WriteString("You give work to no worker profile: a Task you create is refused. Do the work " +
+				"yourself, or tell the owner it needs a worker.\n")
+		} else {
+			fmt.Fprintf(&out, "You give work only to these worker profiles: %s. A Task for another profile is "+
+				"refused.\n", strings.Join(b.Workers.Names, ", "))
+		}
+	}
+
+	if b.Name == coordinatorBot {
+		out.WriteString("\n## Bots and profiles\n\n" +
+			"You alone, besides the owner, make, change and remove Bots and worker profiles: `hypomnema bots " +
+			"set|rm` and `hypomnema profiles apply` (`hypomnema bots` and `hypomnema profiles` list their " +
+			"flags). When a job needs a Bot or a worker profile that does not exist, make it without asking " +
+			"first, then tell the owner in one line what you made or changed; each change leaves a card in this " +
+			"chat on which he can undo it. " +
+			"Never make one just to look busy or one that duplicates another. You cannot remove yourself.\n")
 	}
 
 	return out.String()
 }
+
+// coordinatorBot is the Bot that manages Bots and profiles (issue #169).
+const coordinatorBot = "coordinator"

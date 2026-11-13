@@ -64,7 +64,12 @@ func (s *Server) supersetCall(ctx context.Context, label string, chatID, runKey 
 
 		call.Caller = serviceproxy.Caller{Name: "owner token " + tok.ID}
 	case bearertoken.Coordinator, bearertoken.Bot:
-		if err != nil || !conn.Chats {
+		may, merr := s.mayUse(ctx, tok, conn, err == nil)
+		if merr != nil {
+			return serviceproxy.Call{}, merr
+		}
+
+		if !may {
 			return serviceproxy.Call{}, fmt.Errorf("%w: this agent was not given %s", errForbidden,
 				orchestration.Use(serviceproxy.SupersetID, label))
 		}
@@ -84,6 +89,23 @@ func (s *Server) supersetCall(ctx context.Context, label string, chatID, runKey 
 	}
 
 	return call, nil
+}
+
+// mayUse says whether a coordinator's token may use a Connection that
+// exists: one the owner switched on for chats, and for a Bot one on its list,
+// if it has one (issue #169).
+func (s *Server) mayUse(ctx context.Context, tok orchestration.Token, conn orchestration.Connection, exists bool,
+) (bool, error) {
+	if !exists || tok.Kind != bearertoken.Bot {
+		return exists && conn.Chats, nil
+	}
+
+	bot, err := s.svc.GetBot(ctx, tok.Bot)
+	if err != nil {
+		return false, err
+	}
+
+	return bot.MayUse(conn), nil
 }
 
 // relayOf is the way the reads reach Superset for one caller: each request

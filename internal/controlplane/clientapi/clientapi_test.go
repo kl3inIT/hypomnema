@@ -1040,16 +1040,35 @@ func TestAPisTokenActsInItsChatAndAsItsBotOnly(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusOK, canceled.StatusCode(), string(canceled.Body))
 
-	other, err := pi.GetBotWithResponse(ctx, "vmap")
+	_, err = w.svc.SetBotMemory(ctx, orchestration.DefaultBot, "The owner is in Hanoi.")
+	require.NoError(t, err)
+
+	other, err := vmap.GetBotWithResponse(ctx, orchestration.DefaultBot)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusForbidden, other.StatusCode())
-	assert.NotContains(t, string(other.Body), "You answer about VMAP.")
+	assert.NotContains(t, string(other.Body), "The owner is in Hanoi.")
 
-	listed, err := pi.ListBotsWithResponse(ctx)
+	listed, err := vmap.ListBotsWithResponse(ctx)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, listed.StatusCode())
 	require.Len(t, listed.JSON200.Data, 1, "a pi is shown its own Bot")
-	assert.Equal(t, orchestration.DefaultBot, listed.JSON200.Data[0].Name)
+	assert.Equal(t, "vmap", listed.JSON200.Data[0].Name)
+
+	// The Bot coordinator manages the Bots (issue #169): it reads every one, as the owner's CLI does first.
+	_, err = w.svc.SetBotMemory(ctx, "vmap", "Linh leads the maps team.")
+	require.NoError(t, err)
+
+	managed, err := pi.ListBotsWithResponse(ctx)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, managed.StatusCode())
+	assert.Len(t, managed.JSON200.Data, 2)
+	assert.NotContains(t, string(managed.Body), "Linh leads", "another Bot's memory is not the coordinator's to read")
+
+	vmapBot, err := pi.GetBotWithResponse(ctx, "vmap")
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, vmapBot.StatusCode())
+	assert.Equal(t, "You answer about VMAP.", vmapBot.JSON200.Persona)
+	assert.Empty(t, vmapBot.JSON200.Memory)
 
 	skills, err := pi.ListBotSkillsWithResponse(ctx, "vmap")
 	require.NoError(t, err)

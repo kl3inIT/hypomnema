@@ -1,5 +1,5 @@
 import { modelName } from "@/lib/model-name"
-import type { Bot, BotSettings, Model } from "@/api/generated/types.gen"
+import type { AllowList, Bot, BotSettings, Model } from "@/api/generated/types.gen"
 import { modelKey, splitModel } from "@/features/agents/profiles-state"
 
 // What the Bots pages say about a Bot, apart from how they draw it.
@@ -103,4 +103,30 @@ export function problem(draft: Draft, taken: string[]): string | null {
   if (taken.includes(name)) return "A Bot has this name already."
 
   return null
+}
+
+// keptSettings is a Bot's stored model and persona as PUT /bots/{name} takes them, so that a change of one list
+// replaces nothing else; the skills and the other list are left out and the server keeps them.
+export function keptSettings(bot: Bot): BotSettings {
+  return {
+    ...(bot.provider && { provider: bot.provider }),
+    ...(bot.model && { model: bot.model }),
+    ...(bot.effort && { effort: bot.effort }),
+    persona: bot.persona,
+  }
+}
+
+// allowed is what a Bot's list names that is not among the items shown: kept on the list, though gone since, as
+// OpenMausBot keeps the scope of an app no longer connected.
+export function allowed(list: AllowList, items: { name: string }[]): string[] {
+  if (!list.limited) return []
+
+  return list.names.filter((name) => !items.some((item) => item.name === name))
+}
+
+// withName is a list's names with one switched on or off, in the order they were added.
+export function withName(names: string[], name: string, on: boolean): string[] {
+  const rest = names.filter((n) => n !== name)
+
+  return on ? [...rest, name] : rest
 }

@@ -54,3 +54,20 @@ SELECT * FROM profile_versions WHERE profile = @profile ORDER BY version DESC;
 
 -- name: ListProviderNamesByKeyRef :many
 SELECT name FROM providers WHERE api_key_ref = @api_key_ref ORDER BY name;
+
+-- name: CountTasksOfProfileSince :one
+SELECT count(*) FROM tasks WHERE profile = @profile AND created_at >= @since;
+
+-- name: CountFallbacksNaming :one
+-- The profiles whose current version names a profile among its backups.
+SELECT count(*) FROM profiles p JOIN profile_versions v ON v.id = p.current_version_id
+WHERE p.name <> @profile AND (',' || v.fallbacks || ',') LIKE ('%,' || @profile || ',%');
+
+-- name: DeleteProfileVersions :exec
+DELETE FROM profile_versions WHERE profile = @profile;
+
+-- name: DeleteProfile :exec
+DELETE FROM profiles WHERE name = @name;
+
+-- name: CountDispatchesOfProfileVersion :one
+SELECT count(*) FROM dispatches WHERE profile_version_id = @version_id;

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 )
@@ -11,10 +12,11 @@ import (
 // Bots (issue #169). Every token reads them and changes a memory: pi's
 // launcher reads its Bot's persona when it starts, and pi writes its memory.
 // A pi's own token (issue #260) reads and changes its own Bot only, so one
-// Bot never reads another's persona or memory. Only the owner makes, changes
-// and removes a Bot (policy.go).
+// Bot never reads another's persona or memory. The owner makes, changes and
+// removes a Bot, and the Bot coordinator from its chat (setupchanges.go).
 
-// ListBots returns every Bot; a pi's token is shown its own.
+// ListBots returns every Bot; a pi's token is shown its own, the Bot
+// coordinator's every one.
 func (s *Server) ListBots(ctx context.Context, _ openapi.ListBotsRequestObject,
 ) (openapi.ListBotsResponseObject, error) {
 	bots, err := s.svc.ListBots(ctx)
@@ -26,8 +28,8 @@ func (s *Server) ListBots(ctx context.Context, _ openapi.ListBotsRequestObject,
 
 	out := openapi.ListBots200JSONResponse{Data: make([]openapi.Bot, 0, len(bots))}
 	for _, b := range bots {
-		if botAllowed(tok, b.Name) == nil {
-			out.Data = append(out.Data, toBot(b))
+		if botReadable(tok, b.Name) == nil {
+			out.Data = append(out.Data, shownBot(tok, b))
 		}
 	}
 
@@ -36,7 +38,7 @@ func (s *Server) ListBots(ctx context.Context, _ openapi.ListBotsRequestObject,
 
 // GetBot returns a Bot.
 func (s *Server) GetBot(ctx context.Context, req openapi.GetBotRequestObject) (openapi.GetBotResponseObject, error) {
-	if err := botAllowed(principal(ctx), req.Name); err != nil {
+	if err := botReadable(principal(ctx), req.Name); err != nil {
 		return nil, err
 	}
 
@@ -45,23 +47,29 @@ func (s *Server) GetBot(ctx context.Context, req openapi.GetBotRequestObject) (o
 		return nil, err
 	}
 
-	return openapi.GetBot200JSONResponse(toBot(b)), nil
+	return openapi.GetBot200JSONResponse(shownBot(principal(ctx), b)), nil
 }
 
-// PutBot makes a Bot or changes its model and persona.
+// PutBot makes a Bot or changes its settings.
 func (s *Server) PutBot(ctx context.Context, req openapi.PutBotRequestObject) (openapi.PutBotResponseObject, error) {
+	chat, err := setupChat(principal(ctx))
+	if err != nil {
+		return nil, err
+	}
+
 	bot := orchestration.Bot{
 		Name: req.Name, Provider: val(req.Body.Provider), Model: val(req.Body.Model), Effort: val(req.Body.Effort),
 		Persona: val(req.Body.Persona),
 	}
 
-	// Skills left out are kept: a client that does not know a Bot's skills does not take them away.
-	if req.Body.Skills == nil || req.Body.SkillsOff == nil {
+	// Skills and lists left out are kept: a client that does not know them does not take them away.
+	if req.Body.Skills == nil || req.Body.SkillsOff == nil || req.Body.Connections == nil || req.Body.Workers == nil {
 		had, err := s.svc.GetBot(ctx, req.Name)
 
 		switch {
 		case err == nil:
 			bot.Skills, bot.SkillsOff = had.Skills, had.SkillsOff
+			bot.Connections, bot.Workers = had.Connections, had.Workers
 		case !errors.Is(err, orchestration.ErrNotFound):
 			return nil, err
 		}
@@ -75,18 +83,43 @@ func (s *Server) PutBot(ctx context.Context, req openapi.PutBotRequestObject) (o
 		bot.SkillsOff = *req.Body.SkillsOff
 	}
 
-	b, err := s.svc.PutBot(ctx, bot)
+	if l := req.Body.Connections; l != nil {
+		bot.Connections = fromAllowList(*l)
+	}
+
+	if l := req.Body.Workers; l != nil {
+		bot.Workers = fromAllowList(*l)
+	}
+
+	var b orchestration.Bot
+	if chat == "" {
+		b, err = s.svc.PutBot(ctx, bot)
+	} else {
+		b, err = s.svc.PutBotFromChat(ctx, chat, bot)
+	}
+
 	if err != nil {
 		return nil, err
 	}
 
-	return openapi.PutBot200JSONResponse(toBot(b)), nil
+	return openapi.PutBot200JSONResponse(shownBot(principal(ctx), b)), nil
 }
 
 // DeleteBot removes a Bot nothing depends on.
 func (s *Server) DeleteBot(ctx context.Context, req openapi.DeleteBotRequestObject,
 ) (openapi.DeleteBotResponseObject, error) {
-	if err := s.svc.DeleteBot(ctx, req.Name); err != nil {
+	chat, err := setupChat(principal(ctx))
+	if err != nil {
+		return nil, err
+	}
+
+	if chat == "" {
+		err = s.svc.DeleteBot(ctx, req.Name)
+	} else {
+		err = s.svc.DeleteBotFromChat(ctx, chat, req.Name)
+	}
+
+	if err != nil {
 		return nil, err
 	}
 
@@ -121,11 +154,35 @@ func (s *Server) SetBotMemory(ctx context.Context, req openapi.SetBotMemoryReque
 	return openapi.SetBotMemory200JSONResponse(toBot(b)), nil
 }
 
+// shownBot is a Bot as a token reads it: the Bot coordinator, which manages other Bots, reads their settings but
+// not their memory, which stays the owner's and the Bot's own.
+func shownBot(tok orchestration.Token, b orchestration.Bot) openapi.Bot {
+	if tok.Kind == bearertoken.Bot && tok.Bot != b.Name {
+		b.Memory = ""
+	}
+
+	return toBot(b)
+}
+
 func toBot(b orchestration.Bot) openapi.Bot {
 	return openapi.Bot{
 		Name: b.Name, Provider: ptr(b.Provider), Model: ptr(b.Model), Effort: ptr(b.Effort),
 		Persona: b.Persona, Memory: b.Memory, MemoryLimit: orchestration.MaxMemory,
 		Skills: append([]string{}, b.Skills...), SkillsOff: append([]string{}, b.SkillsOff...),
+		Connections: toAllowList(b.Connections), Workers: toAllowList(b.Workers),
 		CreatedAt: b.CreatedAt, UpdatedAt: b.UpdatedAt,
 	}
+}
+
+func toAllowList(l orchestration.AllowList) openapi.AllowList {
+	return openapi.AllowList{Limited: l.Limited, Names: append([]string{}, l.Names...)}
+}
+
+// fromAllowList reads a list as given: its names only while it is limited, each once, in the order given.
+func fromAllowList(l openapi.AllowList) orchestration.AllowList {
+	if !l.Limited {
+		return orchestration.AllowList{}
+	}
+
+	return orchestration.AllowList{Limited: true, Names: append([]string{}, l.Names...)}
 }

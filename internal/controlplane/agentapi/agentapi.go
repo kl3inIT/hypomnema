@@ -7,7 +7,8 @@
 //     Run was given; when a coordinator created the Run, only while the owner
 //     still allows them for chats;
 //   - the coordinator presents its coordinator token and gets the Connections
-//     the owner switched on for chats;
+//     the owner switched on for chats; a Bot, with its pi's or its Routine's
+//     token, only those on its list, if it has one (issue #169);
 //   - the owner's own token gets every Connection, as it can already read the
 //     vault.
 //
@@ -41,6 +42,7 @@ type Store interface {
 	AuthenticateToken(ctx context.Context, secret string) (orchestration.Token, error)
 	AgentSessionOf(ctx context.Context, secret string) (orchestration.AgentSession, error)
 	ConnectionsOf(ctx context.Context, integration string) ([]orchestration.Connection, error)
+	GetBot(ctx context.Context, name string) (orchestration.Bot, error)
 	IntegrationClientOf(ctx context.Context, integration string) (orchestration.IntegrationClient, error)
 	ChangeDispatchMemory(ctx context.Context, dispatchID string, owner bool, op orchestration.MemoryOp) (
 		orchestration.Memory, error)
@@ -167,11 +169,18 @@ func (s *Server) authenticate(r *http.Request) (agent, error) {
 			may: func(c orchestration.Connection) bool { return c.Chats },
 		}, nil
 	case bearertoken.Bot:
+		// A Bot uses what the coordinator does, narrowed to its list, read now as the owner's switch is (issue
+		// #169, after OpenMausBot's connector scopes, enforced where the call is relayed).
+		bot, err := s.store.GetBot(r.Context(), token.Bot)
+		if err != nil {
+			return agent{}, errNoCredential
+		}
+
 		// A Routine's script's token (issue #211) is bound to its Bot and no chat: its tab is its Routine's.
 		if token.Routine != "" {
 			return agent{
 				name: fmt.Sprintf("bot %s in routine %s", token.Bot, token.Routine), coordinator: true,
-				key: "r-" + token.Routine, may: func(c orchestration.Connection) bool { return c.Chats },
+				key: "r-" + token.Routine, may: bot.MayUse,
 			}, nil
 		}
 
@@ -180,7 +189,7 @@ func (s *Server) authenticate(r *http.Request) (agent, error) {
 		// one pi at a time, and the pi that follows goes on in the same tab.
 		return agent{
 			name: fmt.Sprintf("bot %s in chat %s", token.Bot, token.Chat), coordinator: true, chatID: token.Chat,
-			key: "b-" + token.Chat, may: func(c orchestration.Connection) bool { return c.Chats },
+			key: "b-" + token.Chat, may: bot.MayUse,
 		}, nil
 	default:
 		return agent{}, errNoCredential
