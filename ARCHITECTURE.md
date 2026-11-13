@@ -1461,7 +1461,8 @@ Node API (`internal/controlplane/nodeapi`, protocol in `internal/shared/nodeprot
     `/readyz`. A control plane that does not become ready is stopped and its old binary and database put back and
     started. Once it is ready, the release's `deploy/coordinator` files, built into the binary
     (`deploy/coordinator/files.go`), are written to a root-owned folder and its `setup-coordinator.sh` run, so the
-    launchers, the sudoers rule and `/usr/local/bin/hypomnema` are always the running release's.
+    launchers, the sudoers rule and `/usr/local/bin/hypomnema` are always the running release's. Then the five
+    newest `data/predeploy-*` folders are kept and the others removed (issue #335).
   - Deploying is pushing a tag; nothing on GitHub holds a key to the control plane's machine. A build of a commit is
     not deployed this way.
 - The control plane offers the node its queued Dispatches with what it needs (Task, repository, worktree, runtime,

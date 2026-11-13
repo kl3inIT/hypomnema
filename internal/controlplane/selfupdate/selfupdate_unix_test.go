@@ -222,6 +222,48 @@ func TestInstallPutsTheReleaseInPlaceThenSetsUpTheCoordinator(t *testing.T) {
 	}
 }
 
+// Scenario: seven backups of earlier updates are in data. After an update that worked, the five newest backups are
+// kept, the new one among them; the rest are removed, and what is not a backup is left alone.
+func TestInstallKeepsTheFiveNewestBackups(t *testing.T) {
+	t.Parallel()
+
+	o := installed(t)
+	o.Ready = ready(t, http.StatusNoContent)
+	from := filepath.Join(o.State, "hypomnema-v0.9.5")
+	write(t, from, "the new control plane")
+	o.Run = (&commands{}).run
+
+	data := filepath.Join(o.Home, "data")
+	old := time.Now().Add(-time.Hour)
+
+	for i := range 7 {
+		dir := filepath.Join(data, fmt.Sprintf("predeploy-old-%d", i))
+		require.NoError(t, os.MkdirAll(dir, 0o700))
+		at := old.Add(time.Duration(i) * time.Minute)
+		require.NoError(t, os.Chtimes(dir, at, at))
+	}
+
+	write(t, filepath.Join(data, "notes.txt"), "the owner's")
+
+	require.NoError(t, selfupdate.Install(t.Context(), o, from))
+
+	backups, err := filepath.Glob(filepath.Join(data, "predeploy-*"))
+	require.NoError(t, err)
+	require.Len(t, backups, 5)
+
+	kept := map[string]bool{}
+	for _, b := range backups {
+		kept[filepath.Base(b)] = true
+	}
+
+	for _, gone := range []string{"predeploy-old-0", "predeploy-old-1", "predeploy-old-2"} {
+		assert.False(t, kept[gone], gone)
+	}
+
+	assert.True(t, kept["predeploy-old-6"])
+	assert.FileExists(t, filepath.Join(data, "notes.txt"))
+}
+
 // Scenario: the new release does not become ready. The old binary and database are put back and started again, and
 // the coordinator is not touched.
 func TestInstallPutsTheOldControlPlaneBackWhenTheNewOneIsNotReady(t *testing.T) {

@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"syscall"
 	"time"
@@ -120,7 +121,54 @@ func Install(ctx context.Context, o Options, from string) error {
 
 	o.printf("the control plane runs the new release; the database before it is in %s\n", backup)
 
+	if err := pruneBackups(filepath.Join(o.Home, "data"), backupsKept); err != nil {
+		o.printf("removing old database backups failed: %v\n", err)
+	}
+
 	return nil
+}
+
+// backupsKept is how many copies of the database an update keeps, the newest (issue #335; the number is inferred:
+// a rollback needs only the newest, the others are for the owner).
+const backupsKept = 5
+
+// pruneBackups removes all but the newest keep `predeploy-*` folders in dir, by when they were made. It runs only
+// after an update that worked.
+func pruneBackups(dir string, keep int) error {
+	matches, err := filepath.Glob(filepath.Join(dir, "predeploy-*"))
+	if err != nil {
+		return err
+	}
+
+	type backup struct {
+		path string
+		at   time.Time
+	}
+
+	var found []backup
+
+	for _, m := range matches {
+		info, err := os.Stat(m)
+		if err != nil || !info.IsDir() {
+			continue
+		}
+
+		found = append(found, backup{path: m, at: info.ModTime()})
+	}
+
+	if len(found) <= keep {
+		return nil
+	}
+
+	slices.SortFunc(found, func(a, b backup) int { return b.at.Compare(a.at) })
+
+	var errs []error
+
+	for _, b := range found[keep:] {
+		errs = append(errs, os.RemoveAll(b.path))
+	}
+
+	return errors.Join(errs...)
 }
 
 func (o Options) run() func(ctx context.Context, name string, args ...string) error {
