@@ -138,7 +138,7 @@ func TestMigrationMakesEachLarkConnectionTheAppItHad(t *testing.T) {
 
 	p, err := provider(db)
 	require.NoError(t, err)
-	_, err = p.UpTo(ctx, 59)
+	_, err = p.UpTo(ctx, 60)
 	require.NoError(t, err)
 
 	for _, stmt := range []string{
@@ -177,7 +177,7 @@ func TestMigrationMakesEachLarkConnectionTheAppItHad(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "1234.apps.googleusercontent.com", client.ClientID)
 
-	_, err = p.DownTo(ctx, 59)
+	_, err = p.DownTo(ctx, 60)
 	require.NoError(t, err)
 
 	var id, secret string

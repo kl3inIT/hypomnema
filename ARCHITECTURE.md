@@ -846,7 +846,7 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       is checked again with its own. The Integrations page's Lark card adds an app with its App ID and App Secret.
       `POST .../sign-ins` refuses an app, this refuses an Integration that signs in, and `integrations client set
       lark` is refused: an app Integration has no client.
-    - Migration 00060 made each Connection that named the one app Lark had (`integration-lark-client`, from the
+    - Migration 00061 made each Connection that named the one app Lark had (`integration-lark-client`, from the
       `client set` there was before) that app, with the same secret, and removed that client.
     - `integration.Service.Token` gives the tenant access token of the Connection's own app. It is kept in memory
       only, by Connection, and asked of Lark again when under two minutes are left of its two hours, or when the
