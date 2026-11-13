@@ -55,6 +55,23 @@ export function bars(usage: GatewayUsage): Bar[] {
   }))
 }
 
+// money says micro-dollars as dollars: $1,234, $12.34, $0.0123, as 9router's ~Cost and Coder's spend.
+export function money(micros: number): string {
+  const dollars = micros / 1_000_000
+  if (dollars === 0) return "$0"
+  if (dollars >= 100) return `$${Math.round(dollars).toLocaleString("en-US")}`
+  if (dollars >= 1) return `$${dollars.toFixed(2)}`
+  if (dollars >= 0.0001) return `$${dollars.toFixed(4).replace(/0+$/, "")}`
+  return "<$0.0001"
+}
+
+// cost says a set's cost, and that some of it is unpriced when the price book lacks a model (Coder's
+// has_unpriced_usage).
+export function cost(c: GatewayUsageCounts): string {
+  if (c.cost_micros === 0 && c.unpriced > 0) return "No price"
+  return c.unpriced > 0 ? `${money(c.cost_micros)}+` : money(c.cost_micros)
+}
+
 export type Tile = { label: string; value: string; detail?: string }
 
 // tiles are the period's totals, as T3 Code's Totals row and Omnara's tiles.
@@ -74,6 +91,11 @@ export function tiles(c: GatewayUsageCounts): Tile[] {
     },
     { label: "Tokens out", value: tokens(c.completion_tokens) },
     { label: "Reasoning", value: tokens(c.reasoning_tokens) },
+    {
+      label: "API cost",
+      value: cost(c),
+      detail: c.unpriced > 0 ? `${c.unpriced.toLocaleString()} without a price` : undefined,
+    },
   ]
 }
 

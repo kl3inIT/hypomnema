@@ -651,6 +651,7 @@ func passMessagesAnswer(w http.ResponseWriter, asked int, resp *http.Response, r
 func messagesTokens(u claude.PassUsage) Tokens {
 	return Tokens{
 		Prompt: u.Input + u.CacheRead + u.CacheCreation, Completion: u.Output, Cached: u.CacheRead,
+		CacheWrite: u.CacheCreation,
 	}
 }
 

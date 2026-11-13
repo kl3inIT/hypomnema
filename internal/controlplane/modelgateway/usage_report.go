@@ -98,6 +98,10 @@ func defaultError(o Outcome) string {
 type UsageCounts struct {
 	Requests, Failed                      int64
 	Prompt, Cached, Completion, Reasoning int64
+	// CostMicros is the cost of the requests the price book prices, in
+	// micro-dollars; Unpriced counts those with tokens it has no price for
+	// (Coder's has_unpriced_usage).
+	CostMicros, Unpriced int64
 }
 
 // UsageGroup is the counts of the requests of one model, key or account.
@@ -158,6 +162,7 @@ func (s *Service) Usage(ctx context.Context, period string, offset time.Duration
 	report.Totals = UsageCounts{
 		Requests: totals.Requests, Failed: totals.Failed, Prompt: totals.PromptTokens, Cached: totals.CachedTokens,
 		Completion: totals.CompletionTokens, Reasoning: totals.ReasoningTokens,
+		CostMicros: totals.CostMicros, Unpriced: totals.Unpriced,
 	}
 
 	buckets, err := q.UsageBuckets(ctx, store.UsageBucketsParams{
@@ -179,7 +184,7 @@ func (s *Service) Usage(ctx context.Context, period string, offset time.Duration
 			Start: origin.Add(time.Duration(i) * p.Bucket).UTC(),
 			UsageCounts: UsageCounts{
 				Requests: b.Requests, Failed: b.Failed, Prompt: b.PromptTokens, Cached: b.CachedTokens,
-				Completion: b.CompletionTokens, Reasoning: b.ReasoningTokens,
+				Completion: b.CompletionTokens, Reasoning: b.ReasoningTokens, CostMicros: b.CostMicros, Unpriced: b.Unpriced,
 			},
 		}
 	}
@@ -209,7 +214,7 @@ func (s *Service) usageByModel(ctx context.Context, q *store.Queries, since time
 	for _, r := range rows {
 		out = append(out, UsageGroup{ID: r.Name, Name: r.Name, UsageCounts: UsageCounts{
 			Requests: r.Requests, Failed: r.Failed, Prompt: r.PromptTokens, Cached: r.CachedTokens,
-			Completion: r.CompletionTokens, Reasoning: r.ReasoningTokens,
+			Completion: r.CompletionTokens, Reasoning: r.ReasoningTokens, CostMicros: r.CostMicros, Unpriced: r.Unpriced,
 		}})
 	}
 
@@ -226,7 +231,7 @@ func (s *Service) usageByKey(ctx context.Context, q *store.Queries, since time.T
 	for _, r := range rows {
 		out = append(out, UsageGroup{ID: r.ID, Name: r.Name, UsageCounts: UsageCounts{
 			Requests: r.Requests, Failed: r.Failed, Prompt: r.PromptTokens, Cached: r.CachedTokens,
-			Completion: r.CompletionTokens, Reasoning: r.ReasoningTokens,
+			Completion: r.CompletionTokens, Reasoning: r.ReasoningTokens, CostMicros: r.CostMicros, Unpriced: r.Unpriced,
 		}})
 	}
 
@@ -245,7 +250,7 @@ func (s *Service) usageByAccount(ctx context.Context, q *store.Queries, since ti
 	for _, r := range rows {
 		out = append(out, UsageGroup{ID: r.ID, UsageCounts: UsageCounts{
 			Requests: r.Requests, Failed: r.Failed, Prompt: r.PromptTokens, Cached: r.CachedTokens,
-			Completion: r.CompletionTokens, Reasoning: r.ReasoningTokens,
+			Completion: r.CompletionTokens, Reasoning: r.ReasoningTokens, CostMicros: r.CostMicros, Unpriced: r.Unpriced,
 		}})
 	}
 

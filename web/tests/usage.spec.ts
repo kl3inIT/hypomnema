@@ -15,6 +15,8 @@ const counts = (requests: number, failed: number, prompt: number, cached: number
   cached_tokens: cached,
   completion_tokens: out,
   reasoning_tokens: Math.round(out / 5),
+  cost_micros: Math.round(prompt * 0.6 + out * 12),
+  unpriced: failed > 5 ? 1 : 0,
 })
 
 function usage(period: string) {
@@ -99,6 +101,9 @@ const request = (i: number, over: Record<string, unknown> = {}) => ({
   cached_tokens: 19_661,
   completion_tokens: 412,
   reasoning_tokens: 40,
+  cache_write_tokens: 120,
+  cost_micros: 9_120,
+  priced_model: "claude-opus-5-5",
   estimated: false,
   duration_ms: 2400,
   ...over,
@@ -117,6 +122,8 @@ const refused = request(2, {
   cached_tokens: 0,
   completion_tokens: 0,
   duration_ms: 640,
+  cost_micros: undefined,
+  priced_model: undefined,
 })
 
 async function fakeServer(page: Page, empty = false) {
@@ -194,6 +201,7 @@ test("the owner sees what the gateway served today", async ({ page }) => {
     .getByRole("row", { name: "claude-opus-5-5" })
   await expect(opus).toContainText("Claude Opus 5.5")
   await expect(opus).toContainText("11.2M")
+  await expect(page.getByLabel("Totals")).toContainText("API cost")
 
   const requests = page.getByRole("table", { name: "Requests" })
   await expect(requests.getByRole("row")).toHaveCount(4)
@@ -223,6 +231,7 @@ test("the owner finds why a request failed", async ({ page }) => {
   await expect(sheet).toContainText("The provider answered 429")
   await expect(sheet).toContainText("The usage limit has been reached")
   await expect(sheet).toContainText("chatgpt@example.com")
+  await expect(sheet).toContainText("API cost")
   await page.waitForTimeout(300)
   await shot(page, "usage-request")
 

@@ -98,6 +98,11 @@ func (s *Server) ListGatewayRequests(ctx context.Context, req openapi.ListGatewa
 			item.Error = &u.Error
 		}
 
+		item.CacheWriteTokens, item.CostMicros = u.Tokens.CacheWrite, u.CostMicros
+		if u.PricedModel != "" {
+			item.PricedModel = &u.PricedModel
+		}
+
 		out.Data = append(out.Data, item)
 	}
 
@@ -126,7 +131,7 @@ func (s *Server) accountNames(ctx context.Context) map[string]accountName {
 func toUsageCounts(c modelgateway.UsageCounts) openapi.GatewayUsageCounts {
 	return openapi.GatewayUsageCounts{
 		Requests: c.Requests, Failed: c.Failed, PromptTokens: c.Prompt, CachedTokens: c.Cached,
-		CompletionTokens: c.Completion, ReasoningTokens: c.Reasoning,
+		CompletionTokens: c.Completion, ReasoningTokens: c.Reasoning, CostMicros: c.CostMicros, Unpriced: c.Unpriced,
 	}
 }
 
