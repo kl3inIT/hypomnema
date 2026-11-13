@@ -150,7 +150,8 @@ const panel = (page: Page) => page.getByRole("complementary", { name: "Files" })
 
 // shown opens the panel when it is not: on a phone it gives way to a file it opened.
 async function shown(page: Page) {
-  if (!(await panel(page).isVisible())) await page.getByRole("button", { name: "Files", exact: true }).click()
+  if (!(await panel(page).isVisible()))
+    await page.getByRole("button", { name: "Files", exact: true }).click()
 
   return panel(page)
 }
