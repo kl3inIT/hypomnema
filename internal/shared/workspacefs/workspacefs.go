@@ -30,6 +30,9 @@ const (
 	// MaxWrite is the largest text written: what fits the message that carries it to a node (Orca caps a remote
 	// write per request, staged-file-save.ts).
 	MaxWrite = 1 << 20
+	// MaxSend is the largest file a raw read gives when it asks for more than MaxRead: a file a Bot sends into a
+	// Lark chat, which takes at most 30 MB (OpenClaw extensions/feishu/src/media.ts, FEISHU_MAX_FILE_UPLOAD_BYTES).
+	MaxSend = 30 << 20
 )
 
 // Op is what a request asks for.
@@ -60,6 +63,8 @@ type Request struct {
 	After string `json:"after,omitempty"`
 	// Raw asks a read for the file's bytes, whatever they are, up to MaxRead (an image, a download).
 	Raw bool `json:"raw,omitempty"`
+	// Limit is the largest file a raw read gives, MaxRead when it is not set, at most MaxSend.
+	Limit int64 `json:"limit,omitempty"`
 	// Content is the text a write puts in the file; Expect the SHA-256 of the file it replaces, empty for a new
 	// file.
 	Content string `json:"content,omitempty"`
@@ -189,7 +194,7 @@ func Serve(ctx context.Context, root string, req Request) Result {
 	case OpList:
 		res.Listing, err = List(root, req.Path, req.After)
 	case OpRead:
-		res.File, err = Read(root, req.Path, req.Raw)
+		res.File, err = readUpTo(root, req.Path, req.Raw, req.Limit)
 	case OpChanges:
 		res.Changes, err = Status(ctx, root)
 	case OpDiff:

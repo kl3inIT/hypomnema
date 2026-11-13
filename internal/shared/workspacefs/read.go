@@ -119,6 +119,18 @@ func List(root, rel, after string) (*Listing, error) {
 // bytes hold a NUL or are not UTF-8 is binary and is not sent. With raw, the
 // bytes are sent whatever they are, and a file over MaxRead is too large.
 func Read(root, rel string, raw bool) (*File, error) {
+	return readUpTo(root, rel, raw, 0)
+}
+
+// readUpTo is Read with the largest file a raw read gives: MaxRead when limit is
+// not more, at most MaxSend.
+func readUpTo(root, rel string, raw bool, limit int64) (*File, error) {
+	if !raw || limit < MaxRead {
+		limit = MaxRead
+	}
+
+	limit = min(limit, MaxSend)
+
 	place, clean, err := resolve(root, rel)
 	if err != nil {
 		return nil, err
@@ -139,7 +151,11 @@ func Read(root, rel string, raw bool) (*File, error) {
 	}
 	defer func() { _ = f.Close() }()
 
-	data, err := io.ReadAll(io.LimitReader(f, MaxRead+1))
+	if raw && info.Size() > limit {
+		return nil, failure(CodeTooLarge, "%s is larger than %d MiB", clean, limit>>20)
+	}
+
+	data, err := io.ReadAll(io.LimitReader(f, limit+1))
 	if err != nil {
 		return nil, failure(CodeFailed, "reading %s: %s", clean, err)
 	}
@@ -151,8 +167,8 @@ func Read(root, rel string, raw bool) (*File, error) {
 	}
 
 	if raw {
-		if len(data) > MaxRead {
-			return nil, failure(CodeTooLarge, "%s is larger than %d MiB", clean, MaxRead>>20)
+		if int64(len(data)) > limit {
+			return nil, failure(CodeTooLarge, "%s is larger than %d MiB", clean, limit>>20)
 		}
 
 		out.Data = data

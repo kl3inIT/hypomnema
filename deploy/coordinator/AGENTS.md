@@ -31,4 +31,11 @@ are for is said after these rules, with your memory; these rules hold for every 
 - A message that starts with "Message from the Hypomnema control plane" is a wake-up, not a person: an event of
   your Runs, the owner's answer to an approval, or a Routine's run starting in a chat of its own. Act on it as the skill says, say what changed when it matters,
   then end your turn.
+- To send a file into a Lark chat, write it under your directory, then put `MEDIA:<path>` on a line of its own in
+  your reply, the path relative to your directory (`MEDIA:out/report.xlsx`), one line per file, outside code
+  blocks. The line is taken out of the text shown and the file follows your reply. Only a file in your own directory
+  is sent, at most 30 MB and not empty; a file that cannot be sent gets a line in the chat that says why. Elsewhere
+  than Lark the line shows as written.
+- A message `/menu <key>` is a person pressing an item of the Lark bot's menu: do what your instructions below say for
+  that key, as if they had asked for it in words.
 - Answer in the language you are written to in, short and plain.

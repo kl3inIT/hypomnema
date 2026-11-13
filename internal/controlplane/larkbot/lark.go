@@ -1,6 +1,7 @@
 package larkbot
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -13,6 +14,7 @@ import (
 	larkcore "github.com/larksuite/oapi-sdk-go/v3/core"
 	"github.com/larksuite/oapi-sdk-go/v3/event/dispatcher"
 	"github.com/larksuite/oapi-sdk-go/v3/event/dispatcher/callback"
+	larkapplication "github.com/larksuite/oapi-sdk-go/v3/service/application/v6"
 	larkcardkit "github.com/larksuite/oapi-sdk-go/v3/service/cardkit/v1"
 	larkcontact "github.com/larksuite/oapi-sdk-go/v3/service/contact/v3"
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
@@ -29,6 +31,10 @@ import (
 // connectWait is how long the persistent connection gets to open.
 const connectWait = 20 * time.Second
 
+// mediaTimeout is how long a file's upload may take (OpenClaw
+// extensions/feishu/src/media.ts, FEISHU_MEDIA_HTTP_TIMEOUT_MS).
+const mediaTimeout = 2 * time.Minute
+
 // answerElement is the id of the card's one element, which the text fills.
 const answerElement = "answer"
 
@@ -37,6 +43,8 @@ type sdk struct {
 	appID  string
 	secret string
 	api    *lark.Client
+	// media uploads files, with a longer wait than api's (OpenClaw's media client).
+	media *lark.Client
 
 	mu sync.Mutex
 	// seqs is the last sequence each card being written was updated with: Lark takes an update only with a
@@ -67,6 +75,8 @@ func Connect(appID, secret string) Lark {
 		// The SDK writes the address of a connection, which holds its ticket, at its info level.
 		api: lark.NewClient(appID, secret, lark.WithOpenBaseUrl(lark.LarkBaseUrl),
 			lark.WithLogLevel(larkcore.LogLevelError), lark.WithReqTimeout(sendTimeout)),
+		media: lark.NewClient(appID, secret, lark.WithOpenBaseUrl(lark.LarkBaseUrl),
+			lark.WithLogLevel(larkcore.LogLevelError), lark.WithReqTimeout(mediaTimeout)),
 	}
 }
 
@@ -105,6 +115,15 @@ func (s *sdk) Listen(ctx context.Context, on Events) error {
 			}
 
 			return &callback.CardActionTriggerResponse{Toast: &callback.Toast{Type: "info", Content: said}}, nil
+		}).
+		// A press of an item of the bot's menu (application.bot.menu_v6), which Lark's developer console sets: it
+		// becomes a message from who pressed (OpenClaw extensions/feishu/src/monitor.account.ts, handleBotMenu).
+		OnP2BotMenuV6(func(_ context.Context, e *larkapplication.P2BotMenuV6) error {
+			if on.Menu != nil {
+				on.Menu(menuOf(e))
+			}
+
+			return nil
 		}).
 		// Lark tells an app when its messages were read; nothing is done with it, and the SDK logs an event
 		// nobody handles as an error.
@@ -178,6 +197,33 @@ func messageOf(e *larkim.P2MessageReceiveV1) Message {
 	return m
 }
 
+// menuOf reads who pressed an item of the bot's menu, and the item's key.
+func menuOf(e *larkapplication.P2BotMenuV6) MenuPress {
+	var p MenuPress
+
+	if e == nil || e.Event == nil {
+		return p
+	}
+
+	p.Key = deref(e.Event.EventKey)
+	if e.Event.Operator != nil && e.Event.Operator.OperatorId != nil {
+		p.Operator = deref(e.Event.Operator.OperatorId.OpenId)
+	}
+
+	if e.Event.Timestamp != nil {
+		p.At = fmt.Sprint(*e.Event.Timestamp)
+	}
+
+	if e.EventV2Base != nil && e.EventV2Base.Header != nil {
+		p.Org = e.EventV2Base.Header.TenantKey
+		if p.At == "" {
+			p.At = e.EventV2Base.Header.EventID
+		}
+	}
+
+	return p
+}
+
 // pressOf reads who pressed a card's button and what the button carries.
 func pressOf(e *callback.CardActionTriggerEvent) Press {
 	p := Press{Value: map[string]string{}}
@@ -216,6 +262,58 @@ func (s *sdk) SendText(ctx context.Context, chatID, text string) error {
 	}
 
 	return s.send(ctx, chatID, "text", string(content))
+}
+
+func (s *sdk) SendTextTo(ctx context.Context, openID, text string) (string, error) {
+	content, err := json.Marshal(map[string]string{"text": text})
+	if err != nil {
+		return "", err
+	}
+
+	resp, err := s.api.Im.V1.Message.Create(ctx, larkim.NewCreateMessageReqBuilder().ReceiveIdType("open_id").
+		Body(larkim.NewCreateMessageReqBodyBuilder().ReceiveId(openID).MsgType("text").Content(string(content)).
+			Build()).Build())
+	if err != nil {
+		return "", fmt.Errorf("sending to Lark: %w", err)
+	}
+
+	if err := refused("sending to Lark", resp.Success(), resp.Code, resp.Msg); err != nil {
+		return "", err
+	}
+
+	if resp.Data == nil || deref(resp.Data.ChatId) == "" {
+		return "", errors.New("sending to Lark: Lark gave no chat id")
+	}
+
+	return *resp.Data.ChatId, nil
+}
+
+// SendFile uploads a file (POST /open-apis/im/v1/files) and sends it as a file
+// message in the chat, as OpenClaw (extensions/feishu/src/media.ts) and Hermes
+// (plugins/platforms/feishu/adapter.py, _send_uploaded_file_message) upload
+// and then send the file_key. It needs the scope im:resource.
+func (s *sdk) SendFile(ctx context.Context, chatID string, a Attachment) error {
+	resp, err := s.media.Im.V1.File.Create(ctx, larkim.NewCreateFileReqBuilder().Body(
+		larkim.NewCreateFileReqBodyBuilder().FileType(a.Kind).FileName(a.Name).File(bytes.NewReader(a.Data)).Build(),
+	).Build())
+	if err != nil {
+		return fmt.Errorf("uploading a file to Lark: %w", err)
+	}
+
+	if err := refused("uploading a file to Lark", resp.Success(), resp.Code, resp.Msg); err != nil {
+		return err
+	}
+
+	if resp.Data == nil || deref(resp.Data.FileKey) == "" {
+		return errors.New("uploading a file to Lark: Lark gave no file_key")
+	}
+
+	content, err := json.Marshal(map[string]string{"file_key": *resp.Data.FileKey})
+	if err != nil {
+		return err
+	}
+
+	return s.send(ctx, chatID, "file", string(content))
 }
 
 func (s *sdk) send(ctx context.Context, chatID, kind, content string) error {

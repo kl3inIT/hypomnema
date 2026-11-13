@@ -19,8 +19,9 @@ Which runtime and model workers use is stored, as profiles (below), and which mo
 configured.
 `HYPOMNEMA_COORDINATOR_COMMAND` (a JSON array) starts pi for a chat id appended to it; unset, chats keep their
 messages and nothing answers. `HYPOMNEMA_BOT_FILES_COMMAND` (a JSON array, `sudo -n -u coordinator
-/usr/local/bin/hypomnema files serve --root <the Bots' folders>`) reads a Bot's folder for the Files panel; unset,
-the panel shows only the Tasks' worktrees. `HYPOMNEMA_ROUTINE_COMMAND` (a JSON array) runs a script Routine for
+/usr/local/bin/hypomnema files serve --root <the Bots' folders>`) reads a Bot's folder for the Files panel and for
+the files a Bot sends into a Lark chat; unset, the panel shows only the Tasks' worktrees and a Bot's files are not
+sent. `HYPOMNEMA_ROUTINE_COMMAND` (a JSON array) runs a script Routine for
 the Bot's name and the Routine's id appended to it; unset, a script Routine's run fails and says so.
 
 The coordinator (`internal/controlplane/coordinator`, issue #41 PR 3): `serve` runs one `pi --mode rpc` per chat
@@ -1008,7 +1009,25 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       failed; a `failed` row ends it with "could not answer this" and the cross; `approval` and `wake` rows send
       nothing.
     - A question's card is orange while it waits, green once answered, red when canceled.
-    - Not built: an option that also takes text; a person's reaction as an answer; images and voice; refusing
+    - Files ([#312](https://github.com/kl3inIT/hypomnema/issues/312), `larkbot/media.go`): a line
+      `MEDIA:<path>` in a Bot's reply, outside a code block, asks for a file (OpenClaw's directive; every Bot's
+      `AGENTS.md` says how). The line is taken out of the text shown, live and kept, and the file follows the
+      reply as a file message in the same chat, direct or group: uploaded with `POST /open-apis/im/v1/files`
+      (scope `im:resource`, two minutes' wait) and sent by its `file_key`. The path is relative to the Bot's
+      directory, or absolute inside it, and is read through `HYPOMNEMA_BOT_FILES_COMMAND`, which refuses a
+      path that climbs out or whose links lead out (a raw read may ask for up to 30 MiB, `Request.limit`). An
+      empty file, one over 30 MiB, one not there or outside the folder is not sent and gets one line "<name>
+      was not sent: <why>.". Lark's `file_type` is `pdf`, `doc`, `xls` or `ppt` by the extension when the
+      bytes are of that kind (`%PDF-`, a zip for the x formats, OLE for the old ones), else `stream`; control
+      characters, quotes and backslashes in the name become `_`. Images are sent as files too.
+    - The bot's menu ([#312](https://github.com/kl3inIT/hypomnema/issues/312)): a press of an item
+      (`application.bot.menu_v6`, subscribed in Lark's console, where the menu is made) is a message
+      `/menu <event key>` from who pressed, in their direct chat, through the rules of a typed one and taken
+      once (`bot-menu:<key>:<timestamp>`). The event names no chat: it is the person's direct chat the Channel
+      has, else a line "Menu: <key>" is sent to them by `open_id` and Lark's answer names the chat. Nothing
+      marks or quotes a press.
+    - Not built: an option that also takes text; a person's reaction as an answer; images and voice received,
+      and images sent as images; a group menu; refusing
       a group with members of another organization; a conversation per sender in a group.
   - The token reaches a worker with its offer: the node API asks for it by host and repository as it sends the offer, and
     orchestration never holds it. The node gives it to that Dispatch only, as environment: git sends it to that

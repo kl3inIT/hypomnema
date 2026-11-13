@@ -56,6 +56,9 @@ type Message struct {
 	// Mentions are the people and bots the message mentions; Text holds each
 	// as its Key.
 	Mentions []Mention
+	// Menu says the message is a press of the bot's menu, for which Lark
+	// holds no message to mark or to reply to.
+	Menu bool
 }
 
 // Mention is one mention in a message: the placeholder Lark writes for it in
@@ -73,13 +76,27 @@ type Group struct {
 }
 
 // Events are what a Channel is given from its connection: each message, each
-// press of a card's button, whose answer is shown to who pressed, and the bot
-// being added to a group or leaving one.
+// press of a card's button, whose answer is shown to who pressed, each press
+// of the bot's menu, and the bot being added to a group or leaving one.
 type Events struct {
 	Message func(Message)
 	Press   func(Press) string
+	Menu    func(MenuPress)
 	Joined  func(Group)
 	Left    func(chatID string)
+}
+
+// MenuPress is a person pressing an item of the bot's menu, in their direct
+// chat with the bot.
+type MenuPress struct {
+	// Operator is the open_id of who pressed; Key the item's event key, as
+	// the owner set it in Lark's developer console.
+	Operator string
+	Key      string
+	// At is when it was pressed, which tells a press from Lark's repeated
+	// delivery of it; Org is the app's organization.
+	At  string
+	Org string
 }
 
 // Press is a person pressing a button of a card.
@@ -128,6 +145,11 @@ type Lark interface {
 	ReplaceCard(ctx context.Context, cardID string, card Card, seq int) error
 	// SendText sends a short notice to a chat.
 	SendText(ctx context.Context, chatID, text string) error
+	// SendTextTo sends a short notice to a person's direct chat with the bot
+	// and returns that chat's id.
+	SendTextTo(ctx context.Context, openID, text string) (chatID string, err error)
+	// SendFile uploads a file and sends it to a chat.
+	SendFile(ctx context.Context, chatID string, a Attachment) error
 	// OpenCard sends a card that is still being written and returns its id.
 	// With replyTo it is a reply to that message, which Lark shows quoted.
 	OpenCard(ctx context.Context, chatID, replyTo, text string) (cardID string, err error)
@@ -203,6 +225,7 @@ const (
 	noticeStopped   = "Stopped."
 	noticeIdle      = "Nothing is running."
 	noticeNoReply   = "%s could not answer this. Try again."
+	noticeMenu      = "Menu: %s"
 	writing         = "…"
 )
 
@@ -211,6 +234,9 @@ const (
 const (
 	commandNew  = "/new"
 	commandStop = "/stop"
+	// commandMenu opens what a press of the bot's menu says to the Bot: /menu
+	// and the item's key (OpenClaw, monitor.account.ts handleBotMenu).
+	commandMenu = "/menu"
 )
 
 // The emoji a Channel puts on a person's message, as OpenClaw and Hermes do:
@@ -249,7 +275,8 @@ const (
 	// ChannelProperties.groupConversationIdle).
 	groupIdle = 4 * time.Hour
 	// speakerLength is the most characters of the name that labels a
-	// sender's message (MemoryOS, ChannelInboundService.ASKER_LENGTH).
+	// sender's message (MemoryOS, ChannelInboundService.ASKER_LENGTH), and of
+	// a menu item's key.
 	speakerLength = 64
 )
 
@@ -262,6 +289,9 @@ type Channels struct {
 	now    func() time.Time
 	// webURL is the web client's address, for the link under a reply.
 	webURL string
+	// files reads the Bots' folders, for the files a Bot sends; nil when
+	// they cannot be read.
+	files Files
 	// look asks Run to look at the Channels now: one was set up or changed.
 	look chan struct{}
 
@@ -294,6 +324,15 @@ type conn struct {
 // its chat there (MemoryOS's "Continue in MemoryOS", after Dust).
 func (c *Channels) WithWebURL(url string) *Channels {
 	c.webURL = strings.TrimSuffix(url, "/")
+
+	return c
+}
+
+// WithFiles sets how the Bots' folders are read, for the files a Bot sends
+// into its Lark chat (issue #312). Without it a file a Bot asks to send is
+// refused.
+func (c *Channels) WithFiles(files Files) *Channels {
+	c.files = files
 
 	return c
 }
@@ -418,6 +457,7 @@ func (c *Channels) start(ctx context.Context, ch orchestration.LarkChannel) {
 		err = lark.Listen(ctx, Events{
 			Message: func(m Message) { cn.take(ctx, m) },
 			Press:   func(p Press) string { return cn.press(ctx, p) },
+			Menu:    func(p MenuPress) { cn.menu(ctx, p) },
 			Joined:  func(g Group) { go cn.joined(ctx, g) },
 			Left:    func(chatID string) { go cn.left(ctx, chatID) },
 		})
@@ -567,6 +607,86 @@ func (cn *conn) taken(ctx context.Context, m Message) error {
 	if err != nil || !first {
 		return err
 	}
+
+	return cn.direct(ctx, ch, m)
+}
+
+// menu handles a press of the bot's menu (issue #312): it is a message
+// "/menu <key>" from who pressed, in their direct chat with the bot, through
+// the same rules as one they typed (OpenClaw, monitor.account.ts
+// handleBotMenu). Like a message, it is done on its own goroutine.
+func (cn *conn) menu(ctx context.Context, p MenuPress) {
+	go func() {
+		if err := cn.menued(ctx, p); err != nil {
+			cn.all.logger.WarnContext(ctx, "a press of the Lark menu was not taken",
+				slog.String("event", "larkbot.take_failed"), slog.String("channel", cn.name), slog.Any("error", err))
+		}
+	}()
+}
+
+func (cn *conn) menued(ctx context.Context, p MenuPress) error {
+	store := cn.all.store
+
+	ch, err := store.LarkChannel(ctx, cn.name)
+	if err != nil || !ch.Enabled {
+		return nil //nolint:nilerr // A Channel that was switched off or removed takes nothing and says nothing.
+	}
+
+	key := speaker(p.Key)
+	if p.Operator == "" || key == "" {
+		return nil
+	}
+
+	// A press has no message id, so one is made of its key and when it was pressed, as OpenClaw makes it, which
+	// Lark's repeated delivery of the press repeats.
+	id := "bot-menu:" + key + ":" + p.At
+
+	first, err := store.TakeLarkMessage(ctx, cn.name, id)
+	if err != nil || !first {
+		return err
+	}
+
+	text := commandMenu + " " + key
+
+	chatID, err := cn.directChat(ctx, p.Operator, key)
+	if err != nil {
+		return err
+	}
+
+	// The event names the app's organization and not the presser's: Lark shows a custom app's menu to members
+	// of its organization only, so the press is taken as a member's.
+	return cn.direct(ctx, ch, Message{
+		ID: id, ChatID: chatID, Direct: true, Text: text, IsText: true, Sender: p.Operator, FromPerson: true,
+		SenderOrg: p.Org, Org: p.Org, Menu: true,
+	})
+}
+
+// directChat is the id of a person's direct chat with the bot. A press of the
+// menu does not name it: it is the one the person wrote in before, else Lark
+// names it when the press is first answered there, as OpenClaw answers a
+// press to the person (user:<open_id>).
+func (cn *conn) directChat(ctx context.Context, openID, key string) (string, error) {
+	chats, err := cn.all.store.LarkChannelChats(ctx, cn.name)
+	if err != nil {
+		return "", err
+	}
+
+	for _, c := range chats {
+		if !c.Group && c.OpenID == openID {
+			return c.LarkChatID, nil
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, sendTimeout)
+	defer cancel()
+
+	return cn.lark.SendTextTo(ctx, openID, fmt.Sprintf(noticeMenu, key))
+}
+
+// direct handles a direct message that was taken: who may send it, then what
+// it is.
+func (cn *conn) direct(ctx context.Context, ch orchestration.LarkChannel, m Message) error {
+	store := cn.all.store
 
 	if refusal := cn.refusal(ctx, ch, m); refusal != "" {
 		cn.all.logger.InfoContext(ctx, "a Lark message was refused", slog.String("event", "larkbot.refused"),
@@ -821,7 +941,10 @@ func (cn *conn) deliver(ctx context.Context, m Message, chat orchestration.LarkC
 		cn.notice(ctx, m.ChatID, fmt.Sprintf(noticeQueued, chat.Bot))
 	}
 
-	r.asked(ctx, m.ID)
+	// A press of the menu has no message to mark as being worked on.
+	if !m.Menu {
+		r.asked(ctx, m.ID)
+	}
 
 	return nil
 }
@@ -1242,7 +1365,8 @@ func statusOf(data map[string]any) string {
 // opens the card with the first thing to show, and updates it at most twice a
 // second unless now is set.
 func (r *relay) show(ctx context.Context, now bool) {
-	body := inert(cut(r.text.String()))
+	written, _ := mediaOf(r.text.String())
+	body := inert(cut(written))
 
 	switch {
 	case r.status != "" && strings.TrimSpace(body) != "":
@@ -1353,19 +1477,32 @@ func (r *relay) kept(ctx context.Context) {
 
 // finish ends the card being written with its final text, or sends the text
 // as a card of its own. A text longer than a card goes on in further cards.
-// With no card and no text it does nothing.
+// The files the text asks for follow it (issue #312). With no card, no text
+// and no file it does nothing.
 func (r *relay) finish(ctx context.Context, text string) {
 	card, seq, replyTo := r.card, r.seq, r.replyTo()
 
 	r.card, r.shown, r.status, r.seq = "", "", "", 0
 	r.text.Reset()
 
-	if strings.TrimSpace(text) == "" {
-		if card == "" {
-			return
-		}
+	text, files := mediaOf(text)
+	defer r.attach(ctx, files)
 
-		text = "(no answer)"
+	if strings.TrimSpace(text) == "" {
+		switch {
+		case card == "":
+			return
+		case len(files) > 0:
+			// A card that showed what a tool did, for a reply that is only files: it ends naming them.
+			names := make([]string, 0, len(files))
+			for _, f := range files {
+				names = append(names, shownName(f))
+			}
+
+			text = strings.Join(names, "\n")
+		default:
+			text = "(no answer)"
+		}
 	}
 
 	parts := split(inert(text))
