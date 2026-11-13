@@ -3,6 +3,7 @@ import type {
   ChatMessage,
   ChatPart,
   ChatToolActivity,
+  ChatWake,
   SetupChange,
 } from "@/api/generated/types.gen"
 
@@ -99,6 +100,8 @@ export type ChatItem =
   | { kind: "owner"; key: string; message: ChatMessage }
   | { kind: "notice"; key: string; message: ChatMessage }
   | { kind: "stopped"; key: string; message: ChatMessage }
+  // A wake-up with the event it reports, drawn as a card (issue #303).
+  | { kind: "wake"; key: string; wake: ChatWake }
   | { kind: "reply"; key: string; text: string; streaming: boolean; createdAt?: string }
   | { kind: "activity"; key: string; steps: Step[]; open: boolean }
   // A Routine the Bot set up from this chat, where it was set up (issue #211).
@@ -185,6 +188,8 @@ export function chatItems(view: ChatView, local: Local = {}, setups: Setup[] = [
         close()
         if (m.kind === "stopped") {
           items.push({ kind: "stopped", key, message: m })
+        } else if (m.kind === "wake" && m.wake) {
+          items.push({ kind: "wake", key, wake: m.wake })
         } else {
           items.push({ kind: "notice", key, message: m })
         }

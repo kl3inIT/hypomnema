@@ -152,6 +152,13 @@ func toChatMessage(m orchestration.ChatMessage) openapi.ChatMessage {
 		out.Kind = &kind
 	}
 
+	if w := m.Wake; w != nil {
+		out.Wake = &openapi.ChatWake{
+			Event: openapi.ChatWakeEvent(w.Event), RunId: opt(w.RunID), TaskId: opt(w.TaskID),
+			QuestionId: opt(w.QuestionID), Status: opt(w.Status), Reason: opt(w.Reason), Escalation: opt(w.Escalation),
+		}
+	}
+
 	if m.Parts != nil {
 		var parts []openapi.ChatPart
 		if json.Unmarshal(m.Parts, &parts) == nil {

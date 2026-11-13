@@ -80,9 +80,29 @@ type ChatMessage struct {
 	Parts json.RawMessage
 	// EventSeq is the event a wake-up reports; 0 for other messages.
 	EventSeq int64
+	// Wake is the event a wake-up reports, read with the message; nil for
+	// other messages and where the message is read for pi.
+	Wake *WakeEvent
 	// DeliveredAt is when pi got an owner message or a wake-up.
 	DeliveredAt *time.Time
 	CreatedAt   time.Time
+}
+
+// WakeEvent is what a wake-up's event says (issue #303, for the web's
+// wake-up cards, after t3code's TimelineSystemDivider): it is read from the
+// event, which never changes, so it is never out of step with the row.
+type WakeEvent struct {
+	Event      EventKind
+	RunID      string
+	TaskID     string
+	QuestionID string
+	// Status is what the Task became (task.status) or the Run's end
+	// (finished, canceled); empty for a question or an escalation.
+	Status string
+	// Reason is why a Task is blocked or failed, or an escalation's reason.
+	Reason string
+	// Escalation is an escalation's kind.
+	Escalation string
 }
 
 // untitled is a new chat's title until its first owner message names it
@@ -286,21 +306,61 @@ func (s *Service) ListChatMessages(ctx context.Context, chatID string, after int
 		return nil, fmt.Errorf("listing the messages of chat %s: %w", chatID, err)
 	}
 
-	return chatMessages(rows), nil
+	out := make([]ChatMessage, 0, len(rows))
+	for _, r := range rows {
+		m := chatMessage(r.ChatMessage)
+		if r.EventKind != "" {
+			m.Wake = chatWake(r)
+		}
+
+		out = append(out, m)
+	}
+
+	return out, nil
+}
+
+func chatWake(r store.ListChatMessagesRow) *WakeEvent {
+	var p map[string]any
+	_ = json.Unmarshal([]byte(r.EventPayload), &p)
+
+	str := func(k string) string { v, _ := p[k].(string); return v }
+
+	w := &WakeEvent{
+		Event: EventKind(r.EventKind), RunID: r.EventRunID, TaskID: r.EventTaskID, QuestionID: r.EventQuestionID,
+	}
+
+	switch w.Event {
+	case EventTaskStatus:
+		w.Status, w.Reason = str("to"), str("reason")
+	case EventRunFinished:
+		w.Status = string(RunFinished)
+	case EventRunCanceled:
+		w.Status = string(RunCanceled)
+	case EventEscalation:
+		w.Escalation, w.Reason = str("kind"), str("reason")
+	default:
+		// A question names only its ids.
+	}
+
+	return w
 }
 
 func chatMessages(rows []store.ChatMessage) []ChatMessage {
 	out := make([]ChatMessage, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, ChatMessage{
-			Seq: r.Seq, ChatID: r.ChatID, Role: ChatRole(r.Role), Kind: ChatKind(r.Kind), Text: r.Text,
-			Parts:       rawParts(r.Parts),
-			EventSeq:    r.EventSeq.Int64,
-			DeliveredAt: optionalTime(r.DeliveredAt), CreatedAt: millis(r.CreatedAt),
-		})
+		out = append(out, chatMessage(r))
 	}
 
 	return out
+}
+
+func chatMessage(r store.ChatMessage) ChatMessage {
+	return ChatMessage{
+		Seq: r.Seq, ChatID: r.ChatID, Role: ChatRole(r.Role), Kind: ChatKind(r.Kind), Text: r.Text,
+		Parts:       rawParts(r.Parts),
+		EventSeq:    r.EventSeq.Int64,
+		DeliveredAt: optionalTime(r.DeliveredAt), CreatedAt: millis(r.CreatedAt),
+	}
 }
 
 func rawParts(p sql.NullString) json.RawMessage {

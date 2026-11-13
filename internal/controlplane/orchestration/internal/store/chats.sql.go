@@ -231,7 +231,17 @@ func (q *Queries) InsertChatNotice(ctx context.Context, arg InsertChatNoticePara
 }
 
 const listChatMessages = `-- name: ListChatMessages :many
-SELECT seq, chat_id, role, text, parts, event_seq, delivered_at, created_at, to_coordinator, kind FROM chat_messages WHERE chat_id = ?1 AND seq > ?2 ORDER BY seq LIMIT ?3
+SELECT chat_messages.seq, chat_messages.chat_id, chat_messages.role, chat_messages.text, chat_messages.parts, chat_messages.event_seq, chat_messages.delivered_at, chat_messages.created_at, chat_messages.to_coordinator, chat_messages.kind,
+       CAST(coalesce(events.kind, '') AS TEXT)        AS event_kind,
+       CAST(coalesce(events.run_id, '') AS TEXT)      AS event_run_id,
+       CAST(coalesce(events.task_id, '') AS TEXT)     AS event_task_id,
+       CAST(coalesce(events.question_id, '') AS TEXT) AS event_question_id,
+       CAST(coalesce(events.payload, '') AS TEXT)     AS event_payload
+FROM chat_messages
+LEFT JOIN events ON chat_messages.kind = 'wake' AND events.seq = chat_messages.event_seq
+WHERE chat_messages.chat_id = ?1 AND chat_messages.seq > ?2
+ORDER BY chat_messages.seq
+LIMIT ?3
 `
 
 type ListChatMessagesParams struct {
@@ -240,26 +250,42 @@ type ListChatMessagesParams struct {
 	Lim    int64
 }
 
-func (q *Queries) ListChatMessages(ctx context.Context, arg ListChatMessagesParams) ([]ChatMessage, error) {
+type ListChatMessagesRow struct {
+	ChatMessage     ChatMessage
+	EventKind       string
+	EventRunID      string
+	EventTaskID     string
+	EventQuestionID string
+	EventPayload    string
+}
+
+// Each wake-up with the event it reports (issue #303): the event never changes, so it is read here rather than kept
+// on the row. Other rows have empty event columns.
+func (q *Queries) ListChatMessages(ctx context.Context, arg ListChatMessagesParams) ([]ListChatMessagesRow, error) {
 	rows, err := q.db.QueryContext(ctx, listChatMessages, arg.ChatID, arg.After, arg.Lim)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := []ChatMessage{}
+	items := []ListChatMessagesRow{}
 	for rows.Next() {
-		var i ChatMessage
+		var i ListChatMessagesRow
 		if err := rows.Scan(
-			&i.Seq,
-			&i.ChatID,
-			&i.Role,
-			&i.Text,
-			&i.Parts,
-			&i.EventSeq,
-			&i.DeliveredAt,
-			&i.CreatedAt,
-			&i.ToCoordinator,
-			&i.Kind,
+			&i.ChatMessage.Seq,
+			&i.ChatMessage.ChatID,
+			&i.ChatMessage.Role,
+			&i.ChatMessage.Text,
+			&i.ChatMessage.Parts,
+			&i.ChatMessage.EventSeq,
+			&i.ChatMessage.DeliveredAt,
+			&i.ChatMessage.CreatedAt,
+			&i.ChatMessage.ToCoordinator,
+			&i.ChatMessage.Kind,
+			&i.EventKind,
+			&i.EventRunID,
+			&i.EventTaskID,
+			&i.EventQuestionID,
+			&i.EventPayload,
 		); err != nil {
 			return nil, err
 		}

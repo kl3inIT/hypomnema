@@ -23,6 +23,49 @@ const message = (seq: number, m: object) => ({
   ...m,
 })
 
+// The work a chat's Run did, as GET /tasks and GET /questions answer: its wake-up cards name it by title.
+const run = {
+  id: "run_1",
+  objective: "Add a /health page to the control plane",
+  status: "open",
+  created_by: "pi",
+  chat_id: chat.id,
+  created_at: "2026-11-09T10:00:00Z",
+  updated_at: "2026-11-09T10:00:00Z",
+}
+
+const task = (id: string, position: number, spec: string, status: string) => ({
+  id,
+  run_id: run.id,
+  position,
+  profile: "implementer",
+  runtime: "claude",
+  spec,
+  status,
+  failure_count: 0,
+  created_at: "2026-11-09T10:00:00Z",
+  updated_at: "2026-11-09T10:00:00Z",
+})
+
+const tasks = [
+  task("tsk_1", 1, "Add the /health handler and its test", "succeeded"),
+  task("tsk_2", 2, "Deploy the control plane to zm", "failed"),
+  task("tsk_3", 3, "Add Google login to the web client", "running"),
+]
+
+const asked = {
+  id: "qst_1",
+  dispatch_id: "dsp_3",
+  task_id: "tsk_3",
+  run_id: run.id,
+  mode: "wait",
+  addressed_to: "coordinator",
+  text: "Use goth or hand-written OAuth for the Google login?\nBoth work with the vault.",
+  options: [],
+  status: "open",
+  created_at: "2026-11-09T10:00:00Z",
+}
+
 const kept = (seq: number, m: object) =>
   `id: ${seq}\nevent: message\ndata: ${JSON.stringify(message(seq, m))}\n\n`
 
@@ -70,6 +113,8 @@ async function fakeServer(page: Page, send: (text: string) => { status: number; 
 
     if (path === "/me") return json({ id: "usr_1", name: "admin", kind: "owner" })
     if (path === "/approvals") return json({ data: [] })
+    if (path === "/tasks") return json({ data: tasks, runs: [run], after: 5 })
+    if (path === "/questions") return json({ data: [asked] })
     if (path === "/chats") return json({ data: [chat] })
     if (path === `/chats/${chat.id}`) return json(chat)
     if (path === `/chats/${chat.id}/abort`) return route.fulfill({ status: 204 })
@@ -177,4 +222,70 @@ test("the chat says when its stream is reconnecting", async ({ page }) => {
   await expect.poll(() => streams(page)).toBe(2)
   await write(page, state(false))
   await expect(reconnecting).toHaveCount(0)
+})
+
+// Scenario: the chat's Run moved on while the owner was away. Each wake-up is a card across the lane that says
+// what happened in words, the Task by its title: one done, one failed with its reason, and a worker's question.
+// The Task's chip opens its panel over the chat, kept in the URL; the Run's goes to its page.
+test("wake-ups are cards that name their Task and open it", async ({ page }) => {
+  await fakeServer(page, (text) => ({ status: 201, body: message(2, { role: "owner", text }) }))
+  await open(page)
+
+  const wake = (seq: number, text: string, w: object) =>
+    kept(seq, {
+      role: "system",
+      kind: "wake",
+      event_seq: seq,
+      text,
+      wake: { run_id: run.id, ...w },
+    })
+
+  await write(
+    page,
+    state(false) +
+      kept(1, { role: "owner", text: "add a /health page and deploy it" }) +
+      kept(2, { role: "coordinator", text: "Given to three workers." }) +
+      wake(3, "Task tsk_1 of run run_1 is succeeded", {
+        event: "task.status",
+        task_id: "tsk_1",
+        status: "succeeded",
+      }) +
+      wake(4, "Task tsk_2 of run run_1 is failed", {
+        event: "task.status",
+        task_id: "tsk_2",
+        status: "failed",
+        reason: "3 failed attempts; the last: worker_error",
+      }) +
+      wake(5, "A worker on task tsk_3 asks you question qst_1", {
+        event: "question.opened",
+        task_id: "tsk_3",
+        question_id: "qst_1",
+      }) +
+      wake(6, "Run run_1 is finished", { event: "run.finished", status: "finished" }),
+  )
+
+  const log = page.getByRole("log")
+  await expect(
+    log.getByRole("note", { name: "Task Add the /health handler and its test done" }),
+  ).toBeVisible()
+  await expect(
+    log.getByRole("note", {
+      name: "Task Deploy the control plane to zm failed: 3 failed attempts; the last: worker_error",
+    }),
+  ).toBeVisible()
+  await expect(
+    log.getByRole("note", {
+      name: "implementer asks: Use goth or hand-written OAuth for the Google login?",
+    }),
+  ).toBeVisible()
+  await expect(
+    log.getByRole("link", { name: "Open Run Add a /health page to the control plane" }),
+  ).toHaveAttribute("href", "/runs/run_1")
+  await expect(log.getByRole("note", { name: /^Task tsk_/ })).toHaveCount(0)
+  await shot(page, "chat-wake-ups")
+
+  await log.getByRole("button", { name: "Open Task Deploy the control plane to zm" }).click()
+  await expect(page).toHaveURL(/[?&]task=tsk_2/)
+  await expect(page.getByRole("dialog")).toBeVisible()
+  await shot(page, "chat-wake-task-open")
 })

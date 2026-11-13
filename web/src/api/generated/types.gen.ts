@@ -2192,11 +2192,34 @@ export type ChatMessage = {
    * The event a wake-up reports.
    */
   event_seq?: number;
+  wake?: ChatWake;
   /**
    * When the coordinator got an owner message or a wake-up.
    */
   delivered_at?: string;
   created_at: string;
+};
+
+/**
+ * The event a wake-up reports, read from the event, which never changes: a Task ended or was blocked, a worker asked the coordinator a question, an escalation, or a Run ended.
+ */
+export type ChatWake = {
+  event: 'task.status' | 'question.opened' | 'escalation' | 'run.finished' | 'run.canceled';
+  run_id?: string;
+  task_id?: string;
+  question_id?: string;
+  /**
+   * What the Task became (succeeded, failed, blocked, canceled), or how the Run ended (finished, canceled); absent for a question or an escalation.
+   */
+  status?: string;
+  /**
+   * Why the Task is blocked or failed, or the escalation's reason.
+   */
+  reason?: string;
+  /**
+   * The escalation's kind, such as stalled or overrun.
+   */
+  escalation?: string;
 };
 
 export type ChatMessageList = {

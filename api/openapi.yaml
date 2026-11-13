@@ -5101,11 +5101,37 @@ components:
           type: integer
           format: int64
           description: The event a wake-up reports.
+        wake:
+          $ref: "#/components/schemas/ChatWake"
+          description: What the event of a wake row says; absent for other messages.
         delivered_at:
           type: string
           format: date-time
           description: When the coordinator got an owner message or a wake-up.
         created_at: { type: string, format: date-time }
+    ChatWake:
+      type: object
+      description: >-
+        The event a wake-up reports, read from the event, which never changes:
+        a Task ended or was blocked, a worker asked the coordinator a question,
+        an escalation, or a Run ended.
+      required: [event]
+      properties:
+        event:
+          type: string
+          enum: [task.status, question.opened, escalation, run.finished, run.canceled]
+          x-enum-varnames: [WakeTaskStatus, WakeQuestionOpened, WakeEscalation, WakeRunFinished, WakeRunCanceled]
+        run_id: { type: string }
+        task_id: { type: string }
+        question_id: { type: string }
+        status:
+          type: string
+          description: >-
+            What the Task became (succeeded, failed, blocked, canceled), or how
+            the Run ended (finished, canceled); absent for a question or an
+            escalation.
+        reason: { type: string, description: "Why the Task is blocked or failed, or the escalation's reason." }
+        escalation: { type: string, description: "The escalation's kind, such as stalled or overrun." }
     ChatMessageList:
       type: object
       required: [data, next_after]

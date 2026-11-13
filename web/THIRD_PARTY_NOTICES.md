@@ -5,6 +5,11 @@ Each adapted file names its source.
 - The web client's look, parts of its chat components and the dialog's scrolling panel
   (`src/components/ui/dialog.tsx`, `DialogPanel`) are adapted from t3code (https://github.com/pingdotgg/t3code,
   apps/web), MIT, Copyright (c) 2026 T3 Tools Inc.
+- A wake-up's card in a chat (`src/features/chat/wake-card.tsx`) is adapted from t3code's
+  apps/web/src/components/chat/TimelineSystemDivider.tsx, MarkdownThreadLink.tsx and ThreadContextChip.tsx (MIT,
+  Copyright (c) 2026 T3 Tools Inc.), with the icon by status of Orca's
+  src/renderer/src/components/native-chat/tools/tasks/NativeChatTaskList.tsx (MIT, Copyright (c) 2026 Lovecast
+  Inc.).
 - The board's columns and cards are adapted from Orca (https://github.com/stablyai/orca,
   src/renderer/src/components/dashboard-popout), MIT.
 - The Machines page's cards, table, meters and actions menu (`src/features/machines`), the View menu of the

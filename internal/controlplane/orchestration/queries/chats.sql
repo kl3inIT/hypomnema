@@ -16,7 +16,19 @@ VALUES (@chat_id, @role, @kind, @text, @parts, @event_seq, @now)
 RETURNING seq;
 
 -- name: ListChatMessages :many
-SELECT * FROM chat_messages WHERE chat_id = @chat_id AND seq > @after ORDER BY seq LIMIT @lim;
+-- Each wake-up with the event it reports (issue #303): the event never changes, so it is read here rather than kept
+-- on the row. Other rows have empty event columns.
+SELECT sqlc.embed(chat_messages),
+       CAST(coalesce(events.kind, '') AS TEXT)        AS event_kind,
+       CAST(coalesce(events.run_id, '') AS TEXT)      AS event_run_id,
+       CAST(coalesce(events.task_id, '') AS TEXT)     AS event_task_id,
+       CAST(coalesce(events.question_id, '') AS TEXT) AS event_question_id,
+       CAST(coalesce(events.payload, '') AS TEXT)     AS event_payload
+FROM chat_messages
+LEFT JOIN events ON chat_messages.kind = 'wake' AND events.seq = chat_messages.event_seq
+WHERE chat_messages.chat_id = @chat_id AND chat_messages.seq > @after
+ORDER BY chat_messages.seq
+LIMIT @lim;
 
 -- name: UndeliveredChatMessages :many
 -- Owner messages and wake-ups not yet given to pi, oldest first.
