@@ -39,7 +39,7 @@ func (s *Server) ListChats(ctx context.Context, req openapi.ListChatsRequestObje
 // CreateChat starts a chat.
 func (s *Server) CreateChat(ctx context.Context, req openapi.CreateChatRequestObject,
 ) (openapi.CreateChatResponseObject, error) {
-	chat, err := s.svc.CreateChat(ctx, val(req.Body.Bot), val(req.Body.Title))
+	chat, err := s.svc.CreateChatWithID(ctx, val(req.Body.Id), val(req.Body.Bot), val(req.Body.Title))
 	if err != nil {
 		return nil, err
 	}

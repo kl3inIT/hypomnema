@@ -13,6 +13,7 @@ import { useSetupChanges } from "@/features/bots/setup-changes"
 import { useRoutines } from "@/features/routines/use-routines"
 import { chatsKey } from "@/features/shell/chats"
 
+import { AttachDrop } from "./attach-drop"
 import { useAttachments } from "./attachments"
 import { Composer } from "./composer"
 import { Conversation } from "./conversation"
@@ -28,8 +29,8 @@ import { OpenFileContext, type OpenFile } from "./open-file-context"
 // t3code's optimisticUserMessages.ts: it waits under a seq of its own until the server answers with its seq, and
 // goes when the kept one arrives; a refused send takes it away again.
 //
-// Files dropped anywhere on the chat are attached to the message being written (issue #343), as t3code and Orca's
-// pane take a drop (NativeChatPaneFileDropSurface.tsx); onOpenFile opens an attached file in the pane.
+// Files dropped anywhere on the chat are attached to the message being written (issue #343, AttachDrop);
+// onOpenFile opens an attached file in the pane.
 export function ChatBody({ chatId, onOpenFile }: { chatId: string; onOpenFile?: OpenFile }) {
   const queryClient = useQueryClient()
   const view = useChatStream(chatId)
@@ -39,9 +40,6 @@ export function ChatBody({ chatId, onOpenFile }: { chatId: string; onOpenFile?: 
   })
   const [sending, setSending] = useState<ChatMessage[]>([])
   const attachments = useAttachments(chatId)
-  // dragging is true while files are held over the chat.
-  const [dragging, setDragging] = useState(false)
-  const holdsFiles = (event: React.DragEvent) => event.dataTransfer.types.includes("Files")
   // What waits above the composer: the Approvals, the questions of this chat's Runs and the Runs themselves.
   const approvals = usePending({ chatId })
   const work = useDockedWork(chatId, wakeCount(view.messages), approvals.data?.length ?? 0)
@@ -85,33 +83,7 @@ export function ChatBody({ chatId, onOpenFile }: { chatId: string; onOpenFile?: 
   return (
     <OpenFileContext value={onOpenFile ?? null}>
       <DockContext value={work.dock}>
-        <div
-          className="relative flex min-h-0 min-w-0 flex-1 flex-col"
-          onDragOver={(event) => {
-            if (!holdsFiles(event)) return
-            event.preventDefault()
-            event.dataTransfer.dropEffect = "copy"
-            setDragging(true)
-          }}
-          onDragLeave={(event) => {
-            if (!event.currentTarget.contains(event.relatedTarget as Node | null))
-              setDragging(false)
-          }}
-          onDrop={(event) => {
-            if (!holdsFiles(event)) return
-            event.preventDefault()
-            setDragging(false)
-            attachments.attach([...event.dataTransfer.files])
-          }}
-        >
-          {dragging && (
-            <div
-              aria-hidden
-              className="pointer-events-none absolute inset-2 z-30 flex items-center justify-center rounded-2xl border-2 border-dashed border-primary/60 bg-background/80 text-sm text-foreground"
-            >
-              Drop files to attach them to your message
-            </div>
-          )}
+        <AttachDrop attachments={attachments} className="flex min-h-0 min-w-0 flex-1 flex-col">
           {chat.data && !chat.data.coordinator && (
             <output className="block px-5 pb-2 text-sm text-muted-foreground">
               No coordinator runs on the server: messages are kept and nothing answers.
@@ -159,7 +131,7 @@ export function ChatBody({ chatId, onOpenFile }: { chatId: string; onOpenFile?: 
               attachments={attachments}
             />
           </div>
-        </div>
+        </AttachDrop>
       </DockContext>
     </OpenFileContext>
   )

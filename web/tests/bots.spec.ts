@@ -538,7 +538,11 @@ test("a new chat is started with the Bot the owner picks", async ({ page }) => {
   await shot(page, "chat-bot")
   expect(calls[0]).toEqual({
     call: "POST /chats",
-    body: { title: "what changed in pi this week?", bot: "researcher" },
+    body: {
+      id: expect.stringMatching(/^cht_[a-z2-7]{26}$/),
+      title: "what changed in pi this week?",
+      bot: "researcher",
+    },
   })
 })
 
@@ -556,7 +560,10 @@ test("with one Bot the start screen offers no choice", async ({ page }) => {
     "title",
     "Chat with coordinator",
   )
-  expect(calls[0]).toEqual({ call: "POST /chats", body: { title: "add a health page" } })
+  expect(calls[0]).toEqual({
+    call: "POST /chats",
+    body: { id: expect.stringMatching(/^cht_[a-z2-7]{26}$/), title: "add a health page" },
+  })
 })
 
 // Scenario: the owner limits what a Bot may use (issue #169). Without a list it may use every account switched

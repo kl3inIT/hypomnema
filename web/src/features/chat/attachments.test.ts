@@ -145,3 +145,38 @@ test("Send is refused while a file was not uploaded", async () => {
   draft.remove(draft.snapshot()[0]?.id ?? "")
   await expect(draft.ready()).resolves.toEqual([])
 })
+
+// Scenario: on the New chat page the owner attaches two files, one up and one still going, then picks another Bot
+// (issue #357). Both stay attached and go up again into the new Bot's folder under the chat's id; the one going is
+// stopped, and the old Bot's copy of the one that was up is deleted once its new copy is up. Send gets the new
+// copies.
+test("another Bot picked: the files go up again into its folder, and the old copies go", async () => {
+  const first = fakeFolder()
+  const second = fakeFolder()
+  const draft = new AttachmentDraft("cht_new", first.folder)
+
+  draft.add([file("up.txt"), file("going.txt")])
+  await begun(first.uploads, 2)
+  first.uploads[0]?.end()
+  await vi.waitFor(() => expect(draft.snapshot()[0]?.state).toBe("done"))
+
+  draft.moveTo(second.folder)
+  expect(first.uploads[1]?.signal.aborted).toBe(true)
+  first.uploads[1]?.end(new DOMException("aborted", "AbortError"))
+  expect(draft.snapshot().map((item) => item.state)).toEqual(["uploading", "uploading"])
+
+  await begun(second.uploads, 2)
+  expect(second.uploads.map((u) => u.path)).toEqual([
+    "attachments/cht_new/up.txt",
+    "attachments/cht_new/going.txt",
+  ])
+  expect(first.removed).toEqual([])
+
+  const ready = draft.ready()
+  for (const u of second.uploads) u.end()
+  await expect(ready).resolves.toMatchObject([
+    { path: "attachments/cht_new/up.txt" },
+    { path: "attachments/cht_new/going.txt" },
+  ])
+  expect(first.removed).toEqual(["attachments/cht_new/up.txt"])
+})

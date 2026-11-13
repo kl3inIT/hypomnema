@@ -1,4 +1,4 @@
-import { useState, useSyncExternalStore } from "react"
+import { useEffect, useRef, useState, useSyncExternalStore } from "react"
 
 import "@/api/client"
 import { listWorkspaceDirectory } from "@/api/generated/sdk.gen"
@@ -16,6 +16,12 @@ import { commitUpload, maxUpload, sendPieces } from "@/features/files/upload"
 // A file goes into the chat's folder of attachments in its Bot's folder, apart from the work, as Orca keeps a
 // session's attachments in agent-session-attachments and OpenMausBot in DATA_DIR/attachments; a name already there
 // gets a number, "report (2).pdf".
+//
+// On the New chat page (issue #357) the chat is not made yet: the page chose its id, and the files go into the
+// picked Bot's folder under that id. When the owner picks another Bot, the files stay attached and go up again into
+// the new Bot's folder, and each copy in the old one is deleted once the new one is up, as t3code uploads a draft's
+// attachments again when its environment changes and deletes the previous upload when the new one is ready
+// (attachmentUploadQueue.ts, startAttachmentUpload's previous).
 
 export const botFolder = "bot"
 
@@ -87,12 +93,14 @@ export class AttachmentDraft {
   private items: Attachment[] = []
   private listeners = new Set<() => void>()
   private jobs = new Map<string, { controller: AbortController; settled: Promise<void> }>()
+  // previous holds a file's copy in a Bot's folder it left (moveTo), deleted once the file is up in the new one.
+  private previous = new Map<string, { folder: Folder; path: string }>()
   // given holds the names given out here, which the folder may not list yet.
   private given = new Set<string>()
   private there: Promise<Set<string>> | null = null
 
   private readonly chat: string
-  private readonly folder: Folder
+  private folder: Folder
 
   constructor(chat: string, folder: Folder) {
     this.chat = chat
@@ -148,43 +156,65 @@ export class AttachmentDraft {
   }
 
   private names() {
-    this.there ??= this.folder.names().then(
+    if (this.there) return this.there
+    const there: Promise<Set<string>> = this.folder.names().then(
       (names) => new Set(names),
       (error: unknown) => {
-        this.there = null
+        if (this.there === there) this.there = null
         throw error
       },
     )
+    this.there = there
 
-    return this.there
+    return there
   }
 
   private start(item: Attachment) {
     const controller = new AbortController()
-    const settled = this.send(item, controller.signal)
-      .then(() => this.update(item.id, { state: "done", sent: item.size }))
+    const settled = this.send(item, controller.signal, this.folder)
+      .then(() => {
+        this.update(item.id, { state: "done", sent: item.size })
+        this.dropPrevious(item.id)
+      })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return
         this.update(item.id, { state: "failed", problem: problemOf(error).message })
       })
-      .finally(() => this.jobs.delete(item.id))
+      .finally(() => {
+        // A file sent again (moveTo) has a new job by now, which stays.
+        if (this.jobs.get(item.id)?.controller === controller) this.jobs.delete(item.id)
+      })
     this.jobs.set(item.id, { controller, settled })
   }
 
-  private async send(item: Attachment, signal: AbortSignal) {
+  private dropPrevious(id: string) {
+    const previous = this.previous.get(id)
+    if (!previous) return
+    this.previous.delete(id)
+    void previous.folder.remove(previous.path).catch(() => undefined)
+  }
+
+  private async send(item: Attachment, signal: AbortSignal, folder: Folder) {
     const there = await this.names()
 
     for (let attempt = 1; ; attempt++) {
+      signal.throwIfAborted()
       const name = numberedName(item.name, new Set([...there, ...this.given]))
       this.given.add(name)
       const path = `${attachmentsDir(this.chat)}/${name}`
       this.update(item.id, { path, sent: 0 })
 
       try {
-        await this.folder.upload(path, item.file, (sent) => this.update(item.id, { sent }), signal)
+        await folder.upload(path, item.file, (sent) => this.update(item.id, { sent }), signal)
+        // Stopped while it was put in its place: the copy is not this draft's any more.
+        if (signal.aborted) {
+          void folder.remove(path).catch(() => undefined)
+          signal.throwIfAborted()
+        }
 
         return
       } catch (error) {
+        if (signal.aborted) throw error
         // A file of that name came meanwhile: the next number.
         if (problemOf(error).code !== "conflict" || attempt >= tries) throw error
       }
@@ -199,8 +229,30 @@ export class AttachmentDraft {
     const job = this.jobs.get(id)
     if (job) job.controller.abort()
     else if (item.state === "done") void this.folder.remove(item.path).catch(() => undefined)
+    this.dropPrevious(id)
     if (item.preview) URL.revokeObjectURL(item.preview)
     this.set(this.items.filter((each) => each.id !== id))
+  }
+
+  // moveTo sends the files to another Bot's folder, the owner having picked another Bot before the chat is made
+  // (issue #357): an upload in flight is stopped, each file goes up again under the chat's id, and a copy that was
+  // up in the old folder is deleted once the new one is up.
+  moveTo(folder: Folder) {
+    const old = this.folder
+    this.folder = folder
+    this.there = null
+    this.given = new Set()
+
+    for (const item of this.items) {
+      this.jobs.get(item.id)?.controller.abort()
+      if (item.state === "done" && !this.previous.has(item.id)) {
+        this.previous.set(item.id, { folder: old, path: item.path })
+      }
+    }
+    this.set(
+      this.items.map((item) => ({ ...item, state: "uploading", sent: 0, problem: undefined })),
+    )
+    for (const item of this.items) this.start(item)
   }
 
   // ready waits for the uploads in flight and returns the files to send with the message. It refuses while a file
@@ -229,15 +281,15 @@ export class AttachmentDraft {
 }
 
 // botFolderOf is a chat's Bot's folder through the client API: its folder of attachments is made as needed with the
-// folder call, and a file goes up as the Files panel uploads it.
-function botFolderOf(chat: string): Folder {
+// folder call, and a file goes up as the Files panel uploads it. bot names the Bot of a chat not made yet.
+function botFolderOf(chat: string, bot?: string): Folder {
   const where = { chat_id: chat, workspace_id: botFolder }
 
   return {
     names: async () => {
       for (const dir of ["attachments", attachmentsDir(chat)]) {
         try {
-          await makeFolder(chat, botFolder, dir)
+          await makeFolder(chat, botFolder, dir, bot)
         } catch (error) {
           // Made before.
           if (problemOf(error).code !== "conflict") throw error
@@ -250,7 +302,11 @@ function botFolderOf(chat: string): Folder {
         const page = (
           await listWorkspaceDirectory({
             path: where,
-            query: { path: attachmentsDir(chat), ...(after !== undefined && { after }) },
+            query: {
+              path: attachmentsDir(chat),
+              ...(after !== undefined && { after }),
+              ...(bot && { bot }),
+            },
           })
         ).data
         names.push(...page.entries.map((entry) => entry.name))
@@ -259,16 +315,23 @@ function botFolderOf(chat: string): Folder {
       }
     },
     upload: async (path, file, progress, signal) => {
-      const upload = await sendPieces(chat, botFolder, path, file, progress, signal)
-      await commitUpload(chat, botFolder, path, upload, false)
+      const upload = await sendPieces(chat, botFolder, path, file, progress, signal, bot)
+      await commitUpload(chat, botFolder, path, upload, false, bot)
     },
-    remove: (path) => deleteEntry(chat, botFolder, path),
+    remove: (path) => deleteEntry(chat, botFolder, path, bot),
   }
 }
 
-// useAttachments is a composer's files, and why the last file picked, dropped or pasted was not taken.
-export function useAttachments(chat: string) {
-  const [draft] = useState(() => new AttachmentDraft(chat, botFolderOf(chat)))
+// useAttachments is a composer's files, and why the last file picked, dropped or pasted was not taken. A chat not
+// made yet names the Bot picked for it; when another is picked, the files move to its folder.
+export function useAttachments(chat: string, bot?: string) {
+  const [draft] = useState(() => new AttachmentDraft(chat, botFolderOf(chat, bot)))
+  const placed = useRef(bot)
+  useEffect(() => {
+    if (placed.current === bot) return
+    placed.current = bot
+    draft.moveTo(botFolderOf(chat, bot))
+  }, [bot, chat, draft])
   const items = useSyncExternalStore(draft.subscribe, draft.snapshot)
   const [problem, setProblem] = useState<string | null>(null)
 
