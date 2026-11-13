@@ -22,6 +22,7 @@ import { cn } from "@/lib/utils"
 
 import { argLine, failed, type ChatItem, type Step } from "./chat-state"
 import Markdown from "./markdown"
+import { MessageFiles } from "./message-files"
 import { WakeCard } from "./wake-card"
 import { WorkLogBlock, WorkLogButton, WorkLogDetails, WorkLogList, WorkLogRow } from "./work-log"
 
@@ -125,12 +126,18 @@ function Meta({
 }
 
 function OwnerMessage({ message }: { message: ChatMessage }) {
+  const files = message.attachments ?? []
+
   return (
     <div className="group flex flex-col items-end gap-1 pb-4">
-      <div className="relative max-w-[80%] min-w-0 rounded-2xl bg-message p-3 text-sm leading-relaxed break-words whitespace-pre-wrap text-message-foreground">
-        <h3 className="sr-only">You</h3>
-        {message.text}
-      </div>
+      <h3 className="sr-only">You</h3>
+      {/* Its files above its text, as t3code's TimelineUserMessageRow.tsx (issue #343). */}
+      {files.length > 0 && <MessageFiles chat={message.chat_id} files={files} />}
+      {message.text && (
+        <div className="relative max-w-[80%] min-w-0 rounded-2xl bg-message p-3 text-sm leading-relaxed break-words whitespace-pre-wrap text-message-foreground">
+          {message.text}
+        </div>
+      )}
       <Meta text={message.text} createdAt={message.created_at} align="end" />
     </div>
   )

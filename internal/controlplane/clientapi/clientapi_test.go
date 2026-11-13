@@ -1026,6 +1026,49 @@ func TestOnlyTheOwnerChats(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, missing.StatusCode())
 }
 
+// Scenario: the owner sends a message with files uploaded into the Bot's folder (issue #343). The answer and the
+// chat's messages carry them; a message of files alone is taken, a path outside the chat's attachments folder is
+// refused in the server's words, and a message with neither text nor files is refused.
+func TestAMessageCarriesItsAttachments(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	owner, _ := w.token("web", bearertoken.Owner)
+	ctx := t.Context()
+
+	created, err := owner.CreateChatWithResponse(ctx, openapi.NewChat{})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, created.StatusCode(), string(created.Body))
+	chat := created.JSON201.Id
+
+	png := "image/png"
+	files := []openapi.ChatAttachment{
+		{Name: "shot.png", Path: "attachments/" + chat + "/shot.png", Size: 42, Type: &png},
+		{Name: "notes.txt", Path: "attachments/" + chat + "/notes (2).txt", Size: 7},
+	}
+
+	sent, err := owner.SendChatMessageWithResponse(ctx, chat, openapi.NewChatMessage{Text: "", Attachments: &files})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, sent.StatusCode(), string(sent.Body))
+	assert.Equal(t, files, val(sent.JSON201.Attachments))
+
+	page, err := owner.ListChatMessagesWithResponse(ctx, chat, &openapi.ListChatMessagesParams{})
+	require.NoError(t, err)
+	require.Len(t, page.JSON200.Data, 1)
+	assert.Equal(t, files, val(page.JSON200.Data[0].Attachments))
+
+	elsewhere := []openapi.ChatAttachment{{Name: "x", Path: "../../etc/passwd", Size: 1}}
+	refused, err := owner.SendChatMessageWithResponse(ctx, chat,
+		openapi.NewChatMessage{Text: "look", Attachments: &elsewhere})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, refused.StatusCode())
+	assert.Contains(t, refused.JSONDefault.Message, "attachments/"+chat)
+
+	empty, err := owner.SendChatMessageWithResponse(ctx, chat, openapi.NewChatMessage{Text: " "})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, empty.StatusCode())
+}
+
 // piToken is the token of a pi running for the chat as the Bot (issue #260),
 // made under the coordinator token named coordinator.
 func (w *world) piToken(coordinator, chat, bot string) *openapi.ClientWithResponses {

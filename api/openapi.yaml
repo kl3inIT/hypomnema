@@ -5261,10 +5261,30 @@ components:
         working: { type: boolean }
     NewChatMessage:
       type: object
+      description: The owner's message; its text may be empty when it carries files.
       required: [text]
       additionalProperties: false
       properties:
-        text: { type: string, minLength: 1, maxLength: 100000 }
+        text: { type: string, maxLength: 100000 }
+        attachments:
+          type: array
+          description: Files uploaded into the chat's Bot's folder for this message.
+          items: { $ref: "#/components/schemas/ChatAttachment" }
+    ChatAttachment:
+      type: object
+      description: >-
+        A file the owner attached to a message (issue #343): uploaded into
+        the chat's Bot's folder, where pi reads it.
+      required: [name, path, size]
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 1, maxLength: 255, description: "The file's name as the owner picked it." }
+        path:
+          type: string
+          maxLength: 1024
+          description: "Where it is in the Bot's folder: attachments/<chat id>/<file>."
+        size: { type: integer, format: int64, minimum: 0 }
+        type: { type: string, maxLength: 255, description: "Its media type, when the browser named one." }
     ChatMessage:
       type: object
       required: [seq, chat_id, role, text, created_at]
@@ -5280,6 +5300,10 @@ components:
           type: array
           description: A reply's text and thinking, or a tool's result; absent for owner and system messages.
           items: { $ref: "#/components/schemas/ChatPart" }
+        attachments:
+          type: array
+          description: The files of an owner message; absent for other messages.
+          items: { $ref: "#/components/schemas/ChatAttachment" }
         event_seq:
           type: integer
           format: int64

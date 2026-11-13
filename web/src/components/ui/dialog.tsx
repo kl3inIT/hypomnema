@@ -46,8 +46,8 @@ function DialogContent({
 }: DialogPrimitive.Popup.Props & {
   showCloseButton?: boolean
   // How wide the dialog is for what it holds (t3code, Orca: each dialog sets its own): sm for one field, lg for a
-  // command or a table of choices.
-  size?: "sm" | "default" | "lg"
+  // command or a table of choices; image for one picture shown large, as t3code's ExpandedImageDialog.tsx (92vw).
+  size?: "sm" | "default" | "lg" | "image"
 }) {
   // The popup is bounded by the viewport, as t3code's is (max-h-full in its viewport): a dialog taller than the
   // screen keeps its header and footer and scrolls its DialogPanel.
@@ -58,7 +58,7 @@ function DialogContent({
         data-slot="dialog-content"
         data-size={size}
         className={cn(
-          "fixed top-1/2 left-1/2 z-50 flex max-h-[calc(100dvh-2rem)] w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 flex-col gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none data-[size=default]:sm:max-w-lg data-[size=lg]:sm:max-w-xl data-[size=sm]:sm:max-w-md data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          "fixed top-1/2 left-1/2 z-50 flex max-h-[calc(100dvh-2rem)] w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 flex-col gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none data-[size=image]:w-auto data-[size=image]:max-w-[92vw] data-[size=image]:p-2 data-[size=default]:sm:max-w-lg data-[size=lg]:sm:max-w-xl data-[size=sm]:sm:max-w-md data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
           className,
         )}
         {...props}

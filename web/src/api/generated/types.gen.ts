@@ -2255,8 +2255,34 @@ export type ChatState = {
   working: boolean;
 };
 
+/**
+ * The owner's message; its text may be empty when it carries files.
+ */
 export type NewChatMessage = {
   text: string;
+  /**
+   * Files uploaded into the chat's Bot's folder for this message.
+   */
+  attachments?: Array<ChatAttachment>;
+};
+
+/**
+ * A file the owner attached to a message (issue #343): uploaded into the chat's Bot's folder, where pi reads it.
+ */
+export type ChatAttachment = {
+  /**
+   * The file's name as the owner picked it.
+   */
+  name: string;
+  /**
+   * Where it is in the Bot's folder: attachments/<chat id>/<file>.
+   */
+  path: string;
+  size: number;
+  /**
+   * Its media type, when the browser named one.
+   */
+  type?: string;
 };
 
 export type ChatMessage = {
@@ -2269,6 +2295,10 @@ export type ChatMessage = {
    * A reply's text and thinking, or a tool's result; absent for owner and system messages.
    */
   parts?: Array<ChatPart>;
+  /**
+   * The files of an owner message; absent for other messages.
+   */
+  attachments?: Array<ChatAttachment>;
   /**
    * The event a wake-up reports.
    */

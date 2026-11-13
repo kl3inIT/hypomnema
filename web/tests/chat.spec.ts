@@ -1,3 +1,5 @@
+import { writeFile } from "node:fs/promises"
+
 import { expect, test, type Page } from "@playwright/test"
 
 import { shot } from "./shot.js"
@@ -89,12 +91,19 @@ const noWork = (): Work => ({
   questions: [],
 })
 
+// The chat's Bot's folder (issue #343): its folder of attachments holds a report.pdf before the test, and a file
+// uploaded into it is kept with its bytes, which the raw read gives back.
+const botFolder = () =>
+  new Map<string, Buffer>([["attachments/cht_1/report.pdf", Buffer.from("%PDF-1.7")]])
+
 async function fakeServer(
   page: Page,
-  send: (text: string) => { status: number; body: unknown },
+  send: (text: string, body: Record<string, unknown>) => { status: number; body: unknown },
   work: Work = noWork(),
+  files = botFolder(),
 ) {
   const calls: string[] = []
+  const uploads = new Map<string, { path: string; bytes: Buffer }>()
 
   await page.addInitScript(() => {
     const page = globalThis as unknown as PageGlobal
@@ -128,6 +137,80 @@ async function fakeServer(
 
     calls.push(`${route.request().method()} ${path}`)
 
+    const bot = /^\/chats\/cht_1\/workspaces\/bot\/([a-z/]+)$/.exec(path)
+    if (bot) {
+      const op = bot[1]
+      const where = url.searchParams.get("path") ?? ""
+      const body = route.request().postDataJSON() as Record<string, string> | null
+      calls.push(`${route.request().method()} ${op} ${body?.path ?? where}`)
+
+      if (op === "folders") return json({ path: body?.path })
+      if (op === "changes") return json({ git: true, changes: [], truncated: false })
+      if (op === "tree") {
+        const prefix = `${where}/`
+        const entries = [...files]
+          .filter(([p]) => p.startsWith(prefix) && !p.slice(prefix.length).includes("/"))
+          .map(([p, bytes]) => ({
+            name: p.slice(prefix.length),
+            path: p,
+            type: "file",
+            bytes: bytes.length,
+            modified_at: 1,
+          }))
+
+        return json({ entries, has_more: false })
+      }
+      if (op === "uploads" && body) {
+        const upload = `u${uploads.size + 1}`
+        uploads.set(upload, { path: body.path ?? "", bytes: Buffer.alloc(0) })
+
+        return json({ path: body.path, upload }, 201)
+      }
+      if (op === "uploads/chunk" && body) {
+        const up = uploads.get(body.upload ?? "")
+        if (!up) return json({ code: "not_found", message: "no upload" }, 404)
+        up.bytes = Buffer.concat([up.bytes, Buffer.from(body.data ?? "", "base64")])
+
+        return route.fulfill({ status: 204 })
+      }
+      if (op === "uploads/commit" && body) {
+        const up = uploads.get(body.upload ?? "")
+        if (!up) return json({ code: "not_found", message: "no upload" }, 404)
+        if (files.has(up.path)) {
+          return json({ code: "conflict", message: `${up.path} is already there` }, 409)
+        }
+        files.set(up.path, up.bytes)
+
+        return json({ path: up.path, sha256: "x" })
+      }
+      if (op === "raw") {
+        const bytes = files.get(where)
+        if (!bytes) return json({ code: "not_found", message: "not there" }, 404)
+
+        return route.fulfill({ status: 200, contentType: "application/octet-stream", body: bytes })
+      }
+      if (op === "file") {
+        const bytes = files.get(where)
+        if (!bytes) return json({ code: "not_found", message: "not there" }, 404)
+
+        return json({
+          path: where,
+          bytes: bytes.length,
+          binary: true,
+          truncated: false,
+          content: "",
+          sha256: "x",
+        })
+      }
+
+      return json({ code: "not_found", message: "not found" }, 404)
+    }
+    if (path === `/chats/${chat.id}/workspaces`) {
+      return json({
+        data: [{ id: "bot", kind: "bot", name: chat.bot, root: "/bots/builder", online: true }],
+      })
+    }
+
     if (path === "/me") return json({ id: "usr_1", name: "admin", kind: "owner" })
     if (path === "/approvals") return json({ data: [] })
     if (path === "/tasks") return json({ data: tasks, runs: [run], after: 5 })
@@ -155,7 +238,8 @@ async function fakeServer(
     if (path === `/chats/${chat.id}`) return json(chat)
     if (path === `/chats/${chat.id}/abort`) return route.fulfill({ status: 204 })
     if (path === `/chats/${chat.id}/messages`) {
-      const answer = send((route.request().postDataJSON() as { text: string }).text)
+      const body = route.request().postDataJSON() as { text: string }
+      const answer = send(body.text, body)
 
       return json(answer.body, answer.status)
     }
@@ -493,4 +577,127 @@ test("a question answered in the chat disappears", async ({ page }) => {
   await question.getByRole("button", { name: "Send answer" }).click()
   await expect.poll(() => calls).toContain("POST /questions/qst_9/answer")
   await expect(question).toHaveCount(0)
+})
+
+// settled waits for the page's animations and transitions to end, so that a picture shows where things came to rest.
+const settled = (page: Page) =>
+  page.waitForFunction("document.getAnimations().every((a) => a.playState !== 'running')")
+
+// pasteImage pastes a picture into the message box, as a screenshot copied to the clipboard is: a PNG drawn by the
+// page itself. It runs in the page, written as text since this package's types have no DOM.
+async function pasteImage(page: Page) {
+  await page.evaluate(`(async () => {
+    const canvas = document.createElement("canvas")
+    canvas.width = 480
+    canvas.height = 300
+    const g = canvas.getContext("2d")
+    const fill = g.createLinearGradient(0, 0, 480, 300)
+    fill.addColorStop(0, "#4f46e5")
+    fill.addColorStop(1, "#06b6d4")
+    g.fillStyle = fill
+    g.fillRect(0, 0, 480, 300)
+    g.fillStyle = "#ffffff"
+    g.font = "bold 36px sans-serif"
+    g.fillText("/health 200 OK", 110, 160)
+    const blob = await new Promise((done) => canvas.toBlob(done, "image/png"))
+    const data = new DataTransfer()
+    data.items.add(new File([blob], "image.png", { type: "image/png" }))
+    const box = document.querySelector('textarea[aria-label="Message"]')
+    box.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }))
+  })()`)
+}
+
+// Scenario: the owner attaches a report with the paperclip and pastes a screenshot (issue #343). Each is a chip
+// that uploads into the chat's folder of attachments in the Bot's folder, the report under "report (2).pdf" since
+// one is there; Send sends the text with both. In the chat the message shows the screenshot as a picture that
+// opens large and the report as a chip that opens it in the pane. A chip removed before Send is not sent.
+test("files attached by button and paste are sent and shown with the message", async ({ page }) => {
+  let sent: Record<string, unknown> = {}
+  const calls = await fakeServer(page, (text, body) => {
+    sent = body
+
+    return { status: 201, body: message(2, { role: "owner", text, attachments: body.attachments }) }
+  })
+  await open(page)
+  await write(page, state(false) + kept(1, { role: "owner", text: "add a health page" }))
+
+  await page.getByLabel("Files to attach").setInputFiles([
+    { name: "report.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.7 report") },
+    { name: "stray.txt", mimeType: "text/plain", buffer: Buffer.from("not this one") },
+  ])
+  await pasteImage(page)
+
+  const chips = page.getByLabel("Files to send")
+  await expect(chips.getByText("report.pdf")).toBeVisible()
+  await expect(chips.getByText("image.png")).toBeVisible()
+  await expect(chips.getByText("Uploading", { exact: false })).toHaveCount(0)
+  await chips.getByRole("button", { name: "Remove stray.txt" }).click()
+  await expect(chips.getByText("stray.txt")).toHaveCount(0)
+  expect(calls).toContain("POST folders attachments/cht_1")
+  expect(calls).toContain("POST uploads attachments/cht_1/report (2).pdf")
+  expect(calls).toContain("DELETE file attachments/cht_1/stray.txt")
+
+  const box = page.getByRole("textbox", { name: "Message" })
+  await box.fill("the page works, see the report")
+  await shot(page, "chat-attach-chips")
+  await box.press("Enter")
+
+  await expect
+    .poll(() => sent.attachments)
+    .toEqual([
+      {
+        name: "report.pdf",
+        path: "attachments/cht_1/report (2).pdf",
+        size: 15,
+        type: "application/pdf",
+      },
+      expect.objectContaining({ name: "image.png", path: "attachments/cht_1/image.png" }),
+    ])
+  await expect(chips).toHaveCount(0)
+
+  await write(
+    page,
+    kept(2, {
+      role: "owner",
+      text: "the page works, see the report",
+      attachments: sent.attachments,
+    }),
+  )
+  const log = page.getByRole("log")
+  const picture = log.getByRole("button", { name: "Preview image.png" })
+  await expect(picture.getByRole("img", { name: "image.png" })).toBeVisible()
+  await expect(log.getByText("report.pdf")).toBeVisible()
+  await settled(page)
+  await shot(page, "chat-attachments-sent")
+
+  await picture.click()
+  const dialog = page.getByRole("dialog", { name: "image.png" })
+  await expect(dialog.getByRole("img", { name: "image.png" })).toBeVisible()
+  await settled(page)
+  await shot(page, "chat-attachment-image")
+  await page.keyboard.press("Escape")
+  await expect(dialog).toHaveCount(0)
+
+  await log.getByRole("button", { name: "Open report.pdf" }).click()
+  await expect.poll(() => calls).toContain("GET file attachments/cht_1/report (2).pdf")
+  await settled(page)
+  await shot(page, "chat-attachment-opened")
+})
+
+// Scenario: the owner picks a file over 50 MiB. It is refused with the reason above the box and never uploaded.
+test("a file over 50 MiB is refused before it uploads", async ({ page }) => {
+  const calls = await fakeServer(page, (text) => ({
+    status: 201,
+    body: message(2, { role: "owner", text }),
+  }))
+  await open(page)
+  await write(page, state(false))
+
+  // A file on disk, as the owner's would be: Playwright sends no buffer over 50 MB.
+  const big = test.info().outputPath("video.mp4")
+  await writeFile(big, Buffer.alloc((50 << 20) + 1))
+  await page.getByLabel("Files to attach").setInputFiles(big)
+  await expect(page.getByRole("alert")).toHaveText("video.mp4 is larger than 50 MiB.")
+  expect(calls.filter((c) => c.startsWith("POST uploads"))).toEqual([])
+  await shot(page, "chat-attach-refused")
 })

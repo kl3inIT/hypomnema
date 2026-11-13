@@ -312,7 +312,23 @@ export function PaneView({
                 className={cn("min-h-0 min-w-0 flex-1 flex-col", shown ? "flex" : "hidden")}
               >
                 {tab.kind === "chat" ? (
-                  <ChatBody chatId={tab.chat} />
+                  <ChatBody
+                    chatId={tab.chat}
+                    // A file attached to a message opens as a file of the panel does, with the panel beside it
+                    // where there is room (issue #343).
+                    onOpenFile={(workspace, path) =>
+                      onChange({
+                        ...openTab(pane, {
+                          kind: "file",
+                          chat: tab.chat,
+                          workspace,
+                          path,
+                          view: "file",
+                        }),
+                        files: window.matchMedia("(min-width: 768px)").matches,
+                      })
+                    }
+                  />
                 ) : (
                   <DraftChat
                     bot={tab.bot}

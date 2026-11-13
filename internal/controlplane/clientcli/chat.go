@@ -206,6 +206,11 @@ func printChatMessage(e *env, m openapi.ChatMessage) {
 		e.printf("\npi: %s\n", m.Text)
 	case openapi.ChatRoleOwner:
 		e.printf("\nyou: %s\n", m.Text)
+
+		// The files the owner attached in the web (issue #343), by their place in the Bot's folder.
+		for _, a := range val(m.Attachments) {
+			e.printf("  attached: %s\n", a.Path)
+		}
 	default:
 		e.printf("  · %s\n", m.Text)
 	}
