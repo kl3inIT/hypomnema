@@ -91,6 +91,14 @@ const marks: Record<string, ComponentType<SVGProps<SVGSVGElement>>> = {
   superset: SupersetIcon,
 }
 
+// IntegrationMark is an Integration's logo, or a plain plug for one that has none here. The Bot page shows it beside
+// each Connection a Bot may use.
+export function IntegrationMark({ id, className }: { id: string; className?: string }) {
+  const Mark = marks[id] ?? Plug
+
+  return <Mark className={className} aria-hidden />
+}
+
 // What a service of kind account is for, under its name.
 const accountHolds: Record<string, string> = {
   superset: "Dashboards and charts, read as data",

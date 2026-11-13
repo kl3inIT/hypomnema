@@ -1566,8 +1566,43 @@ export type Bot = {
    * The skills given to everyone that the Bot does not get.
    */
   skills_off: Array<string>;
+  connections: AllowList;
+  workers: AllowList;
   created_at: string;
   updated_at: string;
+};
+
+/**
+ * What a Bot may use. Not limited, it may use every one; limited, only those named, and none when no name is.
+ */
+export type AllowList = {
+  limited: boolean;
+  names: Array<string>;
+};
+
+/**
+ * A change of a Bot or a profile the Bot coordinator made from a chat.
+ */
+export type SetupChange = {
+  id: string;
+  chat_id: string;
+  kind: 'bot' | 'profile';
+  name: string;
+  action: 'made' | 'changed' | 'removed';
+  /**
+   * An undo would be taken now.
+   */
+  can_undo: boolean;
+  /**
+   * Why it cannot be undone.
+   */
+  problem?: string;
+  created_at: string;
+  undone_at?: string;
+};
+
+export type SetupChangeList = {
+  data: Array<SetupChange>;
 };
 
 /**
@@ -1797,6 +1832,8 @@ export type BotSettings = {
    * The skills for everyone the Bot turns off; left out, the Bot keeps those it has.
    */
   skills_off?: Array<string>;
+  connections?: AllowList;
+  workers?: AllowList;
 };
 
 export type Memory = {
@@ -5165,6 +5202,63 @@ export type ListRoutinesResponses = {
 };
 
 export type ListRoutinesResponse = ListRoutinesResponses[keyof ListRoutinesResponses];
+
+export type ListSetupChangesData = {
+  body?: never;
+  path?: never;
+  query: {
+    /**
+     * The chat the changes were made from.
+     */
+    chat_id: string;
+  };
+  url: '/setup-changes';
+};
+
+export type ListSetupChangesErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListSetupChangesError = ListSetupChangesErrors[keyof ListSetupChangesErrors];
+
+export type ListSetupChangesResponses = {
+  /**
+   * The changes, the oldest first.
+   */
+  200: SetupChangeList;
+};
+
+export type ListSetupChangesResponse = ListSetupChangesResponses[keyof ListSetupChangesResponses];
+
+export type UndoSetupChangeData = {
+  body?: never;
+  path: {
+    change_id: string;
+  };
+  query?: never;
+  url: '/setup-changes/{change_id}/undo';
+};
+
+export type UndoSetupChangeErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type UndoSetupChangeError = UndoSetupChangeErrors[keyof UndoSetupChangeErrors];
+
+export type UndoSetupChangeResponses = {
+  /**
+   * The change, undone.
+   */
+  200: SetupChange;
+};
+
+export type UndoSetupChangeResponse = UndoSetupChangeResponses[keyof UndoSetupChangeResponses];
 
 export type PreviewRoutineScheduleData = {
   body: RoutineSchedule;

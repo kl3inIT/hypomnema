@@ -178,7 +178,17 @@ func placeBackup(ctx context.Context, q *store.Queries, p *placement, task store
 		return nil, r, notFound(err, "profile version", r.versionID)
 	}
 
+	// A Run a Bot created falls back only to profiles on the Bot's workers list, read now (issue #169).
+	mayGive, err := runBotGives(ctx, q, task.RunID)
+	if err != nil {
+		return nil, r, err
+	}
+
 	for _, name := range splitNames(own.Fallbacks) {
+		if !mayGive(name) {
+			continue
+		}
+
 		v, err := q.CurrentProfileVersion(ctx, name)
 		if err != nil {
 			return nil, r, notFound(err, "profile", name)
@@ -202,6 +212,41 @@ func placeBackup(ctx context.Context, q *store.Queries, p *placement, task store
 	}
 
 	return nil, r, nil
+}
+
+// runBotGives says which profiles the Bot that created a Run may give work
+// to; every one for a Run no Bot created (the owner's), or whose Bot is gone.
+// A Run a coordinator created in a chat without its Bot recorded is that
+// chat's Bot's.
+func runBotGives(ctx context.Context, q *store.Queries, runID string) (func(string) bool, error) {
+	run, err := q.GetRun(ctx, runID)
+	if err != nil {
+		return nil, notFound(err, "run", runID)
+	}
+
+	every := func(string) bool { return true }
+
+	name := run.Bot.String
+
+	if !run.Bot.Valid && run.ChatID.Valid && run.CoordinatorTokenID.Valid {
+		chat, err := q.GetChat(ctx, run.ChatID.String)
+		if err != nil {
+			return nil, notFound(err, "chat", run.ChatID.String)
+		}
+
+		name = chat.Bot
+	}
+
+	if name == "" {
+		return every, nil
+	}
+
+	bot, found, err := botIfAny(ctx, q, name)
+	if err != nil || !found {
+		return every, err
+	}
+
+	return func(profile string) bool { return bot.MayGive(profile) == nil }, nil
 }
 
 // placeHandoff is where a backup takes over a Conversation's work: on its

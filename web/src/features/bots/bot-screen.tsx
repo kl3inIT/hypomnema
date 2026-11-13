@@ -22,6 +22,7 @@ import { BotRoutines } from "@/features/routines/bot-routines"
 import { PageHeader } from "@/features/shell/app-shell"
 import { SkillsField } from "@/features/skills/skills-field"
 
+import { BotAccess } from "./bot-access"
 import {
   draftOf,
   emptyDraft,
@@ -85,6 +86,7 @@ export function BotScreen({ name }: { name: string }) {
 
               <BotForm start={draftOf(b)} models={models.data ?? []} stored={b} />
               <Memory bot={b} />
+              <BotAccess bot={b} />
               <BotRoutines bot={b.name} />
               <Channels bot={b} />
               <Removal bot={b} />

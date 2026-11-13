@@ -254,3 +254,70 @@ func TestTheCoordinatorGetsOnlyWhatTheOwnerAllowedForChats(t *testing.T) {
 		assert.Equal(t, http.StatusUnauthorized, status, name)
 	}
 }
+
+// Scenario: a Bot with a list of Connections (issue #169). Its pi's token and
+// its Routine's script's token see and get only the accounts on its list,
+// among those the owner allowed for chats; the Bot coordinator, without a
+// list, gets every one allowed. Taken off the list, the next call is refused.
+func TestABotGetsOnlyTheAccountsOnItsList(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	_, _, err := w.svc.AddToken(ctx, "pi", bearertoken.Coordinator)
+	require.NoError(t, err)
+
+	for _, label := range []string{"work", "personal"} {
+		_, err := w.svc.SetConnectionChats(ctx, "notion", label, true)
+		require.NoError(t, err)
+	}
+
+	limited := orchestration.AllowList{Limited: true, Names: []string{"notion:work"}}
+	_, err = w.svc.PutBot(ctx, orchestration.Bot{Name: "vmap", Connections: limited})
+	require.NoError(t, err)
+
+	chat, err := w.svc.CreateChat(ctx, "vmap", "")
+	require.NoError(t, err)
+
+	vmap, err := w.svc.AddBotToken(ctx, "pi", chat.ID, "vmap")
+	require.NoError(t, err)
+
+	mine, err := w.svc.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+
+	coordinator, err := w.svc.AddBotToken(ctx, "pi", mine.ID, orchestration.DefaultBot)
+	require.NoError(t, err)
+
+	routine, err := w.svc.PutRoutine(ctx, orchestration.RoutineSpec{
+		Bot: "vmap", Name: "sync", Kind: orchestration.RoutineScript, Script: "sync.sh", ScriptText: "#!/bin/sh\n",
+		EveryMinutes: 60,
+	}, orchestration.RoutineAuthor{})
+	require.NoError(t, err)
+
+	run, err := w.svc.AddRoutineToken(ctx, "pi", routine.ID)
+	require.NoError(t, err)
+
+	for name, key := range map[string]string{"its pi": vmap, "its routine's script": run} {
+		status, labels := w.get(key, "notion")
+		require.Equal(t, http.StatusOK, status, name)
+		assert.Equal(t, []string{"work"}, labels, name)
+
+		status, _ = w.token(key, "personal")
+		assert.Equal(t, http.StatusForbidden, status, name)
+
+		status, token := w.token(key, "work")
+		require.Equal(t, http.StatusOK, status, name)
+		assert.Equal(t, "ya29.token-of-work", token, name)
+	}
+
+	status, labels := w.get(coordinator, "notion")
+	require.Equal(t, http.StatusOK, status)
+	assert.ElementsMatch(t, []string{"work", "personal"}, labels, "no list: every one allowed for chats")
+
+	_, err = w.svc.PutBot(ctx, orchestration.Bot{Name: "vmap", Connections: orchestration.AllowList{Limited: true}})
+	require.NoError(t, err)
+
+	status, _ = w.token(vmap, "work")
+	assert.Equal(t, http.StatusForbidden, status, "taken off the list, the next call is refused")
+}

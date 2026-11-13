@@ -223,6 +223,8 @@ const coordinator = {
   memory_limit: 2200,
   skills: [],
   skills_off: [],
+  connections: { limited: false, names: [] },
+  workers: { limited: false, names: [] },
   created_at: minutes(-12000),
   updated_at: minutes(-180),
 }

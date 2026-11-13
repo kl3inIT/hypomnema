@@ -18,7 +18,7 @@ export function Conversation({
 }: {
   view: ChatView
   local?: Local
-  // setups are the Routines the Bot set up from this chat.
+  // setups are the Routines the Bot set up from this chat and the Bots and profiles it changed there.
   setups?: Setup[]
   // bot names who answers, for a reply's heading.
   bot: string

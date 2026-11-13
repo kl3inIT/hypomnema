@@ -43,8 +43,10 @@ func SplitUse(use string) (integration, label string, ok bool) {
 
 // runUses checks the Connections a new Run asks for and returns them in a
 // fixed order. Each must exist; one a coordinator asks for must be switched
-// on for chats, so that it passes on only what it has.
-func runUses(ctx context.Context, q *store.Queries, asked []string, byCoordinator bool) ([]string, error) {
+// on for chats, and one a Bot asks for must be on its list (issue #169), so
+// that it passes on only what it has.
+func runUses(ctx context.Context, q *store.Queries, asked []string, byCoordinator bool, bot *Bot,
+) ([]string, error) {
 	if len(asked) > MaxRunUses {
 		return nil, fmt.Errorf("%w: a run uses at most %d accounts", ErrInvalid, MaxRunUses)
 	}
@@ -69,6 +71,11 @@ func runUses(ctx context.Context, q *store.Queries, asked []string, byCoordinato
 		if byCoordinator && row.Chats == 0 {
 			return nil, fmt.Errorf("%w: the coordinator may not use %s:%s, so it cannot give it to a run; the owner "+
 				"allows it for chats in Settings, Integrations", ErrInvalid, integration, label)
+		}
+
+		if bot != nil && !bot.Connections.Allows(Use(integration, label)) {
+			return nil, fmt.Errorf("%w: bot %s may not use %s:%s, so it cannot give it to a run; the owner allows it "+
+				"on the bot's page", ErrForbidden, bot.Name, integration, label)
 		}
 
 		out = append(out, Use(integration, label))

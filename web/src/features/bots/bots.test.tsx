@@ -12,7 +12,14 @@ import userEvent from "@testing-library/user-event"
 import { choose, options } from "@/test/choose"
 import { afterEach, beforeEach, expect, test, vi } from "vitest"
 
-import type { Bot, BotSettings, Model, Skill } from "@/api/generated/types.gen"
+import type {
+  Bot,
+  BotSettings,
+  Integration,
+  Model,
+  Profile,
+  Skill,
+} from "@/api/generated/types.gen"
 
 import { BotScreen, NewBotScreen } from "./bot-screen"
 import { BotsScreen } from "./bots-screen"
@@ -37,6 +44,8 @@ const bot = (name: string, m: Partial<Bot> = {}): Bot => ({
   memory_limit: 2200,
   skills: [],
   skills_off: [],
+  connections: { limited: false, names: [] },
+  workers: { limited: false, names: [] },
   created_at: new Date(Date.now() - 48 * 3_600_000).toISOString(),
   updated_at: new Date(Date.now() - 2 * 3_600_000).toISOString(),
   ...m,
@@ -67,7 +76,14 @@ const skill = (name: string, everyone = false): Skill => ({
 // answers as `remove` says, or takes the Bot away. It keeps what was put and what was removed.
 function server(
   start: Bot[],
-  opts: { remove?: (name: string) => Response | undefined; skills?: Skill[] } = {},
+  opts: {
+    remove?: (name: string) => Response | undefined
+    skills?: Skill[]
+    integrations?: Integration[]
+    profiles?: Profile[]
+    // hold keeps a PUT unanswered until it resolves.
+    hold?: Promise<void>
+  } = {},
 ) {
   let bots = start
   const put: { name: string; settings: BotSettings }[] = []
@@ -80,6 +96,9 @@ function server(
     if (request.method === "GET" && path === "/bots") return json({ data: bots })
     if (request.method === "GET" && path === "/models") return json({ data: models })
     if (request.method === "GET" && path === "/skills") return json({ data: opts.skills ?? [] })
+    if (request.method === "GET" && path === "/integrations")
+      return json({ data: opts.integrations ?? [] })
+    if (request.method === "GET" && path === "/profiles") return json({ data: opts.profiles ?? [] })
 
     const one = /^\/bots\/([^/]+)$/.exec(path)
     const found = one && bots.find((b) => b.name === one[1])
@@ -91,6 +110,7 @@ function server(
     if (request.method === "PUT" && one) {
       const settings = (await request.clone().json()) as BotSettings
       put.push({ name: one[1]!, settings })
+      await opts.hold
 
       const { provider: _provider, model: _model, effort: _effort, ...kept } = found ?? bot(one[1]!)
       const stored: Bot = { ...kept, ...settings, persona: settings.persona ?? "" }
@@ -420,4 +440,99 @@ test("a new Bot is made with a name, a model and a persona", async () => {
       },
     },
   ])
+})
+
+const google: Integration = {
+  id: "google",
+  name: "Google",
+  kind: "oauth",
+  services: ["gmail"],
+  connections: ["work", "home"].map((label) => ({
+    integration: "google",
+    label,
+    account: `${label}@example.com`,
+    services: ["gmail"],
+    sign_in_required: false,
+    chats: label === "work",
+    created_at: new Date(0).toISOString(),
+    updated_at: new Date(0).toISOString(),
+  })),
+}
+
+const reviewer = {
+  name: "reviewer",
+  description: "Reviews a pull request.",
+  version_id: "pfv_1",
+  version: 1,
+  runtime: "claude",
+  fallbacks: [],
+  skills: [],
+  skills_off: [],
+  source: "",
+  created_at: new Date(0).toISOString(),
+} as Profile
+
+// Scenario: the owner limits what a Bot may use (issue #169). Limiting starts with none; the Connections offered
+// are those switched on for chats; each switch saves at once with the Bot's stored model and persona, so nothing
+// else changes. The workers' card is the same, its profiles each a switch.
+test("a Bot's Connections and workers are limited by switches that save at once", async () => {
+  const { put } = server(
+    [bot("vmap", { provider: "gateway", model: "gpt-luna", persona: "You answer about VMAP." })],
+    { integrations: [google], profiles: [reviewer] },
+  )
+  open("/bots/vmap")
+  const user = userEvent.setup()
+
+  const connections = await screen.findByRole("region", { name: "Connections" })
+  expect(connections).toHaveTextContent("Every account switched on for chats")
+
+  await user.click(within(connections).getByRole("switch", { name: "Limit Connections" }))
+  expect(put.at(-1)).toEqual({
+    name: "vmap",
+    settings: {
+      provider: "gateway",
+      model: "gpt-luna",
+      persona: "You answer about VMAP.",
+      connections: { limited: true, names: [] },
+    },
+  })
+
+  expect(
+    await within(connections).findByText(/No account: every Connection is off/),
+  ).toBeInTheDocument()
+  expect(within(connections).queryByRole("switch", { name: "Connections: google:home" })).toBeNull()
+
+  await user.click(within(connections).getByRole("switch", { name: "Connections: google:work" }))
+  expect(put.at(-1)?.settings.connections).toEqual({ limited: true, names: ["google:work"] })
+
+  const workers = screen.getByRole("region", { name: "Workers" })
+  await user.click(within(workers).getByRole("switch", { name: "Limit workers" }))
+  expect(put.at(-1)?.settings).toEqual(
+    expect.objectContaining({ workers: { limited: true, names: [] } }),
+  )
+  expect(put.at(-1)?.settings.connections).toBeUndefined()
+
+  await user.click(await within(workers).findByRole("switch", { name: "Workers: reviewer" }))
+  expect(put.at(-1)?.settings.workers).toEqual({ limited: true, names: ["reviewer"] })
+})
+
+// Each save carries the Bot's whole settings: while the form saves a new persona, the switches wait, so that one
+// sending the persona as it was cannot land after it and put it back.
+test("a Bot's switches wait while its form saves", async () => {
+  let release = () => {}
+  const hold = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  server([bot("vmap", { persona: "You answer about VMAP." })], { integrations: [google], hold })
+  open("/bots/vmap")
+  const user = userEvent.setup()
+
+  const limit = await screen.findByRole("switch", { name: "Limit Connections" })
+  await user.clear(screen.getByLabelText("Persona"))
+  await user.type(screen.getByLabelText("Persona"), "You answer about maps.")
+  await user.click(screen.getByRole("button", { name: "Save" }))
+
+  expect(limit).toHaveAttribute("aria-disabled", "true")
+  release()
+  await vi.waitFor(() => expect(limit).not.toHaveAttribute("aria-disabled", "true"))
 })

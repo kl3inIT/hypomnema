@@ -181,6 +181,13 @@ func sourceDigest(source string) string {
 // source returns the current version. created reports a new version. A
 // non-empty name must equal the source's.
 func (s *Service) ApplyProfile(ctx context.Context, name, source string) (Profile, bool, error) {
+	return s.applyProfile(ctx, "", name, source)
+}
+
+// applyProfile is ApplyProfile; with a chat, a new version is the Bot
+// coordinator's from that chat and is recorded with what undoes it
+// (setupchanges.go).
+func (s *Service) applyProfile(ctx context.Context, chat, name, source string) (Profile, bool, error) {
 	var in profileSource
 	if err := decodeStrict(source, &in); err != nil {
 		return Profile{}, false, err
@@ -219,6 +226,10 @@ func (s *Service) ApplyProfile(ctx context.Context, name, source string) (Profil
 	)
 
 	err := s.write(ctx, func(q *store.Queries, now int64) error {
+		if err := changeFromChat(ctx, q, chat); err != nil {
+			return err
+		}
+
 		provider, err := checkModel(ctx, q, p.Runtime, p.Provider, p.Model, p.Effort)
 		if err != nil {
 			return fmt.Errorf("profile %s: %w", p.Name, err)
@@ -277,7 +288,14 @@ func (s *Service) ApplyProfile(ctx context.Context, name, source string) (Profil
 
 		out, created = profileFromRow(row), true
 
-		return nil
+		switch {
+		case chat == "":
+			return nil
+		case current.ID == "":
+			return s.recordChange(ctx, q, now, chat, changeProfile, p.Name, actionMade, nil, id)
+		default:
+			return s.recordChange(ctx, q, now, chat, changeProfile, p.Name, actionChanged, current.ID, id)
+		}
 	})
 	if err != nil {
 		return Profile{}, false, fmt.Errorf("applying a profile: %w", err)
