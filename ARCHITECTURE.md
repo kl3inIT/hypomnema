@@ -1808,8 +1808,8 @@ the internet, so that a machine created at a provider can install the node from 
 
 - Control plane: zm, user `dat`, `~/hypomnema-cp` (binary, `env`, SQLite in `data/`), since 2026-11-13 the systemd
   unit `hypomnema-cp.service` (a tmux session `hyp-cp` until then) updated from each release by
-  `hypomnema-update.timer` (v0.9.7 was the first), listening on `127.0.0.1:18990`. Tailscale runs without root (userspace networking, tmux `hyp-ts`, state in
-  `~/hypomnema-cp/tailscale`) and Tailscale Funnel publishes it to the internet as
+  `hypomnema-update.timer` (v0.9.7 was the first), listening on `127.0.0.1:18990`. Tailscale runs without root (userspace networking, as the systemd unit `hypomnema-tailscale.service` since
+  2026-11-13, a tmux session `hyp-ts` until then, state in `~/hypomnema-cp/tailscale`) and Tailscale Funnel publishes it to the internet as
   `https://hypomnema.taild3b6dc.ts.net`, which is `HYPOMNEMA_PUBLIC_URL` in `env`. The client API still refuses a
   call without a token. `tailscale funnel --https=443 off` makes it tailnet-only again, and then no machine can
   be created at a provider.
@@ -1851,8 +1851,8 @@ the internet, so that a machine created at a provider can install the node from 
   provider `model-gateway`.
 - The owner's laptop joined as `laptop` and is logged in with a coordinator token; the coordinator skill is
   installed.
-- Each machine joins the tailnet once, approved in the owner's Tailscale account. The control plane starts with the
-  machine; Tailscale does not yet: a reboot needs the tmux session `hyp-ts` started again.
+- Each machine joins the tailnet once, approved in the owner's Tailscale account. The control plane and Tailscale start with
+  the machine.
 
 ## Code
 

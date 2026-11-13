@@ -91,7 +91,7 @@ export function RoutinesScreen({
               </Select>
               <Button size="sm" onClick={() => setEditing("new")}>
                 <Plus />
-                New Routine
+                New
               </Button>
             </PageHeading>
             {routines.error ? (
