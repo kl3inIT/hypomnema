@@ -684,8 +684,12 @@ func TestTheOwnersMessageReachesTheCoordinatorAndItsAnswerComesBackAsACard(t *te
 	// The coordinator speaks again later, with nothing written live: a Run it follows ended.
 	_, err := w.orch.AddChatMessage(t.Context(), chat, orchestration.ChatCoordinator, "The pull request is open.")
 	require.NoError(t, err)
-	require.Eventually(t, func() bool { return len(w.lark.sent()) == 2 }, eventual, tick)
-	assert.Equal(t, ownerDM+": The pull request is open.", w.lark.sent()[1])
+	// With nothing written live the card is opened and then closed, so it is read once it is closed.
+	require.Eventually(t, func() bool {
+		return assert.ObjectsAreEqual([]string{
+			ownerDM + ": I gave it to a worker.", ownerDM + ": The pull request is open.",
+		}, w.lark.sent())
+	}, eventual, tick, "a second card, closed with the kept reply")
 
 	assert.Equal(t, []string{
 		"owner: fix the login page", "coordinator: I gave it to a worker.", "coordinator: The pull request is open.",
