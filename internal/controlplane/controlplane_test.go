@@ -1,12 +1,14 @@
 package controlplane_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -24,21 +26,15 @@ func TestServeIsReadyWithItsDatabase(t *testing.T) {
 	t.Parallel()
 
 	path := filepath.Join(t.TempDir(), "hypomnema.db")
-	addr := freeAddr(t)
 
 	cfg, err := controlplane.LoadConfig(func(name string) string {
-		return map[string]string{
-			"HYPOMNEMA_DATABASE_PATH": path,
-			"HYPOMNEMA_HTTP_ADDR":     addr,
-		}[name]
+		return map[string]string{"HYPOMNEMA_DATABASE_PATH": path}[name]
 	})
 	require.NoError(t, err)
 	require.NoError(t, controlplane.Migrate(t.Context(), cfg, io.Discard))
 
 	ctx, cancel := context.WithCancel(t.Context())
-	served := make(chan error, 1)
-
-	go func() { served <- controlplane.Serve(ctx, cfg, io.Discard) }()
+	addr, served := serve(t, ctx, cfg)
 
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+addr+platform.PathReady, nil)
@@ -64,7 +60,7 @@ func TestServeRefusesAnUnmigratedDatabase(t *testing.T) {
 	cfg, err := controlplane.LoadConfig(func(name string) string {
 		return map[string]string{
 			"HYPOMNEMA_DATABASE_PATH": filepath.Join(t.TempDir(), "hypomnema.db"),
-			"HYPOMNEMA_HTTP_ADDR":     freeAddr(t),
+			"HYPOMNEMA_HTTP_ADDR":     "127.0.0.1:0",
 		}[name]
 	})
 	require.NoError(t, err)
@@ -109,14 +105,61 @@ func TestLoadConfigReadsTheCommandForScriptRoutines(t *testing.T) {
 	}
 }
 
-func freeAddr(t *testing.T) string {
+// serve starts the control plane on a port of the system's choosing (HYPOMNEMA_HTTP_ADDR 127.0.0.1:0) and returns
+// the address it listens on, read from its "server started" log line, and the channel Serve's end is sent on. A
+// port picked first and closed again could be taken by another test before Serve listened on it, and the test
+// waited ten seconds on "connection refused" (issue #286); a Serve that ends early fails the test with its error.
+func serve(t *testing.T, ctx context.Context, cfg controlplane.Config) (string, <-chan error) {
 	t.Helper()
 
-	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
-	require.NoError(t, err)
+	cfg.HTTPAddr = "127.0.0.1:0"
+	log := &startedLog{started: make(chan string, 1)}
+	served := make(chan error, 1)
 
-	addr := ln.Addr().String()
-	require.NoError(t, ln.Close())
+	go func() { served <- controlplane.Serve(ctx, cfg, log) }()
 
-	return addr
+	select {
+	case addr := <-log.started:
+		return addr, served
+	case err := <-served:
+		require.FailNow(t, "the control plane ended before it listened", "%v", err)
+	case <-time.After(30 * time.Second):
+		require.FailNow(t, "the control plane did not start within 30 s")
+	}
+
+	return "", served
+}
+
+// startedLog reads the address of the control plane's "server started" line among its JSON log lines.
+type startedLog struct {
+	mu      sync.Mutex
+	partial []byte
+	started chan string
+}
+
+func (l *startedLog) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	l.partial = append(l.partial, p...)
+
+	for {
+		line, rest, ok := bytes.Cut(l.partial, []byte{'\n'})
+		if !ok {
+			return len(p), nil
+		}
+
+		l.partial = rest
+
+		var entry struct {
+			Event string `json:"event"`
+			Addr  string `json:"addr"`
+		}
+		if json.Unmarshal(line, &entry) == nil && entry.Event == "platform.server.started" {
+			select {
+			case l.started <- entry.Addr:
+			default:
+			}
+		}
+	}
 }
