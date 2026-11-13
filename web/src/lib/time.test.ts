@@ -1,6 +1,6 @@
 import { expect, test } from "vitest"
 
-import { since, span } from "./time"
+import { elapsed, since, span } from "./time"
 
 const now = Date.parse("2026-11-12T10:00:00Z")
 const before = (seconds: number) => new Date(now - seconds * 1000).toISOString()
@@ -24,4 +24,11 @@ test("span says how long something has lasted", () => {
   expect(span(before(40), now)).toBe("40s")
   expect(span(before(6 * 60), now)).toBe("6m")
   expect(span(before(2 * 3600 + 5 * 60), now)).toBe("2h 5m")
+})
+
+test("elapsed keeps the seconds while a duration is under an hour", () => {
+  expect(elapsed(before(34), now)).toBe("34s")
+  expect(elapsed(before(94), now)).toBe("1m 34s")
+  expect(elapsed(before(6 * 60 + 2), now)).toBe("6m 02s")
+  expect(elapsed(before(2 * 3600 + 5 * 60 + 9), now)).toBe("2h 5m")
 })

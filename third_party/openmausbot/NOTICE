@@ -9,6 +9,13 @@ What is adapted from it here: the egress gate for the shared browser
 and policy.ts and its electron/egress-addresses.mjs. Changed: written in Go in
 place of Node, and only the rules of a self-hosted server are kept.
 
+The web client's Team page (web/src/features/team/), from its team map:
+src/components/TeamMapPage.tsx, TeamCanvas.tsx and ComputerNode.tsx, and
+src/lib/team-map.ts, team-canvas.ts and team-canvas-computers.ts with their
+tests. Changed: the Bots and the machines in two columns with no departments,
+nothing dragged, a machine's live work in place of its screen, and the states
+and edges worked out from Hypomnema's records; each file names what changed.
+
 From OpenMausBot's own NOTICE, for that code:
 
 The egress gate for the bots' browser (server/browser/egress/) adapts T3 Code's

@@ -63,6 +63,12 @@ Each adapted file names its source.
   mascot: its bodies (shared/mascot-bodies.ts), its colours (src/lib/mascot.ts), its idle eyes
   (src/components/cursor-face-data.ts) and the way it is drawn (src/components/CursorAvatar.tsx, Avatar.tsx),
   Apache License 2.0. It is drawn still, and the body and colour come from the agent's name.
+- The Team page (`src/features/team`) is adapted from OpenMausBot's team map (https://github.com/milind-soni/OpenMausBot
+  at 1a4e4da9f, src/components/TeamMapPage.tsx, TeamCanvas.tsx, ComputerNode.tsx, src/lib/team-map.ts,
+  team-canvas.ts and team-canvas-computers.ts, and their tests), Apache License 2.0, Copyright 2026 Milind Soni and
+  OpenMausBot contributors: the pan, zoom and fit of one CSS transform, the column of Bots joined to the machines by
+  polylines, a Bot's status in its order, the list of who hands work to whom and its edges. Each file says what
+  was changed.
 - The YAML editor of an agent (`src/features/agents/yaml-editor.tsx`, `monaco-environment.ts`, `yaml.worker.js`)
   is adapted from Omnara (frontend/apps/web/src/components/agents/AgentConfigYamlEditor.tsx,
   monacoEnvironment.ts, yaml.worker.js, and src/styles/editor.ts), Apache License 2.0.
