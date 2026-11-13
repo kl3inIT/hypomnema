@@ -730,7 +730,7 @@ func (cn *conn) direct(ctx context.Context, ch orchestration.LarkChannel, m Mess
 		// instruction, as OpenClaw and MemoryOS fence a sender's name.
 		name := cn.nameOf(ctx, m.Sender)
 		text = fmt.Sprintf("[Lark message from %s, who is not the owner. Questions for approval go to the owner.]\n%s",
-			name, m.Text)
+			name, defuseLabels(m.Text))
 		title = "Lark: " + name
 	}
 
@@ -835,7 +835,7 @@ func (cn *conn) inGroup(ctx context.Context, ch orchestration.LarkChannel, m Mes
 
 	// Every message, the owner's too, opens with its sender's name, which the group's prompt says is the only
 	// label Hypomnema adds (MemoryOS, ChannelInboundService.asked).
-	return cn.deliver(ctx, m, chat, "["+cn.nameOf(ctx, m.Sender)+"]: "+text)
+	return cn.deliver(ctx, m, chat, "["+cn.nameOf(ctx, m.Sender)+"]: "+defuseLabels(text))
 }
 
 // addressed is a group message's text without the bot's own mentions, and
