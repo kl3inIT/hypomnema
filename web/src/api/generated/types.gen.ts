@@ -1191,6 +1191,14 @@ export type CreatedGatewayKey = {
 export type GatewayUsageCounts = {
   requests: number;
   /**
+   * What the priced requests cost at their vendor's API price, in micro-dollars; for a subscription, what the same tokens would cost at the API, not what the plan costs.
+   */
+  cost_micros: number;
+  /**
+   * The requests with tokens whose model the price book has no price for.
+   */
+  unpriced: number;
+  /**
    * The requests the provider refused, none answered, or whose answer ended early.
    */
   failed: number;
@@ -1272,6 +1280,18 @@ export type GatewayRequest = {
   cached_tokens: number;
   completion_tokens: number;
   reasoning_tokens: number;
+  /**
+   * The part of the tokens in written to the provider's cache.
+   */
+  cache_write_tokens: number;
+  /**
+   * The cost at the vendor's API price, in micro-dollars; absent when the model has no price.
+   */
+  cost_micros?: number;
+  /**
+   * The model the cost was priced as.
+   */
+  priced_model?: string;
   /**
    * The provider reported no usage; the counts are the sizes divided by four.
    */

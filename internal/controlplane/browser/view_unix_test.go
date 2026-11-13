@@ -402,3 +402,32 @@ func TestTabsListsEachTabWithItsAddressAndTitle(t *testing.T) {
 		{ID: OwnerTab, URL: "about:blank", Views: 1},
 	}, tabs)
 }
+
+// The tab fills the pane it is watched in, whoever drives, at least a desktop
+// wide (issue #193); a pane that has not changed, or is out of bounds, sets
+// nothing, and the tab nobody watches has agent-browser's size back.
+func TestATabFillsThePaneItIsWatchedIn(t *testing.T) {
+	r := newRig(t, Config{})
+
+	_, err := r.Call(t.Context(), "d-one", toolOpen, json.RawMessage(`{"url":"example.com"}`))
+	require.NoError(t, err)
+
+	r.stream(t, "d-one")
+	v, err := r.Watch(t.Context(), "d-one")
+	require.NoError(t, err)
+	assert.Equal(t, ControllerAgent, next(t, v).Controller)
+	r.runs(t)
+
+	do(t, v, `{"type":"resize","width":1600,"height":900}`)
+	do(t, v, `{"type":"resize","width":1600,"height":900}`)
+	do(t, v, `{"type":"resize","width":390,"height":700}`)
+	do(t, v, `{"type":"resize","width":0,"height":0}`)
+
+	v.Close(t.Context(), true)
+
+	sizes := containing(r.runs(t), "viewport session=d-one")
+	require.Len(t, sizes, 3, "the agent drives, and the same pane sets nothing again")
+	assert.Contains(t, sizes[0], `{"height":900,"width":1600}`)
+	assert.Contains(t, sizes[1], `{"height":2297,"width":1280}`, "a phone's pane gives a desktop's width")
+	assert.Contains(t, sizes[2], `{"height":720,"width":1280}`, "nobody watches")
+}

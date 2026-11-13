@@ -279,6 +279,9 @@ type GatewayUsage struct {
 	CreatedAt        int64
 	AccountID        string
 	Error            string
+	CacheWriteTokens int64
+	CostMicros       sql.NullInt64
+	PricedModel      string
 }
 
 type GitHost struct {

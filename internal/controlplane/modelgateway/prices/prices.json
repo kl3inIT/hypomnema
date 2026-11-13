@@ -1,0 +1,842 @@
+[
+  {
+    "vendor": "anthropic",
+    "model": "claude-fable-5",
+    "input": 10000000,
+    "output": 50000000,
+    "cache_read": 1000000,
+    "cache_write": 12500000
+  },
+  {
+    "vendor": "anthropic",
+    "model": "claude-fable-5-1",
+    "input": 10000000,
+    "output": 50000000,
+    "cache_read": 250000,
+    "cache_write": 12500000
+  },
+  {
+    "vendor": "anthropic",
+    "model": "claude-fable-5-2",
+    "input": 8000000,
+    "output": 40000000,
+    "cache_read": 200000,
+    "cache_write": 10000000
+  },
+  {
+    "vendor": "anthropic",
+    "model": "claude-haiku-4-5",
+    "input": 1000000,
+    "output": 5000000,
+    "cache_read": 100000,
+    "cache_write": 1250000
+  },
+  {
+    "vendor": "anthropic",
+    "model": "claude-haiku-4-5-20251001",
+    "input": 1000000,
+    "output": 5000000,
+    "cache_read": 100000,
+    "cache_write": 1250000
+  },
+  {
+    "vendor": "anthropic",
+    "model": "claude-haiku-5-5",
+    "input": 100000,
+    "output": 500000,
+    "cache_read": 10000,
+    "cache_write": 125000
+  },
+  {
+    "vendor": "anthropic",
+    "model": "claude-opus-4-5",
+    "input": 5000000,
+    "output": 25000000,
+    "cache_read": 500000,
+    "cache_write": 6250000
+  },
+  {
+    "vendor": "anthropic",
+    "model": "claude-opus-4-5-20251101",
+    "input": 5000000,
+    "output": 25000000,
+    "cache_read": 500000,
+    "cache_write": 6250000
+  },
+  {
+    "vendor": "anthropic",
+    "model": "claude-opus-4-6",
+    "input": 5000000,
+    "output": 25000000,
+    "cache_read": 500000,
+    "cache_write": 6250000
+  },
+  {
+    "vendor": "anthropic",
+    "model": "claude-opus-4-7",
+    "input": 5000000,
+    "output": 25000000,
+    "cache_read": 500000,
+    "cache_write": 6250000
+  },
+  {
+    "vendor": "anthropic",
+    "model": "claude-opus-4-8",
+    "input": 5000000,
+    "output": 25000000,
+    "cache_read": 500000,
+    "cache_write": 6250000
+  },
+  {
+    "vendor": "anthropic",
+    "model": "claude-opus-5",
+    "input": 5000000,
+    "output": 25000000,
+    "cache_read": 500000,
+    "cache_write": 6250000
+  },
+  {
+    "vendor": "anthropic",
+    "model": "claude-opus-5-5",
+    "input": 4000000,
+    "output": 20000000,
+    "cache_read": 200000,
+    "cache_write": 5000000
+  },
+  {
+    "vendor": "anthropic",
+    "model": "claude-sonnet-4-5",
+    "input": 3000000,
+    "output": 15000000,
+    "cache_read": 300000,
+    "cache_write": 3750000
+  },
+  {
+    "vendor": "anthropic",
+    "model": "claude-sonnet-4-5-20250929",
+    "input": 3000000,
+    "output": 15000000,
+    "cache_read": 300000,
+    "cache_write": 3750000
+  },
+  {
+    "vendor": "anthropic",
+    "model": "claude-sonnet-4-6",
+    "input": 3000000,
+    "output": 15000000,
+    "cache_read": 300000,
+    "cache_write": 3750000
+  },
+  {
+    "vendor": "anthropic",
+    "model": "claude-sonnet-5",
+    "input": 2000000,
+    "output": 10000000,
+    "cache_read": 200000,
+    "cache_write": 2500000
+  },
+  {
+    "vendor": "anthropic",
+    "model": "claude-sonnet-5-5",
+    "input": 2000000,
+    "output": 10000000,
+    "cache_read": 100000,
+    "cache_write": 2500000
+  },
+  {
+    "vendor": "google",
+    "model": "deep-research-max-preview-04-2026",
+    "input": 2000000,
+    "output": 12000000,
+    "cache_read": 200000,
+    "cache_write": null
+  },
+  {
+    "vendor": "google",
+    "model": "deep-research-preview-04-2026",
+    "input": 2000000,
+    "output": 12000000,
+    "cache_read": 200000,
+    "cache_write": null
+  },
+  {
+    "vendor": "google",
+    "model": "gemini-2.5-computer-use-preview-10-2025",
+    "input": 1250000,
+    "output": 10000000,
+    "cache_read": null,
+    "cache_write": null
+  },
+  {
+    "vendor": "google",
+    "model": "gemini-2.5-flash",
+    "input": 300000,
+    "output": 2500000,
+    "cache_read": 30000,
+    "cache_write": null
+  },
+  {
+    "vendor": "google",
+    "model": "gemini-2.5-flash-image",
+    "input": 300000,
+    "output": 30000000,
+    "cache_read": 75000,
+    "cache_write": null
+  },
+  {
+    "vendor": "google",
+    "model": "gemini-2.5-flash-lite",
+    "input": 100000,
+    "output": 400000,
+    "cache_read": 10000,
+    "cache_write": null
+  },
+  {
+    "vendor": "google",
+    "model": "gemini-2.5-flash-preview-tts",
+    "input": 500000,
+    "output": 10000000,
+    "cache_read": null,
+    "cache_write": null
+  },
+  {
+    "vendor": "google",
+    "model": "gemini-2.5-pro",
+    "input": 1250000,
+    "output": 10000000,
+    "cache_read": 125000,
+    "cache_write": null
+  },
+  {
+    "vendor": "google",
+    "model": "gemini-2.5-pro-preview-tts",
+    "input": 1000000,
+    "output": 20000000,
+    "cache_read": null,
+    "cache_write": null
+  },
+  {
+    "vendor": "google",
+    "model": "gemini-3-flash-preview",
+    "input": 500000,
+    "output": 3000000,
+    "cache_read": 50000,
+    "cache_write": null
+  },
+  {
+    "vendor": "google",
+    "model": "gemini-3-pro-image",
+    "input": 2000000,
+    "output": 120000000,
+    "cache_read": null,
+    "cache_write": null
+  },
+  {
+    "vendor": "google",
+    "model": "gemini-3.1-flash-image",
+    "input": 500000,
+    "output": 60000000,
+    "cache_read": null,
+    "cache_write": null
+  },
+  {
+    "vendor": "google",
+    "model": "gemini-3.1-flash-lite",
+    "input": 250000,
+    "output": 1500000,
+    "cache_read": 25000,
+    "cache_write": null
+  },
+  {
+    "vendor": "google",
+    "model": "gemini-3.1-flash-lite-image",
+    "input": 250000,
+    "output": 30000000,
+    "cache_read": null,
+    "cache_write": null
+  },
+  {
+    "vendor": "google",
+    "model": "gemini-3.1-flash-lite-preview",
+    "input": 250000,
+    "output": 1500000,
+    "cache_read": 25000,
+    "cache_write": null
+  },
+  {
+    "vendor": "google",
+    "model": "gemini-3.1-flash-live-preview",
+    "input": 750000,
+    "output": 4500000,
+    "cache_read": null,
+    "cache_write": null
+  },
+  {
+    "vendor": "google",
+    "model": "gemini-3.1-flash-tts-preview",
+    "input": 1000000,
+    "output": 20000000,
+    "cache_read": null,
+    "cache_write": null
+  },
+  {
+    "vendor": "google",
+    "model": "gemini-3.1-pro-preview",
+    "input": 2000000,
+    "output": 12000000,
+    "cache_read": 200000,
+    "cache_write": null
+  },
+  {
+    "vendor": "google",
+    "model": "gemini-3.1-pro-preview-customtools",
+    "input": 2000000,
+    "output": 12000000,
+    "cache_read": 200000,
+    "cache_write": null
+  },
+  {
+    "vendor": "google",
+    "model": "gemini-3.5-flash",
+    "input": 1500000,
+    "output": 9000000,
+    "cache_read": 150000,
+    "cache_write": null
+  },
+  {
+    "vendor": "google",
+    "model": "gemini-3.5-flash-lite",
+    "input": 300000,
+    "output": 2500000,
+    "cache_read": 30000,
+    "cache_write": null
+  },
+  {
+    "vendor": "google",
+    "model": "gemini-3.5-live-translate-preview",
+    "input": 3500000,
+    "output": 21000000,
+    "cache_read": null,
+    "cache_write": null
+  },
+  {
+    "vendor": "google",
+    "model": "gemini-3.6-flash",
+    "input": 750000,
+    "output": 3750000,
+    "cache_read": 75000,
+    "cache_write": null
+  },
+  {
+    "vendor": "google",
+    "model": "gemini-3.7-flash",
+    "input": 750000,
+    "output": 3750000,
+    "cache_read": 75000,
+    "cache_write": null
+  },
+  {
+    "vendor": "google",
+    "model": "gemini-3.8-flash",
+    "input": 750000,
+    "output": 3750000,
+    "cache_read": 75000,
+    "cache_write": null
+  },
+  {
+    "vendor": "google",
+    "model": "gemini-4-argon",
+    "input": 2000000,
+    "output": 10000000,
+    "cache_read": 100000,
+    "cache_write": null
+  },
+  {
+    "vendor": "google",
+    "model": "gemini-4-carbon",
+    "input": 2000000,
+    "output": 10000000,
+    "cache_read": 100000,
+    "cache_write": null
+  },
+  {
+    "vendor": "google",
+    "model": "gemini-4-hydrogen",
+    "input": 1500000,
+    "output": 7500000,
+    "cache_read": 75000,
+    "cache_write": null
+  },
+  {
+    "vendor": "google",
+    "model": "gemini-embedding-001",
+    "input": 150000,
+    "output": 0,
+    "cache_read": null,
+    "cache_write": null
+  },
+  {
+    "vendor": "google",
+    "model": "gemini-embedding-2",
+    "input": 200000,
+    "output": 0,
+    "cache_read": null,
+    "cache_write": null
+  },
+  {
+    "vendor": "google",
+    "model": "gemini-flash-latest",
+    "input": 750000,
+    "output": 3750000,
+    "cache_read": 75000,
+    "cache_write": null
+  },
+  {
+    "vendor": "google",
+    "model": "gemini-flash-lite-latest",
+    "input": 300000,
+    "output": 2500000,
+    "cache_read": 30000,
+    "cache_write": null
+  },
+  {
+    "vendor": "google",
+    "model": "gemini-pro-latest",
+    "input": 2000000,
+    "output": 12000000,
+    "cache_read": 200000,
+    "cache_write": null
+  },
+  {
+    "vendor": "google",
+    "model": "gemma-4-26b-a4b-it",
+    "input": 0,
+    "output": 0,
+    "cache_read": null,
+    "cache_write": null
+  },
+  {
+    "vendor": "google",
+    "model": "gemma-4-31b-it",
+    "input": 0,
+    "output": 0,
+    "cache_read": null,
+    "cache_write": null
+  },
+  {
+    "vendor": "google",
+    "model": "lyria-3-clip-preview",
+    "input": 0,
+    "output": 0,
+    "cache_read": null,
+    "cache_write": null
+  },
+  {
+    "vendor": "google",
+    "model": "lyria-3-pro-preview",
+    "input": 0,
+    "output": 0,
+    "cache_read": null,
+    "cache_write": null
+  },
+  {
+    "vendor": "openai",
+    "model": "chatgpt-image-latest",
+    "input": 5000000,
+    "output": 10000000,
+    "cache_read": 1250000,
+    "cache_write": null
+  },
+  {
+    "vendor": "openai",
+    "model": "gpt-3.5-turbo",
+    "input": 500000,
+    "output": 1500000,
+    "cache_read": 0,
+    "cache_write": null
+  },
+  {
+    "vendor": "openai",
+    "model": "gpt-4",
+    "input": 30000000,
+    "output": 60000000,
+    "cache_read": null,
+    "cache_write": null
+  },
+  {
+    "vendor": "openai",
+    "model": "gpt-4-turbo",
+    "input": 10000000,
+    "output": 30000000,
+    "cache_read": null,
+    "cache_write": null
+  },
+  {
+    "vendor": "openai",
+    "model": "gpt-4.1",
+    "input": 2000000,
+    "output": 8000000,
+    "cache_read": 500000,
+    "cache_write": null
+  },
+  {
+    "vendor": "openai",
+    "model": "gpt-4.1-mini",
+    "input": 400000,
+    "output": 1600000,
+    "cache_read": 100000,
+    "cache_write": null
+  },
+  {
+    "vendor": "openai",
+    "model": "gpt-4.1-nano",
+    "input": 100000,
+    "output": 400000,
+    "cache_read": 25000,
+    "cache_write": null
+  },
+  {
+    "vendor": "openai",
+    "model": "gpt-4o",
+    "input": 2500000,
+    "output": 10000000,
+    "cache_read": 1250000,
+    "cache_write": null
+  },
+  {
+    "vendor": "openai",
+    "model": "gpt-4o-2024-05-13",
+    "input": 5000000,
+    "output": 15000000,
+    "cache_read": null,
+    "cache_write": null
+  },
+  {
+    "vendor": "openai",
+    "model": "gpt-4o-2024-08-06",
+    "input": 2500000,
+    "output": 10000000,
+    "cache_read": 1250000,
+    "cache_write": null
+  },
+  {
+    "vendor": "openai",
+    "model": "gpt-4o-2024-11-20",
+    "input": 2500000,
+    "output": 10000000,
+    "cache_read": 1250000,
+    "cache_write": null
+  },
+  {
+    "vendor": "openai",
+    "model": "gpt-4o-mini",
+    "input": 150000,
+    "output": 600000,
+    "cache_read": 75000,
+    "cache_write": null
+  },
+  {
+    "vendor": "openai",
+    "model": "gpt-5",
+    "input": 1250000,
+    "output": 10000000,
+    "cache_read": 125000,
+    "cache_write": null
+  },
+  {
+    "vendor": "openai",
+    "model": "gpt-5-mini",
+    "input": 250000,
+    "output": 2000000,
+    "cache_read": 25000,
+    "cache_write": null
+  },
+  {
+    "vendor": "openai",
+    "model": "gpt-5-nano",
+    "input": 50000,
+    "output": 400000,
+    "cache_read": 5000,
+    "cache_write": null
+  },
+  {
+    "vendor": "openai",
+    "model": "gpt-5-pro",
+    "input": 15000000,
+    "output": 120000000,
+    "cache_read": null,
+    "cache_write": null
+  },
+  {
+    "vendor": "openai",
+    "model": "gpt-5.1",
+    "input": 1250000,
+    "output": 10000000,
+    "cache_read": 125000,
+    "cache_write": null
+  },
+  {
+    "vendor": "openai",
+    "model": "gpt-5.2",
+    "input": 1750000,
+    "output": 14000000,
+    "cache_read": 175000,
+    "cache_write": null
+  },
+  {
+    "vendor": "openai",
+    "model": "gpt-5.2-pro",
+    "input": 21000000,
+    "output": 168000000,
+    "cache_read": null,
+    "cache_write": null
+  },
+  {
+    "vendor": "openai",
+    "model": "gpt-5.3-codex",
+    "input": 1750000,
+    "output": 14000000,
+    "cache_read": 175000,
+    "cache_write": null
+  },
+  {
+    "vendor": "openai",
+    "model": "gpt-5.3-codex-spark",
+    "input": 1750000,
+    "output": 14000000,
+    "cache_read": 175000,
+    "cache_write": null
+  },
+  {
+    "vendor": "openai",
+    "model": "gpt-5.4",
+    "input": 2500000,
+    "output": 15000000,
+    "cache_read": 250000,
+    "cache_write": null
+  },
+  {
+    "vendor": "openai",
+    "model": "gpt-5.4-mini",
+    "input": 750000,
+    "output": 4500000,
+    "cache_read": 75000,
+    "cache_write": null
+  },
+  {
+    "vendor": "openai",
+    "model": "gpt-5.4-nano",
+    "input": 200000,
+    "output": 1250000,
+    "cache_read": 20000,
+    "cache_write": null
+  },
+  {
+    "vendor": "openai",
+    "model": "gpt-5.4-pro",
+    "input": 30000000,
+    "output": 180000000,
+    "cache_read": null,
+    "cache_write": null
+  },
+  {
+    "vendor": "openai",
+    "model": "gpt-5.5",
+    "input": 5000000,
+    "output": 30000000,
+    "cache_read": 500000,
+    "cache_write": null
+  },
+  {
+    "vendor": "openai",
+    "model": "gpt-5.5-pro",
+    "input": 30000000,
+    "output": 180000000,
+    "cache_read": null,
+    "cache_write": null
+  },
+  {
+    "vendor": "openai",
+    "model": "gpt-5.6",
+    "input": 4000000,
+    "output": 20000000,
+    "cache_read": 400000,
+    "cache_write": 5000000
+  },
+  {
+    "vendor": "openai",
+    "model": "gpt-5.6-luna",
+    "input": 200000,
+    "output": 1200000,
+    "cache_read": 20000,
+    "cache_write": 250000
+  },
+  {
+    "vendor": "openai",
+    "model": "gpt-5.6-sol",
+    "input": 4000000,
+    "output": 20000000,
+    "cache_read": 400000,
+    "cache_write": 5000000
+  },
+  {
+    "vendor": "openai",
+    "model": "gpt-5.6-terra",
+    "input": 2000000,
+    "output": 12000000,
+    "cache_read": 200000,
+    "cache_write": 2500000
+  },
+  {
+    "vendor": "openai",
+    "model": "gpt-6-astra",
+    "input": 10000000,
+    "output": 50000000,
+    "cache_read": 1000000,
+    "cache_write": 12500000
+  },
+  {
+    "vendor": "openai",
+    "model": "gpt-6-luna",
+    "input": 100000,
+    "output": 500000,
+    "cache_read": 10000,
+    "cache_write": 125000
+  },
+  {
+    "vendor": "openai",
+    "model": "gpt-6-sol",
+    "input": 2000000,
+    "output": 10000000,
+    "cache_read": 200000,
+    "cache_write": 2500000
+  },
+  {
+    "vendor": "openai",
+    "model": "gpt-6.1-sol",
+    "input": 2000000,
+    "output": 10000000,
+    "cache_read": 100000,
+    "cache_write": 2500000
+  },
+  {
+    "vendor": "openai",
+    "model": "gpt-6.1-terra",
+    "input": 1000000,
+    "output": 5000000,
+    "cache_read": 50000,
+    "cache_write": 1250000
+  },
+  {
+    "vendor": "openai",
+    "model": "gpt-daybreak-blue-latest",
+    "input": 4000000,
+    "output": 20000000,
+    "cache_read": 400000,
+    "cache_write": 5000000
+  },
+  {
+    "vendor": "openai",
+    "model": "gpt-daybreak-red-latest",
+    "input": 12500000,
+    "output": 75000000,
+    "cache_read": 1250000,
+    "cache_write": 15625000
+  },
+  {
+    "vendor": "openai",
+    "model": "gpt-image-1.5",
+    "input": 5000000,
+    "output": 10000000,
+    "cache_read": 1250000,
+    "cache_write": null
+  },
+  {
+    "vendor": "openai",
+    "model": "gpt-image-2",
+    "input": 5000000,
+    "output": 30000000,
+    "cache_read": 1250000,
+    "cache_write": null
+  },
+  {
+    "vendor": "openai",
+    "model": "gpt-realtime-2.1",
+    "input": 4000000,
+    "output": 24000000,
+    "cache_read": 400000,
+    "cache_write": null
+  },
+  {
+    "vendor": "openai",
+    "model": "o1",
+    "input": 15000000,
+    "output": 60000000,
+    "cache_read": 7500000,
+    "cache_write": null
+  },
+  {
+    "vendor": "openai",
+    "model": "o1-pro",
+    "input": 150000000,
+    "output": 600000000,
+    "cache_read": null,
+    "cache_write": null
+  },
+  {
+    "vendor": "openai",
+    "model": "o3",
+    "input": 2000000,
+    "output": 8000000,
+    "cache_read": 500000,
+    "cache_write": null
+  },
+  {
+    "vendor": "openai",
+    "model": "o3-mini",
+    "input": 1100000,
+    "output": 4400000,
+    "cache_read": 550000,
+    "cache_write": null
+  },
+  {
+    "vendor": "openai",
+    "model": "o3-pro",
+    "input": 20000000,
+    "output": 80000000,
+    "cache_read": null,
+    "cache_write": null
+  },
+  {
+    "vendor": "openai",
+    "model": "o4-mini",
+    "input": 1100000,
+    "output": 4400000,
+    "cache_read": 275000,
+    "cache_write": null
+  },
+  {
+    "vendor": "openai",
+    "model": "text-embedding-3-large",
+    "input": 130000,
+    "output": 0,
+    "cache_read": null,
+    "cache_write": null
+  },
+  {
+    "vendor": "openai",
+    "model": "text-embedding-3-small",
+    "input": 20000,
+    "output": 0,
+    "cache_read": null,
+    "cache_write": null
+  },
+  {
+    "vendor": "openai",
+    "model": "text-embedding-ada-002",
+    "input": 100000,
+    "output": 0,
+    "cache_read": null,
+    "cache_write": null
+  }
+]

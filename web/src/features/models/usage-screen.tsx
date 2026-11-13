@@ -44,7 +44,9 @@ import { modelName } from "@/lib/model-name"
 
 import {
   bars,
+  cost,
   duration,
+  money,
   outcome,
   periods,
   providerKind,
@@ -87,7 +89,7 @@ export function UsageScreen() {
     <SettingsPage
       wide
       title="Usage"
-      description="What the model gateway served: requests, tokens, and the requests that failed."
+      description="What the model gateway served: requests, tokens, what they would cost at the API, and the requests that failed."
       actions={
         <ToggleGroup
           aria-label="Period"
@@ -141,12 +143,15 @@ function Totals({ usage }: { usage: GatewayUsage }) {
   return (
     <dl
       aria-label="Totals"
-      className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border bg-border sm:grid-cols-3 lg:grid-cols-6"
+      className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border bg-border sm:grid-cols-4 lg:grid-cols-7"
     >
       {tiles(usage.totals).map((t) => (
-        <div key={t.label} className="flex flex-col gap-1 bg-card p-4">
+        <div
+          key={t.label}
+          className="flex flex-col gap-1 bg-card p-4 last:col-span-2 sm:last:col-span-1"
+        >
           <dt className="text-sm text-muted-foreground">{t.label}</dt>
-          <dd className="flex items-baseline gap-2">
+          <dd className="flex flex-wrap items-baseline gap-x-2">
             <span className="text-2xl font-semibold tabular-nums">{t.value}</span>
             {t.detail && <span className="text-xs text-muted-foreground">{t.detail}</span>}
           </dd>
@@ -303,6 +308,9 @@ function GroupTable({
               <span className="block text-end">Reasoning</span>
             </TableHead>
             <TableHead>
+              <span className="block text-end">API cost</span>
+            </TableHead>
+            <TableHead>
               <span className="block text-end">Share</span>
             </TableHead>
           </TableRow>
@@ -346,6 +354,9 @@ function GroupTable({
                 </span>
               </TableCell>
               <TableCell>
+                <span className="block text-end tabular-nums">{cost(g.counts)}</span>
+              </TableCell>
+              <TableCell>
                 <span className="block text-end text-muted-foreground tabular-nums">
                   {share(g.counts.prompt_tokens + g.counts.completion_tokens, total)}
                 </span>
@@ -354,7 +365,7 @@ function GroupTable({
           ))}
           {groups.length === 0 && (
             <TableRow>
-              <TableCell colSpan={8}>
+              <TableCell colSpan={9}>
                 <p className="py-6 text-center text-muted-foreground">{empty ?? "Nothing yet."}</p>
               </TableCell>
             </TableRow>
@@ -427,6 +438,9 @@ function Requests({ period }: { period: Period }) {
                 <span className="block text-end">Out</span>
               </TableHead>
               <TableHead>
+                <span className="block text-end">API cost</span>
+              </TableHead>
+              <TableHead>
                 <span className="block text-end">Took</span>
               </TableHead>
             </TableRow>
@@ -487,6 +501,11 @@ function Requests({ period }: { period: Period }) {
                     </span>
                   </TableCell>
                   <TableCell>
+                    <span className="block text-end text-muted-foreground tabular-nums">
+                      {r.cost_micros === undefined ? "—" : money(r.cost_micros)}
+                    </span>
+                  </TableCell>
+                  <TableCell>
                     <span className="block text-end whitespace-nowrap text-muted-foreground tabular-nums">
                       {duration(r.duration_ms)}
                     </span>
@@ -496,7 +515,7 @@ function Requests({ period }: { period: Period }) {
             })}
             {requests.data && rows.length === 0 && (
               <TableRow>
-                <TableCell colSpan={9}>
+                <TableCell colSpan={10}>
                   <p className="py-6 text-center text-muted-foreground">
                     {failedOnly
                       ? "No request failed in this period."
@@ -605,6 +624,20 @@ function RequestSheet({
                 <Detail label="From cache" value={request.cached_tokens.toLocaleString()} />
                 <Detail label="Tokens out" value={request.completion_tokens.toLocaleString()} />
                 <Detail label="Reasoning" value={request.reasoning_tokens.toLocaleString()} />
+                <Detail
+                  label="Written to cache"
+                  value={request.cache_write_tokens.toLocaleString()}
+                />
+                <Detail
+                  label="API cost"
+                  value={
+                    request.cost_micros === undefined
+                      ? request.prompt_tokens + request.completion_tokens === 0
+                        ? "None: no tokens were used"
+                        : "No price for this model"
+                      : `${money(request.cost_micros)} as ${request.priced_model ?? request.upstream_model}`
+                  }
+                />
               </dl>
               {request.estimated && (
                 <p className="text-sm text-muted-foreground">

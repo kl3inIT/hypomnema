@@ -2275,7 +2275,8 @@ paths:
         `/api/v1/browser/views/{ticket}` once, within a short time. There the client receives a frame as a
         binary JPEG message, which it answers with `{"type":"ack"}` before the next one comes, and JSON
         messages `viewport` (`width`, `height`), `control` (`controller`: `agent` or `you`) and `url`. It
-        sends `takeControl` and `releaseControl`, and, while it holds control, `mouse` (`action`: `move`,
+        sends `takeControl`, `releaseControl` and `resize` (`width`, `height`: the pane's size, which the tab
+        fills at least 1280 wide), and, while it holds control, `mouse` (`action`: `move`,
         `down`, `up`; `x`, `y`, `button`, `clickCount`, `modifiers`), `wheel` (`x`, `y`, `deltaX`, `deltaY`),
         `key` (`action`: `down`, `up`; `key`, `code`, `text`, `keyCode`, `modifiers`), `navigate` (`url`),
         `history` (`delta`) and `reload`. While the owner holds control every agent's browser call is refused
@@ -4122,9 +4123,20 @@ components:
           description: The key's value, answered this once; only its hash is kept.
     GatewayUsageCounts:
       type: object
-      required: [requests, failed, prompt_tokens, cached_tokens, completion_tokens, reasoning_tokens]
+      required: [requests, failed, prompt_tokens, cached_tokens, completion_tokens, reasoning_tokens, cost_micros,
+        unpriced]
       properties:
         requests: { type: integer, format: int64 }
+        cost_micros:
+          type: integer
+          format: int64
+          description: >-
+            What the priced requests cost at their vendor's API price, in micro-dollars; for a subscription, what
+            the same tokens would cost at the API, not what the plan costs.
+        unpriced:
+          type: integer
+          format: int64
+          description: The requests with tokens whose model the price book has no price for.
         failed:
           type: integer
           format: int64
@@ -4181,7 +4193,7 @@ components:
     GatewayRequest:
       type: object
       required: [id, created_at, key_id, key_name, model, provider, upstream_model, stream, attempts, outcome, status,
-        prompt_tokens, cached_tokens, completion_tokens, reasoning_tokens, estimated, duration_ms]
+        prompt_tokens, cached_tokens, completion_tokens, reasoning_tokens, cache_write_tokens, estimated, duration_ms]
       properties:
         id: { type: string }
         created_at: { type: string, format: date-time }
@@ -4213,6 +4225,17 @@ components:
         cached_tokens: { type: integer, format: int64 }
         completion_tokens: { type: integer, format: int64 }
         reasoning_tokens: { type: integer, format: int64 }
+        cache_write_tokens:
+          type: integer
+          format: int64
+          description: The part of the tokens in written to the provider's cache.
+        cost_micros:
+          type: integer
+          format: int64
+          description: The cost at the vendor's API price, in micro-dollars; absent when the model has no price.
+        priced_model:
+          type: string
+          description: The model the cost was priced as.
         estimated:
           type: boolean
           description: The provider reported no usage; the counts are the sizes divided by four.

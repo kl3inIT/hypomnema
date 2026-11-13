@@ -74,8 +74,8 @@ type Update struct {
 }
 
 // Action is one message of the page, in T3 Code's names: `ack`,
-// `takeControl`, `releaseControl`, `mouse`, `wheel`, `key`, `navigate`,
-// `history`, `reload`.
+// `takeControl`, `releaseControl`, `resize`, `mouse`, `wheel`, `key`,
+// `navigate`, `history`, `reload`.
 type Action struct {
 	Type string `json:"type"`
 	// Action is `move`, `down` or `up` for the mouse and `down` or `up` for a key.
@@ -95,6 +95,9 @@ type Action struct {
 	URL       string  `json:"url"`
 	// Delta is -1 for back and 1 for forward.
 	Delta int `json:"delta"`
+	// Width and Height are the pane's size in CSS pixels, for `resize`.
+	Width  float64 `json:"width"`
+	Height float64 `json:"height"`
 }
 
 // streamMessage is what a session's stream sends that a view uses.
@@ -374,6 +377,21 @@ func (v *View) Do(ctx context.Context, a Action) error {
 		}
 
 		return nil
+	case "resize":
+		// The tab fills the pane whoever drives (fill.go): its size is the page's
+		// shape, at least a desktop wide, which an agent's work does not depend on.
+		size, ok := fillPage(a.Width, a.Height)
+		if !ok {
+			return nil
+		}
+
+		// A size not set leaves the tab scaled into the pane, as before: the view goes on.
+		if err := v.e.resize(ctx, v.s, size); err != nil {
+			v.e.cfg.Logger.WarnContext(ctx, "a tab's size could not be set",
+				slog.String("event", "browser.resize_failed"), slog.String("tab", v.tab), slog.Any("err", err))
+		}
+
+		return nil
 	}
 
 	message, tool, arguments := input(a)
@@ -511,6 +529,7 @@ func (v *View) Close(ctx context.Context, clean bool) {
 		_ = v.conn.Close(websocket.StatusNormalClosure, "")
 
 		v.e.unviewed(v.s)
+		v.e.unwatched(ctx, v.s)
 
 		if reason := v.e.control.closed(clean, v.e.cfg.Clock.Now()); reason != "" {
 			v.e.released(ctx, reason)

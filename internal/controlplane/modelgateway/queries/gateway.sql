@@ -60,10 +60,10 @@ UPDATE gateway_keys SET revoked_at = @now WHERE id = @id AND revoked_at IS NULL;
 -- name: InsertGatewayUsage :exec
 INSERT INTO gateway_usage (id, key_id, model, provider, upstream_model, stream, attempts, outcome, status,
                            prompt_tokens, completion_tokens, cached_tokens, reasoning_tokens, estimated, duration_ms,
-                           account_id, error, created_at)
+                           account_id, error, cache_write_tokens, cost_micros, priced_model, created_at)
 VALUES (@id, @key_id, @model, @provider, @upstream_model, @stream, @attempts, @outcome, @status,
         @prompt_tokens, @completion_tokens, @cached_tokens, @reasoning_tokens, @estimated, @duration_ms,
-        @account_id, @error, @now);
+        @account_id, @error, @cache_write_tokens, @cost_micros, @priced_model, @now);
 
 -- name: ListGatewayUsage :many
 SELECT u.*, k.name AS key_name FROM gateway_usage u JOIN gateway_keys k ON k.id = u.key_id
@@ -78,7 +78,9 @@ SELECT CAST(COUNT(*) AS INTEGER) AS requests,
        CAST(COALESCE(SUM(prompt_tokens), 0) AS INTEGER) AS prompt_tokens,
        CAST(COALESCE(SUM(cached_tokens), 0) AS INTEGER) AS cached_tokens,
        CAST(COALESCE(SUM(completion_tokens), 0) AS INTEGER) AS completion_tokens,
-       CAST(COALESCE(SUM(reasoning_tokens), 0) AS INTEGER) AS reasoning_tokens
+       CAST(COALESCE(SUM(reasoning_tokens), 0) AS INTEGER) AS reasoning_tokens,
+       CAST(COALESCE(SUM(cost_micros), 0) AS INTEGER) AS cost_micros,
+       CAST(COALESCE(SUM(cost_micros IS NULL AND prompt_tokens + completion_tokens > 0), 0) AS INTEGER) AS unpriced
 FROM gateway_usage WHERE created_at >= @since;
 
 -- name: UsageBuckets :many
@@ -88,7 +90,9 @@ SELECT CAST((created_at - @origin) / @bucket_ms AS INTEGER) AS bucket,
        CAST(SUM(prompt_tokens) AS INTEGER) AS prompt_tokens,
        CAST(SUM(cached_tokens) AS INTEGER) AS cached_tokens,
        CAST(SUM(completion_tokens) AS INTEGER) AS completion_tokens,
-       CAST(SUM(reasoning_tokens) AS INTEGER) AS reasoning_tokens
+       CAST(SUM(reasoning_tokens) AS INTEGER) AS reasoning_tokens,
+       CAST(COALESCE(SUM(cost_micros), 0) AS INTEGER) AS cost_micros,
+       CAST(COALESCE(SUM(cost_micros IS NULL AND prompt_tokens + completion_tokens > 0), 0) AS INTEGER) AS unpriced
 FROM gateway_usage WHERE created_at >= @origin
 GROUP BY bucket ORDER BY bucket;
 
@@ -99,7 +103,9 @@ SELECT model AS name,
        CAST(SUM(prompt_tokens) AS INTEGER) AS prompt_tokens,
        CAST(SUM(cached_tokens) AS INTEGER) AS cached_tokens,
        CAST(SUM(completion_tokens) AS INTEGER) AS completion_tokens,
-       CAST(SUM(reasoning_tokens) AS INTEGER) AS reasoning_tokens
+       CAST(SUM(reasoning_tokens) AS INTEGER) AS reasoning_tokens,
+       CAST(COALESCE(SUM(cost_micros), 0) AS INTEGER) AS cost_micros,
+       CAST(COALESCE(SUM(cost_micros IS NULL AND prompt_tokens + completion_tokens > 0), 0) AS INTEGER) AS unpriced
 FROM gateway_usage WHERE created_at >= @since
 GROUP BY model ORDER BY SUM(prompt_tokens + completion_tokens) DESC, model;
 
@@ -110,7 +116,9 @@ SELECT u.key_id AS id, k.name AS name,
        CAST(SUM(u.prompt_tokens) AS INTEGER) AS prompt_tokens,
        CAST(SUM(u.cached_tokens) AS INTEGER) AS cached_tokens,
        CAST(SUM(u.completion_tokens) AS INTEGER) AS completion_tokens,
-       CAST(SUM(u.reasoning_tokens) AS INTEGER) AS reasoning_tokens
+       CAST(SUM(u.reasoning_tokens) AS INTEGER) AS reasoning_tokens,
+       CAST(COALESCE(SUM(u.cost_micros), 0) AS INTEGER) AS cost_micros,
+       CAST(COALESCE(SUM(u.cost_micros IS NULL AND u.prompt_tokens + u.completion_tokens > 0), 0) AS INTEGER) AS unpriced
 FROM gateway_usage u JOIN gateway_keys k ON k.id = u.key_id WHERE u.created_at >= @since
 GROUP BY u.key_id, k.name ORDER BY SUM(u.prompt_tokens + u.completion_tokens) DESC, k.name;
 
@@ -121,7 +129,9 @@ SELECT account_id AS id,
        CAST(SUM(prompt_tokens) AS INTEGER) AS prompt_tokens,
        CAST(SUM(cached_tokens) AS INTEGER) AS cached_tokens,
        CAST(SUM(completion_tokens) AS INTEGER) AS completion_tokens,
-       CAST(SUM(reasoning_tokens) AS INTEGER) AS reasoning_tokens
+       CAST(SUM(reasoning_tokens) AS INTEGER) AS reasoning_tokens,
+       CAST(COALESCE(SUM(cost_micros), 0) AS INTEGER) AS cost_micros,
+       CAST(COALESCE(SUM(cost_micros IS NULL AND prompt_tokens + completion_tokens > 0), 0) AS INTEGER) AS unpriced
 FROM gateway_usage WHERE created_at >= @since AND account_id != ''
 GROUP BY account_id ORDER BY SUM(prompt_tokens + completion_tokens) DESC, account_id;
 

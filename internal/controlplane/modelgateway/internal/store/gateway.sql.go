@@ -177,10 +177,10 @@ func (q *Queries) InsertGatewayModelTarget(ctx context.Context, arg InsertGatewa
 const insertGatewayUsage = `-- name: InsertGatewayUsage :exec
 INSERT INTO gateway_usage (id, key_id, model, provider, upstream_model, stream, attempts, outcome, status,
                            prompt_tokens, completion_tokens, cached_tokens, reasoning_tokens, estimated, duration_ms,
-                           account_id, error, created_at)
+                           account_id, error, cache_write_tokens, cost_micros, priced_model, created_at)
 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9,
         ?10, ?11, ?12, ?13, ?14, ?15,
-        ?16, ?17, ?18)
+        ?16, ?17, ?18, ?19, ?20, ?21)
 `
 
 type InsertGatewayUsageParams struct {
@@ -201,6 +201,9 @@ type InsertGatewayUsageParams struct {
 	DurationMs       int64
 	AccountID        string
 	Error            string
+	CacheWriteTokens int64
+	CostMicros       sql.NullInt64
+	PricedModel      string
 	Now              int64
 }
 
@@ -223,6 +226,9 @@ func (q *Queries) InsertGatewayUsage(ctx context.Context, arg InsertGatewayUsage
 		arg.DurationMs,
 		arg.AccountID,
 		arg.Error,
+		arg.CacheWriteTokens,
+		arg.CostMicros,
+		arg.PricedModel,
 		arg.Now,
 	)
 	return err
@@ -390,7 +396,7 @@ func (q *Queries) ListGatewayModels(ctx context.Context) ([]GatewayModel, error)
 }
 
 const listGatewayUsage = `-- name: ListGatewayUsage :many
-SELECT u.id, u.key_id, u.model, u.provider, u.upstream_model, u.stream, u.attempts, u.outcome, u.status, u.prompt_tokens, u.completion_tokens, u.cached_tokens, u.reasoning_tokens, u.estimated, u.duration_ms, u.created_at, u.account_id, u.error, k.name AS key_name FROM gateway_usage u JOIN gateway_keys k ON k.id = u.key_id
+SELECT u.id, u.key_id, u.model, u.provider, u.upstream_model, u.stream, u.attempts, u.outcome, u.status, u.prompt_tokens, u.completion_tokens, u.cached_tokens, u.reasoning_tokens, u.estimated, u.duration_ms, u.created_at, u.account_id, u.error, u.cache_write_tokens, u.cost_micros, u.priced_model, k.name AS key_name FROM gateway_usage u JOIN gateway_keys k ON k.id = u.key_id
 ORDER BY u.created_at DESC, u.id DESC LIMIT ?1
 `
 
@@ -413,6 +419,9 @@ type ListGatewayUsageRow struct {
 	CreatedAt        int64
 	AccountID        string
 	Error            string
+	CacheWriteTokens int64
+	CostMicros       sql.NullInt64
+	PricedModel      string
 	KeyName          string
 }
 
@@ -444,6 +453,9 @@ func (q *Queries) ListGatewayUsage(ctx context.Context, rowLimit int64) ([]ListG
 			&i.CreatedAt,
 			&i.AccountID,
 			&i.Error,
+			&i.CacheWriteTokens,
+			&i.CostMicros,
+			&i.PricedModel,
 			&i.KeyName,
 		); err != nil {
 			return nil, err
@@ -460,7 +472,7 @@ func (q *Queries) ListGatewayUsage(ctx context.Context, rowLimit int64) ([]ListG
 }
 
 const listUsageRequests = `-- name: ListUsageRequests :many
-SELECT u.id, u.key_id, u.model, u.provider, u.upstream_model, u.stream, u.attempts, u.outcome, u.status, u.prompt_tokens, u.completion_tokens, u.cached_tokens, u.reasoning_tokens, u.estimated, u.duration_ms, u.created_at, u.account_id, u.error, k.name AS key_name FROM gateway_usage u JOIN gateway_keys k ON k.id = u.key_id
+SELECT u.id, u.key_id, u.model, u.provider, u.upstream_model, u.stream, u.attempts, u.outcome, u.status, u.prompt_tokens, u.completion_tokens, u.cached_tokens, u.reasoning_tokens, u.estimated, u.duration_ms, u.created_at, u.account_id, u.error, u.cache_write_tokens, u.cost_micros, u.priced_model, k.name AS key_name FROM gateway_usage u JOIN gateway_keys k ON k.id = u.key_id
 WHERE u.created_at >= ?1
   AND (CAST(?2 AS INTEGER) = 0 OR u.outcome IN ('upstream_error', 'transport_error', 'truncated'))
 ORDER BY u.created_at DESC, u.id DESC LIMIT ?4 OFFSET ?3
@@ -492,6 +504,9 @@ type ListUsageRequestsRow struct {
 	CreatedAt        int64
 	AccountID        string
 	Error            string
+	CacheWriteTokens int64
+	CostMicros       sql.NullInt64
+	PricedModel      string
 	KeyName          string
 }
 
@@ -528,6 +543,9 @@ func (q *Queries) ListUsageRequests(ctx context.Context, arg ListUsageRequestsPa
 			&i.CreatedAt,
 			&i.AccountID,
 			&i.Error,
+			&i.CacheWriteTokens,
+			&i.CostMicros,
+			&i.PricedModel,
 			&i.KeyName,
 		); err != nil {
 			return nil, err
@@ -637,7 +655,9 @@ SELECT CAST((created_at - ?1) / ?2 AS INTEGER) AS bucket,
        CAST(SUM(prompt_tokens) AS INTEGER) AS prompt_tokens,
        CAST(SUM(cached_tokens) AS INTEGER) AS cached_tokens,
        CAST(SUM(completion_tokens) AS INTEGER) AS completion_tokens,
-       CAST(SUM(reasoning_tokens) AS INTEGER) AS reasoning_tokens
+       CAST(SUM(reasoning_tokens) AS INTEGER) AS reasoning_tokens,
+       CAST(COALESCE(SUM(cost_micros), 0) AS INTEGER) AS cost_micros,
+       CAST(COALESCE(SUM(cost_micros IS NULL AND prompt_tokens + completion_tokens > 0), 0) AS INTEGER) AS unpriced
 FROM gateway_usage WHERE created_at >= ?1
 GROUP BY bucket ORDER BY bucket
 `
@@ -655,6 +675,8 @@ type UsageBucketsRow struct {
 	CachedTokens     int64
 	CompletionTokens int64
 	ReasoningTokens  int64
+	CostMicros       int64
+	Unpriced         int64
 }
 
 func (q *Queries) UsageBuckets(ctx context.Context, arg UsageBucketsParams) ([]UsageBucketsRow, error) {
@@ -674,6 +696,8 @@ func (q *Queries) UsageBuckets(ctx context.Context, arg UsageBucketsParams) ([]U
 			&i.CachedTokens,
 			&i.CompletionTokens,
 			&i.ReasoningTokens,
+			&i.CostMicros,
+			&i.Unpriced,
 		); err != nil {
 			return nil, err
 		}
@@ -695,7 +719,9 @@ SELECT account_id AS id,
        CAST(SUM(prompt_tokens) AS INTEGER) AS prompt_tokens,
        CAST(SUM(cached_tokens) AS INTEGER) AS cached_tokens,
        CAST(SUM(completion_tokens) AS INTEGER) AS completion_tokens,
-       CAST(SUM(reasoning_tokens) AS INTEGER) AS reasoning_tokens
+       CAST(SUM(reasoning_tokens) AS INTEGER) AS reasoning_tokens,
+       CAST(COALESCE(SUM(cost_micros), 0) AS INTEGER) AS cost_micros,
+       CAST(COALESCE(SUM(cost_micros IS NULL AND prompt_tokens + completion_tokens > 0), 0) AS INTEGER) AS unpriced
 FROM gateway_usage WHERE created_at >= ?1 AND account_id != ''
 GROUP BY account_id ORDER BY SUM(prompt_tokens + completion_tokens) DESC, account_id
 `
@@ -708,6 +734,8 @@ type UsageByAccountRow struct {
 	CachedTokens     int64
 	CompletionTokens int64
 	ReasoningTokens  int64
+	CostMicros       int64
+	Unpriced         int64
 }
 
 func (q *Queries) UsageByAccount(ctx context.Context, since int64) ([]UsageByAccountRow, error) {
@@ -727,6 +755,8 @@ func (q *Queries) UsageByAccount(ctx context.Context, since int64) ([]UsageByAcc
 			&i.CachedTokens,
 			&i.CompletionTokens,
 			&i.ReasoningTokens,
+			&i.CostMicros,
+			&i.Unpriced,
 		); err != nil {
 			return nil, err
 		}
@@ -748,7 +778,9 @@ SELECT u.key_id AS id, k.name AS name,
        CAST(SUM(u.prompt_tokens) AS INTEGER) AS prompt_tokens,
        CAST(SUM(u.cached_tokens) AS INTEGER) AS cached_tokens,
        CAST(SUM(u.completion_tokens) AS INTEGER) AS completion_tokens,
-       CAST(SUM(u.reasoning_tokens) AS INTEGER) AS reasoning_tokens
+       CAST(SUM(u.reasoning_tokens) AS INTEGER) AS reasoning_tokens,
+       CAST(COALESCE(SUM(u.cost_micros), 0) AS INTEGER) AS cost_micros,
+       CAST(COALESCE(SUM(u.cost_micros IS NULL AND u.prompt_tokens + u.completion_tokens > 0), 0) AS INTEGER) AS unpriced
 FROM gateway_usage u JOIN gateway_keys k ON k.id = u.key_id WHERE u.created_at >= ?1
 GROUP BY u.key_id, k.name ORDER BY SUM(u.prompt_tokens + u.completion_tokens) DESC, k.name
 `
@@ -762,6 +794,8 @@ type UsageByKeyRow struct {
 	CachedTokens     int64
 	CompletionTokens int64
 	ReasoningTokens  int64
+	CostMicros       int64
+	Unpriced         int64
 }
 
 func (q *Queries) UsageByKey(ctx context.Context, since int64) ([]UsageByKeyRow, error) {
@@ -782,6 +816,8 @@ func (q *Queries) UsageByKey(ctx context.Context, since int64) ([]UsageByKeyRow,
 			&i.CachedTokens,
 			&i.CompletionTokens,
 			&i.ReasoningTokens,
+			&i.CostMicros,
+			&i.Unpriced,
 		); err != nil {
 			return nil, err
 		}
@@ -803,7 +839,9 @@ SELECT model AS name,
        CAST(SUM(prompt_tokens) AS INTEGER) AS prompt_tokens,
        CAST(SUM(cached_tokens) AS INTEGER) AS cached_tokens,
        CAST(SUM(completion_tokens) AS INTEGER) AS completion_tokens,
-       CAST(SUM(reasoning_tokens) AS INTEGER) AS reasoning_tokens
+       CAST(SUM(reasoning_tokens) AS INTEGER) AS reasoning_tokens,
+       CAST(COALESCE(SUM(cost_micros), 0) AS INTEGER) AS cost_micros,
+       CAST(COALESCE(SUM(cost_micros IS NULL AND prompt_tokens + completion_tokens > 0), 0) AS INTEGER) AS unpriced
 FROM gateway_usage WHERE created_at >= ?1
 GROUP BY model ORDER BY SUM(prompt_tokens + completion_tokens) DESC, model
 `
@@ -816,6 +854,8 @@ type UsageByModelRow struct {
 	CachedTokens     int64
 	CompletionTokens int64
 	ReasoningTokens  int64
+	CostMicros       int64
+	Unpriced         int64
 }
 
 func (q *Queries) UsageByModel(ctx context.Context, since int64) ([]UsageByModelRow, error) {
@@ -835,6 +875,8 @@ func (q *Queries) UsageByModel(ctx context.Context, since int64) ([]UsageByModel
 			&i.CachedTokens,
 			&i.CompletionTokens,
 			&i.ReasoningTokens,
+			&i.CostMicros,
+			&i.Unpriced,
 		); err != nil {
 			return nil, err
 		}
@@ -856,7 +898,9 @@ SELECT CAST(COUNT(*) AS INTEGER) AS requests,
        CAST(COALESCE(SUM(prompt_tokens), 0) AS INTEGER) AS prompt_tokens,
        CAST(COALESCE(SUM(cached_tokens), 0) AS INTEGER) AS cached_tokens,
        CAST(COALESCE(SUM(completion_tokens), 0) AS INTEGER) AS completion_tokens,
-       CAST(COALESCE(SUM(reasoning_tokens), 0) AS INTEGER) AS reasoning_tokens
+       CAST(COALESCE(SUM(reasoning_tokens), 0) AS INTEGER) AS reasoning_tokens,
+       CAST(COALESCE(SUM(cost_micros), 0) AS INTEGER) AS cost_micros,
+       CAST(COALESCE(SUM(cost_micros IS NULL AND prompt_tokens + completion_tokens > 0), 0) AS INTEGER) AS unpriced
 FROM gateway_usage WHERE created_at >= ?1
 `
 
@@ -867,6 +911,8 @@ type UsageTotalsRow struct {
 	CachedTokens     int64
 	CompletionTokens int64
 	ReasoningTokens  int64
+	CostMicros       int64
+	Unpriced         int64
 }
 
 // The Usage page (issue #199, step 4). A request failed when its outcome is upstream_error, transport_error or
@@ -881,6 +927,8 @@ func (q *Queries) UsageTotals(ctx context.Context, since int64) (UsageTotalsRow,
 		&i.CachedTokens,
 		&i.CompletionTokens,
 		&i.ReasoningTokens,
+		&i.CostMicros,
+		&i.Unpriced,
 	)
 	return i, err
 }
