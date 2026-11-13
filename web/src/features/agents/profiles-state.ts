@@ -110,8 +110,7 @@ export type Draft = {
   instruction: string
   // fallbacks names, in order, the agents that take this one's Tasks while it is out of quota (issue #171).
   fallbacks: string[]
-  // skills and skillsOff are the skills the agent adds and the ones for everyone it turns off (issue #21). The
-  // builder does not edit them yet; they are kept so that saving does not drop them.
+  // skills and skillsOff are the skills the agent adds and the ones for everyone it turns off (issue #21).
   skills: string[]
   skillsOff: string[]
 }
