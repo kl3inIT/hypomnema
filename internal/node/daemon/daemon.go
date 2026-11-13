@@ -17,6 +17,7 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -99,6 +100,9 @@ type Config struct {
 	Terminal *terminal.Manager
 	// InstallTool has a tool the control plane named on this machine; nil: the node installs none.
 	InstallTool func(ctx context.Context, tool nodeproto.Tool) error
+	// FindRuntimes finds the agent CLIs again once the tools installed changed, since the control plane has the
+	// node install some (issue #107); nil: Runtimes stay as found at start.
+	FindRuntimes func(ctx context.Context, tools []nodeproto.ToolState) []nodeproto.RuntimeInfo
 }
 
 // Daemon is one node's connection.
@@ -126,6 +130,11 @@ type Daemon struct {
 	tools *toolWatch
 	// starting holds the workers being started; Run waits for them before it returns.
 	starting sync.WaitGroup
+
+	// runtimes are the agent CLIs found last, said at hello; foundWith the tools they were found with.
+	runtimesMu sync.Mutex
+	runtimes   []nodeproto.RuntimeInfo
+	foundWith  []nodeproto.ToolState
 }
 
 // New returns a Daemon.
@@ -141,7 +150,7 @@ func New(cfg Config, db *statedb.DB, runner Runner, logger *slog.Logger) *Daemon
 	}
 
 	return &Daemon{
-		hosts: hosts, tools: tools,
+		hosts: hosts, tools: tools, runtimes: cfg.Runtimes,
 		cfg: cfg, db: db, runner: runner, logger: logger, http: &http.Client{Timeout: 30 * time.Second},
 		newID: platform.NewID, instance: platform.NewID("ins"),
 		ephemeral: map[string]nodeproto.Report{}, known: map[string]bool{},
@@ -257,7 +266,7 @@ func (d *Daemon) Hello(ctx context.Context) (string, error) {
 func (d *Daemon) hello(ctx context.Context, claims []nodeproto.Claim) (nodeproto.HelloResponse, error) {
 	body, err := json.Marshal(nodeproto.HelloRequest{
 		InstanceID: d.instance, DaemonVersion: d.cfg.Version, WorktreeRoot: d.cfg.WorktreeRoot,
-		Runtimes: d.cfg.Runtimes, System: d.cfg.System, Claims: claims, Terminal: d.cfg.Terminal != nil,
+		Runtimes: d.currentRuntimes(), System: d.cfg.System, Claims: claims, Terminal: d.cfg.Terminal != nil,
 	})
 	if err != nil {
 		return nodeproto.HelloResponse{}, fmt.Errorf("encoding hello: %w", err)
@@ -514,7 +523,9 @@ func (d *Daemon) heartbeat(ctx context.Context) nodeproto.Message {
 		hb.Stats = d.cfg.Stats(ctx)
 	}
 
-	if hb.Stats != nil || hb.Reaches != nil || hb.Tools != nil {
+	hb.Runtimes = d.changedRuntimes(ctx, hb.Tools)
+
+	if hb.Stats != nil || hb.Reaches != nil || hb.Tools != nil || hb.Runtimes != nil {
 		if msg, err := nodeproto.Encode(nodeproto.TypeHeartbeat, hb); err == nil {
 			return msg
 		}
@@ -659,4 +670,42 @@ func mustJSON(v any) json.RawMessage {
 	}
 
 	return raw
+}
+
+// currentRuntimes are the agent CLIs found last.
+func (d *Daemon) currentRuntimes() []nodeproto.RuntimeInfo {
+	d.runtimesMu.Lock()
+	defer d.runtimesMu.Unlock()
+
+	return slices.Clone(d.runtimes)
+}
+
+// changedRuntimes finds the agent CLIs again when the tools installed are not the ones they were last found with,
+// and returns them when they changed; nil otherwise (issue #107).
+func (d *Daemon) changedRuntimes(ctx context.Context, tools *[]nodeproto.ToolState) *[]nodeproto.RuntimeInfo {
+	if d.cfg.FindRuntimes == nil || tools == nil {
+		return nil
+	}
+
+	d.runtimesMu.Lock()
+	same := slices.Equal(d.foundWith, *tools)
+	d.runtimesMu.Unlock()
+
+	if same {
+		return nil
+	}
+
+	found := d.cfg.FindRuntimes(ctx, *tools)
+
+	d.runtimesMu.Lock()
+	defer d.runtimesMu.Unlock()
+
+	d.foundWith = slices.Clone(*tools)
+	if slices.Equal(found, d.runtimes) {
+		return nil
+	}
+
+	d.runtimes = found
+
+	return &found
 }

@@ -683,6 +683,52 @@ func TestANodeIsToldWhichToolsToHave(t *testing.T) {
 	assert.Equal(t, []orchestration.NodeTool{{Name: "gws", Version: "0.22.5"}}, nodes[0].Tools)
 }
 
+// A node is told to have the agent CLIs before the Integrations' tools, from the first release that installs
+// them; an older one is told only the tools it can install (issue #107).
+func TestOnlyANodeThatInstallsThemIsToldToHaveTheAgentCLIs(t *testing.T) {
+	t.Parallel()
+
+	omp := nodeproto.Tool{Name: "omp", Version: "18.18.6"}
+	gws := nodeproto.Tool{Name: "gws", Version: "0.22.5"}
+
+	s := New(nil, nil).
+		WithTools(func(context.Context, string, string) []nodeproto.Tool { return []nodeproto.Tool{gws} }).
+		WithRuntimeTools(func(string, string) []nodeproto.Tool { return []nodeproto.Tool{omp} })
+
+	for version, want := range map[string][]nodeproto.Tool{
+		"v0.9.15": {gws}, "v0.9.15-4-gabcdef0": {gws},
+		"v0.9.16": {omp, gws}, "v0.10.0": {omp, gws}, "v0.9.16-2-gabcdef0": {omp, gws},
+	} {
+		assert.Equal(t, want, s.toolsFor(t.Context(), "linux", "amd64", version), version)
+	}
+}
+
+// Scenario: a node installs the agent CLIs the control plane named, then says the runtimes it now has in a
+// heartbeat; the node's runtimes are those from then on (issue #107). A heartbeat that says none leaves them.
+func TestANodeSaysTheRuntimesItInstalled(t *testing.T) {
+	t.Parallel()
+
+	p := newPlane(t)
+
+	status, _ := p.hello(p.token)
+	require.Equal(t, http.StatusOK, status)
+
+	conn := p.connect()
+
+	runtimes := []nodeproto.RuntimeInfo{{Runtime: "omp", Path: "/home/n/tools/omp/18.18.6/omp", Version: "18.18.6"}}
+	p.send(conn, nodeproto.TypeHeartbeat, nodeproto.Heartbeat{Runtimes: &runtimes})
+	p.next(conn, nodeproto.TypeHeartbeatAck)
+
+	p.send(conn, nodeproto.TypeHeartbeat, nodeproto.Heartbeat{})
+	p.next(conn, nodeproto.TypeHeartbeatAck)
+
+	nodes, err := p.svc.ListNodes(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, []orchestration.RuntimeInfo{
+		{Runtime: "omp", Path: "/home/n/tools/omp/18.18.6/omp", Version: "18.18.6"},
+	}, nodes[0].Runtimes)
+}
+
 // Scenario: the owner gives a Run his work Google account. Its Task waits
 // while no node has Google's tool; once the node says it installed it, the
 // Task is offered, and the offer names the account and carries this

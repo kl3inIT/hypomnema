@@ -202,7 +202,7 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 		return fmt.Errorf("finding the node binary: %w", err)
 	}
 
-	runtimes := DetectRuntimes(ctx)
+	runtimes := FindRuntimes(ctx, home, pinnedRuntimes())
 
 	claudePath, codexPath := "", ""
 	paths := map[string]string{}
@@ -273,7 +273,19 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 		Stats:       func(ctx context.Context) *nodeproto.SystemStats { return MeasureSystem(ctx, cfg.WorktreeRoot) },
 		Reach:       ReachHost,
 		InstallTool: agenttool.ToolInstaller{Home: home}.Install,
-		Terminal:    terminals,
+		FindRuntimes: func(ctx context.Context, tools []nodeproto.ToolState) []nodeproto.RuntimeInfo {
+			found := FindRuntimes(ctx, home, tools)
+
+			paths := map[string]string{}
+			for _, r := range found {
+				paths[r.Runtime] = r.Path
+			}
+
+			acpRunner.SetPaths(paths)
+
+			return found
+		},
+		Terminal: terminals,
 	}, db, all, logger)
 
 	transcripts.Send = d.SendItems
@@ -345,12 +357,24 @@ func LoadConfig(home string) (Config, error) {
 	return cfg, nil
 }
 
-// DetectRuntimes finds the known CLIs on PATH and reads their versions.
-func DetectRuntimes(ctx context.Context) []nodeproto.RuntimeInfo {
+// FindRuntimes finds the agent CLIs and reads their versions: one the control plane had the node install, under home's tools, else one on
+// the PATH (issue #107), so a node with its own copy keeps it until the installed one is there.
+func FindRuntimes(ctx context.Context, home string, installed []nodeproto.ToolState) []nodeproto.RuntimeInfo {
 	out := []nodeproto.RuntimeInfo{}
 
 	for _, name := range knownRuntimes {
 		path, err := exec.LookPath(name)
+
+		for _, t := range installed {
+			if t.Name != name || t.Version == "" || t.Error != "" || home == "" {
+				continue
+			}
+
+			if info, statErr := os.Stat(agenttool.ToolPath(home, name, t.Version)); statErr == nil && info.Mode().IsRegular() {
+				path, err = agenttool.ToolPath(home, name, t.Version), nil
+			}
+		}
+
 		if err != nil {
 			continue
 		}
@@ -393,7 +417,7 @@ func Check(ctx context.Context, home string, stdout io.Writer) error {
 	}
 	defer db.Close() //nolint:errcheck // Closing at exit; nothing is left to report it to.
 
-	runtimes := DetectRuntimes(ctx)
+	runtimes := FindRuntimes(ctx, home, pinnedRuntimes())
 
 	d := daemon.New(daemon.Config{
 		URL: cfg.URL, Token: cfg.Token, WorktreeRoot: cfg.WorktreeRoot, Version: platform.Version, Runtimes: runtimes,
@@ -423,3 +447,14 @@ func Check(ctx context.Context, home string, stdout io.Writer) error {
 }
 
 func runtimeIsUnix() bool { return os.PathSeparator == '/' }
+
+// pinnedRuntimes are the agent CLIs at the versions this release pins, as the tools the node may have installed
+// already: at start the node finds them before the control plane names them again.
+func pinnedRuntimes() []nodeproto.ToolState {
+	out := make([]nodeproto.ToolState, 0, len(agenttool.Runtimes()))
+	for _, d := range agenttool.Runtimes() {
+		out = append(out, nodeproto.ToolState{Name: d.Name, Version: d.Version})
+	}
+
+	return out
+}

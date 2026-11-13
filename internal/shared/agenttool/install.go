@@ -35,8 +35,9 @@ import (
 // <home>/tools/<name>/<version>/<name>.
 
 const (
-	// maxToolDownloadBytes bounds a release file; gws' is 7 MB.
-	maxToolDownloadBytes = 256 << 20
+	// maxToolDownloadBytes bounds a release file; gws' is 7 MB, omp's binary
+	// 286 MB (issue #107).
+	maxToolDownloadBytes = 512 << 20
 	// maxToolBinaryBytes bounds the command unpacked from it; gws is 18 MB.
 	// A directory unpacked from a .zip is bounded by it too, all its files
 	// together (the AWS CLI's are 249 MB), and by maxToolFiles (8735).
@@ -94,6 +95,19 @@ func (t ToolInstaller) Install(ctx context.Context, tool nodeproto.Tool) error {
 		return err
 	}
 	defer os.Remove(archive) //nolint:errcheck // A leftover download is replaced by the next try.
+
+	// A release file that is no archive is the command itself (omp's binaries, issue #107).
+	if !isTarGz(tool.URL) {
+		if err := os.Chmod(archive, 0o700); err != nil { //nolint:gosec // A command, run by its owner.
+			return fmt.Errorf("installing tool %s %s: %w", tool.Name, tool.Version, err)
+		}
+
+		if err := os.Rename(archive, target); err != nil {
+			return fmt.Errorf("installing tool %s %s: %w", tool.Name, tool.Version, err)
+		}
+
+		return nil
+	}
 
 	// Unpacked beside its place and renamed into it, so a crash never leaves half a command there.
 	tmp := target + ".tmp"
@@ -233,6 +247,10 @@ func unpackTool(archive, binary, target string) error {
 }
 
 func isZip(url string) bool { return strings.HasSuffix(url, ".zip") }
+
+func isTarGz(url string) bool {
+	return strings.HasSuffix(url, ".tar.gz") || strings.HasSuffix(url, ".tgz")
+}
 
 // installDirectory installs a tool that is a directory: the release file is
 // fetched beside the version's directory, the directory of the command in it

@@ -24,6 +24,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
+	shippedrelease "github.com/kl3inIT/hypomnema/internal/shared/release"
 )
 
 const writeTimeout = 10 * time.Second
@@ -48,6 +49,8 @@ type Server struct {
 	// tools names the tools a node of a system should have; nil when the
 	// control plane wired none.
 	tools func(ctx context.Context, os, arch string) []nodeproto.Tool
+	// runtimeTools are the agent CLIs a node of a system is told to have (issue #107).
+	runtimeTools func(os, arch string) []nodeproto.Tool
 
 	// releaseURL is where a node finds its releases, sent at hello.
 	releaseURL string
@@ -80,13 +83,31 @@ func (s *Server) WithTools(tools func(ctx context.Context, os, arch string) []no
 	return s
 }
 
-// toolsFor are the tools a node of this system is told to have.
-func (s *Server) toolsFor(ctx context.Context, os, arch string) []nodeproto.Tool {
-	if s.tools == nil {
-		return nil
+// WithRuntimeTools sets which agent CLIs a node is told to have.
+func (s *Server) WithRuntimeTools(tools func(os, arch string) []nodeproto.Tool) *Server {
+	s.runtimeTools = tools
+
+	return s
+}
+
+// runtimeToolsSince is the first node release that installs the agent CLIs (issue #107): one before it cannot
+// install a release file that is a bare binary, nor one of omp's size, and would fetch it again every five minutes.
+const runtimeToolsSince = "v0.9.16"
+
+// toolsFor are the tools a node of this system and this version is told to have: the agent CLIs when it can
+// install them, then the Integrations' tools.
+func (s *Server) toolsFor(ctx context.Context, os, arch, version string) []nodeproto.Tool {
+	var out []nodeproto.Tool
+
+	if s.runtimeTools != nil && !shippedrelease.Newer(runtimeToolsSince, version) {
+		out = append(out, s.runtimeTools(os, arch)...)
 	}
 
-	return s.tools(ctx, os, arch)
+	if s.tools != nil {
+		out = append(out, s.tools(ctx, os, arch)...)
+	}
+
+	return out
 }
 
 // WithAgentKeys sets where an offer's key to the agent API comes from.
@@ -231,7 +252,7 @@ func (s *Server) hello(w http.ResponseWriter, r *http.Request) {
 		NodeID: n.ID, Dispositions: make([]nodeproto.Disposition, 0, len(dispositions)),
 		HeartbeatAfterMs: nodeproto.HeartbeatEvery.Milliseconds(),
 		GitHosts:         s.gitHosts(r.Context()),
-		Tools:            s.toolsFor(r.Context(), req.System.OS, req.System.Arch),
+		Tools:            s.toolsFor(r.Context(), req.System.OS, req.System.Arch, req.DaemonVersion),
 		ReleaseURL:       s.releaseURL,
 	}
 	for _, d := range dispositions {
@@ -273,7 +294,9 @@ func (s *Server) socket(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	sess := &session{
-		srv: s, conn: conn, nodeID: n.ID, tokenID: tokenID, os: n.System.OS, arch: n.System.Arch, cancel: cancel,
+		srv: s, conn: conn, nodeID: n.ID, tokenID: tokenID,
+		os: n.System.OS, arch: n.System.Arch, version: n.System.DaemonVersion,
+		cancel:  cancel,
 		out:     make(chan nodeproto.Message, 64),
 		offered: map[string]bool{}, stopped: map[string]bool{}, answered: map[string]bool{},
 	}
@@ -321,10 +344,10 @@ type session struct {
 	nodeID string
 	// tokenID is the token the node connected with; a heartbeat is refused once it is revoked.
 	tokenID string
-	// os and arch are the node's system, for the tools it is told to have.
-	os, arch string
-	cancel   context.CancelFunc
-	out      chan nodeproto.Message
+	// os, arch and version are the node's system and release, for the tools it is told to have.
+	os, arch, version string
+	cancel            context.CancelFunc
+	out               chan nodeproto.Message
 
 	// What this connection already sent; a new connection sends all again.
 	offered  map[string]bool
@@ -558,6 +581,15 @@ func (c *session) stats(ctx context.Context, payload json.RawMessage) {
 		err = c.srv.svc.NodeReaches(ctx, c.nodeID, *hb.Reaches)
 	}
 
+	if err == nil && hb.Runtimes != nil {
+		runtimes := make([]orchestration.RuntimeInfo, 0, len(*hb.Runtimes))
+		for _, rt := range *hb.Runtimes {
+			runtimes = append(runtimes, orchestration.RuntimeInfo{Runtime: rt.Runtime, Path: rt.Path, Version: rt.Version})
+		}
+
+		err = c.srv.svc.NodeRuntimes(ctx, c.nodeID, runtimes)
+	}
+
 	if err == nil && hb.Tools != nil {
 		tools := make([]orchestration.NodeTool, 0, len(*hb.Tools))
 		for _, t := range *hb.Tools {
@@ -595,7 +627,7 @@ func (c *session) handle(ctx context.Context, msg nodeproto.Message) error {
 
 		return c.send(ctx, nodeproto.TypeHeartbeatAck, nodeproto.HeartbeatAck{
 			HeartbeatAfterMs: nodeproto.HeartbeatEvery.Milliseconds(), GitHosts: c.srv.gitHosts(ctx),
-			Tools: c.srv.toolsFor(ctx, c.os, c.arch),
+			Tools: c.srv.toolsFor(ctx, c.os, c.arch, c.version),
 		})
 	case nodeproto.TypeReport:
 		var r nodeproto.Report
