@@ -19,7 +19,9 @@ owner's own work that is not code, such as reading mail, looking something up or
   ([research](research/2026-11-10-git-hosts-and-personal-work.md)).
 - Repositories are on GitHub today. Another git host is meant to be one adapter, found from the repository's URL,
   as Orca, t3code and Omnigent have one a host; nothing else should know the host.
-- One shared memory (MemoryOS) and one personal OS (Northstar), both over MCP; one vault for every secret.
+- Agents and Bots keep their memory in the control plane, each its own and one about the owner that all read
+  ([research](research/2026-11-13-agent-memory.md); owner, 2026-11-13: MemoryOS until then); one personal OS
+  (Northstar) over MCP; one vault for every secret.
 
 ## Target architecture
 
