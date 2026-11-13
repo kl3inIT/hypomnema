@@ -12,6 +12,7 @@ import {
   Server,
   Settings,
   SquarePen,
+  UsersRound,
 } from "lucide-react"
 import type { ReactNode } from "react"
 
@@ -33,7 +34,7 @@ import { usePending } from "@/features/approvals/use-approvals"
 
 // The app's frame, as t3code's (MIT, Copyright (c) 2026 T3 Tools Inc., https://github.com/pingdotgg/t3code;
 // components/ui/sidebar.tsx, sidebar/SidebarThreadRow.tsx): a full-height sidebar with the places (a new chat, the
-// board with what waits for the owner, the Runs, the Bots and their Routines, the agents, the machines) and the chats, and a quiet 52px header over each page. On a phone
+// Team with what waits for the owner, the board, the Runs, the Bots and their Routines, the agents, the machines) and the chats, and a quiet 52px header over each page. On a phone
 // the sidebar hides; the header's menu leads to the start page, which lists the same places.
 
 // LiveUpdates keeps every page current from the event stream, from the Tasks' cursor.
@@ -58,11 +59,11 @@ export function Places() {
         New chat
       </Link>
       <Link
-        to="/board"
+        to="/team"
         className={cn(placeClass, "[&.active]:bg-sidebar-row-active [&.active]:text-foreground")}
       >
-        <KanbanSquare className="size-4" />
-        Board
+        <UsersRound className="size-4" />
+        Team
         {waiting > 0 && (
           <span
             className="ms-auto inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-needs-you/18 px-1.5 text-2xs font-semibold text-needs-you"
@@ -71,6 +72,13 @@ export function Places() {
             {waiting}
           </span>
         )}
+      </Link>
+      <Link
+        to="/board"
+        className={cn(placeClass, "[&.active]:bg-sidebar-row-active [&.active]:text-foreground")}
+      >
+        <KanbanSquare className="size-4" />
+        Board
       </Link>
       <Link
         to="/runs"

@@ -1653,6 +1653,27 @@ Node (`internal/node`):
   the last kept message when the server ends it. pi's thoughts and tools between replies form one line that opens,
   with each command and its output; replies render as markdown with streamdown and shiki, loaded apart from the
   screen. Enter sends unless an input method is composing; Stop asks pi to end its turn.
+- The Team page (issue #262, `web/src/features/team`; [design](https://github.com/kl3inIT/hypomnema/issues/262)),
+  adapted from OpenMausBot's team map (Apache 2.0): `/team`, first in the sidebar after New chat, carries the
+  count of what needs the owner. A canvas draws the Bots in a column and every machine in a column beside it,
+  panned by dragging or the wheel and zoomed with Ctrl+wheel or − / % / +, `0` or Fit fitting it, never past 100%
+  (one CSS transform, no library).
+  - A Bot's card: its avatar, name and model with its maker's mark, and its status in words, chosen in
+    OpenMausBot's order: Waiting for you (a pending Approval in one of its chats, or a Task of one of its Runs in
+    Needs you), No signal (its newest chat has no pi to answer), Working (a chat working, or a Dispatch of its
+    Runs live); idle says nothing. A line under the status says why. The card opens the chat that waits, else the
+    one that works, else the newest, else a new chat with that Bot (`/?bot=`).
+  - A machine's card: its state, "n of max" Dispatches, and a line a live Dispatch (starting, running or
+    stopping) with the runtime's mark, the Task's first line and what its worker does now, or how long it has
+    waited for an answer; an idle machine shows "–". A line opens the Task's panel over the map (`?task=`), and
+    every other card fades.
+  - A dashed link flows from a Bot to each machine where a Dispatch of one of its Runs (`Run.bot`, or the Bot of
+    `Run.chat_id`) is live; it stands still under `prefers-reduced-motion`.
+  - Under the map, "Who hands work to whom", up to twelve rows: the open questions to the owner first, then one
+    row a Bot and agent pair, Running (with how long), Queued, or Done within the last 24 hours, with the newest
+    Run's objective. A row opens the Run's chat, or the Task when the Run has no chat.
+  - Live: the Tasks, Runs and questions by the event stream; the chats every 3 s and the machines every 5 s while
+    the page is visible; the pending Approvals every 3 s. Board and Runs stay until the chat shows the work.
 - The board and the Runs (issue #41 PR 5; [research](docs/research/2026-11-09-board-and-questions-ui.md)):
   - `/board`: the Tasks in flight in three columns, Needs you, Working and Done (the last 24 h), after Orca's agent
     kanban (MIT). Needs you holds an open question to the owner, a failure in an open Run, a stop for a decision

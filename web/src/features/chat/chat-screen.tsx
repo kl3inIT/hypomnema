@@ -31,20 +31,20 @@ import { useStartChat } from "./start-chat"
 // header's menu opens the start screen, which lists the places and the chats. Without a chat open, the start
 // screen's composer starts one (chat/DraftHeroHeadline.tsx). A chat talks with one Bot (issue #169): the start
 // screen offers the Bots when there are several, and an open chat's header names its Bot.
-export function ChatScreen({ chatId }: { chatId?: string }) {
+export function ChatScreen({ chatId, bot }: { chatId?: string; bot?: string }) {
   return (
     <>
       <AppSidebar currentChat={chatId} />
-      {chatId ? <OpenChat key={chatId} chatId={chatId} /> : <NewChat />}
+      {chatId ? <OpenChat key={chatId} chatId={chatId} /> : <NewChat initialBot={bot} />}
     </>
   )
 }
 
-function NewChat() {
+function NewChat({ initialBot }: { initialBot?: string }) {
   const navigate = useNavigate()
   // The Bot the new chat talks with. With one Bot there is nothing to choose and the server takes the first.
   const bots = useBots().data ?? []
-  const [picked, setPicked] = useState(firstBot)
+  const [picked, setPicked] = useState(initialBot ?? firstBot)
   const choice = bots.length > 1
   const bot = bots.some((b) => b.name === picked) ? picked : firstBot
 

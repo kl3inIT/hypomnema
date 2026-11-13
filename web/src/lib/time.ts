@@ -25,3 +25,15 @@ export function span(fromIso: string, now = Date.now()) {
 
   return minutes % 60 ? `${hours}h ${minutes % 60}m` : `${hours}h`
 }
+
+// elapsed says how long something has lasted to the second while that is still short, as AffectUI's orchestration
+// view rolls a duration up (owner, 2026-11-13: "1m 34s"): "34s", "1m 34s", then "2h 5m".
+export function elapsed(fromIso: string, now = Date.now()) {
+  const seconds = Math.max(0, Math.round((now - new Date(fromIso).getTime()) / 1000))
+  if (seconds < 60) return `${seconds}s`
+
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m ${String(seconds % 60).padStart(2, "0")}s`
+
+  return span(fromIso, now)
+}

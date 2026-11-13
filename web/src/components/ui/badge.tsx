@@ -9,9 +9,10 @@ const badgeVariants = cva(
     variants: {
       variant: {
         default: "bg-primary text-primary-foreground [a]:hover:bg-primary/80",
-        // The app's own status tones (index.css): done, and waiting for the owner.
+        // The app's own status tones (index.css): done, waiting for the owner, and running.
         success: "border-done/30 bg-done-soft text-done",
         warning: "border-needs-you/30 bg-needs-you-soft text-needs-you",
+        running: "border-running/30 bg-running-soft text-running",
         secondary: "bg-secondary text-secondary-foreground [a]:hover:bg-secondary/80",
         destructive:
           "bg-destructive/10 text-destructive focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:focus-visible:ring-destructive/40 [a]:hover:bg-destructive/20",
