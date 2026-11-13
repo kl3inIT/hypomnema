@@ -31,6 +31,7 @@ import (
 //     does, it keeps the session's tab in a file beside its sockets, which
 //     outlives the session, and answers `tab_gone` once that tab was closed or
 //     its Chrome went away. A call takes a second while `slow` is there.
+//     `agent_browser_set_viewport` also logs the size it was given.
 //
 // Chrome's DevTools port is the one in `devtools`, or one nothing listens on.
 const standIn = `#!/bin/sh
@@ -41,7 +42,8 @@ gate="proxy=${AGENT_BROWSER_PROXY:-} bypass=${AGENT_BROWSER_PROXY_BYPASS:-} chro
 echo "$who $gate secret=${HYPOMNEMA_VAULT_KEYS:-} args=$*" >> "$dir/log"
 case "$1" in
 mcp)
-  cat > /dev/null
+  in=$(cat)
+  if [ "$3" = agent_browser_set_viewport ]; then echo "viewport session=$AGENT_BROWSER_SESSION $in" >> "$dir/log"; fi
   if [ "$2" = call ]; then
     bound="$AGENT_BROWSER_SOCKET_DIR/$AGENT_BROWSER_SESSION.target"
     if [ -f "$bound" ] && ! grep -q "\"cdp\":\"$AGENT_BROWSER_CDP\"" "$bound"; then

@@ -63,7 +63,9 @@ function usePageVisible() {
 // move and one merged wheel a frame, a hidden text area that holds the keys' focus, Shift+Escape to leave the
 // page. The address row is T3 Code's PreviewChromeRow. The control button and what it says are OpenMausBot's
 // (ChromeRow.tsx); control is taken only by that button, as in T3 Code. Left out, since the control plane sends
-// none of it: the agent's pointer, dialogs, file choosers, downloads, the clipboard, and resizing the tab.
+// none of it: the agent's pointer, dialogs, file choosers, downloads and the clipboard. The tab fills the pane as
+// T3 Code's does: the pane's size goes to the control plane as it settles, which gives the tab its shape at least
+// a desktop wide (OpenMausBot's fill), and the picture is scaled into the pane.
 export function BrowserView({ tab, label }: { tab: string; label: string }) {
   const canvas = useRef<HTMLCanvasElement>(null)
   const input = useRef<HTMLTextAreaElement>(null)
@@ -166,6 +168,33 @@ export function BrowserView({ tab, label }: { tab: string; label: string }) {
       clearInput()
     }
   }, [tab, attempt, watching, clearInput])
+
+  // Observes the pane's size and sends it as it settles, at most every 150 ms (T3 Code's RESIZE_THROTTLE_MS).
+  useEffect(() => {
+    const pane = canvas.current?.parentElement
+    if (!watching || !pane) return
+
+    let timer: ReturnType<typeof setTimeout> | null = null
+    let sent = ""
+    const measure = () => {
+      timer = null
+      const rect = pane.getBoundingClientRect()
+      const width = Math.round(rect.width)
+      const height = Math.round(rect.height)
+      if (width < 1 || height < 1 || sent === `${width}x${height}`) return
+      sent = `${width}x${height}`
+      client.current?.send({ type: "resize", width, height })
+    }
+    const observer = new ResizeObserver(() => {
+      if (timer === null) timer = setTimeout(measure, sent === "" ? 0 : 150)
+    })
+    observer.observe(pane)
+
+    return () => {
+      observer.disconnect()
+      if (timer !== null) clearTimeout(timer)
+    }
+  }, [tab, attempt, watching])
 
   const pagePoint = useCallback(
     (clientX: number, clientY: number, clamp: boolean): PagePoint | null => {

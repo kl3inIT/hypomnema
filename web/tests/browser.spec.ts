@@ -203,6 +203,16 @@ test("the owner opens the browser beside a chat, takes control, and uses the pag
   await expect(address(page)).toHaveValue("https://accounts.example.com/signin")
   await shot(page, "pane-browser-watching")
 
+  // The tab fills the pane (issue #193): the pane's size goes up while only watching, and again when it changes.
+  const pane = async () => {
+    const rect = (await picture(page).locator("..").boundingBox())!
+    return { type: "resize", width: Math.round(rect.width), height: Math.round(rect.height) }
+  }
+  await expect.poll(() => server.of("resize").at(-1)).toEqual(await pane())
+  await page.setViewportSize({ width: 900, height: 700 })
+  await expect.poll(async () => server.of("resize").at(-1)).toEqual(await pane())
+  await page.setViewportSize(test.info().project.use.viewport!)
+
   // Watching: the page takes nothing.
   await expect(address(page)).toBeDisabled()
   await picture(page).click({ force: true })

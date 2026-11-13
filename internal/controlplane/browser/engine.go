@@ -142,6 +142,8 @@ type session struct {
 	used     time.Time
 	// views counts the owner's views of the tab; a tab that is watched is in use. Guarded by the engine's mu.
 	views int
+	// size is the size the owner's view last gave the tab, zero while it has agent-browser's own (fill.go).
+	size Size
 }
 
 // New returns an Engine. Nothing is installed or started until it is used.

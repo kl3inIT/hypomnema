@@ -17,6 +17,7 @@ export type MouseButton = "left" | "middle" | "right" | "none"
 export type ViewInput =
   | { type: "takeControl" }
   | { type: "releaseControl" }
+  | { type: "resize"; width: number; height: number }
   | {
       type: "mouse"
       action: "move" | "down" | "up"
