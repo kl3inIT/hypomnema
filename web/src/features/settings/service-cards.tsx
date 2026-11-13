@@ -152,7 +152,7 @@ export function ServiceCard({ service }: { service: Integration }) {
   const add = (
     <Button variant="outline" size="sm">
       <Plus data-icon="inline-start" />
-      {app ? "Add app" : "Add account"}
+      {app ? "Add app" : role ? "Add role" : "Add account"}
     </Button>
   )
 
@@ -180,6 +180,7 @@ export function ServiceCard({ service }: { service: Integration }) {
           <span className="flex flex-wrap items-center gap-1.5 sm:justify-end">
             {account && <ConnectAccountDialog service={service} trigger={add} />}
             {app && <ConnectAppDialog service={service} trigger={add} />}
+            {role && <ConnectRoleDialog service={service} trigger={add} />}
             {!app && !account && !role && service.client_id && (
               <SignInDialog service={service} trigger={add} />
             )}
@@ -205,19 +206,6 @@ export function ServiceCard({ service }: { service: Integration }) {
             </p>
             <code className="font-mono text-foreground">
               hypomnema integrations client set {service.id} --client-file &lt;file&gt;
-            </code>
-          </div>
-        </CardContent>
-      )}
-      {role && (
-        <CardContent>
-          <div className="flex flex-col gap-2 border-t pt-3 text-xs text-muted-foreground">
-            <p>
-              Connect a role from a terminal; the key is read from the file the AWS console gives:
-            </p>
-            <code className="font-mono text-foreground">
-              hypomnema integrations connect aws --label &lt;label&gt; --role &lt;role ARN&gt; --key
-              main --key-file &lt;file&gt;
             </code>
           </div>
         </CardContent>
@@ -261,6 +249,7 @@ function AccountItem({
   const refresh = useRefreshServices()
   const app = service.kind === "app"
   const account = service.kind === "account"
+  const role = service.kind === "role"
 
   return (
     <Item variant="muted" size="sm" aria-label={`${service.name} account ${connection.label}`}>
@@ -276,6 +265,17 @@ function AccountItem({
               <Grant key={grant} grant={grant} />
             ))}
             {app && connection.app_id && <span className="font-mono">{connection.app_id}</span>}
+            {role && (
+              <>
+                <span className="font-mono break-all">{connection.role_arn}</span>
+                <span>{`Key ${connection.key ?? ""}`}</span>
+                <span>
+                  {connection.sign_in_required
+                    ? "AWS refused this key the last time"
+                    : "The last assume worked"}
+                </span>
+              </>
+            )}
             {account && (
               <>
                 <span className="break-all">{connection.address}</span>
@@ -316,7 +316,19 @@ function AccountItem({
             }
           />
         )}
-        {!app && !account && (
+        {role && (
+          <ConnectRoleDialog
+            service={service}
+            connection={connection}
+            trigger={
+              <Button variant="ghost" size="sm">
+                <RefreshCw data-icon="inline-start" />
+                Connect again
+              </Button>
+            }
+          />
+        )}
+        {!app && !account && !role && (
           <SignInDialog
             service={service}
             connection={connection}
@@ -336,11 +348,13 @@ function AccountItem({
           }
           title={`Disconnect ${connection.label} (${connection.account})?`}
           consequence={
-            account
-              ? `Hypomnema forgets this account's address and removes its password from the vault. The account itself stays at ${service.name}.`
-              : app
-                ? `Hypomnema stops working as this app and removes its secret from the vault. The app itself stays in ${service.name}'s developer console.`
-                : `${service.name} is asked to end Hypomnema's access to this account, and its tokens are removed from the vault. If ${service.name} cannot be reached, remove the access in the account's own security settings.`
+            role
+              ? `Hypomnema forgets this role; agents given it lose it. Its key is removed from the vault when no other role uses it. The role itself stays in your AWS account.`
+              : account
+                ? `Hypomnema forgets this account's address and removes its password from the vault. The account itself stays at ${service.name}.`
+                : app
+                  ? `Hypomnema stops working as this app and removes its secret from the vault. The app itself stays in ${service.name}'s developer console.`
+                  : `${service.name} is asked to end Hypomnema's access to this account, and its tokens are removed from the vault. If ${service.name} cannot be reached, remove the access in the account's own security settings.`
           }
           action="Disconnect"
           run={() =>
@@ -605,6 +619,171 @@ function ConnectAccountDialog({
               </form.Field>
               <form.Field name="password">
                 {(field) => <TextField field={field} label="Password" secret />}
+              </form.Field>
+            </FieldGroup>
+            <ErrorAlert error={connect.error} />
+          </form>
+        </DialogPanel>
+        <DialogFooter>
+          <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
+          <Button type="submit" form={formId} disabled={connect.isPending}>
+            {connect.isPending && <Spinner data-icon="inline-start" />}
+            Connect
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+const roleSchema = z.object({
+  label: labelSchema,
+  roleArn: z
+    .string()
+    .trim()
+    .regex(
+      /^arn:aws(-cn|-us-gov)?:iam::\d{12}:role\/\S+$/,
+      "A role's ARN, such as arn:aws:iam::123456789012:role/hypomnema/hypomnema-read.",
+    ),
+  key: labelSchema,
+  accessKeyId: z.string().trim(),
+  secretAccessKey: z.string().trim(),
+})
+
+// ConnectRoleDialog connects a role of an AWS account (issue #331): its ARN and the name of the key that assumes it,
+// with the key itself the first time that name is used or to replace it. The control plane assumes the role once,
+// which shows the key and the role's trust work, and keeps the key in the vault; a refused assume keeps nothing and
+// is shown here. The fields are the AWS CLI's for a role profile (role_arn, source_profile) and for a key.
+function ConnectRoleDialog({
+  service,
+  connection,
+  trigger,
+}: {
+  service: Integration
+  connection?: IntegrationConnection
+  trigger: ReactElement
+}) {
+  const formId = useId()
+  const refresh = useRefreshServices()
+  const [open, setOpen] = useState(false)
+  const keys = [...new Set(service.connections.map((c) => c.key).filter(Boolean))]
+
+  const connect = useMutation({
+    mutationFn: (value: z.infer<typeof roleSchema>) =>
+      putIntegrationConnection({
+        path: { integration: service.id, label: value.label },
+        body: {
+          role_arn: value.roleArn.trim(),
+          key: value.key,
+          ...(value.accessKeyId.trim() !== "" && {
+            access_key_id: value.accessKeyId.trim(),
+            secret_access_key: value.secretAccessKey.trim(),
+          }),
+        },
+      }),
+  })
+
+  const form = useForm({
+    defaultValues: {
+      label: connection?.label ?? "",
+      roleArn: connection?.role_arn ?? "",
+      key: connection?.key ?? keys[0] ?? "main",
+      accessKeyId: "",
+      secretAccessKey: "",
+    },
+    validators: { onSubmit: roleSchema },
+    onSubmit: async ({ value }) => {
+      try {
+        await connect.mutateAsync(value)
+      } catch {
+        return // The dialog stays open and shows what the server refused.
+      }
+
+      await refresh()
+      change(false)
+      said(`${service.name} role ${value.label} is connected`)
+    },
+  })
+
+  function change(next: boolean) {
+    setOpen(next)
+    if (!next) {
+      form.reset()
+      connect.reset()
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={change}>
+      <DialogTrigger render={trigger} />
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>
+            {connection ? `Connect ${connection.label} again` : `Add an ${service.name} role`}
+          </DialogTitle>
+          <DialogDescription>
+            Agents you give this role act in your AWS account with the rights its policies allow.
+            Hypomnema assumes it with a key that may only assume roles; the key is kept encrypted in
+            the vault and is not shown again.
+          </DialogDescription>
+        </DialogHeader>
+        <DialogPanel>
+          <form
+            id={formId}
+            autoComplete="off"
+            noValidate
+            className="flex flex-col gap-4"
+            onSubmit={(event) => {
+              event.preventDefault()
+              void form.handleSubmit()
+            }}
+          >
+            <FieldGroup>
+              {!connection && (
+                <form.Field name="label">
+                  {(field) => (
+                    <TextField
+                      field={field}
+                      label="Name"
+                      placeholder="main-read"
+                      description="What you call this role here, such as main-read."
+                    />
+                  )}
+                </form.Field>
+              )}
+              <form.Field name="roleArn">
+                {(field) => (
+                  <TextField
+                    field={field}
+                    label="Role ARN"
+                    placeholder="arn:aws:iam::123456789012:role/hypomnema/hypomnema-read"
+                  />
+                )}
+              </form.Field>
+              <form.Field name="key">
+                {(field) => (
+                  <TextField
+                    field={field}
+                    label="Key"
+                    description={
+                      keys.length > 0
+                        ? `The name of the key that assumes it. Kept: ${keys.join(", ")}.`
+                        : "The name the key that assumes it is kept under, such as main."
+                    }
+                  />
+                )}
+              </form.Field>
+              <form.Field name="accessKeyId">
+                {(field) => (
+                  <TextField
+                    field={field}
+                    label="Access key ID"
+                    description="Only for a key not kept yet, or to replace it."
+                  />
+                )}
+              </form.Field>
+              <form.Field name="secretAccessKey">
+                {(field) => <TextField field={field} label="Secret access key" secret />}
               </form.Field>
             </FieldGroup>
             <ErrorAlert error={connect.error} />
