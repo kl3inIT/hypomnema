@@ -131,6 +131,12 @@ func (s *Server) claudePost(ctx context.Context, token AccountToken, built claud
 	req.Header.Set("X-Stainless-Helper-Method", "stream")
 	req.Header.Set("X-Stainless-Retry-Count", "0")
 
+	return s.claudeDo(token, req)
+}
+
+// claudeDo sends a request to the backend under an account and notes what the
+// answer's headers say of the account's limits.
+func (s *Server) claudeDo(token AccountToken, req *http.Request) (*http.Response, error) {
 	resp, err := s.client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("calling Claude: %w", err)

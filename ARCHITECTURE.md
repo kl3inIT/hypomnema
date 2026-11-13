@@ -1070,6 +1070,22 @@ Claude subscriptions. Other provider formats and other capabilities do not exist
     keeps its status and body.
   - Not served: a model with no Codex target (400 `model_not_served_here`), an answer that is not a stream (400),
     `/v1/responses/compact`, a WebSocket.
+- `POST /v1/messages` and `POST /v1/messages/count_tokens` (issue #273, after CLIProxyAPI;
+  [research](docs/research/2026-11-13-gateway-features.md)) are for a client that speaks Anthropic's Messages format,
+  Claude Code above all (`ANTHROPIC_BASE_URL` the gateway's origin, `ANTHROPIC_API_KEY` a gateway key). They serve a
+  model's `claude_subscription` targets only, in order, the next on 429 or 5xx:
+  - The body is passed on as sent but for the model's name (`modelgateway/claude`, `PassThrough`). A client that is
+    Claude Code (`X-App: cli`, a `claude-cli/` User-Agent, a `claude-code-` beta, a `metadata.user_id`) keeps its
+    `anthropic-*`, `x-stainless-*`, `x-claude-code-*`, User-Agent and Accept headers, with `oauth-2025-04-20` added
+    to its betas; any other gets the chat route's disguise (billing block, identity, its system in the first user
+    turn, a user id) and Claude Code's headers with the betas it asked for. Tools are never renamed.
+  - `stream` stays as the client sent it; a stream goes back line for line, a whole answer as it came. The usage is
+    read from `message_start` and `message_delta`, or the answer's `usage`; `count_tokens` records none.
+  - The session is `X-Claude-Code-Session-Id`, else one per gateway key. The account, a refused token, a usage
+    limit and the next account are the chat route's.
+  - The gateway's own errors are Anthropic's `{"type":"error","error":{type,message}}`; Anthropic's refusals keep
+    their status, body and `Retry-After`. A model with no Claude target is refused (400).
+- Every gateway route reads the key from `Authorization: Bearer` or `x-api-key`.
 - The owner manages the keys a tool outside (opencode, omp) uses on Settings → Gateway keys (issue #199, step 6, after
   Coder's AI Gateway keys and 9router's Endpoint & Key): `GET /gateway/keys` lists the keys the owner made that work,
   with their start (`key_prefix`, the kind and six characters, migration 00053; empty for older keys), models,

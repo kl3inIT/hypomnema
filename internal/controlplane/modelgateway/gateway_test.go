@@ -251,7 +251,7 @@ func TestListModelsOverHTTP(t *testing.T) {
 
 	status, body = get("")
 	assert.Equal(t, http.StatusUnauthorized, status)
-	assert.JSONEq(t, `{"error":{"message":"a gateway key is required: Authorization: Bearer <key>",`+
+	assert.JSONEq(t, `{"error":{"message":"a gateway key is required: Authorization: Bearer <key>, or x-api-key: <key>",`+
 		`"type":"authentication_error","code":"missing_api_key"}}`, body)
 
 	status, body = get("sk-wrong")
