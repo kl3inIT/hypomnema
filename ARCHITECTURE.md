@@ -1078,7 +1078,8 @@ Claude subscriptions. Other provider formats and other capabilities do not exist
     Claude Code (`X-App: cli`, a `claude-cli/` User-Agent, a `claude-code-` beta, a `metadata.user_id`) keeps its
     `anthropic-*`, `x-stainless-*`, `x-claude-code-*`, User-Agent and Accept headers, with `oauth-2025-04-20` added
     to its betas; any other gets the chat route's disguise (billing block, identity, its system in the first user
-    turn, a user id) and Claude Code's headers with the betas it asked for. Tools are never renamed.
+    turn with its cache breakpoints kept, a user id) and Claude Code's headers with the betas it asked for. Tools
+    are never renamed.
   - `stream` stays as the client sent it; a stream goes back line for line, a whole answer as it came. The usage is
     read from `message_start` and `message_delta`, or the answer's `usage`; `count_tokens` records none.
   - The session is `X-Claude-Code-Session-Id`, else one per gateway key. The account, a refused token, a usage
