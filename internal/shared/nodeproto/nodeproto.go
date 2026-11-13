@@ -295,8 +295,8 @@ type Offer struct {
 	RepoKind string `json:"repo_kind,omitempty"`
 	// RepoToken is the host's token for this Dispatch, when the owner gave the
 	// host one: git, gh and glab of this worker use it, and nothing else. The
-	// node keeps it with the offer until the Dispatch ends. It stands in for
-	// the vault's credential sessions until they exist (issue #44).
+	// node keeps it with the offer until the Dispatch ends; there is no proxy
+	// on the node (docs/decisions/2026-11-13-worker-credentials-in-the-environment.md).
 	RepoToken string `json:"repo_token,omitempty"`
 	// ModelKey is the model gateway's key for this Dispatch, when AccountRef
 	// is "gateway": the worker's CLI calls <control plane URL>/v1 with it, for

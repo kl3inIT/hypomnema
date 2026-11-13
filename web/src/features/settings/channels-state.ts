@@ -60,3 +60,14 @@ export function groupName(group: Pick<LarkChannelGroup, "name" | "chat_id">): st
 export function groupAsked(group: Pick<LarkChannelGroup, "asked_at">, now = Date.now()): string {
   return group.asked_at ? `asked ${since(group.asked_at, now)}` : "not asked yet"
 }
+
+// appNameOf is the name of a Channel's Lark app, as Integrations shows it: the account of the Lark Connection that
+// has the same app. Empty when no Connection has it.
+export function appNameOf(
+  channel: Pick<LarkChannel, "app_id">,
+  services: { id: string; connections: { app_id?: string; account: string }[] }[] | undefined,
+): string {
+  const lark = services?.find((service) => service.id === "lark")
+
+  return lark?.connections.find((c) => c.app_id === channel.app_id)?.account ?? ""
+}

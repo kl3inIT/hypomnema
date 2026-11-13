@@ -17,9 +17,8 @@ import (
 // themselves (issue #66): the client API gives it a token to keep, the node
 // API asks it for the token of the repository an offer is on.
 //
-// Until the vault's credential sessions and the node's proxy exist, the token
-// goes to the worker itself, with the offer. That is no less than a worker
-// had before, when it used the node user's own logins.
+// The token goes to the worker itself, with the offer, as OpenHands and
+// Omnara deliver credentials: there is no proxy on the node (docs/decisions/2026-11-13-worker-credentials-in-the-environment.md).
 type connections struct {
 	svc   *orchestration.Service
 	vault *vault.Service

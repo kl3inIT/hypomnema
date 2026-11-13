@@ -145,6 +145,7 @@ type claudeTokens struct {
 		EmailAddress string `json:"email_address"`
 	} `json:"account"`
 	Organization struct {
+		UUID string `json:"uuid"`
 		Name string `json:"name"`
 	} `json:"organization"`
 }
@@ -170,48 +171,61 @@ func (c *Claude) exchange(ctx context.Context, code, state, verifier string) (Lo
 
 	tokens := vault.Payload{vault.KeyAccessToken: answer.AccessToken, vault.KeyRefreshToken: answer.RefreshToken}
 
-	id, email, plan := c.whoLoggedIn(ctx, answer)
+	who := c.whoLoggedIn(ctx, answer)
 
 	return Login{
-		Identity: Identity{ExternalID: id, Email: email, Plan: plan},
+		Identity: who,
 		Tokens:   vault.Refreshed{Payload: tokens, AccessTokenExpiresAt: c.expiry(answer.ExpiresIn)},
 	}, nil
 }
 
-// whoLoggedIn reads the account from the token answer, else the profile; an
-// id that is nowhere is derived from the refresh token, so the account still
-// has a stable id for the owner's list.
-func (c *Claude) whoLoggedIn(ctx context.Context, answer claudeTokens) (id, email, plan string) {
-	id, email, plan = answer.Account.UUID, answer.Account.EmailAddress, answer.Organization.Name
+// whoLoggedIn reads the account from the token answer, else the profile. Its
+// id is the organization's, else the user's (issue #326): one person can have
+// a personal plan and a seat in a Team organization, two subscriptions with
+// their own limits, told apart by the organization as CLIProxyAPI does
+// (internal/auth/claude/filename.go CredentialFileName); the user's id is then
+// the id an earlier login may have been recorded under. An id that is nowhere
+// is derived from the refresh token, so the account still has a stable id for
+// the owner's list.
+func (c *Claude) whoLoggedIn(ctx context.Context, answer claudeTokens) Identity {
+	user, org := answer.Account.UUID, answer.Organization.UUID
+	email, plan := answer.Account.EmailAddress, answer.Organization.Name
 
-	if id == "" || email == "" {
+	if user == "" || org == "" || email == "" {
 		var profile struct {
 			Account struct {
 				UUID         string `json:"uuid"`
 				EmailAddress string `json:"email_address"`
 			} `json:"account"`
 			Organization struct {
+				UUID string `json:"uuid"`
 				Name string `json:"name"`
 			} `json:"organization"`
 		}
 
 		if c.getJSON(ctx, c.profileBase+"/api/oauth/profile", answer.AccessToken, &profile) == nil {
-			id = firstNonEmpty(id, profile.Account.UUID)
+			user = firstNonEmpty(user, profile.Account.UUID)
+			org = firstNonEmpty(org, profile.Organization.UUID)
 			email = firstNonEmpty(email, profile.Account.EmailAddress)
 			plan = firstNonEmpty(plan, profile.Organization.Name)
 		}
 	}
 
-	if id == "" {
+	who := Identity{ExternalID: firstNonEmpty(org, user), Email: email, Plan: plan}
+	if org != "" && user != "" {
+		who.FormerExternalID = user
+	}
+
+	if who.ExternalID == "" {
 		sum := sha256.Sum256([]byte(answer.RefreshToken))
-		id = "claude-" + hex.EncodeToString(sum[:])[:16]
+		who.ExternalID = "claude-" + hex.EncodeToString(sum[:])[:16]
 	}
 
-	if email == "" {
-		email = "Claude subscription"
+	if who.Email == "" {
+		who.Email = "Claude subscription"
 	}
 
-	return id, email, plan
+	return who
 }
 
 // Refresh implements Vendor. Anthropic may or may not return a new refresh

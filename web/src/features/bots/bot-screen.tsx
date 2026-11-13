@@ -15,9 +15,10 @@ import { ModelField } from "@/features/agents/profile-editor"
 import { errorText } from "@/features/agents/profiles-state"
 import { useModels } from "@/features/agents/use-profiles"
 import { LarkIcon } from "@/components/icons/brand-icons"
-import { channelsOf, channelState } from "@/features/settings/channels-state"
+import { appNameOf, channelsOf, channelState } from "@/features/settings/channels-state"
 import { ConfirmDialog } from "@/features/settings/settings-parts"
 import { useLarkChannels } from "@/features/settings/use-channels"
+import { useServices } from "@/features/settings/use-integrations"
 import { BotRoutines } from "@/features/routines/bot-routines"
 import { MemoryEditor } from "@/features/memory/memory-editor"
 import { PageHeader } from "@/features/shell/app-shell"
@@ -278,6 +279,7 @@ function Memory({ bot }: { bot: Bot }) {
 // out.
 function Channels({ bot }: { bot: Bot }) {
   const channels = useLarkChannels()
+  const services = useServices()
   if (!channels.data) return null
 
   const mine = channelsOf(bot.name, channels.data)
@@ -304,11 +306,14 @@ function Channels({ bot }: { bot: Bot }) {
           {mine.map((channel) => (
             <li key={channel.name} className="flex min-w-0 items-center gap-2 text-sm">
               <LarkIcon className="size-4 shrink-0" />
-              <Link to="/settings/channels" className="truncate font-medium hover:underline">
-                {channel.name}
+              <Link to="/settings/channels" className="shrink-0 font-medium hover:underline">
+                Lark · {channel.name}
               </Link>
+              <span className="truncate text-xs text-muted-foreground">
+                {appNameOf(channel, services.data)}
+              </span>
               <span className="shrink-0 text-xs text-muted-foreground">
-                Lark · {channelState(channel).label}
+                {channelState(channel).label}
               </span>
             </li>
           ))}

@@ -9,14 +9,38 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
+  # Only a commit whose CI passed is released (issue #334): v0.9.12 was tagged on a red commit, published, and
+  # refused by the control plane. Waits for the CI run of the tagged commit's push, up to 40 minutes.
+  green:
+    name: CI of the tagged commit passed
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Wait for CI
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for _ in $(seq 1 80); do
+            run="$(gh run list -R "$GITHUB_REPOSITORY" --workflow ci.yml --commit "$GITHUB_SHA" --event push \
+              --limit 1 --json status,conclusion -q '.[0] | .status + " " + .conclusion')"
+            echo "CI of $GITHUB_SHA: ${run:-no run yet}"
+            case "$run" in
+              "completed success") exit 0 ;;
+              completed*) echo "::error::CI of the tagged commit did not pass: $run"; exit 1 ;;
+            esac
+            sleep 30
+          done
+          echo "::error::no finished CI run for $GITHUB_SHA"; exit 1
+
   node:
     name: Node and control plane binaries
+    needs: green
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

@@ -66,8 +66,9 @@ const (
 	disallowedTools = "AskUserQuestion,Task,Agent"
 )
 
-// Account is how the node runs Claude under one account until the vault
-// exists: the file holding its `claude setup-token` token.
+// Account is how the node runs Claude under one account when the control
+// plane sends no token with the offer: the file holding its `claude
+// setup-token` token.
 type Account struct {
 	TokenFile string `json:"token_file"`
 }

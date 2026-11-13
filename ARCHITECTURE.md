@@ -1189,7 +1189,11 @@ plane, which keeps their tokens fresh. The gateway's Codex provider runs under t
   ChatGPT account id, read with the email and the plan from the id token; Antigravity: Google's id of the user, with
   the tier as the plan and the project) and the same email, case aside. The email is asked too since issue #326:
   Codex's id is the workspace's, shared by every member of a Business workspace, so two members are two accounts
-  (omp keys a Codex credential by email and workspace, CLIProxyAPI names its file by both). The tokens are a vault
+  (omp keys a Codex credential by email and workspace, CLIProxyAPI names its file by both). Claude's id is the
+  organization's since issue #333, else the user's (CLIProxyAPI `claude/filename.go`): a personal plan and a Team
+  seat of one person are two accounts, and an account recorded under the user's id before takes the organization's
+  at its next login (CLIProxyAPI `FindMatchingLegacyCredential`). A new account the owner did not name is labelled
+  with its email, or, when that label is taken, the email with the plan, then with a number. The tokens are a vault
   secret of kind
   `oauth_token_set`, named after the account, with the time the access token ends.
 - `serve` looks every 5 minutes for access tokens that end within the vendor's lead (Codex: 30 minutes, Claude: 4
@@ -1457,7 +1461,8 @@ Node API (`internal/controlplane/nodeapi`, protocol in `internal/shared/nodeprot
 - Releases: a tag `v*` runs `.github/workflows/release.yml`, which builds the node for those four platforms with
   their manifests (`make release-node`), and the control plane, with the web client in it, for linux-amd64 and
   linux-arm64 with manifests `controlplane-<platform>.txt` in the same format (`make release-controlplane`), and
-  publishes them as a GitHub release.
+  publishes them as a GitHub release. It first waits, up to 40 minutes, for the CI run of the tagged commit's push
+  and builds nothing unless it passed (issue #334).
 - The control plane updates itself (issue #279, after Beszel's `beszel update` and its update timer,
   `internal/ghupdate/ghupdate.go`, `supplemental/scripts/install-hub.sh`, and OpenMausBot's `deploy/update.sh`):
   - `deploy/controlplane/setup-controlplane.sh`, run once with sudo, runs the control plane as
@@ -1477,7 +1482,8 @@ Node API (`internal/controlplane/nodeapi`, protocol in `internal/shared/nodeprot
     `/readyz`. A control plane that does not become ready is stopped and its old binary and database put back and
     started. Once it is ready, the release's `deploy/coordinator` files, built into the binary
     (`deploy/coordinator/files.go`), are written to a root-owned folder and its `setup-coordinator.sh` run, so the
-    launchers, the sudoers rule and `/usr/local/bin/hypomnema` are always the running release's.
+    launchers, the sudoers rule and `/usr/local/bin/hypomnema` are always the running release's. Then the five
+    newest `data/predeploy-*` folders are kept and the others removed (issue #335).
   - Deploying is pushing a tag; nothing on GitHub holds a key to the control plane's machine. A build of a commit is
     not deployed this way.
 - The control plane offers the node its queued Dispatches with what it needs (Task, repository, worktree, runtime,
@@ -2126,7 +2132,9 @@ and the node in the control plane binary.
 - `make verify`: gofmt, `go mod tidy -diff` for both modules, golangci-lint (`.golangci.yml`, tools pinned in
   `tools/ci/go.mod`), the dependency check, `sqlc-check` (generated queries match `sqlc generate`),
   `openapi-check` (generated client API code matches `api/openapi.yaml`), `migration-check` (migrations already on
-  `origin/main` are unchanged), unit tests and race tests.
+  `origin/main` are unchanged, no two share a number, and a new one is numbered after main's last; CI checks a pull
+  request against main as it is when the check runs, and a push to main against the commit before it, issue #334),
+  unit tests and race tests.
 - Tests that need a database open a real file in a temporary directory; no containers.
 - `make web-doctor`: React Doctor's report on the web client (pinned, local checks only: no score API, crash
   reports or dependency lookups; `web/doctor.config.json`). It is read, not a gate. Its config turns off the
