@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query"
-import { Link, useBlocker, useNavigate } from "@tanstack/react-router"
+import { Link, useNavigate } from "@tanstack/react-router"
 import { ChevronRight } from "lucide-react"
-import { useRef, useState } from "react"
+import { useState } from "react"
 
 import type { Bot, Model } from "@/api/generated/types.gen"
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -99,7 +99,8 @@ export function BotScreen({ name }: { name: string }) {
 }
 
 // BotForm edits a Bot's model, persona and skills, and a new Bot's name, and saves them with one PUT. Its buttons
-// and its guard against leaving unsaved changes are the profile editor's (features/agents/profile-editor.tsx).
+// are the profile editor's (features/agents/profile-editor.tsx). Leaving the page drops what was not saved
+// (owner, 2026-11-13).
 function BotForm({
   start: first,
   models,
@@ -121,18 +122,8 @@ function BotForm({
 
   const dirty = !sameDraft(draft, start)
   const wrong = stored ? null : problem(draft, taken)
-  const saved = useRef(false)
-
-  useBlocker({
-    shouldBlockFn: () =>
-      !saved.current && !window.confirm("You have unsaved changes. Discard them?"),
-    enableBeforeUnload: () => !saved.current,
-    disabled: !dirty,
-  })
-
   const set = (change: Partial<Draft>) => {
     put.reset()
-    saved.current = false
     setDraft((d) => ({ ...d, ...change }))
   }
 
@@ -141,7 +132,6 @@ function BotForm({
       { name: stored?.name ?? draft.name.trim(), settings: settingsOf(draft, models) },
       {
         onSuccess: (bot) => {
-          saved.current = true
           setStart(draftOf(bot))
           setDraft(draftOf(bot))
           onSaved?.(bot)
