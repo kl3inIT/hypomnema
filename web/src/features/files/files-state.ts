@@ -148,16 +148,26 @@ export async function saveFile(
   ).data
 }
 
-export async function makeFolder(chat: string, workspace: string, path: string) {
-  return (await makeWorkspaceFolder({ path: where(chat, workspace), body: { path } })).data
+// makeFolder and deleteEntry take bot for a chat not made yet, whose folder "bot" is that Bot's (issue #357).
+export async function makeFolder(chat: string, workspace: string, path: string, bot?: string) {
+  return (
+    await makeWorkspaceFolder({
+      path: where(chat, workspace),
+      ...(bot && { query: { bot } }),
+      body: { path },
+    })
+  ).data
 }
 
 export async function moveEntry(chat: string, workspace: string, path: string, to: string) {
   return (await moveWorkspaceEntry({ path: where(chat, workspace), body: { path, to } })).data
 }
 
-export async function deleteEntry(chat: string, workspace: string, path: string) {
-  await deleteWorkspaceEntry({ path: where(chat, workspace), query: { path } })
+export async function deleteEntry(chat: string, workspace: string, path: string, bot?: string) {
+  await deleteWorkspaceEntry({
+    path: where(chat, workspace),
+    query: { path, ...(bot && { bot }) },
+  })
 }
 
 // refreshFolder reads a folder's lists again after a change made here.
