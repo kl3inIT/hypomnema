@@ -38,6 +38,82 @@ func (q *Queries) DeleteBot(ctx context.Context, name string) error {
 	return err
 }
 
+const deleteChatMessagesOfBot = `-- name: DeleteChatMessagesOfBot :exec
+DELETE FROM chat_messages WHERE chat_id IN (SELECT c.id FROM chats c WHERE c.bot = ?1)
+`
+
+func (q *Queries) DeleteChatMessagesOfBot(ctx context.Context, bot string) error {
+	_, err := q.db.ExecContext(ctx, deleteChatMessagesOfBot, bot)
+	return err
+}
+
+const deleteChatsOfBot = `-- name: DeleteChatsOfBot :exec
+DELETE FROM chats WHERE bot = ?1
+`
+
+func (q *Queries) DeleteChatsOfBot(ctx context.Context, bot string) error {
+	_, err := q.db.ExecContext(ctx, deleteChatsOfBot, bot)
+	return err
+}
+
+const deleteLarkChannelChatsOfBot = `-- name: DeleteLarkChannelChatsOfBot :exec
+DELETE FROM lark_channel_chats WHERE chat_id IN (SELECT c.id FROM chats c WHERE c.bot = ?1)
+`
+
+func (q *Queries) DeleteLarkChannelChatsOfBot(ctx context.Context, bot string) error {
+	_, err := q.db.ExecContext(ctx, deleteLarkChannelChatsOfBot, bot)
+	return err
+}
+
+const deleteSetupChangesOfChatsOfBot = `-- name: DeleteSetupChangesOfChatsOfBot :exec
+DELETE FROM setup_changes WHERE chat_id IN (SELECT c.id FROM chats c WHERE c.bot = ?1)
+`
+
+func (q *Queries) DeleteSetupChangesOfChatsOfBot(ctx context.Context, bot string) error {
+	_, err := q.db.ExecContext(ctx, deleteSetupChangesOfChatsOfBot, bot)
+	return err
+}
+
+const detachApprovalsFromChatsOfBot = `-- name: DetachApprovalsFromChatsOfBot :exec
+UPDATE approvals SET chat_id = NULL WHERE chat_id IN (SELECT c.id FROM chats c WHERE c.bot = ?1)
+`
+
+func (q *Queries) DetachApprovalsFromChatsOfBot(ctx context.Context, bot string) error {
+	_, err := q.db.ExecContext(ctx, detachApprovalsFromChatsOfBot, bot)
+	return err
+}
+
+const detachRoutineRunsFromChatsOfBot = `-- name: DetachRoutineRunsFromChatsOfBot :exec
+UPDATE routine_runs SET chat_id = NULL WHERE chat_id IN (SELECT c.id FROM chats c WHERE c.bot = ?1)
+`
+
+func (q *Queries) DetachRoutineRunsFromChatsOfBot(ctx context.Context, bot string) error {
+	_, err := q.db.ExecContext(ctx, detachRoutineRunsFromChatsOfBot, bot)
+	return err
+}
+
+const detachRoutinesFromChatsOfBot = `-- name: DetachRoutinesFromChatsOfBot :exec
+UPDATE routines SET chat_id = NULL WHERE chat_id IN (SELECT c.id FROM chats c WHERE c.bot = ?1)
+`
+
+func (q *Queries) DetachRoutinesFromChatsOfBot(ctx context.Context, bot string) error {
+	_, err := q.db.ExecContext(ctx, detachRoutinesFromChatsOfBot, bot)
+	return err
+}
+
+const detachRunsFromChatsOfBot = `-- name: DetachRunsFromChatsOfBot :exec
+
+UPDATE runs SET chat_id = NULL WHERE chat_id IN (SELECT c.id FROM chats c WHERE c.bot = ?1)
+`
+
+// A Bot removed with its chats (issue #330): what refers to its chats is let go of or removed first, in this order.
+// Runs, routines, their runs and approvals keep their rows and lose the chat; a chat's gateway keys are revoked and
+// kept, so the gateway's usage records stay whole.
+func (q *Queries) DetachRunsFromChatsOfBot(ctx context.Context, bot string) error {
+	_, err := q.db.ExecContext(ctx, detachRunsFromChatsOfBot, bot)
+	return err
+}
+
 const getBot = `-- name: GetBot :one
 SELECT name, provider, model, effort, persona, memory, created_at, updated_at, skills, skills_off, connections, workers FROM bots WHERE name = ?1
 `
@@ -228,6 +304,21 @@ type MarkSetupChangeUndoneParams struct {
 
 func (q *Queries) MarkSetupChangeUndone(ctx context.Context, arg MarkSetupChangeUndoneParams) error {
 	_, err := q.db.ExecContext(ctx, markSetupChangeUndone, arg.Now, arg.ID)
+	return err
+}
+
+const revokeGatewayKeysOfChatsOfBot = `-- name: RevokeGatewayKeysOfChatsOfBot :exec
+UPDATE gateway_keys SET revoked_at = coalesce(revoked_at, ?1), chat_id = NULL
+WHERE chat_id IN (SELECT c.id FROM chats c WHERE c.bot = ?2)
+`
+
+type RevokeGatewayKeysOfChatsOfBotParams struct {
+	Now sql.NullInt64
+	Bot string
+}
+
+func (q *Queries) RevokeGatewayKeysOfChatsOfBot(ctx context.Context, arg RevokeGatewayKeysOfChatsOfBotParams) error {
+	_, err := q.db.ExecContext(ctx, revokeGatewayKeysOfChatsOfBot, arg.Now, arg.Bot)
 	return err
 }
 

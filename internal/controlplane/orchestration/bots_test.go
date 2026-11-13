@@ -1,6 +1,7 @@
 package orchestration
 
 import (
+	"database/sql"
 	"strings"
 	"testing"
 
@@ -172,4 +173,65 @@ func TestARunNamesTheBotOfItsChat(t *testing.T) {
 	assert.Equal(t, "vmap", bots[fromChat.ID])
 	assert.Contains(t, bots, byOwner.ID)
 	assert.Empty(t, bots[byOwner.ID])
+}
+
+// Scenario: a Bot has a memory and a chat with messages; a Run was started from that chat and the chat has a
+// gateway key. The plain removal is refused; the owner's forced one removes the Bot, its chat and the messages,
+// keeps the Run without its chat and keeps the key, revoked. A Bot a Routine or a Lark Channel uses, and the first
+// Bot, are refused even when forced.
+func TestTheOwnerRemovesABotWithItsChats(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	_, err := w.s.PutBot(ctx, Bot{Name: "trial"})
+	require.NoError(t, err)
+	_, err = w.s.ChangeBotMemory(ctx, "trial", MemoryOp{Kind: MemoryAdd, Text: "A test Bot."})
+	require.NoError(t, err)
+
+	chat, err := w.s.CreateChat(ctx, "trial", "")
+	require.NoError(t, err)
+	_, err = w.s.AddChatMessage(ctx, chat.ID, ChatOwner, "Which model are you?")
+	require.NoError(t, err)
+
+	_, err = w.db.ExecContext(ctx, "UPDATE runs SET chat_id = ? WHERE id = ?", chat.ID, w.run.ID)
+	require.NoError(t, err)
+	_, err = w.db.ExecContext(ctx, "INSERT INTO gateway_keys (id, name, key_hash, models, created_at, chat_id) "+
+		"VALUES ('gk_1', 'chat key', 'hash', '[\"*\"]', 1, ?)", chat.ID)
+	require.NoError(t, err)
+
+	require.ErrorIs(t, w.s.DeleteBot(ctx, "trial"), ErrConflict, "it has a chat and a memory")
+	require.NoError(t, w.s.ForceDeleteBot(ctx, "trial"))
+
+	_, err = w.s.GetBot(ctx, "trial")
+	require.ErrorIs(t, err, ErrNotFound)
+
+	var chats, messages int
+	require.NoError(t, w.db.QueryRowContext(ctx, "SELECT count(*) FROM chats WHERE id = ?", chat.ID).Scan(&chats))
+	require.NoError(t, w.db.QueryRowContext(ctx, "SELECT count(*) FROM chat_messages WHERE chat_id = ?",
+		chat.ID).Scan(&messages))
+	assert.Zero(t, chats)
+	assert.Zero(t, messages)
+
+	var runChat sql.NullString
+	require.NoError(t, w.db.QueryRowContext(ctx, "SELECT chat_id FROM runs WHERE id = ?", w.run.ID).Scan(&runChat))
+	assert.False(t, runChat.Valid, "the Run stays without its chat")
+
+	var keyChat sql.NullString
+	var revoked sql.NullInt64
+	require.NoError(t, w.db.QueryRowContext(ctx, "SELECT chat_id, revoked_at FROM gateway_keys WHERE id = 'gk_1'").
+		Scan(&keyChat, &revoked))
+	assert.False(t, keyChat.Valid)
+	assert.True(t, revoked.Valid, "the chat's key is revoked and kept")
+
+	require.ErrorIs(t, w.s.ForceDeleteBot(ctx, "trial"), ErrNotFound)
+	require.ErrorIs(t, w.s.ForceDeleteBot(ctx, DefaultBot), ErrConflict)
+
+	_, err = w.s.PutBot(ctx, Bot{Name: "scheduled"})
+	require.NoError(t, err)
+	spec := daily("morning")
+	spec.Bot = "scheduled"
+	w.routine(spec)
+	require.ErrorIs(t, w.s.ForceDeleteBot(ctx, "scheduled"), ErrConflict, "a Routine uses it")
 }

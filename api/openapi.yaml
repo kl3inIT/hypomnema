@@ -1550,7 +1550,17 @@ paths:
       description: >-
         The Bot `coordinator` is always there and is not removed. A removal by
         the Bot coordinator is recorded in its chat as a setup change the owner
-        can undo.
+        can undo. With force, the owner removes a Bot with its chats and its
+        memory (issue #330): the chats' messages go; Runs, Routines and
+        approvals made in them stay without the chat, and the chats' gateway
+        keys are revoked and kept. A Bot that Routines or Lark Channels use is
+        refused even then.
+      parameters:
+        - name: force
+          in: query
+          required: false
+          description: Remove the Bot with its chats and its memory; only the owner.
+          schema: { type: boolean, default: false }
       responses:
         "204": { description: The Bot is removed. }
         default: { $ref: "#/components/responses/Error" }

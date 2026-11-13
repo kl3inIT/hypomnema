@@ -67,8 +67,9 @@ export function useSetBotMemory() {
 // useDeleteBot removes a Bot; the server refuses the first one, one with chats and one with a memory.
 export function useDeleteBot() {
   return useMutation({
-    mutationFn: async (name: string) => {
-      await deleteBot({ path: { name } })
+    // force removes the Bot with its chats and its memory (issue #330); only the owner may.
+    mutationFn: async ({ name, force = false }: { name: string; force?: boolean }) => {
+      await deleteBot({ path: { name }, query: force ? { force } : undefined })
     },
   })
 }

@@ -28,6 +28,7 @@ import { BotAccess } from "./bot-access"
 import {
   draftOf,
   emptyDraft,
+  firstBot,
   modelLine,
   problem,
   sameDraft,
@@ -320,6 +321,13 @@ function Removal({ bot }: { bot: Bot }) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
 
+  const gone = async () => {
+    // The list is read again before the page leaves; this Bot's own query goes with its page.
+    await queryClient.invalidateQueries({ queryKey: botsKey, exact: true })
+    await navigate({ to: "/bots" })
+    queryClient.removeQueries({ queryKey: [...botsKey, bot.name] })
+  }
+
   return (
     <section
       aria-label="Remove"
@@ -327,25 +335,41 @@ function Removal({ bot }: { bot: Bot }) {
     >
       <p className="min-w-0 flex-1 basis-64 text-xs text-muted-foreground">
         A Bot can be removed while it has no chats and no memory, and no channel talks to it.
+        Removing it with its chats takes those too.
       </p>
-      <ConfirmDialog
-        trigger={
-          <Button variant="outline" size="sm">
-            Remove Bot
-          </Button>
-        }
-        title={`Remove ${bot.name}?`}
-        consequence="The Bot, its model and its persona are removed. This cannot be undone."
-        action="Remove"
-        run={() => remove.mutateAsync(bot.name)}
-        onDone={async () => {
-          // The list is read again before the page leaves; this Bot's own query goes with its page.
-          await queryClient.invalidateQueries({ queryKey: botsKey, exact: true })
-          await navigate({ to: "/bots" })
-          queryClient.removeQueries({ queryKey: [...botsKey, bot.name] })
-        }}
-        done={`${bot.name} removed`}
-      />
+      <span className="flex flex-wrap gap-2">
+        <ConfirmDialog
+          trigger={
+            <Button variant="outline" size="sm">
+              Remove Bot
+            </Button>
+          }
+          title={`Remove ${bot.name}?`}
+          consequence="The Bot, its model and its persona are removed. This cannot be undone."
+          action="Remove"
+          run={() => remove.mutateAsync({ name: bot.name })}
+          onDone={gone}
+          done={`${bot.name} removed`}
+        />
+        {bot.name !== firstBot && (
+          <ConfirmDialog
+            trigger={
+              <Button variant="destructive" size="sm">
+                Remove with its chats
+              </Button>
+            }
+            title={`Remove ${bot.name} and its chats?`}
+            consequence={
+              "The Bot, its memory, its chats and their messages are removed. Runs and Routines started in " +
+              "those chats stay. This cannot be undone."
+            }
+            action="Remove all"
+            run={() => remove.mutateAsync({ name: bot.name, force: true })}
+            onDone={gone}
+            done={`${bot.name} and its chats removed`}
+          />
+        )}
+      </span>
     </section>
   )
 }

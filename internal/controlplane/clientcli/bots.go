@@ -209,7 +209,9 @@ func botsSet(ctx context.Context, e *env, fs *flag.FlagSet) error {
 func botsRemove(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	name := fs.Arg(0)
 
-	resp, err := e.api.DeleteBotWithResponse(ctx, name)
+	force := fs.Lookup("force").Value.String() == "true"
+
+	resp, err := e.api.DeleteBotWithResponse(ctx, name, &openapi.DeleteBotParams{Force: &force})
 	if err != nil {
 		return fmt.Errorf("removing bot %s: %w", name, err)
 	}
