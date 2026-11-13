@@ -1275,6 +1275,16 @@ Claude subscriptions. Other provider formats and other capabilities do not exist
     windows (`anthropic-ratelimit-unified-*-utilization`) or of Codex's primary and secondary windows
     (`x-codex-*-used-percent`), as omp reads them. The reading is in memory and trusted for 30 minutes; an account
     with none is used.
+  - Since issue #319 the accounts of Claude and Codex are ranked as omp ranks them (`subscription/rank.go`, after
+    `rank.ts`, `select.ts` and `usage-report.ts`): from each account's windows, the newer of its last answer's
+    headers (Codex's `x-codex-{primary,secondary}-{used-percent,window-minutes,reset-at}` too now) and the limits
+    call, trusted for 30 minutes, the reserve goes last, an account whose 5 hours are 85 % used or more after the
+    others, measured before unmeasured, then the week's required drain (the part left for each hour until it
+    resets) highest first, its used part lowest, then the same of the 5 hours; ties keep the order above. A
+    conversation stays on the account it was served on while its cache may be warm (on Claude an hour after its
+    last request, as omp's `stickyWarmMs`; elsewhere as long as it is remembered), unless that account is in
+    reserve and another is not; a new or cold one, and a request with no conversation, takes the ranked first.
+    The conversation → account map is in memory and forgets one idle for a day.
 - `codex-subscription` (kind `codex_subscription`, after 9router-go, CLIProxyAPI and the Codex CLI;
   [research](docs/research/2026-11-10-codex-subscription-adapter.md)) is the first built-in provider. It runs under
   the Codex accounts logged in on the control plane (above).

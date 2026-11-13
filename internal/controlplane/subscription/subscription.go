@@ -184,6 +184,9 @@ type Service struct {
 	// limitsMu guards it.
 	limits   map[string]limitsEntry
 	limitsMu sync.Mutex
+	// pins is the account each conversation is on (rank.go); pinsMu guards it.
+	pins   map[string]pin
+	pinsMu sync.Mutex
 }
 
 const (
@@ -211,7 +214,7 @@ func New(
 ) *Service {
 	s := &Service{
 		accounts: accounts, vault: v, clock: clock, logger: logger, vendors: map[string]Vendor{}, after: time.After,
-		rr: map[string]int{}, left: map[string]quotaReading{}, limits: map[string]limitsEntry{},
+		rr: map[string]int{}, left: map[string]quotaReading{}, limits: map[string]limitsEntry{}, pins: map[string]pin{},
 	}
 	for _, vendor := range vendors {
 		s.vendors[vendor.Runtime()] = vendor
@@ -434,10 +437,9 @@ func (s *Service) Token(ctx context.Context, runtime, session string, skip ...st
 		ordered = append(ordered, ofRuntime[(start+i)%len(ofRuntime)])
 	}
 
-	// The accounts in reserve go last, each group keeping its order.
-	slices.SortStableFunc(ordered, func(a, b Account) int {
-		return cmpBool(s.inReserve(a.ID, now), s.inReserve(b.ID, now))
-	})
+	// A warm conversation keeps its account; otherwise the accounts are ranked
+	// by their windows, the reserve last (rank.go).
+	ordered = s.rank(runtime, session, ordered, now)
 
 	var free *time.Time
 
@@ -460,6 +462,8 @@ func (s *Service) Token(ctx context.Context, runtime, session string, skip ...st
 				return Token{}, err
 			}
 		}
+
+		s.keepPin(runtime, session, a.ID, now)
 
 		return s.tokenOf(ctx, a.Account)
 	}

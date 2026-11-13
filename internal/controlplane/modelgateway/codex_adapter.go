@@ -182,6 +182,7 @@ func (s *Server) codexPost(ctx context.Context, token AccountToken, built codex.
 	}
 
 	s.noteQuota(token, resp.Header, codexQuotaLeft)
+	s.accounts.NoteAnswer(codexRuntime, token.AccountID, resp.Header)
 
 	return resp, nil
 }
