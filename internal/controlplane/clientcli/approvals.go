@@ -134,7 +134,13 @@ func integrationsActions(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	}
 
 	return e.print(fs, resp.JSON200, func() {
-		if len(resp.JSON200.Data) == 0 {
+		switch {
+		case len(resp.JSON200.Data) > 0:
+		case integration == "aws":
+			// AWS's actions are named by the request, so none is listed until the owner answers for one (#331).
+			e.printf("agents may do whatever the role allows; set an action with "+
+				"`hypomnema integrations actions set %s aws.<service>.<Operation> ask|never`\n", fs.Arg(0))
+		default:
 			e.printf("%s does not go through the service proxy: there are no actions to answer for\n", integration)
 		}
 
