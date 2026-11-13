@@ -355,6 +355,7 @@ func TestOmpThroughTheGateway(t *testing.T) {
 	config, err := os.ReadFile(filepath.Join(conversation, "agent", "config.yml")) //nolint:gosec // the test's own
 	require.NoError(t, err)
 	assert.Contains(t, string(config), "xdev: false")
+	assert.Contains(t, string(config), "web_search:\n  enabled: false\n", "omp's own search is off")
 
 	assert.Equal(t, "initialize\nsession/new\nsession/prompt", g.file("methods.txt"))
 	assert.Equal(t, g.worktree, g.file("cwd.txt"))
@@ -364,7 +365,8 @@ func TestOmpThroughTheGateway(t *testing.T) {
 // Scenario: an opencode worker. Its configuration is a file of the
 // Conversation's own, away from the user's and the project's, that names
 // the gateway with the key as an environment variable's name, allows every
-// action and denies the tool that would hide the tools server's tools.
+// action and denies the tool that would hide the tools server's tools, and
+// its own web tools.
 func TestOpencodeThroughTheGateway(t *testing.T) {
 	t.Parallel()
 
@@ -396,6 +398,11 @@ func TestOpencodeThroughTheGateway(t *testing.T) {
 		"baseURL": "https://hypomnema.example/v1", "apiKey": "{env:HYPOMNEMA_MODEL_KEY}",
 	}, config.Providers["hypomnema"].Settings)
 	assert.Contains(t, config.Permissions, map[string]string{"action": "execute", "resource": "*", "effect": "deny"})
+
+	for _, own := range []string{"websearch", "webfetch"} {
+		assert.Contains(t, config.Permissions, map[string]string{"action": own, "resource": "*", "effect": "deny"},
+			"opencode's own %s is off", own)
+	}
 	assert.NotContains(t, string(raw), `"skills"`, "a worker given no skill is told of no folder")
 }
 

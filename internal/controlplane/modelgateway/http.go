@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/cloudcode"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/websearch"
 )
 
 // The gateway's HTTP API speaks OpenAI's shapes, so any OpenAI client works
@@ -34,6 +35,9 @@ type Config struct {
 	// empty: Google's. Tests name their own.
 	AntigravityBaseURL     string
 	AntigravityManifestURL string
+	// Web searches the web and reads pages for /v1/search and /v1/web/fetch
+	// (issue #354); nil: those routes answer that there is none.
+	Web *websearch.Service
 }
 
 // Server serves the gateway's HTTP API.
@@ -51,6 +55,8 @@ type Server struct {
 	antigravity    *antigravityState
 	// accountState is what is remembered of every built-in provider's accounts.
 	accountState *accountState
+	// web serves the web's search and pages; nil when the control plane gave none.
+	web *websearch.Service
 }
 
 // NewServer returns the gateway's HTTP API over a Service.
@@ -84,6 +90,7 @@ func NewServer(svc *Service, logger *slog.Logger, cfg Config) *Server {
 		antigravityURL: strings.TrimRight(cfg.AntigravityBaseURL, "/"),
 		antigravity:    newAntigravityState(cfg.AntigravityManifestURL, svc.clock.Now),
 		accountState:   newAccountState(),
+		web:            cfg.Web,
 	}
 }
 
@@ -94,6 +101,10 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/responses", longAnswer(s.responses))
 	mux.HandleFunc("POST /v1/messages", longAnswer(s.messages))
 	mux.HandleFunc("POST /v1/messages/count_tokens", s.countTokens)
+	// A search tries each provider in turn, and a page may be read twice (directly, then by Jina): longer than
+	// the server's write timeout at worst, within their own bounds.
+	mux.HandleFunc("POST /v1/search", longAnswer(s.webSearch))
+	mux.HandleFunc("POST /v1/web/fetch", longAnswer(s.webFetch))
 }
 
 // longAnswer lifts the server's write timeout for a model's answer, which streams for as long as the model works:

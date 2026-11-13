@@ -46,6 +46,10 @@ func codeOf(err error) openapi.ErrorCode {
 		locked   *lockedError
 	)
 
+	if code, ok := webCode(err); ok {
+		return code
+	}
+
 	switch {
 	case errors.As(err, &locked):
 		return openapi.RateLimited
@@ -94,6 +98,10 @@ func (s *Server) writeError(w http.ResponseWriter, r *http.Request, err error) {
 	var locked *lockedError
 	if errors.As(err, &locked) {
 		w.Header().Set("Retry-After", retryAfter(locked.wait))
+	}
+
+	if wait, ok := s.restingWait(err); ok {
+		w.Header().Set("Retry-After", wait)
 	}
 
 	writeJSONError(w, statusOf(code), code, message)

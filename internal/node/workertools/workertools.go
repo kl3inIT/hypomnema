@@ -2,8 +2,9 @@
 // --mcp-config (issue #32), as Omnigent's `serve-mcp` bridge
 // (omnigent/harnesses/claude_native/bridge.py at cf1021e). It offers two
 // tools of its own, which talk to the node daemon only through the bridge
-// directory, and the tools of the browser every agent shares (issue #212),
-// which it passes on to the control plane:
+// directory, and the tools the control plane lists, the browser every agent
+// shares (issue #212) and the web's (issue #354), which it passes on to the
+// control plane:
 //
 //   - ask: a question the worker waits for (a `wait` question of the
 //     orchestration core). The call blocks until the answer arrives and sends
@@ -284,7 +285,8 @@ func (s *server) call(ctx context.Context, raw json.RawMessage) (any, error) {
 
 		return s.agent.memoryCall(ctx, p.Arguments)
 	default:
-		// Any other tool is the browser's: the control plane knows which it offers.
+		// Any other tool is one the control plane lists, the browser's or the web's (issue #354): it knows which
+		// it offers.
 		if s.agent != nil {
 			return s.agent.browserCall(ctx, p.Name, p.Arguments)
 		}

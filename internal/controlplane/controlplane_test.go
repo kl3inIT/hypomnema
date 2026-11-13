@@ -163,3 +163,37 @@ func (l *startedLog) Write(p []byte) (int, error) {
 		}
 	}
 }
+
+// The web search's settings (issue #354): the owner's SearXNG, which must be
+// an http(s) address, and the vault secret Exa's key is read from.
+func TestLoadConfigReadsTheWebSearchSettings(t *testing.T) {
+	t.Parallel()
+
+	load := func(env map[string]string) (controlplane.Config, error) {
+		return controlplane.LoadConfig(func(name string) string {
+			if name == "HYPOMNEMA_DATABASE_PATH" {
+				return filepath.Join(t.TempDir(), "hypomnema.db")
+			}
+
+			return env[name]
+		})
+	}
+
+	cfg, err := load(nil)
+	require.NoError(t, err)
+	assert.Empty(t, cfg.WebSearchSearXNGURL)
+	assert.Equal(t, "web-search-exa", cfg.WebSearchExaSecret)
+
+	cfg, err = load(map[string]string{
+		"HYPOMNEMA_WEB_SEARCH_SEARXNG_URL": "http://10.0.0.5:8888/",
+		"HYPOMNEMA_WEB_SEARCH_EXA_SECRET":  "exa",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, "http://10.0.0.5:8888", cfg.WebSearchSearXNGURL)
+	assert.Equal(t, "exa", cfg.WebSearchExaSecret)
+
+	for _, bad := range []string{"10.0.0.5:8888", "ftp://searx.example", "http://"} {
+		_, err := load(map[string]string{"HYPOMNEMA_WEB_SEARCH_SEARXNG_URL": bad})
+		require.ErrorContains(t, err, "HYPOMNEMA_WEB_SEARCH_SEARXNG_URL", bad)
+	}
+}

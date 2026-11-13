@@ -23,6 +23,9 @@ messages and nothing answers. `HYPOMNEMA_BOT_FILES_COMMAND` (a JSON array, `sudo
 the files a Bot sends into a Lark chat; unset, the panel shows only the Tasks' worktrees and a Bot's files are not
 sent. `HYPOMNEMA_ROUTINE_COMMAND` (a JSON array) runs a script Routine for
 the Bot's name and the Routine's id appended to it; unset, a script Routine's run fails and says so.
+`HYPOMNEMA_WEB_SEARCH_SEARXNG_URL` (an http(s) address) is the owner's SearXNG, which web searches ask; unset, it is
+not asked. `HYPOMNEMA_WEB_SEARCH_EXA_SECRET` (default `web-search-exa`) names the vault secret that holds Exa's API
+key; while there is no such secret Exa is asked without a key (see "Web search and fetch").
 
 The coordinator (`internal/controlplane/coordinator`, issue #41 PR 3): `serve` runs one `pi --mode rpc` per chat
 that has something for pi, as the chat's Bot (`--bot`, and `--group` for a Lark group's chat) with the Bot's model
@@ -245,7 +248,9 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     OpenMausBot's stdio proxy calls its server: `tools/list` answers `ask`, `finish`, `memory` (below, under
     Memories) and what the control plane lists, under agent-browser's names, so the list changes without a node release; any other tool's call is
     passed to `POST /agent/v1/browser/call` and its answer, a screenshot as image content, is passed back as it
-    is. A control plane that gives no browser leaves the worker `ask`, `finish` and `memory`. The tab is not closed when
+    is. The control plane's list also holds a worker's web tools, by its runtime (see "Web search and fetch"),
+    and lists them when it gives no browser. A control plane that gives neither leaves the worker `ask`, `finish`
+    and `memory`. The tab is not closed when
     the Dispatch settles: the idle rules close it.
   - Who drives the browser (issue #219; `control.go`, after OpenMausBot's `server/browser/control.ts`): the
     agents, or the owner who took control. The profile is shared, so the owner holding any tab holds the whole
@@ -371,6 +376,15 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     memory once per session; a change is in the prompt from pi's next start. pi changes the memory with
     `hypomnema memory add|replace|remove`, which names the Bot of `HYPOMNEMA_BOT`; pi's token decides which Bot it
     is. When the Bot cannot be read pi does not start.
+  - A Bot searches the web and reads a page (issue #354, after 9router's `skills/9router-web-search`): `POST
+    /web/search` `{query, max_results?, provider?}` and `POST /web/fetch` `{url}`, for any token, and `hypomnema web
+    search <query> [--max-results N] [--provider exa|searxng|parallel]` and `hypomnema web fetch <url>`, which print
+    the results or the page marked as outside content (`--json`: the API's answer). Both are "Web search and fetch"
+    (below), the call recorded on the gateway key of the chat's running pi. The skill `web-search`, which this binary
+    ships, says when to use them, and the instructions every Bot gets name it; `hypomnema skills install --agent
+    agents` (the setup script) puts its stub in `~/.agents/skills`. Errors: 400 (no query, an unknown provider, an
+    address that is not http(s)), 403 (a page not on the public internet), 429 `rate_limited` with `Retry-After`,
+    503 `unavailable` (every provider failed, a page that could not be read, no web search).
   - Every owner's and coordinator's token reads Bots and changes a memory an entry at a time; the owner, and the Bot
     `coordinator` from its chat (below), make, change and remove a Bot (`hypomnema bots list|show|set|rm`); only
     the owner replaces a whole memory.
@@ -1244,7 +1258,8 @@ plane, which keeps their tokens fresh. The gateway's Codex provider runs under t
 The model gateway (`internal/controlplane/modelgateway`, issue #20,
 [decision](docs/decisions/2026-11-10-model-gateway.md)) serves chat to clients that speak OpenAI's API, from
 OpenAI-compatible providers the owner declares and from three built-in providers, the owner's Codex, Antigravity and
-Claude subscriptions. Other provider formats and other capabilities do not exist yet.
+Claude subscriptions, and searches the web and reads pages (below). Other provider formats and other capabilities do
+not exist yet.
 - A model is a YAML document: a public `name`, a `capability` (`chat`, the only one), and `targets` (a provider and
   the model's name there) in the order tried. Applying a name again replaces it. A target must name a provider of a
   kind the gateway has an adapter for (`openai_compatible`, `codex_subscription`, `antigravity_subscription`,
@@ -1312,6 +1327,15 @@ Claude subscriptions. Other provider formats and other capabilities do not exist
     arguments sent whole when it ends, `finish_reason` as `stop_reason`, the input counted without the cached part.
     `count_tokens` for a model with no Claude target is estimated (bytes / 4), as 9router-go and 9router do.
 - Every gateway route reads the key from `Authorization: Bearer` or `x-api-key`.
+- `POST /v1/search` `{query, max_results?, provider?}` answers `{provider, query, results: [{title, url, snippet,
+  published_at?}], cached, errors?}` and `POST /v1/web/fetch` `{url}` answers `{url, title, content, truncated}`
+  (issue #354, after OmniRoute's routes of the same names), with any key the gateway knows, whatever models it may
+  use. Each call is recorded on the key as model `web/search` or `web/fetch`, the provider that answered as its
+  provider, with no tokens, so it shows on the Usage page; a failure as an upstream error, every provider resting
+  with status 429. The gateway's refusals are OpenAI's errors: 400 (no query, an unknown provider, a body that is
+  not JSON), 403 `address_refused` (a page not on the public internet), 429 `search_rate_limited` with
+  `Retry-After`, 502 `upstream_failed` (every provider failed, each one's reason in the message; a page that could
+  not be read), 503 when the control plane gave no web search. What they do is "Web search and fetch", below.
 - The owner manages the keys a tool outside (opencode, omp) uses on Settings → Gateway keys (issue #199, step 6, after
   Coder's AI Gateway keys and 9router's Endpoint & Key): `GET /gateway/keys` lists the keys the owner made that work,
   with their start (`key_prefix`, the kind and six characters, migration 00053; empty for older keys), models,
@@ -1480,6 +1504,61 @@ Claude subscriptions. Other provider formats and other capabilities do not exist
 - The tables `gateway_models`, `gateway_model_targets`, `gateway_keys` and `gateway_usage` are in the one migration
   stream and are read and written only by this package, through its own generated queries. Providers are read
   through orchestration and keys through the vault.
+
+Web search and fetch (`internal/controlplane/websearch`, issue #354,
+[research](docs/research/2026-11-13-web-search.md)): one Service the control plane makes as it serves, which the
+model gateway serves on `/v1/search` and `/v1/web/fetch` (above), the agent API gives a worker as tools (see "A
+browser every agent shares") and the client API gives a Bot as commands (see Bots). It holds no key and records
+nothing itself: the control plane's wiring reads Exa's key from the vault and records each call on a gateway key.
+- Providers (after omp's `providers/exa.ts` and `parallel.ts`, opencode's `plugin/websearch` and OmniRoute's
+  `handlers/search.ts`): Exa's REST API with its key (`api.exa.ai/search`, OmniRoute's body: `type: auto`, the
+  count, `contents` with text and highlights; a result's snippet its first highlight, else 300 characters of its
+  text); Exa's public MCP without one (`mcp.exa.ai/mcp`, tool `web_search_exa`); Parallel's public MCP
+  (`search.parallel.ai/mcp`, tool `web_search` with the query as the objective and the one search query); and the
+  owner's SearXNG (`<address>/search?format=json&categories=general`). An MCP is called with one JSON-RPC
+  `tools/call` and no session, its answer JSON or an event stream, at most 256 KiB, as opencode calls it; Exa's text
+  is read into results (`Title:`, `URL:`, `Published:`, its text; 500 characters). A REST answer is at most 4 MiB.
+  Each provider has 10 seconds.
+- A search that names no provider asks Exa with its key (when the vault holds one), SearXNG (when its address is
+  set), Exa without a key, then Parallel, in turn (OmniRoute's `autoSearchCandidates`); one that names `exa`,
+  `searxng` or `parallel` asks that one only (Exa with its key when there is one, else without). A provider that
+  fails, or finds nothing (omp), is noted and the next is asked; the answer lists the providers tried before the
+  one that answered and why each did not (omp's `fallbackNotes`), and when none answers the error lists them all.
+  At most 20 results, 5 when the call names no count; the query is trimmed.
+- A provider that answered 429 rests, and is skipped meanwhile with a note: for its `Retry-After` (seconds or a date,
+  at most 30 minutes), else 2 seconds doubling with each 429 in a row up to 5 minutes (9router's
+  `BACKOFF_CONFIG`); an answer clears the count. Exa with and without its key rest apart. When every provider the
+  call may use rests, the call is refused with the time the first is free. The rests are in memory.
+- The same search (the query in NFKC, lower case, its spaces as one; the provider named; the count) is answered from
+  memory for 5 minutes (`cached`), at most 500 kept, and the same search asked while one is out waits for it and is
+  marked cached (OmniRoute's `searchCache.ts`). A failure is not kept. A search that every caller left ends within
+  a minute.
+- Fetch (after OpenClaw's `web-fetch.ts`): an http(s) address, asked with `Accept: text/markdown, text/html;q=0.9,
+  */*;q=0.1` and OpenClaw's browser User-Agent, 30 seconds in all. Markdown is kept as it came; HTML has its
+  readable part taken by go-readability (`codeberg.org/readeck/go-readability/v2`, a Go port of Mozilla's
+  Readability, which OpenClaw's `web-readability` uses) and made markdown, its links whole, by html-to-markdown
+  (`github.com/JohannesKaufmann/html-to-markdown/v2`); JSON is indented; anything else is kept as text. HTML with
+  nothing readable is read by Jina Reader without a key (`r.jina.ai/<address>`, markdown, no cache, the text after
+  `Markdown Content:` unless Jina's own fetch failed or found under 100 characters; omp's fallback). A page is read
+  up to 750,000 bytes and its content cut at 20,000 characters, either marked `truncated`; one that does not answer
+  2xx fails.
+- A page is read only where the shared browser may go (the gate's rules, `browser/egress`): each connection's
+  address is checked as it is made, after the name was resolved, so a name or a redirect that leads to loopback,
+  the machine's own addresses, a private network, link-local, the cloud's metadata service or a reserved address
+  reaches nothing, unless `HYPOMNEMA_BROWSER_ALLOW` lists it, and never the control plane's own port. No proxy is
+  used. Redirects (301, 302, 303, 307, 308) are followed by hand, at most 5, each to http(s) only, and the address's
+  user and password do not cross to another origin (OmniRoute's `redirectGuard.ts`). The providers and Jina are
+  asked without this check: their hosts are fixed, and SearXNG is the owner's, often on the local network
+  (OmniRoute keeps LAN for SearXNG).
+- What reaches an agent as text, a worker's tool result and the CLI's output, is marked as outside content as
+  OpenClaw's `wrapExternalContent` marks it: a line saying it is data, then the text between
+  `<<<EXTERNAL_UNTRUSTED_CONTENT id="…">>>` and its end marker with a random id, the source (`Web Search`, `Web
+  Fetch`), a marker the text holds defused. The JSON answers of the gateway and the client API are not marked.
+- Usage: the gateway records its own calls on the key that made them; a worker's are recorded on its Dispatch's
+  newest working gateway key, when it has one; a Bot's on the key of its chat's running pi. A call by another token
+  (the owner's, a coordinator's, a Routine's script) is not recorded.
+- Not built: the providers and their state on Settings → Gateway, the Exa key put into the vault from the web
+  client (issue #354, step 2); other providers; a subscription's own search as a provider.
 
 Node API (`internal/controlplane/nodeapi`, protocol in `internal/shared/nodeproto`, after Omnara's daemon protocol):
 - A node registers with `POST /node/v1/hello` and its bearer token. It sends its CLIs, its worktree root, its
@@ -1679,7 +1758,9 @@ Node (`internal/node`):
   table: the command (`omp acp`, `opencode acp`) and the configuration written under
   `conversations/<conversation>/<runtime>` before a turn, which names the gateway with the key as an environment
   variable's name (omp: `models.yml` and `config.yml` in its agent directory; opencode: a configuration file of its
-  own, away from the user's and the project's). A turn is `initialize`, `session/new` with the tools server as an
+  own, away from the user's and the project's). Each CLI's own web tools are off, so that the worker has the control
+  plane's (issue #354): omp's `web_search.enabled: false`; opencode's `websearch` and `webfetch` denied in its
+  `permissions`, which takes them out of its tools. A turn is `initialize`, `session/new` with the tools server as an
   MCP server (or `session/resume`, else `session/load`, for a follow-up; a session that is gone starts anew),
   `session/prompt`, then the agent's input is closed. The messages are written to the shim and read from its
   journal, so a turn survives the daemon; no ACP library holds the connection. A permission request is answered
@@ -2162,7 +2243,7 @@ internal/controlplane/bearertoken  client token format: making, checking and has
 internal/controlplane/browser  the browser every agent shares: the pinned agent-browser and headless Chrome, one Chrome and a session an agent, the tools offered, the idle rules, who drives it, the owner's views
 internal/controlplane/browser/egress  the gate on what the shared browser may reach: the SOCKS5 server Chrome goes through, the address classes, the owner's allow list
 internal/controlplane/clientapi  the client API: policies, handlers, events and their stream; generated code in openapi/
-internal/controlplane/clientcli  the commands that call the client API, and the coordinator skill (skills/)
+internal/controlplane/clientcli  the commands that call the client API, and the skills this binary ships (skills/)
 internal/controlplane/nodeapi  the node API: hello and the node WebSocket
 internal/controlplane/webui    serves the embedded web client
 internal/e2e               tests only: the control plane's node API with the node daemon
@@ -2177,7 +2258,7 @@ internal/node/shim        one worker kept across daemon restarts: journal, input
 internal/node/skills      the skills an offer names: fetched once by digest, and placed where each CLI reads them
 internal/node/statedb     the node's SQLite state: Dispatches held and the report outbox
 internal/node/terminal    the shells opened from the web: a session per id, its ring of output, the idle end
-internal/node/workertools the worker's MCP server: ask and finish, and the shared browser's tools passed on to the control plane
+internal/node/workertools the worker's MCP server: ask and finish, and the tools the control plane lists (the shared browser's, the web's) passed on to it
 internal/node/worktree    bare mirrors and git worktrees per Task
 internal/controlplane/cloudcode  what is presented to Google's Cloud Code backend: its hosts, the Antigravity IDE's user agent and version
 internal/controlplane/coordinator  the supervisor of pi, the coordinator: one pi in RPC mode per chat
@@ -2188,6 +2269,7 @@ internal/controlplane/skillsource  fetches a skill from a public GitHub reposito
 internal/controlplane/modelgateway/antigravity  the Antigravity subscription's formats: chat to Gemini's shape and back, the schema cleaner
 internal/controlplane/modelgateway/codex  the Codex subscription's formats: chat to Responses and back
 internal/controlplane/subscription  subscription accounts: a vendor's login and refresh, tokens kept in the vault
+internal/controlplane/websearch  the web's search and a page's reading: the providers in turn, their rests, the cache, the page read as markdown through the browser's address rules, outside content marked
 internal/shared/githost   git hosts: how a repository is named, and each kind's clone URL, command and links
 internal/shared/nodeproto the wire protocol between a node and the control plane
 internal/shared/platform  environment settings, slog logger, HTTP server and probes, version, clock, ids

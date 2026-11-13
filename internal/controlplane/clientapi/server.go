@@ -62,6 +62,8 @@ type Server struct {
 	// browser is the browser every agent shares; nil when the control plane has none.
 	browser Browser
 	views   viewTickets
+	// web searches the web and reads pages (issue #354); nil when the control plane wired none.
+	web Web
 	// logins counts wrong passwords per address; now is the clock it reads.
 	logins *loginLimiter
 	now    func() time.Time

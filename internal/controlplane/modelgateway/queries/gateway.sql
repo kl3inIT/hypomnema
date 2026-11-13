@@ -45,6 +45,11 @@ SELECT DISTINCT dispatch_id FROM gateway_keys WHERE dispatch_id IS NOT NULL AND 
 -- name: GetGatewayKey :one
 SELECT * FROM gateway_keys WHERE id = @id;
 
+-- The key a Dispatch's worker uses now: its newest that works (issue #354).
+-- name: GetLiveGatewayKeyOfDispatch :one
+SELECT * FROM gateway_keys WHERE dispatch_id = @dispatch_id AND revoked_at IS NULL
+ORDER BY created_at DESC, id DESC LIMIT 1;
+
 -- name: GetGatewayKeyByHash :one
 SELECT * FROM gateway_keys WHERE key_hash = @key_hash;
 

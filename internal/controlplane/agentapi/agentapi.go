@@ -12,6 +12,9 @@
 //   - the owner's own token gets every Connection, as it can already read the
 //     vault.
 //
+// A worker also lists and calls here the tools of the browser every agent
+// shares (issue #212) and its web tools (issue #354, web.go).
+//
 // A refresh token and a client secret never pass through here: the token it
 // returns is the access token, good for about an hour. It is handed only for
 // an Integration that does not go through the service proxy; Google and Lark
@@ -72,7 +75,10 @@ type Server struct {
 	store   Store
 	tokens  Tokens
 	browser Browser
-	logger  *slog.Logger
+	// web and runtimeOf give workers the web's tools (issue #354); nil when the control plane gave none.
+	web       Web
+	runtimeOf RuntimeOf
+	logger    *slog.Logger
 }
 
 // New returns a Server.
@@ -338,34 +344,48 @@ func (s *Server) token(w http.ResponseWriter, r *http.Request) {
 // the largest part of one.
 const maxBrowserCallBytes = 1 << 20
 
+// browserTools lists the tools the control plane gives the agent: the
+// browser's, and a worker's web tools (issue #354), which a browser that
+// cannot be used does not take away.
 func (s *Server) browserTools(w http.ResponseWriter, r *http.Request) {
-	if _, err := s.authenticate(r); err != nil {
+	a, err := s.authenticate(r)
+	if err != nil {
 		refuse(w, http.StatusUnauthorized, err.Error())
 
 		return
 	}
 
-	if s.browser == nil {
+	web := webToolList(s.webTools(r.Context(), a))
+
+	if s.browser == nil && len(web) == 0 {
 		refuse(w, http.StatusServiceUnavailable, "this control plane has no browser")
 
 		return
 	}
 
-	tools, err := s.browser.Tools(r.Context())
-	if err != nil {
-		s.failBrowser(w, r, err)
+	out := agenttool.BrowserToolList{Data: []agenttool.BrowserTool{}}
 
-		return
+	if s.browser != nil {
+		tools, err := s.browser.Tools(r.Context())
+
+		switch {
+		case err != nil && len(web) == 0:
+			s.failBrowser(w, r, err)
+
+			return
+		case err != nil:
+			s.logger.WarnContext(r.Context(), "the browser's tools could not be listed",
+				slog.String("event", "agentapi.browser_tools_failed"), slog.String("error", err.Error()))
+		}
+
+		for _, t := range tools {
+			out.Data = append(out.Data, agenttool.BrowserTool{
+				Name: t.Name, Description: t.Description, InputSchema: t.InputSchema,
+			})
+		}
 	}
 
-	out := agenttool.BrowserToolList{Data: make([]agenttool.BrowserTool, 0, len(tools))}
-	for _, t := range tools {
-		out.Data = append(out.Data, agenttool.BrowserTool{
-			Name: t.Name, Description: t.Description, InputSchema: t.InputSchema,
-		})
-	}
-
-	answer(w, out)
+	answer(w, agenttool.BrowserToolList{Data: append(out.Data, web...)})
 }
 
 func (s *Server) browserCall(w http.ResponseWriter, r *http.Request) {
@@ -376,16 +396,23 @@ func (s *Server) browserCall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if s.browser == nil {
-		refuse(w, http.StatusServiceUnavailable, "this control plane has no browser")
-
-		return
-	}
-
 	var asked agenttool.BrowserCall
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBrowserCallBytes)).Decode(&asked); err != nil ||
 		asked.Tool == "" {
 		refuse(w, http.StatusBadRequest, "name the tool and give its arguments as a JSON object")
+
+		return
+	}
+
+	// A web tool is the worker's when its runtime is given it; for any other agent it is no tool of the browser.
+	if slices.Contains(s.webTools(r.Context(), a), asked.Tool) {
+		s.webCall(w, r, a, asked)
+
+		return
+	}
+
+	if s.browser == nil {
+		refuse(w, http.StatusServiceUnavailable, "this control plane has no browser")
 
 		return
 	}
