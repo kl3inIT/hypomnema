@@ -1,6 +1,5 @@
 import { Link } from "@tanstack/react-router"
 import {
-  Bot,
   BotMessageSquare,
   LayoutGrid,
   LogOut,
@@ -9,6 +8,7 @@ import {
   Server,
   Settings,
   SquarePen,
+  SquareTerminal,
   UsersRound,
 } from "lucide-react"
 import type { ReactNode } from "react"
@@ -28,7 +28,8 @@ import { BotList } from "./bot-list"
 
 // The app's frame, as t3code's (MIT, Copyright (c) 2026 T3 Tools Inc., https://github.com/pingdotgg/t3code;
 // components/ui/sidebar.tsx, sidebar/SidebarThreadRow.tsx): a full-height sidebar with the places (a new chat, the
-// Team with what waits for the owner, the Bots and their Routines, the agents, the machines) and the Bots with
+// Team with what waits for the owner, the Routines, then what is set up: the Bots, the agents, the machines; in the
+// order they are used, as OpenClaw's navigation, issue #371) and the Bots with
 // their chats (bot-list.tsx), and a quiet 52px header over each page. On a phone the sidebar
 // hides; the header's menu leads to the start page, which lists the same places.
 
@@ -69,13 +70,6 @@ export function Places() {
         )}
       </Link>
       <Link
-        to="/bots"
-        className={cn(placeClass, "[&.active]:bg-sidebar-row-active [&.active]:text-foreground")}
-      >
-        <BotMessageSquare className="size-4" />
-        Bots
-      </Link>
-      <Link
         to="/routines"
         className={cn(placeClass, "[&.active]:bg-sidebar-row-active [&.active]:text-foreground")}
       >
@@ -83,10 +77,17 @@ export function Places() {
         Routines
       </Link>
       <Link
+        to="/bots"
+        className={cn(placeClass, "[&.active]:bg-sidebar-row-active [&.active]:text-foreground")}
+      >
+        <BotMessageSquare className="size-4" />
+        Bots
+      </Link>
+      <Link
         to="/agents"
         className={cn(placeClass, "[&.active]:bg-sidebar-row-active [&.active]:text-foreground")}
       >
-        <Bot className="size-4" />
+        <SquareTerminal className="size-4" />
         Agents
       </Link>
       <Link
