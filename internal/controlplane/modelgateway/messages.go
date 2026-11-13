@@ -27,9 +27,10 @@ import (
 // count_tokens asked of Anthropic (claude_executor_tokens.go). The usage is
 // read from message_start and message_delta (9router usageTracking.js).
 //
-// Left out, with where a reference has it: a model served by another kind of
-// provider, which CLIProxyAPI, 9router-go and 9router translate to chat and
-// back; renaming a client's tools, which 9router-go and 9router do always.
+// A model served by another kind of provider is asked in chat's format and
+// its answer turned back (package claude, ChatFromMessages), as CLIProxyAPI,
+// 9router-go and 9router translate it. Left out: renaming a client's tools,
+// which 9router-go and 9router do always.
 
 // claudeCodeHeaders are the headers of a Claude Code client passed on to
 // Anthropic: by prefix, then by name (CLIProxyAPI claude_executor_request.go).
@@ -53,6 +54,7 @@ type messagesRequest struct {
 // messagesCall is one request on its way to Anthropic.
 type messagesCall struct {
 	path       string
+	keyID      string
 	raw        []byte
 	req        messagesRequest
 	claudeCode bool
@@ -94,7 +96,7 @@ func (s *Server) serveMessages(w http.ResponseWriter, r *http.Request, path stri
 		return
 	}
 
-	call := messagesCall{path: path, raw: raw, header: r.Header, generates: generates}
+	call := messagesCall{path: path, keyID: key.ID, raw: raw, header: r.Header, generates: generates}
 	if err := json.Unmarshal(raw, &call.req); err != nil || call.req.Model == "" {
 		writeAnthropicError(w, http.StatusBadRequest, typeInvalidRequest, "",
 			"the request is a JSON object that names a model")
@@ -159,48 +161,59 @@ func isClaudeCode(h http.Header, userID string) bool {
 		userID != ""
 }
 
-// passMessages tries the model's Claude targets in order, as serveResponses
-// tries its Codex targets, and fills the record.
+// passMessages tries the model's targets in order, as serveChat does, and
+// fills the record. A Claude subscription is passed the request as it is; any
+// other target is asked in chat's format and its answer turned back into
+// Messages (9router-go chat.go). count_tokens is asked of a Claude target only,
+// and estimated without one, as 9router-go and 9router estimate it.
 func (s *Server) passMessages(w http.ResponseWriter, r *http.Request, call messagesCall, model Model, record *Usage) {
 	ctx := r.Context()
 
-	var targets []upstream
+	attempts := s.messagesAttempts(ctx, call, model)
+	if len(attempts) == 0 {
+		if !call.generates {
+			writeJSON(w, http.StatusOK, map[string]int{"input_tokens": max(len(call.raw)/4, 1)})
 
-	for _, target := range model.Targets {
-		u, _, err := s.svc.upstreamFor(ctx, target)
-		if err == nil && u.Kind == "claude_subscription" {
-			targets = append(targets, u)
+			return
 		}
-	}
 
-	if len(targets) == 0 || s.accounts == nil {
-		writeAnthropicError(w, http.StatusBadRequest, typeInvalidRequest, "",
-			fmt.Sprintf("model %q is not served from a Claude subscription, the one kind /v1/messages passes on to",
-				model.Name))
+		record.Outcome = OutcomeTransportError
+
+		writeAnthropicError(w, http.StatusBadGateway, typeServer, "",
+			fmt.Sprintf("no provider of model %q could be reached", model.Name))
 
 		return
 	}
 
-	for i, target := range targets {
-		last := i == len(targets)-1
-		record.Attempts, record.Provider, record.UpstreamModel = i+1, target.Provider, target.Model
+	var chat *chatRequest
+
+	for i, a := range attempts {
+		last := i == len(attempts)-1
+		record.Attempts, record.Provider, record.UpstreamModel = i+1, a.upstream.Provider, a.upstream.Model
 		record.Status = 0
 
-		resp, err := s.underAccounts(ctx, claudeAccountRuntime, call.session, nil,
-			func(token AccountToken) (*http.Response, error) {
-				resp, err := s.messagesCall(ctx, &token, call, target.Model)
-				if err != nil {
-					return nil, err
+		var (
+			resp *http.Response
+			err  error
+		)
+
+		if a.claude {
+			resp, err = s.claudeMessages(ctx, call, a.upstream.Model)
+		} else {
+			if chat == nil {
+				translated, terr := chatFromMessages(call.raw)
+				if terr != nil {
+					writeAnthropicError(w, http.StatusBadRequest, typeInvalidRequest, "", terr.Error())
+
+					return
 				}
 
-				if resp.StatusCode != http.StatusOK {
-					return s.claudeRefused(ctx, token, resp), nil
-				}
+				chat = &translated
+			}
 
-				s.accountState.served(token.AccountID)
+			resp, err = s.send(ctx, chatCall{req: *chat, keyID: call.keyID, model: model.Name}, a.target)
+		}
 
-				return resp, nil
-			})
 		if err != nil {
 			if ctx.Err() != nil {
 				record.Outcome = OutcomeClientGone
@@ -216,7 +229,7 @@ func (s *Server) passMessages(w http.ResponseWriter, r *http.Request, call messa
 			}
 
 			s.logger.WarnContext(ctx, "a gateway target gave no answer",
-				slog.String("event", "modelgateway.target_failed"), slog.String("provider", target.Provider),
+				slog.String("event", "modelgateway.target_failed"), slog.String("provider", a.upstream.Provider),
 				slog.String("model", model.Name), slog.String("error", err.Error()))
 
 			continue
@@ -230,18 +243,16 @@ func (s *Server) passMessages(w http.ResponseWriter, r *http.Request, call messa
 			continue
 		}
 
-		if resp.StatusCode != http.StatusOK {
+		switch {
+		case resp.StatusCode < 200 || resp.StatusCode > 299:
 			record.Outcome = OutcomeUpstreamError
 
 			passMessagesRefusal(w, resp)
-			_ = resp.Body.Close()
-
-			return
-		}
-
-		if call.req.Stream && strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream") {
+		case !a.claude:
+			s.relayFromChat(w, r, call, model.Name, resp, record)
+		case call.req.Stream && strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream"):
 			s.relayMessages(w, r, len(call.raw), resp, record)
-		} else {
+		default:
 			passMessagesAnswer(w, len(call.raw), resp, record)
 		}
 
@@ -254,6 +265,173 @@ func (s *Server) passMessages(w http.ResponseWriter, r *http.Request, call messa
 
 	writeAnthropicError(w, http.StatusBadGateway, typeServer, "",
 		fmt.Sprintf("no provider of model %q could be reached", model.Name))
+}
+
+// messagesAttempt is one target a Messages request may go to.
+type messagesAttempt struct {
+	target   Target
+	upstream upstream
+	claude   bool
+}
+
+// messagesAttempts are the targets of a model a call can be sent to, in order.
+func (s *Server) messagesAttempts(ctx context.Context, call messagesCall, model Model) []messagesAttempt {
+	var attempts []messagesAttempt
+
+	for _, target := range model.Targets {
+		u, _, err := s.svc.upstreamFor(ctx, target)
+		if err != nil {
+			s.logger.WarnContext(ctx, "a gateway target cannot be used",
+				slog.String("event", "modelgateway.target_failed"), slog.String("provider", target.Provider),
+				slog.String("model", model.Name), slog.String("error", err.Error()))
+
+			continue
+		}
+
+		claudeTarget := u.Kind == "claude_subscription"
+		if (claudeTarget && s.accounts == nil) || (!claudeTarget && !call.generates) {
+			continue
+		}
+
+		attempts = append(attempts, messagesAttempt{target: target, upstream: u, claude: claudeTarget})
+	}
+
+	return attempts
+}
+
+// chatFromMessages is a Messages request as the chat route reads one.
+func chatFromMessages(raw []byte) (chatRequest, error) {
+	body, err := claude.ChatFromMessages(raw)
+	if err != nil {
+		return chatRequest{}, fmt.Errorf("translating the request: %w", err)
+	}
+
+	return parseChatRequest(body)
+}
+
+// claudeMessages passes a request to a Claude subscription under its accounts.
+func (s *Server) claudeMessages(ctx context.Context, call messagesCall, upstreamModel string) (*http.Response, error) {
+	return s.underAccounts(ctx, claudeAccountRuntime, call.session, nil,
+		func(token AccountToken) (*http.Response, error) {
+			resp, err := s.messagesCall(ctx, &token, call, upstreamModel)
+			if err != nil {
+				return nil, err
+			}
+
+			if resp.StatusCode != http.StatusOK {
+				return s.claudeRefused(ctx, token, resp), nil
+			}
+
+			s.accountState.served(token.AccountID)
+
+			return resp, nil
+		})
+}
+
+// relayFromChat turns a chat answer into a Messages answer: a stream event by
+// event, a whole answer at once.
+func (s *Server) relayFromChat(
+	w http.ResponseWriter, r *http.Request, call messagesCall, model string, resp *http.Response, record *Usage,
+) {
+	id := s.svc.newID("msg")
+
+	if !call.req.Stream || !strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream") {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
+
+		answer, usage, err := claude.MessageFromChat(body, model, id)
+		if err != nil {
+			record.Outcome = OutcomeUpstreamError
+
+			writeAnthropicError(w, http.StatusBadGateway, typeServer, "", "the provider's answer could not be read")
+
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(answer) // The client went away; nothing is left to tell it.
+
+		record.Outcome = OutcomeOK
+		record.Tokens = chatTokens(usage)
+		record.Tokens.estimate(len(call.raw), len(body))
+
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+
+	flusher, _ := w.(http.Flusher)
+
+	idle := time.AfterFunc(s.idleTimeout, func() { _ = resp.Body.Close() })
+	defer idle.Stop()
+
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 0, 64<<10), maxEventBytes)
+
+	stream := claude.NewFromChatStream(id, model)
+	sent := 0
+
+	write := func(frames []byte) bool {
+		if len(frames) == 0 {
+			return true
+		}
+
+		if _, err := w.Write(frames); err != nil {
+			return false
+		}
+
+		sent += len(frames)
+
+		if flusher != nil {
+			flusher.Flush()
+		}
+
+		return true
+	}
+
+	clientGone := false
+
+	for scanner.Scan() {
+		idle.Reset(s.idleTimeout)
+
+		payload, isData := bytes.CutPrefix(scanner.Bytes(), []byte("data:"))
+		if isData && !write(stream.Chunk(payload)) {
+			clientGone = true
+
+			break
+		}
+	}
+
+	ended := stream.Ended()
+
+	if !clientGone && !ended && r.Context().Err() == nil {
+		// The provider's stream stopped without its end: the message is
+		// closed so the client is not left waiting, and the record says so.
+		clientGone = !write(stream.Close())
+	}
+
+	switch {
+	case clientGone || r.Context().Err() != nil:
+		record.Outcome = OutcomeClientGone
+	case ended:
+		record.Outcome = OutcomeOK
+	default:
+		record.Outcome = OutcomeTruncated
+	}
+
+	record.Tokens = chatTokens(stream.Usage())
+	record.Tokens.estimate(len(call.raw), sent)
+}
+
+func chatTokens(u *claude.ChatUsage) Tokens {
+	if u == nil {
+		return Tokens{}
+	}
+
+	return Tokens{Prompt: u.PromptTokens, Completion: u.CompletionTokens, Cached: u.Cached()}
 }
 
 // badMessagesError is a body that cannot be passed on: the client's to fix.

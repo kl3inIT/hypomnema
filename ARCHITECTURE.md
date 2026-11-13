@@ -1072,8 +1072,8 @@ Claude subscriptions. Other provider formats and other capabilities do not exist
     `/v1/responses/compact`, a WebSocket.
 - `POST /v1/messages` and `POST /v1/messages/count_tokens` (issue #273, after CLIProxyAPI;
   [research](docs/research/2026-11-13-gateway-features.md)) are for a client that speaks Anthropic's Messages format,
-  Claude Code above all (`ANTHROPIC_BASE_URL` the gateway's origin, `ANTHROPIC_API_KEY` a gateway key). They serve a
-  model's `claude_subscription` targets only, in order, the next on 429 or 5xx:
+  Claude Code above all (`ANTHROPIC_BASE_URL` the gateway's origin, `ANTHROPIC_API_KEY` a gateway key). They try a
+  model's targets in order, the next on 429 or 5xx. A `claude_subscription` target is passed the request:
   - The body is passed on as sent but for the model's name (`modelgateway/claude`, `PassThrough`). A client that is
     Claude Code (`X-App: cli`, a `claude-cli/` User-Agent, a `claude-code-` beta, a `metadata.user_id`) keeps its
     `anthropic-*`, `x-stainless-*`, `x-claude-code-*`, User-Agent and Accept headers, with `oauth-2025-04-20` added
@@ -1084,7 +1084,15 @@ Claude subscriptions. Other provider formats and other capabilities do not exist
   - The session is `X-Claude-Code-Session-Id`, else one per gateway key. The account, a refused token, a usage
     limit and the next account are the chat route's.
   - The gateway's own errors are Anthropic's `{"type":"error","error":{type,message}}`; Anthropic's refusals keep
-    their status, body and `Retry-After`. A model with no Claude target is refused (400).
+    their status, body and `Retry-After`.
+  - Any other target is asked through the chat route, as 9router-go does (`modelgateway/claude`, `ChatFromMessages`,
+    `MessageFromChat`, `FromChatStream`): the system as a system message without the billing block, tool uses as an
+    assistant's tool calls, tool results as tool messages (a placeholder for one never answered), images as data
+    URLs, tools as functions, `tool_choice` and `disable_parallel_tool_use`, `stop_sequences`, thinking as
+    `reasoning_effort` (above high is high), `max_completion_tokens` for gpt-5 and the o-series, and the usage frame
+    asked for. The chat answer comes back as Anthropic's: a text, thinking or tool_use block per part, a tool call's
+    arguments sent whole when it ends, `finish_reason` as `stop_reason`, the input counted without the cached part.
+    `count_tokens` for a model with no Claude target is estimated (bytes / 4), as 9router-go and 9router do.
 - Every gateway route reads the key from `Authorization: Bearer` or `x-api-key`.
 - The owner manages the keys a tool outside (opencode, omp) uses on Settings → Gateway keys (issue #199, step 6, after
   Coder's AI Gateway keys and 9router's Endpoint & Key): `GET /gateway/keys` lists the keys the owner made that work,
