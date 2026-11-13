@@ -46,6 +46,7 @@ export function createViewClient(
   let retry: ReturnType<typeof setTimeout> | null = null
   let failures = 0
   let controller: Controller | null = null
+  let size: Extract<ViewInput, { type: "resize" }> | null = null
 
   const again = () => {
     if (!stopped) retry = setTimeout(() => void connect(), retryIn(failures++))
@@ -76,6 +77,8 @@ export function createViewClient(
       if (socket !== ws) return
       opened = true
       events.onConnected(true)
+      // The tab fills this pane from the start, and again after a reconnect.
+      if (size) ws.send(JSON.stringify(size))
     })
     ws.addEventListener("message", (event) => {
       if (socket !== ws) return
@@ -132,8 +135,11 @@ export function createViewClient(
 
   return {
     send: (input) => {
+      // The pane's size is kept for the next connection and needs no control: the tab fills it whoever drives.
+      if (input.type === "resize") size = input
       if (socket?.readyState !== WebSocket.OPEN) return false
-      if (input.type !== "takeControl" && controller !== "you") return false
+      if (input.type !== "takeControl" && input.type !== "resize" && controller !== "you")
+        return false
       socket.send(JSON.stringify(input))
 
       return true

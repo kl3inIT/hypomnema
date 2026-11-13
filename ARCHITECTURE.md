@@ -244,8 +244,11 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     which agent-browser serves on a loopback port named in `run/<session>.stream`, with `pacing=ack`: a frame
     (JPEG, quality 70) goes to the page as a binary message and the next one waits for the page's `ack`; a page
     that does not take a message within 10 seconds is disconnected. The JSON messages are T3 Code's: to the page
-    `control` (`agent` or `you`), `viewport` and `url`; from it `takeControl`, `releaseControl`, `mouse`,
-    `wheel`, `key`, `navigate`, `history` and `reload`. Mouse, wheel and keys go to the stream as agent-browser's
+    `control` (`agent` or `you`), `viewport` and `url`; from it `takeControl`, `releaseControl`, `resize`,
+    `mouse`, `wheel`, `key`, `navigate`, `history` and `reload`. The tab fills the pane it is watched in
+    (`fill.go`, OpenMausBot's fill): `resize` gives it the pane's shape, at least 1280 CSS pixels wide and at most
+    twice as tall as wide, through agent-browser's `agent_browser_set_viewport`, whoever drives; the last pane to
+    change wins, and a tab nobody watches goes back to agent-browser's 1280×720. Mouse, wheel and keys go to the stream as agent-browser's
     `input_mouse` and `input_keyboard`, navigation runs as the session's own command, and all of them need
     control: without it they are dropped and the page is told again who controls. At most 4 views are open; a
     tab that is watched is not closed as idle. Each view and each take-over is logged
