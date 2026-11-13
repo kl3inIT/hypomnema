@@ -1503,6 +1503,10 @@ Node API (`internal/controlplane/nodeapi`, protocol in `internal/shared/nodeprot
     (`deploy/coordinator/files.go`), are written to a root-owned folder and its `setup-coordinator.sh` run, so the
     launchers, the sudoers rule and `/usr/local/bin/hypomnema` are always the running release's. Then the five
     newest `data/predeploy-*` folders are kept and the others removed (issue #335).
+  - A release whose `update install` failed is written to `/var/lib/hypomnema-update/blocked` and not tried again
+    until a newer release is out; one that installs removes the file, and removing it by hand retries the release
+    (issue #349, after OpenMausBot's `update-runner.sh` STATE/blocked). Before, the timer stopped the control plane
+    and copied its database every five minutes while a release could not start.
   - Deploying is pushing a tag; nothing on GitHub holds a key to the control plane's machine. A build of a commit is
     not deployed this way.
 - The control plane offers the node its queued Dispatches with what it needs (Task, repository, worktree, runtime,

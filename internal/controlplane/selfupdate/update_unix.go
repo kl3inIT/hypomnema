@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -51,6 +52,15 @@ func Update(ctx context.Context, o Options) error {
 		return nil
 	}
 
+	blocked := filepath.Join(o.State, "blocked")
+	was, err := os.ReadFile(blocked) //nolint:gosec // root's own state
+	if err == nil && strings.TrimSpace(string(was)) == m.Version {
+		o.printf("%s failed to install here; not tried again until a newer release (remove %s to retry)\n",
+			m.Version, blocked)
+
+		return nil
+	}
+
 	staged := filepath.Join(o.State, "hypomnema-"+m.Version)
 	if err := release.Download(ctx, o.HTTP, m, staged); err != nil {
 		return err
@@ -67,9 +77,24 @@ func Update(ctx context.Context, o Options) error {
 
 	o.printf("updating the control plane from %s to %s\n", current, m.Version)
 
-	// The release installs itself, with its own steps and files, while this one holds the lock.
-	return o.run()(ctx, staged, "update", "install",
+	// The release installs itself, with its own steps and files, while this one holds the lock. A release that fails
+	// to install is not tried again (issue #349, as OpenMausBot's update-runner.sh writes STATE/blocked after a
+	// rollback): each try stops the control plane and copies its database.
+	err = o.run()(ctx, staged, "update", "install",
 		"--from", staged, "--user", o.User, "--home", o.Home, "--unit", o.Unit, "--state", o.State, "--ready", o.Ready)
+	if err != nil {
+		if werr := os.WriteFile(blocked, []byte(m.Version+"\n"), 0o600); werr != nil {
+			return errors.Join(err, fmt.Errorf("remembering that %s failed: %w", m.Version, werr))
+		}
+
+		return err
+	}
+
+	if err := os.Remove(blocked); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		o.printf("removing %s failed: %v\n", blocked, err)
+	}
+
+	return nil
 }
 
 // Install puts the binary at from in place of the control plane, as described in the package's comment. It is run

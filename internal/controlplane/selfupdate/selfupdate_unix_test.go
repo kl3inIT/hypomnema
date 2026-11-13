@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -150,6 +151,31 @@ func TestUpdateDoesNothingWithoutANewerRelease(t *testing.T) {
 		assert.Empty(t, cmds.lines(), current)
 		assert.NoFileExists(t, filepath.Join(o.State, "hypomnema-v0.9.5"))
 	}
+}
+
+// Scenario: a release fails to install (the control plane put back the old one). The next update does not try it
+// again; a newer release is tried, and once it installs the block is gone.
+func TestAReleaseThatFailedToInstallIsNotTriedAgain(t *testing.T) {
+	t.Parallel()
+
+	o := installed(t)
+	o.ReleaseURL = releaseServer(t, "v0.9.5", []byte("the broken control plane"))
+	o.Reports = func(context.Context, string) (string, error) { return "v0.9.5", nil }
+	cmds := &commands{fail: map[string]error{filepath.Join(o.State, "hypomnema-v0.9.5"): errors.New("not ready")}}
+	o.Run = cmds.run
+
+	require.ErrorContains(t, selfupdate.Update(t.Context(), o), "not ready")
+	require.Len(t, cmds.lines(), 1)
+
+	require.NoError(t, selfupdate.Update(t.Context(), o))
+	assert.Len(t, cmds.lines(), 1, "the failed release is not tried again")
+
+	o.ReleaseURL = releaseServer(t, "v0.9.6", []byte("the fixed control plane"))
+	o.Reports = func(context.Context, string) (string, error) { return "v0.9.6", nil }
+
+	require.NoError(t, selfupdate.Update(t.Context(), o))
+	assert.Len(t, cmds.lines(), 2, "a newer release is tried")
+	assert.NoFileExists(t, filepath.Join(o.State, "blocked"))
 }
 
 // Scenario: a download that says it is another version is not run.
