@@ -124,6 +124,8 @@ type NewRun struct {
 // RunFilter selects Runs; empty fields match everything.
 type RunFilter struct {
 	Status RunStatus
+	// ChatID keeps the Runs a coordinator created from that chat.
+	ChatID string
 }
 
 // RunCursor is where a page of Runs ends; the next page starts after it.

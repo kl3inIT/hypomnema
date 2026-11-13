@@ -29,7 +29,9 @@ func (s *Server) ListRuns(ctx context.Context, req openapi.ListRunsRequestObject
 		return nil, err
 	}
 
-	page, err := s.svc.ListRuns(ctx, orchestration.RunFilter{Status: orchestration.RunStatus(val(req.Params.Status))},
+	page, err := s.svc.ListRuns(ctx, orchestration.RunFilter{
+		Status: orchestration.RunStatus(val(req.Params.Status)), ChatID: val(req.Params.ChatId),
+	},
 		cursor, val(req.Params.Limit))
 	if err != nil {
 		return nil, err
@@ -299,6 +301,7 @@ func (s *Server) ListQuestions(ctx context.Context, req openapi.ListQuestionsReq
 		RunID: val(req.Params.RunId), TaskID: val(req.Params.TaskId),
 		AddressedTo: orchestration.Addressee(val(req.Params.AddressedTo)),
 		Status:      orchestration.QuestionStatus(val(req.Params.Status)),
+		ChatID:      val(req.Params.ChatId),
 	})
 	if err != nil {
 		return nil, err

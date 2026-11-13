@@ -293,25 +293,28 @@ func (q *Queries) ListDueReminders(ctx context.Context, now int64) ([]ListDueRem
 const listQuestions = `-- name: ListQuestions :many
 SELECT id, dispatch_id, task_id, run_id, mode, addressed_to, text, options, status, cancel_reason, answer, answered_by, answered_at, delivered_at, remind_at, created_at, updated_at FROM questions
 WHERE (CAST(?1 AS TEXT) = '' OR run_id = ?1)
-  AND (CAST(?2 AS TEXT) = '' OR task_id = ?2)
-  AND (CAST(?3 AS TEXT) = '' OR dispatch_id = ?3)
-  AND (CAST(?4 AS TEXT) = '' OR addressed_to = ?4)
-  AND (CAST(?5 AS TEXT) = '' OR status = ?5)
+  AND (CAST(?2 AS TEXT) = '' OR run_id IN (SELECT runs.id FROM runs WHERE runs.chat_id = ?2))
+  AND (CAST(?3 AS TEXT) = '' OR task_id = ?3)
+  AND (CAST(?4 AS TEXT) = '' OR dispatch_id = ?4)
+  AND (CAST(?5 AS TEXT) = '' OR addressed_to = ?5)
+  AND (CAST(?6 AS TEXT) = '' OR status = ?6)
 ORDER BY created_at, id
 `
 
 type ListQuestionsParams struct {
 	RunID       string
+	ChatID      string
 	TaskID      string
 	DispatchID  string
 	AddressedTo string
 	Status      string
 }
 
-// Empty filters match everything.
+// Empty filters match everything; chat_id keeps the questions of the Runs of that chat.
 func (q *Queries) ListQuestions(ctx context.Context, arg ListQuestionsParams) ([]Question, error) {
 	rows, err := q.db.QueryContext(ctx, listQuestions,
 		arg.RunID,
+		arg.ChatID,
 		arg.TaskID,
 		arg.DispatchID,
 		arg.AddressedTo,

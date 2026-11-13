@@ -439,6 +439,70 @@ func TestARunNamesItsChatsBot(t *testing.T) {
 	}
 }
 
+// Scenario: a chat docks its own Runs and the questions their workers put
+// to the owner (issue #314). Filtering by chat_id keeps that chat's Runs and
+// questions and leaves out a Run made without a chat and another chat's.
+func TestAChatListsItsRunsAndTheirQuestions(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	c, _ := w.token("web", bearertoken.Owner)
+	ctx := t.Context()
+
+	newChat := func() string {
+		created, err := c.CreateChatWithResponse(ctx, openapi.NewChat{})
+		require.NoError(t, err)
+		require.Equal(t, http.StatusCreated, created.StatusCode(), string(created.Body))
+
+		return created.JSON201.Id
+	}
+	chat, other := newChat(), newChat()
+
+	resp, err := c.CreateRunWithResponse(ctx, nil, openapi.NewRun{Objective: "from chat", ChatId: &chat})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode(), string(resp.Body))
+	fromChat := resp.JSON201
+	alone := w.createRun(c, "alone")
+
+	// The Run without a chat asks first; then a Task of the chat's Run asks on the same machine.
+	w.askFromAWorker(c, alone.Id, "alone asks", orchestration.AddressOwner)
+	asked := w.askOnTheSameNode(c, fromChat.Id, "the chat's Run asks")
+
+	runs, err := c.ListRunsWithResponse(ctx, &openapi.ListRunsParams{ChatId: &chat})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, runs.StatusCode(), string(runs.Body))
+	assert.Equal(t, []string{"from chat"}, objectives(runs.JSON200.Data))
+
+	none, err := c.ListRunsWithResponse(ctx, &openapi.ListRunsParams{ChatId: &other})
+	require.NoError(t, err)
+	assert.Empty(t, none.JSON200.Data, "another chat has no Runs")
+
+	owner, open := openapi.AddresseeOwner, openapi.QuestionStatusOpen
+	qs, err := c.ListQuestionsWithResponse(ctx, &openapi.ListQuestionsParams{
+		ChatId: &chat, Status: &open, AddressedTo: &owner,
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, qs.StatusCode(), string(qs.Body))
+	require.Len(t, qs.JSON200.Data, 1)
+	assert.Equal(t, asked, qs.JSON200.Data[0].Id)
+	assert.Equal(t, fromChat.Id, qs.JSON200.Data[0].RunId)
+
+	all, err := c.ListQuestionsWithResponse(ctx, &openapi.ListQuestionsParams{Status: &open})
+	require.NoError(t, err)
+	assert.Len(t, all.JSON200.Data, 2, "without chat_id every open question is listed")
+
+	elsewhere, err := c.ListQuestionsWithResponse(ctx, &openapi.ListQuestionsParams{ChatId: &other})
+	require.NoError(t, err)
+	assert.Empty(t, elsewhere.JSON200.Data)
+
+	_, err = c.AnswerQuestionWithResponse(ctx, asked, openapi.Answer{Text: ptr("yes")})
+	require.NoError(t, err)
+
+	still, err := c.ListQuestionsWithResponse(ctx, &openapi.ListQuestionsParams{ChatId: &chat, Status: &open})
+	require.NoError(t, err)
+	assert.Empty(t, still.JSON200.Data, "an answered question leaves the chat's open ones")
+}
+
 func objectives(runs []openapi.Run) []string {
 	out := make([]string, 0, len(runs))
 	for _, r := range runs {
@@ -536,6 +600,43 @@ func (w *world) askFromAWorker(c *openapi.ClientWithResponses, runID, text strin
 	require.NoError(w.t, w.svc.ReportStarted(ctx, wk.next(), "pid:1@1", "sess_1"))
 
 	id, err := w.svc.AskQuestion(ctx, wk.next(), orchestration.Ask{Text: text, To: to})
+	require.NoError(w.t, err)
+
+	w.workers[id] = wk
+
+	return id
+}
+
+// askOnTheSameNode puts one Task of the Run on the node askFromAWorker set up and has its worker ask the owner.
+func (w *world) askOnTheSameNode(c *openapi.ClientWithResponses, runID, text string) string {
+	w.t.Helper()
+	ctx := w.t.Context()
+
+	var nodeID string
+	for _, wk := range w.workers {
+		nodeID = wk.call.NodeID
+	}
+
+	require.NotEmpty(w.t, nodeID, "askFromAWorker sets up the node first")
+
+	tasks, err := c.CreateTasksWithResponse(ctx, runID, nil, openapi.NewTasks{Tasks: []openapi.NewTask{
+		{Ref: "a", Spec: "work"},
+	}})
+	require.NoError(w.t, err)
+	require.Equal(w.t, http.StatusCreated, tasks.StatusCode(), string(tasks.Body))
+
+	scheduled, err := w.svc.Schedule(ctx)
+	require.NoError(w.t, err)
+	require.Len(w.t, scheduled.Created, 1)
+
+	wk := &worker{call: orchestration.NodeCall{NodeID: nodeID, DispatchID: scheduled.Created[0]}}
+	accepted, err := w.svc.AcceptDispatch(ctx, wk.next())
+	require.NoError(w.t, err)
+
+	wk.call.Epoch = accepted.Epoch
+	require.NoError(w.t, w.svc.ReportStarted(ctx, wk.next(), "pid:2@1", "sess_2"))
+
+	id, err := w.svc.AskQuestion(ctx, wk.next(), orchestration.Ask{Text: text, To: orchestration.AddressOwner})
 	require.NoError(w.t, err)
 
 	w.workers[id] = wk

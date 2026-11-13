@@ -46,6 +46,7 @@ var commands = []command{
 		name: "runs list", summary: "Runs, newest first",
 		flags: func(fs *flag.FlagSet) {
 			fs.String("status", "", "open, finished or canceled")
+			fs.String("chat", "", "only the Runs made from this chat")
 			fs.Int("limit", 20, "how many")
 			jsonFlag(fs)
 		},
@@ -127,6 +128,7 @@ var commands = []command{
 		flags: func(fs *flag.FlagSet) {
 			fs.String("to", "owner", "owner or coordinator")
 			fs.String("run", "", "only this Run's")
+			fs.String("chat", "", "only those of the Runs made from this chat")
 			fs.String("status", "open", "open, answered or canceled")
 			jsonFlag(fs)
 		},

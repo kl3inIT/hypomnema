@@ -10,6 +10,11 @@ Each adapted file names its source.
   Copyright (c) 2026 T3 Tools Inc.), with the icon by status of Orca's
   src/renderer/src/components/native-chat/tools/tasks/NativeChatTaskList.tsx (MIT, Copyright (c) 2026 Lovecast
   Inc.).
+- The chat's Runs docked above its composer (`src/features/chat/docked-work.tsx`, `dock-state.ts`) are adapted
+  from Orca's src/renderer/src/components/native-chat/tools/tasks/NativeChatDockedTaskList.tsx and
+  NativeChatTaskList.tsx (MIT, Copyright (c) 2026 Lovecast Inc.): the strip that opens to its list, its "n of m"
+  and a status icon a row. Which strips start open follows t3code's apps/web/src/components/chat/ThreadDetailsCard.tsx
+  (MIT, Copyright (c) 2026 T3 Tools Inc.).
 - The board's columns and cards are adapted from Orca (https://github.com/stablyai/orca,
   src/renderer/src/components/dashboard-popout), MIT.
 - The Machines page's cards, table, meters and actions menu (`src/features/machines`), the View menu of the

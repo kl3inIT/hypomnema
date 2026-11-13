@@ -346,14 +346,16 @@ const listRuns = `-- name: ListRuns :many
 SELECT runs.id, runs.objective, runs.status, runs.created_by, runs.created_at, runs.updated_at, runs.finished_at, runs.repo, runs.base, runs.coordinator_token_id, runs.chat_id, runs.repo_host, runs.uses, runs.bot, CAST(coalesce(chats.bot, '') AS TEXT) AS bot
 FROM runs LEFT JOIN chats ON chats.id = runs.chat_id
 WHERE (CAST(?1 AS TEXT) = '' OR runs.status = ?1)
-  AND (CAST(?2 AS INTEGER) = 0 OR runs.created_at < ?3
-       OR (runs.created_at = ?3 AND runs.id < ?4))
+  AND (CAST(?2 AS TEXT) = '' OR runs.chat_id = ?2)
+  AND (CAST(?3 AS INTEGER) = 0 OR runs.created_at < ?4
+       OR (runs.created_at = ?4 AND runs.id < ?5))
 ORDER BY runs.created_at DESC, runs.id DESC
-LIMIT ?5
+LIMIT ?6
 `
 
 type ListRunsParams struct {
 	Status    string
+	ChatID    string
 	HasCursor int64
 	CursorAt  int64
 	CursorID  string
@@ -366,10 +368,11 @@ type ListRunsRow struct {
 }
 
 // Newest first, after the cursor (created_at, id) of the previous page when one is given; each with the Bot of its
-// chat, empty for a Run without a chat.
+// chat, empty for a Run without a chat. Empty filters match everything.
 func (q *Queries) ListRuns(ctx context.Context, arg ListRunsParams) ([]ListRunsRow, error) {
 	rows, err := q.db.QueryContext(ctx, listRuns,
 		arg.Status,
+		arg.ChatID,
 		arg.HasCursor,
 		arg.CursorAt,
 		arg.CursorID,

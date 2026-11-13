@@ -76,7 +76,24 @@ type Streams = { push: (text: string) => void; end: () => void }[]
 // The page's global, as the scripts that run in it see it (this package's types have no DOM).
 type PageGlobal = { fetch: typeof fetch; streams: Streams }
 
-async function fakeServer(page: Page, send: (text: string) => { status: number; body: unknown }) {
+// The chat's own work as GET /runs?chat_id=, GET /runs/{id} and GET /questions?chat_id= answer it: the Runs docked
+// above the composer and the questions their workers put to the owner. Finishing a Run or answering a question
+// takes it out of what the next read answers.
+type Work = {
+  runs: { id: string; status: string; tasks: object[] }[]
+  questions: Record<string, unknown>[]
+}
+
+const noWork = (): Work => ({
+  runs: [{ ...run, status: "finished", tasks }],
+  questions: [],
+})
+
+async function fakeServer(
+  page: Page,
+  send: (text: string) => { status: number; body: unknown },
+  work: Work = noWork(),
+) {
   const calls: string[] = []
 
   await page.addInitScript(() => {
@@ -114,6 +131,25 @@ async function fakeServer(page: Page, send: (text: string) => { status: number; 
     if (path === "/me") return json({ id: "usr_1", name: "admin", kind: "owner" })
     if (path === "/approvals") return json({ data: [] })
     if (path === "/tasks") return json({ data: tasks, runs: [run], after: 5 })
+    if (path === "/runs" && url.searchParams.get("chat_id") === chat.id)
+      return json({ data: work.runs.filter((r) => r.status === "open") })
+    const runPath = /^\/runs\/([^/]+)(\/finish|\/cancel)?$/.exec(path)
+    if (runPath) {
+      const found = work.runs.find((r) => r.id === runPath[1])
+      if (!found) return json({ code: "not_found", message: "not found" }, 404)
+      if (runPath[2]) found.status = runPath[2] === "/finish" ? "finished" : "canceled"
+
+      return runPath[2] ? route.fulfill({ status: 204 }) : json(found)
+    }
+    if (path === "/questions" && url.searchParams.get("chat_id") === chat.id)
+      return json({ data: work.questions })
+    const answering = /^\/questions\/([^/]+)\/answer$/.exec(path)
+    if (answering) {
+      const q = work.questions.find((x) => x.id === answering[1])
+      work.questions = work.questions.filter((x) => x.id !== answering[1])
+
+      return json({ ...q, status: "answered" })
+    }
     if (path === "/questions") return json({ data: [asked] })
     if (path === "/chats") return json({ data: [chat] })
     if (path === `/chats/${chat.id}`) return json(chat)
@@ -278,14 +314,144 @@ test("wake-ups are cards that name their Task and open it", async ({ page }) => 
       name: "implementer asks: Use goth or hand-written OAuth for the Google login?",
     }),
   ).toBeVisible()
-  await expect(
-    log.getByRole("link", { name: "Open Run Add a /health page to the control plane" }),
-  ).toHaveAttribute("href", "/runs/run_1")
   await expect(log.getByRole("note", { name: /^Task tsk_/ })).toHaveCount(0)
   await shot(page, "chat-wake-ups")
+
+  // The Run is this chat's: its chip shows it docked above the composer, finished, rather than leaving for its page.
+  await log
+    .getByRole("button", { name: "Show Run Add a /health page to the control plane" })
+    .click()
+  const docked = page.getByRole("list", { name: "Runs of this chat" })
+  await expect(
+    docked.getByRole("button", { name: /^Add a \/health page to the control plane: Finished/ }),
+  ).toHaveAttribute("aria-expanded", "true")
+  await shot(page, "chat-wake-run-shown")
 
   await log.getByRole("button", { name: "Open Task Deploy the control plane to zm" }).click()
   await expect(page).toHaveURL(/[?&]task=tsk_2/)
   await expect(page.getByRole("dialog")).toBeVisible()
   await shot(page, "chat-wake-task-open")
+})
+
+const openRun = (id: string, objective: string, list: object[]) => ({
+  ...run,
+  id,
+  objective,
+  status: "open",
+  tasks: list.map((t) => ({ ...t, run_id: id })),
+})
+
+// Scenario: the chat has two Runs going. Each is a closed strip above the composer that says where it stands and
+// how many of its Tasks are done; one opens to its Tasks, each with its status in words, and a Task opens its panel
+// over the chat.
+test("a docked Run opens to its Tasks", async ({ page }) => {
+  await fakeServer(page, (text) => ({ status: 201, body: message(2, { role: "owner", text }) }), {
+    runs: [
+      openRun("run_1", run.objective, tasks),
+      openRun("run_2", "Write the release notes for 0.9", [
+        task("tsk_9", 1, "Draft the notes from the merged pull requests", "pending"),
+      ]),
+    ],
+    questions: [],
+  })
+  await open(page)
+  await write(page, state(false) + kept(1, { role: "owner", text: "add a /health page" }))
+
+  const docked = page.getByRole("list", { name: "Runs of this chat" })
+  const strip = docked.getByRole("button", {
+    name: "Add a /health page to the control plane: Failed, 1 of 3 Tasks done",
+  })
+  await expect(strip).toHaveAttribute("aria-expanded", "false")
+  await expect(
+    docked.getByRole("button", {
+      name: "Write the release notes for 0.9: Queued, 0 of 1 Task done",
+    }),
+  ).toHaveAttribute("aria-expanded", "false")
+  await shot(page, "chat-dock-collapsed")
+
+  await strip.click()
+  const first = docked.getByRole("listitem", {
+    name: "Run Add a /health page to the control plane",
+  })
+  const rows = first.getByRole("list", { name: "Tasks" })
+  await expect(rows.getByRole("button")).toHaveText([
+    /Add the \/health handler and its test\s*Done/,
+    /Deploy the control plane to zm\s*Failed/,
+    /Add Google login to the web client\s*Working/,
+  ])
+  await expect(first.getByRole("button", { name: "Finish Run" })).toBeDisabled()
+  await shot(page, "chat-dock-expanded")
+
+  await rows.getByRole("button", { name: /^Open Task Deploy the control plane to zm/ }).click()
+  await expect(page).toHaveURL(/[?&]task=tsk_2/)
+})
+
+// Scenario: every Task of the chat's Run has ended. The owner presses Finish Run, is asked first, and the Run
+// finishes and leaves the dock.
+test("Finish asks and finishes the docked Run", async ({ page }) => {
+  const calls = await fakeServer(
+    page,
+    (text) => ({ status: 201, body: message(2, { role: "owner", text }) }),
+    {
+      runs: [
+        openRun("run_1", run.objective, [
+          task("tsk_1", 1, "Add the /health handler and its test", "succeeded"),
+          task("tsk_2", 2, "Deploy the control plane to zm", "canceled"),
+        ]),
+      ],
+      questions: [],
+    },
+  )
+  await open(page)
+  await write(page, state(false))
+
+  const docked = page.getByRole("list", { name: "Runs of this chat" })
+  await expect(
+    docked.getByRole("button", {
+      name: "Add a /health page to the control plane: Ready to finish, 1 of 2 Tasks done",
+    }),
+  ).toHaveAttribute("aria-expanded", "true")
+
+  await docked.getByRole("button", { name: "Finish Run" }).click()
+  const ask = page.getByRole("alertdialog")
+  await expect(ask).toContainText('Finish the Run "Add a /health page to the control plane"?')
+  await shot(page, "chat-dock-finish")
+  await ask.getByRole("button", { name: "Finish Run" }).click()
+
+  await expect.poll(() => calls).toContain("POST /runs/run_1/finish")
+  await expect(ask).toHaveCount(0)
+  await expect(docked).toHaveCount(0)
+})
+
+// Scenario: a worker of the chat's Run asks the owner. The question waits above the composer with the Task it
+// comes from; answered there, it goes.
+test("a question answered in the chat disappears", async ({ page }) => {
+  const calls = await fakeServer(
+    page,
+    (text) => ({ status: 201, body: message(2, { role: "owner", text }) }),
+    {
+      runs: [openRun("run_1", run.objective, tasks)],
+      questions: [
+        {
+          ...asked,
+          id: "qst_9",
+          addressed_to: "owner",
+          text: "May I drop the old sessions table?",
+          options: [{ label: "Yes, drop it" }, { label: "No, keep it", allows_text: true }],
+        },
+      ],
+    },
+  )
+  await open(page)
+  await write(page, state(false))
+
+  const question = page.getByRole("region", {
+    name: "Question: May I drop the old sessions table?",
+  })
+  await expect(question).toContainText("Task 3 · Add Google login to the web client")
+  await shot(page, "chat-dock-question")
+
+  await question.getByRole("button", { name: "Send answer" }).click()
+  await expect.poll(() => calls).toContain("POST /questions/qst_9/answer")
+  await expect(question).toHaveCount(0)
 })

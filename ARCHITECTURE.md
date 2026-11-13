@@ -298,7 +298,9 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   owner stopped the turn) or `approval` (the coordinator is told an Approval was answered); the API sends it as
   `ChatMessage.kind`, and the web and Lark read it rather than the text. A
   Run records the chat whose pi created it (`runs.chat_id`); the API names that chat's Bot as `Run.bot` (issue #281),
-  read by a join of `runs` with `chats` in `GetRunWithBot` and `ListRuns`, and absent for a Run without a chat. Each
+  read by a join of `runs` with `chats` in `GetRunWithBot` and `ListRuns`, and absent for a Run without a chat.
+  `GET /runs?chat_id=` lists only the Runs made from a chat and `GET /questions?chat_id=` only the questions of those
+  Runs, with the other filters (issue #314; `hypomnema runs list --chat`, `hypomnema questions --chat`). Each
   event of such a Run that needs a coordinator (a Task ended or was blocked, a question to the coordinator, an
   escalation, the Run ended) adds one wake-up to the chat, unique per event. A `task.status` event's `reason` is why
   the Task is blocked, or why it failed. Reading a chat's messages (the list and the stream) joins each `wake` row
@@ -307,7 +309,22 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   pi reads the row's text. The web draws a wake row as a card across the lane (after t3code's
   `TimelineSystemDivider.tsx` and `MarkdownThreadLink.tsx`, Orca's `NativeChatTaskList.tsx`): an icon by status,
   the status in words, and the Task or Run by its title as a chip that opens the Task's panel over the chat (the
-  page's `?task=`, as the board's) or the Run's page.
+  page's `?task=`, as the board's) or shows the Run docked above the composer (below); a Run the chat does not
+  dock keeps the link to its page.
+- The chat's work docked above its composer (issue #314, `web/src/features/chat/docked-work.tsx`), beside the
+  pending Approval cards and in their scrolling box:
+  - Each open question to the owner from the chat's Runs, with the Task it comes from, answered with the
+    `QuestionForm`; read every 3 s, as the Approvals are.
+  - The chat's open Runs as strips, after Orca's `NativeChatDockedTaskList.tsx` and `NativeChatTaskList.tsx`: the
+    Run's status icon and words (Needs you, Failed, Working, Queued, Ready to finish), its objective and "n of m
+    Tasks done". A strip opens to its Tasks, a row each with its status icon and words and the runtime's mark,
+    which opens the Task's panel (`?task=`), and to the Run's Finish Run and Cancel Run, each asked first in a
+    dialog (`features/runs/run-actions.tsx`, shared with the Run's page). The Runs are read every 10 s and at once
+    when a wake-up row arrives.
+  - One Run opens by itself when, opened, it takes at most 30 % of the window with the cards that wait; with
+    several Runs, or without the room, every strip starts closed (after t3code's `ThreadDetailsCard.tsx`, which
+    shows less when it has less room). That is decided once for a Run; then the strip stays as the owner left it.
+  - A wake-up's Run chip pins its Run to the dock, open, even when it has ended, until the chat is left.
 - Bots (`orchestration/bots.go`, issue #169, after OpenMausBot's bot records and OpenClaw's `agents.entries`): a
   Bot is a row with a name, a model (provider, name, effort, checked as a profile's is, for pi), a persona and a
   memory. It is apart from the workers' profiles (owner, 2026-11-11). The Bot `coordinator` is always there: it is
@@ -1776,7 +1793,7 @@ Node (`internal/node`):
   - Questions are answered as in t3code's pending-input panel: options as radios that 1 to 9 pick, text where the
     option takes it, Enter sends. A question to pi is shown, and the owner can take it over (forward).
   - `/runs` lists the Runs, those that ask the owner first; `/runs/{id}` shows the objective, the open questions
-    answered in place, the Tasks and the answered questions; Finish and Cancel.
+    answered in place, the Tasks and the answered questions; Finish Run and Cancel Run, each asked first (issue #314).
   - Several panes on one screen (issue #235; `web/src/features/workbench`, after Omnigent's grid of sessions,
     Apache-2.0, and Orca's tab groups, MIT): up to four panes, two rows by two columns, each axis split once
     along a path. A pane is a group of tabs, as in Orca (`pane.ts`, `moves.ts`): a chat, a tab of the shared

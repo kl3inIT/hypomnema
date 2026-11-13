@@ -42,9 +42,10 @@ UPDATE questions SET updated_at = @now, delivered_at = @now
 WHERE id = @id AND dispatch_id = @dispatch_id AND mode = 'wait' AND status = 'answered' AND delivered_at IS NULL;
 
 -- name: ListQuestions :many
--- Empty filters match everything.
+-- Empty filters match everything; chat_id keeps the questions of the Runs of that chat.
 SELECT * FROM questions
 WHERE (CAST(@run_id AS TEXT) = '' OR run_id = @run_id)
+  AND (CAST(@chat_id AS TEXT) = '' OR run_id IN (SELECT runs.id FROM runs WHERE runs.chat_id = @chat_id))
   AND (CAST(@task_id AS TEXT) = '' OR task_id = @task_id)
   AND (CAST(@dispatch_id AS TEXT) = '' OR dispatch_id = @dispatch_id)
   AND (CAST(@addressed_to AS TEXT) = '' OR addressed_to = @addressed_to)

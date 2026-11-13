@@ -7,6 +7,7 @@ import type { ChatMessage } from "@/api/generated/types.gen"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { PendingApprovals } from "@/features/approvals/approval-card"
+import { usePending } from "@/features/approvals/use-approvals"
 import { firstBot } from "@/features/bots/bots-state"
 import { useSetupChanges } from "@/features/bots/setup-changes"
 import { useRoutines } from "@/features/routines/use-routines"
@@ -14,6 +15,10 @@ import { chatsKey } from "@/features/shell/chats"
 
 import { Composer } from "./composer"
 import { Conversation } from "./conversation"
+import { DockContext } from "./dock-context"
+import { wakeCount } from "./dock-state"
+import { DockedQuestions, DockedRuns } from "./docked-work"
+import { useDockedWork } from "./use-docked-work"
 import { useChatStream } from "./use-chat-stream"
 
 // ChatBody is a chat without its header: the conversation, what waits for the owner, and the composer. It fills
@@ -28,6 +33,9 @@ export function ChatBody({ chatId }: { chatId: string }) {
     queryFn: async () => (await getChat({ path: { chat_id: chatId } })).data,
   })
   const [sending, setSending] = useState<ChatMessage[]>([])
+  // What waits above the composer: the Approvals, the questions of this chat's Runs and the Runs themselves.
+  const approvals = usePending({ chatId })
+  const work = useDockedWork(chatId, wakeCount(view.messages), approvals.data?.length ?? 0)
   const bot = chat.data?.bot ?? firstBot
   // The Routines the Bot set up from this chat have their card where they were set up.
   const routines = useRoutines({ chatId })
@@ -62,7 +70,7 @@ export function ChatBody({ chatId }: { chatId: string }) {
   }
 
   return (
-    <>
+    <DockContext value={work.dock}>
       {chat.data && !chat.data.coordinator && (
         <output className="block px-5 pb-2 text-sm text-muted-foreground">
           No coordinator runs on the server: messages are kept and nothing answers.
@@ -94,10 +102,13 @@ export function ChatBody({ chatId }: { chatId: string }) {
             Reconnecting…
           </output>
         )}
-        {/* What pi asked to do with an account and waits for: answered here, where it was asked. The cards
-            scroll in their own box, so that the message box stays on the screen under them. */}
+        {/* What pi asked to do with an account and what this chat's workers ask the owner, both answered here,
+            then this chat's Runs as strips right above the composer, as Orca docks its task list (issue #314). The
+            cards scroll in their own box, so that the message box stays on the screen under them. */}
         <div className="mx-auto mb-3 flex max-h-[50dvh] w-full max-w-(--chat-content-max-width) flex-col gap-3 overflow-y-auto empty:hidden">
           <PendingApprovals chatId={chatId} />
+          <DockedQuestions work={work} />
+          <DockedRuns chatId={chatId} work={work} />
         </div>
         <Composer
           working={view.working}
@@ -106,6 +117,6 @@ export function ChatBody({ chatId }: { chatId: string }) {
           onStop={() => void abortChat({ path: { chat_id: chatId } })}
         />
       </div>
-    </>
+    </DockContext>
   )
 }
