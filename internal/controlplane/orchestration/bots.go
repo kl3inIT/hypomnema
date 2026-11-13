@@ -2,6 +2,7 @@ package orchestration
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"slices"
 	"strings"
@@ -218,15 +219,77 @@ func (s *Service) deleteBot(ctx context.Context, chat, name string) error {
 	return nil
 }
 
+// ForceDeleteBot removes a Bot with its chats and its memory (issue #330; owner, 2026-11-13): the owner's way out
+// when DeleteBot is refused only for those. The chats' messages and setup changes go, as Onyx's hard delete takes a
+// chat's messages and then the chat (backend/onyx/db/chat.py, delete_chat_session). Runs, Routines, their runs and
+// approvals made in those chats stay and lose the chat; the chats' gateway keys are revoked and kept, so the
+// gateway's usage records stay whole. It is still refused for the first Bot, and for one with Routines or Lark
+// Channels: those are live and are removed or moved first.
+func (s *Service) ForceDeleteBot(ctx context.Context, name string) error {
+	if name == DefaultBot {
+		return fmt.Errorf("%w: the bot %s is always there", ErrConflict, DefaultBot)
+	}
+
+	err := s.write(ctx, func(q *store.Queries, now int64) error {
+		if _, err := q.GetBot(ctx, name); err != nil {
+			return notFound(err, "bot", name)
+		}
+
+		if err := botLive(ctx, q, name); err != nil {
+			return err
+		}
+
+		steps := []func(context.Context, string) error{
+			q.DetachRunsFromChatsOfBot, q.DetachRoutinesFromChatsOfBot, q.DetachRoutineRunsFromChatsOfBot,
+			q.DetachApprovalsFromChatsOfBot,
+			func(ctx context.Context, bot string) error {
+				return q.RevokeGatewayKeysOfChatsOfBot(ctx, store.RevokeGatewayKeysOfChatsOfBotParams{
+					Now: sql.NullInt64{Int64: now, Valid: true}, Bot: bot,
+				})
+			},
+			q.DeleteSetupChangesOfChatsOfBot, q.DeleteLarkChannelChatsOfBot, q.DeleteChatMessagesOfBot,
+			q.DeleteChatsOfBot, q.DeleteBot,
+		}
+		for _, step := range steps {
+			if err := step(ctx, name); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("removing bot %s with its chats: %w", name, err)
+	}
+
+	return nil
+}
+
 // botRemovable refuses to remove a Bot something depends on.
 func botRemovable(ctx context.Context, q *store.Queries, row store.Bot) error {
 	name := row.Name
+
+	if err := botLive(ctx, q, name); err != nil {
+		return err
+	}
 
 	chats, err := q.CountChatsOfBot(ctx, name)
 	if err != nil {
 		return err
 	}
 
+	switch {
+	case chats > 0:
+		return fmt.Errorf("%w: bot %s has %d chats", ErrConflict, name, chats)
+	case row.Memory != "":
+		return fmt.Errorf("%w: bot %s has a memory; empty it first", ErrConflict, name)
+	}
+
+	return nil
+}
+
+// botLive refuses to remove a Bot that Routines or Lark Channels use, even with its chats.
+func botLive(ctx context.Context, q *store.Queries, name string) error {
 	channels, err := q.CountLarkChannelsOfBot(ctx, name)
 	if err != nil {
 		return err
@@ -243,10 +306,6 @@ func botRemovable(ctx context.Context, q *store.Queries, row store.Bot) error {
 	case channels > 0:
 		return fmt.Errorf("%w: %d Lark channels talk to bot %s; give them another bot or remove them first",
 			ErrConflict, channels, name)
-	case chats > 0:
-		return fmt.Errorf("%w: bot %s has %d chats", ErrConflict, name, chats)
-	case row.Memory != "":
-		return fmt.Errorf("%w: bot %s has a memory; empty it first", ErrConflict, name)
 	}
 
 	return nil

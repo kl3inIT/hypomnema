@@ -955,7 +955,7 @@ export const listBots = <ThrowOnError extends boolean = true>(options?: Options<
 /**
  * Remove a Bot that has no chats and no memory; the owner, or the Bot coordinator from its chat
  *
- * The Bot `coordinator` is always there and is not removed. A removal by the Bot coordinator is recorded in its chat as a setup change the owner can undo.
+ * The Bot `coordinator` is always there and is not removed. A removal by the Bot coordinator is recorded in its chat as a setup change the owner can undo. With force, the owner removes a Bot with its chats and its memory (issue #330): the chats' messages go; Runs, Routines and approvals made in them stay without the chat, and the chats' gateway keys are revoked and kept. A Bot that Routines or Lark Channels use is refused even then.
  */
 export const deleteBot = <ThrowOnError extends boolean = true>(options: Options<DeleteBotData, ThrowOnError>): RequestResult<DeleteBotResponses, DeleteBotErrors, ThrowOnError> => (options.client ?? client).delete<DeleteBotResponses, DeleteBotErrors, ThrowOnError>({
   security: [{ scheme: 'bearer', type: 'http' }],

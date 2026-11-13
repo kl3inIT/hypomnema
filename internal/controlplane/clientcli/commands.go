@@ -389,7 +389,11 @@ var commands = []command{
 	{
 		name: "bots rm", args: "<bot>", min: 1, max: 1,
 		summary: "remove a bot that has no chats and no memory (owner, or the bot coordinator)",
-		flags:   jsonFlag, run: botsRemove,
+		flags: func(fs *flag.FlagSet) {
+			fs.Bool("force", false, "also remove its chats and its memory (owner)")
+			jsonFlag(fs)
+		},
+		run: botsRemove,
 	},
 	{
 		name: "bots prompt", args: "<bot>", min: 1, max: 1,

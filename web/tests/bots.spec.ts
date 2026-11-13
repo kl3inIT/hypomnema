@@ -221,7 +221,7 @@ async function fakeServer(
           409,
         )
       }
-      if (found?.memory) {
+      if (found?.memory && new URL(request.url()).searchParams.get("force") !== "true") {
         return json(
           { code: "conflict", message: `the bot ${one[1]} has a memory; it is not removed` },
           409,
@@ -454,6 +454,7 @@ test("a Bot shows its memory, takes a new persona and refuses to be removed", as
   await expect(dialog.getByRole("alert")).toContainText(
     "the bot coordinator is always there and is not removed",
   )
+  await expect(page.getByRole("button", { name: "Remove with its chats" })).toHaveCount(0)
   await shot(page, "bot-remove-refused")
   await dialog.getByRole("button", { name: "Cancel" }).click()
   await expect(dialog).toBeHidden()
@@ -489,6 +490,31 @@ test("a Bot with nothing kept is removed", async ({ page }) => {
   await expect(page).toHaveURL(/\/bots$/)
   await expect(page.getByRole("article", { name: "coordinator" })).toBeVisible()
   await expect(page.getByRole("article", { name: "researcher" })).toHaveCount(0)
+})
+
+// Scenario: a Bot keeps a memory, so the plain removal is refused; the owner removes it with its chats instead,
+// which sends force, and the list shows without it.
+test("a Bot with a memory is removed with its chats", async ({ page }) => {
+  const kept = { ...bot("trial"), memory: "A test Bot." }
+  const calls = await fakeServer(page, [coordinator, kept])
+  await page.goto("/bots/trial")
+
+  await page.getByRole("button", { name: "Remove Bot" }).click()
+  const plain = page.getByRole("alertdialog")
+  await plain.getByRole("button", { name: "Remove" }).click()
+  await expect(plain.getByRole("alert")).toContainText("has a memory")
+  await plain.getByRole("button", { name: "Cancel" }).click()
+
+  await page.getByRole("button", { name: "Remove with its chats" }).click()
+  const forced = page.getByRole("alertdialog")
+  await expect(forced).toContainText("its chats and their messages are removed")
+  await expect(forced).toHaveCSS("opacity", "1")
+  await shot(page, "bot-remove-with-chats")
+  await forced.getByRole("button", { name: "Remove all" }).click()
+
+  await expect(page).toHaveURL(/\/bots$/)
+  await expect(page.getByRole("article", { name: "trial" })).toHaveCount(0)
+  expect(calls.map((c) => c.call)).toEqual(["DELETE /bots/trial", "DELETE /bots/trial"])
 })
 
 // Scenario: there are two Bots. The start screen offers them, the first chosen; the owner picks the other, and

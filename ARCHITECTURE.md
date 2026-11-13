@@ -331,7 +331,10 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   memory. It is apart from the workers' profiles (owner, 2026-11-11). The Bot `coordinator` is always there: it is
   what the profile `coordinator` was, and a chat that names no Bot talks with it. A chat records its Bot. A Bot with
   chats or a memory, or one a Lark Channel talks to, is not removed, and `coordinator` never is; a Bot is not
-  renamed. A provider change that would
+  renamed. The owner may remove one with its chats and its memory (`DELETE /bots/{name}?force=true`,
+  `hypomnema bots rm -force`, the page's "Remove with its chats"; issue #330): the chats' messages and setup changes
+  go, the Runs, Routines and approvals made in them stay without the chat, and the chats' gateway keys are revoked
+  and kept. A Bot that Routines or Lark Channels use is refused even then. A provider change that would
   leave a Bot's model unserved is refused, as for a profile.
   - The persona is the owner's text of what the Bot is, without versions, as `SOUL.md` of OpenClaw and Hermes. How
     to give work to workers is the persona of `coordinator`; the instructions every Bot gets

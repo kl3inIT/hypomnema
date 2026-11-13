@@ -60,14 +60,19 @@ func TestOnlyTheCoordinatorBotManagesBotsAndProfiles(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, http.StatusForbidden, applied.StatusCode(), name)
 
-		removed, err := c.DeleteBotWithResponse(ctx, "vmap")
+		removed, err := c.DeleteBotWithResponse(ctx, "vmap", nil)
 		require.NoError(t, err)
 		assert.Equal(t, http.StatusForbidden, removed.StatusCode(), name)
 	}
 
-	itself, err := pi.DeleteBotWithResponse(ctx, orchestration.DefaultBot)
+	itself, err := pi.DeleteBotWithResponse(ctx, orchestration.DefaultBot, nil)
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusConflict, itself.StatusCode(), "it does not remove itself")
+
+	force := true
+	forced, err := pi.DeleteBotWithResponse(ctx, "vmap", &openapi.DeleteBotParams{Force: &force})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, forced.StatusCode(), "only the owner removes a Bot with its chats")
 
 	made, err := pi.PutBotWithResponse(ctx, "researcher", openapi.BotSettings{Persona: &persona})
 	require.NoError(t, err)

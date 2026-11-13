@@ -4835,7 +4835,12 @@ export type DeleteBotData = {
   path: {
     name: string;
   };
-  query?: never;
+  query?: {
+    /**
+     * Remove the Bot with its chats and its memory; only the owner.
+     */
+    force?: boolean;
+  };
   url: '/bots/{name}';
 };
 

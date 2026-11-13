@@ -3,6 +3,7 @@ package clientapi
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
@@ -104,7 +105,7 @@ func (s *Server) PutBot(ctx context.Context, req openapi.PutBotRequestObject) (o
 	return openapi.PutBot200JSONResponse(toBot(b)), nil
 }
 
-// DeleteBot removes a Bot nothing depends on.
+// DeleteBot removes a Bot nothing depends on; with force, the owner removes one with its chats and its memory.
 func (s *Server) DeleteBot(ctx context.Context, req openapi.DeleteBotRequestObject,
 ) (openapi.DeleteBotResponseObject, error) {
 	chat, err := setupChat(principal(ctx))
@@ -112,9 +113,16 @@ func (s *Server) DeleteBot(ctx context.Context, req openapi.DeleteBotRequestObje
 		return nil, err
 	}
 
-	if chat == "" {
+	force := req.Params.Force != nil && *req.Params.Force
+
+	switch {
+	case force && chat != "":
+		return nil, fmt.Errorf("%w: only the owner removes a bot with its chats", errForbidden)
+	case force:
+		err = s.svc.ForceDeleteBot(ctx, req.Name)
+	case chat == "":
 		err = s.svc.DeleteBot(ctx, req.Name)
-	} else {
+	default:
 		err = s.svc.DeleteBotFromChat(ctx, chat, req.Name)
 	}
 
