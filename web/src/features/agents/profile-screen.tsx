@@ -5,6 +5,8 @@ import { useState } from "react"
 import type { Model, Profile } from "@/api/generated/types.gen"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { ConfirmDialog } from "@/features/settings/settings-parts"
+import { MemoryEditor } from "@/features/memory/memory-editor"
+import { useAgentMemory, useSetAgentMemory } from "@/features/memory/use-memory"
 import { PageHeader } from "@/features/shell/app-shell"
 import { AgentAvatar } from "./agent-avatar"
 import { StandingText } from "./agents-screen"
@@ -19,7 +21,7 @@ import {
   useProfileVersions,
 } from "./use-profiles"
 
-type View = "configuration" | "versions"
+type View = "configuration" | "versions" | "memory"
 
 // Crumbs is the way back to the list, as Omnara's "Agents › name".
 function Crumbs({ here }: { here: string }) {
@@ -85,7 +87,7 @@ export function ProfileScreen({ name }: { name: string }) {
 
               <fieldset className="m-0 inline-flex w-fit gap-0.5 rounded-lg border border-solid bg-muted p-0.5">
                 <legend className="sr-only">Show</legend>
-                {(["configuration", "versions"] as const).map((v) => (
+                {(["configuration", "versions", "memory"] as const).map((v) => (
                   <button
                     key={v}
                     type="button"
@@ -111,6 +113,7 @@ export function ProfileScreen({ name }: { name: string }) {
                 />
               </div>
               {view === "versions" && <Versions profile={p} />}
+              {view === "memory" && <AgentMemory name={p.name} />}
             </>
           )}
         </div>
@@ -179,6 +182,38 @@ function Versions({ profile }: { profile: Profile }) {
         )
       })}
     </ol>
+  )
+}
+
+// AgentMemory is what the agent's workers keep across their Tasks, shared by all of them on every machine (issue
+// #21). It is not part of the agent's versions, as OpenMausBot's Memory is a section of a bot's settings beside its
+// configuration, not part of it. A worker writes it with its memory tool; the owner edits it by hand here.
+function AgentMemory({ name }: { name: string }) {
+  const memory = useAgentMemory(name)
+  const save = useSetAgentMemory(name)
+
+  if (memory.error) {
+    return <p className="py-6 text-sm text-destructive">The memory could not be read.</p>
+  }
+
+  if (!memory.data) return <p className="py-6 text-sm text-muted-foreground">Loading…</p>
+
+  return (
+    <MemoryEditor
+      id="agent-memory"
+      label="Memory"
+      memory={memory.data.memory}
+      limit={memory.data.memory_limit}
+      writer="A worker"
+      help="What this agent's workers keep across their tasks, one entry a line. Every worker of the agent gets it in its first message; they write it themselves, and you can edit it. A change is not a new version."
+      save={{
+        mutate: (text, { onSuccess }) =>
+          save.mutate(text, { onSuccess: (m) => onSuccess(m.memory) }),
+        isPending: save.isPending,
+        error: save.error,
+        reset: save.reset,
+      }}
+    />
   )
 }
 
