@@ -935,7 +935,8 @@ paths:
       - name: action
         in: path
         required: true
-        schema: { type: string, pattern: "^[a-z][a-z0-9_.]{0,60}$" }
+        # An AWS action keeps the operation's own case and the service's hyphen: aws.ec2.RebootInstances.
+        schema: { type: string, pattern: "^[a-z][A-Za-z0-9_.-]{0,100}$" }
     put:
       operationId: SetConnectionAction
       summary: Set the answer of one action of a Connection; only the owner
