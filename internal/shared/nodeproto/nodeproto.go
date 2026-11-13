@@ -281,6 +281,11 @@ type Offer struct {
 	Profile    string `json:"profile"`
 	// Instruction is the profile's, added to the worker's built-in instructions.
 	Instruction string `json:"instruction,omitempty"`
+	// Memory is what the agent keeps across its workers, and OwnerMemory what
+	// every worker and Bot is told about the owner (issue #21): entries one per
+	// line, as they were when the offer was made.
+	Memory      string `json:"memory,omitempty"`
+	OwnerMemory string `json:"owner_memory,omitempty"`
 	Spec        string `json:"spec"`
 	Repo        string `json:"repo,omitempty"`
 	// RepoHost and RepoKind say where Repo is and how that host is used

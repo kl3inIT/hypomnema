@@ -358,6 +358,13 @@ type MachineProvider struct {
 	UpdatedAt   int64
 }
 
+type Memory struct {
+	Kind      string
+	Name      string
+	Memory    string
+	UpdatedAt int64
+}
+
 type Model struct {
 	Provider string
 	Name     string

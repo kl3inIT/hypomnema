@@ -214,10 +214,10 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     to the agent API, also one whose Run was given no Connection: that key opens no account and says which worker
     asks. The runner writes the control plane's address and the key into the worker's bridge directory
     (`agent.json`), and the worker's MCP server (`internal/node/workertools`) calls the agent API itself, as
-    OpenMausBot's stdio proxy calls its server: `tools/list` answers `ask`, `finish` and what the control plane
-    lists, under agent-browser's names, so the list changes without a node release; any other tool's call is
+    OpenMausBot's stdio proxy calls its server: `tools/list` answers `ask`, `finish`, `memory` (below, under
+    Memories) and what the control plane lists, under agent-browser's names, so the list changes without a node release; any other tool's call is
     passed to `POST /agent/v1/browser/call` and its answer, a screenshot as image content, is passed back as it
-    is. A control plane that gives no browser leaves the worker `ask` and `finish`. The tab is not closed when
+    is. A control plane that gives no browser leaves the worker `ask`, `finish` and `memory`. The tab is not closed when
     the Dispatch settles: the idle rules close it.
   - Who drives the browser (issue #219; `control.go`, after OpenMausBot's `server/browser/control.ts`): the
     agents, or the owner who took control. The profile is shared, so the owner holding any tab holds the whole
@@ -314,6 +314,34 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     is. When the Bot cannot be read pi does not start.
   - Every owner's and coordinator's token reads Bots and changes a memory an entry at a time; only the owner makes,
     changes and removes a Bot (`hypomnema bots list|show|set|rm`) and replaces a whole memory.
+- Memories of agents and the one about the owner (`orchestration/memories.go`, issue #21,
+  [research](docs/research/2026-11-13-agent-memory.md)): rows of `memories`, entries one per line, changed as a
+  Bot's memory is (add, replace or remove of one entry, read again inside the transaction, a change over the limit
+  refused).
+  - An agent (a profile, by its name) has a memory of at most 2,200 characters, shared by all its workers on every
+    machine, as OpenMausBot keeps one per bot and OpenClaw one per agent. It is not part of the profile's versions.
+  - The memory about the owner, at most 1,375 characters (Hermes's `USER.md`), is given to every worker and Bot, as
+    OpenMausBot's About me.
+  - A worker changes them with its MCP server's `memory` tool (`{target: agent|owner, action, text, match}`),
+    which calls the agent API's `POST /agent/v1/memory` with its Dispatch's key; the agent is the one its Dispatch
+    runs as, a fallback's when it took over. Only a worker's key may: the owner's and a Bot's tokens are refused
+    there. Which worker changed which memory is logged, never the text.
+  - The offer carries both as they are when it is made (`memory`, `owner_memory`), and the worker's first message
+    gives them after the profile's instruction, with what to keep and what not (Coder's guidance) when the worker
+    has the tool. They are in a message, not a system prompt, and never change while the worker runs, so the
+    prompt and the tools the provider caches stay the same for every worker (Coder, Hermes).
+  - The result of a change says how full the memory is (`memory: 1,850 of 2,200 characters (84%)`) and, from 80%,
+    asks to merge and remove entries until it is under 70% (`agenttool.MemoryUsage`, after Hermes's `usage` and
+    Coder's `consolidateNudge`). The worker's tool result and `hypomnema memory add|replace|remove` print it; it is
+    never put in a prompt.
+  - A Bot's prompt (`hypomnema bots prompt`) has, after the persona and before the Bot's own memory, the memory
+    about the owner and `hypomnema memory add --owner` to keep a fact there; what changes least comes first. A
+    Lark group's chat gets neither memory.
+  - The client API: `GET /profiles/{name}/memory`, `GET /owner-memory` for every token; `POST /owner-memory` (one
+    change) for every token; `PUT` of either and `POST /profiles/{name}/memory` for the owner. `hypomnema memory
+    show|set|add|replace|remove` takes `--agent <name>` or `--owner` beside `--bot`.
+  - Not built: entries tagged by repository (OpenClaw; not needed now, owner, 2026-11-13), a cleaning job,
+    capture from chats, search, an undo journal, and the web's pages.
   - **pi's own token** (issue #260, after OpenMausBot's broker token per process, `docs/bot-box.md`): when the
     supervisor starts pi for a chat it makes a token of kind `bot` (`hyp_bot_v1_…`), bound to the chat and its
     Bot, under the coordinator token named by `HYPOMNEMA_COORDINATOR_TOKEN` (`pi-coordinator` when unset, as the
@@ -1415,7 +1443,9 @@ Node (`internal/node`):
     and `--effort` when set).
   - The worker gets a clean environment: PATH, HOME and the locale, plus the account's token
     (`CLAUDE_CODE_OAUTH_TOKEN`, read from the file named in the node's configuration) and its own
-    `CLAUDE_CONFIG_DIR`. The spec holding them is deleted once the worker runs.
+    `CLAUDE_CONFIG_DIR`. The spec holding them is deleted once the worker runs. Claude Code's own auto-memory is off
+    (`CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`, as OpenMausBot's bots): it is kept per working folder, a worker's is a new
+    worktree per Task, and the agent's memory is the control plane's (issue #21).
   - The shim appends each line of the worker's stdout to a journal with an fsync, writes what arrives on its unix
     socket to the worker's stdin, and writes `exit.json` when the worker exits. The runner reads the journal from a
     saved offset, so a new daemon adopts a running worker. A stop sends an interrupt and closes stdin; a worker still
@@ -1474,6 +1504,7 @@ Node (`internal/node`):
       worktree of the mirror) or `glab mr create --target-branch <base> --source-branch <branch> --yes`;
     - `ask` instead of guessing, `finish` exactly once (with a Gate for decisions the owner must make), and no
       subagents;
+    - the profile's instruction, then the agent's memory and the one about the owner (issue #21);
     - the recovery note and a resolved Gate.
 - Worktrees (`internal/node/worktree`): a bare mirror per repository under the node's home, fetched into
   `origin/*` before each new worktree. `git worktree add -b hyp/<task>` from `origin/<base>`, or from the existing

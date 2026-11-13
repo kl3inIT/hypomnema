@@ -106,6 +106,9 @@ func (s *server) serve(ctx context.Context, in io.Reader) error {
 		case "tools/list":
 			listed := tools()
 			if s.agent != nil {
+				// The memory's tool is a worker's with the agent API, before the browser's, whose list the
+				// control plane gives.
+				listed = append(listed, memoryTool())
 				listed = append(listed, s.agent.browserTools(ctx)...)
 			}
 
@@ -274,6 +277,12 @@ func (s *server) call(ctx context.Context, raw json.RawMessage) (any, error) {
 		return s.ask(ctx, p.Arguments, p.Meta.ProgressToken)
 	case "finish":
 		return s.finish(p.Arguments)
+	case "memory":
+		if s.agent == nil {
+			return nil, errors.New("this worker has no memory: its runner gave no agent API")
+		}
+
+		return s.agent.memoryCall(ctx, p.Arguments)
 	default:
 		// Any other tool is the browser's: the control plane knows which it offers.
 		if s.agent != nil {

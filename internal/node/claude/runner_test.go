@@ -618,3 +618,30 @@ func TestTheWorkersSkillsAreAPluginOfItsOwn(t *testing.T) {
 	assert.FileExists(t, filepath.Join(plugin, "skills", "review-go", "SKILL.md"))
 	assert.FileExists(t, filepath.Join(plugin, ".claude-plugin", "plugin.json"))
 }
+
+// Scenario: the offer carries the agent's memory and the one about the owner
+// (issue #21). The first message gives both after the agent's instruction,
+// and how to keep a fact only to a worker with the agent API, whose tool
+// writes it; a worker with no memory gets no section. Claude Code's own
+// memory is off, so the system prompt it caches has no path of a worktree.
+func TestPromptCarriesTheMemories(t *testing.T) {
+	t.Parallel()
+
+	g := newRig(t, "success")
+	d := g.dispatch("dsp_1")
+
+	assert.NotContains(t, Prompt(d), "memory", "nothing kept, no tool: no section")
+
+	d.Offer.Instruction = "Report problems."
+	d.Offer.Memory, d.Offer.OwnerMemory = "Run the tests first.\nLinh reviews Go.", "The owner writes in Vietnamese."
+	p := Prompt(d)
+	assert.Contains(t, p, "\nMemory of your agent:\n- Run the tests first.\n- Linh reviews Go.\n"+
+		"\nAbout the owner:\n- The owner writes in Vietnamese.\n")
+	assert.Greater(t, strings.Index(p, "Memory of your agent"), strings.Index(p, "Report problems."))
+	assert.NotContains(t, p, "`memory` tool", "no agent API, no tool to write with")
+
+	d.Offer.AgentKey = "the-dispatch's-key"
+	assert.Contains(t, Prompt(d), "Keep in memory, with the `memory` tool")
+
+	assert.Contains(t, g.runner.env("dir", "token"), "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1")
+}

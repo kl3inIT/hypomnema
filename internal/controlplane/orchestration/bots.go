@@ -185,25 +185,15 @@ const (
 // that would pass the limit is refused, so the Bot shortens or removes
 // entries itself; nothing is cut silently.
 func (s *Service) ChangeBotMemory(ctx context.Context, name string, op MemoryOp) (Bot, error) {
-	// An entry is one line.
-	text := strings.Join(strings.Fields(op.Text), " ")
-	match := strings.TrimSpace(op.Match)
-
 	if err := s.write(ctx, func(q *store.Queries, now int64) error {
 		row, err := q.GetBot(ctx, name)
 		if err != nil {
 			return notFound(err, "bot", name)
 		}
 
-		entries, err := changeMemory(memoryEntries(row.Memory), op.Kind, text, match)
+		memory, err := appliedMemory(row.Memory, op, MaxMemory)
 		if err != nil {
 			return err
-		}
-
-		memory := strings.Join(entries, "\n")
-		if n := utf8.RuneCountInString(memory); n > MaxMemory {
-			return fmt.Errorf("%w: the memory would be %d characters, over its limit of %d; replace or remove "+
-				"entries first", ErrInvalid, n, MaxMemory)
 		}
 
 		return q.SetBotMemory(ctx, store.SetBotMemoryParams{Name: name, Memory: memory, Now: now})
@@ -220,18 +210,9 @@ func (s *Service) ChangeBotMemory(ctx context.Context, name string, op MemoryOp)
 // twice are dropped. The limit holds here too, since the whole memory is in
 // pi's prompt.
 func (s *Service) SetBotMemory(ctx context.Context, name, text string) (Bot, error) {
-	var entries []string
-
-	for line := range strings.SplitSeq(text, "\n") {
-		entry := strings.Join(strings.Fields(strings.TrimPrefix(strings.TrimSpace(line), "- ")), " ")
-		if entry != "" && !slices.Contains(entries, entry) {
-			entries = append(entries, entry)
-		}
-	}
-
-	memory := strings.Join(entries, "\n")
-	if n := utf8.RuneCountInString(memory); n > MaxMemory {
-		return Bot{}, fmt.Errorf("%w: the memory would be %d characters, over its limit of %d", ErrInvalid, n, MaxMemory)
+	memory, err := ownersMemory(text, MaxMemory)
+	if err != nil {
+		return Bot{}, err
 	}
 
 	if err := s.write(ctx, func(q *store.Queries, now int64) error {
