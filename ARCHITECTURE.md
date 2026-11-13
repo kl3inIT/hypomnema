@@ -388,8 +388,11 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   - The client API: `GET /profiles/{name}/memory`, `GET /owner-memory` for every token; `POST /owner-memory` (one
     change) for every token; `PUT` of either and `POST /profiles/{name}/memory` for the owner. `hypomnema memory
     show|set|add|replace|remove` takes `--agent <name>` or `--owner` beside `--bot`.
+  - On the web (`web/src/features/memory/`): an agent's page has Memory beside Configuration and Versions, and
+    Settings has "About you" under Agents, as OpenMausBot's About me; both, and a Bot's memory, are one editor
+    (`memory-editor.tsx`) that follows the server while untouched and says when the memory changed under an edit.
   - Not built: entries tagged by repository (OpenClaw; not needed now, owner, 2026-11-13), a cleaning job,
-    capture from chats, search, an undo journal, and the web's pages.
+    capture from chats, search, an undo journal.
   - **pi's own token** (issue #260, after OpenMausBot's broker token per process, `docs/bot-box.md`): when the
     supervisor starts pi for a chat it makes a token of kind `bot` (`hyp_bot_v1_…`), bound to the chat and its
     Bot, under the coordinator token named by `HYPOMNEMA_COORDINATOR_TOKEN` (`pi-coordinator` when unset, as the

@@ -9,6 +9,7 @@ import {
   KeySquare,
   MessagesSquare,
   Plug,
+  UserRound,
   type LucideIcon,
 } from "lucide-react"
 import type { ReactNode } from "react"
@@ -33,6 +34,7 @@ type Section = {
     | "/settings/channels"
     | "/settings/vault"
     | "/settings/skills"
+    | "/settings/about-you"
   label: string
   icon: LucideIcon
 }
@@ -41,7 +43,8 @@ type Section = {
 // Gateway" and Coder's "AI Gateway keys": called "Models" until the owner renamed it, so that no item reads like its
 // group (issue #293, 2026-11-13); not "Agents", which the app's sidebar already has (2026-11-12). "Connections" holds
 // what reaches outside, as OpenClaw's group of that name holds its Channels and t3code's its Secrets. The group "Agents" holds what is given to the agents' CLIs:
-// their skills (issue #21; prototype the owner accepted, 2026-11-12).
+// their skills (issue #21; prototype the owner accepted, 2026-11-12), and the memory about the owner every agent
+// gets, as OpenClaw keeps Memory beside Skills in its group of agents.
 const groups: { heading: string; sections: Section[] }[] = [
   {
     heading: "Gateway",
@@ -53,7 +56,10 @@ const groups: { heading: string; sections: Section[] }[] = [
   },
   {
     heading: "Agents",
-    sections: [{ to: "/settings/skills", label: "Skills", icon: BookOpen }],
+    sections: [
+      { to: "/settings/skills", label: "Skills", icon: BookOpen },
+      { to: "/settings/about-you", label: "About you", icon: UserRound },
+    ],
   },
   {
     heading: "Connections",

@@ -77,6 +77,7 @@ function server(
   } = {},
 ) {
   const applied: { name: string; source: string }[] = []
+  const memories: Record<string, string> = { writer: "Run the tests first." }
 
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
     const request = input as Request
@@ -84,6 +85,18 @@ function server(
 
     if (request.method === "GET" && path === "/profiles") return json({ data: profiles })
     if (request.method === "GET" && path === "/models") return json({ data: models })
+
+    // An agent's memory (issue #21): the writer's, read and replaced by the owner.
+    const memoryOf = /^\/profiles\/([^/]+)\/memory$/.exec(path)
+    if (memoryOf && request.method === "GET") {
+      return json({ agent: memoryOf[1], memory: memories[memoryOf[1]!] ?? "", memory_limit: 2200 })
+    }
+    if (memoryOf && request.method === "PUT") {
+      const { memory } = (await request.clone().json()) as { memory: string }
+      memories[memoryOf[1]!] = memory.trim()
+
+      return json({ agent: memoryOf[1], memory: memory.trim(), memory_limit: 2200 })
+    }
     if (request.method === "GET" && path === "/skills") return json({ data: opts.skills ?? [] })
 
     const versions = /^\/profiles\/([^/]+)\/versions$/.exec(path)
@@ -414,6 +427,31 @@ test("an agent's skills are chosen in the builder and saved in its YAML", async 
   await user.click(screen.getByRole("button", { name: "Save revision" }))
   await vi.waitFor(() => expect(applied).toHaveLength(1))
   expect(applied[0]?.source).toContain("skills: [review-go]\nskills_off: [pdf]\n")
+})
+
+// Scenario: the owner opens an agent's memory, which its workers wrote (issue #21). It is apart from the
+// configuration: editing it offers its own save, which replaces it and makes no new version.
+test("an agent's memory is read and edited beside its configuration", async () => {
+  const applied = server([profile("writer")])
+  open("/agents/writer")
+  const user = userEvent.setup()
+
+  await user.click(await screen.findByRole("button", { name: "memory" }))
+
+  const field = await screen.findByRole("textbox", { name: "Memory" })
+  expect(field).toHaveValue("Run the tests first.")
+  expect(screen.getByText("20 of 2,200 characters")).toBeInTheDocument()
+
+  await user.type(field, "\nLinh reviews Go.")
+  await user.click(screen.getByRole("button", { name: "Save memory" }))
+
+  await vi.waitFor(() =>
+    expect(screen.queryByRole("button", { name: "Save memory" })).not.toBeInTheDocument(),
+  )
+  expect(screen.getByRole("textbox", { name: "Memory" })).toHaveValue(
+    "Run the tests first.\nLinh reviews Go.",
+  )
+  expect(applied).toEqual([])
 })
 
 // Scenario: the owner looks for an agent by a word of its name or of its description; a word nothing has says so,

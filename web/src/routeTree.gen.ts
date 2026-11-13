@@ -25,6 +25,7 @@ import { Route as ChatsChatIdRouteImport } from './routes/chats.$chatId'
 import { Route as RunsIndexRouteImport } from './routes/runs.index'
 import { Route as RunsRunIdRouteImport } from './routes/runs.$runId'
 import { Route as SettingsIndexRouteImport } from './routes/settings.index'
+import { Route as SettingsAboutYouRouteImport } from './routes/settings.about-you'
 import { Route as SettingsChannelsRouteImport } from './routes/settings.channels'
 import { Route as SettingsGatewayKeysRouteImport } from './routes/settings.gateway-keys'
 import { Route as SettingsIntegrationsRouteImport } from './routes/settings.integrations'
@@ -116,6 +117,11 @@ const SettingsIndexRoute = SettingsIndexRouteImport.update({
   path: '/settings/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SettingsAboutYouRoute = SettingsAboutYouRouteImport.update({
+  id: '/settings/about-you',
+  path: '/settings/about-you',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SettingsChannelsRoute = SettingsChannelsRouteImport.update({
   id: '/settings/channels',
   path: '/settings/channels',
@@ -180,6 +186,7 @@ export interface FileRoutesByFullPath {
   '/bots/new': typeof BotsNewRoute
   '/chats/$chatId': typeof ChatsChatIdRoute
   '/runs/$runId': typeof RunsRunIdRoute
+  '/settings/about-you': typeof SettingsAboutYouRoute
   '/settings/channels': typeof SettingsChannelsRoute
   '/settings/gateway-keys': typeof SettingsGatewayKeysRoute
   '/settings/integrations': typeof SettingsIntegrationsRoute
@@ -208,6 +215,7 @@ export interface FileRoutesByTo {
   '/bots/new': typeof BotsNewRoute
   '/chats/$chatId': typeof ChatsChatIdRoute
   '/runs/$runId': typeof RunsRunIdRoute
+  '/settings/about-you': typeof SettingsAboutYouRoute
   '/settings/channels': typeof SettingsChannelsRoute
   '/settings/gateway-keys': typeof SettingsGatewayKeysRoute
   '/settings/integrations': typeof SettingsIntegrationsRoute
@@ -237,6 +245,7 @@ export interface FileRoutesById {
   '/bots/new': typeof BotsNewRoute
   '/chats/$chatId': typeof ChatsChatIdRoute
   '/runs/$runId': typeof RunsRunIdRoute
+  '/settings/about-you': typeof SettingsAboutYouRoute
   '/settings/channels': typeof SettingsChannelsRoute
   '/settings/gateway-keys': typeof SettingsGatewayKeysRoute
   '/settings/integrations': typeof SettingsIntegrationsRoute
@@ -267,6 +276,7 @@ export interface FileRouteTypes {
     | '/bots/new'
     | '/chats/$chatId'
     | '/runs/$runId'
+    | '/settings/about-you'
     | '/settings/channels'
     | '/settings/gateway-keys'
     | '/settings/integrations'
@@ -295,6 +305,7 @@ export interface FileRouteTypes {
     | '/bots/new'
     | '/chats/$chatId'
     | '/runs/$runId'
+    | '/settings/about-you'
     | '/settings/channels'
     | '/settings/gateway-keys'
     | '/settings/integrations'
@@ -323,6 +334,7 @@ export interface FileRouteTypes {
     | '/bots/new'
     | '/chats/$chatId'
     | '/runs/$runId'
+    | '/settings/about-you'
     | '/settings/channels'
     | '/settings/gateway-keys'
     | '/settings/integrations'
@@ -352,6 +364,7 @@ export interface RootRouteChildren {
   BotsNewRoute: typeof BotsNewRoute
   ChatsChatIdRoute: typeof ChatsChatIdRoute
   RunsRunIdRoute: typeof RunsRunIdRoute
+  SettingsAboutYouRoute: typeof SettingsAboutYouRoute
   SettingsChannelsRoute: typeof SettingsChannelsRoute
   SettingsGatewayKeysRoute: typeof SettingsGatewayKeysRoute
   SettingsIntegrationsRoute: typeof SettingsIntegrationsRoute
@@ -482,6 +495,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/settings/about-you': {
+      id: '/settings/about-you'
+      path: '/settings/about-you'
+      fullPath: '/settings/about-you'
+      preLoaderRoute: typeof SettingsAboutYouRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/settings/channels': {
       id: '/settings/channels'
       path: '/settings/channels'
@@ -568,6 +588,7 @@ const rootRouteChildren: RootRouteChildren = {
   BotsNewRoute: BotsNewRoute,
   ChatsChatIdRoute: ChatsChatIdRoute,
   RunsRunIdRoute: RunsRunIdRoute,
+  SettingsAboutYouRoute: SettingsAboutYouRoute,
   SettingsChannelsRoute: SettingsChannelsRoute,
   SettingsGatewayKeysRoute: SettingsGatewayKeysRoute,
   SettingsIntegrationsRoute: SettingsIntegrationsRoute,

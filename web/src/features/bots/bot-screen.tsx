@@ -19,6 +19,7 @@ import { channelsOf, channelState } from "@/features/settings/channels-state"
 import { ConfirmDialog } from "@/features/settings/settings-parts"
 import { useLarkChannels } from "@/features/settings/use-channels"
 import { BotRoutines } from "@/features/routines/bot-routines"
+import { MemoryEditor } from "@/features/memory/memory-editor"
 import { PageHeader } from "@/features/shell/app-shell"
 import { SkillsField } from "@/features/skills/skills-field"
 
@@ -26,8 +27,6 @@ import { BotAccess } from "./bot-access"
 import {
   draftOf,
   emptyDraft,
-  memoryEntries,
-  memoryLine,
   modelLine,
   problem,
   sameDraft,
@@ -246,97 +245,31 @@ function BotForm({
 }
 
 // Memory is what the Bot keeps across chats, an entry a line. The Bot writes it itself, an entry at a time; the
-// owner reads it here and edits it by hand, as the owner of an agent of OpenClaw, Hermes or OpenMausBot edits its
-// memory file.
+// owner reads it here and edits it by hand (features/memory/memory-editor.tsx).
 function Memory({ bot }: { bot: Bot }) {
-  // base is the memory the server holds, as last read or saved; draft is what the owner sees and types.
-  const [base, setBase] = useState(bot.memory)
-  const [draft, setDraft] = useState(bot.memory)
   const save = useSetBotMemory()
 
-  const dirty = draft !== base
-  // The Bot wrote its memory meanwhile: an untouched field follows it; one being edited is kept and says so.
-  const changedUnder = bot.memory !== base
-  if (changedUnder && !dirty) {
-    setBase(bot.memory)
-    setDraft(bot.memory)
-  }
-
-  const used = [...memoryEntries(draft).join("\n")].length
-  const over = used > bot.memory_limit
-
   return (
-    <form
-      aria-labelledby="bot-memory"
-      className="flex flex-col gap-2 border-t pt-4"
-      onSubmit={(event) => {
-        event.preventDefault()
-        save.mutate(
-          { name: bot.name, memory: draft },
-          {
-            onSuccess: (stored) => {
-              setBase(stored.memory)
-              setDraft(stored.memory)
-            },
-          },
-        )
-      }}
-    >
-      <div className="flex flex-wrap items-baseline gap-x-3">
-        <label id="bot-memory" htmlFor="bot-memory-text" className="text-sm font-medium">
-          Memory
-        </label>
-        <span className={over ? "text-xs text-destructive" : "text-xs text-muted-foreground"}>
-          {dirty
-            ? `${used.toLocaleString("en-US")} of ${bot.memory_limit.toLocaleString("en-US")} characters`
-            : memoryLine(bot)}
-        </span>
-      </div>
-      <Textarea
-        id="bot-memory-text"
-        rows={Math.min(12, Math.max(3, memoryEntries(draft).length + 1))}
-        placeholder="Nothing kept yet."
-        value={draft}
-        onChange={(event) => {
-          save.reset()
-          setDraft(event.target.value)
+    <div className="border-t pt-4">
+      <MemoryEditor
+        id="bot-memory"
+        label="Memory"
+        memory={bot.memory}
+        limit={bot.memory_limit}
+        writer="The Bot"
+        help="What the Bot keeps across its chats, one entry a line. It writes this itself; you can edit it. The Bot sees a change from its next chat on."
+        save={{
+          mutate: (text, { onSuccess }) =>
+            save.mutate(
+              { name: bot.name, memory: text },
+              { onSuccess: (b) => onSuccess(b.memory) },
+            ),
+          isPending: save.isPending,
+          error: save.error,
+          reset: save.reset,
         }}
       />
-      <p className="text-xs text-muted-foreground">
-        What the Bot keeps across its chats, one entry a line. It writes this itself; you can edit
-        it. The Bot sees a change from its next chat on.
-      </p>
-      {changedUnder && dirty && (
-        <p className="text-xs text-muted-foreground">
-          The Bot changed its memory while you were editing. Saving replaces it with what is here.
-        </p>
-      )}
-      {save.error && (
-        <Alert variant="destructive">
-          <AlertDescription>{errorText(save.error)}</AlertDescription>
-        </Alert>
-      )}
-      {dirty && (
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          {!save.isPending && (
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => {
-                save.reset()
-                setBase(bot.memory)
-                setDraft(bot.memory)
-              }}
-            >
-              Discard changes
-            </Button>
-          )}
-          <Button type="submit" disabled={save.isPending || over}>
-            {save.isPending ? "Saving…" : "Save memory"}
-          </Button>
-        </div>
-      )}
-    </form>
+    </div>
   )
 }
 

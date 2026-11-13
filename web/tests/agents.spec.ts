@@ -167,6 +167,12 @@ async function fakeServer(page: Page) {
         return json({ data: models })
       case "GET /skills":
         return json({ data: skills })
+      case "GET /profiles/reviewer/memory":
+        return json({
+          agent: "reviewer",
+          memory: "Run make verify before a review.\nLinh wants findings ranked by severity.",
+          memory_limit: 2200,
+        })
       case "GET /profiles/reviewer/versions":
         return json({
           data: [
@@ -313,6 +319,14 @@ test("an agent opens to its builder, its YAML and its versions", async ({ page }
   await page.getByText("Version 2", { exact: true }).click()
   await expect(page.getByRole("button", { name: "Restore this version" })).toBeVisible()
   await shot(page, "agent-versions")
+
+  // Its memory, which its workers keep across Tasks (issue #21), beside the configuration and not a version.
+  await page.getByRole("button", { name: "memory" }).click()
+  await expect(page.getByRole("textbox", { name: "Memory" })).toHaveValue(
+    "Run make verify before a review.\nLinh wants findings ranked by severity.",
+  )
+  await expect(page.getByText("72 of 2,200 characters")).toBeVisible()
+  await shot(page, "agent-memory")
 })
 
 // Scenario: a change the server refuses stays on the page with the server's reason; a change it takes becomes

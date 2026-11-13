@@ -100,6 +100,7 @@ async function fakeServer(
     ),
   ]
   const calls: string[] = []
+  let ownerMemory = "The owner writes in Vietnamese.\nShort answers, one recommendation."
 
   await page.route("**/api/v1/**", async (route) => {
     const request = route.request()
@@ -111,6 +112,14 @@ async function fakeServer(
     if (request.method() !== "GET") calls.push(call)
 
     if (path === "/me") return json({ id: "usr_1", name: "admin", kind: "owner" })
+
+    // The memory about the owner (issue #21), which agents wrote and the owner replaces.
+    if (path === "/owner-memory") {
+      if (request.method() === "PUT")
+        ownerMemory = (request.postDataJSON() as { memory: string }).memory.trim()
+
+      return json({ memory: ownerMemory, memory_limit: 1375 })
+    }
 
     const [, kind, name, sub] = path.split("/")
 
@@ -333,6 +342,27 @@ const fits = (page: Page) =>
 
 // Scenario: the owner opens Settings from the app, lands on Integrations, gives gitlab.com a token and sees it
 // connected; the token is typed into a password field and is nowhere on the page afterwards.
+// Scenario: the owner reads what every agent and Bot knows about him, under Agents, and adds a rule (issue #21).
+test("the owner reads and edits what every agent knows about him", async ({ page }) => {
+  const calls = await fakeServer(page)
+  await page.goto("/settings/about-you")
+
+  await expect(page.getByRole("heading", { name: "About you", level: 1 })).toBeVisible()
+  const field = page.getByRole("textbox", { name: "Memory" })
+  await expect(field).toHaveValue(
+    "The owner writes in Vietnamese.\nShort answers, one recommendation.",
+  )
+  await expect(page.getByText("66 of 1,375 characters")).toBeVisible()
+  await shot(page, "about-you")
+
+  await field.fill(
+    "The owner writes in Vietnamese.\nShort answers, one recommendation.\nAsk before pushing.",
+  )
+  await page.getByRole("button", { name: "Save memory" }).click()
+  await expect(page.getByRole("button", { name: "Save memory" })).toHaveCount(0)
+  expect(calls).toEqual(["PUT /owner-memory"])
+})
+
 test("the owner opens Settings and gives a host its token", async ({ page }) => {
   const calls = await fakeServer(page)
   await page.goto("/")
