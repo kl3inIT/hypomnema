@@ -71,6 +71,10 @@ type Request struct {
 	Expect  string `json:"expect,omitempty"`
 	// To is where a rename moves the path.
 	To string `json:"to,omitempty"`
+	// Upload names an upload; Offset is where its piece Data goes.
+	Upload string `json:"upload,omitempty"`
+	Offset int64  `json:"offset,omitempty"`
+	Data   []byte `json:"data,omitempty"`
 }
 
 // Entry is one name in a directory. A link is listed as what it points to.
@@ -101,10 +105,11 @@ type File struct {
 	Data      []byte `json:"data,omitempty"`
 }
 
-// Done says what a change left: the path, and a written file's SHA-256.
+// Done says what a change left: the path, a written file's SHA-256, and an upload begun.
 type Done struct {
 	Path   string `json:"path"`
 	SHA256 string `json:"sha256,omitempty"`
+	Upload string `json:"upload,omitempty"`
 }
 
 // Change is one file git says changed since HEAD.
@@ -207,6 +212,14 @@ func Serve(ctx context.Context, root string, req Request) Result {
 		res.Done, err = Rename(root, req.Path, req.To)
 	case OpDelete:
 		res.Done, err = Delete(root, req.Path)
+	case OpUploadBegin:
+		res.Done, err = UploadBegin(root, req.Path)
+	case OpUploadChunk:
+		res.Done, err = UploadChunk(root, req.Path, req.Upload, req.Offset, req.Data)
+	case OpUploadCommit:
+		res.Done, err = UploadCommit(root, req.Path, req.Upload, req.Expect)
+	case OpUploadAbort:
+		res.Done, err = UploadAbort(root, req.Path, req.Upload)
 	default:
 		err = failure(CodeFailed, "unknown operation %q", req.Op)
 	}

@@ -13,6 +13,7 @@ import {
   Pencil,
   RefreshCw,
   Trash2,
+  Upload,
   X,
 } from "lucide-react"
 import { useRef, useState } from "react"
@@ -48,6 +49,8 @@ import { cn } from "@/lib/utils"
 
 import { type FileAction, FileActionDialogs } from "./file-actions"
 import { problemOf, rawURL, useChanges, useWorkspaces, workspaceKey } from "./files-state"
+import { useUploads } from "./upload"
+import { UploadList } from "./upload-list"
 
 // FilesPanel shows a chat's working folders beside its pane (issue #255), as Omnigent's FilesPanel.tsx: the folder
 // picked from those of the chat (its Bot's own, and each Task's worktree on its machine), its path with a copy
@@ -417,6 +420,38 @@ function FileTree({
   const [open, setOpen] = useState<string[]>([])
   const [action, setAction] = useState<FileAction | null>(null)
   const scroller = useRef<HTMLDivElement>(null)
+  // Files are uploaded into a folder picked from a menu or dropped on (issue #315, Orca's file explorer).
+  const uploads = useUploads(chat, workspace)
+  const picker = useRef<HTMLInputElement>(null)
+  const [uploadTo, setUploadTo] = useState("")
+  const [dropOn, setDropOn] = useState<string | null>(null)
+  const pick = (dir: string) => {
+    setUploadTo(dir)
+    picker.current?.click()
+  }
+  // A drop of files from the computer, not of a tab.
+  const carriesFiles = (event: React.DragEvent) => event.dataTransfer.types.includes("Files")
+  const dropInto = (dir: string) => ({
+    onDragOver: (event: React.DragEvent) => {
+      if (!carriesFiles(event)) return
+      event.preventDefault()
+      event.stopPropagation()
+      event.dataTransfer.dropEffect = "copy"
+      setDropOn(dir)
+    },
+    onDragLeave: () => setDropOn(null),
+    onDrop: (event: React.DragEvent) => {
+      if (!carriesFiles(event)) return
+      event.preventDefault()
+      event.stopPropagation()
+      setDropOn(null)
+      const files = [...event.dataTransfer.files]
+      if (files.length > 0) {
+        if (dir) setOpen([...new Set([...open, dir])])
+        uploads.start(files, dir)
+      }
+    },
+  })
   const dirs = ["", ...open]
   // The open directories are read together, as Omnigent fetches its expanded directories centrally.
   const listings = useQueries({
@@ -473,15 +508,33 @@ function FileTree({
       <PanelButton label="New folder" onClick={() => setAction({ kind: "new-folder", dir: "" })}>
         <FolderPlus />
       </PanelButton>
+      <PanelButton label="Upload files" onClick={() => pick("")}>
+        <Upload />
+      </PanelButton>
+      <input
+        ref={picker}
+        type="file"
+        multiple
+        hidden
+        aria-label="Files to upload"
+        onChange={(event) => {
+          const files = [...(event.target.files ?? [])]
+          event.target.value = ""
+          if (files.length === 0) return
+          if (uploadTo) setOpen([...new Set([...open, uploadTo])])
+          uploads.start(files, uploadTo)
+        }}
+      />
     </div>
   )
 
   if (root?.isSuccess && root.data.entries.length === 0) {
     return (
-      <div className="flex min-h-0 flex-1 flex-col pt-1">
+      <div className="flex min-h-0 flex-1 flex-col pt-1" {...dropInto("")}>
         {top}
-        <Note>This folder is empty.</Note>
+        <Note>This folder is empty. Drop files here to upload them.</Note>
         {dialogs}
+        <UploadList uploads={uploads} />
       </div>
     )
   }
@@ -494,7 +547,11 @@ function FileTree({
         ref={scroller}
         role="tree"
         aria-label="All files"
-        className="min-h-0 flex-1 overflow-y-auto p-1 pt-0 text-sm"
+        className={cn(
+          "min-h-0 flex-1 overflow-y-auto p-1 pt-0 text-sm",
+          dropOn === "" && "bg-primary/5 outline-2 -outline-offset-2 outline-primary/40",
+        )}
+        {...dropInto("")}
       >
         <div className="relative w-full" style={{ height: virtual.getTotalSize() }}>
           {virtual.getVirtualItems().map((item) => {
@@ -525,8 +582,15 @@ function FileTree({
               <div
                 key={entry.path}
                 role="none"
-                className="group/row absolute inset-x-0 top-0 flex h-[25px] items-center rounded-md hover:bg-accent has-[:focus-visible]:bg-accent"
+                className={cn(
+                  "group/row absolute inset-x-0 top-0 flex h-[25px] items-center rounded-md hover:bg-accent has-[:focus-visible]:bg-accent",
+                  dir && dropOn === entry.path && "bg-primary/10 ring-1 ring-primary/40",
+                )}
                 style={{ transform: style.transform }}
+                // A file dropped on a folder goes into it; on a file, beside it.
+                {...dropInto(
+                  dir ? entry.path : entry.path.slice(0, Math.max(0, entry.path.lastIndexOf("/"))),
+                )}
               >
                 <button
                   type="button"
@@ -577,6 +641,7 @@ function FileTree({
                         : { kind, path: entry.path, directory: dir },
                     )
                   }
+                  onUpload={() => pick(entry.path)}
                   onCopy={() => void navigator.clipboard?.writeText(entry.path)}
                 />
               </div>
@@ -584,6 +649,7 @@ function FileTree({
           })}
         </div>
       </div>
+      <UploadList uploads={uploads} />
     </div>
   )
 }
@@ -594,12 +660,14 @@ function RowMenu({
   directory,
   download,
   onAction,
+  onUpload,
   onCopy,
 }: {
   name: string
   directory: boolean
   download?: string
   onAction: (kind: FileAction["kind"]) => void
+  onUpload: () => void
   onCopy: () => void
 }) {
   return (
@@ -619,6 +687,9 @@ function RowMenu({
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => onAction("new-folder")}>
               <FolderPlus /> New folder
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={onUpload}>
+              <Upload /> Upload files
             </DropdownMenuItem>
             <DropdownMenuSeparator />
           </>

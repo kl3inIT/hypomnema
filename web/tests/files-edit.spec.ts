@@ -35,6 +35,7 @@ type Folder = {
   dirs: Set<string>
   asked: string[]
   bodies: Record<string, unknown>[]
+  uploads: Map<string, { path: string; bytes: number }>
 }
 
 function folder(): Folder {
@@ -51,6 +52,7 @@ function folder(): Folder {
     dirs: new Set(["src", "docs", "img"]),
     asked: [],
     bodies: [],
+    uploads: new Map(),
   }
 }
 
@@ -67,9 +69,10 @@ async function fakeServer(page: Page, f: Folder) {
     const refuse = (code: string, message: string, status: number) =>
       json({ code, message }, status)
 
-    const ws = /^\/chats\/cht_1\/workspaces\/tsk_1\/(tree|file|raw|changes|folders|move)$/.exec(
-      path,
-    )
+    const ws =
+      /^\/chats\/cht_1\/workspaces\/tsk_1\/(tree|file|raw|changes|folders|move|uploads(?:\/chunk|\/commit|\/abort)?)$/.exec(
+        path,
+      )
     if (ws) {
       const op = ws[1]
       const where = url.searchParams.get("path") ?? ""
@@ -78,6 +81,33 @@ async function fakeServer(page: Page, f: Folder) {
       if (body) f.bodies.push(body)
 
       if (op === "changes") return json({ git: true, changes: [], truncated: false })
+      if (op === "uploads" && body) {
+        const upload = `u${f.uploads.size + 1}`
+        f.uploads.set(upload, { path: body.path, bytes: 0 })
+
+        return json({ path: body.path, upload }, 201)
+      }
+      if (op === "uploads/chunk" && body) {
+        const up = f.uploads.get(body.upload)
+        const piece = Buffer.from(body.data ?? "", "base64").length
+        if (!up || Number(body.offset) !== up.bytes) return refuse("conflict", "out of order", 409)
+        up.bytes += piece
+
+        return route.fulfill({ status: 204 })
+      }
+      if (op === "uploads/commit" && body) {
+        const up = f.uploads.get(body.upload)
+        const there = f.files.get(body.path)
+        if (!up) return refuse("not_found", "no upload", 404)
+        if (there && body.expect_sha256 !== sha(body.path, there.version)) {
+          return refuse("conflict", `${body.path} is already there`, 409)
+        }
+        const version = (there?.version ?? 0) + 1
+        f.files.set(body.path, { content: `${up.bytes} bytes`, version })
+
+        return json({ path: body.path, sha256: sha(body.path, version) })
+      }
+      if (op === "uploads/abort") return route.fulfill({ status: 204 })
       if (op === "tree") {
         const prefix = where ? `${where}/` : ""
         const names = new Map<string, "file" | "directory">()
@@ -286,4 +316,46 @@ test("the owner edits, saves and changes a chat's folder from the Files panel", 
   await expect(page.getByRole("alertdialog")).toHaveCount(0)
   await expect((await tree(page)).getByRole("treeitem", { name: "README.md" })).toHaveCount(0)
   expect(f.asked).toContain("DELETE file README.md")
+})
+
+// Scenario: the owner uploads files (issue #315). A file larger than a piece goes in pieces and lands in the folder;
+// one whose name is taken asks, and is replaced over the file there when the owner says so; a file dropped on a
+// folder goes into it.
+test("the owner uploads files into a chat's folder", async ({ page }) => {
+  test.setTimeout(90_000)
+  const f = folder()
+  await fakeServer(page, f)
+  await page.goto("/chats/cht_1")
+
+  // 900 KiB: three pieces of at most 384 KiB.
+  const big = { name: "photo.jpg", mimeType: "image/jpeg", buffer: Buffer.alloc(900 << 10, 7) }
+  await tree(page)
+  await panel(page).getByLabel("Files to upload").setInputFiles(big)
+  const uploads = panel(page).getByRole("list", { name: "Uploads" })
+  await expect(uploads.getByText("Uploaded")).toBeVisible()
+  await expect((await tree(page)).getByRole("treeitem", { name: "photo.jpg" })).toBeVisible()
+  expect(f.asked.filter((a) => a.startsWith("POST uploads/chunk photo.jpg"))).toHaveLength(3)
+  expect(f.files.get("photo.jpg")?.content).toBe(`${900 << 10} bytes`)
+  await shot(page, "files-uploaded")
+
+  // The same name again: asked, then replaced over the file there.
+  await panel(page)
+    .getByLabel("Files to upload")
+    .setInputFiles({ ...big, buffer: Buffer.alloc(10, 1) })
+  await expect(uploads.getByText("Replace the file there?")).toBeVisible()
+  await shot(page, "files-upload-replace")
+  await uploads.getByRole("button", { name: "Replace" }).click()
+  await expect(uploads.getByText("Uploaded")).toHaveCount(1)
+  expect(f.bodies.at(-1)).toMatchObject({ path: "photo.jpg", expect_sha256: "photo.jpg@1" })
+  expect(f.files.get("photo.jpg")?.content).toBe("10 bytes")
+
+  // A file dropped on a folder of the tree goes into it.
+  // Made in the page, whose DataTransfer the test's own types do not know.
+  const drop = await page.evaluateHandle(
+    "(() => { const d = new DataTransfer(); d.items.add(new File(['# notes'], 'notes.md', { type: 'text/markdown' })); return d })()",
+  )
+  const docs = (await tree(page)).getByRole("treeitem", { name: "docs", exact: true })
+  await docs.dispatchEvent("dragover", { dataTransfer: drop })
+  await docs.dispatchEvent("drop", { dataTransfer: drop })
+  await expect.poll(() => f.files.has("docs/notes.md")).toBe(true)
 })

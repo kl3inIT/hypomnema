@@ -2449,6 +2449,76 @@ paths:
             application/octet-stream:
               schema: { type: string, format: binary }
         default: { $ref: "#/components/responses/Error" }
+  /chats/{chat_id}/workspaces/{workspace_id}/uploads:
+    parameters:
+      - $ref: "#/components/parameters/ChatID"
+      - $ref: "#/components/parameters/WorkspaceID"
+    post:
+      operationId: BeginWorkspaceUpload
+      summary: Begin an upload to a path of a chat's folder; its pieces go to a file beside it (owner only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WorkspacePathBody" }
+      responses:
+        "201":
+          description: The upload begun.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkspaceDone" }
+        default: { $ref: "#/components/responses/Error" }
+  /chats/{chat_id}/workspaces/{workspace_id}/uploads/chunk:
+    parameters:
+      - $ref: "#/components/parameters/ChatID"
+      - $ref: "#/components/parameters/WorkspaceID"
+    post:
+      operationId: SendWorkspaceUploadChunk
+      summary: Send a piece of an upload, at most 384 KiB, at the offset it has got to (owner only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WorkspaceUploadChunk" }
+      responses:
+        "204":
+          description: Written.
+        default: { $ref: "#/components/responses/Error" }
+  /chats/{chat_id}/workspaces/{workspace_id}/uploads/commit:
+    parameters:
+      - $ref: "#/components/parameters/ChatID"
+      - $ref: "#/components/parameters/WorkspaceID"
+    post:
+      operationId: CommitWorkspaceUpload
+      summary: Put an upload in its place, where nothing is or over the file expect_sha256 names (owner only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WorkspaceUploadCommit" }
+      responses:
+        "200":
+          description: The file as uploaded.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WorkspaceDone" }
+        default: { $ref: "#/components/responses/Error" }
+  /chats/{chat_id}/workspaces/{workspace_id}/uploads/abort:
+    parameters:
+      - $ref: "#/components/parameters/ChatID"
+      - $ref: "#/components/parameters/WorkspaceID"
+    post:
+      operationId: AbortWorkspaceUpload
+      summary: Drop an upload that will not be finished (owner only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WorkspaceUploadRef" }
+      responses:
+        "204":
+          description: Dropped.
+        default: { $ref: "#/components/responses/Error" }
   /chats/{chat_id}/workspaces/{workspace_id}/folders:
     parameters:
       - $ref: "#/components/parameters/ChatID"
@@ -4987,6 +5057,28 @@ components:
       properties:
         path: { type: string }
         sha256: { type: string, description: A written file's SHA-256. }
+        upload: { type: string, description: An upload begun, which its pieces and its commit name. }
+    WorkspaceUploadRef:
+      type: object
+      required: [path, upload]
+      properties:
+        path: { type: string }
+        upload: { type: string }
+    WorkspaceUploadChunk:
+      type: object
+      required: [path, upload, offset, data]
+      properties:
+        path: { type: string }
+        upload: { type: string }
+        offset: { type: integer, format: int64 }
+        data: { type: string, format: byte, description: The piece, at most 384 KiB, in base64. }
+    WorkspaceUploadCommit:
+      type: object
+      required: [path, upload]
+      properties:
+        path: { type: string }
+        upload: { type: string }
+        expect_sha256: { type: string, description: The SHA-256 of the file it replaces; absent for a new one. }
     WorkspaceChange:
       type: object
       required: [path, status, modified_at]
