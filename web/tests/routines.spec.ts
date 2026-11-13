@@ -221,6 +221,8 @@ const coordinator = {
   persona: "Plan the work, give it to workers and report what they did, briefly.",
   memory: "The owner writes in Vietnamese and wants short answers.",
   memory_limit: 2200,
+  skills: [],
+  skills_off: [],
   created_at: minutes(-12000),
   updated_at: minutes(-180),
 }
