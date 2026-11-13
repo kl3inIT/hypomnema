@@ -1,7 +1,8 @@
 name: Release
 
 # A tag v* publishes the node for every platform the install script supports, with the manifests the script
-# reads. The script (GET /install/node.sh on a control plane) downloads from the latest release.
+# reads, and the control plane for Linux with the manifests `hypomnema update` reads (issue #279). The script
+# (GET /install/node.sh on a control plane) and the control plane's updater download from the latest release.
 on:
   push:
     tags: ["v*"]
@@ -15,15 +16,27 @@ concurrency:
 
 jobs:
   node:
-    name: Node binaries
+    name: Node and control plane binaries
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          package_json_file: web/package.json
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
       - name: make release-node
         run: make release-node VERSION="$GITHUB_REF_NAME"
+      - name: Build the web client
+        run: make web-install web-build
+      - name: make release-controlplane
+        run: make release-controlplane VERSION="$GITHUB_REF_NAME"
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}

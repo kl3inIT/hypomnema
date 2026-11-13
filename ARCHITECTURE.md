@@ -282,9 +282,10 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   t3code's typed timeline items): `wake` (it names its event), `failed` (pi's model call failed), `stopped` (the
   owner stopped the turn) or `approval` (the coordinator is told an Approval was answered); the API sends it as
   `ChatMessage.kind`, and the web and Lark read it rather than the text. A
-  Run records the chat whose pi created it (`runs.chat_id`), and each event of such a Run that needs a coordinator (a
-  Task ended or was blocked, a question to the coordinator, an escalation, the Run ended) adds one wake-up to the chat,
-  unique per event.
+  Run records the chat whose pi created it (`runs.chat_id`); the API names that chat's Bot as `Run.bot` (issue #281),
+  read by a join of `runs` with `chats` in `GetRunWithBot` and `ListRuns`, and absent for a Run without a chat. Each
+  event of such a Run that needs a coordinator (a Task ended or was blocked, a question to the coordinator, an
+  escalation, the Run ended) adds one wake-up to the chat, unique per event.
 - Bots (`orchestration/bots.go`, issue #169, after OpenMausBot's bot records and OpenClaw's `agents.entries`): a
   Bot is a row with a name, a model (provider, name, effort, checked as a profile's is, for pi), a persona and a
   memory. It is apart from the workers' profiles (owner, 2026-11-11). The Bot `coordinator` is always there: it is
@@ -1106,7 +1107,8 @@ Claude subscriptions. Other provider formats and other capabilities do not exist
     Claude Code (`X-App: cli`, a `claude-cli/` User-Agent, a `claude-code-` beta, a `metadata.user_id`) keeps its
     `anthropic-*`, `x-stainless-*`, `x-claude-code-*`, User-Agent and Accept headers, with `oauth-2025-04-20` added
     to its betas; any other gets the chat route's disguise (billing block, identity, its system in the first user
-    turn, a user id) and Claude Code's headers with the betas it asked for. Tools are never renamed.
+    turn with its cache breakpoints kept, a user id) and Claude Code's headers with the betas it asked for. Tools
+    are never renamed.
   - `stream` stays as the client sent it; a stream goes back line for line, a whole answer as it came. The usage is
     read from `message_start` and `message_delta`, or the answer's `usage`; `count_tokens` records none.
   - The session is `X-Claude-Code-Session-Id`, else one per gateway key. The account, a refused token, a usage
@@ -1274,7 +1276,31 @@ Node API (`internal/controlplane/nodeapi`, protocol in `internal/shared/nodeprot
   `HYPOMNEMA_NODE_TOKEN` or asks for it on the terminal, writes the configuration, says hello once, and on Linux
   installs and starts a systemd user unit. Linux and macOS, amd64 and arm64.
 - Releases: a tag `v*` runs `.github/workflows/release.yml`, which builds the node for those four platforms with
-  their manifests (`make release-node`) and publishes them as a GitHub release.
+  their manifests (`make release-node`), and the control plane, with the web client in it, for linux-amd64 and
+  linux-arm64 with manifests `controlplane-<platform>.txt` in the same format (`make release-controlplane`), and
+  publishes them as a GitHub release.
+- The control plane updates itself (issue #279, after Beszel's `beszel update` and its update timer,
+  `internal/ghupdate/ghupdate.go`, `supplemental/scripts/install-hub.sh`, and OpenMausBot's `deploy/update.sh`):
+  - `deploy/controlplane/setup-controlplane.sh`, run once with sudo, runs the control plane as
+    `hypomnema-cp.service` (its user, its `env` sourced, logging to `serve.log`) and installs
+    `hypomnema-update.service`, a root oneshot, with `hypomnema-update.timer`, two minutes after boot and every five
+    minutes after.
+  - The oneshot runs the root-owned `/usr/local/bin/hypomnema update --user U --home DIR`
+    (`internal/controlplane/selfupdate`). It holds a `flock` on `/var/lib/hypomnema-update/lock` (a second update
+    gives up), reads the latest release's manifest, and does nothing unless the release is newer than its own
+    version (a build of a commit after vX.Y.Z counts as later than vX.Y.Z). It downloads into
+    `/var/lib/hypomnema-update`, requires the manifest's SHA-256 and the version the binary reports, and runs that
+    binary's `update install`, so the steps are the release's own. The control plane's own binary belongs to its
+    user and is never run as root.
+  - `update install`: stops the unit, copies the database and its WAL files to `data/predeploy-<time>/`, keeps the
+    binary as `bin/hypomnema.previous` and puts the new one in place, runs `hypomnema migrate` as the user (the
+    migration stays an explicit step, `docs/conventions.md`), starts the unit and waits up to a minute for
+    `/readyz`. A control plane that does not become ready is stopped and its old binary and database put back and
+    started. Once it is ready, the release's `deploy/coordinator` files, built into the binary
+    (`deploy/coordinator/files.go`), are written to a root-owned folder and its `setup-coordinator.sh` run, so the
+    launchers, the sudoers rule and `/usr/local/bin/hypomnema` are always the running release's.
+  - Deploying is pushing a tag; nothing on GitHub holds a key to the control plane's machine. A build of a commit is
+    not deployed this way.
 - The control plane offers the node its queued Dispatches with what it needs (Task, repository, worktree, runtime,
   account, model), sends stops and answers, and acknowledges every heartbeat and report. Each is sent once per
   connection, and again after a reconnect. It looks again on every commit and every 30 s.

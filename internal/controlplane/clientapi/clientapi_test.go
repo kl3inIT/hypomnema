@@ -386,6 +386,59 @@ func TestListTasksFillsABoard(t *testing.T) {
 	assert.Equal(t, []string{"open"}, objectives(board.JSON200.Runs))
 }
 
+// Scenario: a Run started from a chat names the chat's Bot wherever Runs are
+// read: one Run, the list and the board; a Run without a chat names none.
+func TestARunNamesItsChatsBot(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	c, _ := w.token("web", bearertoken.Owner)
+	ctx := t.Context()
+
+	created, err := c.CreateChatWithResponse(ctx, openapi.NewChat{})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, created.StatusCode(), string(created.Body))
+	chat := created.JSON201
+
+	resp, err := c.CreateRunWithResponse(ctx, nil, openapi.NewRun{Objective: "from chat", ChatId: &chat.Id})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, resp.StatusCode(), string(resp.Body))
+	fromChat := *resp.JSON201
+	assert.Equal(t, &chat.Bot, fromChat.Bot)
+
+	alone := w.createRun(c, "alone")
+	assert.Nil(t, alone.Bot)
+
+	for _, r := range []openapi.Run{fromChat, alone} {
+		tasks, err := c.CreateTasksWithResponse(ctx, r.Id, nil,
+			openapi.NewTasks{Tasks: []openapi.NewTask{{Ref: "a", Spec: "a"}}})
+		require.NoError(t, err)
+		require.Equal(t, http.StatusCreated, tasks.StatusCode(), string(tasks.Body))
+	}
+
+	one, err := c.GetRunWithResponse(ctx, fromChat.Id)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, one.StatusCode(), string(one.Body))
+	assert.Equal(t, &chat.Bot, one.JSON200.Bot)
+
+	list, err := c.ListRunsWithResponse(ctx, nil)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, list.StatusCode(), string(list.Body))
+
+	board, err := c.ListTasksWithResponse(ctx, &openapi.ListTasksParams{})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, board.StatusCode(), string(board.Body))
+
+	for name, runs := range map[string][]openapi.Run{"list": list.JSON200.Data, "board": board.JSON200.Runs} {
+		bots := map[string]string{}
+		for _, r := range runs {
+			bots[r.Objective] = val(r.Bot)
+		}
+
+		assert.Equal(t, map[string]string{"from chat": chat.Bot, "alone": ""}, bots, name)
+	}
+}
+
 func objectives(runs []openapi.Run) []string {
 	out := make([]string, 0, len(runs))
 	for _, r := range runs {

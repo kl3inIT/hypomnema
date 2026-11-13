@@ -16,7 +16,7 @@ BINARIES := hypomnema hypomnema-node
 
 .PHONY: help verify verify-static fmt-check tidy-check lint deps-check sqlc-generate sqlc-check migration-check \
 	openapi-generate openapi-check unit race govulncheck build web-install web-check web-api-generate \
-	web-api-check web-build web-e2e release-node web-doctor
+	web-api-check web-build web-e2e release-node release-controlplane web-doctor
 
 help: ## List the targets
 	@awk 'BEGIN {FS = ":.*## "} /^[a-z-]+:.*## / {printf "  %-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
@@ -91,6 +91,9 @@ RELEASE_REPO ?= kl3inIT/hypomnema
 
 release-node: ## Build the node for every platform into dist/, with the manifests the install script reads
 	sh deploy/release/release-node.sh "$(VERSION)" "$(RELEASE_REPO)" "$(LDFLAGS)"
+
+release-controlplane: ## Build the control plane for Linux into dist/, with the manifests `hypomnema update` reads
+	sh deploy/release/release-controlplane.sh "$(VERSION)" "$(RELEASE_REPO)" "$(LDFLAGS)"
 
 WEB := pnpm --dir web
 

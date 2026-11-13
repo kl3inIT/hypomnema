@@ -2591,6 +2591,9 @@ components:
         chat_id:
           type: string
           description: The chat whose coordinator created the Run.
+        bot:
+          type: string
+          description: The Bot of the Run's chat (Chat.bot); absent for a Run without a chat.
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
         uses:
