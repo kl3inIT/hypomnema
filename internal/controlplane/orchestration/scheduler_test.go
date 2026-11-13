@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 )
@@ -1044,4 +1045,63 @@ func TestFallbacksNameOtherWorkerProfiles(t *testing.T) {
 		ErrInvalid)
 	require.ErrorIs(t, apply("name: lead\ndescription: d\nruntime: pi\nfallbacks: [reviewer]\n"), ErrInvalid)
 	require.NoError(t, apply("name: a\ndescription: d\nruntime: claude\nfallbacks: [reviewer, explorer]\n"))
+}
+
+// Scenario: a Bot may give work to one profile only (issue #169). Its Task
+// meets the limit of that profile's runtime: it does not move to a backup the
+// Bot may not give work to, and waits; the owner's Task of the same profile
+// moves to the backup.
+func TestABotsTaskFallsBackOnlyToItsWorkers(t *testing.T) {
+	t.Parallel()
+
+	w := newSchedWorld(t)
+	ctx := t.Context()
+
+	_, err := w.s.ApplyProvider(ctx, "", "name: gateway\nkind: model_gateway\nmodels: [gpt-sol]\n")
+	require.NoError(t, err)
+	_, _, err = w.s.ApplyProfile(ctx, "",
+		"name: codex-worker\ndescription: d\nruntime: codex\nmodel: {provider: gateway, name: gpt-sol}\n")
+	require.NoError(t, err)
+	_, _, err = w.s.ApplyProfile(ctx, "", "name: writer\ndescription: d\nruntime: claude\nfallbacks: [codex-worker]\n")
+	require.NoError(t, err)
+
+	_, err = w.s.PutBot(ctx, Bot{Name: "vmap", Workers: AllowList{Limited: true, Names: []string{"writer"}}})
+	require.NoError(t, err)
+
+	w.addNode("node_codex", 4, "codex")
+
+	w.tasks(NewTask{Ref: "a", Profile: "writer", Spec: "a"})
+	first := w.schedule().Created
+	require.Len(t, first, 1)
+
+	resets := t0.Add(2 * time.Hour)
+	require.NoError(t, w.finish(w.begin(first[0]), Outcome{Class: FailureRateLimited, ResetsAt: &resets}))
+
+	botRun, err := w.s.CreateRun(ctx, NewRun{Objective: "maps", CreatedBy: "pi", Bot: "vmap"})
+	require.NoError(t, err)
+
+	_, err = w.s.CreateTasks(ctx, botRun.ID, []NewTask{{Ref: "b", Profile: "writer", Spec: "the bot's"}})
+	require.NoError(t, err)
+	w.tasks(NewTask{Ref: "c", Profile: "writer", Spec: "the owner's"})
+
+	// A Run a Bot's pi created in its chat before Runs recorded their Bot is that chat's Bot's.
+	tok, _, err := w.s.AddToken(ctx, "pi-coordinator", bearertoken.Coordinator)
+	require.NoError(t, err)
+
+	chat, err := w.s.CreateChat(ctx, "vmap", "")
+	require.NoError(t, err)
+
+	older, err := w.s.CreateRun(ctx, NewRun{
+		Objective: "older", CreatedBy: "pi", CoordinatorTokenID: tok.ID, ChatID: chat.ID,
+	})
+	require.NoError(t, err)
+
+	_, err = w.s.CreateTasks(ctx, older.ID, []NewTask{{Ref: "d", Profile: "writer", Spec: "the older run's"}})
+	require.NoError(t, err)
+
+	out := w.schedule()
+	require.Len(t, out.Created, 1, "the Bot's Tasks wait")
+	d := w.dispatchOf(out.Created[0])
+	assert.Equal(t, "the owner's", w.task(d.TaskID).Spec)
+	assert.Equal(t, "writer", d.FallbackFor)
 }

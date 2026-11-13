@@ -10,6 +10,25 @@ import (
 	"database/sql"
 )
 
+const countRepliesOfBotSince = `-- name: CountRepliesOfBotSince :one
+SELECT count(*) FROM chat_messages m JOIN chats c ON c.id = m.chat_id
+WHERE c.bot = ?1 AND m.role = 'coordinator' AND m.created_at >= ?2 AND m.chat_id <> ?3
+`
+
+type CountRepliesOfBotSinceParams struct {
+	Bot    string
+	Since  int64
+	ChatID string
+}
+
+// What a Bot answered since a moment, in chats other than one: that it was used since then.
+func (q *Queries) CountRepliesOfBotSince(ctx context.Context, arg CountRepliesOfBotSinceParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countRepliesOfBotSince, arg.Bot, arg.Since, arg.ChatID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const deleteBot = `-- name: DeleteBot :exec
 DELETE FROM bots WHERE name = ?1
 `
@@ -20,7 +39,7 @@ func (q *Queries) DeleteBot(ctx context.Context, name string) error {
 }
 
 const getBot = `-- name: GetBot :one
-SELECT name, provider, model, effort, persona, memory, created_at, updated_at, skills, skills_off FROM bots WHERE name = ?1
+SELECT name, provider, model, effort, persona, memory, created_at, updated_at, skills, skills_off, connections, workers FROM bots WHERE name = ?1
 `
 
 func (q *Queries) GetBot(ctx context.Context, name string) (Bot, error) {
@@ -37,12 +56,92 @@ func (q *Queries) GetBot(ctx context.Context, name string) (Bot, error) {
 		&i.UpdatedAt,
 		&i.Skills,
 		&i.SkillsOff,
+		&i.Connections,
+		&i.Workers,
+	)
+	return i, err
+}
+
+const getSetupChange = `-- name: GetSetupChange :one
+SELECT id, chat_id, kind, name, "action", "before", "after", created_at, undone_at FROM setup_changes WHERE id = ?1
+`
+
+func (q *Queries) GetSetupChange(ctx context.Context, id string) (SetupChange, error) {
+	row := q.db.QueryRowContext(ctx, getSetupChange, id)
+	var i SetupChange
+	err := row.Scan(
+		&i.ID,
+		&i.ChatID,
+		&i.Kind,
+		&i.Name,
+		&i.Action,
+		&i.Before,
+		&i.After,
+		&i.CreatedAt,
+		&i.UndoneAt,
+	)
+	return i, err
+}
+
+const insertSetupChange = `-- name: InsertSetupChange :exec
+INSERT INTO setup_changes (id, chat_id, kind, name, action, before, after, created_at)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+`
+
+type InsertSetupChangeParams struct {
+	ID     string
+	ChatID string
+	Kind   string
+	Name   string
+	Action string
+	Before sql.NullString
+	After  string
+	Now    int64
+}
+
+func (q *Queries) InsertSetupChange(ctx context.Context, arg InsertSetupChangeParams) error {
+	_, err := q.db.ExecContext(ctx, insertSetupChange,
+		arg.ID,
+		arg.ChatID,
+		arg.Kind,
+		arg.Name,
+		arg.Action,
+		arg.Before,
+		arg.After,
+		arg.Now,
+	)
+	return err
+}
+
+const lastSetupChangeOf = `-- name: LastSetupChangeOf :one
+SELECT id, chat_id, kind, name, "action", "before", "after", created_at, undone_at FROM setup_changes WHERE kind = ?1 AND name = ?2 ORDER BY created_at DESC, id DESC LIMIT 1
+`
+
+type LastSetupChangeOfParams struct {
+	Kind string
+	Name string
+}
+
+// The newest change of a Bot or a profile: an undo applies to that one only.
+func (q *Queries) LastSetupChangeOf(ctx context.Context, arg LastSetupChangeOfParams) (SetupChange, error) {
+	row := q.db.QueryRowContext(ctx, lastSetupChangeOf, arg.Kind, arg.Name)
+	var i SetupChange
+	err := row.Scan(
+		&i.ID,
+		&i.ChatID,
+		&i.Kind,
+		&i.Name,
+		&i.Action,
+		&i.Before,
+		&i.After,
+		&i.CreatedAt,
+		&i.UndoneAt,
 	)
 	return i, err
 }
 
 const listBots = `-- name: ListBots :many
-SELECT name, provider, model, effort, persona, memory, created_at, updated_at, skills, skills_off FROM bots ORDER BY created_at, name
+SELECT name, provider, model, effort, persona, memory, created_at, updated_at, skills, skills_off, connections, workers FROM bots ORDER BY created_at, name
 `
 
 func (q *Queries) ListBots(ctx context.Context) ([]Bot, error) {
@@ -65,6 +164,8 @@ func (q *Queries) ListBots(ctx context.Context) ([]Bot, error) {
 			&i.UpdatedAt,
 			&i.Skills,
 			&i.SkillsOff,
+			&i.Connections,
+			&i.Workers,
 		); err != nil {
 			return nil, err
 		}
@@ -77,6 +178,57 @@ func (q *Queries) ListBots(ctx context.Context) ([]Bot, error) {
 		return nil, err
 	}
 	return items, nil
+}
+
+const listSetupChangesOfChat = `-- name: ListSetupChangesOfChat :many
+SELECT id, chat_id, kind, name, "action", "before", "after", created_at, undone_at FROM setup_changes WHERE chat_id = ?1 ORDER BY created_at, id
+`
+
+func (q *Queries) ListSetupChangesOfChat(ctx context.Context, chatID string) ([]SetupChange, error) {
+	rows, err := q.db.QueryContext(ctx, listSetupChangesOfChat, chatID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []SetupChange{}
+	for rows.Next() {
+		var i SetupChange
+		if err := rows.Scan(
+			&i.ID,
+			&i.ChatID,
+			&i.Kind,
+			&i.Name,
+			&i.Action,
+			&i.Before,
+			&i.After,
+			&i.CreatedAt,
+			&i.UndoneAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const markSetupChangeUndone = `-- name: MarkSetupChangeUndone :exec
+UPDATE setup_changes SET undone_at = ?1 WHERE id = ?2 AND undone_at IS NULL
+`
+
+type MarkSetupChangeUndoneParams struct {
+	Now sql.NullInt64
+	ID  string
+}
+
+func (q *Queries) MarkSetupChangeUndone(ctx context.Context, arg MarkSetupChangeUndoneParams) error {
+	_, err := q.db.ExecContext(ctx, markSetupChangeUndone, arg.Now, arg.ID)
+	return err
 }
 
 const setBotMemory = `-- name: SetBotMemory :exec
@@ -95,22 +247,25 @@ func (q *Queries) SetBotMemory(ctx context.Context, arg SetBotMemoryParams) erro
 }
 
 const upsertBot = `-- name: UpsertBot :exec
-INSERT INTO bots (name, provider, model, effort, persona, skills, skills_off, created_at, updated_at)
-VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?8)
+INSERT INTO bots (name, provider, model, effort, persona, skills, skills_off, connections, workers, created_at,
+                  updated_at)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10)
 ON CONFLICT (name) DO UPDATE SET provider = excluded.provider, model = excluded.model, effort = excluded.effort,
     persona = excluded.persona, skills = excluded.skills, skills_off = excluded.skills_off,
-    updated_at = excluded.updated_at
+    connections = excluded.connections, workers = excluded.workers, updated_at = excluded.updated_at
 `
 
 type UpsertBotParams struct {
-	Name      string
-	Provider  sql.NullString
-	Model     sql.NullString
-	Effort    sql.NullString
-	Persona   string
-	Skills    string
-	SkillsOff string
-	Now       int64
+	Name        string
+	Provider    sql.NullString
+	Model       sql.NullString
+	Effort      sql.NullString
+	Persona     string
+	Skills      string
+	SkillsOff   string
+	Connections sql.NullString
+	Workers     sql.NullString
+	Now         int64
 }
 
 func (q *Queries) UpsertBot(ctx context.Context, arg UpsertBotParams) error {
@@ -122,6 +277,8 @@ func (q *Queries) UpsertBot(ctx context.Context, arg UpsertBotParams) error {
 		arg.Persona,
 		arg.Skills,
 		arg.SkillsOff,
+		arg.Connections,
+		arg.Workers,
 		arg.Now,
 	)
 	return err

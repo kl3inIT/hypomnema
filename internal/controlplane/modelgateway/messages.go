@@ -135,7 +135,9 @@ func (s *Server) serveMessages(w http.ResponseWriter, r *http.Request, path stri
 	}
 
 	record := Usage{KeyID: key.ID, Model: model.Name, Stream: call.req.Stream}
-	s.passMessages(w, r, call, model, &record)
+	serving, served := withServed(r)
+	s.passMessages(w, serving, call, model, &record)
+	record.AccountID = served.id
 
 	if !generates {
 		return
@@ -189,6 +191,7 @@ func (s *Server) passMessages(w http.ResponseWriter, r *http.Request, call messa
 
 	for i, a := range attempts {
 		last := i == len(attempts)-1
+		noteServed(ctx, "")
 		record.Attempts, record.Provider, record.UpstreamModel = i+1, a.upstream.Provider, a.upstream.Model
 		record.Status = 0
 
@@ -247,7 +250,7 @@ func (s *Server) passMessages(w http.ResponseWriter, r *http.Request, call messa
 		case resp.StatusCode < 200 || resp.StatusCode > 299:
 			record.Outcome = OutcomeUpstreamError
 
-			passMessagesRefusal(w, resp)
+			record.Error = errorText(passMessagesRefusal(w, resp))
 		case !a.claude:
 			s.relayFromChat(w, r, call, model.Name, resp, record)
 		case call.req.Stream && strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream"):
@@ -654,7 +657,7 @@ func messagesTokens(u claude.PassUsage) Tokens {
 // passMessagesRefusal passes a refusal on with its status, Retry-After and
 // body. A refusal the gateway made itself in OpenAI's shape (every account
 // resting) is put in Anthropic's.
-func passMessagesRefusal(w http.ResponseWriter, resp *http.Response) {
+func passMessagesRefusal(w http.ResponseWriter, resp *http.Response) []byte {
 	if retry := resp.Header.Get("Retry-After"); retry != "" {
 		w.Header().Set("Retry-After", retry)
 	}
@@ -672,7 +675,7 @@ func passMessagesRefusal(w http.ResponseWriter, resp *http.Response) {
 	if json.Unmarshal(body, &shape) == nil && shape.Type == "" && shape.Error != nil && shape.Error.Message != "" {
 		writeAnthropicError(w, resp.StatusCode, shape.Error.Type, "", shape.Error.Message)
 
-		return
+		return body
 	}
 
 	contentType := resp.Header.Get("Content-Type")
@@ -683,6 +686,8 @@ func passMessagesRefusal(w http.ResponseWriter, resp *http.Response) {
 	w.Header().Set("Content-Type", contentType)
 	w.WriteHeader(resp.StatusCode)
 	_, _ = w.Write(body) // The client went away; nothing is left to tell it.
+
+	return body
 }
 
 // writeAnthropicError answers with an error in Anthropic's shape, which its

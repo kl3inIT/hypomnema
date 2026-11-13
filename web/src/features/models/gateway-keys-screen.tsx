@@ -243,7 +243,8 @@ function BaseURL() {
       </InputGroup>
       <FieldDescription>
         OpenAI&apos;s format: /v1/chat/completions and /v1/models for any tool, /v1/responses for
-        the Codex CLI.
+        the Codex CLI. Anthropic&apos;s /v1/messages for Claude Code, whose base URL is this address
+        without /v1.
       </FieldDescription>
     </Field>
   )

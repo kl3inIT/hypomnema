@@ -1,4 +1,10 @@
-import type { ChatDelta, ChatMessage, ChatPart, ChatToolActivity } from "@/api/generated/types.gen"
+import type {
+  ChatDelta,
+  ChatMessage,
+  ChatPart,
+  ChatToolActivity,
+  SetupChange,
+} from "@/api/generated/types.gen"
 
 // What a chat shows, from its stream (GET /chats/{id}/stream): the kept messages, and what pi is doing that is not
 // kept yet. As Omnara's delta previews (.tmp/omnara/frontend/packages/react/src/domains/agent-chat-messages.ts),
@@ -97,6 +103,8 @@ export type ChatItem =
   | { kind: "activity"; key: string; steps: Step[]; open: boolean }
   // A Routine the Bot set up from this chat, where it was set up (issue #211).
   | { kind: "routine-setup"; key: string; routineId: string }
+  // A Bot or profile the Bot coordinator made, changed or removed from this chat (issue #169).
+  | { kind: "setup-change"; key: string; change: SetupChange }
   // A Routine's run told its result here.
   | {
       kind: "routine-run"
@@ -107,9 +115,10 @@ export type ChatItem =
       createdAt: string
     }
 
-// Setup is a Routine the Bot set up from the chat and when: its card goes among the messages at that moment, as
-// OpenMausBot's TriggerCard stands in the conversation where the Bot made it.
-export type Setup = { id: string; at: string }
+// Setup is a Routine the Bot set up from the chat, or a change of a Bot or profile it made there, and when: its
+// card goes among the messages at that moment, as OpenMausBot's TriggerCard and its team setup receipt stand in
+// the conversation where the Bot made them.
+export type Setup = { id: string; at: string; change?: SetupChange }
 
 // One step of pi's work: a thought, or a tool with its result (absent while it runs).
 export type Step =
@@ -155,7 +164,11 @@ export function chatItems(view: ChatView, local: Local = {}, setups: Setup[] = [
     for (let s = waiting[0]; s && (before === undefined || s.at < before); s = waiting[0]) {
       waiting.shift()
       close()
-      items.push({ kind: "routine-setup", key: `setup-${s.id}`, routineId: s.id })
+      items.push(
+        s.change
+          ? { kind: "setup-change", key: `change-${s.id}`, change: s.change }
+          : { kind: "routine-setup", key: `setup-${s.id}`, routineId: s.id },
+      )
     }
   }
 

@@ -51,7 +51,7 @@ func codeOf(err error) openapi.ErrorCode {
 		return openapi.RateLimited
 	case errors.Is(err, errUnauthorized):
 		return openapi.Unauthorized
-	case errors.Is(err, errForbidden):
+	case errors.Is(err, errForbidden), errors.Is(err, orchestration.ErrForbidden):
 		return openapi.Forbidden
 	case errors.Is(err, orchestration.ErrIdempotencyConflict):
 		return openapi.IdempotencyKeyConflict

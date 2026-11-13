@@ -30,10 +30,15 @@ export function useBot(name: string) {
 }
 
 // usePutBot makes a Bot or replaces its model, effort and persona; its memory stays.
+// putBotKey marks every save of a Bot, so that one part of its page waits while another part saves: each PUT
+// carries the whole of the Bot's settings.
+export const putBotKey = ["put-bot"] as const
+
 export function usePutBot() {
   const queryClient = useQueryClient()
 
   return useMutation({
+    mutationKey: putBotKey,
     mutationFn: async ({ name, settings }: { name: string; settings: BotSettings }) =>
       (await putBot({ path: { name }, body: settings })).data,
     onSuccess: (bot) => {

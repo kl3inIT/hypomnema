@@ -105,7 +105,22 @@ func (s *Service) CreateRunOnce(ctx context.Context, o Once, nr NewRun) (Run, er
 				repo, base = resolved, or(nr.Base, or(registeredBase, DefaultBase))
 			}
 
-			uses, err := runUses(ctx, q, nr.Uses, nr.CoordinatorTokenID != "")
+			var bot *Bot
+
+			if nr.Bot != "" {
+				b, found, err := botIfAny(ctx, q, nr.Bot)
+				if err != nil {
+					return "", err
+				}
+
+				if !found {
+					return "", fmt.Errorf("%w: bot %s", ErrNotFound, nr.Bot)
+				}
+
+				bot = &b
+			}
+
+			uses, err := runUses(ctx, q, nr.Uses, nr.CoordinatorTokenID != "", bot)
 			if err != nil {
 				return "", err
 			}
@@ -116,7 +131,8 @@ func (s *Service) CreateRunOnce(ctx context.Context, o Once, nr NewRun) (Run, er
 				Uses: joinUses(uses),
 				ID:   id, Objective: objective, CreatedBy: createdBy, Repo: nullString(repo.Path),
 				RepoHost: nullString(repo.Host), Base: nullString(base),
-				CoordinatorTokenID: nullString(nr.CoordinatorTokenID), ChatID: nullString(nr.ChatID), Now: now,
+				CoordinatorTokenID: nullString(nr.CoordinatorTokenID), ChatID: nullString(nr.ChatID),
+				Bot: nullString(nr.Bot), Now: now,
 			}); err != nil {
 				return "", fmt.Errorf("inserting run: %w", err)
 			}

@@ -101,3 +101,43 @@ func TestBotsAndTheirMemoryFromTheCLI(t *testing.T) {
 	_, err = w.cmd(t, "bots", "rm", "coordinator")
 	require.ErrorContains(t, err, "always there")
 }
+
+// Scenario: the owner limits what a Bot may use from the terminal (issue
+// #169): no Connection and one worker profile. The Bot is told in its prompt
+// which profiles it gives work to, and the Bot coordinator that it manages
+// Bots and profiles. A flag left out keeps a list; --all-workers lifts it.
+func TestABotsListsFromTheCLI(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	w.login(t, bearertoken.Owner)
+
+	out, err := w.cmd(t, "bots", "set", "vmap", "--connections", "", "--workers", "reviewer")
+	require.NoError(t, err)
+	assert.Contains(t, out, "connections: none\nworkers: reviewer\n")
+
+	out, err = w.cmd(t, "bots", "prompt", "vmap")
+	require.NoError(t, err)
+	assert.Contains(t, out, "## Workers\n\nYou give work only to these worker profiles: reviewer.")
+	assert.NotContains(t, out, "## Bots and profiles", "only the Bot coordinator manages them")
+
+	out, err = w.cmd(t, "bots", "set", "vmap", "--effort", "high")
+	require.NoError(t, err)
+	assert.Contains(t, out, "connections: none\nworkers: reviewer\n", "what the flags leave out stays")
+
+	out, err = w.cmd(t, "bots", "set", "vmap", "--all-workers=false")
+	require.NoError(t, err)
+	assert.Contains(t, out, "workers: reviewer\n", "=false lifts nothing")
+
+	out, err = w.cmd(t, "bots", "set", "vmap", "--all-workers")
+	require.NoError(t, err)
+	assert.Contains(t, out, "workers: every profile\n")
+
+	out, err = w.cmd(t, "bots", "prompt", "vmap")
+	require.NoError(t, err)
+	assert.NotContains(t, out, "## Workers")
+
+	out, err = w.cmd(t, "bots", "prompt", "coordinator")
+	require.NoError(t, err)
+	assert.Contains(t, out, "## Bots and profiles")
+}

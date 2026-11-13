@@ -15,6 +15,8 @@ type Bot = {
   memory_limit: number
   skills: string[]
   skills_off: string[]
+  connections: { limited: boolean; names: string[] }
+  workers: { limited: boolean; names: string[] }
   created_at: string
   updated_at: string
 }
@@ -28,6 +30,8 @@ const bot = (name: string, m: Partial<Bot> = {}): Bot => ({
   memory_limit: 2200,
   skills: [],
   skills_off: [],
+  connections: { limited: false, names: [] },
+  workers: { limited: false, names: [] },
   created_at: hours(200),
   updated_at: hours(3),
   ...m,
@@ -70,12 +74,86 @@ const skills = [
   skill("lark-docs", "Write and update documents in Lark."),
 ]
 
+// The accounts the owner connected (issue #169): two switched on for chats, one not.
+const connection = (integration: string, label: string, account: string, chats: boolean) => ({
+  integration,
+  label,
+  account,
+  services: [],
+  sign_in_required: false,
+  chats,
+  created_at: hours(100),
+  updated_at: hours(100),
+})
+
+const integrations = [
+  {
+    id: "google",
+    name: "Google",
+    kind: "oauth",
+    services: ["gmail", "calendar"],
+    connections: [
+      connection("google", "work", "admin@tasco.vn", true),
+      connection("google", "home", "me@gmail.com", false),
+    ],
+  },
+  {
+    id: "lark",
+    name: "Lark",
+    kind: "app",
+    services: [],
+    connections: [connection("lark", "main", "Hypomnema bot", true)],
+  },
+]
+
+const profile = (name: string, runtime: string, description: string) => ({
+  name,
+  description,
+  version_id: `pfv_${name}`,
+  version: 1,
+  runtime,
+  fallbacks: [],
+  skills: [],
+  skills_off: [],
+  source: "",
+  created_at: hours(100),
+  available: true,
+})
+
+const profiles = [
+  profile("explorer", "claude", "Reads a repository and answers a question about it."),
+  profile("implementer", "claude", "Writes the change and opens a pull request."),
+  profile("reviewer", "codex", "Reviews a pull request and reports what to fix."),
+]
+
+type Change = {
+  id: string
+  chat_id: string
+  kind: "bot" | "profile"
+  name: string
+  action: "made" | "changed" | "removed"
+  can_undo: boolean
+  problem?: string
+  created_at: string
+  undone_at?: string
+}
+
+type Message = { seq: number; chat_id: string; role: string; text: string; created_at: string }
+
+const minutesAgo = (n: number) => new Date(Date.now() - n * 60_000).toISOString()
+
 // The fake keeps the Bots as the control plane does: a PUT makes one or replaces its model, effort and persona
 // and keeps its memory; a DELETE is refused for the first Bot and for one with a memory. A chat is made with the
-// Bot it names, or the first.
-async function fakeServer(page: Page, start: Bot[] = [coordinator]) {
+// Bot it names, or the first. A chat given here is there from the start, with its messages and the setup changes
+// made in it; an undo marks a change undone.
+async function fakeServer(
+  page: Page,
+  start: Bot[] = [coordinator],
+  opts: { chat?: object; messages?: Message[]; changes?: Change[] } = {},
+) {
   let bots = start
-  let chat: object | null = null
+  let chat: object | null = opts.chat ?? null
+  let changes = opts.changes ?? []
   const calls: { call: string; body: unknown }[] = []
 
   await page.route("**/api/v1/**", async (route) => {
@@ -86,6 +164,15 @@ async function fakeServer(page: Page, start: Bot[] = [coordinator]) {
       route.fulfill({ status, contentType: "application/json", body: JSON.stringify(body) })
 
     if (request.method() !== "GET") calls.push({ call, body: request.postDataJSON() })
+
+    const undo = /^\/setup-changes\/([^/]+)\/undo$/.exec(path)
+    if (undo && request.method() === "POST") {
+      changes = changes.map((c) =>
+        c.id === undo[1] ? { ...c, can_undo: false, undone_at: minutesAgo(0) } : c,
+      )
+
+      return json(changes.find((c) => c.id === undo[1]))
+    }
 
     const memoryOf = /^\/bots\/([^/]+)\/memory$/.exec(path)
     if (memoryOf && request.method() === "PUT") {
@@ -183,7 +270,20 @@ async function fakeServer(page: Page, start: Bot[] = [coordinator]) {
           201,
         )
       case "GET /chats/cht_1/stream":
-        return route.fulfill({ status: 200, contentType: "text/event-stream", body: ": hello\n\n" })
+        return route.fulfill({
+          status: 200,
+          contentType: "text/event-stream",
+          body:
+            (opts.messages ?? [])
+              .map((m) => `id: ${m.seq}\nevent: message\ndata: ${JSON.stringify(m)}\n\n`)
+              .join("") || ": hello\n\n",
+        })
+      case "GET /setup-changes":
+        return json({ data: changes })
+      case "GET /integrations":
+        return json({ data: integrations })
+      case "GET /profiles":
+        return json({ data: profiles })
       case "GET /chats":
         return json({ data: chat ? [chat] : [] })
       case "GET /tasks":
@@ -192,7 +292,7 @@ async function fakeServer(page: Page, start: Bot[] = [coordinator]) {
         return route.fulfill({ status: 200, contentType: "text/event-stream", body: ": hello\n\n" })
       case "GET /questions":
       case "GET /approvals":
-      case "GET /profiles":
+      case "GET /routines":
         return json({ data: [] })
       default:
         return json({ code: "not_found", message: "not found" }, 404)
@@ -426,4 +526,125 @@ test("with one Bot the start screen offers no choice", async ({ page }) => {
     "Chat with coordinator",
   )
   expect(calls[0]).toEqual({ call: "POST /chats", body: { title: "add a health page" } })
+})
+
+// Scenario: the owner limits what a Bot may use (issue #169). Without a list it may use every account switched
+// on for chats and every worker; "Limit Connections" starts with none, and each account switched on for chats is
+// a switch; the account not used in chats is not offered. "Limit workers" is the same card. Each switch saves at
+// once with the Bot's model and persona, so nothing else changes.
+test("a Bot's Connections and workers are limited on its page", async ({ page }) => {
+  const researcher = bot("researcher", { persona: "You find sources and say where they are." })
+  const calls = await fakeServer(page, [coordinator, researcher])
+  await page.goto("/bots/researcher")
+
+  const connections = page.getByRole("region", { name: "Connections" })
+  const workers = page.getByRole("region", { name: "Workers" })
+  await connections.scrollIntoViewIfNeeded()
+  await expect(connections).toContainText("Every account switched on for chats")
+  await expect(workers).toContainText("Every worker profile")
+  expect(await fits(page)).toBe(true)
+  await shot(page, "bot-access")
+
+  await connections.getByRole("switch", { name: "Limit Connections" }).click()
+  await expect(connections).toContainText("No account: every Connection is off for this Bot.")
+  await expect(connections.getByRole("switch", { name: "Connections: google:home" })).toHaveCount(0)
+  await connections.getByRole("switch", { name: "Connections: google:work" }).click()
+  await expect(connections).toContainText("1 of 2 on")
+
+  await workers.getByRole("switch", { name: "Limit workers" }).click()
+  await workers.getByRole("switch", { name: "Workers: reviewer" }).click()
+  await expect(workers).toContainText("1 of 3 on")
+  await workers.scrollIntoViewIfNeeded()
+  expect(await fits(page)).toBe(true)
+  await shot(page, "bot-access-limited")
+
+  expect(calls.slice(-2)).toEqual([
+    {
+      call: "PUT /bots/researcher",
+      body: {
+        persona: "You find sources and say where they are.",
+        workers: { limited: true, names: [] },
+      },
+    },
+    {
+      call: "PUT /bots/researcher",
+      body: {
+        persona: "You find sources and say where they are.",
+        workers: { limited: true, names: ["reviewer"] },
+      },
+    },
+  ])
+})
+
+// Scenario: the Bot coordinator made a Bot and changed a profile in this chat (issue #169). Each change has its
+// card where it was made, with Open, and Undo while nothing changed or used it since; the profile, given a Task
+// since, says why it cannot be undone. The owner undoes the new Bot: its card says it was undone.
+test("a chat shows what the Bot coordinator changed, and the owner undoes it", async ({ page }) => {
+  const chat = {
+    id: "cht_1",
+    title: "A researcher for the VMAP docs",
+    bot: "coordinator",
+    working: false,
+    coordinator: true,
+    created_at: minutesAgo(30),
+    updated_at: minutesAgo(1),
+  }
+  const messages: Message[] = [
+    {
+      seq: 1,
+      chat_id: "cht_1",
+      role: "owner",
+      text: "We need someone to find sources for the VMAP docs, and reviews should run on Codex.",
+      created_at: minutesAgo(12),
+    },
+    {
+      seq: 2,
+      chat_id: "cht_1",
+      role: "coordinator",
+      text: "I made the Bot researcher for sources and moved the reviewer profile to Codex. You can undo either on its card.",
+      created_at: minutesAgo(10),
+    },
+  ]
+  const changes: Change[] = [
+    {
+      id: "chg_1",
+      chat_id: "cht_1",
+      kind: "bot",
+      name: "researcher",
+      action: "made",
+      can_undo: true,
+      created_at: minutesAgo(11),
+    },
+    {
+      id: "chg_2",
+      chat_id: "cht_1",
+      kind: "profile",
+      name: "reviewer",
+      action: "changed",
+      can_undo: false,
+      problem: "profile reviewer was changed or used since; change it by hand",
+      created_at: minutesAgo(11),
+    },
+  ]
+  const calls = await fakeServer(page, [coordinator, bot("researcher")], {
+    chat,
+    messages,
+    changes,
+  })
+  await page.goto("/chats/cht_1")
+
+  const made = page.getByRole("region", { name: "Made Bot researcher" })
+  await expect(made).toContainText("Applied. You can undo it.")
+  await expect(made.getByRole("link", { name: "Open" })).toHaveAttribute("href", "/bots/researcher")
+  const changed = page.getByRole("region", { name: "Changed profile reviewer" })
+  await expect(changed).toContainText("Can't be undone: profile reviewer was changed or used since")
+  await expect(changed.getByRole("button", { name: "Undo" })).toHaveCount(0)
+  expect(await fits(page)).toBe(true)
+  await shot(page, "chat-setup-changes")
+
+  await made.getByRole("button", { name: "Undo" }).click()
+  await expect(made).toContainText("Undone.")
+  await expect(made.getByRole("button", { name: "Undo" })).toHaveCount(0)
+  expect(calls).toContainEqual({ call: "POST /setup-changes/chg_1/undo", body: null })
+  await shot(page, "chat-setup-changes-undone")
 })

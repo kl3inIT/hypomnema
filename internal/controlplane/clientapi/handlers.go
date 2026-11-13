@@ -63,6 +63,11 @@ func (s *Server) CreateRun(ctx context.Context, req openapi.CreateRunRequestObje
 		nr.CoordinatorTokenID = tok.ID
 	}
 
+	// A Bot gives a Run only the Connections it may use itself (issue #169).
+	if tok.Kind == bearertoken.Bot {
+		nr.Bot = tok.Bot
+	}
+
 	run, err := s.svc.CreateRunOnce(ctx, once(tok, req.Params.IdempotencyKey), nr)
 	if err != nil {
 		return nil, err
@@ -159,6 +164,21 @@ func (s *Server) CreateTasks(ctx context.Context, req openapi.CreateTasksRequest
 	in := make([]orchestration.NewTask, 0, len(req.Body.Tasks))
 	for _, t := range req.Body.Tasks {
 		in = append(in, fromNewTask(t))
+	}
+
+	// A Bot gives work only to the worker profiles it may (issue #169), as OpenClaw refuses a spawn target that
+	// allowAgents does not name and says which are allowed (subagent-target-policy.ts L146-200).
+	if tok := principal(ctx); tok.Kind == bearertoken.Bot {
+		bot, err := s.svc.GetBot(ctx, tok.Bot)
+		if err != nil {
+			return nil, err
+		}
+
+		for _, t := range in {
+			if err := bot.MayGive(t.Profile); err != nil {
+				return nil, err
+			}
+		}
 	}
 
 	tasks, err := s.svc.CreateTasksOnce(ctx, once(principal(ctx), req.Params.IdempotencyKey), req.RunId, in)

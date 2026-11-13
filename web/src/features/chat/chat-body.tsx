@@ -4,9 +4,11 @@ import { useState } from "react"
 import "@/api/client"
 import { abortChat, getChat, sendChatMessage } from "@/api/generated/sdk.gen"
 import type { ChatMessage } from "@/api/generated/types.gen"
+import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { PendingApprovals } from "@/features/approvals/approval-card"
 import { firstBot } from "@/features/bots/bots-state"
+import { useSetupChanges } from "@/features/bots/setup-changes"
 import { useRoutines } from "@/features/routines/use-routines"
 import { chatsKey } from "@/features/shell/chats"
 
@@ -29,9 +31,14 @@ export function ChatBody({ chatId }: { chatId: string }) {
   const bot = chat.data?.bot ?? firstBot
   // The Routines the Bot set up from this chat have their card where they were set up.
   const routines = useRoutines({ chatId })
-  const setups = (routines.data ?? [])
-    .filter((r) => r.created_by === "bot")
-    .map((r) => ({ id: r.id, at: r.created_at }))
+  // So do the Bots and profiles the Bot coordinator made, changed or removed here (issue #169).
+  const changes = useSetupChanges(chatId)
+  const setups = [
+    ...(routines.data ?? [])
+      .filter((r) => r.created_by === "bot")
+      .map((r) => ({ id: r.id, at: r.created_at })),
+    ...(changes.data ?? []).map((c) => ({ id: c.id, at: c.created_at, change: c })),
+  ]
 
   async function send(text: string) {
     const shown: ChatMessage = {
@@ -59,6 +66,14 @@ export function ChatBody({ chatId }: { chatId: string }) {
       {chat.data && !chat.data.coordinator && (
         <output className="block px-5 pb-2 text-sm text-muted-foreground">
           No coordinator runs on the server: messages are kept and nothing answers.
+        </output>
+      )}
+      {changes.error && (
+        <output className="mx-auto flex w-full max-w-(--chat-content-max-width) items-center gap-2 px-5 pb-2 text-sm text-muted-foreground">
+          The changes the Bot made here could not be read.
+          <Button variant="outline" size="xs" onClick={() => void changes.refetch()}>
+            Retry
+          </Button>
         </output>
       )}
       <Conversation

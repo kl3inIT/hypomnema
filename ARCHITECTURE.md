@@ -324,8 +324,47 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     memory once per session; a change is in the prompt from pi's next start. pi changes the memory with
     `hypomnema memory add|replace|remove`, which names the Bot of `HYPOMNEMA_BOT`; pi's token decides which Bot it
     is. When the Bot cannot be read pi does not start.
-  - Every owner's and coordinator's token reads Bots and changes a memory an entry at a time; only the owner makes,
-    changes and removes a Bot (`hypomnema bots list|show|set|rm`) and replaces a whole memory.
+  - Every owner's and coordinator's token reads Bots and changes a memory an entry at a time; the owner, and the Bot
+    `coordinator` from its chat (below), make, change and remove a Bot (`hypomnema bots list|show|set|rm`); only
+    the owner replaces a whole memory.
+  - **What a Bot may use** (issue #169, part 3; `orchestration/botaccess.go`, migration 00059). A Bot has two
+    lists, each absent (every one) or present (only those named, none when empty), after OpenMausBot's connector
+    scopes (`shared/connector-scopes.ts` L1-4: "absent means every connected app") and OpenClaw's
+    `subagents.allowAgents`. `connections` names Connections (`integration:label`): a Connection not on it is off
+    for the Bot, and one the owner did not switch on for chats is off for every Bot. It is read at each call, by
+    the caller's Bot from its pi's or its Routine's token, where a tool lists accounts or asks for a token and
+    where the service proxy or the Superset commands relay a call (`agentapi`, `clientapi/superset.go`), and a Run
+    the Bot creates is given only Connections on it (`runUses`). `workers` names worker profiles: a Task the Bot
+    creates for another profile, or for none (`implementer`), is refused, 403, with the allowed ones named
+    ("allowed: reviewer", or "none"), as OpenClaw refuses a spawn target (`subagent-target-policy.ts` L146-200),
+    and `hypomnema bots prompt` names only those to pi, as Hermes's `profile_routes` show a model only its
+    routes. A name the Bot did not have must exist when it is set; one it kept may have gone since. `bots set
+    --connections a,b | --all-connections`, `--workers a,b | --all-workers`; a change that names neither keeps
+    the list. A Run's workers keep the Connections the Run was given when the Bot's list narrows later. A Run
+    records the Bot that created it (`runs.bot`), and a Task of it moves to a backup profile (issue #171) only
+    when the Bot's list, read then, has that backup; otherwise it waits for the reset.
+  - **Managing Bots and profiles** (issue #169, part 3, after OpenMausBot's Chief: the tools that make bots are
+    its alone, `server/drivers/agents-catalog.ts` L907-909, checked again on the server, `server/index.ts`
+    L14147, L14183). Besides the owner, only the Bot `coordinator` makes, changes and removes Bots
+    (`PUT`/`DELETE /bots/{name}`) and makes and changes worker profiles (`PUT /profiles/{name}`), with the
+    commands the owner uses, from its own chat: a pi's token of `coordinator`. Another Bot's token, a Routine's
+    script's and the coordinator token outside every box are refused (403); a fixed rule of the role, not a
+    setting. It never removes itself (`coordinator` is always there). It reads every Bot's settings, as the CLI
+    reads one before changing it, but not another Bot's memory; another Bot's token still reads only its own.
+    It narrows what a Bot may use and never widens it: a Bot it changes gets no Connection or worker it did not
+    have, a Bot it makes no more than `coordinator` has, and it does not change its own lists; widening is the
+    owner's (403 otherwise; OpenMausBot `server/inherited-apps.ts` L18-31, OpenClaw
+    `docs/gateway/permission-modes.md` L94-97). Issue #169 had left this rule out on 2026-11-12; it was added after
+    the pull request's security review. A change applies at once and is
+    recorded as a setup change of that chat (`setup_changes`): what it was about, made, changed or removed, what it was
+    before, and its revision after (a digest of a Bot's settings, a profile's version). `GET
+    /setup-changes?chat_id=` and `POST /setup-changes/{id}/undo` are the owner's (`hypomnema setup list --chat
+    C`, `setup undo <id>`). An undo removes what was made, puts back what was changed (a profile as a new version
+    with the old source) or removed; it is refused once the thing was changed since (its revision differs, or a
+    later setup change was made of it) or used since (the Bot answered in a chat other than the one of the
+    change; a Task was given to the profile, or a worker ran the version the change made), as OpenMausBot refuses a stale team setup undo
+    (`server/team-setup-requests.ts` L393-425). `hypomnema bots prompt coordinator` tells it that it makes one
+    without asking and says so in one line (OpenMausBot, `server/chief-of-staff.ts` L21).
 - Memories of agents and the one about the owner (`orchestration/memories.go`, issue #21,
   [research](docs/research/2026-11-13-agent-memory.md)): rows of `memories`, entries one per line, changed as a
   Bot's memory is (add, replace or remove of one entry, read again inside the transaction, a change over the limit
@@ -403,9 +442,16 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     refuses an unprivileged user namespace (`kernel.apparmor_restrict_unprivileged_userns = 1`) and the box cannot
     be made, an AppArmor profile that lets `/usr/bin/bwrap` make one (as `deploy/browser/setup-browser.sh` does for
     Chrome); it then checks that the coordinator can make a box, and fails when it cannot.
-  - A Bot's page lists the Lark Channels that talk to it, each a link to `/settings/channels`.
-  - Not built: the accounts and tools a Bot may use, MCP servers and pi extensions per Bot, a Bot on another CLI
-    than pi (issue #169); a network namespace, an egress gate, and a Unix user or a container per Bot (issue #260).
+  - A Bot's page lists the Lark Channels that talk to it, each a link to `/settings/channels`. Its cards
+    "Connections" and "Workers" (`web/src/features/bots/bot-access.tsx`, after OpenMausBot's `AccessSection.tsx`
+    L731-784 and `ConnectorScopesControl` L894-928) each have a switch "Limit Connections" or "Limit workers"
+    and, on, one switch per Connection switched on for chats or per worker profile, starting with none; a switch
+    saves at once. In a chat, each setup change has a card where it was made ("Made Bot researcher", its state,
+    Open · Undo), the Routines' "Set up" card's shape (`web/src/features/bots/setup-change-card.tsx`).
+  - Not built: MCP servers, pi extensions and a Bot's own skills (issue #169 says these need reading first), a
+    per-Bot switch for the right to manage Bots, rules of what a new Bot inherits, removing a profile (not an
+    operation for the owner either), a Bot on another CLI than pi; a network namespace, an egress gate, and a Unix
+    user or a container per Bot (issue #260).
 - Skills (`orchestration/skills.go`, issue #21, [research](docs/research/2026-11-12-skills.md)): a skill the owner
   adds, in the Agent Skills format (a folder with a `SKILL.md` whose frontmatter has `name` and `description`, and
   the files beside it), kept whole in revisions that never change, after Omnara's `skills` and `skill_revisions`
@@ -598,6 +644,7 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   created: a known runtime (`claude`, `codex`, `omp`, `opencode`; `pi` is a Bot's and is refused), an effort from `low` to `max`, and a model a provider of a
   kind that runtime can use offers (found from the model when the provider is not named). A provider change that
   would leave a profile's model or runtime unserved is refused. A Task names a profile, `implementer` by default.
+  The owner applies a profile, and the Bot `coordinator` from its chat (Bots, above); a provider only the owner.
   A provider of kind `model_gateway` is the control plane's own model gateway (issue #107): `codex` can run against
   it, and a Task under it needs no account on a node. Its Conversation names `gateway` where an account's id would
   be, and a rate limit cools no account down: the gateway looks after its own accounts.
@@ -1141,6 +1188,13 @@ Claude subscriptions. Other provider formats and other capabilities do not exist
   creation and last use (the latest usage row); the keys of a Dispatch or a chat are only counted
   (`live_worker_keys`). `POST /gateway/keys` `{name, models?}` answers the value once; `DELETE /gateway/keys/{id}`
   revokes one the owner made. All are the owner's. The page shows its own origin with `/v1` as the base URL.
+- Settings → Models → Usage (issue #199, step 4, after T3 Code, Omnara, LiteLLM and 9router) reads
+  `GET /gateway/usage?period=24h|7d|30d&utc_offset_minutes=` (the totals; a bar an hour for 24 hours, a day else,
+  starting at the viewer's midnight; the counts by model, by key and by account, an account named by its label) and
+  `GET /gateway/usage/requests?period=&failed=&offset=&limit=` (the requests, newest first, 50 a page, `has_more`). A
+  request failed when it was refused, got no answer or was cut short; a client that left did not fail. Both are the
+  owner's. The page shows the totals, the tokens as stacked bars (in not cached, in from cache, out), a table by
+  model, key or account, and the requests, a row opening a sheet with its fields and the provider's message.
 - `GET /v1/models` with `Authorization: Bearer <key>` answers OpenAI's list shape with the models the key may use;
   errors are OpenAI's `{"error": {message, type, code}}`, 401 without a valid key.
 - `POST /v1/chat/completions` forwards the request to the model's first target, as 9router-go does: the body is
@@ -1269,6 +1323,10 @@ Claude subscriptions. Other provider formats and other capabilities do not exist
   were tried, the outcome (`ok`, `upstream_error`, `transport_error`, `truncated`, `client_gone`), the provider's
   status, the duration, and the tokens the provider reported (prompt, completion, cached, reasoning; the largest
   seen in a stream). When it reported none they are bytes divided by four and marked as estimated.
+  Since migration 00058 a row also holds the subscription account of the last attempt (`account_id`, empty for an
+  API provider; noted on the request's context by the loop over accounts) and, for a request that failed, the
+  provider's message (`error`, at most 500 characters: `error.message` of its body, else the body; a set sentence
+  when it said nothing). No prompt or answer is kept.
 - The tables `gateway_models`, `gateway_model_targets`, `gateway_keys` and `gateway_usage` are in the one migration
   stream and are read and written only by this package, through its own generated queries. Providers are read
   through orchestration and keys through the vault.
@@ -1717,7 +1775,7 @@ Node (`internal/node`):
     or a pasted URL), what it runs and, if wanted, its token. Removing a token or a declared server asks first.
   - `/settings/repositories` has no entry in the menu while its place is being decided (issue #44); it lists the registered repositories, adds one from its URL under a
     proposed name with an optional base branch, and removes one after a confirmation.
-  - `/settings/models` (under Models, [issue #199](https://github.com/kl3inIT/hypomnema/issues/199), step 1;
+  - `/settings/models` (under Gateway, [issue #199](https://github.com/kl3inIT/hypomnema/issues/199), step 1;
     [research](docs/research/2026-11-12-model-gateway-pages.md)) shows where models come from
     (`web/src/features/models/`).
     - A subscription (a provider of kind `claude_subscription`, `codex_subscription` or

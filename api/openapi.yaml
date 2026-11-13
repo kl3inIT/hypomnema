@@ -1441,6 +1441,52 @@ paths:
         "204":
           description: Revoked.
         default: { $ref: "#/components/responses/Error" }
+  /gateway/usage:
+    get:
+      operationId: GetGatewayUsage
+      summary: What the gateway served in a period, in total, a bar at a time and by model, key and account; only the owner
+      parameters:
+        - name: period
+          in: query
+          required: true
+          schema: { type: string, enum: ["24h", "7d", "30d"] }
+        - name: utc_offset_minutes
+          in: query
+          description: The viewer's distance from UTC, so a day's bar starts at the viewer's midnight.
+          schema: { type: integer, minimum: -840, maximum: 840 }
+      responses:
+        "200":
+          description: The usage.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GatewayUsage" }
+        default: { $ref: "#/components/responses/Error" }
+  /gateway/usage/requests:
+    get:
+      operationId: ListGatewayRequests
+      summary: The requests of a period, newest first, a page at a time; only the owner
+      parameters:
+        - name: period
+          in: query
+          required: true
+          schema: { type: string, enum: ["24h", "7d", "30d"] }
+        - name: failed
+          in: query
+          description: Only the requests that failed.
+          schema: { type: boolean }
+        - name: offset
+          in: query
+          schema: { type: integer, minimum: 0 }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200 }
+      responses:
+        "200":
+          description: A page of requests.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GatewayRequestList" }
+        default: { $ref: "#/components/responses/Error" }
   /bots:
     get:
       operationId: ListBots
@@ -1471,8 +1517,11 @@ paths:
         default: { $ref: "#/components/responses/Error" }
     put:
       operationId: PutBot
-      summary: Make a Bot, or change its model and persona; only the owner
-      description: The Bot's memory stays as it is.
+      summary: Make a Bot, or change its settings; the owner, or the Bot coordinator from its chat
+      description: >-
+        The Bot's memory stays as it is. A change by the Bot coordinator, with
+        its pi's token, applies at once and is recorded in its chat as a setup
+        change the owner can undo; every other Bot's token is refused.
       requestBody:
         required: true
         content:
@@ -1487,8 +1536,11 @@ paths:
         default: { $ref: "#/components/responses/Error" }
     delete:
       operationId: DeleteBot
-      summary: Remove a Bot that has no chats and no memory; only the owner
-      description: The Bot `coordinator` is always there and is not removed.
+      summary: Remove a Bot that has no chats and no memory; the owner, or the Bot coordinator from its chat
+      description: >-
+        The Bot `coordinator` is always there and is not removed. A removal by
+        the Bot coordinator is recorded in its chat as a setup change the owner
+        can undo.
       responses:
         "204": { description: The Bot is removed. }
         default: { $ref: "#/components/responses/Error" }
@@ -1796,6 +1848,43 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/RoutineList" }
         default: { $ref: "#/components/responses/Error" }
+  /setup-changes:
+    get:
+      operationId: ListSetupChanges
+      summary: What the Bot coordinator made, changed or removed of Bots and profiles from a chat; only the owner
+      parameters:
+        - name: chat_id
+          in: query
+          required: true
+          description: The chat the changes were made from.
+          schema: { type: string, minLength: 1, maxLength: 64 }
+      responses:
+        "200":
+          description: The changes, the oldest first.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SetupChangeList" }
+        default: { $ref: "#/components/responses/Error" }
+  /setup-changes/{change_id}/undo:
+    parameters:
+      - name: change_id
+        in: path
+        required: true
+        schema: { type: string, pattern: "^chg_[A-Za-z0-9_]{1,60}$" }
+    post:
+      operationId: UndoSetupChange
+      summary: Undo a change of the Bot coordinator; only the owner
+      description: >-
+        A Bot or profile it made is removed, one it changed is what it was
+        before, a Bot it removed is back. Refused once the Bot or profile was
+        changed or used since.
+      responses:
+        "200":
+          description: The change, undone.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SetupChange" }
+        default: { $ref: "#/components/responses/Error" }
   /routine-schedule:
     post:
       operationId: PreviewRoutineSchedule
@@ -1983,7 +2072,11 @@ paths:
         default: { $ref: "#/components/responses/Error" }
     put:
       operationId: ApplyProfile
-      summary: Store a profile's YAML; a changed source makes a new version
+      summary: Store a profile's YAML; the owner, or the Bot coordinator from its chat
+      description: >-
+        A changed source makes a new version. A new version by the Bot
+        coordinator is recorded in its chat as a setup change the owner can
+        undo.
       requestBody:
         required: true
         content:
@@ -3957,6 +4050,113 @@ components:
         secret:
           type: string
           description: The key's value, answered this once; only its hash is kept.
+    GatewayUsageCounts:
+      type: object
+      required: [requests, failed, prompt_tokens, cached_tokens, completion_tokens, reasoning_tokens]
+      properties:
+        requests: { type: integer, format: int64 }
+        failed:
+          type: integer
+          format: int64
+          description: The requests the provider refused, none answered, or whose answer ended early.
+        prompt_tokens:
+          type: integer
+          format: int64
+          description: Tokens in, those read from the provider's cache included.
+        cached_tokens: { type: integer, format: int64 }
+        completion_tokens: { type: integer, format: int64 }
+        reasoning_tokens: { type: integer, format: int64 }
+    GatewayUsageBucket:
+      type: object
+      required: [start, counts]
+      properties:
+        start: { type: string, format: date-time }
+        counts: { $ref: "#/components/schemas/GatewayUsageCounts" }
+    GatewayUsageGroup:
+      type: object
+      required: [id, name, counts]
+      properties:
+        id:
+          type: string
+          description: The key's or the account's id; for a model, its name.
+        name:
+          type: string
+          description: The model's or the key's name, or the account's label; empty for an account since removed.
+        runtime:
+          type: string
+          description: An account's runtime (claude, codex, antigravity).
+        counts: { $ref: "#/components/schemas/GatewayUsageCounts" }
+    GatewayUsage:
+      type: object
+      required: [since, until, bucket_seconds, totals, buckets, by_model, by_key, by_account]
+      properties:
+        since: { type: string, format: date-time }
+        until: { type: string, format: date-time }
+        bucket_seconds:
+          type: integer
+          description: How long a bar is, an hour or a day.
+        totals: { $ref: "#/components/schemas/GatewayUsageCounts" }
+        buckets:
+          type: array
+          items: { $ref: "#/components/schemas/GatewayUsageBucket" }
+        by_model:
+          type: array
+          items: { $ref: "#/components/schemas/GatewayUsageGroup" }
+        by_key:
+          type: array
+          items: { $ref: "#/components/schemas/GatewayUsageGroup" }
+        by_account:
+          type: array
+          items: { $ref: "#/components/schemas/GatewayUsageGroup" }
+    GatewayRequest:
+      type: object
+      required: [id, created_at, key_id, key_name, model, provider, upstream_model, stream, attempts, outcome, status,
+        prompt_tokens, cached_tokens, completion_tokens, reasoning_tokens, estimated, duration_ms]
+      properties:
+        id: { type: string }
+        created_at: { type: string, format: date-time }
+        key_id: { type: string }
+        key_name: { type: string }
+        model:
+          type: string
+          description: The name the client asked for.
+        provider:
+          type: string
+          description: Where the last attempt went.
+        upstream_model: { type: string }
+        account_id:
+          type: string
+          description: The subscription account of the last attempt; absent for an API provider.
+        account_label: { type: string }
+        stream: { type: boolean }
+        attempts: { type: integer }
+        outcome:
+          type: string
+          enum: [ok, upstream_error, transport_error, truncated, client_gone]
+        status:
+          type: integer
+          description: The provider's HTTP status; 0 when it gave none.
+        error:
+          type: string
+          description: The provider's message for a request that failed.
+        prompt_tokens: { type: integer, format: int64 }
+        cached_tokens: { type: integer, format: int64 }
+        completion_tokens: { type: integer, format: int64 }
+        reasoning_tokens: { type: integer, format: int64 }
+        estimated:
+          type: boolean
+          description: The provider reported no usage; the counts are the sizes divided by four.
+        duration_ms: { type: integer, format: int64 }
+    GatewayRequestList:
+      type: object
+      required: [data, has_more]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/GatewayRequest" }
+        has_more:
+          type: boolean
+          description: Older requests of the period follow.
     NewTokenAccount:
       type: object
       required: [runtime, label, token]
@@ -4271,7 +4471,7 @@ components:
         everyone: { type: boolean }
     Bot:
       type: object
-      required: [name, persona, memory, memory_limit, skills, skills_off, created_at, updated_at]
+      required: [name, persona, memory, memory_limit, skills, skills_off, connections, workers, created_at, updated_at]
       properties:
         name: { type: string }
         provider: { type: string }
@@ -4294,8 +4494,49 @@ components:
           type: array
           items: { type: string }
           description: The skills given to everyone that the Bot does not get.
+        connections:
+          $ref: "#/components/schemas/AllowList"
+          description: >-
+            The Connections the Bot may use, each integration:label, among those
+            the owner switched on for chats.
+        workers:
+          $ref: "#/components/schemas/AllowList"
+          description: The worker profiles the Bot may give work to.
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+    AllowList:
+      type: object
+      description: >-
+        What a Bot may use. Not limited, it may use every one; limited, only
+        those named, and none when no name is.
+      additionalProperties: false
+      required: [limited, names]
+      properties:
+        limited: { type: boolean }
+        names:
+          type: array
+          items: { type: string }
+    SetupChange:
+      type: object
+      description: A change of a Bot or a profile the Bot coordinator made from a chat.
+      required: [id, chat_id, kind, name, action, can_undo, created_at]
+      properties:
+        id: { type: string }
+        chat_id: { type: string }
+        kind: { type: string, enum: [bot, profile] }
+        name: { type: string }
+        action: { type: string, enum: [made, changed, removed] }
+        can_undo: { type: boolean, description: An undo would be taken now. }
+        problem: { type: string, description: Why it cannot be undone. }
+        created_at: { type: string, format: date-time }
+        undone_at: { type: string, format: date-time }
+    SetupChangeList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/SetupChange" }
     RoutineState:
       type: string
       enum: ["on", paused]
@@ -4496,6 +4737,12 @@ components:
           type: array
           items: { type: string }
           description: The skills for everyone the Bot turns off; left out, the Bot keeps those it has.
+        connections:
+          $ref: "#/components/schemas/AllowList"
+          description: The Connections the Bot may use; left out, the Bot keeps its list.
+        workers:
+          $ref: "#/components/schemas/AllowList"
+          description: The worker profiles the Bot may give work to; left out, the Bot keeps its list.
     Memory:
       type: object
       additionalProperties: false

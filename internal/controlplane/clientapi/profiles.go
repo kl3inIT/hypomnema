@@ -8,7 +8,8 @@ import (
 )
 
 // Profiles, providers and models (issue #42). Every token reads them, so a
-// coordinator sees its choices; only the owner applies them (policy.go).
+// coordinator sees its choices. The owner applies a profile, and the Bot
+// coordinator from its chat (setupchanges.go); a provider only the owner.
 
 // ListProfiles returns every profile at its current version.
 func (s *Server) ListProfiles(ctx context.Context, _ openapi.ListProfilesRequestObject,
@@ -36,7 +37,22 @@ func (s *Server) GetProfile(ctx context.Context, req openapi.GetProfileRequestOb
 // source equals the current one.
 func (s *Server) ApplyProfile(ctx context.Context, req openapi.ApplyProfileRequestObject,
 ) (openapi.ApplyProfileResponseObject, error) {
-	p, created, err := s.svc.ApplyProfile(ctx, req.Name, req.Body.Source)
+	chat, err := setupChat(principal(ctx))
+	if err != nil {
+		return nil, err
+	}
+
+	var (
+		p       orchestration.Profile
+		created bool
+	)
+
+	if chat == "" {
+		p, created, err = s.svc.ApplyProfile(ctx, req.Name, req.Body.Source)
+	} else {
+		p, created, err = s.svc.ApplyProfileFromChat(ctx, chat, req.Name, req.Body.Source)
+	}
+
 	if err != nil {
 		return nil, err
 	}

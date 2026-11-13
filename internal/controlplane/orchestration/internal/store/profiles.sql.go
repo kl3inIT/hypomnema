@@ -10,6 +10,46 @@ import (
 	"database/sql"
 )
 
+const countDispatchesOfProfileVersion = `-- name: CountDispatchesOfProfileVersion :one
+SELECT count(*) FROM dispatches WHERE profile_version_id = ?1
+`
+
+func (q *Queries) CountDispatchesOfProfileVersion(ctx context.Context, versionID sql.NullString) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countDispatchesOfProfileVersion, versionID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countFallbacksNaming = `-- name: CountFallbacksNaming :one
+SELECT count(*) FROM profiles p JOIN profile_versions v ON v.id = p.current_version_id
+WHERE p.name <> ?1 AND (',' || v.fallbacks || ',') LIKE ('%,' || ?1 || ',%')
+`
+
+// The profiles whose current version names a profile among its backups.
+func (q *Queries) CountFallbacksNaming(ctx context.Context, profile string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countFallbacksNaming, profile)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const countTasksOfProfileSince = `-- name: CountTasksOfProfileSince :one
+SELECT count(*) FROM tasks WHERE profile = ?1 AND created_at >= ?2
+`
+
+type CountTasksOfProfileSinceParams struct {
+	Profile string
+	Since   int64
+}
+
+func (q *Queries) CountTasksOfProfileSince(ctx context.Context, arg CountTasksOfProfileSinceParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countTasksOfProfileSince, arg.Profile, arg.Since)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const currentProfileVersion = `-- name: CurrentProfileVersion :one
 SELECT v.id, v.profile, v.version, v.source, v.digest, v.runtime, v.provider, v.model, v.effort, v.instruction, v.created_at, v.description, v.fallbacks, v.skills, v.skills_off FROM profiles p JOIN profile_versions v ON v.id = p.current_version_id WHERE p.name = ?1
 `
@@ -43,6 +83,24 @@ DELETE FROM models WHERE provider = ?1
 
 func (q *Queries) DeleteModelsOfProvider(ctx context.Context, provider string) error {
 	_, err := q.db.ExecContext(ctx, deleteModelsOfProvider, provider)
+	return err
+}
+
+const deleteProfile = `-- name: DeleteProfile :exec
+DELETE FROM profiles WHERE name = ?1
+`
+
+func (q *Queries) DeleteProfile(ctx context.Context, name string) error {
+	_, err := q.db.ExecContext(ctx, deleteProfile, name)
+	return err
+}
+
+const deleteProfileVersions = `-- name: DeleteProfileVersions :exec
+DELETE FROM profile_versions WHERE profile = ?1
+`
+
+func (q *Queries) DeleteProfileVersions(ctx context.Context, profile string) error {
+	_, err := q.db.ExecContext(ctx, deleteProfileVersions, profile)
 	return err
 }
 

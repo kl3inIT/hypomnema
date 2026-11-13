@@ -41,20 +41,32 @@ type Bot struct {
 	// SkillsOff the ones given to everyone it does not get (issue #21).
 	Skills    []string
 	SkillsOff []string
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	// Connections are the Connections the Bot may use and Workers the
+	// profiles it may give work to (issue #169, part 3; botaccess.go).
+	Connections AllowList
+	Workers     AllowList
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
 }
 
 func botFromRow(r store.Bot) Bot {
 	return Bot{
 		Name: r.Name, Provider: r.Provider.String, Model: r.Model.String, Effort: r.Effort.String,
 		Persona: r.Persona, Memory: r.Memory, Skills: splitNames(r.Skills), SkillsOff: splitNames(r.SkillsOff),
+		Connections: allowListOf(r.Connections), Workers: allowListOf(r.Workers),
 		CreatedAt: time.UnixMilli(r.CreatedAt).UTC(), UpdatedAt: time.UnixMilli(r.UpdatedAt).UTC(),
 	}
 }
 
-// PutBot makes a Bot or changes its model and persona; its memory stays.
+// PutBot makes a Bot or changes its model, persona, skills and what it may
+// use; its memory stays.
 func (s *Service) PutBot(ctx context.Context, b Bot) (Bot, error) {
+	return s.putBot(ctx, "", b)
+}
+
+// putBot is PutBot; with a chat, the change is the Bot coordinator's from
+// that chat and is recorded with what undoes it (setupchanges.go).
+func (s *Service) putBot(ctx context.Context, chat string, b Bot) (Bot, error) {
 	b.Persona = strings.TrimSpace(b.Persona)
 
 	switch {
@@ -66,25 +78,78 @@ func (s *Service) PutBot(ctx context.Context, b Bot) (Bot, error) {
 	}
 
 	if err := s.write(ctx, func(q *store.Queries, now int64) error {
-		provider, err := checkModel(ctx, q, botRuntime, b.Provider, b.Model, b.Effort)
+		if err := changeFromChat(ctx, q, chat); err != nil {
+			return err
+		}
+
+		stored, found, err := botIfAny(ctx, q, b.Name)
 		if err != nil {
 			return err
 		}
 
-		if err := checkSkills(ctx, q, b.Skills, b.SkillsOff); err != nil {
+		var had *Bot
+		if found {
+			had = &stored
+		}
+
+		if err := checkBot(ctx, q, &b, had); err != nil {
 			return err
 		}
 
-		return q.UpsertBot(ctx, store.UpsertBotParams{
-			Name: b.Name, Provider: nullString(provider), Model: nullString(b.Model), Effort: nullString(b.Effort),
-			Persona: b.Persona, Skills: strings.Join(b.Skills, ","), SkillsOff: strings.Join(b.SkillsOff, ","),
-			Now: now,
-		})
+		if chat != "" {
+			if err := noWiderThan(ctx, q, b, had); err != nil {
+				return err
+			}
+		}
+
+		if err := upsertBot(ctx, q, now, b); err != nil {
+			return err
+		}
+
+		if chat == "" {
+			return nil
+		}
+
+		if had == nil {
+			return s.recordChange(ctx, q, now, chat, changeBot, b.Name, actionMade, nil, botRevision(b))
+		}
+
+		if botRevision(*had) == botRevision(b) {
+			return nil
+		}
+
+		return s.recordChange(ctx, q, now, chat, changeBot, b.Name, actionChanged, settingsOfBot(*had),
+			botRevision(b))
 	}); err != nil {
 		return Bot{}, fmt.Errorf("saving bot %s: %w", b.Name, err)
 	}
 
 	return s.GetBot(ctx, b.Name)
+}
+
+// checkBot checks a Bot's model, skills and lists before it is stored, and
+// sets the provider its model is found at.
+func checkBot(ctx context.Context, q *store.Queries, b *Bot, had *Bot) error {
+	provider, err := checkModel(ctx, q, botRuntime, b.Provider, b.Model, b.Effort)
+	if err != nil {
+		return err
+	}
+
+	b.Provider = provider
+
+	if err := checkSkills(ctx, q, b.Skills, b.SkillsOff); err != nil {
+		return err
+	}
+
+	return checkAllowLists(ctx, q, *b, had)
+}
+
+func upsertBot(ctx context.Context, q *store.Queries, now int64, b Bot) error {
+	return q.UpsertBot(ctx, store.UpsertBotParams{
+		Name: b.Name, Provider: nullString(b.Provider), Model: nullString(b.Model), Effort: nullString(b.Effort),
+		Persona: b.Persona, Skills: strings.Join(b.Skills, ","), SkillsOff: strings.Join(b.SkillsOff, ","),
+		Connections: b.Connections.stored(), Workers: b.Workers.stored(), Now: now,
+	})
 }
 
 // GetBot returns one Bot.
@@ -116,47 +181,78 @@ func (s *Service) ListBots(ctx context.Context) ([]Bot, error) {
 // with chats or a memory, which would be left without their Bot, nor one a
 // Lark Channel talks to.
 func (s *Service) DeleteBot(ctx context.Context, name string) error {
+	return s.deleteBot(ctx, "", name)
+}
+
+// deleteBot is DeleteBot; with a chat, the removal is the Bot coordinator's
+// from that chat and is recorded with what undoes it. The Bot coordinator
+// never removes itself, as OpenMausBot's Chief is never the target of its own
+// removal (server/index.ts L444-450): DefaultBot is always there.
+func (s *Service) deleteBot(ctx context.Context, chat, name string) error {
 	if name == DefaultBot {
 		return fmt.Errorf("%w: the bot %s is always there", ErrConflict, DefaultBot)
 	}
 
-	err := s.write(ctx, func(q *store.Queries, _ int64) error {
+	err := s.write(ctx, func(q *store.Queries, now int64) error {
+		if err := changeFromChat(ctx, q, chat); err != nil {
+			return err
+		}
+
 		row, err := q.GetBot(ctx, name)
 		if err != nil {
 			return notFound(err, "bot", name)
 		}
 
-		chats, err := q.CountChatsOfBot(ctx, name)
-		if err != nil {
+		if err := botRemovable(ctx, q, row); err != nil {
 			return err
 		}
 
-		channels, err := q.CountLarkChannelsOfBot(ctx, name)
-		if err != nil {
+		if err := q.DeleteBot(ctx, name); err != nil {
 			return err
 		}
 
-		routines, err := q.CountRoutinesOfBot(ctx, name)
-		if err != nil {
-			return err
+		if chat == "" {
+			return nil
 		}
 
-		switch {
-		case routines > 0:
-			return fmt.Errorf("%w: bot %s has %d routines; remove them first", ErrConflict, name, routines)
-		case channels > 0:
-			return fmt.Errorf("%w: %d Lark channels talk to bot %s; give them another bot or remove them first",
-				ErrConflict, channels, name)
-		case chats > 0:
-			return fmt.Errorf("%w: bot %s has %d chats", ErrConflict, name, chats)
-		case row.Memory != "":
-			return fmt.Errorf("%w: bot %s has a memory; empty it first", ErrConflict, name)
-		}
-
-		return q.DeleteBot(ctx, name)
+		return s.recordChange(ctx, q, now, chat, changeBot, name, actionRemoved, settingsOfBot(botFromRow(row)), "")
 	})
 	if err != nil {
 		return fmt.Errorf("removing bot %s: %w", name, err)
+	}
+
+	return nil
+}
+
+// botRemovable refuses to remove a Bot something depends on.
+func botRemovable(ctx context.Context, q *store.Queries, row store.Bot) error {
+	name := row.Name
+
+	chats, err := q.CountChatsOfBot(ctx, name)
+	if err != nil {
+		return err
+	}
+
+	channels, err := q.CountLarkChannelsOfBot(ctx, name)
+	if err != nil {
+		return err
+	}
+
+	routines, err := q.CountRoutinesOfBot(ctx, name)
+	if err != nil {
+		return err
+	}
+
+	switch {
+	case routines > 0:
+		return fmt.Errorf("%w: bot %s has %d routines; remove them first", ErrConflict, name, routines)
+	case channels > 0:
+		return fmt.Errorf("%w: %d Lark channels talk to bot %s; give them another bot or remove them first",
+			ErrConflict, channels, name)
+	case chats > 0:
+		return fmt.Errorf("%w: bot %s has %d chats", ErrConflict, name, chats)
+	case row.Memory != "":
+		return fmt.Errorf("%w: bot %s has a memory; empty it first", ErrConflict, name)
 	}
 
 	return nil

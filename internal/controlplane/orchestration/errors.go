@@ -16,4 +16,7 @@ var (
 	// ErrUnavailable: no capacity now; the system, the node or the account
 	// cannot take the Dispatch (at the limit, offline, drained or unknown).
 	ErrUnavailable = errors.New("unavailable")
+	// ErrForbidden: the caller may not do this, such as a Bot giving work to
+	// a profile it may not give work to.
+	ErrForbidden = errors.New("forbidden")
 )
