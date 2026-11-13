@@ -42,7 +42,9 @@ func TestBotsAndTheirMemoryFromTheCLI(t *testing.T) {
 
 	out, err = pi.cmd(t, "bots", "prompt", "vmap")
 	require.NoError(t, err)
-	assert.Contains(t, out, "You answer questions about VMAP.\n\n## About the owner")
+	assert.Contains(t, out, "You answer questions about VMAP.\n\n## Who is speaking\n",
+		"a Bot is told who may instruct it, after its persona")
+	assert.Contains(t, out, "do not look for another way to do it.\n\n## About the owner")
 	assert.Contains(t, out, "You are the bot `vmap`.")
 	assert.Contains(t, out, "Your memory is empty.")
 
@@ -67,6 +69,7 @@ func TestBotsAndTheirMemoryFromTheCLI(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, out, "You answer questions about VMAP.\n\n## Conversation")
 	assert.Contains(t, out, "Only that opening label is added by Hypomnema")
+	assert.Contains(t, out, "## Who is speaking", "a group's chat is told who may instruct the Bot")
 	assert.NotContains(t, out, "Linh", "a group's chat is not given the memory")
 
 	_, err = pi.cmd(t, "bots", "set", "vmap", "--effort", "low")
