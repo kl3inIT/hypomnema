@@ -42,12 +42,12 @@ func TestBotsAndTheirMemoryFromTheCLI(t *testing.T) {
 
 	out, err = pi.cmd(t, "bots", "prompt", "vmap")
 	require.NoError(t, err)
-	assert.Contains(t, out, "You answer questions about VMAP.\n\n## Memory")
+	assert.Contains(t, out, "You answer questions about VMAP.\n\n## About the owner")
 	assert.Contains(t, out, "You are the bot `vmap`.")
 	assert.Contains(t, out, "Your memory is empty.")
 
 	_, err = pi.cmd(t, "memory", "add", "Linh leads the maps team.")
-	require.ErrorContains(t, err, "name the bot", "outside pi, the bot is named")
+	require.ErrorContains(t, err, "name the memory", "outside pi, the bot is named")
 
 	out, err = pi.cmd(t, "memory", "add", "--bot", "vmap", "Linh leads the maps team.")
 	require.NoError(t, err)

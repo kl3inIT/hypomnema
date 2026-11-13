@@ -2014,6 +2014,107 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/ProfileList" }
         default: { $ref: "#/components/responses/Error" }
+  /profiles/{name}/memory:
+    parameters:
+      - $ref: "#/components/parameters/Name"
+    get:
+      operationId: GetAgentMemory
+      summary: An agent's memory, shared by all its workers
+      description: >-
+        What the agent's workers keep across their tasks, entries one per line.
+        Every worker of the agent gets it in its first message, as it is when
+        the work is offered. It is not part of the profile's versions.
+      responses:
+        "200":
+          description: The memory.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Memory" }
+        default: { $ref: "#/components/responses/Error" }
+    put:
+      operationId: SetAgentMemory
+      summary: Replace an agent's whole memory with the owner's text; only the owner
+      description: >-
+        Each line is an entry; empty lines and an entry given twice are
+        dropped. A text over the memory's limit is refused.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MemoryText" }
+      responses:
+        "200":
+          description: The memory as kept.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Memory" }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      operationId: ChangeAgentMemory
+      summary: Add, replace or remove one entry of an agent's memory; only the owner
+      description: >-
+        A worker changes its own agent's memory through the agent API. A change
+        that would pass the memory's limit is refused and changes nothing.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MemoryChange" }
+      responses:
+        "200":
+          description: The memory after the change.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Memory" }
+        default: { $ref: "#/components/responses/Error" }
+  /owner-memory:
+    get:
+      operationId: GetOwnerMemory
+      summary: The memory about the owner, which every worker and Bot gets
+      responses:
+        "200":
+          description: The memory.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Memory" }
+        default: { $ref: "#/components/responses/Error" }
+    put:
+      operationId: SetOwnerMemory
+      summary: Replace the whole memory about the owner with his text; only the owner
+      description: >-
+        Each line is an entry; empty lines and an entry given twice are
+        dropped. A text over the memory's limit is refused.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MemoryText" }
+      responses:
+        "200":
+          description: The memory as kept.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Memory" }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      operationId: ChangeOwnerMemory
+      summary: Add, replace or remove one entry of the memory about the owner
+      description: >-
+        A Bot keeps here what every agent should know about the owner; a worker
+        does through the agent API. A change that would pass the memory's
+        limit is refused and changes nothing.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/MemoryChange" }
+      responses:
+        "200":
+          description: The memory after the change.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Memory" }
+        default: { $ref: "#/components/responses/Error" }
   /providers:
     get:
       operationId: ListProviders
@@ -4314,6 +4415,24 @@ components:
           type: array
           items: { type: string }
           description: The skills for everyone the Bot turns off; left out, the Bot keeps those it has.
+    Memory:
+      type: object
+      additionalProperties: false
+      required: [memory, memory_limit]
+      properties:
+        agent:
+          type: string
+          description: The agent whose memory it is; left out for the memory about the owner.
+        memory:
+          type: string
+          description: The entries, one per line.
+        memory_limit:
+          type: integer
+          description: The most characters the memory holds.
+        updated_at:
+          type: string
+          format: date-time
+          description: When it last changed; left out for a memory never written.
     MemoryText:
       type: object
       additionalProperties: false

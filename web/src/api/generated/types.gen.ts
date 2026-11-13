@@ -1700,6 +1700,25 @@ export type BotSettings = {
   skills_off?: Array<string>;
 };
 
+export type Memory = {
+  /**
+   * The agent whose memory it is; left out for the memory about the owner.
+   */
+  agent?: string;
+  /**
+   * The entries, one per line.
+   */
+  memory: string;
+  /**
+   * The most characters the memory holds.
+   */
+  memory_limit: number;
+  /**
+   * When it last changed; left out for a memory never written.
+   */
+  updated_at?: string;
+};
+
 export type MemoryText = {
   /**
    * The entries, one per line.
@@ -5370,6 +5389,162 @@ export type ListProfileVersionsResponses = {
 };
 
 export type ListProfileVersionsResponse = ListProfileVersionsResponses[keyof ListProfileVersionsResponses];
+
+export type GetAgentMemoryData = {
+  body?: never;
+  path: {
+    name: string;
+  };
+  query?: never;
+  url: '/profiles/{name}/memory';
+};
+
+export type GetAgentMemoryErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GetAgentMemoryError = GetAgentMemoryErrors[keyof GetAgentMemoryErrors];
+
+export type GetAgentMemoryResponses = {
+  /**
+   * The memory.
+   */
+  200: Memory;
+};
+
+export type GetAgentMemoryResponse = GetAgentMemoryResponses[keyof GetAgentMemoryResponses];
+
+export type ChangeAgentMemoryData = {
+  body: MemoryChange;
+  path: {
+    name: string;
+  };
+  query?: never;
+  url: '/profiles/{name}/memory';
+};
+
+export type ChangeAgentMemoryErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ChangeAgentMemoryError = ChangeAgentMemoryErrors[keyof ChangeAgentMemoryErrors];
+
+export type ChangeAgentMemoryResponses = {
+  /**
+   * The memory after the change.
+   */
+  200: Memory;
+};
+
+export type ChangeAgentMemoryResponse = ChangeAgentMemoryResponses[keyof ChangeAgentMemoryResponses];
+
+export type SetAgentMemoryData = {
+  body: MemoryText;
+  path: {
+    name: string;
+  };
+  query?: never;
+  url: '/profiles/{name}/memory';
+};
+
+export type SetAgentMemoryErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type SetAgentMemoryError = SetAgentMemoryErrors[keyof SetAgentMemoryErrors];
+
+export type SetAgentMemoryResponses = {
+  /**
+   * The memory as kept.
+   */
+  200: Memory;
+};
+
+export type SetAgentMemoryResponse = SetAgentMemoryResponses[keyof SetAgentMemoryResponses];
+
+export type GetOwnerMemoryData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/owner-memory';
+};
+
+export type GetOwnerMemoryErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GetOwnerMemoryError = GetOwnerMemoryErrors[keyof GetOwnerMemoryErrors];
+
+export type GetOwnerMemoryResponses = {
+  /**
+   * The memory.
+   */
+  200: Memory;
+};
+
+export type GetOwnerMemoryResponse = GetOwnerMemoryResponses[keyof GetOwnerMemoryResponses];
+
+export type ChangeOwnerMemoryData = {
+  body: MemoryChange;
+  path?: never;
+  query?: never;
+  url: '/owner-memory';
+};
+
+export type ChangeOwnerMemoryErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ChangeOwnerMemoryError = ChangeOwnerMemoryErrors[keyof ChangeOwnerMemoryErrors];
+
+export type ChangeOwnerMemoryResponses = {
+  /**
+   * The memory after the change.
+   */
+  200: Memory;
+};
+
+export type ChangeOwnerMemoryResponse = ChangeOwnerMemoryResponses[keyof ChangeOwnerMemoryResponses];
+
+export type SetOwnerMemoryData = {
+  body: MemoryText;
+  path?: never;
+  query?: never;
+  url: '/owner-memory';
+};
+
+export type SetOwnerMemoryErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type SetOwnerMemoryError = SetOwnerMemoryErrors[keyof SetOwnerMemoryErrors];
+
+export type SetOwnerMemoryResponses = {
+  /**
+   * The memory as kept.
+   */
+  200: Memory;
+};
+
+export type SetOwnerMemoryResponse = SetOwnerMemoryResponses[keyof SetOwnerMemoryResponses];
 
 export type ListProvidersData = {
   body?: never;

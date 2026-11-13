@@ -112,9 +112,9 @@ func TestAWorkerUsesTheSharedBrowser(t *testing.T) {
 	c.send(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
 
 	list := c.read()
-	assert.Equal(t, []string{"ask", "finish", "agent_browser_open"}, names(t, list))
+	assert.Equal(t, []string{"ask", "finish", "memory", "agent_browser_open"}, names(t, list))
 
-	listed := list["result"].(map[string]any)["tools"].([]any)[2].(map[string]any) //nolint:forcetypeassert // test
+	listed := list["result"].(map[string]any)["tools"].([]any)[3].(map[string]any) //nolint:forcetypeassert // test
 	assert.Equal(t, "Open a page.", listed["description"])
 	assert.Equal(t, "object", listed["inputSchema"].(map[string]any)["type"]) //nolint:forcetypeassert // test
 
@@ -140,7 +140,7 @@ func TestAWorkerWithoutABrowserKeepsItsOwnTools(t *testing.T) {
 	c := browsing(t, &controlPlane{refuse: "this control plane has no browser"})
 
 	c.send(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
-	assert.Equal(t, []string{"ask", "finish"}, names(t, c.read()))
+	assert.Equal(t, []string{"ask", "finish", "memory"}, names(t, c.read()))
 
 	c.send(map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{
 		"name": "agent_browser_open", "arguments": map[string]any{"url": "example.com"},

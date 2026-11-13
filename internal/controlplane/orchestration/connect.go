@@ -98,6 +98,11 @@ type Offer struct {
 	Profile    string `json:"profile"`
 	// Instruction is the profile's, added to the worker's built-in instructions.
 	Instruction string `json:"instruction,omitempty"`
+	// Memory is what the agent keeps across its workers, and OwnerMemory what
+	// every worker and Bot is told about the owner (issue #21): entries one per
+	// line, as they were when the offer was made.
+	Memory      string `json:"memory,omitempty"`
+	OwnerMemory string `json:"owner_memory,omitempty"`
 	Spec        string `json:"spec"`
 	Repo        string `json:"repo,omitempty"`
 	// RepoHost and RepoKind say where Repo is and how that host is used; a
@@ -213,13 +218,25 @@ func offerOf(ctx context.Context, q *store.Queries, d store.Dispatch) (Offer, er
 
 	var instruction string
 
+	agent := task.Profile
+
 	if d.ProfileVersionID.Valid {
 		v, err := q.GetProfileVersion(ctx, d.ProfileVersionID.String)
 		if err != nil {
 			return Offer{}, notFound(err, "profile version", d.ProfileVersionID.String)
 		}
 
-		instruction = v.Instruction.String
+		instruction, agent = v.Instruction.String, v.Profile
+	}
+
+	memory, err := readMemory(ctx, q, memoryOfAgent, agent)
+	if err != nil {
+		return Offer{}, err
+	}
+
+	owner, err := readMemory(ctx, q, memoryOfOwner, "")
+	if err != nil {
+		return Offer{}, err
 	}
 
 	// A worker that takes over another's work is told so with the Task.
@@ -254,5 +271,6 @@ func offerOf(ctx context.Context, q *store.Queries, d store.Dispatch) (Offer, er
 		Base: run.Base.String, ConversationID: conv.ID, Worktree: conv.Worktree,
 		Runtime: conv.Runtime, AccountRef: conv.AccountRef, CLISessionRef: conv.CliSessionRef.String,
 		Model: d.Model.String, Effort: d.Effort.String, Uses: splitUses(run.Uses), Skills: skills,
+		Memory: memory.Text, OwnerMemory: owner.Text,
 	}, nil
 }

@@ -58,6 +58,8 @@ func Prompt(d statedb.Dispatch) string {
 		b.WriteString("\nFor this kind of task:\n" + s + "\n")
 	}
 
+	b.WriteString(memoryBrief(o.Memory, o.OwnerMemory, o.AgentKey != ""))
+
 	if d.Accepted != nil && d.Accepted.Recovery {
 		b.WriteString("\n" + recoveryNote + "\n")
 	}
@@ -93,4 +95,41 @@ func gate(d statedb.Dispatch) string {
 	}
 
 	return fmt.Sprintf("DECISION GATE RESOLVED. You asked: %s\nThe answer: %s\nContinue from there.\n", q.Text, answer)
+}
+
+// memoryGuide says what a worker keeps, after Coder's guidance for its
+// project memory (coderd/x/chatd/chattool/memory.go, memoryGuidance).
+const memoryGuide = "Keep in memory, with the `memory` tool, what will matter in later tasks: the people and how " +
+	"they work, corrections you were given and approaches that were confirmed, decisions the code and its history do not " +
+	"show, where to find things outside the repository. Do not keep what the code, its AGENTS.md or these " +
+	"instructions already say, nor what matters to this task only, nor any secret. `agent` is the memory of the " +
+	"agent you run as, shared by all its workers; `owner` is what every agent and Bot knows about the owner. A " +
+	"memory may be stale or wrong: check it before relying on it.\n"
+
+// memoryBrief gives a worker its agent's memory and the one about the owner
+// (issue #21), as they were when the offer was made: in the first message,
+// not the system prompt, so the prompt the provider caches stays the same for
+// every worker (Coder sends its memory index as a message for that reason),
+// and not changed while the worker runs (Hermes freezes it at session start).
+// The guide is given only to a worker that has the tool to write.
+func memoryBrief(agent, owner string, canWrite bool) string {
+	var b strings.Builder
+
+	for _, m := range []struct{ title, text string }{
+		{"Memory of your agent", agent}, {"About the owner", owner},
+	} {
+		if text := strings.TrimSpace(m.text); text != "" {
+			b.WriteString("\n" + m.title + ":\n")
+
+			for line := range strings.SplitSeq(text, "\n") {
+				b.WriteString("- " + line + "\n")
+			}
+		}
+	}
+
+	if canWrite {
+		b.WriteString("\n" + memoryGuide)
+	}
+
+	return b.String()
 }

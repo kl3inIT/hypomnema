@@ -42,6 +42,8 @@ type Store interface {
 	AgentSessionOf(ctx context.Context, secret string) (orchestration.AgentSession, error)
 	ConnectionsOf(ctx context.Context, integration string) ([]orchestration.Connection, error)
 	IntegrationClientOf(ctx context.Context, integration string) (orchestration.IntegrationClient, error)
+	ChangeDispatchMemory(ctx context.Context, dispatchID string, owner bool, op orchestration.MemoryOp) (
+		orchestration.Memory, error)
 }
 
 // Token is a Connection's access token and when it ends.
@@ -91,6 +93,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST "+agenttool.PathToken, s.token)
 	mux.HandleFunc("GET "+agenttool.PathBrowserTools, s.browserTools)
 	mux.HandleFunc("POST "+agenttool.PathBrowserCall, s.browserCall)
+	mux.HandleFunc("POST "+agenttool.PathMemory, s.memory)
 }
 
 // agent is who asks: what it is called in the log, and which Connections of

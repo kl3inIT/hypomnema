@@ -285,9 +285,15 @@ func (rn *Runner) Start(ctx context.Context, d statedb.Dispatch, r daemon.Report
 
 // env is the worker's whole environment: a clean one (durable-harness
 // env.ts) with the account's token and its own config dir (Orca's
-// CLAUDE_CONFIG_DIR per account).
+// CLAUDE_CONFIG_DIR per account). Claude Code's own auto-memory is off: it is
+// kept per working folder, and a worker's is a new worktree per Task, so its
+// notes would be split between them and the folder's path would change the
+// system prompt the provider caches; the agent's memory is Hypomnema's
+// (issue #21), as OpenMausBot turns it off for its bots
+// (server/drivers/claude-own-memory.ts).
 func (rn *Runner) env(configDir, token string) []string {
 	out := []string{"CLAUDE_CONFIG_DIR=" + configDir, "CLAUDE_CODE_OAUTH_TOKEN=" + strings.TrimSpace(token),
+		"CLAUDE_CODE_DISABLE_AUTO_MEMORY=1",
 		"LANG=C.UTF-8", "MCP_TOOL_TIMEOUT=" + strconv.FormatInt(toolTimeout.Milliseconds(), 10)}
 
 	for _, name := range []string{"PATH", "HOME", "USER", "LOGNAME", "TMPDIR", "SystemRoot", "TEMP", "TMP"} {

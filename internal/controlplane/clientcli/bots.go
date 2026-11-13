@@ -2,7 +2,6 @@ package clientcli
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -195,9 +194,12 @@ func botsRemove(ctx context.Context, e *env, fs *flag.FlagSet) error {
 }
 
 // botsPrompt prints what pi is given about its Bot when it starts for a chat:
-// the persona, then the memory and how to change it. The launcher appends it
-// to pi's system prompt, so it is read once per pi process, as Hermes gives
-// its memory once per session (tools/memory_tool.py).
+// the persona, then what every agent knows about the owner, then the Bot's
+// memory and how to change both. The launcher appends it to pi's system
+// prompt, so it is read once per pi process, as Hermes gives its memory once
+// per session (tools/memory_tool.py). What changes least comes first, so a
+// change to the Bot's memory leaves the rest of the prompt the provider
+// caches as it was.
 func botsPrompt(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	b, err := getBot(ctx, e, fs.Arg(0))
 	if err != nil {
@@ -210,13 +212,19 @@ func botsPrompt(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		return nil
 	}
 
-	e.printf("%s", botPrompt(*b))
+	owner, err := readKept(ctx, e, memoryOf{owner: true})
+	if err != nil {
+		return err
+	}
+
+	e.printf("%s", botPrompt(*b, owner))
 
 	return nil
 }
 
 // groupPrompt is what pi is given in the chat of a Lark group (issue #246):
-// the persona without the memory, which holds what the owner's chats taught
+// the persona without the memories, the Bot's and the one about the owner,
+// which hold what the owner's chats taught
 // the Bot and is not for a group (OpenClaw leaves MEMORY.md out of a group
 // session's prompt, src/agents/workspace.ts), and what the group is, in
 // MemoryOS's words (ChatPrompts.withChannel).
@@ -262,11 +270,26 @@ func modelKey(ctx context.Context, e *env, _ *flag.FlagSet) error {
 	return nil
 }
 
-func botPrompt(b openapi.Bot) string {
+func botPrompt(b openapi.Bot, owner kept) string {
 	var out strings.Builder
 
 	if b.Persona != "" {
 		out.WriteString(b.Persona + "\n\n")
+	}
+
+	// The memory about the owner (issue #21), which every agent and Bot gets, as OpenMausBot's About me.
+	fmt.Fprintf(&out, "## About the owner\n\n"+
+		"Every agent and Bot knows this about the owner: how he works, his language, his standing rules. Keep "+
+		"there only lasting facts about him, with `hypomnema memory add --owner \"<one line>\"` (replace and "+
+		"remove take --owner too). %d of its %d characters are used.\n\n",
+		utf8.RuneCountInString(owner.text), owner.limit)
+
+	for _, m := range owner.entries() {
+		out.WriteString("- " + m + "\n")
+	}
+
+	if len(owner.entries()) > 0 {
+		out.WriteString("\n")
 	}
 
 	fmt.Fprintf(&out, "## Memory\n\n"+
@@ -294,108 +317,4 @@ func botPrompt(b openapi.Bot) string {
 	}
 
 	return out.String()
-}
-
-// memoryBot is the Bot a memory command is about: --bot, or the Bot the
-// calling pi is.
-func memoryBot(fs *flag.FlagSet) (string, error) {
-	if name := str(fs, "bot"); name != "" {
-		return name, nil
-	}
-
-	if name := os.Getenv(botEnv); name != "" {
-		return name, nil
-	}
-
-	return "", errors.New("name the bot with --bot")
-}
-
-func memoryFlags(fs *flag.FlagSet) {
-	jsonFlag(fs)
-	fs.String("bot", "", "the bot; a bot itself leaves it out")
-}
-
-func memoryShow(ctx context.Context, e *env, fs *flag.FlagSet) error {
-	name, err := memoryBot(fs)
-	if err != nil {
-		return err
-	}
-
-	b, err := getBot(ctx, e, name)
-	if err != nil {
-		return err
-	}
-
-	return e.print(fs, b, func() { printMemory(e, b) })
-}
-
-func printMemory(e *env, b *openapi.Bot) {
-	e.printf("memory of %s: %d of %d characters\n", b.Name, utf8.RuneCountInString(b.Memory), b.MemoryLimit)
-
-	for _, m := range memoryEntries(*b) {
-		e.printf("- %s\n", m)
-	}
-}
-
-// memorySet replaces a Bot's memory with a file's lines: the owner edits the
-// memory by hand.
-func memorySet(ctx context.Context, e *env, fs *flag.FlagSet) error {
-	name, err := memoryBot(fs)
-	if err != nil {
-		return err
-	}
-
-	text, err := e.read(fs.Arg(0))
-	if err != nil {
-		return err
-	}
-
-	resp, err := e.api.SetBotMemoryWithResponse(ctx, name, openapi.MemoryText{Memory: text})
-	if err != nil {
-		return fmt.Errorf("setting the memory of %s: %w", name, err)
-	}
-
-	if resp.JSON200 == nil {
-		return apiError("setting the memory of "+name, resp.StatusCode(), resp.JSONDefault)
-	}
-
-	return e.print(fs, resp.JSON200, func() { printMemory(e, resp.JSON200) })
-}
-
-// Kinds of a change of a Bot's memory, for the command table.
-const (
-	memoryAdd     = openapi.Add
-	memoryReplace = openapi.Replace
-	memoryRemove  = openapi.Remove
-)
-
-func memoryChange(kind openapi.MemoryChangeKind) func(context.Context, *env, *flag.FlagSet) error {
-	return func(ctx context.Context, e *env, fs *flag.FlagSet) error {
-		name, err := memoryBot(fs)
-		if err != nil {
-			return err
-		}
-
-		change := openapi.MemoryChange{Kind: kind}
-
-		switch kind {
-		case openapi.Add:
-			change.Text = new(fs.Arg(0))
-		case openapi.Replace:
-			change.Match, change.Text = new(fs.Arg(0)), new(fs.Arg(1))
-		case openapi.Remove:
-			change.Match = new(fs.Arg(0))
-		}
-
-		resp, err := e.api.ChangeBotMemoryWithResponse(ctx, name, change)
-		if err != nil {
-			return fmt.Errorf("changing the memory of %s: %w", name, err)
-		}
-
-		if resp.JSON200 == nil {
-			return apiError("changing the memory of "+name, resp.StatusCode(), resp.JSONDefault)
-		}
-
-		return e.print(fs, resp.JSON200, func() { printMemory(e, resp.JSON200) })
-	}
 }
