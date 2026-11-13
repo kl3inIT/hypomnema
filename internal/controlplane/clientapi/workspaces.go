@@ -96,10 +96,11 @@ func firstLine(spec string) string {
 }
 
 // ask puts a question to the machine that holds one of a chat's folders, and
-// turns its refusal into this API's errors.
-func (s *Server) ask(ctx context.Context, chatID, workspaceID string, req workspacefs.Request,
+// turns its refusal into this API's errors. bot, when given, is the Bot of a
+// chat not made yet (see chatOf).
+func (s *Server) ask(ctx context.Context, chatID, workspaceID, bot string, req workspacefs.Request,
 ) (workspacefs.Result, error) {
-	chat, err := s.svc.GetChat(ctx, chatID)
+	chat, err := s.chatOf(ctx, chatID, workspaceID, bot)
 	if err != nil {
 		return workspacefs.Result{}, err
 	}
@@ -134,6 +135,34 @@ func (s *Server) ask(ctx context.Context, chatID, workspaceID string, req worksp
 	}
 
 	return res, nil
+}
+
+// chatOf is the chat whose folder is asked about. The New chat page attaches
+// files before its chat is made (issue #357): it chose the chat's id and names
+// the picked Bot, and the Bot's folder is that Bot's until the chat is made
+// with that id; once made, the Bot named must be the chat's.
+func (s *Server) chatOf(ctx context.Context, chatID, workspaceID, bot string) (orchestration.Chat, error) {
+	chat, err := s.svc.GetChat(ctx, chatID)
+
+	switch {
+	case err == nil:
+		if bot != "" && bot != chat.Bot {
+			return orchestration.Chat{}, fmt.Errorf("%w: chat %s talks with %s, not %s", orchestration.ErrConflict,
+				chat.ID, chat.Bot, bot)
+		}
+
+		return chat, nil
+	case bot == "" || workspaceID != botWorkspace || !errors.Is(err, orchestration.ErrNotFound):
+		return orchestration.Chat{}, err
+	case !orchestration.IsChatID(chatID):
+		return orchestration.Chat{}, fmt.Errorf("%w: %s is not a chat id", orchestration.ErrInvalid, chatID)
+	}
+
+	if _, err := s.svc.GetBot(ctx, bot); err != nil {
+		return orchestration.Chat{}, err
+	}
+
+	return orchestration.Chat{ID: chatID, Bot: bot}, nil
 }
 
 func (s *Server) worktreeOf(ctx context.Context, chatID, taskID string) (orchestration.ChatWorktree, bool, error) {
@@ -173,7 +202,7 @@ func refusal(e *workspacefs.Error) error {
 
 func (s *Server) ListWorkspaceDirectory(ctx context.Context, req openapi.ListWorkspaceDirectoryRequestObject,
 ) (openapi.ListWorkspaceDirectoryResponseObject, error) {
-	res, err := s.ask(ctx, req.ChatId, req.WorkspaceId, workspacefs.Request{
+	res, err := s.ask(ctx, req.ChatId, req.WorkspaceId, deref(req.Params.Bot), workspacefs.Request{
 		Op: workspacefs.OpList, Path: deref(req.Params.Path), After: deref(req.Params.After),
 	})
 	if err != nil {
@@ -198,7 +227,7 @@ func (s *Server) ListWorkspaceDirectory(ctx context.Context, req openapi.ListWor
 
 func (s *Server) ReadWorkspaceFile(ctx context.Context, req openapi.ReadWorkspaceFileRequestObject,
 ) (openapi.ReadWorkspaceFileResponseObject, error) {
-	res, err := s.ask(ctx, req.ChatId, req.WorkspaceId, workspacefs.Request{
+	res, err := s.ask(ctx, req.ChatId, req.WorkspaceId, "", workspacefs.Request{
 		Op: workspacefs.OpRead, Path: deref(req.Params.Path),
 	})
 	if err != nil {
@@ -226,7 +255,7 @@ func (s *Server) WriteWorkspaceFile(ctx context.Context, req openapi.WriteWorksp
 		return nil, fmt.Errorf("%w: the file to write is missing", orchestration.ErrInvalid)
 	}
 
-	done, err := s.change(ctx, req.ChatId, req.WorkspaceId, workspacefs.Request{
+	done, err := s.change(ctx, req.ChatId, req.WorkspaceId, "", workspacefs.Request{
 		Op: workspacefs.OpWrite, Path: req.Body.Path, Content: req.Body.Content, Expect: deref(req.Body.ExpectSha256),
 	})
 	if err != nil {
@@ -238,7 +267,7 @@ func (s *Server) WriteWorkspaceFile(ctx context.Context, req openapi.WriteWorksp
 
 func (s *Server) DeleteWorkspaceEntry(ctx context.Context, req openapi.DeleteWorkspaceEntryRequestObject,
 ) (openapi.DeleteWorkspaceEntryResponseObject, error) {
-	if _, err := s.change(ctx, req.ChatId, req.WorkspaceId, workspacefs.Request{
+	if _, err := s.change(ctx, req.ChatId, req.WorkspaceId, deref(req.Params.Bot), workspacefs.Request{
 		Op: workspacefs.OpDelete, Path: deref(req.Params.Path),
 	}); err != nil {
 		return nil, err
@@ -253,7 +282,7 @@ func (s *Server) MakeWorkspaceFolder(ctx context.Context, req openapi.MakeWorksp
 		return nil, fmt.Errorf("%w: the folder to make is missing", orchestration.ErrInvalid)
 	}
 
-	done, err := s.change(ctx, req.ChatId, req.WorkspaceId, workspacefs.Request{
+	done, err := s.change(ctx, req.ChatId, req.WorkspaceId, deref(req.Params.Bot), workspacefs.Request{
 		Op: workspacefs.OpMkdir, Path: req.Body.Path,
 	})
 	if err != nil {
@@ -269,7 +298,7 @@ func (s *Server) MoveWorkspaceEntry(ctx context.Context, req openapi.MoveWorkspa
 		return nil, fmt.Errorf("%w: what to move is missing", orchestration.ErrInvalid)
 	}
 
-	done, err := s.change(ctx, req.ChatId, req.WorkspaceId, workspacefs.Request{
+	done, err := s.change(ctx, req.ChatId, req.WorkspaceId, "", workspacefs.Request{
 		Op: workspacefs.OpRename, Path: req.Body.Path, To: req.Body.To,
 	})
 	if err != nil {
@@ -288,7 +317,7 @@ func (s *Server) BeginWorkspaceUpload(ctx context.Context, req openapi.BeginWork
 		return nil, fmt.Errorf("%w: the upload's path is missing", orchestration.ErrInvalid)
 	}
 
-	done, err := s.change(ctx, req.ChatId, req.WorkspaceId, workspacefs.Request{
+	done, err := s.change(ctx, req.ChatId, req.WorkspaceId, deref(req.Params.Bot), workspacefs.Request{
 		Op: workspacefs.OpUploadBegin, Path: req.Body.Path,
 	})
 	if err != nil {
@@ -304,7 +333,7 @@ func (s *Server) SendWorkspaceUploadChunk(ctx context.Context, req openapi.SendW
 		return nil, fmt.Errorf("%w: the piece is missing", orchestration.ErrInvalid)
 	}
 
-	if _, err := s.change(ctx, req.ChatId, req.WorkspaceId, workspacefs.Request{
+	if _, err := s.change(ctx, req.ChatId, req.WorkspaceId, deref(req.Params.Bot), workspacefs.Request{
 		Op: workspacefs.OpUploadChunk, Path: req.Body.Path, Upload: req.Body.Upload, Offset: req.Body.Offset,
 		Data: req.Body.Data,
 	}); err != nil {
@@ -320,7 +349,7 @@ func (s *Server) CommitWorkspaceUpload(ctx context.Context, req openapi.CommitWo
 		return nil, fmt.Errorf("%w: the upload is missing", orchestration.ErrInvalid)
 	}
 
-	done, err := s.change(ctx, req.ChatId, req.WorkspaceId, workspacefs.Request{
+	done, err := s.change(ctx, req.ChatId, req.WorkspaceId, deref(req.Params.Bot), workspacefs.Request{
 		Op: workspacefs.OpUploadCommit, Path: req.Body.Path, Upload: req.Body.Upload,
 		Expect: deref(req.Body.ExpectSha256),
 	})
@@ -337,7 +366,7 @@ func (s *Server) AbortWorkspaceUpload(ctx context.Context, req openapi.AbortWork
 		return nil, fmt.Errorf("%w: the upload is missing", orchestration.ErrInvalid)
 	}
 
-	if _, err := s.change(ctx, req.ChatId, req.WorkspaceId, workspacefs.Request{
+	if _, err := s.change(ctx, req.ChatId, req.WorkspaceId, deref(req.Params.Bot), workspacefs.Request{
 		Op: workspacefs.OpUploadAbort, Path: req.Body.Path, Upload: req.Body.Upload,
 	}); err != nil {
 		return nil, err
@@ -346,9 +375,9 @@ func (s *Server) AbortWorkspaceUpload(ctx context.Context, req openapi.AbortWork
 	return openapi.AbortWorkspaceUpload204Response{}, nil
 }
 
-func (s *Server) change(ctx context.Context, chatID, workspaceID string, req workspacefs.Request,
+func (s *Server) change(ctx context.Context, chatID, workspaceID, bot string, req workspacefs.Request,
 ) (openapi.WorkspaceDone, error) {
-	res, err := s.ask(ctx, chatID, workspaceID, req)
+	res, err := s.ask(ctx, chatID, workspaceID, bot, req)
 	if err != nil {
 		return openapi.WorkspaceDone{}, err
 	}
@@ -367,7 +396,7 @@ func (s *Server) change(ctx context.Context, chatID, workspaceID string, req wor
 // script would otherwise run with the owner's session).
 func (s *Server) ReadWorkspaceRaw(ctx context.Context, req openapi.ReadWorkspaceRawRequestObject,
 ) (openapi.ReadWorkspaceRawResponseObject, error) {
-	res, err := s.ask(ctx, req.ChatId, req.WorkspaceId, workspacefs.Request{
+	res, err := s.ask(ctx, req.ChatId, req.WorkspaceId, "", workspacefs.Request{
 		Op: workspacefs.OpRead, Path: deref(req.Params.Path), Raw: true,
 	})
 	if err != nil {
@@ -410,7 +439,7 @@ func optional(s string) *string {
 
 func (s *Server) ListWorkspaceChanges(ctx context.Context, req openapi.ListWorkspaceChangesRequestObject,
 ) (openapi.ListWorkspaceChangesResponseObject, error) {
-	res, err := s.ask(ctx, req.ChatId, req.WorkspaceId, workspacefs.Request{Op: workspacefs.OpChanges})
+	res, err := s.ask(ctx, req.ChatId, req.WorkspaceId, "", workspacefs.Request{Op: workspacefs.OpChanges})
 	if err != nil {
 		return nil, err
 	}
@@ -433,7 +462,7 @@ func (s *Server) ListWorkspaceChanges(ctx context.Context, req openapi.ListWorks
 
 func (s *Server) DiffWorkspaceFile(ctx context.Context, req openapi.DiffWorkspaceFileRequestObject,
 ) (openapi.DiffWorkspaceFileResponseObject, error) {
-	res, err := s.ask(ctx, req.ChatId, req.WorkspaceId, workspacefs.Request{
+	res, err := s.ask(ctx, req.ChatId, req.WorkspaceId, "", workspacefs.Request{
 		Op: workspacefs.OpDiff, Path: deref(req.Params.Path),
 	})
 	if err != nil {

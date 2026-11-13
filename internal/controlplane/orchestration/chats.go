@@ -12,6 +12,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
+	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/workspacefs"
 )
 
@@ -184,6 +185,29 @@ func titleOf(text string, files []ChatAttachment) string {
 // CreateChat starts a chat with a Bot, the first one when none is named.
 // Without a title, its first owner message names it.
 func (s *Service) CreateChat(ctx context.Context, bot, title string) (Chat, error) {
+	return s.CreateChatWithID(ctx, "", bot, title)
+}
+
+// ChatIDPrefix starts every chat's id.
+const ChatIDPrefix = "cht"
+
+// IsChatID reports whether id has the shape of the chat ids made here.
+func IsChatID(id string) bool { return platform.IsID(ChatIDPrefix, id) }
+
+// CreateChatWithID starts a chat under the id the client chose, or a new one
+// when id is empty. The web's New chat page chooses its chat's id when it
+// opens, so that the files attached before the first message have the chat's
+// folder of attachments (issue #357, after t3code's newThreadId() before the
+// thread exists). The id must have the shape of the ids made here and not be
+// taken.
+func (s *Service) CreateChatWithID(ctx context.Context, id, bot, title string) (Chat, error) {
+	if id == "" {
+		id = s.newID(ChatIDPrefix)
+	} else if !IsChatID(id) {
+		return Chat{}, fmt.Errorf("%w: a chat id is %q followed by 26 characters of a-z and 2-7", ErrInvalid,
+			ChatIDPrefix+"_")
+	}
+
 	if bot == "" {
 		bot = DefaultBot
 	}
@@ -197,11 +221,15 @@ func (s *Service) CreateChat(ctx context.Context, bot, title string) (Chat, erro
 		return Chat{}, fmt.Errorf("%w: a chat title is at most 200 characters", ErrInvalid)
 	}
 
-	id := s.newID("cht")
-
 	if err := s.write(ctx, func(q *store.Queries, now int64) error {
 		if _, err := q.GetBot(ctx, bot); err != nil {
 			return notFound(err, "bot", bot)
+		}
+
+		if _, err := q.GetChat(ctx, id); err == nil {
+			return fmt.Errorf("%w: chat %s exists; open it, or start a new chat", ErrConflict, id)
+		} else if !errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("reading chat %s: %w", id, err)
 		}
 
 		return q.InsertChat(ctx, store.InsertChatParams{ID: id, Title: title, Bot: bot, Now: now})
