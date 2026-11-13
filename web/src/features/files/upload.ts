@@ -31,6 +31,9 @@ function base64(bytes: Uint8Array) {
   return btoa(text)
 }
 
+// botOf names the Bot of a chat not made yet, whose folder "bot" is (issue #357); a made chat names none.
+const botOf = (bot?: string) => (bot ? { query: { bot } } : {})
+
 // sendPieces begins an upload to path and sends the file, saying how much has gone. It returns the upload, which a
 // commit names.
 export async function sendPieces(
@@ -40,9 +43,15 @@ export async function sendPieces(
   file: Blob,
   progress: (sent: number) => void,
   signal: AbortSignal,
+  bot?: string,
 ) {
   const begun = (
-    await beginWorkspaceUpload({ path: where(chat, workspace), body: { path }, signal })
+    await beginWorkspaceUpload({
+      path: where(chat, workspace),
+      ...botOf(bot),
+      body: { path },
+      signal,
+    })
   ).data
   const upload = begun.upload ?? ""
 
@@ -52,6 +61,7 @@ export async function sendPieces(
       const bytes = new Uint8Array(await file.slice(offset, offset + piece).arrayBuffer())
       await sendWorkspaceUploadChunk({
         path: where(chat, workspace),
+        ...botOf(bot),
         body: { path, upload, offset, data: base64(bytes) },
         signal,
       })
@@ -59,9 +69,11 @@ export async function sendPieces(
     }
   } catch (error) {
     // A cancelled or failed upload leaves no file beside its place.
-    void abortWorkspaceUpload({ path: where(chat, workspace), body: { path, upload } }).catch(
-      () => undefined,
-    )
+    void abortWorkspaceUpload({
+      path: where(chat, workspace),
+      ...botOf(bot),
+      body: { path, upload },
+    }).catch(() => undefined)
     throw error
   }
 
@@ -74,6 +86,7 @@ export async function commitUpload(
   path: string,
   upload: string,
   replace: boolean,
+  bot?: string,
 ) {
   let expect: string | undefined
   if (replace) {
@@ -85,6 +98,7 @@ export async function commitUpload(
   return (
     await commitWorkspaceUpload({
       path: where(chat, workspace),
+      ...botOf(bot),
       body: { path, upload, ...(expect !== undefined && { expect_sha256: expect }) },
     })
   ).data

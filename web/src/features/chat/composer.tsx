@@ -18,8 +18,8 @@ import type { Attachments } from "./attachments"
 // puts the text back to be sent again and says why above the box (t3code's ChatView send path and
 // ThreadErrorBanner.tsx).
 //
-// In an open chat files are attached (issue #343) with the paperclip, by pasting them or by dropping them on the
-// chat, as t3code's composer takes them (useComposerAttachmentIntake.ts): each is a chip above the box while it
+// Files are attached (issue #343; on the New chat page too, issue #357) with the paperclip, by pasting them or by
+// dropping them on the chat, as t3code's composer takes them (useComposerAttachmentIntake.ts): each is a chip above the box while it
 // uploads, and Send waits for the uploads, then sends the text with the files (useComposerSend.ts). A file that is
 // refused, or was not uploaded, is said above the box.
 export function Composer({
@@ -36,7 +36,7 @@ export function Composer({
   disabled?: boolean
   // bot names who the message goes to.
   bot: string
-  // attachments are the files of the message; a chat that is not made yet takes none.
+  // attachments are the files of the message; without them the composer takes none.
   attachments?: Attachments
 }) {
   const [text, setText] = useState("")

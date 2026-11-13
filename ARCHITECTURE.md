@@ -40,7 +40,11 @@ and a `stopped` row ("Stopped") in one write instead of a failure, and a turn th
 message (`chat_messages.attachments`, a JSON array of name, path, size and type; migration 64) and must be a file of
 `attachments/<chat id>/` in the Bot's folder. pi gets the text and a line a file with that path, relative to the Bot's
 folder, which is pi's working directory in its box (the launcher's `--chdir`) and against which pi's tools resolve a
-relative path, after OpenMausBot's `pathForFile` and Orca's attachment paths. A Lark message carries none. On
+relative path, after OpenMausBot's `pathForFile` and Orca's attachment paths. A Lark message carries none. A
+client may choose a chat's id (`POST /chats` `id`, issue #357, after t3code's `newThreadId()` before the thread
+exists): it must have the shape the server makes (`cht_` and 26 characters of a-z and 2-7, `platform.IsID`) and not be
+taken (409). Before a chat with that id is made, the folder calls the attachments use (tree, folders, uploads, delete)
+take `bot`, naming the Bot whose folder `bot` is; once the chat is made, `bot` must be its Bot (409). On
 the server pi runs as the `coordinator` user through `deploy/coordinator/`: a root-owned launcher (`hypomnema-pi`,
 a clean environment, only a chat id, a Bot's name and model flags, pi's own token on the first line of stdin), a
 second one for a Routine's script (`hypomnema-routine`, below), one sudoers rule limited to the two, the instructions
@@ -1837,8 +1841,15 @@ Node (`internal/node`):
     files (`POST /chats/{id}/messages` `attachments`), or refuses while one was not uploaded. In the chat the
     owner's message shows its images above its text, read with `/raw`, one 12rem high or several in a grid, each
     opening large in a dialog, and its other files as chips that open in the pane beside the Files panel. Not
-    built: attaching in a chat that has no message yet (the New chat page, a new chat's tab), a Lark message's
-    files, retrying a failed upload in place.
+    built: a Lark message's files, retrying a failed upload in place. Files attached and never sent stay
+    in the folder.
+  - Attaching on the New chat page and in a new chat's tab (issue #357, `features/chat/chat-id.ts`): the page
+    chooses its chat's id when it opens and keeps it while it lives; the files go into `attachments/<that id>/` in
+    the picked Bot's folder (the folder calls name the Bot), and the first message makes the chat under that id
+    with the files (`useStartChat`; a chat made whose message was refused is not made again). When the owner picks
+    another Bot, the chips stay and each file goes up again into the new Bot's folder, its copy in the old one
+    deleted once the new one is up, as t3code uploads a draft's attachments again when its environment changes
+    (`attachmentUploadQueue.ts`, `previous`).
 - The Team page (issue #262, `web/src/features/team`; [design](https://github.com/kl3inIT/hypomnema/issues/262)),
   adapted from OpenMausBot's team map (Apache 2.0): `/team`, first in the sidebar after New chat, carries the
   count of what needs the owner. A canvas draws the Bots in a column and every machine in a column beside it,
