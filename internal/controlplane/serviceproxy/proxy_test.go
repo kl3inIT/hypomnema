@@ -1005,6 +1005,9 @@ func TestLarkGoesThroughTheProxyByLarkCLIsOwnRisks(t *testing.T) {
 		{http.MethodPost, "/open-apis/base/v3/bases/bas_1/something_the_shortcuts_do_not_name"}: "lark.base.write",
 		{http.MethodGet, "/open-apis/docx/v1/documents/doc_1/raw_content"}:                      "lark.doc.read",
 		{http.MethodPost, "/open-apis/docx/v1/documents"}:                                       "lark.doc.write",
+		{http.MethodPatch, "/open-apis/docx/v1/documents/doc_1"}:                                "lark.doc.write",
+		{http.MethodPatch, "/open-apis/docx/v1/documents/doc_1/blocks/batch_update"}:            "lark.doc.write",
+		{http.MethodPost, "/open-apis/docx/v1/documents/doc_1/blocks/doc_1/children"}:           "lark.doc.write",
 	} {
 		assert.Equal(t, action, catalog.Match(request[0], "open.larksuite.com", request[1]).ID, request[0]+" "+request[1])
 	}
@@ -1013,6 +1016,64 @@ func TestLarkGoesThroughTheProxyByLarkCLIsOwnRisks(t *testing.T) {
 	assert.Equal(t, "lark.im.read", catalog.Listed()[0].ID)
 
 	assert.Len(t, w.service.received(), 2, "only the two reads reached Lark")
+}
+
+// TestLarkReadsThatAreNotGETsAreQueries keeps the catalog from letting a change through as a read. A read is
+// allowed without asking, and lark-cli also marks a POST that only queries (a search, a batch_query) as a read,
+// so each read that is not a GET is named here: one added to lark_methods.json must be checked against lark-cli's
+// own Risk first. Three docx edits were once copied as reads though lark-cli marks them as writes
+// (shortcuts/doc/doc_media_insert.go, doc_resource_cover.go).
+func TestLarkReadsThatAreNotGETsAreQueries(t *testing.T) {
+	t.Parallel()
+
+	var methods []struct{ Method, Path, Risk string }
+	raw, err := os.ReadFile("lark_methods.json")
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(raw, &methods))
+
+	queries := []string{
+		"POST /open-apis/calendar/v4/calendars/primary",
+		"POST /open-apis/calendar/v4/calendars/search",
+		"POST /open-apis/calendar/v4/calendars/{calendar_id}/events/search_event",
+		"POST /open-apis/calendar/v4/calendars/{calendar_id}/events/{event_id}/share_info",
+		"POST /open-apis/calendar/v4/freebusy/list",
+		"POST /open-apis/profile/v2/user_profiles/batch_query",
+		"POST /open-apis/drive/v1/files/{file_token}/comments/batch_query",
+		"POST /open-apis/drive/v1/metas/batch_query",
+		"POST /open-apis/im/v1/chat_user_setting/batch_query",
+		"POST /open-apis/im/v1/groups/batch_query",
+		"POST /open-apis/im/v1/messages/reactions/batch_query",
+		"POST /open-apis/im/v1/messages/read_status",
+		"POST /open-apis/sheets/v3/spreadsheets/{spreadsheet_token}/sheets/{sheet_id}/find",
+		"POST /open-apis/slides_ai/v1/xml_presentations/{xml_presentation_id}/slide_images",
+		"POST /open-apis/base/v3/bases/tables/forms/detail",
+		"POST /open-apis/base/v3/bases/{base_token}/blocks/list",
+		"POST /open-apis/base/v3/bases/{base_token}/data/query",
+		"POST /open-apis/base/v3/bases/{base_token}/tables/{table_id}/get_attachments",
+		"POST /open-apis/base/v3/bases/{base_token}/tables/{table_id}/records/batch_get",
+		"POST /open-apis/base/v3/bases/{base_token}/tables/{table_id}/records/search",
+		"POST /open-apis/base/v3/bases/{base_token}/tables/{table_id}/records/share_links/batch",
+		"POST /open-apis/base/v3/bases/{base_token}/workflows/list",
+		"POST /open-apis/calendar/v4/calendars/{calendar_id}/events/mget_instance_relation_info",
+		"POST /open-apis/contact/v3/users/basic_batch",
+		"POST /open-apis/docs_ai/v1/documents/{document_id}/fetch",
+		"POST /open-apis/drive/v1/medias/{file_token}/preview_result",
+		"POST /open-apis/im/v1/messages/search",
+		"POST /open-apis/minutes/v1/minutes/search",
+		"POST /open-apis/search/v2/doc_wiki/search",
+		"POST /open-apis/task/v2/tasklists/search",
+		"POST /open-apis/task/v2/tasks/search",
+		"POST /open-apis/vc/v1/meetings/search",
+	}
+
+	var reads []string
+	for _, m := range methods {
+		if m.Risk == "read" && m.Method != http.MethodGet {
+			reads = append(reads, m.Method+" "+m.Path)
+		}
+	}
+
+	assert.ElementsMatch(t, queries, reads)
 }
 
 // standIn makes this test binary stand in for gws: installed under its name,
