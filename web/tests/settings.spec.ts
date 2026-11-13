@@ -78,6 +78,9 @@ async function fakeServer(page: Page, start: { hosts?: Host[]; repos?: Repo[] } 
   // Superset, an account at an address of its own: connected with what the owner types. Its actions are the parts
   // of Superset's API: reading runs on its own, the rest asks.
   let supersets: (typeof accounts)[number][] = []
+  // AWS: a role a Connection, assumed with a key kept under a name (issue #331).
+  let roles: Record<string, unknown>[] = []
+  const keys = new Set<string>()
   const supersetActions = [
     action("superset.dashboards.read", "Dashboards", "Read", "Every GET", "allow"),
     action(
@@ -176,6 +179,58 @@ async function fakeServer(page: Page, start: { hosts?: Host[]; repos?: Repo[] } 
       accounts = [...accounts.filter((a) => a.label !== added.label), added]
 
       return json(added)
+    }
+
+    if (kind === "integrations" && sub === "connections" && name === "aws") {
+      const label = path.split("/")[4] ?? ""
+
+      if (request.method() === "PUT") {
+        const body = request.postDataJSON() as {
+          role_arn: string
+          key: string
+          access_key_id?: string
+          secret_access_key?: string
+        }
+        if (body.access_key_id === undefined && !keys.has(body.key)) {
+          return json(
+            {
+              code: "invalid_request",
+              message: `invalid: there is no key "${body.key}" yet; give its access key id and secret access key`,
+            },
+            400,
+          )
+        }
+        if (body.access_key_id !== undefined && body.secret_access_key !== "the-right-secret") {
+          return json(
+            {
+              code: "invalid_request",
+              message: `invalid: the sign-in did not complete: AWS did not let key ${body.key} assume ${body.role_arn}: AccessDenied: User is not authorized to perform: sts:AssumeRole`,
+            },
+            400,
+          )
+        }
+        keys.add(body.key)
+
+        const added = {
+          integration: "aws",
+          label,
+          account: body.role_arn.split(":")[4] ?? "",
+          role_arn: body.role_arn,
+          key: body.key,
+          services: [],
+          sign_in_required: false,
+          chats: false,
+          created_at: now,
+          updated_at: now,
+        }
+        roles = [...roles.filter((a) => a.label !== label), added]
+
+        return json(added)
+      }
+
+      roles = roles.filter((a) => a.label !== label)
+
+      return json({ revoked: true })
     }
 
     if (kind === "integrations" && sub === "connections" && name === "superset") {
@@ -313,6 +368,13 @@ async function fakeServer(page: Page, start: { hosts?: Host[]; repos?: Repo[] } 
               kind: "account",
               services: [],
               connections: supersets,
+            },
+            {
+              id: "aws",
+              name: "AWS",
+              kind: "role",
+              services: [],
+              connections: roles,
             },
           ],
         })
@@ -647,5 +709,74 @@ test("the owner connects his Superset account and disconnects it", async ({ page
     "PUT /integrations/superset/connections/vmaps",
     "PATCH /integrations/superset/connections/vmaps",
     "DELETE /integrations/superset/connections/vmaps",
+  ])
+})
+
+// Scenario: the owner adds the roles agents use in his AWS account (issue #331). The first role gives its key; a
+// secret AWS refuses is said in the dialog and nothing is connected. The right one connects the role, which shows
+// its ARN, its account and its key. A second role is added with the key's name alone. He disconnects one after
+// being told its key stays while another role uses it. On a phone nothing runs off the side.
+test("the owner adds AWS roles with one key", async ({ page }) => {
+  const calls = await fakeServer(page)
+  await page.goto("/settings/integrations")
+
+  const aws = card(page, "AWS")
+  await expect(aws).toContainText("Not connected")
+  await expect(aws).toContainText("Roles of your AWS accounts")
+
+  await aws.getByRole("button", { name: "Add role" }).click()
+  const dialog = page.locator("[data-slot=dialog-content]")
+  await dialog.getByLabel("Name", { exact: true }).fill("main-read")
+  await dialog
+    .getByLabel("Role ARN")
+    .fill("arn:aws:iam::123456789012:role/hypomnema/hypomnema-read")
+  await expect(dialog.getByLabel("Key", { exact: true })).toHaveValue("main")
+  await dialog.getByLabel("Access key ID").fill("AKIAEXAMPLEKEY00001")
+  await expect(dialog.getByLabel("Secret access key")).toHaveAttribute("type", "password")
+  await dialog.getByLabel("Secret access key").fill("a-wrong-secret")
+  await shot(page, "integrations-aws-add")
+  await dialog.getByRole("button", { name: "Connect" }).click()
+
+  await expect(dialog.getByRole("alert")).toContainText("AccessDenied")
+  await shot(page, "integrations-aws-refused")
+
+  await dialog.getByLabel("Secret access key").fill("the-right-secret")
+  await dialog.getByRole("button", { name: "Connect" }).click()
+  await expect(dialog).toBeHidden()
+
+  const read = aws.getByLabel("AWS account main-read")
+  await expect(read).toContainText("123456789012")
+  await expect(read).toContainText("arn:aws:iam::123456789012:role/hypomnema/hypomnema-read")
+  await expect(read).toContainText("Key main")
+  await expect(page.getByText("the-right-secret")).toHaveCount(0)
+
+  await aws.getByRole("button", { name: "Add role" }).click()
+  await dialog.getByLabel("Name", { exact: true }).fill("main-machines")
+  await dialog
+    .getByLabel("Role ARN")
+    .fill("arn:aws:iam::123456789012:role/hypomnema/hypomnema-machines")
+  await expect(dialog).toContainText("Kept: main")
+  await dialog.getByRole("button", { name: "Connect" }).click()
+  await expect(dialog).toBeHidden()
+
+  await expect(aws.getByLabel("AWS account main-machines")).toContainText("Key main")
+  await expect(aws).toContainText("Connected")
+  await aws.scrollIntoViewIfNeeded()
+  expect(await fits(page)).toBe(true)
+  await shot(page, "integrations-aws-connected")
+
+  await aws.getByRole("button", { name: "Disconnect main-read" }).click()
+  const confirm = page.getByRole("alertdialog")
+  await expect(confirm).toContainText(
+    "Its key is removed from the vault when no other role uses it",
+  )
+  await confirm.getByRole("button", { name: "Disconnect" }).click()
+  await expect(aws.getByLabel("AWS account main-read")).toHaveCount(0)
+
+  expect(calls.filter((c) => c.includes("/aws/"))).toEqual([
+    "PUT /integrations/aws/connections/main-read",
+    "PUT /integrations/aws/connections/main-read",
+    "PUT /integrations/aws/connections/main-machines",
+    "DELETE /integrations/aws/connections/main-read",
   ])
 })

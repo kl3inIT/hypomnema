@@ -986,7 +986,9 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       `GetFederationToken`, `iam:CreateAccessKey`, login profiles, `sso:GetRoleCredentials`,
       `cognito-identity:GetCredentialsForIdentity`…, from awslabs aws-api-mcp-server's OVERRIDES) are never, and
       take no answer.
-    - Not built yet: adding a role on the web.
+    - **On the web** the Integrations page has an AWS card: add a role (name, ARN, key name, and the access key
+      the first time a key name is used), see each role's ARN, account and key and whether the last assume
+      worked, "Use in chats", connect again, disconnect.
   - Lark Channels (`internal/controlplane/larkbot`, issues
     [#136](https://github.com/kl3inIT/hypomnema/issues/136) and
     [#169](https://github.com/kl3inIT/hypomnema/issues/169)): a Channel is a door to one Bot, a Lark app and who
