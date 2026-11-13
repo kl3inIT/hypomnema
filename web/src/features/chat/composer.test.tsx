@@ -5,7 +5,7 @@ import { expect, test, vi } from "vitest"
 import { Composer } from "./composer"
 
 const setup = (working = false, send: (text: string) => Promise<void> = async () => {}) => {
-  const onSend = vi.fn<(text: string) => Promise<void>>(send)
+  const onSend = vi.fn<(text: string, files: unknown[]) => Promise<void>>(send)
   const onStop = vi.fn<() => void>()
   render(<Composer onSend={onSend} onStop={onStop} working={working} bot="coordinator" />)
 
@@ -21,7 +21,7 @@ test("Enter sends and Shift+Enter breaks the line", async () => {
   expect(onSend).not.toHaveBeenCalled()
 
   await user.type(box, "{Enter}")
-  expect(onSend).toHaveBeenCalledWith("add a page\nwith a test")
+  expect(onSend).toHaveBeenCalledWith("add a page\nwith a test", [])
   expect(box).toHaveValue("")
 })
 

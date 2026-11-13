@@ -92,4 +92,17 @@ func TestTheOwnerConnectsAnAWSRoleWithTheConsolesKeyFile(t *testing.T) {
 
 	_, err = w.cmd(t, "integrations", "connect", "aws", "--label", "x")
 	require.Error(t, err, "a role is named by its ARN")
+
+	// The role may do all its policies allow; the owner has one operation, named as AWS names it, ask first.
+	out, err = w.cmd(t, "integrations", "actions", "aws:main-read")
+	require.NoError(t, err)
+	assert.Contains(t, out, "agents may do whatever the role allows")
+
+	out, err = w.cmd(t, "integrations", "actions", "set", "aws:main-read", "aws.ec2.RebootInstances", "ask")
+	require.NoError(t, err, out)
+	assert.Contains(t, out, "aws.ec2.RebootInstances ask")
+
+	out, err = w.cmd(t, "integrations", "actions", "aws:main-read")
+	require.NoError(t, err)
+	assert.Contains(t, out, "aws.ec2.RebootInstances ask")
 }

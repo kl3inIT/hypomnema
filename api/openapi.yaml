@@ -935,7 +935,8 @@ paths:
       - name: action
         in: path
         required: true
-        schema: { type: string, pattern: "^[a-z][a-z0-9_.]{0,60}$" }
+        # An AWS action keeps the operation's own case and the service's hyphen: aws.ec2.RebootInstances.
+        schema: { type: string, pattern: "^[a-z][A-Za-z0-9_.-]{0,100}$" }
     put:
       operationId: SetConnectionAction
       summary: Set the answer of one action of a Connection; only the owner
@@ -2441,6 +2442,7 @@ paths:
       summary: A page of a directory of a chat's folder, by name (owner only)
       parameters:
         - $ref: "#/components/parameters/WorkspacePath"
+        - $ref: "#/components/parameters/NewChatBot"
         - name: after
           in: query
           description: The page after this name.
@@ -2491,6 +2493,7 @@ paths:
       summary: Delete a file, or a folder with what it holds, for good (owner only)
       parameters:
         - $ref: "#/components/parameters/WorkspacePath"
+        - $ref: "#/components/parameters/NewChatBot"
       responses:
         "204":
           description: Deleted.
@@ -2518,6 +2521,8 @@ paths:
     post:
       operationId: BeginWorkspaceUpload
       summary: Begin an upload to a path of a chat's folder; its pieces go to a file beside it (owner only)
+      parameters:
+        - $ref: "#/components/parameters/NewChatBot"
       requestBody:
         required: true
         content:
@@ -2537,6 +2542,8 @@ paths:
     post:
       operationId: SendWorkspaceUploadChunk
       summary: Send a piece of an upload, at most 384 KiB, at the offset it has got to (owner only)
+      parameters:
+        - $ref: "#/components/parameters/NewChatBot"
       requestBody:
         required: true
         content:
@@ -2553,6 +2560,8 @@ paths:
     post:
       operationId: CommitWorkspaceUpload
       summary: Put an upload in its place, where nothing is or over the file expect_sha256 names (owner only)
+      parameters:
+        - $ref: "#/components/parameters/NewChatBot"
       requestBody:
         required: true
         content:
@@ -2572,6 +2581,8 @@ paths:
     post:
       operationId: AbortWorkspaceUpload
       summary: Drop an upload that will not be finished (owner only)
+      parameters:
+        - $ref: "#/components/parameters/NewChatBot"
       requestBody:
         required: true
         content:
@@ -2588,6 +2599,8 @@ paths:
     post:
       operationId: MakeWorkspaceFolder
       summary: Make a folder where nothing is (owner only)
+      parameters:
+        - $ref: "#/components/parameters/NewChatBot"
       requestBody:
         required: true
         content:
@@ -2792,6 +2805,14 @@ components:
       required: true
       description: "`bot` for the Bot's folder, or a Task's id for its worktree."
       schema: { type: string, minLength: 1 }
+    NewChatBot:
+      name: bot
+      in: query
+      description: >-
+        For a chat not made yet, whose id the client chose (issue #357): the Bot whose folder `bot` is, so that the
+        files of the chat's first message go into its folder of attachments before the chat is made. Only the
+        folder `bot` takes it; for a chat that is made it must be the chat's Bot.
+      schema: { type: string }
     WorkspacePath:
       name: path
       in: query
@@ -5150,6 +5171,12 @@ components:
       type: object
       additionalProperties: false
       properties:
+        id:
+          type: string
+          description: >-
+            The chat's id, chosen by the client before the chat is made (the New chat page, whose files are
+            attached before its first message): `cht_` followed by 26 characters of a-z and 2-7, as the server
+            makes them. Refused when malformed (400) or taken (409); a new id when left out.
         title: { type: string, maxLength: 200 }
         bot:
           type: string
@@ -5364,10 +5391,30 @@ components:
         working: { type: boolean }
     NewChatMessage:
       type: object
+      description: The owner's message; its text may be empty when it carries files.
       required: [text]
       additionalProperties: false
       properties:
-        text: { type: string, minLength: 1, maxLength: 100000 }
+        text: { type: string, maxLength: 100000 }
+        attachments:
+          type: array
+          description: Files uploaded into the chat's Bot's folder for this message.
+          items: { $ref: "#/components/schemas/ChatAttachment" }
+    ChatAttachment:
+      type: object
+      description: >-
+        A file the owner attached to a message (issue #343): uploaded into
+        the chat's Bot's folder, where pi reads it.
+      required: [name, path, size]
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 1, maxLength: 255, description: "The file's name as the owner picked it." }
+        path:
+          type: string
+          maxLength: 1024
+          description: "Where it is in the Bot's folder: attachments/<chat id>/<file>."
+        size: { type: integer, format: int64, minimum: 0 }
+        type: { type: string, maxLength: 255, description: "Its media type, when the browser named one." }
     ChatMessage:
       type: object
       required: [seq, chat_id, role, text, created_at]
@@ -5383,6 +5430,10 @@ components:
           type: array
           description: A reply's text and thinking, or a tool's result; absent for owner and system messages.
           items: { $ref: "#/components/schemas/ChatPart" }
+        attachments:
+          type: array
+          description: The files of an owner message; absent for other messages.
+          items: { $ref: "#/components/schemas/ChatAttachment" }
         event_seq:
           type: integer
           format: int64

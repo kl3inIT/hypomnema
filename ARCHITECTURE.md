@@ -39,7 +39,15 @@ the chat's watchers from memory only and are never stored. A reply that ends in 
 row. `abort` stops pi's turn and marks it as stopped by the owner (issue #267, after OpenMausBot's
 `server/person-stops.ts`): while marked, the `message_end` whose `stopReason` is `error` or `aborted` keeps its text
 and a `stopped` row ("Stopped") in one write instead of a failure, and a turn that ends with neither gets the row at
-`agent_settled`, where the mark clears. On
+`agent_settled`, where the mark clears. An owner message may carry files (issue #343): each is kept on the
+message (`chat_messages.attachments`, a JSON array of name, path, size and type; migration 64) and must be a file of
+`attachments/<chat id>/` in the Bot's folder. pi gets the text and a line a file with that path, relative to the Bot's
+folder, which is pi's working directory in its box (the launcher's `--chdir`) and against which pi's tools resolve a
+relative path, after OpenMausBot's `pathForFile` and Orca's attachment paths. A Lark message carries none. A
+client may choose a chat's id (`POST /chats` `id`, issue #357, after t3code's `newThreadId()` before the thread
+exists): it must have the shape the server makes (`cht_` and 26 characters of a-z and 2-7, `platform.IsID`) and not be
+taken (409). Before a chat with that id is made, the folder calls the attachments use (tree, folders, uploads, delete)
+take `bot`, naming the Bot whose folder `bot` is; once the chat is made, `bot` must be its Bot (409). On
 the server pi runs as the `coordinator` user through `deploy/coordinator/`: a root-owned launcher (`hypomnema-pi`,
 a clean environment, only a chat id, a Bot's name and model flags, pi's own token on the first line of stdin), a
 second one for a Routine's script (`hypomnema-routine`, below), one sudoers rule limited to the two, the instructions
@@ -1718,7 +1726,16 @@ The owner's commands:
 Node (`internal/node`):
 - `init` writes `~/.hypomnema-node/config.json` (mode 0600, directory 0700) with the control plane's URL, the token
   read from a file, and the worktree root.
-- At connect the node finds `claude`, `codex`, `omp` and `opencode` on its PATH and reads their `--version`.
+- At connect the node finds `claude`, `codex`, `omp` and `opencode` and reads their `--version`: omp and opencode
+  where the control plane had it install them, else on its PATH.
+- Since issue #107 the control plane tells every node, from node release v0.9.17 on, to have omp and opencode, as it
+  tells it an Integration's tools (`agenttool.Runtimes`): omp 18.18.6 from its GitHub release (one binary per
+  system), opencode 2.2.7 from npm's `@opencode/cli-<os>-<arch>` (linux x64: the baseline build, which needs no
+  AVX2, as opencode's own installer picks on such a CPU), each pinned by SHA-256 and installed under
+  `tools/<name>/<version>/`. Once they are installed the node finds its runtimes again and says them in a heartbeat;
+  the control plane records them as at hello. A release file that is no archive is the command itself; a release
+  file may be up to 512 MB (omp's is 286 MB). An older node is not told: it would fetch omp every 5 minutes and
+  fail.
 - The daemon has a runner per runtime and gives a Dispatch to the runner of its offer's runtime (issue #107).
 - A Codex worker (`internal/node/codex`; [research](docs/research/2026-11-10-codex-responses-passthrough.md)) has
   no login on the node: its model comes from the control plane's gateway under the offer's key. One turn is one
@@ -1887,6 +1904,26 @@ Node (`internal/node`):
   the last kept message when the server ends it. pi's thoughts and tools between replies form one line that opens,
   with each command and its output; replies render as markdown with streamdown and shiki, loaded apart from the
   screen. Enter sends unless an input method is composing; Stop asks pi to end its turn.
+  - Attaching files (issue #343, `features/chat/attachments.ts`, after t3code's `useComposerAttachmentIntake.ts`):
+    in an open chat, with the paperclip, by pasting (a screenshot) or by dropping files on the chat. A file over
+    50 MiB or empty is refused and said above the box; the others are chips with a thumbnail or an icon, the name,
+    the size or "Uploading n%", and a remove button, and start uploading at once with the Files panel's upload
+    (#315) into `attachments/<chat id>/` in the Bot's folder, made with the folder call when it is not there; a
+    name already there or given to another file takes a number ("report (2).pdf"), and a commit refused because one
+    came meanwhile is tried under the next. Removing a chip stops its upload or deletes the file it put there
+    (t3code's release of a persisted upload). Send waits for the uploads in flight and sends the text with the
+    files (`POST /chats/{id}/messages` `attachments`), or refuses while one was not uploaded. In the chat the
+    owner's message shows its images above its text, read with `/raw`, one 12rem high or several in a grid, each
+    opening large in a dialog, and its other files as chips that open in the pane beside the Files panel. Not
+    built: a Lark message's files, retrying a failed upload in place. Files attached and never sent stay
+    in the folder.
+  - Attaching on the New chat page and in a new chat's tab (issue #357, `features/chat/chat-id.ts`): the page
+    chooses its chat's id when it opens and keeps it while it lives; the files go into `attachments/<that id>/` in
+    the picked Bot's folder (the folder calls name the Bot), and the first message makes the chat under that id
+    with the files (`useStartChat`; a chat made whose message was refused is not made again). When the owner picks
+    another Bot, the chips stay and each file goes up again into the new Bot's folder, its copy in the old one
+    deleted once the new one is up, as t3code uploads a draft's attachments again when its environment changes
+    (`attachmentUploadQueue.ts`, `previous`).
 - The Team page (issue #262, `web/src/features/team`; [design](https://github.com/kl3inIT/hypomnema/issues/262)),
   adapted from OpenMausBot's team map (Apache 2.0): `/team`, first in the sidebar after New chat, carries the
   count of what needs the owner. A canvas draws the Bots in a column and every machine in a column beside it,
@@ -2173,7 +2210,8 @@ the internet, so that a machine created at a provider can install the node from 
   public URL). Each runs the node as a systemd user unit from `~/.hypomnema-node`, at v0.7.0 on 2026-11-11, and
   looks for a newer release every 60 minutes (`update_every_minutes` in its `config.json`; the default is one to
   two days). All have Claude Code; the four new ones have the Codex CLI; stc-hy-app also has omp 18.18.6 and
-  opencode 2.2.7, installed by hand with their own installers and linked into `/usr/local/bin`. The earlier
+  opencode 2.2.7, installed by hand with their own installers and linked into `/usr/local/bin` (the control plane
+  installs them on every node since #107). The earlier
   control plane on aioffice-app (`~ubuntu/hypomnema-cp`) is stopped and kept for rollback.
 - Accounts, since 2026-11-11: every one is kept by the control plane. `claude kept` is a token sent to the node with
   each Dispatch; the earlier `claude personal`, a token file on aioffice-app, is disabled. Workers under Codex, omp

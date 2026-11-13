@@ -213,7 +213,7 @@ func promptText(msgs []orchestration.ChatMessage) string {
 
 	for _, m := range msgs {
 		if m.Role == orchestration.ChatOwner {
-			owner = append(owner, m.Text)
+			owner = append(owner, ownerText(m))
 		} else {
 			wakes = append(wakes, "- "+m.Text)
 		}
@@ -233,6 +233,37 @@ func promptText(msgs []orchestration.ChatMessage) string {
 		}
 
 		b.WriteString(strings.Join(owner, "\n\n"))
+	}
+
+	return b.String()
+}
+
+// ownerText is an owner message with a line for each file attached to it (issue #343), as OpenMausBot gives a
+// file by its path (pathForFile) and Orca gives its agent the paths of a session's attachments: pi reads them
+// with its own tools. The path is relative to the Bot's folder, which is pi's working directory in its box
+// (deploy/coordinator/hypomnema-pi binds the folder and starts pi there with --chdir), and pi's tools resolve a
+// relative path against it.
+func ownerText(m orchestration.ChatMessage) string {
+	if len(m.Attachments) == 0 {
+		return m.Text
+	}
+
+	var b strings.Builder
+
+	if text := strings.TrimSpace(m.Text); text != "" {
+		b.WriteString(m.Text)
+		b.WriteString("\n\n")
+	}
+
+	b.WriteString("The owner attached these files, in your working directory:")
+
+	for _, a := range m.Attachments {
+		kind := a.Type
+		if kind == "" {
+			kind = "file"
+		}
+
+		fmt.Fprintf(&b, "\n- %s (%s, %d bytes)", a.Path, kind, a.Size)
 	}
 
 	return b.String()

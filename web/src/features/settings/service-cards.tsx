@@ -1,6 +1,6 @@
 import { useForm } from "@tanstack/react-form"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { ExternalLink, Plug, Plus, RefreshCw, Sheet } from "lucide-react"
+import { Copy, ExternalLink, Plug, Plus, RefreshCw, Sheet } from "lucide-react"
 import { useId, useState, type ComponentType, type ReactElement, type SVGProps } from "react"
 import { z } from "zod"
 
@@ -20,6 +20,7 @@ import {
   GoogleDriveIcon,
   GoogleIcon,
   LarkIcon,
+  AwsIcon,
   SupersetIcon,
 } from "@/components/icons/brand-icons"
 import { Badge } from "@/components/ui/badge"
@@ -89,6 +90,7 @@ const marks: Record<string, ComponentType<SVGProps<SVGSVGElement>>> = {
   google: GoogleIcon,
   lark: LarkIcon,
   superset: SupersetIcon,
+  aws: AwsIcon,
 }
 
 // IntegrationMark is an Integration's logo, or a plain plug for one that has none here. The Bot page shows it beside
@@ -267,7 +269,7 @@ function AccountItem({
             {app && connection.app_id && <span className="font-mono">{connection.app_id}</span>}
             {role && (
               <>
-                <span className="font-mono break-all">{connection.role_arn}</span>
+                <RoleName arn={connection.role_arn ?? ""} />
                 <span>{`Key ${connection.key ?? ""}`}</span>
                 <span>
                   {connection.sign_in_required
@@ -633,6 +635,35 @@ function ConnectAccountDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  )
+}
+
+// RoleName is a role as the AWS console lists it: its name, with the whole ARN on hover and a button that copies
+// it (the console shows a role's name in its list and its ARN, with a copy button, on the role's own page).
+function RoleName({ arn }: { arn: string }) {
+  const name = arn.slice(arn.lastIndexOf("/") + 1)
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(arn)
+      said("Role ARN copied")
+    } catch {
+      // No clipboard (an insecure page): the ARN is still in the title.
+    }
+  }
+
+  return (
+    <span className="inline-flex min-w-0 items-center gap-1">
+      <span className="truncate" title={arn}>{`Role ${name}`}</span>
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        aria-label="Copy the role's ARN"
+        onClick={() => void copy()}
+      >
+        <Copy />
+      </Button>
+    </span>
   )
 }
 

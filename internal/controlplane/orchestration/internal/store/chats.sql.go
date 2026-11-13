@@ -182,19 +182,20 @@ func (q *Queries) InsertChat(ctx context.Context, arg InsertChatParams) error {
 }
 
 const insertChatMessage = `-- name: InsertChatMessage :one
-INSERT INTO chat_messages (chat_id, role, kind, text, parts, event_seq, created_at)
-VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+INSERT INTO chat_messages (chat_id, role, kind, text, parts, attachments, event_seq, created_at)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
 RETURNING seq
 `
 
 type InsertChatMessageParams struct {
-	ChatID   string
-	Role     string
-	Kind     string
-	Text     string
-	Parts    sql.NullString
-	EventSeq sql.NullInt64
-	Now      int64
+	ChatID      string
+	Role        string
+	Kind        string
+	Text        string
+	Parts       sql.NullString
+	Attachments sql.NullString
+	EventSeq    sql.NullInt64
+	Now         int64
 }
 
 func (q *Queries) InsertChatMessage(ctx context.Context, arg InsertChatMessageParams) (int64, error) {
@@ -204,6 +205,7 @@ func (q *Queries) InsertChatMessage(ctx context.Context, arg InsertChatMessagePa
 		arg.Kind,
 		arg.Text,
 		arg.Parts,
+		arg.Attachments,
 		arg.EventSeq,
 		arg.Now,
 	)
@@ -231,7 +233,7 @@ func (q *Queries) InsertChatNotice(ctx context.Context, arg InsertChatNoticePara
 }
 
 const listChatMessages = `-- name: ListChatMessages :many
-SELECT chat_messages.seq, chat_messages.chat_id, chat_messages.role, chat_messages.text, chat_messages.parts, chat_messages.event_seq, chat_messages.delivered_at, chat_messages.created_at, chat_messages.to_coordinator, chat_messages.kind,
+SELECT chat_messages.seq, chat_messages.chat_id, chat_messages.role, chat_messages.text, chat_messages.parts, chat_messages.event_seq, chat_messages.delivered_at, chat_messages.created_at, chat_messages.to_coordinator, chat_messages.kind, chat_messages.attachments,
        CAST(coalesce(events.kind, '') AS TEXT)        AS event_kind,
        CAST(coalesce(events.run_id, '') AS TEXT)      AS event_run_id,
        CAST(coalesce(events.task_id, '') AS TEXT)     AS event_task_id,
@@ -281,6 +283,7 @@ func (q *Queries) ListChatMessages(ctx context.Context, arg ListChatMessagesPara
 			&i.ChatMessage.CreatedAt,
 			&i.ChatMessage.ToCoordinator,
 			&i.ChatMessage.Kind,
+			&i.ChatMessage.Attachments,
 			&i.EventKind,
 			&i.EventRunID,
 			&i.EventTaskID,
@@ -380,7 +383,7 @@ func (q *Queries) TouchChat(ctx context.Context, arg TouchChatParams) error {
 }
 
 const undeliveredChatMessages = `-- name: UndeliveredChatMessages :many
-SELECT seq, chat_id, role, text, parts, event_seq, delivered_at, created_at, to_coordinator, kind FROM chat_messages
+SELECT seq, chat_id, role, text, parts, event_seq, delivered_at, created_at, to_coordinator, kind, attachments FROM chat_messages
 WHERE chat_id = ?1 AND delivered_at IS NULL AND (role = 'owner' OR event_seq IS NOT NULL OR to_coordinator = 1)
 ORDER BY seq
 `
@@ -406,6 +409,7 @@ func (q *Queries) UndeliveredChatMessages(ctx context.Context, chatID string) ([
 			&i.CreatedAt,
 			&i.ToCoordinator,
 			&i.Kind,
+			&i.Attachments,
 		); err != nil {
 			return nil, err
 		}

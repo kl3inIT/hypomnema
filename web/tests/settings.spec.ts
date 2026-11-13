@@ -746,7 +746,10 @@ test("the owner adds AWS roles with one key", async ({ page }) => {
 
   const read = aws.getByLabel("AWS account main-read")
   await expect(read).toContainText("123456789012")
-  await expect(read).toContainText("arn:aws:iam::123456789012:role/hypomnema/hypomnema-read")
+  await expect(read).toContainText("Role hypomnema-read")
+  await expect(
+    read.getByTitle("arn:aws:iam::123456789012:role/hypomnema/hypomnema-read"),
+  ).toBeVisible()
   await expect(read).toContainText("Key main")
   await expect(page.getByText("the-right-secret")).toHaveCount(0)
 

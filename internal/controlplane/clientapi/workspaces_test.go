@@ -246,7 +246,7 @@ func TestAChatsFoldersAreChangedOnTheirMachines(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, openapi.Conflict, errorCode(t, stale.Body, stale.StatusCode(), http.StatusConflict))
 
-	folder, err := owner.MakeWorkspaceFolderWithResponse(ctx, chat.ID, "bot",
+	folder, err := owner.MakeWorkspaceFolderWithResponse(ctx, chat.ID, "bot", nil,
 		openapi.WorkspacePathBody{Path: "notes"})
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusCreated, folder.StatusCode(), "%s", folder.Body)
@@ -311,25 +311,25 @@ func TestAnUploadGoesToTheFoldersMachineInPieces(t *testing.T) {
 	}}
 	w.srv.WithWorkspaces(f.node, f)
 
-	begun, err := owner.BeginWorkspaceUploadWithResponse(ctx, chat.ID, tree.TaskID,
+	begun, err := owner.BeginWorkspaceUploadWithResponse(ctx, chat.ID, tree.TaskID, nil,
 		openapi.WorkspacePathBody{Path: "img/logo.png"})
 	require.NoError(t, err)
 	require.NotNil(t, begun.JSON201, "%s", begun.Body)
 	require.Equal(t, "u1", *begun.JSON201.Upload)
 
-	piece, err := owner.SendWorkspaceUploadChunkWithResponse(ctx, chat.ID, tree.TaskID, openapi.WorkspaceUploadChunk{
+	piece, err := owner.SendWorkspaceUploadChunkWithResponse(ctx, chat.ID, tree.TaskID, nil, openapi.WorkspaceUploadChunk{
 		Path: "img/logo.png", Upload: "u1", Offset: 0, Data: []byte("png"),
 	})
 	require.NoError(t, err)
 	require.Equal(t, http.StatusNoContent, piece.StatusCode(), "%s", piece.Body)
 
-	done, err := owner.CommitWorkspaceUploadWithResponse(ctx, chat.ID, tree.TaskID, openapi.WorkspaceUploadCommit{
+	done, err := owner.CommitWorkspaceUploadWithResponse(ctx, chat.ID, tree.TaskID, nil, openapi.WorkspaceUploadCommit{
 		Path: "img/logo.png", Upload: "u1", ExpectSha256: ptr("old"),
 	})
 	require.NoError(t, err)
 	require.NotNil(t, done.JSON200, "%s", done.Body)
 
-	aborted, err := owner.AbortWorkspaceUploadWithResponse(ctx, chat.ID, tree.TaskID,
+	aborted, err := owner.AbortWorkspaceUploadWithResponse(ctx, chat.ID, tree.TaskID, nil,
 		openapi.WorkspaceUploadRef{Path: "img/logo.png", Upload: "u2"})
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusNoContent, aborted.StatusCode())
@@ -341,8 +341,64 @@ func TestAnUploadGoesToTheFoldersMachineInPieces(t *testing.T) {
 		{Op: workspacefs.OpUploadAbort, Path: "img/logo.png", Upload: "u2"},
 	}, steps)
 
-	forbidden, err := pi.BeginWorkspaceUploadWithResponse(ctx, chat.ID, tree.TaskID,
+	forbidden, err := pi.BeginWorkspaceUploadWithResponse(ctx, chat.ID, tree.TaskID, nil,
 		openapi.WorkspacePathBody{Path: "x"})
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusForbidden, forbidden.StatusCode())
+}
+
+// Scenario: the owner attaches a file on the New chat page before the chat is
+// made (issue #357). The page chose the chat's id and names the Bot it picked:
+// the file goes into that Bot's folder. Once the chat is made with that id,
+// another Bot is refused, and a malformed id or a Bot not there never reaches
+// a folder.
+func TestFilesAttachedBeforeTheChatGoToThePickedBot(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	owner, _ := w.token("owner", bearertoken.Owner)
+	ctx := t.Context()
+
+	f := &folders{answer: func(string, workspacefs.Request) workspacefs.Result {
+		return workspacefs.Result{Done: &workspacefs.Done{Path: "attachments"}}
+	}}
+	w.srv.WithWorkspaces(f.node, f)
+
+	_, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "vmap", Persona: "You answer about VMAP."})
+	require.NoError(t, err)
+
+	id := "cht_abcdefghijklmnopqrstuvwxyz"
+	vmap := &openapi.MakeWorkspaceFolderParams{Bot: ptr("vmap")}
+
+	made, err := owner.MakeWorkspaceFolderWithResponse(ctx, id, "bot", vmap,
+		openapi.WorkspacePathBody{Path: "attachments/" + id})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, made.StatusCode(), string(made.Body))
+
+	unnamed, err := owner.MakeWorkspaceFolderWithResponse(ctx, id, "bot", nil,
+		openapi.WorkspacePathBody{Path: "attachments/" + id})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusNotFound, unnamed.StatusCode(), "without a Bot a chat not made has no folder")
+
+	malformed, err := owner.MakeWorkspaceFolderWithResponse(ctx, "cht_x", "bot", vmap,
+		openapi.WorkspacePathBody{Path: "attachments/cht_x"})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, malformed.StatusCode())
+
+	nobody, err := owner.MakeWorkspaceFolderWithResponse(ctx, id, "bot",
+		&openapi.MakeWorkspaceFolderParams{Bot: ptr("nobody")}, openapi.WorkspacePathBody{Path: "attachments"})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusNotFound, nobody.StatusCode())
+
+	created, err := owner.CreateChatWithResponse(ctx, openapi.NewChat{Id: &id, Bot: ptr("vmap")})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, created.StatusCode(), string(created.Body))
+
+	other, err := owner.MakeWorkspaceFolderWithResponse(ctx, id, "bot", &openapi.MakeWorkspaceFolderParams{
+		Bot: ptr("coordinator"),
+	}, openapi.WorkspacePathBody{Path: "attachments/" + id})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusConflict, other.StatusCode(), "a made chat's folder is its own Bot's")
+
+	assert.Equal(t, []string{"bot vmap mkdir attachments/" + id}, f.asked)
 }

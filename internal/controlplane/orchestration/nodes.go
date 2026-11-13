@@ -463,6 +463,28 @@ func (s *Service) NodeHello(ctx context.Context, nodeID string, h Hello) error {
 	})
 }
 
+// NodeRuntimes records the agent CLIs a node has now, which it says in a
+// heartbeat when they changed since its hello: one the control plane had it
+// install is found once installed (issue #107).
+func (s *Service) NodeRuntimes(ctx context.Context, nodeID string, runtimes []RuntimeInfo) error {
+	for _, r := range runtimes {
+		if r.Runtime == "" {
+			return fmt.Errorf("%w: a runtime needs a name", ErrInvalid)
+		}
+	}
+
+	raw, err := json.Marshal(nonNil(runtimes))
+	if err != nil {
+		return fmt.Errorf("encoding runtimes: %w", err)
+	}
+
+	return s.write(ctx, func(q *store.Queries, _ int64) error {
+		n, err := q.SetNodeRuntimes(ctx, store.SetNodeRuntimesParams{Runtimes: string(raw), ID: nodeID})
+
+		return oneRow(n, err, "node", nodeID)
+	})
+}
+
 // NodeHeartbeat records that the node is still there. Every node call about
 // a Dispatch counts as one too.
 func (s *Service) NodeHeartbeat(ctx context.Context, nodeID string) error {

@@ -155,7 +155,7 @@ func (rn *Runner) Start(ctx context.Context, d statedb.Dispatch, r daemon.Report
 	o := d.Offer
 
 	a, known := agents[o.Runtime]
-	path := rn.Paths[o.Runtime]
+	path := rn.path(o.Runtime)
 
 	switch {
 	case !known:
@@ -923,4 +923,20 @@ func writeOffset(dir string, n int64) {
 	if os.WriteFile(tmp, []byte(strconv.FormatInt(n, 10)), 0o600) == nil {
 		_ = os.Rename(tmp, filepath.Join(dir, offsetFile))
 	}
+}
+
+// path is a CLI's binary, "" when the node has none.
+func (rn *Runner) path(runtime string) string {
+	rn.mu.Lock()
+	defer rn.mu.Unlock()
+
+	return rn.Paths[runtime]
+}
+
+// SetPaths sets the CLIs' binaries, found again once the control plane had the node install one (issue #107).
+func (rn *Runner) SetPaths(paths map[string]string) {
+	rn.mu.Lock()
+	defer rn.mu.Unlock()
+
+	rn.Paths = paths
 }

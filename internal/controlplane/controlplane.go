@@ -39,6 +39,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/websearch"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/webui"
+	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 	"github.com/kl3inIT/hypomnema/web"
@@ -268,7 +269,8 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 
 	nodes := nodeapi.New(svc, logger).WithHostTokens(tokens.Token).WithModelKeys(workerKeys.Key).
 		WithAccountTokens(accountTokens{svc: svc, vault: secrets, logger: logger}.Token).
-		WithAgentKeys(workerKeys.AgentKey).WithTools(integrations.Tools).WithReleaseURL(cfg.NodeReleaseURL)
+		WithAgentKeys(workerKeys.AgentKey).WithTools(integrations.Tools).WithRuntimeTools(agenttool.RuntimeTools).
+		WithReleaseURL(cfg.NodeReleaseURL)
 	nodes.Register(mux)
 	// One API for every agent's tools: a worker with its Dispatch's key, the coordinator with its token.
 	agents := agentapi.New(svc, func(ctx context.Context, id, label string) (agentapi.Token, error) {

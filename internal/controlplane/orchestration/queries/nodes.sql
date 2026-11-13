@@ -26,6 +26,10 @@ UPDATE nodes SET last_seen_at = CAST(@now AS INTEGER) WHERE id = @id;
 -- name: SetNodeGitHosts :execrows
 UPDATE nodes SET git_hosts = @git_hosts WHERE id = @id AND status <> 'deleted';
 
+-- name: SetNodeRuntimes :execrows
+-- The agent CLIs a node has now, said in a heartbeat once one was installed (issue #107).
+UPDATE nodes SET runtimes = @runtimes WHERE id = @id AND status <> 'deleted';
+
 -- name: SetNodeTools :execrows
 UPDATE nodes SET tools = @tools WHERE id = @id AND status <> 'deleted';
 

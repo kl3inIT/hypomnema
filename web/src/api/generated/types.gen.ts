@@ -2067,6 +2067,10 @@ export type ModelList = {
 };
 
 export type NewChat = {
+  /**
+   * The chat's id, chosen by the client before the chat is made (the New chat page, whose files are attached before its first message): `cht_` followed by 26 characters of a-z and 2-7, as the server makes them. Refused when malformed (400) or taken (409); a new id when left out.
+   */
+  id?: string;
   title?: string;
   /**
    * The Bot the chat talks with; `coordinator` when left out.
@@ -2322,8 +2326,34 @@ export type ChatState = {
   working: boolean;
 };
 
+/**
+ * The owner's message; its text may be empty when it carries files.
+ */
 export type NewChatMessage = {
   text: string;
+  /**
+   * Files uploaded into the chat's Bot's folder for this message.
+   */
+  attachments?: Array<ChatAttachment>;
+};
+
+/**
+ * A file the owner attached to a message (issue #343): uploaded into the chat's Bot's folder, where pi reads it.
+ */
+export type ChatAttachment = {
+  /**
+   * The file's name as the owner picked it.
+   */
+  name: string;
+  /**
+   * Where it is in the Bot's folder: attachments/<chat id>/<file>.
+   */
+  path: string;
+  size: number;
+  /**
+   * Its media type, when the browser named one.
+   */
+  type?: string;
 };
 
 export type ChatMessage = {
@@ -2336,6 +2366,10 @@ export type ChatMessage = {
    * A reply's text and thinking, or a tool's result; absent for owner and system messages.
    */
   parts?: Array<ChatPart>;
+  /**
+   * The files of an owner message; absent for other messages.
+   */
+  attachments?: Array<ChatAttachment>;
   /**
    * The event a wake-up reports.
    */
@@ -2482,6 +2516,11 @@ export type ChatId = string;
  * `bot` for the Bot's folder, or a Task's id for its worktree.
  */
 export type WorkspaceId = string;
+
+/**
+ * For a chat not made yet, whose id the client chose (issue #357): the Bot whose folder `bot` is, so that the files of the chat's first message go into its folder of attachments before the chat is made. Only the folder `bot` takes it; for a chat that is made it must be the chat's Bot.
+ */
+export type NewChatBot = string;
 
 /**
  * A path in the folder, with forward slashes; empty or absent is the folder itself.
@@ -6380,6 +6419,10 @@ export type ListWorkspaceDirectoryData = {
      */
     path?: string;
     /**
+     * For a chat not made yet, whose id the client chose (issue #357): the Bot whose folder `bot` is, so that the files of the chat's first message go into its folder of attachments before the chat is made. Only the folder `bot` takes it; for a chat that is made it must be the chat's Bot.
+     */
+    bot?: string;
+    /**
      * The page after this name.
      */
     after?: string;
@@ -6419,6 +6462,10 @@ export type DeleteWorkspaceEntryData = {
      * A path in the folder, with forward slashes; empty or absent is the folder itself.
      */
     path?: string;
+    /**
+     * For a chat not made yet, whose id the client chose (issue #357): the Bot whose folder `bot` is, so that the files of the chat's first message go into its folder of attachments before the chat is made. Only the folder `bot` takes it; for a chat that is made it must be the chat's Bot.
+     */
+    bot?: string;
   };
   url: '/chats/{chat_id}/workspaces/{workspace_id}/file';
 };
@@ -6553,7 +6600,12 @@ export type BeginWorkspaceUploadData = {
      */
     workspace_id: string;
   };
-  query?: never;
+  query?: {
+    /**
+     * For a chat not made yet, whose id the client chose (issue #357): the Bot whose folder `bot` is, so that the files of the chat's first message go into its folder of attachments before the chat is made. Only the folder `bot` takes it; for a chat that is made it must be the chat's Bot.
+     */
+    bot?: string;
+  };
   url: '/chats/{chat_id}/workspaces/{workspace_id}/uploads';
 };
 
@@ -6584,7 +6636,12 @@ export type SendWorkspaceUploadChunkData = {
      */
     workspace_id: string;
   };
-  query?: never;
+  query?: {
+    /**
+     * For a chat not made yet, whose id the client chose (issue #357): the Bot whose folder `bot` is, so that the files of the chat's first message go into its folder of attachments before the chat is made. Only the folder `bot` takes it; for a chat that is made it must be the chat's Bot.
+     */
+    bot?: string;
+  };
   url: '/chats/{chat_id}/workspaces/{workspace_id}/uploads/chunk';
 };
 
@@ -6615,7 +6672,12 @@ export type CommitWorkspaceUploadData = {
      */
     workspace_id: string;
   };
-  query?: never;
+  query?: {
+    /**
+     * For a chat not made yet, whose id the client chose (issue #357): the Bot whose folder `bot` is, so that the files of the chat's first message go into its folder of attachments before the chat is made. Only the folder `bot` takes it; for a chat that is made it must be the chat's Bot.
+     */
+    bot?: string;
+  };
   url: '/chats/{chat_id}/workspaces/{workspace_id}/uploads/commit';
 };
 
@@ -6646,7 +6708,12 @@ export type AbortWorkspaceUploadData = {
      */
     workspace_id: string;
   };
-  query?: never;
+  query?: {
+    /**
+     * For a chat not made yet, whose id the client chose (issue #357): the Bot whose folder `bot` is, so that the files of the chat's first message go into its folder of attachments before the chat is made. Only the folder `bot` takes it; for a chat that is made it must be the chat's Bot.
+     */
+    bot?: string;
+  };
   url: '/chats/{chat_id}/workspaces/{workspace_id}/uploads/abort';
 };
 
@@ -6677,7 +6744,12 @@ export type MakeWorkspaceFolderData = {
      */
     workspace_id: string;
   };
-  query?: never;
+  query?: {
+    /**
+     * For a chat not made yet, whose id the client chose (issue #357): the Bot whose folder `bot` is, so that the files of the chat's first message go into its folder of attachments before the chat is made. Only the folder `bot` takes it; for a chat that is made it must be the chat's Bot.
+     */
+    bot?: string;
+  };
   url: '/chats/{chat_id}/workspaces/{workspace_id}/folders';
 };
 

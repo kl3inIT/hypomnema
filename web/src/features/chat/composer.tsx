@@ -1,9 +1,13 @@
-import { CircleAlert, X } from "lucide-react"
-import { useState } from "react"
+import { CircleAlert, Paperclip, X } from "lucide-react"
+import { useRef, useState } from "react"
 
+import type { ChatAttachment } from "@/api/generated/types.gen"
 import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
+
+import { AttachmentStrip } from "./attachment-strip"
+import type { Attachments } from "./attachments"
 
 // The message box, after t3code's composer (MIT, Copyright (c) 2026 T3 Tools Inc.,
 // https://github.com/pingdotgg/t3code): chat/ComposerSurface.tsx for the raised card with its glass and outline,
@@ -13,44 +17,59 @@ import { cn } from "@/lib/utils"
 // reaches pi as a follow-up. The box empties as the message leaves, which the chat shows at once; a send that fails
 // puts the text back to be sent again and says why above the box (t3code's ChatView send path and
 // ThreadErrorBanner.tsx).
+//
+// Files are attached (issue #343; on the New chat page too, issue #357) with the paperclip, by pasting them or by
+// dropping them on the chat, as t3code's composer takes them (useComposerAttachmentIntake.ts): each is a chip above the box while it
+// uploads, and Send waits for the uploads, then sends the text with the files (useComposerSend.ts). A file that is
+// refused, or was not uploaded, is said above the box.
 export function Composer({
   onSend,
   onStop,
   working,
   disabled,
   bot,
+  attachments,
 }: {
-  onSend: (text: string) => Promise<unknown>
+  onSend: (text: string, files: ChatAttachment[]) => Promise<unknown>
   onStop: () => void
   working: boolean
   disabled?: boolean
   // bot names who the message goes to.
   bot: string
+  // attachments are the files of the message; without them the composer takes none.
+  attachments?: Attachments
 }) {
   const [text, setText] = useState("")
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const picker = useRef<HTMLInputElement>(null)
+  const files = attachments?.items.length ?? 0
 
   async function send() {
     const message = text.trim()
-    if (!message || sending) return
+    if ((!message && files === 0) || sending) return
 
     setSending(true)
     setError(null)
+    attachments?.dismiss()
     setText("")
 
     try {
-      await onSend(message)
+      const sent = attachments ? await attachments.draft.ready() : []
+      await onSend(message, sent)
+      attachments?.draft.clear()
     } catch (err) {
       // What was typed meanwhile is kept; the failed text goes back only into an empty box.
       setText((typed) => (typed === "" ? message : typed))
-      setError(errorText(err))
+      setError(`Not sent: ${errorText(err)}`)
     } finally {
       setSending(false)
     }
   }
 
-  const stop = working && !text.trim()
+  const stop = working && !text.trim() && files === 0
+  // What is said above the box: a send that failed, else a file that was not taken.
+  const problem = error ?? attachments?.problem ?? null
 
   return (
     <form
@@ -64,18 +83,21 @@ export function Composer({
         void send()
       }}
     >
-      {error && (
+      {problem && (
         <div className="relative z-10 mb-2">
           <Alert variant="destructive">
             <CircleAlert />
-            <AlertDescription>Not sent: {error}</AlertDescription>
+            <AlertDescription>{problem}</AlertDescription>
             <AlertAction>
               <Button
                 type="button"
                 variant="ghost"
                 size="icon-xs"
                 aria-label="Dismiss"
-                onClick={() => setError(null)}
+                onClick={() => {
+                  setError(null)
+                  attachments?.dismiss()
+                }}
               >
                 <X />
               </Button>
@@ -84,6 +106,7 @@ export function Composer({
         </div>
       )}
       <div className="relative z-10 w-full rounded-2xl shadow-composer after:pointer-events-none after:absolute after:inset-0 after:rounded-[inherit] after:border after:border-(--composer-outline) dark:shadow-none dark:after:inset-shadow-2xs dark:after:inset-shadow-[rgb(255_255_255/3%)]">
+        {attachments && <AttachmentStrip attachments={attachments} />}
         <div className="relative px-4 pt-3.5 pb-2 sm:pt-4">
           <textarea
             aria-label="Message"
@@ -92,6 +115,13 @@ export function Composer({
             value={text}
             disabled={disabled}
             onChange={(event) => setText(event.target.value)}
+            onPaste={(event) => {
+              // A pasted image, or files copied in the system's file manager, are attached; text pastes as text.
+              const pasted = [...event.clipboardData.files]
+              if (!attachments || pasted.length === 0) return
+              event.preventDefault()
+              attachments.attach(pasted)
+            }}
             onKeyDown={(event) => {
               if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return
               event.preventDefault()
@@ -101,6 +131,33 @@ export function Composer({
           />
         </div>
         <div className="flex min-w-0 items-center justify-end gap-2 px-2 pb-2">
+          {attachments && (
+            <div className="me-auto">
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                aria-label="Attach files"
+                title="Attach files"
+                disabled={disabled}
+                onClick={() => picker.current?.click()}
+              >
+                <Paperclip />
+              </Button>
+              <input
+                ref={picker}
+                type="file"
+                multiple
+                hidden
+                aria-label="Files to attach"
+                onChange={(event) => {
+                  const picked = [...(event.target.files ?? [])]
+                  event.target.value = ""
+                  attachments.attach(picked)
+                }}
+              />
+            </div>
+          )}
           {stop ? (
             <button
               type="button"
@@ -122,7 +179,7 @@ export function Composer({
             <button
               type="submit"
               aria-label="Send"
-              disabled={disabled || sending || !text.trim()}
+              disabled={disabled || sending || (!text.trim() && files === 0)}
               className="relative isolate flex size-9 items-center justify-center overflow-hidden rounded-full bg-message-action text-message-action-foreground shadow-xs transition duration-150 hover:scale-105 hover:bg-message-action-hover active:shadow-none active:inset-shadow-control-pressed enabled:cursor-pointer enabled:inset-shadow-control-highlight enabled:shadow-message-action/24 disabled:pointer-events-none disabled:bg-foreground/12 disabled:text-muted-foreground disabled:shadow-none disabled:hover:scale-100 sm:size-8"
             >
               <svg

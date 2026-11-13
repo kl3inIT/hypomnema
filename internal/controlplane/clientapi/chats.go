@@ -39,7 +39,7 @@ func (s *Server) ListChats(ctx context.Context, req openapi.ListChatsRequestObje
 // CreateChat starts a chat.
 func (s *Server) CreateChat(ctx context.Context, req openapi.CreateChatRequestObject,
 ) (openapi.CreateChatResponseObject, error) {
-	chat, err := s.svc.CreateChat(ctx, val(req.Body.Bot), val(req.Body.Title))
+	chat, err := s.svc.CreateChatWithID(ctx, val(req.Body.Id), val(req.Body.Bot), val(req.Body.Title))
 	if err != nil {
 		return nil, err
 	}
@@ -58,15 +58,24 @@ func (s *Server) GetChat(ctx context.Context, req openapi.GetChatRequestObject,
 	return openapi.GetChat200JSONResponse(s.toChat(chat)), nil
 }
 
-// SendChatMessage keeps the owner's message; the supervisor gives it to pi.
+// SendChatMessage keeps the owner's message with the files attached to it (issue #343), which the web uploaded into
+// the Bot's folder first; the supervisor gives it to pi.
 func (s *Server) SendChatMessage(ctx context.Context, req openapi.SendChatMessageRequestObject,
 ) (openapi.SendChatMessageResponseObject, error) {
-	m, err := s.svc.AddChatMessage(ctx, req.ChatId, orchestration.ChatOwner, req.Body.Text)
+	msg := orchestration.NewChatMessage{Role: orchestration.ChatOwner, Text: req.Body.Text}
+
+	for _, a := range val(req.Body.Attachments) {
+		msg.Attachments = append(msg.Attachments, orchestration.ChatAttachment{
+			Name: a.Name, Path: a.Path, Size: a.Size, Type: val(a.Type),
+		})
+	}
+
+	m, err := s.svc.AddChatMessages(ctx, req.ChatId, msg)
 	if err != nil {
 		return nil, err
 	}
 
-	return openapi.SendChatMessage201JSONResponse(toChatMessage(m)), nil
+	return openapi.SendChatMessage201JSONResponse(toChatMessage(m[0])), nil
 }
 
 // ListChatMessages returns the messages after the cursor. With wait, an
@@ -157,6 +166,15 @@ func toChatMessage(m orchestration.ChatMessage) openapi.ChatMessage {
 			Event: openapi.ChatWakeEvent(w.Event), RunId: opt(w.RunID), TaskId: opt(w.TaskID),
 			QuestionId: opt(w.QuestionID), Status: opt(w.Status), Reason: opt(w.Reason), Escalation: opt(w.Escalation),
 		}
+	}
+
+	if len(m.Attachments) > 0 {
+		files := make([]openapi.ChatAttachment, 0, len(m.Attachments))
+		for _, a := range m.Attachments {
+			files = append(files, openapi.ChatAttachment{Name: a.Name, Path: a.Path, Size: a.Size, Type: opt(a.Type)})
+		}
+
+		out.Attachments = &files
 	}
 
 	if m.Parts != nil {

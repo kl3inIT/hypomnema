@@ -358,6 +358,30 @@ func TestPromptJoinsWakeUpsAndOwnerMessages(t *testing.T) {
 		"\nThe owner also wrote:\nalso add docs"), got)
 }
 
+// Scenario: the owner sends files (issue #343). pi gets the text and one line a file with its path in the Bot's
+// folder, its working directory, which its tools read; a message of files alone is the lines.
+func TestPiIsGivenThePathsOfTheOwnersFiles(t *testing.T) {
+	t.Parallel()
+
+	got := promptText([]orchestration.ChatMessage{
+		{Role: orchestration.ChatOwner, Text: "summarize these", Attachments: []orchestration.ChatAttachment{
+			{Name: "report.pdf", Path: "attachments/cht_1/report (2).pdf", Size: 1234, Type: "application/pdf"},
+			{Name: "notes", Path: "attachments/cht_1/notes", Size: 5},
+		}},
+		{Role: orchestration.ChatOwner, Attachments: []orchestration.ChatAttachment{
+			{Name: "a.png", Path: "attachments/cht_1/a.png", Size: 3, Type: "image/png"},
+		}},
+	})
+	assert.Equal(t, fmt.Sprint(
+		"summarize these\n\n",
+		"The owner attached these files, in your working directory:\n",
+		"- attachments/cht_1/report (2).pdf (application/pdf, 1234 bytes)\n",
+		"- attachments/cht_1/notes (file, 5 bytes)",
+		"\n\n",
+		"The owner attached these files, in your working directory:\n",
+		"- attachments/cht_1/a.png (image/png, 3 bytes)"), got)
+}
+
 func contextWithCancel(t *testing.T) (context.Context, context.CancelFunc) {
 	t.Helper()
 
