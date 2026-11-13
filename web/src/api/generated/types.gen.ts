@@ -2481,6 +2481,10 @@ export type ListRunsData = {
   query?: {
     status?: RunStatus;
     /**
+     * Only the Runs a coordinator created from this chat.
+     */
+    chat_id?: string;
+    /**
      * The next_cursor of the previous page.
      */
     cursor?: string;
@@ -2813,6 +2817,10 @@ export type ListQuestionsData = {
     addressed_to?: Addressee;
     run_id?: string;
     task_id?: string;
+    /**
+     * Only the questions of the Runs a coordinator created from this chat.
+     */
+    chat_id?: string;
   };
   url: '/questions';
 };

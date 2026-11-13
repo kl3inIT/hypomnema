@@ -64,6 +64,10 @@ paths:
         - name: status
           in: query
           schema: { $ref: "#/components/schemas/RunStatus" }
+        - name: chat_id
+          in: query
+          description: Only the Runs a coordinator created from this chat.
+          schema: { type: string, minLength: 1, maxLength: 64 }
         - name: cursor
           in: query
           description: The next_cursor of the previous page.
@@ -265,6 +269,10 @@ paths:
         - name: task_id
           in: query
           schema: { type: string, minLength: 1 }
+        - name: chat_id
+          in: query
+          description: Only the questions of the Runs a coordinator created from this chat.
+          schema: { type: string, minLength: 1, maxLength: 64 }
       responses:
         "200":
           description: The questions.

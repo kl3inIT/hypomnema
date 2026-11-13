@@ -96,6 +96,8 @@ type QuestionFilter struct {
 	DispatchID  string
 	AddressedTo Addressee
 	Status      QuestionStatus
+	// ChatID keeps the questions of the Runs a coordinator created from that chat.
+	ChatID string
 }
 
 // AskQuestion is the worker asking a question it waits for. The Dispatch
@@ -325,7 +327,7 @@ func (s *Service) GetQuestion(ctx context.Context, id string) (Question, error) 
 func (s *Service) ListQuestions(ctx context.Context, f QuestionFilter) ([]Question, error) {
 	rows, err := s.read().ListQuestions(ctx, store.ListQuestionsParams{
 		RunID: f.RunID, TaskID: f.TaskID, DispatchID: f.DispatchID, AddressedTo: string(f.AddressedTo),
-		Status: string(f.Status),
+		Status: string(f.Status), ChatID: f.ChatID,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("listing questions: %w", err)

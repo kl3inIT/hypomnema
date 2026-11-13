@@ -52,7 +52,7 @@ func runsCreate(ctx context.Context, e *env, fs *flag.FlagSet) error {
 
 func runsList(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	limit := number(fs, "limit")
-	params := &openapi.ListRunsParams{Limit: &limit}
+	params := &openapi.ListRunsParams{Limit: &limit, ChatId: optional(fs, "chat")}
 
 	if s := str(fs, "status"); s != "" {
 		status := openapi.RunStatus(s)

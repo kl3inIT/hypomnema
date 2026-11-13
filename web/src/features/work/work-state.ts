@@ -73,20 +73,30 @@ export function boardCards(
       column: columnOf(task, run, question),
       question,
       piQuestion: askedPi.get(task.id),
-      // A Task that ran under a fallback of its agent shows that agent's CLI (issue #171): the one whose
-      // current version the Dispatch ran with, the Task's own when that version has been replaced since.
-      runtime:
-        task.runtime ||
-        (task.latest_dispatch?.fallback_for &&
-          byVersion.get(task.latest_dispatch.profile_version_id ?? "")) ||
-        runtimes.get(task.profile) ||
-        "",
+      runtime: runtimeOf(task, runtimes, byVersion),
       node: nodeId ? (nodeNames.get(nodeId) ?? nodeId) : undefined,
       queued: task.status === "pending" || task.status === "ready",
     })
   }
 
   return cards
+}
+
+// runtimeOf is the CLI a Task's worker runs. A Task that ran under a fallback of its agent shows that agent's CLI
+// (issue #171): the one whose current version the Dispatch ran with, the Task's own when that version has been
+// replaced since. runtimes and byVersion map a profile's name and its version's id to its runtime.
+export function runtimeOf(
+  task: TaskDetail,
+  runtimes: Map<string, string>,
+  byVersion: Map<string, string> = new Map(),
+): string {
+  return (
+    task.runtime ||
+    (task.latest_dispatch?.fallback_for &&
+      byVersion.get(task.latest_dispatch.profile_version_id ?? "")) ||
+    runtimes.get(task.profile) ||
+    ""
+  )
 }
 
 export function needsYou(cards: Card[]) {

@@ -1,16 +1,17 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useQuery } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
 import { ChevronRight, GitPullRequest, MessageCircleQuestion } from "lucide-react"
 
 import "@/api/client"
-import { cancelRun, finishRun, getRun, listQuestions } from "@/api/generated/sdk.gen"
+import { getRun, listQuestions } from "@/api/generated/sdk.gen"
 import type { Question, RunDetail, TaskDetail } from "@/api/generated/types.gen"
-import { Button } from "@/components/ui/button"
 import { QuestionForm } from "@/features/questions/question-form"
 import { PageHeader } from "@/features/shell/app-shell"
 import { firstLine, pullRequest, repoLabel } from "@/features/work/work-state"
 import { since } from "@/lib/time"
 import { cn } from "@/lib/utils"
+
+import { RunActions } from "./run-actions"
 
 // RunScreen is one Run: its objective, the questions its workers put to the owner (answered in place, as t3code docks
 // a pending question), its Tasks as rows that open in the Task panel, and the questions already answered, folded to
@@ -22,7 +23,6 @@ export function RunScreen({
   runId: string
   onOpenTask: (taskId: string) => void
 }) {
-  const queryClient = useQueryClient()
   const run = useQuery({
     queryKey: ["run", runId],
     queryFn: async () => (await getRun({ path: { run_id: runId } })).data,
@@ -32,26 +32,11 @@ export function RunScreen({
     queryFn: async () => (await listQuestions({ query: { run_id: runId } })).data.data,
   })
 
-  const refresh = () => {
-    for (const queryKey of [["run"], ["runs"], ["board"]])
-      void queryClient.invalidateQueries({ queryKey })
-  }
-  const finish = useMutation({
-    mutationFn: () => finishRun({ path: { run_id: runId } }),
-    onSuccess: refresh,
-  })
-  const cancel = useMutation({
-    mutationFn: () => cancelRun({ path: { run_id: runId } }),
-    onSuccess: refresh,
-  })
-
   const r = run.data
   const open = (questions.data ?? []).filter(
     (q) => q.status === "open" && q.addressed_to === "owner",
   )
   const answered = (questions.data ?? []).filter((q) => q.status === "answered")
-  const allEnded =
-    r?.tasks.every((t) => ["succeeded", "failed", "canceled"].includes(t.status)) ?? false
 
   return (
     <main className="flex min-w-0 flex-1 flex-col">
@@ -68,23 +53,9 @@ export function RunScreen({
           </span>
         }
       >
-        {r?.status === "open" && (
-          <div className="ms-auto flex gap-1.5">
-            <Button
-              variant="outline"
-              disabled={!allEnded || finish.isPending}
-              title={allEnded ? undefined : "Every Task must end first"}
-              onClick={() => finish.mutate()}
-            >
-              Finish Run
-            </Button>
-            <Button
-              variant="destructive"
-              disabled={cancel.isPending}
-              onClick={() => cancel.mutate()}
-            >
-              Cancel
-            </Button>
+        {r && (
+          <div className="ms-auto">
+            <RunActions run={r} />
           </div>
         )}
       </PageHeader>

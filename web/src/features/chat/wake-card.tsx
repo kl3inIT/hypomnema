@@ -17,6 +17,7 @@ import { useWork } from "@/features/work/use-work"
 import { firstLine } from "@/features/work/work-state"
 import { cn } from "@/lib/utils"
 
+import { useDock } from "./dock-context"
 import { wakeLine, type WakeIcon, type WakeLink, type WakeNames, type WakeTone } from "./wake"
 
 // A wake-up as a card across the lane (issue #303), adapted from t3code (MIT, Copyright (c) 2026 T3 Tools Inc.,
@@ -24,8 +25,9 @@ import { wakeLine, type WakeIcon, type WakeLink, type WakeNames, type WakeTone }
 // a detail and a pill to act on) and chat/MarkdownThreadLink.tsx with ThreadContextChip.tsx (other work named by
 // its title, as a chip that opens it). The icon by status follows Orca's task rows (MIT, Copyright (c) 2026
 // Lovecast Inc., https://github.com/stablyai/orca; native-chat/tools/tasks/NativeChatTaskList.tsx), whose status
-// is in words beside the icon. Changed: the Task opens its panel over the chat and the Run its page; nothing is
-// read again live, as neither reference does on such a line.
+// is in words beside the icon. Changed: the Task opens its panel over the chat, and the Run opens its strip docked
+// above the composer (issue #314), or its page when it is not docked in this chat; nothing is read again live, as
+// neither reference does on such a line.
 
 const icons: Record<WakeIcon, LucideIcon> = {
   done: CircleCheck,
@@ -89,10 +91,24 @@ export function WakeCard({ wake }: { wake: ChatWake }) {
 }
 
 // WakeChip opens the work a line names: a Task in its panel over the chat (the page keeps it in its URL, as the
-// board and the Team page do), a Run on its page.
+// board and the Team page do), a Run in the dock above the composer when this chat docks it, else on its page.
 function WakeChip({ link }: { link: WakeLink }) {
   const navigate = useNavigate()
+  const dock = useDock()
   const label = <span className="truncate">{link.label}</span>
+
+  if (link.kind === "run" && dock.docked(link.id)) {
+    return (
+      <Button
+        variant="outline"
+        size="chip"
+        aria-label={`Show Run ${link.label}`}
+        onClick={() => dock.show(link.id)}
+      >
+        {label}
+      </Button>
+    )
+  }
 
   if (link.kind === "run") {
     return (

@@ -160,7 +160,7 @@ func (s *Service) ListRuns(ctx context.Context, f RunFilter, after *RunCursor, l
 
 	limit = min(limit, RunPageMax)
 
-	p := store.ListRunsParams{Status: string(f.Status), Lim: int64(limit) + 1}
+	p := store.ListRunsParams{Status: string(f.Status), ChatID: f.ChatID, Lim: int64(limit) + 1}
 	if after != nil {
 		p.HasCursor, p.CursorAt, p.CursorID = 1, after.CreatedAt.UnixMilli(), after.ID
 	}

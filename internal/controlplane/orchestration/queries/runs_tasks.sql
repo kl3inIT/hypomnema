@@ -15,10 +15,11 @@ WHERE runs.id = @id;
 
 -- name: ListRuns :many
 -- Newest first, after the cursor (created_at, id) of the previous page when one is given; each with the Bot of its
--- chat, empty for a Run without a chat.
+-- chat, empty for a Run without a chat. Empty filters match everything.
 SELECT sqlc.embed(runs), CAST(coalesce(chats.bot, '') AS TEXT) AS bot
 FROM runs LEFT JOIN chats ON chats.id = runs.chat_id
 WHERE (CAST(@status AS TEXT) = '' OR runs.status = @status)
+  AND (CAST(@chat_id AS TEXT) = '' OR runs.chat_id = @chat_id)
   AND (CAST(@has_cursor AS INTEGER) = 0 OR runs.created_at < @cursor_at
        OR (runs.created_at = @cursor_at AND runs.id < @cursor_id))
 ORDER BY runs.created_at DESC, runs.id DESC

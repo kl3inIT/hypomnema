@@ -37,7 +37,9 @@ func printQuestion(e *env, q openapi.Question) {
 func questionsList(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	to, status := openapi.Addressee(str(fs, "to")), openapi.QuestionStatus(str(fs, "status"))
 
-	params := &openapi.ListQuestionsParams{AddressedTo: &to, Status: &status, RunId: optional(fs, "run")}
+	params := &openapi.ListQuestionsParams{
+		AddressedTo: &to, Status: &status, RunId: optional(fs, "run"), ChatId: optional(fs, "chat"),
+	}
 
 	resp, err := e.api.ListQuestionsWithResponse(ctx, params)
 	if err != nil {
