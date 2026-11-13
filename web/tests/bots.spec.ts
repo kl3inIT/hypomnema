@@ -416,7 +416,7 @@ test("a Bot's skills are chosen in its form", async ({ page }) => {
 test("a Bot shows its memory, takes a new persona and refuses to be removed", async ({ page }) => {
   const calls = await fakeServer(page)
   await page.goto("/bots")
-  await page.getByRole("link", { name: "coordinator" }).click()
+  await page.getByRole("link", { name: "coordinator", exact: true }).click()
 
   await expect(page.getByRole("heading", { name: "coordinator", level: 2 })).toBeVisible()
   await expect(page.getByLabel("Model", { exact: true })).toContainText("gpt-luna")

@@ -56,8 +56,9 @@ async function fakeServer(page: Page) {
   })
 }
 
+// A chat's row in the sidebar, under its Bot's row, which the test opens.
 const row = (page: Page, title: string) =>
-  page.getByRole("navigation", { name: "Chats" }).getByRole("link", { name: title })
+  page.getByRole("list", { name: "Chats of coordinator" }).getByRole("link", { name: title })
 const pane = (page: Page, title: string) => page.getByRole("region", { name: title })
 const panes = (page: Page) => page.getByRole("main", { name: "Grid of chats" }).getByRole("region")
 
@@ -81,6 +82,7 @@ test("chats are dragged from the sidebar into a grid of up to four", async ({ pa
   await fakeServer(page)
   await page.goto("/chats/cht_1")
   await expect(page.getByText("about the health page")).toBeVisible()
+  await page.getByRole("button", { name: "Show the chats of coordinator" }).click()
 
   await drag(page, row(page, "login button"), page.getByRole("main"), 0.97, 0.5)
   await expect(page.getByTestId("grid-ghost")).toBeVisible()
