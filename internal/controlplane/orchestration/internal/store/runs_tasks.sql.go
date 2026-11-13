@@ -63,6 +63,40 @@ func (q *Queries) GetRun(ctx context.Context, id string) (Run, error) {
 	return i, err
 }
 
+const getRunWithBot = `-- name: GetRunWithBot :one
+SELECT runs.id, runs.objective, runs.status, runs.created_by, runs.created_at, runs.updated_at, runs.finished_at, runs.repo, runs.base, runs.coordinator_token_id, runs.chat_id, runs.repo_host, runs.uses, CAST(coalesce(chats.bot, '') AS TEXT) AS bot
+FROM runs LEFT JOIN chats ON chats.id = runs.chat_id
+WHERE runs.id = ?1
+`
+
+type GetRunWithBotRow struct {
+	Run Run
+	Bot string
+}
+
+// A Run with the Bot of its chat; bot is empty for a Run without a chat.
+func (q *Queries) GetRunWithBot(ctx context.Context, id string) (GetRunWithBotRow, error) {
+	row := q.db.QueryRowContext(ctx, getRunWithBot, id)
+	var i GetRunWithBotRow
+	err := row.Scan(
+		&i.Run.ID,
+		&i.Run.Objective,
+		&i.Run.Status,
+		&i.Run.CreatedBy,
+		&i.Run.CreatedAt,
+		&i.Run.UpdatedAt,
+		&i.Run.FinishedAt,
+		&i.Run.Repo,
+		&i.Run.Base,
+		&i.Run.CoordinatorTokenID,
+		&i.Run.ChatID,
+		&i.Run.RepoHost,
+		&i.Run.Uses,
+		&i.Bot,
+	)
+	return i, err
+}
+
 const getTask = `-- name: GetTask :one
 SELECT id, run_id, position, profile, spec, runtime, model, effort, status, blocked_reason, failure_count, result, created_at, updated_at, finished_at, not_before, cancel_requested_at FROM tasks WHERE id = ?1
 `
@@ -305,10 +339,12 @@ func (q *Queries) ListDependents(ctx context.Context, taskID string) ([]ListDepe
 }
 
 const listRuns = `-- name: ListRuns :many
-SELECT id, objective, status, created_by, created_at, updated_at, finished_at, repo, base, coordinator_token_id, chat_id, repo_host, uses FROM runs
-WHERE (CAST(?1 AS TEXT) = '' OR status = ?1)
-  AND (CAST(?2 AS INTEGER) = 0 OR created_at < ?3 OR (created_at = ?3 AND id < ?4))
-ORDER BY created_at DESC, id DESC
+SELECT runs.id, runs.objective, runs.status, runs.created_by, runs.created_at, runs.updated_at, runs.finished_at, runs.repo, runs.base, runs.coordinator_token_id, runs.chat_id, runs.repo_host, runs.uses, CAST(coalesce(chats.bot, '') AS TEXT) AS bot
+FROM runs LEFT JOIN chats ON chats.id = runs.chat_id
+WHERE (CAST(?1 AS TEXT) = '' OR runs.status = ?1)
+  AND (CAST(?2 AS INTEGER) = 0 OR runs.created_at < ?3
+       OR (runs.created_at = ?3 AND runs.id < ?4))
+ORDER BY runs.created_at DESC, runs.id DESC
 LIMIT ?5
 `
 
@@ -320,8 +356,14 @@ type ListRunsParams struct {
 	Lim       int64
 }
 
-// Newest first, after the cursor (created_at, id) of the previous page when one is given.
-func (q *Queries) ListRuns(ctx context.Context, arg ListRunsParams) ([]Run, error) {
+type ListRunsRow struct {
+	Run Run
+	Bot string
+}
+
+// Newest first, after the cursor (created_at, id) of the previous page when one is given; each with the Bot of its
+// chat, empty for a Run without a chat.
+func (q *Queries) ListRuns(ctx context.Context, arg ListRunsParams) ([]ListRunsRow, error) {
 	rows, err := q.db.QueryContext(ctx, listRuns,
 		arg.Status,
 		arg.HasCursor,
@@ -333,23 +375,24 @@ func (q *Queries) ListRuns(ctx context.Context, arg ListRunsParams) ([]Run, erro
 		return nil, err
 	}
 	defer rows.Close()
-	items := []Run{}
+	items := []ListRunsRow{}
 	for rows.Next() {
-		var i Run
+		var i ListRunsRow
 		if err := rows.Scan(
-			&i.ID,
-			&i.Objective,
-			&i.Status,
-			&i.CreatedBy,
-			&i.CreatedAt,
-			&i.UpdatedAt,
-			&i.FinishedAt,
-			&i.Repo,
-			&i.Base,
-			&i.CoordinatorTokenID,
-			&i.ChatID,
-			&i.RepoHost,
-			&i.Uses,
+			&i.Run.ID,
+			&i.Run.Objective,
+			&i.Run.Status,
+			&i.Run.CreatedBy,
+			&i.Run.CreatedAt,
+			&i.Run.UpdatedAt,
+			&i.Run.FinishedAt,
+			&i.Run.Repo,
+			&i.Run.Base,
+			&i.Run.CoordinatorTokenID,
+			&i.Run.ChatID,
+			&i.Run.RepoHost,
+			&i.Run.Uses,
+			&i.Bot,
 		); err != nil {
 			return nil, err
 		}

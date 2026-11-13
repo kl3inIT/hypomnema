@@ -282,9 +282,10 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   t3code's typed timeline items): `wake` (it names its event), `failed` (pi's model call failed), `stopped` (the
   owner stopped the turn) or `approval` (the coordinator is told an Approval was answered); the API sends it as
   `ChatMessage.kind`, and the web and Lark read it rather than the text. A
-  Run records the chat whose pi created it (`runs.chat_id`), and each event of such a Run that needs a coordinator (a
-  Task ended or was blocked, a question to the coordinator, an escalation, the Run ended) adds one wake-up to the chat,
-  unique per event.
+  Run records the chat whose pi created it (`runs.chat_id`); the API names that chat's Bot as `Run.bot` (issue #281),
+  read by a join of `runs` with `chats` in `GetRunWithBot` and `ListRuns`, and absent for a Run without a chat. Each
+  event of such a Run that needs a coordinator (a Task ended or was blocked, a question to the coordinator, an
+  escalation, the Run ended) adds one wake-up to the chat, unique per event.
 - Bots (`orchestration/bots.go`, issue #169, after OpenMausBot's bot records and OpenClaw's `agents.entries`): a
   Bot is a row with a name, a model (provider, name, effort, checked as a profile's is, for pi), a persona and a
   memory. It is apart from the workers' profiles (owner, 2026-11-11). The Bot `coordinator` is always there: it is

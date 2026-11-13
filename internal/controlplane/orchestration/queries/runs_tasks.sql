@@ -7,12 +7,21 @@ VALUES (@id, @objective, 'open', @created_by, @repo, @repo_host, @base, @coordin
 -- name: GetRun :one
 SELECT * FROM runs WHERE id = @id;
 
+-- name: GetRunWithBot :one
+-- A Run with the Bot of its chat; bot is empty for a Run without a chat.
+SELECT sqlc.embed(runs), CAST(coalesce(chats.bot, '') AS TEXT) AS bot
+FROM runs LEFT JOIN chats ON chats.id = runs.chat_id
+WHERE runs.id = @id;
+
 -- name: ListRuns :many
--- Newest first, after the cursor (created_at, id) of the previous page when one is given.
-SELECT * FROM runs
-WHERE (CAST(@status AS TEXT) = '' OR status = @status)
-  AND (CAST(@has_cursor AS INTEGER) = 0 OR created_at < @cursor_at OR (created_at = @cursor_at AND id < @cursor_id))
-ORDER BY created_at DESC, id DESC
+-- Newest first, after the cursor (created_at, id) of the previous page when one is given; each with the Bot of its
+-- chat, empty for a Run without a chat.
+SELECT sqlc.embed(runs), CAST(coalesce(chats.bot, '') AS TEXT) AS bot
+FROM runs LEFT JOIN chats ON chats.id = runs.chat_id
+WHERE (CAST(@status AS TEXT) = '' OR runs.status = @status)
+  AND (CAST(@has_cursor AS INTEGER) = 0 OR runs.created_at < @cursor_at
+       OR (runs.created_at = @cursor_at AND runs.id < @cursor_id))
+ORDER BY runs.created_at DESC, runs.id DESC
 LIMIT @lim;
 
 -- name: TransitionRun :execrows
