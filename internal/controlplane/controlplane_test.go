@@ -165,7 +165,8 @@ func (l *startedLog) Write(p []byte) (int, error) {
 }
 
 // The web search's settings (issue #354): the owner's SearXNG, which must be
-// an http(s) address, and the vault secret Exa's key is read from.
+// an http(s) address, the vault secret Exa's key is read from, and the
+// subscriptions whose search is turned off, which must be ones that search.
 func TestLoadConfigReadsTheWebSearchSettings(t *testing.T) {
 	t.Parallel()
 
@@ -183,6 +184,7 @@ func TestLoadConfigReadsTheWebSearchSettings(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, cfg.WebSearchSearXNGURL)
 	assert.Equal(t, "web-search-exa", cfg.WebSearchExaSecret)
+	assert.Empty(t, cfg.WebSearchOff, "every subscription searches by default")
 
 	cfg, err = load(map[string]string{
 		"HYPOMNEMA_WEB_SEARCH_SEARXNG_URL": "http://10.0.0.5:8888/",
@@ -196,4 +198,11 @@ func TestLoadConfigReadsTheWebSearchSettings(t *testing.T) {
 		_, err := load(map[string]string{"HYPOMNEMA_WEB_SEARCH_SEARXNG_URL": bad})
 		require.ErrorContains(t, err, "HYPOMNEMA_WEB_SEARCH_SEARXNG_URL", bad)
 	}
+
+	cfg, err = load(map[string]string{"HYPOMNEMA_WEB_SEARCH_OFF": " Codex, antigravity "})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"codex", "antigravity"}, cfg.WebSearchOff)
+
+	_, err = load(map[string]string{"HYPOMNEMA_WEB_SEARCH_OFF": "codex,exa"})
+	require.ErrorContains(t, err, "HYPOMNEMA_WEB_SEARCH_OFF names exa")
 }

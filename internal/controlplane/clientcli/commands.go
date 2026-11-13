@@ -565,7 +565,8 @@ var commands = []command{
 		summary: "search the web: each result's title, address, date and snippet, and which provider answered",
 		flags: func(fs *flag.FlagSet) {
 			fs.Int("max-results", 0, "how many results, 1 to 20 (default 5)")
-			fs.String("provider", "", "ask only this provider: exa, searxng or parallel (default: the first that answers)")
+			fs.String("provider", "", "ask only this provider: exa, searxng, parallel, codex, claude or antigravity "+
+				"(default: the first that answers)")
 			jsonFlag(fs)
 		},
 		run: webSearch,

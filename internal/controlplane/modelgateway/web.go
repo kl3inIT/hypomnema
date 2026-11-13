@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway/internal/store"
@@ -143,7 +144,7 @@ func (s *Server) webSearch(w http.ResponseWriter, r *http.Request) {
 	var in webSearchRequest
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxWebRequestBytes)).Decode(&in); err != nil {
 		writeError(w, http.StatusBadRequest, typeInvalidRequest, "invalid_request",
-			`the body is {"query": "...", "max_results": n, "provider": "exa|searxng|parallel"}`)
+			`the body is {"query": "...", "max_results": n, "provider": "`+strings.Join(websearch.Providers(), "|")+`"}`)
 
 		return
 	}

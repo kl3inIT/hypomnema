@@ -25,7 +25,9 @@ sent. `HYPOMNEMA_ROUTINE_COMMAND` (a JSON array) runs a script Routine for
 the Bot's name and the Routine's id appended to it; unset, a script Routine's run fails and says so.
 `HYPOMNEMA_WEB_SEARCH_SEARXNG_URL` (an http(s) address) is the owner's SearXNG, which web searches ask; unset, it is
 not asked. `HYPOMNEMA_WEB_SEARCH_EXA_SECRET` (default `web-search-exa`) names the vault secret that holds Exa's API
-key; while there is no such secret Exa is asked without a key (see "Web search and fetch").
+key; while there is no such secret Exa is asked without a key. `HYPOMNEMA_WEB_SEARCH_OFF` (`codex`, `claude`,
+`antigravity`, separated by commas) names the subscriptions whose own web search is not asked; unset, each searches
+while an account of it is logged in (see "Web search and fetch").
 
 The coordinator (`internal/controlplane/coordinator`, issue #41 PR 3): `serve` runs one `pi --mode rpc` per chat
 that has something for pi, as the chat's Bot (`--bot`, and `--group` for a Lark group's chat) with the Bot's model
@@ -378,7 +380,7 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     is. When the Bot cannot be read pi does not start.
   - A Bot searches the web and reads a page (issue #354, after 9router's `skills/9router-web-search`): `POST
     /web/search` `{query, max_results?, provider?}` and `POST /web/fetch` `{url}`, for any token, and `hypomnema web
-    search <query> [--max-results N] [--provider exa|searxng|parallel]` and `hypomnema web fetch <url>`, which print
+    search <query> [--max-results N] [--provider exa|searxng|parallel|codex|claude|antigravity]` and `hypomnema web fetch <url>`, which print
     the results or the page marked as outside content (`--json`: the API's answer). Both are "Web search and fetch"
     (below), the call recorded on the gateway key of the chat's running pi. The skill `web-search`, which this binary
     ships, says when to use them, and the instructions every Bot gets name it; `hypomnema skills install --agent
@@ -1337,6 +1339,18 @@ not exist yet.
   not JSON), 403 `address_refused` (a page not on the public internet), 429 `search_rate_limited` with
   `Retry-After`, 502 `upstream_failed` (every provider failed, each one's reason in the message; a page that could
   not be read), 503 when the control plane gave no web search. What they do is "Web search and fetch", below.
+- `POST /v1/alpha/search` answers the Codex CLI's standalone search, its `web.run` tool, which a Codex whose
+  provider is the gateway (`<control plane>/v1`) posts to `<base URL>/alpha/search` (issue #354, after OmniRoute's
+  route of the same name; the shapes are codex-rs `codex-api/src/search.rs`). Of the request's `commands` only
+  `search_query` is used: each query's `q` is searched in turn through "Web search and fetch" with no provider
+  named, 3, 5 or 10 results for `response_length` `short`, `medium` (the default) or `long` (read in `commands`,
+  where Codex sends it, else at the top, where OmniRoute reads it); `recency`, `domains`, `input` and `settings`
+  are not used. The answer is `{encrypted_output: null, output, results: [{title, url, snippet}], usage:
+  {queries_used, search_cost_usd: 0}}`, `output` being each query's results as a worker's `web_search` gives them,
+  marked as outside content. Any other non-empty command (`open`, `click`, `find`, `screenshot`, `weather`, ...) is
+  refused 400 `Unsupported operation for /v1/alpha/search: <name>`, as a request with no query is; a page is read
+  with the worker's `web_fetch`. Each query is recorded as a `/v1/search` call is; the first that fails answers as
+  `/v1/search` fails. The body may be as large as a chat request's.
 - The owner manages the keys a tool outside (opencode, omp) uses on Settings → Gateway keys (issue #199, step 6, after
   Coder's AI Gateway keys and 9router's Endpoint & Key): `GET /gateway/keys` lists the keys the owner made that work,
   with their start (`key_prefix`, the kind and six characters, migration 00053; empty for older keys), models,
@@ -1516,13 +1530,15 @@ nothing itself: the control plane's wiring reads Exa's key from the vault and re
   count, `contents` with text and highlights; a result's snippet its first highlight, else 300 characters of its
   text); Exa's public MCP without one (`mcp.exa.ai/mcp`, tool `web_search_exa`); Parallel's public MCP
   (`search.parallel.ai/mcp`, tool `web_search` with the query as the objective and the one search query); and the
-  owner's SearXNG (`<address>/search?format=json&categories=general`). An MCP is called with one JSON-RPC
+  owner's SearXNG (`<address>/search?format=json&categories=general`); and the subscriptions the owner logged in
+  (below). An MCP is called with one JSON-RPC
   `tools/call` and no session, its answer JSON or an event stream, at most 256 KiB, as opencode calls it; Exa's text
   is read into results (`Title:`, `URL:`, `Published:`, its text; 500 characters). A REST answer is at most 4 MiB.
   Each provider has 10 seconds.
 - A search that names no provider asks Exa with its key (when the vault holds one), SearXNG (when its address is
-  set), Exa without a key, then Parallel, in turn (OmniRoute's `autoSearchCandidates`); one that names `exa`,
-  `searxng` or `parallel` asks that one only (Exa with its key when there is one, else without). A provider that
+  set), Exa without a key, Parallel, then Codex, Claude and Antigravity, in turn (OmniRoute's
+  `autoSearchCandidates`, its subscription search last); one that names `exa`, `searxng`, `parallel`, `codex`,
+  `claude` or `antigravity` asks that one only (Exa with its key when there is one, else without). A provider that
   fails, or finds nothing (omp), is noted and the next is asked; the answer lists the providers tried before the
   one that answered and why each did not (omp's `fallbackNotes`), and when none answers the error lists them all.
   At most 20 results, 5 when the call names no count; the query is trimmed.
@@ -1558,8 +1574,39 @@ nothing itself: the control plane's wiring reads Exa's key from the vault and re
 - Usage: the gateway records its own calls on the key that made them; a worker's are recorded on its Dispatch's
   newest working gateway key, when it has one; a Bot's on the key of its chat's running pi. A call by another token
   (the owner's, a coordinator's, a Routine's script) is not recorded.
-- Not built: the providers and their state on Settings → Gateway, the Exa key put into the vault from the web
-  client (issue #354, step 2); other providers; a subscription's own search as a provider.
+- A Codex, Claude or Antigravity account logged in on the control plane searches too, with no key of its own (issue
+  #354, owner 2026-11-13; `websearch/subscriptions.go`, `modelgateway/subscription_search.go`). The web search
+  package holds the order and the rests; the gateway makes each call through the call its chat makes, under the
+  accounts in their order (the next one asked on 401, 402, 403, 429, 502, 503 or 504), a refused token refreshed
+  once. A provider with no account that can be used is not in the chain, and named it is refused 400; one the owner
+  turned off (`HYPOMNEMA_WEB_SEARCH_OFF`) is neither tried nor may be named. Its 429, a usage limit, or every
+  account cooling for chat rests that provider's search as any provider's (for the wait it named, else the doubling
+  backoff); nothing the search meets cools an account down or parks it, and its answer clears no failure of the
+  account's chat (OmniRoute's `borrowedKeyLock.ts`). Each provider has its reference's time: Codex 60 s
+  (OmniRoute), Claude 60 s (omp), Antigravity 15 s (9router); a search that tries every provider has 2 minutes
+  (OmniRoute's `MAX_SEARCH_TIMEOUT_MS`). An answer is at most 4 MiB.
+  - Codex (OmniRoute's `codexSearch.ts`): `POST <Codex backend>/responses` as chat sends it, the body
+    `{model: gpt-6-luna, instructions, input: [the query], tools: [{type: web_search}], tool_choice: required,
+    include: [web_search_call.action.sources], reasoning: {effort: low}, stream: true, store: false}`, the
+    instructions asking for JSON rows of at most 10 results. The stream's final items are read: the sources of each
+    `web_search_call`, the `url_citation`s of the message, the `output_text.done` text. The results are the model's
+    rows whose page the search saw (host without `www.`, path without the trailing slash), else the citations, else
+    the sources, each page once, at most 10, `utm_source` taken out, an address with a user or password dropped. A
+    stream that failed, did not complete or did not search is a failure, its status the error's.
+  - Claude (omp's `providers/anthropic.ts`): `POST <Claude backend>/v1/messages?beta=true` with chat's headers and
+    the beta `web-search-2025-03-05`, not streamed, `{model: claude-haiku-4-5, max_tokens: 4096, messages: [the
+    query], tools: [{type: web_search_20250305, name: web_search}]}` with omp's instruction, in the disguise every
+    subscription request wears. The results are the `web_search_result`s of the `web_search_tool_result` blocks, in
+    order, `page_age` as the date; a result's snippet is the first passage the answer cited from that page. A tool
+    result that is an error, with no page, is a failure naming its `error_code`.
+  - Antigravity (9router's `chatSearch.js`, 9router-go's `antigravity_search.go`): `POST <Cloud
+    Code>/v1internal:generateContent` with the IDE's user agent, `{project, model: gemini-2.5-flash, userAgent:
+    antigravity, requestType: search, request: {contents: [the query], tools: [{googleSearch: {}}],
+    generationConfig: {temperature: 1, maxOutputTokens: 8192}}}`; an account without a project is refused 400. The
+    results are the first candidate's grounding chunks, each address once in order (Google's redirect addresses, as
+    given), the snippet the grounded segments joined by ` | `, else the title.
+- Not built: the providers and their state on Settings → Gateway, the switches there, the Exa key put into the vault
+  from the web client (issue #354, its third pull request); other providers.
 
 Node API (`internal/controlplane/nodeapi`, protocol in `internal/shared/nodeproto`, after Omnara's daemon protocol):
 - A node registers with `POST /node/v1/hello` and its bearer token. It sends its CLIs, its worktree root, its
@@ -1749,7 +1796,9 @@ Node (`internal/node`):
   no login on the node: its model comes from the control plane's gateway under the offer's key. One turn is one
   process under a shim, as a Claude Code worker's: `codex exec --json --skip-git-repo-check --ignore-user-config
   --dangerously-bypass-approvals-and-sandbox`, with `-c` overrides that name the gateway (`<control plane>/v1`,
-  `wire_api = "responses"`, the key read from the environment variable `HYPOMNEMA_MODEL_KEY`) and the tools server
+  `wire_api = "responses"`, `supports_standalone_web_search = true` so that Codex offers its `web.run` search, which
+  the gateway answers on `/v1/alpha/search` (codex-rs `ext/web-search/src/extension.rs`; OpenClaw sets it the same
+  way), the key read from the environment variable `HYPOMNEMA_MODEL_KEY`) and the tools server
   (`ask`, `finish`), the model and the effort, and the prompt on standard input. `CODEX_HOME` is
   `conversations/<conversation>/codex` under the node's home, so a follow-up Dispatch continues with
   `exec resume <thread id>`. The thread id of `thread.started` is the session; the outcome is `finish`'s report,

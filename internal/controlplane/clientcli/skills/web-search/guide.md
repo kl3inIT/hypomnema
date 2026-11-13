@@ -28,8 +28,9 @@ Both take `--json`, which prints the answer as data instead of text.
 | `web search` | Up to 5 results (`--max-results`, at most 20): each one's title, address, date when there is one, and a snippet, and which provider answered. |
 | `web fetch` | The page as markdown: its readable part, without menus and footers, at most 20,000 characters. |
 
-`--provider` is `exa`, `searxng` or `parallel`. Leave it out: the first provider that answers is used, and the answer
-says which ones failed before it. Name one only when the owner asks for it.
+`--provider` is `exa`, `searxng`, `parallel`, `codex`, `claude` or `antigravity` (the last three search with a
+subscription the owner logged in, and spend its quota). Leave it out: the first provider that answers is used, and the
+answer says which ones failed before it. Name one only when the owner asks for it.
 
 ## How to use them
 

@@ -105,6 +105,8 @@ func (s *Server) Register(mux *http.ServeMux) {
 	// the server's write timeout at worst, within their own bounds.
 	mux.HandleFunc("POST /v1/search", longAnswer(s.webSearch))
 	mux.HandleFunc("POST /v1/web/fetch", longAnswer(s.webFetch))
+	// Codex's standalone search, at <base URL>/alpha/search (alpha_search.go).
+	mux.HandleFunc("POST /v1/alpha/search", longAnswer(s.alphaSearch))
 }
 
 // longAnswer lifts the server's write timeout for a model's answer, which streams for as long as the model works:

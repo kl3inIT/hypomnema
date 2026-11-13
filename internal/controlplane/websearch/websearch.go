@@ -13,8 +13,9 @@
 //     opencode (packages/core/src/plugin/websearch/exa.ts, parallel.ts, mcp.ts)
 //     and OmniRoute (open-sse/handlers/search.ts, config/searchRegistry.ts);
 //   - a call that names no provider tries them keyed first, then SearXNG when
-//     it is set, then the keyless ones; a call that names one gets that one
-//     only: OmniRoute's autoSearchCandidates;
+//     it is set, then the keyless ones, then the subscriptions the owner
+//     logged in (subscriptions.go); a call that names one gets that one only:
+//     OmniRoute's autoSearchCandidates;
 //   - a provider that fails is noted and the next one is asked, and the answer
 //     says which one answered after which failed: omp web/search/index.ts
 //     (fallbackNotes);
@@ -44,6 +45,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -61,7 +63,9 @@ const (
 )
 
 // Providers are the names a call may give, in the order they are listed.
-func Providers() []string { return []string{ProviderExa, ProviderSearXNG, ProviderParallel} }
+func Providers() []string {
+	return append([]string{ProviderExa, ProviderSearXNG, ProviderParallel}, SubscriptionProviders()...)
+}
 
 const (
 	// DefaultResults is how many results a call that names none gets
@@ -76,8 +80,10 @@ const (
 	cacheTTL        = 5 * time.Minute
 	maxCacheEntries = 500
 	// searchBudget bounds a search that every provider is tried for, so a
-	// coalesced search ends even when the caller that started it left.
-	searchBudget = time.Minute
+	// coalesced search ends even when the caller that started it left:
+	// OmniRoute's longest (MAX_SEARCH_TIMEOUT_MS), since Codex's search alone
+	// may take its minute.
+	searchBudget = 2 * time.Minute
 )
 
 // Errors callers match with errors.Is.
@@ -146,6 +152,9 @@ type Config struct {
 	ExaKey func(ctx context.Context) (string, error)
 	// SearXNGURL is the owner's SearXNG; empty: SearXNG is not asked.
 	SearXNGURL string
+	// Off are the subscription providers the owner turned off: they are
+	// neither tried nor may be named.
+	Off []string
 	// Rules decide which addresses a page may be read from: the shared
 	// browser's, so that what an agent reads through this package is what it
 	// may open in the browser.
@@ -179,6 +188,9 @@ type Service struct {
 	// pages reads the pages agents name, through the address check.
 	pages *http.Client
 	now   func() time.Time
+
+	// subs searches with the logged-in subscriptions; nil: none.
+	subs Subscriptions
 
 	mu      sync.Mutex
 	resting map[string]rest
@@ -237,6 +249,8 @@ func (s *Service) Search(ctx context.Context, query string, limit int, provider 
 		return Answer{}, fmt.Errorf("%w: the provider is one of %s", ErrInvalid, strings.Join(Providers(), ", "))
 	case provider == ProviderSearXNG && s.cfg.SearXNGURL == "":
 		return Answer{}, fmt.Errorf("%w: no SearXNG is set on this control plane", ErrInvalid)
+	case slices.Contains(SubscriptionProviders(), provider) && !s.subscriptionOn(provider):
+		return Answer{}, fmt.Errorf("%w: %s's search is turned off on this control plane", ErrInvalid, provider)
 	}
 
 	if limit <= 0 {
@@ -286,15 +300,7 @@ func (s *Service) Search(ctx context.Context, query string, limit int, provider 
 	}
 }
 
-func validProvider(name string) bool {
-	for _, p := range Providers() {
-		if p == name {
-			return true
-		}
-	}
-
-	return false
-}
+func validProvider(name string) bool { return slices.Contains(Providers(), name) }
 
 // search asks each provider the call may use in turn until one answers.
 func (s *Service) search(ctx context.Context, query string, limit int, provider string) (Answer, error) {
@@ -318,9 +324,18 @@ func (s *Service) search(ctx context.Context, query string, limit int, provider 
 			continue
 		}
 
+		results, err := s.ask(ctx, r, query, limit)
+		if errors.Is(err, ErrNoAccount) {
+			// A subscription with no account is not in the chain; named, it cannot be asked.
+			if provider != "" {
+				return Answer{}, fmt.Errorf("%w: no %s account is logged in on this control plane", ErrInvalid, provider)
+			}
+
+			continue
+		}
+
 		tried = true
 
-		results, err := s.ask(ctx, r, query, limit)
 		if err == nil && len(results) == 0 {
 			// A provider with nothing to show is not an answer: the next is asked (omp: no renderable content).
 			err = errors.New("no results")
@@ -376,7 +391,9 @@ type route struct {
 	// label says which way, in a failure's reason.
 	label string
 	key   string
-	ask   func(s *Service, ctx context.Context, r route, query string, limit int) ([]Result, error)
+	// timeout is how long the provider has; zero: providerTimeout.
+	timeout time.Duration
+	ask     func(s *Service, ctx context.Context, r route, query string, limit int) ([]Result, error)
 }
 
 // routes are the ways a call may ask, in the order they are tried, and the
@@ -414,6 +431,8 @@ func (s *Service) routes(ctx context.Context, provider string) ([]route, []Failu
 		return []route{searxng}, failures
 	case ProviderParallel:
 		return []route{parallel}, failures
+	case ProviderCodex, ProviderClaude, ProviderAntigravity:
+		return []route{subscriptionRoute(provider)}, failures
 	}
 
 	var out []route
@@ -425,11 +444,24 @@ func (s *Service) routes(ctx context.Context, provider string) ([]route, []Failu
 		out = append(out, searxng)
 	}
 
-	return append(out, keyless, parallel), failures
+	out = append(out, keyless, parallel)
+
+	for _, p := range SubscriptionProviders() {
+		if s.subscriptionOn(p) {
+			out = append(out, subscriptionRoute(p))
+		}
+	}
+
+	return out, failures
 }
 
 func (s *Service) ask(ctx context.Context, r route, query string, limit int) ([]Result, error) {
-	ctx, cancel := context.WithTimeout(ctx, providerTimeout)
+	timeout := r.timeout
+	if timeout <= 0 {
+		timeout = providerTimeout
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	return r.ask(s, ctx, r, query, limit)
