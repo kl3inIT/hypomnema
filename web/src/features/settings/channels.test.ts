@@ -1,6 +1,7 @@
 import { expect, test } from "vitest"
 
 import {
+  appNameOf,
   botChoices,
   channelsOf,
   channelState,
@@ -58,4 +59,21 @@ test("a channel's own Bot is a choice while the Bots are still being read", () =
   expect(botChoices([], "vmap")).toEqual(["vmap"])
   expect(botChoices(["coordinator", "vmap"], "vmap")).toEqual(["coordinator", "vmap"])
   expect(botChoices(["coordinator"])).toEqual(["coordinator"])
+})
+
+test("a Channel is named by the app of the Lark Connection that has its app id", () => {
+  const services = [
+    { id: "google", connections: [{ account: "me@example.com" }] },
+    {
+      id: "lark",
+      connections: [
+        { app_id: "cli_work", account: "Work app" },
+        { app_id: "cli_report", account: "Report app" },
+      ],
+    },
+  ]
+
+  expect(appNameOf({ app_id: "cli_report" }, services)).toBe("Report app")
+  expect(appNameOf({ app_id: "cli_other" }, services)).toBe("")
+  expect(appNameOf({ app_id: "cli_report" }, undefined)).toBe("")
 })
