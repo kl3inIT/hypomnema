@@ -41,6 +41,13 @@ func TestMain(m *testing.M) {
 		fmt.Printf("client=%s brand=%s\n", os.Getenv(def.ClientEnv), os.Getenv("LARKSUITE_CLI_BRAND"))
 	}
 
+	if def.CAEnv != "" {
+		_, bundleErr := os.Stat(os.Getenv(def.CAEnv)) //nolint:gosec // G703: a stand-in reads what it was given.
+		profile, hasProfile := os.LookupEnv("AWS_PROFILE")
+		fmt.Printf("secret=%s profile=%q/%t bundle=%t config=%s\n", os.Getenv("AWS_SECRET_ACCESS_KEY"), profile,
+			hasProfile, bundleErr == nil, os.Getenv("AWS_CONFIG_FILE"))
+	}
+
 	// A tool is given a proxy on loopback and a certificate file, and reaches a host through them.
 	proxy := os.Getenv("HTTPS_PROXY")
 	_, caErr := os.Stat(os.Getenv("SSL_CERT_FILE")) //nolint:gosec // G703: a stand-in reads what it was given.
@@ -255,6 +262,24 @@ func TestTheLauncherGivesLarksToolTheAppOfTheAccountBesideThePlaceholder(t *test
 
 	require.NoError(t, older.launcher(home, &out).Run(t.Context(), "lark-cli", []string{"calendar", "+agenda"}))
 	assert.Contains(t, out.String(), "client=cli_a1b2 brand=lark\n")
+}
+
+// Scenario: an agent given an AWS role runs the AWS CLI (issue #331). It
+// holds placeholders for a key, trusts the proxy's certificate through the
+// variable it reads, and runs without the profile the agent's machine names:
+// the CLI refuses an empty one, so it is taken away. No file of the machine's
+// own configuration is read.
+func TestTheLauncherRunsTheAWSCLIWithPlaceholdersAndNoProfile(t *testing.T) {
+	home := installedAs(t, AWSCLI())
+	c := newControlPlane(t, Connection{Label: "main-read", Account: "123456789012"})
+	t.Setenv("AWS_PROFILE", "the-machines-own")
+
+	var out bytes.Buffer
+
+	require.NoError(t, c.launcher(home, &out).Run(t.Context(), "aws", []string{"sts", "get-caller-identity"}))
+	assert.Equal(t, "token="+Placeholder+" key=\"\" args=sts get-caller-identity\n"+
+		"secret="+Placeholder+" profile=\"\"/false bundle=true config=/dev/null\n"+
+		"proxy=true ca=true connect=502\nhypomnema: the stand-in opens no stream\n", out.String())
 }
 
 // Scenario: an agent given two accounts must name one; the flag that names

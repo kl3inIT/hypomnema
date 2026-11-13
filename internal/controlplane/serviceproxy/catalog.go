@@ -47,7 +47,10 @@ type Action struct {
 	// Plumbing marks what a tool needs to run at all and no account is
 	// involved in: it is allowed, carries no credential and is not listed.
 	Plumbing bool
-	Routes   []Route
+	// Never marks what is refused whatever the owner set: an AWS operation
+	// that makes credentials (issue #331).
+	Never  bool
+	Routes []Route
 }
 
 // Default is the answer an action has until the owner gives another. Reading
@@ -76,10 +79,23 @@ func unlisted(integration string) Action {
 type Catalog struct {
 	Integration string
 	Actions     []Action
+	// An Integration whose actions are too many to list (AWS, issue #331)
+	// names them from the request instead: Reaches says which hosts are its,
+	// Name names a request, and Known an action the owner sets an answer for.
+	// Signed says each request is signed again with the Connection's
+	// credentials, not given a bearer token.
+	Reaches func(host string) bool
+	Name    func(req *http.Request, body []byte, host string) Action
+	Known   func(id string) (Action, bool)
+	Signed  bool
 }
 
 // Has reports whether host is one the Integration's actions are on.
 func (c Catalog) Has(host string) bool {
+	if c.Reaches != nil {
+		return c.Reaches(host)
+	}
+
 	for _, a := range c.Actions {
 		for _, r := range a.Routes {
 			if r.Host == host {
@@ -112,6 +128,16 @@ func (c Catalog) Match(method, host, path string) Action {
 	}
 
 	return best
+}
+
+// Of is the action a request is: named by the request for a catalog that
+// names its actions so, matched against the routes otherwise.
+func (c Catalog) Of(req *http.Request, body []byte, host string) Action {
+	if c.Name != nil {
+		return c.Name(req, body, host)
+	}
+
+	return c.Match(req.Method, host, req.URL.Path)
 }
 
 // literals counts the segments of a route's path that are not placeholders.
@@ -159,8 +185,12 @@ func (c Catalog) Listed() []Action {
 	return out
 }
 
-// Action returns a listed action by its id.
+// Action returns a listed action by its id, or one the catalog names.
 func (c Catalog) Action(id string) (Action, bool) {
+	if c.Known != nil {
+		return c.Known(id)
+	}
+
 	for _, a := range c.Listed() {
 		if a.ID == id {
 			return a, true
@@ -211,6 +241,8 @@ func CatalogOf(integration string) (Catalog, bool) {
 		return larkCatalog(), true
 	case SupersetID:
 		return supersetCatalog(), true
+	case AWSID:
+		return awsCatalog, true
 	}
 
 	return Catalog{}, false

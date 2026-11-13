@@ -2,6 +2,7 @@ package agenttool
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"bytes"
 	"compress/gzip"
 	"crypto/sha256"
@@ -10,6 +11,8 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"sync/atomic"
 	"testing"
 
@@ -157,4 +160,114 @@ func TestTheNodeRefusesAToolItCannotTrust(t *testing.T) {
 	// Outside tests a release file comes over HTTPS only.
 	err := ToolInstaller{Home: t.TempDir()}.Install(t.Context(), good)
 	require.ErrorContains(t, err, "HTTPS")
+}
+
+// zipRelease is a tool that is a directory, shipped as the AWS CLI ships:
+// a .zip with aws/install, a README, and aws/dist holding the command beside
+// the libraries it loads.
+func zipRelease(t *testing.T, members map[string]string) (file []byte, checksum string) {
+	t.Helper()
+
+	var buf bytes.Buffer
+
+	w := zip.NewWriter(&buf)
+
+	for name, body := range members {
+		header := &zip.FileHeader{Name: name, Method: zip.Deflate}
+		header.SetMode(0o644)
+
+		if strings.HasSuffix(name, "/aws") || strings.HasSuffix(name, ".so") {
+			header.SetMode(0o755)
+		}
+
+		f, err := w.CreateHeader(header)
+		require.NoError(t, err)
+
+		_, err = f.Write([]byte(body))
+		require.NoError(t, err)
+	}
+
+	require.NoError(t, w.Close())
+
+	sum := sha256.Sum256(buf.Bytes())
+
+	return buf.Bytes(), hex.EncodeToString(sum[:])
+}
+
+// Scenario: the control plane tells the node to have the AWS CLI (issue
+// #331), a directory of files. The directory its command is in is unpacked
+// whole as the version's directory, with what may run kept runnable; the
+// installer, the README and the download are not kept. A member that names a
+// place outside the directory is not written anywhere.
+func TestTheNodeInstallsAToolThatIsADirectory(t *testing.T) {
+	t.Parallel()
+
+	file, checksum := zipRelease(t, map[string]string{
+		"aws/install":               "#!/bin/sh\n",
+		"aws/README.md":             "read me",
+		"aws/dist/aws":              "#!/bin/sh\necho aws-cli/2.38.6\n",
+		"aws/dist/libpython.so":     "elf",
+		"aws/dist/awscli/data.json": "{}",
+	})
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/awscli.zip":
+			_, _ = w.Write(file)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+
+	home := t.TempDir()
+	installer := ToolInstaller{Home: home, allowHTTP: true}
+	tool := nodeproto.Tool{
+		Name: "aws", Version: "2.38.6", URL: srv.URL + "/awscli.zip", SHA256: checksum, Binary: "aws/dist/aws",
+	}
+
+	require.NoError(t, installer.Install(t.Context(), tool))
+
+	command := ToolPath(home, "aws", "2.38.6")
+	raw, err := os.ReadFile(command) //nolint:gosec // The test's own directory.
+	require.NoError(t, err)
+	assert.Equal(t, "#!/bin/sh\necho aws-cli/2.38.6\n", string(raw))
+
+	dir := filepath.Dir(command)
+	data, err := os.ReadFile(filepath.Join(dir, "awscli", "data.json")) //nolint:gosec // The test's own directory.
+	require.NoError(t, err)
+	assert.Equal(t, "{}", string(data))
+
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(command)
+		require.NoError(t, err)
+		assert.Equal(t, os.FileMode(0o700), info.Mode().Perm(), "the command runs")
+
+		info, err = os.Stat(filepath.Join(dir, "awscli", "data.json"))
+		require.NoError(t, err)
+		assert.Equal(t, os.FileMode(0o600), info.Mode().Perm())
+	}
+
+	_, err = os.Stat(filepath.Join(dir, "install"))
+	require.ErrorIs(t, err, os.ErrNotExist, "only the command's directory is unpacked")
+
+	left, err := os.ReadDir(filepath.Dir(dir))
+	require.NoError(t, err)
+	assert.Len(t, left, 1, "only the version's directory stays: the download is removed")
+
+	require.NoError(t, installer.Install(t.Context(), tool), "the version is there")
+
+	evil, evilSum := zipRelease(t, map[string]string{"aws/dist/aws": "x", "aws/dist/../../escape": "x"})
+	srv2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(evil) }))
+	t.Cleanup(srv2.Close)
+
+	require.NoError(t, installer.Install(t.Context(), nodeproto.Tool{
+		Name: "aws", Version: "9.9.9", URL: srv2.URL + "/awscli.zip", SHA256: evilSum, Binary: "aws/dist/aws",
+	}), "a member outside the command's directory is not unpacked")
+
+	for _, outside := range []string{filepath.Join(home, "escape"), filepath.Join(home, "tools", "escape"),
+		filepath.Join(home, "tools", "aws", "escape")} {
+		_, err = os.Stat(outside)
+		require.ErrorIs(t, err, os.ErrNotExist, outside)
+	}
 }

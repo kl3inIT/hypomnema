@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/coder/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -40,6 +41,7 @@ const realToken = "ya29.the-real-token" //nolint:gosec // A made-up token, which
 type sent struct {
 	Method, URL, Authorization string
 	Body                       []byte
+	Header                     http.Header
 }
 
 // service stands for Google: it records what reaches it and answers 200.
@@ -52,7 +54,7 @@ func (s *service) RoundTrip(r *http.Request) (*http.Response, error) {
 	body, _ := io.ReadAll(r.Body)
 
 	s.mu.Lock()
-	s.got = append(s.got, sent{r.Method, r.URL.String(), r.Header.Get("Authorization"), body})
+	s.got = append(s.got, sent{r.Method, r.URL.String(), r.Header.Get("Authorization"), body, r.Header.Clone()})
 	s.mu.Unlock()
 
 	return &http.Response{
@@ -125,6 +127,9 @@ func newWorld(t *testing.T, hold time.Duration) *world {
 	w.proxy, err = serviceproxy.New(serviceproxy.Config{
 		Agents: agents, Store: w.svc, Logger: logger, Upstream: w.service, Hold: hold, RunHold: runHold,
 		Token: func(context.Context, string, string) (string, error) { return realToken, nil },
+		AWS: func(context.Context, string, string) (aws.Credentials, error) {
+			return aws.Credentials{AccessKeyID: roleKeyID, SecretAccessKey: roleSecret, SessionToken: roleSession}, nil
+		},
 	})
 	require.NoError(t, err)
 

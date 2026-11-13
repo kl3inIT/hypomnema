@@ -3,6 +3,8 @@ package clientapi
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
@@ -139,8 +141,18 @@ func (s *Server) ListConnectionActions(ctx context.Context, req openapi.ListConn
 		return nil, err
 	}
 
+	listed := map[string]bool{}
+
 	for _, a := range catalog.Listed() {
+		listed[a.ID] = true
 		out.Data = append(out.Data, toConnectionAction(a, set))
+	}
+
+	// An Integration whose actions are named by the request (AWS) lists those the owner set an answer for.
+	for _, id := range slices.Sorted(maps.Keys(set)) {
+		if a, ok := catalog.Action(id); ok && !listed[id] {
+			out.Data = append(out.Data, toConnectionAction(a, set))
+		}
 	}
 
 	return out, nil

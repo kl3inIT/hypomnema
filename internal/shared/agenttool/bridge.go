@@ -31,7 +31,7 @@ import (
 // does not apply to the tool.
 var proxyVariables = []string{
 	"HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy", "NO_PROXY", "no_proxy",
-	"SSL_CERT_FILE", "SSL_CERT_DIR",
+	"SSL_CERT_FILE", "SSL_CERT_DIR", "AWS_CA_BUNDLE",
 }
 
 // refusal keeps the first reason the control plane gave for not opening a
@@ -96,6 +96,9 @@ func (l Launcher) bridge(ctx context.Context, def Def, label string,
 
 	env = []string{
 		def.TokenEnv + "=" + Placeholder, "HTTPS_PROXY=" + address, "https_proxy=" + address, "SSL_CERT_FILE=" + ca,
+	}
+	if def.CAEnv != "" {
+		env = append(env, def.CAEnv+"="+ca)
 	}
 	stop = func() {
 		cancel()
