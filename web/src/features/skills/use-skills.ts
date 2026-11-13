@@ -1,7 +1,14 @@
-import { useQuery } from "@tanstack/react-query"
+import { keepPreviousData, useQuery } from "@tanstack/react-query"
 
 import "@/api/client"
-import { getSkill, listBuiltinSkills, listSkillFiles, listSkills } from "@/api/generated/sdk.gen"
+import {
+  getSkill,
+  listBuiltinSkills,
+  listSkillAudits,
+  listSkillFiles,
+  listSkills,
+  searchSkills,
+} from "@/api/generated/sdk.gen"
 import { useProfiles } from "@/features/agents/use-profiles"
 import { useBots } from "@/features/bots/use-bots"
 
@@ -48,4 +55,29 @@ export function useNamers() {
   const bots = useBots()
 
   return { profiles: profiles.data ?? [], bots: bots.data ?? [] }
+}
+
+// useSkillSearch asks skills.sh, through the control plane, once the query has two characters, as the skills CLI's
+// search prompt does (src/find.ts); the last results stay while the next are asked.
+export function useSkillSearch(query: string) {
+  const q = query.trim()
+
+  return useQuery({
+    queryKey: ["skill-search", q],
+    queryFn: async () => (await searchSkills({ query: { q } })).data,
+    enabled: q.length >= 2,
+    placeholderData: keepPreviousData,
+    staleTime: 60_000,
+  })
+}
+
+// useSkillAudits is what skills.sh's auditors said of a result, read when the owner picks it.
+export function useSkillAudits(source: string | undefined, slug: string | undefined) {
+  return useQuery({
+    queryKey: ["skill-audits", source, slug],
+    queryFn: async () =>
+      (await listSkillAudits({ query: { source: source ?? "", skill: slug ?? "" } })).data.data,
+    enabled: !!source && !!slug,
+    staleTime: Infinity,
+  })
 }

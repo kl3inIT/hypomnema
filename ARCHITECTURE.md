@@ -1667,7 +1667,10 @@ Node (`internal/node`):
   - `/settings/skills` (under Agents, [issue #21](https://github.com/kl3inIT/hypomnema/issues/21)) lists the added
     skills and the built-in ones as two sections of cards or a table, chosen as on the Machines page, with a search
     box (`web/src/features/skills/`). A built-in skill tied to a service wears that service's logo; every other skill
-    one book icon. "Add skill" takes a GitHub source or an archive (Omnara's drop zone). A skill's page
+    one book icon. "Add skill" takes a GitHub source, an archive (Omnara's drop zone), or a skill found on skills.sh:
+    its "skills.sh" tab searches as the skills CLI's prompt does (two characters, a shorter wait for a longer
+    query), lists each result's name, repository and installs, marks one already here (same name and repository),
+    shows a picked result's audits, and adds it by repository and name. A skill's page
     (`/settings/skills/<name>`) has the switch that gives it to everyone, who uses it, the newest revision's files as
     a tree (Omnara's, Apache-2.0), every version, "Update from GitHub", "Upload new version" and Remove, whose
     refusal is shown in the dialog.

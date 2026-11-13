@@ -137,8 +137,49 @@ async function fakeServer(page: Page) {
 
     if (kind === "skills" && request.method() !== "GET") calls.push(call)
 
+    if (call === "GET /skill-search") {
+      return json({
+        exact: 3,
+        data: [
+          {
+            id: "anthropics/skills/pdf",
+            name: "pdf",
+            source: "anthropics/skills",
+            installs: 227931,
+          },
+          {
+            id: "vercel-labs/json-render/react-pdf",
+            name: "react-pdf",
+            source: "vercel-labs/json-render",
+            installs: 2376,
+          },
+          { id: "openai/skills/pdf", name: "pdf", source: "openai/skills", installs: 13788 },
+          {
+            id: "anthropics/knowledge-work-plugins/view-pdf",
+            name: "view-pdf",
+            source: "anthropics/knowledge-work-plugins",
+            installs: 6400,
+          },
+        ],
+      })
+    }
+    if (call === "GET /skill-audits") {
+      return json({
+        data: [
+          { partner: "ath", risk: "safe" },
+          { partner: "snyk", risk: "low" },
+          { partner: "socket", risk: "safe", alerts: 0 },
+        ],
+      })
+    }
+
     if (call === "POST /skills") {
-      const body = request.postDataJSON() as { github: string }
+      const body = request.postDataJSON() as { github: string; skill?: string }
+      if (body.skill)
+        return json(
+          skills.find((s) => s.name === "pdf"),
+          200,
+        )
       if (!body.github.includes("pdf")) {
         return json(
           { code: "invalid", message: "invalid skill: no SKILL.md at the skill's root" },
@@ -274,6 +315,34 @@ test("the owner adds a skill", async ({ page }) => {
   await expect(page).toHaveURL(/\/settings\/skills\/pdf$/)
   await expect(page.getByRole("heading", { level: 1, name: "pdf", exact: true })).toBeVisible()
   expect(calls).toEqual(["POST /skills", "POST /skills"])
+})
+
+// Scenario: the owner searches skills.sh for "pdf", picks the first result, reads its audits and adds it by name.
+test("the owner adds a skill found on skills.sh", async ({ page }) => {
+  const calls = await fakeServer(page)
+  await page.goto("/settings/skills")
+
+  await page.getByRole("button", { name: "Add skill" }).first().click()
+  const dialog = page.locator("[data-slot=dialog-content]")
+  await dialog.getByRole("tab", { name: "skills.sh" }).click()
+  await shot(page, "skills-sh-empty")
+  await dialog.getByLabel("Search skills.sh").fill("pdf")
+  const found = dialog.getByRole("list", { name: "Skills found" })
+  await expect(found.getByRole("button", { name: /anthropics\/skills/ })).toContainText(
+    "227.9K installs",
+  )
+  await expect(found.getByRole("button", { name: /^pdf anthropics\/skills/ })).toContainText(
+    "Added",
+  )
+
+  await found.getByRole("button", { name: /^pdf anthropics\/skills/ }).click()
+  await expect(found).toContainText("Gen Agent Trust Hub")
+  expect(await fits(page)).toBe(true)
+  await shot(page, "skills-sh-picked")
+
+  await dialog.getByRole("button", { name: "Add", exact: true }).click()
+  await expect(page).toHaveURL(/\/settings\/skills\/pdf$/)
+  expect(calls).toEqual(["POST /skills"])
 })
 
 // Scenario: on a skill's page the owner reads its files and revisions, takes it from everyone, and is refused
