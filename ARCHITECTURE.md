@@ -1705,7 +1705,7 @@ Node (`internal/node`):
     or a pasted URL), what it runs and, if wanted, its token. Removing a token or a declared server asks first.
   - `/settings/repositories` has no entry in the menu while its place is being decided (issue #44); it lists the registered repositories, adds one from its URL under a
     proposed name with an optional base branch, and removes one after a confirmation.
-  - `/settings/models` (under Models, [issue #199](https://github.com/kl3inIT/hypomnema/issues/199), step 1;
+  - `/settings/models` (under Gateway, [issue #199](https://github.com/kl3inIT/hypomnema/issues/199), step 1;
     [research](docs/research/2026-11-12-model-gateway-pages.md)) shows where models come from
     (`web/src/features/models/`).
     - A subscription (a provider of kind `claude_subscription`, `codex_subscription` or

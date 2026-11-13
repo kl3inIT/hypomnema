@@ -37,12 +37,14 @@ type Section = {
   icon: LucideIcon
 }
 
-// The group "Models" holds what the model gateway serves from (issue #199): the owner named it so, not "Agents",
-// which the app's sidebar already has (2026-11-12). The group "Agents" holds what is given to the agents' CLIs:
+// The group "Gateway" holds the model gateway's models and keys (issue #199), as LiteLLM's sidebar heading "AI
+// Gateway" and Coder's "AI Gateway keys": called "Models" until the owner renamed it, so that no item reads like its
+// group (issue #293, 2026-11-13); not "Agents", which the app's sidebar already has (2026-11-12). "Connections" holds
+// what reaches outside, as OpenClaw's group of that name holds its Channels and t3code's its Secrets. The group "Agents" holds what is given to the agents' CLIs:
 // their skills (issue #21; prototype the owner accepted, 2026-11-12).
 const groups: { heading: string; sections: Section[] }[] = [
   {
-    heading: "Models",
+    heading: "Gateway",
     sections: [
       { to: "/settings/models", label: "Models", icon: Box },
       { to: "/settings/gateway-keys", label: "Gateway keys", icon: KeySquare },
