@@ -1643,7 +1643,16 @@ The owner's commands:
 Node (`internal/node`):
 - `init` writes `~/.hypomnema-node/config.json` (mode 0600, directory 0700) with the control plane's URL, the token
   read from a file, and the worktree root.
-- At connect the node finds `claude`, `codex`, `omp` and `opencode` on its PATH and reads their `--version`.
+- At connect the node finds `claude`, `codex`, `omp` and `opencode` and reads their `--version`: omp and opencode
+  where the control plane had it install them, else on its PATH.
+- Since issue #107 the control plane tells every node, from node release v0.9.17 on, to have omp and opencode, as it
+  tells it an Integration's tools (`agenttool.Runtimes`): omp 18.18.6 from its GitHub release (one binary per
+  system), opencode 2.2.7 from npm's `@opencode/cli-<os>-<arch>` (linux x64: the baseline build, which needs no
+  AVX2, as opencode's own installer picks on such a CPU), each pinned by SHA-256 and installed under
+  `tools/<name>/<version>/`. Once they are installed the node finds its runtimes again and says them in a heartbeat;
+  the control plane records them as at hello. A release file that is no archive is the command itself; a release
+  file may be up to 512 MB (omp's is 286 MB). An older node is not told: it would fetch omp every 5 minutes and
+  fail.
 - The daemon has a runner per runtime and gives a Dispatch to the runner of its offer's runtime (issue #107).
 - A Codex worker (`internal/node/codex`; [research](docs/research/2026-11-10-codex-responses-passthrough.md)) has
   no login on the node: its model comes from the control plane's gateway under the offer's key. One turn is one
@@ -2109,7 +2118,8 @@ the internet, so that a machine created at a provider can install the node from 
   public URL). Each runs the node as a systemd user unit from `~/.hypomnema-node`, at v0.7.0 on 2026-11-11, and
   looks for a newer release every 60 minutes (`update_every_minutes` in its `config.json`; the default is one to
   two days). All have Claude Code; the four new ones have the Codex CLI; stc-hy-app also has omp 18.18.6 and
-  opencode 2.2.7, installed by hand with their own installers and linked into `/usr/local/bin`. The earlier
+  opencode 2.2.7, installed by hand with their own installers and linked into `/usr/local/bin` (the control plane
+  installs them on every node since #107). The earlier
   control plane on aioffice-app (`~ubuntu/hypomnema-cp`) is stopped and kept for rollback.
 - Accounts, since 2026-11-11: every one is kept by the control plane. `claude kept` is a token sent to the node with
   each Dispatch; the earlier `claude personal`, a token file on aioffice-app, is disabled. Workers under Codex, omp

@@ -980,6 +980,24 @@ func (q *Queries) SetNodeGitHosts(ctx context.Context, arg SetNodeGitHostsParams
 	return result.RowsAffected()
 }
 
+const setNodeRuntimes = `-- name: SetNodeRuntimes :execrows
+UPDATE nodes SET runtimes = ?1 WHERE id = ?2 AND status <> 'deleted'
+`
+
+type SetNodeRuntimesParams struct {
+	Runtimes string
+	ID       string
+}
+
+// The agent CLIs a node has now, said in a heartbeat once one was installed (issue #107).
+func (q *Queries) SetNodeRuntimes(ctx context.Context, arg SetNodeRuntimesParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, setNodeRuntimes, arg.Runtimes, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const setNodeStats = `-- name: SetNodeStats :execrows
 UPDATE nodes
 SET cpu_percent = ?1, memory_used_bytes = ?2, disk_used_bytes = ?3,

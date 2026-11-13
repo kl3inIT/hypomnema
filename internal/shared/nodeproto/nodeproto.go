@@ -153,6 +153,10 @@ type Heartbeat struct {
 	// the node has or why it could not install it. Nil is a node that has
 	// not tried yet.
 	Tools *[]ToolState `json:"tools,omitempty"`
+	// Runtimes are the agent CLIs the node has now, when they changed since it
+	// said hello: a runtime the control plane had it install is found once
+	// installed (issue #107). Nil: unchanged.
+	Runtimes *[]RuntimeInfo `json:"runtimes,omitempty"`
 }
 
 // Tool is a command-line tool the control plane tells a node to have, for
