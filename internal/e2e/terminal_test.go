@@ -29,6 +29,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite/sqlitetest"
+	"github.com/kl3inIT/hypomnema/internal/shared/workspacefs"
 )
 
 // echoShell is a shell that greets, repeats what is typed, and ends when
@@ -158,10 +159,14 @@ func newTerminalWorld(t *testing.T, withTerminal bool) *terminalWorld {
 		_ = state.Close()
 	})
 
+	// The node is marked connected at its hello, before its socket is in; a terminal is asked for on that socket
+	// (issue #286: a terminal opened in between was refused as offline, and the page never showed the shell). The
+	// world is ready once the node answers a question on its socket: a list of its worktree root, which it refuses
+	// without starting anything.
 	require.Eventually(t, func() bool {
-		n, err := w.svc.GetNode(t.Context(), node.ID)
+		_, err := nodes.Files(t.Context(), node.ID, "/srv/wt", workspacefs.Request{Op: workspacefs.OpList})
 
-		return err == nil && n.Connected
+		return !errors.Is(err, orchestration.ErrUnavailable)
 	}, wait, 20*time.Millisecond)
 
 	return w

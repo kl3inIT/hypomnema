@@ -51,12 +51,9 @@ func TestTheControlPlaneServesAChatRequestWithAKeyFromTheVault(t *testing.T) {
 	}
 
 	rootKey, _, _ := strings.Cut(run(controlplane.Config{}, "", "secrets", "keygen", "k1"), "\n")
-	addr := freeAddr(t)
-
 	cfg, err := controlplane.LoadConfig(func(name string) string {
 		return map[string]string{
 			"HYPOMNEMA_DATABASE_PATH":       filepath.Join(t.TempDir(), "hypomnema.db"),
-			"HYPOMNEMA_HTTP_ADDR":           addr,
 			"HYPOMNEMA_VAULT_KEYS":          rootKey,
 			"HYPOMNEMA_VAULT_ACTIVE_KEY_ID": "k1",
 		}[name]
@@ -84,9 +81,7 @@ func TestTheControlPlaneServesAChatRequestWithAKeyFromTheVault(t *testing.T) {
 	require.NotEmpty(t, gatewayKey)
 
 	ctx, cancel := context.WithCancel(t.Context())
-	served := make(chan error, 1)
-
-	go func() { served <- controlplane.Serve(ctx, cfg, io.Discard) }()
+	addr, served := serve(t, ctx, cfg)
 
 	var answer string
 
