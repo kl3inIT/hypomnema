@@ -182,8 +182,10 @@ const panel = (page: Page) => page.getByRole("complementary", { name: "Files" })
 
 // tree opens the panel's All files when it is not shown: on a phone the panel gives way to a file it opened.
 async function tree(page: Page) {
-  if (!(await panel(page).isVisible()))
-    await page.getByRole("button", { name: "Files", exact: true }).click()
+  // The Files button says whether the panel is open; a panel half hidden by a closing dialog is still open.
+  const files = page.getByRole("button", { name: "Files", exact: true })
+  if ((await files.getAttribute("aria-pressed")) !== "true") await files.click()
+  await expect(panel(page)).toBeVisible()
   const all = panel(page).getByRole("button", { name: "All files" })
   if ((await all.getAttribute("aria-pressed")) !== "true") await all.click()
 
@@ -281,6 +283,7 @@ test("the owner edits, saves and changes a chat's folder from the Files panel", 
   await expect(page.getByRole("alertdialog", { name: "Delete README.md?" })).toBeVisible()
   await shot(page, "files-delete")
   await page.getByRole("button", { name: "Delete", exact: true }).click()
+  await expect(page.getByRole("alertdialog")).toHaveCount(0)
   await expect((await tree(page)).getByRole("treeitem", { name: "README.md" })).toHaveCount(0)
   expect(f.asked).toContain("DELETE file README.md")
 })
