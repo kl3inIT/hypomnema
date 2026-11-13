@@ -1440,7 +1440,8 @@ Node API (`internal/controlplane/nodeapi`, protocol in `internal/shared/nodeprot
 - Releases: a tag `v*` runs `.github/workflows/release.yml`, which builds the node for those four platforms with
   their manifests (`make release-node`), and the control plane, with the web client in it, for linux-amd64 and
   linux-arm64 with manifests `controlplane-<platform>.txt` in the same format (`make release-controlplane`), and
-  publishes them as a GitHub release.
+  publishes them as a GitHub release. It first waits, up to 40 minutes, for the CI run of the tagged commit's push
+  and builds nothing unless it passed (issue #334).
 - The control plane updates itself (issue #279, after Beszel's `beszel update` and its update timer,
   `internal/ghupdate/ghupdate.go`, `supplemental/scripts/install-hub.sh`, and OpenMausBot's `deploy/update.sh`):
   - `deploy/controlplane/setup-controlplane.sh`, run once with sudo, runs the control plane as
@@ -2108,7 +2109,9 @@ and the node in the control plane binary.
 - `make verify`: gofmt, `go mod tidy -diff` for both modules, golangci-lint (`.golangci.yml`, tools pinned in
   `tools/ci/go.mod`), the dependency check, `sqlc-check` (generated queries match `sqlc generate`),
   `openapi-check` (generated client API code matches `api/openapi.yaml`), `migration-check` (migrations already on
-  `origin/main` are unchanged), unit tests and race tests.
+  `origin/main` are unchanged, no two share a number, and a new one is numbered after main's last; CI checks a pull
+  request against main as it is when the check runs, and a push to main against the commit before it, issue #334),
+  unit tests and race tests.
 - Tests that need a database open a real file in a temporary directory; no containers.
 - `make web-doctor`: React Doctor's report on the web client (pinned, local checks only: no score API, crash
   reports or dependency lookups; `web/doctor.config.json`). It is read, not a gate. Its config turns off the

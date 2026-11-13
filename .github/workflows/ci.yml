@@ -57,10 +57,19 @@ jobs:
             ~/.cache/go-build
           key: go-static-${{ runner.os }}-${{ hashFiles('go.sum', 'tools/ci/go.sum') }}
           restore-keys: go-static-${{ runner.os }}-
-      - name: Fetch main for the migration check
-        run: git fetch --no-tags --depth=1 origin main:refs/remotes/origin/main
+      # A pull request is checked against main as it is now; a push to main against the commit before it (issue
+      # #334). The refspec is forced: a shallow fetch cannot tell a fast-forward, and main's runs were refused.
+      - name: Fetch what the migrations are checked against
+        env:
+          BEFORE: ${{ github.event.before }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            git fetch --no-tags --depth=1 origin "+$BEFORE:refs/remotes/origin/migration-base"
+          else
+            git fetch --no-tags --depth=1 origin +main:refs/remotes/origin/migration-base
+          fi
       - name: make verify-static
-        run: make verify-static
+        run: make verify-static MIGRATION_BASE=origin/migration-base
       - name: govulncheck
         run: make govulncheck
 
