@@ -92,6 +92,8 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/models", s.listModels)
 	mux.HandleFunc("POST /v1/chat/completions", s.chatCompletions)
 	mux.HandleFunc("POST /v1/responses", s.responses)
+	mux.HandleFunc("POST /v1/messages", s.messages)
+	mux.HandleFunc("POST /v1/messages/count_tokens", s.countTokens)
 }
 
 type errorBody struct {
@@ -128,26 +130,40 @@ func writeError(w http.ResponseWriter, status int, kind, code, message string) {
 	writeJSON(w, status, body)
 }
 
-// authenticate returns the key a request carries in `Authorization: Bearer`.
-// It answers the request itself when there is none.
+// authenticate returns the key a request carries, in `Authorization: Bearer`
+// or in `x-api-key`, where Anthropic's clients put it (CLIProxyAPI, 9router-go
+// and 9router read both). It answers the request itself when there is none.
 func (s *Server) authenticate(w http.ResponseWriter, r *http.Request) (Key, bool) {
+	return s.authenticateAs(w, r, writeError)
+}
+
+// errorWriter answers a request with an error in one API's shape.
+type errorWriter func(w http.ResponseWriter, status int, kind, code, message string)
+
+func (s *Server) authenticateAs(w http.ResponseWriter, r *http.Request, fail errorWriter) (Key, bool) {
 	secret, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	if !ok || secret == "" {
-		writeError(w, http.StatusUnauthorized, typeAuthentication, "missing_api_key",
-			"a gateway key is required: Authorization: Bearer <key>")
+		secret = r.Header.Get("X-Api-Key")
+	}
+
+	if secret == "" {
+		fail(w, http.StatusUnauthorized, typeAuthentication, "missing_api_key",
+			"a gateway key is required: Authorization: Bearer <key>, or x-api-key: <key>")
 
 		return Key{}, false
 	}
 
 	k, err := s.svc.Authenticate(r.Context(), secret)
 	if errors.Is(err, ErrUnauthorized) {
-		writeError(w, http.StatusUnauthorized, typeAuthentication, "invalid_api_key", "unknown or revoked gateway key")
+		fail(w, http.StatusUnauthorized, typeAuthentication, "invalid_api_key", "unknown or revoked gateway key")
 
 		return Key{}, false
 	}
 
 	if err != nil {
-		s.internal(w, r, "modelgateway.auth_failed", err)
+		s.logger.ErrorContext(r.Context(), "the model gateway failed",
+			slog.String("event", "modelgateway.auth_failed"), slog.String("error", err.Error()))
+		fail(w, http.StatusInternalServerError, typeServer, "internal_error", "internal error")
 
 		return Key{}, false
 	}
