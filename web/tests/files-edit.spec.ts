@@ -212,6 +212,8 @@ async function typeInEditor(page: Page, text: string) {
 test("the owner edits, saves and changes a chat's folder from the Files panel", async ({
   page,
 }) => {
+  // One story of seven steps, each waiting on Monaco or a dialog: longer than the default 30 s on CI's machines.
+  test.setTimeout(120_000)
   const f = folder()
   await fakeServer(page, f)
   await page.goto("/chats/cht_1")
