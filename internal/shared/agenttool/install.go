@@ -2,6 +2,7 @@ package agenttool
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
@@ -28,13 +29,19 @@ import (
 //	<home>/tools/<name>/<version>/<name>
 //
 // A worker never installs one, and a version is never replaced in place: a
-// new pin is a new directory.
+// new pin is a new directory. A tool that is a directory of files and not one
+// command (the AWS CLI, issue #331) comes as a .zip: the directory its command
+// is in is unpacked whole as <version>, so that the command is still at
+// <home>/tools/<name>/<version>/<name>.
 
 const (
 	// maxToolDownloadBytes bounds a release file; gws' is 7 MB.
 	maxToolDownloadBytes = 256 << 20
 	// maxToolBinaryBytes bounds the command unpacked from it; gws is 18 MB.
+	// A directory unpacked from a .zip is bounded by it too, all its files
+	// together (the AWS CLI's are 249 MB), and by maxToolFiles (8735).
 	maxToolBinaryBytes  = 512 << 20
+	maxToolFiles        = 20000
 	toolDownloadTimeout = 10 * time.Minute
 )
 
@@ -73,6 +80,11 @@ func (t ToolInstaller) Install(ctx context.Context, tool nodeproto.Tool) error {
 	}
 
 	dir := filepath.Dir(target)
+
+	if isZip(tool.URL) {
+		return t.installDirectory(ctx, tool, dir)
+	}
+
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("making the directory of tool %s: %w", tool.Name, err)
 	}
@@ -218,4 +230,151 @@ func unpackTool(archive, binary, target string) error {
 
 		return err
 	}
+}
+
+func isZip(url string) bool { return strings.HasSuffix(url, ".zip") }
+
+// installDirectory installs a tool that is a directory: the release file is
+// fetched beside the version's directory, the directory of the command in it
+// is unpacked beside it too, and only then renamed into place. Whatever an
+// earlier try left there is removed first: the command is not there, or this
+// would not run.
+func (t ToolInstaller) installDirectory(ctx context.Context, tool nodeproto.Tool, dir string) error {
+	parent := filepath.Dir(dir)
+	if err := os.MkdirAll(parent, 0o700); err != nil {
+		return fmt.Errorf("making the directory of tool %s: %w", tool.Name, err)
+	}
+
+	archive, err := t.download(ctx, tool, parent)
+	if err != nil {
+		return err
+	}
+	defer os.Remove(archive) //nolint:errcheck // A leftover download is replaced by the next try.
+
+	tmp := dir + ".tmp"
+	_ = os.RemoveAll(tmp)
+
+	if err := unpackDirectory(archive, path.Dir(tool.Binary), tmp); err != nil {
+		_ = os.RemoveAll(tmp)
+
+		return fmt.Errorf("unpacking tool %s %s: %w", tool.Name, tool.Version, err)
+	}
+
+	if info, err := os.Stat(filepath.Join(tmp, path.Base(tool.Binary))); err != nil || !info.Mode().IsRegular() {
+		_ = os.RemoveAll(tmp)
+
+		return fmt.Errorf("unpacking tool %s %s: the release file has no %s", tool.Name, tool.Version, tool.Binary)
+	}
+
+	if path.Base(tool.Binary) != tool.Name {
+		_ = os.RemoveAll(tmp)
+
+		return fmt.Errorf("tool %s: its command in a directory must be named %s, not %s", tool.Name, tool.Name,
+			path.Base(tool.Binary))
+	}
+
+	if err := os.RemoveAll(dir); err != nil {
+		_ = os.RemoveAll(tmp)
+
+		return fmt.Errorf("installing tool %s %s: %w", tool.Name, tool.Version, err)
+	}
+
+	if err := os.Rename(tmp, dir); err != nil {
+		_ = os.RemoveAll(tmp)
+
+		return fmt.Errorf("installing tool %s %s: %w", tool.Name, tool.Version, err)
+	}
+
+	return nil
+}
+
+// unpackDirectory writes the members of a .zip under from to target, keeping
+// which may run: files and directories only, none outside target.
+func unpackDirectory(archive, from, target string) error {
+	zipped, err := zip.OpenReader(archive)
+	if err != nil {
+		return fmt.Errorf("the release file is not a .zip: %w", err)
+	}
+	defer zipped.Close() //nolint:errcheck // Read only.
+
+	prefix := from + "/"
+
+	var (
+		total int64
+		files int
+	)
+
+	for _, member := range zipped.File {
+		name := path.Clean(member.Name)
+		if !strings.HasPrefix(name+"/", prefix) || name == from {
+			continue
+		}
+
+		rel := strings.TrimPrefix(name, prefix)
+		if path.IsAbs(rel) || rel == ".." || strings.HasPrefix(rel, "../") || strings.Contains(rel, "\\") {
+			return fmt.Errorf("the release file names %s, outside its directory", member.Name)
+		}
+
+		if files++; files > maxToolFiles {
+			return fmt.Errorf("the release file has more than %d files", maxToolFiles)
+		}
+
+		out := filepath.Join(target, filepath.FromSlash(rel))
+		mode := member.Mode()
+
+		switch {
+		case mode.IsDir():
+			if err := os.MkdirAll(out, 0o700); err != nil {
+				return err
+			}
+
+			continue
+		case !mode.IsRegular():
+			return fmt.Errorf("the release file has %s, which is not a file", member.Name)
+		}
+
+		perm := os.FileMode(0o600)
+		if mode.Perm()&0o111 != 0 {
+			perm = 0o700
+		}
+
+		n, err := unpackMember(member, out, perm, maxToolBinaryBytes-total)
+		if err != nil {
+			return err
+		}
+
+		total += n
+	}
+
+	return nil
+}
+
+// unpackMember writes one member to out, no more than left bytes.
+func unpackMember(member *zip.File, out string, perm os.FileMode, left int64) (int64, error) {
+	if err := os.MkdirAll(filepath.Dir(out), 0o700); err != nil {
+		return 0, err
+	}
+
+	in, err := member.Open()
+	if err != nil {
+		return 0, fmt.Errorf("reading %s: %w", member.Name, err)
+	}
+	defer in.Close() //nolint:errcheck // Read only.
+
+	file, err := os.OpenFile(out, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, perm) //nolint:gosec // under target
+	if err != nil {
+		return 0, err
+	}
+
+	n, err := io.Copy(file, io.LimitReader(in, left+1))
+
+	if closeErr := file.Close(); err == nil {
+		err = closeErr
+	}
+
+	if err == nil && n > left {
+		err = fmt.Errorf("the tool is over %d MB", maxToolBinaryBytes>>20)
+	}
+
+	return n, err
 }

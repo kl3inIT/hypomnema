@@ -32,8 +32,16 @@ type Def struct {
 	// from, when it will not run without it; empty for a tool that needs the
 	// token alone. The id is not a secret.
 	ClientEnv string
+	// CAEnv is the variable the tool reads the certificates it trusts from,
+	// when it does not read SSL_CERT_FILE: the AWS CLI reads AWS_CA_BUNDLE.
+	CAEnv string
 	// Env are the variables the tool is always run with, as "NAME=value".
 	Env []string
+	// Unset are the variables the tool is run without, whatever the agent's
+	// environment says: the AWS CLI refuses an empty AWS_PROFILE ("The config
+	// profile () could not be found", tried with 2.38.6 on 2026-11-13), so a
+	// profile is taken away, not emptied.
+	Unset []string
 	// Releases is the release file of each system, by "os/arch".
 	Releases map[string]Release
 }
@@ -61,7 +69,7 @@ func (d Def) For(os, arch string) (nodeproto.Tool, bool) {
 }
 
 // Catalog is every tool, one an Integration.
-func Catalog() []Def { return []Def{GoogleWorkspaceCLI(), LarkCLI()} }
+func Catalog() []Def { return []Def{GoogleWorkspaceCLI(), LarkCLI(), AWSCLI()} }
 
 // Of returns the tool of an Integration.
 func Of(integration string) (Def, bool) {
@@ -149,6 +157,53 @@ func LarkCLI() Def {
 				URL:    release + "-linux-arm64.tar.gz",
 				SHA256: "166e95ffaec34f82123f50316480250329884c09e71a6f92313047e2c5c3fa5d",
 				Binary: "lark-cli",
+			},
+		},
+	}
+}
+
+// AWSCLI is AWS's own command-line tool, version 2 (github.com/aws/aws-cli,
+// Apache-2.0), for the AWS Integration (issue #331). It is a directory of
+// files, shipped as a .zip whose aws/dist holds the command. It is given
+// placeholders for a key and signs every request with them; the service proxy
+// signs each one again with the session of the role the agent was given. It
+// reads its proxy from HTTPS_PROXY, to which it sends a CONNECT for each
+// service's host (tried with 2.38.6 on 2026-11-13), and the certificates it
+// trusts from AWS_CA_BUNDLE. No file of the machine's own configuration or credentials is
+// read, and no instance's metadata is asked, so that only the proxy's
+// credentials are ever used; no pager waits for a terminal.
+//
+// AWS publishes a PGP signature for each file, not a checksum: the files of
+// 2.38.6 (released 2026-10-26) were checked against the AWS CLI Team's key
+// (fingerprint FB5D B77F D5C1 18B8 0511 ADA8 A631 0ACC 4672 475C) on
+// 2026-11-13, and these are their SHA-256.
+func AWSCLI() Def {
+	const (
+		version = "2.38.6"
+		release = "https://awscli.amazonaws.com/awscli-exe-linux-"
+	)
+
+	//nolint:gosec // The names of variables, placeholders and public addresses; no credential is here.
+	return Def{
+		Integration: "aws", Name: "aws", Version: version,
+		TokenEnv: "AWS_ACCESS_KEY_ID",
+		CAEnv:    "AWS_CA_BUNDLE",
+		Env: []string{
+			"AWS_SECRET_ACCESS_KEY=" + Placeholder, "AWS_SESSION_TOKEN=", "AWS_CONFIG_FILE=/dev/null", "AWS_SHARED_CREDENTIALS_FILE=/dev/null", "AWS_EC2_METADATA_DISABLED=true",
+			"AWS_PAGER=", "AWS_CLI_AUTO_PROMPT=off",
+		},
+		Unset: []string{"AWS_PROFILE", "AWS_DEFAULT_PROFILE", "AWS_CONTAINER_CREDENTIALS_FULL_URI",
+			"AWS_CONTAINER_CREDENTIALS_RELATIVE_URI", "AWS_WEB_IDENTITY_TOKEN_FILE", "AWS_ROLE_ARN"},
+		Releases: map[string]Release{
+			"linux/amd64": {
+				URL:    release + "x86_64-" + version + ".zip",
+				SHA256: "66974301c11f8116a6cb96bf72acae57453734b61fa8dd3f56422de9eaab0e42",
+				Binary: "aws/dist/aws",
+			},
+			"linux/arm64": {
+				URL:    release + "aarch64-" + version + ".zip",
+				SHA256: "a9f355189a5a25834c015fc07d65e1834f0dbbee1d9bd1c418176f43a463067f",
+				Binary: "aws/dist/aws",
 			},
 		},
 	}

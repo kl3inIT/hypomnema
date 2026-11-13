@@ -94,6 +94,7 @@ var releasedStubs = map[string][]string{
 	"google-workspace":      {"129a8091fdeb9d028e8b0550625f2efd54c3eb27b38eba618407d68b82fdd894"},
 	"lark":                  {"04115d29ecb6f7c706684dc868052997fe3015a32607711d3e060845b15fb774"},
 	"superset":              {"b7cbafe434fcc81b8305bfe6a5c811bd33168b3125a6139cfa67480edf18f7ef"},
+	"aws":                   {"b038020ed0278ff5213f82d6e67a134fdd4115575899370dbb964183fa6676fd"},
 }
 
 func skillsGet(_ context.Context, e *env, fset *flag.FlagSet) error {

@@ -109,6 +109,9 @@ type Config struct {
 	// Send sends a relayed request to the address of a Connection that has
 	// its own, with its token (Relay); nil when no Integration has one.
 	Send Sender
+	// AWS gives the session of a role a request is signed again with (issue
+	// #331); nil when the AWS Integration is not wired.
+	AWS AWSCredentials
 }
 
 // Proxy serves the tunnel a tool's requests come through.
@@ -340,7 +343,7 @@ func (p *Proxy) judge(ctx context.Context, req *http.Request, body []byte, s ses
 		return Action{}, "Refused: " + reason + ". The request was not run"
 	}
 
-	action := s.catalog.Match(req.Method, s.host, req.URL.Path)
+	action := s.catalog.Of(req, body, s.host)
 
 	verdict, message, err := p.decide(ctx, req, body, action, s)
 	if err != nil {
@@ -364,6 +367,11 @@ func (p *Proxy) decide(ctx context.Context, req *http.Request, body []byte, acti
 ) (verdict, message string, err error) {
 	if action.Plumbing {
 		return "plumbing", "", nil
+	}
+
+	if action.Never {
+		return "never", fmt.Sprintf("Refused: %q is never run through %s: %s. Do not try another way; say so in your "+
+			"answer.", action.Name, s.connection(), action.Text), nil
 	}
 
 	policy := orchestration.PolicyAsk
@@ -627,7 +635,11 @@ func (p *Proxy) forward(ctx context.Context, out io.Writer, req *http.Request, b
 	upstream.Header.Del("Connection")
 	upstream.ContentLength = int64(len(body))
 
-	if !action.Plumbing {
+	if s.catalog.Signed {
+		if refused := p.signAgain(ctx, req, upstream, body, s); refused != "" {
+			return p.reply(out, http.StatusForbidden, refused)
+		}
+	} else if !action.Plumbing {
 		token, err := p.cfg.Token(ctx, s.integration, s.label)
 		if err != nil {
 			p.cfg.Logger.ErrorContext(ctx, "the proxy could not get an account's token",

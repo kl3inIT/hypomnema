@@ -292,6 +292,8 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 
 			return token.AccessToken, err
 		},
+		// A request to AWS is signed again with the session of the role it was made for (issue #331).
+		AWS: integrations.RoleCredentials,
 		// A Connection that has its own address (Superset) is sent a relayed request by the service that signs
 		// it in, which adds the token there.
 		Send: func(ctx context.Context, id, label string, r serviceproxy.Sent) (serviceproxy.Answer, error) {

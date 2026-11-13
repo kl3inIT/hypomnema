@@ -232,7 +232,7 @@ func (l Launcher) Run(ctx context.Context, name string, args []string) error {
 	//nolint:gosec // The pinned tool, installed by this machine's own installer.
 	cmd := exec.CommandContext(ctx, ToolPath(l.ToolsHome, def.Name, def.Version), rest...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = l.Stdin, l.Stdout, l.Stderr
-	cmd.Env = append(without(os.Environ(), EnvKey), def.Env...)
+	cmd.Env = append(without(os.Environ(), append([]string{EnvKey}, def.Unset...)...), def.Env...)
 
 	// The tool holds no token: its requests go through the control plane's proxy, which adds it.
 	env, refused, stop, err := l.bridge(fetchCtx, def, label)

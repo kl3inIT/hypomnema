@@ -965,9 +965,25 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       connected again. The key and the sessions never leave the control plane.
     - A machine provider takes its key from a role (`--key aws:<label>`, `machines providers key <name> --key
       aws:<label>` for one that exists).
-    - On the web the Integrations page shows AWS with the command that connects a role.
-    - Not built yet: agents' use of a role through the service proxy with the AWS CLI, and adding a role on the
-      web.
+    - **Agents use a role with the AWS CLI** (`aws` 2.38.6, `internal/shared/agenttool/catalog.go`), given to a
+      Run (`--use aws:main-read`) or switched on for chats as any account, with the skill `aws`. The CLI ships as
+      a .zip of a directory; a node unpacks the directory of its command (`aws/dist`) whole as the version's
+      directory. The CLI is run with placeholders for a key, `AWS_CA_BUNDLE` naming the proxy's certificate, no
+      configuration or credentials file, no instance metadata and no profile (an empty one it refuses); it sends
+      a CONNECT for each service's host to the launcher's bridge.
+    - **The proxy signs each request again** (`serviceproxy/aws.go`): any host under `amazonaws.com` is reached;
+      the CLI's signature is dropped and the request is signed with the role's session for the region and
+      service the CLI signed for, read from its credential scope, as awslabs' aws-sigv4-proxy signs what it
+      forwards. A body the CLI signed in chunks cannot be signed again and is refused; an unsigned payload is
+      kept as it is. A request with no signature of the CLI's is refused.
+    - **Its actions are named by the request**, `aws.<service>.<Operation>` from the JSON target or the query
+      Action, `aws.<service>.<METHOD>` for a REST API. Nothing asks by default: what the role allows runs
+      (owner, 2026-11-13). The owner may set ask or never on one operation of one role, and the list of a role's
+      actions shows those set. The operations that make credentials (`sts:AssumeRole*`, `GetSessionToken`,
+      `GetFederationToken`, `iam:CreateAccessKey`, login profiles, `sso:GetRoleCredentials`,
+      `cognito-identity:GetCredentialsForIdentity`…, from awslabs aws-api-mcp-server's OVERRIDES) are never, and
+      take no answer.
+    - Not built yet: adding a role on the web.
   - Lark Channels (`internal/controlplane/larkbot`, issues
     [#136](https://github.com/kl3inIT/hypomnema/issues/136) and
     [#169](https://github.com/kl3inIT/hypomnema/issues/169)): a Channel is a door to one Bot, a Lark app and who

@@ -25,6 +25,8 @@ func SkillOf(integration string) (string, bool) {
 		return "google-workspace", true
 	case "lark":
 		return "lark", true
+	case "aws":
+		return "aws", true
 	}
 
 	return "", false
