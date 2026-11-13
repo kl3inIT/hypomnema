@@ -186,7 +186,8 @@ func TestInstallPutsTheReleaseInPlaceThenSetsUpTheCoordinator(t *testing.T) {
 	t.Parallel()
 
 	o := installed(t)
-	o.Ready = ready(t, http.StatusOK)
+	// The control plane's /readyz answers 204.
+	o.Ready = ready(t, http.StatusNoContent)
 	from := filepath.Join(o.State, "hypomnema-v0.9.5")
 	write(t, from, "the new control plane")
 	cmds := &commands{}
