@@ -77,6 +77,13 @@ transaction, every status change a guarded `UPDATE` checked against a transition
 - `Reap` applies the timers in `limits.go`: queued Dispatches expire after 5 min, lost leases and unconfirmed stops
   are marked, stalls (15 min without progress), Dispatches past 4 h and nodes with three expiries in a row are
   returned as escalations, as are open questions to the owner after 1 h, then daily; nothing is killed.
+- A worker that loops is judged from its transcript (issue #359, after OpenMausBot's runtime contract, OpenHands'
+  `StuckDetector` and Gemini CLI's loop detection): progress for the stall timer is a tool result that succeeded,
+  not the node's progress report. The same tool with the same input failing with the same text three times in a
+  row stops the worker; once the stop is confirmed the Dispatch ends `failed` (`worker_error`, counted by the
+  breaker) with "Stopped after 3 identical errors: <tool>: <error>" as its summary (`dispatches.stalled_reason`),
+  not `canceled`. A Task whose last two Dispatches failed with tool results and not one success fails at once,
+  "Stopped after 2 attempts without a successful tool call", instead of being retried.
 - Questions: a worker asks the coordinator or the owner. A `wait` question keeps the worker running, pauses its stall
   and duration timers, and its answer reaches the node in the heartbeat reply until the node acknowledges it. A
   Gate is a final report: the Dispatch ends `gated`, the Task is blocked until the answer, and the next Dispatch

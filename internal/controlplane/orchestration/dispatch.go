@@ -405,20 +405,18 @@ func (s *Service) ReportStarted(ctx context.Context, call NodeCall, processRef, 
 	})
 }
 
-// ReportProgress records that the worker did something. It is separate from
-// the heartbeat: a live process that does nothing is stalled, not lost.
+// ReportProgress is the node saying the worker did something. It no longer
+// moves the stall timer: a worker that keeps calling a tool that fails is
+// busy but makes no progress, so progress is read from the transcript, a tool
+// that succeeded (AddItems; issue #359, OpenMausBot's okToolCalls). The call
+// is still accepted from nodes that send it.
 func (s *Service) ReportProgress(ctx context.Context, call NodeCall) error {
-	return nodeVoid(ctx, s, call, "progress", nil, func(q *store.Queries, now int64, d store.Dispatch) error {
+	return nodeVoid(ctx, s, call, "progress", nil, func(_ *store.Queries, _ int64, d store.Dispatch) error {
 		if err := checkEpoch(d, call); err != nil {
 			return err
 		}
 
-		n, err := q.MarkProgress(ctx, store.MarkProgressParams{Now: now, ID: d.ID, Epoch: d.Epoch})
-		if err != nil {
-			return fmt.Errorf("recording progress of %s: %w", d.ID, err)
-		}
-
-		if n != 1 {
+		if DispatchStatus(d.Status) != DispatchRunning {
 			return fmt.Errorf("%w: dispatch %s is %s, not running", ErrConflict, d.ID, d.Status)
 		}
 
@@ -525,7 +523,7 @@ func (s *Service) ReportStopped(ctx context.Context, call NodeCall) error {
 		case DispatchCanceled:
 			return nil
 		case DispatchStopping, DispatchStopUnknown:
-			return s.settle(ctx, q, now, d, DispatchCanceled, FailureNone, nil, nil, true)
+			return s.settleStopped(ctx, q, now, d)
 		default:
 			return fmt.Errorf("%w: dispatch %s is %s; no stop was requested", ErrConflict, d.ID, d.Status)
 		}
@@ -544,13 +542,26 @@ func (s *Service) ReportExited(ctx context.Context, call NodeCall) error {
 
 		switch DispatchStatus(d.Status) {
 		case DispatchStopping:
-			return s.settle(ctx, q, now, d, DispatchCanceled, FailureNone, nil, nil, true)
+			return s.settleStopped(ctx, q, now, d)
 		case DispatchStarting, DispatchRunning:
 			return markUnknown(ctx, q, now, d, DispatchUnknown, UnknownExitedUnreported)
 		default:
 			return fmt.Errorf("%w: dispatch %s is %s", ErrConflict, d.ID, d.Status)
 		}
 	})
+}
+
+// settleStopped ends a Dispatch whose stop was confirmed: canceled, or failed
+// with its reason when the control plane stopped a worker that looped
+// (issue #359; OpenMausBot ends such a node failed(stalled), reported like any
+// failed turn).
+func (s *Service) settleStopped(ctx context.Context, q *store.Queries, now int64, d store.Dispatch) error {
+	if !d.StalledReason.Valid {
+		return s.settle(ctx, q, now, d, DispatchCanceled, FailureNone, nil, nil, true)
+	}
+
+	return s.settle(ctx, q, now, d, DispatchFailed, FailureWorkerError,
+		&Result{Summary: d.StalledReason.String}, nil, true)
 }
 
 // reportable lists, per Dispatch status, the outcomes a final report may carry.
@@ -896,8 +907,44 @@ func (s *Service) afterSettle(ctx context.Context, q *store.Queries, now int64, 
 
 		return transitionTask(ctx, q, now, d.TaskID, TaskReady, BlockedNone, "")
 	default:
+		stalled, err := stalledAttempts(ctx, q, d.TaskID)
+		if err != nil {
+			return err
+		}
+
+		if stalled {
+			return failTask(ctx, q, now, d.TaskID,
+				fmt.Sprintf("Stopped after %d attempts without a successful tool call", StalledAttempts))
+		}
+
 		return s.countFailure(ctx, q, now, d.TaskID, class)
 	}
+}
+
+// stalledAttempts reports whether the Task's last StalledAttempts Dispatches
+// all failed with tool results and not one of them a success (issue #359;
+// OpenMausBot's two continuations without a successful tool call). A
+// Dispatch without tool results says nothing either way, as OpenMausBot's
+// progress-unknown execution, so it breaks the run.
+func stalledAttempts(ctx context.Context, q *store.Queries, taskID string) (bool, error) {
+	rows, err := q.RecentAttemptEvidence(ctx, store.RecentAttemptEvidenceParams{
+		TaskID: taskID, Lim: StalledAttempts,
+	})
+	if err != nil {
+		return false, fmt.Errorf("reading the attempts of %s: %w", taskID, err)
+	}
+
+	if len(rows) < StalledAttempts {
+		return false, nil
+	}
+
+	for _, r := range rows {
+		if DispatchStatus(r.Status) != DispatchFailed || r.Results == 0 || r.Ok > 0 {
+			return false, nil
+		}
+	}
+
+	return true, nil
 }
 
 // coolAccount cools an account down after a rate limit, on every node. A
@@ -1384,7 +1431,7 @@ func dispatchFromRow(d store.Dispatch) (Dispatch, error) {
 		Waited: time.Duration(d.WaitedMs) * time.Millisecond, GateQuestionID: d.GateQuestionID.String,
 		Model: d.Model.String, Effort: d.Effort.String, ProfileVersionID: d.ProfileVersionID.String,
 		FallbackFor: d.FallbackFor.String, FallbackUntil: optionalTime(d.FallbackUntil), Handoff: d.Handoff == 1,
-		Activity: d.Activity.String,
+		Activity: d.Activity.String, StalledReason: d.StalledReason.String,
 	}
 
 	if d.Result.Valid {

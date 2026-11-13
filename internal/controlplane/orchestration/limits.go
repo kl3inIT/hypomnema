@@ -15,8 +15,20 @@ const (
 	StopTimeout = 30 * time.Second
 	// StallAfter: a running Dispatch with no progress for this long is
 	// escalated, never killed (inferred; Coder cancels a silent model stream
-	// after 10 min).
+	// after 10 min). Progress is a tool that succeeded, read from the
+	// transcript, not any sign of life (issue #359, OpenMausBot's
+	// okToolCalls); the timer is the backstop behind the two guards below.
 	StallAfter = 15 * time.Minute
+	// StalledErrors: a running Dispatch whose worker called the same tool
+	// with the same input and got the same error this many times in a row is
+	// stopped and ends failed (issue #359; OpenHands' action_error threshold
+	// of 3, OpenMausBot's "3 identical errors").
+	StalledErrors = 3
+	// StalledAttempts: a Task whose last this many Dispatches each ended
+	// failed with tool results and none of them a success fails for good
+	// instead of being retried (issue #359; OpenMausBot's two continuations
+	// without a successful tool call).
+	StalledAttempts = 2
 	// MaxDuration: a Dispatch running this long is escalated (inferred).
 	MaxDuration = 4 * time.Hour
 	// BreakerFailures: the counted failure that fails the Task (Orca
