@@ -12,7 +12,7 @@ import { render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, expect, test, vi } from "vitest"
 
-import type { Model, Profile } from "@/api/generated/types.gen"
+import type { Model, Profile, Skill } from "@/api/generated/types.gen"
 
 import { look } from "./agent-look"
 import { AgentsScreen } from "./agents-screen"
@@ -73,6 +73,7 @@ function server(
   opts: {
     versions?: Record<string, Profile[]>
     apply?: (name: string, source: string) => Response
+    skills?: Skill[]
   } = {},
 ) {
   const applied: { name: string; source: string }[] = []
@@ -83,6 +84,7 @@ function server(
 
     if (request.method === "GET" && path === "/profiles") return json({ data: profiles })
     if (request.method === "GET" && path === "/models") return json({ data: models })
+    if (request.method === "GET" && path === "/skills") return json({ data: opts.skills ?? [] })
 
     const versions = /^\/profiles\/([^/]+)\/versions$/.exec(path)
     if (request.method === "GET" && versions) {
@@ -371,6 +373,47 @@ test("fallbacks are chosen in order from the other workers and saved with the ag
 
   await user.click(screen.getByRole("button", { name: "Remove fallback omp-worker" }))
   expect(screen.getByLabelText("Fallback 1")).toHaveTextContent("codex-worker")
+})
+
+const skill = (name: string, everyone = false): Skill => ({
+  name,
+  everyone,
+  latest: {
+    revision: 1,
+    description: `What ${name} teaches.`,
+    digest: "d",
+    size: 1,
+    files: 1,
+    source: "upload",
+    created_at: new Date(0).toISOString(),
+  },
+  created_at: new Date(0).toISOString(),
+  updated_at: new Date(0).toISOString(),
+})
+
+// Scenario: a skill for everyone and two the agent could add (issue #21). The owner turns the first off and adds
+// one; the revision saved names both. A skill the agent named that is no longer here is marked.
+test("an agent's skills are chosen in the builder and saved in its YAML", async () => {
+  const applied = server([profile("writer", { skills: ["gone"] })], {
+    skills: [skill("pdf", true), skill("review-go"), skill("forms")],
+  })
+  open("/agents/writer")
+  const user = userEvent.setup()
+
+  const everyone = await screen.findByRole("list", { name: "Skills for everyone" })
+  await user.click(within(everyone).getByRole("switch", { name: /pdf/ }))
+
+  const added = screen.getByRole("list", { name: "Skills added" })
+  expect(added).toHaveTextContent("No skill of this name any more.")
+
+  const add = screen.getByLabelText("Skills")
+  expect(await options(user, add)).toEqual(["review-go", "forms"])
+  await choose(user, add, "review-go")
+  await user.click(screen.getByRole("button", { name: "Remove skill gone" }))
+
+  await user.click(screen.getByRole("button", { name: "Save revision" }))
+  await vi.waitFor(() => expect(applied).toHaveLength(1))
+  expect(applied[0]?.source).toContain("skills: [review-go]\nskills_off: [pdf]\n")
 })
 
 // Scenario: the owner looks for an agent by a word of its name or of its description; a word nothing has says so,

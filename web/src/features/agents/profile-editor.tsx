@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/select"
 import { AvatarName } from "@/features/agents/agent-avatar"
 import { RuntimeMark } from "@/features/board/runtime-mark"
+import { SkillsField } from "@/features/skills/skills-field"
 import { Textarea } from "@/components/ui/textarea"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 
@@ -332,6 +333,14 @@ function Builder({
           Added after the rules every worker gets, which it may not override. Optional.
         </FieldDescription>
       </Field>
+
+      <SkillsField
+        id="profile-skills"
+        skills={draft.skills}
+        off={draft.skillsOff}
+        onChange={set}
+        description="What this agent's workers get besides the built-in skills. A skill for everyone is on unless it is turned off here; a change makes a new revision."
+      />
 
       <Fallbacks
         own={draft.name}

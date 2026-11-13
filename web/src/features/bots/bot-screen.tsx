@@ -20,6 +20,7 @@ import { ConfirmDialog } from "@/features/settings/settings-parts"
 import { useLarkChannels } from "@/features/settings/use-channels"
 import { BotRoutines } from "@/features/routines/bot-routines"
 import { PageHeader } from "@/features/shell/app-shell"
+import { SkillsField } from "@/features/skills/skills-field"
 
 import {
   draftOf,
@@ -95,8 +96,8 @@ export function BotScreen({ name }: { name: string }) {
   )
 }
 
-// BotForm edits a Bot's model and persona, and a new Bot's name, and saves them with one PUT. Its buttons and its
-// guard against leaving unsaved changes are the profile editor's (features/agents/profile-editor.tsx).
+// BotForm edits a Bot's model, persona and skills, and a new Bot's name, and saves them with one PUT. Its buttons
+// and its guard against leaving unsaved changes are the profile editor's (features/agents/profile-editor.tsx).
 function BotForm({
   start: first,
   models,
@@ -199,6 +200,14 @@ function BotForm({
           chat. Optional.
         </FieldDescription>
       </Field>
+
+      <SkillsField
+        id="bot-skills"
+        skills={draft.skills}
+        off={draft.skillsOff}
+        onChange={set}
+        description="What the Bot gets besides the built-in skills, from its next chat on. A skill for everyone is on unless it is turned off here."
+      />
 
       {put.error && (
         <Alert variant="destructive">

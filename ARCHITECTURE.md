@@ -1673,7 +1673,10 @@ Node (`internal/node`):
     shows a picked result's audits, and adds it by repository and name. A skill's page
     (`/settings/skills/<name>`) has the switch that gives it to everyone, who uses it, the newest revision's files as
     a tree (Omnara's, Apache-2.0), every version, "Update from GitHub", "Upload new version" and Remove, whose
-    refusal is shown in the dialog.
+    refusal is shown in the dialog. An agent's builder and a Bot's form have a Skills field
+    (`skills-field.tsx`): a switch for each skill given to everyone, on unless this one turns it off, as
+    OpenMausBot's bot settings; the skills it adds as rows with a remove button, as Omnara's agent config, and a
+    select that adds the next. It is saved with the agent (a new version) or the Bot.
   - `/settings/vault` (under Connections, [issue #108](https://github.com/kl3inIT/hypomnema/issues/108)) is a
     table of the vault's secrets, after Infisical's secrets dashboard (MIT) and Omnara's secrets list
     (Apache-2.0): Name, Value, Type, Version and Updated as columns, sorted by Name or Updated, with a search box

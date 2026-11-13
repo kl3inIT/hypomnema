@@ -9,9 +9,10 @@ import {
 } from "@tanstack/react-router"
 import { render, screen, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
+import { choose, options } from "@/test/choose"
 import { afterEach, beforeEach, expect, test, vi } from "vitest"
 
-import type { Bot, BotSettings, Model } from "@/api/generated/types.gen"
+import type { Bot, BotSettings, Model, Skill } from "@/api/generated/types.gen"
 
 import { BotScreen, NewBotScreen } from "./bot-screen"
 import { BotsScreen } from "./bots-screen"
@@ -46,9 +47,28 @@ const models: Model[] = [
   { provider: "gateway", name: "gpt-luna", kind: "model_gateway" },
 ]
 
-// The server: the Bots and the models. A PUT stores what it is given and keeps the memory; a DELETE answers as
-// `remove` says, or takes the Bot away. It keeps what was put and what was removed.
-function server(start: Bot[], opts: { remove?: (name: string) => Response | undefined } = {}) {
+const skill = (name: string, everyone = false): Skill => ({
+  name,
+  everyone,
+  latest: {
+    revision: 1,
+    description: `What ${name} teaches.`,
+    digest: "d",
+    size: 1,
+    files: 1,
+    source: "upload",
+    created_at: new Date(0).toISOString(),
+  },
+  created_at: new Date(0).toISOString(),
+  updated_at: new Date(0).toISOString(),
+})
+
+// The server: the Bots, the models and the skills. A PUT stores what it is given and keeps the memory; a DELETE
+// answers as `remove` says, or takes the Bot away. It keeps what was put and what was removed.
+function server(
+  start: Bot[],
+  opts: { remove?: (name: string) => Response | undefined; skills?: Skill[] } = {},
+) {
   let bots = start
   const put: { name: string; settings: BotSettings }[] = []
   const removed: string[] = []
@@ -59,6 +79,7 @@ function server(start: Bot[], opts: { remove?: (name: string) => Response | unde
 
     if (request.method === "GET" && path === "/bots") return json({ data: bots })
     if (request.method === "GET" && path === "/models") return json({ data: models })
+    if (request.method === "GET" && path === "/skills") return json({ data: opts.skills ?? [] })
 
     const one = /^\/bots\/([^/]+)$/.exec(path)
     const found = one && bots.find((b) => b.name === one[1])
@@ -141,16 +162,33 @@ test("the memory is read as one entry a line, without the empty ones", () => {
 })
 
 // A save replaces the model, the effort and the persona together, so what is empty is left out, not sent empty.
+// The skills are always sent: an empty list takes the Bot's skills away (issue #21).
 test("a draft is sent as the settings the server replaces", () => {
   expect(settingsOf({ ...emptyDraft, name: "helper", persona: "  Be brief.\n" }, models)).toEqual({
     persona: "Be brief.",
+    skills: [],
+    skills_off: [],
   })
   expect(
     settingsOf(
-      { name: "helper", model: "gateway/gpt-luna", effort: "high", persona: "Be brief." },
+      {
+        name: "helper",
+        model: "gateway/gpt-luna",
+        effort: "high",
+        persona: "Be brief.",
+        skills: ["review-go"],
+        skillsOff: ["pdf"],
+      },
       models,
     ),
-  ).toEqual({ provider: "gateway", model: "gpt-luna", effort: "high", persona: "Be brief." })
+  ).toEqual({
+    provider: "gateway",
+    model: "gpt-luna",
+    effort: "high",
+    persona: "Be brief.",
+    skills: ["review-go"],
+    skills_off: ["pdf"],
+  })
 })
 
 test("a new Bot's name follows the server's rule and is not one taken", () => {
@@ -258,12 +296,41 @@ test("a Bot's persona is saved with its model, and its memory is read only", asy
           model: "gpt-luna",
           effort: "high",
           persona: "Answer briefly, with sources.",
+          skills: [],
+          skills_off: [],
         },
       },
     ]),
   )
   await vi.waitFor(() => expect(screen.getByRole("button", { name: "Save" })).toBeDisabled())
   expect(screen.getByLabelText("Persona")).toHaveValue("Answer briefly, with sources.")
+})
+
+// Scenario: a skill for everyone, one the Bot adds and one it could add (issue #21). The owner turns the first
+// off for this Bot, takes the second away and adds the third; they are saved with the Bot.
+test("a Bot's skills are turned off, removed and added in its form", async () => {
+  const { put } = server([bot("researcher", { skills: ["review-go"] })], {
+    skills: [skill("pdf", true), skill("review-go"), skill("forms")],
+  })
+  open("/bots/researcher")
+  const user = userEvent.setup()
+
+  const everyone = await screen.findByRole("list", { name: "Skills for everyone" })
+  expect(everyone).toHaveTextContent("What pdf teaches.")
+  const pdf = within(everyone).getByRole("switch", { name: /pdf/ })
+  expect(pdf).toBeChecked()
+  await user.click(pdf)
+
+  const add = screen.getByLabelText("Skills")
+  expect(await options(user, add)).toEqual(["forms"])
+  await choose(user, add, "forms")
+  expect(screen.getByLabelText("Skills")).toBeDisabled()
+  await user.click(screen.getByRole("button", { name: "Remove skill review-go" }))
+  expect(screen.getByLabelText("Skills")).toBeEnabled()
+
+  await user.click(screen.getByRole("button", { name: "Save" }))
+  await vi.waitFor(() => expect(put).toHaveLength(1))
+  expect(put[0]?.settings).toMatchObject({ skills: ["forms"], skills_off: ["pdf"] })
 })
 
 // Scenario: the owner changes a Bot and thinks again; the form goes back to what the server holds.
@@ -348,6 +415,8 @@ test("a new Bot is made with a name, a model and a persona", async () => {
         provider: "claude-subscription",
         model: "opus",
         persona: "You are the team's researcher.",
+        skills: [],
+        skills_off: [],
       },
     },
   ])

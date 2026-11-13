@@ -62,6 +62,29 @@ const models = [
   { provider: "ninerouter", name: "cx/qwen-coder", kind: "openai_compatible" },
 ]
 
+// The skills the owner added (issue #21): one for everyone, two an agent or a Bot can add.
+const skill = (name: string, description: string, everyone = false) => ({
+  name,
+  everyone,
+  latest: {
+    revision: 1,
+    description,
+    digest: "d",
+    size: 1,
+    files: 1,
+    source: "upload",
+    created_at: hours(30),
+  },
+  created_at: hours(30),
+  updated_at: hours(30),
+})
+
+const skills = [
+  skill("pdf", "Read, fill and merge PDF files.", true),
+  skill("review-go", "Review Go changes against the repository's conventions."),
+  skill("lark-docs", "Write and update documents in Lark."),
+]
+
 async function fakeServer(page: Page) {
   let profiles = [
     profile("implementer", {
@@ -142,6 +165,8 @@ async function fakeServer(page: Page) {
         return json({ data: profiles })
       case "GET /models":
         return json({ data: models })
+      case "GET /skills":
+        return json({ data: skills })
       case "GET /profiles/reviewer/versions":
         return json({
           data: [
@@ -261,6 +286,15 @@ test("an agent opens to its builder, its YAML and its versions", async ({ page }
   await page.getByLabel("Fallback 2").scrollIntoViewIfNeeded()
   await shot(page, "agent-fallbacks")
   await page.getByRole("button", { name: "Remove fallback explorer" }).click()
+  await expect(page.getByRole("button", { name: "Save revision" })).toBeDisabled()
+
+  // Its skills (issue #21): the one for everyone is on; one is added, then taken away again.
+  const everyone = page.getByRole("list", { name: "Skills for everyone" })
+  await expect(everyone.getByRole("switch", { name: /pdf/ })).toBeChecked()
+  await choose(page, page.getByLabel("Skills", { exact: true }), "review-go")
+  await page.getByRole("list", { name: "Skills added" }).scrollIntoViewIfNeeded()
+  await shot(page, "agent-skills")
+  await page.getByRole("button", { name: "Remove skill review-go" }).click()
   await expect(page.getByRole("button", { name: "Save revision" })).toBeDisabled()
 
   await page.getByRole("button", { name: "YAML" }).click()

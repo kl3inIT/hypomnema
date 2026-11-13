@@ -209,3 +209,15 @@ export function isAdded(
     return where === repo || where.startsWith(`${repo}/`)
   })
 }
+
+// pickable are the skills an agent or a Bot can add: those not given to everyone and not added already.
+export function pickable<S extends Pick<Skill, "name" | "everyone">>(all: S[], added: string[]) {
+  return all.filter((s) => !s.everyone && !added.includes(s.name))
+}
+
+// turned is the list of skills for everyone turned off, with one turned off or on again.
+export function turned(off: string[], name: string, isOff: boolean) {
+  const rest = off.filter((n) => n !== name)
+
+  return isOff ? [...rest, name] : rest
+}

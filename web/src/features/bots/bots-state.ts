@@ -36,9 +36,24 @@ export function memoryLine(bot: Pick<Bot, "memory" | "memory_limit">) {
 }
 
 // A Draft is a Bot as its form holds it. model is "provider/name", a bare name, or "" for pi's default.
-export type Draft = { name: string; model: string; effort: string; persona: string }
+// skills and skillsOff are the skills the Bot adds and the ones for everyone it turns off (issue #21).
+export type Draft = {
+  name: string
+  model: string
+  effort: string
+  persona: string
+  skills: string[]
+  skillsOff: string[]
+}
 
-export const emptyDraft: Draft = { name: "", model: "", effort: "", persona: "" }
+export const emptyDraft: Draft = {
+  name: "",
+  model: "",
+  effort: "",
+  persona: "",
+  skills: [],
+  skillsOff: [],
+}
 
 export function draftOf(bot: Bot): Draft {
   return {
@@ -46,17 +61,24 @@ export function draftOf(bot: Bot): Draft {
     model: modelKey(bot.provider ?? "", bot.model ?? ""),
     effort: bot.effort ?? "",
     persona: bot.persona,
+    skills: bot.skills,
+    skillsOff: bot.skills_off,
   }
 }
 
 export function sameDraft(a: Draft, b: Draft) {
   return (
-    a.name === b.name && a.model === b.model && a.effort === b.effort && a.persona === b.persona
+    a.name === b.name &&
+    a.model === b.model &&
+    a.effort === b.effort &&
+    a.persona === b.persona &&
+    a.skills.join() === b.skills.join() &&
+    a.skillsOff.join() === b.skillsOff.join()
   )
 }
 
-// settingsOf is the draft as PUT /bots/{name} takes it. The server replaces all four, so what the draft leaves
-// empty is left out and falls back to pi's default.
+// settingsOf is the draft as PUT /bots/{name} takes it. The server replaces what it is given, so what the draft
+// leaves empty is left out and falls back to pi's default; the skills are always given, the form holds them.
 export function settingsOf(draft: Draft, models: Model[]): BotSettings {
   const model = draft.model ? splitModel(draft.model, models) : { provider: "", name: "" }
 
@@ -65,6 +87,8 @@ export function settingsOf(draft: Draft, models: Model[]): BotSettings {
     ...(model.name && { model: model.name }),
     ...(draft.effort && { effort: draft.effort }),
     persona: draft.persona.trim(),
+    skills: draft.skills,
+    skills_off: draft.skillsOff,
   }
 }
 

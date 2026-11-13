@@ -47,6 +47,29 @@ const models = [
   { provider: "gateway", name: "gpt-sol", kind: "model_gateway" },
 ]
 
+// The skills the owner added (issue #21): one for everyone, two an agent or a Bot can add.
+const skill = (name: string, description: string, everyone = false) => ({
+  name,
+  everyone,
+  latest: {
+    revision: 1,
+    description,
+    digest: "d",
+    size: 1,
+    files: 1,
+    source: "upload",
+    created_at: hours(30),
+  },
+  created_at: hours(30),
+  updated_at: hours(30),
+})
+
+const skills = [
+  skill("pdf", "Read, fill and merge PDF files.", true),
+  skill("review-go", "Review Go changes against the repository's conventions."),
+  skill("lark-docs", "Write and update documents in Lark."),
+]
+
 // The fake keeps the Bots as the control plane does: a PUT makes one or replaces its model, effort and persona
 // and keeps its memory; a DELETE is refused for the first Bot and for one with a memory. A chat is made with the
 // Bot it names, or the first.
@@ -130,6 +153,8 @@ async function fakeServer(page: Page, start: Bot[] = [coordinator]) {
         return json({ data: bots })
       case "GET /models":
         return json({ data: models })
+      case "GET /skills":
+        return json({ data: skills })
       case "POST /chats": {
         const made = request.postDataJSON() as { title?: string; bot?: string }
         chat = {
@@ -244,6 +269,39 @@ test("a new Bot is made with a name, a model and a persona", async ({ page }) =>
       model: "opus",
       effort: "high",
       persona: "You are the team's researcher. Answer with sources.",
+      skills: [],
+      skills_off: [],
+    },
+  })
+})
+
+// Scenario: the owner gives the first Bot a skill and turns off one given to everyone (issue #21); both are
+// saved with the Bot.
+test("a Bot's skills are chosen in its form", async ({ page }) => {
+  const calls = await fakeServer(page)
+  await page.goto("/bots/coordinator")
+
+  const everyone = page.getByRole("list", { name: "Skills for everyone" })
+  await expect(everyone).toContainText("Read, fill and merge PDF files.")
+  await everyone.getByRole("switch", { name: /pdf/ }).click()
+  await choose(page, page.getByLabel("Skills", { exact: true }), "review-go")
+  await expect(page.getByRole("list", { name: "Skills added" })).toContainText(
+    "Review Go changes against the repository's conventions.",
+  )
+  await page.getByRole("list", { name: "Skills added" }).scrollIntoViewIfNeeded()
+  expect(await fits(page)).toBe(true)
+  await shot(page, "bot-skills")
+
+  await page.getByRole("button", { name: "Save", exact: true }).click()
+  await expect(page.getByRole("button", { name: "Save", exact: true })).toBeDisabled()
+  expect(calls.at(-1)).toEqual({
+    call: "PUT /bots/coordinator",
+    body: {
+      provider: "gateway",
+      model: "gpt-luna",
+      persona: "Plan the work, give it to workers and report what they did, briefly.",
+      skills: ["review-go"],
+      skills_off: ["pdf"],
     },
   })
 })
@@ -307,6 +365,8 @@ test("a Bot shows its memory, takes a new persona and refuses to be removed", as
         provider: "gateway",
         model: "gpt-luna",
         persona: "Plan the work and report in Vietnamese.",
+        skills: [],
+        skills_off: [],
       },
     },
     { call: "DELETE /bots/coordinator", body: null },
