@@ -1161,7 +1161,10 @@ plane, which keeps their tokens fresh. The gateway's Codex provider runs under t
   such an account (below).
 - A login makes an account, or gives new tokens to the account that already has the vendor's id (Codex: the
   ChatGPT account id, read with the email and the plan from the id token; Antigravity: Google's id of the user, with
-  the tier as the plan and the project). The tokens are a vault secret of kind
+  the tier as the plan and the project) and the same email, case aside. The email is asked too since issue #326:
+  Codex's id is the workspace's, shared by every member of a Business workspace, so two members are two accounts
+  (omp keys a Codex credential by email and workspace, CLIProxyAPI names its file by both). The tokens are a vault
+  secret of kind
   `oauth_token_set`, named after the account, with the time the access token ends.
 - `serve` looks every 5 minutes for access tokens that end within the vendor's lead (Codex: 30 minutes, Claude: 4
   hours) and

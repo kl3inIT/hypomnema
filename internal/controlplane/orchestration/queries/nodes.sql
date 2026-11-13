@@ -92,7 +92,8 @@ SELECT * FROM accounts WHERE id = @id;
 SELECT * FROM accounts ORDER BY runtime, position, id;
 
 -- name: GetAccountByExternalID :one
-SELECT * FROM accounts WHERE runtime = @runtime AND external_id = @external_id;
+SELECT * FROM accounts
+WHERE runtime = @runtime AND external_id = @external_id AND lower(coalesce(email, '')) = lower(@email);
 
 -- name: InsertLoginAccount :exec
 INSERT INTO accounts (id, runtime, label, status, position, external_id, email, plan, project, secret_ref,
