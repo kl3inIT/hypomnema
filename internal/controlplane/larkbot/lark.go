@@ -261,31 +261,9 @@ func (s *sdk) SendText(ctx context.Context, chatID, text string) error {
 		return err
 	}
 
-	return s.send(ctx, chatID, "text", string(content))
-}
+	_, err = s.send(ctx, chatID, "text", string(content))
 
-func (s *sdk) SendTextTo(ctx context.Context, openID, text string) (string, error) {
-	content, err := json.Marshal(map[string]string{"text": text})
-	if err != nil {
-		return "", err
-	}
-
-	resp, err := s.api.Im.V1.Message.Create(ctx, larkim.NewCreateMessageReqBuilder().ReceiveIdType("open_id").
-		Body(larkim.NewCreateMessageReqBodyBuilder().ReceiveId(openID).MsgType("text").Content(string(content)).
-			Build()).Build())
-	if err != nil {
-		return "", fmt.Errorf("sending to Lark: %w", err)
-	}
-
-	if err := refused("sending to Lark", resp.Success(), resp.Code, resp.Msg); err != nil {
-		return "", err
-	}
-
-	if resp.Data == nil || deref(resp.Data.ChatId) == "" {
-		return "", errors.New("sending to Lark: Lark gave no chat id")
-	}
-
-	return *resp.Data.ChatId, nil
+	return err
 }
 
 // SendFile uploads a file (POST /open-apis/im/v1/files) and sends it as a file
@@ -313,17 +291,35 @@ func (s *sdk) SendFile(ctx context.Context, chatID string, a Attachment) error {
 		return err
 	}
 
-	return s.send(ctx, chatID, "file", string(content))
+	_, err = s.send(ctx, chatID, "file", string(content))
+
+	return err
 }
 
-func (s *sdk) send(ctx context.Context, chatID, kind, content string) error {
-	resp, err := s.api.Im.V1.Message.Create(ctx, larkim.NewCreateMessageReqBuilder().ReceiveIdType("chat_id").
-		Body(larkim.NewCreateMessageReqBodyBuilder().ReceiveId(chatID).MsgType(kind).Content(content).Build()).Build())
-	if err != nil {
-		return fmt.Errorf("sending to Lark: %w", err)
+// send sends a message to a chat, or to a person's direct chat with the bot
+// by their open_id (receive_id_type open_id, as OpenClaw sends to
+// user:<open_id>), and returns the id of the chat Lark put it in.
+func (s *sdk) send(ctx context.Context, chatID, kind, content string) (string, error) {
+	idType := "chat_id"
+	if strings.HasPrefix(chatID, openIDPrefix) {
+		idType = "open_id"
 	}
 
-	return refused("sending to Lark", resp.Success(), resp.Code, resp.Msg)
+	resp, err := s.api.Im.V1.Message.Create(ctx, larkim.NewCreateMessageReqBuilder().ReceiveIdType(idType).
+		Body(larkim.NewCreateMessageReqBodyBuilder().ReceiveId(chatID).MsgType(kind).Content(content).Build()).Build())
+	if err != nil {
+		return "", fmt.Errorf("sending to Lark: %w", err)
+	}
+
+	if err := refused("sending to Lark", resp.Success(), resp.Code, resp.Msg); err != nil {
+		return "", err
+	}
+
+	if resp.Data != nil && deref(resp.Data.ChatId) != "" {
+		return *resp.Data.ChatId, nil
+	}
+
+	return chatID, nil
 }
 
 // streamingClosed is the code Lark answers a card's update with once its
@@ -331,7 +327,7 @@ func (s *sdk) send(ctx context.Context, chatID, kind, content string) error {
 // LarkReplyCard.STREAMING_CLOSED).
 const streamingClosed = 300309
 
-func (s *sdk) OpenCard(ctx context.Context, chatID, replyTo, text string) (string, error) {
+func (s *sdk) OpenCard(ctx context.Context, chatID, replyTo, text string) (cardID, larkChatID string, err error) {
 	card, err := json.Marshal(map[string]any{
 		"schema": "2.0",
 		"config": map[string]any{
@@ -348,32 +344,34 @@ func (s *sdk) OpenCard(ctx context.Context, chatID, replyTo, text string) (strin
 		}},
 	})
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	created, err := s.api.Cardkit.V1.Card.Create(ctx, larkcardkit.NewCreateCardReqBuilder().
 		Body(larkcardkit.NewCreateCardReqBodyBuilder().Type("card_json").Data(string(card)).Build()).Build())
 	if err != nil {
-		return "", fmt.Errorf("creating a card: %w", err)
+		return "", "", fmt.Errorf("creating a card: %w", err)
 	}
 
 	if err := refused("creating a card", created.Success(), created.Code, created.Msg); err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	if created.Data == nil || created.Data.CardId == nil {
-		return "", errors.New("creating a card: Lark gave no card id")
+		return "", "", errors.New("creating a card: Lark gave no card id")
 	}
 
-	id := *created.Data.CardId
+	cardID = *created.Data.CardId
 
-	content, err := json.Marshal(map[string]any{"type": "card", "data": map[string]string{"card_id": id}})
+	content, err := json.Marshal(map[string]any{"type": "card", "data": map[string]string{"card_id": cardID}})
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	if replyTo == "" {
-		return id, s.send(ctx, chatID, "interactive", string(content))
+		larkChatID, err = s.send(ctx, chatID, "interactive", string(content))
+
+		return cardID, larkChatID, err
 	}
 
 	// A reply quotes the person's message, as OpenClaw, Hermes and MemoryOS answer. When that message was
@@ -382,10 +380,16 @@ func (s *sdk) OpenCard(ctx context.Context, chatID, replyTo, text string) (strin
 		Body(larkim.NewReplyMessageReqBodyBuilder().MsgType("interactive").Content(string(content)).
 			ReplyInThread(false).Build()).Build())
 	if err != nil || !resp.Success() {
-		return id, s.send(ctx, chatID, "interactive", string(content))
+		larkChatID, err = s.send(ctx, chatID, "interactive", string(content))
+
+		return cardID, larkChatID, err
 	}
 
-	return id, nil
+	if resp.Data != nil && deref(resp.Data.ChatId) != "" {
+		return cardID, *resp.Data.ChatId, nil
+	}
+
+	return cardID, chatID, nil
 }
 
 func (s *sdk) React(ctx context.Context, messageID, emoji string) (string, error) {
@@ -643,27 +647,6 @@ func (s *sdk) NameOf(ctx context.Context, openID string) (string, error) {
 	}
 
 	return deref(resp.Data.User.Name), nil
-}
-
-// Member reads a person at Lark (GET /open-apis/contact/v3/users/:open_id),
-// which answers only for a member of the app's organization the app may see
-// (scope contact:user.base:readonly, which NameOf needs too).
-func (s *sdk) Member(ctx context.Context, openID string) error {
-	resp, err := s.api.Contact.V3.User.Get(ctx, larkcontact.NewGetUserReqBuilder().UserId(openID).
-		UserIdType("open_id").Build())
-	if err != nil {
-		return fmt.Errorf("reading %s at Lark: %w", openID, err)
-	}
-
-	if err := refused("reading "+openID+" at Lark", resp.Success(), resp.Code, resp.Msg); err != nil {
-		return err
-	}
-
-	if resp.Data == nil || resp.Data.User == nil {
-		return fmt.Errorf("reading %s at Lark: Lark gave no member", openID)
-	}
-
-	return nil
 }
 
 // BotOpenID reads the bot's own open_id (GET /open-apis/bot/v3/info), which

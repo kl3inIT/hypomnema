@@ -527,6 +527,25 @@ func (q *Queries) MarkLarkGroupChat(ctx context.Context, chatID string) error {
 	return err
 }
 
+const renameLarkChannelChat = `-- name: RenameLarkChannelChat :execrows
+UPDATE lark_channel_chats SET lark_chat_id = ?1
+WHERE channel = ?2 AND lark_chat_id = ?3
+`
+
+type RenameLarkChannelChatParams struct {
+	NewLarkChatID string
+	Channel       string
+	LarkChatID    string
+}
+
+func (q *Queries) RenameLarkChannelChat(ctx context.Context, arg RenameLarkChannelChatParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, renameLarkChannelChat, arg.NewLarkChatID, arg.Channel, arg.LarkChatID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const resetLarkChannelChat = `-- name: ResetLarkChannelChat :execrows
 UPDATE lark_channel_chats SET chat_id = ?1, sent_seq = 0
 WHERE channel = ?2 AND lark_chat_id = ?3

@@ -143,16 +143,16 @@ type Lark interface {
 	SendCard(ctx context.Context, openID string, card Card) (cardID, messageID string, err error)
 	// ReplaceCard replaces a card sent with SendCard; seq rises with each call.
 	ReplaceCard(ctx context.Context, cardID string, card Card, seq int) error
-	// SendText sends a short notice to a chat.
+	// SendText sends a short notice to a chat. Here and in SendFile and
+	// OpenCard, a chat may be named by a person's open_id (ou_...), which is
+	// their direct chat with the bot.
 	SendText(ctx context.Context, chatID, text string) error
-	// SendTextTo sends a short notice to a person's direct chat with the bot
-	// and returns that chat's id.
-	SendTextTo(ctx context.Context, openID, text string) (chatID string, err error)
 	// SendFile uploads a file and sends it to a chat.
 	SendFile(ctx context.Context, chatID string, a Attachment) error
-	// OpenCard sends a card that is still being written and returns its id.
-	// With replyTo it is a reply to that message, which Lark shows quoted.
-	OpenCard(ctx context.Context, chatID, replyTo, text string) (cardID string, err error)
+	// OpenCard sends a card that is still being written and returns its id
+	// and the id of the chat Lark put it in. With replyTo it is a reply to
+	// that message, which Lark shows quoted.
+	OpenCard(ctx context.Context, chatID, replyTo, text string) (cardID, larkChatID string, err error)
 	// React puts an emoji on a message and returns the reaction's id;
 	// Unreact takes it off.
 	React(ctx context.Context, messageID, emoji string) (reactionID string, err error)
@@ -165,9 +165,6 @@ type Lark interface {
 	OpenIDOf(ctx context.Context, email string) (string, error)
 	// NameOf reads a member's name.
 	NameOf(ctx context.Context, openID string) (string, error)
-	// Member is nil when the app can read a person as a member of its
-	// organization.
-	Member(ctx context.Context, openID string) error
 }
 
 // Store is what the Channels keep (orchestration.Service).
@@ -189,6 +186,7 @@ type Store interface {
 	AskedInLarkChannelGroup(ctx context.Context, channel, chatID string) error
 	ResetLarkChannelChat(ctx context.Context, channel, larkChatID, title string) (orchestration.LarkChannelChat, error)
 	MarkLarkChannelSent(ctx context.Context, larkChatID string, seq int64) error
+	RenameLarkChannelChat(ctx context.Context, channel, oldID, newID string) error
 	ListQuestions(ctx context.Context, f orchestration.QuestionFilter) ([]orchestration.Question, error)
 	GetQuestion(ctx context.Context, id string) (orchestration.Question, error)
 	AnswerQuestion(ctx context.Context, id string, by orchestration.Addressee, a orchestration.Answer,
@@ -228,12 +226,15 @@ const (
 	noticeStopped   = "Stopped."
 	noticeIdle      = "Nothing is running."
 	noticeNoReply   = "%s could not answer this. Try again."
-	noticeMenu      = "Menu: %s"
 	writing         = "…"
 )
 
 // The commands a person can type, as OpenClaw, Hermes and MemoryOS have /new
 // and Hermes /stop.
+// openIDPrefix starts a person's open_id, which names their direct chat
+// with the bot until Lark gives the chat's own id.
+const openIDPrefix = "ou_"
+
 const (
 	commandNew  = "/new"
 	commandStop = "/stop"
@@ -649,77 +650,30 @@ func (cn *conn) menued(ctx context.Context, p MenuPress) error {
 		return err
 	}
 
-	m := Message{
-		ID: id, Direct: true, Text: commandMenu + " " + key, IsText: true, Sender: p.Operator, FromPerson: true,
-		SenderOrg: cn.orgOf(ctx, ch, p.Operator, p.Org), Org: p.Org, Menu: true,
-	}
-
 	known, err := cn.directChat(ctx, p.Operator)
 	if err != nil {
 		return err
 	}
 
-	// Who may send is decided before anything is sent: a refused presser is told only in a chat they already
-	// have with the bot, where a message they typed was refused, and someone the bot never spoke with gets
-	// nothing.
-	if refusal := cn.refusal(ctx, ch, m); refusal != "" {
-		cn.all.logger.InfoContext(ctx, "a press of the Lark menu was refused", slog.String("event", "larkbot.refused"),
-			slog.String("channel", cn.name), slog.String("sender", m.Sender), slog.String("reason", refusal))
-
-		if known != "" {
-			cn.notice(ctx, known, refusal)
-		}
-
-		return nil
+	// The presser is taken as a member of the app's organization, which the event names: the app is a custom
+	// app of that organization, which nobody outside it can open, and OpenClaw makes no check either (owner,
+	// 2026-11-13). The Channel's mode still decides, as for a typed message. A person whose direct chat is not
+	// known yet is answered by their open_id, and Lark's answer names the chat (OpenClaw answers a press to
+	// user:<open_id>).
+	chatID := known
+	if chatID == "" {
+		chatID = p.Operator
 	}
 
-	m.ChatID = known
-	if m.ChatID == "" {
-		// Lark names the chat when the press is first answered there, as OpenClaw answers a press to the person
-		// (user:<open_id>).
-		sendCtx, cancel := context.WithTimeout(ctx, sendTimeout)
-		m.ChatID, err = cn.lark.SendTextTo(sendCtx, p.Operator, fmt.Sprintf(noticeMenu, key))
-
-		cancel()
-
-		if err != nil {
-			return err
-		}
-	}
-
-	return cn.served(ctx, ch, m)
-}
-
-// orgOf is the organization of who pressed the menu. The event names only
-// the app's (OpenClaw's handleBotMenu reads no tenant of the operator), so a
-// presser is of the app's organization when the owner set them up there (the
-// owner, someone he added) or when the app can read them as a member of it,
-// which it cannot for anyone else; otherwise it is not known, and the press
-// is refused as a stranger's message is.
-func (cn *conn) orgOf(ctx context.Context, ch orchestration.LarkChannel, openID, appOrg string) string {
-	if openID == ch.OwnerOpenID {
-		return appOrg
-	}
-
-	if _, err := cn.all.store.LarkChannelPerson(ctx, cn.name, openID); err == nil {
-		return appOrg
-	}
-
-	ctx, cancel := context.WithTimeout(ctx, sendTimeout)
-	defer cancel()
-
-	if err := cn.lark.Member(ctx, openID); err != nil {
-		cn.all.logger.InfoContext(ctx, "who pressed the Lark menu is not a member the app can read",
-			slog.String("event", "larkbot.not_member"), slog.String("channel", cn.name), slog.Any("error", err))
-
-		return ""
-	}
-
-	return appOrg
+	return cn.direct(ctx, ch, Message{
+		ID: id, ChatID: chatID, Direct: true, Text: commandMenu + " " + key, IsText: true, Sender: p.Operator,
+		FromPerson: true, SenderOrg: p.Org, Org: p.Org, Menu: true,
+	})
 }
 
 // directChat is the id of the direct chat a person has with the bot, which a
-// press of the menu does not name: the one they wrote in before, or none.
+// press of the menu does not name: the one they wrote in before, the
+// person's open_id while Lark has not named it, or none.
 func (cn *conn) directChat(ctx context.Context, openID string) (string, error) {
 	chats, err := cn.all.store.LarkChannelChats(ctx, cn.name)
 	if err != nil {
@@ -738,6 +692,8 @@ func (cn *conn) directChat(ctx context.Context, openID string) (string, error) {
 // direct handles a direct message that was taken: who may send it, then what
 // it is.
 func (cn *conn) direct(ctx context.Context, ch orchestration.LarkChannel, m Message) error {
+	store := cn.all.store
+
 	if refusal := cn.refusal(ctx, ch, m); refusal != "" {
 		cn.all.logger.InfoContext(ctx, "a Lark message was refused", slog.String("event", "larkbot.refused"),
 			slog.String("channel", cn.name), slog.String("sender", m.Sender), slog.String("reason", refusal))
@@ -745,13 +701,6 @@ func (cn *conn) direct(ctx context.Context, ch orchestration.LarkChannel, m Mess
 
 		return nil
 	}
-
-	return cn.served(ctx, ch, m)
-}
-
-// served handles a direct message whose sender may send it.
-func (cn *conn) served(ctx context.Context, ch orchestration.LarkChannel, m Message) error {
-	store := cn.all.store
 
 	if !m.IsText || strings.TrimSpace(m.Text) == "" {
 		cn.notice(ctx, m.ChatID, noticeTextOnly)
@@ -1210,7 +1159,7 @@ func (cn *conn) relayLocked(ctx context.Context, chat orchestration.LarkChannelC
 	}
 
 	ctx, stop := context.WithCancel(ctx)
-	r := &relay{all: cn.all, lark: cn.lark, chat: chat, sent: chat.SentSeq, stop: stop}
+	r := &relay{all: cn.all, cn: cn, lark: cn.lark, chat: chat, sent: chat.SentSeq, stop: stop}
 	cn.relays[chat.LarkChatID] = r
 
 	go r.run(ctx)
@@ -1224,6 +1173,7 @@ func (cn *conn) relayLocked(ctx context.Context, chat orchestration.LarkChannelC
 // that was lost changes nothing (the web client is put right the same way).
 type relay struct {
 	all  *Channels
+	cn   *conn
 	lark Lark
 	chat orchestration.LarkChannelChat
 	stop context.CancelFunc
@@ -1444,12 +1394,14 @@ func (r *relay) show(ctx context.Context, now bool) {
 	defer cancel()
 
 	if r.card == "" {
-		id, err := r.lark.OpenCard(ctx, r.chat.LarkChatID, r.replyTo(), body)
+		id, larkChat, err := r.lark.OpenCard(ctx, r.chat.LarkChatID, r.replyTo(), body)
 		if err != nil {
 			r.failed(ctx, "opening a card", err)
 
 			return
 		}
+
+		r.named(ctx, larkChat)
 
 		r.card, r.shown, r.updated, r.seq = id, body, r.all.now(), 1
 
@@ -1574,12 +1526,14 @@ func (r *relay) finish(ctx context.Context, text string) {
 
 	for i, part := range parts {
 		if i > 0 || card == "" {
-			id, err := r.lark.OpenCard(ctx, r.chat.LarkChatID, replyTo, part)
+			id, larkChat, err := r.lark.OpenCard(ctx, r.chat.LarkChatID, replyTo, part)
 			if err != nil {
 				r.failed(ctx, "sending a reply", err)
 
 				return
 			}
+
+			r.named(ctx, larkChat)
 
 			card, seq, replyTo = id, 1, ""
 		}
@@ -1588,6 +1542,31 @@ func (r *relay) finish(ctx context.Context, text string) {
 			r.failed(ctx, "closing a card", err)
 		}
 	}
+}
+
+// named records the Lark chat a reply was sent to, for a direct chat kept
+// under the person's open_id until Lark named it (issue #312: a press of the
+// menu names no chat). The chat and its relay go by that id from then on.
+func (r *relay) named(ctx context.Context, larkChatID string) {
+	old := r.chat.LarkChatID
+	if !strings.HasPrefix(old, openIDPrefix) || larkChatID == "" || larkChatID == old {
+		return
+	}
+
+	if err := r.all.store.RenameLarkChannelChat(ctx, r.chat.Channel, old, larkChatID); err != nil {
+		r.failed(ctx, "recording the chat Lark named", err)
+
+		return
+	}
+
+	r.cn.mu.Lock()
+	if r.cn.relays[old] == r {
+		delete(r.cn.relays, old)
+		r.cn.relays[larkChatID] = r
+	}
+
+	r.chat.LarkChatID = larkChatID
+	r.cn.mu.Unlock()
 }
 
 func (r *relay) failed(ctx context.Context, doing string, err error) {

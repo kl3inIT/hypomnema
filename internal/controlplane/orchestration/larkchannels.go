@@ -468,6 +468,39 @@ func (s *Service) MarkLarkChannelSent(ctx context.Context, larkChatID string, se
 	return nil
 }
 
+// RenameLarkChannelChat records the Lark chat id of a person's direct chat
+// that was kept under their open_id until Lark named the chat (issue #312: a
+// press of the bot's menu names no chat, and the reply sent to the person
+// does). ErrNotFound when no chat of the Channel has the old id; ErrConflict
+// when one has the new id already.
+func (s *Service) RenameLarkChannelChat(ctx context.Context, channel, oldID, newID string) error {
+	if _, err := s.read().GetLarkChannelChat(ctx, store.GetLarkChannelChatParams{
+		Channel: channel, LarkChatID: newID,
+	}); err == nil {
+		return fmt.Errorf("%w: Lark chat %s is a chat of channel %s already", ErrConflict, newID, channel)
+	}
+
+	var renamed int64
+
+	if err := s.write(ctx, func(q *store.Queries, _ int64) error {
+		var err error
+
+		renamed, err = q.RenameLarkChannelChat(ctx, store.RenameLarkChannelChatParams{
+			NewLarkChatID: newID, Channel: channel, LarkChatID: oldID,
+		})
+
+		return err
+	}); err != nil {
+		return fmt.Errorf("renaming Lark chat %s: %w", oldID, err)
+	}
+
+	if renamed == 0 {
+		return fmt.Errorf("%w: channel %s has no Lark chat %s", ErrNotFound, channel, oldID)
+	}
+
+	return nil
+}
+
 // LarkChannelForRun returns the Channel a question of a Run goes out through:
 // the Channel whose Lark chat is the chat that started the Run, as Hermes
 // sends an approval to the conversation the work came from; for a Run that
