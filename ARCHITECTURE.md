@@ -2032,8 +2032,9 @@ Node (`internal/node`):
     the SHA-256 of the file it replaces. Each shows its progress and can be cancelled. Not built: a folder upload,
     resuming a broken upload, rich Markdown editing, PDF, CSV and notebook views, a Trash and undo, content search,
     writes over 1 MiB from the editor, more than the first 1000 entries of a directory.
-  - The sidebar lists the places (New chat, Team with the count that needs the owner, Bots, Routines, Agents,
-    Machines) above the Bots (issue #361, after OpenMausBot's sidebar): a row a Bot that has chats, and
+  - The sidebar lists the places in the order they are used (issue #371, after OpenClaw's navigation): New chat,
+    Team with the count that needs the owner, Routines, then Bots, Agents (a terminal mark, apart from the Bots'
+    robot) and Machines, above the Bots (issue #361, after OpenMausBot's sidebar): a row a Bot that has chats, and
     `coordinator` always, ordered by its latest chat. A row shows the Bot's avatar with a dot when one of its chats
     is working or needs the owner, its name, its latest chat's title, and "Needs you", "Working" or the time.
     Clicking it opens the latest chat; a chevron, on a Bot with more than one chat, opens its chats newest first,
