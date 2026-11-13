@@ -554,6 +554,35 @@ func TestAnAccountLoggedInOnTheControlPlaneIsNotGivenToWorkers(t *testing.T) {
 	assert.Equal(t, []string{"account claude/owner@example.com"}, users)
 }
 
+// Scenario: two members of one ChatGPT Business workspace sign in. Codex names
+// both by the workspace's id, so they are told apart by their e-mail: two
+// accounts, each with its own secret. A member signing in again, the e-mail
+// written in other case, keeps their account (issue #326).
+func TestMembersOfOneWorkspaceAreTwoAccounts(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ref := func(id string) string { return "vault:account-" + id }
+
+	first, err := w.s.SaveAccountLogin(t.Context(), AccountLogin{
+		Runtime: "codex", ExternalID: "workspace-1", Email: "first@example.com", Plan: "team",
+	}, ref)
+	require.NoError(t, err)
+
+	second, err := w.s.SaveAccountLogin(t.Context(), AccountLogin{
+		Runtime: "codex", ExternalID: "workspace-1", Email: "second@example.com", Plan: "team",
+	}, ref)
+	require.NoError(t, err)
+	assert.NotEqual(t, first.ID, second.ID)
+	assert.NotEqual(t, first.SecretRef, second.SecretRef)
+
+	again, err := w.s.SaveAccountLogin(t.Context(), AccountLogin{
+		Runtime: "codex", ExternalID: "workspace-1", Email: "First@Example.com", Plan: "team",
+	}, ref)
+	require.NoError(t, err)
+	assert.Equal(t, first.ID, again.ID)
+}
+
 // Scenario: the database of a running control plane is migrated past the
 // rebuild of the providers table. The providers the owner declared, their
 // models, the profile that names one and the gateway model served from one

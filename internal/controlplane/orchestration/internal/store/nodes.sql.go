@@ -198,16 +198,18 @@ func (q *Queries) GetAccount(ctx context.Context, id string) (Account, error) {
 }
 
 const getAccountByExternalID = `-- name: GetAccountByExternalID :one
-SELECT id, runtime, label, status, position, created_at, updated_at, external_id, email, "plan", secret_ref, refresh_failures, refresh_retry_at, refresh_error, project, sent_to_node FROM accounts WHERE runtime = ?1 AND external_id = ?2
+SELECT id, runtime, label, status, position, created_at, updated_at, external_id, email, "plan", secret_ref, refresh_failures, refresh_retry_at, refresh_error, project, sent_to_node FROM accounts
+WHERE runtime = ?1 AND external_id = ?2 AND lower(coalesce(email, '')) = lower(?3)
 `
 
 type GetAccountByExternalIDParams struct {
 	Runtime    string
 	ExternalID sql.NullString
+	Email      string
 }
 
 func (q *Queries) GetAccountByExternalID(ctx context.Context, arg GetAccountByExternalIDParams) (Account, error) {
-	row := q.db.QueryRowContext(ctx, getAccountByExternalID, arg.Runtime, arg.ExternalID)
+	row := q.db.QueryRowContext(ctx, getAccountByExternalID, arg.Runtime, arg.ExternalID, arg.Email)
 	var i Account
 	err := row.Scan(
 		&i.ID,

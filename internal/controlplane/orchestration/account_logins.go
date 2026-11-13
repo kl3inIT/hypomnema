@@ -23,8 +23,10 @@ const maxRefreshErrorBytes = 300
 // AccountLogin is who a login turned out to be.
 type AccountLogin struct {
 	Runtime string
-	// ExternalID is the vendor's own id of the account; a new login of the
-	// same one keeps the account and its secret.
+	// ExternalID is the vendor's own id of the account; a new login with the
+	// same one and the same Email keeps the account and its secret. Both are
+	// asked because Codex's id is the workspace's, shared by its members
+	// (issue #326; omp keys a Codex credential by e-mail and workspace).
 	ExternalID string
 	Email      string
 	Plan       string
@@ -45,7 +47,7 @@ type AccountRefresh struct {
 }
 
 // SaveAccountLogin records a login: a new account, or the one this runtime
-// already has for the vendor's id, with its email and plan as they are now.
+// already has for the vendor's id and the e-mail, with its email and plan as they are now.
 // secretRef gives the reference to the secret a new account's tokens go to.
 func (s *Service) SaveAccountLogin(
 	ctx context.Context, in AccountLogin, secretRef func(accountID string) string,
@@ -63,7 +65,7 @@ func (s *Service) SaveAccountLogin(
 
 	err := s.write(ctx, func(q *store.Queries, now int64) error {
 		row, err := q.GetAccountByExternalID(ctx, store.GetAccountByExternalIDParams{
-			Runtime: in.Runtime, ExternalID: nullString(in.ExternalID),
+			Runtime: in.Runtime, ExternalID: nullString(in.ExternalID), Email: strings.TrimSpace(in.Email),
 		})
 		if err == nil {
 			id = row.ID
