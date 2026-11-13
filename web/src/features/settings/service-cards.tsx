@@ -143,13 +143,14 @@ export function ServiceCard({ service }: { service: Integration }) {
   const accounts = service.connections.length
   const needsSignIn = service.connections.some((c) => c.sign_in_required)
   const app = service.kind === "app"
-  // An account at an address of its own needs no client: it is connected with what the owner types.
+  // An account at an address of its own needs no client, nor does an app, each account of which is an app of its
+  // own (issue #311): both are connected with what the owner types.
   const account = service.kind === "account"
-  const ready = account || Boolean(service.client_id)
+  const ready = account || app || Boolean(service.client_id)
   const add = (
     <Button variant="outline" size="sm">
       <Plus data-icon="inline-start" />
-      {app ? "Connect app" : "Add account"}
+      {app ? "Add app" : "Add account"}
     </Button>
   )
 
@@ -163,7 +164,7 @@ export function ServiceCard({ service }: { service: Integration }) {
               <span>{service.name}</span>
               <CardDescription>
                 {app
-                  ? "Works as your app"
+                  ? "Each account works as one of your apps"
                   : account
                     ? (accountHolds[service.id] ?? "An account at its own address")
                     : service.services.map(serviceName).join(" · ")}
@@ -174,13 +175,10 @@ export function ServiceCard({ service }: { service: Integration }) {
         <CardAction wrap>
           <span className="flex flex-wrap items-center gap-1.5 sm:justify-end">
             {account && <ConnectAccountDialog service={service} trigger={add} />}
-            {service.client_id &&
-              (app ? (
-                // An app is one thing: once it is connected there is no second one to add.
-                accounts === 0 && <ConnectAppDialog service={service} trigger={add} />
-              ) : (
-                <SignInDialog service={service} trigger={add} />
-              ))}
+            {app && <ConnectAppDialog service={service} trigger={add} />}
+            {!app && !account && service.client_id && (
+              <SignInDialog service={service} trigger={add} />
+            )}
             <Badge variant={accounts > 0 && !needsSignIn ? "success" : "warning"}>
               {!ready
                 ? "Not set up"
@@ -199,9 +197,7 @@ export function ServiceCard({ service }: { service: Integration }) {
         <CardContent>
           <div className="flex flex-col gap-2 border-t pt-3 text-xs text-muted-foreground">
             <p>
-              {app
-                ? `${service.name} is connected as an app you create once in its developer console. Give Hypomnema a JSON file with its app_id and app_secret from a terminal:`
-                : `${service.name} signs in with an OAuth client you create once. Give its file to Hypomnema from a terminal:`}
+              {`${service.name} signs in with an OAuth client you create once. Give its file to Hypomnema from a terminal:`}
             </p>
             <code className="font-mono text-foreground">
               hypomnema integrations client set {service.id} --client-file &lt;file&gt;
@@ -262,6 +258,7 @@ function AccountItem({
             {connection.services.map((grant) => (
               <Grant key={grant} grant={grant} />
             ))}
+            {app && connection.app_id && <span className="font-mono">{connection.app_id}</span>}
             {account && (
               <>
                 <span className="break-all">{connection.address}</span>
@@ -278,6 +275,18 @@ function AccountItem({
       </ItemContent>
       <ItemActions>
         <ChatsSwitch service={service} connection={connection} />
+        {app && (
+          <ConnectAppDialog
+            service={service}
+            connection={connection}
+            trigger={
+              <Button variant="ghost" size="sm">
+                <RefreshCw data-icon="inline-start" />
+                Change app
+              </Button>
+            }
+          />
+        )}
         {account && (
           <ConnectAccountDialog
             service={service}
@@ -313,7 +322,7 @@ function AccountItem({
             account
               ? `Hypomnema forgets this account's address and removes its password from the vault. The account itself stays at ${service.name}.`
               : app
-                ? `Hypomnema stops working as this app. The app's id and secret stay in the vault, for when you connect it again; the app itself is removed in ${service.name}'s developer console.`
+                ? `Hypomnema stops working as this app and removes its secret from the vault. The app itself stays in ${service.name}'s developer console.`
                 : `${service.name} is asked to end Hypomnema's access to this account, and its tokens are removed from the vault. If ${service.name} cannot be reached, remove the access in the account's own security settings.`
           }
           action="Disconnect"
@@ -334,30 +343,56 @@ const labelSchema = z
   .string()
   .regex(/^[a-z0-9][a-z0-9-]{0,30}$/, "Lower-case letters, digits and dashes, such as work.")
 
-// ConnectAppDialog connects a service that is an app. There is nothing to sign in to: the owner names the
-// Connection, and the control plane checks the app's id and secret with the service and reads the app's name.
-function ConnectAppDialog({ service, trigger }: { service: Integration; trigger: ReactElement }) {
+const appSchema = z.object({
+  label: labelSchema,
+  appId: z.string().trim().min(1, "The app's App ID, such as cli_…"),
+  appSecret: z.string().trim().min(1, "The app's App Secret."),
+})
+
+// ConnectAppDialog adds an app of a service that is one (Lark): each account is an app of its own (issue #311,
+// as each of OpenClaw's Feishu accounts has its own appId and appSecret). There is nothing to sign in to: the owner
+// names the account and gives the app's App ID and App Secret, with the fields the Channels page's setup dialog
+// asks them with (channels-screen.tsx, SetUpDialog), and the control plane checks them with the service and reads
+// the app's name. For an account that exists the name is fixed and the App ID starts as it is; the secret is typed
+// again, as it is never shown.
+function ConnectAppDialog({
+  service,
+  connection,
+  trigger,
+}: {
+  service: Integration
+  connection?: IntegrationConnection
+  trigger: ReactElement
+}) {
   const formId = useId()
   const refresh = useRefreshServices()
   const [open, setOpen] = useState(false)
 
   const connect = useMutation({
-    mutationFn: (label: string) =>
-      putIntegrationConnection({ path: { integration: service.id, label } }),
+    mutationFn: (value: z.infer<typeof appSchema>) =>
+      putIntegrationConnection({
+        path: { integration: service.id, label: value.label },
+        body: { app_id: value.appId.trim(), app_secret: value.appSecret.trim() },
+      }),
   })
 
   const form = useForm({
-    defaultValues: { label: "" },
-    validators: { onSubmit: z.object({ label: labelSchema }) },
+    defaultValues: {
+      label: connection?.label ?? "",
+      appId: connection?.app_id ?? "",
+      appSecret: "",
+    },
+    validators: { onSubmit: appSchema },
     onSubmit: async ({ value }) => {
       try {
-        await connect.mutateAsync(value.label)
+        await connect.mutateAsync(value)
       } catch {
         return // The dialog stays open and shows what the server refused.
       }
 
       await refresh()
       change(false)
+      said(`${service.name} app ${value.label} is connected`)
     },
   })
 
@@ -374,9 +409,11 @@ function ConnectAppDialog({ service, trigger }: { service: Integration; trigger:
       <DialogTrigger render={trigger} />
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Connect your {service.name} app</DialogTitle>
+          <DialogTitle>
+            {connection ? `Change the app of ${connection.label}` : `Add a ${service.name} app`}
+          </DialogTitle>
           <DialogDescription>
-            {`There is nothing to sign in to. Hypomnema checks the app's id and secret with ${service.name} and then works as the app, with what the app is allowed there.`}
+            {`The App ID and App Secret are on the app's Credentials page in ${service.name}'s developer console. Hypomnema checks them with ${service.name} and then works as the app, with what the app is allowed there. The secret goes to the vault and is not shown again.`}
           </DialogDescription>
         </DialogHeader>
         <DialogPanel>
@@ -391,15 +428,23 @@ function ConnectAppDialog({ service, trigger }: { service: Integration; trigger:
             }}
           >
             <FieldGroup>
-              <form.Field name="label">
-                {(field) => (
-                  <TextField
-                    field={field}
-                    label="Name"
-                    placeholder="work"
-                    description="What you call this app here, such as work."
-                  />
-                )}
+              {!connection && (
+                <form.Field name="label">
+                  {(field) => (
+                    <TextField
+                      field={field}
+                      label="Name"
+                      placeholder="work"
+                      description="What you call this app here, such as work or report."
+                    />
+                  )}
+                </form.Field>
+              )}
+              <form.Field name="appId">
+                {(field) => <TextField field={field} label="App ID" placeholder="cli_…" />}
+              </form.Field>
+              <form.Field name="appSecret">
+                {(field) => <TextField field={field} label="App Secret" secret />}
               </form.Field>
             </FieldGroup>
             <ErrorAlert error={connect.error} />

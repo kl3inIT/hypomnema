@@ -134,6 +134,7 @@ type Connection struct {
 	Address      sql.NullString
 	Version      sql.NullString
 	SignInFailed int64
+	AppID        sql.NullString
 }
 
 type Conversation struct {

@@ -88,7 +88,7 @@ func TestTheOwnerConnectsASupersetAccount(t *testing.T) {
 		require.ErrorIs(t, err, integration.ErrInvalid, address)
 	}
 
-	_, err = w.svc.Connect(t.Context(), integration.SupersetID, "other")
+	_, err = w.svc.Connect(t.Context(), integration.SupersetID, "other", integration.App{})
 	require.ErrorIs(t, err, integration.ErrInvalid, "Superset is not an app")
 
 	_, err = w.svc.Begin(t.Context(), integration.SupersetID, "other", nil)

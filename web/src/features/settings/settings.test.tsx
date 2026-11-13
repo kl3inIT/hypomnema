@@ -143,6 +143,8 @@ function server(
         updated_at: now,
         // An account at an address of its own is the user name that signed in there, with what the service runs.
         ...(body?.username && { account: body.username, address: body.address, version: "6.1.0" }),
+        // An app is the id it was given, never its secret.
+        ...(body?.app_id && { app_id: body.app_id }),
       }
       services = services.map((i) => ({
         ...i,
@@ -518,60 +520,64 @@ test("the owner signs a Google account in and disconnects it", async () => {
   ])
 })
 
-// Scenario: the owner gave Hypomnema his Lark app's id and secret. He connects the app under a name: no link to
-// open and nothing to paste. The Connection shows the app's own name and offers no sign-in again; disconnecting
-// says the app's id and secret stay.
-test("the owner connects a Lark app with no sign-in and disconnects it", async () => {
+// Scenario: one Lark organization, two apps (issue #311). The owner adds his own app as "work" with its App ID and
+// App Secret, as a Lark channel's are given, then a second app as "report": no link to open and nothing to paste.
+// Each account shows the app's name and id and offers no sign-in again; nothing is sent without an App Secret.
+// Disconnecting says the secret leaves the vault.
+test("the owner adds two Lark apps with their App ID and App Secret and disconnects one", async () => {
   const user = userEvent.setup()
   const requests = server({
-    services: [
-      {
-        id: "lark",
-        name: "Lark",
-        kind: "app",
-        client_id: "cli_a1b2",
-        services: [],
-        connections: [],
-      },
-    ],
+    services: [{ id: "lark", name: "Lark", kind: "app", services: [], connections: [] }],
   })
   await open(IntegrationsScreen, "Integrations")
 
   const card = async () => within(await screen.findByText("Lark").then(cardOf))
-  await user.click((await card()).getByRole("button", { name: "Connect app" }))
-  const dialog = within(await screen.findByRole("dialog"))
-  await user.type(dialog.getByLabelText("Name"), "work")
-  await user.click(dialog.getByRole("button", { name: "Connect" }))
+  expect((await card()).getByText("Not connected")).toBeInTheDocument()
+
+  async function add(label: string, appId: string, secret: string) {
+    await user.click((await card()).getByRole("button", { name: "Add app" }))
+    const dialog = within(await screen.findByRole("dialog"))
+    await user.type(dialog.getByLabelText("Name"), label)
+    await user.type(dialog.getByLabelText("App ID"), appId)
+    if (secret) await user.type(dialog.getByLabelText("App Secret"), secret)
+    await user.click(dialog.getByRole("button", { name: "Connect" }))
+  }
+
+  await add("work", "cli_work", "")
+  expect(await screen.findByText("The app's App Secret.")).toBeInTheDocument()
+  await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Cancel" }))
+
+  await add("work", "cli_work", "work-secret")
+  await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
+  await add("report", "cli_report", "report-secret")
   await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument())
 
-  const account = within(await screen.findByLabelText("Lark account work"))
-  expect(account.getByText("Hypomnema")).toBeInTheDocument()
-  expect(account.queryByRole("button", { name: /Sign in again/ })).not.toBeInTheDocument()
+  const work = within(await screen.findByLabelText("Lark account work"))
+  expect(work.getByText("Hypomnema")).toBeInTheDocument()
+  expect(work.getByText("cli_work")).toBeInTheDocument()
+  expect(work.queryByRole("button", { name: /Sign in again/ })).not.toBeInTheDocument()
+  expect(
+    within(screen.getByLabelText("Lark account report")).getByText("cli_report"),
+  ).toBeInTheDocument()
   expect((await card()).getByText("Connected")).toBeInTheDocument()
 
-  await user.click(account.getByRole("button", { name: "Disconnect work" }))
+  await user.click(work.getByRole("button", { name: "Disconnect work" }))
   const confirm = within(await screen.findByRole("alertdialog"))
-  expect(confirm.getByText(/id and secret stay in the vault/)).toBeInTheDocument()
+  expect(confirm.getByText(/removes its secret from the vault/)).toBeInTheDocument()
   await user.click(confirm.getByRole("button", { name: "Disconnect" }))
-  expect(await (await card()).findByText("Not connected")).toBeInTheDocument()
+  await waitFor(() => expect(screen.queryByLabelText("Lark account work")).not.toBeInTheDocument())
 
   expect(requests).toEqual([
-    { call: "PUT /integrations/lark/connections/work", body: undefined },
+    {
+      call: "PUT /integrations/lark/connections/work",
+      body: { app_id: "cli_work", app_secret: "work-secret" },
+    },
+    {
+      call: "PUT /integrations/lark/connections/report",
+      body: { app_id: "cli_report", app_secret: "report-secret" },
+    },
     { call: "DELETE /integrations/lark/connections/work", body: undefined },
   ])
-})
-
-// Scenario: Lark is an app and the owner has not given its id and secret yet: the card says how to give them
-// in a file, and offers nothing to connect.
-test("a Lark app that is not set up says how to give its id and secret", async () => {
-  server({ services: [{ id: "lark", name: "Lark", kind: "app", services: [], connections: [] }] })
-  await open(IntegrationsScreen, "Integrations")
-
-  const card = within(await screen.findByText("Lark").then(cardOf))
-  expect(card.getByText("Not set up")).toBeInTheDocument()
-  expect(card.getByText(/app_id and app_secret/)).toBeInTheDocument()
-  expect(card.getByText(/integrations client set lark/)).toBeInTheDocument()
-  expect(card.queryByRole("button", { name: "Connect app" })).not.toBeInTheDocument()
 })
 
 // Scenario: Google has no OAuth client yet: the card says how to give one, and offers no sign-in. An account

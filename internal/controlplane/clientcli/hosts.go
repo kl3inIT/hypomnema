@@ -149,7 +149,7 @@ func integrationsList(ctx context.Context, e *env, fs *flag.FlagSet) error {
 			connected := "not connected"
 
 			switch {
-			case i.ClientId == nil && i.Kind != openapi.IntegrationKindAccount:
+			case i.ClientId == nil && i.Kind == openapi.IntegrationKindOauth:
 				connected = "no client"
 			case len(i.Connections) > 0:
 				notes := make([]string, 0, len(i.Connections))

@@ -33,11 +33,12 @@ SELECT * FROM repos ORDER BY name;
 DELETE FROM repos WHERE name = @name;
 
 -- name: UpsertConnection :exec
-INSERT INTO connections (integration, label, account, secret, services, address, version, created_at, updated_at)
-VALUES (@integration, @label, @account, @secret, @services, @address, @version, @now, @now)
+INSERT INTO connections (integration, label, account, secret, services, address, version, app_id, created_at,
+    updated_at)
+VALUES (@integration, @label, @account, @secret, @services, @address, @version, @app_id, @now, @now)
 ON CONFLICT (integration, label) DO UPDATE
 SET account = excluded.account, secret = excluded.secret, services = excluded.services,
-    address = excluded.address, version = excluded.version, sign_in_failed = 0,
+    address = excluded.address, version = excluded.version, app_id = excluded.app_id, sign_in_failed = 0,
     updated_at = excluded.updated_at;
 
 -- name: SetConnectionSignInFailed :execrows

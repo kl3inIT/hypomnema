@@ -81,7 +81,9 @@ func connect(proxy, host string) string {
 type controlPlane struct {
 	srv      *httptest.Server
 	accounts []Connection
-	calls    []string
+	// listClient is the one app id a control plane from before issue #311 told for every account.
+	listClient string
+	calls      []string
 }
 
 func newControlPlane(t *testing.T, accounts ...Connection) *controlPlane {
@@ -100,10 +102,7 @@ func newControlPlane(t *testing.T, accounts ...Connection) *controlPlane {
 			return
 		}
 
-		list := ConnectionList{Data: c.accounts}
-		if r.URL.Query().Get("integration") == "lark" && len(c.accounts) > 0 {
-			list.ClientID = "cli_a1b2"
-		}
+		list := ConnectionList{Data: c.accounts, ClientID: c.listClient}
 
 		_ = json.NewEncoder(w).Encode(list)
 	})
@@ -230,21 +229,32 @@ func TestTheLauncherRunsAProxiedToolWithAPlaceholderAndABridge(t *testing.T) {
 	assert.Equal(t, 3, exit.Code)
 }
 
-// Scenario: an agent given the owner's Lark app runs lark-cli. Lark's tool
-// will not run on a token alone: the launcher also gives it the app's id,
-// which the control plane tells with the accounts, and the brand it is always
-// run with. Like every tool it holds a placeholder and goes through the
-// proxy; no token is asked for.
-func TestTheLauncherGivesLarksToolTheAppsIDBesideThePlaceholder(t *testing.T) {
+// Scenario: an agent given two Lark accounts, each an app of its own (issue
+// #311), runs lark-cli as "report". Lark's tool will not run on a token alone:
+// the launcher also gives it the id of that account's app, which the control
+// plane tells with each account, and the brand it is always run with. Like
+// every tool it holds a placeholder and goes through the proxy; no token is
+// asked for. A control plane from before told one id for every account, and
+// the launcher still gives that one.
+func TestTheLauncherGivesLarksToolTheAppOfTheAccountBesideThePlaceholder(t *testing.T) {
 	home := installedAs(t, LarkCLI())
-	c := newControlPlane(t, Connection{Label: "work", Account: "Hypomnema"})
+	c := newControlPlane(t, Connection{Label: "work", Account: "Hypomnema", ClientID: "cli_a1b2"},
+		Connection{Label: "report", Account: "Superset Report", ClientID: "cli_report"})
 
 	var out bytes.Buffer
 
-	require.NoError(t, c.launcher(home, &out).Run(t.Context(), "lark-cli", []string{"calendar", "+agenda"}))
-	assert.Equal(t, "token="+Placeholder+" key=\"\" args=calendar +agenda\nclient=cli_a1b2 brand=lark\n"+
+	require.NoError(t, c.launcher(home, &out).Run(t.Context(), "lark-cli",
+		[]string{"--account", "report", "calendar", "+agenda"}))
+	assert.Equal(t, "token="+Placeholder+" key=\"\" args=calendar +agenda\nclient=cli_report brand=lark\n"+
 		"proxy=true ca=true connect=502\nhypomnema: the stand-in opens no stream\n", out.String())
-	assert.Equal(t, []string{"connections lark", "certificate", "tunnel lark:work gmail.googleapis.com:443"}, c.calls)
+	assert.Equal(t, []string{"connections lark", "certificate", "tunnel lark:report gmail.googleapis.com:443"}, c.calls)
+
+	older := newControlPlane(t, Connection{Label: "work", Account: "Hypomnema"})
+	older.listClient = "cli_a1b2"
+	out.Reset()
+
+	require.NoError(t, older.launcher(home, &out).Run(t.Context(), "lark-cli", []string{"calendar", "+agenda"}))
+	assert.Contains(t, out.String(), "client=cli_a1b2 brand=lark\n")
 }
 
 // Scenario: an agent given two accounts must name one; the flag that names

@@ -647,12 +647,12 @@ paths:
       - $ref: "#/components/parameters/IntegrationID"
     put:
       operationId: PutIntegrationClient
-      summary: Keep the OAuth client an Integration signs in with, or the app it is; only the owner
+      summary: Keep the OAuth client an Integration signs in with; only the owner
       description: >-
-        The owner creates the client at the service once: an OAuth client, or
-        for an Integration of kind app the app itself, whose id and secret
-        these are. Its secret goes into the vault and is never returned. It
-        replaces the client the Integration had.
+        The owner creates the OAuth client at the service once. Its secret goes
+        into the vault and is never returned. It replaces the client the
+        Integration had. An Integration of kind app is refused: each of its
+        Connections is given its own app.
       requestBody:
         required: true
         content:
@@ -725,9 +725,11 @@ paths:
       operationId: PutIntegrationConnection
       summary: Connect an Integration of kind app or account, as a Connection under a label; only the owner
       description: >-
-        For an app there is no sign-in and no body: the control plane asks the
-        service for a token with the app's id and secret, reads the app's name
-        with it and records the Connection. For an account the body is the
+        For an app the body is the app's id and secret, each Connection being
+        an app of its own: there is no sign-in, the control plane asks the
+        service for a token with them, reads the app's name with it, keeps the
+        secret in the vault and records the Connection. Without them a label
+        that exists is checked again with its own app. For an account the body is the
         service's address, a user name and a password: the control plane signs
         in there once, which shows that they work, keeps the password in the
         vault and records the Connection with the version the service says it
@@ -3524,13 +3526,15 @@ components:
           enum: [oauth, app, account]
           description: >-
             How a Connection is made: oauth signs an account in, in a browser;
-            app has no sign-in, its client being an app of the service; account
-            is the service's address, a user name and a password.
+            app has no sign-in, each Connection being an app of the service
+            with its own id and secret; account is the service's address, a
+            user name and a password.
         client_id:
           type: string
           description: >-
-            The id of the OAuth client it signs in with, or of the app it is;
-            absent until one is set. Not secret.
+            The id of the OAuth client it signs in with; absent until one is
+            set, and for an app, whose Connections each have their own. Not
+            secret.
         services:
           type: array
           items: { type: string }
@@ -3692,6 +3696,9 @@ components:
         version:
           type: string
           description: What the service said it runs when the Connection was made, when it said.
+        app_id:
+          type: string
+          description: The id of the app the Connection is, for an Integration of kind app. Not secret.
         chats:
           type: boolean
           description: >-
@@ -3701,9 +3708,19 @@ components:
         updated_at: { type: string, format: date-time }
     NewAccountConnection:
       type: object
-      description: An account of a service at an address of its own.
+      description: >-
+        An account of a service at an address of its own (address, username,
+        password), or an app of a service (app_id, app_secret).
       additionalProperties: false
       properties:
+        app_id:
+          type: string
+          maxLength: 1024
+          description: The app's App ID, for an Integration that is an app. Not secret.
+        app_secret:
+          type: string
+          maxLength: 1024
+          writeOnly: true
         address:
           type: string
           maxLength: 1024

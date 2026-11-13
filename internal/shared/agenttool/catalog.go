@@ -28,9 +28,9 @@ type Def struct {
 	// given a placeholder: the tool's requests go through the control plane's
 	// service proxy, which puts the token in (issues #154, #175).
 	TokenEnv string
-	// ClientEnv is the variable the tool reads the id of the Integration's
-	// client from, when it will not run without it; empty for a tool that
-	// needs the token alone. The id is not a secret.
+	// ClientEnv is the variable the tool reads the id of the account's app
+	// from, when it will not run without it; empty for a tool that needs the
+	// token alone. The id is not a secret.
 	ClientEnv string
 	// Env are the variables the tool is always run with, as "NAME=value".
 	Env []string

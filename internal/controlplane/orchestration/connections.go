@@ -42,6 +42,10 @@ type Connection struct {
 	Address string
 	// Version is what the service said it runs when the Connection was made.
 	Version string
+	// AppID is the id of the app the Connection is, for an Integration that
+	// is an app (Lark, issue #311); its secret is the vault secret Secret
+	// names. Not a secret. Empty otherwise.
+	AppID string
 	// SignInFailed says the service refused the account the last time the
 	// control plane signed in.
 	SignInFailed bool
@@ -101,7 +105,7 @@ func (s *Service) SaveServiceConnection(ctx context.Context, c Connection) (Conn
 		return q.UpsertConnection(ctx, store.UpsertConnectionParams{
 			Integration: c.Integration, Label: c.Label, Account: nullString(c.Account), Secret: c.Secret,
 			Services: nullString(strings.Join(c.Services, ",")), Address: nullString(c.Address),
-			Version: nullString(c.Version), Now: now,
+			Version: nullString(c.Version), AppID: nullString(c.AppID), Now: now,
 		})
 	})
 	if err != nil {
@@ -371,7 +375,7 @@ func connectionFromRow(r store.Connection) Connection {
 
 	return Connection{
 		Integration: r.Integration, Label: r.Label, Account: r.Account.String, Secret: r.Secret, Services: services,
-		Address: r.Address.String, Version: r.Version.String, SignInFailed: r.SignInFailed != 0,
+		Address: r.Address.String, Version: r.Version.String, AppID: r.AppID.String, SignInFailed: r.SignInFailed != 0,
 		Chats:     r.Chats != 0,
 		CreatedAt: millis(r.CreatedAt), UpdatedAt: millis(r.UpdatedAt),
 	}

@@ -20,7 +20,8 @@ type Integrations interface {
 	SetClient(ctx context.Context, id, clientID, clientSecret string) error
 	Begin(ctx context.Context, id, label string, services []string) (integration.SignIn, error)
 	Complete(ctx context.Context, id, signInID, pasted string) (integration.Connection, error)
-	Connect(ctx context.Context, id, label string) (integration.Connection, error)
+	// Connect connects an Integration that is an app: each Connection is an app of its own.
+	Connect(ctx context.Context, id, label string, app integration.App) (integration.Connection, error)
 	// ConnectAccount connects an Integration of kind account: an address, a user name and a password.
 	ConnectAccount(ctx context.Context, id, label string, a integration.Account) (integration.Connection, error)
 	Disconnect(ctx context.Context, id, label string) (revoked bool, err error)
@@ -42,7 +43,7 @@ func toIntegrationConnection(c integration.Connection) openapi.IntegrationConnec
 	out := openapi.IntegrationConnection{
 		Integration: c.Integration, Label: c.Label, Account: c.Account, Services: make([]string, 0, len(c.Grants)),
 		SignInRequired: c.SignInRequired, Chats: c.Chats, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt,
-		Address: opt(c.Address), Version: opt(c.Version),
+		Address: opt(c.Address), Version: opt(c.Version), AppId: opt(c.AppID),
 	}
 	for _, g := range c.Grants {
 		out.Services = append(out.Services, g.String())
@@ -152,8 +153,9 @@ func (s *Server) CompleteIntegrationSignIn(ctx context.Context, req openapi.Comp
 }
 
 // PutIntegrationConnection connects an Integration of kind app under a
-// label, or one of kind account when the body gives its address, user name
-// and password. The password is not logged and is not in the answer.
+// label with the app's id and secret, or one of kind account when the body
+// gives its address, user name and password. Neither secret is logged or in
+// the answer.
 func (s *Server) PutIntegrationConnection(ctx context.Context, req openapi.PutIntegrationConnectionRequestObject,
 ) (openapi.PutIntegrationConnectionResponseObject, error) {
 	if s.integrations == nil {
@@ -165,12 +167,19 @@ func (s *Server) PutIntegrationConnection(ctx context.Context, req openapi.PutIn
 		err  error
 	)
 
-	if b := req.Body; b != nil && (val(b.Address) != "" || val(b.Username) != "" || val(b.Password) != "") {
+	var b openapi.NewAccountConnection
+	if req.Body != nil {
+		b = *req.Body
+	}
+
+	if val(b.Address) != "" || val(b.Username) != "" || val(b.Password) != "" {
 		conn, err = s.integrations.ConnectAccount(ctx, req.Integration, req.Label, integration.Account{
 			Address: val(b.Address), User: val(b.Username), Password: val(b.Password),
 		})
 	} else {
-		conn, err = s.integrations.Connect(ctx, req.Integration, req.Label)
+		conn, err = s.integrations.Connect(ctx, req.Integration, req.Label, integration.App{
+			ID: val(b.AppId), Secret: val(b.AppSecret),
+		})
 	}
 
 	if err != nil {

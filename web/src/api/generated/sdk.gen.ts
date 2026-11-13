@@ -416,9 +416,9 @@ export const listIntegrations = <ThrowOnError extends boolean = true>(options?: 
 });
 
 /**
- * Keep the OAuth client an Integration signs in with, or the app it is; only the owner
+ * Keep the OAuth client an Integration signs in with; only the owner
  *
- * The owner creates the client at the service once: an OAuth client, or for an Integration of kind app the app itself, whose id and secret these are. Its secret goes into the vault and is never returned. It replaces the client the Integration had.
+ * The owner creates the OAuth client at the service once. Its secret goes into the vault and is never returned. It replaces the client the Integration had. An Integration of kind app is refused: each of its Connections is given its own app.
  */
 export const putIntegrationClient = <ThrowOnError extends boolean = true>(options: Options<PutIntegrationClientData, ThrowOnError>): RequestResult<PutIntegrationClientResponses, PutIntegrationClientErrors, ThrowOnError> => (options.client ?? client).put<PutIntegrationClientResponses, PutIntegrationClientErrors, ThrowOnError>({
   security: [{ scheme: 'bearer', type: 'http' }],
@@ -489,7 +489,7 @@ export const patchIntegrationConnection = <ThrowOnError extends boolean = true>(
 /**
  * Connect an Integration of kind app or account, as a Connection under a label; only the owner
  *
- * For an app there is no sign-in and no body: the control plane asks the service for a token with the app's id and secret, reads the app's name with it and records the Connection. For an account the body is the service's address, a user name and a password: the control plane signs in there once, which shows that they work, keeps the password in the vault and records the Connection with the version the service says it runs. A sign-in that is refused stores nothing. A label that exists is checked again and takes what was given. An Integration that signs an account in with OAuth is refused: it starts a sign-in.
+ * For an app the body is the app's id and secret, each Connection being an app of its own: there is no sign-in, the control plane asks the service for a token with them, reads the app's name with it, keeps the secret in the vault and records the Connection. Without them a label that exists is checked again with its own app. For an account the body is the service's address, a user name and a password: the control plane signs in there once, which shows that they work, keeps the password in the vault and records the Connection with the version the service says it runs. A sign-in that is refused stores nothing. A label that exists is checked again and takes what was given. An Integration that signs an account in with OAuth is refused: it starts a sign-in.
  */
 export const putIntegrationConnection = <ThrowOnError extends boolean = true>(options: Options<PutIntegrationConnectionData, ThrowOnError>): RequestResult<PutIntegrationConnectionResponses, PutIntegrationConnectionErrors, ThrowOnError> => (options.client ?? client).put<PutIntegrationConnectionResponses, PutIntegrationConnectionErrors, ThrowOnError>({
   security: [{ scheme: 'bearer', type: 'http' }],

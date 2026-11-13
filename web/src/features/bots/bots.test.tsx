@@ -247,6 +247,41 @@ test("a card says the Bot's model and how much memory it uses", async () => {
   expect(second).toHaveTextContent("Memory:0 of 2,200 characters")
 })
 
+// Scenario: the owner asked to see on each card what a Bot works with (2026-11-13). The coordinator has no list,
+// so it works with everything switched on; superset-report is limited to two Connections, named with their
+// Integration's name; a Bot limited to none says so.
+test("a card says which Connections the Bot works with", async () => {
+  const service = (id: string, name: string): Integration => ({
+    id,
+    name,
+    kind: "app",
+    services: [],
+    connections: [],
+  })
+  server(
+    [
+      bot("coordinator"),
+      bot("superset-report", {
+        connections: { limited: true, names: ["superset:prod", "lark:report"] },
+      }),
+      bot("quiet", { connections: { limited: true, names: [] } }),
+    ],
+    { integrations: [service("superset", "Superset"), service("lark", "Lark")] },
+  )
+  open("/bots")
+
+  expect(await screen.findByRole("article", { name: "coordinator" })).toHaveTextContent(
+    "Works with:Everything you switched on",
+  )
+  const report = screen.getByRole("article", { name: "superset-report" })
+  expect(
+    within(report)
+      .getAllByRole("listitem")
+      .map((item) => item.textContent),
+  ).toEqual(["Superset · prod", "Lark · report"])
+  expect(screen.getByRole("article", { name: "quiet" })).toHaveTextContent("Works with:No account")
+})
+
 // Scenario: the owner prefers the table; the choice is kept in this browser, and the table says the same things.
 test("the table shows the same Bots and the layout is remembered", async () => {
   server([bot("coordinator", { memory: "One entry." })])

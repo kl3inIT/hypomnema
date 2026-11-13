@@ -457,7 +457,10 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     "Connections" and "Workers" (`web/src/features/bots/bot-access.tsx`, after OpenMausBot's `AccessSection.tsx`
     L731-784 and `ConnectorScopesControl` L894-928) each have a switch "Limit Connections" or "Limit workers"
     and, on, one switch per Connection switched on for chats or per worker profile, starting with none; a switch
-    saves at once. In a chat, each setup change has a card where it was made ("Made Bot researcher", its state,
+    saves at once. On the Bots page each Bot's card has a row "Works with" (issue #311, the owner's request of
+    2026-11-13, after OpenMausBot's "Works with" on its template cards, `ReadyBotGallery.tsx` L68-70): the mark,
+    Integration name and label of each Connection on its list, "Everything you switched on" without a list, "No
+    account" with an empty one. In a chat, each setup change has a card where it was made ("Made Bot researcher", its state,
     Open · Undo), the Routines' "Set up" card's shape (`web/src/features/bots/setup-change-card.tsx`).
   - Not built: MCP servers, pi extensions and a Bot's own skills (issue #169 says these need reading first), a
     per-Bot switch for the right to manage Bots, rules of what a new Bot inherits, removing a profile (not an
@@ -831,29 +834,38 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       secret; the answer says when Google could not be asked.
     - `GET /integrations` lists these Integrations with their Connections and their kind (`oauth`, `app`,
       `account`) for every token; a token, a password or a client secret is in no answer.
-  - Lark is an Integration of kind `app` ([issue #135](https://github.com/kl3inIT/hypomnema/issues/135)): its
-    client is a custom app of the owner's Lark organization, and nothing is signed in.
-    - The owner gives the app's id and secret in a JSON file with `app_id` and `app_secret`
-      (`integrations client set lark --client-file`); they are kept as an OAuth client's is, the secret as
-      `integration-lark-client`.
-    - `integrations connect lark --label work` (`PUT /integrations/{integration}/connections/{label}`) asks Lark
-      for a tenant access token with the id and secret, reads the app's name with it, and records the Connection
-      under that name. It has no services: the app may do what its scopes in Lark's console allow. A secret Lark
-      refuses connects nothing. `POST .../sign-ins` refuses an app, and this refuses an Integration that signs in.
-    - `integration.Service.Token` gives the tenant access token. It is kept in memory only and asked of Lark
-      again when under two minutes are left of its two hours, or when the client was replaced. The agent API
-      hands it to an agent that was given the Connection, as it hands Google's.
+  - Lark is an Integration of kind `app` ([issue #135](https://github.com/kl3inIT/hypomnema/issues/135)): each
+    Connection is a custom app of the owner's Lark organization, and nothing is signed in. One organization can
+    so have several apps, one a Bot ([issue #311](https://github.com/kl3inIT/hypomnema/issues/311), as each of
+    OpenClaw's Feishu accounts has its own `appId` and `appSecret`).
+    - `integrations connect lark --label work --app-file FILE|-` (`PUT /integrations/{integration}/connections/{label}`
+      with `app_id` and `app_secret`; the file is a JSON object with both) asks Lark for a tenant access token with
+      them, reads the app's name with it, keeps the secret in the vault as `conn-lark-<label>`, and records the
+      Connection under the app's name with its id (`connections.app_id`). It has no services: the app may do what
+      its scopes in Lark's console allow. A secret Lark refuses stores nothing. Given no app, a label that exists
+      is checked again with its own. The Integrations page's Lark card adds an app with its App ID and App Secret.
+      `POST .../sign-ins` refuses an app, this refuses an Integration that signs in, and `integrations client set
+      lark` is refused: an app Integration has no client.
+    - Migration 00061 made each Connection that named the one app Lark had (`integration-lark-client`, from the
+      `client set` there was before) that app, with the same secret, and removed that client.
+    - `integration.Service.Token` gives the tenant access token of the Connection's own app. It is kept in memory
+      only, by Connection, and asked of Lark again when under two minutes are left of its two hours, or when the
+      Connection was given another app. The agent API, the service proxy and so every worker, coordinator, Bot and
+      Routine script that uses the Connection get that app's token.
     - Its tool is `lark-cli` 1.0.100 (`github.com/larksuite/cli`) for Linux on amd64 and arm64, in the tool
       catalog beside `gws` (`internal/shared/agenttool`) and installed and launched the same way. It will not run
-      on a token alone, so the agent API's answer also carries the app's id, and the launcher sets
-      `LARKSUITE_CLI_TENANT_ACCESS_TOKEN`, `LARKSUITE_CLI_APP_ID` and `LARKSUITE_CLI_BRAND=lark` for it.
+      on a token alone, so the agent API lists each account with its app's id (and one `client_id` for the whole
+      list only while every account is the same app, for a launcher from before), and the launcher sets
+      `LARKSUITE_CLI_TENANT_ACCESS_TOKEN`, `LARKSUITE_CLI_APP_ID` of the account it acts as and
+      `LARKSUITE_CLI_BRAND=lark` for it.
     - **Its skill** (`internal/shared/agenttool/skills/lark`) is one guide, adapted from `lark-cli`'s
       `lark-shared` skill (MIT): the command is already signed in, acts as the app and never as a person, an
       empty answer may mean the app was not given the thing, nothing is written without the owner's yes, and
       `lark-cli auth`, `config`, `profile` and `update` are never run. It has no references of its own: for each
       kind of work it names the guide `lark-cli` carries itself (`lark-cli skills read lark-doc`), which matches
       the installed version. It reaches a worker and the coordinator as Google's does.
-    - `integrations disconnect lark:work` forgets the Connection and keeps the app's id and secret.
+    - `integrations disconnect lark:work` forgets the Connection and its token, and removes its secret from the
+      vault once no other Connection names it.
     - Only Lark international (`open.larksuite.com`) is declared; Feishu is not. A person's own sign-in (their
       mail, calendar and drive) is not built: a Connection acts as the app.
   - Superset is an Integration of kind `account` ([issue #203](https://github.com/kl3inIT/hypomnema/issues/203),
