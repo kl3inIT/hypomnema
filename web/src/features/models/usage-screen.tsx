@@ -139,7 +139,10 @@ export function UsageScreen() {
 
 function Totals({ usage }: { usage: GatewayUsage }) {
   return (
-    <dl aria-label="Totals" className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border bg-border sm:grid-cols-3 lg:grid-cols-6">
+    <dl
+      aria-label="Totals"
+      className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border bg-border sm:grid-cols-3 lg:grid-cols-6"
+    >
       {tiles(usage.totals).map((t) => (
         <div key={t.label} className="flex flex-col gap-1 bg-card p-4">
           <dt className="text-sm text-muted-foreground">{t.label}</dt>
