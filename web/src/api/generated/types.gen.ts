@@ -372,6 +372,73 @@ export type TerminalTicket = {
   expires_at: string;
 };
 
+export type WebSearchRequest = {
+  query: string;
+  /**
+   * How many results; 5 when left out.
+   */
+  max_results?: number;
+  /**
+   * Ask only this provider; left out, the first that answers.
+   */
+  provider?: 'exa' | 'searxng' | 'parallel';
+};
+
+export type WebSearchAnswer = {
+  /**
+   * The provider that answered.
+   */
+  provider: string;
+  query: string;
+  results: Array<WebSearchResult>;
+  /**
+   * The answer was not asked of the provider for this call.
+   */
+  cached: boolean;
+  /**
+   * The providers tried before the one that answered, and why each did not.
+   */
+  errors?: Array<WebSearchError>;
+};
+
+export type WebSearchResult = {
+  title: string;
+  url: string;
+  snippet: string;
+  /**
+   * The date the provider gives
+   */
+  published_at?: string;
+};
+
+export type WebSearchError = {
+  provider: string;
+  message: string;
+};
+
+export type WebFetchRequest = {
+  /**
+   * An http or https address.
+   */
+  url: string;
+};
+
+export type WebPage = {
+  /**
+   * Where the page was read
+   */
+  url: string;
+  title: string;
+  /**
+   * The page as markdown.
+   */
+  content: string;
+  /**
+   * The content was cut at 20,000 characters, or the page at its size limit.
+   */
+  truncated: boolean;
+};
+
 export type Browser = {
   /**
    * Whether the browser's programs were fetched; they are at the first use.
@@ -6103,6 +6170,56 @@ export type OpenBrowserViewResponses = {
 };
 
 export type OpenBrowserViewResponse = OpenBrowserViewResponses[keyof OpenBrowserViewResponses];
+
+export type SearchWebData = {
+  body: WebSearchRequest;
+  path?: never;
+  query?: never;
+  url: '/web/search';
+};
+
+export type SearchWebErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type SearchWebError = SearchWebErrors[keyof SearchWebErrors];
+
+export type SearchWebResponses = {
+  /**
+   * The results.
+   */
+  200: WebSearchAnswer;
+};
+
+export type SearchWebResponse = SearchWebResponses[keyof SearchWebResponses];
+
+export type FetchWebData = {
+  body: WebFetchRequest;
+  path?: never;
+  query?: never;
+  url: '/web/fetch';
+};
+
+export type FetchWebErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type FetchWebError = FetchWebErrors[keyof FetchWebErrors];
+
+export type FetchWebResponses = {
+  /**
+   * The page.
+   */
+  200: WebPage;
+};
+
+export type FetchWebResponse = FetchWebResponses[keyof FetchWebResponses];
 
 export type ListChatsData = {
   body?: never;

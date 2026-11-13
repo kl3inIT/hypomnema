@@ -122,6 +122,29 @@ func (q *Queries) GetGatewayModel(ctx context.Context, name string) (GatewayMode
 	return i, err
 }
 
+const getLiveGatewayKeyOfDispatch = `-- name: GetLiveGatewayKeyOfDispatch :one
+SELECT id, name, key_hash, models, created_at, revoked_at, dispatch_id, chat_id, key_prefix FROM gateway_keys WHERE dispatch_id = ?1 AND revoked_at IS NULL
+ORDER BY created_at DESC, id DESC LIMIT 1
+`
+
+// The key a Dispatch's worker uses now: its newest that works (issue #354).
+func (q *Queries) GetLiveGatewayKeyOfDispatch(ctx context.Context, dispatchID sql.NullString) (GatewayKey, error) {
+	row := q.db.QueryRowContext(ctx, getLiveGatewayKeyOfDispatch, dispatchID)
+	var i GatewayKey
+	err := row.Scan(
+		&i.ID,
+		&i.Name,
+		&i.KeyHash,
+		&i.Models,
+		&i.CreatedAt,
+		&i.RevokedAt,
+		&i.DispatchID,
+		&i.ChatID,
+		&i.KeyPrefix,
+	)
+	return i, err
+}
+
 const insertGatewayKey = `-- name: InsertGatewayKey :exec
 INSERT INTO gateway_keys (id, name, key_hash, key_prefix, models, dispatch_id, chat_id, created_at)
 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)

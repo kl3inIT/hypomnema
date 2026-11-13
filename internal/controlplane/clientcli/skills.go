@@ -95,6 +95,7 @@ var releasedStubs = map[string][]string{
 	"lark":                  {"04115d29ecb6f7c706684dc868052997fe3015a32607711d3e060845b15fb774"},
 	"superset":              {"b7cbafe434fcc81b8305bfe6a5c811bd33168b3125a6139cfa67480edf18f7ef"},
 	"aws":                   {"b038020ed0278ff5213f82d6e67a134fdd4115575899370dbb964183fa6676fd"},
+	"web-search":            {"cdf4d06decd3d71394b4353a8a34b98853765b5f8c88b7e1712159d6cf9be35b"},
 }
 
 func skillsGet(_ context.Context, e *env, fset *flag.FlagSet) error {

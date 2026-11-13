@@ -13,7 +13,9 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -35,6 +37,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/skillssh"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/subscription"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/websearch"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/webui"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
@@ -119,6 +122,14 @@ type Config struct {
 	// `10.0.0.5`, `192.168.1.0/24` or `10.0.0.5:8080`, separated by commas.
 	// Empty: the public internet only.
 	BrowserAllow egress.Allow
+	// WebSearchSearXNGURL is the owner's SearXNG, which web searches ask
+	// after Exa with its key (issue #354), from
+	// HYPOMNEMA_WEB_SEARCH_SEARXNG_URL; empty: SearXNG is not asked.
+	WebSearchSearXNGURL string
+	// WebSearchExaSecret names the vault secret holding Exa's API key, from
+	// HYPOMNEMA_WEB_SEARCH_EXA_SECRET (default web-search-exa); while no
+	// such secret exists Exa is asked without a key.
+	WebSearchExaSecret string
 }
 
 // LoadConfig reads the configuration and reports every problem at once.
@@ -146,6 +157,9 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 		BrowserDir:       env.String(envPrefix+"_BROWSER_DIR", ""),
 		BrowserOff:       env.String(envPrefix+"_BROWSER", "1") == "0",
 		BrowserNoSandbox: env.String(envPrefix+"_BROWSER_SANDBOX", "1") == "0",
+
+		WebSearchSearXNGURL: strings.TrimSuffix(env.String(envPrefix+"_WEB_SEARCH_SEARXNG_URL", ""), "/"),
+		WebSearchExaSecret:  env.String(envPrefix+"_WEB_SEARCH_EXA_SECRET", "web-search-exa"),
 	}
 
 	if cfg.BrowserDir == "" {
@@ -183,7 +197,13 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 
 	cfg.BrowserAllow = allow
 
-	if err := errors.Join(env.Err(), cmdErr, keysErr, allowErr); err != nil {
+	var searxngErr error
+	if u, err := url.Parse(cfg.WebSearchSearXNGURL); cfg.WebSearchSearXNGURL != "" &&
+		(err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "") {
+		searxngErr = fmt.Errorf("%s_WEB_SEARCH_SEARXNG_URL is not an http(s) address", envPrefix)
+	}
+
+	if err := errors.Join(env.Err(), cmdErr, keysErr, allowErr, searxngErr); err != nil {
 		return Config{}, fmt.Errorf("configuration: %w", err)
 	}
 
@@ -282,6 +302,17 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		agents.WithBrowser(shared)
 	}
 
+	// The web's search and pages (issue #354). A page is read only where the shared browser may go: the same
+	// rules, the owner's list of private destinations and the control plane's own port.
+	webSearch := websearch.New(websearch.Config{
+		ExaKey: exaKey(secrets, cfg.WebSearchExaSecret), SearXNGURL: cfg.WebSearchSearXNGURL, Logger: logger,
+		Rules: egress.Rules{Allow: cfg.BrowserAllow, OwnPort: func(port uint16) bool {
+			return slices.Contains(ownPorts, port)
+		}},
+	})
+	metered := meteredWeb{web: webSearch, gateway: gateway, logger: logger}
+	agents.WithWeb(workerWeb{metered}, dispatchRuntime(svc))
+
 	agents.Register(mux)
 
 	// The service proxy: an agent's tool reaches a connected service through it and never holds the token.
@@ -313,6 +344,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		Subscriptions: gatewayAccounts{subs: subscriptions}, CodexBaseURL: cfg.CodexBaseURL,
 		ClaudeBaseURL:      cfg.ClaudeBaseURL,
 		AntigravityBaseURL: cfg.AntigravityBaseURL,
+		Web:                webSearch,
 	}).Register(mux)
 
 	// No pi outlives the control plane, so a chat's key left from an earlier run has nobody to use it (issue #204).
@@ -357,7 +389,8 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		WithSkillSources(skillsource.NewGitHub(&http.Client{Timeout: 2 * time.Minute})).
 		WithSkillDirectory(skillssh.New(&http.Client{Timeout: 30 * time.Second})).
 		WithBuiltinSkills(builtinSkills).
-		WithRoutines(routineRunner)
+		WithRoutines(routineRunner).
+		WithWeb(botWeb{meteredWeb: metered, chats: sup})
 	if cfg.VaultKeys != nil {
 		api.WithTokenAccounts(accountTokens{svc: svc, vault: secrets, logger: logger})
 	}

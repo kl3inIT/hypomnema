@@ -205,6 +205,10 @@ var policies = map[string]policy{
 	// says that.
 	"GetChatGatewayKey": {},
 	"SendChatMessage":   {scope: scopeOwner},
+	// The web (issue #354): any token, a Bot's above all. A search may try every provider, longer than the
+	// write timeout at worst.
+	"SearchWeb": {long: true},
+	"FetchWeb":  {long: true},
 }
 
 var (

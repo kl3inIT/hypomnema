@@ -64,7 +64,9 @@ func Runtimes() []string { return []string{"omp", "opencode"} }
 // prepareOmp names the gateway in models.yml of an agent directory of the
 // Conversation's own (PI_CODING_AGENT_DIR, as Orca gives an account its
 // own), with the tools server's tools shown as plain tools (tools.xdev:
-// false) and sessions kept beside it (--session-dir).
+// false) and sessions kept beside it (--session-dir). omp's own web_search
+// is off (web_search.enabled, omp src/tools/settings.ts), so that the worker
+// has one search, the control plane's (issue #354).
 func prepareOmp(l launch) ([]string, []string, error) {
 	agentDir, sessions := filepath.Join(l.Dir, "agent"), filepath.Join(l.Dir, "sessions")
 
@@ -85,7 +87,7 @@ func prepareOmp(l launch) ([]string, []string, error) {
 
 	for name, content := range map[string]string{
 		filepath.Join(agentDir, "models.yml"): models,
-		filepath.Join(agentDir, "config.yml"): "tools:\n  xdev: false\n",
+		filepath.Join(agentDir, "config.yml"): "tools:\n  xdev: false\nweb_search:\n  enabled: false\n",
 	} {
 		if err := writeFile(name, content); err != nil {
 			return nil, nil, err
@@ -110,6 +112,9 @@ func prepareOmp(l launch) ([]string, []string, error) {
 // project's, with its data under the same directory. Every action is
 // allowed but `execute`, the tool that would hide the tools server's tools
 // behind code: denied, they are plain tools (opencode core/src/tool.ts).
+// Its own `websearch` and `webfetch` are denied too, which takes them out of
+// its tools (core/src/tool.ts, whollyDisabled), so that the worker has the
+// control plane's web tools only (issue #354).
 func prepareOpencode(l launch) ([]string, []string, error) {
 	model := map[string]any{
 		"capabilities": map[string]any{"tools": true, "input": []string{"text"}, "output": []string{"text"}},
@@ -126,6 +131,8 @@ func prepareOpencode(l launch) ([]string, []string, error) {
 		"permissions": []map[string]string{
 			{"action": "*", "resource": "*", "effect": "allow"},
 			{"action": "execute", "resource": "*", "effect": "deny"},
+			{"action": "websearch", "resource": "*", "effect": "deny"},
+			{"action": "webfetch", "resource": "*", "effect": "deny"},
 		},
 	}
 	if l.Skills != "" {

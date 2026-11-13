@@ -561,6 +561,21 @@ var commands = []command{
 		flags: jsonFlag, run: browserStatus,
 	},
 	{
+		name: "web search", args: "<query>", min: 1, max: -1,
+		summary: "search the web: each result's title, address, date and snippet, and which provider answered",
+		flags: func(fs *flag.FlagSet) {
+			fs.Int("max-results", 0, "how many results, 1 to 20 (default 5)")
+			fs.String("provider", "", "ask only this provider: exa, searxng or parallel (default: the first that answers)")
+			jsonFlag(fs)
+		},
+		run: webSearch,
+	},
+	{
+		name: "web fetch", args: "<url>", min: 1, max: 1,
+		summary: "read a public web page as markdown, at most 20,000 characters",
+		flags:   jsonFlag, run: webFetch,
+	},
+	{
 		name: "skills list", summary: "the skills the owner added, each at its newest revision",
 		flags: jsonFlag, run: skillsList,
 	},
