@@ -59,8 +59,8 @@ type Config struct {
 	// on (Nezha's disable_command_execute).
 	DisableTerminal bool `json:"disable_terminal,omitempty"`
 	// Accounts maps an account id of the control plane to where its
-	// credentials are on this node, until the vault exists. Only the file's
-	// path is here, never the token.
+	// credentials are on this node, for an offer that brings no token of its
+	// own. Only the file's path is here, never the token.
 	Accounts map[string]claude.Account `json:"accounts,omitempty"`
 }
 

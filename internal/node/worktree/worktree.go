@@ -3,8 +3,8 @@
 // repository, as Orca (src/main/git/worktrees/creation/worktree-add.ts) and
 // Omnigent (omnigent/host/git_worktree.py) do. The repository is on a git
 // host of a kind (internal/shared/githost, issue #44). Git authenticates with
-// the node user's own credentials (`gh auth setup-git`) until the vault hands
-// a host's token to a Dispatch.
+// the host's token the control plane gives the Dispatch, or else the node
+// user's own credentials (`gh auth setup-git`).
 package worktree
 
 import (

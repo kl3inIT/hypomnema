@@ -8,8 +8,9 @@
 // It follows Omnara's secret manager (internal/secrets, internal/storage):
 // versions under one name, a data key per version wrapped by a root key from
 // a keyring, the secret's identity as associated data, and a rewrap that
-// rotates the root key without touching a value. Credential Sessions per
-// Dispatch and the node's proxy are the vault's other half and are not here.
+// rotates the root key without touching a value. A worker's Claude and git
+// host tokens leave it with a Dispatch's offer; there is no proxy on the node
+// (docs/decisions/2026-11-13-worker-credentials-in-the-environment.md).
 package vault
 
 import (
