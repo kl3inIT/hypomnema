@@ -43,7 +43,6 @@ type Store interface {
 	AgentSessionOf(ctx context.Context, secret string) (orchestration.AgentSession, error)
 	ConnectionsOf(ctx context.Context, integration string) ([]orchestration.Connection, error)
 	GetBot(ctx context.Context, name string) (orchestration.Bot, error)
-	IntegrationClientOf(ctx context.Context, integration string) (orchestration.IntegrationClient, error)
 	ChangeDispatchMemory(ctx context.Context, dispatchID string, owner bool, op orchestration.MemoryOp) (
 		orchestration.Memory, error)
 }
@@ -52,7 +51,7 @@ type Store interface {
 type Token struct {
 	AccessToken string
 	ExpiresAt   time.Time
-	// ClientID is the id of the Integration's client when its tool needs it
+	// ClientID is the id of the Connection's app when its tool needs it
 	// beside the token: a Lark app's id. Not a secret.
 	ClientID string
 }
@@ -250,22 +249,27 @@ func (s *Server) connections(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// A tool that will not run without the id of its app is told it with each account: a Lark app's id, which
+	// is not a secret. Each Connection is an app of its own (issue #311), as OpenClaw's tool takes the app of
+	// the account it acts as (extensions/feishu/src/tool-account.ts).
+	def, _ := agenttool.Of(integration)
+
 	out := agenttool.ConnectionList{Data: make([]agenttool.Connection, 0, len(allowed))}
 	for _, c := range allowed {
-		out.Data = append(out.Data, agenttool.Connection{Label: c.Label, Account: c.Account})
-	}
-
-	// A tool that will not run without the id of the Integration's client is told it with the accounts: a Lark
-	// app's id, which is not a secret. An agent that was given no account is told nothing.
-	if def, ok := agenttool.Of(integration); ok && def.ClientEnv != "" && len(allowed) > 0 {
-		client, err := s.store.IntegrationClientOf(r.Context(), integration)
-		if err != nil && !errors.Is(err, orchestration.ErrNotFound) {
-			s.fail(w, r, err)
-
-			return
+		conn := agenttool.Connection{Label: c.Label, Account: c.Account}
+		if def.ClientEnv != "" {
+			conn.ClientID = c.AppID
 		}
 
-		out.ClientID = client.ClientID
+		out.Data = append(out.Data, conn)
+	}
+
+	// A launcher from before issue #311 reads one id for every account: it is given one only when every account
+	// is the same app, so that it never runs a tool as another app than the account's.
+	if def.ClientEnv != "" && len(allowed) > 0 && !slices.ContainsFunc(allowed, func(c orchestration.Connection) bool {
+		return c.AppID != allowed[0].AppID
+	}) {
+		out.ClientID = allowed[0].AppID
 	}
 
 	answer(w, out)

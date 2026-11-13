@@ -117,14 +117,30 @@ const launchTimeout = 60 * time.Second
 type Connection struct {
 	Label   string `json:"label"`
 	Account string `json:"account"`
+	// ClientID is the id of the account's app, for a tool that will not run
+	// without it (Def.ClientEnv): a Lark app's id, each account being an app
+	// of its own (issue #311). Not a secret.
+	ClientID string `json:"client_id,omitempty"`
 }
 
 // ConnectionList answers PathConnections.
 type ConnectionList struct {
 	Data []Connection `json:"data"`
-	// ClientID is the id of the Integration's client, for a tool that will
-	// not run without it (Def.ClientEnv): a Lark app's id. Not a secret.
+	// ClientID is the one app's id when every account is the same app, for a
+	// launcher from before each account had its own. Not a secret.
 	ClientID string `json:"client_id,omitempty"`
+}
+
+// clientOf is the id of the app of the account named label: its own, or
+// the list's from a control plane from before each account had its own.
+func (l ConnectionList) clientOf(label string) string {
+	for _, c := range l.Data {
+		if c.Label == label && c.ClientID != "" {
+			return c.ClientID
+		}
+	}
+
+	return l.ClientID
 }
 
 // TokenRequest is the body of PathToken.
@@ -235,8 +251,8 @@ func (l Launcher) Run(ctx context.Context, name string, args []string) error {
 
 	cmd.Env = append(without(cmd.Env, proxyVariables...), env...)
 
-	if def.ClientEnv != "" && list.ClientID != "" {
-		cmd.Env = append(cmd.Env, def.ClientEnv+"="+list.ClientID)
+	if client := list.clientOf(label); def.ClientEnv != "" && client != "" {
+		cmd.Env = append(cmd.Env, def.ClientEnv+"="+client)
 	}
 
 	err = cmd.Run()

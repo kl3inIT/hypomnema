@@ -75,11 +75,11 @@ func connectionNote(c openapi.IntegrationConnection) string {
 	return note
 }
 
-// integrationsClientSet sends the client the owner created at the service,
-// read from a file: the JSON Google gives for an OAuth client, or for an app
-// (Lark) a JSON object with its app_id and app_secret, which the service
-// shows on a page and gives no file for. The secret is never an argument:
-// arguments show in the shell's history and in the process list.
+// integrationsClientSet sends the OAuth client the owner created at the
+// service, read from the JSON file Google gives for it. The secret is never
+// an argument: arguments show in the shell's history and in the process
+// list. An app (Lark) has no client: each Connection is given its own app
+// (integrationsConnectApp).
 func integrationsClientSet(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	id := fs.Arg(0)
 
@@ -105,8 +105,6 @@ func integrationsClientSet(ctx context.Context, e *env, fs *flag.FlagSet) error 
 
 		Installed *client `json:"installed"`
 		Web       *client `json:"web"`
-		AppID     string  `json:"app_id"`
-		AppSecret string  `json:"app_secret"`
 	}
 
 	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
@@ -120,12 +118,8 @@ func integrationsClientSet(ctx context.Context, e *env, fs *flag.FlagSet) error 
 		c = *parsed.Web
 	}
 
-	if parsed.AppID != "" {
-		c = client{ClientID: parsed.AppID, ClientSecret: parsed.AppSecret}
-	}
-
 	if c.ClientID == "" || c.ClientSecret == "" {
-		return errors.New("the client file has no client_id and client_secret, nor an app_id and app_secret")
+		return errors.New("the client file has no client_id and client_secret")
 	}
 
 	resp, err := e.api.PutIntegrationClientWithResponse(ctx, id, openapi.NewIntegrationClient{
@@ -139,24 +133,39 @@ func integrationsClientSet(ctx context.Context, e *env, fs *flag.FlagSet) error 
 		return apiError("keeping the client of "+id, resp.StatusCode(), resp.JSONDefault)
 	}
 
-	return e.print(fs, resp.JSON200, func() {
-		if resp.JSON200.Kind == openapi.IntegrationKindApp {
-			e.printf("%s is app %s\n", id, c.ClientID)
-
-			return
-		}
-
-		e.printf("%s signs in with client %s\n", id, c.ClientID)
-	})
+	return e.print(fs, resp.JSON200, func() { e.printf("%s signs in with client %s\n", id, c.ClientID) })
 }
 
-// integrationsConnectApp connects an Integration that is an app: there is
-// nothing to sign in to, the control plane checks the app's id and secret
-// with the service.
+// integrationsConnectApp connects an app of an Integration that is one
+// (Lark) as a Connection: there is nothing to sign in to, the control plane
+// checks the app's id and secret with the service. They are read from a file
+// with a JSON object of app_id and app_secret, which the service shows on a
+// page and gives no file for, as a Lark Channel's are. Without a file a label
+// that exists is checked again with its own app.
 func integrationsConnectApp(ctx context.Context, e *env, fs *flag.FlagSet, id string) error {
 	label := str(fs, "label")
 
-	resp, err := e.api.PutIntegrationConnectionWithResponse(ctx, id, label, openapi.NewAccountConnection{})
+	var body openapi.NewAccountConnection
+
+	if file := str(fs, "app-file"); file != "" {
+		raw, err := e.read(file)
+		if err != nil {
+			return err
+		}
+
+		var app struct {
+			AppID     string `json:"app_id"`
+			AppSecret string `json:"app_secret"`
+		}
+
+		if err := json.Unmarshal([]byte(raw), &app); err != nil || app.AppID == "" || app.AppSecret == "" {
+			return errors.New("the app file is a JSON object with the app's app_id and app_secret")
+		}
+
+		body.AppId, body.AppSecret = &app.AppID, &app.AppSecret
+	}
+
+	resp, err := e.api.PutIntegrationConnectionWithResponse(ctx, id, label, body)
 	if err != nil {
 		return fmt.Errorf("connecting %s:%s: %w", id, label, err)
 	}
@@ -167,7 +176,9 @@ func integrationsConnectApp(ctx context.Context, e *env, fs *flag.FlagSet, id st
 
 	c := resp.JSON200
 
-	return e.print(fs, c, func() { e.printf("%s:%s is connected as the app %s\n", id, c.Label, c.Account) })
+	return e.print(fs, c, func() {
+		e.printf("%s:%s is connected as the app %s (%s)\n", id, c.Label, c.Account, val(c.AppId))
+	})
 }
 
 // integrationsSignIn signs an account in: it prints the link, waits for the

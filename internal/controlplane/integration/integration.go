@@ -81,7 +81,8 @@ type Service struct {
 
 	mu      sync.Mutex
 	signIns map[string]*signIn
-	// appTokens is the token in use of each app Integration, by its id.
+	// appTokens is the token in use of each Connection that is an app, by
+	// "integration:label".
 	appTokens map[string]Token
 	// accounts is what each Connection of kind account is signed in with, by
 	// "integration:label"; accountClient sends its requests.
@@ -122,6 +123,9 @@ type Connection struct {
 	// the Connection was made, for an Integration of kind account.
 	Address string
 	Version string
+	// AppID is the id of the app the Connection is, for an Integration that
+	// is an app. Not a secret.
+	AppID string
 	// Chats says the coordinator may use the Connection in chats.
 	Chats     bool
 	CreatedAt time.Time
@@ -132,8 +136,9 @@ type Connection struct {
 type Integration struct {
 	Definition
 
-	// ClientID is the id of the OAuth client it signs in with, or of the app
-	// it is; empty when none was set, and then nothing can be connected.
+	// ClientID is the id of the OAuth client it signs in with; empty when
+	// none was set, and then nothing can be connected. An app has none: each
+	// of its Connections is an app of its own.
 	ClientID    string
 	Connections []Connection
 }
@@ -177,12 +182,14 @@ func (s *Service) List(ctx context.Context) ([]Integration, error) {
 	for _, d := range s.defs {
 		in := Integration{Definition: d}
 
-		client, err := s.store.IntegrationClientOf(ctx, d.ID)
-		if err != nil && !errors.Is(err, orchestration.ErrNotFound) {
-			return nil, err
-		}
+		if !d.IsApp() {
+			client, err := s.store.IntegrationClientOf(ctx, d.ID)
+			if err != nil && !errors.Is(err, orchestration.ErrNotFound) {
+				return nil, err
+			}
 
-		in.ClientID = client.ClientID
+			in.ClientID = client.ClientID
+		}
 
 		conns, err := s.store.ConnectionsOf(ctx, d.ID)
 		if err != nil {
@@ -207,7 +214,7 @@ func (s *Service) List(ctx context.Context) ([]Integration, error) {
 func (s *Service) view(ctx context.Context, d Definition, c orchestration.Connection) Connection {
 	out := Connection{
 		Integration: c.Integration, Label: c.Label, Account: c.Account, Chats: c.Chats,
-		Address: c.Address, Version: c.Version, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt,
+		Address: c.Address, Version: c.Version, AppID: c.AppID, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt,
 	}
 
 	// What is stored was checked when it was written; a service since removed from the catalog is left out.
@@ -220,14 +227,19 @@ func (s *Service) view(ctx context.Context, d Definition, c orchestration.Connec
 	return out
 }
 
-// SetClient keeps the OAuth client an Integration signs in with, or the app
-// it is, replacing the one it had. Connections made with the old client stop
-// refreshing when it is another client: they are signed in again. An app's
-// token in memory is dropped, so the next one is the new client's.
+// SetClient keeps the OAuth client an Integration signs in with, replacing
+// the one it had. Connections made with the old client stop refreshing when
+// it is another client: they are signed in again. An app has no client: each
+// of its Connections is given its own app (issue #311).
 func (s *Service) SetClient(ctx context.Context, integration, clientID, clientSecret string) error {
 	d, err := s.definition(integration)
 	if err != nil {
 		return err
+	}
+
+	if d.IsApp() {
+		return fmt.Errorf("%w: each account of %s is an app of its own; connect one with its App ID and App Secret: "+
+			"`hypomnema integrations connect %s --label LABEL --app-file FILE`", ErrInvalid, d.ID, d.ID)
 	}
 
 	clientID, clientSecret = strings.TrimSpace(clientID), strings.TrimSpace(clientSecret)
@@ -249,10 +261,6 @@ func (s *Service) SetClient(ctx context.Context, integration, clientID, clientSe
 	if err != nil {
 		return vaultError(err)
 	}
-
-	s.mu.Lock()
-	delete(s.appTokens, d.ID)
-	s.mu.Unlock()
 
 	return s.store.SetIntegrationClient(ctx, d.ID, clientID, name)
 }
@@ -490,7 +498,7 @@ func (s *Service) Token(ctx context.Context, integration, label string) (Token, 
 	}
 
 	if d.IsApp() {
-		return s.appToken(ctx, d)
+		return s.appToken(ctx, d, conn)
 	}
 
 	if d.IsAccount() {
@@ -572,8 +580,8 @@ func (s *Service) refresh(ctx context.Context, d Definition, current vault.Paylo
 // to end them (Hermes' revoke). A provider that cannot be reached does not
 // keep the Connection here: the owner can still remove the access in the
 // account's own settings, and the answer says so. An app's Connection holds
-// no token of its own, so nothing is left at the service to end: the app's
-// client stays, for the next Connection.
+// no token at the service, so nothing is left there to end: its secret is
+// removed from the vault (forgetApp).
 func (s *Service) Disconnect(ctx context.Context, integration, label string) (revoked bool, err error) {
 	d, err := s.definition(integration)
 	if err != nil {
@@ -586,11 +594,7 @@ func (s *Service) Disconnect(ctx context.Context, integration, label string) (re
 	}
 
 	if d.IsApp() {
-		if _, err := s.store.RemoveConnection(ctx, d.ID, label); err != nil {
-			return false, err
-		}
-
-		return true, nil
+		return true, s.forgetApp(ctx, d, conn)
 	}
 
 	if d.IsAccount() {

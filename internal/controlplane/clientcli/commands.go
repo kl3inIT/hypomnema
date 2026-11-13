@@ -203,11 +203,13 @@ var commands = []command{
 	{
 		name: "integrations connect", args: "<integration>", min: 1, max: 1,
 		summary: "connect an account under a label: a git host with a token read from a file, a service such as " +
-			"google by signing in, an app such as lark with nothing more, superset with its address, a user name " +
-			"and a password read from a file (owner)",
+			"google by signing in, an app of lark with its app_id and app_secret read from a file, superset with " +
+			"its address, a user name and a password read from a file (owner)",
 		flags: func(fs *flag.FlagSet) {
 			fs.String("label", "default", "the name of this account, such as work")
 			fs.String("token-file", "", "for a git host: the file holding the token, or - for standard input")
+			fs.String("app-file", "", "for an app such as lark: a JSON file with its app_id and app_secret, or - "+
+				"for standard input; without it, a label that exists is checked again")
 			fs.String("services", "", "for a service that signs in: what to connect, such as gmail:read,calendar "+
 				"(:read is read only)")
 			fs.String("url", "", "for superset: its address, such as https://superset.example.com")
@@ -296,8 +298,8 @@ var commands = []command{
 	},
 	{
 		name: "integrations client set", args: "<integration>", min: 1, max: 1,
-		summary: "keep the OAuth client a service signs in with, from the JSON file the service gave, or the app " +
-			"a service is, from a JSON file with its app_id and app_secret (owner)",
+		summary: "keep the OAuth client a service signs in with, from the JSON file the service gave; an app such " +
+			"as lark has none, each account is connected with its own (owner)",
 		flags: func(fs *flag.FlagSet) {
 			fs.String("client-file", "", "the client's JSON file, or - for standard input")
 			jsonFlag(fs)

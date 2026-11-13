@@ -321,3 +321,51 @@ func TestABotGetsOnlyTheAccountsOnItsList(t *testing.T) {
 	status, _ = w.token(vmap, "work")
 	assert.Equal(t, http.StatusForbidden, status, "taken off the list, the next call is refused")
 }
+
+// Scenario: two Lark accounts, each an app of its own (issue #311): the
+// owner's "work" and a reports app. Lark's tool is told each account's app
+// with it, so that it runs as the app of the account it acts as. A launcher
+// from before reads one id for every account: it is told one only while
+// every account given is the same app.
+func TestEachLarkAccountIsListedWithItsOwnApp(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	_, owner, err := w.svc.AddToken(ctx, "me", bearertoken.Owner)
+	require.NoError(t, err)
+
+	list := func() agenttool.ConnectionList {
+		status, body := w.call(http.MethodGet, agenttool.PathConnections+"?integration=lark", owner, nil)
+		require.Equal(t, http.StatusOK, status)
+
+		var out agenttool.ConnectionList
+		require.NoError(t, json.Unmarshal(body, &out))
+
+		return out
+	}
+
+	//nolint:gosec // G101: the name of a vault secret, not a credential
+	_, err = w.svc.SaveServiceConnection(ctx, orchestration.Connection{
+		Integration: "lark", Label: "work", Account: "Hypomnema", Secret: "conn-lark-work", AppID: "cli_work",
+	})
+	require.NoError(t, err)
+
+	assert.Equal(t, agenttool.ConnectionList{
+		Data: []agenttool.Connection{{Label: "work", Account: "Hypomnema", ClientID: "cli_work"}}, ClientID: "cli_work",
+	}, list())
+
+	_, err = w.svc.SaveServiceConnection(ctx, orchestration.Connection{
+		Integration: "lark", Label: "report", Account: "Superset Report", Secret: "conn-lark-report",
+		AppID: "cli_report",
+	})
+	require.NoError(t, err)
+
+	got := list()
+	assert.ElementsMatch(t, []agenttool.Connection{
+		{Label: "work", Account: "Hypomnema", ClientID: "cli_work"},
+		{Label: "report", Account: "Superset Report", ClientID: "cli_report"},
+	}, got.Data)
+	assert.Empty(t, got.ClientID, "two apps have no one id")
+}
