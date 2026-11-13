@@ -353,11 +353,10 @@ func TestAProfilesUndoIsRefusedOnceItIsReliedOn(t *testing.T) {
 	require.ErrorIs(t, err, ErrConflict, "a worker ran it")
 }
 
-// Scenario: the Bot coordinator narrows what a Bot may use but never widens
-// it: a Bot it changes gets no worker it did not have, a Bot it makes no more
-// than the coordinator has, and it does not change its own lists. The owner
-// widens.
-func TestTheCoordinatorNeverWidensWhatABotMayUse(t *testing.T) {
+// Scenario: the Bot coordinator has every right on the Bots (owner,
+// 2026-11-12, confirmed 2026-11-13): it widens a Bot's lists, makes a Bot
+// with more than it has itself, and changes its own lists.
+func TestTheCoordinatorChangesWhatAnyBotMayUse(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
@@ -371,28 +370,14 @@ func TestTheCoordinatorNeverWidensWhatABotMayUse(t *testing.T) {
 	_, err = w.s.PutBot(ctx, Bot{Name: "vmap", Workers: only("reviewer")})
 	require.NoError(t, err)
 
-	for name, workers := range map[string]AllowList{
-		"no list": {}, "a worker it did not have": only("reviewer", "implementer"),
-	} {
-		_, err = w.s.PutBotFromChat(ctx, chat.ID, Bot{Name: "vmap", Workers: workers})
-		require.ErrorIs(t, err, ErrForbidden, name)
-	}
-
-	_, err = w.s.PutBotFromChat(ctx, chat.ID, Bot{Name: "vmap", Workers: only()})
-	require.NoError(t, err, "narrowing is the coordinator's")
+	widened, err := w.s.PutBotFromChat(ctx, chat.ID, Bot{Name: "vmap", Workers: only("reviewer", "implementer")})
+	require.NoError(t, err, "it widens a Bot's list")
+	assert.Equal(t, only("reviewer", "implementer"), widened.Workers)
 
 	_, err = w.s.PutBotFromChat(ctx, chat.ID, Bot{Name: DefaultBot, Workers: only("reviewer")})
-	require.ErrorIs(t, err, ErrForbidden, "not its own lists")
+	require.NoError(t, err, "it changes its own lists")
 
-	_, err = w.s.PutBot(ctx, Bot{Name: DefaultBot, Workers: only("reviewer", "explorer")})
-	require.NoError(t, err)
-
-	_, err = w.s.PutBotFromChat(ctx, chat.ID, Bot{Name: "researcher"})
-	require.ErrorIs(t, err, ErrForbidden, "a new Bot gets no more than its creator")
-
-	_, err = w.s.PutBotFromChat(ctx, chat.ID, Bot{Name: "researcher", Workers: only("explorer")})
-	require.NoError(t, err)
-
-	_, err = w.s.PutBot(ctx, Bot{Name: "vmap"})
-	require.NoError(t, err, "the owner widens")
+	made, err := w.s.PutBotFromChat(ctx, chat.ID, Bot{Name: "researcher"})
+	require.NoError(t, err, "a Bot it makes may have more than it has")
+	assert.False(t, made.Workers.Limited)
 }

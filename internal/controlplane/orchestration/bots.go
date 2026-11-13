@@ -96,12 +96,6 @@ func (s *Service) putBot(ctx context.Context, chat string, b Bot) (Bot, error) {
 			return err
 		}
 
-		if chat != "" {
-			if err := noWiderThan(ctx, q, b, had); err != nil {
-				return err
-			}
-		}
-
 		if err := upsertBot(ctx, q, now, b); err != nil {
 			return err
 		}

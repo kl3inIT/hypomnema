@@ -1062,13 +1062,13 @@ func TestAPisTokenActsInItsChatAndAsItsBotOnly(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, managed.StatusCode())
 	assert.Len(t, managed.JSON200.Data, 2)
-	assert.NotContains(t, string(managed.Body), "Linh leads", "another Bot's memory is not the coordinator's to read")
+	assert.Contains(t, string(managed.Body), "Linh leads", "the coordinator reads every Bot whole (owner, 2026-11-13)")
 
 	vmapBot, err := pi.GetBotWithResponse(ctx, "vmap")
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, vmapBot.StatusCode())
 	assert.Equal(t, "You answer about VMAP.", vmapBot.JSON200.Persona)
-	assert.Empty(t, vmapBot.JSON200.Memory)
+	assert.Equal(t, "Linh leads the maps team.", vmapBot.JSON200.Memory)
 
 	skills, err := pi.ListBotSkillsWithResponse(ctx, "vmap")
 	require.NoError(t, err)

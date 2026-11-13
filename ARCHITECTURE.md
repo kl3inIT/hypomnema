@@ -339,12 +339,9 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     commands the owner uses, from its own chat: a pi's token of `coordinator`. Another Bot's token, a Routine's
     script's and the coordinator token outside every box are refused (403); a fixed rule of the role, not a
     setting. It never removes itself (`coordinator` is always there). It reads every Bot's settings, as the CLI
-    reads one before changing it, but not another Bot's memory; another Bot's token still reads only its own.
-    It narrows what a Bot may use and never widens it: a Bot it changes gets no Connection or worker it did not
-    have, a Bot it makes no more than `coordinator` has, and it does not change its own lists; widening is the
-    owner's (403 otherwise; OpenMausBot `server/inherited-apps.ts` L18-31, OpenClaw
-    `docs/gateway/permission-modes.md` L94-97). Issue #169 had left this rule out on 2026-11-12; it was added after
-    the pull request's security review. A change applies at once and is
+    reads one before changing it, memory included; another Bot's token still reads only its own. It has every
+    right on the Bots, widening a Bot's lists and changing its own included (owner, 2026-11-12, confirmed
+    2026-11-13). A change applies at once and is
     recorded as a setup change of that chat (`setup_changes`): what it was about, made, changed or removed, what it was
     before, and its revision after (a digest of a Bot's settings, a profile's version). `GET
     /setup-changes?chat_id=` and `POST /setup-changes/{id}/undo` are the owner's (`hypomnema setup list --chat
