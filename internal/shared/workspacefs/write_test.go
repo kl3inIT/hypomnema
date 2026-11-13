@@ -1,6 +1,7 @@
 package workspacefs
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -157,6 +158,42 @@ func TestALinkIsNeverWrittenThrough(t *testing.T) {
 
 	if got := read(t, outside, "secret"); got != "keep" {
 		t.Errorf("the file the link pointed to holds %q", got)
+	}
+}
+
+// Scenario: a file a Bot sends into a Lark chat may be larger than a file the
+// Files panel shows (issue #312): a raw read that asks for more gets it, up to
+// MaxSend; one that does not ask is refused as before, and so is a file over
+// MaxSend. A text read keeps its own limit.
+func TestARawReadMayAskForALargerFile(t *testing.T) {
+	root := t.TempDir()
+	big := bytes.Repeat([]byte{0xD0}, MaxRead+1)
+
+	if err := os.WriteFile(filepath.Join(root, "report.xlsx"), big, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(root, "huge.bin"), make([]byte, MaxSend+1), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	res := Serve(t.Context(), root, Request{Op: OpRead, Path: "report.xlsx", Raw: true, Limit: MaxSend})
+	if res.Error != nil || !bytes.Equal(res.File.Data, big) {
+		t.Errorf("a raw read with a limit = %+v", res.Error)
+	}
+
+	for _, req := range []Request{
+		{Op: OpRead, Path: "report.xlsx", Raw: true},
+		{Op: OpRead, Path: "huge.bin", Raw: true, Limit: 2 * MaxSend},
+	} {
+		if res := Serve(t.Context(), root, req); res.Error == nil || res.Error.Code != CodeTooLarge {
+			t.Errorf("Serve(%+v) = %+v, want too large", req, res.Error)
+		}
+	}
+
+	text := Serve(t.Context(), root, Request{Op: OpRead, Path: "report.xlsx", Limit: MaxSend})
+	if text.Error != nil || text.File.Data != nil || text.File.Content != "" || !text.File.Binary {
+		t.Errorf("a text read gives no bytes, got %+v", text.Error)
 	}
 }
 

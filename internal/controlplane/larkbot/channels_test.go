@@ -21,6 +21,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
+	"github.com/kl3inIT/hypomnema/internal/shared/workspacefs"
 )
 
 const (
@@ -71,10 +72,13 @@ type lark struct {
 	marks   map[string][]string
 	refuse  error
 	notices []string
-	cards   map[string]*card
-	order   []string
-	emails  map[string]string
-	names   map[string]string
+	// files are the files sent, as "chat: name (kind)", and their bytes by name.
+	files  []string
+	bytes  map[string][]byte
+	cards  map[string]*card
+	order  []string
+	emails map[string]string
+	names  map[string]string
 	// usedSecret is the secret the Channel connected with.
 	usedSecret string
 }
@@ -86,6 +90,7 @@ func newLark(owner, linh string) *lark {
 		cards:  map[string]*card{},
 		asked:  map[string]larkbot.Card{},
 		marks:  map[string][]string{},
+		bytes:  map[string][]byte{},
 		emails: map[string]string{"owner@example.com": owner, "linh@example.com": linh},
 		names:  map[string]string{linh: "Linh"},
 	}
@@ -166,6 +171,45 @@ func (l *lark) SendText(_ context.Context, chatID, text string) error {
 	l.notices = append(l.notices, chatID+": "+text)
 
 	return nil
+}
+
+// dmOf is the direct chat a person has with the bot, as Lark names it.
+func dmOf(openID string) string { return "oc_dm_" + openID }
+
+func (l *lark) SendTextTo(_ context.Context, openID, text string) (string, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	l.notices = append(l.notices, dmOf(openID)+": "+text)
+
+	return dmOf(openID), nil
+}
+
+func (l *lark) SendFile(_ context.Context, chatID string, a larkbot.Attachment) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	l.files = append(l.files, chatID+": "+a.Name+" ("+a.Kind+")")
+	l.bytes[a.Name] = a.Data
+
+	return nil
+}
+
+// sentFiles are the files sent, in order.
+func (l *lark) sentFiles() []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	return append([]string(nil), l.files...)
+}
+
+// pressedMenu is a person pressing an item of the bot's menu.
+func (l *lark) pressedMenu(p larkbot.MenuPress) {
+	l.mu.Lock()
+	menu := l.on.Menu
+	l.mu.Unlock()
+
+	menu(p)
 }
 
 func (l *lark) React(_ context.Context, messageID, emoji string) (string, error) {
@@ -251,6 +295,18 @@ func (l *lark) OpenIDOf(_ context.Context, email string) (string, error) {
 }
 
 func (l *lark) NameOf(_ context.Context, openID string) (string, error) { return l.names[openID], nil }
+
+// Member reads as members the people of the app's organization: those its
+// emails name.
+func (l *lark) Member(_ context.Context, openID string) error {
+	for _, id := range l.emails {
+		if id == openID {
+			return nil
+		}
+	}
+
+	return errors.New("no member has the open_id " + openID)
+}
 
 // sent is what Lark was sent, in order: each card as "chat: text" with
 // "(writing)" while it is not closed.
@@ -461,9 +517,29 @@ func (l *later) pass(d time.Duration) {
 	l.mu.Unlock()
 }
 
+// folders are the Bots' folders, read as the helper reads them.
+type folders struct{ root string }
+
+func (f folders) Ask(ctx context.Context, bot string, req workspacefs.Request) (workspacefs.Result, error) {
+	return workspacefs.Serve(ctx, f.Root(bot), req), nil
+}
+
+func (f folders) Root(bot string) string { return filepath.Join(f.root, bot) }
+
+// put writes a file in a Bot's folder.
+func (f folders) put(t *testing.T, bot, rel string, data []byte) {
+	t.Helper()
+
+	full := filepath.Join(f.Root(bot), filepath.FromSlash(rel))
+	require.NoError(t, os.MkdirAll(filepath.Dir(full), 0o700))
+	require.NoError(t, os.WriteFile(full, data, 0o600))
+}
+
 type world struct {
-	t     *testing.T
-	path  string
+	t    *testing.T
+	path string
+	// bots are the Bots' folders.
+	bots  folders
 	clock *later
 	// web is the web client's address the Channels are given, when they are
 	// given one.
@@ -497,8 +573,9 @@ func newWorld(t *testing.T) *world {
 	require.NoError(t, err)
 
 	w := &world{
-		t: t, path: path, clock: &later{}, lark: newLark(ownerID, linhID), larkMaps: newLark(mapsOwner, mapsLinh),
-		pi: &pi{watchers: map[string][]chan coordinator.Frame{}, working: map[string]bool{}},
+		t: t, path: path, bots: folders{root: t.TempDir()}, clock: &later{}, lark: newLark(ownerID, linhID),
+		larkMaps: newLark(mapsOwner, mapsLinh),
+		pi:       &pi{watchers: map[string][]chan coordinator.Frame{}, working: map[string]bool{}},
 	}
 	w.orch = orchestration.New(db, w.clock, platform.NewID)
 	w.asks = &asking{Service: w.orch, questions: map[string]orchestration.Question{}}
@@ -533,7 +610,7 @@ func (w *world) start() {
 
 	w.channels = larkbot.New(w.asks, w.pi,
 		func(ctx context.Context, c orchestration.LarkChannel) (larkbot.Lark, error) { return svc.Open(ctx, c) },
-		logger).WithWebURL(w.web).WithClock(w.clock)
+		logger).WithWebURL(w.web).WithClock(w.clock).WithFiles(w.bots)
 	w.running = false
 	svc = larkbot.NewService(w.asks, w.vault, w.channels, connect)
 	w.svc = svc
@@ -1586,4 +1663,112 @@ func TestTheOwnerIsToldThroughTheChannelsOfABot(t *testing.T) {
 
 	w.channels.TellOwner(ctx, "vmap", "", "A routine keeps failing", "once more")
 	assert.Equal(t, 1, w.larkMaps.askedCount(), "a Channel that is off sends nothing")
+}
+
+// Scenario: the Bot sends files into the Lark chat (issue #312). Each line
+// MEDIA:<path> of its reply is taken out of the text shown, and the file
+// follows the text as a file message, filed by Lark under the kind its bytes
+// are: a workbook as xls, a "PDF" that is not one as stream. A file that is
+// empty, outside the Bot's folder or not there is not sent, and the chat is
+// told why in one line each. A line in a code block is text.
+func TestTheBotSendsAFileIntoTheChat(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	w.setUp(orchestration.LarkChannelOwner)
+
+	workbook := []byte("PK\x03\x04 five sheets")
+	w.bots.put(t, orchestration.DefaultBot, "out/Báo cáo.xlsx", workbook)
+	w.bots.put(t, orchestration.DefaultBot, "notes.pdf", []byte("plain text"))
+	w.bots.put(t, orchestration.DefaultBot, "empty.txt", nil)
+	w.bots.put(t, "other", "secret.txt", []byte("another Bot's"))
+
+	w.lark.say(direct("om_1", ownerDM, ownerID, "export the report"))
+	chat := w.chatOf(ownerDM)
+
+	w.answer(chat, "Here is the workbook.\n", "MEDIA:out/Báo cáo.xlsx\n", "MEDIA: `notes.pdf`\nMEDIA:empty.txt\n",
+		"MEDIA:../other/secret.txt\nMEDIA:/etc/passwd\nMEDIA:missing.xlsx\n", "```\nMEDIA:shown.txt\n```")
+
+	require.Eventually(t, func() bool { return len(w.lark.noticed()) == 4 }, eventual, tick)
+	assert.Equal(t, []string{ownerDM + ": Here is the workbook.\n```\nMEDIA:shown.txt\n```"}, w.lark.sent())
+	assert.Equal(t, []string{ownerDM + ": Báo cáo.xlsx (xls)", ownerDM + ": notes.pdf (stream)"}, w.lark.sentFiles())
+	assert.Equal(t, workbook, w.lark.bytes["Báo cáo.xlsx"])
+	assert.Equal(t, []string{
+		ownerDM + ": empty.txt was not sent: it is empty.",
+		ownerDM + ": secret.txt was not sent: only a file in coordinator's own folder can be sent.",
+		ownerDM + ": passwd was not sent: only a file in coordinator's own folder can be sent.",
+		ownerDM + ": missing.xlsx was not sent: it is not there.",
+	}, w.lark.noticed())
+}
+
+// Scenario: a press of the bot's menu is a message "/menu <key>" from who
+// pressed, in their direct chat, through the rules of a typed one (issue
+// #312). The owner's first press, before he ever wrote, is answered in the
+// chat Lark names for him; Lark delivering the press again adds nothing; a
+// later press goes to the chat he has. There is no message to mark or to
+// quote. Someone the Channel does not take is refused as when they write.
+func TestAPressOfTheBotsMenuIsAMessageFromWhoPressed(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	w.setUp(orchestration.LarkChannelOwner)
+
+	press := larkbot.MenuPress{Operator: ownerID, Key: "export", At: "1700000000", Org: org}
+	w.lark.pressedMenu(press)
+	chat := w.chatOf(dmOf(ownerID))
+	require.Eventually(t, func() bool { return len(w.texts(chat)) == 1 }, eventual, tick)
+	assert.Equal(t, []string{"owner: /menu export"}, w.texts(chat))
+	assert.Equal(t, []string{dmOf(ownerID) + ": Menu: export"}, w.lark.noticed())
+
+	w.lark.pressedMenu(press)
+
+	w.answer(chat, "The workbook is coming.")
+	require.Eventually(t, func() bool { return len(w.lark.sent()) == 1 && w.lark.cardAt(0).closed }, eventual, tick)
+	assert.Empty(t, w.lark.cardAt(0).replyTo, "a press has no message to quote")
+	assert.Empty(t, w.lark.marked("bot-menu:export:1700000000"))
+
+	press.At = "1700000100"
+	w.lark.pressedMenu(press)
+	require.Eventually(t, func() bool { return len(w.texts(chat)) == 3 }, eventual, tick)
+	assert.Equal(t, "owner: /menu export", w.texts(chat)[2])
+	assert.Len(t, w.lark.noticed(), 1, "the chat he has is not named again")
+
+	assert.Len(t, w.texts(chat), 3, "the press Lark delivered twice was taken once")
+}
+
+// Scenario: who may press the bot's menu is who may write to it (issue
+// #312). The event names the app's organization, not the presser's, so a
+// presser counts as a member only when the app can read them as one: someone
+// of another organization is refused in every mode, and is sent nothing. A
+// member the mode does not take is refused too, told so only in a chat they
+// already have with the bot. Once the owner opens the Channel to his
+// organization, a member's press reaches the Bot.
+func TestOnlyWhoMayWriteMayPressTheBotsMenu(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	w.setUp(orchestration.LarkChannelOwner)
+
+	w.lark.pressedMenu(larkbot.MenuPress{Operator: linhID, Key: "export", At: "1", Org: org})
+	w.lark.say(direct("om_1", linhDM, linhID, "export"))
+	require.Eventually(t, func() bool { return len(w.lark.noticed()) == 1 }, eventual, tick)
+	assert.Equal(t, []string{linhDM + ": This bot takes messages from its owner only."}, w.lark.noticed(),
+		"the press of a member the mode does not take sends nothing to a chat the bot does not know")
+
+	_, err := w.svc.Set(t.Context(), main, larkbot.Settings{Mode: orchestration.LarkChannelEveryone})
+	require.NoError(t, err)
+
+	w.lark.pressedMenu(larkbot.MenuPress{Operator: "ou_stranger", Key: "export", At: "2", Org: org})
+
+	w.lark.pressedMenu(larkbot.MenuPress{Operator: linhID, Key: "export", At: "3", Org: org})
+	hers := w.chatOf(dmOf(linhID))
+	require.Eventually(t, func() bool { return len(w.texts(hers)) == 1 }, eventual, tick)
+	assert.Contains(t, w.texts(hers)[0], "/menu export")
+
+	assert.Equal(t, []string{
+		linhDM + ": This bot takes messages from its owner only.", dmOf(linhID) + ": Menu: export",
+	}, w.lark.noticed())
+	require.Never(t, func() bool { return len(w.lark.noticed()) > 2 }, 200*time.Millisecond, tick,
+		"the stranger was sent nothing")
+	assert.Len(t, w.larkChats(), 1, "a refused press starts no chat")
 }

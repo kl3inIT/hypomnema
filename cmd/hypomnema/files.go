@@ -15,7 +15,8 @@ import (
 // The `files serve` command (issue #255): the control plane's user cannot read
 // the coordinator's home, so the control plane runs this as the coordinator,
 // through a sudoers rule that names it with its root, for each question about
-// a Bot's folder, and for each change the owner makes in it (issue #297). As
+// a Bot's folder, for each change the owner makes in it (issue #297), and for
+// each file the Bot sends into a Lark chat (issue #312). As
 // Omnigent reads and writes a workspace through a helper run as the agent's
 // identity, not as its server.
 //

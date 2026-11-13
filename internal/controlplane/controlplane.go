@@ -328,10 +328,16 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	// Channel opens its connection through them.
 	var larkSettings *larkbot.Service
 
+	// A Bot's folder is read for the Files panel and for the files a Bot sends into its Lark chat (issue #312).
+	bots := newBotFiles(cfg.BotFilesCommand)
+
 	larkChannels := larkbot.New(svc, sup,
 		func(ctx context.Context, c orchestration.LarkChannel) (larkbot.Lark, error) {
 			return larkSettings.Open(ctx, c)
 		}, logger).WithWebURL(cfg.PublicURL)
+	if bots != nil {
+		larkChannels.WithFiles(bots)
+	}
 	larkSettings = larkbot.NewService(svc, secrets, larkChannels, larkbot.Connect)
 
 	// The Routines of the Bots (issue #211): the tick, and the runs it starts.
@@ -344,7 +350,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		WithAccounts(subscriptions).WithGatewayModels(gateway).WithGatewayKeys(gateway).WithGatewayUsage(gateway).
 		WithHostTokens(tokens).
 		WithMachines(machineMgr).WithTerminals(nodeTerminals(nodes)).
-		WithWorkspaces(nodes.Files, newBotFiles(cfg.BotFilesCommand)).
+		WithWorkspaces(nodes.Files, bots).
 		WithSecrets(ownerSecrets{vault: secrets, referrers: referrers}).
 		WithIntegrations(integrations).WithApprovals(proxy).WithRelay(proxy).WithLarkChannels(larkSettings).
 		WithSkillSources(skillsource.NewGitHub(&http.Client{Timeout: 2 * time.Minute})).

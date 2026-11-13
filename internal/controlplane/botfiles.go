@@ -16,6 +16,10 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/shared/workspacefs"
 )
 
+// maxBotAnswer bounds the helper's answer: a file read whole as JSON, and a
+// file a Bot sends into a Lark chat (issue #312), whose bytes are base64.
+const maxBotAnswer = max(nodeproto.MaxFilesAnswerBytes, workspacefs.MaxSend*4/3+1<<20)
+
 // botFiles reads a Bot's folder (issue #255) by running `hypomnema files
 // serve` as the coordinator, once for each question: the control plane's user
 // cannot read the coordinator's home.
@@ -63,7 +67,7 @@ func (b *botFiles) Ask(ctx context.Context, bot string, req workspacefs.Request)
 	cmd.Stdin = bytes.NewReader(question)
 
 	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &limited{w: &stdout, left: nodeproto.MaxFilesAnswerBytes}
+	cmd.Stdout = &limited{w: &stdout, left: maxBotAnswer}
 	cmd.Stderr = &limited{w: &stderr, left: 4 << 10}
 
 	if err := cmd.Run(); err != nil {
