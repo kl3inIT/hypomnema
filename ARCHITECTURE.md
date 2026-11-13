@@ -457,7 +457,10 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     "Connections" and "Workers" (`web/src/features/bots/bot-access.tsx`, after OpenMausBot's `AccessSection.tsx`
     L731-784 and `ConnectorScopesControl` L894-928) each have a switch "Limit Connections" or "Limit workers"
     and, on, one switch per Connection switched on for chats or per worker profile, starting with none; a switch
-    saves at once. In a chat, each setup change has a card where it was made ("Made Bot researcher", its state,
+    saves at once. On the Bots page each Bot's card has a row "Works with" (issue #311, the owner's request of
+    2026-11-13, after OpenMausBot's "Works with" on its template cards, `ReadyBotGallery.tsx` L68-70): the mark,
+    Integration name and label of each Connection on its list, "Everything you switched on" without a list, "No
+    account" with an empty one. In a chat, each setup change has a card where it was made ("Made Bot researcher", its state,
     Open · Undo), the Routines' "Set up" card's shape (`web/src/features/bots/setup-change-card.tsx`).
   - Not built: MCP servers, pi extensions and a Bot's own skills (issue #169 says these need reading first), a
     per-Bot switch for the right to manage Bots, rules of what a new Bot inherits, removing a profile (not an

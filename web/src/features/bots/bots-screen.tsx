@@ -1,11 +1,13 @@
 import { Link } from "@tanstack/react-router"
-import { Brain, History, NotebookText } from "lucide-react"
+import { Brain, History, NotebookText, Plug } from "lucide-react"
 import { useState } from "react"
 
-import type { Bot } from "@/api/generated/types.gen"
+import type { AllowList, Bot } from "@/api/generated/types.gen"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { AgentAvatar } from "@/features/agents/agent-avatar"
 import { effortLabel } from "@/features/agents/profiles-state"
+import { IntegrationMark } from "@/features/settings/service-cards"
+import { useServices } from "@/features/settings/use-integrations"
 import { PageHeader, PageHeading } from "@/features/shell/app-shell"
 import { modelIsId } from "@/lib/model-name"
 import { ModelMark } from "@/features/agents/model-mark"
@@ -32,8 +34,11 @@ function readLayout(): Layout {
 // took them from the Machines page (machines-screen.tsx, after Beszel's SystemCard).
 export function BotsScreen() {
   const bots = useBots()
+  const services = useServices()
   const [layout, setLayout] = useState<Layout>(readLayout)
   const list = bots.data ?? []
+  // Each Integration's name, for the Connections a card says a Bot works with.
+  const connectionNames = Object.fromEntries((services.data ?? []).map((s) => [s.id, s.name]))
 
   function choose(next: Layout) {
     setLayout(next)
@@ -103,7 +108,7 @@ export function BotsScreen() {
         ) : (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
             {list.map((bot) => (
-              <BotCard key={bot.name} bot={bot} />
+              <BotCard key={bot.name} bot={bot} names={connectionNames} />
             ))}
           </div>
         )}
@@ -113,8 +118,9 @@ export function BotsScreen() {
 }
 
 // BotCard is the Agents page's card: a header with the face and the name, then the persona and one row a fact,
-// each with its icon and its name. The name is a link that covers the card.
-function BotCard({ bot }: { bot: Bot }) {
+// each with its icon and its name. The name is a link that covers the card. names are the Integrations' names by
+// their id.
+function BotCard({ bot, names }: { bot: Bot; names: Record<string, string> }) {
   const rows = [
     {
       name: "Model",
@@ -140,6 +146,13 @@ function BotCard({ bot }: { bot: Bot }) {
       name: "Memory",
       icon: <NotebookText className="size-4 text-muted-foreground" aria-hidden />,
       value: memoryLine(bot),
+    },
+    {
+      // What the Bot may use (owner, 2026-11-13): OpenMausBot's template cards say "Works with" and the apps'
+      // icons (src/components/ReadyBotGallery.tsx L68-70); here each Connection with its mark and its name.
+      name: "Works with",
+      icon: <Plug className="size-4 text-muted-foreground" aria-hidden />,
+      value: <WorksWith list={bot.connections} names={names} />,
     },
     {
       name: "Changed",
@@ -182,6 +195,31 @@ function BotCard({ bot }: { bot: Bot }) {
         ))}
       </dl>
     </article>
+  )
+}
+
+// WorksWith is the Connections a Bot may use: everything the owner switched on for chats when it has no list,
+// else each one on its list as its Integration's mark, name and label.
+function WorksWith({ list, names }: { list: AllowList; names: Record<string, string> }) {
+  if (!list.limited) return <span>Everything you switched on</span>
+
+  if (list.names.length === 0) return <span className="text-muted-foreground">No account</span>
+
+  return (
+    <ul className="flex min-w-0 flex-wrap gap-x-3 gap-y-1">
+      {list.names.map((name) => {
+        const [integration = "", label = ""] = name.split(":")
+
+        return (
+          <li key={name} className="inline-flex min-w-0 items-center gap-1.5">
+            <IntegrationMark id={integration} className="size-3.5 shrink-0" />
+            <span className="truncate">
+              {names[integration] ?? integration} · {label}
+            </span>
+          </li>
+        )
+      })}
+    </ul>
   )
 }
 

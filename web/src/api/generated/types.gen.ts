@@ -649,11 +649,11 @@ export type Integration = {
   id: string;
   name: string;
   /**
-   * How a Connection is made: oauth signs an account in, in a browser; app has no sign-in, its client being an app of the service; account is the service's address, a user name and a password.
+   * How a Connection is made: oauth signs an account in, in a browser; app has no sign-in, each Connection being an app of the service with its own id and secret; account is the service's address, a user name and a password.
    */
   kind: 'oauth' | 'app' | 'account';
   /**
-   * The id of the OAuth client it signs in with, or of the app it is; absent until one is set. Not secret.
+   * The id of the OAuth client it signs in with; absent until one is set, and for an app, whose Connections each have their own. Not secret.
    */
   client_id?: string;
   /**
@@ -810,6 +810,10 @@ export type IntegrationConnection = {
    */
   version?: string;
   /**
+   * The id of the app the Connection is, for an Integration of kind app. Not secret.
+   */
+  app_id?: string;
+  /**
    * Whether the coordinator may use the Connection in chats, and so give it to a Run. Off until the owner turns it on.
    */
   chats: boolean;
@@ -818,9 +822,13 @@ export type IntegrationConnection = {
 };
 
 /**
- * An account of a service at an address of its own.
+ * An account of a service at an address of its own (address, username, password), or an app of a service (app_id, app_secret).
  */
 export type NewAccountConnection = {
+  /**
+   * The app's App ID, for an Integration that is an app. Not secret.
+   */
+  app_id?: string;
   /**
    * Where the service is, such as https://superset.example.com.
    */
@@ -2294,9 +2302,14 @@ export type LarkChannelSettingsWritable = {
 };
 
 /**
- * An account of a service at an address of its own.
+ * An account of a service at an address of its own (address, username, password), or an app of a service (app_id, app_secret).
  */
 export type NewAccountConnectionWritable = {
+  /**
+   * The app's App ID, for an Integration that is an app. Not secret.
+   */
+  app_id?: string;
+  app_secret?: string;
   /**
    * Where the service is, such as https://superset.example.com.
    */

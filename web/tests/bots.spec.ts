@@ -309,7 +309,10 @@ const fits = (page: Page) =>
 test("the Bots show as cards and as a table, each with its model and its memory", async ({
   page,
 }) => {
-  await fakeServer(page, [coordinator, bot("researcher")])
+  await fakeServer(page, [
+    coordinator,
+    bot("researcher", { connections: { limited: true, names: ["google:work", "lark:main"] } }),
+  ])
   await page.goto("/bots")
 
   await expect(page.getByRole("heading", { name: "Bots", level: 1 })).toBeVisible()
@@ -318,9 +321,11 @@ test("the Bots show as cards and as a table, each with its model and its memory"
   await expect(first).toContainText("Plan the work, give it to workers")
   await expect(first).toContainText("Model:gpt-luna(gateway)")
   await expect(first).toContainText("Memory:108 of 2,200 characters")
-  await expect(page.getByRole("article", { name: "researcher" })).toContainText(
-    "Model:pi's default model",
-  )
+  await expect(first).toContainText("Works with:Everything you switched on")
+  const second = page.getByRole("article", { name: "researcher" })
+  await expect(second).toContainText("Model:pi's default model")
+  // The Connections a Bot is limited to, each as its Integration's mark and name (owner, 2026-11-13).
+  await expect(second.getByRole("listitem")).toHaveText(["Google · work", "Lark · main"])
   expect(await fits(page)).toBe(true)
   await shot(page, "bots-grid")
 

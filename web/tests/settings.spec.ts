@@ -19,10 +19,7 @@ async function shot(page: Page, name: string) {
   await page.screenshot({ path: `${dir}/${name}-${device}.png` })
 }
 
-async function fakeServer(
-  page: Page,
-  start: { hosts?: Host[]; repos?: Repo[]; larkApp?: boolean } = {},
-) {
+async function fakeServer(page: Page, start: { hosts?: Host[]; repos?: Repo[] } = {}) {
   let hosts = start.hosts ?? [
     { host: "github.com", kind: "github", known: true, has_token: true },
     { host: "gitlab.com", kind: "gitlab", known: true, has_token: false },
@@ -43,7 +40,8 @@ async function fakeServer(
     },
   ]
   // Lark, an app: connected with no sign-in once its id and secret were given.
-  let apps: typeof accounts = []
+  // Lark, an app Integration: each account is an app given with its App ID and App Secret (issue #311).
+  let apps: ((typeof accounts)[number] & { app_id?: string })[] = []
   let asked: { label: string; services: string[] } | undefined
   // What agents may do with a Google account: the actions of the service proxy's catalog, with their answers.
   const action = (id: string, service: string, name: string, text: string, policy: string) => ({
@@ -230,17 +228,20 @@ async function fakeServer(
     }
 
     if (kind === "integrations" && sub === "connections" && request.method() === "PUT") {
+      const body = request.postDataJSON() as { app_id: string; app_secret: string }
       const added = {
         integration: name ?? "",
         label: path.split("/")[4] ?? "",
-        account: "Hypomnema",
+        // Lark answers with the app's own name.
+        account: body.app_id === "cli_report" ? "Superset Report" : "Hypomnema",
+        app_id: body.app_id,
         services: [],
         sign_in_required: false,
         chats: false,
         created_at: now,
         updated_at: now,
       }
-      apps = [...apps, added]
+      apps = [...apps.filter((a) => a.label !== added.label), added]
 
       return json(added)
     }
@@ -303,7 +304,6 @@ async function fakeServer(
               id: "lark",
               name: "Lark",
               kind: "app",
-              client_id: start.larkApp === false ? undefined : "cli_a1b2c3d4e5f6a7b8",
               services: [],
               connections: apps,
             },
@@ -491,7 +491,7 @@ test("the owner signs a second Google account in and disconnects the first", asy
 // words; the sheet lists each action of each service with its answer. He forbids sending mail, and the line says
 // so. Lark, which does not go through the service proxy, has no such line.
 test("the owner sets what agents may do with an account", async ({ page }) => {
-  const calls = await fakeServer(page, { larkApp: true })
+  const calls = await fakeServer(page)
   await page.goto("/settings/integrations")
 
   const may = page.getByRole("button", { name: "What agents may do with personal" })
@@ -526,10 +526,11 @@ test("the owner sets what agents may do with an account", async ({ page }) => {
   expect(calls).toEqual(["PUT /integrations/google/connections/personal/actions/gmail.send"])
 })
 
-// Scenario: the owner gave Hypomnema his Lark app's id and secret. He connects the app under a name, with no
-// link to open and nothing to paste, sees it under the app's own name, and disconnects it after being told what
-// stays. On a phone nothing runs off the side.
-test("the owner connects his Lark app and disconnects it", async ({ page }) => {
+// Scenario: one Lark organization, two apps (issue #311). The owner adds his own app as "work" and a reports app
+// as "report", each with its App ID and App Secret as a Lark channel's are given, with no link to open and nothing
+// to paste. Each shows under the app's own name with its id. He changes the app of "report", then disconnects
+// "work" after being told its secret leaves the vault. On a phone nothing runs off the side.
+test("the owner adds two Lark apps and disconnects one", async ({ page }) => {
   const calls = await fakeServer(page)
   await page.goto("/settings/integrations")
 
@@ -537,41 +538,48 @@ test("the owner connects his Lark app and disconnects it", async ({ page }) => {
   await expect(lark).toContainText("Not connected")
   await shot(page, "integrations-lark-ready")
 
-  await lark.getByRole("button", { name: "Connect app" }).click()
-  const dialog = page.getByRole("dialog")
-  await dialog.getByLabel("Name").fill("work")
-  await shot(page, "integrations-lark-connect")
-  await dialog.getByRole("button", { name: "Connect" }).click()
+  const dialog = page.locator("[data-slot=dialog-content]")
+  for (const [label, id] of [
+    ["work", "cli_work"],
+    ["report", "cli_report"],
+  ] as const) {
+    await lark.getByRole("button", { name: "Add app" }).click()
+    await dialog.getByLabel("Name").fill(label)
+    await dialog.getByLabel("App ID").fill(id)
+    await dialog.getByLabel("App Secret").fill(`${label}-secret`)
+    if (label === "report") await shot(page, "integrations-lark-add")
+    await dialog.getByRole("button", { name: "Connect" }).click()
+    await expect(dialog).toBeHidden()
+  }
 
   await expect(lark.getByLabel("Lark account work")).toContainText("Hypomnema")
-  await expect(dialog).toBeHidden()
+  await expect(lark.getByLabel("Lark account work")).toContainText("cli_work")
+  await expect(lark.getByLabel("Lark account report")).toContainText("Superset Report")
   await expect(lark).toContainText("Connected")
   expect(await fits(page)).toBe(true)
   await shot(page, "integrations-lark-connected")
 
+  await lark.getByLabel("Lark account report").getByRole("button", { name: "Change app" }).click()
+  await expect(dialog.getByLabel("App ID")).toHaveValue("cli_report")
+  await expect(dialog.getByLabel("Name")).toHaveCount(0)
+  await shot(page, "integrations-lark-change")
+  await dialog.getByLabel("App Secret").fill("reset-secret")
+  await dialog.getByRole("button", { name: "Connect" }).click()
+  await expect(dialog).toBeHidden()
+
   await lark.getByRole("button", { name: "Disconnect work" }).click()
   const confirm = page.getByRole("alertdialog")
-  await expect(confirm).toContainText("id and secret stay in the vault")
+  await expect(confirm).toContainText("removes its secret from the vault")
   await shot(page, "integrations-lark-disconnect")
   await confirm.getByRole("button", { name: "Disconnect" }).click()
   await expect(lark.getByLabel("Lark account work")).toHaveCount(0)
 
   expect(calls).toEqual([
     "PUT /integrations/lark/connections/work",
+    "PUT /integrations/lark/connections/report",
+    "PUT /integrations/lark/connections/report",
     "DELETE /integrations/lark/connections/work",
   ])
-})
-
-// Scenario: Lark's id and secret were not given yet: its card says how to give them and fits a phone.
-test("a Lark app that is not set up says how to give its id and secret", async ({ page }) => {
-  await fakeServer(page, { larkApp: false })
-  await page.goto("/settings/integrations")
-
-  const lark = card(page, "Lark")
-  await expect(lark).toContainText("Not set up")
-  await expect(lark).toContainText("integrations client set lark")
-  expect(await fits(page)).toBe(true)
-  await shot(page, "integrations-lark-unset")
 })
 
 // Scenario: the owner connects his company's Superset: its address, a user name and a password, with no client to
