@@ -13,13 +13,13 @@ import { firstBot } from "@/features/bots/bots-state"
 import { useBots } from "@/features/bots/use-bots"
 import {
   AppSidebar,
-  ChatList,
   MenuLink,
   PageHeader,
   Places,
   SettingsLink,
   SignOut,
 } from "@/features/shell/app-shell"
+import { BotList } from "@/features/shell/bot-list"
 import { SoloPane } from "@/features/workbench/solo-pane"
 
 import { AttachDrop } from "./attach-drop"
@@ -31,7 +31,7 @@ import { useStartChat } from "./start-chat"
 // The chat with pi, laid out as t3code's app (MIT, Copyright (c) 2026 T3 Tools Inc.,
 // https://github.com/pingdotgg/t3code): the app's sidebar (features/shell), and beside it a column with a quiet
 // header (ChatView.tsx, ChatHeader.tsx), the conversation and the composer. On a phone the sidebar hides and the
-// header's menu opens the start screen, which lists the places and the chats. Without a chat open, the start
+// header's menu opens the start screen, which lists the places and the Bots with their chats. Without a chat open, the start
 // screen's composer starts one (chat/DraftHeroHeadline.tsx). A chat talks with one Bot (issue #169): the start
 // screen offers the Bots when there are several, and an open chat's header names its Bot. The start screen chooses
 // its chat's id when it opens (issue #357), so that files are attached there before the chat is made.
@@ -98,7 +98,7 @@ function NewChat({ initialBot }: { initialBot?: string }) {
           </p>
           <div className="w-full max-w-(--chat-content-max-width) md:hidden">
             <Places />
-            <ChatList label="Recent chats" />
+            <BotList />
             <div className="mt-2 flex flex-col gap-px">
               <SettingsLink />
               <SignOut />

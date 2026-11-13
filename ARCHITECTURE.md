@@ -1944,7 +1944,12 @@ Node (`internal/node`):
     resuming a broken upload, rich Markdown editing, PDF, CSV and notebook views, a Trash and undo, content search,
     writes over 1 MiB from the editor, more than the first 1000 entries of a directory.
   - The sidebar lists the places (New chat, Team with the count that needs the owner, Bots, Routines, Agents,
-    Machines) above the chats.
+    Machines) above the Bots (issue #361, after OpenMausBot's sidebar): a row a Bot that has chats, and
+    `coordinator` always, ordered by its latest chat. A row shows the Bot's avatar with a dot when one of its chats
+    is working or needs the owner, its name, its latest chat's title, and "Needs you", "Working" or the time.
+    Clicking it opens the latest chat; a chevron, on a Bot with more than one chat, opens its chats newest first,
+    each draggable to the grid, and which Bots are open is kept in `localStorage`; a `+` on hover opens New chat
+    with that Bot picked (`/?bot=`). The phone's start page lists the same Bots.
     Every page follows `GET /events/stream` from the Tasks' cursor and refreshes what an event may have changed.
 - The machines (issue #69): `/machines` lists the nodes after Beszel's systems table (MIT), as cards (Grid, the
   default) or a Table, both from one column definition; the choice is kept in `localStorage`. A machine shows its

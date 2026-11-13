@@ -206,7 +206,7 @@ test("a chat shows pi's work and reply", async ({ page }) => {
   await expect(log.locator("pre", { hasText: "[]" })).toBeVisible()
 })
 
-// Scenario: pi asked to send a mail and the request is held. The chat's row in the sidebar says it needs the
+// Scenario: pi asked to send a mail and the request is held. Its Bot's row in the sidebar says it needs the
 // owner; in the chat, above the message box, he reads who the mail goes to and its text, approves it once, and
 // the card and the mark go.
 test("the owner approves a mail pi asked to send, in the chat", async ({ page }) => {
@@ -222,7 +222,7 @@ test("the owner approves a mail pi asked to send, in the chat", async ({ page })
   )
   await shot(page, "chat-approval")
 
-  const row = page.getByRole("navigation", { name: "Chats" }).getByRole("link").first()
+  const row = page.getByRole("navigation", { name: "Bots" }).getByRole("link").first()
   if (await row.isVisible()) await expect(row).toContainText("Needs you")
 
   await card.getByRole("button", { name: "Approve", exact: true }).click()
