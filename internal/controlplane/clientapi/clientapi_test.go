@@ -1193,6 +1193,76 @@ func TestStreamChatShowsPiLive(t *testing.T) {
 	}
 }
 
+// Scenario: the web reads a chat whose Run's Task was canceled. The list and
+// the stream both send the wake-up with its event's Run, Task and status, and
+// the owner's message without one.
+func TestAWakeUpIsSentWithItsEvent(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	owner, _ := w.token("web", bearertoken.Owner)
+	ctx := t.Context()
+
+	chat, err := w.svc.CreateChat(ctx, "", "health page")
+	require.NoError(t, err)
+
+	_, err = w.svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, "add a health page")
+	require.NoError(t, err)
+
+	run, err := w.svc.CreateRun(ctx, orchestration.NewRun{Objective: "health page", CreatedBy: "pi", ChatID: chat.ID})
+	require.NoError(t, err)
+
+	tasks, err := w.svc.CreateTasks(ctx, run.ID, []orchestration.NewTask{{Ref: "a", Spec: "a"}})
+	require.NoError(t, err)
+	require.NoError(t, w.svc.CancelTask(ctx, tasks[0].ID))
+
+	_, err = w.svc.WakeChats(ctx)
+	require.NoError(t, err)
+
+	check := func(msgs []openapi.ChatMessage, how string) {
+		t.Helper()
+
+		require.Len(t, msgs, 2, how)
+		assert.Nil(t, msgs[0].Wake, how+": an owner message reports no event")
+		require.NotNil(t, msgs[1].Wake, how)
+		assert.Equal(t, openapi.ChatWake{
+			Event: openapi.WakeTaskStatus, RunId: &run.ID, TaskId: &tasks[0].ID, Status: ptr("canceled"),
+		}, *msgs[1].Wake, how)
+	}
+
+	page, err := owner.ListChatMessagesWithResponse(ctx, chat.ID, nil)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, page.StatusCode())
+	check(page.JSON200.Data, "list")
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, w.url+BasePath+"/chats/"+chat.ID+"/stream", nil)
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+bearerOf(t, w, "stream"))
+
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+
+	defer func() { _ = resp.Body.Close() }()
+
+	var streamed []openapi.ChatMessage
+
+	sc := bufio.NewScanner(resp.Body)
+	for message := false; len(streamed) < 2 && sc.Scan(); {
+		switch l := sc.Text(); {
+		case l == "event: message":
+			message = true
+		case message && strings.HasPrefix(l, "data: "):
+			var m openapi.ChatMessage
+			require.NoError(t, json.Unmarshal([]byte(strings.TrimPrefix(l, "data: ")), &m))
+			streamed = append(streamed, m)
+			message = false
+		}
+	}
+
+	check(streamed, "stream")
+	close(w.stop)
+}
+
 // Scenario: the owner manages nodes from the web. Adding one answers with a
 // token that authenticates the node; draining, resuming and removing it show
 // in the list. A coordinator token reads the nodes and changes none.

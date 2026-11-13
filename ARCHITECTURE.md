@@ -296,7 +296,14 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   Run records the chat whose pi created it (`runs.chat_id`); the API names that chat's Bot as `Run.bot` (issue #281),
   read by a join of `runs` with `chats` in `GetRunWithBot` and `ListRuns`, and absent for a Run without a chat. Each
   event of such a Run that needs a coordinator (a Task ended or was blocked, a question to the coordinator, an
-  escalation, the Run ended) adds one wake-up to the chat, unique per event.
+  escalation, the Run ended) adds one wake-up to the chat, unique per event. A `task.status` event's `reason` is why
+  the Task is blocked, or why it failed. Reading a chat's messages (the list and the stream) joins each `wake` row
+  with its event in the same query (issue #303) and sends it as `ChatMessage.wake`: the event, its Run, Task and
+  question, the status, the reason and an escalation's kind; the event never changes, so nothing is kept in step.
+  pi reads the row's text. The web draws a wake row as a card across the lane (after t3code's
+  `TimelineSystemDivider.tsx` and `MarkdownThreadLink.tsx`, Orca's `NativeChatTaskList.tsx`): an icon by status,
+  the status in words, and the Task or Run by its title as a chip that opens the Task's panel over the chat (the
+  page's `?task=`, as the board's) or the Run's page.
 - Bots (`orchestration/bots.go`, issue #169, after OpenMausBot's bot records and OpenClaw's `agents.entries`): a
   Bot is a row with a name, a model (provider, name, effort, checked as a profile's is, for pi), a persona and a
   memory. It is apart from the workers' profiles (owner, 2026-11-11). The Bot `coordinator` is always there: it is

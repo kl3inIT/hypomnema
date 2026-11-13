@@ -140,12 +140,14 @@ describe("the conversation items", () => {
           kind: "wake",
           event_seq: 7,
           text: "Task t1 of run r1 is succeeded",
+          wake: { event: "task.status", run_id: "r1", task_id: "t1", status: "succeeded" },
         }),
       },
     )
 
     const items = chatItems(view)
-    expect(items.map((i) => i.kind)).toEqual(["owner", "activity", "reply", "notice"])
+    expect(items.map((i) => i.kind)).toEqual(["owner", "activity", "reply", "wake"])
+    expect(items[3]).toMatchObject({ wake: { task_id: "t1", status: "succeeded" } })
 
     const group = items[1]
     if (group?.kind !== "activity") throw new Error("the second item is not a group")

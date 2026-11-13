@@ -113,6 +113,59 @@ func TestRunEventsWakeTheirChatOnce(t *testing.T) {
 	assert.NotZero(t, wakes[0].EventSeq)
 }
 
+// Scenario: the web reads a chat whose Run has a Task done, a Task failed
+// and a question to the coordinator. Each wake-up comes with what its event
+// says, the Run, the Task, the question and the status; the owner's message
+// has none, and pi is given the rows without it.
+func TestAWakeUpComesWithItsEvent(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	chat, err := w.s.CreateChat(ctx, "", "health page")
+	require.NoError(t, err)
+
+	w.run, err = w.s.CreateRun(ctx, NewRun{Objective: "health page", CreatedBy: "pi", ChatID: chat.ID})
+	require.NoError(t, err)
+
+	tasks := w.tasks(NewTask{Ref: "a", Spec: "a"}, NewTask{Ref: "b", Spec: "b"}, NewTask{Ref: "c", Spec: "c"})
+
+	_, err = w.s.AddChatMessage(ctx, chat.ID, ChatOwner, "how is it going?")
+	require.NoError(t, err)
+
+	w.succeed(tasks[0].ID, "health page added")
+	w.failForGood(tasks[1].ID)
+
+	_, c := w.start(tasks[2].ID)
+	question := w.ask(c, libraryChoice(AddressCoordinator))
+
+	_, err = w.s.WakeChats(ctx)
+	require.NoError(t, err)
+
+	msgs, err := w.s.ListChatMessages(ctx, chat.ID, 0, 0)
+	require.NoError(t, err)
+	require.Len(t, msgs, 4)
+	assert.Nil(t, msgs[0].Wake, "an owner message reports no event")
+
+	want := []WakeEvent{
+		{Event: EventTaskStatus, RunID: w.run.ID, TaskID: tasks[0].ID, Status: "succeeded"},
+		{Event: EventTaskStatus, RunID: w.run.ID, TaskID: tasks[1].ID, Status: "failed",
+			Reason: "3 failed attempts; the last: worker_error"},
+		{Event: EventQuestionOpened, RunID: w.run.ID, TaskID: tasks[2].ID, QuestionID: question},
+	}
+	for i, m := range msgs[1:] {
+		assert.Equal(t, ChatWake, m.Kind)
+		require.NotNil(t, m.Wake, m.Text)
+		assert.Equal(t, want[i], *m.Wake, m.Text)
+	}
+
+	undelivered, err := w.s.Undelivered(ctx, chat.ID)
+	require.NoError(t, err)
+	require.Len(t, undelivered, 4)
+	assert.Nil(t, undelivered[1].Wake, "pi reads the wake-up's text, not its event")
+}
+
 // Scenario: a chat started without a title, as from the CLI, takes its first
 // owner message's first line; a chat with a title keeps it.
 func TestAChatIsNamedByItsFirstMessage(t *testing.T) {

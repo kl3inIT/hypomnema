@@ -771,9 +771,15 @@ func transitionTask(ctx context.Context, q *store.Queries, now int64, id string,
 		return fmt.Errorf("%w: task %s changed while becoming %s", ErrConflict, id, to)
 	}
 
+	// The reason is why a Task is blocked, or why it failed (its result), so a wake-up can say it (issue #303).
+	why := string(reason)
+	if to == TaskFailed {
+		why = result
+	}
+
 	return emit(ctx, q, now, event{
 		kind: EventTaskStatus, run: current.RunID, task: id,
-		payload: map[string]any{"from": string(from), "to": string(to), "reason": string(reason)},
+		payload: map[string]any{"from": string(from), "to": string(to), "reason": why},
 	})
 }
 

@@ -22,6 +22,7 @@ import { cn } from "@/lib/utils"
 
 import { argLine, failed, type ChatItem, type Step } from "./chat-state"
 import Markdown from "./markdown"
+import { WakeCard } from "./wake-card"
 import { WorkLogBlock, WorkLogButton, WorkLogDetails, WorkLogList, WorkLogRow } from "./work-log"
 
 // The rows of a conversation, drawn as t3code draws its timeline (MIT, Copyright (c) 2026 T3 Tools Inc.,
@@ -49,6 +50,8 @@ export function ChatItemView({
       return <Notice message={item.message} />
     case "stopped":
       return <Stopped />
+    case "wake":
+      return <WakeCard wake={item.wake} />
     case "reply":
       return (
         <Reply text={item.text} streaming={item.streaming} createdAt={item.createdAt} bot={bot} />
@@ -156,7 +159,7 @@ function Reply({
   )
 }
 
-// A wake-up from the control plane or a notice, as a line across the lane; a failed model call reads as danger.
+// A notice, or a wake-up whose event is not known, as a line across the lane; a failed model call reads as danger.
 function Notice({ message }: { message: ChatMessage }) {
   const danger = failed(message)
   const wake = message.kind === "wake"
