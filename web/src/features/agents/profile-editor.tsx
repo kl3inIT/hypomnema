@@ -25,7 +25,6 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { AvatarName } from "@/features/agents/agent-avatar"
-import { RuntimeMark } from "@/features/board/runtime-mark"
 import { SkillsField } from "@/features/skills/skills-field"
 import { Textarea } from "@/components/ui/textarea"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
@@ -44,6 +43,7 @@ import {
   toYaml,
   type Draft,
 } from "./profiles-state"
+import { RuntimeMark } from "./runtime-mark"
 import { useApplyProfile, useProfiles } from "./use-profiles"
 
 type Mode = "builder" | "yaml"

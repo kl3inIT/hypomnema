@@ -8,7 +8,7 @@ import type { Question } from "@/api/generated/types.gen"
 import { since } from "@/lib/time"
 import { cn } from "@/lib/utils"
 
-import { boardKey, questionsKey } from "./use-board"
+import { boardKey, questionsKey } from "@/features/work/use-work"
 
 // QuestionForm answers a worker's question, after t3code's pending user-input panel (MIT, Copyright (c) 2026 T3
 // Tools Inc., https://github.com/pingdotgg/t3code; chat/ComposerPendingUserInputPanel.tsx): the options as radio

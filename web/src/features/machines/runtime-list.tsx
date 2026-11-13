@@ -2,7 +2,7 @@ import { useLayoutEffect, useState } from "react"
 
 import type { Node } from "@/api/generated/types.gen"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { RuntimeMark } from "@/features/board/runtime-mark"
+import { RuntimeMark } from "@/features/agents/runtime-mark"
 
 // RuntimeList is a machine's runtimes on one line: each with its mark and its name while they fit, and the marks
 // alone when they do not (owner, 2026-11-10). Pointing at them names each with its version. A row of marks with

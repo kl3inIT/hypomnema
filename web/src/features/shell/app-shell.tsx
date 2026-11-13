@@ -19,8 +19,8 @@ import "@/api/client"
 import type { Chat } from "@/api/generated/types.gen"
 import { HypomnemaIcon, HypomnemaWordmark } from "@/components/icons/brand-icons"
 import { signOut } from "@/features/auth/session"
-import { needsYou } from "@/features/board/board-state"
-import { useBoard, useLiveUpdates } from "@/features/board/use-board"
+import { useLiveUpdates, useWork } from "@/features/work/use-work"
+import { needsYou } from "@/features/work/work-state"
 import { since } from "@/lib/time"
 import { useBrowser } from "@/features/browser/browser-state"
 import { gridPanes } from "@/features/workbench/grid-layout"
@@ -36,9 +36,9 @@ import { usePending } from "@/features/approvals/use-approvals"
 // board with what waits for the owner, the Runs, the Bots and their Routines, the agents, the machines) and the chats, and a quiet 52px header over each page. On a phone
 // the sidebar hides; the header's menu leads to the start page, which lists the same places.
 
-// LiveUpdates keeps every page current from the event stream, from the board's cursor.
+// LiveUpdates keeps every page current from the event stream, from the Tasks' cursor.
 export function LiveUpdates() {
-  const { after } = useBoard()
+  const { after } = useWork()
   useLiveUpdates(after)
 
   return null
@@ -48,7 +48,7 @@ const placeClass =
   "flex h-8 items-center gap-2 rounded-lg px-2.5 text-sm font-medium text-muted-foreground/80 hover:bg-sidebar-row-hover hover:text-foreground"
 
 export function Places() {
-  const { cards } = useBoard()
+  const { cards } = useWork()
   const waiting = needsYou(cards)
 
   return (

@@ -50,7 +50,7 @@ Each adapted file names its source.
   MIT) and Antigravity's from OpenMausBot (src/components/ProviderIcons.tsx, Apache License 2.0). Each mark
   belongs to its brand.
 - The titles of a worker's tool calls and the line that says a group of them
-  (`src/features/board/tool-title.ts`) are adapted from Omnigent (https://github.com/omnigent-ai/omnigent,
+  (`src/features/tasks/tool-title.ts`) are adapted from Omnigent (https://github.com/omnigent-ai/omnigent,
   web/src/lib/toolTitle.ts and toolValue.ts), Apache License 2.0. The file says what was changed.
 - The Agents pages (`src/features/agents`) are adapted from Omnara (https://github.com/omnara-ai/omnara,
   frontend/apps/web/src/components/agents: the profile cards, the Builder and YAML editor, the model field with its

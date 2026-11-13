@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router"
 
-import { TaskPanel } from "@/features/board/task-panel"
+import { TaskPanel } from "@/features/tasks/task-panel"
 import { RunScreen } from "@/features/runs/run-screen"
 import { AppSidebar } from "@/features/shell/app-shell"
 

@@ -7,10 +7,11 @@ import {
 } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
 import { PageHeader, PageHeading } from "@/features/shell/app-shell"
+import { useWork } from "@/features/work/use-work"
+import type { Card } from "@/features/work/work-state"
 
-import { byColumn, columns, lanes, repos, type Card, type Group } from "./board-state"
+import { byColumn, columns, lanes, repos, type Group } from "./board-state"
 import { TaskCard } from "./task-card"
-import { useBoard } from "./use-board"
 
 const dots: Record<string, string> = {
   you: "bg-needs-you",
@@ -32,7 +33,7 @@ export function BoardScreen({
   onChange: (next: { group?: Group; repo?: string }) => void
   onOpen: (taskId: string) => void
 }) {
-  const { cards, loading, error } = useBoard()
+  const { cards, loading, error } = useWork()
   const rows = lanes(cards, group, repo)
   const known = repos(cards)
 

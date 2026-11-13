@@ -5,7 +5,6 @@ import { useState, type ReactNode } from "react"
 import type { Profile } from "@/api/generated/types.gen"
 import { Button, buttonVariants } from "@/components/ui/button"
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group"
-import { RuntimeMark } from "@/features/board/runtime-mark"
 import {
   isVisible,
   useColumnVisibility,
@@ -28,6 +27,7 @@ import {
   statusChoices,
   withStatus,
 } from "./profiles-state"
+import { RuntimeMark } from "./runtime-mark"
 import { useProfiles } from "./use-profiles"
 
 type Layout = "grid" | "table"

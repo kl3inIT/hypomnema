@@ -10,7 +10,7 @@ import {
 } from "@/api/generated/sdk.gen"
 
 // A chat's working folders, as the Files panel reads them (issue #255). As Omnigent's useWorkspaceChangedFiles.ts:
-// nothing polls the lists; they are read again when an event may have changed them (use-board.ts refreshes every
+// nothing polls the lists; they are read again when an event may have changed them (work/use-work.ts refreshes every
 // key under workspaceKey but the files themselves), when the window comes back, and with Refresh. An open file of
 // 256 KiB or less is read again every two seconds while it is shown (Omnigent's useFileContent).
 
