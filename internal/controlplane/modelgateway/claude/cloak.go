@@ -169,8 +169,8 @@ func cloak(body item, token, session string) {
 
 	if len(caller) > 0 && !relocateCallerSystem(body, caller) {
 		extra := make([]any, 0, len(caller))
-		for _, text := range caller {
-			extra = append(extra, item{"type": "text", "text": text})
+		for _, b := range caller {
+			extra = append(extra, b.block(b.text))
 		}
 
 		body["system"] = append([]any{billing, identity}, extra...)
@@ -246,29 +246,49 @@ func firstUserText(body item) string {
 	return ""
 }
 
+// systemBlock is one block of the client's own system instructions, with the
+// cache breakpoint the client put on it, if any.
+type systemBlock struct {
+	text  string
+	cache any
+}
+
+// block is a text block holding text, with the client's breakpoint kept, so a
+// client's prompt cache still works once its system is moved (CLIProxyAPI
+// keeps a caller's cache_control on the moved blocks,
+// claude_executor_cloaking.go).
+func (b systemBlock) block(text string) item {
+	out := item{"type": "text", "text": text}
+	if b.cache != nil {
+		out["cache_control"] = b.cache
+	}
+
+	return out
+}
+
 // callerSystem reads the client's own system instructions, a string or text
 // blocks, dropping the billing block and an identity line the client may have
 // sent (CLIProxyAPI collectForwardedClaudeSystemPromptBlocks).
-func callerSystem(system any) []string {
-	var out []string
+func callerSystem(system any) []systemBlock {
+	var out []systemBlock
 
-	keep := func(text string) {
+	keep := func(text string, cache any) {
 		trimmed := strings.TrimSpace(text)
 		if trimmed == "" || trimmed == claudeIdentity || strings.HasPrefix(trimmed, "x-anthropic-billing-header:") {
 			return
 		}
 
-		out = append(out, text)
+		out = append(out, systemBlock{text: text, cache: cache})
 	}
 
 	switch sys := system.(type) {
 	case string:
-		keep(sys)
+		keep(sys, nil)
 	case []any:
 		for _, b := range sys {
 			if block, ok := b.(item); ok {
 				if text, ok := block["text"].(string); ok {
-					keep(text)
+					keep(text, block["cache_control"])
 				}
 			}
 		}
@@ -281,7 +301,7 @@ func callerSystem(system any) []string {
 // user turn, each wrapped as a system-reminder, after any tool results there.
 // It reports whether a user turn was found to hold them (CLIProxyAPI
 // prependClaudeSystemReminderBlocksToFirstUserMessage).
-func relocateCallerSystem(body item, caller []string) bool {
+func relocateCallerSystem(body item, caller []systemBlock) bool {
 	messages, ok := body["messages"].([]any)
 	if !ok {
 		return false
@@ -294,8 +314,8 @@ func relocateCallerSystem(body item, caller []string) bool {
 		}
 
 		reminders := make([]any, 0, len(caller))
-		for _, text := range caller {
-			reminders = append(reminders, item{"type": "text", "text": "<system-reminder>\n" + text + "\n</system-reminder>"})
+		for _, b := range caller {
+			reminders = append(reminders, b.block("<system-reminder>\n"+b.text+"\n</system-reminder>"))
 		}
 
 		blocks := blocksOf(msg["content"])

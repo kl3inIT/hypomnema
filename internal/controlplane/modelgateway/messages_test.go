@@ -205,3 +205,35 @@ func TestMessagesErrorsAreInAnthropicsShape(t *testing.T) {
 	assert.JSONEq(t, refusal, body)
 	assert.Equal(t, modelgateway.OutcomeUpstreamError, g.lastUsage(t).Outcome)
 }
+
+// Scenario: a tool that marks its long system prompt for Anthropic's cache.
+// The system moves into the first user turn under the disguise, and keeps the
+// tool's breakpoint there, so the prompt is cached and read back next turn.
+func TestADisguisedClientKeepsItsCacheBreakpoint(t *testing.T) {
+	t.Parallel()
+
+	backend, got, _ := anthropicBackend(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"id":"msg_1","type":"message","content":[],"usage":{"input_tokens":1}}`)
+	})
+	g := newClaudeGateway(t, backend, &accounts{})
+
+	status, _, body := g.send(t, "/v1/messages", `{"model":"sol","max_tokens":10,`+
+		`"system":[{"type":"text","text":"Long rules.","cache_control":{"type":"ephemeral"}}],`+
+		`"messages":[{"role":"user","content":"hi"}]}`, "X-Api-Key", g.key)
+	require.Equal(t, http.StatusOK, status, body)
+
+	_, sent := got.last(t)
+
+	var request struct {
+		Messages []struct {
+			Content []map[string]any `json:"content"`
+		} `json:"messages"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(sent), &request))
+	require.Len(t, request.Messages, 1)
+
+	moved := request.Messages[0].Content[0]
+	assert.Contains(t, moved["text"], "Long rules.")
+	assert.Equal(t, map[string]any{"type": "ephemeral"}, moved["cache_control"])
+}
