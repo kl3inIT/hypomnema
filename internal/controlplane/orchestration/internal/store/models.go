@@ -275,6 +275,8 @@ type GatewayUsage struct {
 	Estimated        int64
 	DurationMs       int64
 	CreatedAt        int64
+	AccountID        string
+	Error            string
 }
 
 type GitHost struct {

@@ -29,6 +29,7 @@ import { Route as SettingsGatewayKeysRouteImport } from './routes/settings.gatew
 import { Route as SettingsIntegrationsRouteImport } from './routes/settings.integrations'
 import { Route as SettingsModelsRouteImport } from './routes/settings.models'
 import { Route as SettingsRepositoriesRouteImport } from './routes/settings.repositories'
+import { Route as SettingsUsageRouteImport } from './routes/settings.usage'
 import { Route as SettingsVaultRouteImport } from './routes/settings.vault'
 import { Route as MachinesNodeIdTerminalRouteImport } from './routes/machines_.$nodeId.terminal'
 import { Route as SettingsSkillsIndexRouteImport } from './routes/settings.skills.index'
@@ -134,6 +135,11 @@ const SettingsRepositoriesRoute = SettingsRepositoriesRouteImport.update({
   path: '/settings/repositories',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SettingsUsageRoute = SettingsUsageRouteImport.update({
+  id: '/settings/usage',
+  path: '/settings/usage',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SettingsVaultRoute = SettingsVaultRouteImport.update({
   id: '/settings/vault',
   path: '/settings/vault',
@@ -172,6 +178,7 @@ export interface FileRoutesByFullPath {
   '/settings/integrations': typeof SettingsIntegrationsRoute
   '/settings/models': typeof SettingsModelsRoute
   '/settings/repositories': typeof SettingsRepositoriesRoute
+  '/settings/usage': typeof SettingsUsageRoute
   '/settings/vault': typeof SettingsVaultRoute
   '/agents/': typeof AgentsIndexRoute
   '/bots/': typeof BotsIndexRoute
@@ -198,6 +205,7 @@ export interface FileRoutesByTo {
   '/settings/integrations': typeof SettingsIntegrationsRoute
   '/settings/models': typeof SettingsModelsRoute
   '/settings/repositories': typeof SettingsRepositoriesRoute
+  '/settings/usage': typeof SettingsUsageRoute
   '/settings/vault': typeof SettingsVaultRoute
   '/agents': typeof AgentsIndexRoute
   '/bots': typeof BotsIndexRoute
@@ -225,6 +233,7 @@ export interface FileRoutesById {
   '/settings/integrations': typeof SettingsIntegrationsRoute
   '/settings/models': typeof SettingsModelsRoute
   '/settings/repositories': typeof SettingsRepositoriesRoute
+  '/settings/usage': typeof SettingsUsageRoute
   '/settings/vault': typeof SettingsVaultRoute
   '/agents/': typeof AgentsIndexRoute
   '/bots/': typeof BotsIndexRoute
@@ -253,6 +262,7 @@ export interface FileRouteTypes {
     | '/settings/integrations'
     | '/settings/models'
     | '/settings/repositories'
+    | '/settings/usage'
     | '/settings/vault'
     | '/agents/'
     | '/bots/'
@@ -279,6 +289,7 @@ export interface FileRouteTypes {
     | '/settings/integrations'
     | '/settings/models'
     | '/settings/repositories'
+    | '/settings/usage'
     | '/settings/vault'
     | '/agents'
     | '/bots'
@@ -305,6 +316,7 @@ export interface FileRouteTypes {
     | '/settings/integrations'
     | '/settings/models'
     | '/settings/repositories'
+    | '/settings/usage'
     | '/settings/vault'
     | '/agents/'
     | '/bots/'
@@ -332,6 +344,7 @@ export interface RootRouteChildren {
   SettingsIntegrationsRoute: typeof SettingsIntegrationsRoute
   SettingsModelsRoute: typeof SettingsModelsRoute
   SettingsRepositoriesRoute: typeof SettingsRepositoriesRoute
+  SettingsUsageRoute: typeof SettingsUsageRoute
   SettingsVaultRoute: typeof SettingsVaultRoute
   AgentsIndexRoute: typeof AgentsIndexRoute
   BotsIndexRoute: typeof BotsIndexRoute
@@ -484,6 +497,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsRepositoriesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/settings/usage': {
+      id: '/settings/usage'
+      path: '/settings/usage'
+      fullPath: '/settings/usage'
+      preLoaderRoute: typeof SettingsUsageRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/settings/vault': {
       id: '/settings/vault'
       path: '/settings/vault'
@@ -532,6 +552,7 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsIntegrationsRoute: SettingsIntegrationsRoute,
   SettingsModelsRoute: SettingsModelsRoute,
   SettingsRepositoriesRoute: SettingsRepositoriesRoute,
+  SettingsUsageRoute: SettingsUsageRoute,
   SettingsVaultRoute: SettingsVaultRoute,
   AgentsIndexRoute: AgentsIndexRoute,
   BotsIndexRoute: BotsIndexRoute,

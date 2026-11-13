@@ -1130,6 +1130,13 @@ Claude subscriptions. Other provider formats and other capabilities do not exist
   creation and last use (the latest usage row); the keys of a Dispatch or a chat are only counted
   (`live_worker_keys`). `POST /gateway/keys` `{name, models?}` answers the value once; `DELETE /gateway/keys/{id}`
   revokes one the owner made. All are the owner's. The page shows its own origin with `/v1` as the base URL.
+- Settings → Models → Usage (issue #199, step 4, after T3 Code, Omnara, LiteLLM and 9router) reads
+  `GET /gateway/usage?period=24h|7d|30d&utc_offset_minutes=` (the totals; a bar an hour for 24 hours, a day else,
+  starting at the viewer's midnight; the counts by model, by key and by account, an account named by its label) and
+  `GET /gateway/usage/requests?period=&failed=&offset=&limit=` (the requests, newest first, 50 a page, `has_more`). A
+  request failed when it was refused, got no answer or was cut short; a client that left did not fail. Both are the
+  owner's. The page shows the totals, the tokens as stacked bars (in not cached, in from cache, out), a table by
+  model, key or account, and the requests, a row opening a sheet with its fields and the provider's message.
 - `GET /v1/models` with `Authorization: Bearer <key>` answers OpenAI's list shape with the models the key may use;
   errors are OpenAI's `{"error": {message, type, code}}`, 401 without a valid key.
 - `POST /v1/chat/completions` forwards the request to the model's first target, as 9router-go does: the body is
@@ -1258,6 +1265,10 @@ Claude subscriptions. Other provider formats and other capabilities do not exist
   were tried, the outcome (`ok`, `upstream_error`, `transport_error`, `truncated`, `client_gone`), the provider's
   status, the duration, and the tokens the provider reported (prompt, completion, cached, reasoning; the largest
   seen in a stream). When it reported none they are bytes divided by four and marked as estimated.
+  Since migration 00058 a row also holds the subscription account of the last attempt (`account_id`, empty for an
+  API provider; noted on the request's context by the loop over accounts) and, for a request that failed, the
+  provider's message (`error`, at most 500 characters: `error.message` of its body, else the body; a set sentence
+  when it said nothing). No prompt or answer is kept.
 - The tables `gateway_models`, `gateway_model_targets`, `gateway_keys` and `gateway_usage` are in the one migration
   stream and are read and written only by this package, through its own generated queries. Providers are read
   through orchestration and keys through the vault.

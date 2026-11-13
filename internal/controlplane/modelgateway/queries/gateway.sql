@@ -60,10 +60,73 @@ UPDATE gateway_keys SET revoked_at = @now WHERE id = @id AND revoked_at IS NULL;
 -- name: InsertGatewayUsage :exec
 INSERT INTO gateway_usage (id, key_id, model, provider, upstream_model, stream, attempts, outcome, status,
                            prompt_tokens, completion_tokens, cached_tokens, reasoning_tokens, estimated, duration_ms,
-                           created_at)
+                           account_id, error, created_at)
 VALUES (@id, @key_id, @model, @provider, @upstream_model, @stream, @attempts, @outcome, @status,
-        @prompt_tokens, @completion_tokens, @cached_tokens, @reasoning_tokens, @estimated, @duration_ms, @now);
+        @prompt_tokens, @completion_tokens, @cached_tokens, @reasoning_tokens, @estimated, @duration_ms,
+        @account_id, @error, @now);
 
 -- name: ListGatewayUsage :many
 SELECT u.*, k.name AS key_name FROM gateway_usage u JOIN gateway_keys k ON k.id = u.key_id
 ORDER BY u.created_at DESC, u.id DESC LIMIT @row_limit;
+
+-- The Usage page (issue #199, step 4). A request failed when its outcome is upstream_error, transport_error or
+-- truncated; a client that left is not the gateway's failure.
+
+-- name: UsageTotals :one
+SELECT CAST(COUNT(*) AS INTEGER) AS requests,
+       CAST(COALESCE(SUM(outcome IN ('upstream_error', 'transport_error', 'truncated')), 0) AS INTEGER) AS failed,
+       CAST(COALESCE(SUM(prompt_tokens), 0) AS INTEGER) AS prompt_tokens,
+       CAST(COALESCE(SUM(cached_tokens), 0) AS INTEGER) AS cached_tokens,
+       CAST(COALESCE(SUM(completion_tokens), 0) AS INTEGER) AS completion_tokens,
+       CAST(COALESCE(SUM(reasoning_tokens), 0) AS INTEGER) AS reasoning_tokens
+FROM gateway_usage WHERE created_at >= @since;
+
+-- name: UsageBuckets :many
+SELECT CAST((created_at - @origin) / @bucket_ms AS INTEGER) AS bucket,
+       CAST(COUNT(*) AS INTEGER) AS requests,
+       CAST(SUM(outcome IN ('upstream_error', 'transport_error', 'truncated')) AS INTEGER) AS failed,
+       CAST(SUM(prompt_tokens) AS INTEGER) AS prompt_tokens,
+       CAST(SUM(cached_tokens) AS INTEGER) AS cached_tokens,
+       CAST(SUM(completion_tokens) AS INTEGER) AS completion_tokens,
+       CAST(SUM(reasoning_tokens) AS INTEGER) AS reasoning_tokens
+FROM gateway_usage WHERE created_at >= @origin
+GROUP BY bucket ORDER BY bucket;
+
+-- name: UsageByModel :many
+SELECT model AS name,
+       CAST(COUNT(*) AS INTEGER) AS requests,
+       CAST(SUM(outcome IN ('upstream_error', 'transport_error', 'truncated')) AS INTEGER) AS failed,
+       CAST(SUM(prompt_tokens) AS INTEGER) AS prompt_tokens,
+       CAST(SUM(cached_tokens) AS INTEGER) AS cached_tokens,
+       CAST(SUM(completion_tokens) AS INTEGER) AS completion_tokens,
+       CAST(SUM(reasoning_tokens) AS INTEGER) AS reasoning_tokens
+FROM gateway_usage WHERE created_at >= @since
+GROUP BY model ORDER BY SUM(prompt_tokens + completion_tokens) DESC, model;
+
+-- name: UsageByKey :many
+SELECT u.key_id AS id, k.name AS name,
+       CAST(COUNT(*) AS INTEGER) AS requests,
+       CAST(SUM(u.outcome IN ('upstream_error', 'transport_error', 'truncated')) AS INTEGER) AS failed,
+       CAST(SUM(u.prompt_tokens) AS INTEGER) AS prompt_tokens,
+       CAST(SUM(u.cached_tokens) AS INTEGER) AS cached_tokens,
+       CAST(SUM(u.completion_tokens) AS INTEGER) AS completion_tokens,
+       CAST(SUM(u.reasoning_tokens) AS INTEGER) AS reasoning_tokens
+FROM gateway_usage u JOIN gateway_keys k ON k.id = u.key_id WHERE u.created_at >= @since
+GROUP BY u.key_id, k.name ORDER BY SUM(u.prompt_tokens + u.completion_tokens) DESC, k.name;
+
+-- name: UsageByAccount :many
+SELECT account_id AS id,
+       CAST(COUNT(*) AS INTEGER) AS requests,
+       CAST(SUM(outcome IN ('upstream_error', 'transport_error', 'truncated')) AS INTEGER) AS failed,
+       CAST(SUM(prompt_tokens) AS INTEGER) AS prompt_tokens,
+       CAST(SUM(cached_tokens) AS INTEGER) AS cached_tokens,
+       CAST(SUM(completion_tokens) AS INTEGER) AS completion_tokens,
+       CAST(SUM(reasoning_tokens) AS INTEGER) AS reasoning_tokens
+FROM gateway_usage WHERE created_at >= @since AND account_id != ''
+GROUP BY account_id ORDER BY SUM(prompt_tokens + completion_tokens) DESC, account_id;
+
+-- name: ListUsageRequests :many
+SELECT u.*, k.name AS key_name FROM gateway_usage u JOIN gateway_keys k ON k.id = u.key_id
+WHERE u.created_at >= @since
+  AND (CAST(@failed_only AS INTEGER) = 0 OR u.outcome IN ('upstream_error', 'transport_error', 'truncated'))
+ORDER BY u.created_at DESC, u.id DESC LIMIT @row_limit OFFSET @row_offset;

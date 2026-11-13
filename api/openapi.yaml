@@ -1441,6 +1441,52 @@ paths:
         "204":
           description: Revoked.
         default: { $ref: "#/components/responses/Error" }
+  /gateway/usage:
+    get:
+      operationId: GetGatewayUsage
+      summary: What the gateway served in a period, in total, a bar at a time and by model, key and account; only the owner
+      parameters:
+        - name: period
+          in: query
+          required: true
+          schema: { type: string, enum: ["24h", "7d", "30d"] }
+        - name: utc_offset_minutes
+          in: query
+          description: The viewer's distance from UTC, so a day's bar starts at the viewer's midnight.
+          schema: { type: integer, minimum: -840, maximum: 840 }
+      responses:
+        "200":
+          description: The usage.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GatewayUsage" }
+        default: { $ref: "#/components/responses/Error" }
+  /gateway/usage/requests:
+    get:
+      operationId: ListGatewayRequests
+      summary: The requests of a period, newest first, a page at a time; only the owner
+      parameters:
+        - name: period
+          in: query
+          required: true
+          schema: { type: string, enum: ["24h", "7d", "30d"] }
+        - name: failed
+          in: query
+          description: Only the requests that failed.
+          schema: { type: boolean }
+        - name: offset
+          in: query
+          schema: { type: integer, minimum: 0 }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200 }
+      responses:
+        "200":
+          description: A page of requests.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GatewayRequestList" }
+        default: { $ref: "#/components/responses/Error" }
   /bots:
     get:
       operationId: ListBots
@@ -3876,6 +3922,113 @@ components:
         secret:
           type: string
           description: The key's value, answered this once; only its hash is kept.
+    GatewayUsageCounts:
+      type: object
+      required: [requests, failed, prompt_tokens, cached_tokens, completion_tokens, reasoning_tokens]
+      properties:
+        requests: { type: integer, format: int64 }
+        failed:
+          type: integer
+          format: int64
+          description: The requests the provider refused, none answered, or whose answer ended early.
+        prompt_tokens:
+          type: integer
+          format: int64
+          description: Tokens in, those read from the provider's cache included.
+        cached_tokens: { type: integer, format: int64 }
+        completion_tokens: { type: integer, format: int64 }
+        reasoning_tokens: { type: integer, format: int64 }
+    GatewayUsageBucket:
+      type: object
+      required: [start, counts]
+      properties:
+        start: { type: string, format: date-time }
+        counts: { $ref: "#/components/schemas/GatewayUsageCounts" }
+    GatewayUsageGroup:
+      type: object
+      required: [id, name, counts]
+      properties:
+        id:
+          type: string
+          description: The key's or the account's id; for a model, its name.
+        name:
+          type: string
+          description: The model's or the key's name, or the account's label; empty for an account since removed.
+        runtime:
+          type: string
+          description: An account's runtime (claude, codex, antigravity).
+        counts: { $ref: "#/components/schemas/GatewayUsageCounts" }
+    GatewayUsage:
+      type: object
+      required: [since, until, bucket_seconds, totals, buckets, by_model, by_key, by_account]
+      properties:
+        since: { type: string, format: date-time }
+        until: { type: string, format: date-time }
+        bucket_seconds:
+          type: integer
+          description: How long a bar is, an hour or a day.
+        totals: { $ref: "#/components/schemas/GatewayUsageCounts" }
+        buckets:
+          type: array
+          items: { $ref: "#/components/schemas/GatewayUsageBucket" }
+        by_model:
+          type: array
+          items: { $ref: "#/components/schemas/GatewayUsageGroup" }
+        by_key:
+          type: array
+          items: { $ref: "#/components/schemas/GatewayUsageGroup" }
+        by_account:
+          type: array
+          items: { $ref: "#/components/schemas/GatewayUsageGroup" }
+    GatewayRequest:
+      type: object
+      required: [id, created_at, key_id, key_name, model, provider, upstream_model, stream, attempts, outcome, status,
+        prompt_tokens, cached_tokens, completion_tokens, reasoning_tokens, estimated, duration_ms]
+      properties:
+        id: { type: string }
+        created_at: { type: string, format: date-time }
+        key_id: { type: string }
+        key_name: { type: string }
+        model:
+          type: string
+          description: The name the client asked for.
+        provider:
+          type: string
+          description: Where the last attempt went.
+        upstream_model: { type: string }
+        account_id:
+          type: string
+          description: The subscription account of the last attempt; absent for an API provider.
+        account_label: { type: string }
+        stream: { type: boolean }
+        attempts: { type: integer }
+        outcome:
+          type: string
+          enum: [ok, upstream_error, transport_error, truncated, client_gone]
+        status:
+          type: integer
+          description: The provider's HTTP status; 0 when it gave none.
+        error:
+          type: string
+          description: The provider's message for a request that failed.
+        prompt_tokens: { type: integer, format: int64 }
+        cached_tokens: { type: integer, format: int64 }
+        completion_tokens: { type: integer, format: int64 }
+        reasoning_tokens: { type: integer, format: int64 }
+        estimated:
+          type: boolean
+          description: The provider reported no usage; the counts are the sizes divided by four.
+        duration_ms: { type: integer, format: int64 }
+    GatewayRequestList:
+      type: object
+      required: [data, has_more]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/GatewayRequest" }
+        has_more:
+          type: boolean
+          description: Older requests of the period follow.
     NewTokenAccount:
       type: object
       required: [runtime, label, token]

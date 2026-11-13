@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   BookOpen,
   Box,
+  ChartColumn,
   KeyRound,
   KeySquare,
   MessagesSquare,
@@ -26,6 +27,7 @@ type Section = {
   to:
     | "/settings/models"
     | "/settings/gateway-keys"
+    | "/settings/usage"
     | "/settings/repositories"
     | "/settings/integrations"
     | "/settings/channels"
@@ -44,6 +46,7 @@ const groups: { heading: string; sections: Section[] }[] = [
     sections: [
       { to: "/settings/models", label: "Models", icon: Box },
       { to: "/settings/gateway-keys", label: "Gateway keys", icon: KeySquare },
+      { to: "/settings/usage", label: "Usage", icon: ChartColumn },
     ],
   },
   {

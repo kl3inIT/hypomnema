@@ -341,7 +341,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	})
 
 	api := clientapi.New(svc, logger, ctx.Done()).WithCoordinator(sup).
-		WithAccounts(subscriptions).WithGatewayModels(gateway).WithGatewayKeys(gateway).
+		WithAccounts(subscriptions).WithGatewayModels(gateway).WithGatewayKeys(gateway).WithGatewayUsage(gateway).
 		WithHostTokens(tokens).
 		WithMachines(machineMgr).WithTerminals(nodeTerminals(nodes)).
 		WithWorkspaces(nodes.Files, newBotFiles(cfg.BotFilesCommand)).

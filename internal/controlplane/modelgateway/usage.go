@@ -54,7 +54,12 @@ type Usage struct {
 	Attempts      int
 	Outcome       Outcome
 	// Status is the provider's HTTP status, 0 when it gave none.
-	Status    int
+	Status int
+	// AccountID is the subscription account of the last attempt; empty for an
+	// API provider.
+	AccountID string
+	// Error is the provider's message for a request that failed.
+	Error     string
 	Tokens    Tokens
 	Duration  time.Duration
 	CreatedAt time.Time
@@ -70,13 +75,17 @@ func flag(b bool) int64 {
 
 // recordUsage stores one request's record.
 func (s *Service) recordUsage(ctx context.Context, u Usage) error {
+	if u.Error == "" {
+		u.Error = defaultError(u.Outcome)
+	}
+
 	return s.write(ctx, func(q *store.Queries, now int64) error {
 		if err := q.InsertGatewayUsage(ctx, store.InsertGatewayUsageParams{
 			ID: s.newID("gwu"), KeyID: u.KeyID, Model: u.Model, Provider: u.Provider, UpstreamModel: u.UpstreamModel,
 			Stream: flag(u.Stream), Attempts: int64(u.Attempts), Outcome: string(u.Outcome), Status: int64(u.Status),
 			PromptTokens: u.Tokens.Prompt, CompletionTokens: u.Tokens.Completion, CachedTokens: u.Tokens.Cached,
 			ReasoningTokens: u.Tokens.Reasoning, Estimated: flag(u.Tokens.Estimated),
-			DurationMs: u.Duration.Milliseconds(), Now: now,
+			DurationMs: u.Duration.Milliseconds(), AccountID: u.AccountID, Error: clip(u.Error, maxErrorText), Now: now,
 		}); err != nil {
 			return fmt.Errorf("recording usage: %w", err)
 		}
@@ -98,20 +107,25 @@ func (s *Service) ListUsage(ctx context.Context, limit int) ([]Usage, error) {
 
 	out := make([]Usage, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, Usage{
-			ID: r.ID, KeyID: r.KeyID, KeyName: r.KeyName, Model: r.Model, Provider: r.Provider,
-			UpstreamModel: r.UpstreamModel, Stream: r.Stream == 1, Attempts: int(r.Attempts),
-			Outcome: Outcome(r.Outcome), Status: int(r.Status),
-			Tokens: Tokens{
-				Prompt: r.PromptTokens, Completion: r.CompletionTokens, Cached: r.CachedTokens,
-				Reasoning: r.ReasoningTokens, Estimated: r.Estimated == 1,
-			},
-			Duration:  time.Duration(r.DurationMs) * time.Millisecond,
-			CreatedAt: time.UnixMilli(r.CreatedAt).UTC(),
-		})
+		out = append(out, usageOf(r))
 	}
 
 	return out, nil
+}
+
+// usageOf is a stored row as a record.
+func usageOf(r store.ListGatewayUsageRow) Usage {
+	return Usage{
+		ID: r.ID, KeyID: r.KeyID, KeyName: r.KeyName, Model: r.Model, Provider: r.Provider,
+		UpstreamModel: r.UpstreamModel, Stream: r.Stream == 1, Attempts: int(r.Attempts),
+		Outcome: Outcome(r.Outcome), Status: int(r.Status), AccountID: r.AccountID, Error: r.Error,
+		Tokens: Tokens{
+			Prompt: r.PromptTokens, Completion: r.CompletionTokens, Cached: r.CachedTokens,
+			Reasoning: r.ReasoningTokens, Estimated: r.Estimated == 1,
+		},
+		Duration:  time.Duration(r.DurationMs) * time.Millisecond,
+		CreatedAt: time.UnixMilli(r.CreatedAt).UTC(),
+	}
 }
 
 // openAIUsage is the usage object of an OpenAI chat completion or chunk.
