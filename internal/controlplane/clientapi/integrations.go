@@ -24,6 +24,8 @@ type Integrations interface {
 	Connect(ctx context.Context, id, label string, app integration.App) (integration.Connection, error)
 	// ConnectAccount connects an Integration of kind account: an address, a user name and a password.
 	ConnectAccount(ctx context.Context, id, label string, a integration.Account) (integration.Connection, error)
+	// ConnectRole connects an Integration of kind role: a role of an AWS account and the key that assumes it.
+	ConnectRole(ctx context.Context, id, label string, r integration.Role) (integration.Connection, error)
 	Disconnect(ctx context.Context, id, label string) (revoked bool, err error)
 	// SetChats says whether the coordinator may use a Connection in chats.
 	SetChats(ctx context.Context, id, label string, allowed bool) (integration.Connection, error)
@@ -43,7 +45,8 @@ func toIntegrationConnection(c integration.Connection) openapi.IntegrationConnec
 	out := openapi.IntegrationConnection{
 		Integration: c.Integration, Label: c.Label, Account: c.Account, Services: make([]string, 0, len(c.Grants)),
 		SignInRequired: c.SignInRequired, Chats: c.Chats, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt,
-		Address: opt(c.Address), Version: opt(c.Version), AppId: opt(c.AppID),
+		Address: opt(c.Address), Version: opt(c.Version), AppId: opt(c.AppID), RoleArn: opt(c.RoleARN),
+		Key: opt(c.Key),
 	}
 	for _, g := range c.Grants {
 		out.Services = append(out.Services, g.String())
@@ -172,11 +175,17 @@ func (s *Server) PutIntegrationConnection(ctx context.Context, req openapi.PutIn
 		b = *req.Body
 	}
 
-	if val(b.Address) != "" || val(b.Username) != "" || val(b.Password) != "" {
+	switch {
+	case val(b.RoleArn) != "" || val(b.Key) != "":
+		conn, err = s.integrations.ConnectRole(ctx, req.Integration, req.Label, integration.Role{
+			ARN: val(b.RoleArn), Key: val(b.Key), AccessKeyID: val(b.AccessKeyId),
+			SecretAccessKey: val(b.SecretAccessKey),
+		})
+	case val(b.Address) != "" || val(b.Username) != "" || val(b.Password) != "":
 		conn, err = s.integrations.ConnectAccount(ctx, req.Integration, req.Label, integration.Account{
 			Address: val(b.Address), User: val(b.Username), Password: val(b.Password),
 		})
-	} else {
+	default:
 		conn, err = s.integrations.Connect(ctx, req.Integration, req.Label, integration.App{
 			ID: val(b.AppId), Secret: val(b.AppSecret),
 		})

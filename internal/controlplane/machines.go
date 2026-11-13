@@ -11,27 +11,55 @@ import (
 	"strings"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+
+	"github.com/kl3inIT/hypomnema/internal/controlplane/integration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/machines"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 )
 
-// machineManager builds the manager of provider machines over the registry
-// and the vault, which holds each provider's key.
-func machineManager(
-	svc *orchestration.Service, secrets *vault.Service, publicURL string, logger *slog.Logger,
-) *machines.Manager {
-	return machines.New(svc, machineConnect(secrets), publicURL, platform.SystemClock{}, logger)
+// Roles gives the session of a role of the AWS Integration (issue #331).
+type Roles func(label string) aws.CredentialsProvider
+
+// awsRoles is the roles of the AWS Integration as a provider takes them.
+func awsRoles(i *integration.Service) Roles {
+	return func(label string) aws.CredentialsProvider { return i.RoleProvider(integration.AWSID, label) }
 }
 
-// machineConnect opens a provider record's key in the vault and returns the
-// provider of its kind.
-func machineConnect(secrets *vault.Service) machines.Connect {
+// machineManager builds the manager of provider machines over the registry,
+// the vault, which holds a provider's key, and the AWS Integration, whose
+// role a provider may take its key from instead.
+func machineManager(
+	svc *orchestration.Service, secrets *vault.Service, roles Roles, publicURL string, logger *slog.Logger,
+) *machines.Manager {
+	return machines.New(svc, machineConnect(secrets, roles), publicURL, platform.SystemClock{}, logger)
+}
+
+// roleRef is the key of a provider that takes it from a role of the AWS
+// Integration, "aws:<label>"; ok is false for any other.
+func roleRef(ref string) (label string, ok bool) {
+	label, ok = strings.CutPrefix(ref, integration.AWSID+":")
+
+	return label, ok && orchestration.ValidConnectionLabel(label)
+}
+
+// machineConnect gives a provider record's credentials, from the vault or
+// from a role, and returns the provider of its kind.
+func machineConnect(secrets *vault.Service, roles Roles) machines.Connect {
 	return func(ctx context.Context, rec orchestration.MachineProvider) (machines.Provider, error) {
+		if rec.Kind != orchestration.MachineProviderAWS {
+			return nil, fmt.Errorf("%w: unknown machine provider kind %q", orchestration.ErrInvalid, rec.Kind)
+		}
+
+		if label, ok := roleRef(rec.KeyRef); ok {
+			return machines.NewAWS(rec, roles(label))
+		}
+
 		name, ok := vault.NameFromRef(rec.KeyRef)
 		if !ok {
-			return nil, fmt.Errorf("%w: the key of machine provider %s is %q, not vault:<name>",
+			return nil, fmt.Errorf("%w: the key of machine provider %s is %q, not vault:<name> or aws:<role>",
 				orchestration.ErrInvalid, rec.Name, rec.KeyRef)
 		}
 
@@ -40,13 +68,37 @@ func machineConnect(secrets *vault.Service) machines.Connect {
 			return nil, fmt.Errorf("opening the key of machine provider %s: %w", rec.Name, err)
 		}
 
-		switch rec.Kind {
-		case orchestration.MachineProviderAWS:
-			return machines.NewAWS(rec, opened.Payload[vault.KeyValue])
-		default:
-			return nil, fmt.Errorf("%w: unknown machine provider kind %q", orchestration.ErrInvalid, rec.Kind)
+		creds, err := machines.AWSKey(rec, opened.Payload[vault.KeyValue])
+		if err != nil {
+			return nil, err
 		}
+
+		return machines.NewAWS(rec, creds)
 	}
+}
+
+// checkMachineKey says whether a provider's key names something that is
+// there: a vault secret, or a role of the AWS Integration.
+func (o *owner) checkMachineKey(ctx context.Context, ref string) error {
+	if label, ok := roleRef(ref); ok {
+		if _, err := o.svc.ConnectionOf(ctx, integration.AWSID, label); err != nil {
+			return fmt.Errorf("the key of the machine provider: %w; connect the role first with "+
+				"`hypomnema integrations connect aws --label %s --role ARN`", err, label)
+		}
+
+		return nil
+	}
+
+	secret, ok := vault.NameFromRef(ref)
+	if !ok {
+		return fmt.Errorf("%w: --key is vault:<secret name> or aws:<role label>", orchestration.ErrInvalid)
+	}
+
+	if _, err := o.vault.Get(ctx, secret); err != nil {
+		return fmt.Errorf("the key of the machine provider: %w", err)
+	}
+
+	return nil
 }
 
 // secretReferrers names everything that still names a vault secret: the
@@ -83,8 +135,9 @@ func secretReferrers(svc *orchestration.Service) vault.Referrers {
 	}
 }
 
-const machinesUsage = "machines providers add <name> --kind aws --key vault:<secret> --region R --size S " +
-	"[--max N] [--option name=value]... | machines providers list | machines providers rm|check <name> | " +
+const machinesUsage = "machines providers add <name> --kind aws --key vault:<secret>|aws:<role> --region R " +
+	"--size S [--max N] [--option name=value]... | machines providers key <name> --key vault:<secret>|aws:<role> | " +
+	"machines providers list | machines providers rm|check <name> | " +
 	"machines create <name> --provider P [--region R] [--size S] [--max N] | machines stop|start <node>"
 
 // machinesCommand is the owner's commands for provider machines. A machine
@@ -171,6 +224,8 @@ func (o *owner) machineProviders(ctx context.Context, args []string) error {
 		o.printf("machine provider %s removed\n", p.Name)
 
 		return nil
+	case len(args) >= 2 && args[0] == "key":
+		return o.setMachineProviderKey(ctx, args[1], args[2:])
 	case len(args) == 2 && args[0] == "check":
 		name := args[1]
 
@@ -199,7 +254,8 @@ func (o *owner) machineProviders(ctx context.Context, args []string) error {
 func (o *owner) addMachineProvider(ctx context.Context, name string, args []string) error {
 	fs := flag.NewFlagSet("machines providers add", flag.ContinueOnError)
 	kind := fs.String("kind", "", "the provider's API: aws")
-	key := fs.String("key", "", "where its key is: vault:<secret name>")
+	key := fs.String("key", "", "where its key is: vault:<secret name>, or aws:<role label> for a role of the "+
+		"AWS Integration")
 	region := fs.String("region", "", "the region a machine gets when none is named")
 	size := fs.String("size", "", "the machine size a machine gets when none is named")
 	limit := fs.Int("max", 0, "machines that may exist at once (0: the default)")
@@ -220,13 +276,8 @@ func (o *owner) addMachineProvider(ctx context.Context, name string, args []stri
 		return fmt.Errorf("%w: %s", ErrUsage, machinesUsage)
 	}
 
-	secret, ok := vault.NameFromRef(*key)
-	if !ok {
-		return fmt.Errorf("%w: --key is vault:<secret name>", orchestration.ErrInvalid)
-	}
-
-	if _, err := o.vault.Get(ctx, secret); err != nil {
-		return fmt.Errorf("the key of the machine provider: %w", err)
+	if err := o.checkMachineKey(ctx, *key); err != nil {
+		return err
 	}
 
 	if orchestration.MachineProviderKind(*kind) == orchestration.MachineProviderAWS {
@@ -272,4 +323,34 @@ func optionList(options map[string]string) string {
 	}
 
 	return strings.Join(parts, " ")
+}
+
+// setMachineProviderKey gives a provider its key from another place, as the
+// owner moves it from a key of its own to a role (issue #331).
+func (o *owner) setMachineProviderKey(ctx context.Context, name string, args []string) error {
+	fs := flag.NewFlagSet("machines providers key", flag.ContinueOnError)
+	key := fs.String("key", "", "where its key is: vault:<secret name> or aws:<role label>")
+
+	if err := fs.Parse(args); err != nil || *key == "" || fs.NArg() > 0 {
+		return fmt.Errorf("%w: %s", ErrUsage, machinesUsage)
+	}
+
+	p, err := o.svc.GetMachineProviderByName(ctx, name)
+	if err != nil {
+		return err
+	}
+
+	if err := o.checkMachineKey(ctx, *key); err != nil {
+		return err
+	}
+
+	if err := o.svc.SetMachineProviderKey(ctx, p.ID, *key); err != nil {
+		return err
+	}
+
+	o.printf("machine provider %s takes its key from %s\n", p.Name, *key)
+
+	o.printf("`machines providers check %s` proves it works\n", p.Name)
+
+	return nil
 }

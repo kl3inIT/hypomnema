@@ -84,21 +84,27 @@ func ValidateAWSOptions(options map[string]string) error {
 	return err
 }
 
-// NewAWS returns the provider for an AWS provider record. key is the vault
-// secret's value: an access key id and its secret access key, joined by a colon.
-func NewAWS(rec orchestration.MachineProvider, key string) (Provider, error) {
+// AWSKey is a vault secret's value as credentials: an access key id and its
+// secret access key, joined by a colon.
+func AWSKey(rec orchestration.MachineProvider, key string) (aws.CredentialsProvider, error) {
 	id, secret, ok := strings.Cut(strings.TrimSpace(key), ":")
 	if !ok || id == "" || secret == "" {
 		return nil, fmt.Errorf("%w: the key of machine provider %s must be ACCESS_KEY_ID:SECRET_ACCESS_KEY",
 			orchestration.ErrInvalid, rec.Name)
 	}
 
+	return credentials.NewStaticCredentialsProvider(id, secret, ""), nil
+}
+
+// NewAWS returns the provider for an AWS provider record, calling AWS with
+// creds: a key kept in the vault (AWSKey), or a role of the AWS Integration
+// whose session the control plane renews (issue #331).
+func NewAWS(rec orchestration.MachineProvider, creds aws.CredentialsProvider) (Provider, error) {
 	p, err := parseAWSOptions(rec.Options)
 	if err != nil {
 		return nil, err
 	}
 
-	creds := credentials.NewStaticCredentialsProvider(id, secret, "")
 	p.providerID = rec.ID
 	p.client = func(region string) ec2API {
 		return ec2.New(ec2.Options{Region: region, Credentials: creds})

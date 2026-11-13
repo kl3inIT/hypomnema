@@ -186,6 +186,10 @@ func integrationsConnect(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		return integrationsConnectAccount(ctx, e, fs, host)
 	}
 
+	if service != nil && service.Kind == openapi.IntegrationKindRole {
+		return integrationsConnectRole(ctx, e, fs, host)
+	}
+
 	if service != nil {
 		return integrationsSignIn(ctx, e, fs, host)
 	}

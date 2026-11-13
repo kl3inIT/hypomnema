@@ -211,6 +211,21 @@ func (s *Service) RemoveMachineProvider(ctx context.Context, id string) error {
 	})
 }
 
+// SetMachineProviderKey changes where a provider's key is: another vault
+// secret, or a role of the AWS Integration (issue #331). The machines it made
+// stay its own.
+func (s *Service) SetMachineProviderKey(ctx context.Context, id, keyRef string) error {
+	if keyRef == "" {
+		return fmt.Errorf("%w: a machine provider's key is named", ErrInvalid)
+	}
+
+	return s.write(ctx, func(q *store.Queries, now int64) error {
+		n, err := q.SetMachineProviderKeyRef(ctx, store.SetMachineProviderKeyRefParams{ID: id, KeyRef: keyRef, Now: now})
+
+		return oneRow(n, err, "machine provider", id)
+	})
+}
+
 // MachineProvidersUsingKeyRef names the machine providers whose key is ref,
 // so the vault can refuse to delete a secret one still names.
 func (s *Service) MachineProvidersUsingKeyRef(ctx context.Context, ref string) ([]string, error) {

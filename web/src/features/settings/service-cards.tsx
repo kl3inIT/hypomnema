@@ -146,7 +146,9 @@ export function ServiceCard({ service }: { service: Integration }) {
   // An account at an address of its own needs no client, nor does an app, each account of which is an app of its
   // own (issue #311): both are connected with what the owner types.
   const account = service.kind === "account"
-  const ready = account || app || Boolean(service.client_id)
+  // A role of an AWS account is connected from a terminal with the key that assumes it (issue #331).
+  const role = service.kind === "role"
+  const ready = account || app || role || Boolean(service.client_id)
   const add = (
     <Button variant="outline" size="sm">
       <Plus data-icon="inline-start" />
@@ -165,9 +167,11 @@ export function ServiceCard({ service }: { service: Integration }) {
               <CardDescription>
                 {app
                   ? "Each account works as one of your apps"
-                  : account
-                    ? (accountHolds[service.id] ?? "An account at its own address")
-                    : service.services.map(serviceName).join(" · ")}
+                  : role
+                    ? "Roles of your AWS accounts, each with the rights its work needs"
+                    : account
+                      ? (accountHolds[service.id] ?? "An account at its own address")
+                      : service.services.map(serviceName).join(" · ")}
               </CardDescription>
             </span>
           </span>
@@ -176,14 +180,14 @@ export function ServiceCard({ service }: { service: Integration }) {
           <span className="flex flex-wrap items-center gap-1.5 sm:justify-end">
             {account && <ConnectAccountDialog service={service} trigger={add} />}
             {app && <ConnectAppDialog service={service} trigger={add} />}
-            {!app && !account && service.client_id && (
+            {!app && !account && !role && service.client_id && (
               <SignInDialog service={service} trigger={add} />
             )}
             <Badge variant={accounts > 0 && !needsSignIn ? "success" : "warning"}>
               {!ready
                 ? "Not set up"
                 : accounts === 0
-                  ? app
+                  ? app || role
                     ? "Not connected"
                     : "No account"
                   : needsSignIn
@@ -201,6 +205,19 @@ export function ServiceCard({ service }: { service: Integration }) {
             </p>
             <code className="font-mono text-foreground">
               hypomnema integrations client set {service.id} --client-file &lt;file&gt;
+            </code>
+          </div>
+        </CardContent>
+      )}
+      {role && (
+        <CardContent>
+          <div className="flex flex-col gap-2 border-t pt-3 text-xs text-muted-foreground">
+            <p>
+              Connect a role from a terminal; the key is read from the file the AWS console gives:
+            </p>
+            <code className="font-mono text-foreground">
+              hypomnema integrations connect aws --label &lt;label&gt; --role &lt;role ARN&gt; --key
+              main --key-file &lt;file&gt;
             </code>
           </div>
         </CardContent>

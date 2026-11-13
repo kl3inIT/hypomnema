@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/integration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/machines"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/nodeapi"
@@ -62,7 +63,8 @@ func Command(ctx context.Context, cfg Config, args []string, stdin io.Reader, st
 		vault:         secrets,
 		vaultReady:    cfg.VaultKeys != nil,
 		subscriptions: newSubscriptions(cfg, svc, secrets, slog.New(slog.DiscardHandler)),
-		machines:      machineManager(svc, secrets, cfg.PublicURL, platform.NewLogger(io.Discard, cfg.Log, binary)),
+		machines: machineManager(svc, secrets, awsRoles(integration.New(svc, secrets, platform.SystemClock{},
+			platform.NewID, integration.AWS())), cfg.PublicURL, platform.NewLogger(io.Discard, cfg.Log, binary)),
 		gateway: modelgateway.New(db, platform.SystemClock{}, platform.NewID, gatewayProviders(svc),
 			gatewaySecrets(secrets)),
 		in:  stdin,

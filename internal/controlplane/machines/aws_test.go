@@ -86,7 +86,12 @@ func (f *fakeEC2) StartInstances(_ context.Context, in *ec2.StartInstancesInput,
 func newTestAWS(t *testing.T, f *fakeEC2, options map[string]string) Provider {
 	t.Helper()
 
-	p, err := NewAWS(orchestration.MachineProvider{ID: "mpr_1", Name: "aws", Options: options}, "AKIAEXAMPLE:secret")
+	rec := orchestration.MachineProvider{ID: "mpr_1", Name: "aws", Options: options}
+
+	creds, err := AWSKey(rec, "AKIAEXAMPLE:secret")
+	require.NoError(t, err)
+
+	p, err := NewAWS(rec, creds)
 	require.NoError(t, err)
 
 	impl, ok := p.(*awsProvider)
@@ -270,7 +275,7 @@ func TestAWSRefusesAKeyOrOptionsItCannotUse(t *testing.T) {
 	rec := orchestration.MachineProvider{ID: "mpr_1", Name: "aws"}
 
 	for _, key := range []string{"", "AKIAEXAMPLE", ":secret", "AKIAEXAMPLE:"} {
-		_, err := NewAWS(rec, key)
+		_, err := AWSKey(rec, key)
 		require.ErrorIs(t, err, orchestration.ErrInvalid, key)
 	}
 

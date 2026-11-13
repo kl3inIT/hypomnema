@@ -651,7 +651,7 @@ export type Integration = {
   /**
    * How a Connection is made: oauth signs an account in, in a browser; app has no sign-in, each Connection being an app of the service with its own id and secret; account is the service's address, a user name and a password.
    */
-  kind: 'oauth' | 'app' | 'account';
+  kind: 'oauth' | 'app' | 'account' | 'role';
   /**
    * The id of the OAuth client it signs in with; absent until one is set, and for an app, whose Connections each have their own. Not secret.
    */
@@ -822,6 +822,14 @@ export type IntegrationConnection = {
    */
   app_id?: string;
   /**
+   * The role the Connection is, for an Integration of kind role (AWS); account is its AWS account.
+   */
+  role_arn?: string;
+  /**
+   * The name of the key the role is assumed with, for an Integration of kind role. Not secret.
+   */
+  key?: string;
+  /**
    * Whether the coordinator may use the Connection in chats, and so give it to a Run. Off until the owner turns it on.
    */
   chats: boolean;
@@ -830,7 +838,7 @@ export type IntegrationConnection = {
 };
 
 /**
- * An account of a service at an address of its own (address, username, password), or an app of a service (app_id, app_secret).
+ * An account of a service at an address of its own (address, username, password), an app of a service (app_id, app_secret), or a role of an AWS account (role_arn, key, and access_key_id with secret_access_key when the key is new or replaced).
  */
 export type NewAccountConnection = {
   /**
@@ -842,6 +850,15 @@ export type NewAccountConnection = {
    */
   address?: string;
   username?: string;
+  /**
+   * The ARN of the role, such as arn:aws:iam::123456789012:role/hypomnema/read.
+   */
+  role_arn?: string;
+  /**
+   * The name the key that assumes the role is kept under, such as main.
+   */
+  key?: string;
+  access_key_id?: string;
 };
 
 export type SupersetDashboardSummary = {
@@ -2314,7 +2331,7 @@ export type LarkChannelSettingsWritable = {
 };
 
 /**
- * An account of a service at an address of its own (address, username, password), or an app of a service (app_id, app_secret).
+ * An account of a service at an address of its own (address, username, password), an app of a service (app_id, app_secret), or a role of an AWS account (role_arn, key, and access_key_id with secret_access_key when the key is new or replaced).
  */
 export type NewAccountConnectionWritable = {
   /**
@@ -2328,6 +2345,16 @@ export type NewAccountConnectionWritable = {
   address?: string;
   username?: string;
   password?: string;
+  /**
+   * The ARN of the role, such as arn:aws:iam::123456789012:role/hypomnema/read.
+   */
+  role_arn?: string;
+  /**
+   * The name the key that assumes the role is kept under, such as main.
+   */
+  key?: string;
+  access_key_id?: string;
+  secret_access_key?: string;
 };
 
 export type NewIntegrationClientWritable = {

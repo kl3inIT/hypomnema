@@ -88,6 +88,11 @@ type Service struct {
 	// "integration:label"; accountClient sends its requests.
 	accounts      map[string]accountSession
 	accountClient *http.Client
+	// roles is the session of each Connection that is a role, by
+	// "integration:label" (aws.go); stsEndpoint replaces STS's own address,
+	// for a test.
+	roles       map[string]awsRole
+	stsEndpoint string
 }
 
 // signIn is one sign-in the owner started and has not completed.
@@ -106,8 +111,15 @@ func New(store Store, secrets *vault.Service, clock platform.Clock, newID func(s
 	return &Service{
 		store: store, vault: secrets, defs: defs, client: &http.Client{Timeout: httpTimeout}, clock: clock,
 		newID: newID, signIns: map[string]*signIn{}, appTokens: map[string]Token{},
-		accounts: map[string]accountSession{}, accountClient: newAccountClient(),
+		accounts: map[string]accountSession{}, accountClient: newAccountClient(), roles: map[string]awsRole{},
 	}
+}
+
+// WithSTS sends the assumes of roles to another address than AWS's: a test's.
+func (s *Service) WithSTS(endpoint string) *Service {
+	s.stsEndpoint = endpoint
+
+	return s
 }
 
 // Connection is one account of an Integration, with whether it still works.
@@ -126,6 +138,10 @@ type Connection struct {
 	// AppID is the id of the app the Connection is, for an Integration that
 	// is an app. Not a secret.
 	AppID string
+	// RoleARN is the role the Connection is and Key the name of the key it is
+	// assumed with, for an Integration of kind role.
+	RoleARN string
+	Key     string
 	// Chats says the coordinator may use the Connection in chats.
 	Chats     bool
 	CreatedAt time.Time
@@ -215,6 +231,10 @@ func (s *Service) view(ctx context.Context, d Definition, c orchestration.Connec
 	out := Connection{
 		Integration: c.Integration, Label: c.Label, Account: c.Account, Chats: c.Chats,
 		Address: c.Address, Version: c.Version, AppID: c.AppID, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt,
+	}
+
+	if d.IsRole() {
+		out.RoleARN, out.Key, out.Address = c.Address, AWSKeyOf(c.Secret), ""
 	}
 
 	// What is stored was checked when it was written; a service since removed from the catalog is left out.
@@ -599,6 +619,10 @@ func (s *Service) Disconnect(ctx context.Context, integration, label string) (re
 
 	if d.IsAccount() {
 		return true, s.forgetAccount(ctx, d, conn)
+	}
+
+	if d.IsRole() {
+		return true, s.forgetRole(ctx, d, conn)
 	}
 
 	if opened, err := s.vault.Open(ctx, conn.Secret); err == nil {
