@@ -82,6 +82,7 @@ import { useBots } from "@/features/bots/use-bots"
 
 import { AvatarName } from "@/features/agents/agent-avatar"
 import {
+  appNameOf,
   botChoices,
   channelState,
   groupAsked,
@@ -92,7 +93,7 @@ import {
 import { ConfirmDialog, ErrorAlert, TextField } from "./settings-parts"
 import { SettingsPage } from "./settings-shell"
 import { useLarkChannels, useRefreshChannels } from "./use-channels"
-import { said } from "./use-integrations"
+import { said, useServices } from "./use-integrations"
 
 // Channels are the doors to the Bots from outside the web client (issues #136 and #169). A Lark Channel is a
 // Lark app, the Bot it talks to and who may talk through it; there may be several, and several may talk to one
@@ -208,7 +209,9 @@ function LarkChannelCard({
   taken: string[]
 }) {
   const refresh = useRefreshChannels()
+  const services = useServices()
   const now = channelState(channel)
+  const appName = appNameOf(channel, services.data)
   const id = `lark-${channel.name}`
 
   const change = useMutation({
@@ -228,8 +231,9 @@ function LarkChannelCard({
           <span className="flex items-center gap-3">
             <LarkIcon className="size-6 shrink-0" />
             <span className="flex min-w-0 flex-col gap-0.5">
-              <span className="truncate">{channel.name}</span>
+              <span className="truncate">Lark · {channel.name}</span>
               <CardDescription>
+                {appName && `${appName} · `}
                 <span className="font-mono">{channel.app_id}</span>
               </CardDescription>
             </span>

@@ -192,6 +192,20 @@ async function fakeServer(page: Page, start: Channel[] = []) {
         return json({ id: "usr_1", name: "admin", kind: "owner" })
       case "GET /channels/lark":
         return json({ data: channels })
+      case "GET /integrations":
+        return json({
+          data: [
+            {
+              id: "lark",
+              name: "Lark",
+              services: [],
+              connections: [
+                { label: "work", account: "Coordinator app", app_id: "cli_a1b2c3", chats: true },
+                { label: "maps", account: "Maps report app", app_id: "cli_m4p5", chats: false },
+              ],
+            },
+          ],
+        })
       case "GET /bots":
         return json({ data: bots })
       case "GET /bots/vmap":
@@ -360,6 +374,8 @@ test("the owner adds a second channel for another Bot", async ({ page }) => {
   await expect(mapsCard.getByLabel("Bot")).toContainText("vmap")
   await expect(mapsCard.getByLabel("Bot")).toContainText("vmap")
   await expect(mapsCard).toContainText("Off")
+  await expect(mainCard).toContainText("Lark · main")
+  await expect(mapsCard).toContainText("Maps report app · cli_m4p5")
   expect(await fits(page)).toBe(true)
   await shot(page, "channels-list")
 
@@ -368,11 +384,15 @@ test("the owner adds a second channel for another Bot", async ({ page }) => {
 
   await page.goto("/bots/vmap")
   const doors = page.getByRole("region", { name: "Channels" })
-  await expect(doors.getByRole("listitem")).toHaveText([/main.*Connected/, /maps.*Off/])
+  await expect(doors.getByRole("listitem")).toHaveText([
+    /Lark · main.*Coordinator app.*Connected/,
+    /Lark · maps.*Maps report app.*Off/,
+  ])
   expect(await fits(page)).toBe(true)
+  await doors.scrollIntoViewIfNeeded()
   await shot(page, "bot-channels")
 
-  await doors.getByRole("link", { name: "maps", exact: true }).click()
+  await doors.getByRole("link", { name: "Lark · maps", exact: true }).click()
   await expect(page).toHaveURL(/\/settings\/channels$/)
 
   await page
