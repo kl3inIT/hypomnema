@@ -283,3 +283,66 @@ func TestAChatsFoldersAreChangedOnTheirMachines(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusForbidden, forbidden.StatusCode(), "the folders are the owner's to change")
 }
+
+// Scenario: the owner uploads a file to a chat's folder (issue #315): it is begun, sent in pieces and committed on
+// the machine that holds the folder, each step naming the upload the machine began; a coordinator uploads nothing.
+func TestAnUploadGoesToTheFoldersMachineInPieces(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	owner, _ := w.token("owner", bearertoken.Owner)
+	pi, _ := w.token("pi", bearertoken.Coordinator)
+	ctx := t.Context()
+	chat, tree := w.chatWithATask(owner)
+
+	var steps []workspacefs.Request
+
+	f := &folders{answer: func(_ string, req workspacefs.Request) workspacefs.Result {
+		steps = append(steps, req)
+
+		switch req.Op {
+		case workspacefs.OpUploadBegin:
+			return workspacefs.Result{Done: &workspacefs.Done{Path: req.Path, Upload: "u1"}}
+		case workspacefs.OpUploadCommit:
+			return workspacefs.Result{Done: &workspacefs.Done{Path: req.Path, SHA256: "s"}}
+		default:
+			return workspacefs.Result{Done: &workspacefs.Done{Path: req.Path}}
+		}
+	}}
+	w.srv.WithWorkspaces(f.node, f)
+
+	begun, err := owner.BeginWorkspaceUploadWithResponse(ctx, chat.ID, tree.TaskID,
+		openapi.WorkspacePathBody{Path: "img/logo.png"})
+	require.NoError(t, err)
+	require.NotNil(t, begun.JSON201, "%s", begun.Body)
+	require.Equal(t, "u1", *begun.JSON201.Upload)
+
+	piece, err := owner.SendWorkspaceUploadChunkWithResponse(ctx, chat.ID, tree.TaskID, openapi.WorkspaceUploadChunk{
+		Path: "img/logo.png", Upload: "u1", Offset: 0, Data: []byte("png"),
+	})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusNoContent, piece.StatusCode(), "%s", piece.Body)
+
+	done, err := owner.CommitWorkspaceUploadWithResponse(ctx, chat.ID, tree.TaskID, openapi.WorkspaceUploadCommit{
+		Path: "img/logo.png", Upload: "u1", ExpectSha256: ptr("old"),
+	})
+	require.NoError(t, err)
+	require.NotNil(t, done.JSON200, "%s", done.Body)
+
+	aborted, err := owner.AbortWorkspaceUploadWithResponse(ctx, chat.ID, tree.TaskID,
+		openapi.WorkspaceUploadRef{Path: "img/logo.png", Upload: "u2"})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusNoContent, aborted.StatusCode())
+
+	assert.Equal(t, []workspacefs.Request{
+		{Op: workspacefs.OpUploadBegin, Path: "img/logo.png"},
+		{Op: workspacefs.OpUploadChunk, Path: "img/logo.png", Upload: "u1", Data: []byte("png")},
+		{Op: workspacefs.OpUploadCommit, Path: "img/logo.png", Upload: "u1", Expect: "old"},
+		{Op: workspacefs.OpUploadAbort, Path: "img/logo.png", Upload: "u2"},
+	}, steps)
+
+	forbidden, err := pi.BeginWorkspaceUploadWithResponse(ctx, chat.ID, tree.TaskID,
+		openapi.WorkspacePathBody{Path: "x"})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, forbidden.StatusCode())
+}

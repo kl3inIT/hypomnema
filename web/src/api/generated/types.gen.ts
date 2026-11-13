@@ -2044,6 +2044,34 @@ export type WorkspaceDone = {
    * A written file's SHA-256.
    */
   sha256?: string;
+  /**
+   * An upload begun
+   */
+  upload?: string;
+};
+
+export type WorkspaceUploadRef = {
+  path: string;
+  upload: string;
+};
+
+export type WorkspaceUploadChunk = {
+  path: string;
+  upload: string;
+  offset: number;
+  /**
+   * The piece
+   */
+  data: string;
+};
+
+export type WorkspaceUploadCommit = {
+  path: string;
+  upload: string;
+  /**
+   * The SHA-256 of the file it replaces; absent for a new one.
+   */
+  expect_sha256?: string;
 };
 
 export type WorkspaceChange = {
@@ -6313,6 +6341,130 @@ export type ReadWorkspaceRawResponses = {
 };
 
 export type ReadWorkspaceRawResponse = ReadWorkspaceRawResponses[keyof ReadWorkspaceRawResponses];
+
+export type BeginWorkspaceUploadData = {
+  body: WorkspacePathBody;
+  path: {
+    chat_id: string;
+    /**
+     * `bot` for the Bot's folder, or a Task's id for its worktree.
+     */
+    workspace_id: string;
+  };
+  query?: never;
+  url: '/chats/{chat_id}/workspaces/{workspace_id}/uploads';
+};
+
+export type BeginWorkspaceUploadErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type BeginWorkspaceUploadError = BeginWorkspaceUploadErrors[keyof BeginWorkspaceUploadErrors];
+
+export type BeginWorkspaceUploadResponses = {
+  /**
+   * The upload begun.
+   */
+  201: WorkspaceDone;
+};
+
+export type BeginWorkspaceUploadResponse = BeginWorkspaceUploadResponses[keyof BeginWorkspaceUploadResponses];
+
+export type SendWorkspaceUploadChunkData = {
+  body: WorkspaceUploadChunk;
+  path: {
+    chat_id: string;
+    /**
+     * `bot` for the Bot's folder, or a Task's id for its worktree.
+     */
+    workspace_id: string;
+  };
+  query?: never;
+  url: '/chats/{chat_id}/workspaces/{workspace_id}/uploads/chunk';
+};
+
+export type SendWorkspaceUploadChunkErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type SendWorkspaceUploadChunkError = SendWorkspaceUploadChunkErrors[keyof SendWorkspaceUploadChunkErrors];
+
+export type SendWorkspaceUploadChunkResponses = {
+  /**
+   * Written.
+   */
+  204: void;
+};
+
+export type SendWorkspaceUploadChunkResponse = SendWorkspaceUploadChunkResponses[keyof SendWorkspaceUploadChunkResponses];
+
+export type CommitWorkspaceUploadData = {
+  body: WorkspaceUploadCommit;
+  path: {
+    chat_id: string;
+    /**
+     * `bot` for the Bot's folder, or a Task's id for its worktree.
+     */
+    workspace_id: string;
+  };
+  query?: never;
+  url: '/chats/{chat_id}/workspaces/{workspace_id}/uploads/commit';
+};
+
+export type CommitWorkspaceUploadErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type CommitWorkspaceUploadError = CommitWorkspaceUploadErrors[keyof CommitWorkspaceUploadErrors];
+
+export type CommitWorkspaceUploadResponses = {
+  /**
+   * The file as uploaded.
+   */
+  200: WorkspaceDone;
+};
+
+export type CommitWorkspaceUploadResponse = CommitWorkspaceUploadResponses[keyof CommitWorkspaceUploadResponses];
+
+export type AbortWorkspaceUploadData = {
+  body: WorkspaceUploadRef;
+  path: {
+    chat_id: string;
+    /**
+     * `bot` for the Bot's folder, or a Task's id for its worktree.
+     */
+    workspace_id: string;
+  };
+  query?: never;
+  url: '/chats/{chat_id}/workspaces/{workspace_id}/uploads/abort';
+};
+
+export type AbortWorkspaceUploadErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type AbortWorkspaceUploadError = AbortWorkspaceUploadErrors[keyof AbortWorkspaceUploadErrors];
+
+export type AbortWorkspaceUploadResponses = {
+  /**
+   * Dropped.
+   */
+  204: void;
+};
+
+export type AbortWorkspaceUploadResponse = AbortWorkspaceUploadResponses[keyof AbortWorkspaceUploadResponses];
 
 export type MakeWorkspaceFolderData = {
   body: WorkspacePathBody;

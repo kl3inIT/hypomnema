@@ -84,6 +84,11 @@ func List(root, rel, after string) (*Listing, error) {
 			continue
 		}
 
+		// An upload not finished is not a file of the folder yet.
+		if strings.HasPrefix(e.Name(), ".") && strings.Contains(e.Name(), uploadMark) {
+			continue
+		}
+
 		if len(out.Entries) == PageEntries {
 			out.HasMore = true
 

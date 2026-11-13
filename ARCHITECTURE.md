@@ -1763,9 +1763,15 @@ Node (`internal/node`):
     through `/raw` as `blob:` URLs (Orca's `useLocalImageSrc.ts`), and switches to its source. An image (png, jpg,
     gif, webp, svg, avif, ico, bmp) opens as one, from its bytes. All files has New file and New folder at its top,
     and a menu on each row (New file and New folder on a folder, Rename, Download, Copy path, Delete), as Orca's
-    row menu; a delete says it is for good and asks; a file or folder deleted or moved closes its tabs. Not built:
-    upload, rich Markdown editing, PDF, CSV and notebook views, a Trash and undo, content search, writes over 1 MiB,
-    more than the first 1000 entries of a directory.
+    row menu; a delete says it is for good and asks; a file or folder deleted or moved closes its tabs.
+  - Uploading (issue #315, `upload.ts`, after Orca's staged save `staged-file-save.ts`): files picked with Upload
+    files (at the top, or on a folder's menu) or dropped on the tree go into that folder, up to 50 MiB each. Each is
+    begun, sent in pieces of 384 KiB into a hidden file beside its place (`.<name>.hypomnema-upload-<id>`, not
+    listed, removed when another upload starts there after two minutes untouched), and committed by a rename. A
+    commit never goes over a file that is there: the list under the tree asks Replace or Keep it, and a replace names
+    the SHA-256 of the file it replaces. Each shows its progress and can be cancelled. Not built: a folder upload,
+    resuming a broken upload, rich Markdown editing, PDF, CSV and notebook views, a Trash and undo, content search,
+    writes over 1 MiB from the editor, more than the first 1000 entries of a directory.
   - The sidebar lists the places (New chat, Board with the count that needs the owner, Runs, Machines) above the
     chats.
     Every page follows `GET /events/stream` from the board's cursor and refreshes what an event may have changed.

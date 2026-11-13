@@ -112,10 +112,38 @@ func TestAWorktreeIsReadThroughItsNode(t *testing.T) {
 	require.NotNil(t, big.Error)
 	assert.Equal(t, workspacefs.CodeTooLarge, big.Error.Code)
 
+	// A file larger than one socket message is uploaded in pieces of the largest size (issue #315).
+	begun, err := nodes.Files(t.Context(), node.ID, worktree, workspacefs.Request{Op: workspacefs.OpUploadBegin,
+		Path: "logo.bin"})
+	require.NoError(t, err)
+	require.Nil(t, begun.Error)
+
+	piece := []byte(strings.Repeat("\xff", workspacefs.MaxChunk))
+	for i := range 3 {
+		sent, err := nodes.Files(t.Context(), node.ID, worktree, workspacefs.Request{Op: workspacefs.OpUploadChunk,
+			Path: "logo.bin", Upload: begun.Done.Upload, Offset: int64(i * len(piece)), Data: piece})
+		require.NoError(t, err)
+		require.Nil(t, sent.Error, "piece %d", i)
+	}
+
+	committed, err := nodes.Files(t.Context(), node.ID, worktree, workspacefs.Request{Op: workspacefs.OpUploadCommit,
+		Path: "logo.bin", Upload: begun.Done.Upload})
+	require.NoError(t, err)
+	require.Nil(t, committed.Error)
+
+	uploaded, err := os.Stat(filepath.Join(worktree, "logo.bin"))
+	require.NoError(t, err)
+	assert.Equal(t, int64(3*workspacefs.MaxChunk), uploaded.Size())
+
 	res, err = nodes.Files(t.Context(), node.ID, worktree, workspacefs.Request{Op: workspacefs.OpList})
 	require.NoError(t, err)
 	require.NotNil(t, res.Listing)
-	assert.Equal(t, "src", res.Listing.Entries[0].Path)
+	paths := make([]string, 0, len(res.Listing.Entries))
+	for _, e := range res.Listing.Entries {
+		paths = append(paths, e.Path)
+	}
+
+	assert.Equal(t, []string{"logo.bin", "src"}, paths, "an upload's piece file is not listed")
 
 	res, err = nodes.Files(t.Context(), node.ID, t.TempDir(), workspacefs.Request{Op: workspacefs.OpList})
 	require.NoError(t, err)

@@ -279,6 +279,73 @@ func (s *Server) MoveWorkspaceEntry(ctx context.Context, req openapi.MoveWorkspa
 	return openapi.MoveWorkspaceEntry200JSONResponse(done), nil
 }
 
+// An upload (issue #315) is four requests, each asked of the machine that holds the folder, which keeps the
+// pieces in a file beside the place until the commit.
+
+func (s *Server) BeginWorkspaceUpload(ctx context.Context, req openapi.BeginWorkspaceUploadRequestObject,
+) (openapi.BeginWorkspaceUploadResponseObject, error) {
+	if req.Body == nil {
+		return nil, fmt.Errorf("%w: the upload's path is missing", orchestration.ErrInvalid)
+	}
+
+	done, err := s.change(ctx, req.ChatId, req.WorkspaceId, workspacefs.Request{
+		Op: workspacefs.OpUploadBegin, Path: req.Body.Path,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return openapi.BeginWorkspaceUpload201JSONResponse(done), nil
+}
+
+func (s *Server) SendWorkspaceUploadChunk(ctx context.Context, req openapi.SendWorkspaceUploadChunkRequestObject,
+) (openapi.SendWorkspaceUploadChunkResponseObject, error) {
+	if req.Body == nil {
+		return nil, fmt.Errorf("%w: the piece is missing", orchestration.ErrInvalid)
+	}
+
+	if _, err := s.change(ctx, req.ChatId, req.WorkspaceId, workspacefs.Request{
+		Op: workspacefs.OpUploadChunk, Path: req.Body.Path, Upload: req.Body.Upload, Offset: req.Body.Offset,
+		Data: req.Body.Data,
+	}); err != nil {
+		return nil, err
+	}
+
+	return openapi.SendWorkspaceUploadChunk204Response{}, nil
+}
+
+func (s *Server) CommitWorkspaceUpload(ctx context.Context, req openapi.CommitWorkspaceUploadRequestObject,
+) (openapi.CommitWorkspaceUploadResponseObject, error) {
+	if req.Body == nil {
+		return nil, fmt.Errorf("%w: the upload is missing", orchestration.ErrInvalid)
+	}
+
+	done, err := s.change(ctx, req.ChatId, req.WorkspaceId, workspacefs.Request{
+		Op: workspacefs.OpUploadCommit, Path: req.Body.Path, Upload: req.Body.Upload,
+		Expect: deref(req.Body.ExpectSha256),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return openapi.CommitWorkspaceUpload200JSONResponse(done), nil
+}
+
+func (s *Server) AbortWorkspaceUpload(ctx context.Context, req openapi.AbortWorkspaceUploadRequestObject,
+) (openapi.AbortWorkspaceUploadResponseObject, error) {
+	if req.Body == nil {
+		return nil, fmt.Errorf("%w: the upload is missing", orchestration.ErrInvalid)
+	}
+
+	if _, err := s.change(ctx, req.ChatId, req.WorkspaceId, workspacefs.Request{
+		Op: workspacefs.OpUploadAbort, Path: req.Body.Path, Upload: req.Body.Upload,
+	}); err != nil {
+		return nil, err
+	}
+
+	return openapi.AbortWorkspaceUpload204Response{}, nil
+}
+
 func (s *Server) change(ctx context.Context, chatID, workspaceID string, req workspacefs.Request,
 ) (openapi.WorkspaceDone, error) {
 	res, err := s.ask(ctx, chatID, workspaceID, req)
@@ -290,7 +357,9 @@ func (s *Server) change(ctx context.Context, chatID, workspaceID string, req wor
 		return openapi.WorkspaceDone{}, errors.New("the machine answered without saying what it did")
 	}
 
-	return openapi.WorkspaceDone{Path: res.Done.Path, Sha256: optional(res.Done.SHA256)}, nil
+	return openapi.WorkspaceDone{
+		Path: res.Done.Path, Sha256: optional(res.Done.SHA256), Upload: optional(res.Done.Upload),
+	}, nil
 }
 
 // ReadWorkspaceRaw sends a file's bytes for an image or a download. They are never served as a page of this origin:

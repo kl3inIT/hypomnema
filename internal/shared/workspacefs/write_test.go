@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 )
 
 func read(t *testing.T, root, rel string) string {
@@ -176,5 +177,85 @@ func TestARawReadSendsTheBytes(t *testing.T) {
 
 	if string(f.Data) != string(png) || !f.Binary || f.SHA256 != sha(png) {
 		t.Errorf("Read raw = %+v", f)
+	}
+}
+
+// Scenario: a file is uploaded in pieces. Until it is committed its place holds nothing; a piece out of order is
+// refused; the commit does not go over a file that is there unless it names that file's SHA-256, and an upload left
+// is removed when the next one starts there.
+func TestAnUploadLandsWholeOnlyWhenCommitted(t *testing.T) {
+	root := t.TempDir()
+
+	begun, err := UploadBegin(root, "logo.png")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := UploadChunk(root, "logo.png", begun.Upload, 0, []byte("abc")); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := UploadChunk(root, "logo.png", begun.Upload, 0, []byte("x")); codeOf(err) != CodeChanged {
+		t.Errorf("a piece at the wrong offset = %v, want changed", err)
+	}
+
+	if _, err := UploadChunk(root, "logo.png", begun.Upload, 3, []byte("def")); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := os.Stat(filepath.Join(root, "logo.png")); !os.IsNotExist(err) {
+		t.Fatalf("the place holds a file before the commit: %v", err)
+	}
+
+	done, err := UploadCommit(root, "logo.png", begun.Upload, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got := read(t, root, "logo.png"); got != "abcdef" || done.SHA256 != sha([]byte("abcdef")) {
+		t.Errorf("committed %q with %s", got, done.SHA256)
+	}
+
+	again, _ := UploadBegin(root, "logo.png")
+	_, _ = UploadChunk(root, "logo.png", again.Upload, 0, []byte("new"))
+
+	if _, err := UploadCommit(root, "logo.png", again.Upload, ""); codeOf(err) != CodeExists {
+		t.Errorf("a commit over a file without its SHA-256 = %v, want exists", err)
+	}
+
+	if _, err := UploadCommit(root, "logo.png", again.Upload, sha([]byte("other"))); codeOf(err) != CodeChanged {
+		t.Errorf("a commit naming another SHA-256 = %v, want changed", err)
+	}
+
+	if _, err := UploadCommit(root, "logo.png", again.Upload, done.SHA256); err != nil {
+		t.Fatalf("a replace naming the file: %v", err)
+	}
+
+	if got := read(t, root, "logo.png"); got != "new" {
+		t.Errorf("replaced with %q", got)
+	}
+
+	left, _ := UploadBegin(root, "doc.pdf")
+	temp := filepath.Join(root, ".doc.pdf"+uploadMark+left.Upload)
+	old := time.Now().Add(-3 * time.Minute)
+
+	if err := os.Chtimes(temp, old, old); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := UploadBegin(root, "other.txt"); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := os.Stat(temp); !os.IsNotExist(err) {
+		t.Errorf("an upload left for three minutes is still there: %v", err)
+	}
+
+	if _, err := UploadChunk(root, "x", "../../etc", 0, nil); codeOf(err) != CodeInvalidPath {
+		t.Errorf("a made-up upload = %v, want invalid_path", err)
+	}
+
+	if _, err := UploadChunk(root, "x", left.Upload, 0, make([]byte, MaxChunk+1)); codeOf(err) != CodeTooLarge {
+		t.Errorf("a piece over MaxChunk = %v, want too_large", err)
 	}
 }
