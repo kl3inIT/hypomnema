@@ -28,8 +28,9 @@ func normalizeQuery(query string) string {
 	return strings.Join(strings.Fields(strings.ToLower(norm.NFKC.String(query))), " ")
 }
 
-func cacheKey(query, provider string, limit int) string {
-	sum := sha256.Sum256(fmt.Appendf(nil, "%q %q %d", normalizeQuery(query), provider, limit))
+func cacheKey(query, provider string, limit int, set Settings) string {
+	sum := sha256.Sum256(fmt.Appendf(nil, "%q %q %d %q %q", normalizeQuery(query), provider, limit,
+		slices.Sorted(slices.Values(set.Off)), set.SearXNGURL))
 
 	return hex.EncodeToString(sum[:])
 }

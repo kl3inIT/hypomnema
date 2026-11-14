@@ -326,6 +326,31 @@ export function AntigravityIcon(props: SVGProps<SVGSVGElement>) {
   )
 }
 
+// Exa's mark, the path of LobeHub's icons (exa.svg of @lobehub/icons-static-svg 1.95.0; MIT, Copyright (c) 2023
+// LobeHub, https://github.com/lobehub/lobe-icons), as OpenClaw ships it (extensions/exa/assets/activity.svg), in
+// the blue OmniRoute draws it with (public/providers/exa.svg).
+export function ExaIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="#1F40ED" aria-hidden="true" {...props}>
+      <path
+        fillRule="evenodd"
+        clipRule="evenodd"
+        d="M3 0h19v1.791L13.892 12 22 22.209V24H3V0zm9.62 10.348l6.589-8.557H6.03l6.59 8.557zM5.138 3.935v7.17h5.52l-5.52-7.17zm5.52 8.96h-5.52v7.17l5.52-7.17zM6.03 22.21l6.59-8.557 6.589 8.557H6.03z"
+      />
+    </svg>
+  )
+}
+
+// SearXNG's magnifier, the path of Simple Icons (searxng.svg, CC0 1.0), as OpenClaw ships it
+// (extensions/searxng/assets/activity.svg), in the blue of SearXNG's own logo.
+export function SearXNGIcon(props: SVGProps<SVGSVGElement>) {
+  return (
+    <svg viewBox="0 0 24 24" fill="#3050FF" aria-hidden="true" {...props}>
+      <path d="m13.716 17.261 6.873 6.582L24 20.282l-6.824-6.536a9.11 9.11 0 0 0 1.143-4.43c0-5.055-4.105-9.159-9.16-9.159S0 4.261 0 9.316c0 5.055 4.104 9.159 9.159 9.159a9.11 9.11 0 0 0 4.557-1.214ZM9.159 2.773a6.546 6.546 0 0 1 6.543 6.543 6.545 6.545 0 0 1-6.543 6.542 6.545 6.545 0 0 1-6.542-6.542 6.545 6.545 0 0 1 6.542-6.543ZM7.26 5.713a4.065 4.065 0 0 1 4.744.747 4.064 4.064 0 0 1 .707 4.749l1.157.611a5.376 5.376 0 0 0-.935-6.282 5.377 5.377 0 0 0-6.274-.987l.601 1.162Z" />
+    </svg>
+  )
+}
+
 // Apache Superset's mark, the loop, in its teal. The path is Simple Icons' (apachesuperset.svg, CC0 1.0).
 export function SupersetIcon(props: SVGProps<SVGSVGElement>) {
   return (

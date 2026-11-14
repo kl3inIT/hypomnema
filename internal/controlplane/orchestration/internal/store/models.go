@@ -266,6 +266,13 @@ type GatewayModelTarget struct {
 	UpstreamModel string
 }
 
+type GatewaySearchProvider struct {
+	Provider  string
+	Off       int64
+	BaseUrl   sql.NullString
+	UpdatedAt int64
+}
+
 type GatewayUsage struct {
 	ID               string
 	KeyID            string

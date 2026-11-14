@@ -1,6 +1,6 @@
 import type { AnyFieldApi } from "@tanstack/react-form"
 import { useMutation } from "@tanstack/react-query"
-import { CircleAlert } from "lucide-react"
+import { CircleAlert, type LucideIcon } from "lucide-react"
 import { useState, type ReactElement, type ReactNode } from "react"
 
 import { Alert, AlertDescription } from "@/components/ui/alert"
@@ -140,5 +140,34 @@ export function TextField({
       {description && <FieldDescription>{description}</FieldDescription>}
       {invalid && <FieldError errors={field.state.meta.errors} />}
     </Field>
+  )
+}
+
+// SettingsSection is a group of a page under a heading with its icon and a line of what it is for, as the Models page
+// has its subscriptions, gateway models and API providers.
+export function SettingsSection({
+  id,
+  icon: Icon,
+  title,
+  note,
+  children,
+}: {
+  id: string
+  icon: LucideIcon
+  title: string
+  note: string
+  children: ReactNode
+}) {
+  return (
+    <section aria-labelledby={id} className="flex flex-col gap-3">
+      <div className="flex flex-col gap-1">
+        <h2 id={id} className="flex items-center gap-2 text-sm font-semibold text-foreground">
+          <Icon className="size-4 text-muted-foreground" aria-hidden />
+          {title}
+        </h2>
+        <p className="text-xs text-muted-foreground">{note}</p>
+      </div>
+      {children}
+    </section>
   )
 }

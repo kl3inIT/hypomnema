@@ -23,11 +23,9 @@ messages and nothing answers. `HYPOMNEMA_BOT_FILES_COMMAND` (a JSON array, `sudo
 the files a Bot sends into a Lark chat; unset, the panel shows only the Tasks' worktrees and a Bot's files are not
 sent. `HYPOMNEMA_ROUTINE_COMMAND` (a JSON array) runs a script Routine for
 the Bot's name and the Routine's id appended to it; unset, a script Routine's run fails and says so.
-`HYPOMNEMA_WEB_SEARCH_SEARXNG_URL` (an http(s) address) is the owner's SearXNG, which web searches ask; unset, it is
-not asked. `HYPOMNEMA_WEB_SEARCH_EXA_SECRET` (default `web-search-exa`) names the vault secret that holds Exa's API
-key; while there is no such secret Exa is asked without a key. `HYPOMNEMA_WEB_SEARCH_OFF` (`codex`, `claude`,
-`antigravity`, separated by commas) names the subscriptions whose own web search is not asked; unset, each searches
-while an account of it is logged in (see "Web search and fetch").
+`HYPOMNEMA_WEB_SEARCH_EXA_SECRET` (default `web-search-exa`) names the vault secret that holds Exa's API key;
+while there is no such secret Exa is asked without a key. Which search providers are on and SearXNG's address are
+set on Settings → Gateway → Web search and stored (see "Web search and fetch").
 
 The coordinator (`internal/controlplane/coordinator`, issue #41 PR 3): `serve` runs one `pi --mode rpc` per chat
 that has something for pi, as the chat's Bot (`--bot`, and `--group` for a Lark group's chat) with the chat's model
@@ -1576,7 +1574,7 @@ nothing itself: the control plane's wiring reads Exa's key from the vault and re
   is read into results (`Title:`, `URL:`, `Published:`, its text; 500 characters). A REST answer is at most 4 MiB.
   Each provider has 10 seconds.
 - A search that names no provider asks Exa with its key (when the vault holds one), SearXNG (when its address is
-  set), Exa without a key, Parallel, then Codex, Claude and Antigravity, in turn (OmniRoute's
+  set on the Web search page), Exa without a key, Parallel, then Codex, Claude and Antigravity, in turn (OmniRoute's
   `autoSearchCandidates`, its subscription search last); one that names `exa`, `searxng`, `parallel`, `codex`,
   `claude` or `antigravity` asks that one only (Exa with its key when there is one, else without). A provider that
   fails, or finds nothing (omp), is noted and the next is asked; the answer lists the providers tried before the
@@ -1618,8 +1616,7 @@ nothing itself: the control plane's wiring reads Exa's key from the vault and re
   #354, owner 2026-11-13; `websearch/subscriptions.go`, `modelgateway/subscription_search.go`). The web search
   package holds the order and the rests; the gateway makes each call through the call its chat makes, under the
   accounts in their order (the next one asked on 401, 402, 403, 429, 502, 503 or 504), a refused token refreshed
-  once. A provider with no account that can be used is not in the chain, and named it is refused 400; one the owner
-  turned off (`HYPOMNEMA_WEB_SEARCH_OFF`) is neither tried nor may be named. Its 429, a usage limit, or every
+  once. A provider with no account that can be used is not in the chain, and named it is refused 400. Its 429, a usage limit, or every
   account cooling for chat rests that provider's search as any provider's (for the wait it named, else the doubling
   backoff); nothing the search meets cools an account down or parks it, and its answer clears no failure of the
   account's chat (OmniRoute's `borrowedKeyLock.ts`). Each provider has its reference's time: Codex 60 s
@@ -1645,8 +1642,26 @@ nothing itself: the control plane's wiring reads Exa's key from the vault and re
     generationConfig: {temperature: 1, maxOutputTokens: 8192}}}`; an account without a project is refused 400. The
     results are the first candidate's grounding chunks, each address once in order (Google's redirect addresses, as
     given), the snippet the grounded segments joined by ` | `, else the title.
-- Not built: the providers and their state on Settings → Gateway, the switches there, the Exa key put into the vault
-  from the web client (issue #354, its third pull request); other providers.
+- What the owner sets (issue #354, PR 3; `websearch/chain.go`, `modelgateway/search_switches.go`): a switch for each
+  provider, all on until turned off (owner, 2026-11-13), and SearXNG's address, in `gateway_search_providers`
+  (migration 00067: `provider`, `off`, `base_url`, read and written only by the gateway). The search reads them at
+  each search, as it reads Exa's key, so a change counts from the next one; a provider that is off is neither tried
+  nor may be named (400), Exa's two ways sharing one switch; a cached answer is not given once a setting changed.
+  SearXNG's address is an http(s) address with a host and no user, kept without its trailing slash; it may be on
+  the local network (OmniRoute's base URL field, OpenClaw's "SearXNG Base URL"). They replaced
+  `HYPOMNEMA_WEB_SEARCH_OFF` and `HYPOMNEMA_WEB_SEARCH_SEARXNG_URL`.
+- The chain as the client API gives it (`GET /gateway/web-search`, any token): every way of asking in the order
+  above, listed whether it can be asked or not, each with its `source` (`key`, `self_hosted`, `public`,
+  `subscription`), the switch (`on`), its `state` (`off`; `not_set_up`: no key in the vault, no address, or no
+  account of the subscription signed in on the control plane and in use; `resting` with `resting_until`; `ready`),
+  the name of the secret that holds Exa's key and SearXNG's address. The owner's: `PUT
+  /gateway/web-search/providers/{provider}` `{on}`; `PUT /gateway/web-search/exa-key` `{key}` keeps the key in the
+  vault under that name, never answered, and `DELETE` removes it (one not there is removed already); `PUT
+  /gateway/web-search/searxng` `{url}` and `DELETE`. Each answers the chain. The CLI: `hypomnema web providers`,
+  `web providers set <provider> on|off`, `web exa-key set --key-file <file|->`, `web exa-key rm`, `web searxng set
+  <url>`, `web searxng rm`.
+- Not built: testing a provider from the page (OmniRoute's and 9router's "Check", OpenClaw's "Test search"); other
+  providers.
 
 Node API (`internal/controlplane/nodeapi`, protocol in `internal/shared/nodeproto`, after Omnara's daemon protocol):
 - A node registers with `POST /node/v1/hello` and its bearer token. It sends its CLIs, its worktree root, its
@@ -2262,6 +2277,16 @@ Node (`internal/node`):
     ([issue #135](https://github.com/kl3inIT/hypomnema/issues/135)) has "Connect app", which takes a name only,
     and its Connection has no "Sign in again".
   - Both pages do only what `hosts ...`, `repos ...` and `integrations ...` do in the CLI.
+  - `/settings/web-search` (under Gateway, issue #354, `web/src/features/models/web-search-screen.tsx`) lists the
+    web search chain above in order, a row each as the Models page's account rows: its turn (`#n`, as 9router
+    numbers a chain's providers), the maker's mark (Exa's and SearXNG's, the subscriptions'; a globe for
+    Parallel), where its search comes from ("With your API key", "Self-hosted" with the address, "Public, no
+    key", "From your Codex account"), a badge (Ready, Resting until a time, Needs a key, No address, No account,
+    Off) and an "In use" switch, as OmniRoute's search provider cards have a status and a switch. "Add key" /
+    "Replace key" takes Exa's key in a password field in a dialog, as OmniRoute's and 9router's "Add API Key"
+    modals, and "Remove" asks first; "Set address" / "Change" takes SearXNG's base URL the same way. A
+    subscription with no account links to `/settings/models`, where an account is added: the one place for it.
+    The chain is read again every 30 seconds while the page is open.
   - The Settings screens are built on the standard components ([issue #123](https://github.com/kl3inIT/hypomnema/issues/123)):
     every shadcn component of the project's style is in `web/src/components/ui`; a form is TanStack Form with a
     zod schema, and says what is wrong when it is sent; the Vault's table is TanStack Table; a removal asks with

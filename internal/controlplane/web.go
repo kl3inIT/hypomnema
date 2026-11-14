@@ -177,3 +177,23 @@ func dispatchRuntime(svc *orchestration.Service) func(ctx context.Context, dispa
 		return c.Runtime, nil
 	}
 }
+
+// webSearchSettings is the chain and what the owner sets of it, for the Web
+// search page (issue #354): the search's order and rests, the gateway's
+// switches and SearXNG's address.
+type webSearchSettings struct {
+	web     *websearch.Service
+	gateway *modelgateway.Service
+}
+
+func (w webSearchSettings) Chain(ctx context.Context) ([]websearch.Link, error) {
+	return w.web.Chain(ctx)
+}
+
+func (w webSearchSettings) SetSearchProvider(ctx context.Context, provider string, on bool) error {
+	return w.gateway.SetSearchProvider(ctx, provider, on)
+}
+
+func (w webSearchSettings) SetSearXNG(ctx context.Context, address string) error {
+	return w.gateway.SetSearXNG(ctx, address)
+}

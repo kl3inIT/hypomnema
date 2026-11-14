@@ -372,6 +372,55 @@ export type TerminalTicket = {
   expires_at: string;
 };
 
+export type WebSearchProvider = 'exa' | 'searxng' | 'parallel' | 'codex' | 'claude' | 'antigravity';
+
+export type WebSearch = {
+  /**
+   * The ways a search is asked, in the order a search that names no provider tries them.
+   */
+  chain: Array<WebSearchLink>;
+  /**
+   * The name of the vault secret that holds Exa's API key.
+   */
+  exa_secret: string;
+  /**
+   * The address of the owner's SearXNG; absent when none is set.
+   */
+  searxng_url?: string;
+};
+
+export type WebSearchLink = {
+  provider: WebSearchProvider;
+  /**
+   * Where its search comes from: Exa with the owner's key, the owner's SearXNG, a public endpoint asked with no key, or an account of a subscription.
+   */
+  source: 'key' | 'self_hosted' | 'public' | 'subscription';
+  /**
+   * The owner's switch for the provider.
+   */
+  on: boolean;
+  /**
+   * ready: it is asked in its turn. resting: it answered 429 and is skipped until `resting_until`. not_set_up: no key in the vault, no SearXNG address, or no subscription account in use. off: the owner switched it off.
+   */
+  state: 'ready' | 'resting' | 'not_set_up' | 'off';
+  resting_until?: string;
+};
+
+export type WebSearchSwitch = {
+  on: boolean;
+};
+
+export type WebSearchExaKey = {
+  key: string;
+};
+
+export type WebSearchSearXng = {
+  /**
+   * An http(s) address, such as http://localhost:8888.
+   */
+  url: string;
+};
+
 export type WebSearchRequest = {
   query: string;
   /**
@@ -5058,6 +5107,158 @@ export type ListGatewayRequestsResponses = {
 };
 
 export type ListGatewayRequestsResponse = ListGatewayRequestsResponses[keyof ListGatewayRequestsResponses];
+
+export type GetWebSearchData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/gateway/web-search';
+};
+
+export type GetWebSearchErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GetWebSearchError = GetWebSearchErrors[keyof GetWebSearchErrors];
+
+export type GetWebSearchResponses = {
+  /**
+   * The chain.
+   */
+  200: WebSearch;
+};
+
+export type GetWebSearchResponse = GetWebSearchResponses[keyof GetWebSearchResponses];
+
+export type SetWebSearchProviderData = {
+  body: WebSearchSwitch;
+  path: {
+    provider: WebSearchProvider;
+  };
+  query?: never;
+  url: '/gateway/web-search/providers/{provider}';
+};
+
+export type SetWebSearchProviderErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type SetWebSearchProviderError = SetWebSearchProviderErrors[keyof SetWebSearchProviderErrors];
+
+export type SetWebSearchProviderResponses = {
+  /**
+   * The chain after the switch.
+   */
+  200: WebSearch;
+};
+
+export type SetWebSearchProviderResponse = SetWebSearchProviderResponses[keyof SetWebSearchProviderResponses];
+
+export type DeleteWebSearchExaKeyData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/gateway/web-search/exa-key';
+};
+
+export type DeleteWebSearchExaKeyErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type DeleteWebSearchExaKeyError = DeleteWebSearchExaKeyErrors[keyof DeleteWebSearchExaKeyErrors];
+
+export type DeleteWebSearchExaKeyResponses = {
+  /**
+   * The chain without Exa's key.
+   */
+  200: WebSearch;
+};
+
+export type DeleteWebSearchExaKeyResponse = DeleteWebSearchExaKeyResponses[keyof DeleteWebSearchExaKeyResponses];
+
+export type PutWebSearchExaKeyData = {
+  body: WebSearchExaKey;
+  path?: never;
+  query?: never;
+  url: '/gateway/web-search/exa-key';
+};
+
+export type PutWebSearchExaKeyErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type PutWebSearchExaKeyError = PutWebSearchExaKeyErrors[keyof PutWebSearchExaKeyErrors];
+
+export type PutWebSearchExaKeyResponses = {
+  /**
+   * The chain with Exa's key.
+   */
+  200: WebSearch;
+};
+
+export type PutWebSearchExaKeyResponse = PutWebSearchExaKeyResponses[keyof PutWebSearchExaKeyResponses];
+
+export type DeleteWebSearchSearXngData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/gateway/web-search/searxng';
+};
+
+export type DeleteWebSearchSearXngErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type DeleteWebSearchSearXngError = DeleteWebSearchSearXngErrors[keyof DeleteWebSearchSearXngErrors];
+
+export type DeleteWebSearchSearXngResponses = {
+  /**
+   * The chain without SearXNG.
+   */
+  200: WebSearch;
+};
+
+export type DeleteWebSearchSearXngResponse = DeleteWebSearchSearXngResponses[keyof DeleteWebSearchSearXngResponses];
+
+export type PutWebSearchSearXngData = {
+  body: WebSearchSearXng;
+  path?: never;
+  query?: never;
+  url: '/gateway/web-search/searxng';
+};
+
+export type PutWebSearchSearXngErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type PutWebSearchSearXngError = PutWebSearchSearXngErrors[keyof PutWebSearchSearXngErrors];
+
+export type PutWebSearchSearXngResponses = {
+  /**
+   * The chain with SearXNG.
+   */
+  200: WebSearch;
+};
+
+export type PutWebSearchSearXngResponse = PutWebSearchSearXngResponses[keyof PutWebSearchSearXngResponses];
 
 export type ListBotsData = {
   body?: never;

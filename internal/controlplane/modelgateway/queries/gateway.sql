@@ -145,3 +145,15 @@ SELECT u.*, k.name AS key_name FROM gateway_usage u JOIN gateway_keys k ON k.id 
 WHERE u.created_at >= @since
   AND (CAST(@failed_only AS INTEGER) = 0 OR u.outcome IN ('upstream_error', 'transport_error', 'truncated'))
 ORDER BY u.created_at DESC, u.id DESC LIMIT @row_limit OFFSET @row_offset;
+
+-- What the owner set for the web search providers (issue #354).
+-- name: ListGatewaySearchProviders :many
+SELECT * FROM gateway_search_providers ORDER BY provider;
+
+-- name: SetGatewaySearchOff :exec
+INSERT INTO gateway_search_providers (provider, off, updated_at) VALUES (@provider, @off, @now)
+ON CONFLICT (provider) DO UPDATE SET off = excluded.off, updated_at = excluded.updated_at;
+
+-- name: SetGatewaySearchBaseURL :exec
+INSERT INTO gateway_search_providers (provider, base_url, updated_at) VALUES (@provider, @base_url, @now)
+ON CONFLICT (provider) DO UPDATE SET base_url = excluded.base_url, updated_at = excluded.updated_at;

@@ -3,7 +3,6 @@ package websearch
 import (
 	"context"
 	"errors"
-	"slices"
 	"time"
 )
 
@@ -80,16 +79,10 @@ func Refused(status int, retryAfter time.Duration, message string) error {
 	return &providerError{status: status, retryAfter: min(retryAfter, longestRetryAfter), message: clip(message, 200)}
 }
 
-// subscriptionOn reports whether a subscription provider may be asked: the
-// control plane has subscriptions and the owner did not turn it off.
-func (s *Service) subscriptionOn(provider string) bool {
-	return s.subs != nil && !slices.Contains(s.cfg.Off, provider)
-}
-
 // subscriptionRoute asks a subscription provider through the gateway.
 func subscriptionRoute(provider string) route {
 	return route{
-		id: provider + "-search", provider: provider, label: "its subscription: ",
+		id: provider + "-search", provider: provider, source: SourceSubscription, label: "its subscription: ",
 		timeout: subscriptionTimeouts[provider], ask: (*Service).askSubscription,
 	}
 }

@@ -577,6 +577,35 @@ var commands = []command{
 		flags:   jsonFlag, run: webFetch,
 	},
 	{
+		name: "web providers", summary: "the web search providers in the order a search tries them, with each one's state",
+		flags: jsonFlag, run: webProviders,
+	},
+	{
+		name: "web providers set", args: "<provider> on|off", min: 2, max: 2,
+		summary: "switch a web search provider on or off (owner)", flags: jsonFlag, run: webProvidersSet,
+	},
+	{
+		name: "web exa-key set", summary: "keep Exa's API key in the vault, for searches to ask Exa with it (owner)",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("key-file", "", "the file holding the key, or - for standard input")
+			jsonFlag(fs)
+		},
+		run: webExaKeySet,
+	},
+	{
+		name: "web exa-key rm", summary: "remove Exa's API key; Exa is then asked without one (owner)",
+		flags: jsonFlag, run: webExaKeyRemove,
+	},
+	{
+		name: "web searxng set", args: "<url>", min: 1, max: 1,
+		summary: "set the address of your SearXNG, which searches ask after Exa with its key (owner)",
+		flags:   jsonFlag, run: webSearXNGSet,
+	},
+	{
+		name: "web searxng rm", summary: "forget SearXNG's address; SearXNG is then not asked (owner)",
+		flags: jsonFlag, run: webSearXNGRemove,
+	},
+	{
 		name: "skills list", summary: "the skills the owner added, each at its newest revision",
 		flags: jsonFlag, run: skillsList,
 	},
