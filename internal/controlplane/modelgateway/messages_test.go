@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway/prices"
 )
 
 // anthropicBackend stands in for api.anthropic.com: it records the path and
@@ -147,6 +148,66 @@ func TestAnotherAnthropicClientIsPresentedAsClaudeCode(t *testing.T) {
 	usage := g.lastUsage(t)
 	assert.False(t, usage.Stream)
 	assert.Equal(t, modelgateway.Tokens{Prompt: 10, Completion: 3}, usage.Tokens)
+}
+
+// claudeWrites is an answer of Anthropic's that wrote 50 tokens to the cache,
+// 30 of them for an hour (usage.cache_creation), as Claude Code's one-hour
+// breakpoints write them.
+var claudeWrites = []string{
+	event(`{"type":"message_start","message":{"id":"msg_1","usage":{"input_tokens":12,"cache_read_input_tokens":4,` +
+		`"cache_creation_input_tokens":50,"cache_creation":{"ephemeral_5m_input_tokens":20,` +
+		`"ephemeral_1h_input_tokens":30}}}}`),
+	event(`{"type":"content_block_start","index":0,"content_block":{"type":"text"}}`),
+	event(`{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"hello"}}`),
+	event(`{"type":"content_block_stop","index":0}`),
+	event(`{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":7}}`),
+	event(`{"type":"message_stop"}`),
+}
+
+// Scenario: Claude Code's answer wrote to the cache, part of it for an hour
+// (issue #448). The Messages route records the one-hour part, streamed or
+// whole, and prices it at its own rate.
+func TestMessagesRecordTheCacheWrittenForAnHour(t *testing.T) {
+	t.Parallel()
+
+	whole := `{"id":"msg_1","type":"message","content":[{"type":"text","text":"hello"}],` +
+		`"usage":{"input_tokens":12,"output_tokens":7,"cache_read_input_tokens":4,` +
+		`"cache_creation_input_tokens":50,"cache_creation":{"ephemeral_5m_input_tokens":20,` +
+		`"ephemeral_1h_input_tokens":30}}}`
+
+	for name, answer := range map[string]http.HandlerFunc{
+		"streamed": stream(claudeWrites...),
+		"whole": func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(w, whole)
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			backend, _, _ := anthropicBackend(t, answer)
+			g := newClaudeGateway(t, backend, &accounts{})
+
+			ask := claudeCodeAsk
+			if name == "whole" {
+				ask = strings.Replace(ask, `"stream":true`, `"stream":false`, 1)
+			}
+
+			status, _, body := g.send(t, "/v1/messages", ask, claudeCodeHeaders(g.key)...)
+			require.Equal(t, http.StatusOK, status, body)
+
+			usage := g.lastUsage(t)
+			want := modelgateway.Tokens{Prompt: 66, Completion: 7, Cached: 4, CacheWrite: 50, CacheWrite1h: 30}
+			assert.Equal(t, want, usage.Tokens)
+
+			price, ok := prices.Lookup("claude_subscription", "claude-sonnet-5-5")
+			require.True(t, ok)
+			require.NotNil(t, usage.CostMicros)
+			assert.Equal(t, prices.Cost(price, prices.Tokens{
+				Input: 66, CacheRead: 4, CacheWrite: 50, CacheWrite1h: 30, Output: 7,
+			}), *usage.CostMicros, "the hour's part is priced at its rate")
+		})
+	}
 }
 
 // Scenario: Claude Code counts the tokens of a prompt. Anthropic is asked at

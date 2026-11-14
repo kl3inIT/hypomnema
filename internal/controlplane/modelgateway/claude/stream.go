@@ -31,10 +31,20 @@ type Usage struct {
 	TotalTokens      int64 `json:"total_tokens"`
 	PromptDetails    struct {
 		CachedTokens int64 `json:"cached_tokens"`
+		// CacheCreation is the part of the cache write that lasts an hour
+		// (issue #448), where LiteLLM's usage carries it
+		// (prompt_tokens_details.cache_creation_token_details).
+		CacheCreation *CacheCreation `json:"cache_creation_token_details,omitempty"`
 	} `json:"prompt_tokens_details"`
 	// CacheCreationInputTokens is what was written to the cache, part of the
 	// prompt; outside OpenAI's shape, as LiteLLM and 9router-go carry it.
 	CacheCreationInputTokens int64 `json:"cache_creation_input_tokens,omitempty"`
+}
+
+// CacheCreation splits a cache write by how long it lasts, in LiteLLM's
+// names (CacheCreationTokenDetails); only the one-hour part is carried.
+type CacheCreation struct {
+	Ephemeral1hInputTokens int64 `json:"ephemeral_1h_input_tokens"`
 }
 
 // Stream turns Anthropic's Messages events into chat chunks.
@@ -113,6 +123,12 @@ type rawUsage struct {
 	OutputTokens       int64 `json:"output_tokens"`
 	CacheReadInput     int64 `json:"cache_read_input_tokens"`
 	CacheCreationInput int64 `json:"cache_creation_input_tokens"`
+	// CacheCreation splits the write by its lifetime; the gateway reads the
+	// one-hour part (issue #448), as Coder's aibridge reads
+	// CacheCreation.Ephemeral1hInputTokens.
+	CacheCreation struct {
+		Ephemeral1hInput int64 `json:"ephemeral_1h_input_tokens"`
+	} `json:"cache_creation"`
 }
 
 // Event turns one Messages event's data into the chat chunks it stands for.
@@ -232,6 +248,11 @@ func (s *Stream) recordUsage(u rawUsage) {
 		s.usage.PromptTokens = u.InputTokens + u.CacheReadInput + u.CacheCreationInput
 		s.usage.PromptDetails.CachedTokens = u.CacheReadInput
 		s.usage.CacheCreationInputTokens = u.CacheCreationInput
+
+		s.usage.PromptDetails.CacheCreation = nil
+		if u.CacheCreation.Ephemeral1hInput > 0 {
+			s.usage.PromptDetails.CacheCreation = &CacheCreation{Ephemeral1hInputTokens: u.CacheCreation.Ephemeral1hInput}
+		}
 	}
 
 	if u.OutputTokens > 0 {

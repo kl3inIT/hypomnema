@@ -31,10 +31,13 @@ type Tokens struct {
 	Prompt     int64
 	Completion int64
 	// Cached and Reasoning are parts of Prompt and Completion, when the
-	// provider says; CacheWrite is the part of Prompt written to the cache.
-	Cached     int64
-	CacheWrite int64
-	Reasoning  int64
+	// provider says; CacheWrite is the part of Prompt written to the cache,
+	// and CacheWrite1h the part of CacheWrite written for an hour (issue
+	// #448).
+	Cached       int64
+	CacheWrite   int64
+	CacheWrite1h int64
+	Reasoning    int64
 	// Estimated says the provider reported none and the counts are bytes
 	// divided by four, as 9router-go estimates
 	// (internal/handlers/chat/usage.go): a rough size, not a bill.
@@ -94,7 +97,8 @@ func (s *Service) recordUsage(ctx context.Context, u Usage) error {
 			PromptTokens: u.Tokens.Prompt, CompletionTokens: u.Tokens.Completion, CachedTokens: u.Tokens.Cached,
 			ReasoningTokens: u.Tokens.Reasoning, Estimated: flag(u.Tokens.Estimated),
 			DurationMs: u.Duration.Milliseconds(), AccountID: u.AccountID, Error: clip(u.Error, maxErrorText),
-			CacheWriteTokens: u.Tokens.CacheWrite, CostMicros: nullable(u.CostMicros), PricedModel: u.PricedModel, Now: now,
+			CacheWriteTokens: u.Tokens.CacheWrite, CacheWrite1hTokens: u.Tokens.CacheWrite1h,
+			CostMicros: nullable(u.CostMicros), PricedModel: u.PricedModel, Now: now,
 		}); err != nil {
 			return fmt.Errorf("recording usage: %w", err)
 		}
@@ -131,7 +135,8 @@ func usageOf(r store.ListGatewayUsageRow) Usage {
 		CostMicros: fromNullable(r.CostMicros), PricedModel: r.PricedModel,
 		Tokens: Tokens{
 			Prompt: r.PromptTokens, Completion: r.CompletionTokens, Cached: r.CachedTokens,
-			CacheWrite: r.CacheWriteTokens, Reasoning: r.ReasoningTokens, Estimated: r.Estimated == 1,
+			CacheWrite: r.CacheWriteTokens, CacheWrite1h: r.CacheWrite1hTokens, Reasoning: r.ReasoningTokens,
+			Estimated: r.Estimated == 1,
 		},
 		Duration:  time.Duration(r.DurationMs) * time.Millisecond,
 		CreatedAt: time.UnixMilli(r.CreatedAt).UTC(),
@@ -144,6 +149,11 @@ type openAIUsage struct {
 	CompletionTokens    int64 `json:"completion_tokens"`
 	PromptTokensDetails struct {
 		CachedTokens int64 `json:"cached_tokens"`
+		// The one-hour part of the cache write, where the chat route's
+		// Claude usage and LiteLLM carry it (issue #448).
+		CacheCreationTokenDetails struct {
+			Ephemeral1hInputTokens int64 `json:"ephemeral_1h_input_tokens"`
+		} `json:"cache_creation_token_details"`
 	} `json:"prompt_tokens_details"`
 	CompletionTokensDetails struct {
 		ReasoningTokens int64 `json:"reasoning_tokens"`
@@ -165,6 +175,7 @@ func (t *Tokens) merge(raw json.RawMessage) {
 	t.Cached = max(t.Cached, u.PromptTokensDetails.CachedTokens)
 	t.Reasoning = max(t.Reasoning, u.CompletionTokensDetails.ReasoningTokens)
 	t.CacheWrite = max(t.CacheWrite, u.CacheCreationInputTokens)
+	t.CacheWrite1h = max(t.CacheWrite1h, u.PromptTokensDetails.CacheCreationTokenDetails.Ephemeral1hInputTokens)
 }
 
 // estimate fills counts the provider did not report from the sizes of what

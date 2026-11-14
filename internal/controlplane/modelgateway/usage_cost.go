@@ -28,7 +28,7 @@ func (s *Service) price(ctx context.Context, u *Usage) {
 
 	cost := prices.Cost(p, prices.Tokens{
 		Input: u.Tokens.Prompt, CacheRead: u.Tokens.Cached, CacheWrite: u.Tokens.CacheWrite,
-		Output: u.Tokens.Completion,
+		CacheWrite1h: u.Tokens.CacheWrite1h, Output: u.Tokens.Completion,
 	})
 	u.CostMicros, u.PricedModel = &cost, p.Model
 }

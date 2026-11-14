@@ -102,6 +102,7 @@ const request = (i: number, over: Record<string, unknown> = {}) => ({
   completion_tokens: 412,
   reasoning_tokens: 40,
   cache_write_tokens: 120,
+  cache_write_1h_tokens: 100,
   cost_micros: 9_120,
   priced_model: "claude-opus-5-5",
   estimated: false,
