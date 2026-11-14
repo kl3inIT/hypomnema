@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/storeutil"
 	"github.com/kl3inIT/hypomnema/internal/shared/githost"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 )
@@ -42,25 +43,9 @@ func New(db *sql.DB, clock platform.Clock, newID func(prefix string) string, opt
 	return s
 }
 
-// write runs fn in one transaction. The connection opens every transaction
-// with BEGIN IMMEDIATE (internal/shared/sqlite), so fn reads the latest state.
+// write runs fn in one transaction and wakes event readers after the commit.
 func (s *Service) write(ctx context.Context, fn func(q *store.Queries, now int64) error) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("beginning a transaction: %w", err)
-	}
-
-	if err := fn(store.New(tx), s.clock.Now().UnixMilli()); err != nil {
-		return errors.Join(err, tx.Rollback())
-	}
-
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("committing: %w", err)
-	}
-
-	s.notify.signal()
-
-	return nil
+	return storeutil.Write(ctx, s.db, s.clock, s.notify.signal, fn)
 }
 
 func (s *Service) read() *store.Queries {
