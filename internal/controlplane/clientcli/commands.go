@@ -483,6 +483,12 @@ var commands = []command{
 		run:     piModels,
 	},
 	{
+		name: "pi-settings", args: "<models.json>", min: 1, max: 1, offline: true,
+		summary: "pi's settings.json for the models of a models.json: compaction scaled to each window, grep, " +
+			"find and ls on; the launcher writes it",
+		run: piSettings,
+	},
+	{
 		name:    "model-key",
 		summary: "the model gateway's key of the chat pi runs for; pi's models.json runs this at each request",
 		run:     modelKey,
