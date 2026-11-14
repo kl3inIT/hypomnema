@@ -20,9 +20,14 @@ import (
 // internal/translator/antigravity.go WrapAntigravityImageRequest) and omp
 // (packages/ai/src/images/google-antigravity.ts) agree with in its parts.
 
-// ImageModel is the model an Antigravity image is made with when nothing
-// else is named: 9router-go's default and OmniRoute's.
+// ImageModel is the one model an Antigravity image is made with:
+// 9router-go's default and OmniRoute's, the only one Cloud Code served in a
+// probe (issue #453).
 const ImageModel = "gemini-3.1-flash-image"
+
+// ImageModelName is ImageModel's name for people: OmniRoute's
+// (open-sse/config/imageRegistryData.ts, its antigravity provider).
+const ImageModelName = "Gemini 3.1 Flash Image"
 
 // MaxImageReferences is how many reference images one request may carry
 // (OmniRoute's GEMINI_IMAGE_MAX_REFERENCES).
@@ -36,7 +41,6 @@ type ImageInput struct {
 
 // ImageOptions are what an image request may set beside its prompt.
 type ImageOptions struct {
-	Model string
 	// Count is how many images: the candidate count.
 	Count int
 	// Size is the OpenAI size (1024x1536) or an aspect ratio (2:3); AspectRatio,
@@ -137,7 +141,7 @@ func ImageBody(prompt string, o ImageOptions) []byte {
 				"imageConfig":    imageConfig,
 			},
 		},
-		"model":       o.Model,
+		"model":       ImageModel,
 		"userAgent":   "antigravity",
 		"requestType": "image_gen",
 	})

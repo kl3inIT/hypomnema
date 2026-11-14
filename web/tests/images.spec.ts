@@ -11,9 +11,7 @@ type Link = {
   state: "ready" | "resting" | "not_set_up" | "off"
   resting_until?: string
   model: string
-  default_model: string
-  model_chosen: boolean
-  suggested_models: string[]
+  model_name: string
   accounts: number
   usage: { today: Tally; month: Tally }
 }
@@ -28,9 +26,7 @@ function start(): Link[] {
       on: true,
       state: "ready",
       model: "gpt-image-2",
-      default_model: "gpt-image-2",
-      model_chosen: false,
-      suggested_models: ["gpt-image-2"],
+      model_name: "GPT Image 2 (Codex)",
       accounts: 2,
       usage: { today: { answered: 3, failed: 0 }, month: { answered: 41, failed: 2 } },
     },
@@ -40,9 +36,7 @@ function start(): Link[] {
       state: "resting",
       resting_until: rest,
       model: "gemini-3.1-flash-image",
-      default_model: "gemini-3.1-flash-image",
-      model_chosen: false,
-      suggested_models: ["gemini-3.1-flash-image", "gemini-3-pro-image"],
+      model_name: "Gemini 3.1 Flash Image",
       accounts: 1,
       usage: { today: { answered: 0, failed: 1 }, month: { answered: 9, failed: 1 } },
     },
@@ -63,23 +57,12 @@ async function fakeServer(page: Page) {
 
     if (request.method() === "PUT" && path.startsWith("/gateway/images/providers/")) {
       const provider = path.split("/").pop() ?? ""
-      const change = request.postDataJSON() as { on?: boolean; model?: string }
+      const change = request.postDataJSON() as { on: boolean }
       calls.push(`${call} ${JSON.stringify(change)}`)
       world.providers = world.providers.map((link) => {
         if (link.provider !== provider) return link
 
-        const next = { ...link }
-        if (change.on !== undefined) {
-          next.on = change.on
-          next.state = change.on ? "ready" : "off"
-        }
-
-        if (change.model !== undefined) {
-          next.model = change.model || link.default_model
-          next.model_chosen = change.model !== ""
-        }
-
-        return next
+        return { ...link, on: change.on, state: change.on ? "ready" : "off" }
       })
 
       return json(answer())
@@ -114,8 +97,8 @@ const fits = (page: Page) =>
 
 const row = (page: Page, label: string) => page.getByLabel(label, { exact: true })
 
-// Scenario: the owner opens Images from Settings. Codex comes first, ready, with its default model, its two
-// accounts and what it made; Antigravity rests after its limit, until the time its vendor named. The page fits a
+// Scenario: the owner opens Images from Settings. Codex comes first, ready, with its one model named as OmniRoute
+// names it and its id beside (issue #453: no model to choose), its two accounts and what it made; Antigravity rests after its limit, until the time its vendor named. The page fits a
 // phone, and reads on the light theme as on the dark.
 test("the owner sees the image providers in their order", async ({ page }) => {
   await fakeServer(page)
@@ -127,13 +110,17 @@ test("the owner sees the image providers in their order", async ({ page }) => {
   const codex = row(page, "Codex")
   await expect(codex).toContainText("#1")
   await expect(codex).toContainText("Ready")
-  await expect(codex).toContainText("gpt-image-2 (default)")
+  await expect(codex).toContainText("GPT Image 2 (Codex)")
+  await expect(codex.locator(".font-mono")).toHaveText("· gpt-image-2")
+  await expect(codex.getByRole("button", { name: /model/i })).toHaveCount(0)
   await expect(codex).toContainText("2 accounts")
   await expect(codex).toContainText("Today 3 · this month 41 (+2 failed)")
 
   const antigravity = row(page, "Antigravity")
   await expect(antigravity).toContainText("#2")
   await expect(antigravity).toContainText("Rate limited until")
+  await expect(antigravity).toContainText("Gemini 3.1 Flash Image")
+  await expect(antigravity.locator(".font-mono")).toHaveText("· gemini-3.1-flash-image")
   await expect(antigravity).toContainText("1 account")
 
   expect(await fits(page)).toBe(true)
@@ -144,46 +131,6 @@ test("the owner sees the image providers in their order", async ({ page }) => {
   await expect(page.locator("html")).not.toHaveClass(/dark/)
   await expect(row(page, "Codex")).toBeVisible()
   await shot(page, "images-providers-light")
-})
-
-// Scenario: the owner sets Antigravity's model to a newer one, by typing its name; a name with a space is refused
-// before it is sent. Then he picks a known name, and goes back to the default.
-test("the owner sets a provider's model to try a newer one", async ({ page }) => {
-  const { calls } = await fakeServer(page)
-  await page.goto("/settings/images")
-
-  const antigravity = row(page, "Antigravity")
-  await antigravity.getByRole("button", { name: "Change Antigravity's image model" }).click()
-
-  const dialog = page.getByRole("dialog", { name: "Antigravity's image model" })
-  const field = dialog.getByRole("textbox", { name: "Model" })
-  await expect(field).toHaveAttribute("placeholder", "gemini-3.1-flash-image")
-
-  await field.fill("gemini nano")
-  await dialog.getByRole("button", { name: "Save model" }).click()
-  await expect(dialog).toContainText("Letters, digits and . _ : - only.")
-
-  await field.fill("gemini-nano-banana-2.1")
-  await shot(page, "images-model-dialog")
-  await dialog.getByRole("button", { name: "Save model" }).click()
-
-  await expect(dialog).toBeHidden()
-  await expect(page.getByText("Antigravity makes images with gemini-nano-banana-2.1")).toBeVisible()
-  await expect(antigravity).toContainText("gemini-nano-banana-2.1 (yours)")
-  expect(calls).toContain(
-    `PUT /gateway/images/providers/antigravity {"model":"gemini-nano-banana-2.1"}`,
-  )
-
-  await antigravity.getByRole("button", { name: "Change Antigravity's image model" }).click()
-  await dialog.getByRole("button", { name: "gemini-3-pro-image" }).click()
-  await expect(field).toHaveValue("gemini-3-pro-image")
-  await dialog.getByRole("button", { name: "Use the default model" }).click()
-  await expect(field).toHaveValue("")
-  await dialog.getByRole("button", { name: "Save model" }).click()
-
-  await expect(antigravity).toContainText("gemini-3.1-flash-image (default)")
-  expect(calls).toContain(`PUT /gateway/images/providers/antigravity {"model":""}`)
-  expect(await fits(page)).toBe(true)
 })
 
 // Scenario: the owner switches Codex off: the server is asked, the row says Off, and a toast says so.

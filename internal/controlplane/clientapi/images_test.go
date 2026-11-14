@@ -43,17 +43,18 @@ func (m *madeImages) Make(
 	}
 
 	return modelgateway.ImageResult{
-		Provider: "antigravity", Model: "gemini-3.1-flash-image", Created: 1,
+		Provider: "codex", Model: "gpt-image-2", Created: 1, Size: "1312x1199", Quality: "medium", Format: "png",
 		Images: []modelgateway.GeneratedImage{{B64JSON: "Zm94", MIME: "image/png", RevisedPrompt: "a fox"}},
-		Errors: []modelgateway.ImageFailure{{Provider: "codex", Model: "gpt-image-2", Message: "limited"}},
+		Errors: []modelgateway.ImageFailure{{Provider: "antigravity", Model: "gemini-3.1-flash-image", Message: "limited"}},
 	}, nil
 }
 
 // Scenario: the owner opens Settings → Gateway → Images. Codex has one
 // account on the free plan, which makes no images, and one on a team plan
 // that rests after a limit: Codex rests until then. Antigravity has no
-// account. The owner sets Antigravity's model to try a newer one, puts it
-// first and turns Codex off; a coordinator reads and changes nothing.
+// account. Each shows its one model, with OmniRoute's name for it (issue
+// #453). The owner puts Antigravity first and turns Codex off; a coordinator
+// reads and changes nothing.
 func TestTheOwnerSeesAndChangesTheImageProviders(t *testing.T) {
 	t.Parallel()
 
@@ -87,27 +88,16 @@ func TestTheOwnerSeesAndChangesTheImageProviders(t *testing.T) {
 	require.NotNil(t, codex.RestingUntil)
 	assert.WithinDuration(t, until, *codex.RestingUntil, time.Second)
 	assert.Equal(t, "gpt-image-2", codex.Model)
-	assert.Equal(t, []string{"gpt-image-2"}, codex.SuggestedModels)
+	assert.Equal(t, "GPT Image 2 (Codex)", codex.ModelName)
 
 	antigravity := listed.JSON200.Providers[1]
 	assert.Equal(t, openapi.ImageProviderLinkStateNotSetUp, antigravity.State)
-	assert.Equal(t, []string{"gemini-3.1-flash-image", "gemini-3-pro-image"}, antigravity.SuggestedModels)
+	assert.Equal(t, "gemini-3.1-flash-image", antigravity.Model)
+	assert.Equal(t, "Gemini 3.1 Flash Image", antigravity.ModelName)
 
-	model := "gemini-nano-banana-2.1"
-	refused, err := pi.SetImageProviderWithResponse(ctx, "antigravity", openapi.ImageProviderChange{Model: &model})
+	refused, err := pi.SetImageProviderWithResponse(ctx, "codex", openapi.ImageProviderChange{On: false})
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusForbidden, refused.StatusCode())
-
-	set, err := owner.SetImageProviderWithResponse(ctx, "antigravity", openapi.ImageProviderChange{Model: &model})
-	require.NoError(t, err)
-	require.Equal(t, http.StatusOK, set.StatusCode(), string(set.Body))
-	assert.Equal(t, model, set.JSON200.Providers[1].Model)
-	assert.True(t, set.JSON200.Providers[1].ModelChosen)
-
-	bad := "no spaces"
-	invalid, err := owner.SetImageProviderWithResponse(ctx, "antigravity", openapi.ImageProviderChange{Model: &bad})
-	require.NoError(t, err)
-	assert.Equal(t, http.StatusBadRequest, invalid.StatusCode())
 
 	ordered, err := owner.SetImageOrderWithResponse(ctx, openapi.ImageOrder{
 		Providers: []openapi.ImageProvider{"antigravity", "codex"},
@@ -116,8 +106,7 @@ func TestTheOwnerSeesAndChangesTheImageProviders(t *testing.T) {
 	require.Equal(t, http.StatusOK, ordered.StatusCode(), string(ordered.Body))
 	assert.Equal(t, openapi.ImageProvider("antigravity"), ordered.JSON200.Providers[0].Provider)
 
-	off := false
-	switched, err := owner.SetImageProviderWithResponse(ctx, "codex", openapi.ImageProviderChange{On: &off})
+	switched, err := owner.SetImageProviderWithResponse(ctx, "codex", openapi.ImageProviderChange{On: false})
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, switched.StatusCode(), string(switched.Body))
 	assert.Equal(t, openapi.ImageProviderLinkStateOff, switched.JSON200.Providers[1].State)
@@ -126,8 +115,9 @@ func TestTheOwnerSeesAndChangesTheImageProviders(t *testing.T) {
 // Scenario: a token asks for an edit: the request reaches the gateway as it
 // was asked, with no chat for a token that belongs to none (a Bot's pi
 // token names its chat, whose key the call is recorded on), and the answer
-// names the provider, the model and why the one before did not answer. A
-// limit of every provider is 429 with Retry-After.
+// names the provider, the model, the size and quality the provider says it
+// made, and why the one before did not answer. A limit of every provider is
+// 429 with Retry-After.
 func TestAnImageIsAskedThroughTheClientAPI(t *testing.T) {
 	t.Parallel()
 
@@ -145,9 +135,13 @@ func TestAnImageIsAskedThroughTheClientAPI(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, resp.StatusCode(), string(resp.Body))
-	assert.Equal(t, openapi.ImageProvider("antigravity"), resp.JSON200.Provider)
+	assert.Equal(t, openapi.ImageProvider("codex"), resp.JSON200.Provider)
+	assert.Equal(t, "gpt-image-2", resp.JSON200.Model)
 	assert.Equal(t, "Zm94", resp.JSON200.Images[0].B64Json)
-	assert.Equal(t, []openapi.WebSearchError{{Provider: "codex", Message: "gpt-image-2: limited"}},
+	assert.Equal(t, "1312x1199", val(resp.JSON200.Size), "the size it made, not the one asked")
+	assert.Equal(t, "medium", val(resp.JSON200.Quality))
+	assert.Equal(t, "png", val(resp.JSON200.OutputFormat))
+	assert.Equal(t, []openapi.WebSearchError{{Provider: "antigravity", Message: "gemini-3.1-flash-image: limited"}},
 		val(resp.JSON200.Errors))
 
 	assert.Equal(t, 2, made.asked.N)

@@ -19,12 +19,14 @@ import (
 // Images API as OmniRoute (src/app/api/v1/images/{generations,edits}),
 // CLIProxyAPI (internal/api/server_routes.go) and 9router-go serve it: a JSON
 // body, or for an edit a multipart form with the files, answered
-// {created, data: [{b64_json, revised_prompt?}]}. Any key the gateway knows
+// {created, data: [{b64_json, revised_prompt?}], size?, quality?,
+// output_format?}, the last three what the provider says it made (Codex's
+// backend does not always make what was asked: issue #453). Any key the gateway knows
 // may ask, whatever models it may use, as for a web search. A reference image
 // comes inline in either route: every spelling the references' clients send
 // (image, images[], image_url, input_references[] of omp and opencode; codex-rs
 // images[].image_url), never an address to fetch. Each request is one usage
-// row on its key, as model image/<model>.
+// row on its key, as model image/<the provider's one model>.
 
 // imageBody is an image request in JSON.
 type imageBody struct {
@@ -209,9 +211,12 @@ type imageUsage struct {
 }
 
 type imageAnswer struct {
-	Created int64       `json:"created"`
-	Data    []imageData `json:"data"`
-	Usage   *imageUsage `json:"usage,omitempty"`
+	Created      int64       `json:"created"`
+	Data         []imageData `json:"data"`
+	Size         string      `json:"size,omitempty"`
+	Quality      string      `json:"quality,omitempty"`
+	OutputFormat string      `json:"output_format,omitempty"`
+	Usage        *imageUsage `json:"usage,omitempty"`
 }
 
 // images answers either route: an edit may come as a form.
@@ -266,7 +271,10 @@ func (s *Server) images(w http.ResponseWriter, r *http.Request, edit bool) {
 		return
 	}
 
-	out := imageAnswer{Created: res.Created, Data: make([]imageData, 0, len(res.Images))}
+	out := imageAnswer{
+		Created: res.Created, Data: make([]imageData, 0, len(res.Images)),
+		Size: res.Size, Quality: res.Quality, OutputFormat: res.Format,
+	}
 	if out.Created == 0 {
 		out.Created = s.svc.clock.Now().Unix()
 	}
@@ -325,7 +333,7 @@ type ImageCall struct {
 }
 
 // RecordImageCall records an image request on its key as model
-// image/<model>: the provider and model that made it, or for one that
+// image/<the provider's one model>: the provider and model that made it, or for one that
 // failed the last tried and every provider's reason; the tokens the provider
 // reported, none invented.
 func (s *Service) RecordImageCall(ctx context.Context, c ImageCall) error {
