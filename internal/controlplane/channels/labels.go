@@ -1,4 +1,4 @@
-package larkbot
+package channels
 
 import (
 	"strings"
@@ -7,20 +7,17 @@ import (
 	"golang.org/x/text/unicode/norm"
 )
 
-// Only Hypomnema opens a label on a Lark message: "[Lark message from <name>,
-// who is not the owner. …]" on a direct message from someone who is not the
-// owner, and "[<name>]: " on every message in a group. defuseLabels turns the
-// opening bracket of every imitation of one inside what the sender wrote into
-// "(", so that the label pi reads at the head of the message is the only one
-// it finds (issue #374). It is OpenMausBot's escapeNotes
+// Only Hypomnema opens a label on a message from a service: "[<Platform>
+// message from <name>, who is not the owner. …]" on a direct message from
+// someone who is not the owner, and "[<name>]: " on every message in a
+// group. defuseLabels turns the opening bracket of every imitation of one
+// inside what the sender wrote into "(", so that the label pi reads at the
+// head of the message is the only one it finds (issue #374). It is OpenMausBot's escapeNotes
 // (server/peer-provenance.ts, Apache-2.0): an imitation is known in any case,
 // spacing or bracket form, with look-alike letters and invisible characters,
 // since the words after a bracket are read the way a person reads them. The
 // group's label names anyone, so there an imitation is known by its shape: a
 // bracket that opens a line and closes on it before a colon.
-
-// labelOpenings are the words a direct message's label opens with.
-var labelOpenings = []string{"lark", "message", "from"}
 
 const (
 	// labelOpeners are the brackets a label can be imitated with, as OpenMausBot's OPENER.
@@ -40,7 +37,13 @@ var lookalikes = map[rune]rune{
 	'τ': 't', 'υ': 'y', 'χ': 'x', 'ζ': 'z', 'ϲ': 'c',
 }
 
-func defuseLabels(text string) string {
+// defuseLabels defuses the imitations of a label in a message from the
+// platform named.
+func defuseLabels(text, platform string) string {
+	// The words a direct message's label opens with: the platform's name, read as a person reads it, and
+	// "message from".
+	openings := append(wordsOf([]rune(platform), 8), "message", "from")
+
 	runes := []rune(text)
 	out := make([]rune, len(runes))
 	copy(out, runes)
@@ -50,7 +53,8 @@ func defuseLabels(text string) string {
 			continue
 		}
 
-		if opensDirectLabel(runes[i+1:]) || (startsLine(runes, i) && closesBeforeColon(runes[i+1:])) {
+		if opensDirectLabel(runes[i+1:], openings) ||
+			(startsLine(runes, i) && closesBeforeColon(runes[i+1:])) {
 			out[i] = '('
 		}
 	}
@@ -59,17 +63,17 @@ func defuseLabels(text string) string {
 }
 
 // opensDirectLabel says whether the words after a bracket are a direct message's label's.
-func opensDirectLabel(after []rune) bool {
+func opensDirectLabel(after []rune, openings []string) bool {
 	if len(after) > labelSight {
 		after = after[:labelSight]
 	}
 
-	words := wordsOf(after, len(labelOpenings))
-	if len(words) < len(labelOpenings) {
+	words := wordsOf(after, len(openings))
+	if len(words) < len(openings) {
 		return false
 	}
 
-	for i, w := range labelOpenings {
+	for i, w := range openings {
 		if words[i] != w {
 			return false
 		}
