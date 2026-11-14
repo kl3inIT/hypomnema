@@ -25,6 +25,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/node/claude"
 	"github.com/kl3inIT/hypomnema/internal/node/codex"
 	"github.com/kl3inIT/hypomnema/internal/node/daemon"
+	"github.com/kl3inIT/hypomnema/internal/node/device"
 	"github.com/kl3inIT/hypomnema/internal/node/runner"
 	"github.com/kl3inIT/hypomnema/internal/node/skills"
 	"github.com/kl3inIT/hypomnema/internal/node/statedb"
@@ -209,6 +210,20 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 		defer terminals.Close()
 	}
 
+	// The phone of a machine made to hold one (issue #417): installed and started when the control plane asks.
+	// It is left running when the node ends, and the next node takes it back.
+	var (
+		phone     *device.Manager
+		phoneSays daemon.Phone
+	)
+
+	if cfg.Device == nodeproto.DeviceAndroid {
+		phone = device.New(device.Options{Dir: filepath.Join(home, "device"), KVM: CanUseKVM, Logger: logger})
+		phoneSays = phone
+
+		go phone.Run(ctx)
+	}
+
 	// The agents that speak ACP share one runtime (issue #107).
 	acpRuntime := &acp.ACPRuntime{Home: home, Exe: exe, Paths: paths, URL: cfg.URL}
 
@@ -260,7 +275,7 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 			return found
 		},
 		Terminal: terminals,
-		Device:   cfg.Device, KVM: CanUseKVM,
+		Device:   cfg.Device, KVM: CanUseKVM, Phone: phoneSays,
 	}, db, all, logger)
 
 	transcripts.Send = d.SendItems
@@ -277,7 +292,24 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 	defer cancel(nil)
 
 	go func() {
-		busy := func() bool { return terminals != nil && terminals.Count() > 0 }
+		// An update waits for a terminal, and for the phone while it is installed or started: a restart would cut
+		// that short. A phone that runs is left running by the restart and taken back after it.
+		busy := func() bool {
+			if terminals != nil && terminals.Count() > 0 {
+				return true
+			}
+
+			if phone == nil {
+				return false
+			}
+
+			switch phone.Status().State {
+			case nodeproto.DeviceInstalling, nodeproto.DeviceStarting:
+				return true
+			default:
+				return false
+			}
+		}
 		every := time.Duration(cfg.UpdateEveryMinutes) * time.Minute
 
 		if err := updater.UpdateLoop(ctx, d.ReleaseURL, busy, every, logger); errors.Is(err, ErrUpdated) {
