@@ -12,8 +12,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/channels"
+	larkchannel "github.com/kl3inIT/hypomnema/internal/controlplane/channels/lark"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi"
-	"github.com/kl3inIT/hypomnema/internal/controlplane/larkbot"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/channelstore"
 )
@@ -26,18 +27,18 @@ type larkChannelSettings struct {
 	// names are the Channels in the order they were set up.
 	names    []string
 	secrets  map[string]string
-	statuses map[string]larkbot.Status
+	statuses map[string]channels.Status
 }
 
 func newLarkChannelSettings() *larkChannelSettings {
-	return &larkChannelSettings{secrets: map[string]string{}, statuses: map[string]larkbot.Status{}}
+	return &larkChannelSettings{secrets: map[string]string{}, statuses: map[string]channels.Status{}}
 }
 
-func (l *larkChannelSettings) List(context.Context) ([]larkbot.Status, error) {
+func (l *larkChannelSettings) List(context.Context) ([]channels.Status, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	out := make([]larkbot.Status, 0, len(l.names))
+	out := make([]channels.Status, 0, len(l.names))
 	for _, name := range l.names {
 		out = append(out, l.statuses[name])
 	}
@@ -45,19 +46,19 @@ func (l *larkChannelSettings) List(context.Context) ([]larkbot.Status, error) {
 	return out, nil
 }
 
-func (l *larkChannelSettings) Status(_ context.Context, channel string) (larkbot.Status, error) {
+func (l *larkChannelSettings) Status(_ context.Context, channel string) (channels.Status, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
 	st, ok := l.statuses[channel]
 	if !ok {
-		return larkbot.Status{}, orchestration.ErrNotFound
+		return channels.Status{}, orchestration.ErrNotFound
 	}
 
 	return st, nil
 }
 
-func (l *larkChannelSettings) Set(_ context.Context, channel string, set larkbot.Settings) (larkbot.Status, error) {
+func (l *larkChannelSettings) Set(_ context.Context, channel string, set larkchannel.Settings) (channels.Status, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
@@ -71,7 +72,7 @@ func (l *larkChannelSettings) Set(_ context.Context, channel string, set larkbot
 	if set.AppID != "" {
 		for name, other := range l.statuses {
 			if name != channel && other.Channel.AppID == set.AppID {
-				return larkbot.Status{}, fmt.Errorf("%w: the Lark app %s is the app of channel %s",
+				return channels.Status{}, fmt.Errorf("%w: the Lark app %s is the app of channel %s",
 					orchestration.ErrConflict, set.AppID, name)
 			}
 		}
@@ -101,7 +102,7 @@ func (l *larkChannelSettings) Set(_ context.Context, channel string, set larkbot
 
 	if set.Enabled != nil {
 		st.Channel.Enabled = *set.Enabled
-		st.State = larkbot.State{Connected: *set.Enabled, AppID: st.Channel.AppID}
+		st.State = channels.State{Connected: *set.Enabled, AppID: st.Channel.AppID}
 	}
 
 	if !known {

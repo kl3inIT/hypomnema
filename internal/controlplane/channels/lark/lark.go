@@ -1,4 +1,14 @@
-package larkbot
+// Package lark is LarkChannel: the Channels of kind lark (issues #136, #169
+// and #404), a Lark app each. It is Lark's side of the runtime in package
+// channels, as MemoryOS's LarkChannelAdapter is of its ChannelSupervisor:
+// the persistent connection and its events, CardKit's cards that fill as a
+// reply is written, the emoji marks, the mention tags, the file types, and
+// how an app and a person are named at Lark.
+//
+// It follows the Feishu channels of OpenClaw (extensions/feishu) and Hermes
+// (plugins/platforms/feishu) and the owner's MemoryOS (mem-246-lark-bot):
+// events come over a persistent connection, so no public address is opened.
+package lark
 
 import (
 	"bytes"
@@ -6,11 +16,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
 
-	lark "github.com/larksuite/oapi-sdk-go/v3"
+	larksdk "github.com/larksuite/oapi-sdk-go/v3"
 	larkcore "github.com/larksuite/oapi-sdk-go/v3/core"
 	"github.com/larksuite/oapi-sdk-go/v3/event/dispatcher"
 	"github.com/larksuite/oapi-sdk-go/v3/event/dispatcher/callback"
@@ -19,7 +31,28 @@ import (
 	larkcontact "github.com/larksuite/oapi-sdk-go/v3/service/contact/v3"
 	larkim "github.com/larksuite/oapi-sdk-go/v3/service/im/v1"
 	larkws "github.com/larksuite/oapi-sdk-go/v3/ws"
+
+	"github.com/kl3inIT/hypomnema/internal/controlplane/channels"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/channelstore"
 )
+
+// LarkChannel is the Channel of kind lark: a Lark app.
+type LarkChannel struct{}
+
+var _ channels.Channel = LarkChannel{}
+
+// Kind is lark.
+func (LarkChannel) Kind() channels.Kind { return channelstore.KindLark }
+
+// Capabilities are a Lark card's.
+func (LarkChannel) Capabilities() channels.Capabilities {
+	return channels.Capabilities{MaxText: cardLimit, Platform: "Lark"}
+}
+
+// Open connects to Lark as the Channel's app.
+func (LarkChannel) Open(_ context.Context, channel channelstore.Channel, secret string) (channels.Conn, error) {
+	return Connect(channel.AppID, secret), nil
+}
 
 // Lark through its own Go SDK (github.com/larksuite/oapi-sdk-go, MIT), which
 // lark-cli, Lark's own Go program, uses for the same things: the persistent
@@ -28,12 +61,25 @@ import (
 // its ids and the sender's tenant, and a CardKit card is created, sent by its
 // id, filled by element with a rising sequence and closed.
 
-// connectWait is how long the persistent connection gets to open.
-const connectWait = 20 * time.Second
+const (
+	// connectWait is how long the persistent connection gets to open.
+	connectWait = 20 * time.Second
+	sendTimeout = 30 * time.Second
+	// mediaTimeout is how long a file's upload may take (OpenClaw
+	// extensions/feishu/src/media.ts, FEISHU_MEDIA_HTTP_TIMEOUT_MS).
+	mediaTimeout = 2 * time.Minute
+	// cardLimit is the most characters one card shows: a card holds 30 KB and
+	// a character may take three bytes. A longer reply goes on in further
+	// cards (channels' split).
+	cardLimit = 8000
+	// openIDPrefix starts a person's open_id, which names their direct chat
+	// with the bot until Lark gives the chat's own id.
+	openIDPrefix = "ou_"
+)
 
-// mediaTimeout is how long a file's upload may take (OpenClaw
-// extensions/feishu/src/media.ts, FEISHU_MEDIA_HTTP_TIMEOUT_MS).
-const mediaTimeout = 2 * time.Minute
+// The emoji a Lark Channel puts on a person's message, as OpenClaw and
+// Hermes do: Typing while the Bot works on it, and a cross when it failed.
+var emoji = map[channels.Mark]string{channels.MarkWorking: "Typing", channels.MarkFailed: "CrossMark"}
 
 // answerElement is the id of the card's one element, which the text fills.
 const answerElement = "answer"
@@ -42,9 +88,9 @@ const answerElement = "answer"
 type sdk struct {
 	appID  string
 	secret string
-	api    *lark.Client
+	api    *larksdk.Client
 	// media uploads files, with a longer wait than api's (OpenClaw's media client).
-	media *lark.Client
+	media *larksdk.Client
 
 	mu sync.Mutex
 	// seqs is the last sequence each card being written was updated with: Lark takes an update only with a
@@ -69,18 +115,18 @@ func (s *sdk) next(cardID string, seq int) int {
 
 // Connect returns Lark for an app. Only Lark international is served
 // (open.larksuite.com), as the Integration is.
-func Connect(appID, secret string) Lark {
+func Connect(appID, secret string) channels.Conn {
 	return &sdk{
 		appID: appID, secret: secret, seqs: map[string]int{},
 		// The SDK writes the address of a connection, which holds its ticket, at its info level.
-		api: lark.NewClient(appID, secret, lark.WithOpenBaseUrl(lark.LarkBaseUrl),
-			lark.WithLogLevel(larkcore.LogLevelError), lark.WithReqTimeout(sendTimeout)),
-		media: lark.NewClient(appID, secret, lark.WithOpenBaseUrl(lark.LarkBaseUrl),
-			lark.WithLogLevel(larkcore.LogLevelError), lark.WithReqTimeout(mediaTimeout)),
+		api: larksdk.NewClient(appID, secret, larksdk.WithOpenBaseUrl(larksdk.LarkBaseUrl),
+			larksdk.WithLogLevel(larkcore.LogLevelError), larksdk.WithReqTimeout(sendTimeout)),
+		media: larksdk.NewClient(appID, secret, larksdk.WithOpenBaseUrl(larksdk.LarkBaseUrl),
+			larksdk.WithLogLevel(larkcore.LogLevelError), larksdk.WithReqTimeout(mediaTimeout)),
 	}
 }
 
-func (s *sdk) Listen(ctx context.Context, on Events) error {
+func (s *sdk) Listen(ctx context.Context, on channels.Events) error {
 	handler := dispatcher.NewEventDispatcher("", "").
 		OnP2MessageReceiveV1(func(_ context.Context, e *larkim.P2MessageReceiveV1) error {
 			on.Message(messageOf(e))
@@ -92,7 +138,7 @@ func (s *sdk) Listen(ctx context.Context, on Events) error {
 		// its groups in the listing every ten minutes.
 		OnP2ChatMemberBotAddedV1(func(_ context.Context, e *larkim.P2ChatMemberBotAddedV1) error {
 			if e != nil && e.Event != nil && deref(e.Event.ChatId) != "" {
-				on.Joined(Group{ChatID: deref(e.Event.ChatId), Name: deref(e.Event.Name)})
+				on.Joined(channels.Group{ChatID: deref(e.Event.ChatId), Name: deref(e.Event.Name)})
 			}
 
 			return nil
@@ -130,7 +176,7 @@ func (s *sdk) Listen(ctx context.Context, on Events) error {
 		OnP2MessageReadV1(func(context.Context, *larkim.P2MessageReadV1) error { return nil })
 
 	client := larkws.NewClient(s.appID, s.secret, larkws.WithEventHandler(handler),
-		larkws.WithDomain(lark.LarkBaseUrl), larkws.WithLogLevel(larkcore.LogLevelError))
+		larkws.WithDomain(larksdk.LarkBaseUrl), larkws.WithLogLevel(larkcore.LogLevelError))
 
 	// Start returns only when the connection could not be opened: once open it blocks for good, and the SDK
 	// has no way to close it. So a failure shows within the wait, and no answer by then is a connection.
@@ -153,8 +199,8 @@ func (s *sdk) Listen(ctx context.Context, on Events) error {
 }
 
 // messageOf reads what the bot needs of a received message.
-func messageOf(e *larkim.P2MessageReceiveV1) Message {
-	var m Message
+func messageOf(e *larkim.P2MessageReceiveV1) channels.Message {
+	var m channels.Message
 
 	if e == nil || e.Event == nil || e.Event.Message == nil || e.Event.Sender == nil {
 		return m
@@ -174,9 +220,9 @@ func messageOf(e *larkim.P2MessageReceiveV1) Message {
 			continue
 		}
 
-		at := Mention{Key: deref(mention.Key), Name: deref(mention.Name)}
+		at := channels.Mention{Key: deref(mention.Key), Name: deref(mention.Name)}
 		if mention.Id != nil {
-			at.OpenID = deref(mention.Id.OpenId)
+			at.PersonID = deref(mention.Id.OpenId)
 		}
 
 		m.Mentions = append(m.Mentions, at)
@@ -198,8 +244,8 @@ func messageOf(e *larkim.P2MessageReceiveV1) Message {
 }
 
 // menuOf reads who pressed an item of the bot's menu, and the item's key.
-func menuOf(e *larkapplication.P2BotMenuV6) MenuPress {
-	var p MenuPress
+func menuOf(e *larkapplication.P2BotMenuV6) channels.MenuPress {
+	var p channels.MenuPress
 
 	if e == nil || e.Event == nil {
 		return p
@@ -225,8 +271,8 @@ func menuOf(e *larkapplication.P2BotMenuV6) MenuPress {
 }
 
 // pressOf reads who pressed a card's button and what the button carries.
-func pressOf(e *callback.CardActionTriggerEvent) Press {
-	p := Press{Value: map[string]string{}}
+func pressOf(e *callback.CardActionTriggerEvent) channels.Press {
+	p := channels.Press{Value: map[string]string{}}
 
 	if e == nil || e.Event == nil {
 		return p
@@ -255,7 +301,30 @@ func deref(s *string) string {
 	return *s
 }
 
-func (s *sdk) SendText(ctx context.Context, chatID, text string) error {
+// textOf is the text of a Lark text message's content, which is JSON.
+func textOf(content string) string {
+	var parsed struct {
+		Text string `json:"text"`
+	}
+
+	if json.Unmarshal([]byte(content), &parsed) != nil {
+		return ""
+	}
+
+	return parsed.Text
+}
+
+// inert writes Lark's mention tags out instead of letting them act: an <at>
+// in a reply, or in a document the reply quotes, would notify whoever it
+// names, a whole group for <at id=all> (MemoryOS, LarkReplyCard.inert).
+func inert(text string) string {
+	return mentionTag.ReplaceAllString(text, "&lt;$1$2")
+}
+
+var mentionTag = regexp.MustCompile(`(?i)<(/?)(at|person)\b`)
+
+// Notice sends a text message.
+func (s *sdk) Notice(ctx context.Context, chatID, text string) error {
 	content, err := json.Marshal(map[string]string{"text": text})
 	if err != nil {
 		return err
@@ -266,13 +335,45 @@ func (s *sdk) SendText(ctx context.Context, chatID, text string) error {
 	return err
 }
 
+// The first bytes of the files Lark files under a type of its own.
+var (
+	pdfMagic  = []byte("%PDF-")
+	zipMagic  = []byte("PK\x03\x04")
+	oleMagic  = []byte{0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1}
+	fileTypes = map[string]struct {
+		kind  string
+		magic []byte
+	}{
+		".pdf": {"pdf", pdfMagic},
+		".doc": {"doc", oleMagic}, ".docx": {"doc", zipMagic},
+		".xls": {"xls", oleMagic}, ".xlsx": {"xls", zipMagic},
+		".ppt": {"ppt", oleMagic}, ".pptx": {"ppt", zipMagic},
+	}
+)
+
+// fileType is the file_type Lark files an upload under: pdf, doc, xls or ppt
+// by the name's extension (OpenClaw media.ts, detectFileType), when the
+// file's bytes are of that kind, and stream for anything else. A name alone
+// does not make a file what it says (OpenClaw: never pass a filename to
+// signature detection).
+func fileType(name string, data []byte) string {
+	t, ok := fileTypes[strings.ToLower(path.Ext(name))]
+	if !ok || !bytes.HasPrefix(data, t.magic) {
+		return "stream"
+	}
+
+	return t.kind
+}
+
 // SendFile uploads a file (POST /open-apis/im/v1/files) and sends it as a file
 // message in the chat, as OpenClaw (extensions/feishu/src/media.ts) and Hermes
 // (plugins/platforms/feishu/adapter.py, _send_uploaded_file_message) upload
-// and then send the file_key. It needs the scope im:resource.
-func (s *sdk) SendFile(ctx context.Context, chatID string, a Attachment) error {
+// and then send the file_key, filed under the type its bytes are. It needs
+// the scope im:resource.
+func (s *sdk) SendFile(ctx context.Context, chatID string, a channels.Attachment) error {
 	resp, err := s.media.Im.V1.File.Create(ctx, larkim.NewCreateFileReqBuilder().Body(
-		larkim.NewCreateFileReqBodyBuilder().FileType(a.Kind).FileName(a.Name).File(bytes.NewReader(a.Data)).Build(),
+		larkim.NewCreateFileReqBodyBuilder().FileType(fileType(a.Name, a.Data)).FileName(a.Name).
+			File(bytes.NewReader(a.Data)).Build(),
 	).Build())
 	if err != nil {
 		return fmt.Errorf("uploading a file to Lark: %w", err)
@@ -327,7 +428,48 @@ func (s *sdk) send(ctx context.Context, chatID, kind, content string) (string, e
 // LarkReplyCard.STREAMING_CLOSED).
 const streamingClosed = 300309
 
-func (s *sdk) OpenCard(ctx context.Context, chatID, replyTo, text string) (cardID, larkChatID string, err error) {
+// reply is a card being written, which Lark updates by element with a rising
+// sequence (CardKit).
+type reply struct {
+	s    *sdk
+	card string
+	seq  int
+}
+
+// OpenReply opens a card that is still being written.
+func (s *sdk) OpenReply(ctx context.Context, chatID, replyTo, text string) (channels.Reply, string, error) {
+	cardID, larkChatID, err := s.openCard(ctx, chatID, replyTo, inert(text))
+	if err != nil {
+		return nil, "", err
+	}
+
+	return &reply{s: s, card: cardID, seq: 1}, larkChatID, nil
+}
+
+// Update replaces the card's text.
+func (r *reply) Update(ctx context.Context, text string) error {
+	err := r.s.updateCard(ctx, r.card, inert(text), r.seq)
+	r.seq++
+
+	return err
+}
+
+// Close sets the card's final text and ends its writing.
+func (r *reply) Close(ctx context.Context, text string) error {
+	return r.s.closeCard(ctx, r.card, inert(text), r.seq)
+}
+
+// Mark puts an emoji on a message (a reaction) and returns what takes it off.
+func (s *sdk) Mark(ctx context.Context, messageID string, mark channels.Mark) (func(context.Context) error, error) {
+	reaction, err := s.react(ctx, messageID, emoji[mark])
+	if err != nil {
+		return nil, err
+	}
+
+	return func(ctx context.Context) error { return s.unreact(ctx, messageID, reaction) }, nil
+}
+
+func (s *sdk) openCard(ctx context.Context, chatID, replyTo, text string) (cardID, larkChatID string, err error) {
 	card, err := json.Marshal(map[string]any{
 		"schema": "2.0",
 		"config": map[string]any{
@@ -392,7 +534,7 @@ func (s *sdk) OpenCard(ctx context.Context, chatID, replyTo, text string) (cardI
 	return cardID, chatID, nil
 }
 
-func (s *sdk) React(ctx context.Context, messageID, emoji string) (string, error) {
+func (s *sdk) react(ctx context.Context, messageID, emoji string) (string, error) {
 	resp, err := s.api.Im.V1.MessageReaction.Create(ctx, larkim.NewCreateMessageReactionReqBuilder().
 		MessageId(messageID).Body(larkim.NewCreateMessageReactionReqBodyBuilder().
 		ReactionType(larkim.NewEmojiBuilder().EmojiType(emoji).Build()).Build()).Build())
@@ -411,7 +553,7 @@ func (s *sdk) React(ctx context.Context, messageID, emoji string) (string, error
 	return deref(resp.Data.ReactionId), nil
 }
 
-func (s *sdk) Unreact(ctx context.Context, messageID, reactionID string) error {
+func (s *sdk) unreact(ctx context.Context, messageID, reactionID string) error {
 	resp, err := s.api.Im.V1.MessageReaction.Delete(ctx, larkim.NewDeleteMessageReactionReqBuilder().
 		MessageId(messageID).ReactionId(reactionID).Build())
 	if err != nil {
@@ -421,7 +563,7 @@ func (s *sdk) Unreact(ctx context.Context, messageID, reactionID string) error {
 	return refused("taking a reaction off a message", resp.Success(), resp.Code, resp.Msg)
 }
 
-func (s *sdk) UpdateCard(ctx context.Context, cardID, text string, seq int) error {
+func (s *sdk) updateCard(ctx context.Context, cardID, text string, seq int) error {
 	code, msg, err := s.content(ctx, cardID, text, s.next(cardID, seq))
 	if err != nil {
 		return err
@@ -455,8 +597,8 @@ func (s *sdk) content(ctx context.Context, cardID, text string, seq int) (code i
 	return resp.Code, resp.Msg, nil
 }
 
-func (s *sdk) CloseCard(ctx context.Context, cardID, text string, seq int) error {
-	if err := s.UpdateCard(ctx, cardID, text, seq); err != nil {
+func (s *sdk) closeCard(ctx context.Context, cardID, text string, seq int) error {
+	if err := s.updateCard(ctx, cardID, text, seq); err != nil {
 		return err
 	}
 
@@ -492,9 +634,9 @@ func (s *sdk) streaming(ctx context.Context, cardID string, on bool, summary str
 }
 
 // cardJSON is a card that is not being written: a title, the text, a button
-// a choice and small print.
-func cardJSON(card Card) (string, error) {
-	elements := []any{map[string]string{"tag": "markdown", "content": card.Text}}
+// a choice and small print. Its text and small print mention nobody.
+func cardJSON(card channels.Card) (string, error) {
+	elements := []any{map[string]string{"tag": "markdown", "content": inert(card.Text)}}
 
 	for _, b := range card.Buttons {
 		elements = append(elements, map[string]any{
@@ -505,15 +647,15 @@ func cardJSON(card Card) (string, error) {
 
 	if card.Note != "" {
 		elements = append(elements, map[string]any{
-			"tag": "markdown", "content": card.Note, "text_size": "notation",
+			"tag": "markdown", "content": inert(card.Note), "text_size": "notation",
 		})
 	}
 
 	raw, err := json.Marshal(map[string]any{
 		"schema": "2.0",
-		"config": map[string]any{"summary": map[string]string{"content": summaryOf(card.Text)}},
+		"config": map[string]any{"summary": map[string]string{"content": summaryOf(inert(card.Text))}},
 		"header": map[string]any{
-			"title": map[string]string{"tag": "plain_text", "content": card.Title}, "template": colorOf(card.Color),
+			"title": map[string]string{"tag": "plain_text", "content": card.Title}, "template": colorOf(card.Tone),
 		},
 		"body": map[string]any{"elements": elements},
 	})
@@ -521,7 +663,29 @@ func cardJSON(card Card) (string, error) {
 	return string(raw), err
 }
 
-func (s *sdk) SendCard(ctx context.Context, openID string, card Card) (cardID, messageID string, err error) {
+// SendQuestion sends a card to a person by their open_id.
+func (s *sdk) SendQuestion(ctx context.Context, openID string, card channels.Card) (channels.QuestionRef, error) {
+	cardID, messageID, err := s.sendCard(ctx, openID, card)
+	if err != nil {
+		return channels.QuestionRef{}, err
+	}
+
+	return channels.QuestionRef{ID: cardID, MessageID: messageID}, nil
+}
+
+// ReplaceQuestion replaces a card SendQuestion sent, with the next sequence.
+func (s *sdk) ReplaceQuestion(ctx context.Context, ref channels.QuestionRef, card channels.Card,
+) (channels.QuestionRef, error) {
+	ref.Seq++
+
+	if err := s.replaceCard(ctx, ref.ID, card, ref.Seq); err != nil {
+		return channels.QuestionRef{}, err
+	}
+
+	return ref, nil
+}
+
+func (s *sdk) sendCard(ctx context.Context, openID string, card channels.Card) (cardID, messageID string, err error) {
 	data, err := cardJSON(card)
 	if err != nil {
 		return "", "", err
@@ -566,7 +730,7 @@ func (s *sdk) SendCard(ctx context.Context, openID string, card Card) (cardID, m
 	return cardID, *sent.Data.MessageId, nil
 }
 
-func (s *sdk) ReplaceCard(ctx context.Context, cardID string, card Card, seq int) error {
+func (s *sdk) replaceCard(ctx context.Context, cardID string, card channels.Card, seq int) error {
 	data, err := cardJSON(card)
 	if err != nil {
 		return err
@@ -582,12 +746,19 @@ func (s *sdk) ReplaceCard(ctx context.Context, cardID string, card Card, seq int
 	return refused("replacing a card", resp.Success(), resp.Code, resp.Msg)
 }
 
-// colorOf is a header's color among the ones Lark has; blue when none was
-// asked for.
-func colorOf(color string) string {
-	switch color {
-	case "orange", "green", "red", "grey":
-		return color
+// colorOf is a header's color among the ones Lark has: orange for a question
+// that waits, green for one that was answered, red for one that was canceled
+// or something gone wrong, grey for one that ended otherwise; blue for none.
+func colorOf(tone channels.Tone) string {
+	switch tone {
+	case channels.ToneAsking:
+		return "orange"
+	case channels.ToneAnswered:
+		return "green"
+	case channels.ToneAlert:
+		return "red"
+	case channels.ToneClosed:
+		return "grey"
 	}
 
 	return "blue"
@@ -609,7 +780,8 @@ func summaryOf(text string) string {
 	return line
 }
 
-func (s *sdk) OpenIDOf(ctx context.Context, email string) (string, error) {
+// PersonByEmail finds the open_id of a member of the app's organization.
+func (s *sdk) PersonByEmail(ctx context.Context, email string) (string, error) {
 	resp, err := s.api.Contact.V3.User.BatchGetId(ctx, larkcontact.NewBatchGetIdUserReqBuilder().UserIdType("open_id").
 		Body(larkcontact.NewBatchGetIdUserReqBodyBuilder().Emails([]string{email}).Build()).Build())
 	if err != nil {
@@ -649,10 +821,10 @@ func (s *sdk) NameOf(ctx context.Context, openID string) (string, error) {
 	return deref(resp.Data.User.Name), nil
 }
 
-// BotOpenID reads the bot's own open_id (GET /open-apis/bot/v3/info), which
-// a mention of the bot carries. The SDK has no typed call for it, so it is
+// Self reads the bot's own open_id (GET /open-apis/bot/v3/info), which a
+// mention of the bot carries. The SDK has no typed call for it, so it is
 // asked as a raw request with the app's token, as MemoryOS's checkBot asks.
-func (s *sdk) BotOpenID(ctx context.Context) (string, error) {
+func (s *sdk) Self(ctx context.Context) (string, error) {
 	resp, err := s.api.Get(ctx, "/open-apis/bot/v3/info", nil, larkcore.AccessTokenTypeTenant)
 	if err != nil {
 		return "", fmt.Errorf("reading the bot at Lark: %w", err)
@@ -692,7 +864,7 @@ const (
 // lists no direct chat. A group no longer in use is left out, as MemoryOS
 // leaves it out. A page that cannot be read, or more pages than are read,
 // gives no list, so no group is removed for a list that is not whole.
-func (s *sdk) Groups(ctx context.Context) ([]Group, error) {
+func (s *sdk) Groups(ctx context.Context) ([]channels.Group, error) {
 	return groupsOf(func(token string) (*larkim.ListChatResp, error) {
 		req := larkim.NewListChatReqBuilder().PageSize(chatPage)
 		if token != "" {
@@ -707,9 +879,9 @@ func (s *sdk) Groups(ctx context.Context) ([]Group, error) {
 // the one before (MemoryOS, LarkChannelAdapter.groups). An answer without its
 // data, or one that says more follow without saying where, is not a whole
 // list either.
-func groupsOf(page func(token string) (*larkim.ListChatResp, error)) ([]Group, error) {
+func groupsOf(page func(token string) (*larkim.ListChatResp, error)) ([]channels.Group, error) {
 	var (
-		out   []Group
+		out   []channels.Group
 		token string
 	)
 
@@ -736,7 +908,7 @@ func groupsOf(page func(token string) (*larkim.ListChatResp, error)) ([]Group, e
 				continue
 			}
 
-			out = append(out, Group{ChatID: deref(chat.ChatId), Name: strings.TrimSpace(deref(chat.Name))})
+			out = append(out, channels.Group{ChatID: deref(chat.ChatId), Name: strings.TrimSpace(deref(chat.Name))})
 		}
 
 		if resp.Data.HasMore == nil || !*resp.Data.HasMore {

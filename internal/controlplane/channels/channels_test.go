@@ -1,4 +1,4 @@
-package larkbot_test
+package channels_test
 
 import (
 	"context"
@@ -15,8 +15,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kl3inIT/hypomnema/internal/controlplane/channels"
+	larkchannel "github.com/kl3inIT/hypomnema/internal/controlplane/channels/lark"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/coordinator"
-	"github.com/kl3inIT/hypomnema/internal/controlplane/larkbot"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/channelstore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
@@ -57,23 +58,24 @@ type card struct {
 	updates int
 }
 
-// lark stands in for Lark as one app: it keeps what the Channel sent and
-// answers the two lookups from what it was told about its members.
+// lark stands in for a service of kind lark as one app, behind the Conn the
+// runtime is given: it keeps what the Channel sent and answers the two
+// lookups from what it was told about its members.
 type lark struct {
 	mu sync.Mutex
 	// owner is the owner's open_id in this app.
 	owner string
 	// on are the Channel's handlers, once it listens.
-	on larkbot.Events
+	on channels.Events
 	// groups are the groups the bot is in, as Lark lists them.
-	groups []larkbot.Group
+	groups []channels.Group
 	// asked are the cards sent to a person, by card id, as they are now.
-	asked map[string]larkbot.Card
-	// marks are the emoji on each message, in the order they were put.
+	asked map[string]channels.Card
+	// marks are the marks on each message, in the order they were put.
 	marks   map[string][]string
 	refuse  error
 	notices []string
-	// files are the files sent, as "chat: name (kind)", and their bytes by name.
+	// files are the files sent, as "chat: name", and their bytes by name.
 	files  []string
 	bytes  map[string][]byte
 	cards  map[string]*card
@@ -93,7 +95,7 @@ func newLark(owner, linh string) *lark {
 	return &lark{
 		owner:  owner,
 		cards:  map[string]*card{},
-		asked:  map[string]larkbot.Card{},
+		asked:  map[string]channels.Card{},
 		marks:  map[string][]string{},
 		bytes:  map[string][]byte{},
 		emails: map[string]string{"owner@example.com": owner, "linh@example.com": linh},
@@ -101,7 +103,7 @@ func newLark(owner, linh string) *lark {
 	}
 }
 
-func (l *lark) Listen(_ context.Context, on larkbot.Events) error {
+func (l *lark) Listen(_ context.Context, on channels.Events) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
@@ -117,41 +119,43 @@ func (l *lark) Listen(_ context.Context, on larkbot.Events) error {
 // botID is the bot's own open_id in every app of these tests.
 const botID = "ou_the_bot"
 
-func (l *lark) BotOpenID(context.Context) (string, error) { return botID, nil }
+func (l *lark) Self(context.Context) (string, error) { return botID, nil }
 
-func (l *lark) Groups(context.Context) ([]larkbot.Group, error) {
+func (l *lark) Groups(context.Context) ([]channels.Group, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	return append([]larkbot.Group(nil), l.groups...), nil
+	return append([]channels.Group(nil), l.groups...), nil
 }
 
-func (l *lark) SendCard(_ context.Context, openID string, c larkbot.Card) (cardID, messageID string, err error) {
+func (l *lark) SendQuestion(_ context.Context, openID string, c channels.Card) (channels.QuestionRef, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
 	if openID != l.owner {
-		return "", "", errors.New("a question goes to the owner only")
+		return channels.QuestionRef{}, errors.New("a question goes to the owner only")
 	}
 
 	id := fmt.Sprintf("ask-%d", len(l.asked)+1)
 	l.asked[id] = c
 
 	// A message's id is one at all of Lark, a card's id is its app's.
-	return id, "om_" + strings.TrimPrefix(l.owner+"_", ownerID+"_") + id, nil
+	return channels.QuestionRef{ID: id, MessageID: "om_" + strings.TrimPrefix(l.owner+"_", ownerID+"_") + id}, nil
 }
 
-func (l *lark) ReplaceCard(_ context.Context, cardID string, c larkbot.Card, _ int) error {
+func (l *lark) ReplaceQuestion(_ context.Context, ref channels.QuestionRef, c channels.Card,
+) (channels.QuestionRef, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	l.asked[cardID] = c
+	l.asked[ref.ID] = c
+	ref.Seq++
 
-	return nil
+	return ref, nil
 }
 
 // askedCard is a card sent to the owner, as it is now.
-func (l *lark) askedCard(id string) (larkbot.Card, bool) {
+func (l *lark) askedCard(id string) (channels.Card, bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
@@ -161,15 +165,15 @@ func (l *lark) askedCard(id string) (larkbot.Card, bool) {
 }
 
 // pressed is a person pressing a button; it returns what they are told.
-func (l *lark) pressed(operator string, b larkbot.Button) string {
+func (l *lark) pressed(operator string, b channels.Button) string {
 	l.mu.Lock()
 	press := l.on.Press
 	l.mu.Unlock()
 
-	return press(larkbot.Press{Operator: operator, Value: b.Value})
+	return press(channels.Press{Operator: operator, Value: b.Value})
 }
 
-func (l *lark) SendText(_ context.Context, chatID, text string) error {
+func (l *lark) Notice(_ context.Context, chatID, text string) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
@@ -191,11 +195,11 @@ func chatOf(chatID string) string {
 	return chatID
 }
 
-func (l *lark) SendFile(_ context.Context, chatID string, a larkbot.Attachment) error {
+func (l *lark) SendFile(_ context.Context, chatID string, a channels.Attachment) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	l.files = append(l.files, chatID+": "+a.Name+" ("+a.Kind+")")
+	l.files = append(l.files, chatID+": "+a.Name)
 	l.bytes[a.Name] = a.Data
 
 	return nil
@@ -210,7 +214,7 @@ func (l *lark) sentFiles() []string {
 }
 
 // pressedMenu is a person pressing an item of the bot's menu.
-func (l *lark) pressedMenu(p larkbot.MenuPress) {
+func (l *lark) pressedMenu(p channels.MenuPress) {
 	l.mu.Lock()
 	menu := l.on.Menu
 	l.mu.Unlock()
@@ -218,7 +222,7 @@ func (l *lark) pressedMenu(p larkbot.MenuPress) {
 	menu(p)
 }
 
-func (l *lark) React(_ context.Context, messageID, emoji string) (string, error) {
+func (l *lark) Mark(_ context.Context, messageID string, mark channels.Mark) (func(context.Context) error, error) {
 	l.mu.Lock()
 	hold := l.hold
 	l.mu.Unlock()
@@ -230,27 +234,27 @@ func (l *lark) React(_ context.Context, messageID, emoji string) (string, error)
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	l.marks[messageID] = append(l.marks[messageID], emoji)
+	l.marks[messageID] = append(l.marks[messageID], string(mark))
 
-	return emoji, nil
+	return func(context.Context) error { return l.unmark(messageID, string(mark)) }, nil
 }
 
-func (l *lark) Unreact(_ context.Context, messageID, reactionID string) error {
+func (l *lark) unmark(messageID, mark string) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
-	for i, emoji := range l.marks[messageID] {
-		if emoji == reactionID {
+	for i, m := range l.marks[messageID] {
+		if m == mark {
 			l.marks[messageID] = append(l.marks[messageID][:i:i], l.marks[messageID][i+1:]...)
 
 			return nil
 		}
 	}
 
-	return errors.New("no such reaction")
+	return errors.New("no such mark")
 }
 
-// marked is the emoji on a message now.
+// marked is the marks on a message now.
 func (l *lark) marked(messageID string) []string {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -270,7 +274,13 @@ func (l *lark) cardAt(n int) card {
 	return *l.cards[l.order[n]]
 }
 
-func (l *lark) OpenCard(_ context.Context, chatID, replyTo, text string) (string, string, error) {
+// reply is a card being written.
+type reply struct {
+	l  *lark
+	id string
+}
+
+func (l *lark) OpenReply(_ context.Context, chatID, replyTo, text string) (channels.Reply, string, error) {
 	l.mu.Lock()
 	hold := l.holdCards
 	l.mu.Unlock()
@@ -286,29 +296,29 @@ func (l *lark) OpenCard(_ context.Context, chatID, replyTo, text string) (string
 	l.cards[id] = &card{chat: chatID, text: text, replyTo: replyTo}
 	l.order = append(l.order, id)
 
-	return id, chatOf(chatID), nil
+	return &reply{l: l, id: id}, chatOf(chatID), nil
 }
 
-func (l *lark) UpdateCard(_ context.Context, cardID, text string, _ int) error {
-	l.mu.Lock()
-	defer l.mu.Unlock()
+func (r *reply) Update(_ context.Context, text string) error {
+	r.l.mu.Lock()
+	defer r.l.mu.Unlock()
 
-	l.cards[cardID].text = text
-	l.cards[cardID].updates++
+	r.l.cards[r.id].text = text
+	r.l.cards[r.id].updates++
 
 	return nil
 }
 
-func (l *lark) CloseCard(_ context.Context, cardID, text string, _ int) error {
-	l.mu.Lock()
-	defer l.mu.Unlock()
+func (r *reply) Close(_ context.Context, text string) error {
+	r.l.mu.Lock()
+	defer r.l.mu.Unlock()
 
-	l.cards[cardID].text, l.cards[cardID].closed = text, true
+	r.l.cards[r.id].text, r.l.cards[r.id].closed = text, true
 
 	return nil
 }
 
-func (l *lark) OpenIDOf(_ context.Context, email string) (string, error) {
+func (l *lark) PersonByEmail(_ context.Context, email string) (string, error) {
 	if id, ok := l.emails[email]; ok {
 		return id, nil
 	}
@@ -348,7 +358,7 @@ func (l *lark) noticed() []string {
 }
 
 // say is a person writing to the app.
-func (l *lark) say(m larkbot.Message) {
+func (l *lark) say(m channels.Message) {
 	l.mu.Lock()
 	take := l.on.Message
 	l.mu.Unlock()
@@ -562,10 +572,10 @@ type world struct {
 	lark     *lark
 	larkMaps *lark
 	pi       *pi
-	channels *larkbot.Channels
+	channels *channels.Channels
 	// running says the Channels of this start are being run.
 	running bool
-	svc     *larkbot.Service
+	svc     *larkchannel.Service
 }
 
 func newWorld(t *testing.T) *world {
@@ -599,12 +609,28 @@ func newWorld(t *testing.T) *world {
 	return w
 }
 
+// kind is the Channel of kind lark these tests register: it opens the
+// stand-in of each app.
+type kind struct {
+	open func(app, secret string) channels.Conn
+}
+
+func (kind) Kind() channels.Kind { return channelstore.KindLark }
+
+func (kind) Capabilities() channels.Capabilities {
+	return channels.Capabilities{MaxText: 8000, Platform: "Lark"}
+}
+
+func (k kind) Open(_ context.Context, c channelstore.Channel, secret string) (channels.Conn, error) {
+	return k.open(c.AppID, secret), nil
+}
+
 // start is the control plane starting: the Channels and their settings over
 // the same store and the same Lark.
 func (w *world) start() {
 	logger := slog.New(slog.DiscardHandler)
 
-	connect := func(app, appSecret string) larkbot.Lark {
+	connect := func(app, appSecret string) channels.Conn {
 		l := w.lark
 		if app == mapsApp {
 			l = w.larkMaps
@@ -617,14 +643,13 @@ func (w *world) start() {
 		return l
 	}
 
-	var svc *larkbot.Service
+	registry, err := channels.NewRegistry(kind{open: connect})
+	require.NoError(w.t, err)
 
-	w.channels = larkbot.New(w.asks, w.pi,
-		func(ctx context.Context, c channelstore.Channel) (larkbot.Lark, error) { return svc.Open(ctx, c) },
-		logger).WithWebURL(w.web).WithClock(w.clock).WithFiles(w.bots)
+	w.channels = channels.New(w.asks, w.pi, registry, w.vault, logger).WithWebURL(w.web).WithClock(w.clock).
+		WithFiles(w.bots)
 	w.running = false
-	svc = larkbot.NewService(w.asks, w.vault, w.channels, connect)
-	w.svc = svc
+	w.svc = larkchannel.NewService(channels.NewService(w.asks, w.vault, w.channels))
 }
 
 // setUp is the owner setting the Channel main up and switching it on, and
@@ -633,7 +658,7 @@ func (w *world) setUp(mode channelstore.ChannelMode) {
 	w.t.Helper()
 
 	on := true
-	_, err := w.svc.Set(w.t.Context(), main, larkbot.Settings{
+	_, err := w.svc.Set(w.t.Context(), main, larkchannel.Settings{
 		AppID: appID, AppSecret: secret, Owner: "owner@example.com", Mode: mode, Enabled: &on,
 	})
 	require.NoError(w.t, err)
@@ -649,7 +674,7 @@ func (w *world) setUpMaps(mode channelstore.ChannelMode) {
 	require.NoError(w.t, err)
 
 	on := true
-	st, err := w.svc.Set(w.t.Context(), maps, larkbot.Settings{
+	st, err := w.svc.Set(w.t.Context(), maps, larkchannel.Settings{
 		AppID: mapsApp, AppSecret: "the-secret-of-maps", Owner: "owner@example.com", Bot: "vmap", Mode: mode,
 		Enabled: &on,
 	})
@@ -690,8 +715,8 @@ func (w *world) larkChats() []channelstore.ChannelChat {
 	return out
 }
 
-func direct(id, chat, sender, text string) larkbot.Message {
-	return larkbot.Message{
+func direct(id, chat, sender, text string) channels.Message {
+	return channels.Message{
 		ID: id, ChatID: chat, Direct: true, Text: text, IsText: true, Sender: sender, FromPerson: true,
 		SenderOrg: org, Org: org,
 	}
@@ -838,7 +863,7 @@ func TestWhoMayTalkThroughAChannelIsTheOwnersChoice(t *testing.T) {
 
 	assert.Empty(t, w.larkChats(), "a refused message starts no chat")
 
-	_, err := w.svc.Set(t.Context(), main, larkbot.Settings{Mode: channelstore.ChannelAllowlist})
+	_, err := w.svc.Set(t.Context(), main, larkchannel.Settings{Mode: channelstore.ChannelAllowlist})
 	require.NoError(t, err)
 
 	w.lark.say(direct("om_2", linhDM, linhID, "deploy it"))
@@ -866,7 +891,7 @@ func TestWhoMayTalkThroughAChannelIsTheOwnersChoice(t *testing.T) {
 	w.lark.say(direct("om_5", linhDM, linhID, "again"))
 	require.Eventually(t, func() bool { return len(w.lark.noticed()) == 3 }, eventual, tick)
 
-	_, err = w.svc.Set(t.Context(), main, larkbot.Settings{Mode: channelstore.ChannelEveryone})
+	_, err = w.svc.Set(t.Context(), main, larkchannel.Settings{Mode: channelstore.ChannelEveryone})
 	require.NoError(t, err)
 
 	w.lark.say(direct("om_6", linhDM, linhID, "again"))
@@ -914,7 +939,7 @@ func TestWhatAChannelDoesNotServe(t *testing.T) {
 	assert.Equal(t, []string{"owner: are you there"}, w.texts(w.chatOf(ownerDM)), "the message is kept")
 
 	off := false
-	_, err := w.svc.Set(t.Context(), main, larkbot.Settings{Enabled: &off})
+	_, err := w.svc.Set(t.Context(), main, larkchannel.Settings{Enabled: &off})
 	require.NoError(t, err)
 
 	w.lark.say(direct("om_5", ownerDM, ownerID, "still there"))
@@ -937,20 +962,20 @@ func TestTheOwnerSetsAChannelUp(t *testing.T) {
 	_, err := w.svc.Status(ctx, main)
 	require.ErrorIs(t, err, orchestration.ErrNotFound)
 
-	_, err = w.svc.Set(ctx, "Not A Name", larkbot.Settings{AppID: appID, AppSecret: secret, Owner: "owner@example.com"})
+	_, err = w.svc.Set(ctx, "Not A Name", larkchannel.Settings{AppID: appID, AppSecret: secret, Owner: "owner@example.com"})
 	require.ErrorIs(t, err, orchestration.ErrInvalid, "a Channel is named as a Bot is")
 
-	_, err = w.svc.Set(ctx, main, larkbot.Settings{AppID: appID, AppSecret: secret})
+	_, err = w.svc.Set(ctx, main, larkchannel.Settings{AppID: appID, AppSecret: secret})
 	require.ErrorIs(t, err, orchestration.ErrInvalid, "a new Channel needs its owner")
 
-	_, err = w.svc.Set(ctx, main, larkbot.Settings{AppID: appID, Owner: "owner@example.com"})
+	_, err = w.svc.Set(ctx, main, larkchannel.Settings{AppID: appID, Owner: "owner@example.com"})
 	require.ErrorIs(t, err, orchestration.ErrInvalid, "an app's id comes with its secret")
 
-	_, err = w.svc.Set(ctx, main, larkbot.Settings{AppID: appID, AppSecret: secret, Owner: "nobody@example.com"})
+	_, err = w.svc.Set(ctx, main, larkchannel.Settings{AppID: appID, AppSecret: secret, Owner: "nobody@example.com"})
 	require.ErrorIs(t, err, orchestration.ErrInvalid)
 	require.ErrorContains(t, err, "nobody@example.com")
 
-	status, err := w.svc.Set(ctx, main, larkbot.Settings{AppID: appID, AppSecret: secret, Owner: "owner@example.com"})
+	status, err := w.svc.Set(ctx, main, larkchannel.Settings{AppID: appID, AppSecret: secret, Owner: "owner@example.com"})
 	require.NoError(t, err)
 	assert.Equal(t, appID, status.Channel.AppID)
 	assert.Equal(t, ownerID, status.Channel.OwnerID)
@@ -959,7 +984,7 @@ func TestTheOwnerSetsAChannelUp(t *testing.T) {
 	assert.False(t, status.Channel.Enabled, "a new Channel is off")
 	assert.False(t, status.State.Connected)
 
-	_, err = w.svc.Set(ctx, main, larkbot.Settings{Bot: "nobody"})
+	_, err = w.svc.Set(ctx, main, larkchannel.Settings{Bot: "nobody"})
 	require.ErrorIs(t, err, orchestration.ErrInvalid, "the Bot must exist")
 
 	raw, err := os.ReadFile(w.path)
@@ -969,7 +994,7 @@ func TestTheOwnerSetsAChannelUp(t *testing.T) {
 	w.lark.refuse = errors.New("Lark refused the app")
 
 	on := true
-	_, err = w.svc.Set(ctx, main, larkbot.Settings{Enabled: &on})
+	_, err = w.svc.Set(ctx, main, larkchannel.Settings{Enabled: &on})
 	require.NoError(t, err)
 
 	go func() { _ = w.channels.Run(ctx) }()
@@ -1007,7 +1032,7 @@ func TestTheOwnerAnswersAWorkersQuestionOnItsCard(t *testing.T) {
 		ID: "q_1", Text: "Which database?", Options: []orchestration.Option{{Label: "Postgres"}, {Label: "SQLite"}},
 	})
 
-	var card larkbot.Card
+	var card channels.Card
 
 	require.Eventually(t, func() bool {
 		var ok bool
@@ -1106,7 +1131,7 @@ func TestTheOwnerSeesTheCoordinatorWork(t *testing.T) {
 	w.lark.say(direct("om_1", ownerDM, ownerID, "fix the login page"))
 	chat := w.chatOf(ownerDM)
 	require.Eventually(t, func() bool { return len(w.lark.marked("om_1")) == 1 }, eventual, tick)
-	assert.Equal(t, []string{"Typing"}, w.lark.marked("om_1"))
+	assert.Equal(t, []string{string(channels.MarkWorking)}, w.lark.marked("om_1"))
 
 	w.pi.works(chat, true)
 	w.pi.frame(chat, coordinator.FrameState, map[string]any{"working": true})
@@ -1150,7 +1175,7 @@ func TestTheOwnerSeesTheCoordinatorWork(t *testing.T) {
 	assert.Contains(t, w.lark.cardAt(1).text, "Looking\n\ncoordinator could not answer this.")
 	assert.Len(t, w.lark.sent(), 2, "the approval's row closed no card and sent none")
 	require.Eventually(t, func() bool {
-		return assert.ObjectsAreEqual([]string{"CrossMark"}, w.lark.marked("om_3"))
+		return assert.ObjectsAreEqual([]string{string(channels.MarkFailed)}, w.lark.marked("om_3"))
 	}, eventual, tick)
 }
 
@@ -1195,10 +1220,10 @@ func TestTheCardShowsOfAToolWhatItsBotShows(t *testing.T) {
 	}
 }
 
-// Scenario: the coordinator's reply is longer than a card holds and quotes a
-// document that mentions everyone. It goes on in a second card instead of
-// being lost, and the mention is written out so that nobody is notified.
-func TestALongReplyGoesOnInAnotherCardAndMentionsNobody(t *testing.T) {
+// Scenario: the coordinator's reply is longer than a message of the service
+// holds. It goes on in a second card instead of being lost. That a mention
+// in it notifies nobody is Lark's (channels/lark).
+func TestALongReplyGoesOnInAnotherCard(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
@@ -1207,17 +1232,16 @@ func TestALongReplyGoesOnInAnotherCardAndMentionsNobody(t *testing.T) {
 	w.lark.say(direct("om_1", ownerDM, ownerID, "summarize the handbook"))
 	chat := w.chatOf(ownerDM)
 
-	long := "<at id=all></at> read this.\n" + strings.Repeat("A line of the handbook.\n", 500)
+	long := "Read this.\n" + strings.Repeat("A line of the handbook.\n", 500)
 	_, err := w.orch.AddChatMessage(t.Context(), chat, orchestration.ChatCoordinator, long)
 	require.NoError(t, err)
 
 	require.Eventually(t, func() bool { return len(w.lark.sent()) == 2 && w.lark.cardAt(1).closed }, eventual, tick)
 	first, second := w.lark.cardAt(0).text, w.lark.cardAt(1).text
-	assert.True(t, strings.HasPrefix(first, "&lt;at id=all>&lt;/at> read this."), first[:40])
+	assert.True(t, strings.HasPrefix(first, "Read this."), first[:40])
 	assert.LessOrEqual(t, len([]rune(first)), 8000)
 	assert.True(t, strings.HasSuffix(strings.TrimSpace(second), "A line of the handbook."))
-	whole := strings.ReplaceAll(strings.ReplaceAll(long, "<at", "&lt;at"), "</at", "&lt;/at")
-	assert.Equal(t, strings.TrimSpace(whole), strings.TrimSpace(first+"\n"+second),
+	assert.Equal(t, strings.TrimSpace(long), strings.TrimSpace(first+"\n"+second),
 		"nothing of the reply is lost between the cards")
 }
 
@@ -1364,7 +1388,7 @@ func TestTwoChannelsAreDoorsToTwoBots(t *testing.T) {
 	}, eventual, tick)
 	assert.Equal(t, "vmap", w.botOf(third), "a new conversation is with the Channel's Bot")
 
-	_, err = w.svc.Set(ctx, "third", larkbot.Settings{
+	_, err = w.svc.Set(ctx, "third", larkchannel.Settings{
 		AppID: mapsApp, AppSecret: "the-secret-of-maps", Owner: "owner@example.com",
 	})
 	require.ErrorIs(t, err, orchestration.ErrConflict, "one app is one Channel")
@@ -1414,10 +1438,10 @@ func TestOnlyAChannelWithTheLinkEndsAReplyWithIt(t *testing.T) {
 	}, eventual, tick, "the first Channel has the link, the next does not")
 
 	on, off := true, false
-	st, err := w.svc.Set(ctx, maps, larkbot.Settings{WebLink: &on})
+	st, err := w.svc.Set(ctx, maps, larkchannel.Settings{WebLink: &on})
 	require.NoError(t, err)
 	assert.True(t, st.Channel.WebLink)
-	_, err = w.svc.Set(ctx, main, larkbot.Settings{WebLink: &off})
+	_, err = w.svc.Set(ctx, main, larkchannel.Settings{WebLink: &off})
 	require.NoError(t, err)
 
 	w.answer(first, "Done.")
@@ -1464,7 +1488,7 @@ func TestAQuestionReachesTheOwnerThroughTheChannelItsRunCameFrom(t *testing.T) {
 		Options: []orchestration.Option{{Label: "North"}, {Label: "South"}},
 	})
 
-	var card larkbot.Card
+	var card channels.Card
 
 	require.Eventually(t, func() bool {
 		var ok bool
@@ -1497,7 +1521,7 @@ func TestAQuestionReachesTheOwnerThroughTheChannelItsRunCameFrom(t *testing.T) {
 	}, eventual, tick)
 
 	off := false
-	_, err = w.svc.Set(ctx, main, larkbot.Settings{Enabled: &off})
+	_, err = w.svc.Set(ctx, main, larkchannel.Settings{Enabled: &off})
 	require.NoError(t, err)
 
 	w.asks.ask(orchestration.Question{ID: "q_web_2", RunID: fromWeb.ID, Text: "Publish them?"})
@@ -1512,10 +1536,10 @@ func TestAQuestionReachesTheOwnerThroughTheChannelItsRunCameFrom(t *testing.T) {
 const team = "oc_maps_team"
 
 // mentionOfBot is how Lark writes a mention of the bot in a message's text.
-var mentionOfBot = larkbot.Mention{Key: "@_user_1", OpenID: botID, Name: "Hypomnema"}
+var mentionOfBot = channels.Mention{Key: "@_user_1", PersonID: botID, Name: "Hypomnema"}
 
 // inGroup is a person writing in the group team, from the app's organization.
-func inGroup(id, sender, text string, mentions ...larkbot.Mention) larkbot.Message {
+func inGroup(id, sender, text string, mentions ...channels.Mention) channels.Message {
 	m := direct(id, team, sender, text)
 	m.Direct, m.Mentions = false, mentions
 
@@ -1567,7 +1591,7 @@ func TestTheBotAnswersInAGroupTheOwnerSwitchedOn(t *testing.T) {
 	w := newWorld(t)
 	w.web = "https://hyp.example/"
 	w.start()
-	w.lark.groups = []larkbot.Group{{ChatID: team, Name: "Maps team"}}
+	w.lark.groups = []channels.Group{{ChatID: team, Name: "Maps team"}}
 	w.lark.names[ownerID] = "Đạt [admin]" + string(rune(7)) + string(rune(10))
 	w.setUp(channelstore.ChannelOwner)
 
@@ -1582,11 +1606,11 @@ func TestTheBotAnswersInAGroupTheOwnerSwitchedOn(t *testing.T) {
 	assert.True(t, g.Enabled)
 
 	w.lark.say(inGroup("om_2", ownerID, "lunch at noon"))
-	w.lark.say(inGroup("om_3", ownerID, "@_all hello everyone", larkbot.Mention{Key: "@_all", Name: "all"}))
+	w.lark.say(inGroup("om_3", ownerID, "@_all hello everyone", channels.Mention{Key: "@_all", Name: "all"}))
 	w.quiet(0, 0)
 
 	w.lark.say(inGroup("om_4", ownerID, "@_user_1 what did @_user_10 ship?", mentionOfBot,
-		larkbot.Mention{Key: "@_user_10", OpenID: linhID, Name: "Linh"}))
+		channels.Mention{Key: "@_user_10", PersonID: linhID, Name: "Linh"}))
 	chat := w.chatOf(team)
 	require.Eventually(t, func() bool { return len(w.texts(chat)) == 1 }, eventual, tick)
 	assert.Equal(t, []string{"owner: [Đạt admin]: what did @Linh ship?"}, w.texts(chat),
@@ -1616,7 +1640,7 @@ func TestWhoMayAskInAGroupIsTheChannelsChoice(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
-	w.lark.groups = []larkbot.Group{{ChatID: team, Name: "Maps team"}}
+	w.lark.groups = []channels.Group{{ChatID: team, Name: "Maps team"}}
 	w.setUp(channelstore.ChannelOwner)
 	require.Eventually(t, func() bool { return len(w.groups()) == 1 }, eventual, tick)
 
@@ -1626,7 +1650,7 @@ func TestWhoMayAskInAGroupIsTheChannelsChoice(t *testing.T) {
 	w.lark.say(inGroup("om_1", linhID, "@_user_1 deploy it", mentionOfBot))
 	w.quiet(0, 0)
 
-	_, err = w.svc.Set(t.Context(), main, larkbot.Settings{Mode: channelstore.ChannelAllowlist})
+	_, err = w.svc.Set(t.Context(), main, larkchannel.Settings{Mode: channelstore.ChannelAllowlist})
 	require.NoError(t, err)
 	w.lark.say(inGroup("om_2", linhID, "@_user_1 deploy it", mentionOfBot))
 	w.quiet(0, 0)
@@ -1639,7 +1663,7 @@ func TestWhoMayAskInAGroupIsTheChannelsChoice(t *testing.T) {
 	require.Eventually(t, func() bool { return len(w.texts(first)) == 1 }, eventual, tick)
 	assert.Equal(t, []string{"owner: [Linh]: deploy it"}, w.texts(first))
 
-	_, err = w.svc.Set(t.Context(), main, larkbot.Settings{Mode: channelstore.ChannelEveryone})
+	_, err = w.svc.Set(t.Context(), main, larkchannel.Settings{Mode: channelstore.ChannelEveryone})
 	require.NoError(t, err)
 
 	guest := inGroup("om_4", "ou_guest", "@_user_1 and the docs?", mentionOfBot)
@@ -1696,7 +1720,7 @@ func TestAChannelsGroupsFollowLark(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
-	w.lark.groups = []larkbot.Group{{ChatID: team, Name: "Maps team"}, {ChatID: "oc_ops", Name: "Ops"}}
+	w.lark.groups = []channels.Group{{ChatID: team, Name: "Maps team"}, {ChatID: "oc_ops", Name: "Ops"}}
 	w.setUp(channelstore.ChannelOwner)
 	require.Eventually(t, func() bool { return len(w.groups()) == 2 }, eventual, tick)
 
@@ -1704,23 +1728,23 @@ func TestAChannelsGroupsFollowLark(t *testing.T) {
 	on := w.lark.on
 	w.lark.mu.Unlock()
 
-	on.Joined(larkbot.Group{ChatID: "oc_new", Name: "New"})
+	on.Joined(channels.Group{ChatID: "oc_new", Name: "New"})
 	require.Eventually(t, func() bool { return len(w.groups()) == 3 }, eventual, tick)
 
 	on.Left("oc_ops")
 	require.Eventually(t, func() bool { return len(w.groups()) == 2 }, eventual, tick)
 	assert.ElementsMatch(t, []string{team + " (Maps team): off", "oc_new (New): off"}, w.groups())
 
-	w.lark.say(larkbot.Message{
+	w.lark.say(channels.Message{
 		ID: "om_1", ChatID: "oc_unlisted", Text: "@_user_1 hi", IsText: true, Sender: ownerID, FromPerson: true,
-		SenderOrg: org, Org: org, Mentions: []larkbot.Mention{mentionOfBot},
+		SenderOrg: org, Org: org, Mentions: []channels.Mention{mentionOfBot},
 	})
 	require.Eventually(t, func() bool { return len(w.groups()) == 3 }, eventual, tick)
 	assert.Contains(t, w.groups(), "oc_unlisted (): off")
 	assert.Empty(t, w.larkChats(), "a group that is off is not answered")
 
 	w.lark.mu.Lock()
-	w.lark.groups = []larkbot.Group{{ChatID: team, Name: "Maps team, renamed"}}
+	w.lark.groups = []channels.Group{{ChatID: team, Name: "Maps team, renamed"}}
 	w.lark.mu.Unlock()
 
 	w.clock.pass(time.Minute)
@@ -1742,7 +1766,7 @@ func TestAChannelsGroupsFollowLark(t *testing.T) {
 
 	on.Left(team)
 	require.Eventually(t, func() bool { return len(w.groups()) == 0 }, eventual, tick)
-	on.Joined(larkbot.Group{ChatID: team, Name: "Maps team"})
+	on.Joined(channels.Group{ChatID: team, Name: "Maps team"})
 	require.Eventually(t, func() bool { return len(w.groups()) == 1 }, eventual, tick)
 	assert.Equal(t, []string{team + " (Maps team): off"}, w.groups())
 
@@ -1775,9 +1799,8 @@ func TestTheOwnerIsToldThroughTheChannelsOfABot(t *testing.T) {
 	card, ok := w.larkMaps.askedCard("ask-1")
 	require.True(t, ok)
 	assert.Equal(t, "A routine keeps failing", card.Title)
-	assert.Equal(t, "red", card.Color)
+	assert.Equal(t, channels.ToneAlert, card.Tone)
 	assert.Contains(t, card.Text, `Routine "depots" failed 2 times in a row.`)
-	assert.NotContains(t, card.Text, "<at", "what a routine printed mentions nobody")
 	assert.Empty(t, card.Buttons)
 	assert.Zero(t, w.lark.askedCount(), "the Channel of another Bot says nothing")
 
@@ -1786,7 +1809,7 @@ func TestTheOwnerIsToldThroughTheChannelsOfABot(t *testing.T) {
 	assert.Equal(t, 1, w.larkMaps.askedCount(), "he reads that chat at Lark already")
 
 	off := false
-	_, err := w.svc.Set(ctx, maps, larkbot.Settings{Enabled: &off})
+	_, err := w.svc.Set(ctx, maps, larkchannel.Settings{Enabled: &off})
 	require.NoError(t, err)
 
 	w.channels.TellOwner(ctx, "vmap", "", "A routine keeps failing", "once more")
@@ -1819,7 +1842,7 @@ func TestTheBotSendsAFileIntoTheChat(t *testing.T) {
 
 	require.Eventually(t, func() bool { return len(w.lark.noticed()) == 4 }, eventual, tick)
 	assert.Equal(t, []string{ownerDM + ": Here is the workbook.\n```\nMEDIA:shown.txt\n```"}, w.lark.sent())
-	assert.Equal(t, []string{ownerDM + ": Báo cáo.xlsx (xls)", ownerDM + ": notes.pdf (stream)"}, w.lark.sentFiles())
+	assert.Equal(t, []string{ownerDM + ": Báo cáo.xlsx", ownerDM + ": notes.pdf"}, w.lark.sentFiles())
 	assert.Equal(t, workbook, w.lark.bytes["Báo cáo.xlsx"])
 	assert.Equal(t, []string{
 		ownerDM + ": empty.txt was not sent: it is empty.",
@@ -1841,7 +1864,7 @@ func TestAPressOfTheBotsMenuIsAMessageFromWhoPressed(t *testing.T) {
 	w := newWorld(t)
 	w.setUp(channelstore.ChannelOwner)
 
-	press := larkbot.MenuPress{Operator: ownerID, Key: "export", At: "1700000000", Org: org}
+	press := channels.MenuPress{Operator: ownerID, Key: "export", At: "1700000000", Org: org}
 	w.lark.pressedMenu(press)
 	chat := w.chatOf(ownerID)
 	require.Eventually(t, func() bool { return len(w.texts(chat)) == 1 }, eventual, tick)
@@ -1884,15 +1907,15 @@ func TestTheChannelsModeAppliesToWhoPressesTheMenu(t *testing.T) {
 	w := newWorld(t)
 	w.setUp(channelstore.ChannelOwner)
 
-	w.lark.pressedMenu(larkbot.MenuPress{Operator: "ou_someone", Key: "export", At: "1", Org: org})
+	w.lark.pressedMenu(channels.MenuPress{Operator: "ou_someone", Key: "export", At: "1", Org: org})
 	require.Eventually(t, func() bool { return len(w.lark.noticed()) == 1 }, eventual, tick)
 	assert.Equal(t, "ou_someone: This bot takes messages from its owner only.", w.lark.noticed()[0])
 	assert.Empty(t, w.larkChats(), "a refused press starts no chat")
 
-	_, err := w.svc.Set(t.Context(), main, larkbot.Settings{Mode: channelstore.ChannelEveryone})
+	_, err := w.svc.Set(t.Context(), main, larkchannel.Settings{Mode: channelstore.ChannelEveryone})
 	require.NoError(t, err)
 
-	w.lark.pressedMenu(larkbot.MenuPress{Operator: "ou_someone", Key: "export", At: "2", Org: org})
+	w.lark.pressedMenu(channels.MenuPress{Operator: "ou_someone", Key: "export", At: "2", Org: org})
 	theirs := w.chatOf("ou_someone")
 	require.Eventually(t, func() bool { return len(w.texts(theirs)) == 1 }, eventual, tick)
 	assert.Contains(t, w.texts(theirs)[0], "/menu export")
@@ -1906,7 +1929,7 @@ func TestAnAnswerBeforeTheMarkStillQuotesTheQuestion(t *testing.T) {
 
 	w := newWorld(t)
 	w.start()
-	w.lark.groups = []larkbot.Group{{ChatID: team, Name: "Maps team"}}
+	w.lark.groups = []channels.Group{{ChatID: team, Name: "Maps team"}}
 	w.setUp(channelstore.ChannelOwner)
 
 	require.Eventually(t, func() bool { return len(w.groups()) == 1 }, eventual, tick)
