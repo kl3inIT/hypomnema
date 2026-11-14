@@ -9,8 +9,10 @@
 //
 // A Channel is a door to one Bot: an account at a messaging service, of one
 // kind (Lark today), and who may talk through it. Every kind keeps its rows in
-// the same tables (channels, channel_people, channel_chats, ...). This package keeps what each Channel is and who may talk through it; what
-// talks to Lark is internal/controlplane/larkbot. An app's secret is in the
+// the same tables (channels, channel_people, channel_chats, ...). This
+// package keeps what each Channel is and who may talk through it; what
+// runs them is internal/controlplane/channels, and what talks to Lark
+// channels/lark. An app's secret is in the
 // vault; only its name is here.
 package channelstore
 

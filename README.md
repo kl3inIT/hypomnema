@@ -92,7 +92,9 @@ By hand:
 5. Give the control plane each Claude account once, on the control plane:
    `hypomnema accounts add claude <label> --token <file>` (the token of `claude setup-token`), or
    `hypomnema accounts login claude`. The vault keeps it and the model gateway serves it; it never goes to a node.
-   A Claude Code profile names a provider of kind `model_gateway`, and its worker gets only its Dispatch's key.
+   A Claude Code profile names a provider of kind `model_gateway`, and its worker gets only its Dispatch's key. A
+   fresh install's starting profiles already do: the provider `model-gateway` and its Claude models come with it,
+   so nothing else is applied by hand.
 6. Run the daemon: `hypomnema-node run`. To keep it running, `hypomnema-node service` prints a systemd user unit.
 
 To change a node's token, make a new one with `hypomnema nodes token add <node> <name>`, put it in the node's

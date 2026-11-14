@@ -1,4 +1,4 @@
-package larkbot_test
+package channels_test
 
 import (
 	"testing"
