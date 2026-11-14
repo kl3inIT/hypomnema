@@ -8,7 +8,7 @@ statement true or false.
 
 | Binary | Commands | What it does today |
 |---|---|---|
-| `cmd/hypomnema` (control plane) | On the server: `migrate`, `serve`, `version`, `nodes`, `machines`, `accounts`, `tokens`, `users`, `secrets`, `gateway`; without the database: `files serve`, `update`, `tool`; over the client API: `login`, `whoami`, `run`, `runs`, `tasks`, `questions`, `answer`, `chat`, `chats`, `bots`, `setup`, `routines`, `memory`, `integrations`, `hosts`, `approvals`, `channels`, `profiles`, `providers`, `repos`, `models`, `skills`, `web`, `browser`, `superset`, `pi-models`, `model-key` (`hypomnema help` lists each one's subcommands) | `migrate` brings the database schema up to the binary's version; `serve` refuses any other schema, then serves `/livez`, `/readyz`, the node API, the client API, the model gateway and the web client, and runs the scheduler loop; the other commands are the owner's and the coordinators' (below) |
+| `cmd/hypomnema` (control plane) | On the server: `migrate`, `serve`, `version`, `nodes`, `machines`, `accounts`, `tokens`, `users`, `secrets`, `gateway`; without the database: `files serve`, `update`, `tool`; over the client API: `login`, `whoami`, `run`, `runs`, `tasks`, `questions`, `answer`, `chat`, `chats`, `bots`, `setup`, `routines`, `memory`, `artifact`, `integrations`, `hosts`, `approvals`, `channels`, `profiles`, `providers`, `repos`, `models`, `skills`, `web`, `browser`, `superset`, `pi-models`, `model-key` (`hypomnema help` lists each one's subcommands) | `migrate` brings the database schema up to the binary's version; `serve` refuses any other schema, then serves `/livez`, `/readyz`, the node API, the client API, the model gateway and the web client, and runs the scheduler loop; the other commands are the owner's and the coordinators' (below) |
 | `cmd/hypomnema-node` (node) | `install`, `init`, `check`, `accounts set`, `run`, `service`, `tool`, `shim`, `mcp`, `version` | `install --url` puts the node on the machine (below); `init --url --token-file` writes the node's configuration; `check` says hello once and lists the CLIs it found; `accounts set` records where an account's Claude token is; `run` runs the daemon with a runner per runtime (Claude Code, Codex, and ACP for omp and opencode); `tool` runs an integration's tool through its launcher (below); `service` prints a systemd user unit; `shim` runs one worker and `mcp` serves its tools (both started for a worker, not by hand) |
 
 Configuration comes from the environment: `HYPOMNEMA_HTTP_ADDR` (default `127.0.0.1:8080`),
@@ -351,6 +351,47 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   the status in words, and the Task or Run by its title as a chip that opens the Task's panel over the chat (the
   page's `?task=`, as the Team page's) or shows the Run docked above the composer (below); a Run the chat does not
   dock opens its own chat, or, with no chat, its first Task's panel (issue #327).
+- Artifacts (issue #402, `orchestration/artifacts.go`, `internal/controlplane/artifactpack`, after OpenMausBot's chat
+  pages `server/chat-apps.ts`, `app-docs.ts`, `page-files.ts` and `server/pages/bundle.ts`): what a Bot hands the
+  owner to look at in its chat, an HTML page or folder, a PDF, an image or any other file.
+  - A Bot shows one with `hypomnema artifact show --title T (--html-file F | --path P) [--id A]`, run by pi in its
+    box with its own token; the file or folder is read in the Bot's directory (pi's working directory) and must be
+    inside it. A folder has `index.html` at its top; its hidden files, `node_modules` and `__pycache__`, files a
+    page does not load (OpenMausBot's `PAGE_FILE_TYPES`), badly named ones and links out of it are left out and
+    named in the command's answer. One HTML file is at most 256 KB, all files 5 MB and 200, a title one line of 80
+    characters. The files go as a tar in the body of `POST /artifacts?title=&id=`, the second body allowed over
+    1 MB (`artifactpack.MaxBody`). The type is found from the bytes and the name: `html` (an .html file that is
+    text, or a folder), `pdf` (`%PDF-`), `image` (what a browser shows, SVG by its name) or `file`. The command
+    prints the id.
+  - Only a Bot's token shows one: a pi's token in its own chat, whose Bot must be the chat's; a Routine's script's
+    token only replaces one of its Bot's, so that a Routine rebuilds a live dashboard (row 11 of the issue). With
+    `--id` the files become the next revision; the same files under the same title make none (200). A pi of
+    another chat does not find it.
+  - Kept in the database (migration 71): `artifacts` (its chat, Bot, message and newest revision),
+    `artifact_revisions` (title, type, the file shown, a digest of the files), `artifact_files` (path, SHA-256,
+    size, media type) and `artifact_blobs`, the bytes once by SHA-256. The last ten revisions are kept
+    (OpenMausBot's `APP_PAGE_VERSIONS`), and bytes no kept revision names go with the older ones.
+  - A new artifact adds a `system` row of kind `artifact` (the kind's CHECK now takes it) to the chat, which pi is
+    not given; a revision updates that row in place and its text, the newest title. The messages' list and stream
+    send it with `ChatMessage.artifact` (id, revision, title, type, updated), joined from the tables. The stream
+    sends an artifact's row again, without an id since its seq is behind the cursor, when its revision changed
+    since the stream sent it; a stream that resumes sends each one once.
+  - `GET /artifacts?chat_id=` and `GET /artifacts/{id}` (every revision kept, with its files) are read by every
+    token, a Bot's only its chat's (its Bot's for a Routine); `GET .../revisions/{n}/file?path=` sends one file and
+    `.../archive` a revision as a zip, both as `/raw` sends a file (an attachment, `nosniff`, a sandboxing CSP).
+    `POST .../revisions/{n}/frame` (owner only) gives the address a folder page's files load from in its frame,
+    `/api/v1/artifact-files/<token>/<path>`, outside the contract and needing no sign-in, as a terminal's ticket:
+    a random token kept in memory for an hour after its last use (Onyx's preview token lasts an hour; at most
+    5000), serving only that revision's files by exact path, read only, with OpenMausBot's headers
+    (`Content-Security-Policy: sandbox allow-scripts; default-src 'none'`, `nosniff`, `Access-Control-Allow-Origin:
+    *`, `no-referrer`, `no-store`).
+  - CLI: `artifact show`, `artifact list [--chat]`, `artifact info <id>`, `artifact download <id> [--rev] [--out]`.
+    A download is saved as `<id>-r<rev>-<name>` (a folder as `<id>-r<rev>.zip`), the name only the last part of
+    what the server gave and left out when it is no plain file name here (`..`, a drive's colon, a device of
+    Windows, a control character); a file that is there is never replaced.
+    Every Bot's `AGENTS.md` says when and how to show one.
+  - Not built: JSX pages, a public link (OpenMausBot's `publish_page`), pinning to a board, the page calling back
+    into the chat, viewers for Excel, CSV, Word, Markdown and text (they download), the dashboard skill (row 13).
 - The chat's work docked above its composer (issue #314, `web/src/features/chat/docked-work.tsx`), beside the
   pending Approval cards and in their scrolling box:
   - Each open question to the owner from the chat's Runs, with the Task it comes from, answered with the
@@ -589,7 +630,7 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     given the folder with `--skill`, which it loads without asking for the project's trust as it would for
     `.pi/skills`. When the skills cannot be put in place, pi does not start.
   - Client API: `GET /skills` (each skill at its newest revision), `POST /skills` (`{"github": ...}`),
-    `POST /skills/archive` (the archive as the body, the one body allowed over 1 MB), `GET /skills/{skill}` (with
+    `POST /skills/archive` (the archive as the body, one of the two bodies allowed over 1 MB with an artifact's files), `GET /skills/{skill}` (with
     every revision), `GET /skills/{skill}/revisions/{revision}/files` (a revision's paths, sizes and executable
     flags), `PUT /skills/{skill}/everyone`, `DELETE /skills/{skill}`, and `GET /built-in-skills` (the name and
     description of each skill the binary ships). Every token reads; only the owner's change. CLI: `skills list`, `skills show`, `skills add --github owner/repo[/path][@ref] | --file <archive>`,
@@ -1156,6 +1197,11 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       was not sent: <why>.". Lark's `file_type` is `pdf`, `doc`, `xls` or `ppt` by the extension when the
       bytes are of that kind (`%PDF-`, a zip for the x formats, OLE for the old ones), else `stream`; control
       characters, quotes and backslashes in the name become `_`. Images are sent as files too.
+    - Artifacts (issue #402, row 12): a Bot's reply with text names under it each artifact shown or revised in its
+      chat since its previous reply with text (`ArtifactsBeforeReply`), as `📎 [title](<web>/artifacts/<id>)`
+      where the reply may link to the web (a direct chat, `HYPOMNEMA_PUBLIC_URL` set and the Channel's link on),
+      else by its title alone. Lark shows no page; the owner opens it on the web (OpenMausBot's text fallback; the
+      link is inference).
     - The bot's menu ([#312](https://github.com/kl3inIT/hypomnema/issues/312)): a press of an item
       (`application.bot.menu_v6`, subscribed in Lark's console, where the menu is made) is a message
       `/menu <event key>` from who pressed, in their direct chat, through the rules of a typed one and taken
@@ -2233,6 +2279,25 @@ Node (`internal/node`):
     the SHA-256 of the file it replaces. Each shows its progress and can be cancelled. Not built: a folder upload,
     resuming a broken upload, rich Markdown editing, PDF, CSV and notebook views, a Trash and undo, content search,
     writes over 1 MiB from the editor, more than the first 1000 entries of a directory.
+  - Artifacts (issue #402, `web/src/features/artifacts`): an artifact's row in the chat is a compact card
+    (`artifact-card.tsx`, after Open Canvas's chip and Claude's card): a small live thumbnail of a page (its frame
+    at 1280 px scaled down, nothing pressable in it) or an image, an icon for a PDF or a file, the title, "v2 ·
+    Updated 5m ago". Pressed on a desktop, it opens in the pane's side panel in the place of the Files panel
+    (`Pane.artifact`, half the pane), as Claude's artifacts, ChatGPT's canvas and assistant-ui's `with-artifacts`
+    split the view, so the chat stays usable; on a phone it opens over the whole screen. The panel's header is AI
+    Elements' `Artifact` header: its type, title, "vN · Updated …", Preview / Code for a page (Code is `index.html`
+    in the Files panel's read-only Monaco), ‹ › through the revisions kept (the newest followed until the owner
+    steps back), ⤢ full screen (Esc or ⤡ back), ↗ a new tab, ⋯ Download (the file, or a folder as a zip) and Copy
+    link, ✕. The new tab is the app's page `/artifacts/$id?rev=N` (signed in), a thin header with the way back to
+    the chat and who made it over the same view, never a `blob:` or `data:` address (Omnigent's
+    `codeViewerHelpers.ts`). A page is an iframe `srcdoc`, `sandbox="allow-scripts allow-forms"`, never
+    `allow-same-origin`, `referrerpolicy="no-referrer"`, on a white canvas; its document starts with OpenMausBot's
+    CSP meta (`frame-document.ts`: scripts and styles inline or from cdnjs, jsdelivr and unpkg, Google Fonts,
+    images from `data:`, `blob:` and those CDNs, no other connection, frame, form target or base), and a folder
+    page's base and policy add its frame's address. A PDF is drawn by pdf.js through react-pdf, loaded with it
+    (Omnigent's `PdfViewer.tsx`), since a phone shows no PDF in a frame; an image zoomable 25-200 % (Onyx's `imageVariant`),
+    a raster one from its bytes as a `blob:` address of its exact type, an SVG from its frame's sandboxed address
+    and never from a `blob:` or `data:` address of this origin, where its script would run opened on its own; any other file is its name, size and a download (Onyx's `unsupportedVariant`).
   - The sidebar lists the places in the order they are used (issue #371, after OpenClaw's navigation): New chat,
     Team with the count that needs the owner, Routines, then Bots, Agents (a terminal mark, apart from the Bots'
     robot) and Machines, above the Bots (issue #361, after OpenMausBot's sidebar): a row a Bot that has chats, and
@@ -2468,6 +2533,7 @@ the internet, so that a machine created at a provider can install the node from 
 api                       the client API's contract (openapi.yaml) and oapi-codegen's configuration
 internal/controlplane     package controlplane: configuration, migrate, serve and the owner's server commands
 internal/controlplane/agentapi  the agent API: what a Dispatch's key or a pi's token may use, an Integration's short-lived token, the browser's and the web's tools
+internal/controlplane/artifactpack  an Artifact's files: the rules a Bot's file or folder is read by, its tar, its type from bytes and name, its limits
 internal/controlplane/bearertoken  client token format: making, checking and hashing
 internal/controlplane/browser  the browser every agent shares: the pinned agent-browser and headless Chrome, one Chrome and a session an agent, the tools offered, the idle rules, who drives it, the owner's views
 internal/controlplane/browser/egress  the gate on what the shared browser may reach: the SOCKS5 server Chrome goes through, the address classes, the owner's allow list

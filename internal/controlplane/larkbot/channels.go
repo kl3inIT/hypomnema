@@ -200,6 +200,7 @@ type Store interface {
 	AddChatMessage(ctx context.Context, chatID string, role orchestration.ChatRole, text string,
 	) (orchestration.ChatMessage, error)
 	ListChatMessages(ctx context.Context, chatID string, after int64, limit int) ([]orchestration.ChatMessage, error)
+	ArtifactsBeforeReply(ctx context.Context, chatID string, seq int64) ([]orchestration.ArtifactRef, error)
 	Subscribe(ctx context.Context) <-chan struct{}
 }
 
@@ -1500,7 +1501,7 @@ func (r *relay) kept(ctx context.Context) {
 				i++
 				m = msgs[i]
 			case m.Role == orchestration.ChatCoordinator && strings.TrimSpace(m.Text) != "":
-				r.finish(ctx, m.Text)
+				r.finish(ctx, m.Text+r.artifacts(ctx, m.Seq))
 				r.settle(ctx, false)
 			case m.Kind == orchestration.ChatStopped:
 				// The server recorded that the person stopped the turn: it was stopped, not failed.
@@ -1527,6 +1528,39 @@ func (r *relay) kept(ctx context.Context) {
 			return
 		}
 	}
+}
+
+// artifacts names under a reply the artifacts the Bot showed in the chat since its last reply (issue #402, row
+// 12), as OpenMausBot gives a channel without a web view a page's text fallback: each by its title, a link to it on
+// the web where the reply may link there. Lark shows no page, so the owner opens it there. "" when there are none.
+func (r *relay) artifacts(ctx context.Context, seq int64) string {
+	list, err := r.all.store.ArtifactsBeforeReply(ctx, r.chat.ChatID, seq)
+	if err != nil {
+		r.failed(ctx, "reading the chat's artifacts", err)
+
+		return ""
+	}
+
+	if len(list) == 0 {
+		return ""
+	}
+
+	link := r.all.webURL != "" && !r.chat.Group && r.webLink(ctx)
+
+	var b strings.Builder
+
+	b.WriteString("\n")
+
+	for _, a := range list {
+		title := strings.NewReplacer("[", "(", "]", ")").Replace(a.Title)
+		if link {
+			fmt.Fprintf(&b, "\n📎 [%s](%s/artifacts/%s)", title, r.all.webURL, a.ID)
+		} else {
+			fmt.Fprintf(&b, "\n📎 %s", title)
+		}
+	}
+
+	return b.String()
 }
 
 // webLink says the Channel's replies end with a link to the web client. The

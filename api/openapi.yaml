@@ -1754,6 +1754,132 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Bot" }
         default: { $ref: "#/components/responses/Error" }
+  /artifacts:
+    get:
+      operationId: ListArtifacts
+      summary: Artifacts at their newest revision, the latest changed first
+      description: >-
+        Every token reads them; a Bot's token reads its own chat's, or its
+        Bot's for a Routine's script.
+      parameters:
+        - name: chat_id
+          in: query
+          description: Only this chat's.
+          schema: { type: string, maxLength: 64 }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 500 }
+      responses:
+        "200":
+          description: The artifacts.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ArtifactList" }
+        default: { $ref: "#/components/responses/Error" }
+    post:
+      operationId: ShowArtifact
+      summary: Show an artifact in the Bot's chat, or the next revision of one; only a Bot's token
+      description: >-
+        The body is a tar of the files: one file of any kind, or a folder with
+        index.html at its top and the files a page loads beside it. One HTML
+        file is at most 256 KB, all the files at most 5 MB and 200. The type
+        (html, pdf, image or file) is found from the bytes and the name. A new
+        artifact is a message of kind artifact in the token's chat; with id,
+        the artifact's next revision updates that message. The same files
+        under the same title make no revision. A Routine's script only
+        replaces an artifact of its Bot.
+      parameters:
+        - name: title
+          in: query
+          description: One line of at most 80 characters; a replacement without one keeps its title.
+          schema: { type: string, maxLength: 400 }
+        - name: id
+          in: query
+          description: The artifact to replace.
+          schema: { type: string, maxLength: 64 }
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: { type: string, format: binary }
+      responses:
+        "200":
+          description: The files and title are the newest revision's; the artifact as it was.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Artifact" }
+        "201":
+          description: A new artifact or a new revision.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Artifact" }
+        default: { $ref: "#/components/responses/Error" }
+  /artifacts/{artifact_id}:
+    parameters:
+      - $ref: "#/components/parameters/ArtifactID"
+    get:
+      operationId: GetArtifact
+      summary: An artifact with every revision kept, newest first, and each one's files
+      responses:
+        "200":
+          description: The artifact.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Artifact" }
+        default: { $ref: "#/components/responses/Error" }
+  /artifacts/{artifact_id}/revisions/{revision}/file:
+    parameters:
+      - $ref: "#/components/parameters/ArtifactID"
+      - $ref: "#/components/parameters/ArtifactRevisionNumber"
+    get:
+      operationId: ReadArtifactFile
+      summary: A file of a revision, as an opaque download
+      parameters:
+        - name: path
+          in: query
+          description: The file's path in the revision; the file shown when absent.
+          schema: { type: string, maxLength: 1100 }
+      responses:
+        "200":
+          description: The bytes, never served as a page.
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        default: { $ref: "#/components/responses/Error" }
+  /artifacts/{artifact_id}/revisions/{revision}/archive:
+    parameters:
+      - $ref: "#/components/parameters/ArtifactID"
+      - $ref: "#/components/parameters/ArtifactRevisionNumber"
+    get:
+      operationId: GetArtifactArchive
+      summary: Every file of a revision as a zip, as an opaque download
+      responses:
+        "200":
+          description: The zip.
+          content:
+            application/zip:
+              schema: { type: string, format: binary }
+        default: { $ref: "#/components/responses/Error" }
+  /artifacts/{artifact_id}/revisions/{revision}/frame:
+    parameters:
+      - $ref: "#/components/parameters/ArtifactID"
+      - $ref: "#/components/parameters/ArtifactRevisionNumber"
+    post:
+      operationId: OpenArtifactFrame
+      summary: Where a folder page's files load from in its locked frame (owner only)
+      description: >-
+        A short-lived address under /api/v1/artifact-files/ that serves the
+        revision's files to the page's sandboxed frame, which sends no
+        sign-in: each answer is read-only, of the file's type, with
+        nosniff and a sandboxing Content-Security-Policy. It lasts an hour
+        after its last use.
+      responses:
+        "200":
+          description: The folder's address.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ArtifactFrame" }
+        default: { $ref: "#/components/responses/Error" }
   /skills:
     get:
       operationId: ListSkills
@@ -2963,6 +3089,16 @@ components:
       in: path
       required: true
       schema: { type: string, minLength: 1, maxLength: 64 }
+    ArtifactID:
+      name: artifact_id
+      in: path
+      required: true
+      schema: { type: string, pattern: "^art_[a-z2-7]{26}$" }
+    ArtifactRevisionNumber:
+      name: revision
+      in: path
+      required: true
+      schema: { type: integer, minimum: 1 }
     ChatID:
       name: chat_id
       in: path
@@ -5777,8 +5913,9 @@ components:
         What a system message is: wake, a wake-up for an event of one of the
         chat's Runs; failed, pi's model call failed; stopped, the owner stopped
         the turn; approval, the coordinator is told the owner answered an
-        Approval.
-      enum: [wake, failed, stopped, approval]
+        Approval; artifact, an artifact a Bot showed, which its next
+        revision updates.
+      enum: [wake, failed, stopped, approval, artifact]
     ChatPart:
       type: object
       description: >-
@@ -5840,6 +5977,80 @@ components:
           type: array
           description: Files uploaded into the chat's Bot's folder for this message.
           items: { $ref: "#/components/schemas/ChatAttachment" }
+    ArtifactType:
+      type: string
+      description: >-
+        How an artifact is shown, found from its bytes and name: html, a page
+        in a locked frame; pdf; image; file, to download.
+      enum: [html, pdf, image, file]
+      x-enum-varnames: [ArtifactHTML, ArtifactPDF, ArtifactImage, ArtifactFileType]
+    ArtifactCard:
+      type: object
+      required: [id, revision, title, type, updated_at]
+      properties:
+        id: { type: string }
+        revision: { type: integer }
+        title: { type: string }
+        type: { $ref: "#/components/schemas/ArtifactType" }
+        updated_at: { type: string, format: date-time }
+    ArtifactFileInfo:
+      type: object
+      required: [path, size, media_type]
+      properties:
+        path: { type: string }
+        size: { type: integer, format: int64 }
+        media_type: { type: string }
+    ArtifactRevision:
+      type: object
+      required: [revision, title, type, entry, size, files, created_at]
+      properties:
+        revision: { type: integer }
+        title: { type: string }
+        type: { $ref: "#/components/schemas/ArtifactType" }
+        entry:
+          type: string
+          description: The file shown, index.html of a folder or the one file.
+        size: { type: integer, format: int64 }
+        files:
+          type: array
+          items: { $ref: "#/components/schemas/ArtifactFileInfo" }
+        created_at: { type: string, format: date-time }
+    Artifact:
+      type: object
+      required: [id, chat_id, bot, revision, title, type, entry, size, created_at, updated_at]
+      properties:
+        id: { type: string }
+        chat_id: { type: string }
+        bot:
+          type: string
+          description: The Bot that showed it.
+        revision:
+          type: integer
+          description: The newest revision.
+        title: { type: string }
+        type: { $ref: "#/components/schemas/ArtifactType" }
+        entry: { type: string }
+        size: { type: integer, format: int64 }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        revisions:
+          type: array
+          description: Every revision kept, newest first; only when one artifact is read.
+          items: { $ref: "#/components/schemas/ArtifactRevision" }
+    ArtifactList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/Artifact" }
+    ArtifactFrame:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+          description: The folder's path on this server, ending in "/".
     ChatAttachment:
       type: object
       description: >-
@@ -5881,6 +6092,9 @@ components:
         wake:
           $ref: "#/components/schemas/ChatWake"
           description: What the event of a wake row says; absent for other messages.
+        artifact:
+          $ref: "#/components/schemas/ArtifactCard"
+          description: The artifact an artifact row shows, as it is now; absent for other messages.
         delivered_at:
           type: string
           format: date-time

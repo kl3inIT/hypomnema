@@ -11,6 +11,7 @@ import { usePending } from "@/features/approvals/use-approvals"
 import { firstBot } from "@/features/bots/bots-state"
 import { useSetupChanges } from "@/features/bots/setup-changes"
 import { useRoutines } from "@/features/routines/use-routines"
+import { OpenArtifactContext, type OpenArtifact } from "@/features/artifacts/open-artifact-context"
 import { chatsKey } from "@/features/shell/chats"
 
 import { AttachDrop } from "./attach-drop"
@@ -33,8 +34,16 @@ import { OpenFileContext, type OpenFile } from "./open-file-context"
 // goes when the kept one arrives; a refused send takes it away again.
 //
 // Files dropped anywhere on the chat are attached to the message being written (issue #343, AttachDrop);
-// onOpenFile opens an attached file in the pane.
-export function ChatBody({ chatId, onOpenFile }: { chatId: string; onOpenFile?: OpenFile }) {
+// onOpenFile opens an attached file in the pane, and onOpenArtifact an artifact beside the chat (issue #402).
+export function ChatBody({
+  chatId,
+  onOpenFile,
+  onOpenArtifact,
+}: {
+  chatId: string
+  onOpenFile?: OpenFile
+  onOpenArtifact?: OpenArtifact
+}) {
   const queryClient = useQueryClient()
   const view = useChatStream(chatId)
   const chat = useQuery({
@@ -100,73 +109,77 @@ export function ChatBody({ chatId, onOpenFile }: { chatId: string; onOpenFile?: 
 
   return (
     <OpenFileContext value={onOpenFile ?? null}>
-      <DockContext value={work.dock}>
-        <AttachDrop attachments={attachments} className="flex min-h-0 min-w-0 flex-1 flex-col">
-          {chat.data && !chat.data.coordinator && (
-            <output className="block px-5 pb-2 text-sm text-muted-foreground">
-              No coordinator runs on the server: messages are kept and nothing answers.
-            </output>
-          )}
-          {changes.error && (
-            <output className="mx-auto flex w-full max-w-(--chat-content-max-width) items-center gap-2 px-5 pb-2 text-sm text-muted-foreground">
-              The changes the Bot made here could not be read.
-              <Button variant="outline" size="xs" onClick={() => void changes.refetch()}>
-                Retry
-              </Button>
-            </output>
-          )}
-          <Conversation
-            view={view}
-            local={{ sending }}
-            bot={bot}
-            setups={setups}
-            empty={
-              <p className="text-center text-sm text-muted-foreground">Send a message to start.</p>
-            }
-          />
-          <div className="px-3 pb-[calc(env(safe-area-inset-bottom)+1rem)] sm:px-12 sm:pb-[calc(env(safe-area-inset-bottom)+1.25rem)]">
-            {/* The stream is down and being opened again: a quiet row, as Omnigent's "Connecting…"
-            (web/src/pages/ChatIndicators.tsx, ConnectionIndicator). */}
-            {view.reconnecting && (
-              <output className="mx-auto mb-2 flex w-full max-w-(--chat-content-max-width) items-center justify-center gap-2 text-sm text-muted-foreground">
-                <Spinner aria-hidden="true" />
-                Reconnecting…
+      <OpenArtifactContext value={onOpenArtifact ?? null}>
+        <DockContext value={work.dock}>
+          <AttachDrop attachments={attachments} className="flex min-h-0 min-w-0 flex-1 flex-col">
+            {chat.data && !chat.data.coordinator && (
+              <output className="block px-5 pb-2 text-sm text-muted-foreground">
+                No coordinator runs on the server: messages are kept and nothing answers.
               </output>
             )}
-            {/* What pi asked to do with an account and what this chat's workers ask the owner, both answered here,
-            then this chat's Runs as strips right above the composer, as Orca docks its task list (issue #314). The
-            cards scroll in their own box, so that the message box stays on the screen under them. */}
-            <div className="mx-auto mb-3 flex max-h-[50dvh] w-full max-w-(--chat-content-max-width) flex-col gap-3 overflow-y-auto empty:hidden">
-              <PendingApprovals chatId={chatId} />
-              <DockedQuestions work={work} />
-              <DockedRuns chatId={chatId} work={work} />
-            </div>
-            <Composer
-              working={view.working}
+            {changes.error && (
+              <output className="mx-auto flex w-full max-w-(--chat-content-max-width) items-center gap-2 px-5 pb-2 text-sm text-muted-foreground">
+                The changes the Bot made here could not be read.
+                <Button variant="outline" size="xs" onClick={() => void changes.refetch()}>
+                  Retry
+                </Button>
+              </output>
+            )}
+            <Conversation
+              view={view}
+              local={{ sending }}
               bot={bot}
-              onSend={send}
-              onStop={() => void abortChat({ path: { chat_id: chatId } })}
-              attachments={attachments}
-              controls={
-                chat.data && (
-                  <>
-                    <ContextMeter
-                      chatId={chatId}
-                      usage={chat.data.context_usage}
-                      working={view.working}
-                    />
-                    <ChatModelControls
-                      bot={bot}
-                      choice={choiceOf(chat.data)}
-                      onChange={(next) => void choose(next)}
-                    />
-                  </>
-                )
+              setups={setups}
+              empty={
+                <p className="text-center text-sm text-muted-foreground">
+                  Send a message to start.
+                </p>
               }
             />
-          </div>
-        </AttachDrop>
-      </DockContext>
+            <div className="px-3 pb-[calc(env(safe-area-inset-bottom)+1rem)] sm:px-12 sm:pb-[calc(env(safe-area-inset-bottom)+1.25rem)]">
+              {/* The stream is down and being opened again: a quiet row, as Omnigent's "Connecting…"
+            (web/src/pages/ChatIndicators.tsx, ConnectionIndicator). */}
+              {view.reconnecting && (
+                <output className="mx-auto mb-2 flex w-full max-w-(--chat-content-max-width) items-center justify-center gap-2 text-sm text-muted-foreground">
+                  <Spinner aria-hidden="true" />
+                  Reconnecting…
+                </output>
+              )}
+              {/* What pi asked to do with an account and what this chat's workers ask the owner, both answered here,
+            then this chat's Runs as strips right above the composer, as Orca docks its task list (issue #314). The
+            cards scroll in their own box, so that the message box stays on the screen under them. */}
+              <div className="mx-auto mb-3 flex max-h-[50dvh] w-full max-w-(--chat-content-max-width) flex-col gap-3 overflow-y-auto empty:hidden">
+                <PendingApprovals chatId={chatId} />
+                <DockedQuestions work={work} />
+                <DockedRuns chatId={chatId} work={work} />
+              </div>
+              <Composer
+                working={view.working}
+                bot={bot}
+                onSend={send}
+                onStop={() => void abortChat({ path: { chat_id: chatId } })}
+                attachments={attachments}
+                controls={
+                  chat.data && (
+                    <>
+                      <ContextMeter
+                        chatId={chatId}
+                        usage={chat.data.context_usage}
+                        working={view.working}
+                      />
+                      <ChatModelControls
+                        bot={bot}
+                        choice={choiceOf(chat.data)}
+                        onChange={(next) => void choose(next)}
+                      />
+                    </>
+                  )
+                }
+              />
+            </div>
+          </AttachDrop>
+        </DockContext>
+      </OpenArtifactContext>
     </OpenFileContext>
   )
 }
