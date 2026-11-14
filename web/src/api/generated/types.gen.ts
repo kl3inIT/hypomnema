@@ -2502,9 +2502,9 @@ export type ChatList = {
 export type ChatRole = 'owner' | 'coordinator' | 'tool' | 'system';
 
 /**
- * What a system message is: wake, a wake-up for an event of one of the chat's Runs; failed, pi's model call failed; stopped, the owner stopped the turn; approval, the coordinator is told the owner answered an Approval.
+ * What a system message is: wake, a wake-up for an event of one of the chat's Runs; failed, pi's model call failed; stopped, the owner stopped the turn; approval, the coordinator is told the owner answered an Approval; artifact, an artifact a Bot showed, which its next revision updates.
  */
-export type ChatKind = 'wake' | 'failed' | 'stopped' | 'approval';
+export type ChatKind = 'wake' | 'failed' | 'stopped' | 'approval' | 'artifact';
 
 /**
  * One piece of a reply (text, thinking), of a tool pi ran (tool_result), or the result of a Routine's run told in the chat it was made in (routine_run: id is the run's).
@@ -2583,6 +2583,72 @@ export type NewChatMessage = {
 };
 
 /**
+ * How an artifact is shown, found from its bytes and name: html, a page in a locked frame; pdf; image; file, to download.
+ */
+export type ArtifactType = 'html' | 'pdf' | 'image' | 'file';
+
+export type ArtifactCard = {
+  id: string;
+  revision: number;
+  title: string;
+  type: ArtifactType;
+  updated_at: string;
+};
+
+export type ArtifactFileInfo = {
+  path: string;
+  size: number;
+  media_type: string;
+};
+
+export type ArtifactRevision = {
+  revision: number;
+  title: string;
+  type: ArtifactType;
+  /**
+   * The file shown, index.html of a folder or the one file.
+   */
+  entry: string;
+  size: number;
+  files: Array<ArtifactFileInfo>;
+  created_at: string;
+};
+
+export type Artifact = {
+  id: string;
+  chat_id: string;
+  /**
+   * The Bot that showed it.
+   */
+  bot: string;
+  /**
+   * The newest revision.
+   */
+  revision: number;
+  title: string;
+  type: ArtifactType;
+  entry: string;
+  size: number;
+  created_at: string;
+  updated_at: string;
+  /**
+   * Every revision kept, newest first; only when one artifact is read.
+   */
+  revisions?: Array<ArtifactRevision>;
+};
+
+export type ArtifactList = {
+  data: Array<Artifact>;
+};
+
+export type ArtifactFrame = {
+  /**
+   * The folder's path on this server, ending in "/".
+   */
+  url: string;
+};
+
+/**
  * A file the owner attached to a message (issue #343): uploaded into the chat's Bot's folder, where pi reads it.
  */
 export type ChatAttachment = {
@@ -2620,6 +2686,7 @@ export type ChatMessage = {
    */
   event_seq?: number;
   wake?: ChatWake;
+  artifact?: ArtifactCard;
   /**
    * When the coordinator got an owner message or a wake-up.
    */
@@ -2754,6 +2821,10 @@ export type AskingRoutineRun = string;
 export type Name = string;
 
 export type SkillName = string;
+
+export type ArtifactId = string;
+
+export type ArtifactRevisionNumber = number;
 
 export type ChatId = string;
 
@@ -5512,6 +5583,191 @@ export type SetBotMemoryResponses = {
 };
 
 export type SetBotMemoryResponse = SetBotMemoryResponses[keyof SetBotMemoryResponses];
+
+export type ListArtifactsData = {
+  body?: never;
+  path?: never;
+  query?: {
+    /**
+     * Only this chat's.
+     */
+    chat_id?: string;
+    limit?: number;
+  };
+  url: '/artifacts';
+};
+
+export type ListArtifactsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ListArtifactsError = ListArtifactsErrors[keyof ListArtifactsErrors];
+
+export type ListArtifactsResponses = {
+  /**
+   * The artifacts.
+   */
+  200: ArtifactList;
+};
+
+export type ListArtifactsResponse = ListArtifactsResponses[keyof ListArtifactsResponses];
+
+export type ShowArtifactData = {
+  body: Blob | File;
+  path?: never;
+  query?: {
+    /**
+     * One line of at most 80 characters; a replacement without one keeps its title.
+     */
+    title?: string;
+    /**
+     * The artifact to replace.
+     */
+    id?: string;
+  };
+  url: '/artifacts';
+};
+
+export type ShowArtifactErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ShowArtifactError = ShowArtifactErrors[keyof ShowArtifactErrors];
+
+export type ShowArtifactResponses = {
+  /**
+   * The files and title are the newest revision's; the artifact as it was.
+   */
+  200: Artifact;
+  /**
+   * A new artifact or a new revision.
+   */
+  201: Artifact;
+};
+
+export type ShowArtifactResponse = ShowArtifactResponses[keyof ShowArtifactResponses];
+
+export type GetArtifactData = {
+  body?: never;
+  path: {
+    artifact_id: string;
+  };
+  query?: never;
+  url: '/artifacts/{artifact_id}';
+};
+
+export type GetArtifactErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GetArtifactError = GetArtifactErrors[keyof GetArtifactErrors];
+
+export type GetArtifactResponses = {
+  /**
+   * The artifact.
+   */
+  200: Artifact;
+};
+
+export type GetArtifactResponse = GetArtifactResponses[keyof GetArtifactResponses];
+
+export type ReadArtifactFileData = {
+  body?: never;
+  path: {
+    artifact_id: string;
+    revision: number;
+  };
+  query?: {
+    /**
+     * The file's path in the revision; the file shown when absent.
+     */
+    path?: string;
+  };
+  url: '/artifacts/{artifact_id}/revisions/{revision}/file';
+};
+
+export type ReadArtifactFileErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ReadArtifactFileError = ReadArtifactFileErrors[keyof ReadArtifactFileErrors];
+
+export type ReadArtifactFileResponses = {
+  /**
+   * The bytes, never served as a page.
+   */
+  200: Blob | File;
+};
+
+export type ReadArtifactFileResponse = ReadArtifactFileResponses[keyof ReadArtifactFileResponses];
+
+export type GetArtifactArchiveData = {
+  body?: never;
+  path: {
+    artifact_id: string;
+    revision: number;
+  };
+  query?: never;
+  url: '/artifacts/{artifact_id}/revisions/{revision}/archive';
+};
+
+export type GetArtifactArchiveErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GetArtifactArchiveError = GetArtifactArchiveErrors[keyof GetArtifactArchiveErrors];
+
+export type GetArtifactArchiveResponses = {
+  /**
+   * The zip.
+   */
+  200: Blob | File;
+};
+
+export type GetArtifactArchiveResponse = GetArtifactArchiveResponses[keyof GetArtifactArchiveResponses];
+
+export type OpenArtifactFrameData = {
+  body?: never;
+  path: {
+    artifact_id: string;
+    revision: number;
+  };
+  query?: never;
+  url: '/artifacts/{artifact_id}/revisions/{revision}/frame';
+};
+
+export type OpenArtifactFrameErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type OpenArtifactFrameError = OpenArtifactFrameErrors[keyof OpenArtifactFrameErrors];
+
+export type OpenArtifactFrameResponses = {
+  /**
+   * The folder's address.
+   */
+  200: ArtifactFrame;
+};
+
+export type OpenArtifactFrameResponse = OpenArtifactFrameResponses[keyof OpenArtifactFrameResponses];
 
 export type ListSkillsData = {
   body?: never;

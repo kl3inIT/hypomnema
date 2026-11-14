@@ -16,6 +16,7 @@ import {
 import { useState, type ReactNode } from "react"
 
 import type { ChatMessage } from "@/api/generated/types.gen"
+import { ArtifactCard } from "@/features/artifacts/artifact-card"
 import { SetupChangeCard } from "@/features/bots/setup-change-card"
 import { RunCard, SetUpCard } from "@/features/routines/chat-cards"
 import { cn } from "@/lib/utils"
@@ -53,6 +54,8 @@ export function ChatItemView({
       return <Stopped />
     case "wake":
       return <WakeCard wake={item.wake} />
+    case "artifact":
+      return <ArtifactCard card={item.artifact} />
     case "reply":
       return (
         <Reply text={item.text} streaming={item.streaming} createdAt={item.createdAt} bot={bot} />

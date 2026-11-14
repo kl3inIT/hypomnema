@@ -1,4 +1,5 @@
 import type {
+  ArtifactCard,
   ChatDelta,
   ChatMessage,
   ChatPart,
@@ -46,7 +47,13 @@ export function chatReducer(view: ChatView, action: ChatAction): ChatView {
   switch (action.type) {
     case "message": {
       const m = action.message
-      if (view.messages.some((kept) => kept.seq === m.seq)) return view
+      if (view.messages.some((kept) => kept.seq === m.seq)) {
+        // An artifact's message is updated in place when the Bot revises it (issue #402): the stream sends it
+        // again, and it takes the place of the one kept.
+        if (m.kind !== "artifact") return view
+
+        return { ...view, messages: view.messages.map((kept) => (kept.seq === m.seq ? m : kept)) }
+      }
 
       const messages = [...view.messages, m].sort((a, b) => a.seq - b.seq)
 
@@ -102,6 +109,8 @@ export type ChatItem =
   | { kind: "stopped"; key: string; message: ChatMessage }
   // A wake-up with the event it reports, drawn as a card (issue #303).
   | { kind: "wake"; key: string; wake: ChatWake }
+  // An artifact the Bot showed, as it is now (issue #402).
+  | { kind: "artifact"; key: string; artifact: ArtifactCard }
   | { kind: "reply"; key: string; text: string; streaming: boolean; createdAt?: string }
   | { kind: "activity"; key: string; steps: Step[]; open: boolean }
   // A Routine the Bot set up from this chat, where it was set up (issue #211).
@@ -190,6 +199,8 @@ export function chatItems(view: ChatView, local: Local = {}, setups: Setup[] = [
           items.push({ kind: "stopped", key, message: m })
         } else if (m.kind === "wake" && m.wake) {
           items.push({ kind: "wake", key, wake: m.wake })
+        } else if (m.kind === "artifact" && m.artifact) {
+          items.push({ kind: "artifact", key, artifact: m.artifact })
         } else {
           items.push({ kind: "notice", key, message: m })
         }

@@ -100,6 +100,14 @@ Each adapted file names its source.
   OpenMausBot contributors: the pan, zoom and fit of one CSS transform, the column of Bots joined to the machines by
   polylines, a Bot's status in its order, the list of who hands work to whom and its edges. Each file says what
   was changed.
+- Artifacts (`src/features/artifacts`): the locked frame's policy and document (`frame-document.ts`) are adapted
+  from OpenMausBot's shared/app-frame/csp.ts and document.ts (Apache License 2.0, Copyright 2026 Milind Soni and
+  OpenMausBot contributors); the panel's header (`artifact-panel.tsx`) from AI Elements' packages/elements/src/
+  artifact.tsx (https://github.com/vercel/ai-elements, Apache License 2.0, Copyright 2023 Vercel, Inc.); the PDF
+  view (`pdf-view.tsx`) from Omnigent's web/src/shell/PdfViewer.tsx (Apache License 2.0); the image's zoom and the
+  file to download from Onyx's web/src/sections/modals/PreviewModal/variants (MIT, Copyright (c) 2023-present
+  DanswerAI, Inc.). The PDF is drawn by react-pdf (MIT) and pdf.js (pdfjs-dist, Apache License 2.0, Copyright
+  Mozilla Foundation).
 - The YAML editor of an agent (`src/features/agents/yaml-editor.tsx`, `monaco-environment.ts`, `yaml.worker.js`)
   is adapted from Omnara (frontend/apps/web/src/components/agents/AgentConfigYamlEditor.tsx,
   monacoEnvironment.ts, yaml.worker.js, and src/styles/editor.ts), Apache License 2.0.

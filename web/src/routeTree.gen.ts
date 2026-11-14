@@ -17,6 +17,7 @@ import { Route as TeamRouteImport } from './routes/team'
 import { Route as AgentsIndexRouteImport } from './routes/agents.index'
 import { Route as AgentsNameRouteImport } from './routes/agents.$name'
 import { Route as AgentsNewRouteImport } from './routes/agents.new'
+import { Route as ArtifactsArtifactIdRouteImport } from './routes/artifacts.$artifactId'
 import { Route as BotsIndexRouteImport } from './routes/bots.index'
 import { Route as BotsNameRouteImport } from './routes/bots.$name'
 import { Route as BotsNewRouteImport } from './routes/bots.new'
@@ -73,6 +74,11 @@ const AgentsNameRoute = AgentsNameRouteImport.update({
 const AgentsNewRoute = AgentsNewRouteImport.update({
   id: '/agents/new',
   path: '/agents/new',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ArtifactsArtifactIdRoute = ArtifactsArtifactIdRouteImport.update({
+  id: '/artifacts/$artifactId',
+  path: '/artifacts/$artifactId',
   getParentRoute: () => rootRouteImport,
 } as any)
 const BotsIndexRoute = BotsIndexRouteImport.update({
@@ -169,6 +175,7 @@ export interface FileRoutesByFullPath {
   '/team': typeof TeamRoute
   '/agents/$name': typeof AgentsNameRoute
   '/agents/new': typeof AgentsNewRoute
+  '/artifacts/$artifactId': typeof ArtifactsArtifactIdRoute
   '/bots/$name': typeof BotsNameRoute
   '/bots/new': typeof BotsNewRoute
   '/chats/$chatId': typeof ChatsChatIdRoute
@@ -196,6 +203,7 @@ export interface FileRoutesByTo {
   '/team': typeof TeamRoute
   '/agents/$name': typeof AgentsNameRoute
   '/agents/new': typeof AgentsNewRoute
+  '/artifacts/$artifactId': typeof ArtifactsArtifactIdRoute
   '/bots/$name': typeof BotsNameRoute
   '/bots/new': typeof BotsNewRoute
   '/chats/$chatId': typeof ChatsChatIdRoute
@@ -224,6 +232,7 @@ export interface FileRoutesById {
   '/team': typeof TeamRoute
   '/agents/$name': typeof AgentsNameRoute
   '/agents/new': typeof AgentsNewRoute
+  '/artifacts/$artifactId': typeof ArtifactsArtifactIdRoute
   '/bots/$name': typeof BotsNameRoute
   '/bots/new': typeof BotsNewRoute
   '/chats/$chatId': typeof ChatsChatIdRoute
@@ -253,6 +262,7 @@ export interface FileRouteTypes {
     | '/team'
     | '/agents/$name'
     | '/agents/new'
+    | '/artifacts/$artifactId'
     | '/bots/$name'
     | '/bots/new'
     | '/chats/$chatId'
@@ -280,6 +290,7 @@ export interface FileRouteTypes {
     | '/team'
     | '/agents/$name'
     | '/agents/new'
+    | '/artifacts/$artifactId'
     | '/bots/$name'
     | '/bots/new'
     | '/chats/$chatId'
@@ -307,6 +318,7 @@ export interface FileRouteTypes {
     | '/team'
     | '/agents/$name'
     | '/agents/new'
+    | '/artifacts/$artifactId'
     | '/bots/$name'
     | '/bots/new'
     | '/chats/$chatId'
@@ -335,6 +347,7 @@ export interface RootRouteChildren {
   TeamRoute: typeof TeamRoute
   AgentsNameRoute: typeof AgentsNameRoute
   AgentsNewRoute: typeof AgentsNewRoute
+  ArtifactsArtifactIdRoute: typeof ArtifactsArtifactIdRoute
   BotsNameRoute: typeof BotsNameRoute
   BotsNewRoute: typeof BotsNewRoute
   ChatsChatIdRoute: typeof ChatsChatIdRoute
@@ -411,6 +424,13 @@ declare module '@tanstack/react-router' {
       path: '/agents/new'
       fullPath: '/agents/new'
       preLoaderRoute: typeof AgentsNewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/artifacts/$artifactId': {
+      id: '/artifacts/$artifactId'
+      path: '/artifacts/$artifactId'
+      fullPath: '/artifacts/$artifactId'
+      preLoaderRoute: typeof ArtifactsArtifactIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/bots/': {
@@ -543,6 +563,7 @@ const rootRouteChildren: RootRouteChildren = {
   TeamRoute: TeamRoute,
   AgentsNameRoute: AgentsNameRoute,
   AgentsNewRoute: AgentsNewRoute,
+  ArtifactsArtifactIdRoute: ArtifactsArtifactIdRoute,
   BotsNameRoute: BotsNameRoute,
   BotsNewRoute: BotsNewRoute,
   ChatsChatIdRoute: ChatsChatIdRoute,

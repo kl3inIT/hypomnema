@@ -2,3 +2,5 @@ packages: []
 
 allowBuilds:
   esbuild: true
+  # pdfjs-dist (react-pdf) names it as an optional dependency for rendering in Node; the browser does not use it.
+  canvas: false
