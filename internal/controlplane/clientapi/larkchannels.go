@@ -7,6 +7,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/larkbot"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/channelstore"
 )
 
 // The Lark Channels (issues #136 and #169). Only the owner reads or changes
@@ -19,9 +20,9 @@ type LarkChannels interface {
 	Status(ctx context.Context, channel string) (larkbot.Status, error)
 	Set(ctx context.Context, channel string, set larkbot.Settings) (larkbot.Status, error)
 	Remove(ctx context.Context, channel string) error
-	AddPerson(ctx context.Context, channel, who string) (orchestration.LarkChannelPerson, error)
+	AddPerson(ctx context.Context, channel, who string) (channelstore.ChannelPerson, error)
 	RemovePerson(ctx context.Context, channel, who string) error
-	SetGroup(ctx context.Context, channel, chatID string, enabled bool) (orchestration.LarkChannelGroup, error)
+	SetGroup(ctx context.Context, channel, chatID string, enabled bool) (channelstore.ChannelGroup, error)
 }
 
 // WithLarkChannels sets the Channels' settings.
@@ -34,14 +35,14 @@ func (s *Server) WithLarkChannels(c LarkChannels) *Server {
 // errNoLarkChannels answers when the control plane wired no Channels.
 var errNoLarkChannels = fmt.Errorf("%w: this control plane runs no Lark channels", orchestration.ErrUnavailable)
 
-func toLarkChannelPerson(p orchestration.LarkChannelPerson) openapi.LarkChannelPerson {
-	return openapi.LarkChannelPerson{OpenId: p.OpenID, Email: p.Email, Name: p.Name, CreatedAt: p.CreatedAt}
+func toLarkChannelPerson(p channelstore.ChannelPerson) openapi.LarkChannelPerson {
+	return openapi.LarkChannelPerson{OpenId: p.PersonID, Email: p.Email, Name: p.Name, CreatedAt: p.CreatedAt}
 }
 
 func toLarkChannel(st larkbot.Status) openapi.LarkChannel {
 	out := openapi.LarkChannel{
 		Name: st.Channel.Name, Bot: st.Channel.Bot, AppId: st.Channel.AppID,
-		Mode: openapi.LarkChannelMode(st.Channel.Mode), OwnerOpenId: st.Channel.OwnerOpenID,
+		Mode: openapi.LarkChannelMode(st.Channel.Mode), OwnerOpenId: st.Channel.OwnerID,
 		Enabled: st.Channel.Enabled, WebLink: st.Channel.WebLink, Connected: st.State.Connected,
 		CreatedAt: st.Channel.CreatedAt, UpdatedAt: st.Channel.UpdatedAt,
 		People: make([]openapi.LarkChannelPerson, 0, len(st.People)),
@@ -67,7 +68,7 @@ func toLarkChannel(st larkbot.Status) openapi.LarkChannel {
 	return out
 }
 
-func toLarkChannelGroup(g orchestration.LarkChannelGroup) openapi.LarkChannelGroup {
+func toLarkChannelGroup(g channelstore.ChannelGroup) openapi.LarkChannelGroup {
 	return openapi.LarkChannelGroup{
 		ChatId: g.ChatID, Name: g.Name, Enabled: g.Enabled, AskedAt: g.AskedAt, CreatedAt: g.CreatedAt,
 	}
@@ -136,7 +137,7 @@ func (s *Server) PutLarkChannel(ctx context.Context, req openapi.PutLarkChannelR
 		Bot: val(req.Body.Bot), Enabled: req.Body.Enabled, WebLink: req.Body.WebLink,
 	}
 	if req.Body.Mode != nil {
-		set.Mode = orchestration.LarkChannelMode(*req.Body.Mode)
+		set.Mode = channelstore.ChannelMode(*req.Body.Mode)
 	}
 
 	st, err := s.larkChannels.Set(ctx, req.Channel, set)

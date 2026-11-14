@@ -1,4 +1,4 @@
-// Package channelstore keeps the Lark Channels (issues #136 and #169), a
+// Package channelstore keeps the Channels (issues #136, #169 and #404), a
 // domain store of the orchestration database reached through the root
 // package's Channels(), as Omnara's storage facade reaches its stores (issue
 // #404). It imports the generated store and never the root package; it only
@@ -7,8 +7,9 @@
 // Lark chat or removing a Bot with its chats, stays in the root and calls the
 // functions here that end in Tx with its own queries.
 //
-// A Channel is a door to one Bot, a Lark app and who may talk through it.
-// This package keeps what each Channel is and who may talk through it; what
+// A Channel is a door to one Bot: an account at a messaging service, of one
+// kind (Lark today), and who may talk through it. Every kind keeps its rows in
+// the same tables (channels, channel_people, channel_chats, ...). This package keeps what each Channel is and who may talk through it; what
 // talks to Lark is internal/controlplane/larkbot. An app's secret is in the
 // vault; only its name is here.
 package channelstore
@@ -27,38 +28,48 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 )
 
-// LarkChannelMode says who may talk through a Channel, after OpenClaw's
+// ChannelKind is the messaging service a Channel is an account at. Every
+// kind keeps its Channels in the same tables, as MemoryOS keeps every
+// provider in one set of channel tables with a provider column.
+type ChannelKind string
+
+// KindLark is a Lark app, the one kind there is (issue #404); a Channel set
+// up without a kind is one, as the column's default says.
+const KindLark ChannelKind = "lark"
+
+// ChannelMode says who may talk through a Channel, after OpenClaw's
 // dmPolicy for Feishu (closed by default, an allowlist, open).
-type LarkChannelMode string
+type ChannelMode string
 
 // The modes (owner, 2026-11-10).
 const (
-	// LarkChannelOwner: only the owner.
-	LarkChannelOwner LarkChannelMode = "owner"
-	// LarkChannelAllowlist: the owner and the people he added.
-	LarkChannelAllowlist LarkChannelMode = "allowlist"
-	// LarkChannelEveryone: every member of the app's Lark organization.
-	LarkChannelEveryone LarkChannelMode = "everyone"
+	// ChannelOwner: only the owner.
+	ChannelOwner ChannelMode = "owner"
+	// ChannelAllowlist: the owner and the people he added.
+	ChannelAllowlist ChannelMode = "allowlist"
+	// ChannelEveryone: every member of the app's Lark organization.
+	ChannelEveryone ChannelMode = "everyone"
 )
 
-// ValidLarkChannelMode says whether m is a mode.
-func ValidLarkChannelMode(m LarkChannelMode) bool {
-	return m == LarkChannelOwner || m == LarkChannelAllowlist || m == LarkChannelEveryone
+// ValidChannelMode says whether m is a mode.
+func ValidChannelMode(m ChannelMode) bool {
+	return m == ChannelOwner || m == ChannelAllowlist || m == ChannelEveryone
 }
 
-// MaxLarkChannelName is the most characters of a Channel's name: the vault
+// MaxChannelName is the most characters of a Channel's name: the vault
 // secret of its app is named after it, and a secret's name is 63 at most.
-const MaxLarkChannelName = 50
+const MaxChannelName = 50
 
-// ValidLarkChannelName says whether name can be a Channel's: as a Bot's,
+// ValidChannelName says whether name can be a Channel's: as a Bot's,
 // lowercase letters, digits and dashes, starting with a letter.
-func ValidLarkChannelName(name string) bool {
-	return len(name) <= MaxLarkChannelName && storeutil.NamePattern.MatchString(name)
+func ValidChannelName(name string) bool {
+	return len(name) <= MaxChannelName && storeutil.NamePattern.MatchString(name)
 }
 
-// LarkChannel is a Channel as the owner set it up.
-type LarkChannel struct {
+// Channel is a Channel as the owner set it up.
+type Channel struct {
 	Name string
+	Kind ChannelKind
 	// AppID is the Lark app's id; Secret names the vault secret with its
 	// secret. One app is one Channel.
 	AppID  string
@@ -66,9 +77,10 @@ type LarkChannel struct {
 	// Bot is the Bot a chat opened through the Channel talks with. Several
 	// Channels may talk to one Bot (OpenClaw's bindings).
 	Bot  string
-	Mode LarkChannelMode
-	// OwnerOpenID is the owner's id at Lark, in the app's own namespace.
-	OwnerOpenID string
+	Mode ChannelMode
+	// OwnerID is the owner's id at the service: at Lark his open_id, in the
+	// app's own namespace.
+	OwnerID string
 	// Enabled says the Channel answers. One that is off takes no message.
 	Enabled bool
 	// WebLink says a reply in a direct chat ends with a link to the chat in
@@ -78,34 +90,37 @@ type LarkChannel struct {
 	UpdatedAt time.Time
 }
 
-// LarkChannelPerson is someone the owner added, who may talk through a
+// ChannelPerson is someone the owner added, who may talk through a
 // Channel when its mode is the allowlist. Lark gives a person another open_id
 // in each app, so a person is added to each Channel apart.
-type LarkChannelPerson struct {
-	OpenID    string
+type ChannelPerson struct {
+	// PersonID is the person's id at the service: Lark's open_id.
+	PersonID  string
 	Email     string
 	Name      string
 	CreatedAt time.Time
 }
 
-// LarkChannelChat joins a person's direct chat with a Channel's app at Lark
+// ChannelChat joins a person's direct chat with a Channel's app at Lark
 // to a chat with a Bot.
-type LarkChannelChat struct {
-	Channel    string
-	LarkChatID string
-	OpenID     string
-	ChatID     string
+type ChannelChat struct {
+	Channel string
+	// ExternalChatID is the chat's id at the service: Lark's chat_id.
+	ExternalChatID string
+	// PersonID is the person's id at the service, Lark's open_id.
+	PersonID string
+	ChatID   string
 	// Bot is the Bot of the chat: the Channel's when the chat was opened.
 	Bot string
 	// SentSeq is the last message of the chat that was sent to Lark.
 	SentSeq int64
 	// Group says the Lark chat is a group, whose one chat with the Bot is the
-	// whole group's (OpenClaw's Feishu groupSessionScope "group"); OpenID is
+	// whole group's (OpenClaw's Feishu groupSessionScope "group"); PersonID is
 	// then empty.
 	Group bool
 }
 
-// Store keeps the Lark Channels.
+// Store keeps the Channels.
 type Store struct {
 	db    *sql.DB
 	clock platform.Clock
@@ -127,30 +142,36 @@ func (s *Store) read() *store.Queries {
 	return store.New(s.db)
 }
 
-func larkChannelFromRow(r store.LarkChannel) LarkChannel {
-	return LarkChannel{
-		Name: r.Name, AppID: r.AppID, Secret: r.Secret, Bot: r.Bot, Mode: LarkChannelMode(r.Mode),
-		OwnerOpenID: r.OwnerOpenID, Enabled: r.Enabled != 0, WebLink: r.WebLink != 0,
+func channelFromRow(r store.Channel) Channel {
+	return Channel{
+		Name: r.Name, Kind: ChannelKind(r.Kind), AppID: r.AppID, Secret: r.Secret, Bot: r.Bot, Mode: ChannelMode(r.Mode),
+		OwnerID: r.OwnerID, Enabled: r.Enabled != 0, WebLink: r.WebLink != 0,
 		CreatedAt: storeutil.Millis(r.CreatedAt), UpdatedAt: storeutil.Millis(r.UpdatedAt),
 	}
 }
 
-// SetLarkChannel records a Channel, or changes it. An app that is another
+// SetChannel records a Channel, or changes it. An app that is another
 // Channel's is refused, as Hermes refuses two profiles on one app.
-func (s *Store) SetLarkChannel(ctx context.Context, c LarkChannel) (LarkChannel, error) {
+func (s *Store) SetChannel(ctx context.Context, c Channel) (Channel, error) {
+	if c.Kind == "" {
+		c.Kind = KindLark
+	}
+
 	switch {
-	case !ValidLarkChannelName(c.Name):
-		return LarkChannel{}, fmt.Errorf("%w: a channel's name is lowercase letters, digits and dashes, starting "+
-			"with a letter, at most %d characters", storeerr.ErrInvalid, MaxLarkChannelName)
+	case c.Kind != KindLark:
+		return Channel{}, fmt.Errorf("%w: a channel's kind is %s", storeerr.ErrInvalid, KindLark)
+	case !ValidChannelName(c.Name):
+		return Channel{}, fmt.Errorf("%w: a channel's name is lowercase letters, digits and dashes, starting "+
+			"with a letter, at most %d characters", storeerr.ErrInvalid, MaxChannelName)
 	case c.AppID == "" || c.Secret == "":
-		return LarkChannel{}, fmt.Errorf("%w: a Lark channel needs its app's id and secret", storeerr.ErrInvalid)
+		return Channel{}, fmt.Errorf("%w: a Lark channel needs its app's id and secret", storeerr.ErrInvalid)
 	case c.Bot == "":
-		return LarkChannel{}, fmt.Errorf("%w: a Lark channel names the bot it talks to", storeerr.ErrInvalid)
-	case !ValidLarkChannelMode(c.Mode):
-		return LarkChannel{}, fmt.Errorf("%w: the mode is %s, %s or %s", storeerr.ErrInvalid, LarkChannelOwner,
-			LarkChannelAllowlist, LarkChannelEveryone)
-	case !strings.HasPrefix(c.OwnerOpenID, "ou_"):
-		return LarkChannel{}, fmt.Errorf("%w: the owner is named by his Lark open_id, which starts with ou_",
+		return Channel{}, fmt.Errorf("%w: a Lark channel names the bot it talks to", storeerr.ErrInvalid)
+	case !ValidChannelMode(c.Mode):
+		return Channel{}, fmt.Errorf("%w: the mode is %s, %s or %s", storeerr.ErrInvalid, ChannelOwner,
+			ChannelAllowlist, ChannelEveryone)
+	case !strings.HasPrefix(c.OwnerID, "ou_"):
+		return Channel{}, fmt.Errorf("%w: the owner is named by his Lark open_id, which starts with ou_",
 			storeerr.ErrInvalid)
 	}
 
@@ -172,7 +193,7 @@ func (s *Store) SetLarkChannel(ctx context.Context, c LarkChannel) (LarkChannel,
 			return err
 		}
 
-		other, err := q.GetLarkChannelByApp(ctx, c.AppID)
+		other, err := q.GetChannelByApp(ctx, store.GetChannelByAppParams{Kind: string(c.Kind), AppID: c.AppID})
 		if err == nil && other.Name != c.Name {
 			return fmt.Errorf("%w: the Lark app %s is the app of channel %s; one app is one channel",
 				storeerr.ErrConflict, c.AppID, other.Name)
@@ -182,53 +203,53 @@ func (s *Store) SetLarkChannel(ctx context.Context, c LarkChannel) (LarkChannel,
 			return err
 		}
 
-		return q.UpsertLarkChannel(ctx, store.UpsertLarkChannelParams{
-			Name: c.Name, AppID: c.AppID, Secret: c.Secret, Bot: c.Bot, Mode: string(c.Mode),
-			OwnerOpenID: c.OwnerOpenID, Enabled: enabled, WebLink: webLink, Now: now,
+		return q.UpsertChannel(ctx, store.UpsertChannelParams{
+			Name: c.Name, Kind: string(c.Kind), AppID: c.AppID, Secret: c.Secret, Bot: c.Bot, Mode: string(c.Mode),
+			OwnerID: c.OwnerID, Enabled: enabled, WebLink: webLink, Now: now,
 		})
 	}); err != nil {
-		return LarkChannel{}, fmt.Errorf("recording Lark channel %s: %w", c.Name, err)
+		return Channel{}, fmt.Errorf("recording Lark channel %s: %w", c.Name, err)
 	}
 
-	return s.LarkChannel(ctx, c.Name)
+	return s.Channel(ctx, c.Name)
 }
 
-// LarkChannel returns one Channel; ErrNotFound when the owner set none up
+// Channel returns one Channel; ErrNotFound when the owner set none up
 // under that name.
-func (s *Store) LarkChannel(ctx context.Context, name string) (LarkChannel, error) {
-	row, err := s.read().GetLarkChannel(ctx, name)
+func (s *Store) Channel(ctx context.Context, name string) (Channel, error) {
+	row, err := s.read().GetChannel(ctx, name)
 	if err != nil {
-		return LarkChannel{}, storeutil.NotFound(err, "Lark channel", name)
+		return Channel{}, storeutil.NotFound(err, "Lark channel", name)
 	}
 
-	return larkChannelFromRow(row), nil
+	return channelFromRow(row), nil
 }
 
-// LarkChannels returns the Channels, oldest first.
-func (s *Store) LarkChannels(ctx context.Context) ([]LarkChannel, error) {
-	rows, err := s.read().ListLarkChannels(ctx)
+// ListChannels returns the Channels, oldest first.
+func (s *Store) ListChannels(ctx context.Context) ([]Channel, error) {
+	rows, err := s.read().ListChannels(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("listing the Lark channels: %w", err)
 	}
 
-	out := make([]LarkChannel, 0, len(rows))
+	out := make([]Channel, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, larkChannelFromRow(r))
+		out = append(out, channelFromRow(r))
 	}
 
 	return out, nil
 }
 
-// RemoveLarkChannel forgets a Channel with its people, the Lark chats it
+// RemoveChannel forgets a Channel with its people, the Lark chats it
 // answered in and its question cards. The chats with the Bot stay, on the
 // web.
-func (s *Store) RemoveLarkChannel(ctx context.Context, name string) error {
+func (s *Store) RemoveChannel(ctx context.Context, name string) error {
 	var removed int64
 
 	if err := s.write(ctx, func(q *store.Queries, _ int64) error {
 		var err error
 
-		removed, err = q.DeleteLarkChannel(ctx, name)
+		removed, err = q.DeleteChannel(ctx, name)
 
 		return err
 	}); err != nil {
@@ -242,100 +263,100 @@ func (s *Store) RemoveLarkChannel(ctx context.Context, name string) error {
 	return nil
 }
 
-// CountLarkChannelsOfBotTx counts the Channels that talk to a Bot, with the
+// CountChannelsOfBotTx counts the Channels that talk to a Bot, with the
 // caller's queries: the root refuses to remove a Bot that one talks to.
-func CountLarkChannelsOfBotTx(ctx context.Context, q *store.Queries, bot string) (int64, error) {
-	return q.CountLarkChannelsOfBot(ctx, bot)
+func CountChannelsOfBotTx(ctx context.Context, q *store.Queries, bot string) (int64, error) {
+	return q.CountChannelsOfBot(ctx, bot)
 }
 
-// AddLarkChannelPerson adds someone who may talk through a Channel, or
+// AddChannelPerson adds someone who may talk through a Channel, or
 // changes the email and name kept for them.
-func (s *Store) AddLarkChannelPerson(ctx context.Context, channel string, p LarkChannelPerson,
-) (LarkChannelPerson, error) {
-	if !strings.HasPrefix(p.OpenID, "ou_") {
-		return LarkChannelPerson{}, fmt.Errorf("%w: a person is named by a Lark open_id, which starts with ou_",
+func (s *Store) AddChannelPerson(ctx context.Context, channel string, p ChannelPerson,
+) (ChannelPerson, error) {
+	if !strings.HasPrefix(p.PersonID, "ou_") {
+		return ChannelPerson{}, fmt.Errorf("%w: a person is named by a Lark open_id, which starts with ou_",
 			storeerr.ErrInvalid)
 	}
 
 	if err := s.write(ctx, func(q *store.Queries, now int64) error {
-		if _, err := q.GetLarkChannel(ctx, channel); err != nil {
+		if _, err := q.GetChannel(ctx, channel); err != nil {
 			return storeutil.NotFound(err, "Lark channel", channel)
 		}
 
-		return q.UpsertLarkChannelPerson(ctx, store.UpsertLarkChannelPersonParams{
-			Channel: channel, OpenID: p.OpenID, Email: p.Email, Name: p.Name, Now: now,
+		return q.UpsertChannelPerson(ctx, store.UpsertChannelPersonParams{
+			Channel: channel, PersonID: p.PersonID, Email: p.Email, Name: p.Name, Now: now,
 		})
 	}); err != nil {
-		return LarkChannelPerson{}, fmt.Errorf("adding %s to Lark channel %s: %w", p.OpenID, channel, err)
+		return ChannelPerson{}, fmt.Errorf("adding %s to Lark channel %s: %w", p.PersonID, channel, err)
 	}
 
-	return s.LarkChannelPerson(ctx, channel, p.OpenID)
+	return s.ChannelPerson(ctx, channel, p.PersonID)
 }
 
-// LarkChannelPerson returns one person added to a Channel; ErrNotFound when
+// ChannelPerson returns one person added to a Channel; ErrNotFound when
 // they were not added to it.
-func (s *Store) LarkChannelPerson(ctx context.Context, channel, openID string) (LarkChannelPerson, error) {
-	row, err := s.read().GetLarkChannelPerson(ctx, store.GetLarkChannelPersonParams{Channel: channel, OpenID: openID})
+func (s *Store) ChannelPerson(ctx context.Context, channel, personID string) (ChannelPerson, error) {
+	row, err := s.read().GetChannelPerson(ctx, store.GetChannelPersonParams{Channel: channel, PersonID: personID})
 	if err != nil {
-		return LarkChannelPerson{}, storeutil.NotFound(err, "person of Lark channel "+channel, openID)
+		return ChannelPerson{}, storeutil.NotFound(err, "person of Lark channel "+channel, personID)
 	}
 
-	return larkChannelPersonFromRow(row), nil
+	return channelPersonFromRow(row), nil
 }
 
-// LarkChannelPeople returns the people the owner added to a Channel, oldest
+// ChannelPeople returns the people the owner added to a Channel, oldest
 // first.
-func (s *Store) LarkChannelPeople(ctx context.Context, channel string) ([]LarkChannelPerson, error) {
-	rows, err := s.read().ListLarkChannelPeople(ctx, channel)
+func (s *Store) ChannelPeople(ctx context.Context, channel string) ([]ChannelPerson, error) {
+	rows, err := s.read().ListChannelPeople(ctx, channel)
 	if err != nil {
 		return nil, fmt.Errorf("listing the people of Lark channel %s: %w", channel, err)
 	}
 
-	out := make([]LarkChannelPerson, 0, len(rows))
+	out := make([]ChannelPerson, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, larkChannelPersonFromRow(r))
+		out = append(out, channelPersonFromRow(r))
 	}
 
 	return out, nil
 }
 
-// RemoveLarkChannelPerson takes a person off a Channel's list.
-func (s *Store) RemoveLarkChannelPerson(ctx context.Context, channel, openID string) error {
+// RemoveChannelPerson takes a person off a Channel's list.
+func (s *Store) RemoveChannelPerson(ctx context.Context, channel, personID string) error {
 	var removed int64
 
 	if err := s.write(ctx, func(q *store.Queries, _ int64) error {
 		var err error
 
-		removed, err = q.DeleteLarkChannelPerson(ctx, store.DeleteLarkChannelPersonParams{
-			Channel: channel, OpenID: openID,
+		removed, err = q.DeleteChannelPerson(ctx, store.DeleteChannelPersonParams{
+			Channel: channel, PersonID: personID,
 		})
 
 		return err
 	}); err != nil {
-		return fmt.Errorf("removing %s from Lark channel %s: %w", openID, channel, err)
+		return fmt.Errorf("removing %s from Lark channel %s: %w", personID, channel, err)
 	}
 
 	if removed == 0 {
-		return fmt.Errorf("%w: person %q of Lark channel %s", storeerr.ErrNotFound, openID, channel)
+		return fmt.Errorf("%w: person %q of Lark channel %s", storeerr.ErrNotFound, personID, channel)
 	}
 
 	return nil
 }
 
-func larkChannelPersonFromRow(r store.LarkChannelPerson) LarkChannelPerson {
-	return LarkChannelPerson{OpenID: r.OpenID, Email: r.Email, Name: r.Name, CreatedAt: storeutil.Millis(r.CreatedAt)}
+func channelPersonFromRow(r store.ChannelPerson) ChannelPerson {
+	return ChannelPerson{PersonID: r.PersonID, Email: r.Email, Name: r.Name, CreatedAt: storeutil.Millis(r.CreatedAt)}
 }
 
-// TakeLarkMessage records that a Channel took a Lark message and says
+// TakeChannelMessage records that a Channel took a Lark message and says
 // whether it is the first time. Lark delivers an event again when it was not
 // acknowledged within three seconds, so a second delivery is dropped here.
-func (s *Store) TakeLarkMessage(ctx context.Context, channel, messageID string) (first bool, err error) {
+func (s *Store) TakeChannelMessage(ctx context.Context, channel, messageID string) (first bool, err error) {
 	var inserted int64
 
 	if err := s.write(ctx, func(q *store.Queries, now int64) error {
 		var err error
 
-		inserted, err = q.InsertLarkChannelMessage(ctx, store.InsertLarkChannelMessageParams{
+		inserted, err = q.InsertChannelMessage(ctx, store.InsertChannelMessageParams{
 			MessageID: messageID, Channel: channel, Now: now,
 		})
 
@@ -347,11 +368,11 @@ func (s *Store) TakeLarkMessage(ctx context.Context, channel, messageID string) 
 	return inserted == 1, nil
 }
 
-// ForgetLarkMessagesBefore drops the record of messages taken before a time:
+// ForgetChannelMessagesBefore drops the record of messages taken before a time:
 // Lark's last delivery of an event comes about seven hours after the first.
-func (s *Store) ForgetLarkMessagesBefore(ctx context.Context, before time.Time) error {
+func (s *Store) ForgetChannelMessagesBefore(ctx context.Context, before time.Time) error {
 	if err := s.write(ctx, func(q *store.Queries, _ int64) error {
-		return q.DeleteLarkChannelMessagesBefore(ctx, before.UnixMilli())
+		return q.DeleteChannelMessagesBefore(ctx, before.UnixMilli())
 	}); err != nil {
 		return fmt.Errorf("forgetting old Lark messages: %w", err)
 	}
@@ -359,84 +380,84 @@ func (s *Store) ForgetLarkMessagesBefore(ctx context.Context, before time.Time) 
 	return nil
 }
 
-// larkChannelChat is a Lark chat's row with the Bot of its chat.
-func (s *Store) larkChannelChat(ctx context.Context, r store.LarkChannelChat) (LarkChannelChat, error) {
+// channelChat is a Lark chat's row with the Bot of its chat.
+func (s *Store) channelChat(ctx context.Context, r store.ChannelChat) (ChannelChat, error) {
 	chat, err := s.read().GetChat(ctx, r.ChatID)
 	if err != nil {
-		return LarkChannelChat{}, fmt.Errorf("reading the chat of Lark chat %s: %w", r.LarkChatID, err)
+		return ChannelChat{}, fmt.Errorf("reading the chat of Lark chat %s: %w", r.ExternalChatID, err)
 	}
 
-	return LarkChannelChat{
-		Channel: r.Channel, LarkChatID: r.LarkChatID, OpenID: r.OpenID, ChatID: r.ChatID, Bot: chat.Bot,
-		SentSeq: r.SentSeq, Group: chat.LarkGroup != 0,
+	return ChannelChat{
+		Channel: r.Channel, ExternalChatID: r.ExternalChatID, PersonID: r.PersonID, ChatID: r.ChatID, Bot: chat.Bot,
+		SentSeq: r.SentSeq, Group: chat.ChannelGroup != 0,
 	}, nil
 }
 
-// LarkChannelChat returns the chat a Lark chat of a Channel is; ErrNotFound
+// ChannelChat returns the chat a Lark chat of a Channel is; ErrNotFound
 // when the Lark chat has none yet.
-func (s *Store) LarkChannelChat(ctx context.Context, channel, larkChatID string) (LarkChannelChat, error) {
-	row, err := s.read().GetLarkChannelChat(ctx, store.GetLarkChannelChatParams{
-		Channel: channel, LarkChatID: larkChatID,
+func (s *Store) ChannelChat(ctx context.Context, channel, externalChatID string) (ChannelChat, error) {
+	row, err := s.read().GetChannelChat(ctx, store.GetChannelChatParams{
+		Channel: channel, ExternalChatID: externalChatID,
 	})
 	if err != nil {
-		return LarkChannelChat{}, storeutil.NotFound(err, "Lark chat", larkChatID)
+		return ChannelChat{}, storeutil.NotFound(err, "Lark chat", externalChatID)
 	}
 
-	return s.larkChannelChat(ctx, row)
+	return s.channelChat(ctx, row)
 }
 
-// RecordLarkChannelChatTx records, with the caller's queries, that a Lark
+// RecordChannelChatTx records, with the caller's queries, that a Lark
 // chat is the chat c.ChatID, which the caller started in the same or an
 // earlier transaction. A group's chat is marked on the chat itself, so it
 // stays one once the group has started another.
-func RecordLarkChannelChatTx(ctx context.Context, q *store.Queries, c LarkChannelChat, now int64) error {
+func RecordChannelChatTx(ctx context.Context, q *store.Queries, c ChannelChat, now int64) error {
 	if c.Group {
-		if err := q.MarkLarkGroupChat(ctx, c.ChatID); err != nil {
+		if err := q.MarkChannelGroupChat(ctx, c.ChatID); err != nil {
 			return err
 		}
 	}
 
-	return q.InsertLarkChannelChat(ctx, store.InsertLarkChannelChatParams{
-		LarkChatID: c.LarkChatID, Channel: c.Channel, OpenID: c.OpenID, ChatID: c.ChatID, Now: now,
+	return q.InsertChannelChat(ctx, store.InsertChannelChatParams{
+		ExternalChatID: c.ExternalChatID, Channel: c.Channel, PersonID: c.PersonID, ChatID: c.ChatID, Now: now,
 	})
 }
 
-// ResetLarkChannelChatTx points a Lark chat at the new chat chatID, with the
+// ResetChannelChatTx points a Lark chat at the new chat chatID, with the
 // caller's queries; group marks the new chat as a group's, as the old one
 // was.
-func ResetLarkChannelChatTx(ctx context.Context, q *store.Queries, channel, larkChatID, chatID string, group bool,
+func ResetChannelChatTx(ctx context.Context, q *store.Queries, channel, externalChatID, chatID string, group bool,
 ) error {
 	if group {
-		if err := q.MarkLarkGroupChat(ctx, chatID); err != nil {
+		if err := q.MarkChannelGroupChat(ctx, chatID); err != nil {
 			return err
 		}
 	}
 
-	_, err := q.ResetLarkChannelChat(ctx, store.ResetLarkChannelChatParams{
-		Channel: channel, LarkChatID: larkChatID, ChatID: chatID,
+	_, err := q.ResetChannelChat(ctx, store.ResetChannelChatParams{
+		Channel: channel, ExternalChatID: externalChatID, ChatID: chatID,
 	})
 
 	return err
 }
 
-// DeleteLarkChannelChatsOfBotTx forgets the Lark chats of a Bot's chats,
+// DeleteChannelChatsOfBotTx forgets the Lark chats of a Bot's chats,
 // with the caller's queries, as the root removes the Bot with its chats.
-func DeleteLarkChannelChatsOfBotTx(ctx context.Context, q *store.Queries, bot string) error {
-	return q.DeleteLarkChannelChatsOfBot(ctx, bot)
+func DeleteChannelChatsOfBotTx(ctx context.Context, q *store.Queries, bot string) error {
+	return q.DeleteChannelChatsOfBot(ctx, bot)
 }
 
-// LarkChannelChats returns the Lark chats a Channel answers in, oldest
+// ChannelChats returns the Lark chats a Channel answers in, oldest
 // first.
-func (s *Store) LarkChannelChats(ctx context.Context, channel string) ([]LarkChannelChat, error) {
-	rows, err := s.read().ListLarkChannelChats(ctx, channel)
+func (s *Store) ChannelChats(ctx context.Context, channel string) ([]ChannelChat, error) {
+	rows, err := s.read().ListChannelChats(ctx, channel)
 	if err != nil {
 		return nil, fmt.Errorf("listing the chats of Lark channel %s: %w", channel, err)
 	}
 
-	out := make([]LarkChannelChat, 0, len(rows))
+	out := make([]ChannelChat, 0, len(rows))
 
 	for _, r := range rows {
-		chat, err := s.larkChannelChat(ctx, r)
+		chat, err := s.channelChat(ctx, r)
 		if err != nil {
 			return nil, err
 		}
@@ -447,26 +468,26 @@ func (s *Store) LarkChannelChats(ctx context.Context, channel string) ([]LarkCha
 	return out, nil
 }
 
-// MarkLarkChannelSent records the last message of a chat that was sent to
+// MarkChannelSent records the last message of a chat that was sent to
 // Lark. It never moves back.
-func (s *Store) MarkLarkChannelSent(ctx context.Context, larkChatID string, seq int64) error {
+func (s *Store) MarkChannelSent(ctx context.Context, externalChatID string, seq int64) error {
 	if err := s.write(ctx, func(q *store.Queries, _ int64) error {
-		return q.SetLarkChannelChatSent(ctx, store.SetLarkChannelChatSentParams{LarkChatID: larkChatID, SentSeq: seq})
+		return q.SetChannelChatSent(ctx, store.SetChannelChatSentParams{ExternalChatID: externalChatID, SentSeq: seq})
 	}); err != nil {
-		return fmt.Errorf("recording what was sent to Lark chat %s: %w", larkChatID, err)
+		return fmt.Errorf("recording what was sent to Lark chat %s: %w", externalChatID, err)
 	}
 
 	return nil
 }
 
-// RenameLarkChannelChat records the Lark chat id of a person's direct chat
+// RenameChannelChat records the Lark chat id of a person's direct chat
 // that was kept under their open_id until Lark named the chat (issue #312: a
 // press of the bot's menu names no chat, and the reply sent to the person
 // does). ErrNotFound when no chat of the Channel has the old id; ErrConflict
 // when one has the new id already.
-func (s *Store) RenameLarkChannelChat(ctx context.Context, channel, oldID, newID string) error {
-	if _, err := s.read().GetLarkChannelChat(ctx, store.GetLarkChannelChatParams{
-		Channel: channel, LarkChatID: newID,
+func (s *Store) RenameChannelChat(ctx context.Context, channel, oldID, newID string) error {
+	if _, err := s.read().GetChannelChat(ctx, store.GetChannelChatParams{
+		Channel: channel, ExternalChatID: newID,
 	}); err == nil {
 		return fmt.Errorf("%w: Lark chat %s is a chat of channel %s already", storeerr.ErrConflict, newID, channel)
 	}
@@ -476,8 +497,8 @@ func (s *Store) RenameLarkChannelChat(ctx context.Context, channel, oldID, newID
 	if err := s.write(ctx, func(q *store.Queries, _ int64) error {
 		var err error
 
-		renamed, err = q.RenameLarkChannelChat(ctx, store.RenameLarkChannelChatParams{
-			NewLarkChatID: newID, Channel: channel, LarkChatID: oldID,
+		renamed, err = q.RenameChannelChat(ctx, store.RenameChannelChatParams{
+			NewExternalChatID: newID, Channel: channel, ExternalChatID: oldID,
 		})
 
 		return err
@@ -492,15 +513,15 @@ func (s *Store) RenameLarkChannelChat(ctx context.Context, channel, oldID, newID
 	return nil
 }
 
-// LarkChannelForRun returns the Channel a question of a Run goes out through:
+// ChannelForRun returns the Channel a question of a Run goes out through:
 // the Channel whose Lark chat is the chat that started the Run, as Hermes
 // sends an approval to the conversation the work came from; for a Run that
 // started elsewhere, the oldest Channel that is on. ErrNotFound when no
 // Channel is on.
-func (s *Store) LarkChannelForRun(ctx context.Context, runID string) (string, error) {
+func (s *Store) ChannelForRun(ctx context.Context, runID string) (string, error) {
 	q := s.read()
 
-	channel, err := q.LarkChannelOfRun(ctx, runID)
+	channel, err := q.ChannelOfRun(ctx, runID)
 	if err == nil {
 		return channel, nil
 	}
@@ -509,7 +530,7 @@ func (s *Store) LarkChannelForRun(ctx context.Context, runID string) (string, er
 		return "", fmt.Errorf("reading the Lark channel of run %s: %w", runID, err)
 	}
 
-	channel, err = q.FirstEnabledLarkChannel(ctx)
+	channel, err = q.FirstEnabledChannel(ctx)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", fmt.Errorf("%w: no Lark channel is on", storeerr.ErrNotFound)
 	}
@@ -521,9 +542,9 @@ func (s *Store) LarkChannelForRun(ctx context.Context, runID string) (string, er
 	return channel, nil
 }
 
-// LarkQuestionCard is the card at Lark that shows one of the owner's
+// QuestionCard is the card at Lark that shows one of the owner's
 // questions.
-type LarkQuestionCard struct {
+type QuestionCard struct {
 	QuestionID string
 	// Channel is the Channel the card was sent through.
 	Channel string
@@ -535,10 +556,10 @@ type LarkQuestionCard struct {
 	Seq int
 }
 
-// RecordLarkQuestionCard records the card a question was sent as.
-func (s *Store) RecordLarkQuestionCard(ctx context.Context, c LarkQuestionCard) error {
+// RecordQuestionCard records the card a question was sent as.
+func (s *Store) RecordQuestionCard(ctx context.Context, c QuestionCard) error {
 	if err := s.write(ctx, func(q *store.Queries, now int64) error {
-		return q.InsertLarkChannelQuestion(ctx, store.InsertLarkChannelQuestionParams{
+		return q.InsertChannelQuestion(ctx, store.InsertChannelQuestionParams{
 			QuestionID: c.QuestionID, Channel: c.Channel, CardID: c.CardID, MessageID: c.MessageID, Now: now,
 		})
 	}); err != nil {
@@ -548,57 +569,57 @@ func (s *Store) RecordLarkQuestionCard(ctx context.Context, c LarkQuestionCard) 
 	return nil
 }
 
-// LarkQuestionCardOf returns the card of a question; ErrNotFound when it was
+// QuestionCardOf returns the card of a question; ErrNotFound when it was
 // sent as none.
-func (s *Store) LarkQuestionCardOf(ctx context.Context, questionID string) (LarkQuestionCard, error) {
-	row, err := s.read().GetLarkChannelQuestion(ctx, questionID)
+func (s *Store) QuestionCardOf(ctx context.Context, questionID string) (QuestionCard, error) {
+	row, err := s.read().GetChannelQuestion(ctx, questionID)
 	if err != nil {
-		return LarkQuestionCard{}, storeutil.NotFound(err, "Lark card of question", questionID)
+		return QuestionCard{}, storeutil.NotFound(err, "Lark card of question", questionID)
 	}
 
-	return larkQuestionCardFromRow(row), nil
+	return questionCardFromRow(row), nil
 }
 
-// LarkQuestionCardByMessage returns the card a Lark message of a Channel is,
+// QuestionCardByMessage returns the card a Lark message of a Channel is,
 // while its question can still be answered; ErrNotFound otherwise.
-func (s *Store) LarkQuestionCardByMessage(ctx context.Context, channel, messageID string,
-) (LarkQuestionCard, error) {
-	row, err := s.read().GetLarkChannelQuestionByMessage(ctx, store.GetLarkChannelQuestionByMessageParams{
+func (s *Store) QuestionCardByMessage(ctx context.Context, channel, messageID string,
+) (QuestionCard, error) {
+	row, err := s.read().GetChannelQuestionByMessage(ctx, store.GetChannelQuestionByMessageParams{
 		Channel: channel, MessageID: messageID,
 	})
 	if err != nil {
-		return LarkQuestionCard{}, storeutil.NotFound(err, "Lark question card", messageID)
+		return QuestionCard{}, storeutil.NotFound(err, "Lark question card", messageID)
 	}
 
 	if row.ClosedAt.Valid {
-		return LarkQuestionCard{}, fmt.Errorf("%w: the question of Lark card %s is closed", storeerr.ErrNotFound,
+		return QuestionCard{}, fmt.Errorf("%w: the question of Lark card %s is closed", storeerr.ErrNotFound,
 			messageID)
 	}
 
-	return larkQuestionCardFromRow(row), nil
+	return questionCardFromRow(row), nil
 }
 
-// OpenLarkQuestionCards returns the cards of a Channel that still show a
+// OpenQuestionCards returns the cards of a Channel that still show a
 // question as open, oldest first.
-func (s *Store) OpenLarkQuestionCards(ctx context.Context, channel string) ([]LarkQuestionCard, error) {
-	rows, err := s.read().ListOpenLarkChannelQuestions(ctx, channel)
+func (s *Store) OpenQuestionCards(ctx context.Context, channel string) ([]QuestionCard, error) {
+	rows, err := s.read().ListOpenChannelQuestions(ctx, channel)
 	if err != nil {
 		return nil, fmt.Errorf("listing the question cards of Lark channel %s: %w", channel, err)
 	}
 
-	out := make([]LarkQuestionCard, 0, len(rows))
+	out := make([]QuestionCard, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, larkQuestionCardFromRow(r))
+		out = append(out, questionCardFromRow(r))
 	}
 
 	return out, nil
 }
 
-// CloseLarkQuestionCard records that a card was changed to say how its
+// CloseQuestionCard records that a card was changed to say how its
 // question ended.
-func (s *Store) CloseLarkQuestionCard(ctx context.Context, questionID string, seq int) error {
+func (s *Store) CloseQuestionCard(ctx context.Context, questionID string, seq int) error {
 	if err := s.write(ctx, func(q *store.Queries, now int64) error {
-		return q.CloseLarkChannelQuestion(ctx, store.CloseLarkChannelQuestionParams{
+		return q.CloseChannelQuestion(ctx, store.CloseChannelQuestionParams{
 			QuestionID: questionID, Seq: int64(seq), Now: sql.NullInt64{Int64: now, Valid: true},
 		})
 	}); err != nil {
@@ -608,18 +629,18 @@ func (s *Store) CloseLarkQuestionCard(ctx context.Context, questionID string, se
 	return nil
 }
 
-func larkQuestionCardFromRow(r store.LarkChannelQuestion) LarkQuestionCard {
-	return LarkQuestionCard{
+func questionCardFromRow(r store.ChannelQuestion) QuestionCard {
+	return QuestionCard{
 		QuestionID: r.QuestionID, Channel: r.Channel, CardID: r.CardID, MessageID: r.MessageID, Seq: int(r.Seq),
 	}
 }
 
-// LarkChannelGroup is a Lark group a Channel's bot is in (issue #246). The
+// ChannelGroup is a Lark group a Channel's bot is in (issue #246). The
 // roster follows MemoryOS's ChannelGroupRoster: a group is added when the bot
 // is added to it and by Lark's whole list of the bot's groups, and a group
 // the list leaves out is removed. A group is off until the owner switches it
 // on, as OpenClaw's Feishu groupPolicy is an allowlist by default.
-type LarkChannelGroup struct {
+type ChannelGroup struct {
 	Channel string
 	// ChatID is the group's chat id at Lark.
 	ChatID string
@@ -632,20 +653,20 @@ type LarkChannelGroup struct {
 	CreatedAt time.Time
 }
 
-func larkChannelGroupFromRow(r store.LarkChannelGroup) LarkChannelGroup {
-	return LarkChannelGroup{
-		Channel: r.Channel, ChatID: r.LarkChatID, Name: r.Name, Enabled: r.Enabled != 0,
+func channelGroupFromRow(r store.ChannelGroup) ChannelGroup {
+	return ChannelGroup{
+		Channel: r.Channel, ChatID: r.ExternalChatID, Name: r.Name, Enabled: r.Enabled != 0,
 		AskedAt: storeutil.OptionalMillis(r.AskedAt), CreatedAt: storeutil.Millis(r.CreatedAt),
 	}
 }
 
-// JoinLarkChannelGroup records a group the Channel's bot is in. A name Lark
+// JoinChannelGroup records a group the Channel's bot is in. A name Lark
 // gives replaces the one kept; an empty one keeps it. A group already known
 // keeps whether it is on.
-func (s *Store) JoinLarkChannelGroup(ctx context.Context, channel, chatID, name string) error {
+func (s *Store) JoinChannelGroup(ctx context.Context, channel, chatID, name string) error {
 	if err := s.write(ctx, func(q *store.Queries, now int64) error {
-		return q.UpsertLarkChannelGroup(ctx, store.UpsertLarkChannelGroupParams{
-			Channel: channel, LarkChatID: chatID, Name: strings.TrimSpace(name), Now: now,
+		return q.UpsertChannelGroup(ctx, store.UpsertChannelGroupParams{
+			Channel: channel, ExternalChatID: chatID, Name: strings.TrimSpace(name), Now: now,
 		})
 	}); err != nil {
 		return fmt.Errorf("recording Lark group %s of channel %s: %w", chatID, channel, err)
@@ -654,11 +675,11 @@ func (s *Store) JoinLarkChannelGroup(ctx context.Context, channel, chatID, name 
 	return nil
 }
 
-// LeaveLarkChannelGroup forgets a group the Channel's bot left. Its chat
+// LeaveChannelGroup forgets a group the Channel's bot left. Its chat
 // with the Bot stays, on the web.
-func (s *Store) LeaveLarkChannelGroup(ctx context.Context, channel, chatID string) error {
+func (s *Store) LeaveChannelGroup(ctx context.Context, channel, chatID string) error {
 	if err := s.write(ctx, func(q *store.Queries, _ int64) error {
-		_, err := q.DeleteLarkChannelGroup(ctx, store.DeleteLarkChannelGroupParams{Channel: channel, LarkChatID: chatID})
+		_, err := q.DeleteChannelGroup(ctx, store.DeleteChannelGroupParams{Channel: channel, ExternalChatID: chatID})
 
 		return err
 	}); err != nil {
@@ -668,12 +689,12 @@ func (s *Store) LeaveLarkChannelGroup(ctx context.Context, channel, chatID strin
 	return nil
 }
 
-// ListedLarkChannelGroups makes a Channel's groups Lark's whole list of the
+// ListedChannelGroups makes a Channel's groups Lark's whole list of the
 // bot's groups, read from readAt: it records those listed and removes the
 // others, which the bot has left. A group added or asked in since readAt
 // stays, as the list may be older (MemoryOS, JdbcChannelGroupRepository
 // .replace). It returns the groups removed.
-func (s *Store) ListedLarkChannelGroups(ctx context.Context, channel string, listed []LarkChannelGroup,
+func (s *Store) ListedChannelGroups(ctx context.Context, channel string, listed []ChannelGroup,
 	readAt time.Time,
 ) ([]string, error) {
 	var left []string
@@ -684,14 +705,14 @@ func (s *Store) ListedLarkChannelGroups(ctx context.Context, channel string, lis
 		for _, g := range listed {
 			kept[g.ChatID] = true
 
-			if err := q.UpsertLarkChannelGroup(ctx, store.UpsertLarkChannelGroupParams{
-				Channel: channel, LarkChatID: g.ChatID, Name: strings.TrimSpace(g.Name), Now: now,
+			if err := q.UpsertChannelGroup(ctx, store.UpsertChannelGroupParams{
+				Channel: channel, ExternalChatID: g.ChatID, Name: strings.TrimSpace(g.Name), Now: now,
 			}); err != nil {
 				return err
 			}
 		}
 
-		rows, err := q.ListLarkChannelGroups(ctx, channel)
+		rows, err := q.ListChannelGroups(ctx, channel)
 		if err != nil {
 			return err
 		}
@@ -699,17 +720,17 @@ func (s *Store) ListedLarkChannelGroups(ctx context.Context, channel string, lis
 		from := readAt.UnixMilli()
 
 		for _, r := range rows {
-			if kept[r.LarkChatID] || r.CreatedAt >= from || (r.AskedAt.Valid && r.AskedAt.Int64 >= from) {
+			if kept[r.ExternalChatID] || r.CreatedAt >= from || (r.AskedAt.Valid && r.AskedAt.Int64 >= from) {
 				continue
 			}
 
-			if _, err := q.DeleteLarkChannelGroup(ctx, store.DeleteLarkChannelGroupParams{
-				Channel: channel, LarkChatID: r.LarkChatID,
+			if _, err := q.DeleteChannelGroup(ctx, store.DeleteChannelGroupParams{
+				Channel: channel, ExternalChatID: r.ExternalChatID,
 			}); err != nil {
 				return err
 			}
 
-			left = append(left, r.LarkChatID)
+			left = append(left, r.ExternalChatID)
 		}
 
 		return nil
@@ -720,36 +741,36 @@ func (s *Store) ListedLarkChannelGroups(ctx context.Context, channel string, lis
 	return left, nil
 }
 
-// LarkChannelGroups returns a Channel's groups, the most recently asked
+// ChannelGroups returns a Channel's groups, the most recently asked
 // first and those nobody has asked in last.
-func (s *Store) LarkChannelGroups(ctx context.Context, channel string) ([]LarkChannelGroup, error) {
-	rows, err := s.read().ListLarkChannelGroups(ctx, channel)
+func (s *Store) ChannelGroups(ctx context.Context, channel string) ([]ChannelGroup, error) {
+	rows, err := s.read().ListChannelGroups(ctx, channel)
 	if err != nil {
 		return nil, fmt.Errorf("listing the groups of Lark channel %s: %w", channel, err)
 	}
 
-	out := make([]LarkChannelGroup, 0, len(rows))
+	out := make([]ChannelGroup, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, larkChannelGroupFromRow(r))
+		out = append(out, channelGroupFromRow(r))
 	}
 
 	return out, nil
 }
 
-// LarkChannelGroup returns one group of a Channel; ErrNotFound when the
+// ChannelGroup returns one group of a Channel; ErrNotFound when the
 // Channel's bot is not known to be in it.
-func (s *Store) LarkChannelGroup(ctx context.Context, channel, chatID string) (LarkChannelGroup, error) {
-	row, err := s.read().GetLarkChannelGroup(ctx, store.GetLarkChannelGroupParams{Channel: channel, LarkChatID: chatID})
+func (s *Store) ChannelGroup(ctx context.Context, channel, chatID string) (ChannelGroup, error) {
+	row, err := s.read().GetChannelGroup(ctx, store.GetChannelGroupParams{Channel: channel, ExternalChatID: chatID})
 	if err != nil {
-		return LarkChannelGroup{}, storeutil.NotFound(err, "group of Lark channel "+channel, chatID)
+		return ChannelGroup{}, storeutil.NotFound(err, "group of Lark channel "+channel, chatID)
 	}
 
-	return larkChannelGroupFromRow(row), nil
+	return channelGroupFromRow(row), nil
 }
 
-// SetLarkChannelGroup switches a group of a Channel on or off.
-func (s *Store) SetLarkChannelGroup(ctx context.Context, channel, chatID string, enabled bool,
-) (LarkChannelGroup, error) {
+// SetChannelGroup switches a group of a Channel on or off.
+func (s *Store) SetChannelGroup(ctx context.Context, channel, chatID string, enabled bool,
+) (ChannelGroup, error) {
 	on := int64(0)
 	if enabled {
 		on = 1
@@ -760,29 +781,29 @@ func (s *Store) SetLarkChannelGroup(ctx context.Context, channel, chatID string,
 	if err := s.write(ctx, func(q *store.Queries, _ int64) error {
 		var err error
 
-		changed, err = q.SetLarkChannelGroupEnabled(ctx, store.SetLarkChannelGroupEnabledParams{
-			Enabled: on, Channel: channel, LarkChatID: chatID,
+		changed, err = q.SetChannelGroupEnabled(ctx, store.SetChannelGroupEnabledParams{
+			Enabled: on, Channel: channel, ExternalChatID: chatID,
 		})
 
 		return err
 	}); err != nil {
-		return LarkChannelGroup{}, fmt.Errorf("switching Lark group %s of channel %s: %w", chatID, channel, err)
+		return ChannelGroup{}, fmt.Errorf("switching Lark group %s of channel %s: %w", chatID, channel, err)
 	}
 
 	if changed == 0 {
-		return LarkChannelGroup{}, fmt.Errorf("%w: the bot of Lark channel %s is in no group %q",
+		return ChannelGroup{}, fmt.Errorf("%w: the bot of Lark channel %s is in no group %q",
 			storeerr.ErrNotFound, channel, chatID)
 	}
 
-	return s.LarkChannelGroup(ctx, channel, chatID)
+	return s.ChannelGroup(ctx, channel, chatID)
 }
 
-// AskedInLarkChannelGroup records that someone the bot answers asked in a
+// AskedInChannelGroup records that someone the bot answers asked in a
 // group now.
-func (s *Store) AskedInLarkChannelGroup(ctx context.Context, channel, chatID string) error {
+func (s *Store) AskedInChannelGroup(ctx context.Context, channel, chatID string) error {
 	if err := s.write(ctx, func(q *store.Queries, now int64) error {
-		return q.SetLarkChannelGroupAsked(ctx, store.SetLarkChannelGroupAskedParams{
-			Now: sql.NullInt64{Int64: now, Valid: true}, Channel: channel, LarkChatID: chatID,
+		return q.SetChannelGroupAsked(ctx, store.SetChannelGroupAskedParams{
+			Now: sql.NullInt64{Int64: now, Valid: true}, Channel: channel, ExternalChatID: chatID,
 		})
 	}); err != nil {
 		return fmt.Errorf("recording a question in Lark group %s: %w", chatID, err)
@@ -791,10 +812,10 @@ func (s *Store) AskedInLarkChannelGroup(ctx context.Context, channel, chatID str
 	return nil
 }
 
-// IsLarkGroupChat says whether a chat is the conversation of a Lark group:
+// IsChannelGroupChat says whether a chat is the conversation of a Lark group:
 // the Bot's memory is then not in its prompt.
-func (s *Store) IsLarkGroupChat(ctx context.Context, chatID string) (bool, error) {
-	group, err := s.read().IsLarkGroupChat(ctx, chatID)
+func (s *Store) IsChannelGroupChat(ctx context.Context, chatID string) (bool, error) {
+	group, err := s.read().IsChannelGroupChat(ctx, chatID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}

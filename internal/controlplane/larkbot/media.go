@@ -250,7 +250,7 @@ func (r *relay) attachOne(ctx context.Context, asked string) {
 
 	a, refusal := r.all.attachment(ctx, r.chat.Bot, asked)
 	if refusal == "" {
-		err := r.lark.SendFile(ctx, r.chat.LarkChatID, a)
+		err := r.lark.SendFile(ctx, r.chat.ExternalChatID, a)
 		if err == nil {
 			return
 		}
@@ -263,7 +263,7 @@ func (r *relay) attachOne(ctx context.Context, asked string) {
 	r.all.logger.InfoContext(ctx, "a file a Bot asked to send was not sent", slog.String("event", "larkbot.file_refused"),
 		slog.String("channel", r.chat.Channel), slog.String("chat_id", r.chat.ChatID), slog.String("reason", refusal))
 
-	if err := r.lark.SendText(ctx, r.chat.LarkChatID, fmt.Sprintf(noticeNotSent, shownName(asked), refusal)); err != nil {
+	if err := r.lark.SendText(ctx, r.chat.ExternalChatID, fmt.Sprintf(noticeNotSent, shownName(asked), refusal)); err != nil {
 		r.failed(ctx, "saying a file was not sent", err)
 	}
 }

@@ -30,6 +30,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/coordinator"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/channelstore"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 )
 
@@ -169,34 +170,34 @@ type Lark interface {
 
 // Store is what the Channels keep (orchestration.Service).
 type Store interface {
-	LarkChannel(ctx context.Context, name string) (orchestration.LarkChannel, error)
-	LarkChannels(ctx context.Context) ([]orchestration.LarkChannel, error)
-	LarkChannelPerson(ctx context.Context, channel, openID string) (orchestration.LarkChannelPerson, error)
-	TakeLarkMessage(ctx context.Context, channel, messageID string) (bool, error)
-	ForgetLarkMessagesBefore(ctx context.Context, before time.Time) error
-	LarkChannelChatFor(ctx context.Context, channel, larkChatID, openID, title string,
-	) (orchestration.LarkChannelChat, error)
-	LarkGroupChatFor(ctx context.Context, channel, larkChatID, title string) (orchestration.LarkChannelChat, error)
-	LarkChannelChats(ctx context.Context, channel string) ([]orchestration.LarkChannelChat, error)
-	LarkChannelGroup(ctx context.Context, channel, chatID string) (orchestration.LarkChannelGroup, error)
-	JoinLarkChannelGroup(ctx context.Context, channel, chatID, name string) error
-	LeaveLarkChannelGroup(ctx context.Context, channel, chatID string) error
-	ListedLarkChannelGroups(ctx context.Context, channel string, listed []orchestration.LarkChannelGroup,
+	Channel(ctx context.Context, name string) (channelstore.Channel, error)
+	ListChannels(ctx context.Context) ([]channelstore.Channel, error)
+	ChannelPerson(ctx context.Context, channel, openID string) (channelstore.ChannelPerson, error)
+	TakeChannelMessage(ctx context.Context, channel, messageID string) (bool, error)
+	ForgetChannelMessagesBefore(ctx context.Context, before time.Time) error
+	ChannelChatFor(ctx context.Context, channel, larkChatID, openID, title string,
+	) (channelstore.ChannelChat, error)
+	ChannelGroupChatFor(ctx context.Context, channel, larkChatID, title string) (channelstore.ChannelChat, error)
+	ChannelChats(ctx context.Context, channel string) ([]channelstore.ChannelChat, error)
+	ChannelGroup(ctx context.Context, channel, chatID string) (channelstore.ChannelGroup, error)
+	JoinChannelGroup(ctx context.Context, channel, chatID, name string) error
+	LeaveChannelGroup(ctx context.Context, channel, chatID string) error
+	ListedChannelGroups(ctx context.Context, channel string, listed []channelstore.ChannelGroup,
 		readAt time.Time) ([]string, error)
-	AskedInLarkChannelGroup(ctx context.Context, channel, chatID string) error
-	ResetLarkChannelChat(ctx context.Context, channel, larkChatID, title string) (orchestration.LarkChannelChat, error)
-	MarkLarkChannelSent(ctx context.Context, larkChatID string, seq int64) error
-	RenameLarkChannelChat(ctx context.Context, channel, oldID, newID string) error
+	AskedInChannelGroup(ctx context.Context, channel, chatID string) error
+	ResetChannelChat(ctx context.Context, channel, larkChatID, title string) (channelstore.ChannelChat, error)
+	MarkChannelSent(ctx context.Context, larkChatID string, seq int64) error
+	RenameChannelChat(ctx context.Context, channel, oldID, newID string) error
 	ListQuestions(ctx context.Context, f orchestration.QuestionFilter) ([]orchestration.Question, error)
 	GetQuestion(ctx context.Context, id string) (orchestration.Question, error)
 	AnswerQuestion(ctx context.Context, id string, by orchestration.Addressee, a orchestration.Answer,
 	) (orchestration.Question, error)
-	LarkChannelForRun(ctx context.Context, runID string) (string, error)
-	RecordLarkQuestionCard(ctx context.Context, c orchestration.LarkQuestionCard) error
-	LarkQuestionCardOf(ctx context.Context, questionID string) (orchestration.LarkQuestionCard, error)
-	LarkQuestionCardByMessage(ctx context.Context, channel, messageID string) (orchestration.LarkQuestionCard, error)
-	OpenLarkQuestionCards(ctx context.Context, channel string) ([]orchestration.LarkQuestionCard, error)
-	CloseLarkQuestionCard(ctx context.Context, questionID string, seq int) error
+	ChannelForRun(ctx context.Context, runID string) (string, error)
+	RecordQuestionCard(ctx context.Context, c channelstore.QuestionCard) error
+	QuestionCardOf(ctx context.Context, questionID string) (channelstore.QuestionCard, error)
+	QuestionCardByMessage(ctx context.Context, channel, messageID string) (channelstore.QuestionCard, error)
+	OpenQuestionCards(ctx context.Context, channel string) ([]channelstore.QuestionCard, error)
+	CloseQuestionCard(ctx context.Context, questionID string, seq int) error
 	AddChatMessage(ctx context.Context, chatID string, role orchestration.ChatRole, text string,
 	) (orchestration.ChatMessage, error)
 	ListChatMessages(ctx context.Context, chatID string, after int64, limit int) ([]orchestration.ChatMessage, error)
@@ -289,7 +290,7 @@ const (
 type Channels struct {
 	store  Store
 	coord  Coordinator
-	open   func(ctx context.Context, channel orchestration.LarkChannel) (Lark, error)
+	open   func(ctx context.Context, channel channelstore.Channel) (Lark, error)
 	logger *slog.Logger
 	now    func() time.Time
 	// webURL is the web client's address, for the link under a reply.
@@ -352,7 +353,7 @@ func (c *Channels) WithClock(clock platform.Clock) *Channels {
 
 // New returns the Channels' runner. open makes a Channel's connection to
 // Lark from what the owner set up; it is where the app's secret is read.
-func New(store Store, coord Coordinator, open func(context.Context, orchestration.LarkChannel) (Lark, error),
+func New(store Store, coord Coordinator, open func(context.Context, channelstore.Channel) (Lark, error),
 	logger *slog.Logger,
 ) *Channels {
 	return &Channels{
@@ -416,7 +417,7 @@ func (c *Channels) Run(ctx context.Context) error {
 		case <-c.look:
 		case <-retry.C:
 		case <-forget.C:
-			if err := c.store.ForgetLarkMessagesBefore(ctx, c.now().Add(-forgetAfter)); err != nil {
+			if err := c.store.ForgetChannelMessagesBefore(ctx, c.now().Add(-forgetAfter)); err != nil {
 				c.logger.WarnContext(ctx, "old Lark messages were not forgotten",
 					slog.String("event", "larkbot.forget_failed"), slog.Any("error", err))
 			}
@@ -428,7 +429,7 @@ func (c *Channels) Run(ctx context.Context) error {
 // Each is opened on its own goroutine: one that Lark keeps waiting does not
 // hold the others back.
 func (c *Channels) connect(ctx context.Context) {
-	channels, err := c.store.LarkChannels(ctx)
+	channels, err := c.store.ListChannels(ctx)
 	if err != nil {
 		if ctx.Err() == nil {
 			c.logger.WarnContext(ctx, "the Lark channels were not read", slog.String("event", "larkbot.channels_failed"),
@@ -453,7 +454,7 @@ func (c *Channels) connect(ctx context.Context) {
 }
 
 // start opens one Channel's connection.
-func (c *Channels) start(ctx context.Context, ch orchestration.LarkChannel) {
+func (c *Channels) start(ctx context.Context, ch channelstore.Channel) {
 	cn := &conn{all: c, name: ch.Name, appID: ch.AppID, relays: map[string]*relay{}, turns: map[string]*sync.Mutex{}}
 
 	lark, err := c.open(ctx, ch)
@@ -487,7 +488,7 @@ func (c *Channels) start(ctx context.Context, ch orchestration.LarkChannel) {
 	c.logger.InfoContext(ctx, "a Lark channel is connected", slog.String("event", "larkbot.connected"),
 		slog.String("channel", ch.Name), slog.String("app_id", ch.AppID))
 
-	chats, err := c.store.LarkChannelChats(ctx, ch.Name)
+	chats, err := c.store.ChannelChats(ctx, ch.Name)
 	if err != nil {
 		c.logger.WarnContext(ctx, "a Lark channel's chats were not read", slog.String("event", "larkbot.chats_failed"),
 			slog.String("channel", ch.Name), slog.Any("error", err))
@@ -541,12 +542,12 @@ func (cn *conn) list(ctx context.Context) {
 		return
 	}
 
-	listed := make([]orchestration.LarkChannelGroup, 0, len(groups))
+	listed := make([]channelstore.ChannelGroup, 0, len(groups))
 	for _, g := range groups {
-		listed = append(listed, orchestration.LarkChannelGroup{ChatID: g.ChatID, Name: g.Name})
+		listed = append(listed, channelstore.ChannelGroup{ChatID: g.ChatID, Name: g.Name})
 	}
 
-	left, err := cn.all.store.ListedLarkChannelGroups(ctx, cn.name, listed, readAt)
+	left, err := cn.all.store.ListedChannelGroups(ctx, cn.name, listed, readAt)
 	if err != nil {
 		cn.all.logger.WarnContext(ctx, "a Lark channel's groups were not recorded",
 			slog.String("event", "larkbot.groups_failed"), slog.String("channel", cn.name), slog.Any("error", err))
@@ -563,7 +564,7 @@ func (cn *conn) list(ctx context.Context) {
 // joined records a group the bot was added to; it is off until the owner
 // switches it on, and the bot says nothing there (no greeting on join).
 func (cn *conn) joined(ctx context.Context, g Group) {
-	if err := cn.all.store.JoinLarkChannelGroup(ctx, cn.name, g.ChatID, g.Name); err != nil {
+	if err := cn.all.store.JoinChannelGroup(ctx, cn.name, g.ChatID, g.Name); err != nil {
 		cn.all.logger.WarnContext(ctx, "a Lark group was not recorded", slog.String("event", "larkbot.group_failed"),
 			slog.String("channel", cn.name), slog.Any("error", err))
 	}
@@ -571,7 +572,7 @@ func (cn *conn) joined(ctx context.Context, g Group) {
 
 // left forgets a group the bot left.
 func (cn *conn) left(ctx context.Context, chatID string) {
-	if err := cn.all.store.LeaveLarkChannelGroup(ctx, cn.name, chatID); err != nil {
+	if err := cn.all.store.LeaveChannelGroup(ctx, cn.name, chatID); err != nil {
 		cn.all.logger.WarnContext(ctx, "a Lark group was not forgotten", slog.String("event", "larkbot.group_failed"),
 			slog.String("channel", cn.name), slog.Any("error", err))
 	}
@@ -594,7 +595,7 @@ func (cn *conn) take(ctx context.Context, m Message) {
 func (cn *conn) taken(ctx context.Context, m Message) error {
 	store := cn.all.store
 
-	ch, err := store.LarkChannel(ctx, cn.name)
+	ch, err := store.Channel(ctx, cn.name)
 	if err != nil || !ch.Enabled {
 		return nil //nolint:nilerr // A Channel that was switched off or removed takes nothing and says nothing.
 	}
@@ -608,7 +609,7 @@ func (cn *conn) taken(ctx context.Context, m Message) error {
 		return cn.inGroup(ctx, ch, m)
 	}
 
-	first, err := store.TakeLarkMessage(ctx, cn.name, m.ID)
+	first, err := store.TakeChannelMessage(ctx, cn.name, m.ID)
 	if err != nil || !first {
 		return err
 	}
@@ -632,7 +633,7 @@ func (cn *conn) menu(ctx context.Context, p MenuPress) {
 func (cn *conn) menued(ctx context.Context, p MenuPress) error {
 	store := cn.all.store
 
-	ch, err := store.LarkChannel(ctx, cn.name)
+	ch, err := store.Channel(ctx, cn.name)
 	if err != nil || !ch.Enabled {
 		return nil //nolint:nilerr // A Channel that was switched off or removed takes nothing and says nothing.
 	}
@@ -646,7 +647,7 @@ func (cn *conn) menued(ctx context.Context, p MenuPress) error {
 	// Lark's repeated delivery of the press repeats.
 	id := "bot-menu:" + key + ":" + p.At
 
-	first, err := store.TakeLarkMessage(ctx, cn.name, id)
+	first, err := store.TakeChannelMessage(ctx, cn.name, id)
 	if err != nil || !first {
 		return err
 	}
@@ -676,14 +677,14 @@ func (cn *conn) menued(ctx context.Context, p MenuPress) error {
 // press of the menu does not name: the one they wrote in before, the
 // person's open_id while Lark has not named it, or none.
 func (cn *conn) directChat(ctx context.Context, openID string) (string, error) {
-	chats, err := cn.all.store.LarkChannelChats(ctx, cn.name)
+	chats, err := cn.all.store.ChannelChats(ctx, cn.name)
 	if err != nil {
 		return "", err
 	}
 
 	for _, c := range chats {
-		if !c.Group && c.OpenID == openID {
-			return c.LarkChatID, nil
+		if !c.Group && c.PersonID == openID {
+			return c.ExternalChatID, nil
 		}
 	}
 
@@ -692,7 +693,7 @@ func (cn *conn) directChat(ctx context.Context, openID string) (string, error) {
 
 // direct handles a direct message that was taken: who may send it, then what
 // it is.
-func (cn *conn) direct(ctx context.Context, ch orchestration.LarkChannel, m Message) error {
+func (cn *conn) direct(ctx context.Context, ch channelstore.Channel, m Message) error {
 	store := cn.all.store
 
 	if refusal := cn.refusal(ctx, ch, m); refusal != "" {
@@ -710,8 +711,8 @@ func (cn *conn) direct(ctx context.Context, ch orchestration.LarkChannel, m Mess
 	}
 
 	// The owner's reply to a question's card is his answer in his own words, not a message for the Bot.
-	if m.Sender == ch.OwnerOpenID && m.ReplyTo != "" {
-		if card, err := store.LarkQuestionCardByMessage(ctx, cn.name, m.ReplyTo); err == nil {
+	if m.Sender == ch.OwnerID && m.ReplyTo != "" {
+		if card, err := store.QuestionCardByMessage(ctx, cn.name, m.ReplyTo); err == nil {
 			cn.notice(ctx, m.ChatID, cn.answer(ctx, card.QuestionID, orchestration.Answer{Text: m.Text}))
 
 			return nil
@@ -726,7 +727,7 @@ func (cn *conn) direct(ctx context.Context, ch orchestration.LarkChannel, m Mess
 	}
 
 	text, title := m.Text, ""
-	if m.Sender != ch.OwnerOpenID {
+	if m.Sender != ch.OwnerID {
 		// Someone the owner let in may give work, and is named: the name is a label of the message, not an
 		// instruction, as OpenClaw and MemoryOS fence a sender's name.
 		name := cn.nameOf(ctx, m.Sender)
@@ -735,7 +736,7 @@ func (cn *conn) direct(ctx context.Context, ch orchestration.LarkChannel, m Mess
 		title = "Lark: " + name
 	}
 
-	chat, err := store.LarkChannelChatFor(ctx, cn.name, m.ChatID, m.Sender, title)
+	chat, err := store.ChannelChatFor(ctx, cn.name, m.ChatID, m.Sender, title)
 	if err != nil {
 		return err
 	}
@@ -750,7 +751,7 @@ func (cn *conn) direct(ctx context.Context, ch orchestration.LarkChannel, m Mess
 // OpenClaw's groupSenderAllowFrom). Anything else is dropped without a word
 // and is not recorded (Hermes, MemoryOS). A command needs the mention too
 // (OpenClaw).
-func (cn *conn) inGroup(ctx context.Context, ch orchestration.LarkChannel, m Message) error {
+func (cn *conn) inGroup(ctx context.Context, ch channelstore.Channel, m Message) error {
 	store := cn.all.store
 
 	text, mentioned, err := cn.addressed(ctx, m)
@@ -758,11 +759,11 @@ func (cn *conn) inGroup(ctx context.Context, ch orchestration.LarkChannel, m Mes
 		return err
 	}
 
-	g, err := store.LarkChannelGroup(ctx, cn.name, m.ChatID)
+	g, err := store.ChannelGroup(ctx, cn.name, m.ChatID)
 	if errors.Is(err, orchestration.ErrNotFound) {
 		// A group the roster does not hold yet, as the bot was added since the last listing: it is put on the
 		// owner's list, off, as MemoryOS lists a group that is not allowed when it is asked there.
-		return store.JoinLarkChannelGroup(ctx, cn.name, m.ChatID, "")
+		return store.JoinChannelGroup(ctx, cn.name, m.ChatID, "")
 	}
 
 	if err != nil || !g.Enabled {
@@ -776,7 +777,7 @@ func (cn *conn) inGroup(ctx context.Context, ch orchestration.LarkChannel, m Mes
 		return nil
 	}
 
-	first, err := store.TakeLarkMessage(ctx, cn.name, m.ID)
+	first, err := store.TakeChannelMessage(ctx, cn.name, m.ID)
 	if err != nil || !first {
 		return err
 	}
@@ -812,7 +813,7 @@ func (cn *conn) inGroup(ctx context.Context, ch orchestration.LarkChannel, m Mes
 		return cn.startOver(ctx, m, title)
 	}
 
-	if g, err = store.LarkChannelGroup(ctx, cn.name, m.ChatID); err != nil {
+	if g, err = store.ChannelGroup(ctx, cn.name, m.ChatID); err != nil {
 		return err
 	}
 
@@ -825,12 +826,12 @@ func (cn *conn) inGroup(ctx context.Context, ch orchestration.LarkChannel, m Mes
 		}
 	}
 
-	chat, err := store.LarkGroupChatFor(ctx, cn.name, m.ChatID, title)
+	chat, err := store.ChannelGroupChatFor(ctx, cn.name, m.ChatID, title)
 	if err != nil {
 		return err
 	}
 
-	if err := store.AskedInLarkChannelGroup(ctx, cn.name, m.ChatID); err != nil {
+	if err := store.AskedInChannelGroup(ctx, cn.name, m.ChatID); err != nil {
 		return err
 	}
 
@@ -924,7 +925,7 @@ func (cn *conn) bot(ctx context.Context) (string, error) {
 
 // deliver gives a person's message to the Bot of its chat and marks it as
 // being worked on.
-func (cn *conn) deliver(ctx context.Context, m Message, chat orchestration.LarkChannelChat, text string) error {
+func (cn *conn) deliver(ctx context.Context, m Message, chat channelstore.ChannelChat, text string) error {
 	store := cn.all.store
 
 	cn.mu.Lock()
@@ -979,7 +980,7 @@ func (cn *conn) startOver(ctx context.Context, m Message, title string) error {
 // restart gives a Lark chat a new chat with the Channel's Bot, and relays
 // that one. A Lark chat with no chat yet needs none.
 func (cn *conn) restart(ctx context.Context, larkChatID, title string) error {
-	chat, err := cn.all.store.ResetLarkChannelChat(ctx, cn.name, larkChatID, title)
+	chat, err := cn.all.store.ResetChannelChat(ctx, cn.name, larkChatID, title)
 	if errors.Is(err, orchestration.ErrNotFound) {
 		return nil
 	}
@@ -1025,7 +1026,7 @@ func (cn *conn) stop(ctx context.Context, m Message) error {
 
 // refusal says why a sender may not talk through the Channel in a direct
 // message, or nothing when they may.
-func (cn *conn) refusal(ctx context.Context, ch orchestration.LarkChannel, m Message) string {
+func (cn *conn) refusal(ctx context.Context, ch channelstore.Channel, m Message) string {
 	// A custom app belongs to one organization, which every event names (MemoryOS, rule 2). In a group the
 	// check is not made: there everyone is every member of the group (owner, 2026-11-12).
 	if m.SenderOrg == "" || m.SenderOrg != m.Org {
@@ -1038,16 +1039,16 @@ func (cn *conn) refusal(ctx context.Context, ch orchestration.LarkChannel, m Mes
 // refusalOf says why the Channel's mode does not let a sender ask, or
 // nothing when it does: the same choice in a direct message and, for each
 // sender, in a group.
-func (cn *conn) refusalOf(ctx context.Context, ch orchestration.LarkChannel, sender string) string {
-	if sender == ch.OwnerOpenID {
+func (cn *conn) refusalOf(ctx context.Context, ch channelstore.Channel, sender string) string {
+	if sender == ch.OwnerID {
 		return ""
 	}
 
 	switch ch.Mode {
-	case orchestration.LarkChannelEveryone:
+	case channelstore.ChannelEveryone:
 		return ""
-	case orchestration.LarkChannelAllowlist:
-		if _, err := cn.all.store.LarkChannelPerson(ctx, cn.name, sender); err == nil {
+	case channelstore.ChannelAllowlist:
+		if _, err := cn.all.store.ChannelPerson(ctx, cn.name, sender); err == nil {
 			return ""
 		}
 
@@ -1061,7 +1062,7 @@ func (cn *conn) refusalOf(ctx context.Context, ch orchestration.LarkChannel, sen
 // under, else their name at Lark, else their id. It is a label, so it is cut
 // to a plain name that cannot pass for an instruction or end the label.
 func (cn *conn) nameOf(ctx context.Context, openID string) string {
-	if p, err := cn.all.store.LarkChannelPerson(ctx, cn.name, openID); err == nil {
+	if p, err := cn.all.store.ChannelPerson(ctx, cn.name, openID); err == nil {
 		if name := speaker(p.Name); name != "" {
 			return name
 		}
@@ -1116,7 +1117,7 @@ func (cn *conn) notice(ctx context.Context, chatID, text string) {
 // Channel through which he already reads the chat named is left out, so he
 // is told once.
 func (c *Channels) TellOwner(ctx context.Context, bot, chatID, title, text string) {
-	channels, err := c.store.LarkChannels(ctx)
+	channels, err := c.store.ListChannels(ctx)
 	if err != nil {
 		c.logger.WarnContext(ctx, "the Lark channels were not read", slog.String("event", "larkbot.channels_failed"),
 			slog.Any("error", err))
@@ -1129,12 +1130,12 @@ func (c *Channels) TellOwner(ctx context.Context, bot, chatID, title, text strin
 		cn := c.conns[ch.Name]
 		c.mu.Unlock()
 
-		if ch.Bot != bot || !ch.Enabled || cn == nil || ch.OwnerOpenID == "" || cn.reads(ctx, chatID) {
+		if ch.Bot != bot || !ch.Enabled || cn == nil || ch.OwnerID == "" || cn.reads(ctx, chatID) {
 			continue
 		}
 
 		sendCtx, cancel := context.WithTimeout(ctx, sendTimeout)
-		_, _, err := cn.lark.SendCard(sendCtx, ch.OwnerOpenID, Card{Title: title, Color: "red", Text: inert(text)})
+		_, _, err := cn.lark.SendCard(sendCtx, ch.OwnerID, Card{Title: title, Color: "red", Text: inert(text)})
 
 		cancel()
 
@@ -1152,24 +1153,24 @@ func (cn *conn) reads(ctx context.Context, chatID string) bool {
 		return false
 	}
 
-	chats, err := cn.all.store.LarkChannelChats(ctx, cn.name)
+	chats, err := cn.all.store.ChannelChats(ctx, cn.name)
 	if err != nil {
 		return false
 	}
 
-	return slices.ContainsFunc(chats, func(c orchestration.LarkChannelChat) bool { return c.ChatID == chatID })
+	return slices.ContainsFunc(chats, func(c channelstore.ChannelChat) bool { return c.ChatID == chatID })
 }
 
 // relayLocked starts sending a chat's replies to its Lark chat, once, and
 // returns what sends them.
-func (cn *conn) relayLocked(ctx context.Context, chat orchestration.LarkChannelChat) *relay {
-	if r, running := cn.relays[chat.LarkChatID]; running {
+func (cn *conn) relayLocked(ctx context.Context, chat channelstore.ChannelChat) *relay {
+	if r, running := cn.relays[chat.ExternalChatID]; running {
 		return r
 	}
 
 	ctx, stop := context.WithCancel(ctx)
 	r := &relay{all: cn.all, cn: cn, lark: cn.lark, chat: chat, sent: chat.SentSeq, stop: stop}
-	cn.relays[chat.LarkChatID] = r
+	cn.relays[chat.ExternalChatID] = r
 
 	go r.run(ctx)
 
@@ -1184,7 +1185,7 @@ type relay struct {
 	all  *Channels
 	cn   *conn
 	lark Lark
-	chat orchestration.LarkChannelChat
+	chat channelstore.ChannelChat
 	stop context.CancelFunc
 	// sent is the last kept message that was sent.
 	sent int64
@@ -1447,7 +1448,7 @@ func (r *relay) show(ctx context.Context, now bool) {
 	defer cancel()
 
 	if r.card == "" {
-		id, larkChat, err := r.lark.OpenCard(ctx, r.chat.LarkChatID, r.replyTo(), body)
+		id, larkChat, err := r.lark.OpenCard(ctx, r.chat.ExternalChatID, r.replyTo(), body)
 		if err != nil {
 			r.failed(ctx, "opening a card", err)
 
@@ -1498,7 +1499,7 @@ func (r *relay) kept(ctx context.Context) {
 		sent := r.sent
 		r.send(ctx, slices.DeleteFunc(msgs, func(m orchestration.ChatMessage) bool { return m.Seq <= sent }), false)
 
-		if err := r.all.store.MarkLarkChannelSent(ctx, r.chat.LarkChatID, r.sent); err != nil {
+		if err := r.all.store.MarkChannelSent(ctx, r.chat.ExternalChatID, r.sent); err != nil {
 			r.failed(ctx, "recording what was sent", err)
 
 			return
@@ -1517,7 +1518,7 @@ func (r *relay) keep(ctx context.Context) {
 
 	r.send(ctx, msgs, true)
 
-	if err := r.all.store.MarkLarkChannelSent(ctx, r.chat.LarkChatID, r.sent); err != nil {
+	if err := r.all.store.MarkChannelSent(ctx, r.chat.ExternalChatID, r.sent); err != nil {
 		r.failed(ctx, "recording what was sent", err)
 	}
 }
@@ -1604,7 +1605,7 @@ func (r *relay) artifacts(ctx context.Context, seq int64) string {
 // Channel is read at each reply, so the owner's switch counts from the next
 // one; a Channel that cannot be read goes without the link.
 func (r *relay) webLink(ctx context.Context) bool {
-	ch, err := r.all.store.LarkChannel(ctx, r.chat.Channel)
+	ch, err := r.all.store.Channel(ctx, r.chat.Channel)
 
 	return err == nil && ch.WebLink
 }
@@ -1652,7 +1653,7 @@ func (r *relay) finish(ctx context.Context, text string) {
 
 	for i, part := range parts {
 		if i > 0 || card == "" {
-			id, larkChat, err := r.lark.OpenCard(ctx, r.chat.LarkChatID, replyTo, part)
+			id, larkChat, err := r.lark.OpenCard(ctx, r.chat.ExternalChatID, replyTo, part)
 			if err != nil {
 				r.failed(ctx, "sending a reply", err)
 
@@ -1674,12 +1675,12 @@ func (r *relay) finish(ctx context.Context, text string) {
 // under the person's open_id until Lark named it (issue #312: a press of the
 // menu names no chat). The chat and its relay go by that id from then on.
 func (r *relay) named(ctx context.Context, larkChatID string) {
-	old := r.chat.LarkChatID
+	old := r.chat.ExternalChatID
 	if !strings.HasPrefix(old, openIDPrefix) || larkChatID == "" || larkChatID == old {
 		return
 	}
 
-	if err := r.all.store.RenameLarkChannelChat(ctx, r.chat.Channel, old, larkChatID); err != nil {
+	if err := r.all.store.RenameChannelChat(ctx, r.chat.Channel, old, larkChatID); err != nil {
 		r.failed(ctx, "recording the chat Lark named", err)
 
 		return
@@ -1691,7 +1692,7 @@ func (r *relay) named(ctx context.Context, larkChatID string) {
 		r.cn.relays[larkChatID] = r
 	}
 
-	r.chat.LarkChatID = larkChatID
+	r.chat.ExternalChatID = larkChatID
 	r.cn.mu.Unlock()
 }
 
@@ -1798,7 +1799,7 @@ func (cn *conn) questions(ctx context.Context) {
 func (cn *conn) syncQuestions(ctx context.Context) error {
 	store := cn.all.store
 
-	ch, err := store.LarkChannel(ctx, cn.name)
+	ch, err := store.Channel(ctx, cn.name)
 	if err != nil || !ch.Enabled {
 		// A Channel that was switched off or removed sends nothing.
 		return nil
@@ -1815,28 +1816,28 @@ func (cn *conn) syncQuestions(ctx context.Context) error {
 	defer cancel()
 
 	for _, q := range open {
-		if _, err := store.LarkQuestionCardOf(ctx, q.ID); !errors.Is(err, orchestration.ErrNotFound) {
+		if _, err := store.QuestionCardOf(ctx, q.ID); !errors.Is(err, orchestration.ErrNotFound) {
 			continue
 		}
 
 		// A question goes out through one Channel: the one its Run's chat came in through, else the first.
-		if via, err := store.LarkChannelForRun(ctx, q.RunID); err != nil || via != cn.name {
+		if via, err := store.ChannelForRun(ctx, q.RunID); err != nil || via != cn.name {
 			continue
 		}
 
-		cardID, messageID, err := cn.lark.SendCard(ctx, ch.OwnerOpenID, questionCard(q))
+		cardID, messageID, err := cn.lark.SendCard(ctx, ch.OwnerID, questionCard(q))
 		if err != nil {
 			return fmt.Errorf("sending question %s: %w", q.ID, err)
 		}
 
-		if err := store.RecordLarkQuestionCard(ctx, orchestration.LarkQuestionCard{
+		if err := store.RecordQuestionCard(ctx, channelstore.QuestionCard{
 			QuestionID: q.ID, Channel: cn.name, CardID: cardID, MessageID: messageID,
 		}); err != nil {
 			return err
 		}
 	}
 
-	cards, err := store.OpenLarkQuestionCards(ctx, cn.name)
+	cards, err := store.OpenQuestionCards(ctx, cn.name)
 	if err != nil {
 		return err
 	}
@@ -1851,7 +1852,7 @@ func (cn *conn) syncQuestions(ctx context.Context) error {
 			return fmt.Errorf("closing the card of question %s: %w", q.ID, err)
 		}
 
-		if err := store.CloseLarkQuestionCard(ctx, c.QuestionID, c.Seq+1); err != nil {
+		if err := store.CloseQuestionCard(ctx, c.QuestionID, c.Seq+1); err != nil {
 			return err
 		}
 	}
@@ -1909,12 +1910,12 @@ func endedCard(q orchestration.Question) Card {
 // pressed is told. It is called from the connection, which must answer Lark
 // within three seconds; an answer is one write.
 func (cn *conn) press(ctx context.Context, p Press) string {
-	ch, err := cn.all.store.LarkChannel(ctx, cn.name)
+	ch, err := cn.all.store.Channel(ctx, cn.name)
 	if err != nil || !ch.Enabled {
 		return ""
 	}
 
-	if p.Operator != ch.OwnerOpenID {
+	if p.Operator != ch.OwnerID {
 		return onlyTheOwner
 	}
 
