@@ -24,7 +24,6 @@ type Account struct {
 	RefreshRetryAt  sql.NullInt64
 	RefreshError    sql.NullString
 	Project         sql.NullString
-	SentToNode      int64
 }
 
 type AccountCooldown struct {

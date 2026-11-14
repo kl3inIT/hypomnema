@@ -250,7 +250,6 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	workerKeys := dispatchKeys{gateway: gateway, svc: svc, logger: logger}
 
 	nodes := nodeapi.New(svc, logger).WithHostTokens(tokens.Token).WithModelKeys(workerKeys.Key).
-		WithAccountTokens(accountTokens{svc: svc, vault: secrets, logger: logger}.Token).
 		WithAgentKeys(workerKeys.AgentKey).WithTools(integrations.Tools).WithRuntimeTools(agenttool.RuntimeTools).
 		WithReleaseURL(cfg.NodeReleaseURL)
 	nodes.Register(mux)
@@ -383,7 +382,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		WithWeb(botWeb{meteredWeb: metered, chats: sup}).
 		WithWebSearch(webSearchSettings{web: webSearch, gateway: gateway})
 	if cfg.VaultKeys != nil {
-		api.WithTokenAccounts(accountTokens{svc: svc, vault: secrets, logger: logger})
+		api.WithTokenAccounts(accountTokens{svc: svc, vault: secrets})
 	}
 	if !cfg.BrowserOff {
 		api.WithBrowser(ownersBrowser{shared})

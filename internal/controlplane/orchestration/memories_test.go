@@ -1,13 +1,13 @@
 package orchestration
 
 import (
-	"fmt"
 	"strings"
-	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/memorystore"
 )
 
 // Scenario: the owner writes what the implementer keeps and what every agent
@@ -20,9 +20,9 @@ func TestAWorkerIsOfferedItsAgentsMemoryAndKeepsAFact(t *testing.T) {
 	w := newSchedWorld(t)
 	ctx := t.Context()
 
-	_, err := w.s.SetAgentMemory(ctx, "implementer", "- Run the tests first.\n\nRun the tests first.\n")
+	_, err := w.s.Memories().SetAgentMemory(ctx, "implementer", "- Run the tests first.\n\nRun the tests first.\n")
 	require.NoError(t, err)
-	_, err = w.s.SetOwnerMemory(ctx, "The owner writes in Vietnamese.")
+	_, err = w.s.Memories().SetOwnerMemory(ctx, "The owner writes in Vietnamese.")
 	require.NoError(t, err)
 
 	w.tasks(NewTask{Ref: "a", Spec: "a"})
@@ -49,16 +49,18 @@ func TestAWorkerIsOfferedItsAgentsMemoryAndKeepsAFact(t *testing.T) {
 	assert.Equal(t, "Run the tests first.", o.Memory, "the owner's lines are the memory, once each")
 	assert.Equal(t, "The owner writes in Vietnamese.", o.OwnerMemory)
 
-	m, err := w.s.ChangeDispatchMemory(ctx, first.ID, false, MemoryOp{Kind: MemoryAdd, Text: " Linh  reviews Go. "})
+	m, err := w.s.Memories().ChangeDispatchMemory(ctx, first.ID, false,
+		memorystore.Op{Kind: memorystore.Add, Text: " Linh  reviews Go. "})
 	require.NoError(t, err)
-	assert.Equal(t, Memory{Agent: "implementer", Text: "Run the tests first.\nLinh reviews Go.", Limit: MaxMemory,
-		UpdatedAt: m.UpdatedAt}, m)
+	assert.Equal(t, memorystore.Memory{Agent: "implementer", Text: "Run the tests first.\nLinh reviews Go.",
+		Limit: MaxMemory, UpdatedAt: m.UpdatedAt}, m)
 
-	_, err = w.s.ChangeDispatchMemory(ctx, first.ID, true, MemoryOp{Kind: MemoryAdd, Text: strings.Repeat("x", 1400)})
+	_, err = w.s.Memories().ChangeDispatchMemory(ctx, first.ID, true,
+		memorystore.Op{Kind: memorystore.Add, Text: strings.Repeat("x", 1400)})
 	require.ErrorIs(t, err, ErrInvalid)
 	require.ErrorContains(t, err, "over its limit of 1375")
 
-	owner, err := w.s.OwnerMemory(ctx)
+	owner, err := w.s.Memories().OwnerMemory(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, "The owner writes in Vietnamese.", owner.Text, "a refused change changes nothing")
 
@@ -66,31 +68,8 @@ func TestAWorkerIsOfferedItsAgentsMemoryAndKeepsAFact(t *testing.T) {
 	second := w.dispatchOf(w.schedule().Created[0])
 	assert.Equal(t, "Run the tests first.\nLinh reviews Go.", offer(second.ID).Memory)
 
-	_, err = w.s.AgentMemory(ctx, "nobody")
+	_, err = w.s.Memories().AgentMemory(ctx, "nobody")
 	require.ErrorIs(t, err, ErrNotFound)
-	_, err = w.s.SetAgentMemory(ctx, "nobody", "x")
+	_, err = w.s.Memories().SetAgentMemory(ctx, "nobody", "x")
 	require.ErrorIs(t, err, ErrNotFound)
-}
-
-// Workers of one agent writing at once each keep their entry: the memory is
-// read again inside each write, as Hermes's tool re-reads its file.
-func TestWorkersWritingAtOnceKeepEveryEntry(t *testing.T) {
-	t.Parallel()
-
-	w := newWorld(t)
-
-	var wg sync.WaitGroup
-
-	for i := range 8 {
-		wg.Go(func() {
-			_, err := w.s.ChangeAgentMemory(t.Context(), "reviewer", MemoryOp{Kind: MemoryAdd, Text: fmt.Sprintf("fact %d", i)})
-			assert.NoError(t, err)
-		})
-	}
-
-	wg.Wait()
-
-	m, err := w.s.AgentMemory(t.Context(), "reviewer")
-	require.NoError(t, err)
-	assert.Len(t, strings.Split(m.Text, "\n"), 8)
 }

@@ -94,10 +94,11 @@ The three boundaries that matter:
    never lives in `shared`: it stays in `controlplane/vault`, the only package that holds the root key.
 2. **Orchestration state has one writer**: only `controlplane/orchestration` uses the generated sqlc code for Run, Task,
    Dispatch, Gate, leases and nodes, and exposes named operations (`ClaimNextDispatch`, `ExpireLeases`,
-   `MarkNodeLost`…), as Omnara's `internal/storage`. A domain that crosses no other (the web's users) is a store
-   under the tree, `orchestration/userstore`, reached through the root's accessor (`Users()`), as Omnara's
-   `*store` packages behind its facade (issue #404). It imports the generated queries, `internal/storeutil` and
-   `storeerr`, never the root; a method of it ending in `Tx` takes the caller's queries and begins no transaction. These rows change together under concurrency, so one package
+   `MarkNodeLost`…), as Omnara's `internal/storage`. A domain that writes no other's tables (the web's users, the
+   memories) is a store under the tree, `orchestration/userstore` and `orchestration/memorystore`, reached through
+   the root's accessors (`Users()`, `Memories()`), as Omnara's `*store` packages behind its facade (issue #404). It
+   imports the generated queries, `internal/storeutil` and `storeerr`, never the root; what of it ends in `Tx` takes
+   the caller's queries and begins no transaction. These rows change together under concurrency, so one package
    holds one lock order.
 3. **Untrusted input passes policy**: every state change requested by a Coordinator, a Bot, a Channel or a webhook goes
    through the client API, which checks what the token may do, and every request to a service through the service
@@ -215,10 +216,11 @@ The three boundaries that matter:
   2026-11-10). It is encrypted as Omnara's `internal/secrets`: a data key per secret version, wrapped by a root key chosen
   by ID from a keyring, with the secret's identity as associated data. The root key comes from the environment of the
   control plane host, with an offline backup and a rotation procedure that rewraps data keys.
-- A worker's Claude token and a git host's token go to its Dispatch alone, as environment, as OpenHands and Omnara
-  deliver them; the node is the boundary and there is no proxy on it
+- A git host's token goes to its Dispatch alone, as environment, as OpenHands and Omnara deliver it; the node is
+  the boundary and there is no proxy on it
   ([decision, 2026-11-13](decisions/2026-11-13-worker-credentials-in-the-environment.md), which replaced the plan of a proxy as
-  Infisical's Agent Vault). No tool returns a vault value to the Coordinator or a worker. Research:
+  Infisical's Agent Vault). A Claude subscription token never reaches a node: a Claude Code worker runs through the
+  model gateway with its Dispatch's key ([decision, 2026-11-14](decisions/2026-11-14-claude-code-workers-only-through-the-gateway.md)). No tool returns a vault value to the Coordinator or a worker. Research:
   [secrets for agents](research/2026-11-07-secrets-for-agents.md).
 - Logs and transcripts are scrubbed of secret patterns before they are stored.
 

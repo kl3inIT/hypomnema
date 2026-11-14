@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/memorystore"
 	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
 )
 
@@ -115,10 +116,6 @@ type Offer struct {
 	// serves its model. Orchestration never fills it: the node API does, as
 	// it sends the offer.
 	ModelKey string `json:"model_key,omitempty"`
-	// AccountToken is the account's token, when the control plane keeps it
-	// (issue #150). Orchestration never fills it: the node API does, from the
-	// vault, as it sends the offer.
-	AccountToken string `json:"account_token,omitempty"`
 	// Uses are the Connections the Run's workers may use; AgentKey is this
 	// Dispatch's own key to ask for their tokens. Orchestration never fills
 	// the key: the node API does, as it sends the offer.
@@ -228,12 +225,12 @@ func offerOf(ctx context.Context, q *store.Queries, d store.Dispatch) (Offer, er
 		instruction, agent = v.Instruction.String, v.Profile
 	}
 
-	memory, err := readMemory(ctx, q, memoryOfAgent, agent)
+	memory, err := memorystore.AgentMemoryTx(ctx, q, agent)
 	if err != nil {
 		return Offer{}, err
 	}
 
-	owner, err := readMemory(ctx, q, memoryOfOwner, "")
+	owner, err := memorystore.OwnerMemoryTx(ctx, q)
 	if err != nil {
 		return Offer{}, err
 	}
