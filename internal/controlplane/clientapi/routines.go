@@ -59,7 +59,7 @@ func (s *Server) routine(ctx context.Context, r routinestore.Routine) (openapi.R
 		Id: r.ID, Bot: r.Bot, Name: r.Name, Kind: openapi.RoutineKind(r.Kind), Prompt: opt(r.Prompt),
 		Script: opt(r.Script), ScriptText: opt(r.ScriptText), EveryMinutes: ptr(r.EveryMinutes), Cron: opt(r.Cron),
 		Timezone: opt(r.Timezone), Schedule: routinestore.ScheduleWords(r),
-		Sentence: routinestore.RoutineSentence(r, bot.Name),
+		Sentence:       routinestore.RoutineSentence(r, bot.Name),
 		TimeoutSeconds: int(r.Timeout.Seconds()), State: openapi.RoutineState(r.State),
 		PausedReason: opt(r.PausedReason), Summary: opt(r.Summary), ChatId: opt(r.ChatID), Announce: r.Announce,
 		NextRunAt: r.NextRunAt, Failures: r.Failures, Skipped: r.Skipped, LastSkippedAt: r.LastSkippedAt,

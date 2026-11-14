@@ -131,7 +131,9 @@ func TestAProfileStillNamedIsNotDeleted(t *testing.T) {
 		"model: {provider: model-gateway}\n")
 	require.NoError(t, err)
 
-	vmap, err := w.s.PutBot(ctx, Bot{Name: "vmap", Workers: AllowList{Limited: true, Names: []string{"reviewer", "scout"}}})
+	vmap, err := w.s.PutBot(ctx, Bot{
+		Name: "vmap", Workers: AllowList{Limited: true, Names: []string{"reviewer", "scout"}},
+	})
 	require.NoError(t, err)
 
 	err = w.s.DeleteProfile(ctx, "scout")
