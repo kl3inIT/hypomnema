@@ -33,6 +33,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/nodeapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/channelstore"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/phone"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/routines"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/serviceproxy"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/skillsource"
@@ -313,6 +314,12 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	metered := meteredWeb{web: webSearch, gateway: gateway, logger: logger}
 	agents.WithWeb(workerWeb{metered}, dispatchRuntime(svc))
 
+	// The phone a node holds (issue #417), given to every worker as the browser is. A call that finds its
+	// machine stopped starts it as `machines start` does.
+	sharedPhone := phone.New(phone.Config{Nodes: svc, Link: nodes, Machines: machineMgr, Logger: logger})
+	agents.WithDevice(sharedPhone)
+	nodes.WithPhone(sharedPhone.Held)
+
 	agents.Register(mux)
 
 	// The service proxy: an agent's tool reaches a connected service through it and never holds the token.
@@ -381,7 +388,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	larkSettings := larkchannel.NewService(channels.NewService(channelData, secrets, runtime))
 
 	// The Routines of the Bots (issue #211): the tick, and the runs it starts.
-	routineRunner := routines.New(svc, routines.Config{
+	routineRunner := routines.New(svc, svc.Routines(), routines.Config{
 		Command: cfg.RoutineCommand, Coordinator: sup, Owner: runtime, Logger: logger,
 		Tokens: botTokens{svc: svc, coordinator: cfg.CoordinatorToken},
 	})

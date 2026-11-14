@@ -10,6 +10,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/channelstore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/memorystore"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/routinestore"
 )
 
 // DefaultBot is the Bot that is always there: a chat that names no other
@@ -334,7 +335,7 @@ func botLive(ctx context.Context, q *store.Queries, name string) error {
 		return err
 	}
 
-	routines, err := q.CountRoutinesOfBot(ctx, name)
+	routines, err := routinestore.CountRoutinesOfBotTx(ctx, q, name)
 	if err != nil {
 		return err
 	}

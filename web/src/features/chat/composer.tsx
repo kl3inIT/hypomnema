@@ -122,6 +122,10 @@ export function Composer({
         if (typed !== "") type(typed)
       }
     } catch (err) {
+      // A send whose answer was lost may have reached the server, and a page that goes (a reload) loses it so: it
+      // goes back after a pause, which a page going away does not live through, so it is not kept as the draft
+      // (issue #480).
+      if (lost(err)) await new Promise((done) => setTimeout(done, lostPause))
       // What was typed meanwhile is kept; the failed text goes back only into an empty box.
       const typed = box.current?.value ?? ""
       if (typed === "") type(message)
@@ -301,6 +305,13 @@ export function Composer({
     </form>
   )
 }
+
+// A send's answer is lost when no answer came (a network error, or the page going), unlike one the server refused,
+// whose words the client throws; it is given back after lostPause. After OpenMausBot, which does not give a lost send
+// back at once but waits a second to see whether it arrived (src/state/optimistic-send.ts, sendReconciled, Apache
+// License 2.0, Copyright 2026 Milind Soni and OpenMausBot contributors).
+const lostPause = 1000
+const lost = (err: unknown) => err instanceof Error && err.name !== "AbortError"
 
 // errorText is the server's words for a refused send, or a plain line when it gave none (a network error).
 function errorText(err: unknown) {

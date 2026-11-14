@@ -197,9 +197,12 @@ func TestAChatIsNamedByItsFirstMessage(t *testing.T) {
 	assert.Equal(t, "release notes", got.Title)
 }
 
-// Scenario: the owner answers an Approval the coordinator asked for in a
-// chat. The coordinator is told with an approval row, which is not a failure.
-func TestAnAnsweredApprovalIsAnApprovalRow(t *testing.T) {
+// Scenario: the coordinator asks twice in a chat; the owner approves the
+// first action for the rest of the chat and denies the other. Each answer leaves
+// one approval row in the chat, written with the answer, which names its
+// Approval and shows what was asked, the answer, its scope and when. pi is
+// given a row only when it is told, and once; a row is not a failure.
+func TestAnAnsweredApprovalStaysInItsChatAsARow(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
@@ -208,17 +211,75 @@ func TestAnAnsweredApprovalIsAnApprovalRow(t *testing.T) {
 	chat, err := w.s.CreateChat(ctx, "", "")
 	require.NoError(t, err)
 
-	told, err := w.s.TellAgentOfApproval(ctx, Approval{
-		ID: "apr_1", ChatID: chat.ID, Title: "Send email", Status: ApprovalApproved, Scope: ScopeOnce,
-	})
+	ask := func(action string) Approval {
+		a, granted, err := w.s.AskApproval(ctx, NewApproval{
+			Integration: "google", Label: "work", Action: action, ActionName: "Send mail", ChatID: chat.ID,
+			AskedBy: "pi", Title: "Send mail: minh@example.com", MatchHash: "digest",
+		})
+		require.NoError(t, err)
+		require.False(t, granted)
+
+		return a
+	}
+	rows := func() []ChatMessage {
+		msgs, err := w.s.ListChatMessages(ctx, chat.ID, 0, 0)
+		require.NoError(t, err)
+
+		return msgs
+	}
+
+	first := ask("gmail.send")
+	approved, err := w.s.DecideApproval(ctx, first.ID, true, ScopeSession)
+	require.NoError(t, err)
+
+	msgs := rows()
+	require.Len(t, msgs, 1, "the answer is kept as it is given")
+	row := msgs[0]
+	assert.Equal(t, [2]string{"system", "approval"}, [2]string{string(row.Role), string(row.Kind)})
+	assert.Equal(t, first.ID, row.ApprovalID)
+	assert.Equal(t, `Approved: "Send mail: minh@example.com" (`+first.ID+`), and Send mail for the rest of this chat. `+
+		`Run the same command again.`, row.Text)
+	require.NotNil(t, row.Approval)
+	assert.Equal(t, ChatApprovalAnswer{
+		Title: "Send mail: minh@example.com", ActionName: "Send mail", Status: ApprovalApproved, Scope: ScopeSession,
+		DecidedAt: approved.DecidedAt,
+	}, *row.Approval)
+	assert.Equal(t, *approved.DecidedAt, row.CreatedAt, "written in the answer's transaction")
+
+	undelivered, err := w.s.Undelivered(ctx, chat.ID)
+	require.NoError(t, err)
+	assert.Empty(t, undelivered, "pi is not given an answer its held request already had")
+
+	again, err := w.s.DecideApproval(ctx, first.ID, true, ScopeSession)
+	require.NoError(t, err)
+	assert.Len(t, rows(), 1, "the same answer again writes nothing")
+
+	told, err := w.s.TellAgentOfApproval(ctx, again)
 	require.NoError(t, err)
 	require.True(t, told)
 
-	msgs, err := w.s.Undelivered(ctx, chat.ID)
+	told, err = w.s.TellAgentOfApproval(ctx, again)
 	require.NoError(t, err)
-	require.Len(t, msgs, 1)
-	assert.Equal(t, [2]string{"system", "approval"}, [2]string{string(msgs[0].Role), string(msgs[0].Kind)})
-	assert.Contains(t, msgs[0].Text, "The owner approved \"Send email\"")
+	assert.False(t, told, "pi is told once")
+
+	undelivered, err = w.s.Undelivered(ctx, chat.ID)
+	require.NoError(t, err)
+	require.Len(t, undelivered, 1)
+	assert.Equal(t, row.Seq, undelivered[0].Seq, "pi is given the row itself")
+
+	second := ask("gmail.drafts.send")
+	denied, err := w.s.DecideApproval(ctx, second.ID, false, "")
+	require.NoError(t, err)
+
+	msgs = rows()
+	require.Len(t, msgs, 2)
+	assert.Equal(t, second.ID, msgs[1].ApprovalID)
+	assert.Equal(t, `Denied: "Send mail: minh@example.com" (`+second.ID+`). Do not run it; say so in your report.`,
+		msgs[1].Text)
+	require.NotNil(t, msgs[1].Approval)
+	assert.Equal(t, ApprovalRejected, msgs[1].Approval.Status)
+	assert.Empty(t, msgs[1].Approval.Scope)
+	assert.Equal(t, denied.DecidedAt, msgs[1].Approval.DecidedAt)
 }
 
 // Scenario: a database from before system rows had a kind. After the
@@ -546,4 +607,58 @@ func TestAChatARoutinePostsIntoIsNotDeleted(t *testing.T) {
 
 	_, err = w.s.GetChat(ctx, chat.ID)
 	require.NoError(t, err, "the refused chat is still there")
+}
+
+// Scenario: a database from before an approval row named its Approval. The
+// first notice of an answered Approval is matched to it by the id in its
+// text and shows it; a repeated notice, and one whose Approval is not known,
+// stay plain approval rows.
+func TestMigrationGivesApprovalRowsTheirApproval(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	db, err := sqlite.Open(ctx, sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	p, err := provider(db)
+	require.NoError(t, err)
+	_, err = p.UpTo(ctx, 82)
+	require.NoError(t, err)
+
+	_, err = db.ExecContext(ctx, `INSERT INTO chats (id, title, bot, created_at, updated_at)
+		VALUES ('cht_1', 'Chat', 'coordinator', 1, 1)`)
+	require.NoError(t, err)
+
+	_, err = db.ExecContext(ctx, `INSERT INTO approvals (id, integration, label, action, action_name, chat_id, asked_by,
+		title, payload, match_hash, status, scope, created_at, decided_at)
+		VALUES ('apr_1', 'google', 'work', 'gmail.send', 'Send mail', 'cht_1', 'pi', 'Send mail: X', '[]', 'h',
+		        'approved', 'once', 1, 2)`)
+	require.NoError(t, err)
+
+	_, err = db.ExecContext(ctx, `INSERT INTO chat_messages (chat_id, role, kind, text, to_coordinator, created_at)
+		VALUES ('cht_1', 'system', 'approval', 'The owner approved "Send mail: X" (apr_1).', 1, 3),
+		       ('cht_1', 'system', 'approval', 'The owner approved "Send mail: X" (apr_1).', 1, 4),
+		       ('cht_1', 'system', 'approval', 'The owner approved "Y" (apr_gone).', 1, 5)`)
+	require.NoError(t, err)
+
+	require.NoError(t, Migrate(ctx, db))
+	require.NoError(t, CheckSchema(ctx, db))
+
+	s := New(db, &fakeClock{now: t0}, func(prefix string) string { return prefix + "_new" })
+
+	msgs, err := s.ListChatMessages(ctx, "cht_1", 0, 0)
+	require.NoError(t, err)
+	require.Len(t, msgs, 3)
+	assert.Equal(t, []string{"apr_1", "", ""}, []string{msgs[0].ApprovalID, msgs[1].ApprovalID, msgs[2].ApprovalID})
+	require.NotNil(t, msgs[0].Approval)
+	assert.Equal(t, ScopeOnce, msgs[0].Approval.Scope)
+	assert.Nil(t, msgs[1].Approval)
+
+	_, err = p.DownTo(ctx, 80)
+	require.NoError(t, err)
+
+	var n int
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM chat_messages`).Scan(&n))
+	assert.Equal(t, 3, n)
 }

@@ -15,6 +15,8 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/artifactpack"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/channelstore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/storeutil"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/routinestore"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/workspacefs"
 )
@@ -49,7 +51,8 @@ const (
 	ChatFailed ChatKind = "failed"
 	// ChatStopped ends a turn the owner stopped.
 	ChatStopped ChatKind = "stopped"
-	// ChatApproval tells the coordinator the owner answered an Approval.
+	// ChatApproval is the owner's answer to an Approval asked in the chat (issue #465), given to the coordinator
+	// when its request had ended.
 	ChatApproval ChatKind = "approval"
 	// ChatArtifact shows an artifact a Bot made (issue #402, artifacts.go).
 	ChatArtifact ChatKind = "artifact"
@@ -58,7 +61,7 @@ const (
 // Limits on chats.
 const (
 	// MaxChatText bounds one message.
-	MaxChatText = 100_000
+	MaxChatText = storeutil.MaxChatText
 	// ChatPageDefault and ChatPageMax bound a page of messages or chats.
 	ChatPageDefault = 100
 	ChatPageMax     = 500
@@ -212,9 +215,24 @@ type ChatMessage struct {
 	Attachments []ChatAttachment
 	// Artifact is what an artifact's message shows (issue #402); nil for other messages.
 	Artifact *ArtifactCard
+	// ApprovalID is the Approval an approval row answers (issue #465); empty for other messages and older rows.
+	ApprovalID string
+	// Approval is that Approval as it was answered, read with the message; nil where the message is read for pi.
+	Approval *ChatApprovalAnswer
 	// DeliveredAt is when pi got an owner message or a wake-up.
 	DeliveredAt *time.Time
 	CreatedAt   time.Time
+}
+
+// ChatApprovalAnswer is what an approval row shows of its Approval (issue #465): what was asked, the answer and
+// how far it reaches, and when it was given. An answered Approval no longer changes, as a wake-up's event does not.
+type ChatApprovalAnswer struct {
+	Title      string
+	ActionName string
+	Status     ApprovalStatus
+	// Scope is how far an approval reaches; empty for a rejection.
+	Scope     ApprovalScope
+	DecidedAt *time.Time
 }
 
 // ChatAttachment is a file the owner attached to a message (issue #343), as t3code's chat attachment (name, size,
@@ -430,7 +448,7 @@ func (s *Service) DeleteChat(ctx context.Context, id string) (Chat, error) {
 
 // chatLive refuses to delete a chat a Routine posts into.
 func chatLive(ctx context.Context, q *store.Queries, id string) error {
-	routines, err := q.CountRoutinesOfChat(ctx, id)
+	routines, err := routinestore.CountRoutinesOfChatTx(ctx, q, id)
 	if err != nil {
 		return err
 	}
@@ -439,16 +457,16 @@ func chatLive(ctx context.Context, q *store.Queries, id string) error {
 		return fmt.Errorf("%w: %d routines tell their runs in chat %s; remove them first", ErrConflict, routines, id)
 	}
 
-	run, err := q.LiveRoutineRunOfChat(ctx, sql.NullString{String: id, Valid: true})
-
-	switch {
-	case err == nil:
-		return fmt.Errorf("%w: run %s of a routine is live in chat %s; stop it first", ErrConflict, run.ID, id)
-	case errors.Is(err, sql.ErrNoRows):
-		return nil
-	default:
+	run, err := routinestore.LiveRunOfChatTx(ctx, q, id)
+	if err != nil {
 		return err
 	}
+
+	if run != nil {
+		return fmt.Errorf("%w: run %s of a routine is live in chat %s; stop it first", ErrConflict, run.ID, id)
+	}
+
+	return nil
 }
 
 // deleteChatTx deletes one chat with the caller's queries: what refers to it is let go of or removed first
@@ -461,7 +479,9 @@ func deleteChatTx(ctx context.Context, q *store.Queries, id string, now int64) e
 	}
 
 	steps := []func(context.Context, string) error{
-		q.DetachRunsFromChat, q.DetachRoutinesFromChat, q.DetachRoutineRunsFromChat, q.DetachApprovalsFromChat,
+		q.DetachRunsFromChat,
+		func(ctx context.Context, id string) error { return routinestore.DetachFromChatTx(ctx, q, id) },
+		q.DetachApprovalsFromChat,
 		func(ctx context.Context, id string) error {
 			return q.RevokeGatewayKeysOfChat(ctx, store.RevokeGatewayKeysOfChatParams{
 				Now: sql.NullInt64{Int64: now, Valid: true}, ChatID: id,
@@ -680,10 +700,31 @@ func (s *Service) ListChatMessages(ctx context.Context, chatID string, after int
 			}
 		}
 
+		if r.ApprovalStatus != "" {
+			m.Approval = chatApproval(r)
+		}
+
 		out = append(out, m)
 	}
 
 	return out, nil
+}
+
+func chatApproval(r store.ListChatMessagesRow) *ChatApprovalAnswer {
+	scope := ApprovalScope(r.ApprovalScope)
+	if r.ApprovalStanding == 1 {
+		scope = ScopeRoutine
+	}
+
+	a := &ChatApprovalAnswer{
+		Title: r.ApprovalTitle, ActionName: r.ApprovalActionName, Status: ApprovalStatus(r.ApprovalStatus), Scope: scope,
+	}
+	if r.ApprovalDecidedAt != 0 {
+		at := millis(r.ApprovalDecidedAt)
+		a.DecidedAt = &at
+	}
+
+	return a
 }
 
 func chatWake(r store.ListChatMessagesRow) *WakeEvent {
@@ -727,6 +768,7 @@ func chatMessage(r store.ChatMessage) ChatMessage {
 		Parts:       rawParts(r.Parts),
 		Attachments: attachmentsOf(r.Attachments),
 		EventSeq:    r.EventSeq.Int64,
+		ApprovalID:  r.ApprovalID.String,
 		DeliveredAt: optionalTime(r.DeliveredAt), CreatedAt: millis(r.CreatedAt),
 	}
 }

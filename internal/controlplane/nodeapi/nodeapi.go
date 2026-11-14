@@ -49,6 +49,10 @@ type Server struct {
 	// runtimeTools are the agent CLIs a node of a system is told to have (issue #107).
 	runtimeTools func(os, arch string) []nodeproto.Tool
 
+	// phoneHeld says whether a node holds the phone every worker is given (issue #417); nil when the control
+	// plane wired none.
+	phoneHeld func(ctx context.Context) bool
+
 	// releaseURL is where a node finds its releases, sent at hello.
 	releaseURL string
 
@@ -60,12 +64,15 @@ type Server struct {
 	answers map[string]*pendingAnswer
 	// devices are the states of their phones nodes said last, by node id (device.go).
 	devices map[string]nodeproto.DeviceState
+	// deviceCalls are the phone tools' calls nodes have been sent, by request id (device.go).
+	deviceCalls map[string]*pendingDevice
 }
 
 // New returns a Server over the orchestration service.
 func New(svc *orchestration.Service, logger *slog.Logger) *Server {
 	return &Server{svc: svc, logger: logger, sessions: map[string]*session{}, streams: map[string]*pendingStream{},
-		answers: map[string]*pendingAnswer{}, devices: map[string]nodeproto.DeviceState{}}
+		answers: map[string]*pendingAnswer{}, devices: map[string]nodeproto.DeviceState{},
+		deviceCalls: map[string]*pendingDevice{}}
 }
 
 // WithHostTokens sets where an offer's git host token comes from.
@@ -109,6 +116,13 @@ func (s *Server) toolsFor(ctx context.Context, os, arch, version string) []nodep
 	return out
 }
 
+// WithPhone sets how an offer learns whether workers are given a phone.
+func (s *Server) WithPhone(held func(ctx context.Context) bool) *Server {
+	s.phoneHeld = held
+
+	return s
+}
+
 // WithAgentKeys sets where an offer's key to the agent API comes from.
 func (s *Server) WithAgentKeys(key func(ctx context.Context, dispatchID string, uses []string) (string, bool),
 ) *Server {
@@ -141,6 +155,7 @@ func (s *Server) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET "+nodeproto.PathSocket, s.socket)
 	mux.HandleFunc("GET "+nodeproto.PathTerminal, s.terminal)
 	mux.HandleFunc("POST "+nodeproto.PathFiles, s.filesAnswer)
+	mux.HandleFunc("POST "+nodeproto.PathDevice, s.deviceAnswer)
 	mux.HandleFunc("GET "+nodeproto.PathSkills+"{digest}", s.skill)
 }
 
@@ -502,6 +517,11 @@ func (c *session) push(ctx context.Context) error {
 			if key, ok := c.srv.agentKey(ctx, o.DispatchID, o.Uses); ok {
 				o.AgentKey = key
 			}
+		}
+
+		// And whether a phone is there to be used (issue #417): the worker is then told of its tools' guide.
+		if c.srv.phoneHeld != nil && o.AgentKey != "" && c.srv.phoneHeld(ctx) {
+			o.Device = nodeproto.DeviceAndroid
 		}
 
 		if err := c.send(ctx, nodeproto.TypeOffer, nodeproto.Offer(o)); err != nil {

@@ -55,7 +55,7 @@ func TestAnApprovalAnsweredLaterAnswersTheQuestionItsWorkerWaitsOn(t *testing.T)
 	assert.Equal(t, QuestionAnswered, answered.Status)
 	assert.Equal(t, AddressOwner, answered.AnsweredBy)
 	require.NotNil(t, answered.Answer)
-	assert.Contains(t, answered.Answer.Text, "approved")
+	assert.Contains(t, answered.Answer.Text, "Approved")
 	assert.Contains(t, answered.Answer.Text, asked.ID)
 	assert.Contains(t, answered.Answer.Text, "Run the same command again")
 

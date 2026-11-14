@@ -6518,11 +6518,32 @@ components:
         artifact:
           $ref: "#/components/schemas/ArtifactCard"
           description: The artifact an artifact row shows, as it is now; absent for other messages.
+        approval_id:
+          type: string
+          description: The Approval an approval row answers; absent for other messages.
+        approval:
+          $ref: "#/components/schemas/ChatApproval"
+          description: What an approval row's Approval asked and how the owner answered; absent for other messages.
         delivered_at:
           type: string
           format: date-time
           description: When the coordinator got an owner message or a wake-up.
         created_at: { type: string, format: date-time }
+    ChatApproval:
+      type: object
+      description: >-
+        An Approval asked in the chat, as the owner answered it: what was asked, the answer, how far an approval
+        reaches and when it was given. It no longer changes.
+      required: [title, action_name, status]
+      properties:
+        title: { type: string }
+        action_name: { type: string }
+        status: { $ref: "#/components/schemas/ApprovalStatus" }
+        scope:
+          type: string
+          enum: [once, session, routine]
+          description: How far an approval reaches; absent for a rejection.
+        decided_at: { type: string, format: date-time }
     ChatWake:
       type: object
       description: >-

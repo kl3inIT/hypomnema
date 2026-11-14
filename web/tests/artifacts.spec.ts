@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs"
+
 import { expect, test, type Page } from "@playwright/test"
 
 import {
@@ -29,6 +31,12 @@ const chat = {
   created_at: at,
   updated_at: at,
 }
+
+// The built-in pages skill's template (issue #423), as a Bot shows it with --html-file: one page, its sample data
+// embedded.
+const pagesTemplate = readFileSync(
+  new URL("../../internal/controlplane/clientcli/skills/pages/dashboard.html", import.meta.url),
+)
 
 // A dashboard as a Bot writes one: its own styles and script, its figures read from data.json beside it.
 const dashboard = (week: number, regions: boolean) => `<!doctype html>
@@ -150,6 +158,7 @@ function world() {
       octet,
     ),
     art_fin: one("art_fin", "Finance Q3", "pdf", "tai-chinh-q3.pdf", reportPdf, "application/pdf"),
+    art_dash: one("art_dash", "Sales dashboard", "html", "index.html", pagesTemplate, "text/html"),
   }
 
   const toJSON = (k: Kept) => {
@@ -691,4 +700,59 @@ test.describe("on a phone", () => {
     ).toBeVisible()
     await shot(page, "artifact-new-tab")
   })
+})
+
+// Scenario: a Bot shows the pages skill's template as it is (issue #423). In the locked frame, where nothing loads
+// from the network, it draws its figures, its three charts as SVG and its tables, and the browser refuses nothing;
+// a filter redraws it. On a desktop it opens beside the chat, on a phone over the whole screen.
+test("the pages skill's dashboard draws itself in its locked frame", async ({ page, isMobile }) => {
+  // What the frame logs as an error, a refusal of its policy among them; the app's own (the fake server's 503 for
+  // the browser) is not the page's.
+  const refused: string[] = []
+  page.on("console", (m) => {
+    const inFrame = m.location().url.startsWith("about:srcdoc")
+    if (m.type() === "error" && (inFrame || m.text().includes("Content Security Policy")))
+      refused.push(m.text())
+  })
+
+  const w = world()
+  const server = await openChat(page, w)
+  await server.push(
+    frame(16, {
+      role: "system",
+      kind: "artifact",
+      text: "",
+      artifact: w.card(w.artifacts.art_dash!),
+    }),
+  )
+  await card(page, "Sales dashboard").click()
+
+  const shown = isMobile ? page.getByRole("dialog", { name: "Artifact, full screen" }) : side(page)
+  const dash = shown.frameLocator("iframe")
+  await expect(dash.locator("html")).toHaveAttribute("data-ready", "true")
+  await expect(dash.getByRole("status")).toBeHidden()
+  await expect(dash.locator("#kpi-orders")).not.toHaveText("–")
+  await expect(dash.locator("#chart-trend svg polyline")).toHaveCount(1)
+  await expect(dash.locator("#chart-regions svg rect")).toHaveCount(4)
+  await expect(dash.locator("#chart-mix svg polyline")).toHaveCount(3)
+  await expect(dash.locator("#table-top tbody tr")).toHaveCount(6)
+  await expect(dash.locator("#chart-regions")).toHaveAttribute("aria-label", /TP\.HCM/)
+  await shot(page, "pages-dashboard")
+
+  const orders = await dash.locator("#kpi-orders").textContent()
+  await dash.getByRole("combobox", { name: "Region" }).selectOption("Đà Nẵng")
+  await expect(dash.locator("#kpi-orders")).not.toHaveText(orders!)
+  await expect(dash.locator("#note-regions")).toContainText("Đà Nẵng highlighted")
+  await dash.locator("#chart-mix").scrollIntoViewIfNeeded()
+  await shot(page, "pages-dashboard-filtered")
+
+  if (!isMobile) {
+    await side(page).getByRole("button", { name: "Full screen" }).click()
+    const full = page.getByRole("dialog", { name: "Artifact, full screen" }).frameLocator("iframe")
+    await expect(full.locator("html")).toHaveAttribute("data-ready", "true")
+    await expect(full.locator("#chart-regions svg rect")).toHaveCount(4)
+    await shot(page, "pages-dashboard-full-screen")
+  }
+
+  expect(refused).toEqual([])
 })

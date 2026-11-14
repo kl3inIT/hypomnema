@@ -348,11 +348,12 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     `127.0.0.1:3000`, which covers `::1` too), and the control plane's own port, the gate's,
     Chrome's DevTools port and the sessions' stream ports never open on that machine. A refusal is logged as `browser.refused` with the host, the
     port and the reason; the agent sees Chrome's connection error.
-- A phone, on a node that holds one (issue #417, step 1b; [research](docs/research/2026-11-14-android-device-for-agents.md);
-  `internal/node/device`). Built so far: the node installs the Android emulator and a phone image, writes the
-  AVD, starts and stops the phone when the owner asks and after an idle time, and says its state; the owner's
-  API and CLI. Not built: agents' tools on the phone (step 2), the owner watching and taking over (step 3), and
-  stopping an idle machine (step 4). A real boot from this code is checked on the trial machine, not in CI.
+- A phone, on a node that holds one (issue #417, steps 1b and 2; [research](docs/research/2026-11-14-android-device-for-agents.md);
+  `internal/node/device`, `internal/controlplane/phone`, `internal/shared/devicetool`). Built so far: the node
+  installs the Android emulator and a phone image, writes the AVD, starts and stops the phone when the owner asks
+  and after an idle time, and says its state; the owner's API and CLI; the workers' tools on the phone (below).
+  Not built: the owner watching and taking over (step 3), and stopping an idle machine (step 4). A real boot from
+  this code is checked on the trial machine, not in CI; the tools are tested with fakes, not yet on a real phone.
   - Only a node whose configuration names `device: android` has a phone, and only on Linux x86_64, the one
     system Google publishes the emulator and the image for. Everything of it is in `device/` in the node's home.
   - Installed at the first start (`release.go`, `install.go`, after the browser's): platform-tools 37.0.1, the
@@ -384,8 +385,8 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     still there after 30 s is killed, and each adb call is given up after its own limit (the boot's 5 minutes, or
     30 s). One emulator a node. Starts and stops are carried out one at a time, and the latest asked wins: a stop
     calls off a start under way or not yet begun, and a start asked during a stop boots the phone after it.
-  - The phone is stopped 15 minutes after its last use: its start, or a touch the later steps make; using it over
-    adb does not count yet. An emulator
+  - The phone is stopped 15 minutes after its last use: its start, or an agent's call; using it over adb directly
+    does not count. An emulator
     that ended by itself makes the phone `failed`; the node looks every minute.
   - A node that ends leaves the phone running, and the next node takes it back when `run.json` names a booted
     phone, as Orca takes an AVD that already runs (`android-avd-boot.ts`); what it names that is not one is
@@ -402,12 +403,51 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     node that is not connected) and what is installed. `POST /api/v1/nodes/{node_id}/device/start` and `/stop`
     (`hypomnema device start|stop <node>`, by name or id) are refused with 409 for a node without a phone and 503
     for one not connected, and answer 202. All three are the owner's only.
+  - Agents' tools (step 2). The phone is given as the shared browser is (#212): every agent the browser's routes
+    take, with no setting and no Connection (owner, 2026-11-15); only workers have a client for them yet, so Bots
+    and chats reach the phone when they reach the browser's tools. The agent API has `GET /agent/v1/device/tools`
+    and `POST /agent/v1/device/call` (`{tool, arguments}`), in the browser's shape; the tools are listed only while
+    a node holds a phone, and a worker's tools server (`internal/node/workertools`) lists them after the browser's
+    and passes a call of a `device_*` tool there. Which agent used which tool is logged, never the arguments.
+  - The tools (`internal/shared/devicetool`, run in `internal/node/device/tools.go`) are Android CLI's and adb's,
+    as Google's android-cli skill drives a device (notice in `third_party/android-cli-plugin`; the syntax read
+    from Android CLI 1.1.16919734's own help): `device_screen` is `android screen capture --annotate`, returned as
+    a PNG image with numbered boxes and kept as the agent's last screen; `device_layout` is `android layout
+    --flat`; `device_tap` takes `#N`, resolved against the agent's own last screen with `android screen resolve`
+    and tapped with `adb shell input tap x y`, or `x,y`, or an Android CLI selector (`android input tap`);
+    `device_swipe` is `adb shell input swipe` between two such points; `device_type` is `android input text
+    [--submit] -- <text> <selector>`, the focused field by default, which types any language; `device_key` is
+    `android input key` (back, home, recents, enter); `device_launch` is `adb shell monkey -p <package> -c
+    android.intent.category.LAUNCHER 1` (Orca, OpenMausBot); `device_logcat` is `adb logcat -d -v threadtime -t
+    N [*:<level>]` (Orca), with only the last lines holding a text when one is given. Android CLI runs with
+    `--no-metrics` and `--sdk` and `ANDROID_SDK_ROOT` set to the phone's SDK, against the adb server the phone
+    started; a failure it prints as `Error:` with exit 0 is a failure.
+  - The control plane passes a call on the socket of the node that holds the phone (`device_call`, with the
+    agent's name, the tool and its arguments) and waits up to 8.5 minutes for the node's answer on
+    `POST /node/v1/device`, as a `files_request` is answered: an MCP result, a screen as base64 PNG, at most 16 MB.
+    The node starts a stopped or failed phone first and waits for its boot; a phone not installed yet is installed
+    in the background and the call says to come back. Each call puts the phone's idle stop off.
+  - One holder at a time (`internal/controlplane/phone`, as OpenMausBot's phone proxy lets one turn hold the
+    phone): a call waits until the call before it ended, and the node runs one call at a time as well. A box number
+    is taken only from the agent's own last screen, and refused once another agent acted on the phone since that
+    screen: the agent looks again (the issue's "never runs on another's half-done screen").
+  - A call that finds the phone's node offline and its machine `stopped` starts the machine with the path of
+    `hypomnema machines start` (`machines.Manager.Start`) and waits up to 2 minutes for the node's hello; one
+    whose machine is `starting` waits the same. After that the call is refused (503) with "the phone is waking …
+    try again in a minute", and the machine keeps starting. A node installed by the owner, or whose machine is on,
+    is reported offline. Stopping an idle machine is step 4.
+  - A worker is told of the phone when one is there: the node API marks an offer with `device: android`, and the
+    node writes the `android-device` guide (`internal/shared/agenttool/skills/android-device`) where the Integrations'
+    guides go and names it in the worker's first message, with the rules that matter most: look before acting,
+    act by box number, never sign in or pay. The guide is written for Claude Code and Codex workers, which are the
+    ones the Integrations' guides are written for; an omp or opencode worker is told the rules only. Its stub,
+    installed for Bots by `skills install`, says the tools are a worker's for now.
 - Chats (`orchestration/chats.go`, issue #41 PR 3, after Omnara;
   [research](docs/research/2026-11-09-chat-storage.md)): the owner's conversations with pi. Every message is kept
   (`owner`, `coordinator`, `tool`, `system`; replies and tools with JSON `parts`); owner messages and wake-ups wait
   for pi and are marked delivered one by one. A `system` row has a `kind` (migration 00054, issue #267, after
   t3code's typed timeline items): `wake` (it names its event), `failed` (pi's model call failed), `stopped` (the
-  owner stopped the turn) or `approval` (the coordinator is told an Approval was answered); the API sends it as
+  owner stopped the turn) or `approval` (the owner answered an Approval asked in the chat); the API sends it as
   `ChatMessage.kind`, and the web and Lark read it rather than the text. A
   Run records the chat whose pi created it (`runs.chat_id`); the API names that chat's Bot as `Run.bot` (issue #281),
   read by a join of `runs` with `chats` in `GetRunWithBot` and `ListRuns`, and absent for a Run without a chat.
@@ -763,10 +803,18 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     agents' project folders, the `paths` of `skills.sh.json`, three levels deep; else anywhere five deep), and
     keeps that folder as the source's path. CLI: `skills search <words> [--owner o]`, `skills add --github
     owner/repo --skill <name>`, which prints the audits first. Nothing else is sent to skills.sh.
-- Routines (`orchestration/routines.go` keeps the record, `internal/controlplane/routines` runs them;
-  [issue #211](https://github.com/kl3inIT/hypomnema/issues/211), migration 00056,
-  [research](docs/research/2026-11-12-work-on-a-schedule.md)): a Routine is work a Bot does on a schedule. What
-  the work is, is not built in.
+- Routines (the domain store `orchestration/routinestore` keeps the record, reached through `Service.Routines()`;
+  `internal/controlplane/routines` runs them; [issue #211](https://github.com/kl3inIT/hypomnema/issues/211),
+  migration 00056, [research](docs/research/2026-11-12-work-on-a-schedule.md)): a Routine is work a Bot does on a
+  schedule. What the work is, is not built in.
+  - **Where the code is** (issue #404). The store imports the generated queries and never the root. What also
+    writes another domain's tables stays in the root and calls the store's functions that end in `Tx` with its
+    own queries: starting a run (`RunRoutineNow`, `ClaimDueRoutines`: a prompt run's chat), ending one
+    (`FinishRoutineRun`: what the run still asked is refused), what a run's approvals ended as
+    (`RoutineRunAnswers`), a line in a chat (`TellChat`), an approval that waits a run or grants "always for this
+    Routine" (`RunOfAskerTx`, `GrantedTx`, `WaitRunTx`, `ResumeRunTx`, `GrantTx`), and a Bot removed with its
+    chats or refused for its Routines (`DetachFromChatsOfBotTx`, `CountRoutinesOfBotTx`). The runner takes the
+    two apart: `routines.New(svc, svc.Routines(), cfg)`.
   - **What it is.** A row of `routines`: its Bot, a name of its own among the Bot's, a kind, a schedule, on or
     paused (with the reason), when it runs next, the chat it was made in, and whether a run's result is told
     there. A `prompt` Routine gives the Bot its text in a new chat each run. A `script` Routine names a file
@@ -780,7 +828,8 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     downtime (`routine-intervals.ts`, `nextAlignedInterval`). No seconds field, no `@every`, no one-time Routine.
     A schedule is said in words ("every hour", "every weekday at 7:00 Ho Chi Minh time"): a familiar cron
     expression as what it means and any other as itself, with its zone as people say it
-    (`orchestration/schedule_words.go`, after OpenMausBot's `shared/cron-label.ts` and `plain-time-zone.ts`).
+    (`orchestration/routinestore/schedule_words.go`, after OpenMausBot's `shared/cron-label.ts` and
+    `plain-time-zone.ts`).
     `POST /routine-schedule` checks a schedule as a Routine's is and answers its words and its next three times,
     counted from now, without keeping anything.
   - **The tick.** The runner looks every 60 s (`ClaimDueRoutines`): each Routine that is on and due gets its next
@@ -1040,13 +1089,18 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       the Routine whose run asked (issue #211, under Routines), or rejects. A request of a Routine's run is held
       in place up to 30 minutes instead and then refused. An Approval
       not answered in time stays open (owner, 2026-11-11): the tool is told it waits; a coordinator ends its turn
-      and a worker asks the owner and waits. When it is answered later, the coordinator is woken in its chat, or
-      the question the worker waits on is answered, and the repeat of the same request, recognized by its decoded
-      content and not its bytes, passes once. Only the owner's token lists and answers Approvals
+      and a worker asks the owner and waits. Answering an Approval a chat asked writes one `approval` row in that
+      chat in the same transaction (issue #465, migration 00083, after t3code's `TimelinePendingApprovalRow.tsx`
+      and AI Elements' `confirmation.tsx`): `chat_messages.approval_id` names it, its text says the answer, what
+      was asked and how far it reaches, and `ChatMessage.approval` gives the Approval's title, action, answer,
+      scope and time, read with the row. When it is answered after its request ended, the coordinator is woken
+      with that same row (`to_coordinator=1`, once), or the question the worker waits on is answered, and the
+      repeat of the same request, recognized by its decoded content and not its bytes, passes once. Only the owner's token lists and answers Approvals
       (`GET /approvals`, `POST /approvals/{id}/decision`; `hypomnema approvals`) and sets an action's answer
       (`.../connections/{label}/actions`; `hypomnema integrations actions`). On the web an Approval is a card
       above the message box of the chat that asked, whose row in the sidebar says it needs the owner, and in the
-      Task of the worker that asked; an account on the Integrations page says what agents may do with it and
+      Task of the worker that asked; once answered, the chat shows its row (`approval-row.tsx`): Approved or
+      Denied, what was asked, the action and how far it reaches, and when, whatever the Bot shows of its tools; an account on the Integrations page says what agents may do with it and
       opens the list of actions.
     - **Who an agent is decides what it gets.** A worker presents its Dispatch's own key (`agent_sessions`,
       migration 00037): made by the node API as the offer is sent, for the Run's Connections, and revoked when the
@@ -1787,7 +1841,11 @@ capabilities do not exist yet.
     (pi/omp `applyAnthropicCacheControl`), each kept an hour (`ttl: 1h`, with `extended-cache-ttl-2025-04-11` among
     the betas; issue #397, as Claude Code, omp, CLIProxyAPI and 9router-go keep a subscription's cache); a client's own breakpoint
     with no ttl is kept an hour too, one it gave a ttl keeps it, and a one-hour breakpoint after a shorter one loses
-    its ttl, as Anthropic reads them tools, system, messages; issue #409, CLIProxyAPI `normalizeCacheControlTTLDoc`). A probe
+    its ttl, as Anthropic reads them tools, system, messages; issue #409, CLIProxyAPI `normalizeCacheControlTTLDoc`).
+    A client's breakpoint on a text or image part stays on its block (a blank text part is dropped and hands its
+    breakpoint to the block before), one on a whole message goes on its last block, and a tool message's goes on the
+    `tool_result` block, never inside its content, which Anthropic refuses (issue #482, CLIProxyAPI
+    `AttachCacheControl`, `AttachMessageCacheControl`, `AttachToolMessageCacheControl`). A probe
     (Claude Code's own `quota`/`ping` check) is left minimal, with no decoys and no breakpoints.
   - The call goes to `api.anthropic.com/v1/messages?beta=true`, always as a stream, with the account's token in the
     Bearer header (never the api-key header), a refresh on a 401, a cooldown on a 429.
@@ -2197,6 +2255,15 @@ The owner's commands:
   (`releasedFolders`); an edited copy is left alone, or with `--force` replaced and kept as `.pdf.bak`, which pi
   does not read. `setup-coordinator.sh` runs `skills install --agent agents` at each deploy, so every Bot gets it
   with no `skills add`. It is listed among the built-in skills.
+- The pages skill (`internal/controlplane/clientcli/skills/pages`, issue #423) is built in the same way, a folder:
+  OpenMausBot's `skills/data-dashboards` at `a6cd67c78610` (Apache-2.0, its `LICENSE` in the folder, the notice in
+  `third_party/openmausbot/NOTICE`), for dashboards and any other page a Bot shows with `hypomnema artifact show`.
+  Its `dashboard.html` template is self-contained: its charts are SVG its own script draws, its sums are computed in
+  the script, and its data is a Superset chart's JSON (`{columns, rows}`) embedded in the page or in `data.json`
+  beside a folder page; it loads no library, font or file from another host and uses no storage, so it runs in the
+  artifact's locked frame (a Playwright test in `web/tests/artifacts.spec.ts` shows it there with no refusal).
+  OpenMausBot's `show_html`/`publish_page`, its Data tools, DuckDB-WASM, ECharts and its `jsx` pages are not kept;
+  a page kept current is a folder page a Routine shows again with `--id`.
 
 Node (`internal/node`):
 - `init` writes `~/.hypomnema-node/config.json` (mode 0600, directory 0700) with the control plane's URL, the token
@@ -2884,6 +2951,7 @@ internal/controlplane/orchestration  Runs, Tasks, Dispatches, Conversations, que
 internal/controlplane/orchestration/internal/storeutil  what its stores share: the one write helper, which signals event readers after the commit
 internal/controlplane/orchestration/storeerr  the errors every orchestration store returns, re-exported by orchestration
 internal/controlplane/orchestration/channelstore  the Channels (tables channels and channel_*, Lark the one kind): who may talk through each, the messages taken, the Lark chats and groups, the question cards, reached through orchestration's Channels()
+internal/controlplane/orchestration/routinestore  the Routines, their runs and the grants the owner gave them: the schedule, the claim of due Routines, a run's end applied to its Routine, pruning, a Bot's change and its undo, reached through orchestration's Routines()
 internal/controlplane/orchestration/memorystore  the agents' memories and the one about the owner, and the entry rules a Bot's memory follows, reached through orchestration's Memories()
 internal/controlplane/orchestration/userstore  the web's users and sessions, reached through orchestration's Users()
 internal/controlplane/skillsource  fetches a skill from a public GitHub repository at the commit its ref names

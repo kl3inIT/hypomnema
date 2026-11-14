@@ -110,6 +110,12 @@ type Manager struct {
 	// starting cancels the start under way; nil when none is.
 	starting context.CancelFunc
 	changed  chan struct{}
+
+	// agents keeps the agents' screens apart and lets one call use the phone at a time (tools.go).
+	agents agents
+	// boots counts the boots this node saw, a phone taken back included; a screen of an earlier boot is not
+	// tapped by number. Guarded by mu.
+	boots uint64
 }
 
 // record is what the node keeps of the programs it started, in run.json, so
@@ -150,7 +156,7 @@ func newManager(opts Options, comps []component) *Manager {
 
 	m := &Manager{
 		opts: opts, comps: comps, in: installer{dir: opts.Dir, client: opts.Client},
-		changed: make(chan struct{}, 1),
+		changed: make(chan struct{}, 1), agents: agents{stale: map[string]bool{}, boot: map[string]uint64{}},
 	}
 	m.state = m.restingState()
 	m.refresh()
@@ -396,6 +402,7 @@ func (m *Manager) boot(ctx context.Context) error {
 
 	m.mu.Lock()
 	m.lastUsed = m.opts.Clock.Now()
+	m.boots++
 	m.mu.Unlock()
 
 	m.set(nodeproto.DeviceRunning, "")
@@ -591,6 +598,13 @@ func (m *Manager) end(ctx context.Context, pgid int, needle string, term bool) {
 // it failed when its emulator ended by itself. A start or a stop under way is
 // left alone.
 func (m *Manager) Sweep(ctx context.Context) {
+	// An agent's call that is running is left to end: its phone is not stopped under it. The lock order is the
+	// call's: agents.mu, then op.
+	if !m.agents.mu.TryLock() {
+		return
+	}
+	defer m.agents.mu.Unlock()
+
 	if !m.op.TryLock() {
 		return
 	}
@@ -668,6 +682,7 @@ func (m *Manager) adopt(ctx context.Context) {
 	if sys != nil && run.Emulator != 0 && sys.Alive(run.Emulator, emuNeedle) && m.booted(ctx, m.opts.EndWithin) {
 		m.mu.Lock()
 		m.lastUsed = m.opts.Clock.Now()
+		m.boots++
 		m.mu.Unlock()
 
 		m.set(nodeproto.DeviceRunning, "")

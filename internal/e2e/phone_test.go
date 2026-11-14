@@ -34,12 +34,24 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/shared/workspacefs"
 )
 
-// fakePhone is a node's phone that boots at once when started.
+// fakePhone is a node's phone that boots at once when started, and answers
+// a tool's call with what it was asked.
 type fakePhone struct {
 	mu      sync.Mutex
 	state   nodeproto.DeviceState
 	asked   []string
+	calls   []string
 	changed chan struct{}
+}
+
+func (p *fakePhone) Call(_ context.Context, agent, tool string, arguments json.RawMessage) nodeproto.DeviceAnswer {
+	p.mu.Lock()
+	p.calls = append(p.calls, agent+" "+tool+" "+string(arguments))
+	p.mu.Unlock()
+
+	return nodeproto.DeviceAnswer{Content: []nodeproto.DeviceContent{
+		{Type: "image", Data: "cG5n", MimeType: "image/png"}, {Type: "text", Text: "Numbered boxes."},
+	}}
 }
 
 func newFakePhone() *fakePhone {

@@ -40,7 +40,7 @@ func (d *Daemon) answerFiles(payload json.RawMessage) error {
 		defer cancel()
 
 		res := d.files(ctx, req)
-		if err := d.postFiles(ctx, req.RequestID, res); err != nil && ctx.Err() == nil {
+		if err := d.postAnswer(ctx, nodeproto.PathFiles, req.RequestID, res); err != nil && ctx.Err() == nil {
 			d.logger.WarnContext(ctx, "files answer not sent",
 				slog.String("event", "node.files_failed"), slog.String("error", err.Error()))
 		}
@@ -76,13 +76,15 @@ func (d *Daemon) files(ctx context.Context, req nodeproto.FilesRequest) workspac
 	return workspacefs.Serve(ctx, place, req.Request)
 }
 
-func (d *Daemon) postFiles(ctx context.Context, requestID string, res workspacefs.Result) error {
-	body, err := json.Marshal(res)
+// postAnswer posts the answer to a request the control plane sent on the
+// socket: a files_request's to PathFiles, a device_call's to PathDevice.
+func (d *Daemon) postAnswer(ctx context.Context, path, requestID string, answer any) error {
+	body, err := json.Marshal(answer)
 	if err != nil {
 		return err
 	}
 
-	target := strings.TrimSuffix(d.cfg.URL, "/") + nodeproto.PathFiles + "?request=" + url.QueryEscape(requestID)
+	target := strings.TrimSuffix(d.cfg.URL, "/") + path + "?request=" + url.QueryEscape(requestID)
 
 	r, err := http.NewRequestWithContext(ctx, http.MethodPost, target, bytes.NewReader(body))
 	if err != nil {
