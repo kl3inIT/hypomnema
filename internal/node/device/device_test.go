@@ -35,6 +35,8 @@ type fakeSystem struct {
 	deaf map[string]bool
 	// crash makes the emulator end as it starts, after writing its reason.
 	crash string
+	// tool answers a command of Android CLI's or adb's that a phone tool runs, when it is one (tools_test.go).
+	tool func(c Command) (Output, bool)
 }
 
 type fakeProc struct {
@@ -54,6 +56,12 @@ func (s *fakeSystem) Run(_ context.Context, c Command) (Output, error) {
 
 	line := program(c) + " " + strings.Join(c.Args, " ")
 	s.runs = append(s.runs, line)
+
+	if s.tool != nil {
+		if out, ok := s.tool(c); ok {
+			return out, nil
+		}
+	}
 
 	switch {
 	case slices.Contains(c.Args, "getprop"):

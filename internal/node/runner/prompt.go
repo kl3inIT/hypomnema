@@ -50,8 +50,8 @@ func Prompt(d statedb.Dispatch) string {
 	}
 
 	b.WriteString(rules)
-	// The accounts the Run was given, and the command each is used with (issue #103).
-	b.WriteString(agenttool.Brief(o.Uses))
+	// The accounts the Run was given, and the command each is used with (issue #103); the phone (issue #417).
+	b.WriteString(agenttool.Brief(o.Uses, o.Device))
 
 	// The profile's instruction comes after the rules it may not override.
 	if s := strings.TrimSpace(o.Instruction); s != "" {

@@ -28,6 +28,10 @@ const (
 	// callTimeout is longer than the control plane gives a tool (3 minutes),
 	// so that its answer is the one the worker reads.
 	callTimeout = 4 * time.Minute
+	// deviceCallTimeout is longer than a phone's call may take at the control
+	// plane: its machine woken (2 minutes), then the node's answer
+	// (nodeproto.DeviceAnswerWithin and half a minute).
+	deviceCallTimeout = 11 * time.Minute
 	// maxAnswerBytes bounds an answer; a screenshot is the largest.
 	maxAnswerBytes = 16 << 20
 )
@@ -107,10 +111,20 @@ func (a *agentAPI) do(ctx context.Context, method, path string, body any) ([]byt
 // the shape of tools/list. A control plane that cannot give them gives none:
 // the worker still has its own tools.
 func (a *agentAPI) browserTools(ctx context.Context) []map[string]any {
+	return a.toolList(ctx, agenttool.PathBrowserTools)
+}
+
+// deviceTools is the phone's tools (issue #417), listed as the browser's
+// are: none when the control plane has no phone.
+func (a *agentAPI) deviceTools(ctx context.Context) []map[string]any {
+	return a.toolList(ctx, agenttool.PathDeviceTools)
+}
+
+func (a *agentAPI) toolList(ctx context.Context, path string) []map[string]any {
 	ctx, cancel := context.WithTimeout(ctx, listTimeout)
 	defer cancel()
 
-	raw, err := a.do(ctx, http.MethodGet, agenttool.PathBrowserTools, nil)
+	raw, err := a.do(ctx, http.MethodGet, path, nil)
 	if err != nil {
 		return nil
 	}
@@ -132,11 +146,22 @@ func (a *agentAPI) browserTools(ctx context.Context) []map[string]any {
 // tool's result as the control plane gave it: text, or a screenshot as image
 // content.
 func (a *agentAPI) browserCall(ctx context.Context, tool string, arguments json.RawMessage) (any, error) {
-	ctx, cancel := context.WithTimeout(ctx, callTimeout)
+	return a.toolCall(ctx, agenttool.PathBrowserCall, callTimeout, tool, arguments)
+}
+
+// deviceCall runs one of the phone's tools; a screen comes back as image
+// content.
+func (a *agentAPI) deviceCall(ctx context.Context, tool string, arguments json.RawMessage) (any, error) {
+	return a.toolCall(ctx, agenttool.PathDeviceCall, deviceCallTimeout, tool, arguments)
+}
+
+func (a *agentAPI) toolCall(ctx context.Context, path string, within time.Duration, tool string,
+	arguments json.RawMessage,
+) (any, error) {
+	ctx, cancel := context.WithTimeout(ctx, within)
 	defer cancel()
 
-	raw, err := a.do(ctx, http.MethodPost, agenttool.PathBrowserCall,
-		agenttool.BrowserCall{Tool: tool, Arguments: arguments})
+	raw, err := a.do(ctx, http.MethodPost, path, agenttool.BrowserCall{Tool: tool, Arguments: arguments})
 	if err != nil {
 		return nil, err
 	}

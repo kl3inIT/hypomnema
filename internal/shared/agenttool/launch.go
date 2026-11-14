@@ -32,6 +32,11 @@ const (
 	// (issue #193), and PathBrowserCall runs one in the agent's own tab.
 	PathBrowserTools = "/agent/v1/browser/tools"
 	PathBrowserCall  = "/agent/v1/browser/call"
+	// PathDeviceTools lists the tools of the phone every worker shares (issue
+	// #417), and PathDeviceCall runs one; both in the browser's shape
+	// (BrowserToolList, BrowserCall).
+	PathDeviceTools = "/agent/v1/device/tools"
+	PathDeviceCall  = "/agent/v1/device/call"
 )
 
 // BrowserTool is one browser tool as PathBrowserTools lists it: an MCP

@@ -119,6 +119,9 @@ type Phone interface {
 	Ask(ctx context.Context, start bool)
 	// Changed is told each time the state changes.
 	Changed() <-chan struct{}
+	// Call runs one of an agent's phone tools, the phone started first when it is not running, and returns
+	// the tool's result (issue #417, step 2).
+	Call(ctx context.Context, agent, tool string, arguments json.RawMessage) nodeproto.DeviceAnswer
 }
 
 // Daemon is one node's connection.

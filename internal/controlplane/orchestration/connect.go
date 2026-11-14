@@ -119,13 +119,16 @@ type Offer struct {
 	// Uses are the Connections the Run's workers may use; AgentKey is this
 	// Dispatch's own key to ask for their tokens. Orchestration never fills
 	// the key: the node API does, as it sends the offer.
-	Uses           []string `json:"uses,omitempty"`
-	AgentKey       string   `json:"agent_key,omitempty"`
-	Base           string   `json:"base,omitempty"`
-	ConversationID string   `json:"conversation_id"`
-	Worktree       string   `json:"worktree"`
-	Runtime        string   `json:"runtime"`
-	AccountRef     string   `json:"account_ref"`
+	Uses     []string `json:"uses,omitempty"`
+	AgentKey string   `json:"agent_key,omitempty"`
+	// Device is set by the node API as the offer is sent: the device every
+	// worker is given, while a node holds one (issue #417).
+	Device         string `json:"device,omitempty"`
+	Base           string `json:"base,omitempty"`
+	ConversationID string `json:"conversation_id"`
+	Worktree       string `json:"worktree"`
+	Runtime        string `json:"runtime"`
+	AccountRef     string `json:"account_ref"`
 	// CLISessionRef is set when the Dispatch continues a Conversation.
 	CLISessionRef string `json:"cli_session_ref,omitempty"`
 	Model         string `json:"model,omitempty"`
