@@ -14,6 +14,8 @@ import { Zoom } from "./zoom"
 // so pdf.js and its worker load with it.
 //
 // The worker is made with `new Worker(new URL(...))`, the pattern Vite emits as a hashed asset (Omnigent's note).
+// It must be the pdf.js react-pdf runs, so package.json pins pdfjs-dist to react-pdf's own version (react-pdf's
+// upgrade guide to 11.x, "Update copied PDF.js files").
 pdfjs.GlobalWorkerOptions.workerPort = new Worker(
   new URL("pdfjs-dist/build/pdf.worker.min.mjs", import.meta.url),
   { type: "module" },
@@ -63,6 +65,8 @@ export default function PdfView({ data }: { data: Blob }) {
           file={data}
           onLoadSuccess={(doc) => setPages(doc.numPages)}
           onLoadError={() => setFailed(true)}
+          // The loading and error props as before React-PDF 11, which suspends by default (its upgrade guide).
+          suspense={false}
           loading={
             <Centered>
               <Spinner /> Reading the PDF…
