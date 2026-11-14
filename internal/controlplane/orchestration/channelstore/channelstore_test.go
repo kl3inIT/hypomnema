@@ -39,12 +39,12 @@ func TestTheTxFunctionsUseTheCallersTransaction(t *testing.T) {
 	bot := orchestration.DefaultBot
 
 	err = storeutil.Write(ctx, db, clock, func() {}, func(q *store.Queries, now int64) error {
-		require.NoError(t, q.UpsertLarkChannel(ctx, store.UpsertLarkChannelParams{
+		require.NoError(t, q.UpsertChannel(ctx, store.UpsertChannelParams{
 			Name: "main", AppID: "cli_main", Secret: "lark-channel-main", Bot: bot, Mode: "owner",
-			OwnerOpenID: "ou_owner", Enabled: 1, Now: now,
+			OwnerID: "ou_owner", Enabled: 1, Now: now,
 		}))
 
-		channels, err := channelstore.CountLarkChannelsOfBotTx(ctx, q, bot)
+		channels, err := channelstore.CountChannelsOfBotTx(ctx, q, bot)
 		require.NoError(t, err)
 		assert.Equal(t, int64(1), channels, "the Channel not yet committed")
 
@@ -52,22 +52,22 @@ func TestTheTxFunctionsUseTheCallersTransaction(t *testing.T) {
 			require.NoError(t, q.InsertChat(ctx, store.InsertChatParams{ID: id, Title: "Group", Bot: bot, Now: now}))
 		}
 
-		require.NoError(t, channelstore.RecordLarkChannelChatTx(ctx, q, channelstore.LarkChannelChat{
-			Channel: "main", LarkChatID: "oc_group", ChatID: "cht_first", Group: true,
+		require.NoError(t, channelstore.RecordChannelChatTx(ctx, q, channelstore.ChannelChat{
+			Channel: "main", ExternalChatID: "oc_group", ChatID: "cht_first", Group: true,
 		}, now))
-		require.NoError(t, channelstore.ResetLarkChannelChatTx(ctx, q, "main", "oc_group", "cht_second", true))
+		require.NoError(t, channelstore.ResetChannelChatTx(ctx, q, "main", "oc_group", "cht_second", true))
 
-		row, err := q.GetLarkChannelChat(ctx, store.GetLarkChannelChatParams{Channel: "main", LarkChatID: "oc_group"})
+		row, err := q.GetChannelChat(ctx, store.GetChannelChatParams{Channel: "main", ExternalChatID: "oc_group"})
 		require.NoError(t, err)
 		assert.Equal(t, "cht_second", row.ChatID)
 
-		group, err := q.IsLarkGroupChat(ctx, "cht_second")
+		group, err := q.IsChannelGroupChat(ctx, "cht_second")
 		require.NoError(t, err)
 		assert.Equal(t, int64(1), group, "the new chat is the group's too")
 
-		require.NoError(t, channelstore.DeleteLarkChannelChatsOfBotTx(ctx, q, bot))
+		require.NoError(t, channelstore.DeleteChannelChatsOfBotTx(ctx, q, bot))
 
-		_, err = q.GetLarkChannelChat(ctx, store.GetLarkChannelChatParams{Channel: "main", LarkChatID: "oc_group"})
+		_, err = q.GetChannelChat(ctx, store.GetChannelChatParams{Channel: "main", ExternalChatID: "oc_group"})
 		require.ErrorIs(t, err, sql.ErrNoRows)
 
 		return nil

@@ -127,13 +127,69 @@ type Bot struct {
 	ToolDisplay string
 }
 
+type Channel struct {
+	Name      string
+	AppID     string
+	Secret    string
+	Bot       string
+	Mode      string
+	OwnerID   string
+	Enabled   int64
+	CreatedAt int64
+	UpdatedAt int64
+	WebLink   int64
+	Kind      string
+}
+
+type ChannelChat struct {
+	ExternalChatID string
+	Channel        string
+	PersonID       string
+	ChatID         string
+	SentSeq        int64
+	CreatedAt      int64
+}
+
+type ChannelGroup struct {
+	Channel        string
+	ExternalChatID string
+	Name           string
+	Enabled        int64
+	AskedAt        sql.NullInt64
+	CreatedAt      int64
+}
+
+type ChannelMessage struct {
+	MessageID string
+	Channel   string
+	CreatedAt int64
+}
+
+type ChannelPerson struct {
+	Channel   string
+	PersonID  string
+	Email     string
+	Name      string
+	CreatedAt int64
+}
+
+type ChannelQuestion struct {
+	QuestionID string
+	Channel    string
+	CardID     string
+	MessageID  string
+	Seq        int64
+	ClosedAt   sql.NullInt64
+	CreatedAt  int64
+}
+
 type Chat struct {
 	ID             string
 	Title          string
 	CreatedAt      int64
 	UpdatedAt      int64
 	Bot            string
-	LarkGroup      int64
+	ChannelGroup   int64
 	Provider       sql.NullString
 	Model          sql.NullString
 	Effort         sql.NullString
@@ -366,61 +422,6 @@ type IntegrationClient struct {
 	Secret      string
 	CreatedAt   int64
 	UpdatedAt   int64
-}
-
-type LarkChannel struct {
-	Name        string
-	AppID       string
-	Secret      string
-	Bot         string
-	Mode        string
-	OwnerOpenID string
-	Enabled     int64
-	CreatedAt   int64
-	UpdatedAt   int64
-	WebLink     int64
-}
-
-type LarkChannelChat struct {
-	LarkChatID string
-	Channel    string
-	OpenID     string
-	ChatID     string
-	SentSeq    int64
-	CreatedAt  int64
-}
-
-type LarkChannelGroup struct {
-	Channel    string
-	LarkChatID string
-	Name       string
-	Enabled    int64
-	AskedAt    sql.NullInt64
-	CreatedAt  int64
-}
-
-type LarkChannelMessage struct {
-	MessageID string
-	Channel   string
-	CreatedAt int64
-}
-
-type LarkChannelPerson struct {
-	Channel   string
-	OpenID    string
-	Email     string
-	Name      string
-	CreatedAt int64
-}
-
-type LarkChannelQuestion struct {
-	QuestionID string
-	Channel    string
-	CardID     string
-	MessageID  string
-	Seq        int64
-	ClosedAt   sql.NullInt64
-	CreatedAt  int64
 }
 
 type MachineProvider struct {

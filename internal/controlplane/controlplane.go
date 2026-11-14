@@ -357,7 +357,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	larkStore := channelStore{Service: svc, Store: svc.Channels()}
 
 	larkChannels := larkbot.New(larkStore, sup,
-		func(ctx context.Context, c orchestration.LarkChannel) (larkbot.Lark, error) {
+		func(ctx context.Context, c channelstore.Channel) (larkbot.Lark, error) {
 			return larkSettings.Open(ctx, c)
 		}, logger).WithWebURL(cfg.PublicURL)
 	if bots != nil {

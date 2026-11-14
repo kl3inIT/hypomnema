@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/channelstore"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite/sqlitetest"
@@ -498,13 +499,13 @@ func TestPiRunsAsTheChatsBotWithItsModel(t *testing.T) {
 	assert.Equal(t, []string{"--bot", "coordinator"}, args, "the first chat keeps its Bot")
 
 	// A Lark group's chat is not given the Bot's memory (issue #246); a person's direct chat is.
-	_, err = svc.Channels().SetLarkChannel(ctx, orchestration.LarkChannel{
+	_, err = svc.Channels().SetChannel(ctx, channelstore.Channel{
 		Name: "maps", AppID: "cli_m4p5", Secret: "lark-channel-maps", Bot: "vmap",
-		Mode: orchestration.LarkChannelOwner, OwnerOpenID: "ou_owner", Enabled: true,
+		Mode: channelstore.ChannelOwner, OwnerID: "ou_owner", Enabled: true,
 	})
 	require.NoError(t, err)
 
-	group, err := svc.LarkGroupChatFor(ctx, "maps", "oc_group", "Lark: Maps team")
+	group, err := svc.ChannelGroupChatFor(ctx, "maps", "oc_group", "Lark: Maps team")
 	require.NoError(t, err)
 
 	args, _, _, err = sup.botArgs(ctx, group.ChatID)
@@ -513,7 +514,7 @@ func TestPiRunsAsTheChatsBotWithItsModel(t *testing.T) {
 		"--bot", "vmap", "--group", "--provider", "ninerouter", "--model", "cx/gpt-6.1-sol", "--thinking", "high",
 	}, args)
 
-	direct, err := svc.LarkChannelChatFor(ctx, "maps", "oc_dm", "ou_owner", "")
+	direct, err := svc.ChannelChatFor(ctx, "maps", "oc_dm", "ou_owner", "")
 	require.NoError(t, err)
 
 	args, _, _, err = sup.botArgs(ctx, direct.ChatID)
