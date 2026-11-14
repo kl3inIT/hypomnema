@@ -28,6 +28,7 @@ import { ChatModelControls } from "./chat-model-picker"
 import { useDraftChoice } from "./chat-model-state"
 import { newChatId } from "./chat-id"
 import { Composer } from "./composer"
+import { newChatDraft, readDraft } from "./drafts"
 import { useStartChat } from "./start-chat"
 
 // The chat with pi, laid out as t3code's app (MIT, Copyright (c) 2026 T3 Tools Inc.,
@@ -49,12 +50,16 @@ export function ChatScreen({ chatId, bot }: { chatId?: string; bot?: string }) {
 function NewChat({ initialBot }: { initialBot?: string }) {
   const navigate = useNavigate()
   // The Bot the new chat talks with. With one Bot there is nothing to choose and the server takes the first.
-  const bots = useBots().data ?? []
-  const [picked, setPicked] = useState(initialBot ?? firstBot)
+  // The page's draft (issue #433) keeps the chat's id it chose and the Bot picked, whose folder holds its files.
+  const [saved] = useState(() => readDraft(newChatDraft))
+  const listed = useBots().data
+  const bots = listed ?? []
+  const [picked, setPicked] = useState(initialBot ?? saved.bot ?? firstBot)
   const choice = bots.length > 1
-  const bot = bots.some((b) => b.name === picked) ? picked : firstBot
-  const [chatId] = useState(newChatId)
-  const attachments = useAttachments(chatId, bot)
+  // Until the Bots are read, the one picked stands, so that the files of the draft do not move meanwhile.
+  const bot = !listed || bots.some((b) => b.name === picked) ? picked : firstBot
+  const [chatId] = useState(() => saved.chat ?? newChatId())
+  const attachments = useAttachments(chatId, bot, { files: saved.files, bot: saved.bot ?? bot })
   const [model, setModel] = useDraftChoice(bot)
 
   const start = useStartChat(chatId, choice ? bot : undefined, model, (chat) =>
@@ -95,6 +100,7 @@ function NewChat({ initialBot }: { initialBot?: string }) {
             working={false}
             bot={bot}
             attachments={attachments}
+            draft={{ key: newChatDraft, chat: chatId, bot }}
             controls={<ChatModelControls bot={bot} choice={model} onChange={setModel} />}
           />
           <p className="max-w-(--chat-content-max-width) text-center text-sm text-muted-foreground">

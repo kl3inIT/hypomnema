@@ -24,6 +24,8 @@ import { Conversation } from "./conversation"
 import { DockContext } from "./dock-context"
 import { wakeCount } from "./dock-state"
 import { DockedQuestions, DockedRuns } from "./docked-work"
+import { chatDraft, readDraft } from "./drafts"
+import { sentTexts } from "./recall"
 import { useDockedWork } from "./use-docked-work"
 import { useChatStream } from "./use-chat-stream"
 import { OpenFileContext, type OpenFile } from "./open-file-context"
@@ -51,7 +53,14 @@ export function ChatBody({
     queryFn: async () => (await getChat({ path: { chat_id: chatId } })).data,
   })
   const [sending, setSending] = useState<ChatMessage[]>([])
-  const attachments = useAttachments(chatId)
+  // The chat's draft (issue #433): its files are put back as attached, and ↑ brings back what it sent, those the
+  // stream kept and those on their way.
+  const draft = { key: chatDraft(chatId) }
+  const attachments = useAttachments(chatId, undefined, readDraft(draft.key))
+  const sent = sentTexts([
+    ...view.messages,
+    ...sending.filter((m) => !view.messages.some((k) => k.seq === m.seq)),
+  ])
   // What waits above the composer: the Approvals, the questions of this chat's Runs and the Runs themselves.
   const approvals = usePending({ chatId })
   const work = useDockedWork(chatId, wakeCount(view.messages), approvals.data?.length ?? 0)
@@ -159,6 +168,8 @@ export function ChatBody({
                 onSend={send}
                 onStop={() => void abortChat({ path: { chat_id: chatId } })}
                 attachments={attachments}
+                draft={draft}
+                sent={sent}
                 controls={
                   chat.data && (
                     <>

@@ -2180,6 +2180,17 @@ Node (`internal/node`):
     another Bot, the chips stay and each file goes up again into the new Bot's folder, its copy in the old one
     deleted once the new one is up, as t3code uploads a draft's attachments again when its environment changes
     (`attachmentUploadQueue.ts`, `previous`).
+  - Drafts and ↑ (issue #433, `features/chat/drafts.ts`, `recall.ts`, after t3code's `composerDraftStore.ts`,
+    OpenMausBot's `src/lib/drafts.ts` and opencode's history walk): what is written in a chat's composer, with the
+    files that are up (their place in the folder, not their bytes), is kept for that chat in localStorage
+    (`hypomnema:chat-drafts:v1`), saved 300 ms after a write and when the page hides or the composer goes, and held
+    in memory where the storage throws; it is there again after switching chats or reloading, and goes when sent.
+    The New chat page and a new chat's tab keep theirs with the chat's id they chose and the Bot picked; a restored
+    file cannot move to another Bot's folder and asks to be attached again. In an empty box with the caret
+    at its start, ↑ brings back the owner's messages of this chat, newest first; while walking, ↑ and ↓ step from
+    the start or end of the text, ↓ past the newest gives the empty box back, and typing ends the walk. Not built:
+    drafts on the server or shared between devices, dropping the draft of a chat that is gone (the server
+    has no delete) or of a closed tab, opencode's Shift+↑ search.
   - The model and effort (issue #369, `features/chat/chat-model-picker.tsx`, after t3code's
     `ProviderModelPicker.tsx`, `TraitsPicker.tsx` and `ComposerModelEffort.tsx`): in the composer's footer, left of
     Send, a quiet button with the model's mark and name opens the app's model list (`features/agents/model-choices.ts`:
