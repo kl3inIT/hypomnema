@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/kl3inIT/hypomnema/internal/node/daemon"
+	"github.com/kl3inIT/hypomnema/internal/node/runner"
 	"github.com/kl3inIT/hypomnema/internal/node/skills"
 	"github.com/kl3inIT/hypomnema/internal/node/statedb"
 	"github.com/kl3inIT/hypomnema/internal/node/transcript"
@@ -105,3 +106,22 @@ func (rs runners) ItemsAcked(ack nodeproto.ItemsAck) {
 		rs.transcripts.ItemsAcked(ack)
 	}
 }
+
+// supervised is a runtime whose workers the Supervisor runs.
+type supervised struct {
+	s  *runner.Supervisor
+	rt runner.Runtime
+}
+
+func (w supervised) Start(ctx context.Context, d statedb.Dispatch, rep daemon.Reporter) error {
+	return w.s.Start(ctx, w.rt, d, rep)
+}
+
+func (w supervised) Adopt(ctx context.Context, d statedb.Dispatch, rep daemon.Reporter) error {
+	return w.s.Adopt(ctx, w.rt, d, rep)
+}
+
+func (w supervised) Stop(id string)                         { w.s.Stop(id) }
+func (w supervised) Release(id string)                      { w.s.Release(id) }
+func (w supervised) Answer(id string, q nodeproto.Question) { w.s.Answer(id, q) }
+func (w supervised) Asked(id, reportID, questionID string)  { w.s.Asked(id, reportID, questionID) }

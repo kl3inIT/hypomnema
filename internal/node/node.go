@@ -25,6 +25,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/node/claude"
 	"github.com/kl3inIT/hypomnema/internal/node/codex"
 	"github.com/kl3inIT/hypomnema/internal/node/daemon"
+	"github.com/kl3inIT/hypomnema/internal/node/runner"
 	"github.com/kl3inIT/hypomnema/internal/node/skills"
 	"github.com/kl3inIT/hypomnema/internal/node/statedb"
 	"github.com/kl3inIT/hypomnema/internal/node/terminal"
@@ -224,7 +225,7 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 	}
 	defer db.Close() //nolint:errcheck // Closing at shutdown; nothing is left to report it to.
 
-	runner := &claude.Runner{
+	claudeRunner := &claude.Runner{
 		Home: home, Exe: exe, Claude: claudePath, URL: cfg.URL, Accounts: cfg.Accounts, Logger: logger,
 		Worktrees: worktree.Maker{Root: home, Logger: logger},
 	}
@@ -260,12 +261,11 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 		all.byRuntime[runtime] = acpRunner
 	}
 
-	all.byRuntime["claude"] = runner
+	all.byRuntime["claude"] = claudeRunner
 	// A Codex worker's model comes from the control plane's gateway (issue #107).
-	all.byRuntime["codex"] = &codex.Runner{
-		Home: home, Exe: exe, Codex: codexPath, URL: cfg.URL, Logger: logger,
-		Worktrees: worktree.Maker{Root: home, Logger: logger},
-	}
+	all.byRuntime["codex"] = supervised{s: &runner.Supervisor{
+		Home: home, Exe: exe, URL: cfg.URL, Logger: logger, Worktrees: worktree.Maker{Root: home, Logger: logger},
+	}, rt: &codex.CodexRuntime{Home: home, Exe: exe, Codex: codexPath, URL: cfg.URL}}
 
 	d := daemon.New(daemon.Config{
 		URL: cfg.URL, Token: cfg.Token, WorktreeRoot: cfg.WorktreeRoot, Version: platform.Version, Runtimes: runtimes,
