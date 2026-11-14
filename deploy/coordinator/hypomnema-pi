@@ -157,6 +157,17 @@ if ! HOME="$user_home" "$hypomnema" pi-models > "$models.$$" < /dev/null; then
 fi
 mv -f "$models.$$" "$models"
 
+# pi's settings.json, from that models.json (issue #395): each model compacts once fewer than max(15% of its window,
+# 16,384) tokens are free, as omp and opencode reserve, and pi's read-only grep, find and ls are on. Bound read-only
+# over the one in pi's agent directory, so the Bot cannot change its own settings. Without it pi would compact at a
+# fixed reserve whatever the model, so pi does not start.
+settings="$run/settings.json"
+if ! HOME="$user_home" "$hypomnema" pi-settings "$models" > "$settings.$$" < /dev/null; then
+  rm -f "$settings.$$"
+  fail "writing pi's settings failed"
+fi
+mv -f "$settings.$$" "$settings"
+
 # The chat's sessions have a directory of their own, the only one of pi's sessions in the box. pi names a session
 # file <time>_<session id>.jsonl (session-manager.ts); one kept with the others before issue #260 is moved in.
 sessions="$home/sessions/$chat"
@@ -181,11 +192,11 @@ esac
 # The box. Its own PID, IPC and UTS namespaces, ended with the launcher (OpenMausBot's plan.ts options). Read-only:
 # the system (/usr, with merged /bin, /lib, /lib64 and /sbin, and /etc), the resolver Ubuntu's /etc/resolv.conf
 # links to, the CPU list Node reads, Node, pi, the integrations' tools and their guides, the skills every Bot gets
-# (~/.agents/skills), and this pi's prompt and models.json. A private /tmp, /var/tmp, /proc and /dev, and an empty
+# (~/.agents/skills), and this pi's prompt, models.json and settings.json. A private /tmp, /var/tmp, /proc and /dev, and an empty
 # home, in which ~/.hypomnema/client.json holds pi's own token. pi's agent directory is private too: pi locks
 # auth.json and models-store.json there as it reads them (auth-storage.ts), so it cannot be read-only; the shared
-# instructions (AGENTS.md), the tools pi fetched (bin/) and this pi's models.json are bound in read-only. Read-write:
-# the Bot's directory and the chat's sessions. The hint variables say which chat and Bot this is; the token decides.
+# instructions (AGENTS.md), the tools pi fetched (bin/) and this pi's models.json and settings.json are bound in
+# read-only. Read-write: the Bot's directory and the chat's sessions. The hint variables say which chat and Bot this is; the token decides.
 agent="$home/agent"
 exec env -i \
   HOME="$user_home" USER=coordinator LOGNAME=coordinator LANG=C.UTF-8 TERM=dumb \
@@ -210,6 +221,7 @@ exec env -i \
   --ro-bind-try "$agent/AGENTS.md" "$agent/AGENTS.md" \
   --ro-bind-try "$agent/bin" "$agent/bin" \
   --ro-bind "$models" "$agent/models.json" \
+  --ro-bind "$settings" "$agent/settings.json" \
   --ro-bind "$run" "$run" \
   --bind "$dir" "$dir" \
   --bind "$sessions" "$sessions" \

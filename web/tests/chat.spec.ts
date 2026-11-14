@@ -144,11 +144,12 @@ async function fakeServer(
   send: (text: string, body: Record<string, unknown>) => { status: number; body: unknown },
   work: Work = noWork(),
   files = botFolder(),
+  kept: Record<string, unknown> = chat,
 ) {
   const calls: string[] = []
   const uploads = new Map<string, { path: string; bytes: Buffer }>()
   // The chat as the server keeps it: a PATCH changes its model and effort.
-  let current: Record<string, unknown> = { ...chat }
+  let current: Record<string, unknown> = { ...kept }
 
   await page.addInitScript(() => {
     const page = globalThis as unknown as PageGlobal
@@ -296,6 +297,7 @@ async function fakeServer(
     }
     if (path === `/chats/${chat.id}`) return json(current)
     if (path === `/chats/${chat.id}/abort`) return route.fulfill({ status: 204 })
+    if (path === `/chats/${chat.id}/compact`) return route.fulfill({ status: 202 })
     if (path === `/chats/${chat.id}/messages`) {
       const body = route.request().postDataJSON() as { text: string }
       const answer = send(body.text, body)
@@ -804,4 +806,67 @@ test("the owner chooses the chat's model and effort in the composer", async ({ p
   await expect(model).toHaveAccessibleName("Model: plain-mini")
   await expect(page.getByRole("button", { name: /^Effort/ })).toHaveCount(0)
   await shot(page, "chat-model-no-effort")
+})
+
+const usage = (u: object) => `event: usage
+data: ${JSON.stringify(u)}
+
+`
+
+// Scenario: the composer's context meter (issue #384). A chat pi has reported on shows a ring by the model, amber
+// from 80 %; its card says how much of the window is used and where pi compacts. Compact asks the server; the chat
+// works while pi compacts, and the ring says "–" until pi's next answer measures it again, then red from 90 %.
+test("the context meter shows the window and compacts", async ({ page }) => {
+  const calls = await fakeServer(
+    page,
+    (text) => ({ status: 201, body: message(2, { role: "owner", text }) }),
+    noWork(),
+    botFolder(),
+    { ...chat, context_usage: { context_window: 128000, tokens: 105000, percent: 82.03 } },
+  )
+  await open(page)
+  await write(page, state(false))
+
+  const ring = page.getByRole("button", { name: "Context: 82% used" })
+  await expect(ring).toBeVisible()
+  await expect(ring).toHaveAttribute("data-tone", "warning")
+  await ring.click()
+  const card = page.getByRole("dialog")
+  await expect(card.getByText("105k / 128k (82%)")).toBeVisible()
+  await expect(card.getByText("pi compacts on its own at about 111,616 tokens.")).toBeVisible()
+  await settled(page)
+  await shot(page, "chat-context-amber")
+
+  await card.getByRole("button", { name: "Compact" }).click()
+  await expect.poll(() => calls).toContain(`POST /chats/${chat.id}/compact`)
+  await write(page, state(true))
+  await expect(card.getByRole("button", { name: "Compact" })).toBeDisabled()
+
+  await write(page, usage({ context_window: 128000 }) + state(false))
+  await expect(
+    page.getByRole("button", { name: "Context: not measured since it was compacted" }),
+  ).toHaveText("–")
+  await expect(card.getByText("– / 128k")).toBeVisible()
+  await expect(card.getByRole("button", { name: "Compact" })).toBeEnabled()
+  await settled(page)
+  await shot(page, "chat-context-compacted")
+
+  await page.keyboard.press("Escape")
+  await write(page, usage({ context_window: 128000, tokens: 120000, percent: 93.75 }))
+  const full = page.getByRole("button", { name: "Context: 94% used" })
+  await expect(full).toHaveAttribute("data-tone", "critical")
+  await full.click()
+  await expect(card.getByText("120k / 128k (94%)")).toBeVisible()
+  await settled(page)
+  await shot(page, "chat-context-red")
+})
+
+// Scenario: a chat pi has not reported on yet has no ring at all, as in Orca.
+test("no context meter before pi reported", async ({ page }) => {
+  await fakeServer(page, (text) => ({ status: 201, body: message(2, { role: "owner", text }) }))
+  await open(page)
+  await write(page, state(false))
+
+  await expect(page.getByRole("combobox", { name: /^Model:/ })).toBeVisible()
+  await expect(page.getByRole("button", { name: /^Context:/ })).toHaveCount(0)
 })

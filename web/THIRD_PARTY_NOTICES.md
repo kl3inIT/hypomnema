@@ -23,6 +23,12 @@ Each adapted file names its source.
   NativeChatTaskList.tsx (MIT, Copyright (c) 2026 Lovecast Inc.): the strip that opens to its list, its "n of m"
   and a status icon a row. Which strips start open follows t3code's apps/web/src/components/chat/ThreadDetailsCard.tsx
   (MIT, Copyright (c) 2026 T3 Tools Inc.).
+- The chat's context meter (`src/features/chat/context-meter.tsx`, `context-meter-state.ts`) is adapted from
+  assistant-ui's packages/ui/src/components/react/assistant-ui/elements/context-display.radix.tsx (MIT, Copyright (c)
+  2026 AgentbaseAI Inc.) and AI Elements' packages/elements/src/context.tsx (Apache License 2.0) for the ring and its
+  card, with the tones, the tick at auto-compaction and the token counts of t3code's
+  apps/web/src/components/chat/ThreadDetailsUsage.tsx and apps/web/src/lib/contextWindow.ts (MIT, Copyright (c) 2026
+  T3 Tools Inc.).
 - The grouping of the work in flight into what needs the owner, what works and what is done
   (`src/features/work/work-state.ts`) is adapted from Orca (https://github.com/stablyai/orca,
   src/renderer/src/components/dashboard), MIT.

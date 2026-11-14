@@ -1,8 +1,16 @@
+import { useQueryClient } from "@tanstack/react-query"
 import { useEffect, useReducer } from "react"
 
 import "@/api/client"
 import { streamChat } from "@/api/generated/sdk.gen"
-import type { ChatDelta, ChatMessage, ChatState, ChatToolActivity } from "@/api/generated/types.gen"
+import type {
+  Chat,
+  ChatContextUsage,
+  ChatDelta,
+  ChatMessage,
+  ChatState,
+  ChatToolActivity,
+} from "@/api/generated/types.gen"
 
 import { chatReducer, emptyChat, type ChatAction } from "./chat-state"
 
@@ -13,9 +21,11 @@ const reopenAfter = 2000
 // client reconnects after a network error with Last-Event-ID; when the server ends the stream, this opens it again
 // after the last kept message. Remount (key) to switch chats. While the stream is down the view says it is
 // reconnecting, as Omnigent's ConnectionIndicator (web/src/pages/ChatIndicators.tsx); the server's first frame on
-// every open, the state, says it is back.
+// every open, the state, says it is back. A usage frame (issue #384) is pi's new report of its context window: it
+// goes into the chat as GET /chats/{id} read it, where the composer's meter reads it.
 export function useChatStream(chatId: string) {
   const [view, dispatch] = useReducer(chatReducer, emptyChat)
+  const queryClient = useQueryClient()
 
   useEffect(() => {
     const controller = new AbortController()
@@ -55,6 +65,13 @@ export function useChatStream(chatId: string) {
             onSseError: () => connection(true),
             onSseEvent: (e) => {
               connection(false)
+              if (e.event === "usage") {
+                const usage = e.data as unknown as ChatContextUsage
+                queryClient.setQueryData<Chat>(["chat", chatId], (c) =>
+                  c ? { ...c, context_usage: usage } : c,
+                )
+                return
+              }
               const action = frame(e.event, e.data)
               if (!action) return
               if (action.type === "message") after = Math.max(after, action.message.seq)
@@ -78,7 +95,7 @@ export function useChatStream(chatId: string) {
     void follow()
 
     return () => controller.abort()
-  }, [chatId])
+  }, [chatId, queryClient])
 
   return view
 }

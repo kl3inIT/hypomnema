@@ -72,9 +72,10 @@ func newBoxWorld(t *testing.T, bwrap string) *boxWorld {
 	w.home = filepath.Join(w.userHome, ".hypomnema-coordinator")
 
 	files := map[string]string{
-		"agent/AGENTS.md":   "rules for every bot",
-		"agent/models.json": "the models another chat's pi was given",
-		"bots/other/notes":  "another bot's notes",
+		"agent/AGENTS.md":     "rules for every bot",
+		"agent/models.json":   "the models another chat's pi was given",
+		"agent/settings.json": "settings another pi wrote",
+		"bots/other/notes":    "another bot's notes",
 		"sessions/2026-11-01T00-00-00-000Z_cht_mine.jsonl":   `{"type":"session","id":"cht_mine"}`,
 		"sessions/2026-11-01T00-00-00-000Z_cht_theirs.jsonl": `{"type":"session","id":"cht_theirs"}`,
 		"work/README":       "the first bot's directory",
@@ -96,6 +97,7 @@ case "$1" in
   bots) shift 2; echo "persona of $*" ;;
   skills) mkdir -p "$6" ;;
   pi-models) echo '{"providers":{"model-gateway":{}}}' ;;
+  pi-settings) echo "{\"from\":\"$2\"}" ;;
   *) exit 9 ;;
 esac
 `, 0o700)
@@ -123,6 +125,8 @@ echo "pid=$$"
 echo "client=$(tr -d '\n ' < "$HOME/.hypomnema/client.json")"
 echo "agents=$(cat "$PI_CODING_AGENT_DIR/AGENTS.md")"
 echo "models=$(cat "$PI_CODING_AGENT_DIR/models.json")"
+echo "settings=$(cat "$PI_CODING_AGENT_DIR/settings.json")"
+if (echo x > "$PI_CODING_AGENT_DIR/settings.json") 2> /dev/null; then echo own=writable; else echo own=read-only; fi
 if ls "$H/bots/other" > /dev/null 2>&1; then echo other=seen; else echo other=hidden; fi
 echo "sessions=$(ls "$H/sessions" | tr '\n' ' ')"
 echo "mine=$(ls "$H/sessions/cht_mine" | tr '\n' ' ')"
@@ -217,6 +221,9 @@ func TestPiRunsInItsBoxWithItsOwnToken(t *testing.T) {
 	assert.JSONEq(t, `{"url":"http://127.0.0.1:18990","token":"hyp_bot_v1_mine"}`, seen["client"])
 	assert.Equal(t, "rules for every bot", seen["agents"])
 	assert.JSONEq(t, `{"providers":{"model-gateway":{}}}`, seen["models"], "this chat's models.json, not another's")
+	assert.JSONEq(t, `{"from":"`+filepath.Join(w.home, "run", "cht_mine", "models.json")+`"}`, seen["settings"],
+		"this chat's settings, made from its models.json (issue #395)")
+	assert.Equal(t, "read-only", seen["own"], "the Bot cannot change its own settings")
 	assert.Equal(t, "hidden", seen["other"], "another Bot's directory")
 	assert.Equal(t, "cht_mine ", seen["sessions"], "another chat's sessions")
 	assert.Equal(t, "2026-11-01T00-00-00-000Z_cht_mine.jsonl ", seen["mine"], "the chat's session was moved in")

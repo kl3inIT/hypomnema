@@ -57,7 +57,16 @@ that starts gets it as its flags (`none` is pi's `--thinking off`); a running pi
 prompt that starts a turn, without a restart, by pi's RPC `set_model` and `set_thinking_level` (pi
 `docs/rpc-commands.md`), the chat's gateway key made again first for a new model. A pi that refuses is stopped, and
 the next pi starts with the chat's choice. pi's own default, when neither names a model, is had only at start. A
-Lark message to the chat runs with the chat's choice too. On
+Lark message to the chat runs with the chat's choice too. How full a chat's context window is (issue #384) is pi's
+own report: on each `turn_end` and `compaction_end` the supervisor sends pi `get_session_stats`, as Orca's
+`refreshUsage` does, keeps its `contextUsage` with the chat (`chats.context_tokens`, `context_window`,
+`context_percent`, migration 68; the window NULL before pi first reported one, the tokens and the share NULL right
+after a compaction until pi's next answer) and, when it changed, sends the chat's watchers a `usage` frame; `GET
+/chats/{id}` carries it as `context_usage`. `POST /chats/{id}/compact` (owner only, 202) sends pi `compact`, starting
+pi when none runs, as OpenMausBot runs its compaction as a turn: the chat reads working until it ends, a message sent
+meanwhile waits, `abort` stops it with a `stopped` row, a failure ends in a `failed` row ("pi's compaction failed:
+…"), and a chat whose pi works is refused (409), as pi aborts a running turn to compact. pi's compaction settings are
+its own (reserve 16384, keep 20000). On
 the server pi runs as the `coordinator` user through `deploy/coordinator/`: a root-owned launcher (`hypomnema-pi`,
 a clean environment, only a chat id, a Bot's name and model flags, pi's own token on the first line of stdin), a
 second one for a Routine's script (`hypomnema-routine`, below), one sudoers rule limited to the two, the instructions
@@ -493,12 +502,13 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     launcher runs every chat's pi, a Lark group's too, in an unprivileged bubblewrap box, its own PID, IPC and UTS
     namespaces, ended with the launcher. Read-only: `/usr` (with merged `/bin`, `/lib`, `/lib64`, `/sbin`), `/etc`, the resolver Ubuntu's
     `/etc/resolv.conf` links to (`/run/systemd/resolve`), the CPU list, `/opt/hypomnema-node`, pi, the
-    integrations' tools and guides, the skills every Bot gets (`~/.agents/skills`), and this pi's prompt, skills and
-    `models.json` (`run/<chat>/`, made by the launcher outside the box). Private: `/tmp`, `/var/tmp`, `/proc`,
+    integrations' tools and guides, the skills every Bot gets (`~/.agents/skills`), and this pi's prompt, skills,
+    `models.json` and `settings.json` (`run/<chat>/`, made by the launcher outside the box). Private: `/tmp`, `/var/tmp`, `/proc`,
     `/dev`, and an empty home in which `~/.hypomnema/client.json` holds the control plane's address and pi's token
     (bubblewrap's `--file`), so the coordinator token's `client.json` is not there. pi's agent directory is private
     too, since pi locks files there as it reads them; the instructions every Bot gets (`AGENTS.md`), the tools pi
-    fetched (`bin/`) and this chat's `models.json` are bound into it read-only. Read-write: the Bot's directory and
+    fetched (`bin/`) and this chat's `models.json` and `settings.json` are bound into it read-only, so a Bot cannot
+    change its own settings. Read-write: the Bot's directory and
     the chat's sessions (`sessions/<chat>/`; pi names a session `<time>_<chat>.jsonl`, and one kept with the others
     before is moved in). Other Bots' directories, other chats' sessions and other pi processes are not in it. The
     network is the host's (OpenMausBot's `net: "shared"`; owner, 2026-11-12): a Bot's shell still reaches every
@@ -1329,6 +1339,12 @@ not exist yet.
     and cache write per million tokens; a missing cache price is the input's). An unknown one is left out, so pi
     keeps its default (128000, 16384), but for `input`: a model whose input is not known reads text and pictures
     (`["text", "image"]`, issue #368: pi takes a model without it as text-only, and the gateway passes pictures on).
+  - pi's `settings.json` is written next to it, from that `models.json` (`hypomnema pi-settings`, issue #395;
+    [research](docs/research/2026-11-14-pi-defaults.md)): each model with a window compacts once fewer than
+    max(15% of the window, 16,384) tokens are free (`compaction.modelOverrides`, which pi reads for the model in
+    use, so a model changed during a chat needs nothing more), as omp and opencode reserve; a model without one
+    keeps pi's 16,384. pi's read-only `grep`, `find` and `ls` are on beside `read`, `bash`, `edit` and `write`
+    (`defaultTools`). Everything else is pi's default.
 - `POST /v1/responses` (issue #107, after 9router-go;
   [research](docs/research/2026-11-10-codex-responses-passthrough.md)) is for a client that speaks OpenAI's Responses
   format, which the Codex CLI does and nothing else. It serves a model's `codex_subscription` targets only:
@@ -1530,8 +1546,9 @@ not exist yet.
   - Prompt caching, as the Codex adapter has it: the billing block's fingerprint is deterministic (CLIProxyAPI
     `computeFingerprint`, not 9router-go's random build and body hash) so the prompt's top is byte-identical between
     turns, and the cache breakpoints Claude Code sets go on — the system prefix, the last tool, the last message
-    (pi/omp `applyAnthropicCacheControl`). A probe (Claude Code's own `quota`/`ping` check) is left minimal, with no
-    decoys and no breakpoints.
+    (pi/omp `applyAnthropicCacheControl`), each kept an hour (`ttl: 1h`, with `extended-cache-ttl-2025-04-11` among
+    the betas; issue #397, as Claude Code, omp, CLIProxyAPI and 9router-go keep a subscription's cache). A probe
+    (Claude Code's own `quota`/`ping` check) is left minimal, with no decoys and no breakpoints.
   - The call goes to `api.anthropic.com/v1/messages?beta=true`, always as a stream, with the account's token in the
     Bearer header (never the api-key header), a refresh on a 401, a cooldown on a 429.
   - The backend's Messages events become chat chunks: text, thinking as `reasoning_content`, each tool call with the
@@ -2061,6 +2078,13 @@ Node (`internal/node`):
     once (`PATCH /chats/{id}`) and shown before the server answers; a refused one is put back. The New chat page
     and a new chat's tab hold theirs until the first message makes the chat with it; picking another Bot starts
     from that Bot's. Picking a model the chat's effort is not a level of gives the effort back to the Bot.
+  - The context meter (issue #384, `features/chat/context-meter.tsx`): left of the model button, a ring that fills
+    as pi's context does (assistant-ui's ContextDisplay ring, AI Elements' Context), amber from 80 % and red from
+    90 % with a tick where pi compacts on its own (the window less 16384), after t3code's ThreadDetailsContext.
+    Hovered or tapped, a card says "used / window (percent)", where pi compacts, and has Compact (`POST
+    /chats/{id}/compact`), disabled while pi works, "Compacting…" while it is asked. No ring shows before pi
+    reported, as in Orca; after a compaction it shows "–" until pi's next answer. A `usage` frame on the chat's
+    stream updates the chat as the page holds it.
 - The Team page (issue #262, `web/src/features/team`; [design](https://github.com/kl3inIT/hypomnema/issues/262)),
   adapted from OpenMausBot's team map (Apache 2.0): `/team`, first in the sidebar after New chat, carries the
   count of what needs the owner. A canvas draws the Bots in a column and every machine in a column beside it,

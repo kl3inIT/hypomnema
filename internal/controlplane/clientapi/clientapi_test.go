@@ -947,6 +947,9 @@ func TestOnlyTheOwnerChangesProfiles(t *testing.T) {
 type fakeCoordinator struct {
 	live    chan coordinator.Frame
 	aborted atomic.Value
+	// compacted is the chat last compacted; while busy, a compaction is refused as pi works.
+	compacted atomic.Value
+	busy      atomic.Bool
 	// keys are the gateway keys of the chats a pi runs for.
 	keys sync.Map
 }
@@ -969,6 +972,71 @@ func (f *fakeCoordinator) Abort(_ context.Context, chatID string) error {
 	f.aborted.Store(chatID)
 
 	return nil
+}
+
+func (f *fakeCoordinator) Compact(_ context.Context, chatID string) error {
+	if f.busy.Load() {
+		return orchestration.ErrConflict
+	}
+
+	f.compacted.Store(chatID)
+
+	return nil
+}
+
+// Scenario: the context meter (issue #384). A chat carries pi's last report of its context window, without tokens
+// right after a compaction; the owner, and only the owner, compacts a chat, and a chat whose pi works is refused.
+func TestTheOwnerCompactsAChat(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	owner, _ := w.token("web", bearertoken.Owner)
+	pi, _ := w.token("pi", bearertoken.Coordinator)
+	ctx := t.Context()
+
+	created, err := owner.CreateChatWithResponse(ctx, openapi.NewChat{})
+	require.NoError(t, err)
+	require.Equal(t, http.StatusCreated, created.StatusCode(), string(created.Body))
+	id := created.JSON201.Id
+	assert.Nil(t, created.JSON201.ContextUsage, "no meter before pi reported")
+
+	tokens, percent := int64(51200), 40.0
+	require.NoError(t, w.svc.SetChatContextUsage(ctx, id, orchestration.ContextUsage{
+		Tokens: &tokens, Window: 128000, Percent: &percent,
+	}))
+
+	got, err := owner.GetChatWithResponse(ctx, id)
+	require.NoError(t, err)
+	require.NotNil(t, got.JSON200.ContextUsage)
+	assert.Equal(t, openapi.ChatContextUsage{ContextWindow: 128000, Tokens: &tokens, Percent: &percent},
+		*got.JSON200.ContextUsage)
+
+	compacted, err := owner.CompactChatWithResponse(ctx, id)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusAccepted, compacted.StatusCode(), string(compacted.Body))
+	assert.Equal(t, id, w.pi.compacted.Load())
+
+	require.NoError(t, w.svc.SetChatContextUsage(ctx, id, orchestration.ContextUsage{Window: 128000}))
+
+	got, err = owner.GetChatWithResponse(ctx, id)
+	require.NoError(t, err)
+	require.NotNil(t, got.JSON200.ContextUsage)
+	assert.Nil(t, got.JSON200.ContextUsage.Tokens, "unknown until pi's next answer")
+	assert.Nil(t, got.JSON200.ContextUsage.Percent)
+
+	w.pi.busy.Store(true)
+
+	busy, err := owner.CompactChatWithResponse(ctx, id)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusConflict, busy.StatusCode())
+
+	forbidden, err := pi.CompactChatWithResponse(ctx, id)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, forbidden.StatusCode())
+
+	missing, err := owner.CompactChatWithResponse(ctx, "cht_none")
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusNotFound, missing.StatusCode())
 }
 
 // Scenario: the owner chats with pi from the web. Only the owner's token

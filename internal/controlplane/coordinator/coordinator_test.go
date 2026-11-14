@@ -37,7 +37,10 @@ func TestMain(m *testing.M) {
 // asks for the "token" is answered with the line before the commands, which
 // the launcher reads; one that asks "which model" is answered with the model
 // and thinking level of its flags, or of the set_model and
-// set_thinking_level it was sent since.
+// set_thinking_level it was sent since. Once a prompt said "context", it
+// reports its context usage (get_session_stats) at 1000 tokens an answer, and
+// none right after a compaction; a compact after a prompt that said "too
+// small" fails as pi's does on a short session.
 func fakePi() int {
 	in := bufio.NewReader(os.Stdin)
 	out := json.NewEncoder(os.Stdout)
@@ -45,6 +48,7 @@ func fakePi() int {
 	model, level := flagOf("--provider")+"/"+flagOf("--model"), flagOf("--thinking")
 
 	hanging := ""
+	measured, small, compacted, answers := false, false, false, 0
 
 	for {
 		line, err := in.ReadBytes('\n')
@@ -80,6 +84,24 @@ func fakePi() int {
 			model = fmt.Sprint(cmd["provider"], "/", cmd["modelId"])
 		case "set_thinking_level":
 			level = fmt.Sprint(cmd["level"])
+		case "get_session_stats":
+			reply["data"] = sessionStatsOf(measured, compacted, answers)
+		case "compact":
+			emit(out, map[string]any{"type": "compaction_start", "reason": "manual"})
+
+			if small {
+				failure := "Nothing to compact (session too small)"
+				emit(out, map[string]any{"type": "compaction_end", "reason": "manual", "errorMessage": failure})
+				emit(out, map[string]any{
+					"type": "response", "id": cmd["id"], "command": "compact", "success": false, "error": failure,
+				})
+
+				continue
+			}
+
+			compacted = true
+			reply["data"] = map[string]any{"summary": "the gist", "tokensBefore": answers * 1000}
+			emit(out, map[string]any{"type": "compaction_end", "reason": "manual", "result": reply["data"]})
 		}
 
 		if cmd["type"] != "prompt" {
@@ -91,6 +113,9 @@ func fakePi() int {
 		text, _ := cmd["message"].(string)
 		reply["data"] = map[string]any{"disposition": "started"}
 		emit(out, reply)
+
+		measured = measured || strings.Contains(text, "context")
+		small = strings.Contains(text, "too small")
 
 		if strings.Contains(text, "crash") {
 			return 3
@@ -132,6 +157,10 @@ func fakePi() int {
 		if strings.Contains(text, "which model") {
 			answer = "model " + model + " thinking " + level
 		}
+
+		answers++
+		compacted = false
+
 		for _, rec := range turn(answer) {
 			emit(out, rec)
 		}
@@ -170,8 +199,24 @@ func turn(reply string) []map[string]any {
 			"role": "assistant", "stopReason": "stop",
 			"content": []map[string]any{{"type": "text", "text": reply}},
 		}},
+		{"type": "turn_end"},
 		{"type": "agent_settled", "aborted": false},
 	}
+}
+
+// sessionStatsOf is the fake pi's get_session_stats: no contextUsage until it
+// is measured, and no tokens right after a compaction (pi rpc-commands.md).
+func sessionStatsOf(measured, compacted bool, answers int) map[string]any {
+	if !measured {
+		return map[string]any{}
+	}
+
+	usage := map[string]any{"tokens": nil, "contextWindow": 128000, "percent": nil}
+	if !compacted {
+		usage["tokens"], usage["percent"] = answers*1000, float64(answers*1000)/1280
+	}
+
+	return map[string]any{"contextUsage": usage}
 }
 
 // stopped is how a turn told to stop ends: an aborted reply with what was

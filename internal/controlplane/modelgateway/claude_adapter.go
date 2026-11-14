@@ -34,11 +34,12 @@ const (
 	claudeApp       = "cli"
 	// claudeBeta is the beta set Claude Code sends; oauth-2025-04-20 is what
 	// lets a subscription OAuth token stand in a Bearer header (9router-go
-	// providers.go, the "claude" StaticHeaders).
+	// providers.go, the "claude" StaticHeaders); extended-cache-ttl-2025-04-11
+	// goes with the one-hour breakpoints (CLIProxyAPI, issue #397).
 	claudeBeta = "claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14," +
 		"context-management-2025-06-27,prompt-caching-scope-2026-01-05,advanced-tool-use-2025-11-20," +
 		"effort-2025-11-24,structured-outputs-2025-12-15,fast-mode-2026-02-01,redact-thinking-2026-02-12," +
-		"token-efficient-tools-2026-03-28"
+		"token-efficient-tools-2026-03-28,extended-cache-ttl-2025-04-11"
 )
 
 // claudeSubscription serves chat from the Anthropic Messages backend.

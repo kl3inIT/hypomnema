@@ -204,6 +204,8 @@ type Coordinator interface {
 	Abort(ctx context.Context, chatID string) error
 	// Key returns the model gateway's key of the chat's running pi.
 	Key(chatID string) (string, bool)
+	// Compact asks the chat's pi to compact its context now.
+	Compact(ctx context.Context, chatID string) error
 }
 
 // WithCoordinator lets chats report whether pi is working on them.
