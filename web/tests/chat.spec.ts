@@ -17,6 +17,49 @@ const chat = {
   updated_at: "2026-11-09T10:00:00Z",
 }
 
+// The models a chat may run with (issue #369): what the providers offer, and the gateway's attributes of each, which
+// say whether it reasons and at which levels.
+const models = [
+  { provider: "gateway", name: "gpt-sol", kind: "model_gateway" },
+  { provider: "gateway", name: "gpt-luna", kind: "model_gateway" },
+  { provider: "gateway", name: "plain-mini", kind: "model_gateway" },
+]
+
+const gatewayModel = (name: string, reasoning: boolean, efforts: string[]) => ({
+  name,
+  targets: [{ provider: "openai", upstream_model: name }],
+  updated_at: "2026-11-09T10:00:00Z",
+  attributes: {
+    context_window: { source: "unknown" },
+    max_output: { source: "unknown" },
+    input: { source: "unknown" },
+    reasoning: { value: reasoning, source: "models_dev" },
+    efforts: { value: efforts, source: "models_dev" },
+  },
+})
+
+const gatewayModels = [
+  gatewayModel("gpt-sol", true, ["low", "medium", "high", "xhigh"]),
+  gatewayModel("gpt-luna", true, ["none", "low", "high"]),
+  gatewayModel("plain-mini", false, []),
+]
+
+const builder = {
+  name: "builder",
+  provider: "gateway",
+  model: "gpt-sol",
+  effort: "high",
+  persona: "",
+  memory: "",
+  memory_limit: 2200,
+  skills: [],
+  skills_off: [],
+  connections: { limited: false, names: [] },
+  workers: { limited: false, names: [] },
+  created_at: "2026-11-09T10:00:00Z",
+  updated_at: "2026-11-09T10:00:00Z",
+}
+
 const message = (seq: number, m: object) => ({
   seq,
   chat_id: chat.id,
@@ -104,6 +147,8 @@ async function fakeServer(
 ) {
   const calls: string[] = []
   const uploads = new Map<string, { path: string; bytes: Buffer }>()
+  // The chat as the server keeps it: a PATCH changes its model and effort.
+  let current: Record<string, unknown> = { ...chat }
 
   await page.addInitScript(() => {
     const page = globalThis as unknown as PageGlobal
@@ -235,7 +280,21 @@ async function fakeServer(
     }
     if (path === "/questions") return json({ data: [asked] })
     if (path === "/chats") return json({ data: [chat] })
-    if (path === `/chats/${chat.id}`) return json(chat)
+    if (path === "/bots") return json({ data: [builder] })
+    if (path === "/models") return json({ data: models })
+    if (path === "/gateway/models") return json({ data: gatewayModels })
+    if (path === `/chats/${chat.id}` && route.request().method() === "PATCH") {
+      const change = route.request().postDataJSON() as Record<string, string>
+      calls.push(`PATCH ${JSON.stringify(change)}`)
+      current = { ...current }
+      for (const [k, v] of Object.entries(change)) {
+        if (v) current[k] = v
+        else delete current[k]
+      }
+
+      return json(current)
+    }
+    if (path === `/chats/${chat.id}`) return json(current)
     if (path === `/chats/${chat.id}/abort`) return route.fulfill({ status: 204 })
     if (path === `/chats/${chat.id}/messages`) {
       const body = route.request().postDataJSON() as { text: string }
@@ -700,4 +759,49 @@ test("a file over 50 MiB is refused before it uploads", async ({ page }) => {
   await expect(page.getByRole("alert")).toHaveText("video.mp4 is larger than 50 MiB.")
   expect(calls.filter((c) => c.startsWith("POST uploads"))).toEqual([])
   await shot(page, "chat-attach-refused")
+})
+
+// Scenario: the owner chooses the chat's model and effort in the composer (issue #369). The chat starts with its
+// Bot's; the model's list is searched and grouped by provider; the effort lists only the chosen model's levels, the
+// Bot's first; a model that does not reason has no effort. Each choice is kept on the chat at once.
+test("the owner chooses the chat's model and effort in the composer", async ({ page }) => {
+  const calls = await fakeServer(page, (text) => ({
+    status: 201,
+    body: message(2, { role: "owner", text }),
+  }))
+  await open(page)
+  await write(page, state(false))
+
+  const model = page.getByRole("combobox", { name: /^Model:/ })
+  await expect(model).toHaveAccessibleName("Model: gpt-sol")
+  await expect(page.getByRole("button", { name: "Effort: High" })).toBeVisible()
+  await shot(page, "chat-model-bots")
+
+  await model.click()
+  const search = page.getByRole("combobox", { name: "Search models" })
+  await expect(page.getByRole("group").getByText("gateway")).toBeVisible()
+  await shot(page, "chat-model-list")
+  await search.fill("luna")
+  await expect(page.getByRole("option")).toHaveCount(1)
+  await page.getByRole("option", { name: /gpt-luna/ }).click()
+  await expect(model).toHaveAccessibleName("Model: gpt-luna")
+  await expect
+    .poll(() => calls.filter((c) => c.startsWith("PATCH {")))
+    .toEqual(['PATCH {"provider":"gateway","model":"gpt-luna","effort":""}'])
+
+  await page.getByRole("button", { name: "Effort: High" }).click()
+  await expect(page.getByRole("menuitemradio")).toHaveText(["Bot's: High", "None", "Low", "High"])
+  await shot(page, "chat-model-effort")
+  await page.getByRole("menuitemradio", { name: "Low" }).click()
+  await expect(page.getByRole("button", { name: "Effort: Low" })).toBeVisible()
+  await expect
+    .poll(() => calls.filter((c) => c.startsWith("PATCH {")).at(-1))
+    .toBe('PATCH {"provider":"gateway","model":"gpt-luna","effort":"low"}')
+  await shot(page, "chat-model-chosen")
+
+  await model.click()
+  await page.getByRole("option", { name: /plain-mini/ }).click()
+  await expect(model).toHaveAccessibleName("Model: plain-mini")
+  await expect(page.getByRole("button", { name: /^Effort/ })).toHaveCount(0)
+  await shot(page, "chat-model-no-effort")
 })

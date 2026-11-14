@@ -143,7 +143,7 @@ func (q *Queries) CountChatsOfBot(ctx context.Context, bot string) (int64, error
 }
 
 const getChat = `-- name: GetChat :one
-SELECT id, title, created_at, updated_at, bot, lark_group FROM chats WHERE id = ?1
+SELECT id, title, created_at, updated_at, bot, lark_group, provider, model, effort FROM chats WHERE id = ?1
 `
 
 func (q *Queries) GetChat(ctx context.Context, id string) (Chat, error) {
@@ -156,19 +156,26 @@ func (q *Queries) GetChat(ctx context.Context, id string) (Chat, error) {
 		&i.UpdatedAt,
 		&i.Bot,
 		&i.LarkGroup,
+		&i.Provider,
+		&i.Model,
+		&i.Effort,
 	)
 	return i, err
 }
 
 const insertChat = `-- name: InsertChat :exec
-INSERT INTO chats (id, title, bot, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?4)
+INSERT INTO chats (id, title, bot, provider, model, effort, created_at, updated_at)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)
 `
 
 type InsertChatParams struct {
-	ID    string
-	Title string
-	Bot   string
-	Now   int64
+	ID       string
+	Title    string
+	Bot      string
+	Provider sql.NullString
+	Model    sql.NullString
+	Effort   sql.NullString
+	Now      int64
 }
 
 func (q *Queries) InsertChat(ctx context.Context, arg InsertChatParams) error {
@@ -176,6 +183,9 @@ func (q *Queries) InsertChat(ctx context.Context, arg InsertChatParams) error {
 		arg.ID,
 		arg.Title,
 		arg.Bot,
+		arg.Provider,
+		arg.Model,
+		arg.Effort,
 		arg.Now,
 	)
 	return err
@@ -304,7 +314,7 @@ func (q *Queries) ListChatMessages(ctx context.Context, arg ListChatMessagesPara
 }
 
 const listChats = `-- name: ListChats :many
-SELECT id, title, created_at, updated_at, bot, lark_group FROM chats ORDER BY updated_at DESC, id LIMIT ?1
+SELECT id, title, created_at, updated_at, bot, lark_group, provider, model, effort FROM chats ORDER BY updated_at DESC, id LIMIT ?1
 `
 
 func (q *Queries) ListChats(ctx context.Context, lim int64) ([]Chat, error) {
@@ -323,6 +333,9 @@ func (q *Queries) ListChats(ctx context.Context, lim int64) ([]Chat, error) {
 			&i.UpdatedAt,
 			&i.Bot,
 			&i.LarkGroup,
+			&i.Provider,
+			&i.Model,
+			&i.Effort,
 		); err != nil {
 			return nil, err
 		}
@@ -350,6 +363,28 @@ type MarkChatMessagesDeliveredParams struct {
 
 func (q *Queries) MarkChatMessagesDelivered(ctx context.Context, arg MarkChatMessagesDeliveredParams) error {
 	_, err := q.db.ExecContext(ctx, markChatMessagesDelivered, arg.Now, arg.ChatID, arg.Upto)
+	return err
+}
+
+const setChatModel = `-- name: SetChatModel :exec
+UPDATE chats SET provider = ?1, model = ?2, effort = ?3 WHERE id = ?4
+`
+
+type SetChatModelParams struct {
+	Provider sql.NullString
+	Model    sql.NullString
+	Effort   sql.NullString
+	ID       string
+}
+
+// The chat's own model and effort (issue #369); NULL is the Bot's.
+func (q *Queries) SetChatModel(ctx context.Context, arg SetChatModelParams) error {
+	_, err := q.db.ExecContext(ctx, setChatModel,
+		arg.Provider,
+		arg.Model,
+		arg.Effort,
+		arg.ID,
+	)
 	return err
 }
 

@@ -35,11 +35,14 @@ func TestMain(m *testing.M) {
 // ends in a failed model call; one that says "hang <how>" writes a little and
 // waits for an abort, then ends the turn as <how> says (stopped); one that
 // asks for the "token" is answered with the line before the commands, which
-// the launcher reads.
+// the launcher reads; one that asks "which model" is answered with the model
+// and thinking level of its flags, or of the set_model and
+// set_thinking_level it was sent since.
 func fakePi() int {
 	in := bufio.NewReader(os.Stdin)
 	out := json.NewEncoder(os.Stdout)
 	token := ""
+	model, level := flagOf("--provider")+"/"+flagOf("--model"), flagOf("--thinking")
 
 	hanging := ""
 
@@ -70,6 +73,13 @@ func fakePi() int {
 			hanging = ""
 
 			continue
+		}
+
+		switch cmd["type"] {
+		case "set_model":
+			model = fmt.Sprint(cmd["provider"], "/", cmd["modelId"])
+		case "set_thinking_level":
+			level = fmt.Sprint(cmd["level"])
 		}
 
 		if cmd["type"] != "prompt" {
@@ -117,6 +127,10 @@ func fakePi() int {
 
 		if strings.Contains(text, "token") {
 			answer = "my token: " + token
+		}
+
+		if strings.Contains(text, "which model") {
+			answer = "model " + model + " thinking " + level
 		}
 		for _, rec := range turn(answer) {
 			emit(out, rec)
@@ -178,6 +192,17 @@ func stopped(how string) []map[string]any {
 	default:
 		return []map[string]any{settled}
 	}
+}
+
+// flagOf is the value of one of the flags the fake pi was started with, or "".
+func flagOf(name string) string {
+	for i, a := range os.Args {
+		if a == name && i+1 < len(os.Args) {
+			return os.Args[i+1]
+		}
+	}
+
+	return ""
 }
 
 func emit(out *json.Encoder, v map[string]any) {
@@ -420,7 +445,7 @@ func TestPiRunsAsTheChatsBotWithItsModel(t *testing.T) {
 	assert.Equal(t, []string{
 		"--bot", "vmap", "--provider", "ninerouter", "--model", "cx/gpt-6.1-sol", "--thinking", "high",
 	}, args)
-	assert.Equal(t, "cx/gpt-6.1-sol", model, "the chat's gateway key is made for this model")
+	assert.Equal(t, "cx/gpt-6.1-sol", model.Model, "the chat's gateway key is made for this model")
 	assert.Equal(t, "vmap", bot, "pi's token is bound to the Bot")
 
 	args, _, _, err = sup.botArgs(ctx, first.ID)
@@ -717,4 +742,96 @@ func TestAStoppedTurnEndsInAStoppedRow(t *testing.T) {
 			assert.Equal(t, want, got)
 		})
 	}
+}
+
+// A chat's own model and effort (issue #369) are pi's flags when it starts: what the chat chose, and its Bot's for
+// what it did not. The gateway's effort none is pi's thinking level off.
+func TestPiStartsWithTheChatsModel(t *testing.T) {
+	t.Parallel()
+
+	svc, sup := newSupervisor(t)
+	ctx := t.Context()
+
+	_, err := svc.ApplyProvider(ctx, "", "name: gateway\nkind: openai_compatible\n"+
+		"base_url: http://127.0.0.1:8080/v1\napi_key_ref: file:gateway.key\nmodels: [gpt-sol, gpt-luna]\n")
+	require.NoError(t, err)
+
+	_, err = svc.PutBot(ctx, orchestration.Bot{Name: "vmap", Model: "gpt-sol", Effort: "high"})
+	require.NoError(t, err)
+
+	effortOnly, err := svc.CreateChatWithID(ctx, "", "vmap", "", orchestration.ChatModel{Effort: "none"})
+	require.NoError(t, err)
+
+	args, _, model, err := sup.botArgs(ctx, effortOnly.ID)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"--bot", "vmap", "--provider", "gateway", "--model", "gpt-sol", "--thinking", "off"},
+		args, "the Bot's model with the chat's effort")
+	assert.Equal(t, "gpt-sol", model.Model)
+
+	both, err := svc.CreateChatWithID(ctx, "", "vmap", "", orchestration.ChatModel{Model: "gpt-luna", Effort: "low"})
+	require.NoError(t, err)
+
+	args, _, model, err = sup.botArgs(ctx, both.ID)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"--bot", "vmap", "--provider", "gateway", "--model", "gpt-luna", "--thinking", "low"}, args)
+	assert.Equal(t, "gpt-luna", model.Model, "the chat's gateway key is made for the chat's model")
+}
+
+// Scenario: the owner chooses another model and effort in a chat whose pi runs (issue #369). pi is not started
+// again: before the next message it is sent set_model and set_thinking_level, and the chat's gateway key, good for
+// one model, is made again for the new one. A change of the effort alone sends only the level.
+func TestAChangedModelReachesARunningPi(t *testing.T) {
+	t.Parallel()
+
+	keys := &fakeKeys{}
+	svc, sup := newSupervisorWith(t, keys)
+	ctx := t.Context()
+
+	_, err := svc.ApplyProvider(ctx, "", "name: gateway\nkind: openai_compatible\n"+
+		"base_url: http://127.0.0.1:8080/v1\napi_key_ref: file:gateway.key\nmodels: [gpt-sol, gpt-luna]\n")
+	require.NoError(t, err)
+
+	_, err = svc.PutBot(ctx, orchestration.Bot{Name: "vmap", Model: "gpt-sol", Effort: "high"})
+	require.NoError(t, err)
+
+	chat, err := svc.CreateChat(ctx, "vmap", "")
+	require.NoError(t, err)
+
+	_, err = svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, "which model first")
+	require.NoError(t, err)
+	waitFor(t, svc, chat.ID, orchestration.ChatCoordinator, "model gateway/gpt-sol thinking high")
+
+	first, ok := sup.Key(chat.ID)
+	require.True(t, ok)
+	require.Eventually(t, func() bool { return !sup.Working(chat.ID) }, 5*time.Second, 20*time.Millisecond)
+
+	luna, xhigh := "gpt-luna", "xhigh"
+	_, err = svc.SetChatModel(ctx, chat.ID, orchestration.ChatModelChange{Model: &luna, Effort: &xhigh})
+	require.NoError(t, err)
+
+	_, err = svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, "which model now")
+	require.NoError(t, err)
+	waitFor(t, svc, chat.ID, orchestration.ChatCoordinator, "model gateway/gpt-luna thinking xhigh")
+
+	second, ok := sup.Key(chat.ID)
+	require.True(t, ok)
+	assert.NotEqual(t, first, second, "pi asks for a key good for the new model")
+
+	keys.mu.Lock()
+	assert.Equal(t, []string{"gpt-sol", "gpt-luna"}, keys.models, "one pi: a key at its start, one for the change")
+	keys.mu.Unlock()
+
+	require.Eventually(t, func() bool { return !sup.Working(chat.ID) }, 5*time.Second, 20*time.Millisecond)
+
+	none := "none"
+	_, err = svc.SetChatModel(ctx, chat.ID, orchestration.ChatModelChange{Effort: &none})
+	require.NoError(t, err)
+
+	_, err = svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, "which model at last")
+	require.NoError(t, err)
+	waitFor(t, svc, chat.ID, orchestration.ChatCoordinator, "model gateway/gpt-luna thinking off")
+
+	keys.mu.Lock()
+	assert.Len(t, keys.models, 2, "the same model keeps its key")
+	keys.mu.Unlock()
 }

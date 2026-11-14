@@ -34,14 +34,8 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
+import { FieldGroup } from "@/components/ui/field"
+import { Item, ItemActions, ItemContent, ItemGroup, ItemTitle } from "@/components/ui/item"
 import { Spinner } from "@/components/ui/spinner"
 
 import { ServiceCard } from "./service-cards"
@@ -86,16 +80,13 @@ export function IntegrationsScreen() {
         ))}
       </section>
       <section aria-labelledby="git-hosts" className="flex flex-col gap-3">
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex flex-col gap-1">
-            <h2 id="git-hosts" className="text-sm font-semibold text-foreground">
-              Git hosts
-            </h2>
-            <p className="text-xs text-muted-foreground">
-              Where workers clone repositories, push their branches and open pull requests.
-            </p>
-          </div>
-          <AddHost />
+        <div className="flex flex-col gap-1">
+          <h2 id="git-hosts" className="text-sm font-semibold text-foreground">
+            Git hosts
+          </h2>
+          <p className="text-xs text-muted-foreground">
+            Where workers clone repositories, push their branches and open pull requests.
+          </p>
         </div>
         {hosts.isPending && (
           <p className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -104,36 +95,27 @@ export function IntegrationsScreen() {
           </p>
         )}
         <ErrorAlert error={hosts.error} />
-        {hosts.data?.map((host) => (
-          <HostCard key={host.host} host={host} />
-        ))}
+        {hosts.data &&
+          products.map((product) => (
+            <HostCard
+              key={product.kind}
+              product={product}
+              hosts={hosts.data.filter((host) => host.kind === product.kind)}
+            />
+          ))}
       </section>
     </SettingsPage>
   )
 }
 
-// What a company's own git server runs, as the owner picks it.
-const hostKindNames: Record<GitHostKind, string> = { gitlab: "GitLab", github: "GitHub Enterprise" }
+// The products a git host runs, in the order their cards are shown: the card's name, what a company's own server
+// of it is called, the public host, and what the card holds.
+const products: { kind: GitHostKind; name: string; server: string; public: string }[] = [
+  { kind: "github", name: "GitHub", server: "GitHub Enterprise", public: "github.com" },
+  { kind: "gitlab", name: "GitLab", server: "GitLab", public: "gitlab.com" },
+]
 
-// HostKindName is what a company's git server runs, as the picker shows it: the product's mark, then its name.
-function HostKindName({ kind }: { kind: GitHostKind }) {
-  const Icon = kind === "github" ? GitHubIcon : GitLabIcon
-
-  return (
-    <span className="flex items-center gap-2">
-      <Icon className="size-4 shrink-0" />
-      {hostKindNames[kind]}
-    </span>
-  )
-}
-
-// HostIcon is the mark of what a host runs: GitHub's or GitLab's. A company's own server carries the mark of the
-// product it runs, as its address alone says nothing.
-function HostIcon({ host }: { host: GitHost }) {
-  const Icon = host.kind === "github" ? GitHubIcon : GitLabIcon
-
-  return <Icon className="size-6 shrink-0" />
-}
+type Product = (typeof products)[number]
 
 function HelpLink({ href }: { href: string }) {
   return (
@@ -151,70 +133,48 @@ function HelpLink({ href }: { href: string }) {
 
 const lowerFirst = (text: string) => text.charAt(0).toLowerCase() + text.slice(1)
 
-// HostCard is one service: what it is, the access Hypomnema has, the actions, and what is still to do. The
-// arrangement is Orca's IntegrationCardShell and IntegrationCardDetails (MIT, Copyright (c) 2026 Lovecast Inc.,
+// HostCard is one product, GitHub or GitLab, with its hosts as rows: the public one and the company's own servers
+// that run it. A card a product is Orca's (src/renderer/src/components/integrations/source-control/
+// cli-source-control-integration-cards.tsx), a row a configured instance Coder's
+// (site/src/pages/UserSettingsPage/ExternalAuthPage/ExternalAuthPageView.tsx). The arrangement is Orca's
+// IntegrationCardShell and IntegrationCardDetails (MIT, Copyright (c) 2026 Lovecast Inc.,
 // https://github.com/stablyai/orca; src/renderer/src/components/integrations/presentation/integration-card-shell.tsx),
-// on the standard Card.
-function HostCard({ host }: { host: GitHost }) {
-  const refresh = useRefreshHosts()
-  const help = tokenHelp(host)
+// on the standard Card; a row looks as an account of a Services card does (service-cards.tsx, AccountItem). What a
+// token is for and how to make one is said once, at the foot, while a row has none (issue #379): every host of a
+// product needs the same token (tokenHelp).
+function HostCard({ product, hosts }: { product: Product; hosts: GitHost[] }) {
+  const Icon = product.kind === "github" ? GitHubIcon : GitLabIcon
+  const missing = hosts.find((host) => !host.has_token)
+  const help = missing && tokenHelp(missing)
 
   return (
     <Card size="sm" data-testid="integration-card">
       <CardHeader>
         <CardTitle>
           <span className="flex items-center gap-3">
-            <HostIcon host={host} />
+            <Icon className="size-6 shrink-0" />
             <span className="flex flex-col gap-0.5">
-              <span>{hostName(host)}</span>
+              <span>{product.name}</span>
               <CardDescription>
-                {host.known
-                  ? `${host.host} · Pull requests`
-                  : `${kindName(host)} server · Pull requests`}
+                {`${product.public} and ${product.server} servers · Pull requests`}
               </CardDescription>
             </span>
           </span>
         </CardTitle>
         <CardAction wrap>
-          <span className="flex flex-wrap items-center gap-1.5 sm:justify-end">
-            <SetToken host={host} />
-            {host.has_token && (
-              <ConfirmDialog
-                trigger={
-                  <Button variant="ghost" size="sm">
-                    Remove token
-                  </Button>
-                }
-                title={`Remove the token of ${hostName(host)}?`}
-                consequence="Workers will use the login of the machine they run on, where it has one. Work already running keeps the token it started with."
-                action="Remove token"
-                run={() => deleteGitHostToken({ path: { host: host.host } })}
-                onDone={refresh}
-                done={`The token of ${hostName(host)} was removed`}
-              />
-            )}
-            {!host.known && (
-              <ConfirmDialog
-                trigger={
-                  <Button variant="ghost" size="sm">
-                    Remove
-                  </Button>
-                }
-                title={`Remove ${host.host}?`}
-                consequence="Its token is removed with it. A host that an open Run or a registered repository is on cannot be removed."
-                action="Remove host"
-                run={() => deleteGitHost({ path: { host: host.host } })}
-                onDone={refresh}
-                done={`${host.host} was removed`}
-              />
-            )}
-            <Badge variant={host.has_token ? "success" : "warning"}>
-              {host.has_token ? "Connected" : "No token"}
-            </Badge>
-          </span>
+          <AddHost product={product} />
         </CardAction>
       </CardHeader>
-      {!host.has_token && (
+      {hosts.length > 0 && (
+        <CardContent>
+          <ItemGroup>
+            {hosts.map((host) => (
+              <HostRow key={host.host} host={host} />
+            ))}
+          </ItemGroup>
+        </CardContent>
+      )}
+      {help && (
         <CardContent>
           <div className="flex flex-col gap-2 border-t pt-3 text-xs text-muted-foreground">
             <p>
@@ -226,6 +186,58 @@ function HostCard({ host }: { host: GitHost }) {
         </CardContent>
       )}
     </Card>
+  )
+}
+
+// HostRow is one host of a product: its address, whether Hypomnema has its token, and what the owner can do.
+function HostRow({ host }: { host: GitHost }) {
+  const refresh = useRefreshHosts()
+
+  return (
+    <Item variant="muted" size="sm" aria-label={`${kindName(host)} host ${host.host}`}>
+      <ItemContent>
+        <ItemTitle>
+          {host.host}
+          {!host.known && <span className="font-normal text-muted-foreground">server</span>}
+        </ItemTitle>
+      </ItemContent>
+      <ItemActions>
+        <SetToken host={host} />
+        {host.has_token && (
+          <ConfirmDialog
+            trigger={
+              <Button variant="ghost" size="sm">
+                Remove token
+              </Button>
+            }
+            title={`Remove the token of ${hostName(host)}?`}
+            consequence="Workers will use the login of the machine they run on, where it has one. Work already running keeps the token it started with."
+            action="Remove token"
+            run={() => deleteGitHostToken({ path: { host: host.host } })}
+            onDone={refresh}
+            done={`The token of ${hostName(host)} was removed`}
+          />
+        )}
+        {!host.known && (
+          <ConfirmDialog
+            trigger={
+              <Button variant="ghost" size="sm" aria-label={`Remove ${host.host}`}>
+                Remove
+              </Button>
+            }
+            title={`Remove ${host.host}?`}
+            consequence="Its token is removed with it. A host that an open Run or a registered repository is on cannot be removed."
+            action="Remove host"
+            run={() => deleteGitHost({ path: { host: host.host } })}
+            onDone={refresh}
+            done={`${host.host} was removed`}
+          />
+        )}
+        <Badge variant={host.has_token ? "success" : "warning"}>
+          {host.has_token ? "Connected" : "No token"}
+        </Badge>
+      </ItemActions>
+    </Item>
   )
 }
 
@@ -374,12 +386,12 @@ const hostSchema = z.object({
       (typed) => hostOf(typed).includes("."),
       "Give the server's name, or any URL copied from it.",
     ),
-  kind: z.enum(["gitlab", "github"]),
   token: z.string().regex(/^\S*$/, "A token is one line without spaces."),
 })
 
-// AddHost declares a company's git server: its address, what it runs, and its token if the owner has it at hand.
-function AddHost() {
+// AddHost declares a company's git server in the card of the product it runs, as each Services card carries its
+// own add action: its address, and its token if the owner has it at hand. What it runs is the card's.
+function AddHost({ product }: { product: Product }) {
   const refresh = useRefreshHosts()
   const [open, setOpen] = useState(false)
 
@@ -387,7 +399,7 @@ function AddHost() {
     mutationFn: async (value: z.infer<typeof hostSchema>) => {
       const host = hostOf(value.address)
 
-      await putGitHost({ path: { host }, body: { kind: value.kind } })
+      await putGitHost({ path: { host }, body: { kind: product.kind } })
       if (value.token.trim() !== "") {
         await putGitHostToken({ path: { host }, body: { token: value.token.trim() } })
       }
@@ -397,7 +409,7 @@ function AddHost() {
   })
 
   const form = useForm({
-    defaultValues: { address: "", kind: "gitlab" as GitHostKind, token: "" },
+    defaultValues: { address: "", token: "" },
     validators: { onSubmit: hostSchema },
     onSubmit: async ({ value }) => {
       try {
@@ -428,13 +440,13 @@ function AddHost() {
           render={
             <Button variant="outline" size="sm">
               <Plus data-icon="inline-start" />
-              Add a git server
+              Add server
             </Button>
           }
         />
       }
-      title="Add a git server"
-      about="A company's own GitLab or GitHub server. github.com and gitlab.com are already here."
+      title={`Add a ${product.server} server`}
+      about={`A company's own ${product.server} server. ${product.public} is already here.`}
       error={add.error}
       pending={add.isPending}
       action="Add"
@@ -446,34 +458,9 @@ function AddHost() {
             <TextField
               field={field}
               label="Address"
-              placeholder="gitlab.company.example"
+              placeholder={`${product.kind}.company.example`}
               description="Its name, or any URL copied from it."
             />
-          )}
-        </form.Field>
-        <form.Field name="kind">
-          {(field) => (
-            <Field>
-              <FieldLabel htmlFor={field.name}>It runs</FieldLabel>
-              <Select
-                name={field.name}
-                value={field.state.value}
-                onValueChange={(kind) => kind && field.handleChange(kind)}
-                items={hostKindNames}
-              >
-                <SelectTrigger id={field.name} onBlur={field.handleBlur} width="full">
-                  <SelectValue>{(value: GitHostKind) => <HostKindName kind={value} />}</SelectValue>
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="gitlab">
-                    <HostKindName kind="gitlab" />
-                  </SelectItem>
-                  <SelectItem value="github">
-                    <HostKindName kind="github" />
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </Field>
           )}
         </form.Field>
         <form.Field name="token">

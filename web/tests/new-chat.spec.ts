@@ -10,6 +10,25 @@ import { shot } from "./shot.js"
 const at = "2026-11-13T10:00:00Z"
 const bot = (name: string) => ({ name, model: "", persona: "", memory: "", updated_at: at })
 
+// The models a chat may run with (issue #369) and the gateway's word on whether each reasons, and at which levels.
+const models = [
+  { provider: "gateway", name: "gpt-sol", kind: "model_gateway" },
+  { provider: "gateway", name: "plain-mini", kind: "model_gateway" },
+]
+
+const gatewayModel = (name: string, reasoning: boolean, efforts: string[]) => ({
+  name,
+  targets: [],
+  updated_at: at,
+  attributes: {
+    context_window: { source: "unknown" },
+    max_output: { source: "unknown" },
+    input: { source: "unknown" },
+    reasoning: { value: reasoning, source: "models_dev" },
+    efforts: { value: efforts, source: "models_dev" },
+  },
+})
+
 async function fakeServer(page: Page) {
   // calls says what was asked of the Bots' folders, with the Bot named, and what was posted.
   const calls: string[] = []
@@ -90,6 +109,15 @@ async function fakeServer(page: Page) {
         return json({ id: "usr_1", name: "admin", kind: "owner" })
       case "GET /bots":
         return json({ data: [bot("coordinator"), bot("researcher")] })
+      case "GET /models":
+        return json({ data: models })
+      case "GET /gateway/models":
+        return json({
+          data: [
+            gatewayModel("gpt-sol", true, ["minimal", "low", "medium", "high"]),
+            gatewayModel("plain-mini", false, []),
+          ],
+        })
       case "GET /chats":
         return json({ data: chat ? [chat] : [] })
       case "POST /chats":
@@ -97,6 +125,9 @@ async function fakeServer(page: Page) {
           id: body?.id,
           title: body?.title || "Chat",
           bot: body?.bot ?? "coordinator",
+          ...(body?.provider && { provider: body.provider }),
+          ...(body?.model && { model: body.model }),
+          ...(body?.effort && { effort: body.effort }),
           working: false,
           coordinator: true,
           created_at: at,
@@ -187,4 +218,49 @@ test("files attached on the New chat page go with the first message", async ({ p
   await expect(log.getByText("summarise this report")).toBeVisible()
   await expect(log.getByRole("button", { name: "Open report.pdf" })).toBeVisible()
   await shot(page, "new-chat-attach-sent")
+})
+
+// Scenario: on the New chat page the owner chooses the model and effort beside the Bot (issue #369), and the first
+// message makes the chat with them; a model that does not reason has no effort. The open chat shows what was chosen.
+test("the model and effort chosen on the New chat page are the chat's", async ({ page }) => {
+  const { posted } = await fakeServer(page)
+  await page.goto("/")
+  await expect(page.getByLabel("Bot", { exact: true })).toContainText("coordinator")
+
+  const model = page.getByRole("combobox", { name: /^Model:/ })
+  await expect(model).toHaveAccessibleName("Model: Default model")
+  await expect(page.getByRole("button", { name: /^Effort/ })).toHaveCount(0)
+
+  await model.click()
+  await page.getByRole("option", { name: /plain-mini/ }).click()
+  await expect(model).toHaveAccessibleName("Model: plain-mini")
+  await expect(page.getByRole("button", { name: /^Effort/ })).toHaveCount(0)
+
+  await model.click()
+  await page.getByRole("option", { name: /gpt-sol/ }).click()
+  await page.getByRole("button", { name: "Effort: Default" }).click()
+  await expect(page.getByRole("menuitemradio")).toHaveText([
+    "Bot's default",
+    "Minimal",
+    "Low",
+    "Medium",
+    "High",
+  ])
+  await page.getByRole("menuitemradio", { name: "Medium" }).click()
+  await expect(page.getByRole("button", { name: "Effort: Medium" })).toBeVisible()
+  await shot(page, "new-chat-model")
+
+  const box = page.getByRole("textbox", { name: "Message" })
+  await box.fill("plan the release")
+  await box.press("Enter")
+  await expect(page).toHaveURL(/\/chats\/cht_/)
+  expect(posted[0]?.body).toMatchObject({
+    title: "plan the release",
+    provider: "gateway",
+    model: "gpt-sol",
+    effort: "medium",
+  })
+  await expect(page.getByRole("combobox", { name: "Model: gpt-sol" })).toBeVisible()
+  await expect(page.getByRole("button", { name: "Effort: Medium" })).toBeVisible()
+  await shot(page, "new-chat-model-sent")
 })

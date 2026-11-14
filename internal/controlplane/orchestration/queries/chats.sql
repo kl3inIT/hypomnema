@@ -1,5 +1,10 @@
 -- name: InsertChat :exec
-INSERT INTO chats (id, title, bot, created_at, updated_at) VALUES (@id, @title, @bot, @now, @now);
+INSERT INTO chats (id, title, bot, provider, model, effort, created_at, updated_at)
+VALUES (@id, @title, @bot, @provider, @model, @effort, @now, @now);
+
+-- name: SetChatModel :exec
+-- The chat's own model and effort (issue #369); NULL is the Bot's.
+UPDATE chats SET provider = @provider, model = @model, effort = @effort WHERE id = @id;
 
 -- name: GetChat :one
 SELECT * FROM chats WHERE id = @id;
