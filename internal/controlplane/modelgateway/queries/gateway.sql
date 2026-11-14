@@ -181,10 +181,6 @@ SELECT * FROM gateway_image_providers ORDER BY provider;
 INSERT INTO gateway_image_providers (provider, off, updated_at) VALUES (@provider, @off, @now)
 ON CONFLICT (provider) DO UPDATE SET off = excluded.off, updated_at = excluded.updated_at;
 
--- name: SetGatewayImageModel :exec
-INSERT INTO gateway_image_providers (provider, model, updated_at) VALUES (@provider, @model, @now)
-ON CONFLICT (provider) DO UPDATE SET model = excluded.model, updated_at = excluded.updated_at;
-
 -- name: SetGatewayImagePosition :exec
 INSERT INTO gateway_image_providers (provider, position, updated_at) VALUES (@provider, @position, @now)
 ON CONFLICT (provider) DO UPDATE SET position = excluded.position, updated_at = excluded.updated_at;

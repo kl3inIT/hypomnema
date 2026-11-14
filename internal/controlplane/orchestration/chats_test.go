@@ -510,7 +510,7 @@ func TestMigrationGivesApprovalRowsTheirApproval(t *testing.T) {
 
 	p, err := provider(db)
 	require.NoError(t, err)
-	_, err = p.UpTo(ctx, 81)
+	_, err = p.UpTo(ctx, 82)
 	require.NoError(t, err)
 
 	_, err = db.ExecContext(ctx, `INSERT INTO chats (id, title, bot, created_at, updated_at)
