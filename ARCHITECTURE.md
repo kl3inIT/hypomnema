@@ -1909,7 +1909,7 @@ Node (`internal/node`):
   `CodexRuntime`, `ACPRuntime`): its checks and homes, argv, environment and configuration, how it reads a journal
   line, its interrupt, and its outcome. The daemon's registry of runtimes by key fails at startup on a key named
   twice or a known runtime with none. A Dispatch is started and adopted with the Runtime of its offer's runtime
-  (`claude` when it names none); a stop, a release, an answer and a question's id go to the Supervisor, which holds
+  (an offer that names none is refused); a stop, a release, an answer and a question's id go to the Supervisor, which holds
   the Dispatch's job. A stop sends the runtime's interrupt and closes the worker's input, and kills a worker still
   alive after 30 s; one with no interrupt (Codex) is killed at once (Omnigent's uniform stop). A release cancels the
   job's journal reader and waits for it to return, so nothing of the Dispatch is reported after it (Omnara's output
@@ -1985,8 +1985,8 @@ Node (`internal/node`):
     - Each journal line becomes items of one shape for every runtime: `message`, `reasoning`, `tool_call`,
       `tool_result`, `notice`. The first instruction and the final result are not items. An item is cut to 64 KiB
       and says how much was left out.
-    - A journal is in the format its runner names in a file `format` beside it: `claude` (stream-JSON; also a journal
-      with no such file), `codex` (`exec --json`) or `acp`. Each has a decoder in its runner's package. Codex's
+    - A journal is in the format its runner names in a file `format` beside it: `claude` (stream-JSON), `codex`
+      (`exec --json`) or `acp`; a journal with no such file, or one no decoder reads, is not sent. Each has a decoder in its runner's package. Codex's
       commands are calls of `shell`, its file changes of `apply_patch`, its MCP calls `mcp__<server>__<tool>`; an
       ACP agent's chunks of text are one message or thought, a call is one item once its input is known (omp has
       it at once, opencode in the call's first update), and the worker's own tools are named

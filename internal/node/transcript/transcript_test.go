@@ -352,9 +352,10 @@ func TestABatchThatFillsKeepsAnOpenRun(t *testing.T) {
 	assert.Equal(t, []int64{32, 33}, seqsOf(g.p.sent()[1]))
 }
 
-// Scenario: a Dispatch's journal names its format; one that names none is
-// Claude Code's; one that no decoder reads is left alone; a directory the node
-// released is forgotten.
+// Scenario: a Dispatch's journal names its format; one that names none, or
+// one that no decoder reads, is left alone; a directory being prepared, with
+// no journal yet, waits for its format; a directory the node released is
+// forgotten.
 func TestEachJournalIsReadInItsOwnFormat(t *testing.T) {
 	t.Parallel()
 
@@ -368,12 +369,16 @@ func TestEachJournalIsReadInItsOwnFormat(t *testing.T) {
 	require.NoError(t, os.MkdirAll(plain, 0o700))
 	require.NoError(t, os.WriteFile(filepath.Join(plain, shim.JournalFile), []byte("m ignored too\n"), 0o600))
 
+	preparing := g.f.dir("dsp_4")
+	require.NoError(t, os.MkdirAll(preparing, 0o700))
+
 	g.journal("m read\n")
 	g.tick()
 
-	require.Len(t, g.p.sent(), 1, "the one whose decoder exists; a journal with no format is Claude's, unknown here")
+	require.Len(t, g.p.sent(), 1, "only the one whose decoder exists")
 	assert.Equal(t, "dsp_1", g.p.sent()[0].DispatchID)
-	assert.Equal(t, DefaultFormat, formatOf(plain))
+	assert.True(t, g.f.transcripts["dsp_3"].unknown, "a journal with no format is not read")
+	assert.False(t, g.f.transcripts["dsp_4"].unknown, "a directory without a journal is not judged yet")
 
 	require.NoError(t, os.RemoveAll(g.dir))
 	g.tick()
