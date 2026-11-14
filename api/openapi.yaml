@@ -4811,8 +4811,11 @@ components:
         price: { $ref: "#/components/schemas/GatewayModelPrice" }
     GatewayModelSource:
       type: string
-      description: Where a value comes from; codex is the window Codex itself gives a Codex subscription's model.
-      enum: [set, models_dev, codex, unknown]
+      description: >-
+        Where a value comes from; codex is the window Codex itself gives a Codex
+        subscription's model, antigravity the window or largest output
+        CLIProxyAPI's registry gives an Antigravity subscription's model.
+      enum: [set, models_dev, codex, antigravity, unknown]
     GatewayModelInputKind:
       type: string
       enum: [text, image]

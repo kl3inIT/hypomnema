@@ -1,6 +1,7 @@
 package modelgateway_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -8,6 +9,10 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway/prices"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/shared/platform"
+	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
+	"github.com/kl3inIT/hypomnema/internal/shared/sqlite/sqlitetest"
 )
 
 func ptr[T any](v T) *T { return &v }
@@ -143,4 +148,79 @@ func TestAModelModelsDevDoesNotKnowIsUnknown(t *testing.T) {
 			require.ErrorIs(t, err, modelgateway.ErrInvalid)
 		})
 	}
+}
+
+// Scenario: the owner serves the Claude subscription's opus, as Claude Code
+// names it, and sets nothing (issue #399). It has what models.dev says of the
+// newest Claude Opus, and that model's price, not pi's defaults.
+func TestAClaudeShortNameHasItsNewestModelsAttributes(t *testing.T) {
+	t.Parallel()
+
+	g := newGateway(t)
+
+	m, err := g.ApplyModel(t.Context(), "name: opus\ntargets: [{provider: claude-subscription, model: opus}]\n")
+	require.NoError(t, err)
+
+	got, err := g.Resolve(t.Context(), m)
+	require.NoError(t, err)
+
+	newest, ok := prices.ClaudeModel("opus")
+	require.True(t, ok)
+
+	seed, ok := prices.Find("claude_subscription", newest)
+	require.True(t, ok)
+	require.NotNil(t, seed.Context)
+
+	assert.Equal(t, modelgateway.Value[int64]{Value: seed.Context, Source: modelgateway.SourceModelsDev,
+		ModelsDev: seed.Context}, got.ContextWindow)
+	assert.Equal(t, seed.MaxOutput, got.MaxOutput.Value)
+	assert.Equal(t, &[]string{"text", "image"}, got.Input.Value)
+	assert.Equal(t, ptr(true), got.Reasoning.Value)
+	require.NotNil(t, got.Price)
+	assert.Equal(t, newest, got.Price.Model)
+}
+
+// Scenario: the owner serves Antigravity's claude-sonnet-4-6 as
+// claude-sonnet (issue #399). Its window and largest output are the ones the
+// subscription serves, from CLIProxyAPI's registry, smaller than the API's
+// that models.dev gives, which stays beside them; one set on the model wins.
+func TestAnAntigravityModelHasTheSubscriptionsWindow(t *testing.T) {
+	t.Parallel()
+
+	db, err := sqlite.Open(t.Context(), sqlite.Config{Path: sqlitetest.Migrated(t, orchestration.Migrate)})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	// The account is served claude-sonnet-4-6, as the owner's is on zm.
+	g := modelgateway.New(db, fixedClock{}, platform.NewID,
+		func(context.Context, string) (modelgateway.ProviderInfo, error) {
+			return modelgateway.ProviderInfo{
+				Name: "antigravity-subscription", Kind: "antigravity_subscription", Models: []string{"claude-sonnet-4-6"},
+			}, nil
+		}, func(context.Context, string) (string, error) { return "", nil })
+
+	m, err := g.ApplyModel(t.Context(),
+		"name: claude-sonnet\ntargets: [{provider: antigravity-subscription, model: claude-sonnet-4-6}]\n")
+	require.NoError(t, err)
+
+	got, err := g.Resolve(t.Context(), m)
+	require.NoError(t, err)
+
+	seed, ok := prices.Find("antigravity_subscription", "claude-sonnet-4-6")
+	require.True(t, ok)
+	require.NotNil(t, seed.Context)
+	assert.Greater(t, *seed.Context, int64(200000), "models.dev gives the API's window")
+
+	assert.Equal(t, modelgateway.Value[int64]{Value: ptr[int64](200000), Source: modelgateway.SourceAntigravity,
+		ModelsDev: seed.Context}, got.ContextWindow)
+	assert.Equal(t, modelgateway.Value[int64]{Value: ptr[int64](64000), Source: modelgateway.SourceAntigravity,
+		ModelsDev: seed.MaxOutput}, got.MaxOutput)
+
+	m, err = g.SetAttributes(t.Context(), "claude-sonnet", modelgateway.Attributes{ContextWindow: ptr[int64](100000)})
+	require.NoError(t, err)
+
+	got, err = g.Resolve(t.Context(), m)
+	require.NoError(t, err)
+	assert.Equal(t, modelgateway.SourceSet, got.ContextWindow.Source)
+	assert.Equal(t, modelgateway.SourceAntigravity, got.MaxOutput.Source)
 }

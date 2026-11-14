@@ -146,7 +146,10 @@ func TestPiIsGivenEachModelsAttributes(t *testing.T) {
 	_, err = g.ApplyModel(ctx, "name: sonnet\ntargets: [{provider: claude-subscription, model: claude-sonnet-5-5}]\n"+
 		"context_window: 400000\n")
 	require.NoError(t, err)
-	_, err = w.svc.ApplyProvider(ctx, "", "name: model-gateway\nkind: model_gateway\nmodels: [sol, sonnet]\n")
+	// Claude Code's short name, as migrations 00008 and 00043 seed it (issue #399).
+	_, err = g.ApplyModel(ctx, "name: opus\ntargets: [{provider: claude-subscription, model: opus}]\n")
+	require.NoError(t, err)
+	_, err = w.svc.ApplyProvider(ctx, "", "name: model-gateway\nkind: model_gateway\nmodels: [sol, sonnet, opus]\n")
 	require.NoError(t, err)
 
 	out, err := w.cmd(t, "pi-models")
@@ -155,13 +158,18 @@ func TestPiIsGivenEachModelsAttributes(t *testing.T) {
 	var file piModelsFile
 	require.NoError(t, json.Unmarshal([]byte(out), &file))
 
-	models := file.Providers["model-gateway"].Models
-	require.Len(t, models, 2)
+	listed := file.Providers["model-gateway"].Models
+	require.Len(t, listed, 3)
+
+	models := map[string]piModel{}
+	for _, m := range listed {
+		models[m.ID] = m
+	}
 
 	codex, ok := prices.Find("codex_subscription", "gpt-6.1-sol")
 	require.True(t, ok)
 
-	sol := models[0]
+	sol := models["sol"]
 	assert.Equal(t, "sol", sol.ID)
 	assert.Equal(t, []string{"text", "image"}, sol.Input, "the Codex model takes images")
 	assert.Equal(t, int64(272000), sol.ContextWindow, "Codex's own window, not the API's that models.dev gives")
@@ -175,8 +183,23 @@ func TestPiIsGivenEachModelsAttributes(t *testing.T) {
 	require.NotNil(t, sol.Cost)
 	assert.InDelta(t, float64(*codex.Input)/1e6, sol.Cost.Input, 1e-9)
 
-	sonnet := models[1]
+	sonnet := models["sonnet"]
 	assert.Equal(t, int64(400_000), sonnet.ContextWindow, "the window the owner set")
 	assert.Equal(t, "max", *sonnet.ThinkingLevelMap["max"])
 	assert.Nil(t, sonnet.ThinkingLevelMap["minimal"], "the gateway gives Claude no minimal of its own")
+
+	newest, ok := prices.ClaudeModel("opus")
+	require.True(t, ok)
+
+	claude, ok := prices.Find("claude_subscription", newest)
+	require.True(t, ok)
+
+	opus := models["opus"]
+	assert.Equal(t, "opus", opus.ID)
+	assert.Equal(t, *claude.Context, opus.ContextWindow, "the newest Opus's window, not pi's 128000")
+	assert.Equal(t, *claude.MaxOutput, opus.MaxTokens)
+	assert.Equal(t, []string{"text", "image"}, opus.Input)
+	assert.True(t, opus.Reasoning)
+	require.NotNil(t, opus.Cost)
+	assert.InDelta(t, float64(*claude.Input)/1e6, opus.Cost.Input, 1e-9)
 }
