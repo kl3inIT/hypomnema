@@ -184,7 +184,7 @@ func TestASyncWritesNothingThroughALink(t *testing.T) {
 }
 
 // Scenario: the skills this binary ships are listed with the description
-// their stub gives, for the web's Skills page.
+// their SKILL.md gives, for the web's Skills page.
 func TestTheBuiltinSkillsAreListed(t *testing.T) {
 	t.Parallel()
 
@@ -198,6 +198,6 @@ func TestTheBuiltinSkillsAreListed(t *testing.T) {
 	}
 
 	assert.Equal(t, []string{
-		"aws", "google-workspace", "hypomnema-coordinator", "images", "lark", "superset", "web-search",
+		"aws", "google-workspace", "hypomnema-coordinator", "images", "lark", "pdf", "superset", "web-search",
 	}, names)
 }

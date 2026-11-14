@@ -13,6 +13,7 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
@@ -23,8 +24,15 @@ import (
 // installed SKILL.md is a stub that runs `hypomnema skills get <skill>`, which
 // prints the guide compiled into this binary, so the guide always names the
 // commands this binary accepts. Rare branches are references loaded alone.
+//
+// A skill without a guide.md is a whole folder installed as files, scripts
+// and references with it (issue #458), as Hermes and OpenClaw ship bundled
+// skills: pdf, adapted from Hermes's skills/productivity/pdf. Its scripts run
+// from the installed folder, so it has no stub.
 
-//go:embed skills
+// The all: prefix keeps files whose names start with _ (pdf's _raster.py).
+//
+//go:embed all:skills
 var ownSkills embed.FS
 
 // skillFiles are the skills this binary ships: its own, and those of the
@@ -99,14 +107,39 @@ var releasedStubs = map[string][]string{
 	"images":                {"d5914e30a9da434727d0ce057216b1c48a1b3104f23b9c7072f3feeda31e4971"},
 }
 
+// releasedFolders holds the folderDigest of every release of a skill
+// installed as a whole folder, as releasedStubs does for stubs: `skills
+// install` replaces an installed folder only when its digest is one of these
+// (Hermes's .bundled_manifest origin hashes, tools/skills_sync.py). A changed
+// folder adds its digest here (TestShippedFoldersAreReleased).
+var releasedFolders = map[string][]string{
+	"pdf": {"c945c0d5aaeae2eb9abaf15af44d5c640060785bd86b7b1ad6821bbb8fd8cb2b"},
+}
+
+// folderSkill says whether a skill is installed as a whole folder: it has no
+// guide.md for `skills get` to print.
+func folderSkill(name string) bool {
+	_, err := fs.Stat(skillFiles, path.Join("skills", name, "guide.md"))
+
+	return err != nil
+}
+
 func skillsGet(_ context.Context, e *env, fset *flag.FlagSet) error {
 	name := fset.Arg(0)
 	if name == "" {
 		name = defaultSkill
 	}
 
-	if _, err := fs.Stat(skillFiles, path.Join("skills", name, "guide.md")); err != nil {
-		return fmt.Errorf("%w: no skill %q; this binary ships %s", ErrUsage, name, strings.Join(skillNames(), ", "))
+	if folderSkill(name) {
+		var guides []string
+
+		for _, n := range skillNames() {
+			if !folderSkill(n) {
+				guides = append(guides, n)
+			}
+		}
+
+		return fmt.Errorf("%w: no guide %q; this binary ships the guides of %s", ErrUsage, name, strings.Join(guides, ", "))
 	}
 
 	refs, err := references(name)
@@ -238,13 +271,246 @@ func skillsInstall(_ context.Context, e *env, fset *flag.FlagSet) error {
 
 	for _, agent := range agents {
 		for _, name := range skillNames() {
-			if err := installStub(e, fset, agent, filepath.Join(roots[agent], name), name); err != nil {
+			var err error
+
+			switch {
+			case !folderSkill(name):
+				err = installStub(e, fset, agent, filepath.Join(roots[agent], name), name)
+			case agent == "agents":
+				// A whole-folder skill names its scripts under ~/.agents/skills,
+				// where every Bot reads skills (issue #458), so it goes only there.
+				err = installFolder(e, fset, agent, roots[agent], name)
+			}
+
+			if err != nil {
 				return err
 			}
 		}
 	}
 
 	return nil
+}
+
+// installFolder puts one whole-folder skill into root/name, unless an edited
+// copy is there and --force is not given. Like Hermes's skills_sync.py, the
+// installed copy is replaced only while its digest is a released one, the
+// new copy is made beside it first and the old one comes back when the swap
+// fails; the folders it makes start with a dot, which pi and Codex skip.
+func installFolder(e *env, fset *flag.FlagSet, agent, root, name string) error {
+	src := path.Join("skills", name)
+
+	shipped, err := fs.Sub(skillFiles, src)
+	if err != nil {
+		return fmt.Errorf("reading the %s skill: %w", name, err)
+	}
+
+	want, err := folderDigest(shipped)
+	if err != nil {
+		return fmt.Errorf("reading the %s skill: %w", name, err)
+	}
+
+	dir := filepath.Join(root, name)
+	dry, force := boolean(fset, "dry-run"), boolean(fset, "force")
+	action := "install"
+
+	info, err := os.Lstat(dir)
+
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+	case err != nil:
+		return fmt.Errorf("reading %s: %w", dir, err)
+	default:
+		have := ""
+		if info.IsDir() {
+			if have, err = folderDigest(os.DirFS(dir)); err != nil {
+				return fmt.Errorf("reading %s: %w", dir, err)
+			}
+		}
+
+		switch {
+		case have == want:
+			e.printf("%s: %s is current\n", agent, dir)
+
+			return nil
+		case slices.Contains(releasedFolders[name], have):
+			action = "update"
+		case !force:
+			e.printf("%s: %s was edited; left as it is (--force replaces it and keeps a backup)\n", agent, dir)
+
+			return nil
+		default:
+			action = "replace the edited"
+		}
+	}
+
+	if dry {
+		e.printf("%s: would %s %s\n", agent, action, dir)
+
+		return nil
+	}
+
+	backup := filepath.Join(root, "."+name+".bak")
+	if err := swapFolder(shipped, root, dir, backup, action != "install"); err != nil {
+		return err
+	}
+
+	switch action {
+	case "replace the edited":
+		e.printf("%s: replaced %s; the edited copy is %s\n", agent, dir, backup)
+	case "update":
+		if err := os.RemoveAll(backup); err != nil {
+			return fmt.Errorf("removing %s: %w", backup, err)
+		}
+
+		e.printf("%s: updated %s\n", agent, dir)
+	default:
+		e.printf("%s: installed %s\n", agent, dir)
+	}
+
+	return nil
+}
+
+// swapFolder writes the skill into a new folder beside dir, then moves the
+// old dir to backup (when there is one) and the new folder to dir.
+func swapFolder(skill fs.FS, root, dir, backup string, replace bool) error {
+	if err := os.MkdirAll(root, 0o750); err != nil {
+		return fmt.Errorf("making %s: %w", root, err)
+	}
+
+	stage, err := os.MkdirTemp(root, "."+filepath.Base(dir)+".new-")
+	if err != nil {
+		return fmt.Errorf("making a folder in %s: %w", root, err)
+	}
+
+	defer func() { _ = os.RemoveAll(stage) }()
+
+	if err := writeFolder(skill, stage); err != nil {
+		return err
+	}
+
+	if !replace {
+		if err := os.Rename(stage, dir); err != nil {
+			return fmt.Errorf("installing %s: %w", dir, err)
+		}
+
+		return nil
+	}
+
+	if err := os.RemoveAll(backup); err != nil {
+		return fmt.Errorf("removing %s: %w", backup, err)
+	}
+
+	if err := os.Rename(dir, backup); err != nil {
+		return fmt.Errorf("moving %s aside: %w", dir, err)
+	}
+
+	if err := os.Rename(stage, dir); err != nil {
+		if back := os.Rename(backup, dir); back != nil {
+			return fmt.Errorf("installing %s: %w; the old copy is %s", dir, err, backup)
+		}
+
+		return fmt.Errorf("installing %s: %w", dir, err)
+	}
+
+	return nil
+}
+
+// writeFolder copies a skill's files into dir. What is under scripts/ is
+// executable.
+func writeFolder(skill fs.FS, dir string) error {
+	if err := os.Chmod(dir, 0o750); err != nil { //nolint:gosec // the agent's own skill folder, read by its agents
+		return fmt.Errorf("making %s: %w", dir, err)
+	}
+
+	err := fs.WalkDir(skill, ".", func(name string, d fs.DirEntry, err error) error {
+		if err != nil || name == "." {
+			return err
+		}
+
+		target := filepath.Join(dir, filepath.FromSlash(name))
+		if d.IsDir() {
+			return os.Mkdir(target, 0o750)
+		}
+
+		b, err := fs.ReadFile(skill, name)
+		if err != nil {
+			return err
+		}
+
+		mode := os.FileMode(0o600)
+		if strings.HasPrefix(name, "scripts/") {
+			mode = 0o700
+		}
+
+		if err := os.WriteFile(target, b, mode); err != nil {
+			return err
+		}
+
+		// WriteFile's mode passes through the umask; scripts must stay executable.
+		return os.Chmod(target, mode)
+	})
+	if err != nil {
+		return fmt.Errorf("writing the skill into %s: %w", dir, err)
+	}
+
+	return nil
+}
+
+// runtimeCaches are folders a skill's scripts leave behind when they run,
+// which say nothing of an edit (Hermes's _RUNTIME_CACHE_DIRS).
+var runtimeCaches = []string{"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache"}
+
+// folderDigest is the SHA-256 of a skill folder's files, each by its path
+// and its content with line endings normalized, in path order; runtime
+// caches are left out (Hermes's dir_hash and _is_runtime_cache).
+func folderDigest(skill fs.FS) (string, error) {
+	h := sha256.New()
+
+	err := fs.WalkDir(skill, ".", func(name string, d fs.DirEntry, err error) error {
+		switch {
+		case err != nil:
+			return err
+		case d.IsDir() && slices.Contains(runtimeCaches, d.Name()):
+			return fs.SkipDir
+		case d.IsDir():
+			return nil
+		case bytecode(skill, name):
+			return nil
+		case !d.Type().IsRegular():
+			h.Write([]byte(name + "\x00not a file\x00"))
+
+			return nil
+		}
+
+		b, err := fs.ReadFile(skill, name)
+		if err != nil {
+			return err
+		}
+
+		b = []byte(strings.ReplaceAll(string(b), "\r\n", "\n"))
+		h.Write([]byte(name + "\x00" + strconv.Itoa(len(b)) + "\x00"))
+		h.Write(b)
+
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// bytecode says whether a file is Python's compiled copy of a source beside it.
+func bytecode(skill fs.FS, name string) bool {
+	ext := path.Ext(name)
+
+	return (ext == ".pyc" || ext == ".pyo") && exists(skill, strings.TrimSuffix(name, ext)+".py")
+}
+
+func exists(fsys fs.FS, name string) bool {
+	_, err := fs.Stat(fsys, name)
+
+	return err == nil
 }
 
 // installStub writes one skill's stub into dir, unless an edited copy is
@@ -322,8 +588,8 @@ type BuiltinSkill struct {
 	Description string
 }
 
-// BuiltinSkills are the skills this binary ships, by name: the coordinator's
-// and those of the Integrations' tools.
+// BuiltinSkills are the skills this binary ships, by name: the coordinator's,
+// those of the Integrations' tools and the whole-folder ones (pdf).
 func BuiltinSkills() ([]BuiltinSkill, error) {
 	var out []BuiltinSkill
 

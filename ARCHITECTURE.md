@@ -2078,6 +2078,17 @@ The owner's commands:
   `SKILL.md` to `~/.claude/skills` and `~/.agents/skills`, replacing a copy only when it matches a released stub
   (otherwise only with `--force`, keeping a backup). Tests check that every command in the skill parses and that the
   stub and guide share their frontmatter.
+- The pdf skill (`internal/controlplane/clientcli/skills/pdf`, issue #458) is built in as a whole folder: Hermes's
+  `skills/productivity/pdf` at `022a14437b2d` (MIT, its `LICENSE` in the folder, the notice in
+  `third_party/hermes-agent/NOTICE`), adapted to the Bots' box: `python` is the documents environment (above), the
+  scripts are named where the skill is installed (`~/.agents/skills/pdf/scripts`), and OCR, nano-pdf editing and
+  Hermes's tests are left out. A skill without a `guide.md` is such a folder: `skills install` copies its files
+  (what is under `scripts/` executable) into `~/.agents/skills` only, where every Bot reads skills, writing a new
+  copy beside the old and swapping them. It replaces an installed copy only while the folder's digest (each file's
+  path and content, Python caches left out, after Hermes's `tools/skills_sync.py` `dir_hash`) is a released one
+  (`releasedFolders`); an edited copy is left alone, or with `--force` replaced and kept as `.pdf.bak`, which pi
+  does not read. `setup-coordinator.sh` runs `skills install --agent agents` at each deploy, so every Bot gets it
+  with no `skills add`. It is listed among the built-in skills.
 
 Node (`internal/node`):
 - `init` writes `~/.hypomnema-node/config.json` (mode 0600, directory 0700) with the control plane's URL, the token
