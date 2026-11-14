@@ -76,8 +76,8 @@ func newBoxWorld(t *testing.T, bwrap string) *boxWorld {
 		"agent/models.json":   "the models another chat's pi was given",
 		"agent/settings.json": "settings another pi wrote",
 		"bots/other/notes":    "another bot's notes",
-		"sessions/2026-11-01T00-00-00-000Z_cht_mine.jsonl":   `{"type":"session","id":"cht_mine"}`,
-		"sessions/2026-11-01T00-00-00-000Z_cht_theirs.jsonl": `{"type":"session","id":"cht_theirs"}`,
+		"sessions/cht_mine/2026-11-01T00-00-00-000Z_cht_mine.jsonl":     `{"type":"session","id":"cht_mine"}`,
+		"sessions/cht_theirs/2026-11-01T00-00-00-000Z_cht_theirs.jsonl": `{"type":"session","id":"cht_theirs"}`,
 		"work/README":       "the first bot's directory",
 		"tools/bin/gws":     "#!/bin/sh\n",
 		"pi/node_modules/x": "pi's code",
@@ -226,7 +226,7 @@ func TestPiRunsInItsBoxWithItsOwnToken(t *testing.T) {
 	assert.Equal(t, "read-only", seen["own"], "the Bot cannot change its own settings")
 	assert.Equal(t, "hidden", seen["other"], "another Bot's directory")
 	assert.Equal(t, "cht_mine ", seen["sessions"], "another chat's sessions")
-	assert.Equal(t, "2026-11-01T00-00-00-000Z_cht_mine.jsonl ", seen["mine"], "the chat's session was moved in")
+	assert.Equal(t, "2026-11-01T00-00-00-000Z_cht_mine.jsonl ", seen["mine"], "the chat's own session")
 	assert.Equal(t, "writable", seen["bot"])
 	assert.Equal(t, "writable", seen["session"])
 	assert.Equal(t, "read-only", seen["shared"])
