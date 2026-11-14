@@ -264,3 +264,47 @@ test("the model and effort chosen on the New chat page are the chat's", async ({
   await expect(page.getByRole("button", { name: "Effort: Medium" })).toBeVisible()
   await shot(page, "new-chat-model-sent")
 })
+
+// Scenario: on the New chat page the owner attaches a report and writes, then reloads (issue #433). The text and
+// the report are back, still in the folder of the chat's id the page chose, and the first message makes the chat
+// under that id with them.
+test("the New chat page keeps its draft across a reload", async ({ page }) => {
+  const { calls, posted } = await fakeServer(page)
+  await page.goto("/")
+  await expect(page.getByLabel("Bot", { exact: true })).toContainText("coordinator")
+
+  await page.getByLabel("Files to attach").setInputFiles({
+    name: "report.pdf",
+    mimeType: "application/pdf",
+    buffer: Buffer.from("%PDF-1.7 report"),
+  })
+  const chips = page.getByLabel("Files to send")
+  await expect(chips.getByText("Uploading", { exact: false })).toHaveCount(0)
+  const begun = calls.find((c) => c.startsWith("POST uploads "))
+  const id = /attachments\/(cht_[a-z2-7]{26})\/report\.pdf coordinator$/.exec(begun ?? "")?.[1]
+  const box = page.getByRole("textbox", { name: "Message" })
+  await box.fill("summarise this report")
+
+  await page.reload()
+  await expect(box).toHaveValue("summarise this report")
+  await expect(chips.getByText("report.pdf")).toBeVisible()
+  await shot(page, "new-chat-draft-kept")
+
+  await box.press("Enter")
+  await expect(page).toHaveURL(new RegExp(`/chats/${id}$`))
+  expect(posted[1]?.body).toEqual({
+    text: "summarise this report",
+    attachments: [
+      {
+        name: "report.pdf",
+        path: `attachments/${id}/report.pdf`,
+        size: 15,
+        type: "application/pdf",
+      },
+    ],
+  })
+
+  await page.goto("/")
+  await expect(box).toHaveValue("")
+  await expect(chips).toHaveCount(0)
+})

@@ -16,7 +16,7 @@ import (
 // The `tool` command (issue #103): what an agent on this machine runs an
 // Integration's tool through, and how the tools are put there.
 //
-//	hypomnema tool install --dir DIR     install every tool, its script and nothing else under DIR
+//	hypomnema tool install --dir DIR     install every tool, its script and the documents environment under DIR
 //	hypomnema tool <name> [args...]      run a tool with a fresh token, as the logged-in agent
 //
 // The second form is what the script named after a tool runs. The agent's
@@ -89,7 +89,42 @@ func toolInstall(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 
+	if err := documentsInstall(ctx, *dir, stdout); err != nil {
+		return err
+	}
+
 	_, err = fmt.Fprintf(stdout, "put %s first on the agent's PATH and set %s=%s\n", place.Bin(), agenttool.EnvTools, *dir)
+
+	return err
+}
+
+// documentsInstall installs uv and with it the documents environment the
+// Bots' document skills import their libraries from (issue #401), where uv
+// has a release for this system.
+func documentsInstall(ctx context.Context, dir string, stdout io.Writer) error {
+	uv := agenttool.UV()
+
+	release, ok := uv.For(runtime.GOOS, runtime.GOARCH)
+	if !ok {
+		_, _ = fmt.Fprintf(stdout, "uv has no release for %s/%s; the documents environment is skipped\n",
+			runtime.GOOS, runtime.GOARCH)
+
+		return nil
+	}
+
+	if err := (agenttool.ToolInstaller{Home: dir}).Install(ctx, release); err != nil {
+		return err
+	}
+
+	venv, err := agenttool.Documents{
+		Home: dir, UV: agenttool.ToolPath(dir, uv.Name, uv.Version), UVVersion: uv.Version,
+	}.Ensure(ctx)
+	if err != nil {
+		return err
+	}
+
+	_, err = fmt.Fprintf(stdout, "uv %s is installed; the documents environment is %s (Python %s)\n", uv.Version, venv,
+		agenttool.DocumentsPython)
 
 	return err
 }

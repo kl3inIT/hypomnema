@@ -52,8 +52,10 @@ func PassThrough(raw []byte, opt PassOptions) ([]byte, error) {
 }
 
 // PassUsage counts the tokens of a Messages answer passed on as it came.
+// CacheCreation1h is the part of CacheCreation written for an hour
+// (usage.cache_creation.ephemeral_1h_input_tokens; issue #448).
 type PassUsage struct {
-	Input, Output, CacheRead, CacheCreation int64
+	Input, Output, CacheRead, CacheCreation, CacheCreation1h int64
 }
 
 // Note reads the usage an event, or a whole answer, carries: message_start
@@ -90,6 +92,10 @@ func (u *PassUsage) Note(data []byte) {
 
 		if got.CacheCreationInput > 0 {
 			u.CacheCreation = got.CacheCreationInput
+		}
+
+		if got.CacheCreation.Ephemeral1hInput > 0 {
+			u.CacheCreation1h = got.CacheCreation.Ephemeral1hInput
 		}
 	}
 }

@@ -980,6 +980,21 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       `deploy/coordinator/setup-coordinator.sh` installs the tools for the coordinator's user
       (`hypomnema tool install`), `hypomnema-pi` puts the scripts on pi's `PATH`, and the launcher uses the token
       of pi's client configuration: in pi's box, pi's own (issue #260).
+    - **The documents environment** (issue #401, after Hermes's `hermes pm environment documents`:
+      `pm/cli.py` `cmd_environment`, `pm/operations.py` `ensure_environment`): `hypomnema tool install` also
+      installs `uv` 0.13.8 (`agenttool.UV()`, pinned by the `.sha256` beside each release file, for no Integration
+      and with no script) and builds with it, under the coordinator's tools, one Python environment for the
+      document skills: Python 3.14.9 managed by uv (`tools/python`, each download checked by uv against its
+      own pinned SHA-256) and the packages of `internal/shared/agenttool/documents/uv.lock` (python-docx 1.2.0,
+      openpyxl 3.1.5, python-pptx 1.0.2, reportlab 5.1.0, pypdf 6.21.4, pdfplumber 0.11.10, pypdfium2 5.14.0 and
+      their dependencies, every file by its hash), with `uv sync --frozen --compile-bytecode`. Each build is a
+      generation, `tools/envs/documents/gen-<32 hex>/venv`, checked with the pdf skill's imports and then
+      selected by `active.json`, written last and atomically after a disk sync; builders take turns on
+      `.install.lock`, a build of unchanged pins does nothing, and a failed build leaves the selection as it was.
+      No generation is removed. `hypomnema-pi` reads `active.json` as pi starts and puts that generation's `bin`
+      first on `PATH`, inside the box's read-only tools, so `python` there imports the libraries and a running pi
+      keeps its generation through a rebuild; without one, pi starts with the system's Python. No sudo and no
+      system `python3-venv` are needed. A Routine's script does not get it.
     - **The skill** (`internal/shared/agenttool/skills/google-workspace`) is taken from the Google Workspace
       CLI's skills (Apache-2.0) and Hermes' references (MIT), each file naming its source and what was changed:
       Gmail, Calendar and Drive commands, the mail search operators and a morning brief. Its guide replaces the
@@ -1682,6 +1697,13 @@ capabilities do not exist yet.
   provider's, under the provider's vendor (Claude anthropic, Codex openai) or the maker named in the model. The cost
   is the uncached input, the cache read, the cache write and the output, each at its price (a missing cache price is
   the input's). For a subscription it is what the tokens would cost at the API, not the plan.
+  Since migration 00078 a row also holds the part of the cache write that lasts an hour (`cache_write_1h_tokens`,
+  issue #448): Anthropic's `usage.cache_creation.ephemeral_1h_input_tokens`, read on the Messages route from
+  `message_start`, `message_delta` or a whole answer, and on the chat route carried in the usage as LiteLLM carries
+  it (`prompt_tokens_details.cache_creation_token_details.ephemeral_1h_input_tokens`). For vendor anthropic that
+  part costs twice the input (Anthropic's one-hour rate, LiteLLM's `cache_creation_input_token_cost_above_1hr`;
+  models.dev has none) and the rest of the write `cache_write`, the five-minute rate. Rows recorded before keep 0
+  and their cost. The Usage page's request shows the part next to the cache written.
 - The tables `gateway_models`, `gateway_model_targets`, `gateway_keys` and `gateway_usage` are in the one migration
   stream and are read and written only by this package, through its own generated queries. Providers are read
   through orchestration and keys through the vault.
@@ -2275,6 +2297,17 @@ Node (`internal/node`):
     another Bot, the chips stay and each file goes up again into the new Bot's folder, its copy in the old one
     deleted once the new one is up, as t3code uploads a draft's attachments again when its environment changes
     (`attachmentUploadQueue.ts`, `previous`).
+  - Drafts and ↑ (issue #433, `features/chat/drafts.ts`, `recall.ts`, after t3code's `composerDraftStore.ts`,
+    OpenMausBot's `src/lib/drafts.ts` and opencode's history walk): what is written in a chat's composer, with the
+    files that are up (their place in the folder, not their bytes), is kept for that chat in localStorage
+    (`hypomnema:chat-drafts:v1`), saved 300 ms after a write and when the page hides or the composer goes, and held
+    in memory where the storage throws; it is there again after switching chats or reloading, and goes when sent.
+    The New chat page and a new chat's tab keep theirs with the chat's id they chose and the Bot picked; a restored
+    file cannot move to another Bot's folder and asks to be attached again. In an empty box with the caret
+    at its start, ↑ brings back the owner's messages of this chat, newest first; while walking, ↑ and ↓ step from
+    the start or end of the text, ↓ past the newest gives the empty box back, and typing ends the walk. Not built:
+    drafts on the server or shared between devices, dropping the draft of a chat that is gone (the server
+    has no delete) or of a closed tab, opencode's Shift+↑ search.
   - The model and effort (issue #369, `features/chat/chat-model-picker.tsx`, after t3code's
     `ProviderModelPicker.tsx`, `TraitsPicker.tsx` and `ComposerModelEffort.tsx`): in the composer's footer, left of
     Send, a quiet button with the model's mark and name opens the app's model list (`features/agents/model-choices.ts`:
