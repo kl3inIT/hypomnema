@@ -280,13 +280,3 @@ export function chatItems(view: ChatView, local: Local = {}, setups: Setup[] = [
 
   return items
 }
-
-// argLine is a tool call in one line: the command for bash, the path for file tools, as the CLI prints it.
-export function argLine(args?: Record<string, unknown>): string {
-  for (const k of ["command", "path", "file_path", "pattern"]) {
-    const v = args?.[k]
-    if (typeof v === "string" && v !== "") return v.split("\n")[0] ?? ""
-  }
-
-  return ""
-}
