@@ -18,6 +18,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/coordinator"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/larkbot"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/channelstore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
@@ -434,6 +435,7 @@ func (p *pi) watched(chatID string) bool {
 // questions and takes the first answer, as the store does.
 type asking struct {
 	*orchestration.Service
+	*channelstore.Store
 
 	mu        sync.Mutex
 	questions map[string]orchestration.Question
@@ -587,7 +589,7 @@ func newWorld(t *testing.T) *world {
 		pi:       &pi{watchers: map[string][]chan coordinator.Frame{}, working: map[string]bool{}},
 	}
 	w.orch = orchestration.New(db, w.clock, platform.NewID)
-	w.asks = &asking{Service: w.orch, questions: map[string]orchestration.Question{}}
+	w.asks = &asking{Service: w.orch, Store: w.orch.Channels(), questions: map[string]orchestration.Question{}}
 	// Any commit wakes the Channels; a chat that is made and never used is one.
 	w.asks.changed = func() { _, _ = w.orch.CreateChat(context.Background(), "", "wake") }
 	w.vault = vault.New(db, platform.SystemClock{}, platform.NewID, keys,
@@ -673,13 +675,13 @@ func (w *world) run(channel string) {
 func (w *world) larkChats() []orchestration.LarkChannelChat {
 	w.t.Helper()
 
-	channels, err := w.orch.LarkChannels(w.t.Context())
+	channels, err := w.orch.Channels().LarkChannels(w.t.Context())
 	require.NoError(w.t, err)
 
 	var out []orchestration.LarkChannelChat
 
 	for _, c := range channels {
-		chats, err := w.orch.LarkChannelChats(w.t.Context(), c.Name)
+		chats, err := w.orch.Channels().LarkChannelChats(w.t.Context(), c.Name)
 		require.NoError(w.t, err)
 
 		out = append(out, chats...)
@@ -1549,7 +1551,7 @@ func TestTheBotAnswersInAGroupTheOwnerSwitchedOn(t *testing.T) {
 	assert.Equal(t, []string{"owner: [Đạt admin]: what did @Linh ship?"}, w.texts(chat),
 		"the bot's mention is taken out, another's is named, and the name is a plain label")
 
-	group, err := w.orch.IsLarkGroupChat(t.Context(), chat)
+	group, err := w.orch.Channels().IsLarkGroupChat(t.Context(), chat)
 	require.NoError(t, err)
 	assert.True(t, group, "the coordinator starts without its memory in a group's chat")
 
@@ -1622,7 +1624,7 @@ func TestWhoMayAskInAGroupIsTheChannelsChoice(t *testing.T) {
 		return second != first && len(w.texts(second)) == 1
 	}, eventual, tick)
 
-	stillGroup, err := w.orch.IsLarkGroupChat(t.Context(), first)
+	stillGroup, err := w.orch.Channels().IsLarkGroupChat(t.Context(), first)
 	require.NoError(t, err)
 	assert.True(t, stillGroup, "a chat the group left behind still starts without the memory")
 
