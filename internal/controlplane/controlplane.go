@@ -383,7 +383,9 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		WithBuiltinSkills(builtinSkills).
 		WithRoutines(routineRunner).
 		WithWeb(botWeb{meteredWeb: metered, chats: sup}).
-		WithWebSearch(webSearchSettings{web: webSearch, gateway: gateway})
+		WithWebSearch(webSearchSettings{web: webSearch, gateway: gateway}).
+		WithImages(botImages{server: gatewayServer, gateway: gateway, chats: sup, logger: logger},
+			imageSettings{Service: gateway, server: gatewayServer})
 	if cfg.VaultKeys != nil {
 		api.WithTokenAccounts(accountTokens{svc: svc, vault: secrets})
 	}

@@ -52,6 +52,9 @@ type AccountToken struct {
 	AccessToken string
 	// Project is the vendor's project the account works in, when it has one.
 	Project string
+	// Plan is the account's plan as its login read it (Codex: chatgpt_plan_type,
+	// Antigravity: the tier).
+	Plan string
 	// Version says which of the account's tokens this is, for the one that
 	// replaces it after a refusal.
 	Version int

@@ -26,6 +26,7 @@ import { Route as SettingsIndexRouteImport } from './routes/settings.index'
 import { Route as SettingsAboutYouRouteImport } from './routes/settings.about-you'
 import { Route as SettingsChannelsRouteImport } from './routes/settings.channels'
 import { Route as SettingsGatewayKeysRouteImport } from './routes/settings.gateway-keys'
+import { Route as SettingsImagesRouteImport } from './routes/settings.images'
 import { Route as SettingsIntegrationsRouteImport } from './routes/settings.integrations'
 import { Route as SettingsModelsRouteImport } from './routes/settings.models'
 import { Route as SettingsRepositoriesRouteImport } from './routes/settings.repositories'
@@ -121,6 +122,11 @@ const SettingsGatewayKeysRoute = SettingsGatewayKeysRouteImport.update({
   path: '/settings/gateway-keys',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SettingsImagesRoute = SettingsImagesRouteImport.update({
+  id: '/settings/images',
+  path: '/settings/images',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SettingsIntegrationsRoute = SettingsIntegrationsRouteImport.update({
   id: '/settings/integrations',
   path: '/settings/integrations',
@@ -182,6 +188,7 @@ export interface FileRoutesByFullPath {
   '/settings/about-you': typeof SettingsAboutYouRoute
   '/settings/channels': typeof SettingsChannelsRoute
   '/settings/gateway-keys': typeof SettingsGatewayKeysRoute
+  '/settings/images': typeof SettingsImagesRoute
   '/settings/integrations': typeof SettingsIntegrationsRoute
   '/settings/models': typeof SettingsModelsRoute
   '/settings/repositories': typeof SettingsRepositoriesRoute
@@ -210,6 +217,7 @@ export interface FileRoutesByTo {
   '/settings/about-you': typeof SettingsAboutYouRoute
   '/settings/channels': typeof SettingsChannelsRoute
   '/settings/gateway-keys': typeof SettingsGatewayKeysRoute
+  '/settings/images': typeof SettingsImagesRoute
   '/settings/integrations': typeof SettingsIntegrationsRoute
   '/settings/models': typeof SettingsModelsRoute
   '/settings/repositories': typeof SettingsRepositoriesRoute
@@ -239,6 +247,7 @@ export interface FileRoutesById {
   '/settings/about-you': typeof SettingsAboutYouRoute
   '/settings/channels': typeof SettingsChannelsRoute
   '/settings/gateway-keys': typeof SettingsGatewayKeysRoute
+  '/settings/images': typeof SettingsImagesRoute
   '/settings/integrations': typeof SettingsIntegrationsRoute
   '/settings/models': typeof SettingsModelsRoute
   '/settings/repositories': typeof SettingsRepositoriesRoute
@@ -269,6 +278,7 @@ export interface FileRouteTypes {
     | '/settings/about-you'
     | '/settings/channels'
     | '/settings/gateway-keys'
+    | '/settings/images'
     | '/settings/integrations'
     | '/settings/models'
     | '/settings/repositories'
@@ -297,6 +307,7 @@ export interface FileRouteTypes {
     | '/settings/about-you'
     | '/settings/channels'
     | '/settings/gateway-keys'
+    | '/settings/images'
     | '/settings/integrations'
     | '/settings/models'
     | '/settings/repositories'
@@ -325,6 +336,7 @@ export interface FileRouteTypes {
     | '/settings/about-you'
     | '/settings/channels'
     | '/settings/gateway-keys'
+    | '/settings/images'
     | '/settings/integrations'
     | '/settings/models'
     | '/settings/repositories'
@@ -354,6 +366,7 @@ export interface RootRouteChildren {
   SettingsAboutYouRoute: typeof SettingsAboutYouRoute
   SettingsChannelsRoute: typeof SettingsChannelsRoute
   SettingsGatewayKeysRoute: typeof SettingsGatewayKeysRoute
+  SettingsImagesRoute: typeof SettingsImagesRoute
   SettingsIntegrationsRoute: typeof SettingsIntegrationsRoute
   SettingsModelsRoute: typeof SettingsModelsRoute
   SettingsRepositoriesRoute: typeof SettingsRepositoriesRoute
@@ -489,6 +502,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsGatewayKeysRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/settings/images': {
+      id: '/settings/images'
+      path: '/settings/images'
+      fullPath: '/settings/images'
+      preLoaderRoute: typeof SettingsImagesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/settings/integrations': {
       id: '/settings/integrations'
       path: '/settings/integrations'
@@ -570,6 +590,7 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsAboutYouRoute: SettingsAboutYouRoute,
   SettingsChannelsRoute: SettingsChannelsRoute,
   SettingsGatewayKeysRoute: SettingsGatewayKeysRoute,
+  SettingsImagesRoute: SettingsImagesRoute,
   SettingsIntegrationsRoute: SettingsIntegrationsRoute,
   SettingsModelsRoute: SettingsModelsRoute,
   SettingsRepositoriesRoute: SettingsRepositoriesRoute,

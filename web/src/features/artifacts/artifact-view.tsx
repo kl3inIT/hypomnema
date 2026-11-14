@@ -1,37 +1,22 @@
 import { useQuery } from "@tanstack/react-query"
-import { Download, File } from "lucide-react"
-import { lazy, Suspense, useState } from "react"
+import { lazy, Suspense } from "react"
 
+import { openArtifactFrame, readArtifactFile, readArtifactSheets } from "@/api/generated/sdk.gen"
 import type { Artifact, ArtifactRevision } from "@/api/generated/types.gen"
-import { buttonVariants } from "@/components/ui/button"
-import {
-  Empty,
-  EmptyContent,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from "@/components/ui/empty"
 import { Spinner } from "@/components/ui/spinner"
 import { problemOf } from "@/features/files/files-state"
+import { FileView, type PreviewReader } from "@/features/preview/preview-loader"
 
-import {
-  downloadURL,
-  sizeOf,
-  useArtifactFile,
-  useFrameFiles,
-  useImageSource,
-} from "./artifact-state"
+import { artifactKey, downloadURL, useArtifactFile, useFrameFiles } from "./artifact-state"
 import { frameDocument, frameSandbox } from "./frame-document"
-import { Zoom } from "./zoom"
 
-// The viewers of an artifact, one a type, as Onyx's preview has one variant a type
-// (web/src/sections/modals/PreviewModal/variants/) and OpenMausBot's AttachmentPreview.tsx: a page in its locked
-// frame, a PDF drawn by pdf.js, an image, and anything else as a file to download (issue #402, the widened scope).
-// A page's Code is its index.html in the app's read-only editor (the Files panel's code-view.tsx).
+// The viewers of an artifact (issues #402 and #422): a page in its locked frame, and any other file in the app's
+// file preview (features/preview, MemoryOS's, after Onyx's PreviewModal): a PDF drawn by pdf.js, an image, a
+// workbook read by the server into tables, a CSV, a Word document, Markdown, source and text; anything else as a
+// file to download. A page's Code is its index.html in the app's read-only editor (the Files panel's
+// code-view.tsx).
 
 const CodeView = lazy(() => import("@/features/files/code-view"))
-const PdfView = lazy(() => import("./pdf-view"))
 
 export type ArtifactMode = "preview" | "code"
 
@@ -39,25 +24,23 @@ export function ArtifactView({
   artifact,
   revision,
   mode = "preview",
+  wide = false,
 }: {
   artifact: Artifact
   revision: ArtifactRevision
   mode?: ArtifactMode
+  // wide is a view with room for a PDF's page rail: full screen or its own page.
+  wide?: boolean
 }) {
-  switch (revision.type) {
-    case "html":
-      return mode === "code" ? (
-        <PageCode artifact={artifact} revision={revision} />
-      ) : (
-        <PageFrame artifact={artifact} revision={revision} />
-      )
-    case "pdf":
-      return <PdfFile artifact={artifact} revision={revision} />
-    case "image":
-      return <ImageFile artifact={artifact} revision={revision} />
-    default:
-      return <DownloadOnly artifact={artifact} revision={revision} />
+  if (revision.type === "html") {
+    return mode === "code" ? (
+      <PageCode artifact={artifact} revision={revision} />
+    ) : (
+      <PageFrame artifact={artifact} revision={revision} />
+    )
   }
+
+  return <Preview artifact={artifact} revision={revision} wide={wide} />
 }
 
 type Props = { artifact: Artifact; revision: ArtifactRevision }
@@ -115,76 +98,35 @@ function PageCode(props: Props) {
   )
 }
 
-function PdfFile({ artifact, revision }: Props) {
-  const file = useArtifactFile(artifact.id, revision.revision)
+// Preview is a revision's one file in the file preview, read through the artifact's routes: its bytes, its sheets
+// read by the server, and, for an SVG, the frame's sandboxed address (issue #422, row 4), never a blob: address.
+function Preview({ artifact, revision, wide }: Props & { wide: boolean }) {
+  const id = artifact.id
+  const rev = revision.revision
+  const path = { artifact_id: id, revision: rev }
+  const reader: PreviewReader = {
+    download: downloadURL(id, revision),
+    bytes: async (signal) =>
+      (await readArtifactFile({ path, parseAs: "blob", signal })).data as Blob,
+    sheets: async (signal) => (await readArtifactSheets({ path, signal })).data,
+    svg: async (signal) => {
+      const { url } = (await openArtifactFrame({ path, signal })).data
 
-  if (file.error) return <Problem error={file.error} />
-  if (file.data === undefined) return <Loading />
-
-  return (
-    <Suspense fallback={<Loading />}>
-      <PdfView data={file.data} />
-    </Suspense>
-  )
-}
-
-// ImageFile is an image, zoomable from 25% to 200% (Onyx's imageVariant): a raster image from its bytes, an SVG
-// from the frame's sandboxed address (useImageSource). It is an <img>, where an SVG's script does not run.
-function ImageFile({ artifact, revision }: Props) {
-  const { src: url, error } = useImageSource(artifact.id, revision)
-  const [scale, setScale] = useState(1)
-
-  if (error) return <Problem error={error} />
-  if (!url) return <Loading />
+      return `${new URL(url, window.location.origin).href}${encodeURIComponent(revision.entry)}`
+    },
+  }
+  const mediaType = revision.files.find((f) => f.path === revision.entry)?.media_type ?? ""
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex shrink-0 justify-end border-b px-3 py-1">
-        <Zoom
-          scale={scale}
-          min={0.25}
-          max={2}
-          onChange={(next) => setScale(Math.min(2, Math.max(0.25, next)))}
-        />
-      </div>
-      <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto bg-muted/30 p-4">
-        <img
-          src={url}
-          alt={revision.title}
-          style={{ transform: `scale(${scale})` }}
-          className="max-h-full max-w-full origin-center transition-transform duration-300"
-        />
-      </div>
-    </div>
-  )
-}
-
-// DownloadOnly is a file the app has no view for: its name and size, and a download (Onyx's unsupportedVariant).
-function DownloadOnly({ artifact, revision }: Props) {
-  return (
-    <div className="flex min-h-0 flex-1 flex-col justify-center">
-      <Empty>
-        <EmptyHeader>
-          <EmptyMedia variant="icon">
-            <File />
-          </EmptyMedia>
-          <EmptyTitle>{revision.entry}</EmptyTitle>
-          <EmptyDescription>
-            {sizeOf(revision.size)}. This kind of file is not shown here; download it to open it.
-          </EmptyDescription>
-        </EmptyHeader>
-        <EmptyContent>
-          <a
-            href={downloadURL(artifact.id, revision)}
-            download={revision.entry}
-            className={buttonVariants({ variant: "default" })}
-          >
-            <Download />
-            Download
-          </a>
-        </EmptyContent>
-      </Empty>
-    </div>
+    <FileView
+      key={`${id}-${rev}`}
+      reader={reader}
+      filename={revision.entry}
+      mediaType={mediaType}
+      queryKey={[...artifactKey(id), rev, "file", ""]}
+      staleTime={Infinity}
+      thumbnails={wide}
+    />
   )
 }
 
