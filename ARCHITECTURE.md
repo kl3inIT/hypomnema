@@ -2143,11 +2143,14 @@ Node (`internal/node`):
   gives way to the settings sections under headings, with a way back (the headings are t3code's, the swap is
   Omnigent's; [research](docs/research/2026-11-10-menus-and-settings.md)). A section is listed once it has a page;
   on a phone the sections are a row of links under the header.
-  - `/settings/integrations` (under Connections) lists the git hosts as cards after Orca's integration card (MIT):
-    the mark of what the host runs (GitHub's or GitLab's), its name, a "Connected" or "No token" badge, and the
-    actions. "Add token" / "Replace token" takes the token in a
-    password field and sends it once; it is never read back. A company's server is added with its address (a name
-    or a pasted URL), what it runs and, if wanted, its token. Removing a token or a declared server asks first.
+  - `/settings/integrations` (under Connections) lists the git hosts as one card a product, GitHub and GitLab,
+    after Orca's integration card (MIT), with each host of that product a row, as Coder lists each configured
+    instance (issue #379): its address ("server" beside a company's own), a "Connected" or "No token" badge, and
+    the actions. What workers do without a token, the token a product needs and the link to its maker's help are
+    said once at the card's foot while a row has no token. "Add token" / "Replace token" takes the token in a
+    password field and sends it once; it is never read back. A company's server is added from its product's card
+    ("Add server") with its address (a name or a pasted URL) and, if wanted, its token; it runs what the card is.
+    Removing a token or a declared server asks first.
   - `/settings/repositories` has no entry in the menu while its place is being decided (issue #44); it lists the registered repositories, adds one from its URL under a
     proposed name with an optional base branch, and removes one after a confirmation.
   - `/settings/models` (under Gateway, [issue #199](https://github.com/kl3inIT/hypomnema/issues/199), step 1;
