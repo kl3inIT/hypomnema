@@ -16,7 +16,7 @@ import (
 func TestTheStartingSetIsThere(t *testing.T) {
 	t.Parallel()
 
-	w := newWorld(t)
+	w := newSeedWorld(t)
 	ctx := t.Context()
 
 	profiles, err := w.s.ListProfiles(ctx)
@@ -74,8 +74,8 @@ func TestAChangedProfileIsANewVersion(t *testing.T) {
 	v2, created, err := w.s.ApplyProfile(ctx, "", source)
 	require.NoError(t, err)
 	assert.True(t, created)
-	assert.Equal(t, 3, v2.Version)
-	assert.Equal(t, "claude-subscription", v2.Provider, "found from the model")
+	assert.Equal(t, 4, v2.Version, "after the two seeded and the world's own")
+	assert.Equal(t, "gateway", v2.Provider, "found from the model")
 
 	same, created, err := w.s.ApplyProfile(ctx, "", source)
 	require.NoError(t, err)
@@ -84,8 +84,8 @@ func TestAChangedProfileIsANewVersion(t *testing.T) {
 
 	versions, err := w.s.ListProfileVersions(ctx, "implementer")
 	require.NoError(t, err)
-	require.Len(t, versions, 3)
-	assert.Equal(t, 3, versions[0].Version, "newest first")
+	require.Len(t, versions, 4)
+	assert.Equal(t, 4, versions[0].Version, "newest first")
 
 	w.tasks(NewTask{Ref: "b", Spec: "b"})
 	second := w.dispatchOf(w.schedule().Created[0])
@@ -107,7 +107,8 @@ func TestAChangedProfileIsANewVersion(t *testing.T) {
 }
 
 // A profile is checked when it is applied: its name, fields, runtime,
-// effort, and whether its provider offers the model to that runtime.
+// effort, and whether its provider offers the model to that runtime. A
+// Claude Code profile must name the model gateway (issue #381).
 func TestAProfileIsCheckedWhenApplied(t *testing.T) {
 	t.Parallel()
 
@@ -123,7 +124,10 @@ func TestAProfileIsCheckedWhenApplied(t *testing.T) {
 		"name: x\ndescription: d\nruntime: gemini\n":                                               "unknown runtime",
 		"name: x\ndescription: d\nruntime: claude\nmodel: {name: claude-opus-5-5, effort: huge}\n": "unknown effort",
 		"name: x\ndescription: d\nruntime: claude\nmodel: {name: gpt-5}\n":                         "no provider",
-		"name: x\ndescription: d\nruntime: claude\nmodel: {provider: router, name: opus}\n":        "cannot run against",
+		"name: x\ndescription: d\nruntime: claude\nmodel: {provider: router, name: opus}\n":        "must name a provider of kind model_gateway",
+		"name: x\ndescription: d\nruntime: claude\nmodel: {provider: claude-subscription}\n":       "must name a provider of kind model_gateway",
+		"name: x\ndescription: d\nruntime: claude\nmodel: {name: claude-haiku-5-5}\n":              "no provider of kind model_gateway offers",
+		"name: x\ndescription: d\nruntime: omp\nmodel: {provider: router, name: gpt-5}\n":          "cannot run against",
 		"name: x\ndescription: d\nruntime: codex\nmodel: {provider: router, name: opus}\n":         "does not offer",
 		"name: x\ndescription: d\nruntime: pi\n":                                                   "a bot's",
 		"name: x\ndescription: d\nruntime: codex\nmodel: {provider: nobody}\n":                     "not found",
@@ -144,13 +148,21 @@ func TestAProfileIsCheckedWhenApplied(t *testing.T) {
 	p, _, err = w.s.ApplyProfile(t.Context(), "",
 		"name: x\ndescription: d\nruntime: claude\nmodel: {name: claude-sonnet-5-5}\n")
 	require.NoError(t, err)
-	assert.Equal(t, "claude-subscription", p.Provider, "claude cannot use router's kind")
+	assert.Equal(t, "gateway", p.Provider, "claude can use the gateway's kind alone")
 
 	_, err = w.s.ApplyProvider(t.Context(), "", "name: anthropic\nkind: anthropic\nmodels: [claude-sonnet-5-5]\n")
 	require.NoError(t, err)
 
-	_, _, err = w.s.ApplyProfile(t.Context(), "",
+	p, _, err = w.s.ApplyProfile(t.Context(), "",
 		"name: y\ndescription: d\nruntime: claude\nmodel: {name: claude-sonnet-5-5}\n")
+	require.NoError(t, err)
+	assert.Equal(t, "gateway", p.Provider, "nor an API of Anthropic's")
+
+	_, err = w.s.ApplyProvider(t.Context(), "", "name: gateway-2\nkind: model_gateway\nmodels: [claude-sonnet-5-5]\n")
+	require.NoError(t, err)
+
+	_, _, err = w.s.ApplyProfile(t.Context(), "",
+		"name: w\ndescription: d\nruntime: claude\nmodel: {name: claude-sonnet-5-5}\n")
 	require.ErrorContains(t, err, "name the provider", "claude now reaches claude-sonnet-5-5 two ways")
 }
 

@@ -18,26 +18,49 @@ import (
 // fake clock.
 
 // world is one database, one Run and the calls of one node, which has Claude
-// and one account.
+// Code; the implementer runs it through the model gateway, as every Claude
+// Code worker does (issue #381).
 type world struct {
-	t       *testing.T
-	s       *Service
-	db      *sql.DB
-	clock   *fakeClock
-	run     Run
-	reqs    int
-	node    Node
-	account Account
+	t     *testing.T
+	s     *Service
+	db    *sql.DB
+	clock *fakeClock
+	run   Run
+	reqs  int
+	node  Node
+	// held is the account node_a holds, in a world from newAccountWorld.
+	held Account
 }
 
+// worldGateway is the world's model gateway, with the Claude models its
+// scenarios name.
+const worldGateway = "name: gateway\nkind: model_gateway\nmodels: [claude-opus-5-5, claude-sonnet-5-5]\n"
+
 func newWorld(t *testing.T) *world {
+	t.Helper()
+
+	w := newSeedWorld(t)
+
+	_, _, err := w.s.ApplyProfile(t.Context(), "",
+		"name: implementer\ndescription: d\nruntime: claude\nmodel: {provider: gateway}\n")
+	require.NoError(t, err)
+
+	return w
+}
+
+// newSeedWorld is a world whose profiles are the starting set as the
+// migrations seed it, with the world's gateway beside them.
+func newSeedWorld(t *testing.T) *world {
 	t.Helper()
 
 	s, db, clock := newTestService(t)
 	w := &world{t: t, s: s, db: db, clock: clock}
 	// The node's own limit is the system's, so the older scenarios meet only one.
 	w.node = w.addNode("node_a", MaxActiveDispatches, "claude")
-	w.account = w.addAccount("claude", "acct_1")
+
+	_, err := s.ApplyProvider(t.Context(), "", worldGateway)
+	require.NoError(t, err)
+
 	w.run = newRun(t, s)
 
 	return w
@@ -118,7 +141,11 @@ func (w *world) conversation(id string) Conversation {
 }
 
 func (w *world) spec() DispatchSpec {
-	return DispatchSpec{NodeID: w.node.ID, Worktree: "/srv/wt/a", Runtime: "claude", AccountRef: w.account.ID}
+	if w.held.ID != "" {
+		return DispatchSpec{NodeID: w.node.ID, Worktree: "/srv/wt/a", Runtime: "codex", AccountRef: w.held.ID}
+	}
+
+	return DispatchSpec{NodeID: w.node.ID, Worktree: "/srv/wt/a", Runtime: "claude", AccountRef: GatewayAccountRef}
 }
 
 func (w *world) advance(d time.Duration) { w.clock.now = w.clock.now.Add(d) }
@@ -341,7 +368,6 @@ func TestDispatchRunsToSuccess(t *testing.T) {
 	beat := w.heartbeat(c)
 	assert.Equal(t, t0.Add(30*time.Second+LeaseDuration), beat.LeaseExpiresAt)
 	assert.False(t, beat.StopRequested)
-	require.NoError(t, w.s.ReportProgress(t.Context(), w.again(c)))
 
 	require.NoError(t, w.finish(c, success("added the login endpoint")))
 
@@ -685,7 +711,7 @@ func TestThirdCountedFailureTripsTheBreaker(t *testing.T) {
 func TestRateLimitIsNotCountedAndCoolsTheAccount(t *testing.T) {
 	t.Parallel()
 
-	w := newWorld(t)
+	w, _ := newAccountWorld(t)
 	tasks := w.tasks(
 		NewTask{Ref: "a", Profile: "implementer", Spec: "a"},
 		NewTask{Ref: "b", Profile: "implementer", Spec: "b"},
@@ -703,7 +729,7 @@ func TestRateLimitIsNotCountedAndCoolsTheAccount(t *testing.T) {
 	require.ErrorIs(t, err, ErrCoolingDown)
 
 	other := w.spec()
-	other.AccountRef = w.addAccount("claude", "acct_2").ID
+	other.AccountRef = w.addAccount("codex", "acct_2").ID
 	_, err = w.create(tasks[2].ID, other)
 	require.NoError(t, err)
 

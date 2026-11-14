@@ -78,8 +78,6 @@ func (s *Server) call(ctx context.Context, call orchestration.NodeCall, r nodepr
 		return svc.AcceptDispatch(ctx, call)
 	case nodeproto.ReportHeartbeat:
 		return svc.Heartbeat(ctx, call)
-	case nodeproto.ReportProgress:
-		return nil, svc.ReportProgress(ctx, call)
 	case nodeproto.ReportExited:
 		return nil, svc.ReportExited(ctx, call)
 	case nodeproto.ReportStopped:

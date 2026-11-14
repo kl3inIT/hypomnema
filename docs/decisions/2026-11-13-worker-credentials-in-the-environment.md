@@ -1,5 +1,8 @@
 # A worker's Claude and git host tokens stay in its environment; no proxy on the node
 
+Superseded in part by [2026-11-14-claude-code-workers-only-through-the-gateway.md](2026-11-14-claude-code-workers-only-through-the-gateway.md):
+a Claude Code worker no longer gets the Claude token; it runs through the model gateway with its Dispatch's key.
+
 Date: 2026-11-13. Status: accepted by the owner ("chốt như hiện tại", 2026-11-13). It describes what is built (issues
 #90 and #152), so no implementation follows. Supersedes the part of
 [2026-11-07-two-deployables.md](2026-11-07-two-deployables.md) and of `docs/conventions.md` that planned a

@@ -169,6 +169,9 @@ func (p *placement) checkAccount(runtime, id string) error {
 		return fmt.Errorf("%w: account %s is for %s, not %s", ErrInvalid, id, a.Runtime, runtime)
 	case AccountStatus(a.Status) != AccountActive:
 		return fmt.Errorf("%w: account %s is disabled", ErrUnavailable, id)
+	case gatewayOnly(runtime):
+		return fmt.Errorf("%w: a %s worker runs through the model gateway, not under account %s", ErrInvalid,
+			runtime, id)
 	case !runsOnNode(a):
 		return fmt.Errorf("%w: account %s was logged in on the control plane; no node has it", ErrInvalid, id)
 	}
@@ -203,7 +206,12 @@ func (p *placement) serves(n *nodeLoad, runtime string) error {
 // scheduler would find: a node that serves the runtime and has a worktree
 // root, then an account that is not cooling down, or none for a model the
 // gateway serves. A node at its limit still counts: the Task waits its turn.
+// A runtime that runs only through the gateway cannot start without it.
 func (p *placement) availability(runtime string, gateway bool) Availability {
+	if !gateway && gatewayOnly(runtime) {
+		return Availability{Reason: ReasonNeedsGateway}
+	}
+
 	if !slices.ContainsFunc(p.order, func(n *nodeLoad) bool {
 		return p.serves(n, runtime) == nil && n.row.WorktreeRoot.String != ""
 	}) {
@@ -323,23 +331,24 @@ func (p *placement) pickNode(runtime string, host where) *nodeLoad {
 	return best
 }
 
-// TokenRuntime is the runtime whose account can be a token the control plane
-// keeps and sends to the node with each Dispatch (issue #150): Claude Code's
-// `claude setup-token`, long-lived and with no refresh to share.
+// TokenRuntime is the runtime whose account can be a token the owner pastes:
+// Claude Code's `claude setup-token`, long-lived and with no refresh to share
+// (issue #150). The vault keeps it and the model gateway serves the account;
+// it never leaves the control plane (issue #381).
 const TokenRuntime = "claude"
 
-// sentToNode reports whether an account is a token the control plane keeps
-// and hands to the node in the offer.
-func sentToNode(a store.Account) bool { return a.SecretRef.Valid && a.SentToNode == 1 }
-
 // runsOnNode reports whether a worker on a node can run under an account:
-// one whose CLI was logged in on a node, or one whose token is sent to it.
-// An account logged in on the control plane for the gateway is neither.
-func runsOnNode(a store.Account) bool { return !a.SecretRef.Valid || sentToNode(a) }
+// one whose CLI was logged in on that node. An account whose secret the
+// control plane keeps is the gateway's to serve.
+func runsOnNode(a store.Account) bool { return !a.SecretRef.Valid }
 
 // pickAccount is the first active account of the runtime a node holds, by
 // position, that is not cooling down. cooling reports whether one exists but cools.
 func (p *placement) pickAccount(runtime string) (id string, cooling bool) {
+	if gatewayOnly(runtime) {
+		return "", false
+	}
+
 	for _, a := range p.accounts {
 		if a.Runtime != runtime || AccountStatus(a.Status) != AccountActive || !runsOnNode(a) {
 			continue
@@ -390,7 +399,7 @@ func (p *placement) nodeOut(n *nodeLoad) Node {
 		},
 		LastSeenAt:    optionalTime(n.row.LastSeenAt),
 		UnavailableAt: optionalTime(n.row.UnavailableAt), Connected: p.connected(n), Active: n.active,
-		Terminal:  n.row.Terminal == 1,
+		Terminal: n.row.Terminal == 1, Device: n.row.Device, KVM: n.row.Kvm == 1,
 		CreatedAt: millis(n.row.CreatedAt), UpdatedAt: millis(n.row.UpdatedAt),
 	}
 }

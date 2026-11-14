@@ -146,8 +146,8 @@ func (o *owner) nodes(ctx context.Context, args []string) error {
 				state = machineState(n.Machine)
 			}
 
-			o.printf("%s\t%s\t%s\t%s\t%d/%d\t%s\t%s\n", n.ID, n.Name, n.Status, state, n.Active, n.MaxDispatches,
-				runtimes(n.Runtimes), system(n.System))
+			o.printf("%s\t%s\t%s\t%s\t%d/%d\t%s\t%s\t%s\n", n.ID, n.Name, n.Status, state, n.Active,
+				n.MaxDispatches, runtimes(n.Runtimes), system(n.System), device(n))
 		}
 
 		return nil
@@ -290,6 +290,18 @@ func system(s orchestration.SystemInfo) string {
 
 	return fmt.Sprintf("%s/%s, %d CPUs, %d GiB memory, %d GiB disk, node %s", s.OS, s.Arch, s.CPUs,
 		s.MemoryBytes/gib, s.DiskBytes/gib, s.DaemonVersion)
+}
+
+// device is the device a node said it holds and whether it can run it now (issue #417); empty for none.
+func device(n orchestration.Node) string {
+	switch {
+	case n.Device == "":
+		return ""
+	case n.KVM:
+		return n.Device + " device, kvm"
+	default:
+		return n.Device + " device, no kvm"
+	}
 }
 
 func runtimes(rs []orchestration.RuntimeInfo) string {

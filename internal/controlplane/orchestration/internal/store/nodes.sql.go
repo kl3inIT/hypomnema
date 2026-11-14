@@ -29,7 +29,7 @@ func (q *Queries) AccountLabelTaken(ctx context.Context, arg AccountLabelTakenPa
 
 const countAccountsFreeAfter = `-- name: CountAccountsFreeAfter :one
 SELECT count(*) FROM accounts a
-WHERE a.runtime = ?1 AND a.status = 'active' AND (a.secret_ref IS NULL OR a.sent_to_node = 1)
+WHERE a.runtime = ?1 AND a.status = 'active' AND a.secret_ref IS NULL
   AND NOT EXISTS (SELECT 1 FROM account_cooldowns c
                   WHERE c.runtime = a.runtime AND c.account_ref = a.id AND c.until > ?2)
 `
@@ -186,7 +186,7 @@ func (q *Queries) DeleteNode(ctx context.Context, arg DeleteNodeParams) (int64, 
 }
 
 const getAccount = `-- name: GetAccount :one
-SELECT id, runtime, label, status, position, created_at, updated_at, external_id, email, "plan", secret_ref, refresh_failures, refresh_retry_at, refresh_error, project, sent_to_node FROM accounts WHERE id = ?1
+SELECT id, runtime, label, status, position, created_at, updated_at, external_id, email, "plan", secret_ref, refresh_failures, refresh_retry_at, refresh_error, project FROM accounts WHERE id = ?1
 `
 
 func (q *Queries) GetAccount(ctx context.Context, id string) (Account, error) {
@@ -208,13 +208,12 @@ func (q *Queries) GetAccount(ctx context.Context, id string) (Account, error) {
 		&i.RefreshRetryAt,
 		&i.RefreshError,
 		&i.Project,
-		&i.SentToNode,
 	)
 	return i, err
 }
 
 const getAccountByExternalID = `-- name: GetAccountByExternalID :one
-SELECT id, runtime, label, status, position, created_at, updated_at, external_id, email, "plan", secret_ref, refresh_failures, refresh_retry_at, refresh_error, project, sent_to_node FROM accounts
+SELECT id, runtime, label, status, position, created_at, updated_at, external_id, email, "plan", secret_ref, refresh_failures, refresh_retry_at, refresh_error, project FROM accounts
 WHERE runtime = ?1 AND external_id = ?2 AND lower(coalesce(email, '')) = lower(?3)
 `
 
@@ -243,7 +242,6 @@ func (q *Queries) GetAccountByExternalID(ctx context.Context, arg GetAccountByEx
 		&i.RefreshRetryAt,
 		&i.RefreshError,
 		&i.Project,
-		&i.SentToNode,
 	)
 	return i, err
 }
@@ -270,7 +268,7 @@ func (q *Queries) GetLiveNodeTokenByHash(ctx context.Context, tokenHash string) 
 }
 
 const getNode = `-- name: GetNode :one
-SELECT id, name, status, max_dispatches, worktree_root, runtimes, daemon_version, os, arch, cpus, memory_bytes, disk_bytes, last_seen_at, unavailable_at, deleted_at, created_at, updated_at, cpu_percent, memory_used_bytes, disk_used_bytes, load1, stats_at, provider_id, provider_resource_id, region, size, machine_state, machine_error, machine_attempts, machine_retry_at, git_hosts, machine_power, tools, terminal, gpus FROM nodes WHERE id = ?1
+SELECT id, name, status, max_dispatches, worktree_root, runtimes, daemon_version, os, arch, cpus, memory_bytes, disk_bytes, last_seen_at, unavailable_at, deleted_at, created_at, updated_at, cpu_percent, memory_used_bytes, disk_used_bytes, load1, stats_at, provider_id, provider_resource_id, region, size, machine_state, machine_error, machine_attempts, machine_retry_at, git_hosts, machine_power, tools, terminal, gpus, device, kvm FROM nodes WHERE id = ?1
 `
 
 func (q *Queries) GetNode(ctx context.Context, id string) (Node, error) {
@@ -312,6 +310,8 @@ func (q *Queries) GetNode(ctx context.Context, id string) (Node, error) {
 		&i.Tools,
 		&i.Terminal,
 		&i.Gpus,
+		&i.Device,
+		&i.Kvm,
 	)
 	return i, err
 }
@@ -439,10 +439,10 @@ func (q *Queries) InsertNodeToken(ctx context.Context, arg InsertNodeTokenParams
 }
 
 const insertTokenAccount = `-- name: InsertTokenAccount :exec
-INSERT INTO accounts (id, runtime, label, status, position, secret_ref, sent_to_node, created_at, updated_at)
+INSERT INTO accounts (id, runtime, label, status, position, secret_ref, created_at, updated_at)
 VALUES (?1, ?2, ?3, 'active',
         (SELECT coalesce(max(position), 0) + 1 FROM accounts WHERE runtime = ?2),
-        ?4, 1, ?5, ?5)
+        ?4, ?5, ?5)
 `
 
 type InsertTokenAccountParams struct {
@@ -453,7 +453,7 @@ type InsertTokenAccountParams struct {
 	Now       int64
 }
 
-// An account whose token the control plane keeps and sends to the node (issue #150).
+// An account whose pasted token the control plane keeps for the gateway (issues #150, #381).
 func (q *Queries) InsertTokenAccount(ctx context.Context, arg InsertTokenAccountParams) error {
 	_, err := q.db.ExecContext(ctx, insertTokenAccount,
 		arg.ID,
@@ -498,7 +498,7 @@ func (q *Queries) ListAccountLabelsBySecretRef(ctx context.Context, secretRef sq
 }
 
 const listAccounts = `-- name: ListAccounts :many
-SELECT id, runtime, label, status, position, created_at, updated_at, external_id, email, "plan", secret_ref, refresh_failures, refresh_retry_at, refresh_error, project, sent_to_node FROM accounts ORDER BY runtime, position, id
+SELECT id, runtime, label, status, position, created_at, updated_at, external_id, email, "plan", secret_ref, refresh_failures, refresh_retry_at, refresh_error, project FROM accounts ORDER BY runtime, position, id
 `
 
 func (q *Queries) ListAccounts(ctx context.Context) ([]Account, error) {
@@ -526,7 +526,6 @@ func (q *Queries) ListAccounts(ctx context.Context) ([]Account, error) {
 			&i.RefreshRetryAt,
 			&i.RefreshError,
 			&i.Project,
-			&i.SentToNode,
 		); err != nil {
 			return nil, err
 		}
@@ -609,7 +608,7 @@ func (q *Queries) ListNodeTokens(ctx context.Context, nodeID string) ([]NodeToke
 }
 
 const listNodes = `-- name: ListNodes :many
-SELECT id, name, status, max_dispatches, worktree_root, runtimes, daemon_version, os, arch, cpus, memory_bytes, disk_bytes, last_seen_at, unavailable_at, deleted_at, created_at, updated_at, cpu_percent, memory_used_bytes, disk_used_bytes, load1, stats_at, provider_id, provider_resource_id, region, size, machine_state, machine_error, machine_attempts, machine_retry_at, git_hosts, machine_power, tools, terminal, gpus FROM nodes WHERE status <> 'deleted' ORDER BY name
+SELECT id, name, status, max_dispatches, worktree_root, runtimes, daemon_version, os, arch, cpus, memory_bytes, disk_bytes, last_seen_at, unavailable_at, deleted_at, created_at, updated_at, cpu_percent, memory_used_bytes, disk_used_bytes, load1, stats_at, provider_id, provider_resource_id, region, size, machine_state, machine_error, machine_attempts, machine_retry_at, git_hosts, machine_power, tools, terminal, gpus, device, kvm FROM nodes WHERE status <> 'deleted' ORDER BY name
 `
 
 // Every node that has not been removed.
@@ -658,6 +657,8 @@ func (q *Queries) ListNodes(ctx context.Context) ([]Node, error) {
 			&i.Tools,
 			&i.Terminal,
 			&i.Gpus,
+			&i.Device,
+			&i.Kvm,
 		); err != nil {
 			return nil, err
 		}
@@ -722,10 +723,11 @@ UPDATE nodes
 SET updated_at = ?1, last_seen_at = ?1, worktree_root = ?2, runtimes = ?3,
     daemon_version = ?4, os = ?5, arch = ?6, cpus = ?7, memory_bytes = ?8,
     disk_bytes = ?9, unavailable_at = NULL, terminal = ?10,
+    device = ?11, kvm = ?12,
     machine_error = CASE WHEN machine_state IN ('provisioning', 'provision_failed') THEN NULL ELSE machine_error END,
     machine_state = CASE WHEN machine_state IN ('provisioning', 'provision_failed') THEN 'ready' ELSE machine_state END,
     machine_power = CASE WHEN machine_power = 'starting' THEN NULL ELSE machine_power END
-WHERE id = ?11 AND status <> 'deleted'
+WHERE id = ?13 AND status <> 'deleted'
 `
 
 type NodeHelloParams struct {
@@ -739,6 +741,8 @@ type NodeHelloParams struct {
 	MemoryBytes   sql.NullInt64
 	DiskBytes     sql.NullInt64
 	Terminal      int64
+	Device        string
+	Kvm           int64
 	ID            string
 }
 
@@ -755,6 +759,8 @@ func (q *Queries) NodeHello(ctx context.Context, arg NodeHelloParams) (int64, er
 		arg.MemoryBytes,
 		arg.DiskBytes,
 		arg.Terminal,
+		arg.Device,
+		arg.Kvm,
 		arg.ID,
 	)
 	if err != nil {

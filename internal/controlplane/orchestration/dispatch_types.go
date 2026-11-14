@@ -298,6 +298,10 @@ const (
 	// ReasonAccountsCooling: every account of the runtime cools down. It is a
 	// profile's reason only; a Task that waits for one is not escalated by it.
 	ReasonAccountsCooling = "accounts_cooling"
+	// ReasonNeedsGateway: a Claude Code worker runs only through the model
+	// gateway, and the Task's profile, or its own runtime, names no provider
+	// of kind model_gateway (issue #381).
+	ReasonNeedsGateway = "needs_gateway"
 	// ReasonNoNodeReaches is followed by the git host: "no_node_reaches:gitlab.company.example".
 	ReasonNoNodeReaches = "no_node_reaches:"
 	// ReasonNoNodeHasTool is followed by the tool: "no_node_has_tool:gws". The

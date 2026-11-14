@@ -59,10 +59,12 @@ type Config struct {
 	// is set only here, on the machine: the control plane cannot turn it back
 	// on (Nezha's disable_command_execute).
 	DisableTerminal bool `json:"disable_terminal,omitempty"`
-	// Accounts maps an account id of the control plane to where its
-	// credentials are on this node, for an offer that brings no token of its
-	// own. Only the file's path is here, never the token.
-	Accounts map[string]claude.Account `json:"accounts,omitempty"`
+	// Device is the device this machine holds: "android" for a machine made
+	// to run an Android emulator, which its first-boot script sets with
+	// `install --device android`; empty for none (issue #417).
+	Device string `json:"device,omitempty"`
+	// An "accounts" key, where a node kept the paths of Claude token files
+	// until issue #381, is ignored when read and dropped when written.
 }
 
 // DefaultHome is ~/.hypomnema-node.
@@ -88,12 +90,12 @@ func Init(home, rawURL, tokenFile, worktreeRoot string) error {
 		return fmt.Errorf("reading the token file: %w", err)
 	}
 
-	return Configure(home, rawURL, strings.TrimSpace(string(raw)), worktreeRoot)
+	return Configure(home, rawURL, strings.TrimSpace(string(raw)), worktreeRoot, "")
 }
 
 // Configure writes the configuration with the token given. An existing
-// configuration keeps its accounts.
-func Configure(home, rawURL, token, worktreeRoot string) error {
+// configuration keeps its accounts, and its device unless one is named.
+func Configure(home, rawURL, token, worktreeRoot, device string) error {
 	u, err := url.Parse(rawURL)
 	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
 		return fmt.Errorf("the control plane URL %q must be http(s)://host", rawURL)
@@ -101,6 +103,10 @@ func Configure(home, rawURL, token, worktreeRoot string) error {
 
 	if !strings.HasPrefix(token, "hyn_") {
 		return errors.New("that does not hold a node token (hyn_…)")
+	}
+
+	if device != "" && device != nodeproto.DeviceAndroid {
+		return fmt.Errorf("the device %q is not one a node holds; it can be %s", device, nodeproto.DeviceAndroid)
 	}
 
 	// An install over a node that is already there changes where it connects and with what, and nothing else:
@@ -133,6 +139,9 @@ func Configure(home, rawURL, token, worktreeRoot string) error {
 	}
 
 	cfg.URL, cfg.Token, cfg.WorktreeRoot = strings.TrimSuffix(rawURL, "/"), token, worktreeRoot
+	if device != "" {
+		cfg.Device = device
+	}
 
 	return saveConfig(home, cfg)
 }
@@ -154,41 +163,6 @@ func saveConfig(home string, cfg Config) error {
 	}
 
 	return nil
-}
-
-// SetAccount records where the credentials of a control plane account are on
-// this node. The file must be private to the node's user.
-func SetAccount(home, accountID, tokenFile string) error {
-	cfg, err := LoadConfig(home)
-	if err != nil {
-		return err
-	}
-
-	if !strings.HasPrefix(accountID, "acc_") {
-		return fmt.Errorf("%q is not an account id (acc_…, from `hypomnema accounts list`)", accountID)
-	}
-
-	abs, err := filepath.Abs(tokenFile)
-	if err != nil {
-		return err
-	}
-
-	info, err := os.Stat(abs)
-	if err != nil {
-		return fmt.Errorf("reading the token file: %w", err)
-	}
-
-	if info.Mode().Perm()&0o077 != 0 && runtimeIsUnix() {
-		return fmt.Errorf("%s can be read by others; chmod 600 it first", abs)
-	}
-
-	if cfg.Accounts == nil {
-		cfg.Accounts = map[string]claude.Account{}
-	}
-
-	cfg.Accounts[accountID] = claude.Account{TokenFile: abs}
-
-	return saveConfig(home, cfg)
 }
 
 // Run runs the daemon with the runtimes' workers until ctx ends.
@@ -226,7 +200,7 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 	defer db.Close() //nolint:errcheck // Closing at shutdown; nothing is left to report it to.
 
 	logger.InfoContext(ctx, "node starting", slog.String("event", "node.starting"), slog.String("url", cfg.URL),
-		slog.Int("runtimes", len(runtimes)), slog.Int("accounts", len(cfg.Accounts)))
+		slog.Int("runtimes", len(runtimes)))
 
 	// The shells the owner opens from the web end with the node.
 	var terminals *terminal.Manager
@@ -240,7 +214,7 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 
 	byRuntime, err := registry(
 		entry{"claude", &claude.ClaudeRuntime{
-			Home: home, Exe: exe, Claude: claudePath, URL: cfg.URL, Accounts: cfg.Accounts,
+			Home: home, Exe: exe, Claude: claudePath, URL: cfg.URL,
 		}},
 		// A Codex worker's model comes from the control plane's gateway (issue #107).
 		entry{"codex", &codex.CodexRuntime{Home: home, Exe: exe, Codex: codexPath, URL: cfg.URL}},
@@ -286,6 +260,7 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 			return found
 		},
 		Terminal: terminals,
+		Device:   cfg.Device, KVM: CanUseKVM,
 	}, db, all, logger)
 
 	transcripts.Send = d.SendItems
@@ -431,10 +406,6 @@ func Check(ctx context.Context, home string, stdout io.Writer) error {
 
 	_, _ = fmt.Fprintf(stdout, "connected to %s as %s\n", cfg.URL, nodeID)
 
-	for id, a := range cfg.Accounts {
-		_, _ = fmt.Fprintf(stdout, "  account %s: %s\n", id, a.TokenFile)
-	}
-
 	for _, r := range runtimes {
 		_, _ = fmt.Fprintf(stdout, "  %s %s (%s)\n", r.Runtime, r.Version, r.Path)
 	}
@@ -445,8 +416,6 @@ func Check(ctx context.Context, home string, stdout io.Writer) error {
 
 	return nil
 }
-
-func runtimeIsUnix() bool { return os.PathSeparator == '/' }
 
 // pinnedRuntimes are the agent CLIs at the versions this release pins, as the tools the node may have installed
 // already: at start the node finds them before the control plane names them again.

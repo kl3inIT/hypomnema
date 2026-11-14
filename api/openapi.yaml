@@ -1236,9 +1236,10 @@ paths:
       summary: Keep an account from a token the owner pastes; only the owner
       description: >-
         The token is the one `claude setup-token` prints, which lasts a year.
-        It is sealed in the vault and never answered; the gateway serves with
-        it and a node gets it for a worker. Its limits may not be readable,
-        as the token can only call models.
+        It is sealed in the vault and never answered; the model gateway serves
+        with it, and it never leaves the control plane: a Claude Code worker
+        reaches it through the gateway. Its limits may not be readable, as the
+        token can only call models.
       requestBody:
         required: true
         content:
@@ -3596,6 +3597,16 @@ components:
           description: >-
             The node said at its last connect that it opens a terminal when asked. Left out for a node whose
             version has none or whose own configuration turned it off.
+        device:
+          type: string
+          enum: [android]
+          description: >-
+            The device the node said at its last connect that it holds, as its own configuration names it. Left
+            out for a node that holds none.
+        kvm:
+          type: boolean
+          description: >-
+            The node said at its last connect that its user can use /dev/kvm, which an Android emulator needs.
         active:
           type: integer
           description: Its Dispatches that have not settled.
@@ -3918,7 +3929,16 @@ components:
         size:
           type: string
           maxLength: 64
-          description: With a provider, the machine's size; left out, the provider's default.
+          description: >-
+            With a provider, the machine's size; left out, the provider's default, or for a device the size the
+            emulator was tried on (c7i-flex.2xlarge at AWS).
+        device:
+          type: string
+          enum: [android]
+          description: >-
+            With a provider, a machine that holds an Android emulator: at AWS a size with nested virtualization
+            and at least 40 GiB of disk; its first boot installs what the emulator needs. Left out, a plain
+            machine.
     CreatedNode:
       type: object
       required: [node]
@@ -5627,15 +5647,16 @@ components:
           type: boolean
           description: >-
             Whether a worker can start under the profile now: a connected, active node has its CLI, and its runtime
-            has an account that is not cooling down (none is needed for a model the gateway serves). A node at its
-            limit still counts, since the Task waits its turn. Given for a profile's current version; absent for
-            a list of versions.
+            has an account that is not cooling down (none is needed for a model the gateway serves). A Claude Code
+            profile must name a provider of kind `model_gateway`. A node at its limit still counts, since the Task
+            waits its turn. Given for a profile's current version; absent for a list of versions.
         unavailable_reason:
           type: string
-          enum: [no_node, no_account, accounts_cooling]
+          enum: [no_node, no_account, accounts_cooling, needs_gateway]
           description: >-
             Why no worker can start, when `available` is false: no connected, active node has the CLI; the runtime
-            has no active account on a node; or every account of the runtime cools down.
+            has no active account on a node; every account of the runtime cools down; or the profile is Claude
+            Code's and names no provider of kind `model_gateway`, the only way a Claude Code worker runs.
         available_at:
           type: string
           format: date-time

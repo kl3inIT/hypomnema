@@ -28,6 +28,7 @@ func TestPromptCarriesTheGateAndTheRecoveryNote(t *testing.T) {
 
 	d := offered()
 	d.Offer.Repo, d.Offer.Base = "kl3inIT/second-bite", "main"
+	d.Offer.RepoHost, d.Offer.RepoKind = "github.com", "github"
 
 	first := 0
 	d.Accepted = &nodeproto.Accepted{Epoch: 1, Recovery: true, Gate: &nodeproto.Question{
@@ -44,7 +45,7 @@ func TestPromptCarriesTheGateAndTheRecoveryNote(t *testing.T) {
 	d.Offer.RepoHost, d.Offer.RepoKind = "gitlab.company.example", "gitlab"
 	assert.Contains(t, Prompt(d), "glab mr create --target-branch main --source-branch hyp/tsk_1 --yes",
 		"a worker on GitLab opens its request with GitLab's own tool")
-	d.Offer.RepoHost, d.Offer.RepoKind = "", ""
+	d.Offer.RepoHost, d.Offer.RepoKind = "github.com", "github"
 	assert.Contains(t, p, "outcome is unknown")
 	assert.Contains(t, p, "DECISION GATE RESOLVED. You asked: PR #7 is green. Merge it?\nThe answer: merge")
 	assert.NotContains(t, p, "For this kind of task", "no instruction, no section")

@@ -598,7 +598,7 @@ test("a machine's menu opens its terminal when it can", async () => {
   await user.click(screen.getByRole("button", { name: "Actions for old" }))
   const off = await screen.findByRole("menuitem", { name: /Terminal/ })
   expect(off).toHaveAttribute("aria-disabled", "true")
-  expect(off).toHaveTextContent("Its node opens no terminal")
+  expect(off).toHaveTextContent("Its node does not offer a terminal")
   expect(off).not.toHaveAttribute("href")
   await user.keyboard("{Escape}")
 

@@ -9,8 +9,7 @@
 #   hypomnema-update.service  a oneshot, as root, running the root-owned /usr/local/bin/hypomnema update, which puts
 #                             a newer release in place with its launchers (internal/controlplane/selfupdate);
 #   hypomnema-update.timer    starts it two minutes after boot and every five minutes after.
-# A control plane run in the tmux session hyp-cp, as it was until 2026-11-13, is stopped first. Running it again
-# rewrites the units and changes nothing else.
+# Running it again rewrites the units and changes nothing else.
 set -eu
 
 cp_user="${1:?the control plane user, such as dat}"
@@ -79,10 +78,6 @@ install -d -o root -g root -m 0700 /var/lib/hypomnema-update
 systemctl daemon-reload
 
 echo "== the control plane under systemd"
-if runuser -u "$cp_user" -- tmux has-session -t hyp-cp 2>/dev/null; then
-  runuser -u "$cp_user" -- tmux kill-session -t hyp-cp
-  sleep 2
-fi
 systemctl enable --now hypomnema-cp.service
 systemctl enable --now hypomnema-update.timer
 

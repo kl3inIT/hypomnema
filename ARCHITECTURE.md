@@ -9,7 +9,7 @@ statement true or false.
 | Binary | Commands | What it does today |
 |---|---|---|
 | `cmd/hypomnema` (control plane) | On the server: `migrate`, `serve`, `version`, `nodes`, `machines`, `accounts`, `tokens`, `users`, `secrets`, `gateway`; without the database: `files serve`, `update`, `tool`; over the client API: `login`, `whoami`, `run`, `runs`, `tasks`, `questions`, `answer`, `chat`, `chats`, `bots`, `setup`, `routines`, `memory`, `artifact`, `integrations`, `hosts`, `approvals`, `channels`, `profiles`, `providers`, `repos`, `models`, `skills`, `web`, `browser`, `superset`, `pi-models`, `model-key` (`hypomnema help` lists each one's subcommands) | `migrate` brings the database schema up to the binary's version; `serve` refuses any other schema, then serves `/livez`, `/readyz`, the node API, the client API, the model gateway and the web client, and runs the scheduler loop; the other commands are the owner's and the coordinators' (below) |
-| `cmd/hypomnema-node` (node) | `install`, `init`, `check`, `accounts set`, `run`, `service`, `tool`, `shim`, `mcp`, `version` | `install --url` puts the node on the machine (below); `init --url --token-file` writes the node's configuration; `check` says hello once and lists the CLIs it found; `accounts set` records where an account's Claude token is; `run` runs the daemon with a runner per runtime (Claude Code, Codex, and ACP for omp and opencode); `tool` runs an integration's tool through its launcher (below); `service` prints a systemd user unit; `shim` runs one worker and `mcp` serves its tools (both started for a worker, not by hand) |
+| `cmd/hypomnema-node` (node) | `install`, `init`, `check`, `run`, `service`, `tool`, `shim`, `mcp`, `version` | `install --url` puts the node on the machine (below); `init --url --token-file` writes the node's configuration; `check` says hello once and lists the CLIs it found; `run` runs the daemon with a runner per runtime (Claude Code, Codex, and ACP for omp and opencode); `tool` runs an integration's tool through its launcher (below); `service` prints a systemd user unit; `shim` runs one worker and `mcp` serves its tools (both started for a worker, not by hand) |
 
 Configuration comes from the environment: `HYPOMNEMA_HTTP_ADDR` (default `127.0.0.1:8080`),
 `HYPOMNEMA_DATABASE_PATH` (required, absolute), `HYPOMNEMA_LOG_LEVEL`, `HYPOMNEMA_LOG_FORMAT` (`json` or `text`),
@@ -89,8 +89,8 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   Task becomes ready when all its dependencies succeeded; a failed or canceled Task blocks every Task downstream of
   it; reopening a failed Task resets its failure count and unblocks them.
 - Dispatches: the coordinator creates one for a ready Task, in a new Conversation or continuing the open one; a node
-  accepts it (a new epoch and a 90 s lease), reports it started, renews the lease, reports progress, effects
-  (intent, then done) and resources, and reports the outcome. A lost lease or an exit without a report makes the
+  accepts it (a new epoch and a 90 s lease), reports it started, renews the lease, reports effects (intent,
+  then done) and resources, and reports the outcome. A lost lease or an exit without a report makes the
   outcome unknown and blocks the Task; a report from the same epoch, a reattach by the same node and process, a
   settlement by the coordinator or an abandon ends it. A cancel stops the Dispatch and cancels the Task only once
   the stop is confirmed. Worker errors, failed launches and lost Dispatches count toward a breaker of three with a
@@ -100,8 +100,8 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   are marked, stalls (15 min without progress), Dispatches past 4 h and nodes with three expiries in a row are
   returned as escalations, as are open questions to the owner after 1 h, then daily; nothing is killed.
 - A worker that loops is judged from its transcript (issue #359, after OpenMausBot's runtime contract, OpenHands'
-  `StuckDetector` and Gemini CLI's loop detection): progress for the stall timer is a tool result that succeeded,
-  not the node's progress report. The same tool with the same input failing with the same text three times in a
+  `StuckDetector` and Gemini CLI's loop detection): progress for the stall timer is a tool result that succeeded.
+  The same tool with the same input failing with the same text three times in a
   row stops the worker; once the stop is confirmed the Dispatch ends `failed` (`worker_error`, counted by the
   breaker) with "Stopped after 3 identical errors: <tool>: <error>" as its summary (`dispatches.stalled_reason`),
   not `canceled`. A Task whose last two Dispatches failed with tool results and not one success fails at once,
@@ -115,7 +115,7 @@ transaction, every status change a guarded `UPDATE` checked against a transition
 
 - Events: every change writes its events in the same transaction to one log with an increasing `seq`: Runs,
   Tasks and Dispatches with the status they left, Conversations closed, questions opened, answered, forwarded or
-  canceled, and the reaper's escalations. Lease renewals, progress, effects and resources are not events. With one
+  canceled, and the reaper's escalations. Lease renewals, effects and resources are not events. With one
   writer, a later commit always has higher `seq` values, so a reader following `ListEvents` (cursor, limit up to
   500, `has_more`, filters by Run or Task) misses nothing. `Subscribe` wakes readers after each commit with a
   signal that carries no data.
@@ -155,6 +155,14 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     the provider's and the node's ids, with instance metadata readable only through IMDSv2 from the instance
     itself, because the script holds the token. A repeated create finds the instance by its tags, and the token's
     id is the request's client token, so one node never has two instances.
+  - A machine that holds an Android emulator (issue #417, step 1a; `machines create --device android`, `device` in
+    `POST /nodes`): its size is `c7i-flex.2xlarge` unless one is named, and at AWS a size outside the families
+    with nested virtualization in AWS's user guide (C7i, C7i-flex, C8i, C8id, C8i-flex, M7i, M7i-flex, M8i, M8id,
+    M8i-flex, R7i, R7iz, R8i, R8id, R8i-flex, X8i, I7i, I7ie) is refused before anything exists. The instance is
+    asked for with `NestedVirtualization=enabled` and at least 40 GiB of disk. Its first-boot script also installs
+    Xvfb, Mesa and the libraries the emulator loads, adds the `hypomnema` user to `kvm` before its manager starts,
+    and installs the node with `--device android`, which sets `device` in its configuration. The emulator itself,
+    the SDK and the AVD are not installed yet.
   - Remove (`nodes rm`, `DELETE /nodes/{node_id}`): the node is drained and its tokens revoked, the machine is
     destroyed at the provider, and only then is the node `deleted`. A failed destroy leaves it listed as
     `delete_failed` and is tried again after 30 s, doubling to an hour, until it works.
@@ -170,7 +178,8 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   - `machines providers check <name>` proves the key works and lists the provider's machines that no node stands
     for; it runs when asked, not on a timer, and destroys nothing.
   - Not built: other providers, and delivering the Codex CLI's login to a new machine, which the owner still sets
-    on it once; a Claude account the control plane keeps and a git host's token reach it with each Dispatch.
+    on it once; a git host's token reaches it with each Dispatch, and a Claude Code worker on it runs through the
+    model gateway.
 - A node updates itself (issue #69, after Nezha's agent, `cmd/agent/main.go`): the control plane names where
   the node's releases are at each hello (`HYPOMNEMA_NODE_RELEASE_URL`, the latest GitHub release by default). A
   node of a released version that systemd runs looks there 30 s after it starts and then at a random interval of
@@ -188,6 +197,10 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     first, and a shell nobody watches for five minutes is ended. Linux and macOS only.
   - A node says at each hello whether it opens terminals (`nodes.terminal`): its build can, and its own
     configuration has not set `disable_terminal`, which the control plane cannot undo. It is on by default.
+- A node says at each hello which device it holds and whether it can run it (issue #417): `device` is what its
+  configuration names (`android`, set by `hypomnema-node install --device android`; none by default), and `kvm`
+  whether its user can open `/dev/kvm` for reading and writing at that hello. The control plane keeps both on the
+  node (`nodes.device`, `nodes.kvm`); `GET /nodes` and `nodes list` show them.
   - The owner asks for a ticket (`POST /nodes/{node_id}/terminal` with a session id; refused for a node that is
     not connected or opens no terminal), then opens the WebSocket `/api/v1/terminals/{ticket}`, which the ticket
     opens once within 30 s and only from the web client's own origin. There the page sends JSON, `{data}` for
@@ -550,8 +563,7 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     too, since pi locks files there as it reads them; the instructions every Bot gets (`AGENTS.md`), the tools pi
     fetched (`bin/`) and this chat's `models.json` and `settings.json` are bound into it read-only, so a Bot cannot
     change its own settings. Read-write: the Bot's directory and
-    the chat's sessions (`sessions/<chat>/`; pi names a session `<time>_<chat>.jsonl`, and one kept with the others
-    before is moved in). Other Bots' directories, other chats' sessions and other pi processes are not in it. The
+    the chat's sessions (`sessions/<chat>/`; pi names a session `<time>_<chat>.jsonl`). Other Bots' directories, other chats' sessions and other pi processes are not in it. The
     network is the host's (OpenMausBot's `net: "shared"`; owner, 2026-11-12): a Bot's shell still reaches every
     local port of the machine. The launcher refuses to start pi without its token or without bubblewrap, and
     bubblewrap refuses when it cannot make the box: pi never runs outside it.
@@ -772,11 +784,17 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   The owner applies a profile, and the Bot `coordinator` from its chat (Bots, above); a provider only the owner.
   A provider of kind `model_gateway` is the control plane's own model gateway (issue #107): `codex` can run against
   it, and a Task under it needs no account on a node. Its Conversation names `gateway` where an account's id would
-  be, and a rate limit cools no account down: the gateway looks after its own accounts.
+  be, and a rate limit cools no account down: the gateway looks after its own accounts. `claude` runs only against
+  it, as `omp` and `opencode` do (issue #381, [decision](docs/decisions/2026-11-14-claude-code-workers-only-through-the-gateway.md)): a Claude Code profile that names
+  another provider is refused when applied, and a Task that would run Claude Code without the gateway (a profile
+  that names no provider, a Task that sets its runtime to `claude`, or a Conversation begun under a node's Claude
+  account before this) is not placed and waits with the reason `needs_gateway`; the coordinator's `CreateDispatch`
+  refuses it too. Account placement on a node is for the other runtimes only.
   A profile's current version says whether a worker can start under it now (issue #139, as Omnigent's agent list
   says `available_on_host`): `available`, and when not, `unavailable_reason` (`no_node`: no connected, active node
   has its CLI; `no_account`: its runtime has no active account on a node; `accounts_cooling`, with `available_at`,
-  the time the first account is free). It is computed from the scheduler's own view of nodes and accounts when
+  the time the first account is free; `needs_gateway`: a Claude Code profile that names no provider of kind
+  `model_gateway`, said before any other). It is computed from the scheduler's own view of nodes and accounts when
   the profile is read. A node at its limit still counts; a model the gateway serves needs no account, and the
   state of the gateway's own accounts is not looked at. `profiles
   list` shows it, and the coordinator skill tells the coordinator to read it before creating Tasks.
@@ -829,7 +847,7 @@ transaction, every status change a guarded `UPDATE` checked against a transition
 - A repository is a git host and a path (issue #44; `internal/shared/githost`,
   [research](docs/research/2026-11-10-git-hosts-and-personal-work.md)).
   - A Run is given `owner/name` (GitHub, as before), the URL of a repository, git's `user@host:path`, or the name
-    of a registered repository; it keeps the host and the path. A Run from before hosts existed is on `github.com`.
+    of a registered repository; it keeps the host and the path.
   - Hosts are of two kinds, `github` and `gitlab`, one adapter each: the clone URL, the command that opens a pull
     request, the request's URL, and reading a request from a worker's evidence. `github.com` and `gitlab.com` are
     known; the owner declares a company's server with its kind, and a Run on a host that is not known is refused
@@ -965,8 +983,7 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       Routine script that uses the Connection get that app's token.
     - Its tool is `lark-cli` 1.0.100 (`github.com/larksuite/cli`) for Linux on amd64 and arm64, in the tool
       catalog beside `gws` (`internal/shared/agenttool`) and installed and launched the same way. It will not run
-      on a token alone, so the agent API lists each account with its app's id (and one `client_id` for the whole
-      list only while every account is the same app, for a launcher from before), and the launcher sets
+      on a token alone, so the agent API lists each account with its app's id, and the launcher sets
       `LARKSUITE_CLI_TENANT_ACCESS_TOKEN`, `LARKSUITE_CLI_APP_ID` of the account it acts as and
       `LARKSUITE_CLI_BRAND=lark` for it.
     - **Its skill** (`internal/shared/agenttool/skills/lark`) is one guide, adapted from `lark-cli`'s
@@ -1366,8 +1383,7 @@ not exist yet.
   made as its offer is sent to the node, good for the Dispatch's model only, carried in the offer (`model_key`). An
   offer sent again carries a new key and the earlier one stops. The control plane revokes a Dispatch's keys when the
   Dispatch settles, looked for at every commit of orchestration and every minute. The Codex runner uses it, and
-  the Claude Code runner since issue #381 when a profile of runtime `claude` names a provider of kind
-  `model_gateway`.
+  the Claude Code runner, which has no other credential since issue #381.
 - A chat's pi gets a key of its own too (issue #204, after Omnigent, whose pi asks the process that started it):
   - The coordinator's supervisor asks for it as it starts pi for the chat (`AddChatKey`): good for the chat's model
     (its own, or its Bot's; issue #369), or for every model when neither names one, and made again for the new model
@@ -1381,9 +1397,9 @@ not exist yet.
     is on the Runs every token reads, so a coordinator token, the owner and another chat's pi are refused with 403.
   - pi's `models.json` is written by the launcher as pi starts, for that chat's pi alone (issue #260), from
     `hypomnema pi-models`: one provider of pi for
-    each provider of the control plane that is the gateway (kind `model_gateway`, or an OpenAI-compatible provider
-    whose address is the gateway's own), with the models that provider lists. A Bot may name a provider of kind
-    `model_gateway`. No key is made by hand for pi, and the setup script installs none. Each model of the gateway
+    each provider of the control plane of kind `model_gateway`, with the models that provider lists. A Bot may
+    name a provider of kind `model_gateway`; migration 00073 moved the Bots, chats and Profiles of the older
+    OpenAI-compatible provider `gateway` at the control plane's own `/v1` to it and removed that provider. No key is made by hand for pi, and the setup script installs none. Each model of the gateway
     has its attributes (above, issue #367): `contextWindow`, `maxTokens`, `input`, `reasoning` (true only when
     known), `thinkingLevelMap` (pi's minimal to max as the model's level of that name, null for one it lacks; off
     as `none` when the model has it, else left out, which sends no effort) and `cost` (input, output, cache read
@@ -1769,7 +1785,8 @@ calls, and each call is recorded on a gateway key.
 
 Node API (`internal/controlplane/nodeapi`, protocol in `internal/shared/nodeproto`, after Omnara's daemon protocol):
 - A node registers with `POST /node/v1/hello` and its bearer token. It sends its CLIs, its worktree root, its
-  version and machine (measured with gopsutil, as Nezha's and Beszel's agents) and the Dispatches it still holds. Each of those is answered `retain` (still its own at that epoch), `reattach` (marked
+  version and machine (measured with gopsutil, as Nezha's and Beszel's agents), whether it opens a terminal, the device it holds with whether `/dev/kvm` is usable
+  (issue #417), and the Dispatches it still holds. Each of those is answered `retain` (still its own at that epoch), `reattach` (marked
   unknown while it was away) or `release`.
 - It then holds one WebSocket at `/node/v1/socket` with JSON `{type, payload}` frames of at most 1 MiB.
 - Installing a node (after Omnara's `GET /install/omnarad.sh` and `omnarad install`): the control plane serves a
@@ -1866,14 +1883,14 @@ The owner's commands:
     is removed with `nodes rm`;
   - `accounts add claude <label> --token FILE|-` records an account whose token the control plane keeps (issue
     #150; [research](docs/research/2026-11-11-claude-credentials-for-workers.md)): the token of `claude
-    setup-token`, read from a file or standard input and stored in the vault as the secret the account names. Such
-    an account (`sent_to_node`) is placed like one a node holds, on any node that has Claude Code; the node API
-    reads its token from the vault as it sends an offer (`account_token`), and the Claude Code runner starts the
-    worker under it, with the account's own `CLAUDE_CONFIG_DIR`. The node keeps the token with the offer until the
-    Dispatch ends. An account logged in on the control plane for the gateway is still not given to a worker.
+    setup-token`, read from a file or standard input and stored in the vault as the secret the account names. The
+    model gateway serves it as it serves an account logged in here; it never leaves the control plane, and no
+    worker runs under it on a node (issue #381, [decision](docs/decisions/2026-11-14-claude-code-workers-only-through-the-gateway.md)). Migration 00076 dropped the column
+    `sent_to_node` that marked such an account as sent with each offer.
   - `accounts disable <account>` keeps placement off an account, and `accounts enable <account>` lets it be used
     again; neither touches its token.
-  - `accounts add <runtime> <label>` records an account whose CLI is logged in on a node; `accounts login codex|antigravity|claude
+  - `accounts add <runtime> <label>` records an account whose CLI is logged in on a node (a Claude one is never
+    placed: Claude Code runs only through the gateway); `accounts login codex|antigravity|claude
     [--label L]` logs a subscription in here, printing a link and a code and waiting, or asking for the pasted
     address; `accounts list` shows each with the state of its tokens; `accounts models <account>` asks the vendor which
     models it serves the account, with what is left of each quota (Antigravity only); `accounts limits <account>`
@@ -1939,7 +1956,8 @@ The owner's commands:
 
 Node (`internal/node`):
 - `init` writes `~/.hypomnema-node/config.json` (mode 0600, directory 0700) with the control plane's URL, the token
-  read from a file, and the worktree root.
+  read from a file, and the worktree root. An `accounts` key, where a node kept the paths of Claude token files
+  until issue #381, is ignored when the file is read and dropped when it is written.
 - At connect the node finds `claude`, `codex`, `omp` and `opencode` and reads their `--version`: omp and opencode
   where the control plane had it install them, else on its PATH.
 - Since issue #107 the control plane tells every node, from node release v0.9.17 on, to have omp and opencode, as it
@@ -1956,7 +1974,7 @@ Node (`internal/node`):
   `CodexRuntime`, `ACPRuntime`): its checks and homes, argv, environment and configuration, how it reads a journal
   line, its interrupt, and its outcome. The daemon's registry of runtimes by key fails at startup on a key named
   twice or a known runtime with none. A Dispatch is started and adopted with the Runtime of its offer's runtime
-  (`claude` when it names none); a stop, a release, an answer and a question's id go to the Supervisor, which holds
+  (an offer that names none is refused); a stop, a release, an answer and a question's id go to the Supervisor, which holds
   the Dispatch's job. A stop sends the runtime's interrupt and closes the worker's input, and kills a worker still
   alive after 30 s; one with no interrupt (Codex) is killed at once (Omnigent's uniform stop). A release cancels the
   job's journal reader and waits for it to return, so nothing of the Dispatch is reported after it (Omnara's output
@@ -2004,16 +2022,16 @@ Node (`internal/node`):
 - It records an offer and queues its accept in one transaction, and starts the worker only once the accept is
   acknowledged. It renews each running Dispatch's lease every 30 s and passes stops and answers to its Runner.
 - Durable reports (accept, started, question, answer acknowledged, the final report, reattach) wait in a local SQLite
-  outbox (`internal/node/statedb`) and are resent after every reconnect until acknowledged; heartbeats and progress
-  are not resent.
+  outbox (`internal/node/statedb`) and are resent after every reconnect until acknowledged; heartbeats are not
+  resent.
 - Claude Code workers (`internal/node/claude`) run under a shim (`internal/node/shim`), as every worker:
   - The daemon starts `hypomnema-node shim --dir run/<dispatch>` in its own session. The shim runs `claude -p` with
     bidirectional stream-JSON and host permission prompts (`--resume` when the Conversation continues, `--model`
     and `--effort` when set).
-  - The worker gets a clean environment: PATH, HOME and the locale, plus the account's token
-    (`CLAUDE_CODE_OAUTH_TOKEN`, read from the file named in the node's configuration) and its own
-    `CLAUDE_CONFIG_DIR`. Under the gateway (issue #381; [research](docs/research/2026-11-14-claude-code-workers-through-the-gateway.md))
-    it gets no token: `ANTHROPIC_BASE_URL` is the control plane's address, `ANTHROPIC_AUTH_TOKEN` the Dispatch's
+  - The worker gets a clean environment: PATH, HOME and the locale, and runs only through the model gateway (issue
+    #381; [research](docs/research/2026-11-14-claude-code-workers-through-the-gateway.md),
+    [decision](docs/decisions/2026-11-14-claude-code-workers-only-through-the-gateway.md)). It gets no subscription token: an offer that names an account fails to start, saying so.
+    `ANTHROPIC_BASE_URL` is the control plane's address, `ANTHROPIC_AUTH_TOKEN` the Dispatch's
     key, `CLAUDE_CODE_PROMPT_CACHE_TTL=1h` asks for the one-hour cache for the main conversation (subagents keep
     five minutes), and `ANTHROPIC_DEFAULT_OPUS|SONNET|HAIKU_MODEL` are the Dispatch's model, the only one its key
     may use; its `CLAUDE_CONFIG_DIR` is `accounts/gateway/claude`. The spec holding them is deleted once the worker runs. Claude Code's own auto-memory is off
@@ -2025,7 +2043,6 @@ Node (`internal/node`):
     alive after 30 s is killed with its whole session group.
   - Reported:
     - the session id from `system/init`, as started;
-    - progress at most every 30 s;
     - one turn per Dispatch: stdin is closed after the turn's `result`.
   - The worker's transcript goes to the control plane apart from its reports
     ([research](docs/research/2026-11-10-worker-sessions.md); one forwarder, `internal/node/transcript`, for every
@@ -2033,8 +2050,8 @@ Node (`internal/node`):
     - Each journal line becomes items of one shape for every runtime: `message`, `reasoning`, `tool_call`,
       `tool_result`, `notice`. The first instruction and the final result are not items. An item is cut to 64 KiB
       and says how much was left out.
-    - A journal is in the format its runner names in a file `format` beside it: `claude` (stream-JSON; also a journal
-      with no such file), `codex` (`exec --json`) or `acp`. Each has a decoder in its runner's package. Codex's
+    - A journal is in the format its runner names in a file `format` beside it: `claude` (stream-JSON), `codex`
+      (`exec --json`) or `acp`; a journal with no such file, or one no decoder reads, is not sent. Each has a decoder in its runner's package. Codex's
       commands are calls of `shell`, its file changes of `apply_patch`, its MCP calls `mcp__<server>__<tool>`; an
       ACP agent's chunks of text are one message or thought, a call is one item once its input is known (omp has
       it at once, opencode in the call's first update), and the worker's own tools are named
@@ -2485,9 +2502,9 @@ the internet, so that a machine created at a provider can install the node from 
 - Model gateway, since 2026-11-10: the vault's root key is in `~/hypomnema-cp/env`. The owner's Codex account is
   logged in on the control plane, and the gateway serves the model `gpt-6.1-sol` from `codex-subscription` only.
   Until 2026-11-10 its second target was `ninerouter`, 9router on the same machine; the gateway no longer calls it.
-  The provider `ninerouter` and its key, the secret `ninerouter`, are still stored and used by nothing: a provider
-  cannot be removed yet. pi calls the gateway with its own key (provider `gateway`, the Bot `coordinator`, which the
-  profile `coordinator` became on 2026-11-12 with the launcher that takes `--bot`; the Bot's memory is empty).
+  Migration 00074 removed the provider `ninerouter` (2026-11-14); its key is still the vault's secret `ninerouter`.
+  pi calls the gateway with its own key (provider `model-gateway` since migration 00073, the Bot `coordinator`, which
+  the profile `coordinator` became on 2026-11-12 with the launcher that takes `--bot`; the Bot's memory is empty).
 - An Antigravity account of the owner's is logged in too, since 2026-11-10; the OAuth secret of the IDE's client is
   in `~/hypomnema-cp/env`. Provider `antigravity-subscription` was applied again there with the models Google
   serves that account (`accounts models`): Gemini 2.5, 3 and 3.8, `claude-sonnet-4-6`, `claude-opus-4-6-thinking`,

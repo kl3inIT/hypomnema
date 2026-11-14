@@ -44,8 +44,6 @@ import (
 
 // Timers.
 const (
-	// progressEvery bounds how often progress is reported (inferred).
-	progressEvery = 30 * time.Second
 	// pollEvery is how often the journal is read when it has nothing new.
 	pollEvery = 200 * time.Millisecond
 	// stopGrace: a worker asked to stop that is still alive after this is killed.
@@ -147,7 +145,6 @@ type Worker struct {
 	pid      int
 	started  bool
 	stopping bool
-	progress time.Time
 }
 
 // ID is the worker's Dispatch.
@@ -176,20 +173,6 @@ func (w *Worker) shimPID() int {
 	defer w.mu.Unlock()
 
 	return w.pid
-}
-
-// Progress reports progress, at most every progressEvery.
-func (w *Worker) Progress(ctx context.Context) {
-	w.mu.Lock()
-	due := time.Since(w.progress) >= progressEvery
-	if due {
-		w.progress = time.Now()
-	}
-	w.mu.Unlock()
-
-	if due {
-		w.Report(ctx, w.r.Progress(ctx))
-	}
 }
 
 // Send writes lines to the worker's input.

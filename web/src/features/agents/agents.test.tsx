@@ -171,7 +171,7 @@ test("a card says what the agent runs on and whether it can run now", async () =
   server([
     profile("implementer", {
       model: "claude-opus-5-5",
-      provider: "claude-subscription",
+      provider: "model-gateway",
       effort: "xhigh",
     }),
     profile("codex-implementer", {
@@ -179,19 +179,21 @@ test("a card says what the agent runs on and whether it can run now", async () =
       available: false,
       unavailable_reason: "no_node",
     }),
-    profile("reviewer", { available: false, unavailable_reason: "no_account" }),
+    profile("reviewer", { available: false, unavailable_reason: "needs_gateway" }),
   ])
   open("/agents")
 
   const implementer = await agent("implementer")
   expect(implementer).toHaveTextContent("What implementer is for.")
-  expect(implementer).toHaveTextContent("Model:Claude Opus 5.5(claude-subscription)")
+  expect(implementer).toHaveTextContent("Model:Claude Opus 5.5(model-gateway)")
   expect(implementer).toHaveTextContent("Effort:Extra High")
   expect(implementer).toHaveTextContent("Version:1saved 2h ago")
   expect(implementer).toHaveTextContent("Can run now")
 
   expect(await agent("codex-implementer")).toHaveTextContent("No machine online has Codex")
-  expect(await agent("reviewer")).toHaveTextContent("No Claude Code account")
+  expect(await agent("reviewer")).toHaveTextContent(
+    "Claude Code runs only through the model gateway",
+  )
   expect(await agent("reviewer")).toHaveTextContent("Runtime default")
 
   await userEvent.click(screen.getByRole("button", { name: "View" }))

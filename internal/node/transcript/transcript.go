@@ -49,9 +49,6 @@ const (
 	sentDone = "sent.done"
 	// formatFile names the journal's format.
 	formatFile = "format"
-	// DefaultFormat is the format of a journal that names none: Claude Code's,
-	// the only one before issue #157.
-	DefaultFormat = "claude"
 )
 
 // Decoder turns the lines of one journal into items. The forwarder makes one
@@ -82,11 +79,9 @@ func SetFormat(dir, format string) error {
 	return nil
 }
 
+// formatOf is the format the journal under dir names; "" when it names none.
 func formatOf(dir string) string {
-	raw, err := os.ReadFile(filepath.Join(dir, formatFile)) //nolint:gosec // the runner's own directory
-	if err != nil || strings.TrimSpace(string(raw)) == "" {
-		return DefaultFormat
-	}
+	raw, _ := os.ReadFile(filepath.Join(dir, formatFile)) //nolint:gosec // the runner's own directory
 
 	return strings.TrimSpace(string(raw))
 }
@@ -210,6 +205,14 @@ func (f *Forwarder) step(ctx context.Context, s *transcript) {
 	}
 
 	format := formatOf(s.dir)
+
+	// The runner names the format before the worker starts: a directory with
+	// neither is one being prepared, read on a later tick.
+	if format == "" {
+		if _, err := os.Stat(filepath.Join(s.dir, shim.JournalFile)); err != nil {
+			return
+		}
+	}
 
 	newDecoder, ok := f.Decoders[format]
 	if !ok {

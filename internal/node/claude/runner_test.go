@@ -210,8 +210,6 @@ func (r *reporter) Started(_ context.Context, processRef, session string) error 
 	return nil
 }
 
-func (r *reporter) Progress(context.Context) error { return nil }
-
 func (r *reporter) Ask(context.Context, nodeproto.Ask) (string, error) { return "rep_q", nil }
 
 func (r *reporter) AnswerReceived(context.Context, string) error { return nil }
@@ -264,8 +262,6 @@ func newRig(t *testing.T, mode string) *rig {
 	t.Helper()
 
 	home := t.TempDir()
-	tokenFile := filepath.Join(home, "token")
-	require.NoError(t, os.WriteFile(tokenFile, []byte("sk-ant-oat01-test\n"), 0o600))
 
 	exe, err := os.Executable()
 	require.NoError(t, err)
@@ -274,7 +270,7 @@ func newRig(t *testing.T, mode string) *rig {
 		t: t, worktree: filepath.Join(t.TempDir(), "wt"),
 		sup: &runner.Supervisor{Home: home, Exe: exe, Logger: slog.New(slog.DiscardHandler)},
 		rt: &ClaudeRuntime{
-			Home: home, Exe: exe, Claude: exe, Accounts: map[string]Account{"acc_1": {TokenFile: tokenFile}},
+			Home: home, Exe: exe, Claude: exe, URL: "https://cp.example/",
 			Env: []string{"FAKE_CLAUDE=" + mode},
 		},
 	}
@@ -285,7 +281,7 @@ func (g *rig) dispatch(id string) statedb.Dispatch {
 		ID: id, State: statedb.StateAccepted, Epoch: 1,
 		Offer: nodeproto.Offer{
 			DispatchID: id, TaskID: "tsk_1", RunID: "run_1", Profile: "implementer", Spec: "add the Google login button",
-			Worktree: g.worktree, Runtime: "claude", AccountRef: "acc_1",
+			Worktree: g.worktree, Runtime: "claude", AccountRef: "gateway", ModelKey: "hyp_gateway_v1_dispatch",
 			Model: "opus", Effort: "xhigh",
 		},
 		Accepted: &nodeproto.Accepted{Epoch: 1},
@@ -351,7 +347,8 @@ func TestWorkerRunsToSuccess(t *testing.T) {
 	assert.Contains(t, g.file("argv.txt"), "--effort xhigh")
 	assert.Contains(t, g.file("argv.txt"), "--disallowedTools AskUserQuestion,Task,Agent",
 		"a worker cannot ask outside ask or start subagents")
-	assert.Equal(t, "sk-ant-oat01-test", g.file("token.txt"))
+	assert.Contains(t, g.file("gateway.txt"), "ANTHROPIC_AUTH_TOKEN=hyp_gateway_v1_dispatch")
+	assert.Empty(t, g.file("token.txt"), "no subscription token on the node")
 
 	_, err = os.Stat(filepath.Join(filepath.Join(g.rt.Home, "run", "dsp_1"), shim.SpecFile))
 	assert.ErrorIs(t, err, os.ErrNotExist, "the spec with the token is gone once the worker runs")
@@ -400,49 +397,24 @@ func TestDeathWithoutAResultIsAnExit(t *testing.T) {
 	assert.Empty(t, r.finished)
 }
 
-// Scenario: an account the node has no credentials for. The start fails at once.
-func TestUnknownAccountFailsTheStart(t *testing.T) {
+// Scenario: an offer that names an account, as a control plane from before
+// issue #381 sent for a Claude account a node held or whose token it kept.
+// The start fails at once and says the worker runs through the gateway.
+func TestAnOfferUnderAnAccountFailsTheStart(t *testing.T) {
 	t.Parallel()
 
 	g := newRig(t, "success")
 	d := g.dispatch("dsp_1")
-	d.Offer.AccountRef = "acc_other"
+	d.Offer.AccountRef, d.Offer.ModelKey = "acc_other", ""
 
 	require.ErrorContains(t, g.sup.Start(t.Context(), g.rt, d, newReporter("dsp_1")),
-		"no credentials for account acc_other")
+		`the offer names account "acc_other": a Claude Code worker runs only through the model gateway`)
 }
 
 func emit(out *json.Encoder, v map[string]any) {
 	if err := out.Encode(v); err != nil {
 		os.Exit(4)
 	}
-}
-
-// Scenario: the offer carries the account's token (issue #150). The worker
-// runs under it on a node that holds no token of that account; its
-// configuration directory is still the account's own.
-func TestWorkerRunsUnderTheOffersToken(t *testing.T) {
-	t.Parallel()
-
-	g := newRig(t, "success")
-	d := g.dispatch("dsp_1")
-	d.Offer.AccountRef, d.Offer.AccountToken = "acc_kept", "sk-ant-oat01-from-the-control-plane"
-
-	r := newReporter("dsp_1")
-	require.NoError(t, g.sup.Start(t.Context(), g.rt, d, r))
-	r.wait(t)
-
-	assert.Equal(t, "sk-ant-oat01-from-the-control-plane", g.file("token.txt"))
-	require.Len(t, r.finished, 1)
-	assert.Empty(t, r.finished[0].Class)
-
-	_, err := os.Stat(filepath.Join(g.rt.Home, "accounts", "acc_kept", "claude"))
-	require.NoError(t, err)
-
-	missing := g.dispatch("dsp_2")
-	missing.Offer.AccountRef = "acc_nowhere"
-	require.ErrorContains(t, g.sup.Start(t.Context(), g.rt, missing, newReporter("dsp_2")),
-		"the node has no credentials for account acc_nowhere")
 }
 
 // Scenario: the gateway serves the worker's model (issue #381). The worker
@@ -468,7 +440,7 @@ func TestWorkerReachesClaudeThroughTheGateway(t *testing.T) {
 		"ANTHROPIC_DEFAULT_HAIKU_MODEL=claude-sonnet-5-5", g.file("gateway.txt"))
 
 	keyless := g.dispatch("dsp_2")
-	keyless.Offer.AccountRef = "gateway"
+	keyless.Offer.ModelKey = ""
 	require.ErrorContains(t, g.sup.Start(t.Context(), g.rt, keyless, newReporter("dsp_2")),
 		"the offer carries no key of the model gateway")
 }

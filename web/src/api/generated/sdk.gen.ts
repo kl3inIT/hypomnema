@@ -773,7 +773,7 @@ export const listAccounts = <ThrowOnError extends boolean = true>(options?: Opti
 /**
  * Keep an account from a token the owner pastes; only the owner
  *
- * The token is the one `claude setup-token` prints, which lasts a year. It is sealed in the vault and never answered; the gateway serves with it and a node gets it for a worker. Its limits may not be readable, as the token can only call models.
+ * The token is the one `claude setup-token` prints, which lasts a year. It is sealed in the vault and never answered; the model gateway serves with it, and it never leaves the control plane: a Claude Code worker reaches it through the gateway. Its limits may not be readable, as the token can only call models.
  */
 export const addTokenAccount = <ThrowOnError extends boolean = true>(options: Options<AddTokenAccountData, ThrowOnError>): RequestResult<AddTokenAccountResponses, AddTokenAccountErrors, ThrowOnError> => (options.client ?? client).post<AddTokenAccountResponses, AddTokenAccountErrors, ThrowOnError>({
   security: [{ scheme: 'bearer', type: 'http' }],

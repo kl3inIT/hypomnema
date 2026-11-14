@@ -24,7 +24,6 @@ type Account struct {
 	RefreshRetryAt  sql.NullInt64
 	RefreshError    sql.NullString
 	Project         sql.NullString
-	SentToNode      int64
 }
 
 type AccountCooldown struct {
@@ -475,6 +474,8 @@ type Node struct {
 	Tools              sql.NullString
 	Terminal           int64
 	Gpus               sql.NullString
+	Device             string
+	Kvm                int64
 }
 
 type NodeToken struct {

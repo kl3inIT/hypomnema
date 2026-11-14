@@ -67,7 +67,8 @@ func TestPiStartsWithTheGatewaysModelsAndItsChatsKey(t *testing.T) { //nolint:pa
 
 	var file piModelsFile
 	require.NoError(t, json.Unmarshal([]byte(out), &file))
-	require.Len(t, file.Providers, 2, "a provider pi would call past the gateway is left out")
+	require.Len(t, file.Providers, 1, "a provider pi would call past the gateway is left out, and one at its address "+
+		"that is not of its kind")
 
 	workers := file.Providers["model-gateway"]
 	assert.Equal(t, w.url+"/v1", workers.BaseURL)
@@ -77,8 +78,6 @@ func TestPiStartsWithTheGatewaysModelsAndItsChatsKey(t *testing.T) { //nolint:pa
 		{ID: "claude-sonnet", Name: "claude-sonnet (gateway)", Input: []string{"text", "image"}},
 		{ID: "gpt-sol", Name: "gpt-sol (gateway)", Input: []string{"text", "image"}},
 	}, workers.Models, "a model the gateway does not know of has pi's defaults, but reads pictures")
-
-	assert.Equal(t, w.url+"/v1", file.Providers["gateway"].BaseURL, "the provider pi had before is still one of pi's")
 
 	chat, err := w.svc.CreateChat(ctx, "", "")
 	require.NoError(t, err)

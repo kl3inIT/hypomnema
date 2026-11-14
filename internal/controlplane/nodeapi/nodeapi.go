@@ -40,9 +40,6 @@ type Server struct {
 	// modelKey makes the model gateway's key for a Dispatch; nil when the
 	// control plane wired none.
 	modelKey func(ctx context.Context, dispatchID, model string) (string, bool)
-	// accountToken returns the token of an account the control plane keeps;
-	// nil when the control plane wired none.
-	accountToken func(ctx context.Context, accountID string) (string, bool)
 	// agentKey makes a Dispatch's own key to the agent API, for the
 	// Connections its Run may use; nil when the control plane wired none.
 	agentKey func(ctx context.Context, dispatchID string, uses []string) (string, bool)
@@ -114,14 +111,6 @@ func (s *Server) toolsFor(ctx context.Context, os, arch, version string) []nodep
 func (s *Server) WithAgentKeys(key func(ctx context.Context, dispatchID string, uses []string) (string, bool),
 ) *Server {
 	s.agentKey = key
-
-	return s
-}
-
-// WithAccountTokens sets where the token of an account the control plane
-// keeps comes from; it reports false for an account a node holds.
-func (s *Server) WithAccountTokens(token func(ctx context.Context, accountID string) (string, bool)) *Server {
-	s.accountToken = token
 
 	return s
 }
@@ -221,10 +210,13 @@ func (s *Server) hello(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	hello := orchestration.Hello{WorktreeRoot: req.WorktreeRoot, Terminal: req.Terminal, System: orchestration.SystemInfo{
-		DaemonVersion: req.DaemonVersion, OS: req.System.OS, Arch: req.System.Arch, CPUs: req.System.CPUs,
-		MemoryBytes: req.System.MemoryBytes, DiskBytes: req.System.DiskBytes,
-	}}
+	hello := orchestration.Hello{
+		WorktreeRoot: req.WorktreeRoot, Terminal: req.Terminal, Device: req.Device, KVM: req.KVM,
+		System: orchestration.SystemInfo{
+			DaemonVersion: req.DaemonVersion, OS: req.System.OS, Arch: req.System.Arch, CPUs: req.System.CPUs,
+			MemoryBytes: req.System.MemoryBytes, DiskBytes: req.System.DiskBytes,
+		},
+	}
 	for _, rt := range req.Runtimes {
 		hello.Runtimes = append(hello.Runtimes, orchestration.RuntimeInfo{
 			Runtime: rt.Runtime, Path: rt.Path, Version: rt.Version,
@@ -490,13 +482,6 @@ func (c *session) push(ctx context.Context) error {
 		if c.srv.hostToken != nil && o.RepoHost != "" {
 			if token, ok := c.srv.hostToken(ctx, o.RepoHost, o.Repo); ok {
 				o.RepoToken = token
-			}
-		}
-
-		// So is the account's token, when the control plane keeps it (issue #150).
-		if c.srv.accountToken != nil && o.AccountRef != "" && o.AccountRef != orchestration.GatewayAccountRef {
-			if token, ok := c.srv.accountToken(ctx, o.AccountRef); ok {
-				o.AccountToken = token
 			}
 		}
 

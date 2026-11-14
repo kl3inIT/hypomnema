@@ -74,6 +74,8 @@ func (s *Service) createDispatch(ctx context.Context, q *store.Queries, now int6
 		return fmt.Errorf("%w: task %s is %s, not ready", ErrConflict, task.ID, task.Status)
 	case task.NotBefore.Valid && task.NotBefore.Int64 > now:
 		return fmt.Errorf("%w: task %s waits until %s", ErrConflict, task.ID, millis(task.NotBefore.Int64))
+	case gatewayOnly(r.runtime) && !r.gateway:
+		return fmt.Errorf("%w: task %s: %s", ErrInvalid, task.ID, needsGatewayMessage) // issue #381
 	}
 
 	conv, node, recovery, err := s.conversationFor(ctx, q, now, task.ID, spec, p)
@@ -399,25 +401,6 @@ func (s *Service) ReportStarted(ctx context.Context, call NodeCall, processRef, 
 			CliSessionRef: nullString(cliSessionRef), Now: now, ID: d.ConversationID,
 		}); err != nil {
 			return fmt.Errorf("recording the CLI session of %s: %w", d.ID, err)
-		}
-
-		return nil
-	})
-}
-
-// ReportProgress is the node saying the worker did something. It no longer
-// moves the stall timer: a worker that keeps calling a tool that fails is
-// busy but makes no progress, so progress is read from the transcript, a tool
-// that succeeded (AddItems; issue #359, OpenMausBot's okToolCalls). The call
-// is still accepted from nodes that send it.
-func (s *Service) ReportProgress(ctx context.Context, call NodeCall) error {
-	return nodeVoid(ctx, s, call, "progress", nil, func(_ *store.Queries, _ int64, d store.Dispatch) error {
-		if err := checkEpoch(d, call); err != nil {
-			return err
-		}
-
-		if DispatchStatus(d.Status) != DispatchRunning {
-			return fmt.Errorf("%w: dispatch %s is %s, not running", ErrConflict, d.ID, d.Status)
 		}
 
 		return nil

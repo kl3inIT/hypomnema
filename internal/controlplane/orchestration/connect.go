@@ -105,8 +105,7 @@ type Offer struct {
 	OwnerMemory string `json:"owner_memory,omitempty"`
 	Spec        string `json:"spec"`
 	Repo        string `json:"repo,omitempty"`
-	// RepoHost and RepoKind say where Repo is and how that host is used; a
-	// node from before hosts existed reads neither and assumes GitHub.
+	// RepoHost and RepoKind say where Repo is and how that host is used.
 	RepoHost string `json:"repo_host,omitempty"`
 	RepoKind string `json:"repo_kind,omitempty"`
 	// RepoToken is the host's token for this Dispatch. Orchestration never
@@ -116,10 +115,6 @@ type Offer struct {
 	// serves its model. Orchestration never fills it: the node API does, as
 	// it sends the offer.
 	ModelKey string `json:"model_key,omitempty"`
-	// AccountToken is the account's token, when the control plane keeps it
-	// (issue #150). Orchestration never fills it: the node API does, from the
-	// vault, as it sends the offer.
-	AccountToken string `json:"account_token,omitempty"`
 	// Uses are the Connections the Run's workers may use; AgentKey is this
 	// Dispatch's own key to ask for their tokens. Orchestration never fills
 	// the key: the node API does, as it sends the offer.
@@ -253,7 +248,7 @@ func offerOf(ctx context.Context, q *store.Queries, d store.Dispatch) (Offer, er
 		return Offer{}, err
 	}
 
-	host, kind := repoHost(run), ""
+	host, kind := run.RepoHost.String, ""
 
 	if host != "" {
 		h, err := gitHostOf(ctx, q, host)

@@ -59,8 +59,9 @@ const GatewayAccountRef = "gateway"
 // runtimeProviders lists, per runtime, the provider kinds it can run against.
 // A Runtime is code on the node; a profile only names one.
 var runtimeProviders = map[string][]string{
-	// Claude Code reaches the gateway's /v1/messages with its Dispatch's key (issue #381).
-	"claude": {ProviderClaudeSubscription, ProviderAnthropic, ProviderModelGateway},
+	// Claude Code runs only through the gateway's /v1/messages, with its Dispatch's key: the subscription token
+	// never leaves the control plane (issue #381).
+	"claude": {ProviderModelGateway},
 	"codex":  {ProviderCodexSubscription, ProviderOpenAICompatible, ProviderModelGateway},
 	// pi reaches its model through the gateway as omp and opencode do (issue #204).
 	"pi": {ProviderAnthropic, ProviderOpenAICompatible, ProviderModelGateway},
@@ -68,6 +69,16 @@ var runtimeProviders = map[string][]string{
 	"omp":      {ProviderModelGateway},
 	"opencode": {ProviderModelGateway},
 }
+
+// gatewayOnly reports whether a worker of the runtime runs only through the
+// model gateway, never under an account a node holds: Claude Code (issue #381).
+// omp and opencode name only the gateway too; their placement stays as it
+// was, since issue #381 moved Claude Code only.
+func gatewayOnly(runtime string) bool { return runtime == TokenRuntime }
+
+// needsGatewayMessage says why a Claude Code worker cannot run elsewhere.
+const needsGatewayMessage = "a Claude Code worker runs through the model gateway; its profile must name a " +
+	"provider of kind " + ProviderModelGateway
 
 // Efforts lists the reasoning efforts a profile or a Task may name.
 var Efforts = []string{"low", "medium", "high", "xhigh", "max"}
@@ -108,8 +119,9 @@ type Profile struct {
 
 // Availability is whether a worker can start now, and when not, why: no
 // connected, active node has the CLI (ReasonNoNode), the runtime has no
-// active account on a node (ReasonNoAccount), or every one cools down
-// (ReasonAccountsCooling, with the time the first is free).
+// active account on a node (ReasonNoAccount), every one cools down
+// (ReasonAccountsCooling, with the time the first is free), or a Claude Code
+// worker would run without the model gateway (ReasonNeedsGateway).
 type Availability struct {
 	Available bool
 	Reason    string
@@ -348,7 +360,11 @@ func checkModel(ctx context.Context, q *store.Queries, runtime, provider, model,
 			return "", notFound(err, "provider", provider)
 		}
 
-		if !slices.Contains(kinds, row.Kind) {
+		switch {
+		case !slices.Contains(kinds, row.Kind) && gatewayOnly(runtime):
+			return "", fmt.Errorf("%w: provider %s is of kind %s: %s", ErrInvalid, provider, row.Kind,
+				needsGatewayMessage)
+		case !slices.Contains(kinds, row.Kind):
 			return "", fmt.Errorf("%w: runtime %s cannot run against provider %s (%s)", ErrInvalid, runtime, provider,
 				row.Kind)
 		}
@@ -374,6 +390,9 @@ func checkModel(ctx context.Context, q *store.Queries, runtime, provider, model,
 	switch {
 	case len(fits) == 0 && provider != "":
 		return "", fmt.Errorf("%w: provider %s does not offer model %q", ErrInvalid, provider, model)
+	case len(fits) == 0 && gatewayOnly(runtime):
+		return "", fmt.Errorf("%w: no provider of kind %s offers model %q; %s", ErrInvalid, ProviderModelGateway,
+			model, needsGatewayMessage)
 	case len(fits) == 0:
 		return "", fmt.Errorf("%w: no provider runtime %s can use offers model %q", ErrInvalid, runtime, model)
 	case len(fits) > 1:

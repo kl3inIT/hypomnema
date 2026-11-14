@@ -350,6 +350,14 @@ export type Node = {
    */
   terminal?: boolean;
   /**
+   * The device the node said at its last connect that it holds, as its own configuration names it. Left out for a node that holds none.
+   */
+  device?: 'android';
+  /**
+   * The node said at its last connect that its user can use /dev/kvm, which an Android emulator needs.
+   */
+  kvm?: boolean;
+  /**
    * Its Dispatches that have not settled.
    */
   active: number;
@@ -655,9 +663,13 @@ export type NewNode = {
    */
   region?: string;
   /**
-   * With a provider, the machine's size; left out, the provider's default.
+   * With a provider, the machine's size; left out, the provider's default, or for a device the size the emulator was tried on (c7i-flex.2xlarge at AWS).
    */
   size?: string;
+  /**
+   * With a provider, a machine that holds an Android emulator: at AWS a size with nested virtualization and at least 40 GiB of disk; its first boot installs what the emulator needs. Left out, a plain machine.
+   */
+  device?: 'android';
 };
 
 export type CreatedNode = {
@@ -2206,13 +2218,13 @@ export type Profile = {
   source: string;
   created_at: string;
   /**
-   * Whether a worker can start under the profile now: a connected, active node has its CLI, and its runtime has an account that is not cooling down (none is needed for a model the gateway serves). A node at its limit still counts, since the Task waits its turn. Given for a profile's current version; absent for a list of versions.
+   * Whether a worker can start under the profile now: a connected, active node has its CLI, and its runtime has an account that is not cooling down (none is needed for a model the gateway serves). A Claude Code profile must name a provider of kind `model_gateway`. A node at its limit still counts, since the Task waits its turn. Given for a profile's current version; absent for a list of versions.
    */
   available?: boolean;
   /**
-   * Why no worker can start, when `available` is false: no connected, active node has the CLI; the runtime has no active account on a node; or every account of the runtime cools down.
+   * Why no worker can start, when `available` is false: no connected, active node has the CLI; the runtime has no active account on a node; every account of the runtime cools down; or the profile is Claude Code's and names no provider of kind `model_gateway`, the only way a Claude Code worker runs.
    */
-  unavailable_reason?: 'no_node' | 'no_account' | 'accounts_cooling';
+  unavailable_reason?: 'no_node' | 'no_account' | 'accounts_cooling' | 'needs_gateway';
   /**
    * With `accounts_cooling`, when the first account is free again.
    */

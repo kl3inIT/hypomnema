@@ -107,9 +107,8 @@ func TestOnlyASuccessfulToolIsProgress(t *testing.T) {
 
 	w.advance(time.Minute)
 	w.heartbeat(c)
-	require.NoError(t, w.s.ReportProgress(t.Context(), w.again(c)))
 	w.tools(d, failing("make test", "first"), failing("make lint", "second"))
-	assert.Equal(t, start, *w.dispatchOf(d.ID).ProgressAt, "a report and failing tools are not progress")
+	assert.Equal(t, start, *w.dispatchOf(d.ID).ProgressAt, "a heartbeat and failing tools are not progress")
 
 	w.tools(d, working("make build"))
 	assert.Equal(t, w.clock.now, *w.dispatchOf(d.ID).ProgressAt)

@@ -1,7 +1,7 @@
 // Command hypomnema-node runs on every machine that does work. It dials out
 // to the control plane; nothing connects to it.
 //
-//	hypomnema-node install --url URL [--home DIR] [--worktree-root DIR] [--no-start]
+//	hypomnema-node install --url URL [--home DIR] [--worktree-root DIR] [--no-start] [--device android]
 //	                        install on this machine: copy the binary into the home, ask for the node
 //	                        token (or read HYPOMNEMA_NODE_TOKEN), write the configuration, say hello,
 //	                        and start a systemd user unit (run by the install script)
@@ -9,8 +9,6 @@
 //	                        write the configuration (the token is read from FILE)
 //	hypomnema-node check [--home DIR]
 //	                        say hello once and list the CLIs found
-//	hypomnema-node accounts set <account id> --token-file FILE [--home DIR]
-//	                        record where an account's Claude token is on this node
 //	hypomnema-node run [--home DIR]
 //	                        run the daemon until SIGINT or SIGTERM
 //	hypomnema-node service [--home DIR]
@@ -40,8 +38,8 @@ import (
 )
 
 var errUsage = errors.New("usage: hypomnema-node install --url URL [--home DIR] [--worktree-root DIR] " +
-	"[--no-start] | init --url URL --token-file FILE [--home DIR] " +
-	"[--worktree-root DIR] | check | accounts set <account id> --token-file FILE | run | service | version")
+	"[--no-start] [--device android] | init --url URL --token-file FILE [--home DIR] " +
+	"[--worktree-root DIR] | check | run | service | version")
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -77,6 +75,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		home := fs.String("home", "", "the node's home (default ~/.hypomnema-node)")
 		root := fs.String("worktree-root", "", "where worktrees are made (default <home>/worktrees)")
 		noStart := fs.Bool("no-start", false, "install the binary and the configuration only")
+		device := fs.String("device", "", "the device this machine holds: android (default: as configured, none)")
 
 		if err := fs.Parse(args[1:]); err != nil || *url == "" || fs.NArg() != 0 {
 			return errUsage
@@ -94,6 +93,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 
 		return node.Install(ctx, node.InstallOptions{
 			Home: dir, URL: *url, WorktreeRoot: *root, Exe: exe, Token: os.Getenv(node.TokenEnv), NoStart: *noStart,
+			Device: *device,
 		}, stdout)
 	case "init":
 		fs := flag.NewFlagSet("init", flag.ContinueOnError)
@@ -146,31 +146,6 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 
 			return err
 		}
-	case "accounts":
-		if len(args) < 3 || args[1] != "set" {
-			return errUsage
-		}
-
-		fs := flag.NewFlagSet("accounts set", flag.ContinueOnError)
-		tokenFile := fs.String("token-file", "", "a private file holding the account's `claude setup-token` token")
-		home := fs.String("home", "", "the node's home (default ~/.hypomnema-node)")
-
-		if err := fs.Parse(args[3:]); err != nil || *tokenFile == "" {
-			return errUsage
-		}
-
-		dir, err := homeDir(*home)
-		if err != nil {
-			return err
-		}
-
-		if err := node.SetAccount(dir, args[2], *tokenFile); err != nil {
-			return err
-		}
-
-		_, err = fmt.Fprintf(stdout, "account %s uses %s\n", args[2], *tokenFile)
-
-		return err
 	case "tool":
 		// What the script named after a tool runs for a worker (issue #103): the tool, with a fresh token of an
 		// account the worker's Run was given. The worker's environment says where and with which key.
