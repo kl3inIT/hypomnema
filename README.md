@@ -83,16 +83,16 @@ By hand:
 
 1. Create a dedicated user without sudo, and work as that user:
    `sudo adduser --disabled-password hypnode && sudo -iu hypnode`
-2. Install Claude Code and make sure `claude` is on that user's PATH (`claude --version`).
+2. Install Claude Code and make sure `claude` is on that user's PATH (`claude --version`). It is not logged in on
+   the node: a Claude Code worker reaches Claude through the control plane's model gateway.
 3. On the control plane, run `hypomnema nodes add <name>` and save the token it prints (shown once) to a file, mode 0600.
 4. Write the node's configuration:
    `hypomnema-node init --url <control plane URL> --token-file <token file>`
    (it goes to `~/.hypomnema-node/config.json`). Check the connection with `hypomnema-node check`.
 5. Give the control plane each Claude account once, on the control plane:
-   `hypomnema accounts add claude <label> --token <file>` (the token of `claude setup-token`). The vault keeps it
-   and sends it to a node with each Dispatch, so nothing is set on the node. An account whose token stays on one
-   node instead is recorded with `hypomnema accounts add claude <label>` and, on that node,
-   `hypomnema-node accounts set <account id> --token-file <file>`.
+   `hypomnema accounts add claude <label> --token <file>` (the token of `claude setup-token`), or
+   `hypomnema accounts login claude`. The vault keeps it and the model gateway serves it; it never goes to a node.
+   A Claude Code profile names a provider of kind `model_gateway`, and its worker gets only its Dispatch's key.
 6. Run the daemon: `hypomnema-node run`. To keep it running, `hypomnema-node service` prints a systemd user unit.
 
 To change a node's token, make a new one with `hypomnema nodes token add <node> <name>`, put it in the node's
