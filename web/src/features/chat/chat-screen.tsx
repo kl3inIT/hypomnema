@@ -24,6 +24,8 @@ import { SoloPane } from "@/features/workbench/solo-pane"
 
 import { AttachDrop } from "./attach-drop"
 import { useAttachments } from "./attachments"
+import { ChatModelControls } from "./chat-model-picker"
+import { useDraftChoice } from "./chat-model-state"
 import { newChatId } from "./chat-id"
 import { Composer } from "./composer"
 import { useStartChat } from "./start-chat"
@@ -53,8 +55,9 @@ function NewChat({ initialBot }: { initialBot?: string }) {
   const bot = bots.some((b) => b.name === picked) ? picked : firstBot
   const [chatId] = useState(newChatId)
   const attachments = useAttachments(chatId, bot)
+  const [model, setModel] = useDraftChoice(bot)
 
-  const start = useStartChat(chatId, choice ? bot : undefined, (chat) =>
+  const start = useStartChat(chatId, choice ? bot : undefined, model, (chat) =>
     navigate({ to: "/chats/$chatId", params: { chatId: chat.id } }),
   )
 
@@ -92,6 +95,7 @@ function NewChat({ initialBot }: { initialBot?: string }) {
             working={false}
             bot={bot}
             attachments={attachments}
+            controls={<ChatModelControls bot={bot} choice={model} onChange={setModel} />}
           />
           <p className="max-w-(--chat-content-max-width) text-center text-sm text-muted-foreground">
             pi plans the work, gives it to workers on your machines, and reports back here.

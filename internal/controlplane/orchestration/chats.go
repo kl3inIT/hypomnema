@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -66,9 +67,92 @@ type Chat struct {
 	ID    string
 	Title string
 	// Bot is the Bot the chat talks with.
-	Bot       string
+	Bot string
+	// Choice is the model and effort the chat runs with, each empty when it is the Bot's (issue #369).
+	Choice    ChatModel
 	CreatedAt time.Time
 	UpdatedAt time.Time
+}
+
+// ChatModel is a chat's own model and effort (issue #369), as a t3code thread, an Orca session and an Omnigent
+// session keep theirs: a chat starts with its Bot's, a change applies to the chat from its next message, and the
+// Bot's page keeps the default. An empty field is the Bot's. Provider is where the model is found, an id in pi's
+// models.json, as a Bot's is.
+type ChatModel struct {
+	Provider string
+	Model    string
+	Effort   string
+}
+
+// ChatEfforts are the efforts a chat may name: the model gateway's levels (modelgateway attributes.go), after which
+// pi's thinking levels are named, none being pi's off (clientcli/pimodels.go). The composer offers a model's own.
+var ChatEfforts = []string{"none", "minimal", "low", "medium", "high", "xhigh", "max"}
+
+// checkChatModel checks a chat's choice before it is stored and sets the provider its model is found at, as a
+// Bot's model is checked: a model pi can reach. A provider without a model is nothing to run with.
+func checkChatModel(ctx context.Context, q *store.Queries, m ChatModel) (ChatModel, error) {
+	if m.Effort != "" && !slices.Contains(ChatEfforts, m.Effort) {
+		return ChatModel{}, fmt.Errorf("%w: unknown effort %q; known: %s", ErrInvalid, m.Effort,
+			strings.Join(ChatEfforts, ", "))
+	}
+
+	if m.Model == "" {
+		m.Provider = ""
+
+		return m, nil
+	}
+
+	provider, err := checkModel(ctx, q, botRuntime, m.Provider, m.Model, "")
+	if err != nil {
+		return ChatModel{}, err
+	}
+
+	m.Provider = provider
+
+	return m, nil
+}
+
+// ChatModelChange changes a chat's choice: each field given replaces the chat's, and an empty one gives the chat its
+// Bot's again. A provider counts only with the model it names.
+type ChatModelChange struct {
+	Provider *string
+	Model    *string
+	Effort   *string
+}
+
+// SetChatModel changes the model and effort a chat runs with (issue #369). pi takes the change before the chat's
+// next message (coordinator), and a pi started later starts with it.
+func (s *Service) SetChatModel(ctx context.Context, id string, change ChatModelChange) (Chat, error) {
+	if err := s.write(ctx, func(q *store.Queries, _ int64) error {
+		row, err := q.GetChat(ctx, id)
+		if err != nil {
+			return notFound(err, "chat", id)
+		}
+
+		m := chatFromRow(row).Choice
+		if change.Model != nil {
+			m.Model, m.Provider = *change.Model, ""
+			if change.Provider != nil {
+				m.Provider = *change.Provider
+			}
+		}
+
+		if change.Effort != nil {
+			m.Effort = *change.Effort
+		}
+
+		if m, err = checkChatModel(ctx, q, m); err != nil {
+			return err
+		}
+
+		return q.SetChatModel(ctx, store.SetChatModelParams{
+			ID: id, Provider: nullString(m.Provider), Model: nullString(m.Model), Effort: nullString(m.Effort),
+		})
+	}); err != nil {
+		return Chat{}, fmt.Errorf("choosing the model of chat %s: %w", id, err)
+	}
+
+	return s.GetChat(ctx, id)
 }
 
 // ChatMessage is one message of a chat.
@@ -185,7 +269,7 @@ func titleOf(text string, files []ChatAttachment) string {
 // CreateChat starts a chat with a Bot, the first one when none is named.
 // Without a title, its first owner message names it.
 func (s *Service) CreateChat(ctx context.Context, bot, title string) (Chat, error) {
-	return s.CreateChatWithID(ctx, "", bot, title)
+	return s.CreateChatWithID(ctx, "", bot, title, ChatModel{})
 }
 
 // ChatIDPrefix starts every chat's id.
@@ -199,8 +283,10 @@ func IsChatID(id string) bool { return platform.IsID(ChatIDPrefix, id) }
 // opens, so that the files attached before the first message have the chat's
 // folder of attachments (issue #357, after t3code's newThreadId() before the
 // thread exists). The id must have the shape of the ids made here and not be
-// taken.
-func (s *Service) CreateChatWithID(ctx context.Context, id, bot, title string) (Chat, error) {
+// taken. The page's choice of model and effort is the chat's from its start
+// (issue #369, as t3code's draft thread keeps its model); an empty one is the
+// Bot's.
+func (s *Service) CreateChatWithID(ctx context.Context, id, bot, title string, m ChatModel) (Chat, error) {
 	if id == "" {
 		id = s.newID(ChatIDPrefix)
 	} else if !IsChatID(id) {
@@ -232,7 +318,15 @@ func (s *Service) CreateChatWithID(ctx context.Context, id, bot, title string) (
 			return fmt.Errorf("reading chat %s: %w", id, err)
 		}
 
-		return q.InsertChat(ctx, store.InsertChatParams{ID: id, Title: title, Bot: bot, Now: now})
+		m, err := checkChatModel(ctx, q, m)
+		if err != nil {
+			return err
+		}
+
+		return q.InsertChat(ctx, store.InsertChatParams{
+			ID: id, Title: title, Bot: bot, Provider: nullString(m.Provider), Model: nullString(m.Model),
+			Effort: nullString(m.Effort), Now: now,
+		})
 	}); err != nil {
 		return Chat{}, fmt.Errorf("creating a chat: %w", err)
 	}
@@ -274,7 +368,11 @@ func pageLimit(limit int) int {
 }
 
 func chatFromRow(r store.Chat) Chat {
-	return Chat{ID: r.ID, Title: r.Title, Bot: r.Bot, CreatedAt: millis(r.CreatedAt), UpdatedAt: millis(r.UpdatedAt)}
+	return Chat{
+		ID: r.ID, Title: r.Title, Bot: r.Bot,
+		Choice:    ChatModel{Provider: r.Provider.String, Model: r.Model.String, Effort: r.Effort.String},
+		CreatedAt: millis(r.CreatedAt), UpdatedAt: millis(r.UpdatedAt),
+	}
 }
 
 // AddChatMessage appends a message. An owner message waits for pi until it

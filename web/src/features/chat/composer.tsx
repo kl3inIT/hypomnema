@@ -1,5 +1,5 @@
 import { CircleAlert, Paperclip, X } from "lucide-react"
-import { useRef, useState } from "react"
+import { useRef, useState, type ReactNode } from "react"
 
 import type { ChatAttachment } from "@/api/generated/types.gen"
 import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert"
@@ -22,6 +22,8 @@ import type { Attachments } from "./attachments"
 // dropping them on the chat, as t3code's composer takes them (useComposerAttachmentIntake.ts): each is a chip above the box while it
 // uploads, and Send waits for the uploads, then sends the text with the files (useComposerSend.ts). A file that is
 // refused, or was not uploaded, is said above the box.
+//
+// controls sit in the footer left of Send, as t3code's footer holds its model and effort pickers (issue #369).
 export function Composer({
   onSend,
   onStop,
@@ -29,6 +31,7 @@ export function Composer({
   disabled,
   bot,
   attachments,
+  controls,
 }: {
   onSend: (text: string, files: ChatAttachment[]) => Promise<unknown>
   onStop: () => void
@@ -38,6 +41,8 @@ export function Composer({
   bot: string
   // attachments are the files of the message; without them the composer takes none.
   attachments?: Attachments
+  // controls are what the message is sent with: the chat's model and effort.
+  controls?: ReactNode
 }) {
   const [text, setText] = useState("")
   const [sending, setSending] = useState(false)
@@ -158,6 +163,7 @@ export function Composer({
               />
             </div>
           )}
+          {controls && <div className="flex min-w-0 items-center gap-0.5">{controls}</div>}
           {stop ? (
             <button
               type="button"

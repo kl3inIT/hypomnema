@@ -381,3 +381,56 @@ func TestMigrationAddsAttachments(t *testing.T) {
 	require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM chat_messages`).Scan(&n))
 	assert.Equal(t, 2, n)
 }
+
+// Scenario: a chat chooses its own model and effort (issue #369). It starts with what the New chat page chose, or
+// with nothing, which is its Bot's; a change replaces only what it names, and an empty one gives the chat its Bot's
+// again. A model pi cannot reach and an effort the gateway does not know are refused, and the Bot keeps its own.
+func TestAChatChoosesItsModelAndEffort(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	_, err := w.s.ApplyProvider(ctx, "", "name: router\nkind: openai_compatible\n"+
+		"base_url: https://router.example/v1\napi_key_ref: ROUTER_KEY\nmodels: [sonnet, haiku]\n")
+	require.NoError(t, err)
+
+	_, err = w.s.PutBot(ctx, Bot{Name: "vmap", Model: "sonnet", Effort: "high"})
+	require.NoError(t, err)
+
+	plain, err := w.s.CreateChat(ctx, "vmap", "")
+	require.NoError(t, err)
+	assert.Equal(t, ChatModel{}, plain.Choice, "a chat that chose nothing runs with its Bot's")
+
+	chat, err := w.s.CreateChatWithID(ctx, "", "vmap", "", ChatModel{Model: "haiku", Effort: "minimal"})
+	require.NoError(t, err)
+	assert.Equal(t, ChatModel{Provider: "router", Model: "haiku", Effort: "minimal"}, chat.Choice,
+		"the provider is the one that offers the model")
+
+	low, none := "low", ""
+	chat, err = w.s.SetChatModel(ctx, chat.ID, ChatModelChange{Effort: &low})
+	require.NoError(t, err)
+	assert.Equal(t, ChatModel{Provider: "router", Model: "haiku", Effort: "low"}, chat.Choice, "the model stays")
+
+	chat, err = w.s.SetChatModel(ctx, chat.ID, ChatModelChange{Model: &none})
+	require.NoError(t, err)
+	assert.Equal(t, ChatModel{Effort: "low"}, chat.Choice, "the Bot's model again, with the chat's effort")
+
+	opus, huge := "opus", "huge"
+	_, err = w.s.SetChatModel(ctx, chat.ID, ChatModelChange{Model: &opus})
+	require.ErrorIs(t, err, ErrInvalid)
+	_, err = w.s.SetChatModel(ctx, chat.ID, ChatModelChange{Effort: &huge})
+	require.ErrorContains(t, err, "unknown effort")
+	_, err = w.s.CreateChatWithID(ctx, "", "vmap", "", ChatModel{Model: "opus"})
+	require.ErrorIs(t, err, ErrInvalid)
+	_, err = w.s.SetChatModel(ctx, "cht_nobody", ChatModelChange{Effort: &low})
+	require.ErrorIs(t, err, ErrNotFound)
+
+	got, err := w.s.GetChat(ctx, chat.ID)
+	require.NoError(t, err)
+	assert.Equal(t, ChatModel{Effort: "low"}, got.Choice, "a refused change leaves the chat's choice")
+
+	bot, err := w.s.GetBot(ctx, "vmap")
+	require.NoError(t, err)
+	assert.Equal(t, []string{"sonnet", "high"}, []string{bot.Model, bot.Effort}, "the Bot keeps its default")
+}

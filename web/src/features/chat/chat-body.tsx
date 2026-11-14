@@ -2,8 +2,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
 
 import "@/api/client"
-import { abortChat, getChat, sendChatMessage } from "@/api/generated/sdk.gen"
-import type { ChatAttachment, ChatMessage } from "@/api/generated/types.gen"
+import { abortChat, getChat, sendChatMessage, updateChat } from "@/api/generated/sdk.gen"
+import type { Chat, ChatAttachment, ChatMessage } from "@/api/generated/types.gen"
 import { Button } from "@/components/ui/button"
 import { Spinner } from "@/components/ui/spinner"
 import { PendingApprovals } from "@/features/approvals/approval-card"
@@ -15,6 +15,8 @@ import { chatsKey } from "@/features/shell/chats"
 
 import { AttachDrop } from "./attach-drop"
 import { useAttachments } from "./attachments"
+import { ChatModelControls } from "./chat-model-picker"
+import { choiceOf, type ChatChoice } from "./chat-model-state"
 import { Composer } from "./composer"
 import { Conversation } from "./conversation"
 import { DockContext } from "./dock-context"
@@ -54,6 +56,21 @@ export function ChatBody({ chatId, onOpenFile }: { chatId: string; onOpenFile?: 
       .map((r) => ({ id: r.id, at: r.created_at })),
     ...(changes.data ?? []).map((c) => ({ id: c.id, at: c.created_at, change: c })),
   ]
+
+  // The chat's model and effort (issue #369): shown as chosen at once, kept by the server, and put back as it was
+  // when the server refuses them.
+  async function choose(next: ChatChoice) {
+    const key = ["chat", chatId]
+    const before = queryClient.getQueryData<Chat>(key)
+    if (before) queryClient.setQueryData<Chat>(key, { ...before, ...next })
+
+    try {
+      const { data } = await updateChat({ path: { chat_id: chatId }, body: next })
+      queryClient.setQueryData(key, data)
+    } catch {
+      if (before) queryClient.setQueryData(key, before)
+    }
+  }
 
   async function send(text: string, files: ChatAttachment[]) {
     const shown: ChatMessage = {
@@ -129,6 +146,15 @@ export function ChatBody({ chatId, onOpenFile }: { chatId: string; onOpenFile?: 
               onSend={send}
               onStop={() => void abortChat({ path: { chat_id: chatId } })}
               attachments={attachments}
+              controls={
+                chat.data && (
+                  <ChatModelControls
+                    bot={bot}
+                    choice={choiceOf(chat.data)}
+                    onChange={(next) => void choose(next)}
+                  />
+                )
+              }
             />
           </div>
         </AttachDrop>

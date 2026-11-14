@@ -30,7 +30,7 @@ key; while there is no such secret Exa is asked without a key. `HYPOMNEMA_WEB_SE
 while an account of it is logged in (see "Web search and fetch").
 
 The coordinator (`internal/controlplane/coordinator`, issue #41 PR 3): `serve` runs one `pi --mode rpc` per chat
-that has something for pi, as the chat's Bot (`--bot`, and `--group` for a Lark group's chat) with the Bot's model
+that has something for pi, as the chat's Bot (`--bot`, and `--group` for a Lark group's chat) with the chat's model
 (`--provider`, `--model`, `--thinking`),
 and stops it after 30 min idle by closing its stdin; it starts again with the same session id. pi's own retries are off. Owner
 messages and wake-ups go as one `prompt`, or a follow-up while pi works, and are marked delivered once pi accepted
@@ -49,7 +49,17 @@ relative path, after OpenMausBot's `pathForFile` and Orca's attachment paths. A 
 client may choose a chat's id (`POST /chats` `id`, issue #357, after t3code's `newThreadId()` before the thread
 exists): it must have the shape the server makes (`cht_` and 26 characters of a-z and 2-7, `platform.IsID`) and not be
 taken (409). Before a chat with that id is made, the folder calls the attachments use (tree, folders, uploads, delete)
-take `bot`, naming the Bot whose folder `bot` is; once the chat is made, `bot` must be its Bot (409). On
+take `bot`, naming the Bot whose folder `bot` is; once the chat is made, `bot` must be its Bot (409). A chat has
+its own model and effort (issue #369, as a t3code thread, an Orca session and an Omnigent session do;
+`chats.provider`, `model`, `effort`, migration 66, each NULL for its Bot's): `POST /chats` takes them and `PATCH
+/chats/{id}` changes them, a field given replacing the chat's and an empty one giving it back to the Bot; the model is
+checked as a Bot's is (one pi can reach, its provider found), the effort is one of the gateway's levels (`none` to
+`max`). The Bot keeps its own as the default. What the chat runs with is its own, and its Bot's for the rest: a pi
+that starts gets it as its flags (`none` is pi's `--thinking off`); a running pi gets a change before the chat's next
+prompt that starts a turn, without a restart, by pi's RPC `set_model` and `set_thinking_level` (pi
+`docs/rpc-commands.md`), the chat's gateway key made again first for a new model. A pi that refuses is stopped, and
+the next pi starts with the chat's choice. pi's own default, when neither names a model, is had only at start. A
+Lark message to the chat runs with the chat's choice too. On
 the server pi runs as the `coordinator` user through `deploy/coordinator/`: a root-owned launcher (`hypomnema-pi`,
 a clean environment, only a chat id, a Bot's name and model flags, pi's own token on the first line of stdin), a
 second one for a Routine's script (`hypomnema-routine`, below), one sudoers rule limited to the two, the instructions
@@ -1298,8 +1308,9 @@ not exist yet.
   offer sent again carries a new key and the earlier one stops. The control plane revokes a Dispatch's keys when the
   Dispatch settles, looked for at every commit of orchestration and every minute. The Codex runner uses it.
 - A chat's pi gets a key of its own too (issue #204, after Omnigent, whose pi asks the process that started it):
-  - The coordinator's supervisor asks for it as it starts pi for the chat (`AddChatKey`): good for the Bot's model,
-    or for every model when the Bot names none. Its value stays in the supervisor's memory with that process; the
+  - The coordinator's supervisor asks for it as it starts pi for the chat (`AddChatKey`): good for the chat's model
+    (its own, or its Bot's; issue #369), or for every model when neither names one, and made again for the new model
+    when the chat's model changes while pi runs. Its value stays in the supervisor's memory with that process; the
     row records the chat (`gateway_keys.chat_id`). A key made earlier for the chat stops as the new one is made.
   - The key is revoked when that pi exits or is stopped, and every chat's key is revoked as the control plane
     starts, since no pi outlives it.
@@ -2007,6 +2018,15 @@ Node (`internal/node`):
     another Bot, the chips stay and each file goes up again into the new Bot's folder, its copy in the old one
     deleted once the new one is up, as t3code uploads a draft's attachments again when its environment changes
     (`attachmentUploadQueue.ts`, `previous`).
+  - The model and effort (issue #369, `features/chat/chat-model-picker.tsx`, after t3code's
+    `ProviderModelPicker.tsx`, `TraitsPicker.tsx` and `ComposerModelEffort.tsx`): in the composer's footer, left of
+    Send, a quiet button with the model's mark and name opens the app's model list (`features/agents/model-choices.ts`:
+    searchable, grouped by provider, the models of the providers pi can use), its first row the Bot's model; beside
+    it an effort button lists the Bot's level, then only the model's levels as the gateway's attributes give them
+    (`GET /gateway/models`, issue #367), and is absent for a model that does not reason. A chat's choice is sent at
+    once (`PATCH /chats/{id}`) and shown before the server answers; a refused one is put back. The New chat page
+    and a new chat's tab hold theirs until the first message makes the chat with it; picking another Bot starts
+    from that Bot's. Picking a model the chat's effort is not a level of gives the effort back to the Bot.
 - The Team page (issue #262, `web/src/features/team`; [design](https://github.com/kl3inIT/hypomnema/issues/262)),
   adapted from OpenMausBot's team map (Apache 2.0): `/team`, first in the sidebar after New chat, carries the
   count of what needs the owner. A canvas draws the Bots in a column and every machine in a column beside it,
