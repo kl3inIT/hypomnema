@@ -148,7 +148,8 @@ func TestAWorkerIsGivenTheSkillsOfItsProfile(t *testing.T) {
 	require.ErrorIs(t, err, ErrInvalid)
 
 	p, _, err := w.s.ApplyProfile(ctx, "",
-		"name: implementer\ndescription: d\nruntime: claude\nskills: [lark-docs]\nskills_off: [pdf]\n")
+		"name: implementer\ndescription: d\nruntime: claude\nmodel: {provider: gateway}\nskills: [lark-docs]\n"+
+			"skills_off: [pdf]\n")
 	require.NoError(t, err)
 	assert.Equal(t, []string{"lark-docs"}, p.Skills)
 	assert.Equal(t, []string{"pdf"}, p.SkillsOff)

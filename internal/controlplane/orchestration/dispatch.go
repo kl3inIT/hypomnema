@@ -74,6 +74,8 @@ func (s *Service) createDispatch(ctx context.Context, q *store.Queries, now int6
 		return fmt.Errorf("%w: task %s is %s, not ready", ErrConflict, task.ID, task.Status)
 	case task.NotBefore.Valid && task.NotBefore.Int64 > now:
 		return fmt.Errorf("%w: task %s waits until %s", ErrConflict, task.ID, millis(task.NotBefore.Int64))
+	case gatewayOnly(r.runtime) && !r.gateway:
+		return fmt.Errorf("%w: task %s: %s", ErrInvalid, task.ID, needsGatewayMessage) // issue #381
 	}
 
 	conv, node, recovery, err := s.conversationFor(ctx, q, now, task.ID, spec, p)
