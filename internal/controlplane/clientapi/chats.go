@@ -205,6 +205,17 @@ func toChatMessage(m orchestration.ChatMessage) openapi.ChatMessage {
 	}
 
 	out.Artifact = toArtifactCard(m.Artifact)
+	out.ApprovalId = opt(m.ApprovalID)
+
+	if a := m.Approval; a != nil {
+		out.Approval = &openapi.ChatApproval{
+			Title: a.Title, ActionName: a.ActionName, Status: openapi.ApprovalStatus(a.Status), DecidedAt: a.DecidedAt,
+		}
+		if a.Scope != "" {
+			scope := openapi.ChatApprovalScope(a.Scope)
+			out.Approval.Scope = &scope
+		}
+	}
 
 	if len(m.Attachments) > 0 {
 		files := make([]openapi.ChatAttachment, 0, len(m.Attachments))

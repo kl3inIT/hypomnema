@@ -198,6 +198,6 @@ func TestTheBuiltinSkillsAreListed(t *testing.T) {
 	}
 
 	assert.Equal(t, []string{
-		"aws", "google-workspace", "hypomnema-coordinator", "images", "lark", "pdf", "superset", "web-search",
+		"aws", "google-workspace", "hypomnema-coordinator", "images", "lark", "pages", "pdf", "superset", "web-search",
 	}, names)
 }

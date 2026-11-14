@@ -11,6 +11,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/channelstore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/memorystore"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/routinestore"
 )
 
 // DefaultBot is the Bot that is always there: a chat that names no other
@@ -284,7 +285,10 @@ func (s *Service) ForceDeleteBot(ctx context.Context, name string) error {
 		}
 
 		steps := []func(context.Context, string) error{
-			q.DetachRunsFromChatsOfBot, q.DetachRoutinesFromChatsOfBot, q.DetachRoutineRunsFromChatsOfBot,
+			q.DetachRunsFromChatsOfBot,
+			func(ctx context.Context, bot string) error {
+				return routinestore.DetachFromChatsOfBotTx(ctx, q, bot)
+			},
 			q.DetachApprovalsFromChatsOfBot,
 			func(ctx context.Context, bot string) error {
 				return q.RevokeGatewayKeysOfChatsOfBot(ctx, store.RevokeGatewayKeysOfChatsOfBotParams{
@@ -343,7 +347,7 @@ func botLive(ctx context.Context, q *store.Queries, name string) error {
 		return err
 	}
 
-	routines, err := q.CountRoutinesOfBot(ctx, name)
+	routines, err := routinestore.CountRoutinesOfBotTx(ctx, q, name)
 	if err != nil {
 		return err
 	}

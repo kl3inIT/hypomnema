@@ -1,4 +1,4 @@
-package orchestration
+package routinestore
 
 import (
 	"testing"
@@ -6,7 +6,16 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/storeerr"
 )
+
+// t0 is the root's tests' clock: Saturday 09:00 UTC.
+var t0 = time.Date(2026, 11, 7, 9, 0, 0, 0, time.UTC)
+
+type fixedClock struct{ now time.Time }
+
+func (c fixedClock) Now() time.Time { return c.now }
 
 // A schedule reads as words: a familiar cron expression as what it means and
 // any other as itself, with its zone as people say it (OpenMausBot's
@@ -46,15 +55,16 @@ func TestAScheduleInWords(t *testing.T) {
 func TestAScheduleIsPreviewedBeforeItIsKept(t *testing.T) {
 	t.Parallel()
 
-	w := newWorld(t)
+	// A preview reads the clock only.
+	s := New(nil, fixedClock{t0}, nil, nil)
 
-	hourly, err := w.s.PreviewSchedule(60, "", "")
+	hourly, err := s.PreviewSchedule(60, "", "")
 	require.NoError(t, err)
 	assert.Equal(t, "every hour", hourly.Words)
 	assert.Equal(t, []time.Time{t0.Add(time.Hour), t0.Add(2 * time.Hour), t0.Add(3 * time.Hour)}, hourly.Next)
 
 	// t0 is Saturday 09:00 UTC, 16:00 in Ho Chi Minh City (UTC+7).
-	weekdays, err := w.s.PreviewSchedule(0, " 0 7 * * 1-5 ", "Asia/Ho_Chi_Minh")
+	weekdays, err := s.PreviewSchedule(0, " 0 7 * * 1-5 ", "Asia/Ho_Chi_Minh")
 	require.NoError(t, err)
 	assert.Equal(t, "every weekday at 7:00 Ho Chi Minh time", weekdays.Words)
 	assert.Equal(t, []time.Time{
@@ -73,49 +83,8 @@ func TestAScheduleIsPreviewedBeforeItIsKept(t *testing.T) {
 		{cron: "0 7 * *", zone: "UTC", reason: "five fields"},
 		{cron: "0 7 * * *", zone: "Mars/Olympus", reason: "not an IANA time zone"},
 	} {
-		_, err := w.s.PreviewSchedule(bad.every, bad.cron, bad.zone)
-		require.ErrorIs(t, err, ErrInvalid)
+		_, err := s.PreviewSchedule(bad.every, bad.cron, bad.zone)
+		require.ErrorIs(t, err, storeerr.ErrInvalid)
 		assert.ErrorContains(t, err, bad.reason)
 	}
-}
-
-// Scenario: a Routine has run five times. Its page shows them a few at a
-// time, the newest first, and knows how many there are.
-func TestARoutinesRunsComeAPageAtATime(t *testing.T) {
-	t.Parallel()
-
-	w := newWorld(t)
-	sync := w.routine(hourly("sync"))
-
-	var ids []string
-
-	for range 5 {
-		w.after(time.Hour)
-
-		started := w.tick()
-		require.Len(t, started, 1)
-		w.end(started[0].Run.ID, succeeded)
-		ids = append([]string{started[0].Run.ID}, ids...)
-	}
-
-	page := func(limit, offset int) []string {
-		runs, total, err := w.s.RoutineRunPage(t.Context(), sync.ID, limit, offset)
-		require.NoError(t, err)
-		assert.Equal(t, 5, total)
-
-		out := make([]string, len(runs))
-		for i, r := range runs {
-			out[i] = r.ID
-		}
-
-		return out
-	}
-
-	assert.Equal(t, ids[:2], page(2, 0))
-	assert.Equal(t, ids[2:4], page(2, 2))
-	assert.Equal(t, ids[4:], page(2, 4))
-	assert.Empty(t, page(2, 6))
-
-	_, _, err := w.s.RoutineRunPage(t.Context(), "rtn_gone", 2, 0)
-	require.ErrorIs(t, err, ErrNotFound)
 }

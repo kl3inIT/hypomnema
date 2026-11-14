@@ -403,7 +403,7 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   (`owner`, `coordinator`, `tool`, `system`; replies and tools with JSON `parts`); owner messages and wake-ups wait
   for pi and are marked delivered one by one. A `system` row has a `kind` (migration 00054, issue #267, after
   t3code's typed timeline items): `wake` (it names its event), `failed` (pi's model call failed), `stopped` (the
-  owner stopped the turn) or `approval` (the coordinator is told an Approval was answered); the API sends it as
+  owner stopped the turn) or `approval` (the owner answered an Approval asked in the chat); the API sends it as
   `ChatMessage.kind`, and the web and Lark read it rather than the text. A
   Run records the chat whose pi created it (`runs.chat_id`); the API names that chat's Bot as `Run.bot` (issue #281),
   read by a join of `runs` with `chats` in `GetRunWithBot` and `ListRuns`, and absent for a Run without a chat.
@@ -750,10 +750,18 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     agents' project folders, the `paths` of `skills.sh.json`, three levels deep; else anywhere five deep), and
     keeps that folder as the source's path. CLI: `skills search <words> [--owner o]`, `skills add --github
     owner/repo --skill <name>`, which prints the audits first. Nothing else is sent to skills.sh.
-- Routines (`orchestration/routines.go` keeps the record, `internal/controlplane/routines` runs them;
-  [issue #211](https://github.com/kl3inIT/hypomnema/issues/211), migration 00056,
-  [research](docs/research/2026-11-12-work-on-a-schedule.md)): a Routine is work a Bot does on a schedule. What
-  the work is, is not built in.
+- Routines (the domain store `orchestration/routinestore` keeps the record, reached through `Service.Routines()`;
+  `internal/controlplane/routines` runs them; [issue #211](https://github.com/kl3inIT/hypomnema/issues/211),
+  migration 00056, [research](docs/research/2026-11-12-work-on-a-schedule.md)): a Routine is work a Bot does on a
+  schedule. What the work is, is not built in.
+  - **Where the code is** (issue #404). The store imports the generated queries and never the root. What also
+    writes another domain's tables stays in the root and calls the store's functions that end in `Tx` with its
+    own queries: starting a run (`RunRoutineNow`, `ClaimDueRoutines`: a prompt run's chat), ending one
+    (`FinishRoutineRun`: what the run still asked is refused), what a run's approvals ended as
+    (`RoutineRunAnswers`), a line in a chat (`TellChat`), an approval that waits a run or grants "always for this
+    Routine" (`RunOfAskerTx`, `GrantedTx`, `WaitRunTx`, `ResumeRunTx`, `GrantTx`), and a Bot removed with its
+    chats or refused for its Routines (`DetachFromChatsOfBotTx`, `CountRoutinesOfBotTx`). The runner takes the
+    two apart: `routines.New(svc, svc.Routines(), cfg)`.
   - **What it is.** A row of `routines`: its Bot, a name of its own among the Bot's, a kind, a schedule, on or
     paused (with the reason), when it runs next, the chat it was made in, and whether a run's result is told
     there. A `prompt` Routine gives the Bot its text in a new chat each run. A `script` Routine names a file
@@ -767,7 +775,8 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     downtime (`routine-intervals.ts`, `nextAlignedInterval`). No seconds field, no `@every`, no one-time Routine.
     A schedule is said in words ("every hour", "every weekday at 7:00 Ho Chi Minh time"): a familiar cron
     expression as what it means and any other as itself, with its zone as people say it
-    (`orchestration/schedule_words.go`, after OpenMausBot's `shared/cron-label.ts` and `plain-time-zone.ts`).
+    (`orchestration/routinestore/schedule_words.go`, after OpenMausBot's `shared/cron-label.ts` and
+    `plain-time-zone.ts`).
     `POST /routine-schedule` checks a schedule as a Routine's is and answers its words and its next three times,
     counted from now, without keeping anything.
   - **The tick.** The runner looks every 60 s (`ClaimDueRoutines`): each Routine that is on and due gets its next
@@ -877,7 +886,7 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   Only the owner deletes a profile (issue #485; `DELETE /profiles/{name}`, `hypomnema profiles rm`, the Delete
   section at the bottom of an agent's page, as the Bot page's Removal). One no Task named and no Dispatch ran goes
   with its versions, as Omnigent removes an agent no session uses; one used before is marked deleted
-  (`profiles.deleted_at`, migration 00083), as Coder marks a template and Onyx a persona: it is left out of the
+  (`profiles.deleted_at`, migration 00084), as Coder marks a template and Onyx a persona: it is left out of the
   lists, reads as not found ("was deleted"), and no new Task, backup or Bot's workers list may name it, while its
   versions stay for the Dispatches that ran them. Applying its name again brings it back as a new version, even
   from the same source (Onyx's `mark_persona_as_not_deleted`). `implementer` is never deleted, and a profile is
@@ -1037,13 +1046,18 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       the Routine whose run asked (issue #211, under Routines), or rejects. A request of a Routine's run is held
       in place up to 30 minutes instead and then refused. An Approval
       not answered in time stays open (owner, 2026-11-11): the tool is told it waits; a coordinator ends its turn
-      and a worker asks the owner and waits. When it is answered later, the coordinator is woken in its chat, or
-      the question the worker waits on is answered, and the repeat of the same request, recognized by its decoded
-      content and not its bytes, passes once. Only the owner's token lists and answers Approvals
+      and a worker asks the owner and waits. Answering an Approval a chat asked writes one `approval` row in that
+      chat in the same transaction (issue #465, migration 00083, after t3code's `TimelinePendingApprovalRow.tsx`
+      and AI Elements' `confirmation.tsx`): `chat_messages.approval_id` names it, its text says the answer, what
+      was asked and how far it reaches, and `ChatMessage.approval` gives the Approval's title, action, answer,
+      scope and time, read with the row. When it is answered after its request ended, the coordinator is woken
+      with that same row (`to_coordinator=1`, once), or the question the worker waits on is answered, and the
+      repeat of the same request, recognized by its decoded content and not its bytes, passes once. Only the owner's token lists and answers Approvals
       (`GET /approvals`, `POST /approvals/{id}/decision`; `hypomnema approvals`) and sets an action's answer
       (`.../connections/{label}/actions`; `hypomnema integrations actions`). On the web an Approval is a card
       above the message box of the chat that asked, whose row in the sidebar says it needs the owner, and in the
-      Task of the worker that asked; an account on the Integrations page says what agents may do with it and
+      Task of the worker that asked; once answered, the chat shows its row (`approval-row.tsx`): Approved or
+      Denied, what was asked, the action and how far it reaches, and when, whatever the Bot shows of its tools; an account on the Integrations page says what agents may do with it and
       opens the list of actions.
     - **Who an agent is decides what it gets.** A worker presents its Dispatch's own key (`agent_sessions`,
       migration 00037): made by the node API as the offer is sent, for the Run's Connections, and revoked when the
@@ -1784,7 +1798,11 @@ capabilities do not exist yet.
     (pi/omp `applyAnthropicCacheControl`), each kept an hour (`ttl: 1h`, with `extended-cache-ttl-2025-04-11` among
     the betas; issue #397, as Claude Code, omp, CLIProxyAPI and 9router-go keep a subscription's cache); a client's own breakpoint
     with no ttl is kept an hour too, one it gave a ttl keeps it, and a one-hour breakpoint after a shorter one loses
-    its ttl, as Anthropic reads them tools, system, messages; issue #409, CLIProxyAPI `normalizeCacheControlTTLDoc`). A probe
+    its ttl, as Anthropic reads them tools, system, messages; issue #409, CLIProxyAPI `normalizeCacheControlTTLDoc`).
+    A client's breakpoint on a text or image part stays on its block (a blank text part is dropped and hands its
+    breakpoint to the block before), one on a whole message goes on its last block, and a tool message's goes on the
+    `tool_result` block, never inside its content, which Anthropic refuses (issue #482, CLIProxyAPI
+    `AttachCacheControl`, `AttachMessageCacheControl`, `AttachToolMessageCacheControl`). A probe
     (Claude Code's own `quota`/`ping` check) is left minimal, with no decoys and no breakpoints.
   - The call goes to `api.anthropic.com/v1/messages?beta=true`, always as a stream, with the account's token in the
     Bearer header (never the api-key header), a refresh on a 401, a cooldown on a 429.
@@ -2194,6 +2212,15 @@ The owner's commands:
   (`releasedFolders`); an edited copy is left alone, or with `--force` replaced and kept as `.pdf.bak`, which pi
   does not read. `setup-coordinator.sh` runs `skills install --agent agents` at each deploy, so every Bot gets it
   with no `skills add`. It is listed among the built-in skills.
+- The pages skill (`internal/controlplane/clientcli/skills/pages`, issue #423) is built in the same way, a folder:
+  OpenMausBot's `skills/data-dashboards` at `a6cd67c78610` (Apache-2.0, its `LICENSE` in the folder, the notice in
+  `third_party/openmausbot/NOTICE`), for dashboards and any other page a Bot shows with `hypomnema artifact show`.
+  Its `dashboard.html` template is self-contained: its charts are SVG its own script draws, its sums are computed in
+  the script, and its data is a Superset chart's JSON (`{columns, rows}`) embedded in the page or in `data.json`
+  beside a folder page; it loads no library, font or file from another host and uses no storage, so it runs in the
+  artifact's locked frame (a Playwright test in `web/tests/artifacts.spec.ts` shows it there with no refusal).
+  OpenMausBot's `show_html`/`publish_page`, its Data tools, DuckDB-WASM, ECharts and its `jsx` pages are not kept;
+  a page kept current is a folder page a Routine shows again with `--id`.
 
 Node (`internal/node`):
 - `init` writes `~/.hypomnema-node/config.json` (mode 0600, directory 0700) with the control plane's URL, the token
@@ -2879,6 +2906,7 @@ internal/controlplane/orchestration  Runs, Tasks, Dispatches, Conversations, que
 internal/controlplane/orchestration/internal/storeutil  what its stores share: the one write helper, which signals event readers after the commit
 internal/controlplane/orchestration/storeerr  the errors every orchestration store returns, re-exported by orchestration
 internal/controlplane/orchestration/channelstore  the Channels (tables channels and channel_*, Lark the one kind): who may talk through each, the messages taken, the Lark chats and groups, the question cards, reached through orchestration's Channels()
+internal/controlplane/orchestration/routinestore  the Routines, their runs and the grants the owner gave them: the schedule, the claim of due Routines, a run's end applied to its Routine, pruning, a Bot's change and its undo, reached through orchestration's Routines()
 internal/controlplane/orchestration/memorystore  the agents' memories and the one about the owner, and the entry rules a Bot's memory follows, reached through orchestration's Memories()
 internal/controlplane/orchestration/userstore  the web's users and sessions, reached through orchestration's Users()
 internal/controlplane/skillsource  fetches a skill from a public GitHub repository at the commit its ref names

@@ -369,7 +369,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	larkSettings := larkchannel.NewService(channels.NewService(channelData, secrets, runtime))
 
 	// The Routines of the Bots (issue #211): the tick, and the runs it starts.
-	routineRunner := routines.New(svc, routines.Config{
+	routineRunner := routines.New(svc, svc.Routines(), routines.Config{
 		Command: cfg.RoutineCommand, Coordinator: sup, Owner: runtime, Logger: logger,
 		Tokens: botTokens{svc: svc, coordinator: cfg.CoordinatorToken},
 	})

@@ -1,5 +1,6 @@
 import type {
   ArtifactCard,
+  ChatApproval,
   ChatDelta,
   ChatMessage,
   ChatPart,
@@ -111,6 +112,8 @@ export type ChatItem =
   | { kind: "wake"; key: string; wake: ChatWake }
   // An artifact the Bot showed, as it is now (issue #402).
   | { kind: "artifact"; key: string; artifact: ArtifactCard }
+  // An Approval the owner answered, where he answered it (issue #465).
+  | { kind: "approval"; key: string; approval: ChatApproval }
   | { kind: "reply"; key: string; text: string; streaming: boolean; createdAt?: string }
   | { kind: "activity"; key: string; steps: Step[]; open: boolean }
   // A Routine the Bot set up from this chat, where it was set up (issue #211).
@@ -201,6 +204,8 @@ export function chatItems(view: ChatView, local: Local = {}, setups: Setup[] = [
           items.push({ kind: "wake", key, wake: m.wake })
         } else if (m.kind === "artifact" && m.artifact) {
           items.push({ kind: "artifact", key, artifact: m.artifact })
+        } else if (m.kind === "approval" && m.approval) {
+          items.push({ kind: "approval", key, approval: m.approval })
         } else {
           items.push({ kind: "notice", key, message: m })
         }

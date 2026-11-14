@@ -16,6 +16,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/integration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/routinestore"
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 )
 
@@ -23,20 +24,20 @@ import (
 // nothing executes it, which is the runner's own test.
 type startsRuns struct{ svc *orchestration.Service }
 
-func (s *startsRuns) RunNow(ctx context.Context, id string) (orchestration.RoutineRun, error) {
+func (s *startsRuns) RunNow(ctx context.Context, id string) (routinestore.RoutineRun, error) {
 	started, err := s.svc.RunRoutineNow(ctx, id)
 
 	return started.Run, err
 }
 
 func (s *startsRuns) Remove(ctx context.Context, id string) error {
-	_, err := s.svc.DeleteRoutine(ctx, id)
+	_, err := s.svc.Routines().DeleteRoutine(ctx, id)
 
 	return err
 }
 
-func (s *startsRuns) Undo(ctx context.Context, id string) (orchestration.Routine, bool, error) {
-	r, removed, _, err := s.svc.UndoRoutine(ctx, id)
+func (s *startsRuns) Undo(ctx context.Context, id string) (routinestore.Routine, bool, error) {
+	r, removed, _, err := s.svc.Routines().UndoRoutine(ctx, id)
 
 	return r, removed, err
 }
@@ -232,17 +233,17 @@ func TestAScriptsRequestsBelongToItsRun(t *testing.T) { //nolint:paralleltest //
 	_, err := w.svc.SetConnectionChats(t.Context(), integration.SupersetID, "vmaps", true)
 	require.NoError(t, err)
 
-	sync, err := w.svc.PutRoutine(t.Context(), orchestration.RoutineSpec{
-		Bot: orchestration.DefaultBot, Name: "sync", Kind: orchestration.RoutineScript, Script: "sync.sh",
+	sync, err := w.svc.Routines().PutRoutine(t.Context(), routinestore.RoutineSpec{
+		Bot: orchestration.DefaultBot, Name: "sync", Kind: routinestore.RoutineScript, Script: "sync.sh",
 		ScriptText: "#!/bin/sh\nhypomnema superset api PUT /api/v1/chart/166 --data -\n", EveryMinutes: 60,
-	}, orchestration.RoutineAuthor{})
+	}, routinestore.RoutineAuthor{})
 	require.NoError(t, err)
 
 	into := filepath.Join(t.TempDir(), "routines")
 
 	// launch is the launcher starting a run: the script and the run's key are written, and the script's
 	// environment names the key's file.
-	launch := func() orchestration.RoutineRun {
+	launch := func() routinestore.RoutineRun {
 		started, err := w.svc.RunRoutineNow(t.Context(), sync.ID)
 		require.NoError(t, err)
 
@@ -275,9 +276,9 @@ func TestAScriptsRequestsBelongToItsRun(t *testing.T) { //nolint:paralleltest //
 	assert.Equal(t, first.ID, pending[0].RoutineRunID)
 	assert.Empty(t, pending[0].ChatID)
 
-	waiting, err := w.svc.GetRoutineRun(t.Context(), first.ID)
+	waiting, err := w.svc.Routines().GetRoutineRun(t.Context(), first.ID)
 	require.NoError(t, err)
-	assert.Equal(t, orchestration.RunWaiting, waiting.State)
+	assert.Equal(t, routinestore.RunWaiting, waiting.State)
 
 	select {
 	case err := <-done:
@@ -296,7 +297,7 @@ func TestAScriptsRequestsBelongToItsRun(t *testing.T) { //nolint:paralleltest //
 
 	require.NoError(t, <-done, "the same command goes on where it waited")
 
-	_, err = w.svc.FinishRoutineRun(t.Context(), first.ID, orchestration.RunResult{State: orchestration.RunSucceeded})
+	_, err = w.svc.FinishRoutineRun(t.Context(), first.ID, routinestore.RunResult{State: routinestore.RunSucceeded})
 	require.NoError(t, err)
 
 	launch()

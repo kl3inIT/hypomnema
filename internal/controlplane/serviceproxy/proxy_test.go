@@ -29,6 +29,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/agentapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/routinestore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/serviceproxy"
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
@@ -399,6 +400,16 @@ func TestASendWaitsForTheOwnersApproval(t *testing.T) {
 	assert.Equal(t, "Bearer "+realToken, received[0].Authorization)
 	assert.Equal(t, body, received[0].Body, "the request goes on as the tool made it")
 
+	// The answer stays in the chat as one row; pi, whose call went on, is not given it.
+	rows := w.approvalRows()
+	require.Len(t, rows, 1)
+	assert.Equal(t, asked.ID, rows[0].ApprovalID)
+	assert.Equal(t, orchestration.ApprovalApproved, rows[0].Approval.Status)
+
+	woken, err := w.svc.Undelivered(ctx, w.chat)
+	require.NoError(t, err)
+	assert.Empty(t, woken)
+
 	// The same mail again: the approval was used.
 	contentType, body = mail("minh@example.com", "Re: October invoice", "Received. We pay before the 15th.", 2)
 
@@ -417,6 +428,28 @@ func TestASendWaitsForTheOwnersApproval(t *testing.T) {
 
 	_, err = w.proxy.Decide(ctx, second.ID, true, orchestration.ScopeOnce)
 	require.ErrorIs(t, err, orchestration.ErrConflict, "the first answer stands")
+
+	rows = w.approvalRows()
+	require.Len(t, rows, 2, "a denial is kept as well")
+	assert.Equal(t, second.ID, rows[1].ApprovalID)
+	assert.Equal(t, orchestration.ApprovalRejected, rows[1].Approval.Status)
+}
+
+// approvalRows returns the approval rows of the chat pi works in.
+func (w *world) approvalRows() []orchestration.ChatMessage {
+	w.t.Helper()
+
+	msgs, err := w.svc.ListChatMessages(w.t.Context(), w.chat, 0, 0)
+	require.NoError(w.t, err)
+
+	var out []orchestration.ChatMessage
+	for _, m := range msgs {
+		if m.Kind == orchestration.ChatApproval {
+			out = append(out, m)
+		}
+	}
+
+	return out
 }
 
 // Scenario: the owner is away. The hold ends and pi's tool is told the mail
@@ -448,8 +481,18 @@ func TestAnApprovalGivenLaterLetsTheSameRequestPassOnce(t *testing.T) {
 	woken, err := w.svc.Undelivered(ctx, w.chat)
 	require.NoError(t, err)
 	require.Len(t, woken, 1, "pi is woken in the chat it asked in")
-	assert.Contains(t, woken[0].Text, "approved")
+	assert.Contains(t, woken[0].Text, "Approved")
 	assert.Contains(t, woken[0].Text, asked.ID)
+	assert.Equal(t, asked.ID, woken[0].ApprovalID, "with the answer's own row")
+
+	// The same answer again tells pi nothing more.
+	_, err = w.proxy.Decide(ctx, asked.ID, true, orchestration.ScopeOnce)
+	require.NoError(t, err)
+
+	woken, err = w.svc.Undelivered(ctx, w.chat)
+	require.NoError(t, err)
+	assert.Len(t, woken, 1)
+	assert.Len(t, w.approvalRows(), 1, "one row an answer")
 
 	contentType, body = mail("minh@example.com", "Re: October invoice", "Received.", 2)
 
@@ -516,13 +559,13 @@ const runHold = 300 * time.Millisecond
 
 // routineRun starts a run of a script Routine and returns the key its
 // launcher is given.
-func (w *world) routineRun(routineID string) (orchestration.RoutineRun, string) {
+func (w *world) routineRun(routineID string) (routinestore.RoutineRun, string) {
 	w.t.Helper()
 
 	started, err := w.svc.RunRoutineNow(w.t.Context(), routineID)
 	require.NoError(w.t, err)
 
-	launch, err := w.svc.ClaimRoutineScript(w.t.Context(), routineID, orchestration.DefaultBot)
+	launch, err := w.svc.Routines().ClaimRoutineScript(w.t.Context(), routineID, orchestration.DefaultBot)
 	require.NoError(w.t, err)
 
 	return started.Run, launch.Key
@@ -540,10 +583,10 @@ func TestAlwaysForARoutineStopsAskingInItsRunsOnly(t *testing.T) {
 	w := newWorld(t, time.Minute)
 	ctx := t.Context()
 
-	routine, err := w.svc.PutRoutine(ctx, orchestration.RoutineSpec{
-		Bot: orchestration.DefaultBot, Name: "digest", Kind: orchestration.RoutineScript, Script: "digest.sh",
+	routine, err := w.svc.Routines().PutRoutine(ctx, routinestore.RoutineSpec{
+		Bot: orchestration.DefaultBot, Name: "digest", Kind: routinestore.RoutineScript, Script: "digest.sh",
 		ScriptText: "#!/bin/sh\ngws gmail +send\n", EveryMinutes: 60,
-	}, orchestration.RoutineAuthor{})
+	}, routinestore.RoutineAuthor{})
 	require.NoError(t, err)
 
 	first, key := w.routineRun(routine.ID)
@@ -571,7 +614,7 @@ func TestAlwaysForARoutineStopsAskingInItsRunsOnly(t *testing.T) {
 	require.Equal(t, http.StatusOK, (<-answered).Status, "the same call goes on")
 	assert.Contains(t, w.logs.String(), `verdict="approved for the routine"`)
 
-	_, err = w.svc.FinishRoutineRun(ctx, first.ID, orchestration.RunResult{State: orchestration.RunSucceeded})
+	_, err = w.svc.FinishRoutineRun(ctx, first.ID, routinestore.RunResult{State: routinestore.RunSucceeded})
 	require.NoError(t, err)
 
 	_, next := w.routineRun(routine.ID)
@@ -614,10 +657,10 @@ func TestARunsRequestNobodyAnswersIsRefused(t *testing.T) {
 	w := newWorld(t, time.Minute)
 	ctx := t.Context()
 
-	routine, err := w.svc.PutRoutine(ctx, orchestration.RoutineSpec{
-		Bot: orchestration.DefaultBot, Name: "digest", Kind: orchestration.RoutineScript, Script: "digest.sh",
+	routine, err := w.svc.Routines().PutRoutine(ctx, routinestore.RoutineSpec{
+		Bot: orchestration.DefaultBot, Name: "digest", Kind: routinestore.RoutineScript, Script: "digest.sh",
 		ScriptText: "#!/bin/sh\ngws gmail +send\n", EveryMinutes: 60,
-	}, orchestration.RoutineAuthor{})
+	}, routinestore.RoutineAuthor{})
 	require.NoError(t, err)
 
 	run, key := w.routineRun(routine.ID)

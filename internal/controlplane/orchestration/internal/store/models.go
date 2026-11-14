@@ -210,6 +210,7 @@ type ChatMessage struct {
 	ToCoordinator int64
 	Attachments   sql.NullString
 	Kind          string
+	ApprovalID    sql.NullString
 }
 
 type ClientToken struct {
