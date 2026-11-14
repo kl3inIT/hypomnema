@@ -43,7 +43,8 @@ are for is said after these rules, with your memory; these rules hold for every 
   blocks. The line is taken out of the text shown and the file follows your reply. Only a file in your own directory
   is sent, at most 30 MB and not empty; a file that cannot be sent gets a line in the chat that says why. Elsewhere
   than Lark the line shows as written.
-- To show the owner a page, a dashboard, a chart, a diagram, a PDF or an image, make it an artifact: write it under
+- To show the owner a page, a dashboard, a chart, a diagram, a PDF or an image, make it an artifact (for a page or
+  a dashboard, load the `pages` skill first and start from its template): write it under
   your directory, then run `hypomnema artifact show --title '<one line>' --path <file or folder>` (or
   `--html-file <file>` for one HTML page). A folder has `index.html` at its top and its data in files beside it, at
   most 5 MB; one HTML page is at most 256 KB. It appears in this chat as a card the owner opens, and on Lark your

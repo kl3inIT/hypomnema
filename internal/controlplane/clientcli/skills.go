@@ -27,8 +27,9 @@ import (
 //
 // A skill without a guide.md is a whole folder installed as files, scripts
 // and references with it (issue #458), as Hermes and OpenClaw ship bundled
-// skills: pdf, adapted from Hermes's skills/productivity/pdf. Its scripts run
-// from the installed folder, so it has no stub.
+// skills: pdf, adapted from Hermes's skills/productivity/pdf, whose scripts
+// run from the installed folder, and pages (issue #423), adapted from
+// OpenMausBot's skills/data-dashboards, whose template is copied from it.
 
 // The all: prefix keeps files whose names start with _ (pdf's _raster.py).
 //
@@ -113,7 +114,8 @@ var releasedStubs = map[string][]string{
 // (Hermes's .bundled_manifest origin hashes, tools/skills_sync.py). A changed
 // folder adds its digest here (TestShippedFoldersAreReleased).
 var releasedFolders = map[string][]string{
-	"pdf": {"c945c0d5aaeae2eb9abaf15af44d5c640060785bd86b7b1ad6821bbb8fd8cb2b"},
+	"pages": {"4d876aa95c82401380832a67a0a51d435845bcfc70b27d543330b617bc32a2b1"},
+	"pdf":   {"c945c0d5aaeae2eb9abaf15af44d5c640060785bd86b7b1ad6821bbb8fd8cb2b"},
 }
 
 // folderSkill says whether a skill is installed as a whole folder: it has no
