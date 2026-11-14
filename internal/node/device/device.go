@@ -110,6 +110,9 @@ type Manager struct {
 	// starting cancels the start under way; nil when none is.
 	starting context.CancelFunc
 	changed  chan struct{}
+
+	// agents keeps the agents' screens apart and lets one call use the phone at a time (tools.go).
+	agents agents
 }
 
 // record is what the node keeps of the programs it started, in run.json, so
@@ -150,7 +153,7 @@ func newManager(opts Options, comps []component) *Manager {
 
 	m := &Manager{
 		opts: opts, comps: comps, in: installer{dir: opts.Dir, client: opts.Client},
-		changed: make(chan struct{}, 1),
+		changed: make(chan struct{}, 1), agents: agents{stale: map[string]bool{}},
 	}
 	m.state = m.restingState()
 	m.refresh()

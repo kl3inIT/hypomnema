@@ -19,6 +19,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
 )
 
 // fakeTool makes this test binary stand in for a tool: installed under a
@@ -349,14 +351,14 @@ func TestANodePreparesADispatchForItsAccounts(t *testing.T) {
 
 	home := t.TempDir()
 
-	env, err := ForDispatch(home, "/opt/hypomnema-node", "https://cp.example", nil, "")
+	env, err := ForDispatch(home, "/opt/hypomnema-node", "https://cp.example", nil, "", "")
 	require.NoError(t, err)
 	assert.Empty(t, env)
 
-	_, err = ForDispatch(home, "/opt/hypomnema-node", "https://cp.example", []string{"google:work"}, "")
+	_, err = ForDispatch(home, "/opt/hypomnema-node", "https://cp.example", []string{"google:work"}, "", "")
 	require.ErrorContains(t, err, "no key")
 
-	env, err = ForDispatch(home, "/opt/it's/hypomnema-node", "https://cp.example", []string{"google:work"}, "the-key")
+	env, err = ForDispatch(home, "/opt/it's/hypomnema-node", "https://cp.example", []string{"google:work"}, "the-key", "")
 	require.NoError(t, err)
 
 	place := Place{Home: home}
@@ -381,21 +383,48 @@ func TestANodePreparesADispatchForItsAccounts(t *testing.T) {
 	assert.NoFileExists(t, filepath.Join(place.SkillsDir(), "google-workspace", "SKILL.md"),
 		"the stub is for an agent with the hypomnema CLI; a worker reads the guide itself")
 
-	brief := Brief([]string{"google:work", "google:personal"})
+	brief := Brief([]string{"google:work", "google:personal"}, "")
 	assert.Contains(t, brief, "google:work, google:personal")
 	assert.Contains(t, brief, "`gws` command is on your PATH and already signed in")
 	assert.Contains(t, brief, `"$HYPOMNEMA_SKILLS/google-workspace/guide.md"`)
 	assert.Contains(t, brief, "gws --account <label>")
-	assert.Empty(t, Brief(nil))
+	assert.Empty(t, Brief(nil, ""))
 
 	// A Dispatch given the Lark app gets Lark's script and guide instead; the guide has no references of its
 	// own, since lark-cli carries its guides itself.
-	_, err = ForDispatch(home, "/opt/hypomnema-node", "https://cp.example", []string{"lark:work"}, "the-key")
+	_, err = ForDispatch(home, "/opt/hypomnema-node", "https://cp.example", []string{"lark:work"}, "the-key", "")
 	require.NoError(t, err)
 	assert.FileExists(t, filepath.Join(place.Bin(), "lark-cli"))
 
 	guide, err = os.ReadFile(filepath.Join(place.SkillsDir(), "lark", "guide.md"))
 	require.NoError(t, err)
 	assert.Contains(t, string(guide), "Never run `lark-cli auth")
-	assert.Contains(t, Brief([]string{"lark:work"}), `"$HYPOMNEMA_SKILLS/lark/guide.md"`)
+	assert.Contains(t, Brief([]string{"lark:work"}, ""), `"$HYPOMNEMA_SKILLS/lark/guide.md"`)
+}
+
+// Scenario: a Dispatch is given the phone (issue #417) and no account. The
+// phone's guide is written where the worker is told to read it, with no
+// script, since its tools are the worker's own; the first message names the
+// guide and the rules that matter most.
+func TestANodePreparesADispatchForThePhone(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+
+	env, err := ForDispatch(home, "/opt/hypomnema-node", "https://cp.example", nil, "the-key", nodeproto.DeviceAndroid)
+	require.NoError(t, err)
+
+	place := Place{Home: home}
+	assert.Contains(t, env, EnvSkills+"="+place.SkillsDir())
+
+	guide, err := os.ReadFile(filepath.Join(place.SkillsDir(), "android-device", "guide.md"))
+	require.NoError(t, err)
+	assert.Contains(t, string(guide), "Never sign in or out of an account")
+	assert.NoDirExists(t, place.Bin(), "the phone has no command of its own")
+
+	brief := Brief(nil, nodeproto.DeviceAndroid)
+	assert.Contains(t, brief, `"$HYPOMNEMA_SKILLS/android-device/guide.md"`)
+	assert.Contains(t, brief, "device_screen")
+	assert.Contains(t, brief, "Never sign in")
+	assert.NotContains(t, brief, "Accounts you may use")
 }

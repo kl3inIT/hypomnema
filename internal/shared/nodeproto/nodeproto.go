@@ -27,7 +27,19 @@ const (
 	// PathFiles is where a node posts the answer to a files_request, with the
 	// request's id as ?request= (issue #255).
 	PathFiles = "/node/v1/files"
+	// PathDevice is where a node posts the answer to a device_call, with the
+	// call's id as ?request= (issue #417).
+	PathDevice = "/node/v1/device"
 )
+
+// DeviceAnswerWithin is how long the control plane waits for a node's answer
+// to a device_call: a phone that is stopped boots first (5 minutes at most,
+// internal/node/device.BootWithin), then the tool runs (2 minutes at most).
+const DeviceAnswerWithin = 8 * time.Minute
+
+// MaxDeviceAnswerBytes bounds a node's answer to a device_call: a screenshot
+// as base64 is the largest.
+const MaxDeviceAnswerBytes = 16 << 20
 
 // FilesAnswerWithin is how long the control plane waits for a node's answer
 // about a worktree: git's own limit, and a little more.
@@ -84,6 +96,10 @@ const (
 	// when it changes.
 	TypeDeviceStart Type = "device_start"
 	TypeDeviceStop  Type = "device_stop"
+	// TypeDeviceCall runs one of an agent's phone tools on the node that holds
+	// the phone (issue #417, step 2); the node answers on PathDevice, as it
+	// answers a files_request.
+	TypeDeviceCall Type = "device_call"
 )
 
 // Message is one envelope.
@@ -285,6 +301,32 @@ type FilesRequest struct {
 	Request   workspacefs.Request `json:"request"`
 }
 
+// DeviceCall is one call of a phone tool (internal/shared/devicetool) for an
+// agent. Agent names the agent as the control plane knows it ("d-<dispatch>"),
+// so that the node keeps each agent's last screen apart; it is no credential.
+type DeviceCall struct {
+	RequestID string          `json:"request_id"`
+	Agent     string          `json:"agent"`
+	Tool      string          `json:"tool"`
+	Arguments json.RawMessage `json:"arguments,omitempty"`
+}
+
+// DeviceAnswer is a phone tool's result as MCP has it: what the tool says,
+// text or an image, and whether it failed. A phone that could not be started
+// is a result that failed, with the reason.
+type DeviceAnswer struct {
+	Content []DeviceContent `json:"content"`
+	IsError bool            `json:"isError"`
+}
+
+// DeviceContent is one part of a DeviceAnswer: text, or a PNG as base64.
+type DeviceContent struct {
+	Type     string `json:"type"`
+	Text     string `json:"text,omitempty"`
+	Data     string `json:"data,omitempty"`
+	MimeType string `json:"mimeType,omitempty"`
+}
+
 // Disposition kinds: what the node does with a claimed Dispatch.
 const (
 	DispositionRetain   = "retain"
@@ -357,16 +399,20 @@ type Offer struct {
 	// AgentKey is this Dispatch's own key to the control plane's agent API,
 	// with which the tool launcher asks for a token of one of them. It is
 	// revoked when the Dispatch settles.
-	Uses           []string `json:"uses,omitempty"`
-	AgentKey       string   `json:"agent_key,omitempty"`
-	Base           string   `json:"base,omitempty"`
-	ConversationID string   `json:"conversation_id"`
-	Worktree       string   `json:"worktree"`
-	Runtime        string   `json:"runtime"`
-	AccountRef     string   `json:"account_ref"`
-	CLISessionRef  string   `json:"cli_session_ref,omitempty"`
-	Model          string   `json:"model,omitempty"`
-	Effort         string   `json:"effort,omitempty"`
+	Uses     []string `json:"uses,omitempty"`
+	AgentKey string   `json:"agent_key,omitempty"`
+	// Device is the device the control plane gives every worker, DeviceAndroid
+	// while a node holds a phone (issue #417), as it gives the shared browser;
+	// the worker is then told of the phone's tools and their guide.
+	Device         string `json:"device,omitempty"`
+	Base           string `json:"base,omitempty"`
+	ConversationID string `json:"conversation_id"`
+	Worktree       string `json:"worktree"`
+	Runtime        string `json:"runtime"`
+	AccountRef     string `json:"account_ref"`
+	CLISessionRef  string `json:"cli_session_ref,omitempty"`
+	Model          string `json:"model,omitempty"`
+	Effort         string `json:"effort,omitempty"`
 	// Skills are the skills the worker is given (issue #21). The node fetches
 	// each revision it does not have from PathSkills/<digest> and puts it
 	// where the worker's CLI reads skills.
