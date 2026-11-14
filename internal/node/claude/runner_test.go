@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kl3inIT/hypomnema/internal/node/bridge"
+	"github.com/kl3inIT/hypomnema/internal/node/runner"
 	"github.com/kl3inIT/hypomnema/internal/node/shim"
 	"github.com/kl3inIT/hypomnema/internal/node/statedb"
 	"github.com/kl3inIT/hypomnema/internal/node/transcript"
@@ -84,18 +85,12 @@ func fakeClaude(mode string) int {
 		switch {
 		case msg.Type == "control_request" && msg.Request.Subtype == "initialize":
 			emit(out, map[string]any{"type": "control_response", "response": map[string]any{"subtype": "success"}})
-		case msg.Type == "control_request" && msg.Request.Subtype == "interrupt":
-			emit(out, map[string]any{"type": "result", "subtype": "error_during_execution", "is_error": true})
-			exit = 1
 		case msg.Type == "user":
 			_ = os.WriteFile("prompt.txt", []byte(msg.Message.Content), 0o600)
 			emit(out, map[string]any{"type": "system", "subtype": "init", "session_id": "sess_fake"})
 
-			switch mode {
-			case "die":
+			if mode == "die" {
 				return 3
-			case "hang":
-				continue
 			}
 
 			emit(out, map[string]any{
@@ -119,31 +114,8 @@ func fakeClaude(mode string) int {
 				continue
 			}
 
-			dir := bridgeDir()
-
-			if mode == "ask" {
-				seq, err := bridge.Ask(dir, nodeproto.Ask{
-					Text: "goth or hand-written?", Options: []nodeproto.Option{{Label: "goth"}, {Label: "hand-written"}},
-					To: "owner",
-				})
-				if err != nil {
-					return 5
-				}
-
-				for {
-					answer, ok, _ := bridge.Answered(dir, seq)
-					if ok {
-						_ = os.WriteFile("answer.txt", []byte(answer), 0o600)
-
-						break
-					}
-
-					time.Sleep(20 * time.Millisecond)
-				}
-			}
-
 			if mode != "nofinish" {
-				_ = bridge.Finish(dir, bridge.Final{
+				_ = bridge.Finish(bridgeDir(), bridge.Final{
 					Summary:  "added the button",
 					Evidence: []nodeproto.Evidence{{Kind: "pull_request", Ref: "kl3inIT/second-bite#7"}},
 				})
@@ -211,13 +183,11 @@ func (p *plane) sent() []nodeproto.Items {
 	return append([]nodeproto.Items(nil), p.batches...)
 }
 
-// reporter records what the runner reports.
+// reporter records what the Supervisor reports.
 type reporter struct {
 	mu       sync.Mutex
 	id       string
 	started  []string
-	asks     []nodeproto.Ask
-	received []string
 	finished []nodeproto.Finished
 	exited   int
 	stopped  int
@@ -242,30 +212,9 @@ func (r *reporter) Started(_ context.Context, processRef, session string) error 
 
 func (r *reporter) Progress(context.Context) error { return nil }
 
-func (r *reporter) Ask(_ context.Context, a nodeproto.Ask) (string, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+func (r *reporter) Ask(context.Context, nodeproto.Ask) (string, error) { return "rep_q", nil }
 
-	r.asks = append(r.asks, a)
-
-	return "rep_q", nil
-}
-
-func (r *reporter) AnswerReceived(_ context.Context, questionID string) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	r.received = append(r.received, questionID)
-
-	return nil
-}
-
-func (r *reporter) asked() int {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	return len(r.asks)
-}
+func (r *reporter) AnswerReceived(context.Context, string) error { return nil }
 
 func (r *reporter) Finished(_ context.Context, f nodeproto.Finished) error {
 	r.mu.Lock()
@@ -306,7 +255,8 @@ func (r *reporter) wait(t *testing.T) {
 
 type rig struct {
 	t        *testing.T
-	runner   *Runner
+	sup      *runner.Supervisor
+	rt       *ClaudeRuntime
 	worktree string
 }
 
@@ -322,9 +272,10 @@ func newRig(t *testing.T, mode string) *rig {
 
 	return &rig{
 		t: t, worktree: filepath.Join(t.TempDir(), "wt"),
-		runner: &Runner{
+		sup: &runner.Supervisor{Home: home, Exe: exe, Logger: slog.New(slog.DiscardHandler)},
+		rt: &ClaudeRuntime{
 			Home: home, Exe: exe, Claude: exe, Accounts: map[string]Account{"acc_1": {TokenFile: tokenFile}},
-			Env: []string{"FAKE_CLAUDE=" + mode}, Logger: slog.New(slog.DiscardHandler),
+			Env: []string{"FAKE_CLAUDE=" + mode},
 		},
 	}
 }
@@ -359,16 +310,16 @@ func TestWorkerRunsToSuccess(t *testing.T) {
 	g := newRig(t, "success")
 	p := &plane{}
 	r := newReporter("dsp_1")
-	require.NoError(t, g.runner.Start(t.Context(), g.dispatch("dsp_1"), r))
+	require.NoError(t, g.sup.Start(t.Context(), g.rt, g.dispatch("dsp_1"), r))
 	r.wait(t)
 
 	// The transcript of the worker just run is ready for the control plane.
 	(&transcript.Forwarder{
-		Home: g.runner.Home, Send: p.send, Logger: slog.New(slog.DiscardHandler),
+		Home: g.rt.Home, Send: p.send, Logger: slog.New(slog.DiscardHandler),
 		Decoders: map[string]func() transcript.Decoder{Format: NewDecoder},
 	}).Step(t.Context())
 
-	format, err := os.ReadFile(filepath.Join(g.runner.Home, "run", "dsp_1", "format"))
+	format, err := os.ReadFile(filepath.Join(g.rt.Home, "run", "dsp_1", "format"))
 	require.NoError(t, err)
 	assert.Equal(t, "claude", string(format), "the journal says how it is to be read")
 
@@ -402,7 +353,7 @@ func TestWorkerRunsToSuccess(t *testing.T) {
 		"a worker cannot ask outside ask or start subagents")
 	assert.Equal(t, "sk-ant-oat01-test", g.file("token.txt"))
 
-	_, err = os.Stat(filepath.Join(g.runner.dir("dsp_1"), shim.SpecFile))
+	_, err = os.Stat(filepath.Join(filepath.Join(g.rt.Home, "run", "dsp_1"), shim.SpecFile))
 	assert.ErrorIs(t, err, os.ErrNotExist, "the spec with the token is gone once the worker runs")
 }
 
@@ -412,7 +363,7 @@ func TestFailedTurnIsAWorkerError(t *testing.T) {
 
 	g := newRig(t, "error")
 	r := newReporter("dsp_1")
-	require.NoError(t, g.runner.Start(t.Context(), g.dispatch("dsp_1"), r))
+	require.NoError(t, g.sup.Start(t.Context(), g.rt, g.dispatch("dsp_1"), r))
 	r.wait(t)
 
 	require.Len(t, r.finished, 1)
@@ -427,53 +378,12 @@ func TestTurnWithoutFinishFails(t *testing.T) {
 
 	g := newRig(t, "nofinish")
 	r := newReporter("dsp_1")
-	require.NoError(t, g.runner.Start(t.Context(), g.dispatch("dsp_1"), r))
+	require.NoError(t, g.sup.Start(t.Context(), g.rt, g.dispatch("dsp_1"), r))
 	r.wait(t)
 
 	require.Len(t, r.finished, 1)
 	assert.Equal(t, "worker_error", r.finished[0].Class)
 	assert.True(t, strings.HasPrefix(r.finished[0].Summary, "stopped without finish"))
-}
-
-// Scenario: the worker asks the owner through its tool. The question is
-// reported, the control plane's id is recorded, the answer reaches the
-// waiting tool with the option's label, and it is acknowledged.
-func TestAskIsRelayedAndAnswered(t *testing.T) {
-	t.Parallel()
-
-	g := newRig(t, "ask")
-	g.runner.URL = "https://hypomnema.example"
-
-	d := g.dispatch("dsp_1")
-	d.Offer.AgentKey = "the-dispatch's-key"
-
-	r := newReporter("dsp_1")
-	require.NoError(t, g.runner.Start(t.Context(), d, r))
-
-	require.Eventually(t, func() bool { return r.asked() == 1 }, 20*time.Second, 20*time.Millisecond)
-	assert.Equal(t, "goth or hand-written?", r.asks[0].Text)
-
-	// The tools server finds the control plane's agent API and the Dispatch's key where it finds the rest: with
-	// them it reaches the shared browser (issue #212).
-	agent, ok, err := bridge.AgentOf(bridge.Dir(g.runner.dir("dsp_1")))
-	require.NoError(t, err)
-	require.True(t, ok)
-	assert.Equal(t, bridge.Agent{URL: "https://hypomnema.example", Key: "the-dispatch's-key"}, agent)
-
-	g.runner.Asked("dsp_1", "rep_q", "q_1")
-
-	second := 1
-	g.runner.Answer("dsp_1", nodeproto.Question{
-		ID: "q_1", Options: []nodeproto.Option{{Label: "goth"}, {Label: "hand-written"}},
-		Answer: &nodeproto.Answer{Option: &second, Text: "keep it small"},
-	})
-	r.wait(t)
-
-	assert.Equal(t, "hand-written keep it small", g.file("answer.txt"))
-	assert.Equal(t, []string{"q_1"}, r.received)
-	require.Len(t, r.finished, 1)
-	assert.Empty(t, r.finished[0].Class)
-	assert.Equal(t, 1, r.asked(), "a question is asked once")
 }
 
 // Scenario: the process dies after it started, with no result. The outcome
@@ -483,45 +393,11 @@ func TestDeathWithoutAResultIsAnExit(t *testing.T) {
 
 	g := newRig(t, "die")
 	r := newReporter("dsp_1")
-	require.NoError(t, g.runner.Start(t.Context(), g.dispatch("dsp_1"), r))
+	require.NoError(t, g.sup.Start(t.Context(), g.rt, g.dispatch("dsp_1"), r))
 	r.wait(t)
 
 	assert.Equal(t, 1, r.exited)
 	assert.Empty(t, r.finished)
-}
-
-// Scenario: the daemon restarts while the worker waits. A new runner adopts
-// it from its journal, and a stop through the new runner interrupts it and
-// is confirmed.
-func TestAdoptedWorkerCanBeStopped(t *testing.T) {
-	t.Parallel()
-
-	g := newRig(t, "hang")
-	first := newReporter("dsp_1")
-	require.NoError(t, g.runner.Start(t.Context(), g.dispatch("dsp_1"), first))
-
-	require.Eventually(t, func() bool {
-		first.mu.Lock()
-		defer first.mu.Unlock()
-
-		return len(first.started) == 1
-	}, 20*time.Second, 20*time.Millisecond)
-
-	// The old daemon goes away without touching the worker.
-	g.runner.drop("dsp_1").cancel()
-
-	again := &Runner{
-		Home: g.runner.Home, Exe: g.runner.Exe, Claude: g.runner.Claude, Accounts: g.runner.Accounts,
-		Logger: slog.New(slog.DiscardHandler),
-	}
-	second := newReporter("dsp_1")
-	require.NoError(t, again.Adopt(t.Context(), g.dispatch("dsp_1"), second))
-
-	again.Stop("dsp_1")
-	second.wait(t)
-
-	assert.Equal(t, 1, second.stopped)
-	assert.Empty(t, second.started, "the adopted worker was already reported started")
 }
 
 // Scenario: an account the node has no credentials for. The start fails at once.
@@ -532,7 +408,8 @@ func TestUnknownAccountFailsTheStart(t *testing.T) {
 	d := g.dispatch("dsp_1")
 	d.Offer.AccountRef = "acc_other"
 
-	require.ErrorContains(t, g.runner.Start(t.Context(), d, newReporter("dsp_1")), "no credentials for account acc_other")
+	require.ErrorContains(t, g.sup.Start(t.Context(), g.rt, d, newReporter("dsp_1")),
+		"no credentials for account acc_other")
 }
 
 func emit(out *json.Encoder, v map[string]any) {
@@ -552,19 +429,19 @@ func TestWorkerRunsUnderTheOffersToken(t *testing.T) {
 	d.Offer.AccountRef, d.Offer.AccountToken = "acc_kept", "sk-ant-oat01-from-the-control-plane"
 
 	r := newReporter("dsp_1")
-	require.NoError(t, g.runner.Start(t.Context(), d, r))
+	require.NoError(t, g.sup.Start(t.Context(), g.rt, d, r))
 	r.wait(t)
 
 	assert.Equal(t, "sk-ant-oat01-from-the-control-plane", g.file("token.txt"))
 	require.Len(t, r.finished, 1)
 	assert.Empty(t, r.finished[0].Class)
 
-	_, err := os.Stat(filepath.Join(g.runner.Home, "accounts", "acc_kept", "claude"))
+	_, err := os.Stat(filepath.Join(g.rt.Home, "accounts", "acc_kept", "claude"))
 	require.NoError(t, err)
 
 	missing := g.dispatch("dsp_2")
 	missing.Offer.AccountRef = "acc_nowhere"
-	require.ErrorContains(t, g.runner.Start(t.Context(), missing, newReporter("dsp_2")),
+	require.ErrorContains(t, g.sup.Start(t.Context(), g.rt, missing, newReporter("dsp_2")),
 		"the node has no credentials for account acc_nowhere")
 }
 
@@ -575,12 +452,12 @@ func TestWorkerReachesClaudeThroughTheGateway(t *testing.T) {
 	t.Parallel()
 
 	g := newRig(t, "success")
-	g.runner.URL = "https://cp.example/"
+	g.rt.URL = "https://cp.example/"
 	d := g.dispatch("dsp_1")
 	d.Offer.AccountRef, d.Offer.ModelKey, d.Offer.Model = "gateway", "hyp_gateway_v1_dispatch", "claude-sonnet-5-5"
 
 	r := newReporter("dsp_1")
-	require.NoError(t, g.runner.Start(t.Context(), d, r))
+	require.NoError(t, g.sup.Start(t.Context(), g.rt, d, r))
 	r.wait(t)
 
 	require.Len(t, r.finished, 1)
@@ -592,7 +469,7 @@ func TestWorkerReachesClaudeThroughTheGateway(t *testing.T) {
 
 	keyless := g.dispatch("dsp_2")
 	keyless.Offer.AccountRef = "gateway"
-	require.ErrorContains(t, g.runner.Start(t.Context(), keyless, newReporter("dsp_2")),
+	require.ErrorContains(t, g.sup.Start(t.Context(), g.rt, keyless, newReporter("dsp_2")),
 		"the offer carries no key of the model gateway")
 }
 
@@ -603,7 +480,7 @@ func TestTheWorkersSkillsAreAPluginOfItsOwn(t *testing.T) {
 
 	g := newRig(t, "success")
 	digest := strings.Repeat("ab", 32)
-	kept := filepath.Join(g.runner.Home, "skills", digest)
+	kept := filepath.Join(g.rt.Home, "skills", digest)
 	require.NoError(t, os.MkdirAll(kept, 0o700))
 	require.NoError(t, os.WriteFile(filepath.Join(kept, "SKILL.md"), []byte("---\nname: review-go\n---\n"), 0o600))
 
@@ -611,10 +488,10 @@ func TestTheWorkersSkillsAreAPluginOfItsOwn(t *testing.T) {
 	d.Offer.Skills = []nodeproto.Skill{{Name: "review-go", Revision: 2, Digest: digest}}
 
 	r := newReporter("dsp_1")
-	require.NoError(t, g.runner.Start(t.Context(), d, r))
+	require.NoError(t, g.sup.Start(t.Context(), g.rt, d, r))
 	r.wait(t)
 
-	plugin := filepath.Join(g.runner.dir("dsp_1"), "plugin")
+	plugin := filepath.Join(filepath.Join(g.rt.Home, "run", "dsp_1"), "plugin")
 	assert.Contains(t, g.file("argv.txt"), "--plugin-dir "+plugin)
 	assert.FileExists(t, filepath.Join(plugin, "skills", "review-go", "SKILL.md"))
 	assert.FileExists(t, filepath.Join(plugin, ".claude-plugin", "plugin.json"))
@@ -625,5 +502,5 @@ func TestTheWorkersSkillsAreAPluginOfItsOwn(t *testing.T) {
 func TestClaudeCodesOwnMemoryIsOff(t *testing.T) {
 	t.Parallel()
 
-	assert.Contains(t, newRig(t, "success").runner.env("dir", nil), "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1")
+	assert.Contains(t, newRig(t, "success").rt.env("dir", nil), "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1")
 }

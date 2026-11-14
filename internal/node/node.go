@@ -225,10 +225,9 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 	}
 	defer db.Close() //nolint:errcheck // Closing at shutdown; nothing is left to report it to.
 
-	claudeRunner := &claude.Runner{
-		Home: home, Exe: exe, Claude: claudePath, URL: cfg.URL, Accounts: cfg.Accounts, Logger: logger,
-		Worktrees: worktree.Maker{Root: home, Logger: logger},
-	}
+	claudeRunner := supervised{s: &runner.Supervisor{
+		Home: home, Exe: exe, URL: cfg.URL, Logger: logger, Worktrees: worktree.Maker{Root: home, Logger: logger},
+	}, rt: &claude.ClaudeRuntime{Home: home, Exe: exe, Claude: claudePath, URL: cfg.URL, Accounts: cfg.Accounts}}
 
 	logger.InfoContext(ctx, "node starting", slog.String("event", "node.starting"), slog.String("url", cfg.URL),
 		slog.Int("runtimes", len(runtimes)), slog.Int("accounts", len(cfg.Accounts)))
