@@ -1522,7 +1522,83 @@ export type GatewayModel = {
    * Where it is served from, tried in order.
    */
   targets: Array<GatewayModelTarget>;
+  attributes: GatewayModelAttributes;
   updated_at: string;
+};
+
+/**
+ * What a client needs to know of the model, each value with where it came from: set in the model's YAML, from models.dev for the model of its first target, or unknown.
+ */
+export type GatewayModelAttributes = {
+  context_window: GatewayModelTokens;
+  max_output: GatewayModelTokens;
+  input: GatewayModelInput;
+  reasoning: GatewayModelReasoning;
+  efforts: GatewayModelEfforts;
+  price?: GatewayModelPrice;
+};
+
+/**
+ * Where a value comes from; codex is the window Codex itself gives a Codex subscription's model.
+ */
+export type GatewayModelSource = 'set' | 'models_dev' | 'codex' | 'unknown';
+
+export type GatewayModelInputKind = 'text' | 'image';
+
+export type GatewayModelEffort = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+
+export type GatewayModelTokens = {
+  /**
+   * The number of tokens used; absent when unknown.
+   */
+  value?: number;
+  source: GatewayModelSource;
+  /**
+   * What models.dev gives, when it gives one.
+   */
+  models_dev?: number;
+};
+
+export type GatewayModelInput = {
+  value?: Array<GatewayModelInputKind>;
+  source: GatewayModelSource;
+  models_dev?: Array<GatewayModelInputKind>;
+};
+
+export type GatewayModelReasoning = {
+  value?: boolean;
+  source: GatewayModelSource;
+  models_dev?: boolean;
+};
+
+/**
+ * Its reasoning effort levels, of those the gateway gives the provider of its first target as levels of their own.
+ */
+export type GatewayModelEfforts = {
+  value?: Array<GatewayModelEffort>;
+  source: GatewayModelSource;
+  models_dev?: Array<GatewayModelEffort>;
+};
+
+/**
+ * What its tokens cost at the vendor's API, in dollars per million tokens, as the gateway counts its usage; a cache price the vendor does not give is absent.
+ */
+export type GatewayModelPrice = {
+  input: number;
+  output: number;
+  cache_read?: number;
+  cache_write?: number;
+};
+
+/**
+ * The attributes the model's YAML sets; one left out comes from models.dev.
+ */
+export type GatewayModelSettings = {
+  context_window?: number;
+  max_output?: number;
+  input?: Array<GatewayModelInputKind>;
+  reasoning?: boolean;
+  efforts?: Array<GatewayModelEffort>;
 };
 
 export type GatewayModelList = {
@@ -4769,6 +4845,36 @@ export type ListGatewayModelsResponses = {
 };
 
 export type ListGatewayModelsResponse = ListGatewayModelsResponses[keyof ListGatewayModelsResponses];
+
+export type SetGatewayModelAttributesData = {
+  body: GatewayModelSettings;
+  path: {
+    /**
+     * The model's public name; a slash in it is sent as %2F.
+     */
+    model: string;
+  };
+  query?: never;
+  url: '/gateway/models/{model}/attributes';
+};
+
+export type SetGatewayModelAttributesErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type SetGatewayModelAttributesError = SetGatewayModelAttributesErrors[keyof SetGatewayModelAttributesErrors];
+
+export type SetGatewayModelAttributesResponses = {
+  /**
+   * The model, its attributes resolved again.
+   */
+  200: GatewayModel;
+};
+
+export type SetGatewayModelAttributesResponse = SetGatewayModelAttributesResponses[keyof SetGatewayModelAttributesResponses];
 
 export type ListGatewayKeysData = {
   body?: never;

@@ -72,6 +72,7 @@ import { modelName } from "@/lib/model-name"
 import { since } from "@/lib/time"
 
 import { AccountSignInDialog, type SignInRuntime } from "./account-sign-in"
+import { GatewayModels } from "./gateway-models"
 import {
   accountState,
   apiProvidersOf,
@@ -86,6 +87,7 @@ import {
   limitsKey,
   useAccountLimits,
   useAccounts,
+  useGatewayModels,
   useProviders,
   useRefreshAccounts,
   useRefreshLimits,
@@ -94,12 +96,12 @@ import {
 // ModelsScreen is where the owner sees where models come from and looks after the accounts they are served
 // from (issue #199). A subscription is a card with its accounts as rows, as an Integrations card has its
 // accounts and as 9router's provider page (providers/[id]/ConnectionRow.js), OpenClaw's model providers
-// (ui/src/pages/model-providers) and Orca's accounts pane (settings/accounts) have theirs. What the server
-// cannot change yet is not here: the gateway's models and where each is served from come back with the
-// step that edits them (the owner asked what the read-only table was for, 2026-11-12).
+// (ui/src/pages/model-providers) and Orca's accounts pane (settings/accounts) have theirs. The gateway's models
+// come with the step that edits them (issue #367): where each is served from and what a client is told of it.
 export function ModelsScreen() {
   const accounts = useAccounts()
   const providers = useProviders()
+  const gatewayModels = useGatewayModels()
 
   const subscriptions = subscriptionsOf(providers.data ?? [], accounts.data ?? [])
   const apis = apiProvidersOf(providers.data ?? [])
@@ -110,7 +112,7 @@ export function ModelsScreen() {
       title="Models"
       description="Where models come from: the subscriptions and providers the gateway serves agents from."
     >
-      <ErrorAlert error={accounts.error ?? providers.error} />
+      <ErrorAlert error={accounts.error ?? providers.error ?? gatewayModels.error} />
       {loading ? (
         <p className="py-10 text-center text-sm text-muted-foreground">Loading…</p>
       ) : (
@@ -129,6 +131,17 @@ export function ModelsScreen() {
               ))
             )}
           </Section>
+
+          {(gatewayModels.data?.length ?? 0) > 0 && (
+            <Section
+              id="gateway-models"
+              icon={Box}
+              title="Gateway models"
+              note="What the gateway serves and what clients such as pi are told of each: from models.dev unless the model sets its own."
+            >
+              <GatewayModels models={gatewayModels.data ?? []} />
+            </Section>
+          )}
 
           {apis.length > 0 && (
             <Section

@@ -84,10 +84,9 @@ import { since } from "@/lib/time"
 
 import { pickGroups } from "./gateway-keys-state"
 import { GatewayModelPicker } from "./gateway-model-picker"
-import { useProviders } from "./use-models"
+import { gatewayModelsKey, useProviders } from "./use-models"
 
 const keysKey = ["gateway-keys"] as const
-const modelsKey = ["gateway-models"] as const
 
 // The name the gateway gives to "every model".
 const every = "*"
@@ -432,7 +431,7 @@ function CreateKey() {
   const formId = useId()
 
   const models = useQuery({
-    queryKey: modelsKey,
+    queryKey: gatewayModelsKey,
     queryFn: async () => (await listGatewayModels()).data.data,
     enabled: open,
   })

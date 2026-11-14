@@ -168,6 +168,14 @@ type servedModels []modelgateway.Model
 
 func (m servedModels) ListModels(context.Context) ([]modelgateway.Model, error) { return m, nil }
 
+func (servedModels) Resolve(context.Context, modelgateway.Model) (modelgateway.Resolved, error) {
+	return modelgateway.Resolved{}, nil
+}
+
+func (servedModels) SetAttributes(context.Context, string, modelgateway.Attributes) (modelgateway.Model, error) {
+	return modelgateway.Model{}, modelgateway.ErrNotFound
+}
+
 // Scenario: the owner opens the Models page (issue #199). Each account shows
 // whether it is in use and the state of its sign-in; the owner takes one out
 // of use, puts it back, and removes the one that was signed in here. The one

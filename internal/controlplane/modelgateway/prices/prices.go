@@ -4,6 +4,11 @@
 // request is reckoned from it as 9router-go and Coder reckon theirs
 // (internal/pricing/cost.go, aibridgedserver/cost.go). For a subscription it
 // is what the same tokens would cost at the API, not what the plan costs.
+//
+// The book also keeps what models.dev says of each model a client needs to
+// know (issue #367): its context window, largest output, inputs, whether it
+// reasons and its effort levels, which the gateway gives a model that does
+// not set its own (Find).
 package prices
 
 import (
@@ -28,6 +33,23 @@ type Price struct {
 	CacheWrite *int64 `json:"cache_write"`
 }
 
+// Model is what the book holds of a model: its price, and what models.dev
+// says of it. A value models.dev does not give is nil or empty.
+type Model struct {
+	Price
+
+	Context   *int64 `json:"context"`
+	MaxOutput *int64 `json:"max_output"`
+	// Inputs are the inputs it takes of text and image.
+	Inputs    []string `json:"inputs"`
+	Reasoning *bool    `json:"reasoning"`
+	// Efforts are its reasoning effort levels, as models.dev names them.
+	Efforts []string `json:"efforts"`
+}
+
+// priced reports whether models.dev gives the model a price.
+func (m Model) priced() bool { return m.Input != nil && m.Output != nil }
+
 // Tokens are a request's counts. Input includes what was read from and
 // written to the cache, as the gateway records it.
 type Tokens struct {
@@ -36,22 +58,22 @@ type Tokens struct {
 
 var (
 	once    sync.Once
-	byModel map[string]map[string]Price // vendor → model → price
+	byModel map[string]map[string]Model // vendor → model
 	errLoad error
 )
 
 func load() {
-	var all []Price
+	var all []Model
 	if errLoad = json.Unmarshal(book, &all); errLoad != nil {
 		errLoad = fmt.Errorf("reading the price book: %w", errLoad)
 
 		return
 	}
 
-	byModel = map[string]map[string]Price{}
+	byModel = map[string]map[string]Model{}
 	for _, p := range all {
 		if byModel[p.Vendor] == nil {
-			byModel[p.Vendor] = map[string]Price{}
+			byModel[p.Vendor] = map[string]Model{}
 		}
 
 		byModel[p.Vendor][p.Model] = p
@@ -86,14 +108,26 @@ func vendorsOf(kind, model string) []string {
 	return out
 }
 
-// Lookup finds the price of the first of models found under the provider's
+// Lookup finds the price of the first of models priced under the provider's
 // vendors: the model asked for first, then the provider's own model, as
 // Coder looks a price up (GetAIModelPriceForProvider).
 func Lookup(kind string, models ...string) (Price, bool) {
+	m, ok := find(kind, Model.priced, models)
+
+	return m.Price, ok
+}
+
+// Find returns what the book holds of the first of models found under the
+// provider's vendors, as Lookup looks a price up.
+func Find(kind string, models ...string) (Model, bool) {
+	return find(kind, func(Model) bool { return true }, models)
+}
+
+func find(kind string, keep func(Model) bool, models []string) (Model, bool) {
 	once.Do(load)
 
 	if errLoad != nil {
-		return Price{}, false
+		return Model{}, false
 	}
 
 	for _, model := range models {
@@ -102,13 +136,13 @@ func Lookup(kind string, models ...string) (Price, bool) {
 		}
 
 		for _, vendor := range vendorsOf(kind, model) {
-			if p, ok := byModel[vendor][model]; ok {
-				return p, true
+			if m, ok := byModel[vendor][model]; ok && keep(m) {
+				return m, true
 			}
 		}
 	}
 
-	return Price{}, false
+	return Model{}, false
 }
 
 // Cost is what tokens cost at a price, in micro-dollars: the input not read

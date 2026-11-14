@@ -1409,6 +1409,31 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/GatewayModelList" }
         default: { $ref: "#/components/responses/Error" }
+  /gateway/models/{model}/attributes:
+    parameters:
+      - name: model
+        in: path
+        required: true
+        description: The model's public name; a slash in it is sent as %2F.
+        schema: { type: string, minLength: 1, maxLength: 100 }
+    put:
+      operationId: SetGatewayModelAttributes
+      summary: Set a gateway model's attributes in its YAML; one left out comes from models.dev; only the owner
+      description: >-
+        The model's targets and the rest of its YAML stay as they are. An
+        effort level the provider of its first target does not take is 400.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/GatewayModelSettings" }
+      responses:
+        "200":
+          description: The model, its attributes resolved again.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/GatewayModel" }
+        default: { $ref: "#/components/responses/Error" }
   /gateway/keys:
     get:
       operationId: ListGatewayKeys
@@ -4573,7 +4598,7 @@ components:
         upstream_model: { type: string }
     GatewayModel:
       type: object
-      required: [name, targets, updated_at]
+      required: [name, targets, attributes, updated_at]
       properties:
         name:
           type: string
@@ -4582,7 +4607,105 @@ components:
           type: array
           description: Where it is served from, tried in order.
           items: { $ref: "#/components/schemas/GatewayModelTarget" }
+        attributes: { $ref: "#/components/schemas/GatewayModelAttributes" }
         updated_at: { type: string, format: date-time }
+    GatewayModelAttributes:
+      type: object
+      description: >-
+        What a client needs to know of the model, each value with where it came
+        from: set in the model's YAML, from models.dev for the model of its
+        first target, or unknown.
+      required: [context_window, max_output, input, reasoning, efforts]
+      properties:
+        context_window: { $ref: "#/components/schemas/GatewayModelTokens" }
+        max_output: { $ref: "#/components/schemas/GatewayModelTokens" }
+        input: { $ref: "#/components/schemas/GatewayModelInput" }
+        reasoning: { $ref: "#/components/schemas/GatewayModelReasoning" }
+        efforts: { $ref: "#/components/schemas/GatewayModelEfforts" }
+        price: { $ref: "#/components/schemas/GatewayModelPrice" }
+    GatewayModelSource:
+      type: string
+      description: Where a value comes from; codex is the window Codex itself gives a Codex subscription's model.
+      enum: [set, models_dev, codex, unknown]
+    GatewayModelInputKind:
+      type: string
+      enum: [text, image]
+    GatewayModelEffort:
+      type: string
+      enum: [none, minimal, low, medium, high, xhigh, max]
+    GatewayModelTokens:
+      type: object
+      required: [source]
+      properties:
+        value:
+          type: integer
+          format: int64
+          description: The number of tokens used; absent when unknown.
+        source: { $ref: "#/components/schemas/GatewayModelSource" }
+        models_dev:
+          type: integer
+          format: int64
+          description: What models.dev gives, when it gives one.
+    GatewayModelInput:
+      type: object
+      required: [source]
+      properties:
+        value:
+          type: array
+          items: { $ref: "#/components/schemas/GatewayModelInputKind" }
+        source: { $ref: "#/components/schemas/GatewayModelSource" }
+        models_dev:
+          type: array
+          items: { $ref: "#/components/schemas/GatewayModelInputKind" }
+    GatewayModelReasoning:
+      type: object
+      required: [source]
+      properties:
+        value: { type: boolean }
+        source: { $ref: "#/components/schemas/GatewayModelSource" }
+        models_dev: { type: boolean }
+    GatewayModelEfforts:
+      type: object
+      required: [source]
+      description: >-
+        Its reasoning effort levels, of those the gateway gives the provider of
+        its first target as levels of their own.
+      properties:
+        value:
+          type: array
+          items: { $ref: "#/components/schemas/GatewayModelEffort" }
+        source: { $ref: "#/components/schemas/GatewayModelSource" }
+        models_dev:
+          type: array
+          items: { $ref: "#/components/schemas/GatewayModelEffort" }
+    GatewayModelPrice:
+      type: object
+      description: >-
+        What its tokens cost at the vendor's API, in dollars per million tokens,
+        as the gateway counts its usage; a cache price the vendor does not give
+        is absent.
+      required: [input, output]
+      properties:
+        input: { type: number, format: double }
+        output: { type: number, format: double }
+        cache_read: { type: number, format: double }
+        cache_write: { type: number, format: double }
+    GatewayModelSettings:
+      type: object
+      additionalProperties: false
+      description: The attributes the model's YAML sets; one left out comes from models.dev.
+      properties:
+        context_window: { type: integer, format: int64, minimum: 1 }
+        max_output: { type: integer, format: int64, minimum: 1 }
+        input:
+          type: array
+          maxItems: 2
+          items: { $ref: "#/components/schemas/GatewayModelInputKind" }
+        reasoning: { type: boolean }
+        efforts:
+          type: array
+          maxItems: 7
+          items: { $ref: "#/components/schemas/GatewayModelEffort" }
     GatewayModelList:
       type: object
       required: [data]

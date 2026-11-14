@@ -120,9 +120,12 @@ type Accounts interface {
 	Complete(ctx context.Context, a *subscription.Attempt, pasted, label string) (subscription.Account, error)
 }
 
-// GatewayModels lists the models the model gateway serves.
+// GatewayModels lists the models the model gateway serves, gives their
+// attributes and sets the ones the owner sets (modelgateway.Service).
 type GatewayModels interface {
 	ListModels(ctx context.Context) ([]modelgateway.Model, error)
+	Resolve(ctx context.Context, m modelgateway.Model) (modelgateway.Resolved, error)
+	SetAttributes(ctx context.Context, name string, a modelgateway.Attributes) (modelgateway.Model, error)
 }
 
 // GatewayKeys makes, lists and revokes the keys clients give the gateway
@@ -161,7 +164,8 @@ func (s *Server) WithAccounts(a Accounts) *Server {
 	return s
 }
 
-// WithGatewayModels lets the API list what the model gateway serves.
+// WithGatewayModels lets the API list what the model gateway serves and set
+// its models' attributes.
 func (s *Server) WithGatewayModels(m GatewayModels) *Server {
 	s.gatewayModels = m
 

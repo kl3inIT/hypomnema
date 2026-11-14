@@ -5,7 +5,21 @@
     "input": 10000000,
     "output": 50000000,
     "cache_read": 1000000,
-    "cache_write": 12500000
+    "cache_write": 12500000,
+    "context": 1000000,
+    "max_output": 128000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+    ]
   },
   {
     "vendor": "anthropic",
@@ -13,7 +27,21 @@
     "input": 10000000,
     "output": 50000000,
     "cache_read": 250000,
-    "cache_write": 12500000
+    "cache_write": 12500000,
+    "context": 1000000,
+    "max_output": 128000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+    ]
   },
   {
     "vendor": "anthropic",
@@ -21,7 +49,21 @@
     "input": 8000000,
     "output": 40000000,
     "cache_read": 200000,
-    "cache_write": 10000000
+    "cache_write": 10000000,
+    "context": 1000000,
+    "max_output": 128000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+    ]
   },
   {
     "vendor": "anthropic",
@@ -29,7 +71,14 @@
     "input": 1000000,
     "output": 5000000,
     "cache_read": 100000,
-    "cache_write": 1250000
+    "cache_write": 1250000,
+    "context": 200000,
+    "max_output": 64000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true
   },
   {
     "vendor": "anthropic",
@@ -37,7 +86,14 @@
     "input": 1000000,
     "output": 5000000,
     "cache_read": 100000,
-    "cache_write": 1250000
+    "cache_write": 1250000,
+    "context": 200000,
+    "max_output": 64000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true
   },
   {
     "vendor": "anthropic",
@@ -45,7 +101,21 @@
     "input": 100000,
     "output": 500000,
     "cache_read": 10000,
-    "cache_write": 125000
+    "cache_write": 125000,
+    "context": 1000000,
+    "max_output": 128000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+    ]
   },
   {
     "vendor": "anthropic",
@@ -53,7 +123,19 @@
     "input": 5000000,
     "output": 25000000,
     "cache_read": 500000,
-    "cache_write": 6250000
+    "cache_write": 6250000,
+    "context": 200000,
+    "max_output": 64000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "low",
+      "medium",
+      "high"
+    ]
   },
   {
     "vendor": "anthropic",
@@ -61,7 +143,19 @@
     "input": 5000000,
     "output": 25000000,
     "cache_read": 500000,
-    "cache_write": 6250000
+    "cache_write": 6250000,
+    "context": 200000,
+    "max_output": 64000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "low",
+      "medium",
+      "high"
+    ]
   },
   {
     "vendor": "anthropic",
@@ -69,7 +163,20 @@
     "input": 5000000,
     "output": 25000000,
     "cache_read": 500000,
-    "cache_write": 6250000
+    "cache_write": 6250000,
+    "context": 1000000,
+    "max_output": 128000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "low",
+      "medium",
+      "high",
+      "max"
+    ]
   },
   {
     "vendor": "anthropic",
@@ -77,7 +184,21 @@
     "input": 5000000,
     "output": 25000000,
     "cache_read": 500000,
-    "cache_write": 6250000
+    "cache_write": 6250000,
+    "context": 1000000,
+    "max_output": 128000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+    ]
   },
   {
     "vendor": "anthropic",
@@ -85,7 +206,21 @@
     "input": 5000000,
     "output": 25000000,
     "cache_read": 500000,
-    "cache_write": 6250000
+    "cache_write": 6250000,
+    "context": 1000000,
+    "max_output": 128000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+    ]
   },
   {
     "vendor": "anthropic",
@@ -93,7 +228,21 @@
     "input": 5000000,
     "output": 25000000,
     "cache_read": 500000,
-    "cache_write": 6250000
+    "cache_write": 6250000,
+    "context": 1000000,
+    "max_output": 128000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+    ]
   },
   {
     "vendor": "anthropic",
@@ -101,7 +250,21 @@
     "input": 4000000,
     "output": 20000000,
     "cache_read": 200000,
-    "cache_write": 5000000
+    "cache_write": 5000000,
+    "context": 1000000,
+    "max_output": 128000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+    ]
   },
   {
     "vendor": "anthropic",
@@ -109,7 +272,14 @@
     "input": 3000000,
     "output": 15000000,
     "cache_read": 300000,
-    "cache_write": 3750000
+    "cache_write": 3750000,
+    "context": 200000,
+    "max_output": 64000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true
   },
   {
     "vendor": "anthropic",
@@ -117,7 +287,14 @@
     "input": 3000000,
     "output": 15000000,
     "cache_read": 300000,
-    "cache_write": 3750000
+    "cache_write": 3750000,
+    "context": 200000,
+    "max_output": 64000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true
   },
   {
     "vendor": "anthropic",
@@ -125,7 +302,20 @@
     "input": 3000000,
     "output": 15000000,
     "cache_read": 300000,
-    "cache_write": 3750000
+    "cache_write": 3750000,
+    "context": 1000000,
+    "max_output": 128000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "low",
+      "medium",
+      "high",
+      "max"
+    ]
   },
   {
     "vendor": "anthropic",
@@ -133,7 +323,21 @@
     "input": 2000000,
     "output": 10000000,
     "cache_read": 200000,
-    "cache_write": 2500000
+    "cache_write": 2500000,
+    "context": 1000000,
+    "max_output": 128000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+    ]
   },
   {
     "vendor": "anthropic",
@@ -141,7 +345,21 @@
     "input": 2000000,
     "output": 10000000,
     "cache_read": 100000,
-    "cache_write": 2500000
+    "cache_write": 2500000,
+    "context": 1000000,
+    "max_output": 128000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+    ]
   },
   {
     "vendor": "google",
@@ -149,7 +367,14 @@
     "input": 2000000,
     "output": 12000000,
     "cache_read": 200000,
-    "cache_write": null
+    "cache_write": null,
+    "context": 1048576,
+    "max_output": 65536,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true
   },
   {
     "vendor": "google",
@@ -157,7 +382,14 @@
     "input": 2000000,
     "output": 12000000,
     "cache_read": 200000,
-    "cache_write": null
+    "cache_write": null,
+    "context": 1048576,
+    "max_output": 65536,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true
   },
   {
     "vendor": "google",
@@ -165,7 +397,14 @@
     "input": 1250000,
     "output": 10000000,
     "cache_read": null,
-    "cache_write": null
+    "cache_write": null,
+    "context": 128000,
+    "max_output": 64000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true
   },
   {
     "vendor": "google",
@@ -173,7 +412,14 @@
     "input": 300000,
     "output": 2500000,
     "cache_read": 30000,
-    "cache_write": null
+    "cache_write": null,
+    "context": 1048576,
+    "max_output": 65536,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true
   },
   {
     "vendor": "google",
@@ -181,7 +427,14 @@
     "input": 300000,
     "output": 30000000,
     "cache_read": 75000,
-    "cache_write": null
+    "cache_write": null,
+    "context": 32768,
+    "max_output": 32768,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": false
   },
   {
     "vendor": "google",
@@ -189,7 +442,14 @@
     "input": 100000,
     "output": 400000,
     "cache_read": 10000,
-    "cache_write": null
+    "cache_write": null,
+    "context": 1048576,
+    "max_output": 65536,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true
   },
   {
     "vendor": "google",
@@ -197,7 +457,13 @@
     "input": 500000,
     "output": 10000000,
     "cache_read": null,
-    "cache_write": null
+    "cache_write": null,
+    "context": 8192,
+    "max_output": 16384,
+    "inputs": [
+      "text"
+    ],
+    "reasoning": false
   },
   {
     "vendor": "google",
@@ -205,7 +471,14 @@
     "input": 1250000,
     "output": 10000000,
     "cache_read": 125000,
-    "cache_write": null
+    "cache_write": null,
+    "context": 1048576,
+    "max_output": 65536,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true
   },
   {
     "vendor": "google",
@@ -213,7 +486,13 @@
     "input": 1000000,
     "output": 20000000,
     "cache_read": null,
-    "cache_write": null
+    "cache_write": null,
+    "context": 8192,
+    "max_output": 16384,
+    "inputs": [
+      "text"
+    ],
+    "reasoning": false
   },
   {
     "vendor": "google",
@@ -221,7 +500,20 @@
     "input": 500000,
     "output": 3000000,
     "cache_read": 50000,
-    "cache_write": null
+    "cache_write": null,
+    "context": 1048576,
+    "max_output": 65536,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "minimal",
+      "low",
+      "medium",
+      "high"
+    ]
   },
   {
     "vendor": "google",
@@ -229,7 +521,18 @@
     "input": 2000000,
     "output": 120000000,
     "cache_read": null,
-    "cache_write": null
+    "cache_write": null,
+    "context": 65536,
+    "max_output": 32768,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "low",
+      "high"
+    ]
   },
   {
     "vendor": "google",
@@ -237,7 +540,18 @@
     "input": 500000,
     "output": 60000000,
     "cache_read": null,
-    "cache_write": null
+    "cache_write": null,
+    "context": 131072,
+    "max_output": 32768,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "minimal",
+      "high"
+    ]
   },
   {
     "vendor": "google",
@@ -245,7 +559,20 @@
     "input": 250000,
     "output": 1500000,
     "cache_read": 25000,
-    "cache_write": null
+    "cache_write": null,
+    "context": 1048576,
+    "max_output": 65536,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "minimal",
+      "low",
+      "medium",
+      "high"
+    ]
   },
   {
     "vendor": "google",
@@ -253,7 +580,18 @@
     "input": 250000,
     "output": 30000000,
     "cache_read": null,
-    "cache_write": null
+    "cache_write": null,
+    "context": 65536,
+    "max_output": 4096,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "minimal",
+      "high"
+    ]
   },
   {
     "vendor": "google",
@@ -261,7 +599,20 @@
     "input": 250000,
     "output": 1500000,
     "cache_read": 25000,
-    "cache_write": null
+    "cache_write": null,
+    "context": 1048576,
+    "max_output": 65536,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "minimal",
+      "low",
+      "medium",
+      "high"
+    ]
   },
   {
     "vendor": "google",
@@ -269,7 +620,20 @@
     "input": 750000,
     "output": 4500000,
     "cache_read": null,
-    "cache_write": null
+    "cache_write": null,
+    "context": 131072,
+    "max_output": 65536,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "minimal",
+      "low",
+      "medium",
+      "high"
+    ]
   },
   {
     "vendor": "google",
@@ -277,7 +641,13 @@
     "input": 1000000,
     "output": 20000000,
     "cache_read": null,
-    "cache_write": null
+    "cache_write": null,
+    "context": 8192,
+    "max_output": 16384,
+    "inputs": [
+      "text"
+    ],
+    "reasoning": true
   },
   {
     "vendor": "google",
@@ -285,7 +655,19 @@
     "input": 2000000,
     "output": 12000000,
     "cache_read": 200000,
-    "cache_write": null
+    "cache_write": null,
+    "context": 1048576,
+    "max_output": 65536,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "low",
+      "medium",
+      "high"
+    ]
   },
   {
     "vendor": "google",
@@ -293,7 +675,19 @@
     "input": 2000000,
     "output": 12000000,
     "cache_read": 200000,
-    "cache_write": null
+    "cache_write": null,
+    "context": 1048576,
+    "max_output": 65536,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "low",
+      "medium",
+      "high"
+    ]
   },
   {
     "vendor": "google",
@@ -301,7 +695,20 @@
     "input": 1500000,
     "output": 9000000,
     "cache_read": 150000,
-    "cache_write": null
+    "cache_write": null,
+    "context": 1048576,
+    "max_output": 65536,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "minimal",
+      "low",
+      "medium",
+      "high"
+    ]
   },
   {
     "vendor": "google",
@@ -309,7 +716,20 @@
     "input": 300000,
     "output": 2500000,
     "cache_read": 30000,
-    "cache_write": null
+    "cache_write": null,
+    "context": 1048576,
+    "max_output": 65536,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "minimal",
+      "low",
+      "medium",
+      "high"
+    ]
   },
   {
     "vendor": "google",
@@ -317,7 +737,10 @@
     "input": 3500000,
     "output": 21000000,
     "cache_read": null,
-    "cache_write": null
+    "cache_write": null,
+    "context": 16384,
+    "max_output": 32768,
+    "reasoning": false
   },
   {
     "vendor": "google",
@@ -325,7 +748,20 @@
     "input": 750000,
     "output": 3750000,
     "cache_read": 75000,
-    "cache_write": null
+    "cache_write": null,
+    "context": 1048576,
+    "max_output": 65536,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "minimal",
+      "low",
+      "medium",
+      "high"
+    ]
   },
   {
     "vendor": "google",
@@ -333,7 +769,19 @@
     "input": 750000,
     "output": 3750000,
     "cache_read": 75000,
-    "cache_write": null
+    "cache_write": null,
+    "context": 1048576,
+    "max_output": 65536,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "low",
+      "medium",
+      "high"
+    ]
   },
   {
     "vendor": "google",
@@ -341,7 +789,19 @@
     "input": 750000,
     "output": 3750000,
     "cache_read": 75000,
-    "cache_write": null
+    "cache_write": null,
+    "context": 1048576,
+    "max_output": 65536,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "low",
+      "medium",
+      "high"
+    ]
   },
   {
     "vendor": "google",
@@ -349,7 +809,19 @@
     "input": 2000000,
     "output": 10000000,
     "cache_read": 100000,
-    "cache_write": null
+    "cache_write": null,
+    "context": 1048576,
+    "max_output": 32768,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "low",
+      "medium",
+      "high"
+    ]
   },
   {
     "vendor": "google",
@@ -357,7 +829,19 @@
     "input": 2000000,
     "output": 10000000,
     "cache_read": 100000,
-    "cache_write": null
+    "cache_write": null,
+    "context": 1048576,
+    "max_output": 32768,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "low",
+      "medium",
+      "high"
+    ]
   },
   {
     "vendor": "google",
@@ -365,7 +849,20 @@
     "input": 1500000,
     "output": 7500000,
     "cache_read": 75000,
-    "cache_write": null
+    "cache_write": null,
+    "context": 1048576,
+    "max_output": 65536,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "low",
+      "medium",
+      "high",
+      "xhigh"
+    ]
   },
   {
     "vendor": "google",
@@ -373,7 +870,13 @@
     "input": 150000,
     "output": 0,
     "cache_read": null,
-    "cache_write": null
+    "cache_write": null,
+    "context": 2048,
+    "max_output": 1,
+    "inputs": [
+      "text"
+    ],
+    "reasoning": false
   },
   {
     "vendor": "google",
@@ -381,7 +884,14 @@
     "input": 200000,
     "output": 0,
     "cache_read": null,
-    "cache_write": null
+    "cache_write": null,
+    "context": 8192,
+    "max_output": 1,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": false
   },
   {
     "vendor": "google",
@@ -389,7 +899,19 @@
     "input": 750000,
     "output": 3750000,
     "cache_read": 75000,
-    "cache_write": null
+    "cache_write": null,
+    "context": 1048576,
+    "max_output": 65536,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "low",
+      "medium",
+      "high"
+    ]
   },
   {
     "vendor": "google",
@@ -397,7 +919,20 @@
     "input": 300000,
     "output": 2500000,
     "cache_read": 30000,
-    "cache_write": null
+    "cache_write": null,
+    "context": 1048576,
+    "max_output": 65536,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "minimal",
+      "low",
+      "medium",
+      "high"
+    ]
   },
   {
     "vendor": "google",
@@ -405,7 +940,19 @@
     "input": 2000000,
     "output": 12000000,
     "cache_read": 200000,
-    "cache_write": null
+    "cache_write": null,
+    "context": 1048576,
+    "max_output": 65536,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "low",
+      "medium",
+      "high"
+    ]
   },
   {
     "vendor": "google",
@@ -413,7 +960,14 @@
     "input": 0,
     "output": 0,
     "cache_read": null,
-    "cache_write": null
+    "cache_write": null,
+    "context": 262144,
+    "max_output": 32768,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true
   },
   {
     "vendor": "google",
@@ -421,7 +975,14 @@
     "input": 0,
     "output": 0,
     "cache_read": null,
-    "cache_write": null
+    "cache_write": null,
+    "context": 262144,
+    "max_output": 32768,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true
   },
   {
     "vendor": "google",
@@ -429,7 +990,14 @@
     "input": 0,
     "output": 0,
     "cache_read": null,
-    "cache_write": null
+    "cache_write": null,
+    "context": 1048576,
+    "max_output": 65536,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": false
   },
   {
     "vendor": "google",
@@ -437,7 +1005,14 @@
     "input": 0,
     "output": 0,
     "cache_read": null,
-    "cache_write": null
+    "cache_write": null,
+    "context": 1048576,
+    "max_output": 65536,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": false
   },
   {
     "vendor": "openai",
@@ -445,7 +1020,12 @@
     "input": 5000000,
     "output": 10000000,
     "cache_read": 1250000,
-    "cache_write": null
+    "cache_write": null,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": false
   },
   {
     "vendor": "openai",
@@ -453,7 +1033,13 @@
     "input": 500000,
     "output": 1500000,
     "cache_read": 0,
-    "cache_write": null
+    "cache_write": null,
+    "context": 16385,
+    "max_output": 4096,
+    "inputs": [
+      "text"
+    ],
+    "reasoning": false
   },
   {
     "vendor": "openai",
@@ -461,7 +1047,13 @@
     "input": 30000000,
     "output": 60000000,
     "cache_read": null,
-    "cache_write": null
+    "cache_write": null,
+    "context": 8192,
+    "max_output": 8192,
+    "inputs": [
+      "text"
+    ],
+    "reasoning": false
   },
   {
     "vendor": "openai",
@@ -469,7 +1061,14 @@
     "input": 10000000,
     "output": 30000000,
     "cache_read": null,
-    "cache_write": null
+    "cache_write": null,
+    "context": 128000,
+    "max_output": 4096,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": false
   },
   {
     "vendor": "openai",
@@ -477,7 +1076,14 @@
     "input": 2000000,
     "output": 8000000,
     "cache_read": 500000,
-    "cache_write": null
+    "cache_write": null,
+    "context": 1047576,
+    "max_output": 32768,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": false
   },
   {
     "vendor": "openai",
@@ -485,7 +1091,14 @@
     "input": 400000,
     "output": 1600000,
     "cache_read": 100000,
-    "cache_write": null
+    "cache_write": null,
+    "context": 1047576,
+    "max_output": 32768,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": false
   },
   {
     "vendor": "openai",
@@ -493,7 +1106,14 @@
     "input": 100000,
     "output": 400000,
     "cache_read": 25000,
-    "cache_write": null
+    "cache_write": null,
+    "context": 1047576,
+    "max_output": 32768,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": false
   },
   {
     "vendor": "openai",
@@ -501,7 +1121,14 @@
     "input": 2500000,
     "output": 10000000,
     "cache_read": 1250000,
-    "cache_write": null
+    "cache_write": null,
+    "context": 128000,
+    "max_output": 16384,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": false
   },
   {
     "vendor": "openai",
@@ -509,7 +1136,14 @@
     "input": 5000000,
     "output": 15000000,
     "cache_read": null,
-    "cache_write": null
+    "cache_write": null,
+    "context": 128000,
+    "max_output": 4096,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": false
   },
   {
     "vendor": "openai",
@@ -517,7 +1151,14 @@
     "input": 2500000,
     "output": 10000000,
     "cache_read": 1250000,
-    "cache_write": null
+    "cache_write": null,
+    "context": 128000,
+    "max_output": 16384,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": false
   },
   {
     "vendor": "openai",
@@ -525,7 +1166,14 @@
     "input": 2500000,
     "output": 10000000,
     "cache_read": 1250000,
-    "cache_write": null
+    "cache_write": null,
+    "context": 128000,
+    "max_output": 16384,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": false
   },
   {
     "vendor": "openai",
@@ -533,7 +1181,14 @@
     "input": 150000,
     "output": 600000,
     "cache_read": 75000,
-    "cache_write": null
+    "cache_write": null,
+    "context": 128000,
+    "max_output": 16384,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": false
   },
   {
     "vendor": "openai",
@@ -541,7 +1196,20 @@
     "input": 1250000,
     "output": 10000000,
     "cache_read": 125000,
-    "cache_write": null
+    "cache_write": null,
+    "context": 400000,
+    "max_output": 128000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "minimal",
+      "low",
+      "medium",
+      "high"
+    ]
   },
   {
     "vendor": "openai",
@@ -549,7 +1217,20 @@
     "input": 250000,
     "output": 2000000,
     "cache_read": 25000,
-    "cache_write": null
+    "cache_write": null,
+    "context": 400000,
+    "max_output": 128000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "minimal",
+      "low",
+      "medium",
+      "high"
+    ]
   },
   {
     "vendor": "openai",
@@ -557,7 +1238,20 @@
     "input": 50000,
     "output": 400000,
     "cache_read": 5000,
-    "cache_write": null
+    "cache_write": null,
+    "context": 400000,
+    "max_output": 128000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "minimal",
+      "low",
+      "medium",
+      "high"
+    ]
   },
   {
     "vendor": "openai",
@@ -565,7 +1259,17 @@
     "input": 15000000,
     "output": 120000000,
     "cache_read": null,
-    "cache_write": null
+    "cache_write": null,
+    "context": 400000,
+    "max_output": 272000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "high"
+    ]
   },
   {
     "vendor": "openai",
@@ -573,7 +1277,20 @@
     "input": 1250000,
     "output": 10000000,
     "cache_read": 125000,
-    "cache_write": null
+    "cache_write": null,
+    "context": 400000,
+    "max_output": 128000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "none",
+      "low",
+      "medium",
+      "high"
+    ]
   },
   {
     "vendor": "openai",
@@ -581,7 +1298,21 @@
     "input": 1750000,
     "output": 14000000,
     "cache_read": 175000,
-    "cache_write": null
+    "cache_write": null,
+    "context": 400000,
+    "max_output": 128000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "none",
+      "low",
+      "medium",
+      "high",
+      "xhigh"
+    ]
   },
   {
     "vendor": "openai",
@@ -589,7 +1320,19 @@
     "input": 21000000,
     "output": 168000000,
     "cache_read": null,
-    "cache_write": null
+    "cache_write": null,
+    "context": 400000,
+    "max_output": 128000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "medium",
+      "high",
+      "xhigh"
+    ]
   },
   {
     "vendor": "openai",
@@ -597,7 +1340,21 @@
     "input": 1750000,
     "output": 14000000,
     "cache_read": 175000,
-    "cache_write": null
+    "cache_write": null,
+    "context": 400000,
+    "max_output": 128000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "none",
+      "low",
+      "medium",
+      "high",
+      "xhigh"
+    ]
   },
   {
     "vendor": "openai",
@@ -605,7 +1362,21 @@
     "input": 1750000,
     "output": 14000000,
     "cache_read": 175000,
-    "cache_write": null
+    "cache_write": null,
+    "context": 128000,
+    "max_output": 32000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "none",
+      "low",
+      "medium",
+      "high",
+      "xhigh"
+    ]
   },
   {
     "vendor": "openai",
@@ -613,7 +1384,21 @@
     "input": 2500000,
     "output": 15000000,
     "cache_read": 250000,
-    "cache_write": null
+    "cache_write": null,
+    "context": 1050000,
+    "max_output": 128000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "none",
+      "low",
+      "medium",
+      "high",
+      "xhigh"
+    ]
   },
   {
     "vendor": "openai",
@@ -621,7 +1406,21 @@
     "input": 750000,
     "output": 4500000,
     "cache_read": 75000,
-    "cache_write": null
+    "cache_write": null,
+    "context": 400000,
+    "max_output": 128000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "none",
+      "low",
+      "medium",
+      "high",
+      "xhigh"
+    ]
   },
   {
     "vendor": "openai",
@@ -629,7 +1428,21 @@
     "input": 200000,
     "output": 1250000,
     "cache_read": 20000,
-    "cache_write": null
+    "cache_write": null,
+    "context": 400000,
+    "max_output": 128000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "none",
+      "low",
+      "medium",
+      "high",
+      "xhigh"
+    ]
   },
   {
     "vendor": "openai",
@@ -637,7 +1450,19 @@
     "input": 30000000,
     "output": 180000000,
     "cache_read": null,
-    "cache_write": null
+    "cache_write": null,
+    "context": 1050000,
+    "max_output": 128000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "medium",
+      "high",
+      "xhigh"
+    ]
   },
   {
     "vendor": "openai",
@@ -645,7 +1470,21 @@
     "input": 5000000,
     "output": 30000000,
     "cache_read": 500000,
-    "cache_write": null
+    "cache_write": null,
+    "context": 1050000,
+    "max_output": 128000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "none",
+      "low",
+      "medium",
+      "high",
+      "xhigh"
+    ]
   },
   {
     "vendor": "openai",
@@ -653,7 +1492,19 @@
     "input": 30000000,
     "output": 180000000,
     "cache_read": null,
-    "cache_write": null
+    "cache_write": null,
+    "context": 1050000,
+    "max_output": 128000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "medium",
+      "high",
+      "xhigh"
+    ]
   },
   {
     "vendor": "openai",
@@ -661,7 +1512,22 @@
     "input": 4000000,
     "output": 20000000,
     "cache_read": 400000,
-    "cache_write": 5000000
+    "cache_write": 5000000,
+    "context": 1050000,
+    "max_output": 128000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "none",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+    ]
   },
   {
     "vendor": "openai",
@@ -669,7 +1535,22 @@
     "input": 200000,
     "output": 1200000,
     "cache_read": 20000,
-    "cache_write": 250000
+    "cache_write": 250000,
+    "context": 1050000,
+    "max_output": 128000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "none",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+    ]
   },
   {
     "vendor": "openai",
@@ -677,7 +1558,22 @@
     "input": 4000000,
     "output": 20000000,
     "cache_read": 400000,
-    "cache_write": 5000000
+    "cache_write": 5000000,
+    "context": 1050000,
+    "max_output": 128000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "none",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+    ]
   },
   {
     "vendor": "openai",
@@ -685,7 +1581,22 @@
     "input": 2000000,
     "output": 12000000,
     "cache_read": 200000,
-    "cache_write": 2500000
+    "cache_write": 2500000,
+    "context": 1050000,
+    "max_output": 128000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "none",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+    ]
   },
   {
     "vendor": "openai",
@@ -693,7 +1604,21 @@
     "input": 10000000,
     "output": 50000000,
     "cache_read": 1000000,
-    "cache_write": 12500000
+    "cache_write": 12500000,
+    "context": 1050000,
+    "max_output": 128000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+    ]
   },
   {
     "vendor": "openai",
@@ -701,7 +1626,22 @@
     "input": 100000,
     "output": 500000,
     "cache_read": 10000,
-    "cache_write": 125000
+    "cache_write": 125000,
+    "context": 1050000,
+    "max_output": 128000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "none",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+    ]
   },
   {
     "vendor": "openai",
@@ -709,7 +1649,22 @@
     "input": 2000000,
     "output": 10000000,
     "cache_read": 200000,
-    "cache_write": 2500000
+    "cache_write": 2500000,
+    "context": 1050000,
+    "max_output": 128000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "none",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+    ]
   },
   {
     "vendor": "openai",
@@ -717,7 +1672,21 @@
     "input": 2000000,
     "output": 10000000,
     "cache_read": 100000,
-    "cache_write": 2500000
+    "cache_write": 2500000,
+    "context": 1050000,
+    "max_output": 128000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+    ]
   },
   {
     "vendor": "openai",
@@ -725,7 +1694,22 @@
     "input": 1000000,
     "output": 5000000,
     "cache_read": 50000,
-    "cache_write": 1250000
+    "cache_write": 1250000,
+    "context": 1050000,
+    "max_output": 128000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "none",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+    ]
   },
   {
     "vendor": "openai",
@@ -733,7 +1717,22 @@
     "input": 4000000,
     "output": 20000000,
     "cache_read": 400000,
-    "cache_write": 5000000
+    "cache_write": 5000000,
+    "context": 1050000,
+    "max_output": 128000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "none",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+    ]
   },
   {
     "vendor": "openai",
@@ -741,7 +1740,22 @@
     "input": 12500000,
     "output": 75000000,
     "cache_read": 1250000,
-    "cache_write": 15625000
+    "cache_write": 15625000,
+    "context": 400000,
+    "max_output": 128000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "none",
+      "low",
+      "medium",
+      "high",
+      "xhigh",
+      "max"
+    ]
   },
   {
     "vendor": "openai",
@@ -749,7 +1763,12 @@
     "input": 5000000,
     "output": 10000000,
     "cache_read": 1250000,
-    "cache_write": null
+    "cache_write": null,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": false
   },
   {
     "vendor": "openai",
@@ -757,7 +1776,12 @@
     "input": 5000000,
     "output": 30000000,
     "cache_read": 1250000,
-    "cache_write": null
+    "cache_write": null,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": false
   },
   {
     "vendor": "openai",
@@ -765,7 +1789,21 @@
     "input": 4000000,
     "output": 24000000,
     "cache_read": 400000,
-    "cache_write": null
+    "cache_write": null,
+    "context": 128000,
+    "max_output": 32000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "minimal",
+      "low",
+      "medium",
+      "high",
+      "xhigh"
+    ]
   },
   {
     "vendor": "openai",
@@ -773,7 +1811,19 @@
     "input": 15000000,
     "output": 60000000,
     "cache_read": 7500000,
-    "cache_write": null
+    "cache_write": null,
+    "context": 200000,
+    "max_output": 100000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "low",
+      "medium",
+      "high"
+    ]
   },
   {
     "vendor": "openai",
@@ -781,7 +1831,19 @@
     "input": 150000000,
     "output": 600000000,
     "cache_read": null,
-    "cache_write": null
+    "cache_write": null,
+    "context": 200000,
+    "max_output": 100000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "low",
+      "medium",
+      "high"
+    ]
   },
   {
     "vendor": "openai",
@@ -789,7 +1851,19 @@
     "input": 2000000,
     "output": 8000000,
     "cache_read": 500000,
-    "cache_write": null
+    "cache_write": null,
+    "context": 200000,
+    "max_output": 100000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "low",
+      "medium",
+      "high"
+    ]
   },
   {
     "vendor": "openai",
@@ -797,7 +1871,18 @@
     "input": 1100000,
     "output": 4400000,
     "cache_read": 550000,
-    "cache_write": null
+    "cache_write": null,
+    "context": 200000,
+    "max_output": 100000,
+    "inputs": [
+      "text"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "low",
+      "medium",
+      "high"
+    ]
   },
   {
     "vendor": "openai",
@@ -805,7 +1890,19 @@
     "input": 20000000,
     "output": 80000000,
     "cache_read": null,
-    "cache_write": null
+    "cache_write": null,
+    "context": 200000,
+    "max_output": 100000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "low",
+      "medium",
+      "high"
+    ]
   },
   {
     "vendor": "openai",
@@ -813,7 +1910,19 @@
     "input": 1100000,
     "output": 4400000,
     "cache_read": 275000,
-    "cache_write": null
+    "cache_write": null,
+    "context": 200000,
+    "max_output": 100000,
+    "inputs": [
+      "text",
+      "image"
+    ],
+    "reasoning": true,
+    "efforts": [
+      "low",
+      "medium",
+      "high"
+    ]
   },
   {
     "vendor": "openai",
@@ -821,7 +1930,13 @@
     "input": 130000,
     "output": 0,
     "cache_read": null,
-    "cache_write": null
+    "cache_write": null,
+    "context": 8191,
+    "max_output": 3072,
+    "inputs": [
+      "text"
+    ],
+    "reasoning": false
   },
   {
     "vendor": "openai",
@@ -829,7 +1944,13 @@
     "input": 20000,
     "output": 0,
     "cache_read": null,
-    "cache_write": null
+    "cache_write": null,
+    "context": 8191,
+    "max_output": 1536,
+    "inputs": [
+      "text"
+    ],
+    "reasoning": false
   },
   {
     "vendor": "openai",
@@ -837,6 +1958,12 @@
     "input": 100000,
     "output": 0,
     "cache_read": null,
-    "cache_write": null
+    "cache_write": null,
+    "context": 8192,
+    "max_output": 1536,
+    "inputs": [
+      "text"
+    ],
+    "reasoning": false
   }
 ]
