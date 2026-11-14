@@ -59,6 +59,16 @@ func (q *Queries) DeleteChannel(ctx context.Context, name string) (int64, error)
 	return result.RowsAffected()
 }
 
+const deleteChannelChatOfChat = `-- name: DeleteChannelChatOfChat :exec
+DELETE FROM channel_chats WHERE chat_id = ?1
+`
+
+// The Lark chat a deleted chat answered (issue #484): its next message starts a new chat.
+func (q *Queries) DeleteChannelChatOfChat(ctx context.Context, chatID string) error {
+	_, err := q.db.ExecContext(ctx, deleteChannelChatOfChat, chatID)
+	return err
+}
+
 const deleteChannelGroup = `-- name: DeleteChannelGroup :execrows
 DELETE FROM channel_groups WHERE channel = ?1 AND external_chat_id = ?2
 `

@@ -189,6 +189,7 @@ var policies = map[string]policy{
 	"GetProfile":          {},
 	"ListProfileVersions": {},
 	"ApplyProfile":        {},
+	"DeleteProfile":       {scope: scopeOwner},
 	"ListSetupChanges":    {scope: scopeOwner},
 	"UndoSetupChange":     {scope: scopeOwner},
 	// Memories (issue #21): every token reads them; a Bot keeps entries about the owner; only the owner changes
@@ -216,6 +217,7 @@ var policies = map[string]policy{
 	"CreateChat":         {scope: scopeOwner},
 	"GetChat":            {scope: scopeOwner},
 	"UpdateChat":         {scope: scopeOwner},
+	"DeleteChat":         {scope: scopeOwner},
 	"ListChatMessages":   {scope: scopeOwner, long: true},
 	"StreamChat":         {scope: scopeOwner, long: true},
 	"AbortChat":          {scope: scopeOwner},

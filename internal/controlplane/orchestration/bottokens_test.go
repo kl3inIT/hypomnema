@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/routinestore"
 )
 
 // Scenario: the supervisor starts pi for a chat (issue #260). Its token says
@@ -98,9 +99,9 @@ func TestARoutineTokenIsMadeForAScriptRoutineOnly(t *testing.T) {
 	_, _, err := s.AddToken(ctx, "pi-coordinator", bearertoken.Coordinator)
 	require.NoError(t, err)
 
-	asked, err := s.PutRoutine(ctx, RoutineSpec{
-		Bot: DefaultBotID, Name: "digest", Kind: RoutinePrompt, Prompt: "Sum up the day.", EveryMinutes: 60,
-	}, RoutineAuthor{})
+	asked, err := s.Routines().PutRoutine(ctx, routinestore.RoutineSpec{
+		Bot: DefaultBotID, Name: "digest", Kind: routinestore.RoutinePrompt, Prompt: "Sum up the day.", EveryMinutes: 60,
+	}, routinestore.RoutineAuthor{})
 	require.NoError(t, err)
 
 	_, err = s.AddRoutineToken(ctx, "pi-coordinator", asked.ID)

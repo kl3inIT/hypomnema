@@ -36,9 +36,12 @@ export function ErrorAlert({ error }: { error: unknown }) {
 }
 
 // ConfirmDialog asks before something is taken away and says what follows from it. It stays open while the
-// server works and when the server refuses, with the reason.
+// server works and when the server refuses, with the reason. Without a trigger it is opened by its owner, as from
+// a menu's item (open and onOpenChange; issue #484).
 export function ConfirmDialog({
   trigger,
+  open: shown,
+  onOpenChange,
   title,
   consequence,
   action,
@@ -46,7 +49,9 @@ export function ConfirmDialog({
   onDone,
   done,
 }: {
-  trigger: ReactElement
+  trigger?: ReactElement
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
   title: string
   consequence: string
   action: string
@@ -55,7 +60,12 @@ export function ConfirmDialog({
   // done is what a toast says once it is taken away.
   done: string
 }) {
-  const [open, setOpen] = useState(false)
+  const [ownOpen, setOwnOpen] = useState(false)
+  const open = shown ?? ownOpen
+  const setOpen = (next: boolean) => {
+    setOwnOpen(next)
+    onOpenChange?.(next)
+  }
   const remove = useMutation({
     mutationFn: run,
     onSuccess: async () => {
@@ -73,7 +83,7 @@ export function ConfirmDialog({
         if (!next) remove.reset()
       }}
     >
-      <AlertDialogTrigger render={trigger} />
+      {trigger && <AlertDialogTrigger render={trigger} />}
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>{title}</AlertDialogTitle>

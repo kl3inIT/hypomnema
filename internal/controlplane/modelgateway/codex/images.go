@@ -18,9 +18,15 @@ import (
 // the same way. One image a call: n is fanned out by the caller, as Codex,
 // OmniRoute and Hermes send n = 1.
 
-// ImageModel is the model a Codex image is made with when nothing else is
-// named: the one codex-rs's image extension and Hermes send.
+// ImageModel is the one model a Codex image is made with: the one codex-rs's
+// image extension (ext/image-generation IMAGE_MODEL) and Hermes (API_MODEL)
+// send. The backend takes any model's name and answers with the same images
+// (issue #453), so no other is offered.
 const ImageModel = "gpt-image-2"
+
+// ImageModelName is ImageModel's name for people: OmniRoute's
+// (open-sse/config/providers/registry/codex/imageModels.ts).
+const ImageModelName = "GPT Image 2 (Codex)"
 
 // ImageInput is a reference image sent with an edit.
 type ImageInput struct {
@@ -30,7 +36,6 @@ type ImageInput struct {
 
 // ImageOptions are what an image request may set beside its prompt.
 type ImageOptions struct {
-	Model      string
 	Size       string
 	Quality    string
 	Background string
@@ -50,7 +55,7 @@ func ImagePath(o ImageOptions) string {
 // codex-rs's ImageGenerationRequest and ImageEditRequest, the references as
 // data URLs in images[].image_url.
 func ImageBody(prompt string, o ImageOptions) []byte {
-	body := map[string]any{"prompt": prompt, "model": o.Model, "n": 1}
+	body := map[string]any{"prompt": prompt, "model": ImageModel, "n": 1}
 
 	if o.Size != "" {
 		body["size"] = o.Size
@@ -109,7 +114,11 @@ type ImageAnswer struct {
 	Images  []string
 	// Format is the backend's output_format: png, jpeg or webp.
 	Format string
-	Usage  ImageUsage
+	// Size and Quality are what the backend says it made, which may not be
+	// what was asked: it does not enforce them (Hermes reports them back as
+	// reported_size and reported_quality; codex-rs's ImageResponse reads them).
+	Size, Quality string
+	Usage         ImageUsage
 }
 
 // ParseImages reads an Images route's answer. One without an image is a
@@ -122,6 +131,8 @@ func ParseImages(raw []byte) (ImageAnswer, error) {
 			B64JSON string `json:"b64_json"`
 		} `json:"data"`
 		OutputFormat string `json:"output_format"`
+		Size         string `json:"size"`
+		Quality      string `json:"quality"`
 		Usage        *struct {
 			InputTokens  int64 `json:"input_tokens"`
 			OutputTokens int64 `json:"output_tokens"`
@@ -132,7 +143,9 @@ func ParseImages(raw []byte) (ImageAnswer, error) {
 		return ImageAnswer{}, fmt.Errorf("reading Codex's images: %w", err)
 	}
 
-	out := ImageAnswer{Created: parsed.Created, Format: parsed.OutputFormat}
+	out := ImageAnswer{
+		Created: parsed.Created, Format: parsed.OutputFormat, Size: parsed.Size, Quality: parsed.Quality,
+	}
 
 	for _, d := range parsed.Data {
 		if d.B64JSON != "" {
@@ -155,7 +168,7 @@ func ParseImages(raw []byte) (ImageAnswer, error) {
 // image model: the 400 the backend answers an account whose plan has no
 // image model (OmniRoute's isCodexChatGptModelAccessError, issue #8307),
 // which another account may serve.
-func NotEntitled(status int, raw []byte, model string) bool {
+func NotEntitled(status int, raw []byte) bool {
 	if status != http.StatusBadRequest {
 		return false
 	}
@@ -183,7 +196,7 @@ func NotEntitled(status int, raw []byte, model string) bool {
 		}
 	}
 
-	return detail == "The '"+model+"' model is not supported when using Codex with a ChatGPT account."
+	return detail == "The '"+ImageModel+"' model is not supported when using Codex with a ChatGPT account."
 }
 
 // FreePlan reports whether an account's plan is ChatGPT's free one, which has

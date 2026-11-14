@@ -173,6 +173,11 @@ var commands = []command{
 		flags: jsonFlag, run: chatsList,
 	},
 	{
+		name: "chats rm", args: "<chat>", min: 1, max: 1,
+		summary: "delete a chat for good, with its messages and its files; runs started in it stay (owner)",
+		flags:   jsonFlag, run: chatsRemove,
+	},
+	{
 		name: "hosts list", summary: "the git hosts a Run can be on", flags: jsonFlag, run: hostsList,
 	},
 	{
@@ -600,6 +605,12 @@ var commands = []command{
 		flags:   jsonFlag, run: profilesApply,
 	},
 	{
+		name: "profiles rm", args: "<profile>", min: 1, max: 1,
+		summary: "delete a profile no unfinished task, backup or bot's workers list names; one used before is " +
+			"hidden and kept for its runs, and applying it again brings it back (owner)",
+		flags: jsonFlag, run: profilesRemove,
+	},
+	{
 		name: "providers list", summary: "the sources of models, with the models each offers",
 		flags: jsonFlag, run: providersList,
 	},
@@ -690,11 +701,6 @@ var commands = []command{
 	{
 		name: "image providers set", args: "<provider> on|off", min: 2, max: 2,
 		summary: "switch an image provider on or off (owner)", flags: jsonFlag, run: imageProvidersSet,
-	},
-	{
-		name: "image providers model", args: "<provider> <model>|default", min: 2, max: 2,
-		summary: "the model an image provider makes images with when a request names none (owner)",
-		flags:   jsonFlag, run: imageProvidersModel,
 	},
 	{
 		name: "image order", args: "<provider> <provider>", min: 2, max: 2,

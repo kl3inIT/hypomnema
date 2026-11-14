@@ -36,6 +36,8 @@ func (runningPi) Abort(_ context.Context, _ string) error { return nil }
 
 func (runningPi) Compact(_ context.Context, _ string) error { return nil }
 
+func (runningPi) Stop(_ string) {}
+
 func (p runningPi) Key(chatID string) (string, bool) { return p.key, chatID == p.chat && p.key != "" }
 
 // Scenario: the launcher starts pi for a chat (issue #204). It writes pi's
@@ -49,7 +51,16 @@ func TestPiStartsWithTheGatewaysModelsAndItsChatsKey(t *testing.T) { //nolint:pa
 	w.login(t, bearertoken.Coordinator)
 	ctx := t.Context()
 
-	_, err := w.cmd(t, "pi-models")
+	// The gateway a fresh install is seeded with (issue #462) offers nothing once the starting profiles leave it.
+	for _, name := range []string{"implementer", "reviewer", "explorer"} {
+		_, _, err := w.svc.ApplyProfile(ctx, "", "name: "+name+"\ndescription: d\nruntime: codex\n")
+		require.NoError(t, err)
+	}
+
+	_, err := w.svc.ApplyProvider(ctx, "", "name: model-gateway\nkind: model_gateway\nmodels: []\n")
+	require.NoError(t, err)
+
+	_, err = w.cmd(t, "pi-models")
 	require.ErrorIs(t, err, errNoGatewayProvider, "pi would start with no model it can use")
 
 	for _, source := range []string{

@@ -238,6 +238,29 @@ func chatsList(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	})
 }
 
+// chatsRemove deletes a chat (issue #484), as `opencode session delete` does. The chat stays deleted when some of
+// its files could not be removed; each is named after it.
+func chatsRemove(ctx context.Context, e *env, fs *flag.FlagSet) error {
+	id := fs.Arg(0)
+
+	resp, err := e.api.DeleteChatWithResponse(ctx, id)
+	if err != nil {
+		return fmt.Errorf("deleting chat %s: %w", id, err)
+	}
+
+	if resp.JSON200 == nil {
+		return apiError("deleting chat "+id, resp.StatusCode(), resp.JSONDefault)
+	}
+
+	return e.print(fs, resp.JSON200, func() {
+		e.printf("chat %s is deleted\n", id)
+
+		for _, left := range resp.JSON200.FilesLeft {
+			e.printf("a file of it stayed: %s\n", left)
+		}
+	})
+}
+
 func durationFlag(fs *flag.FlagSet, name string) time.Duration {
 	d, _ := time.ParseDuration(str(fs, name))
 

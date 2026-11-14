@@ -211,6 +211,7 @@ type ChatMessage struct {
 	ToCoordinator int64
 	Attachments   sql.NullString
 	Kind          string
+	ApprovalID    sql.NullString
 }
 
 type ClientToken struct {
@@ -339,7 +340,6 @@ type GatewayImageProvider struct {
 	Provider  string
 	Off       int64
 	Position  sql.NullInt64
-	Model     sql.NullString
 	UpdatedAt int64
 }
 
@@ -505,6 +505,7 @@ type Profile struct {
 	CurrentVersionID string
 	CreatedAt        int64
 	UpdatedAt        int64
+	DeletedAt        sql.NullInt64
 }
 
 type ProfileVersion struct {

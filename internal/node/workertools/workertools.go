@@ -3,8 +3,8 @@
 // (omnigent/harnesses/claude_native/bridge.py at cf1021e). It offers two
 // tools of its own, which talk to the node daemon only through the bridge
 // directory, and the tools the control plane lists, the browser every agent
-// shares (issue #212) and the web's (issue #354), which it passes on to the
-// control plane:
+// shares (issue #212), the web's (issue #354) and the phone's (issue #417),
+// which it passes on to the control plane:
 //
 //   - ask: a question the worker waits for (a `wait` question of the
 //     orchestration core). The call blocks until the answer arrives and sends
@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/node/bridge"
+	"github.com/kl3inIT/hypomnema/internal/shared/devicetool"
 	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
 )
 
@@ -111,6 +112,7 @@ func (s *server) serve(ctx context.Context, in io.Reader) error {
 				// control plane gives.
 				listed = append(listed, memoryTool())
 				listed = append(listed, s.agent.browserTools(ctx)...)
+				listed = append(listed, s.agent.deviceTools(ctx)...)
 			}
 
 			s.reply(r.ID, map[string]any{"tools": listed}, nil)
@@ -285,8 +287,12 @@ func (s *server) call(ctx context.Context, raw json.RawMessage) (any, error) {
 
 		return s.agent.memoryCall(ctx, p.Arguments)
 	default:
-		// Any other tool is one the control plane lists, the browser's or the web's (issue #354): it knows which
-		// it offers.
+		// The phone's tools are named device_* (issue #417); any other tool is one the control plane lists, the
+		// browser's or the web's (issue #354): it knows which it offers.
+		if s.agent != nil && strings.HasPrefix(p.Name, devicetool.Prefix) {
+			return s.agent.deviceCall(ctx, p.Name, p.Arguments)
+		}
+
 		if s.agent != nil {
 			return s.agent.browserCall(ctx, p.Name, p.Arguments)
 		}

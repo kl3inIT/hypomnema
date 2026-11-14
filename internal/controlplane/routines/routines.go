@@ -27,6 +27,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/coordinator"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/routinestore"
 )
 
 const (
@@ -47,21 +48,27 @@ const (
 	timedOut = 124
 )
 
-// Store is what the runner keeps (orchestration.Service).
+// Store is what the runner keeps that spans the Routines and other records,
+// chats and approvals (orchestration.Service).
 type Store interface {
-	ClaimDueRoutines(ctx context.Context, limit int) ([]orchestration.StartedRun, bool, error)
-	RunRoutineNow(ctx context.Context, id string) (orchestration.StartedRun, error)
-	DeleteRoutine(ctx context.Context, id string) (*orchestration.RoutineRun, error)
-	UndoRoutine(ctx context.Context, id string) (orchestration.Routine, bool, *orchestration.RoutineRun, error)
-	LiveRoutineRuns(ctx context.Context) ([]orchestration.StartedRun, error)
-	FinishRoutineRun(ctx context.Context, runID string, r orchestration.RunResult) (orchestration.Settled, error)
+	ClaimDueRoutines(ctx context.Context, limit int) ([]routinestore.StartedRun, bool, error)
+	RunRoutineNow(ctx context.Context, id string) (routinestore.StartedRun, error)
+	FinishRoutineRun(ctx context.Context, runID string, r routinestore.RunResult) (routinestore.Settled, error)
 	RoutineRunAnswers(ctx context.Context, runID string) (orchestration.RunAnswers, error)
-	PruneRoutineRuns(ctx context.Context) error
 	Undelivered(ctx context.Context, chatID string) ([]orchestration.ChatMessage, error)
 	ListChatMessages(ctx context.Context, chatID string, after int64, limit int) ([]orchestration.ChatMessage, error)
 	TellChat(ctx context.Context, chatID, text, routineID, runID string) error
 	GetBot(ctx context.Context, id string) (orchestration.Bot, error)
 	Subscribe(ctx context.Context) <-chan struct{}
+}
+
+// Routines is what the runner keeps of the Routines alone
+// (orchestration.Service.Routines(), issue #404).
+type Routines interface {
+	DeleteRoutine(ctx context.Context, id string) (*routinestore.RoutineRun, error)
+	UndoRoutine(ctx context.Context, id string) (routinestore.Routine, bool, *routinestore.RoutineRun, error)
+	LiveRoutineRuns(ctx context.Context) ([]routinestore.StartedRun, error)
+	PruneRoutineRuns(ctx context.Context) error
 }
 
 // Coordinator is the part of the supervisor of the Bots' pi a prompt run
@@ -120,8 +127,9 @@ type Config struct {
 
 // Runner starts and follows the runs of Routines.
 type Runner struct {
-	store Store
-	cfg   Config
+	store    Store
+	routines Routines
+	cfg      Config
 
 	mu sync.Mutex
 	// scripts are the runs whose script is running now, by run id, each with
@@ -131,7 +139,7 @@ type Runner struct {
 }
 
 // New returns a Runner; Run starts it.
-func New(store Store, cfg Config) *Runner {
+func New(store Store, routines Routines, cfg Config) *Runner {
 	if cfg.Logger == nil {
 		cfg.Logger = slog.New(slog.DiscardHandler)
 	}
@@ -148,7 +156,7 @@ func New(store Store, cfg Config) *Runner {
 		cfg.After = time.After
 	}
 
-	return &Runner{store: store, cfg: cfg, scripts: map[string]context.CancelFunc{}}
+	return &Runner{store: store, routines: routines, cfg: cfg, scripts: map[string]context.CancelFunc{}}
 }
 
 // run is the real Exec. The launcher is not signaled: it runs as another
@@ -165,7 +173,7 @@ func run(ctx context.Context, argv []string, token string) (string, int, error) 
 		return "", 0, fmt.Errorf("opening the launcher's input: %w", err)
 	}
 
-	out := &ending{keep: 4 * orchestration.MaxRunOutput}
+	out := &ending{keep: 4 * routinestore.MaxRunOutput}
 	cmd.Stdout, cmd.Stderr = out, out
 	// The pipes are given up when something the script left behind still holds them.
 	cmd.WaitDelay = stopGrace
@@ -269,7 +277,7 @@ func (r *Runner) Run(ctx context.Context) error {
 // of its Routine; a prompt is run again, a script is not (OpenClaw,
 // service/startup-run-repair.ts L45-68, service/jobs-scheduling.ts L31-49).
 func (r *Runner) Interrupted(ctx context.Context) {
-	live, err := r.store.LiveRoutineRuns(ctx)
+	live, err := r.routines.LiveRoutineRuns(ctx)
 	if err != nil {
 		r.failed(ctx, "reading the runs a restart interrupted", "", err)
 
@@ -277,8 +285,8 @@ func (r *Runner) Interrupted(ctx context.Context) {
 	}
 
 	for _, l := range live {
-		r.finish(ctx, l.Run.ID, orchestration.RunResult{
-			State: orchestration.RunFailed, Interrupted: true, ExitCode: l.Run.ExitCode, Output: l.Run.Output,
+		r.finish(ctx, l.Run.ID, routinestore.RunResult{
+			State: routinestore.RunFailed, Interrupted: true, ExitCode: l.Run.ExitCode, Output: l.Run.Output,
 			Error: "the control plane restarted while it ran",
 		})
 	}
@@ -308,7 +316,7 @@ func (r *Runner) Tick(ctx context.Context) {
 		return
 	}
 
-	if err := r.store.PruneRoutineRuns(ctx); err != nil {
+	if err := r.routines.PruneRoutineRuns(ctx); err != nil {
 		r.failed(ctx, "removing old runs", "", err)
 	}
 }
@@ -330,10 +338,10 @@ func (r *Runner) claim(ctx context.Context, limit int) (more bool, err error) {
 
 // RunNow starts a run by hand and returns it. While a run of the Routine is
 // live it is a conflict that names that run.
-func (r *Runner) RunNow(ctx context.Context, id string) (orchestration.RoutineRun, error) {
+func (r *Runner) RunNow(ctx context.Context, id string) (routinestore.RoutineRun, error) {
 	started, err := r.store.RunRoutineNow(ctx, id)
 	if err != nil {
-		return orchestration.RoutineRun{}, err
+		return routinestore.RoutineRun{}, err
 	}
 
 	r.begin(ctx, started)
@@ -344,7 +352,7 @@ func (r *Runner) RunNow(ctx context.Context, id string) (orchestration.RoutineRu
 // Remove removes a Routine and stops the run of it that is live (OpenClaw,
 // service/ops-mutations.ts L427-456).
 func (r *Runner) Remove(ctx context.Context, id string) error {
-	live, err := r.store.DeleteRoutine(ctx, id)
+	live, err := r.routines.DeleteRoutine(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -356,10 +364,10 @@ func (r *Runner) Remove(ctx context.Context, id string) error {
 
 // Undo undoes a Bot's last change of a Routine. A Routine the Bot made is
 // removed, and its live run stopped.
-func (r *Runner) Undo(ctx context.Context, id string) (orchestration.Routine, bool, error) {
-	routine, removed, live, err := r.store.UndoRoutine(ctx, id)
+func (r *Runner) Undo(ctx context.Context, id string) (routinestore.Routine, bool, error) {
+	routine, removed, live, err := r.routines.UndoRoutine(ctx, id)
 	if err != nil {
-		return orchestration.Routine{}, false, err
+		return routinestore.Routine{}, false, err
 	}
 
 	r.stop(ctx, live)
@@ -369,7 +377,7 @@ func (r *Runner) Undo(ctx context.Context, id string) (orchestration.Routine, bo
 
 // stop ends a run whose Routine is gone: a script is told to end, pi's turn
 // is aborted. The run's record went with the Routine.
-func (r *Runner) stop(ctx context.Context, run *orchestration.RoutineRun) {
+func (r *Runner) stop(ctx context.Context, run *routinestore.RoutineRun) {
 	if run == nil {
 		return
 	}
@@ -394,12 +402,12 @@ func (r *Runner) stop(ctx context.Context, run *orchestration.RoutineRun) {
 
 // begin does what a run that just started needs: a script is run; a prompt
 // waits in its chat for the supervisor, which the commit has woken.
-func (r *Runner) begin(ctx context.Context, s orchestration.StartedRun) {
+func (r *Runner) begin(ctx context.Context, s routinestore.StartedRun) {
 	r.cfg.Logger.InfoContext(ctx, "a routine's run started", slog.String("event", "routines.started"),
 		slog.String("routine", s.Routine.ID), slog.String("bot", s.Routine.Bot), slog.String("run", s.Run.ID),
 		slog.String("started_by", s.Run.StartedBy), slog.String("kind", string(s.Routine.Kind)))
 
-	if s.Routine.Kind != orchestration.RoutineScript {
+	if s.Routine.Kind != routinestore.RoutineScript {
 		return
 	}
 
@@ -427,13 +435,13 @@ func (r *Runner) begin(ctx context.Context, s orchestration.StartedRun) {
 // end. A request of the script that needs the owner waits inside the script,
 // in the call that made it (the service proxy holds it): the script is never
 // started again for an answer.
-func (r *Runner) runScript(ctx context.Context, s orchestration.StartedRun) {
+func (r *Runner) runScript(ctx context.Context, s routinestore.StartedRun) {
 	// What ends the run is recorded whatever stopped the script.
 	record := context.WithoutCancel(ctx)
 
 	if len(r.cfg.Command) == 0 {
-		r.finish(record, s.Run.ID, orchestration.RunResult{
-			State: orchestration.RunFailed,
+		r.finish(record, s.Run.ID, routinestore.RunResult{
+			State: routinestore.RunFailed,
 			Error: "this control plane runs no scripts (HYPOMNEMA_ROUTINE_COMMAND is not set)",
 		})
 
@@ -448,8 +456,8 @@ func (r *Runner) runScript(ctx context.Context, s orchestration.StartedRun) {
 
 		token, err = r.cfg.Tokens.AddRoutineToken(record, s.Routine.ID)
 		if err != nil {
-			r.finish(record, s.Run.ID, orchestration.RunResult{
-				State: orchestration.RunFailed, Error: "making the run's token failed: " + err.Error(),
+			r.finish(record, s.Run.ID, routinestore.RunResult{
+				State: routinestore.RunFailed, Error: "making the run's token failed: " + err.Error(),
 			})
 
 			return
@@ -461,21 +469,21 @@ func (r *Runner) runScript(ctx context.Context, s orchestration.StartedRun) {
 	argv := append(append([]string{}, r.cfg.Command...), s.Routine.Bot, s.Routine.ID)
 	output, code, err := r.cfg.Exec(ctx, argv, token)
 
-	result := orchestration.RunResult{State: orchestration.RunSucceeded, ExitCode: &code, Output: output}
+	result := routinestore.RunResult{State: routinestore.RunSucceeded, ExitCode: &code, Output: output}
 
 	// How a script's failure is read is OpenClaw's (src/cron/script-failure.ts L7-15): a script that ran out of
 	// time, and one that could not be run at all, may pass by themselves; any other exit is the script's own.
 	switch {
 	case err != nil:
-		result = orchestration.RunResult{
-			State: orchestration.RunFailed, Output: output, Passing: true,
+		result = routinestore.RunResult{
+			State: routinestore.RunFailed, Output: output, Passing: true,
 			Error: "the script could not be run: " + err.Error(),
 		}
 	case code == timedOut:
-		result.State, result.Passing = orchestration.RunFailed, true
+		result.State, result.Passing = routinestore.RunFailed, true
 		result.Error = fmt.Sprintf("the script was stopped at its limit of %s", s.Routine.Timeout)
 	case code != 0:
-		result.State = orchestration.RunFailed
+		result.State = routinestore.RunFailed
 		result.Error = fmt.Sprintf("the script exited with code %d", code)
 	}
 
@@ -485,7 +493,7 @@ func (r *Runner) runScript(ctx context.Context, s orchestration.StartedRun) {
 // answered changes how a run ended by what the owner said to what it asked:
 // his no ends the run canceled, which is no failure; a request nobody
 // answered in time fails it.
-func (r *Runner) answered(ctx context.Context, runID string, result orchestration.RunResult) orchestration.RunResult {
+func (r *Runner) answered(ctx context.Context, runID string, result routinestore.RunResult) routinestore.RunResult {
 	answers, err := r.store.RoutineRunAnswers(ctx, runID)
 	if err != nil {
 		r.failed(ctx, "reading what the owner answered a run", runID, err)
@@ -495,10 +503,10 @@ func (r *Runner) answered(ctx context.Context, runID string, result orchestratio
 
 	switch {
 	case answers.Rejected != nil:
-		result.State, result.Passing = orchestration.RunStopped, false
+		result.State, result.Passing = routinestore.RunStopped, false
 		result.Error = fmt.Sprintf("the owner rejected %q", answers.Rejected.Title)
 	case answers.Expired != nil:
-		result.State, result.Passing = orchestration.RunFailed, false
+		result.State, result.Passing = routinestore.RunFailed, false
 		result.Error = fmt.Sprintf("nobody answered the approval of %q in time", answers.Expired.Title)
 	}
 
@@ -508,7 +516,7 @@ func (r *Runner) answered(ctx context.Context, runID string, result orchestratio
 // Follow looks at every live prompt run and ends those whose Bot has
 // answered and stopped working. A script's run ends when its script does.
 func (r *Runner) Follow(ctx context.Context) {
-	live, err := r.store.LiveRoutineRuns(ctx)
+	live, err := r.routines.LiveRoutineRuns(ctx)
 	if err != nil {
 		r.failed(ctx, "reading the live runs", "", err)
 
@@ -516,7 +524,7 @@ func (r *Runner) Follow(ctx context.Context) {
 	}
 
 	for _, l := range live {
-		if l.Routine.Kind != orchestration.RoutinePrompt {
+		if l.Routine.Kind != routinestore.RoutinePrompt {
 			continue
 		}
 
@@ -526,12 +534,12 @@ func (r *Runner) Follow(ctx context.Context) {
 	}
 }
 
-func (r *Runner) followPrompt(ctx context.Context, l orchestration.StartedRun) error {
+func (r *Runner) followPrompt(ctx context.Context, l routinestore.StartedRun) error {
 	chat := l.Run.ChatID
 
 	if r.cfg.Coordinator == nil || !r.cfg.Coordinator.Enabled() {
-		r.finish(ctx, l.Run.ID, orchestration.RunResult{
-			State: orchestration.RunFailed, Error: "nothing answers chats on this control plane (" +
+		r.finish(ctx, l.Run.ID, routinestore.RunResult{
+			State: routinestore.RunFailed, Error: "nothing answers chats on this control plane (" +
 				coordinator.ErrDisabled.Error() + ")",
 		})
 
@@ -546,7 +554,7 @@ func (r *Runner) followPrompt(ctx context.Context, l orchestration.StartedRun) e
 	// The limit is wall time from the run's start, the time it waits for the owner included (OpenClaw,
 	// src/cron/service/timeout-policy.ts L18-31, resolveCronJobTimeoutMs).
 	overdue := r.cfg.Now().Sub(l.Run.StartedAt) > l.Routine.Timeout
-	late := orchestration.RunResult{State: orchestration.RunFailed, Passing: true}
+	late := routinestore.RunResult{State: routinestore.RunFailed, Passing: true}
 
 	if len(waiting) > 0 || r.cfg.Coordinator.Working(chat) {
 		if !overdue {
@@ -567,12 +575,12 @@ func (r *Runner) followPrompt(ctx context.Context, l orchestration.StartedRun) e
 
 	switch {
 	case failure != "":
-		r.finish(ctx, l.Run.ID, r.answered(ctx, l.Run.ID, orchestration.RunResult{
-			State: orchestration.RunFailed, Output: answer, Error: failure, Passing: passes(failure),
+		r.finish(ctx, l.Run.ID, r.answered(ctx, l.Run.ID, routinestore.RunResult{
+			State: routinestore.RunFailed, Output: answer, Error: failure, Passing: passes(failure),
 		}))
 	case answer != "":
-		r.finish(ctx, l.Run.ID, r.answered(ctx, l.Run.ID, orchestration.RunResult{
-			State: orchestration.RunSucceeded, Output: answer,
+		r.finish(ctx, l.Run.ID, r.answered(ctx, l.Run.ID, routinestore.RunResult{
+			State: routinestore.RunSucceeded, Output: answer,
 		}))
 	case overdue:
 		// The Bot was given the prompt and said nothing: pi did not start, or ended without a word.
@@ -612,7 +620,7 @@ func (r *Runner) lastWord(ctx context.Context, chatID string) (answer, failure s
 }
 
 // finish ends a run and tells whoever its end concerns.
-func (r *Runner) finish(ctx context.Context, runID string, result orchestration.RunResult) {
+func (r *Runner) finish(ctx context.Context, runID string, result routinestore.RunResult) {
 	settled, err := r.store.FinishRoutineRun(ctx, runID, result)
 	if err != nil {
 		// A run of a Routine that was removed meanwhile ends into nothing.
@@ -632,7 +640,7 @@ func (r *Runner) finish(ctx context.Context, runID string, result orchestration.
 
 	// A run's answer, or what a script printed, goes to the chat the Routine was made in unless the owner chose
 	// none (OpenClaw, src/cron/delivery-defaults.ts L155-189: agent, command and script jobs announce by default).
-	if out := strings.TrimSpace(run.Output); run.State == orchestration.RunSucceeded && routine.Announce && out != "" {
+	if out := strings.TrimSpace(run.Output); run.State == routinestore.RunSucceeded && routine.Announce && out != "" {
 		r.tell(ctx, routine.ChatID, fmt.Sprintf("Routine %q ran (%s):\n\n%s", routine.Name, run.ID, out),
 			routine.ID, run.ID)
 	}
@@ -663,7 +671,7 @@ func (r *Runner) botName(ctx context.Context, id string) string {
 
 // alert tells the owner in the chat the Routine was made in and through the
 // Bot's Lark Channels.
-func (r *Runner) alert(ctx context.Context, routine orchestration.Routine, title, text string) {
+func (r *Runner) alert(ctx context.Context, routine routinestore.Routine, title, text string) {
 	r.tell(ctx, routine.ChatID, text, "", "")
 
 	if r.cfg.Owner != nil {

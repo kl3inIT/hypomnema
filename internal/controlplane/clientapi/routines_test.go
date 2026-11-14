@@ -10,6 +10,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/routinestore"
 )
 
 // Scenario: the web's form asks for a schedule in words and its next three
@@ -45,16 +46,16 @@ func TestARoutinesRunsArePaged(t *testing.T) {
 	c, _ := w.token("web", bearertoken.Owner)
 	ctx := t.Context()
 
-	r, err := w.svc.PutRoutine(ctx, orchestration.RoutineSpec{
-		Bot: orchestration.DefaultBotID, Name: "sync", Kind: orchestration.RoutineScript, Script: "sync.sh",
+	r, err := w.svc.Routines().PutRoutine(ctx, routinestore.RoutineSpec{
+		Bot: orchestration.DefaultBotID, Name: "sync", Kind: routinestore.RoutineScript, Script: "sync.sh",
 		ScriptText: "#!/bin/sh\n", EveryMinutes: 60,
-	}, orchestration.RoutineAuthor{})
+	}, routinestore.RoutineAuthor{})
 	require.NoError(t, err)
 
 	for range 3 {
 		started, err := w.svc.RunRoutineNow(ctx, r.ID)
 		require.NoError(t, err)
-		_, err = w.svc.FinishRoutineRun(ctx, started.Run.ID, orchestration.RunResult{State: orchestration.RunSucceeded})
+		_, err = w.svc.FinishRoutineRun(ctx, started.Run.ID, routinestore.RunResult{State: routinestore.RunSucceeded})
 		require.NoError(t, err)
 	}
 

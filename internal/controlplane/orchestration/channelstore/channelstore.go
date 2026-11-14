@@ -9,8 +9,10 @@
 //
 // A Channel is a door to one Bot: an account at a messaging service, of one
 // kind (Lark today), and who may talk through it. Every kind keeps its rows in
-// the same tables (channels, channel_people, channel_chats, ...). This package keeps what each Channel is and who may talk through it; what
-// talks to Lark is internal/controlplane/larkbot. An app's secret is in the
+// the same tables (channels, channel_people, channel_chats, ...). This
+// package keeps what each Channel is and who may talk through it; what
+// runs them is internal/controlplane/channels, and what talks to Lark
+// channels/lark. An app's secret is in the
 // vault; only its name is here.
 package channelstore
 
@@ -440,10 +442,11 @@ func ResetChannelChatTx(ctx context.Context, q *store.Queries, channel, external
 	return err
 }
 
-// DeleteChannelChatsOfBotTx forgets the Lark chats of a Bot's chats,
-// with the caller's queries, as the root removes the Bot with its chats.
-func DeleteChannelChatsOfBotTx(ctx context.Context, q *store.Queries, bot string) error {
-	return q.DeleteChannelChatsOfBot(ctx, bot)
+// DeleteChannelChatOfChatTx forgets the Lark chat a chat answered, with
+// the caller's queries, as the root deletes the chat (issue #484), on its
+// own or with its Bot.
+func DeleteChannelChatOfChatTx(ctx context.Context, q *store.Queries, chatID string) error {
+	return q.DeleteChannelChatOfChat(ctx, chatID)
 }
 
 // ChannelChats returns the Lark chats a Channel answers in, oldest

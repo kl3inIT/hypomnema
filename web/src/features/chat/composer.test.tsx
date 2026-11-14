@@ -1,8 +1,9 @@
-import { fireEvent, render, screen } from "@testing-library/react"
+import { act, fireEvent, render, screen } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import { expect, test, vi } from "vitest"
 
 import { Composer } from "./composer"
+import { draftsKey } from "./drafts"
 
 const setup = (working = false, send: (text: string) => Promise<void> = async () => {}) => {
   const onSend = vi.fn<(text: string, files: unknown[]) => Promise<void>>(send)
@@ -71,4 +72,41 @@ test("an empty message cannot be sent", () => {
   setup()
 
   expect(screen.getByRole("button", { name: "Send" })).toBeDisabled()
+})
+
+// Scenario: the owner sends a message and reloads before its answer came. The page going stops the send, which may
+// have reached the server; the page saves its drafts as it goes, and the sent text is not among them (issue #480).
+// A send whose answer is lost and the page stays: the text is back a moment later, to send again.
+test("a send whose answer is lost is not kept as the draft as the page goes", async () => {
+  vi.useFakeTimers()
+  try {
+    const onSend = vi.fn<(text: string, files: unknown[]) => Promise<void>>(async () => {
+      throw new TypeError("Failed to fetch")
+    })
+    render(
+      <Composer
+        onSend={onSend}
+        onStop={() => {}}
+        working={false}
+        bot="coordinator"
+        draft={{ key: "chat:cht_lost" }}
+      />,
+    )
+    const box = screen.getByRole("textbox", { name: "Message" })
+
+    fireEvent.change(box, { target: { value: "and a test for it" } })
+    fireEvent.keyDown(box, { key: "Enter" })
+    await act(async () => {})
+    expect(onSend).toHaveBeenCalledWith("and a test for it", [])
+    expect(box).toHaveValue("")
+
+    window.dispatchEvent(new Event("pagehide"))
+    expect(JSON.parse(localStorage.getItem(draftsKey) ?? "{}")).not.toHaveProperty("chat:cht_lost")
+
+    await act(() => vi.advanceTimersByTimeAsync(1000))
+    expect(box).toHaveValue("and a test for it")
+    expect(screen.getByRole("alert")).toHaveTextContent("Not sent: Failed to fetch")
+  } finally {
+    vi.useRealTimers()
+  }
 })

@@ -10,6 +10,10 @@ Each adapted file names its source.
   Copyright (c) 2026 T3 Tools Inc.), with the icon by status of Orca's
   src/renderer/src/components/native-chat/tools/tasks/NativeChatTaskList.tsx (MIT, Copyright (c) 2026 Lovecast
   Inc.).
+- An answered Approval's row in the chat (`src/features/chat/approval-row.tsx`, issue #465) is adapted from t3code's
+  apps/web/src/components/chat/TimelinePendingApprovalRow.tsx (MIT, Copyright (c) 2026 T3 Tools Inc.) and AI
+  Elements' packages/elements/src/confirmation.tsx (`ConfirmationAccepted`, `ConfirmationRejected`;
+  https://github.com/vercel/ai-elements, Apache License 2.0, Copyright 2023 Vercel, Inc.).
 - A tool call's row in the chat (`src/features/chat/tool-row.ts`, `ToolRow` in `chat-items.tsx`) is adapted from
   Orca's src/shared/native-chat/tools/native-chat-tool-summary.ts, native-chat-tool-identity.ts
   (`formatToolDuration`) and src/renderer/src/components/native-chat/tools/lines/NativeChatToolLine.tsx (MIT,

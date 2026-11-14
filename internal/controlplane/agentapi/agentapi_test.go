@@ -18,6 +18,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/agentapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/routinestore"
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
@@ -289,10 +290,10 @@ func TestABotGetsOnlyTheAccountsOnItsList(t *testing.T) {
 	coordinator, err := w.svc.AddBotToken(ctx, "pi", mine.ID, orchestration.DefaultBotID)
 	require.NoError(t, err)
 
-	routine, err := w.svc.PutRoutine(ctx, orchestration.RoutineSpec{
-		Bot: vmapBot.ID, Name: "sync", Kind: orchestration.RoutineScript, Script: "sync.sh", ScriptText: "#!/bin/sh\n",
+	routine, err := w.svc.Routines().PutRoutine(ctx, routinestore.RoutineSpec{
+		Bot: vmapBot.ID, Name: "sync", Kind: routinestore.RoutineScript, Script: "sync.sh", ScriptText: "#!/bin/sh\n",
 		EveryMinutes: 60,
-	}, orchestration.RoutineAuthor{})
+	}, routinestore.RoutineAuthor{})
 	require.NoError(t, err)
 
 	run, err := w.svc.AddRoutineToken(ctx, "pi", routine.ID)

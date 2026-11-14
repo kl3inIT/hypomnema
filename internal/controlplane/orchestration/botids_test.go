@@ -26,7 +26,7 @@ func TestMigrationGivesBotsIDs(t *testing.T) {
 
 	p, err := provider(db)
 	require.NoError(t, err)
-	_, err = p.UpTo(ctx, 80)
+	_, err = p.UpTo(ctx, 84)
 	require.NoError(t, err)
 
 	for _, stmt := range []string{
@@ -92,7 +92,7 @@ func TestMigrationGivesBotsIDs(t *testing.T) {
 	_, err = db.ExecContext(ctx, `INSERT INTO bots (id, name, created_at, updated_at) VALUES ('bot_x', 'vmap', 1, 1)`)
 	require.ErrorContains(t, err, "UNIQUE constraint failed: bots.name", "a name is one Bot's")
 
-	_, err = p.DownTo(ctx, 80)
+	_, err = p.DownTo(ctx, 84)
 	require.NoError(t, err)
 
 	for query, want := range map[string]string{

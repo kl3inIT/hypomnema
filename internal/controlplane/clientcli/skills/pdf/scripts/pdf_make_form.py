@@ -4,7 +4,7 @@
 Spec format (UTF-8 JSON; coordinates in PDF points, origin bottom-left):
 {
   "title": "Example Intake Form",
-  "page_size": "A4",                  // or "letter" or [width, height]
+  "page_size": "A4",
   "page_count": 1,
   "fields": [
     {"name": "surname", "type": "text", "page": 1,
@@ -23,6 +23,7 @@ Spec format (UTF-8 JSON; coordinates in PDF points, origin bottom-left):
      "value": "small"}
   ]
 }
+"page_size" is "A4", "letter" or [width, height] in points.
 The same spec (label_box/entry_box/page) is what pdf_form_layout.py validates,
 so lint the layout first, then build.
 """

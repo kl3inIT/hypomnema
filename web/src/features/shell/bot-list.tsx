@@ -14,6 +14,7 @@ import { since } from "@/lib/time"
 import { cn } from "@/lib/utils"
 
 import { type BotRow, botRows, keepOpenBots, readOpenBots } from "./bot-rows"
+import { ChatMenu } from "./chat-menu"
 import { useChats } from "./chats"
 
 // BotList is the sidebar's Bots (issue #361): a row a Bot, which opens to its chats, as OpenMausBot's sidebar
@@ -227,31 +228,40 @@ function chatDrag(chat: string) {
   }
 }
 
+// ChatRow is a chat under its Bot; its menu (issue #484) shows over the row's end when the row is pointed at or
+// focused, and always on a phone, which has no pointer to rest on it.
 function ChatRow({ chat, current, waits }: { chat: Chat; current: boolean; waits: boolean }) {
   return (
-    <Link
-      to="/chats/$chatId"
-      params={{ chatId: chat.id }}
-      aria-current={current ? "page" : undefined}
-      {...chatDrag(chat.id)}
-      className={cn(
-        "group/sidebar-row relative flex h-9 w-full items-center gap-2.5 overflow-hidden rounded-md px-2.5 text-left outline-none select-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
-        current
-          ? "bg-sidebar-row-active [:root:not(.dark)_&]:ring-1 [:root:not(.dark)_&]:ring-sidebar-border/70 [:root:not(.dark)_&]:ring-inset"
-          : "hover:bg-sidebar-row-hover",
-      )}
-    >
-      <span
+    <div className="group/chat relative">
+      <Link
+        to="/chats/$chatId"
+        params={{ chatId: chat.id }}
+        aria-current={current ? "page" : undefined}
+        {...chatDrag(chat.id)}
         className={cn(
-          "min-w-0 flex-1 truncate text-sm",
-          current || chat.working ? "font-medium text-foreground" : "text-foreground/75",
+          "group/sidebar-row relative flex h-9 w-full items-center gap-2.5 overflow-hidden rounded-md px-2.5 text-left outline-none select-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset max-md:pe-9",
+          current
+            ? "bg-sidebar-row-active [:root:not(.dark)_&]:ring-1 [:root:not(.dark)_&]:ring-sidebar-border/70 [:root:not(.dark)_&]:ring-inset"
+            : "group-hover/chat:bg-sidebar-row-hover group-has-[[data-popup-open]]/chat:bg-sidebar-row-hover",
         )}
       >
-        {chat.title}
-      </span>
-      <span className="ml-auto flex h-6 min-w-8 shrink-0 items-center justify-end text-xs text-secondary-label tabular-nums">
-        <ChatState chat={chat} needsYou={waits} working={chat.working} />
-      </span>
-    </Link>
+        <span
+          className={cn(
+            "min-w-0 flex-1 truncate text-sm",
+            current || chat.working ? "font-medium text-foreground" : "text-foreground/75",
+          )}
+        >
+          {chat.title}
+        </span>
+        <span className="ml-auto flex h-6 min-w-8 shrink-0 items-center justify-end text-xs text-secondary-label tabular-nums transition-opacity md:group-focus-within/chat:opacity-0 md:group-hover/chat:opacity-0 md:group-has-[[data-popup-open]]/chat:opacity-0">
+          <ChatState chat={chat} needsYou={waits} working={chat.working} />
+        </span>
+      </Link>
+      <ChatMenu
+        chat={chat}
+        current={current}
+        className="absolute end-1.5 top-1/2 -translate-y-1/2 transition-opacity md:pointer-events-none md:opacity-0 md:group-focus-within/chat:pointer-events-auto md:group-focus-within/chat:opacity-100 md:group-hover/chat:pointer-events-auto md:group-hover/chat:opacity-100 md:has-[[data-popup-open]]:pointer-events-auto"
+      />
+    </div>
   )
 }

@@ -7,48 +7,58 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/routinestore"
 )
 
 // Routine scenarios (issue #211). Time is the test's clock: nothing sleeps.
 
+// The Routines' types, as the scenarios name them.
+type (
+	routineSpec   = routinestore.RoutineSpec
+	runResult     = routinestore.RunResult
+	routineAuthor = routinestore.RoutineAuthor
+)
+
 const syncScript = "#!/bin/sh\nhypomnema superset chart 9 164 --format csv | lark-cli base rows put\n"
 
-var owner = RoutineAuthor{}
+var owner = routineAuthor{}
 
-func hourly(name string) RoutineSpec {
-	return RoutineSpec{
-		Bot: DefaultBotID, Name: name, Kind: RoutineScript, Script: "sync.sh", ScriptText: syncScript, EveryMinutes: 60,
-		Summary: "the usage figures go to the Lark Base", Announce: true,
+func hourly(name string) routineSpec {
+	return routineSpec{
+		Bot: DefaultBotID, Name: name, Kind: routinestore.RoutineScript, Script: "sync.sh", ScriptText: syncScript,
+		EveryMinutes: 60,
+		Summary:      "the usage figures go to the Lark Base", Announce: true,
 	}
 }
 
-func daily(name string) RoutineSpec {
-	return RoutineSpec{
-		Bot: DefaultBotID, Name: name, Kind: RoutinePrompt, Prompt: "Summarize what changed overnight.",
+func daily(name string) routineSpec {
+	return routineSpec{
+		Bot: DefaultBotID, Name: name, Kind: routinestore.RoutinePrompt, Prompt: "Summarize what changed overnight.",
 		EveryMinutes: 1440, Announce: true,
 	}
 }
 
-func (w *world) routine(n RoutineSpec) Routine {
+func (w *world) routine(n routineSpec) routinestore.Routine {
 	w.t.Helper()
 
-	r, err := w.s.PutRoutine(w.t.Context(), n, owner)
+	r, err := w.s.Routines().PutRoutine(w.t.Context(), n, owner)
 	require.NoError(w.t, err)
 
 	return r
 }
 
-func (w *world) theRoutine(id string) Routine {
+func (w *world) theRoutine(id string) routinestore.Routine {
 	w.t.Helper()
 
-	r, err := w.s.GetRoutine(w.t.Context(), id)
+	r, err := w.s.Routines().GetRoutine(w.t.Context(), id)
 	require.NoError(w.t, err)
 
 	return r
 }
 
 // tick is one pass of the schedule: the runs that began.
-func (w *world) tick() []StartedRun {
+func (w *world) tick() []routinestore.StartedRun {
 	w.t.Helper()
 
 	started, more, err := w.s.ClaimDueRoutines(w.t.Context(), 0)
@@ -58,7 +68,7 @@ func (w *world) tick() []StartedRun {
 	return started
 }
 
-func (w *world) end(runID string, r RunResult) Settled {
+func (w *world) end(runID string, r runResult) routinestore.Settled {
 	w.t.Helper()
 
 	settled, err := w.s.FinishRoutineRun(w.t.Context(), runID, r)
@@ -67,10 +77,10 @@ func (w *world) end(runID string, r RunResult) Settled {
 	return settled
 }
 
-func (w *world) runs(routineID string) []RoutineRun {
+func (w *world) runs(routineID string) []routinestore.RoutineRun {
 	w.t.Helper()
 
-	runs, err := w.s.ListRoutineRuns(w.t.Context(), routineID, 0)
+	runs, err := w.s.Routines().ListRoutineRuns(w.t.Context(), routineID, 0)
 	require.NoError(w.t, err)
 
 	return runs
@@ -78,12 +88,12 @@ func (w *world) runs(routineID string) []RoutineRun {
 
 func (w *world) after(d time.Duration) { w.clock.now = w.clock.now.Add(d) }
 
-func failed(reason string) RunResult { return RunResult{State: RunFailed, Error: reason} }
-func passing(reason string) RunResult {
-	return RunResult{State: RunFailed, Error: reason, Passing: true}
+func failed(reason string) runResult { return runResult{State: routinestore.RunFailed, Error: reason} }
+func passing(reason string) runResult {
+	return runResult{State: routinestore.RunFailed, Error: reason, Passing: true}
 }
 
-var succeeded = RunResult{State: RunSucceeded}
+var succeeded = runResult{State: routinestore.RunSucceeded}
 
 // What a Routine may be: a prompt or a script that is a file's name, every 5
 // to 1440 minutes or by a 5-field cron expression with its time zone. A
@@ -92,20 +102,20 @@ func TestWhatARoutineMayBe(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
-	cron := func(expr, zone string) func(*RoutineSpec) {
-		return func(n *RoutineSpec) { n.EveryMinutes, n.Cron, n.Timezone = 0, expr, zone }
+	cron := func(expr, zone string) func(*routineSpec) {
+		return func(n *routineSpec) { n.EveryMinutes, n.Cron, n.Timezone = 0, expr, zone }
 	}
 
 	for name, tc := range map[string]struct {
-		change func(*RoutineSpec)
+		change func(*routineSpec)
 		want   string
 	}{
-		"a name with capitals":      {func(n *RoutineSpec) { n.Name = "Sync" }, "lowercase"},
-		"an unknown bot":            {func(n *RoutineSpec) { n.Bot = "nobody" }, "not found"},
-		"every four minutes":        {func(n *RoutineSpec) { n.EveryMinutes = 4 }, "every 5 to 1440 minutes"},
-		"every two days":            {func(n *RoutineSpec) { n.EveryMinutes = 2880 }, "every 5 to 1440 minutes"},
-		"no schedule":               {func(n *RoutineSpec) { n.EveryMinutes = 0 }, "every 5 to 1440 minutes"},
-		"an interval and a cron":    {func(n *RoutineSpec) { n.Cron, n.Timezone = "0 7 * * *", "UTC" }, "not both"},
+		"a name with capitals":      {func(n *routineSpec) { n.Name = "Sync" }, "lowercase"},
+		"an unknown bot":            {func(n *routineSpec) { n.Bot = "nobody" }, "not found"},
+		"every four minutes":        {func(n *routineSpec) { n.EveryMinutes = 4 }, "every 5 to 1440 minutes"},
+		"every two days":            {func(n *routineSpec) { n.EveryMinutes = 2880 }, "every 5 to 1440 minutes"},
+		"no schedule":               {func(n *routineSpec) { n.EveryMinutes = 0 }, "every 5 to 1440 minutes"},
+		"an interval and a cron":    {func(n *routineSpec) { n.Cron, n.Timezone = "0 7 * * *", "UTC" }, "not both"},
 		"a cron without its zone":   {cron("0 7 * * *", ""), "needs its time zone"},
 		"a zone that is not one":    {cron("0 7 * * *", "Mars/Base"), "IANA"},
 		"the server's own zone":     {cron("0 7 * * *", "Local"), "IANA"},
@@ -113,33 +123,34 @@ func TestWhatARoutineMayBe(t *testing.T) {
 		"a cron word":               {cron("@every 1s", "UTC"), "five fields"},
 		"a cron field out of range": {cron("61 7 * * *", "UTC"), "cron expression"},
 		"a zone inside the cron":    {cron("TZ=UTC 0 7 * *", "UTC"), "five fields"},
-		"a command line":            {func(n *RoutineSpec) { n.Script = "sh -c 'rm -rf /'" }, "never a path or a command line"},
-		"a path":                    {func(n *RoutineSpec) { n.Script = "../../.ssh/authorized_keys" }, "never a path"},
-		"a script with no text":     {func(n *RoutineSpec) { n.ScriptText = " \n" }, "needs the script's text"},
-		"a prompt and a script":     {func(n *RoutineSpec) { n.Prompt = "also this" }, "not both"},
-		"a limit below zero":        {func(n *RoutineSpec) { n.TimeoutSeconds = -1 }, "a number of seconds"},
-		"neither kind":              {func(n *RoutineSpec) { n.Kind = "command" }, "a prompt or a script"},
-		"a prompt with no prompt":   {func(n *RoutineSpec) { *n = daily("p"); n.Prompt = " " }, "needs its prompt"},
-		"a prompt with a limit":     {func(n *RoutineSpec) { *n = daily("p"); n.TimeoutSeconds = 60 }, "only a script's limit"},
-		"a chat that is not there":  {func(n *RoutineSpec) { n.ChatID = "cht_nothing" }, "not found"},
+		"a command line":            {func(n *routineSpec) { n.Script = "sh -c 'rm -rf /'" }, "never a path or a command line"},
+		"a path":                    {func(n *routineSpec) { n.Script = "../../.ssh/authorized_keys" }, "never a path"},
+		"a script with no text":     {func(n *routineSpec) { n.ScriptText = " \n" }, "needs the script's text"},
+		"a prompt and a script":     {func(n *routineSpec) { n.Prompt = "also this" }, "not both"},
+		"a limit below zero":        {func(n *routineSpec) { n.TimeoutSeconds = -1 }, "a number of seconds"},
+		"neither kind":              {func(n *routineSpec) { n.Kind = "command" }, "a prompt or a script"},
+		"a prompt with no prompt":   {func(n *routineSpec) { *n = daily("p"); n.Prompt = " " }, "needs its prompt"},
+		"a prompt with a limit":     {func(n *routineSpec) { *n = daily("p"); n.TimeoutSeconds = 60 }, "only a script's limit"},
+		"a chat that is not there":  {func(n *routineSpec) { n.ChatID = "cht_nothing" }, "not found"},
 	} {
 		spec := hourly("sync")
 		tc.change(&spec)
 
-		_, err := w.s.PutRoutine(t.Context(), spec, owner)
+		_, err := w.s.Routines().PutRoutine(t.Context(), spec, owner)
 		require.ErrorContains(t, err, tc.want, name)
 	}
 
-	all, err := w.s.ListRoutines(t.Context(), RoutineFilter{})
+	all, err := w.s.Routines().ListRoutines(t.Context(), routinestore.RoutineFilter{})
 	require.NoError(t, err)
 	assert.Empty(t, all, "a refused routine is not kept")
 
 	sync := w.routine(hourly("sync"))
-	assert.Equal(t, RoutineOn, sync.State, "a routine is on at once")
-	assert.Equal(t, ScriptTimeout, sync.Timeout, "a script stops after ten minutes unless its routine says otherwise")
+	assert.Equal(t, routinestore.RoutineOn, sync.State, "a routine is on at once")
+	assert.Equal(t, routinestore.ScriptTimeout, sync.Timeout,
+		"a script stops after ten minutes unless its routine says otherwise")
 	assert.Equal(t, t0.Add(time.Hour), *sync.NextRunAt)
 	assert.Equal(t, "Every hour, coordinator runs the script sync.sh: the usage figures go to the Lark Base.",
-		RoutineSentence(sync, "coordinator"))
+		routinestore.RoutineSentence(sync, "coordinator"))
 
 	long := hourly("long")
 	long.TimeoutSeconds = 6 * 3600
@@ -148,10 +159,10 @@ func TestWhatARoutineMayBe(t *testing.T) {
 	brief := daily("brief")
 	brief.EveryMinutes, brief.Cron, brief.Timezone = 0, "0  7 * * 1-5", "Asia/Ho_Chi_Minh"
 	made := w.routine(brief)
-	assert.Equal(t, PromptTimeout, made.Timeout)
+	assert.Equal(t, routinestore.PromptTimeout, made.Timeout)
 	// t0 is Saturday 09:00 UTC, 16:00 in Ho Chi Minh City: the next weekday 07:00 there is Monday, 00:00 UTC.
 	assert.Equal(t, time.Date(2026, 11, 9, 0, 0, 0, 0, time.UTC), *made.NextRunAt)
-	assert.Equal(t, "every weekday at 7:00 Ho Chi Minh time", ScheduleWords(made))
+	assert.Equal(t, "every weekday at 7:00 Ho Chi Minh time", routinestore.ScheduleWords(made))
 
 	err = w.s.DeleteBot(t.Context(), DefaultBotID)
 	require.ErrorIs(t, err, ErrConflict)
@@ -177,8 +188,8 @@ func TestARoutineRunsOnceWhenItsTimeComes(t *testing.T) {
 	started := w.tick()
 	require.Len(t, started, 1)
 	first := started[0].Run
-	assert.Equal(t, RunRunning, first.State)
-	assert.Equal(t, StartedBySchedule, first.StartedBy)
+	assert.Equal(t, routinestore.RunRunning, first.State)
+	assert.Equal(t, routinestore.StartedBySchedule, first.StartedBy)
 	assert.Empty(t, first.ChatID, "a script run has no chat")
 	assert.Equal(t, t0.Add(2*time.Hour), *started[0].Routine.NextRunAt, "the next time is set before the run starts")
 	assert.Empty(t, w.tick(), "a second look at the same minute starts nothing")
@@ -198,7 +209,7 @@ func TestARoutineRunsOnceWhenItsTimeComes(t *testing.T) {
 	assert.Len(t, w.runs(sync.ID), 1)
 
 	settled := w.end(first.ID, succeeded)
-	assert.Equal(t, RunSucceeded, settled.Run.State)
+	assert.Equal(t, routinestore.RunSucceeded, settled.Run.State)
 	assert.False(t, settled.Alert)
 
 	_, err = w.s.FinishRoutineRun(t.Context(), first.ID, failed("again"))
@@ -355,7 +366,7 @@ func TestARoutineThatKeepsFailingIsToldOfAndPaused(t *testing.T) {
 	w := newWorld(t)
 	sync := w.routine(hourly("sync"))
 
-	byHand := func(r RunResult) Settled {
+	byHand := func(r runResult) routinestore.Settled {
 		run, err := w.s.RunRoutineNow(t.Context(), sync.ID)
 		require.NoError(t, err)
 
@@ -367,9 +378,10 @@ func TestARoutineThatKeepsFailingIsToldOfAndPaused(t *testing.T) {
 	assert.False(t, first.Alert, "one failure tells nobody")
 	assert.Equal(t, t0.Add(time.Hour), *first.Routine.NextRunAt)
 
-	assert.Equal(t, 1, byHand(RunResult{State: RunStopped, Error: "the owner rejected it"}).Routine.Failures,
+	assert.Equal(t, 1, byHand(runResult{State: routinestore.RunStopped, Error: "the owner rejected it"}).Routine.Failures,
 		"a canceled run is not counted")
-	assert.Equal(t, 1, byHand(RunResult{State: RunFailed, Interrupted: true, Error: "restarted"}).Routine.Failures,
+	assert.Equal(t, 1,
+		byHand(runResult{State: routinestore.RunFailed, Interrupted: true, Error: "restarted"}).Routine.Failures,
 		"nor is one a restart interrupted")
 	assert.Equal(t, t0.Add(time.Hour), *w.theRoutine(sync.ID).NextRunAt, "an interrupted script waits for its schedule")
 
@@ -381,13 +393,13 @@ func TestARoutineThatKeepsFailingIsToldOfAndPaused(t *testing.T) {
 	w.after(2 * time.Minute)
 	assert.True(t, byHand(failed("boom")).Alert, "an hour later he is told again")
 
-	var last Settled
-	for range RoutinePauseAfter - 4 {
+	var last routinestore.Settled
+	for range routinestore.RoutinePauseAfter - 4 {
 		last = byHand(failed("the script exited with code 1"))
 	}
 
 	assert.True(t, last.Paused)
-	assert.Equal(t, RoutinePaused, last.Routine.State)
+	assert.Equal(t, routinestore.RoutinePaused, last.Routine.State)
 	assert.Nil(t, last.Routine.NextRunAt)
 	assert.Equal(t, "paused after 10 failed runs in a row; the last: the script exited with code 1",
 		last.Routine.PausedReason)
@@ -395,9 +407,9 @@ func TestARoutineThatKeepsFailingIsToldOfAndPaused(t *testing.T) {
 	w.after(24 * time.Hour)
 	assert.Empty(t, w.tick(), "a paused routine does not run")
 
-	resumed, err := w.s.ResumeRoutine(t.Context(), sync.ID)
+	resumed, err := w.s.Routines().ResumeRoutine(t.Context(), sync.ID)
 	require.NoError(t, err)
-	assert.Equal(t, RoutineOn, resumed.State)
+	assert.Equal(t, routinestore.RoutineOn, resumed.State)
 	assert.Zero(t, resumed.Failures)
 	assert.Empty(t, resumed.PausedReason)
 	assert.True(t, resumed.NextRunAt.After(w.clock.now))
@@ -405,7 +417,7 @@ func TestARoutineThatKeepsFailingIsToldOfAndPaused(t *testing.T) {
 	byHand(failed("boom"))
 	assert.True(t, byHand(failed("boom")).Alert, "a new streak tells him at its second failure")
 
-	paused, err := w.s.PauseRoutine(t.Context(), sync.ID)
+	paused, err := w.s.Routines().PauseRoutine(t.Context(), sync.ID)
 	require.NoError(t, err)
 	assert.Equal(t, "paused by the owner", paused.PausedReason)
 	assert.Nil(t, paused.NextRunAt)
@@ -416,7 +428,7 @@ func TestARoutineThatKeepsFailingIsToldOfAndPaused(t *testing.T) {
 	run, err := w.s.RunRoutineNow(t.Context(), brief.ID)
 	require.NoError(t, err)
 
-	again := w.end(run.Run.ID, RunResult{State: RunFailed, Interrupted: true, Error: "restarted"})
+	again := w.end(run.Run.ID, runResult{State: routinestore.RunFailed, Interrupted: true, Error: "restarted"})
 	assert.Zero(t, again.Routine.Failures)
 	assert.Equal(t, w.clock.now.Add(30*time.Second), *again.Routine.NextRunAt)
 }
@@ -431,7 +443,7 @@ func TestABotMakesARoutineAndTheOwnerUndoesIt(t *testing.T) {
 
 	w := newWorld(t)
 	ctx := t.Context()
-	bot := RoutineAuthor{Bot: true}
+	bot := routineAuthor{Bot: true}
 
 	chat, err := w.s.CreateChat(ctx, "", "The usage figures")
 	require.NoError(t, err)
@@ -443,25 +455,25 @@ func TestABotMakesARoutineAndTheOwnerUndoesIt(t *testing.T) {
 	spec.ChatID = chat.ID
 
 	for name, tc := range map[string]struct {
-		change func(*RoutineSpec)
-		by     RoutineAuthor
+		change func(*routineSpec)
+		by     routineAuthor
 		want   string
 	}{
-		"from no chat":          {func(n *RoutineSpec) { n.ChatID = "" }, bot, "from the chat it works in"},
-		"for another bot":       {func(n *RoutineSpec) { n.Bot = vmapBot.ID }, bot, "talks with bot " + DefaultBotID + ", not " + vmapBot.ID},
-		"from a script's run":   {func(*RoutineSpec) {}, RoutineAuthor{Bot: true, FromRun: true}, "a routine's run cannot make"},
-		"the owner, from a run": {func(*RoutineSpec) {}, RoutineAuthor{FromRun: true}, "a routine's run cannot make"},
+		"from no chat":          {func(n *routineSpec) { n.ChatID = "" }, bot, "from the chat it works in"},
+		"for another bot":       {func(n *routineSpec) { n.Bot = vmapBot.ID }, bot, "talks with bot " + DefaultBotID + ", not " + vmapBot.ID},
+		"from a script's run":   {func(*routineSpec) {}, routineAuthor{Bot: true, FromRun: true}, "a routine's run cannot make"},
+		"the owner, from a run": {func(*routineSpec) {}, routineAuthor{FromRun: true}, "a routine's run cannot make"},
 	} {
 		n := spec
 		tc.change(&n)
 
-		_, err := w.s.PutRoutine(ctx, n, tc.by)
+		_, err := w.s.Routines().PutRoutine(ctx, n, tc.by)
 		require.ErrorContains(t, err, tc.want, name)
 	}
 
-	made, err := w.s.PutRoutine(ctx, spec, bot)
+	made, err := w.s.Routines().PutRoutine(ctx, spec, bot)
 	require.NoError(t, err)
-	assert.Equal(t, RoutineOn, made.State, "it is on at once")
+	assert.Equal(t, routinestore.RoutineOn, made.State, "it is on at once")
 	assert.Equal(t, "bot", made.CreatedBy)
 	assert.True(t, made.CanUndo)
 	assert.Equal(t, w.clock.now.Add(time.Hour), *made.NextRunAt)
@@ -469,20 +481,20 @@ func TestABotMakesARoutineAndTheOwnerUndoesIt(t *testing.T) {
 	run, err := w.s.RunRoutineNow(ctx, made.ID)
 	require.NoError(t, err)
 
-	_, removed, live, err := w.s.UndoRoutine(ctx, made.ID)
+	_, removed, live, err := w.s.Routines().UndoRoutine(ctx, made.ID)
 	require.NoError(t, err)
 	assert.True(t, removed, "a routine the bot made is removed")
 	require.NotNil(t, live)
 	assert.Equal(t, run.Run.ID, live.ID, "with the run that is to be stopped")
 
-	_, err = w.s.GetRoutine(ctx, made.ID)
+	_, err = w.s.Routines().GetRoutine(ctx, made.ID)
 	require.ErrorIs(t, err, ErrNotFound)
 
 	// The owner's Routine, which the Bot changes.
 	mine := w.routine(hourly("mine"))
 	assert.False(t, mine.CanUndo)
 
-	_, _, _, err = w.s.UndoRoutine(ctx, mine.ID)
+	_, _, _, err = w.s.Routines().UndoRoutine(ctx, mine.ID)
 	require.ErrorContains(t, err, "was not a bot's")
 
 	w.after(10 * time.Minute)
@@ -490,14 +502,14 @@ func TestABotMakesARoutineAndTheOwnerUndoesIt(t *testing.T) {
 	changed := hourly("mine")
 	changed.ChatID, changed.EveryMinutes, changed.ScriptText = chat.ID, 30, "#!/bin/sh\necho changed\n"
 
-	after, err := w.s.PutRoutine(ctx, changed, bot)
+	after, err := w.s.Routines().PutRoutine(ctx, changed, bot)
 	require.NoError(t, err)
 	assert.Equal(t, mine.ID, after.ID)
 	assert.Equal(t, "owner", after.CreatedBy)
 	assert.True(t, after.CanUndo)
 	assert.Equal(t, 2, after.Revision, "what runs changed")
 
-	back, removed, _, err := w.s.UndoRoutine(ctx, mine.ID)
+	back, removed, _, err := w.s.Routines().UndoRoutine(ctx, mine.ID)
 	require.NoError(t, err)
 	assert.False(t, removed)
 	assert.Equal(t, 60, back.EveryMinutes)
@@ -506,14 +518,14 @@ func TestABotMakesARoutineAndTheOwnerUndoesIt(t *testing.T) {
 	assert.False(t, back.CanUndo, "an undo is done once")
 	assert.Equal(t, 3, back.Revision, "undoing is a change of what runs too")
 
-	_, err = w.s.PutRoutine(ctx, changed, bot)
+	_, err = w.s.Routines().PutRoutine(ctx, changed, bot)
 	require.NoError(t, err)
 	w.after(time.Minute)
 
-	_, err = w.s.PauseRoutine(ctx, mine.ID)
+	_, err = w.s.Routines().PauseRoutine(ctx, mine.ID)
 	require.NoError(t, err)
 
-	_, _, _, err = w.s.UndoRoutine(ctx, mine.ID)
+	_, _, _, err = w.s.Routines().UndoRoutine(ctx, mine.ID)
 	require.ErrorContains(t, err, "was not a bot's",
 		"the owner's change came after: there is nothing of the bot's to undo")
 
@@ -537,11 +549,12 @@ func TestABotMakesARoutineAndTheOwnerUndoesIt(t *testing.T) {
 	fromRun := hourly("another")
 	fromRun.ChatID = started.Run.ChatID
 
-	_, err = w.s.PutRoutine(ctx, fromRun, bot)
+	_, err = w.s.Routines().PutRoutine(ctx, fromRun, bot)
 	require.ErrorContains(t, err, "a routine's run cannot make or change routines")
 
 	// The Bot's failed run keeps the undo: a run is no change of the Routine.
-	fresh, err := w.s.PutRoutine(ctx, func() RoutineSpec { n := hourly("fresh"); n.ChatID = chat.ID; return n }(), bot)
+	fresh, err := w.s.Routines().PutRoutine(ctx,
+		func() routineSpec { n := hourly("fresh"); n.ChatID = chat.ID; return n }(), bot)
 	require.NoError(t, err)
 
 	once, err := w.s.RunRoutineNow(ctx, fresh.ID)
@@ -574,23 +587,23 @@ func TestAlwaysForThisRoutine(t *testing.T) {
 		}
 	}
 
-	_, err := w.s.ClaimRoutineScript(ctx, sync.ID, DefaultBotID)
+	_, err := w.s.Routines().ClaimRoutineScript(ctx, sync.ID, DefaultBotID)
 	require.ErrorContains(t, err, "no run of routine", "nothing is handed out while no run is starting")
 
 	first, err := w.s.RunRoutineNow(ctx, sync.ID)
 	require.NoError(t, err)
 
-	_, err = w.s.ClaimRoutineScript(ctx, sync.ID, "vmap")
+	_, err = w.s.Routines().ClaimRoutineScript(ctx, sync.ID, "vmap")
 	require.ErrorContains(t, err, "is not bot vmap's")
 
-	launch, err := w.s.ClaimRoutineScript(ctx, sync.ID, DefaultBotID)
+	launch, err := w.s.Routines().ClaimRoutineScript(ctx, sync.ID, DefaultBotID)
 	require.NoError(t, err)
 	assert.Equal(t, "sync.sh", launch.Script)
 	assert.Equal(t, syncScript, launch.Text)
-	assert.Equal(t, ScriptTimeout, launch.Timeout)
+	assert.Equal(t, routinestore.ScriptTimeout, launch.Timeout)
 	require.NotEmpty(t, launch.Key)
 
-	_, err = w.s.ClaimRoutineScript(ctx, sync.ID, DefaultBotID)
+	_, err = w.s.Routines().ClaimRoutineScript(ctx, sync.ID, DefaultBotID)
 	require.ErrorIs(t, err, ErrConflict, "a run's key is given once")
 
 	// A request that names no key, or a key that is none, is nobody's run's.
@@ -612,7 +625,7 @@ func TestAlwaysForThisRoutine(t *testing.T) {
 	require.False(t, granted)
 	assert.Equal(t, sync.ID, asked.RoutineID)
 	assert.Equal(t, first.Run.ID, asked.RoutineRunID)
-	assert.Equal(t, RunWaiting, w.runs(sync.ID)[0].State, "the run waits for the owner while its call does")
+	assert.Equal(t, routinestore.RunWaiting, w.runs(sync.ID)[0].State, "the run waits for the owner while its call does")
 
 	w.after(time.Hour)
 
@@ -625,7 +638,7 @@ func TestAlwaysForThisRoutine(t *testing.T) {
 	decided, err := w.s.DecideApproval(ctx, asked.ID, true, ScopeRoutine)
 	require.NoError(t, err)
 	assert.Equal(t, ScopeRoutine, decided.Scope)
-	assert.Equal(t, RunRunning, w.runs(sync.ID)[0].State, "answered, the run goes on")
+	assert.Equal(t, routinestore.RunRunning, w.runs(sync.ID)[0].State, "answered, the run goes on")
 
 	again, err := w.s.DecideApproval(ctx, asked.ID, true, ScopeRoutine)
 	require.NoError(t, err, "the same answer again is the stored one")
@@ -643,7 +656,7 @@ func TestAlwaysForThisRoutine(t *testing.T) {
 	second, err := w.s.RunRoutineNow(ctx, sync.ID)
 	require.NoError(t, err)
 
-	next, err := w.s.ClaimRoutineScript(ctx, sync.ID, DefaultBotID)
+	next, err := w.s.Routines().ClaimRoutineScript(ctx, sync.ID, DefaultBotID)
 	require.NoError(t, err)
 	require.NotEqual(t, launch.Key, next.Key, "each run has its own key")
 
@@ -665,14 +678,14 @@ func TestAlwaysForThisRoutine(t *testing.T) {
 	_, err = w.s.RunRoutineNow(ctx, other.ID)
 	require.NoError(t, err)
 
-	otherKey, err := w.s.ClaimRoutineScript(ctx, other.ID, DefaultBotID)
+	otherKey, err := w.s.Routines().ClaimRoutineScript(ctx, other.ID, DefaultBotID)
 	require.NoError(t, err)
 
 	_, granted, err = w.s.AskApproval(ctx, write(otherKey.Key, "rows-2"))
 	require.NoError(t, err)
 	assert.False(t, granted, "another routine is asked")
 
-	grants, err := w.s.RoutineGrants(ctx, sync.ID)
+	grants, err := w.s.Routines().RoutineGrants(ctx, sync.ID)
 	require.NoError(t, err)
 	require.Len(t, grants, 1)
 	assert.Equal(t, "lark.base.write", grants[0].Action)
@@ -688,14 +701,14 @@ func TestAlwaysForThisRoutine(t *testing.T) {
 	assert.Equal(t, denied.ID, answers.Rejected.ID)
 	assert.Nil(t, answers.Expired)
 
-	w.end(second.Run.ID, RunResult{State: RunStopped, Error: "the owner rejected it"})
+	w.end(second.Run.ID, runResult{State: routinestore.RunStopped, Error: "the owner rejected it"})
 
 	// A change of where the result goes keeps the grant; a change of the script ends it.
 	quiet := hourly("sync")
 	quiet.Announce, quiet.Summary = false, "the same work"
 	assert.Equal(t, 1, w.routine(quiet).Revision)
 
-	grants, err = w.s.RoutineGrants(ctx, sync.ID)
+	grants, err = w.s.Routines().RoutineGrants(ctx, sync.ID)
 	require.NoError(t, err)
 	assert.Len(t, grants, 1)
 
@@ -703,14 +716,14 @@ func TestAlwaysForThisRoutine(t *testing.T) {
 	edited.ScriptText = syncScript + "echo and more\n"
 	assert.Equal(t, 2, w.routine(edited).Revision)
 
-	grants, err = w.s.RoutineGrants(ctx, sync.ID)
+	grants, err = w.s.Routines().RoutineGrants(ctx, sync.ID)
 	require.NoError(t, err)
 	assert.Empty(t, grants, "the script changed: what it was allowed always is over")
 
 	third, err := w.s.RunRoutineNow(ctx, sync.ID)
 	require.NoError(t, err)
 
-	key, err := w.s.ClaimRoutineScript(ctx, sync.ID, DefaultBotID)
+	key, err := w.s.Routines().ClaimRoutineScript(ctx, sync.ID, DefaultBotID)
 	require.NoError(t, err)
 
 	asked, granted, err = w.s.AskApproval(ctx, write(key.Key, "rows-3"))
@@ -719,20 +732,20 @@ func TestAlwaysForThisRoutine(t *testing.T) {
 
 	_, err = w.s.DecideApproval(ctx, asked.ID, true, ScopeRoutine)
 	require.NoError(t, err)
-	require.NoError(t, w.s.RevokeRoutineGrant(ctx, sync.ID, "lark", "work", "lark.base.write"))
-	require.ErrorIs(t, w.s.RevokeRoutineGrant(ctx, sync.ID, "lark", "work", "lark.base.write"), ErrNotFound)
+	require.NoError(t, w.s.Routines().RevokeRoutineGrant(ctx, sync.ID, "lark", "work", "lark.base.write"))
+	require.ErrorIs(t, w.s.Routines().RevokeRoutineGrant(ctx, sync.ID, "lark", "work", "lark.base.write"), ErrNotFound)
 
 	_, granted, err = w.s.AskApproval(ctx, write(key.Key, "rows-4"))
 	require.NoError(t, err)
 	assert.False(t, granted, "taken back, the action asks again")
 
 	// Removing the Routine removes its runs and its grants, and names the run to stop.
-	live, err := w.s.DeleteRoutine(ctx, sync.ID)
+	live, err := w.s.Routines().DeleteRoutine(ctx, sync.ID)
 	require.NoError(t, err)
 	require.NotNil(t, live)
 	assert.Equal(t, third.Run.ID, live.ID)
 
-	_, err = w.s.GetRoutineRun(ctx, third.Run.ID)
+	_, err = w.s.Routines().GetRoutineRun(ctx, third.Run.ID)
 	require.ErrorIs(t, err, ErrNotFound)
 }
 
@@ -759,13 +772,13 @@ func TestAnApprovalNobodyAnsweredIsRefused(t *testing.T) {
 	asked, _, err := w.s.AskApproval(ctx, send("mail-1"))
 	require.NoError(t, err)
 	assert.Equal(t, brief.ID, asked.RoutineID, "a prompt run is known by its chat")
-	assert.Equal(t, RunWaiting, w.runs(brief.ID)[0].State)
+	assert.Equal(t, routinestore.RunWaiting, w.runs(brief.ID)[0].State)
 
 	expired, err := w.s.ExpireApproval(ctx, asked.ID)
 	require.NoError(t, err)
 	assert.True(t, expired.Expired)
 	assert.Equal(t, ApprovalRejected, expired.Status)
-	assert.Equal(t, RunRunning, w.runs(brief.ID)[0].State)
+	assert.Equal(t, routinestore.RunRunning, w.runs(brief.ID)[0].State)
 
 	_, err = w.s.DecideApproval(ctx, asked.ID, true, ScopeOnce)
 	require.ErrorIs(t, err, ErrConflict, "it can no longer be answered")
@@ -805,22 +818,63 @@ func TestOldRunsOfARoutineAreRemoved(t *testing.T) {
 	w.after(time.Hour)
 	old := w.tick()[0].Run
 
-	long := strings.Repeat("row\n", MaxRunOutput)
-	settled := w.end(old.ID, RunResult{State: RunSucceeded, Output: long + "the end"})
-	assert.LessOrEqual(t, len(settled.Run.Output), MaxRunOutput+len("…"))
+	long := strings.Repeat("row\n", routinestore.MaxRunOutput)
+	settled := w.end(old.ID, runResult{State: routinestore.RunSucceeded, Output: long + "the end"})
+	assert.LessOrEqual(t, len(settled.Run.Output), routinestore.MaxRunOutput+len("…"))
 	assert.True(t, strings.HasSuffix(settled.Run.Output, "the end"), "the end of the output is what is kept")
 
 	w.after(time.Hour)
 	stuck := w.tick()[0].Run
 
-	w.after(RoutineRunsKeptFor - time.Hour)
-	require.NoError(t, w.s.PruneRoutineRuns(t.Context()))
+	w.after(routinestore.RoutineRunsKeptFor - time.Hour)
+	require.NoError(t, w.s.Routines().PruneRoutineRuns(t.Context()))
 	assert.Len(t, w.runs(sync.ID), 2, "seven days are kept")
 
 	w.after(2 * time.Minute)
-	require.NoError(t, w.s.PruneRoutineRuns(t.Context()))
+	require.NoError(t, w.s.Routines().PruneRoutineRuns(t.Context()))
 
 	left := w.runs(sync.ID)
 	require.Len(t, left, 1)
 	assert.Equal(t, stuck.ID, left[0].ID, "a run still going is never removed")
+}
+
+// Scenario: a Routine has run five times. Its page shows them a few at a
+// time, the newest first, and knows how many there are.
+func TestARoutinesRunsComeAPageAtATime(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	sync := w.routine(hourly("sync"))
+
+	var ids []string
+
+	for range 5 {
+		w.after(time.Hour)
+
+		started := w.tick()
+		require.Len(t, started, 1)
+		w.end(started[0].Run.ID, succeeded)
+		ids = append([]string{started[0].Run.ID}, ids...)
+	}
+
+	page := func(limit, offset int) []string {
+		runs, total, err := w.s.Routines().RoutineRunPage(t.Context(), sync.ID, limit, offset)
+		require.NoError(t, err)
+		assert.Equal(t, 5, total)
+
+		out := make([]string, len(runs))
+		for i, r := range runs {
+			out[i] = r.ID
+		}
+
+		return out
+	}
+
+	assert.Equal(t, ids[:2], page(2, 0))
+	assert.Equal(t, ids[2:4], page(2, 2))
+	assert.Equal(t, ids[4:], page(2, 4))
+	assert.Empty(t, page(2, 6))
+
+	_, _, err := w.s.Routines().RoutineRunPage(t.Context(), "rtn_gone", 2, 0)
+	require.ErrorIs(t, err, ErrNotFound)
 }

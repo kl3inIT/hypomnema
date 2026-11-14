@@ -553,18 +553,13 @@ export type ImageProviderLink = {
   state: 'ready' | 'resting' | 'not_set_up' | 'off';
   resting_until?: string;
   /**
-   * The model it makes images with when a request names none.
+   * The one model it makes images with, as usage rows name it (image/<model>).
    */
   model: string;
-  default_model: string;
   /**
-   * The owner set the model; false, it is the default.
+   * The model's name for people, as OmniRoute names it.
    */
-  model_chosen: boolean;
-  /**
-   * Models the references name for it; any other name may be set.
-   */
-  suggested_models: Array<string>;
+  model_name: string;
   /**
    * Its accounts that can make images, now or after their rest.
    */
@@ -573,11 +568,7 @@ export type ImageProviderLink = {
 };
 
 export type ImageProviderChange = {
-  on?: boolean;
-  /**
-   * The model's name as the provider takes it; empty for the default.
-   */
-  model?: string;
+  on: boolean;
 };
 
 export type ImageOrder = {
@@ -613,7 +604,7 @@ export type ImageRequest = {
    */
   size?: string;
   /**
-   * gpt-image-*, gemini-*, provider/model, or auto; left out, each provider's own.
+   * Picks the provider only: gpt-image-* Codex, gemini-* Antigravity, provider/anything that provider; auto or left out, the order. The provider makes the images with its one model whatever the name.
    */
   model?: string;
   provider?: ImageProvider;
@@ -630,6 +621,18 @@ export type ImageAnswer = {
   model: string;
   created: number;
   images: Array<GeneratedImage>;
+  /**
+   * The size the provider says it made (Codex reports it), which may not be the one asked.
+   */
+  size?: string;
+  /**
+   * The quality the provider says it made (Codex reports it).
+   */
+  quality?: string;
+  /**
+   * The images' format as the provider names it (Codex reports it), such as png.
+   */
+  output_format?: string;
   errors?: Array<WebSearchError>;
 };
 
@@ -2469,6 +2472,16 @@ export type NewChat = {
 };
 
 /**
+ * What a chat's deletion left on the coordinator's machine.
+ */
+export type ChatDeleted = {
+  /**
+   * Each of the chat's files that could not be removed, with why; empty when all of them went. The chat is deleted all the same.
+   */
+  files_left: Array<string>;
+};
+
+/**
  * A change of the model and effort a chat runs with; a field left out stays as it is.
  */
 export type ChatChange = {
@@ -2905,10 +2918,29 @@ export type ChatMessage = {
   wake?: ChatWake;
   artifact?: ArtifactCard;
   /**
+   * The Approval an approval row answers; absent for other messages.
+   */
+  approval_id?: string;
+  approval?: ChatApproval;
+  /**
    * When the coordinator got an owner message or a wake-up.
    */
   delivered_at?: string;
   created_at: string;
+};
+
+/**
+ * An Approval asked in the chat, as the owner answered it: what was asked, the answer, how far an approval reaches and when it was given. It no longer changes.
+ */
+export type ChatApproval = {
+  title: string;
+  action_name: string;
+  status: ApprovalStatus;
+  /**
+   * How far an approval reaches; absent for a rejection.
+   */
+  scope?: 'once' | 'session' | 'routine';
+  decided_at?: string;
 };
 
 /**
@@ -6990,6 +7022,33 @@ export type ListProfilesResponses = {
 
 export type ListProfilesResponse = ListProfilesResponses[keyof ListProfilesResponses];
 
+export type DeleteProfileData = {
+  body?: never;
+  path: {
+    name: string;
+  };
+  query?: never;
+  url: '/profiles/{name}';
+};
+
+export type DeleteProfileErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type DeleteProfileError = DeleteProfileErrors[keyof DeleteProfileErrors];
+
+export type DeleteProfileResponses = {
+  /**
+   * The profile is deleted.
+   */
+  204: void;
+};
+
+export type DeleteProfileResponse = DeleteProfileResponses[keyof DeleteProfileResponses];
+
 export type GetProfileData = {
   body?: never;
   path: {
@@ -7489,6 +7548,33 @@ export type CreateChatResponses = {
 };
 
 export type CreateChatResponse = CreateChatResponses[keyof CreateChatResponses];
+
+export type DeleteChatData = {
+  body?: never;
+  path: {
+    chat_id: string;
+  };
+  query?: never;
+  url: '/chats/{chat_id}';
+};
+
+export type DeleteChatErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type DeleteChatError = DeleteChatErrors[keyof DeleteChatErrors];
+
+export type DeleteChatResponses = {
+  /**
+   * The chat is deleted.
+   */
+  200: ChatDeleted;
+};
+
+export type DeleteChatResponse = DeleteChatResponses[keyof DeleteChatResponses];
 
 export type GetChatData = {
   body?: never;

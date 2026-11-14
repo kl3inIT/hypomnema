@@ -1682,8 +1682,8 @@ paths:
       summary: >-
         The image providers in the order a request asks them, each with its switch, state, model and usage
       description: >-
-        Codex (with gpt-image-2 unless the owner set another model) and Antigravity (gemini-3.1-flash-image), in
-        the owner's order, by default Codex first. A provider can make images while an account of it is logged in
+        Codex (gpt-image-2) and Antigravity (gemini-3.1-flash-image), each with its one model, in the owner's
+        order, by default Codex first. A provider can make images while an account of it is logged in
         on the control plane and in use, a Codex account on a paid ChatGPT plan; its account is added on the
         Models page. It rests while each such account rests after a limit, until the vendor's reset.
       responses:
@@ -1701,11 +1701,9 @@ paths:
         schema: { $ref: "#/components/schemas/ImageProvider" }
     put:
       operationId: SetImageProvider
-      summary: Switch an image provider on or off, or set the model it makes images with; only the owner
+      summary: Switch an image provider on or off; only the owner
       description: >-
-        A provider that is off is neither asked nor may be named, from the next request on. A model is any name the
-        provider may know, passed to it as it is, so a model released later can be tried; an empty one is the
-        provider's default again. A request that names a model uses that one instead.
+        A provider that is off is neither asked nor may be named, from the next request on.
       requestBody:
         required: true
         content:
@@ -2519,9 +2517,10 @@ paths:
       operationId: ApplyProfile
       summary: Store a profile's YAML; the owner, or the main Bot from its chat
       description: >-
-        A changed source makes a new version. A new version by the Bot
-        coordinator is recorded in its chat as a setup change the owner can
-        undo.
+        A changed source makes a new version; the name of a deleted profile
+        brings it back as a new version, even from the same source. A new
+        version by the Bot coordinator is recorded in its chat as a setup
+        change the owner can undo.
       requestBody:
         required: true
         content:
@@ -2538,6 +2537,20 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Profile" }
+        default: { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: DeleteProfile
+      summary: Delete a profile; only the owner
+      description: >-
+        A profile no Task and no Dispatch ever used goes with its versions. One
+        used before is marked deleted: it is hidden from the lists, reads as
+        not found and no new Task names it, while its versions stay for the
+        Dispatches that ran them; applying its name again brings it back as a
+        new version. Refused for `implementer`, and while an unfinished Task
+        names the profile, another profile names it as a backup, or a Bot's
+        workers list names it.
+      responses:
+        "204": { description: The profile is deleted. }
         default: { $ref: "#/components/responses/Error" }
   /profiles/{name}/versions:
     parameters:
@@ -2780,9 +2793,11 @@ paths:
       operationId: GenerateImages
       summary: Make or edit images through the owner's subscriptions; any token, a Bot's included
       description: >-
-        With reference images it is an edit. The image providers are asked in the owner's order, each with the
-        model the request names (gpt-image-* is Codex's, gemini-* Antigravity's, or provider/model) or the
-        one the owner set; `errors` says why those asked before the one that answered did not. Every provider
+        With reference images it is an edit. The image providers are asked in the owner's order, each with its one
+        model; a `model` the request names only picks the provider (gpt-image-* is Codex, gemini-* Antigravity,
+        provider/anything that provider). `size`, `quality` and `output_format` in the answer are what the
+        provider says it made, which may differ from what was asked; `errors` says why those asked before the one
+        that answered did not. Every provider
         limited is answered 429 with `Retry-After`; none with an account to use, 503.
       requestBody:
         required: true
@@ -2856,6 +2871,23 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Chat" }
+        default: { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: DeleteChat
+      summary: Delete a chat for good; only the owner
+      description: >-
+        There is no archive (issue #484). The chat's messages, setup changes, artifacts and Lark chat go; Runs, Routines'
+        runs and approvals made in it stay without the chat, and its gateway keys are revoked and kept. A chat whose
+        coordinator is working is refused with 409, as is one a Routine tells its runs in or whose Routine's run is
+        live. Once the chat is gone, its pi is stopped and its files on the coordinator's machine are removed: its
+        attachments in its Bot's folder, and pi's run folder and sessions. A file that could not be removed is
+        logged and named in files_left; the chat stays deleted.
+      responses:
+        "200":
+          description: The chat is deleted.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ChatDeleted" }
         default: { $ref: "#/components/responses/Error" }
   /chats/{chat_id}/stream:
     parameters:
@@ -4022,7 +4054,7 @@ components:
           items: { $ref: "#/components/schemas/ImageProviderLink" }
     ImageProviderLink:
       type: object
-      required: [provider, "on", state, model, default_model, model_chosen, suggested_models, accounts, usage]
+      required: [provider, "on", state, model, model_name, accounts, usage]
       properties:
         provider: { $ref: "#/components/schemas/ImageProvider" }
         "on":
@@ -4037,15 +4069,10 @@ components:
         resting_until: { type: string, format: date-time }
         model:
           type: string
-          description: The model it makes images with when a request names none.
-        default_model: { type: string }
-        model_chosen:
-          type: boolean
-          description: The owner set the model; false, it is the default.
-        suggested_models:
-          type: array
-          description: Models the references name for it; any other name may be set.
-          items: { type: string }
+          description: The one model it makes images with, as usage rows name it (image/<model>).
+        model_name:
+          type: string
+          description: The model's name for people, as OmniRoute names it.
         accounts:
           type: integer
           description: Its accounts that can make images, now or after their rest.
@@ -4053,12 +4080,9 @@ components:
     ImageProviderChange:
       type: object
       additionalProperties: false
+      required: ["on"]
       properties:
         "on": { type: boolean }
-        model:
-          type: string
-          maxLength: 100
-          description: The model's name as the provider takes it; empty for the default.
     ImageOrder:
       type: object
       additionalProperties: false
@@ -4095,7 +4119,9 @@ components:
         model:
           type: string
           maxLength: 120
-          description: "gpt-image-*, gemini-*, provider/model, or auto; left out, each provider's own."
+          description: >-
+            Picks the provider only: gpt-image-* Codex, gemini-* Antigravity, provider/anything that provider;
+            auto or left out, the order. The provider makes the images with its one model whatever the name.
         provider: { $ref: "#/components/schemas/ImageProvider" }
         quality: { type: string, maxLength: 20 }
         background: { type: string, maxLength: 20 }
@@ -4110,6 +4136,15 @@ components:
         images:
           type: array
           items: { $ref: "#/components/schemas/GeneratedImage" }
+        size:
+          type: string
+          description: The size the provider says it made (Codex reports it), which may not be the one asked.
+        quality:
+          type: string
+          description: The quality the provider says it made (Codex reports it).
+        output_format:
+          type: string
+          description: The images' format as the provider names it (Codex reports it), such as png.
         errors:
           type: array
           items: { $ref: "#/components/schemas/WebSearchError" }
@@ -6145,6 +6180,18 @@ components:
         effort:
           type: string
           description: The chat's own effort, one of the model gateway's levels; its Bot's when left out.
+    ChatDeleted:
+      type: object
+      additionalProperties: false
+      required: [files_left]
+      description: What a chat's deletion left on the coordinator's machine.
+      properties:
+        files_left:
+          type: array
+          items: { type: string }
+          description: >-
+            Each of the chat's files that could not be removed, with why; empty when all of them went. The chat is
+            deleted all the same.
     ChatChange:
       type: object
       additionalProperties: false
@@ -6555,11 +6602,32 @@ components:
         artifact:
           $ref: "#/components/schemas/ArtifactCard"
           description: The artifact an artifact row shows, as it is now; absent for other messages.
+        approval_id:
+          type: string
+          description: The Approval an approval row answers; absent for other messages.
+        approval:
+          $ref: "#/components/schemas/ChatApproval"
+          description: What an approval row's Approval asked and how the owner answered; absent for other messages.
         delivered_at:
           type: string
           format: date-time
           description: When the coordinator got an owner message or a wake-up.
         created_at: { type: string, format: date-time }
+    ChatApproval:
+      type: object
+      description: >-
+        An Approval asked in the chat, as the owner answered it: what was asked, the answer, how far an approval
+        reaches and when it was given. It no longer changes.
+      required: [title, action_name, status]
+      properties:
+        title: { type: string }
+        action_name: { type: string }
+        status: { $ref: "#/components/schemas/ApprovalStatus" }
+        scope:
+          type: string
+          enum: [once, session, routine]
+          description: How far an approval reaches; absent for a rejection.
+        decided_at: { type: string, format: date-time }
     ChatWake:
       type: object
       description: >-

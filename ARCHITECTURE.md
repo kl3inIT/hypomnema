@@ -23,6 +23,8 @@ messages and nothing answers. `HYPOMNEMA_BOT_FILES_COMMAND` (a JSON array, `sudo
 the files a Bot sends into a Lark chat; unset, the panel shows only the Tasks' worktrees and a Bot's files are not
 sent. `HYPOMNEMA_ROUTINE_COMMAND` (a JSON array) runs a script Routine for
 the Bot's id and the Routine's id appended to it; unset, a script Routine's run fails and says so.
+`HYPOMNEMA_CHAT_RM_COMMAND` (a JSON array, `sudo -n -u coordinator /usr/local/bin/hypomnema-chat-rm`) removes a
+deleted chat's files of pi for the chat's id appended to it (issue #484); unset, they stay and the deletion says so.
 The web search providers' keys are vault secrets named `web-search-<provider>` and `web-search-<provider>-<n>`;
 which providers are on and the keyed ones' order are set on Settings → Gateway → Web search and stored (see "Web
 search and fetch").
@@ -69,7 +71,9 @@ meanwhile waits, `abort` stops it with a `stopped` row, a failure ends in a `fai
 its own (reserve 16384, keep 20000). On
 the server pi runs as the `coordinator` user through `deploy/coordinator/`: a root-owned launcher (`hypomnema-pi`,
 a clean environment, only a chat id, a Bot's id and model flags, pi's own token on the first line of stdin), a
-second one for a Routine's script (`hypomnema-routine`, below), one sudoers rule limited to the two, the instructions
+second one for a Routine's script (`hypomnema-routine`, below), a third that removes a deleted chat's `run/<chat>`
+and `sessions/<chat>` (`hypomnema-chat-rm`, accepting only a chat id of the shape the control plane makes; issue
+#484), one sudoers rule limited to the three, the instructions
 every Bot gets, pi's version with its lockfile (`package.json`, which Dependabot updates; the setup installs it with
 `npm ci`), and the setup script the owner runs with sudo. Each pi, and each Routine's script, runs in a bubblewrap box
 with a token of its own (issues #260 and #211, see Bots).
@@ -344,11 +348,12 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     `127.0.0.1:3000`, which covers `::1` too), and the control plane's own port, the gate's,
     Chrome's DevTools port and the sessions' stream ports never open on that machine. A refusal is logged as `browser.refused` with the host, the
     port and the reason; the agent sees Chrome's connection error.
-- A phone, on a node that holds one (issue #417, step 1b; [research](docs/research/2026-11-14-android-device-for-agents.md);
-  `internal/node/device`). Built so far: the node installs the Android emulator and a phone image, writes the
-  AVD, starts and stops the phone when the owner asks and after an idle time, and says its state; the owner's
-  API and CLI. Not built: agents' tools on the phone (step 2), the owner watching and taking over (step 3), and
-  stopping an idle machine (step 4). A real boot from this code is checked on the trial machine, not in CI.
+- A phone, on a node that holds one (issue #417, steps 1b and 2; [research](docs/research/2026-11-14-android-device-for-agents.md);
+  `internal/node/device`, `internal/controlplane/phone`, `internal/shared/devicetool`). Built so far: the node
+  installs the Android emulator and a phone image, writes the AVD, starts and stops the phone when the owner asks
+  and after an idle time, and says its state; the owner's API and CLI; the workers' tools on the phone (below).
+  Not built: the owner watching and taking over (step 3), and stopping an idle machine (step 4). A real boot from
+  this code is checked on the trial machine, not in CI; the tools are tested with fakes, not yet on a real phone.
   - Only a node whose configuration names `device: android` has a phone, and only on Linux x86_64, the one
     system Google publishes the emulator and the image for. Everything of it is in `device/` in the node's home.
   - Installed at the first start (`release.go`, `install.go`, after the browser's): platform-tools 37.0.1, the
@@ -380,8 +385,8 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     still there after 30 s is killed, and each adb call is given up after its own limit (the boot's 5 minutes, or
     30 s). One emulator a node. Starts and stops are carried out one at a time, and the latest asked wins: a stop
     calls off a start under way or not yet begun, and a start asked during a stop boots the phone after it.
-  - The phone is stopped 15 minutes after its last use: its start, or a touch the later steps make; using it over
-    adb does not count yet. An emulator
+  - The phone is stopped 15 minutes after its last use: its start, or an agent's call; using it over adb directly
+    does not count. An emulator
     that ended by itself makes the phone `failed`; the node looks every minute.
   - A node that ends leaves the phone running, and the next node takes it back when `run.json` names a booted
     phone, as Orca takes an AVD that already runs (`android-avd-boot.ts`); what it names that is not one is
@@ -398,17 +403,64 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     node that is not connected) and what is installed. `POST /api/v1/nodes/{node_id}/device/start` and `/stop`
     (`hypomnema device start|stop <node>`, by name or id) are refused with 409 for a node without a phone and 503
     for one not connected, and answer 202. All three are the owner's only.
+  - Agents' tools (step 2). The phone is given as the shared browser is (#212): every agent the browser's routes
+    take, with no setting and no Connection (owner, 2026-11-15); only workers have a client for them yet, so Bots
+    and chats reach the phone when they reach the browser's tools. The agent API has `GET /agent/v1/device/tools`
+    and `POST /agent/v1/device/call` (`{tool, arguments}`), in the browser's shape; the tools are listed only while
+    a node holds a phone, and a worker's tools server (`internal/node/workertools`) lists them after the browser's
+    and passes a call of a `device_*` tool there. Which agent used which tool is logged, never the arguments.
+  - The tools (`internal/shared/devicetool`, run in `internal/node/device/tools.go`) are Android CLI's and adb's,
+    as Google's android-cli skill drives a device (notice in `third_party/android-cli-plugin`; the syntax read
+    from Android CLI 1.1.16919734's own help): `device_screen` is `android screen capture --annotate`, returned as
+    a PNG image with numbered boxes and kept as the agent's last screen; `device_layout` is `android layout
+    --flat`; `device_tap` takes `#N`, resolved against the agent's own last screen with `android screen resolve`
+    and tapped with `adb shell input tap x y`, or `x,y`, or an Android CLI selector (`android input tap`);
+    `device_swipe` is `adb shell input swipe` between two such points; `device_type` is `android input text
+    [--submit] -- <text> <selector>`, the focused field by default, which types any language; `device_key` is
+    `android input key` (back, home, recents, enter); `device_launch` is `adb shell monkey -p <package> -c
+    android.intent.category.LAUNCHER 1` (Orca, OpenMausBot); `device_logcat` is `adb logcat -d -v threadtime -t
+    N [*:<level>]` (Orca), with only the last lines holding a text when one is given. Android CLI runs with
+    `--no-metrics` and `--sdk` and `ANDROID_SDK_ROOT` set to the phone's SDK, against the adb server the phone
+    started; a failure it prints as `Error:` with exit 0 is a failure.
+  - The control plane passes a call on the socket of the node that holds the phone (`device_call`, with the
+    agent's name, the tool and its arguments) and waits up to 8.5 minutes for the node's answer on
+    `POST /node/v1/device`, as a `files_request` is answered: an MCP result, a screen as base64 PNG, at most 16 MB.
+    The node starts a stopped or failed phone first and waits for its boot; a phone not installed yet is installed
+    in the background and the call says to come back. Each call puts the phone's idle stop off.
+  - One holder at a time (`internal/controlplane/phone`, as OpenMausBot's phone proxy lets one turn hold the
+    phone): a call waits until the call before it ended, and the node runs one call at a time as well. A box number
+    is taken only from the agent's own last screen, and refused once another agent acted on the phone since that
+    screen: the agent looks again (the issue's "never runs on another's half-done screen").
+  - A call that finds the phone's node offline and its machine `stopped` starts the machine with the path of
+    `hypomnema machines start` (`machines.Manager.Start`) and waits up to 2 minutes for the node's hello; one
+    whose machine is `starting` waits the same. After that the call is refused (503) with "the phone is waking …
+    try again in a minute", and the machine keeps starting. A node installed by the owner, or whose machine is on,
+    is reported offline. Stopping an idle machine is step 4.
+  - A worker is told of the phone when one is there: the node API marks an offer with `device: android`, and the
+    node writes the `android-device` guide (`internal/shared/agenttool/skills/android-device`) where the Integrations'
+    guides go and names it in the worker's first message, with the rules that matter most: look before acting,
+    act by box number, never sign in or pay. The guide is written for Claude Code and Codex workers, which are the
+    ones the Integrations' guides are written for; an omp or opencode worker is told the rules only. Its stub,
+    installed for Bots by `skills install`, says the tools are a worker's for now.
 - Chats (`orchestration/chats.go`, issue #41 PR 3, after Omnara;
   [research](docs/research/2026-11-09-chat-storage.md)): the owner's conversations with pi. Every message is kept
   (`owner`, `coordinator`, `tool`, `system`; replies and tools with JSON `parts`); owner messages and wake-ups wait
   for pi and are marked delivered one by one. A `system` row has a `kind` (migration 00054, issue #267, after
   t3code's typed timeline items): `wake` (it names its event), `failed` (pi's model call failed), `stopped` (the
-  owner stopped the turn) or `approval` (the coordinator is told an Approval was answered); the API sends it as
+  owner stopped the turn) or `approval` (the owner answered an Approval asked in the chat); the API sends it as
   `ChatMessage.kind`, and the web and Lark read it rather than the text. A
   Run records the chat whose pi created it (`runs.chat_id`); the API names that chat's Bot as `Run.bot` (issue #281),
   read by a join of `runs` with `chats` in `GetRunWithBot` and `ListRuns`, and absent for a Run without a chat.
   `GET /runs?chat_id=` lists only the Runs made from a chat and `GET /questions?chat_id=` only the questions of those
-  Runs, with the other filters (issue #314; `hypomnema runs list --chat`, `hypomnema questions --chat`). Each
+  Runs, with the other filters (issue #314; `hypomnema runs list --chat`, `hypomnema questions --chat`). The owner
+  deletes a chat for good (`DELETE /chats/{id}`, `hypomnema chats rm`, the sidebar row's menu; issue #484, after
+  OpenMausBot's, Hermes's and opencode's hard deletes): one transaction detaches its Runs, Routines, Routines' runs
+  and approvals, revokes and keeps its gateway keys, and deletes its setup changes, its Lark chat, its artifacts
+  (with their revisions, and the bytes no other artifact keeps), its messages and the chat. A chat pi works in is
+  refused (409, "stop it first"), as are a chat a Routine tells its runs in and the chat of a Routine's live run.
+  After the commit (t3code's thread deletion) its pi is stopped and its files go: `attachments/<chat>` in its Bot's
+  folder through the folders' helper, then `run/<chat>` and `sessions/<chat>` through `HYPOMNEMA_CHAT_RM_COMMAND`; a
+  file that stays is logged and named in the answer's `files_left`, and the chat stays deleted. Each
   event of such a Run that needs a coordinator (a Task ended or was blocked, a question to the coordinator, an
   escalation, the Run ended) adds one wake-up to the chat, unique per event. A `task.status` event's `reason` is why
   the Task is blocked, or why it failed. Reading a chat's messages (the list and the stream) joins each `wake` row
@@ -487,7 +539,7 @@ transaction, every status change a guarded `UPDATE` checked against a transition
 - Bots (`orchestration/bots.go`, issue #169, after OpenMausBot's bot records and OpenClaw's `agents.entries`): a
   Bot is a row with an id, a name, a model (provider, name, effort, checked as a profile's is, for pi), a persona
   and a memory. It is apart from the workers' profiles (owner, 2026-11-11).
-  - **Ids and names** (issue #466, migration 00081; after the nodes' ids, OpenMausBot's bot ids and t3code's
+  - **Ids and names** (issue #466, migration 00085; after the nodes' ids, OpenMausBot's bot ids and t3code's
     project ids). A Bot's id (`bot_` and 26 base32 characters, `platform.NewID`) never changes; its name is only
     shown and may change. Every record names the Bot by its id: `chats.bot_id`, `runs.bot_id`, `routines.bot_id`
     and `channels.bot_id` (foreign keys to `bots (id)`), `artifacts.bot_id`, a Bot's `setup_changes.name`, a bot
@@ -505,9 +557,10 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     web names no Bot: a chat that names no Bot talks with it. A chat records its Bot. A Bot with
     chats or a memory, or one a Lark Channel talks to, is not removed, and the main Bot never is. The owner may
     remove one with its chats and its memory (`DELETE /bots/{bot_id}?force=true`,
-  `hypomnema bots rm -force`, the page's "Remove with its chats"; issue #330): the chats' messages and setup changes
-  go, the Runs, Routines and approvals made in them stay without the chat, and the chats' gateway keys are revoked
-  and kept. A Bot that Routines or Lark Channels use is refused even then. A provider change that would
+  `hypomnema bots rm -force`, the page's "Remove with its chats"; issue #330): each chat is deleted as a chat is
+  (Chats, above; issue #484), its messages, setup changes and artifacts with it, the Runs, Routines and approvals
+  made in them stay without the chat, and the chats' gateway keys are revoked and kept. Their files on the
+  coordinator's machine stay. A Bot that Routines or Lark Channels use is refused even then. A provider change that would
   leave a Bot's model unserved is refused, as for a profile.
   - The persona is the owner's text of what the Bot is, without versions, as `SOUL.md` of OpenClaw and Hermes. How
     to give work to workers is the persona of `coordinator`; the instructions every Bot gets
@@ -695,8 +748,8 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     account" with an empty one. In a chat, each setup change has a card where it was made ("Made Bot researcher", its state,
     Open · Undo), the Routines' "Set up" card's shape (`web/src/features/bots/setup-change-card.tsx`).
   - Not built: MCP servers, pi extensions and a Bot's own skills (issue #169 says these need reading first), a
-    per-Bot switch for the right to manage Bots, rules of what a new Bot inherits, removing a profile (not an
-    operation for the owner either), a Bot on another CLI than pi; a network namespace, an egress gate, and a Unix
+    per-Bot switch for the right to manage Bots, rules of what a new Bot inherits, the Bot coordinator deleting a
+    profile (only the owner does, below), a Bot on another CLI than pi; a network namespace, an egress gate, and a Unix
     user or a container per Bot (issue #260).
 - Skills (`orchestration/skills.go`, issue #21, [research](docs/research/2026-11-12-skills.md)): a skill the owner
   adds, in the Agent Skills format (a folder with a `SKILL.md` whose frontmatter has `name` and `description`, and
@@ -767,10 +820,18 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     agents' project folders, the `paths` of `skills.sh.json`, three levels deep; else anywhere five deep), and
     keeps that folder as the source's path. CLI: `skills search <words> [--owner o]`, `skills add --github
     owner/repo --skill <name>`, which prints the audits first. Nothing else is sent to skills.sh.
-- Routines (`orchestration/routines.go` keeps the record, `internal/controlplane/routines` runs them;
-  [issue #211](https://github.com/kl3inIT/hypomnema/issues/211), migration 00056,
-  [research](docs/research/2026-11-12-work-on-a-schedule.md)): a Routine is work a Bot does on a schedule. What
-  the work is, is not built in.
+- Routines (the domain store `orchestration/routinestore` keeps the record, reached through `Service.Routines()`;
+  `internal/controlplane/routines` runs them; [issue #211](https://github.com/kl3inIT/hypomnema/issues/211),
+  migration 00056, [research](docs/research/2026-11-12-work-on-a-schedule.md)): a Routine is work a Bot does on a
+  schedule. What the work is, is not built in.
+  - **Where the code is** (issue #404). The store imports the generated queries and never the root. What also
+    writes another domain's tables stays in the root and calls the store's functions that end in `Tx` with its
+    own queries: starting a run (`RunRoutineNow`, `ClaimDueRoutines`: a prompt run's chat), ending one
+    (`FinishRoutineRun`: what the run still asked is refused), what a run's approvals ended as
+    (`RoutineRunAnswers`), a line in a chat (`TellChat`), an approval that waits a run or grants "always for this
+    Routine" (`RunOfAskerTx`, `GrantedTx`, `WaitRunTx`, `ResumeRunTx`, `GrantTx`), and a Bot removed with its
+    chats or refused for its Routines (`DetachFromChatsOfBotTx`, `CountRoutinesOfBotTx`). The runner takes the
+    two apart: `routines.New(svc, svc.Routines(), cfg)`.
   - **What it is.** A row of `routines`: its Bot, a name of its own among the Bot's, a kind, a schedule, on or
     paused (with the reason), when it runs next, the chat it was made in, and whether a run's result is told
     there. A `prompt` Routine gives the Bot its text in a new chat each run. A `script` Routine names a file
@@ -784,7 +845,8 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     downtime (`routine-intervals.ts`, `nextAlignedInterval`). No seconds field, no `@every`, no one-time Routine.
     A schedule is said in words ("every hour", "every weekday at 7:00 Ho Chi Minh time"): a familiar cron
     expression as what it means and any other as itself, with its zone as people say it
-    (`orchestration/schedule_words.go`, after OpenMausBot's `shared/cron-label.ts` and `plain-time-zone.ts`).
+    (`orchestration/routinestore/schedule_words.go`, after OpenMausBot's `shared/cron-label.ts` and
+    `plain-time-zone.ts`).
     `POST /routine-schedule` checks a schedule as a Routine's is and answers its words and its next three times,
     counted from now, without keeping anything.
   - **The tick.** The runner looks every 60 s (`ClaimDueRoutines`): each Routine that is on and due gets its next
@@ -857,7 +919,7 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     restart of the control plane ended, are recorded and not counted; after a restart a prompt Routine is run
     again after the backoff, a script waits for its schedule. After 2 failures in a row the owner is told, at
     most once an hour: a line in the chat the Routine was made in, and a card through each Lark Channel of the
-    Bot that is on, except one through which he reads that chat already (`larkbot.Channels.TellOwner`). After 10
+    Bot that is on, except one through which he reads that chat already (`channels.Channels.TellOwner`). After 10
     the Routine is paused and he is told the same way, with the reason and the command that switches it on
     again. Removing a Routine stops its live run (the script is told to end, pi's turn is aborted); pausing lets
     it finish.
@@ -891,6 +953,16 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   kind that runtime can use offers (found from the model when the provider is not named). A provider change that
   would leave a profile's model or runtime unserved is refused. A Task names a profile, `implementer` by default.
   The owner applies a profile, and the main Bot from its chat (Bots, above); a provider only the owner.
+  Only the owner deletes a profile (issue #485; `DELETE /profiles/{name}`, `hypomnema profiles rm`, the Delete
+  section at the bottom of an agent's page, as the Bot page's Removal). One no Task named and no Dispatch ran goes
+  with its versions, as Omnigent removes an agent no session uses; one used before is marked deleted
+  (`profiles.deleted_at`, migration 00084), as Coder marks a template and Onyx a persona: it is left out of the
+  lists, reads as not found ("was deleted"), and no new Task, backup or Bot's workers list may name it, while its
+  versions stay for the Dispatches that ran them. Applying its name again brings it back as a new version, even
+  from the same source (Onyx's `mark_persona_as_not_deleted`). `implementer` is never deleted, and a profile is
+  not while a Task that names it has not ended (a failed one of an open Run counts, being reopenable), another
+  profile names it as a backup, or a Bot's workers list names it. Its agent memory is kept either way and
+  belongs to the next profile of the name.
   A provider of kind `model_gateway` is the control plane's own model gateway (issue #107): `codex` can run against
   it, and a Task under it needs no account on a node. Its Conversation names `gateway` where an account's id would
   be, and a rate limit cools no account down: the gateway looks after its own accounts. `claude` runs only against
@@ -910,8 +982,14 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   A profile may name up to five `fallbacks`, other workers' profiles in the owner's order (issue #171, after
   OpenMausBot's backups of a bot and OpenClaw's fallbacks of an agent;
   [research](docs/research/2026-11-11-work-moves-when-out-of-quota.md)); they are kept in the version.
-  The starting set: `implementer`, `reviewer` and `explorer` on Claude Code with its default model; provider
-  `claude-subscription`. The reviewer (effort `high`) and the explorer say in their
+  The starting set: `implementer`, `reviewer` and `explorer` on Claude Code through the provider `model-gateway`
+  (issue #462, migration 00081), the implementer and the reviewer on `claude-opus-5-5`, the explorer on
+  `claude-sonnet-5-5`; providers `claude-subscription` and `model-gateway` (the gateway, below). The migration
+  gives a seeded profile its gateway version only where its current version is still the seed's and a provider
+  `model-gateway` of kind `model_gateway` offers the model; a seeded version's source and
+  digest are what applying that YAML stores, so applying it again makes no new version. The way back takes the
+  versions back where still current and removes the provider and the gateway models it made where nothing names
+  them. The reviewer (effort `high`) and the explorer say in their
   instruction how to report (issue #155, after omp's `reviewer` and `scout`): the reviewer a verdict, `correct` or
   `incorrect`, and findings with a priority P0 to P3, the file and the lines, only for what the change introduced;
   the explorer an answer, the files that matter and the detail with `path:line`. Both are told to change nothing;
@@ -1038,13 +1116,18 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       the Routine whose run asked (issue #211, under Routines), or rejects. A request of a Routine's run is held
       in place up to 30 minutes instead and then refused. An Approval
       not answered in time stays open (owner, 2026-11-11): the tool is told it waits; a coordinator ends its turn
-      and a worker asks the owner and waits. When it is answered later, the coordinator is woken in its chat, or
-      the question the worker waits on is answered, and the repeat of the same request, recognized by its decoded
-      content and not its bytes, passes once. Only the owner's token lists and answers Approvals
+      and a worker asks the owner and waits. Answering an Approval a chat asked writes one `approval` row in that
+      chat in the same transaction (issue #465, migration 00083, after t3code's `TimelinePendingApprovalRow.tsx`
+      and AI Elements' `confirmation.tsx`): `chat_messages.approval_id` names it, its text says the answer, what
+      was asked and how far it reaches, and `ChatMessage.approval` gives the Approval's title, action, answer,
+      scope and time, read with the row. When it is answered after its request ended, the coordinator is woken
+      with that same row (`to_coordinator=1`, once), or the question the worker waits on is answered, and the
+      repeat of the same request, recognized by its decoded content and not its bytes, passes once. Only the owner's token lists and answers Approvals
       (`GET /approvals`, `POST /approvals/{id}/decision`; `hypomnema approvals`) and sets an action's answer
       (`.../connections/{label}/actions`; `hypomnema integrations actions`). On the web an Approval is a card
       above the message box of the chat that asked, whose row in the sidebar says it needs the owner, and in the
-      Task of the worker that asked; an account on the Integrations page says what agents may do with it and
+      Task of the worker that asked; once answered, the chat shows its row (`approval-row.tsx`): Approved or
+      Denied, what was asked, the action and how far it reaches, and when, whatever the Bot shows of its tools; an account on the Integrations page says what agents may do with it and
       opens the list of actions.
     - **Who an agent is decides what it gets.** A worker presents its Dispatch's own key (`agent_sessions`,
       migration 00037): made by the node API as the offer is sent, for the Run's Connections, and revoked when the
@@ -1220,9 +1303,10 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     - **On the web** the Integrations page has an AWS card: add a role (name, ARN, key name, and the access key
       the first time a key name is used), see each role's ARN, account and key and whether the last assume
       worked, "Use in chats", connect again, disconnect.
-  - Lark Channels (`internal/controlplane/larkbot`, issues
-    [#136](https://github.com/kl3inIT/hypomnema/issues/136) and
-    [#169](https://github.com/kl3inIT/hypomnema/issues/169)): a Channel is a door to one Bot, a Lark app and who
+  - Lark Channels (`internal/controlplane/channels` and `channels/lark`, issues
+    [#136](https://github.com/kl3inIT/hypomnema/issues/136),
+    [#169](https://github.com/kl3inIT/hypomnema/issues/169) and
+    [#404](https://github.com/kl3inIT/hypomnema/issues/404)): a Channel is a door to one Bot, a Lark app and who
     may talk through it. A person's direct message to the app at Lark becomes a message of a chat with the
     Channel's Bot, and what the Bot says there goes back to Lark. There may be several Channels, and several may
     talk to one Bot (OpenClaw's `bindings[]`: one channel account routed to one agent). What Lark calls a bot is
@@ -1243,8 +1327,24 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       another domain stays in the root and calls its functions ending in `Tx` with the root's queries: starting
       the chat of a Lark chat (`RecordChannelChatTx`, `ResetChannelChatTx`) and refusing or forcing a
       Bot's removal (`CountChannelsOfBotTx`, `DeleteChannelChatsOfBotTx`). Its types are `Channel` (with its
-      `Kind`), `ChannelPerson`, `ChannelChat`, `ChannelGroup` and `QuestionCard`. `larkbot` is handed the
+      `Kind`), `ChannelPerson`, `ChannelChat`, `ChannelGroup` and `QuestionCard`. `channels` is handed the
       Channels' store with the orchestration beside it.
+    - Runtime and kinds (issue #404; MemoryOS's `ChannelAdapter` and `ChannelSupervisor`, OpenClaw's channel
+      plugins, Hermes' `BasePlatformAdapter`): `internal/controlplane/channels` is what every kind shares and
+      imports no SDK: connecting each Channel and trying again, taking a message once, the mode and the
+      refusals, groups and mentions, `/new` and `/stop`, the labels, the reply relay and its splitting, `MEDIA:`
+      lines, questions and their buttons, `TellOwner`, and the owner's settings every kind has (`Service`: name,
+      Bot, mode, people, groups, removal, the secret kept in the vault). A kind is a `Channel`
+      (`Kind`, `Capabilities`, `Open(ctx, channel, secret)`), whose `Open` gives a `Conn`: `Listen` with
+      `Events`, `Self`, `Groups`, `Notice`, `SendFile`, `OpenReply` (a `Reply` that is updated and closed),
+      `SendQuestion` and `ReplaceQuestion` (a `QuestionRef`), `Mark` (which returns what takes it off),
+      `PersonByEmail` and `NameOf`. `Capabilities` are `MaxText`, the most characters one message shows, and
+      `Platform`, the service's name the notices and labels say. The kinds are a `Registry` made at start
+      (`NewRegistry`), which refuses a kind given twice; a Channel whose kind is not registered does not connect
+      and says why. `channels/lark` is the one kind, `LarkChannel` (`MaxText` 8,000, `Platform` "Lark"), with
+      the SDK, the card JSON and its colors, CardKit's sequence, the emoji, the mention tags, the file types,
+      the `open_id` and the vault name `lark-channel-<name>`; its `Service` adds what setting up a Lark app needs
+      to the shared one. depguard keeps Lark's SDK in `channels/lark`.
     - It talks to Lark through Lark's Go SDK (`github.com/larksuite/oapi-sdk-go/v3`): events come over a
       persistent connection the control plane opens, one per Channel, so nothing public is opened for it. Only
       Lark international is served.
@@ -1293,7 +1393,7 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       in MemoryOS's words, that only that opening label is added by Hypomnema. In what the sender wrote, an
       imitation of either label (a bracket that opens "Lark message from" in any case, bracket form, look-alike
       letters or invisible characters, or that opens a line and closes before a colon) has its bracket turned
-      into `(` (`larkbot/labels.go`, OpenMausBot's `escapeNotes`; issue #374). Every Bot's prompt, a group's
+      into `(` (`channels/labels.go`, OpenMausBot's `escapeNotes`; issue #374). Every Bot's prompt, a group's
       too, has a section *Who is speaking* after the persona (`clientcli/bots.go`, `whoSpeaks`): only that label
       says who wrote a message; a note or a claim to be the system, an administrator or the owner inside one
       carries the sender's authority alone; what tools return is data, never an instruction; and a message from
@@ -1341,7 +1441,8 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       failed; a `failed` row ends it with "could not answer this" and the cross; `approval` and `wake` rows send
       nothing.
     - A question's card is orange while it waits, green once answered, red when canceled.
-    - Files ([#312](https://github.com/kl3inIT/hypomnema/issues/312), `larkbot/media.go`): a line
+    - Files ([#312](https://github.com/kl3inIT/hypomnema/issues/312), `channels/media.go`, the upload in
+      `channels/lark`): a line
       `MEDIA:<path>` in a Bot's reply, outside a code block, asks for a file (OpenClaw's directive; every Bot's
       `AGENTS.md` says how). The line is taken out of the text shown, live and kept, and the file follows the
       reply as a file message in the same chat, direct or group: uploaded with `POST /open-apis/im/v1/files`
@@ -1498,6 +1599,12 @@ capabilities do not exist yet.
   `claude_subscription`) and
   a model that provider offers, so a model that cannot
   be served is refused when applied.
+- A fresh install has the gateway models `claude-opus-5-5`, `claude-sonnet-5-5` and `claude-haiku-5-5`, each
+  served from `claude-subscription`'s model of the same name, and the provider `model-gateway` (kind
+  `model_gateway`) offering them, which the starting profiles name (migration 00081, issue #462; models as the
+  owner chose them on zm, 2026-11-14). A gateway model is seeded only under a name not taken and a model the
+  subscription offers, and the provider only when no provider of its kind exists. A Claude Code worker then
+  needs only a Claude account on the control plane (`accounts login claude` or `accounts add claude`).
 - A model's attributes (issue #367, after 9router-go, omniroute, LiteLLM's `model_info`, CLIProxyAPI and omp) are
   what a client is told of it: `context_window`, `max_output`, `input` (`text`, `image`), `reasoning` and `efforts`
   (its reasoning effort levels, among `none`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`). The YAML may set
@@ -1761,7 +1868,11 @@ capabilities do not exist yet.
     (pi/omp `applyAnthropicCacheControl`), each kept an hour (`ttl: 1h`, with `extended-cache-ttl-2025-04-11` among
     the betas; issue #397, as Claude Code, omp, CLIProxyAPI and 9router-go keep a subscription's cache); a client's own breakpoint
     with no ttl is kept an hour too, one it gave a ttl keeps it, and a one-hour breakpoint after a shorter one loses
-    its ttl, as Anthropic reads them tools, system, messages; issue #409, CLIProxyAPI `normalizeCacheControlTTLDoc`). A probe
+    its ttl, as Anthropic reads them tools, system, messages; issue #409, CLIProxyAPI `normalizeCacheControlTTLDoc`).
+    A client's breakpoint on a text or image part stays on its block (a blank text part is dropped and hands its
+    breakpoint to the block before), one on a whole message goes on its last block, and a tool message's goes on the
+    `tool_result` block, never inside its content, which Anthropic refuses (issue #482, CLIProxyAPI
+    `AttachCacheControl`, `AttachMessageCacheControl`, `AttachToolMessageCacheControl`). A probe
     (Claude Code's own `quota`/`ping` check) is left minimal, with no decoys and no breakpoints.
   - The call goes to `api.anthropic.com/v1/messages?beta=true`, always as a stream, with the account's token in the
     Bearer header (never the api-key header), a refresh on a 401, a cooldown on a 429.
@@ -1937,20 +2048,26 @@ issue #431): the owner's Codex and Antigravity subscriptions make and edit image
 (`/v1/images/*`, above), for workers (omp and opencode name the gateway as their image model, see their runtime
 below) and for Bots (`hypomnema image`, see Bots). Claude makes none (no reference has it).
 - The providers are asked in the owner's order, by default Codex then Antigravity, each that is on; the first that
-  answers gives the images, and the answer says why those before it did not (as a web search). A request picks the
-  model with `model`: `auto` or none is each provider's own, `gpt-image-*` is Codex's and `gemini-*` Antigravity's
-  (OmniRoute's `isCodexImagesApiModel`), `<provider>/<model>` names both; `provider` names the one asked. Any well
-  formed name is passed on as it is, so a model released later can be tried (owner, 2026-11-14); a provider's
-  refusal comes back with the provider and the model's name. Refused before any provider: no prompt, `n` outside 1
+  answers gives the images, and the answer says why those before it did not (as a web search). Each provider makes
+  images with its one model, not chosen (issue #453, owner, 2026-11-14): Codex `gpt-image-2` (codex-rs's
+  `IMAGE_MODEL`, Hermes' `API_MODEL`), Antigravity `gemini-3.1-flash-image` (9router-go, OmniRoute; the only one
+  Cloud Code served in a probe), since the Codex backend answered every model name, a made-up one too, with the
+  same image. A request's `model` only picks the provider: `gpt-image-*` is Codex and `gemini-*` Antigravity
+  (OmniRoute's `isCodexImagesApiModel`), `<provider>/<anything>` that provider, `auto` or none the order;
+  `provider` names the one asked. Refused before any provider: no prompt, `n` outside 1
   to 10, a reference over 20 MiB (opencode's bound) or not an image, a mask, a file id, a reference that is an
-  address on the web (not fetched, as OmniRoute), a model that names no provider, a provider that is off. A body is
+  address on the web (not fetched, as OmniRoute), a model that names no provider or another than `provider`, a
+  provider that is off. A body is
   at most 64 MiB.
 - Codex (codex-rs `codex-api/src/endpoint/images.rs`, OmniRoute's `codexImages.ts`, Hermes, CLIProxyAPI's direct
   routes): `POST <Codex backend>/images/generations`, or `/images/edits` with references, with chat's headers,
   `Accept: application/json` and an `x-codex-image-turn-id`; the body `{prompt, model, n: 1, size?, quality?,
   background?, images?: [{image_url: data:…}]}`, `quality` `standard`/`hd` read as `medium`/`high`. `n` is fanned out
-  one call each at once, a failure failing the whole, the usage summed (OmniRoute). By default `gpt-image-2`. An
-  account whose plan is `free` is skipped without a call (9router-go, OmniRoute) and the backend's "The '<model>'
+  one call each at once, a failure failing the whole, the usage summed (OmniRoute). The backend does not enforce
+  `size` or `quality` (a 1024x1024 request came back 1312x1199): the `size`, `quality` and `output_format` it
+  answers (codex-rs's `ImageResponse`) are passed back at the top of the answer, as Hermes reports
+  `reported_size` and `reported_quality`, the first call's when `n` fans out. An
+  account whose plan is `free` is skipped without a call (9router-go, OmniRoute) and the backend's "The 'gpt-image-2'
   model is not supported when using Codex with a ChatGPT account." 400 moves on to the next account (OmniRoute,
   its issue #8307). The account's plan reaches the gateway with its token (`AccountToken.Plan`).
 - Antigravity (OmniRoute's `handleGeminiImageGeneration` and `geminiInline.ts`, 9router-go, omp):
@@ -1958,8 +2075,7 @@ below) and for Bots (`hypomnema image`, see Bots). Claude makes none (no referen
   image_gen/<ms>/<id>/0, model, userAgent: antigravity, requestType: image_gen, request: {contents: [references as
   inlineData, then the prompt], generationConfig: {candidateCount: n, imageConfig: {aspectRatio, imageSize?}}}}`;
   a prompt with references first asks to use them all (OmniRoute). `size` becomes the aspect ratio (OmniRoute's
-  table, an `a:b` kept, else 1:1), `image_size` 1K, 2K or 4K (else 1K); at most 14 references. By default
-  `gemini-3.1-flash-image`. An answer with text and no image is a refusal that says the text (`Antigravity returned
+  table, an `a:b` kept, else 1:1), `image_size` 1K, 2K or 4K (else 1K); at most 14 references. An answer with text and no image is a refusal that says the text (`Antigravity returned
   text instead of an image: …`), and no other account is asked for it; it counts within the account's requests in
   flight as chat's do; a suspended account or one to verify is parked as chat parks it.
 - Accounts are taken as chat takes them (`underAccounts`): the next one on 401 (after one refresh), 402, 403, 429,
@@ -1970,19 +2086,18 @@ below) and for Bots (`hypomnema image`, see Bots). Claude makes none (no referen
   with no time named waits as chat's (30 s, 30 minutes for a quota). In memory; an answer clears it. Every provider
   limited is 429 with `Retry-After`; none with an account to use 503 `no_image_provider`; one provider's refusal of
   the request its own 4xx; else 502. Images wait up to 5 minutes for the answer's headers (Hermes's 300 s).
-- Usage: each request is one row of `gateway_usage` on its key, as model `image/<model>`, its provider, account and
+- Usage: each request is one row of `gateway_usage` on its key, as model `image/<the provider's model>`, its provider, account and
   the providers tried; the tokens the provider reported (Codex's `usage`, Antigravity's `usageMetadata`), none
   invented; a request refused before any provider is not recorded. A Bot's is on its chat's key (as its web search).
-- What the owner sets (`gateway_image_providers`, migration 00077: `provider`, `off`, `position`, `model`; read
-  and written only by the gateway): a switch a provider, the order, and each one's model when a request names none,
-  read at each request. `GET /gateway/images` (any token) lists the providers in order, each with its switch, its
-  `state` (`ready`; `resting` with `resting_until`, when each usable account rests; `not_set_up`, no account in use,
-  for Codex none on a paid plan; `off`), its model, default model, whether the owner chose it, the references' names
-  for it (`suggested_models`: `gpt-image-2`; `gemini-3.1-flash-image`, `gemini-3-pro-image`), its usable accounts
-  and its requests today and this month (UTC). The owner's: `PUT /gateway/images/providers/{provider}` `{on?,
-  model?}` (an empty model is the default again) and `PUT /gateway/images/order` `{providers}`. The CLI: `hypomnema
-  image providers`, `image providers set <provider> on|off`, `image providers model <provider> <model>|default`,
-  `image order <provider> <provider>`.
+- What the owner sets (`gateway_image_providers`, migration 00077: `provider`, `off`, `position`; its `model`
+  dropped by 00082; read and written only by the gateway): a switch a provider and the order, read at each request.
+  `GET /gateway/images` (any token) lists the providers in order, each with its switch, its `state` (`ready`;
+  `resting` with `resting_until`, when each usable account rests; `not_set_up`, no account in use, for Codex none on
+  a paid plan; `off`), its one `model` and OmniRoute's name for it (`model_name`: `GPT Image 2 (Codex)`, `Gemini 3.1
+  Flash Image`), its usable accounts and its requests today and this month (UTC). The owner's: `PUT
+  /gateway/images/providers/{provider}` `{on}` and `PUT /gateway/images/order` `{providers}`. The CLI: `hypomnema
+  image providers`, `image providers set <provider> on|off`, `image order <provider> <provider>`; `image generate`
+  prints the size and quality the provider says it made.
 - Not built: Codex's own `imagegen` in a Codex worker reaching the gateway (no reference sets it; issue #431 leaves
   it to a probe); keyless or keyed image providers outside the subscriptions; masks; streaming partial images.
 
@@ -2167,6 +2282,15 @@ The owner's commands:
   (`releasedFolders`); an edited copy is left alone, or with `--force` replaced and kept as `.pdf.bak`, which pi
   does not read. `setup-coordinator.sh` runs `skills install --agent agents` at each deploy, so every Bot gets it
   with no `skills add`. It is listed among the built-in skills.
+- The pages skill (`internal/controlplane/clientcli/skills/pages`, issue #423) is built in the same way, a folder:
+  OpenMausBot's `skills/data-dashboards` at `a6cd67c78610` (Apache-2.0, its `LICENSE` in the folder, the notice in
+  `third_party/openmausbot/NOTICE`), for dashboards and any other page a Bot shows with `hypomnema artifact show`.
+  Its `dashboard.html` template is self-contained: its charts are SVG its own script draws, its sums are computed in
+  the script, and its data is a Superset chart's JSON (`{columns, rows}`) embedded in the page or in `data.json`
+  beside a folder page; it loads no library, font or file from another host and uses no storage, so it runs in the
+  artifact's locked frame (a Playwright test in `web/tests/artifacts.spec.ts` shows it there with no refusal).
+  OpenMausBot's `show_html`/`publish_page`, its Data tools, DuckDB-WASM, ECharts and its `jsx` pages are not kept;
+  a page kept current is a folder page a Routine shows again with `--id`.
 
 Node (`internal/node`):
 - `init` writes `~/.hypomnema-node/config.json` (mode 0600, directory 0700) with the control plane's URL, the token
@@ -2574,7 +2698,9 @@ Node (`internal/node`):
     is working or needs the owner, its name, its latest chat's title, and "Needs you", "Working" or the time.
     Clicking it opens the latest chat; a chevron, on a Bot with more than one chat, opens its chats newest first,
     each draggable to the grid, and which Bots are open is kept in `localStorage`; a `+` on hover opens New chat
-    with that Bot picked (`/?bot=`). The phone's start page lists the same Bots.
+    with that Bot picked (`/?bot=`). A chat's row has a menu (issue #484, after t3code's thread menu), shown on
+    hover or focus and always on a phone, whose Delete asks first and, for the open chat, then opens New chat with
+    its Bot. The phone's start page lists the same Bots.
     Every page follows `GET /events/stream` from the Tasks' cursor and refreshes what an event may have changed.
 - The machines (issue #69): `/machines` lists the nodes after Beszel's systems table (MIT), as cards (Grid, the
   default) or a Table, both from one column definition; the choice is kept in `localStorage`. A machine shows its
@@ -2816,7 +2942,8 @@ internal/controlplane/browser/egress  the gate on what the shared browser may re
 internal/controlplane/clientapi  the client API: policies, handlers, events and their stream; generated code in openapi/
 internal/controlplane/clientcli  the commands that call the client API, and the skills this binary ships (skills/)
 internal/controlplane/integration  the Integrations whose credential the control plane mints: Google (OAuth), Lark (an app), Superset (an account at an address), AWS (roles)
-internal/controlplane/larkbot  the Lark Channels: events over a persistent connection, who may talk, a chat's messages and cards
+internal/controlplane/channels  the Channels' runtime every kind shares: the registry of kinds, connecting and retrying, who may talk, groups and mentions, /new and /stop, the reply relay, questions, files, the owner's settings
+internal/controlplane/channels/lark  LarkChannel: Lark's SDK and persistent connection, its events, CardKit cards, emoji marks, mention tags, file types, the app's and a person's ids at Lark
 internal/controlplane/modelgateway  the model gateway: the OpenAI-compatible API, the model table, the adapters, usage per key
 internal/controlplane/modelgateway/claude  the Claude subscription's formats at the gateway
 internal/controlplane/modelgateway/prices  the price book and what models.dev says of a model (its window, output, inputs, effort); its generator in gen/
@@ -2851,6 +2978,7 @@ internal/controlplane/orchestration  Runs, Tasks, Dispatches, Conversations, que
 internal/controlplane/orchestration/internal/storeutil  what its stores share: the one write helper, which signals event readers after the commit
 internal/controlplane/orchestration/storeerr  the errors every orchestration store returns, re-exported by orchestration
 internal/controlplane/orchestration/channelstore  the Channels (tables channels and channel_*, Lark the one kind): who may talk through each, the messages taken, the Lark chats and groups, the question cards, reached through orchestration's Channels()
+internal/controlplane/orchestration/routinestore  the Routines, their runs and the grants the owner gave them: the schedule, the claim of due Routines, a run's end applied to its Routine, pruning, a Bot's change and its undo, reached through orchestration's Routines()
 internal/controlplane/orchestration/memorystore  the agents' memories and the one about the owner, and the entry rules a Bot's memory follows, reached through orchestration's Memories()
 internal/controlplane/orchestration/userstore  the web's users and sessions, reached through orchestration's Users()
 internal/controlplane/skillsource  fetches a skill from a public GitHub repository at the commit its ref names
@@ -2872,7 +3000,7 @@ web                       the web client (pnpm) and embed.go, which embeds its b
 `internal/e2e` holds only tests, so neither binary links it; it is the one package that
 imports both trees. Boundaries ([decision](docs/decisions/2026-11-07-two-deployables.md))
 are checked by `make verify`: depguard rules per tree in `.golangci.yml` (the SQLite driver only in `shared/sqlite`,
-`database/sql` only in packages that own tables), and `deps-check`, which refuses the control plane and `web` in the node binary
+`database/sql` only in packages that own tables, Lark's SDK only in `channels/lark`), and `deps-check`, which refuses the control plane and `web` in the node binary
 and the node in the control plane binary.
 
 ## Verification

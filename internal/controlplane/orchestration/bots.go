@@ -2,7 +2,6 @@ package orchestration
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"strings"
 	"time"
@@ -11,6 +10,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/channelstore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/memorystore"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/routinestore"
 )
 
 // DefaultBotID is the id of the main Bot, the one that is always there: a chat that names no other talks with it,
@@ -415,10 +415,11 @@ func (s *Service) deleteBot(ctx context.Context, chat, id string) error {
 }
 
 // ForceDeleteBot removes a Bot with its chats and its memory (issue #330; owner, 2026-11-13): the owner's way out
-// when DeleteBot is refused only for those. The chats' messages and setup changes go, as Onyx's hard delete takes a
-// chat's messages and then the chat (backend/onyx/db/chat.py, delete_chat_session). Runs, Routines, their runs and
-// approvals made in those chats stay and lose the chat; the chats' gateway keys are revoked and kept, so the
-// gateway's usage records stay whole. It is still refused for the main Bot, and for one with Routines or Lark
+// when DeleteBot is refused only for those. Each chat is deleted as DeleteChat deletes one (issue #484): its
+// messages, setup changes and artifacts go, as Onyx's hard delete takes a chat's messages and then the chat
+// (backend/onyx/db/chat.py, delete_chat_session). Runs, Routines, their runs and approvals made in those chats stay
+// and lose the chat; the chats' gateway keys are revoked and kept, so the gateway's usage records stay whole. It is
+// still refused for the main Bot, and for one with Routines or Lark
 // Channels: those are live and are removed or moved first.
 func (s *Service) ForceDeleteBot(ctx context.Context, id string) error {
 	if id == DefaultBotID {
@@ -435,28 +436,19 @@ func (s *Service) ForceDeleteBot(ctx context.Context, id string) error {
 			return err
 		}
 
-		steps := []func(context.Context, string) error{
-			q.DetachRunsFromChatsOfBot, q.DetachRoutinesFromChatsOfBot, q.DetachRoutineRunsFromChatsOfBot,
-			q.DetachApprovalsFromChatsOfBot,
-			func(ctx context.Context, bot string) error {
-				return q.RevokeGatewayKeysOfChatsOfBot(ctx, store.RevokeGatewayKeysOfChatsOfBotParams{
-					Now: sql.NullInt64{Int64: now, Valid: true}, Bot: bot,
-				})
-			},
-			q.DeleteSetupChangesOfChatsOfBot,
-			func(ctx context.Context, bot string) error {
-				return channelstore.DeleteChannelChatsOfBotTx(ctx, q, bot)
-			},
-			q.DeleteChatMessagesOfBot,
-			q.DeleteChatsOfBot, q.DeleteBot,
+		chats, err := q.ListChatIDsOfBot(ctx, id)
+		if err != nil {
+			return err
 		}
-		for _, step := range steps {
-			if err := step(ctx, id); err != nil {
-				return err
+
+		// Each chat goes as DeleteChat deletes one (issue #484), its artifacts with it.
+		for _, chat := range chats {
+			if err := deleteChatTx(ctx, q, chat, now); err != nil {
+				return fmt.Errorf("deleting chat %s: %w", chat, err)
 			}
 		}
 
-		return nil
+		return q.DeleteBot(ctx, id)
 	})
 	if err != nil {
 		return fmt.Errorf("removing bot %s with its chats: %w", id, err)
@@ -497,7 +489,7 @@ func botLive(ctx context.Context, q *store.Queries, row store.Bot) error {
 		return err
 	}
 
-	routines, err := q.CountRoutinesOfBot(ctx, row.ID)
+	routines, err := routinestore.CountRoutinesOfBotTx(ctx, q, row.ID)
 	if err != nil {
 		return err
 	}

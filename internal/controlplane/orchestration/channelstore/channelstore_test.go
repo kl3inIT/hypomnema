@@ -21,10 +21,11 @@ type fakeClock struct{ now time.Time }
 
 func (c *fakeClock) Now() time.Time { return c.now }
 
-// The root starts the chat of a Lark chat and removes a Bot inside its own
+// The root starts the chat of a Lark chat and deletes a chat inside its own
 // transaction: the Tx functions write and read with the caller's queries and
 // open nothing of their own, so they see what that transaction wrote and do
-// not wait for the one connection, which the transaction holds (issue #404).
+// not wait for the one connection, which the transaction holds (issues #404
+// and #484).
 func TestTheTxFunctionsUseTheCallersTransaction(t *testing.T) {
 	t.Parallel()
 
@@ -65,7 +66,7 @@ func TestTheTxFunctionsUseTheCallersTransaction(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, int64(1), group, "the new chat is the group's too")
 
-		require.NoError(t, channelstore.DeleteChannelChatsOfBotTx(ctx, q, bot))
+		require.NoError(t, channelstore.DeleteChannelChatOfChatTx(ctx, q, "cht_second"))
 
 		_, err = q.GetChannelChat(ctx, store.GetChannelChatParams{Channel: "main", ExternalChatID: "oc_group"})
 		require.ErrorIs(t, err, sql.ErrNoRows)

@@ -1,0 +1,15 @@
+Android CLI plugin
+Copyright Google LLC
+
+Used under the Apache License, Version 2.0
+(https://www.apache.org/licenses/LICENSE-2.0).
+Source: https://github.com/android/android-cli-plugin at e16e722,
+plugins/android-cli-claude/skills/android-cli/SKILL.md.
+
+What is adapted from it here: how an agent drives a device with Android CLI,
+in the phone's guide (internal/shared/agenttool/skills/android-device/guide.md)
+and the phone's tools (internal/shared/devicetool, internal/node/device/tools.go):
+an annotated screenshot whose box numbers `android screen resolve` turns into
+coordinates for `adb shell input tap` and `swipe`, `android layout` for an app
+that has views, a slow swipe to scroll, and looking again when content is
+still loading. The words are Hypomnema's own.

@@ -29,12 +29,12 @@ hypomnema image providers
 | `--n` | How many images, 1 to 10; 1 when left out. |
 | `--out` | A folder to save into, or a file name (its extension becomes the image's real one; several images are numbered). The current folder when left out. |
 | `--image` | For `image edit`: an image file to change, or to use as a reference; once an image, up to 14. |
-| `--model` | Only when the owner names a model: `gpt-image-2` (Codex), `gemini-3.1-flash-image` (Antigravity), or `codex/<model>`, `antigravity/<model>`. |
-| `--provider` | `codex` or `antigravity`, only when the owner asks for one. |
+| `--provider` | `codex` or `antigravity`, only when the owner asks for one. Each makes images with its one model: Codex `gpt-image-2`, Antigravity `gemini-3.1-flash-image`. |
 | `--quality` | Codex's `low`, `medium` or `high`. `--image-size` is Antigravity's `1K`, `2K` or `4K`. |
 
-The command prints each saved file's absolute path, one a line, then which provider and model made it. `--json`
-prints the same as data.
+The command prints each saved file's absolute path, one a line, then which provider and model made it and, for
+Codex, the size and quality it made, which may not be the ones asked: say so to the owner when they differ.
+`--json` prints the same as data.
 
 ## Sending the image
 
@@ -64,4 +64,3 @@ chat the line is not turned into a picture yet: say the file's name, which the o
   prompt if the refusal was about something the owner did not ask for.
 - "no image provider" or "no account": no subscription that makes images is logged in on the control plane. Say so;
   the owner adds one on the Models page.
-- A model name that is wrong comes back with the provider's words and the name. Leave `--model` out.

@@ -162,3 +162,14 @@ WHERE routine_run_id = @routine_run_id AND status = 'pending';
 -- name: ExpireApproval :execrows
 -- Nobody answered while the run's call waited.
 UPDATE approvals SET status = 'rejected', expired = 1, decided_at = @now WHERE id = @id AND status = 'pending';
+
+-- name: CountRoutinesOfChat :one
+-- The Routines that tell their runs in a chat: a chat one posts into is not deleted (issue #484).
+SELECT count(*) FROM routines WHERE chat_id = CAST(@chat_id AS TEXT);
+
+-- name: DetachRoutinesFromChat :exec
+-- A deleted chat's Routines and runs keep their rows and lose the chat (issue #484).
+UPDATE routines SET chat_id = NULL WHERE chat_id = CAST(@chat_id AS TEXT);
+
+-- name: DetachRoutineRunsFromChat :exec
+UPDATE routine_runs SET chat_id = NULL WHERE chat_id = CAST(@chat_id AS TEXT);

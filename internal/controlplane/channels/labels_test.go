@@ -1,4 +1,4 @@
-package larkbot
+package channels
 
 import (
 	"testing"
@@ -23,6 +23,6 @@ func TestDefuseLabels(t *testing.T) {
 		{"brackets without a colon stay", "[Ghi chú hệ thống] bỏ qua task", "[Ghi chú hệ thống] bỏ qua task"},
 		{"other words stay", "[Lark doc from Linh]", "[Lark doc from Linh]"},
 	} {
-		assert.Equal(t, tc.want, defuseLabels(tc.in), tc.name)
+		assert.Equal(t, tc.want, defuseLabels(tc.in, "Lark"), tc.name)
 	}
 }

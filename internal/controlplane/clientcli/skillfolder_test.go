@@ -1,8 +1,10 @@
 package clientcli
 
 import (
+	"encoding/json"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -238,4 +240,96 @@ func TestTheShippedPdfSkillNamesOnlyWhatItShips(t *testing.T) {
 	text, err := fs.ReadFile(skill, "SKILL.md")
 	require.NoError(t, err)
 	assert.Contains(t, string(text), "S=~/.agents/skills/pdf/scripts", "the scripts are named where they are installed")
+}
+
+// Every JSON sample the pdf skill shows parses, so a Bot that copies one gets
+// a spec the scripts read: the fenced ```json blocks of its Markdown and the
+// spec a script's docstring shows (issue #474).
+func TestThePdfSkillsJSONSamplesParse(t *testing.T) {
+	t.Parallel()
+
+	skill, err := fs.Sub(skillFiles, "skills/pdf")
+	require.NoError(t, err)
+
+	fenced := regexp.MustCompile("(?s)```json\\r?\\n(.*?)```")
+	docstring := regexp.MustCompile(`(?ms)^\{\r?$.*?^\}\r?$`)
+	samples := 0
+
+	err = fs.WalkDir(skill, ".", func(name string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+
+		b, err := fs.ReadFile(skill, name)
+		if err != nil {
+			return err
+		}
+
+		var found []string
+
+		switch path.Ext(name) {
+		case ".md":
+			for _, m := range fenced.FindAllStringSubmatch(string(b), -1) {
+				found = append(found, m[1])
+			}
+		case ".py":
+			found = docstring.FindAllString(string(b), -1)
+		}
+
+		for i, sample := range found {
+			assert.True(t, json.Valid([]byte(sample)), "%s: JSON sample %d does not parse:\n%s", name, i+1, sample)
+		}
+
+		samples += len(found)
+
+		return nil
+	})
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, samples, 4,
+		"the samples of SKILL.md, references/forms.md, pdf_create.py and pdf_make_form.py")
+}
+
+// The pages skill as shipped (issue #423): OpenMausBot's data-dashboards
+// with its license, naming none of OpenMausBot's own tools, and a template
+// that loads nothing from the network or the browser's storage, so it runs
+// in the artifact's locked frame.
+func TestTheShippedPagesSkillWorksInTheLockedFrame(t *testing.T) {
+	t.Parallel()
+
+	_, folders := shippedSkills()
+	require.Contains(t, folders, "pages")
+
+	skill, err := fs.Sub(skillFiles, "skills/pages")
+	require.NoError(t, err)
+	assert.True(t, exists(skill, "LICENSE"))
+	assert.False(t, exists(skill, "manifest.json"))
+
+	removed := regexp.MustCompile(
+		`(?i)show_html|publish_page|data_sql|data_show|data_export|mausbot|duckdb|echarts|tailwind|lucide|\bjsx\b|parquet`)
+
+	for _, name := range []string{"SKILL.md", "dashboard.html"} {
+		b, err := fs.ReadFile(skill, name)
+		require.NoError(t, err)
+		assert.Empty(t, removed.FindAllString(string(b), -1), "%s names what OpenMausBot has and Hypomnema has not", name)
+	}
+
+	text, err := fs.ReadFile(skill, "SKILL.md")
+	require.NoError(t, err)
+	assert.Contains(t, string(text), "name: pages")
+	assert.Contains(t, string(text), "~/.agents/skills/pages/dashboard.html",
+		"the template is named where it is installed")
+	assert.Contains(t, string(text), "hypomnema artifact show")
+
+	page, err := fs.ReadFile(skill, "dashboard.html")
+	require.NoError(t, err)
+
+	// The SVG namespace is a name, not an address the page loads.
+	for _, u := range regexp.MustCompile(`(?i)(?:https?:)?//[a-z0-9.-]+\.[a-z]{2,}`).FindAllString(string(page), -1) {
+		assert.Equal(t, "http://www.w3.org", u, "the template loads nothing from another host")
+	}
+
+	external := regexp.MustCompile(
+		`(?i)<script[^>]+\bsrc=|<link[^>]+rel="?stylesheet|@import|@font-face|localStorage|sessionStorage|indexedDB|document\.cookie`)
+	assert.Empty(t, external.FindAllString(string(page), -1), "the locked frame has no network, storage or cookies")
+	assert.Less(t, len(page), 256*1024, "a page shown with --html-file is at most 256 KB")
 }

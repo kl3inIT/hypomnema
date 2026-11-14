@@ -142,6 +142,65 @@ func (q *Queries) CountChatsOfBot(ctx context.Context, bot string) (int64, error
 	return count, err
 }
 
+const deleteArtifactsOfChat = `-- name: DeleteArtifactsOfChat :exec
+DELETE FROM artifacts WHERE chat_id = ?1
+`
+
+// Their revisions and files go with them (ON DELETE CASCADE).
+func (q *Queries) DeleteArtifactsOfChat(ctx context.Context, chatID string) error {
+	_, err := q.db.ExecContext(ctx, deleteArtifactsOfChat, chatID)
+	return err
+}
+
+const deleteChat = `-- name: DeleteChat :exec
+DELETE FROM chats WHERE id = ?1
+`
+
+func (q *Queries) DeleteChat(ctx context.Context, id string) error {
+	_, err := q.db.ExecContext(ctx, deleteChat, id)
+	return err
+}
+
+const deleteChatMessages = `-- name: DeleteChatMessages :exec
+DELETE FROM chat_messages WHERE chat_id = ?1
+`
+
+func (q *Queries) DeleteChatMessages(ctx context.Context, chatID string) error {
+	_, err := q.db.ExecContext(ctx, deleteChatMessages, chatID)
+	return err
+}
+
+const deleteSetupChangesOfChat = `-- name: DeleteSetupChangesOfChat :exec
+DELETE FROM setup_changes WHERE chat_id = ?1
+`
+
+func (q *Queries) DeleteSetupChangesOfChat(ctx context.Context, chatID string) error {
+	_, err := q.db.ExecContext(ctx, deleteSetupChangesOfChat, chatID)
+	return err
+}
+
+const detachApprovalsFromChat = `-- name: DetachApprovalsFromChat :exec
+UPDATE approvals SET chat_id = NULL WHERE chat_id = CAST(?1 AS TEXT)
+`
+
+func (q *Queries) DetachApprovalsFromChat(ctx context.Context, chatID string) error {
+	_, err := q.db.ExecContext(ctx, detachApprovalsFromChat, chatID)
+	return err
+}
+
+const detachRunsFromChat = `-- name: DetachRunsFromChat :exec
+
+UPDATE runs SET chat_id = NULL WHERE chat_id = CAST(?1 AS TEXT)
+`
+
+// A chat deleted (issue #484), on its own or with its Bot (issue #330): what refers to it is let go of or removed
+// first, in this order. Runs, Routines, their runs (routines.sql) and approvals keep their rows and lose the chat; its gateway keys
+// are revoked and kept, so the gateway's usage records stay whole; its artifacts go with their revisions.
+func (q *Queries) DetachRunsFromChat(ctx context.Context, chatID string) error {
+	_, err := q.db.ExecContext(ctx, detachRunsFromChat, chatID)
+	return err
+}
+
 const getChat = `-- name: GetChat :one
 SELECT id, title, created_at, updated_at, bot_id, channel_group, provider, model, effort, context_tokens, context_window, context_percent FROM chats WHERE id = ?1
 `
@@ -194,6 +253,30 @@ func (q *Queries) InsertChat(ctx context.Context, arg InsertChatParams) error {
 	return err
 }
 
+const insertChatApproval = `-- name: InsertChatApproval :exec
+INSERT INTO chat_messages (chat_id, role, kind, text, approval_id, created_at)
+VALUES (?1, 'system', 'approval', ?2, ?3, ?4)
+`
+
+type InsertChatApprovalParams struct {
+	ChatID     string
+	Text       string
+	ApprovalID sql.NullString
+	Now        int64
+}
+
+// The owner answered an Approval asked in this chat (issue #465): the row stays where the answer was given. pi is
+// given it only once TellChatOfApproval marks it for the coordinator.
+func (q *Queries) InsertChatApproval(ctx context.Context, arg InsertChatApprovalParams) error {
+	_, err := q.db.ExecContext(ctx, insertChatApproval,
+		arg.ChatID,
+		arg.Text,
+		arg.ApprovalID,
+		arg.Now,
+	)
+	return err
+}
+
 const insertChatMessage = `-- name: InsertChatMessage :one
 INSERT INTO chat_messages (chat_id, role, kind, text, parts, attachments, event_seq, created_at)
 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
@@ -227,26 +310,36 @@ func (q *Queries) InsertChatMessage(ctx context.Context, arg InsertChatMessagePa
 	return seq, err
 }
 
-const insertChatNotice = `-- name: InsertChatNotice :exec
-INSERT INTO chat_messages (chat_id, role, kind, text, to_coordinator, created_at)
-VALUES (?1, 'system', 'approval', ?2, 1, ?3)
+const listArtifactBlobsOfChat = `-- name: ListArtifactBlobsOfChat :many
+SELECT DISTINCT f.sha256 FROM artifact_files f JOIN artifacts a ON a.id = f.artifact_id WHERE a.chat_id = ?1
 `
 
-type InsertChatNoticeParams struct {
-	ChatID string
-	Text   string
-	Now    int64
-}
-
-// A message of the control plane's own that the coordinator is given as a wake-up, though no event of a Run is
-// behind it: the owner answered an Approval (issue #154).
-func (q *Queries) InsertChatNotice(ctx context.Context, arg InsertChatNoticeParams) error {
-	_, err := q.db.ExecContext(ctx, insertChatNotice, arg.ChatID, arg.Text, arg.Now)
-	return err
+// The bytes the chat's artifacts keep: those no other artifact keeps go after them.
+func (q *Queries) ListArtifactBlobsOfChat(ctx context.Context, chatID string) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listArtifactBlobsOfChat, chatID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var sha256 string
+		if err := rows.Scan(&sha256); err != nil {
+			return nil, err
+		}
+		items = append(items, sha256)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listChatArtifactMessages = `-- name: ListChatArtifactMessages :many
-SELECT chat_messages.seq, chat_messages.chat_id, chat_messages.role, chat_messages.text, chat_messages.parts, chat_messages.event_seq, chat_messages.delivered_at, chat_messages.created_at, chat_messages.to_coordinator, chat_messages.attachments, chat_messages.kind,
+SELECT chat_messages.seq, chat_messages.chat_id, chat_messages.role, chat_messages.text, chat_messages.parts, chat_messages.event_seq, chat_messages.delivered_at, chat_messages.created_at, chat_messages.to_coordinator, chat_messages.attachments, chat_messages.kind, chat_messages.approval_id,
        artifacts.id         AS artifact_id,
        artifacts.revision   AS artifact_revision,
        artifacts.updated_at AS artifact_updated_at,
@@ -292,6 +385,7 @@ func (q *Queries) ListChatArtifactMessages(ctx context.Context, chatID string) (
 			&i.ChatMessage.ToCoordinator,
 			&i.ChatMessage.Attachments,
 			&i.ChatMessage.Kind,
+			&i.ChatMessage.ApprovalID,
 			&i.ArtifactID,
 			&i.ArtifactRevision,
 			&i.ArtifactUpdatedAt,
@@ -311,8 +405,35 @@ func (q *Queries) ListChatArtifactMessages(ctx context.Context, chatID string) (
 	return items, nil
 }
 
+const listChatIDsOfBot = `-- name: ListChatIDsOfBot :many
+SELECT id FROM chats WHERE bot_id = ?1 ORDER BY id
+`
+
+func (q *Queries) ListChatIDsOfBot(ctx context.Context, bot string) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listChatIDsOfBot, bot)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listChatMessages = `-- name: ListChatMessages :many
-SELECT chat_messages.seq, chat_messages.chat_id, chat_messages.role, chat_messages.text, chat_messages.parts, chat_messages.event_seq, chat_messages.delivered_at, chat_messages.created_at, chat_messages.to_coordinator, chat_messages.attachments, chat_messages.kind,
+SELECT chat_messages.seq, chat_messages.chat_id, chat_messages.role, chat_messages.text, chat_messages.parts, chat_messages.event_seq, chat_messages.delivered_at, chat_messages.created_at, chat_messages.to_coordinator, chat_messages.attachments, chat_messages.kind, chat_messages.approval_id,
        CAST(coalesce(events.kind, '') AS TEXT)        AS event_kind,
        CAST(coalesce(events.run_id, '') AS TEXT)      AS event_run_id,
        CAST(coalesce(events.task_id, '') AS TEXT)     AS event_task_id,
@@ -322,12 +443,19 @@ SELECT chat_messages.seq, chat_messages.chat_id, chat_messages.role, chat_messag
        CAST(coalesce(artifacts.revision, 0) AS INTEGER) AS artifact_revision,
        CAST(coalesce(artifacts.updated_at, 0) AS INTEGER) AS artifact_updated_at,
        CAST(coalesce(artifact_revisions.title, '') AS TEXT) AS artifact_title,
-       CAST(coalesce(artifact_revisions.type, '') AS TEXT)  AS artifact_type
+       CAST(coalesce(artifact_revisions.type, '') AS TEXT)  AS artifact_type,
+       CAST(coalesce(approvals.status, '') AS TEXT)      AS approval_status,
+       CAST(coalesce(approvals.scope, '') AS TEXT)       AS approval_scope,
+       CAST(coalesce(approvals.standing, 0) AS INTEGER)  AS approval_standing,
+       CAST(coalesce(approvals.title, '') AS TEXT)       AS approval_title,
+       CAST(coalesce(approvals.action_name, '') AS TEXT) AS approval_action_name,
+       CAST(coalesce(approvals.decided_at, 0) AS INTEGER) AS approval_decided_at
 FROM chat_messages
 LEFT JOIN events ON chat_messages.kind = 'wake' AND events.seq = chat_messages.event_seq
 LEFT JOIN artifacts ON chat_messages.kind = 'artifact' AND artifacts.message_seq = chat_messages.seq
 LEFT JOIN artifact_revisions ON artifact_revisions.artifact_id = artifacts.id
     AND artifact_revisions.revision = artifacts.revision
+LEFT JOIN approvals ON chat_messages.kind = 'approval' AND approvals.id = chat_messages.approval_id
 WHERE chat_messages.chat_id = ?1 AND chat_messages.seq > ?2
 ORDER BY chat_messages.seq
 LIMIT ?3
@@ -340,21 +468,28 @@ type ListChatMessagesParams struct {
 }
 
 type ListChatMessagesRow struct {
-	ChatMessage       ChatMessage
-	EventKind         string
-	EventRunID        string
-	EventTaskID       string
-	EventQuestionID   string
-	EventPayload      string
-	ArtifactID        string
-	ArtifactRevision  int64
-	ArtifactUpdatedAt int64
-	ArtifactTitle     string
-	ArtifactType      string
+	ChatMessage        ChatMessage
+	EventKind          string
+	EventRunID         string
+	EventTaskID        string
+	EventQuestionID    string
+	EventPayload       string
+	ArtifactID         string
+	ArtifactRevision   int64
+	ArtifactUpdatedAt  int64
+	ArtifactTitle      string
+	ArtifactType       string
+	ApprovalStatus     string
+	ApprovalScope      string
+	ApprovalStanding   int64
+	ApprovalTitle      string
+	ApprovalActionName string
+	ApprovalDecidedAt  int64
 }
 
 // Each wake-up with the event it reports (issue #303): the event never changes, so it is read here rather than kept
-// on the row. Other rows have empty event columns.
+// on the row. Other rows have empty event columns. An answered Approval's row is read with its Approval, which no
+// longer changes once answered (issue #465).
 func (q *Queries) ListChatMessages(ctx context.Context, arg ListChatMessagesParams) ([]ListChatMessagesRow, error) {
 	rows, err := q.db.QueryContext(ctx, listChatMessages, arg.ChatID, arg.After, arg.Lim)
 	if err != nil {
@@ -376,6 +511,7 @@ func (q *Queries) ListChatMessages(ctx context.Context, arg ListChatMessagesPara
 			&i.ChatMessage.ToCoordinator,
 			&i.ChatMessage.Attachments,
 			&i.ChatMessage.Kind,
+			&i.ChatMessage.ApprovalID,
 			&i.EventKind,
 			&i.EventRunID,
 			&i.EventTaskID,
@@ -386,6 +522,12 @@ func (q *Queries) ListChatMessages(ctx context.Context, arg ListChatMessagesPara
 			&i.ArtifactUpdatedAt,
 			&i.ArtifactTitle,
 			&i.ArtifactType,
+			&i.ApprovalStatus,
+			&i.ApprovalScope,
+			&i.ApprovalStanding,
+			&i.ApprovalTitle,
+			&i.ApprovalActionName,
+			&i.ApprovalDecidedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -456,6 +598,21 @@ func (q *Queries) MarkChatMessagesDelivered(ctx context.Context, arg MarkChatMes
 	return err
 }
 
+const revokeGatewayKeysOfChat = `-- name: RevokeGatewayKeysOfChat :exec
+UPDATE gateway_keys SET revoked_at = coalesce(revoked_at, ?1), chat_id = NULL
+WHERE chat_id = CAST(?2 AS TEXT)
+`
+
+type RevokeGatewayKeysOfChatParams struct {
+	Now    sql.NullInt64
+	ChatID string
+}
+
+func (q *Queries) RevokeGatewayKeysOfChat(ctx context.Context, arg RevokeGatewayKeysOfChatParams) error {
+	_, err := q.db.ExecContext(ctx, revokeGatewayKeysOfChat, arg.Now, arg.ChatID)
+	return err
+}
+
 const setChatContextUsage = `-- name: SetChatContextUsage :exec
 UPDATE chats SET context_tokens = ?1, context_window = ?2, context_percent = ?3
 WHERE id = ?4
@@ -502,6 +659,20 @@ func (q *Queries) SetChatModel(ctx context.Context, arg SetChatModelParams) erro
 	return err
 }
 
+const tellChatOfApproval = `-- name: TellChatOfApproval :execrows
+UPDATE chat_messages SET to_coordinator = 1 WHERE approval_id = ?1 AND to_coordinator = 0
+`
+
+// The coordinator is given an answered Approval's row as a wake-up, though no event of a Run is behind it (issue
+// #154): its request had ended, so it must run the command again. Once only.
+func (q *Queries) TellChatOfApproval(ctx context.Context, approvalID sql.NullString) (int64, error) {
+	result, err := q.db.ExecContext(ctx, tellChatOfApproval, approvalID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const titleUntitledChat = `-- name: TitleUntitledChat :exec
 UPDATE chats SET title = ?1 WHERE id = ?2 AND title = 'Chat'
 `
@@ -532,7 +703,7 @@ func (q *Queries) TouchChat(ctx context.Context, arg TouchChatParams) error {
 }
 
 const undeliveredChatMessages = `-- name: UndeliveredChatMessages :many
-SELECT seq, chat_id, role, text, parts, event_seq, delivered_at, created_at, to_coordinator, attachments, kind FROM chat_messages
+SELECT seq, chat_id, role, text, parts, event_seq, delivered_at, created_at, to_coordinator, attachments, kind, approval_id FROM chat_messages
 WHERE chat_id = ?1 AND delivered_at IS NULL AND (role = 'owner' OR event_seq IS NOT NULL OR to_coordinator = 1)
 ORDER BY seq
 `
@@ -559,6 +730,7 @@ func (q *Queries) UndeliveredChatMessages(ctx context.Context, chatID string) ([
 			&i.ToCoordinator,
 			&i.Attachments,
 			&i.Kind,
+			&i.ApprovalID,
 		); err != nil {
 			return nil, err
 		}

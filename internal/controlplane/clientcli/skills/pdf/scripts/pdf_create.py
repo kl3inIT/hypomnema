@@ -5,8 +5,8 @@ Spec format (UTF-8 JSON):
 {
   "title": "Example Report",
   "author": "example-author",
-  "page_size": "A4",            // or "letter" (default: A4)
-  "page_numbers": true,          // default true
+  "page_size": "A4",
+  "page_numbers": true,
   "elements": [
     {"type": "heading", "text": "Section 1", "level": 1},
     {"type": "paragraph", "text": "Body text..."},
@@ -15,6 +15,7 @@ Spec format (UTF-8 JSON):
     {"type": "pagebreak"}
   ]
 }
+"page_size" is "A4" (the default) or "letter"; "page_numbers" defaults to true.
 """
 from __future__ import annotations
 

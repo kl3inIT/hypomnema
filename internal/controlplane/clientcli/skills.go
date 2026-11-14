@@ -27,8 +27,9 @@ import (
 //
 // A skill without a guide.md is a whole folder installed as files, scripts
 // and references with it (issue #458), as Hermes and OpenClaw ship bundled
-// skills: pdf, adapted from Hermes's skills/productivity/pdf. Its scripts run
-// from the installed folder, so it has no stub.
+// skills: pdf, adapted from Hermes's skills/productivity/pdf, whose scripts
+// run from the installed folder, and pages (issue #423), adapted from
+// OpenMausBot's skills/data-dashboards, whose template is copied from it.
 
 // The all: prefix keeps files whose names start with _ (pdf's _raster.py).
 //
@@ -103,6 +104,7 @@ var releasedStubs = map[string][]string{
 	"lark":                  {"04115d29ecb6f7c706684dc868052997fe3015a32607711d3e060845b15fb774"},
 	"superset":              {"b7cbafe434fcc81b8305bfe6a5c811bd33168b3125a6139cfa67480edf18f7ef"},
 	"aws":                   {"b038020ed0278ff5213f82d6e67a134fdd4115575899370dbb964183fa6676fd"},
+	"android-device":        {"9983ee10554a557330d7e5f7f0fa4079fe17c55eafbe923e425ac95fe0224127"},
 	"web-search":            {"cdf4d06decd3d71394b4353a8a34b98853765b5f8c88b7e1712159d6cf9be35b"},
 	"images":                {"d5914e30a9da434727d0ce057216b1c48a1b3104f23b9c7072f3feeda31e4971"},
 }
@@ -113,7 +115,11 @@ var releasedStubs = map[string][]string{
 // (Hermes's .bundled_manifest origin hashes, tools/skills_sync.py). A changed
 // folder adds its digest here (TestShippedFoldersAreReleased).
 var releasedFolders = map[string][]string{
-	"pdf": {"c945c0d5aaeae2eb9abaf15af44d5c640060785bd86b7b1ad6821bbb8fd8cb2b"},
+	"pages": {"4d876aa95c82401380832a67a0a51d435845bcfc70b27d543330b617bc32a2b1"}, // #423
+	"pdf": {
+		"c945c0d5aaeae2eb9abaf15af44d5c640060785bd86b7b1ad6821bbb8fd8cb2b", // #458
+		"5a21174acf72f04f8a75d55451d35094ff66a46117f42ce6f77202ce3dd0f020", // #474: JSON samples, pdf_read modes, a TTF for Vietnamese
+	},
 }
 
 // folderSkill says whether a skill is installed as a whole folder: it has no

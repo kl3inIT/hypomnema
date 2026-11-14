@@ -24,8 +24,8 @@ import (
 // Codex account through the Codex backend's Images routes, an Antigravity
 // account through Cloud Code's generateContent with requestType image_gen;
 // Claude makes no images. The providers are asked in the owner's order (by
-// default Codex, then Antigravity), each that is on, with the model the
-// request names or the one the owner set for it; the first that answers
+// default Codex, then Antigravity), each that is on, each with its one model
+// (issue #453: a request's model only picks the provider); the first that answers
 // gives the images, and the answer says why those before it did not, as a
 // web search does (websearch, omp's fallbackNotes). What each asks and reads
 // is its package's (codex/images.go, antigravity/images.go).
@@ -49,9 +49,10 @@ const (
 // 2026-11-14: Codex, then Antigravity).
 func ImageProviders() []string { return []string{ImageProviderCodex, ImageProviderAntigravity} }
 
-// DefaultImageModel is the model a provider makes images with when neither
-// the request nor the owner names one.
-func DefaultImageModel(provider string) string {
+// ImageModel is the one model a provider makes images with (owner,
+// 2026-11-14, issue #453): codex-rs's and Hermes' gpt-image-2 for Codex,
+// 9router-go's and OmniRoute's gemini-3.1-flash-image for Antigravity.
+func ImageModel(provider string) string {
 	switch provider {
 	case ImageProviderCodex:
 		return codex.ImageModel
@@ -62,25 +63,22 @@ func DefaultImageModel(provider string) string {
 	}
 }
 
-// SuggestedImageModels are the models offered for a provider on the Images
-// page: those the references name in code (codex-rs gpt-image-2; OmniRoute's
-// gemini-3.1-flash-image and its gemini-3-pro-image alias). Any other name
-// is passed on as it is, so a model released later can be tried (owner,
-// 2026-11-14).
-func SuggestedImageModels(provider string) []string {
+// ImageModelName is a provider's image model as OmniRoute names it for
+// people, for the Images page.
+func ImageModelName(provider string) string {
 	switch provider {
 	case ImageProviderCodex:
-		return []string{codex.ImageModel}
+		return codex.ImageModelName
 	case ImageProviderAntigravity:
-		return []string{antigravity.ImageModel, "gemini-3-pro-image"}
+		return antigravity.ImageModelName
 	default:
-		return nil
+		return ""
 	}
 }
 
 const (
 	// ModelImagePrefix starts the model an image call is recorded under:
-	// image/<the upstream model>.
+	// image/<the provider's model>.
 	ModelImagePrefix = "image/"
 	// maxImages is how many images one request may ask for: OmniRoute's
 	// MAX_CODEX_IMAGES_PER_REQUEST, OpenAI's own bound of n.
@@ -98,12 +96,6 @@ const (
 	imageHeaderTimeout = 5 * time.Minute
 )
 
-// imageModelPattern is a model's name as a provider takes it.
-var imageModelPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$`)
-
-// ValidImageModel reports whether a name can be passed to a provider.
-func ValidImageModel(model string) bool { return imageModelPattern.MatchString(model) }
-
 // ImageInput is a reference image of an edit.
 type ImageInput struct {
 	MIME string
@@ -113,9 +105,10 @@ type ImageInput struct {
 // ImageRequest is what a client asks for.
 type ImageRequest struct {
 	Prompt string
-	// Model is "" or "auto" (each provider's own), <provider>/<model>, or a
-	// model whose name says its provider: gpt-image-* is Codex's, gemini-*
-	// Antigravity's (OmniRoute's isCodexImagesApiModel).
+	// Model only picks the provider: gpt-image-* is Codex, gemini-*
+	// Antigravity (OmniRoute's isCodexImagesApiModel), <provider>/<anything>
+	// that provider, "" or "auto" the order. The provider is sent its one
+	// model whatever the name.
 	Model string
 	// Provider, when set, is the only provider asked.
 	Provider string
@@ -150,7 +143,11 @@ type ImageResult struct {
 	Provider, Model string
 	Created         int64
 	Images          []GeneratedImage
-	Tokens          Tokens
+	// Size, Quality and Format are what the provider says it made, when it
+	// says (Codex does: Hermes' reported_size and reported_quality), so a
+	// caller sees a request that was not honored.
+	Size, Quality, Format string
+	Tokens                Tokens
 	// AccountID is the account of the last call.
 	AccountID string
 	// Errors are the providers tried before, and why each did not answer.
@@ -207,67 +204,57 @@ func (e *ImageError) RetryAfter() time.Duration {
 	return wait
 }
 
-// imageTarget is a provider asked, with its model.
-type imageTarget struct{ provider, model string }
-
-// imageTargets are the providers a request asks, in turn, with each one's model.
-func imageTargets(req ImageRequest, settings []ImageProviderSetting) ([]imageTarget, error) {
-	byProvider := map[string]ImageProviderSetting{}
+// imageTargets are the providers a request asks, in turn.
+func imageTargets(req ImageRequest, settings []ImageProviderSetting) ([]string, error) {
+	on := map[string]bool{}
 	for _, s := range settings {
-		byProvider[s.Provider] = s
+		on[s.Provider] = s.On
 	}
 
 	provider, model := strings.TrimSpace(req.Provider), strings.TrimSpace(req.Model)
 
-	if p, m, ok := strings.Cut(model, "/"); ok && slices.Contains(ImageProviders(), p) {
-		if provider != "" && provider != p {
-			return nil, fmt.Errorf("%w: model %q is %s's, not %s's", ErrInvalid, model, p, provider)
-		}
+	picked := ""
 
-		provider, model = p, m
-	}
-
-	if model == "auto" {
-		model = ""
-	}
-
-	if provider == "" && model != "" {
+	if p, _, ok := strings.Cut(model, "/"); ok && slices.Contains(ImageProviders(), p) {
+		picked = p
+	} else {
 		switch {
+		case model == "", model == "auto":
 		case strings.HasPrefix(model, "gpt-image"):
-			provider = ImageProviderCodex
+			picked = ImageProviderCodex
 		case strings.HasPrefix(model, "gemini-"):
-			provider = ImageProviderAntigravity
+			picked = ImageProviderAntigravity
 		default:
-			return nil, fmt.Errorf("%w: model %q names no provider: write it codex/<model> or antigravity/<model>, "+
+			return nil, fmt.Errorf("%w: model %q names no provider: gpt-image-* is Codex, gemini-* Antigravity, "+
 				"or leave it out", ErrInvalid, model)
 		}
 	}
 
-	if model != "" && !ValidImageModel(model) {
-		return nil, fmt.Errorf("%w: %q is not a model's name", ErrInvalid, model)
+	if provider != "" && picked != "" && provider != picked {
+		return nil, fmt.Errorf("%w: model %q is %s's, not %s's", ErrInvalid, model, picked, provider)
 	}
 
+	provider = cmpOr(provider, picked)
+
 	if provider != "" {
-		s, ok := byProvider[provider]
+		isOn, ok := on[provider]
 
 		switch {
 		case !ok:
 			return nil, fmt.Errorf("%w: no image provider %q: %s", ErrInvalid, provider,
 				strings.Join(ImageProviders(), ", "))
-		case !s.On:
+		case !isOn:
 			return nil, fmt.Errorf("%w: image provider %s is off", ErrInvalid, provider)
-		case model == "":
-			model = s.Model
 		}
 
-		return []imageTarget{{provider: provider, model: model}}, nil
+		return []string{provider}, nil
 	}
 
-	var out []imageTarget
+	var out []string
 
 	for _, s := range settings {
 		if s.On {
-			out = append(out, imageTarget{provider: s.Provider, model: s.Model})
+			out = append(out, s.Provider)
 		}
 	}
 
@@ -335,21 +322,21 @@ func (s *Server) MakeImages(ctx context.Context, req ImageRequest) (ImageResult,
 
 	var failures []ImageFailure
 
-	for _, t := range targets {
+	for _, provider := range targets {
 		var (
 			res     ImageResult
 			failure *ImageFailure
 		)
 
-		switch t.provider {
+		switch provider {
 		case ImageProviderCodex:
-			res, failure = s.codexImages(ctx, t.model, req)
+			res, failure = s.codexImages(ctx, req)
 		case ImageProviderAntigravity:
-			res, failure = s.antigravityImages(ctx, t.model, req)
+			res, failure = s.antigravityImages(ctx, req)
 		}
 
 		if failure == nil {
-			res.Provider, res.Model, res.Errors = t.provider, t.model, failures
+			res.Provider, res.Model, res.Errors = provider, ImageModel(provider), failures
 
 			return res, nil
 		}
@@ -358,14 +345,14 @@ func (s *Server) MakeImages(ctx context.Context, req ImageRequest) (ImageResult,
 			return ImageResult{}, ctx.Err()
 		}
 
-		failure.Provider, failure.Model = t.provider, t.model
+		failure.Provider, failure.Model = provider, ImageModel(provider)
 		failures = append(failures, *failure)
 	}
 
 	return ImageResult{}, &ImageError{Failures: failures}
 }
 
-// imageRests are the image models that rest, by provider, account and model,
+// imageRests are the image models that rest, by provider and account,
 // in memory as the references keep theirs; and how many times in a row each
 // was limited, for the doubling wait.
 type imageRests struct {
@@ -378,8 +365,8 @@ func newImageRests() *imageRests {
 	return &imageRests{until: map[string]time.Time{}, levels: map[string]int{}}
 }
 
-func restKey(provider, account, model string) string {
-	return provider + "\x00" + account + "\x00" + model
+func restKey(provider, account string) string {
+	return provider + "\x00" + account
 }
 
 // resting is when an image model of an account is free again, if it rests.
@@ -435,19 +422,8 @@ func (r *imageRests) served(key string) {
 
 // ImageRests are the accounts whose image model rests now, by provider and
 // account, with when each is free: for the Images page.
-func (s *Server) ImageRests(ctx context.Context) (map[string]map[string]time.Time, error) {
-	settings, err := s.svc.ImageSettings(ctx)
-	if err != nil {
-		return nil, err
-	}
-
+func (s *Server) ImageRests(_ context.Context) (map[string]map[string]time.Time, error) {
 	now := s.svc.clock.Now()
-	models := map[string]string{}
-
-	for _, st := range settings {
-		models[st.Provider] = st.Model
-	}
-
 	r := s.imageRests
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -455,8 +431,8 @@ func (s *Server) ImageRests(ctx context.Context) (map[string]map[string]time.Tim
 	out := map[string]map[string]time.Time{}
 
 	for key, until := range r.until {
-		parts := strings.SplitN(key, "\x00", 3)
-		if len(parts) != 3 || !until.After(now) || models[parts[0]] != parts[2] {
+		parts := strings.SplitN(key, "\x00", 2)
+		if len(parts) != 2 || !until.After(now) {
 			continue
 		}
 
@@ -537,12 +513,12 @@ func readImageAnswer(resp *http.Response) ([]byte, error) {
 // codexImages makes the images under the Codex accounts: one call an image,
 // all at once, as OmniRoute fans n out (Promise.all); one that fails fails
 // the whole, as there.
-func (s *Server) codexImages(ctx context.Context, model string, req ImageRequest) (ImageResult, *ImageFailure) {
+func (s *Server) codexImages(ctx context.Context, req ImageRequest) (ImageResult, *ImageFailure) {
 	if s.accounts == nil {
 		return ImageResult{}, &ImageFailure{Status: http.StatusServiceUnavailable, Message: "no Codex account"}
 	}
 
-	opts := codex.ImageOptions{Model: model, Size: req.Size, Quality: req.Quality, Background: req.Background}
+	opts := codex.ImageOptions{Size: req.Size, Quality: req.Quality, Background: req.Background}
 	for _, img := range req.Images {
 		opts.Images = append(opts.Images, codex.ImageInput{MIME: img.MIME, Data: img.Data})
 	}
@@ -559,7 +535,7 @@ func (s *Server) codexImages(ctx context.Context, model string, req ImageRequest
 
 	for i := range req.N {
 		wg.Go(func() {
-			answer, account, failure := s.codexImage(ctx, model, req.Prompt, opts)
+			answer, account, failure := s.codexImage(ctx, req.Prompt, opts)
 			outcomes[i] = outcome{answer: answer, account: account, failure: failure}
 		})
 	}
@@ -586,6 +562,10 @@ func (s *Server) codexImages(ctx context.Context, model string, req ImageRequest
 			res.Created = o.answer.Created
 		}
 
+		// What the first call says it made: each was asked the same.
+		res.Size, res.Quality = cmpOr(res.Size, o.answer.Size), cmpOr(res.Quality, o.answer.Quality)
+		res.Format = cmpOr(res.Format, o.answer.Format)
+
 		res.Tokens.Prompt += o.answer.Usage.Input
 		res.Tokens.Completion += o.answer.Usage.Output
 		res.AccountID = o.account
@@ -604,7 +584,7 @@ func cmpOr(a, b string) string {
 
 // codexImage makes one image under the Codex accounts in turn.
 func (s *Server) codexImage(
-	ctx context.Context, model, prompt string, opts codex.ImageOptions,
+	ctx context.Context, prompt string, opts codex.ImageOptions,
 ) (codex.ImageAnswer, string, *ImageFailure) {
 	var (
 		answer  codex.ImageAnswer
@@ -615,7 +595,7 @@ func (s *Server) codexImage(
 
 	resp, err := s.underAccounts(ctx, codexRuntime, "", nil, func(token AccountToken) (*http.Response, error) {
 		now := s.svc.clock.Now()
-		key := restKey(ImageProviderCodex, token.AccountID, model)
+		key := restKey(ImageProviderCodex, token.AccountID)
 
 		if codex.FreePlan(token.Plan) {
 			return imageRefusal(http.StatusForbidden, "plan_not_entitled",
@@ -660,7 +640,7 @@ func (s *Server) codexImage(
 		}
 
 		code := cmpOr(failure.Code, "upstream_error")
-		if codex.NotEntitled(status, raw, model) {
+		if codex.NotEntitled(status, raw) {
 			// Another account may have the model (OmniRoute, issue #8307): a refusal that moves on.
 			failure.Status, code = http.StatusForbidden, "model_not_entitled"
 		}
@@ -735,7 +715,7 @@ func (s *Server) codexImagePost(
 
 // antigravityImages makes the images under the Antigravity accounts in turn,
 // in one call: Google makes n candidates (OmniRoute's candidateCount).
-func (s *Server) antigravityImages(ctx context.Context, model string, req ImageRequest) (ImageResult, *ImageFailure) {
+func (s *Server) antigravityImages(ctx context.Context, req ImageRequest) (ImageResult, *ImageFailure) {
 	if s.accounts == nil {
 		return ImageResult{}, &ImageFailure{Status: http.StatusServiceUnavailable, Message: "no Antigravity account"}
 	}
@@ -748,7 +728,7 @@ func (s *Server) antigravityImages(ctx context.Context, model string, req ImageR
 	}
 
 	opts := antigravity.ImageOptions{
-		Model: model, Count: req.N, Size: req.Size, AspectRatio: req.AspectRatio, ImageSize: req.ImageSize,
+		Count: req.N, Size: req.Size, AspectRatio: req.AspectRatio, ImageSize: req.ImageSize,
 	}
 	for _, img := range req.Images {
 		opts.Images = append(opts.Images, antigravity.ImageInput{MIME: img.MIME, Data: img.Data})
@@ -757,7 +737,7 @@ func (s *Server) antigravityImages(ctx context.Context, model string, req ImageR
 	var res ImageResult
 
 	resp, err := s.underAccounts(ctx, antigravityRuntime, "", nil, func(token AccountToken) (*http.Response, error) {
-		got, refusal, err := s.antigravityImage(ctx, token, model, req.Prompt, opts)
+		got, refusal, err := s.antigravityImage(ctx, token, req.Prompt, opts)
 		if err != nil || refusal != nil {
 			return refusal, err
 		}
@@ -784,10 +764,10 @@ func (s *Server) antigravityImages(ctx context.Context, model string, req ImageR
 // in flight (antigravityState, as chat), with the IDE's user agent, its
 // token refreshed once when refused.
 func (s *Server) antigravityImage(
-	ctx context.Context, token AccountToken, model, prompt string, opts antigravity.ImageOptions,
+	ctx context.Context, token AccountToken, prompt string, opts antigravity.ImageOptions,
 ) (antigravity.ImageAnswer, *http.Response, error) {
 	now := s.svc.clock.Now()
-	key := restKey(ImageProviderAntigravity, token.AccountID, model)
+	key := restKey(ImageProviderAntigravity, token.AccountID)
 
 	if token.Project == "" {
 		// OmniRoute refuses it the same way: Google refuses a request without one.
@@ -800,7 +780,7 @@ func (s *Server) antigravityImage(
 			"the account's image quota rests", until.Sub(now)), nil
 	}
 
-	if _, entered := s.antigravity.enter(token.AccountID, ModelImagePrefix+model, now); !entered {
+	if _, entered := s.antigravity.enter(token.AccountID, ModelImagePrefix+antigravity.ImageModel, now); !entered {
 		return antigravity.ImageAnswer{}, imageRefusal(http.StatusTooManyRequests, "rate_limit_exceeded",
 			"the Antigravity account is at its limit of requests in flight", time.Second), nil
 	}

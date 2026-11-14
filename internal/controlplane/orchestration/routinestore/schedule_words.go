@@ -1,4 +1,4 @@
-package orchestration
+package routinestore
 
 // The words for a cron schedule are adapted from OpenMausBot (Apache License 2.0,
 // https://github.com/milind-soni/OpenMausBot): shared/cron-label.ts (cronPreset,
@@ -111,7 +111,7 @@ const RoutineSchedulePreviewRuns = 3
 
 // PreviewSchedule checks a schedule as PutRoutine would and says it in words
 // with its next times, counted from now as for a new Routine.
-func (s *Service) PreviewSchedule(everyMinutes int, expr, zone string) (SchedulePreview, error) {
+func (s *Store) PreviewSchedule(everyMinutes int, expr, zone string) (SchedulePreview, error) {
 	sched, err := scheduleOf(everyMinutes, strings.TrimSpace(expr), strings.TrimSpace(zone))
 	if err != nil {
 		return SchedulePreview{}, err

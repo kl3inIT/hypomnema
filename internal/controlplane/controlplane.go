@@ -22,15 +22,18 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/agentapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/browser"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/browser/egress"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/channels"
+	larkchannel "github.com/kl3inIT/hypomnema/internal/controlplane/channels/lark"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientcli"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/coordinator"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/integration"
-	"github.com/kl3inIT/hypomnema/internal/controlplane/larkbot"
+
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/nodeapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/channelstore"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/phone"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/routines"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/serviceproxy"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/skillsource"
@@ -73,6 +76,12 @@ type Config struct {
 	// Routine's id appended to it, from HYPOMNEMA_ROUTINE_COMMAND as a JSON
 	// array; empty: a script Routine's run fails, saying so (issue #211).
 	RoutineCommand []string
+	// ChatRmCommand removes what pi kept for a deleted chat on this machine,
+	// its run/ folder and its sessions, for the chat's id appended to it
+	// (issue #484), from HYPOMNEMA_CHAT_RM_COMMAND as a JSON array, such as
+	// [sudo -n -u coordinator /usr/local/bin/hypomnema-chat-rm]; empty: a
+	// deleted chat's files there stay, and the deletion says so.
+	ChatRmCommand []string
 	// VaultKeys holds the vault's root keys, from HYPOMNEMA_VAULT_KEYS (a
 	// comma-separated list of id:base64 entries) and
 	// HYPOMNEMA_VAULT_ACTIVE_KEY_ID; nil: the vault is not configured.
@@ -174,6 +183,12 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 	if raw := env.String(envPrefix+"_ROUTINE_COMMAND", ""); raw != "" {
 		if err := json.Unmarshal([]byte(raw), &cfg.RoutineCommand); err != nil || len(cfg.RoutineCommand) == 0 {
 			cmdErr = errors.Join(cmdErr, fmt.Errorf("%s_ROUTINE_COMMAND is not a JSON array of strings", envPrefix))
+		}
+	}
+
+	if raw := env.String(envPrefix+"_CHAT_RM_COMMAND", ""); raw != "" {
+		if err := json.Unmarshal([]byte(raw), &cfg.ChatRmCommand); err != nil || len(cfg.ChatRmCommand) == 0 {
+			cmdErr = errors.Join(cmdErr, fmt.Errorf("%s_CHAT_RM_COMMAND is not a JSON array of strings", envPrefix))
 		}
 	}
 
@@ -299,6 +314,12 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	metered := meteredWeb{web: webSearch, gateway: gateway, logger: logger}
 	agents.WithWeb(workerWeb{metered}, dispatchRuntime(svc))
 
+	// The phone a node holds (issue #417), given to every worker as the browser is. A call that finds its
+	// machine stopped starts it as `machines start` does.
+	sharedPhone := phone.New(phone.Config{Nodes: svc, Link: nodes, Machines: machineMgr, Logger: logger})
+	agents.WithDevice(sharedPhone)
+	nodes.WithPhone(sharedPhone.Held)
+
 	agents.Register(mux)
 
 	// The service proxy: an agent's tool reaches a connected service through it and never holds the token.
@@ -347,27 +368,28 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		Tokens: botTokens{svc: svc, coordinator: cfg.CoordinatorToken}, Logger: logger,
 	})
 
-	// The Lark Channels (issues #136 and #169): their settings read each app's secret from the vault, and a
-	// Channel opens its connection through them.
-	var larkSettings *larkbot.Service
+	// The Channels (issues #136, #169 and #404): one runtime for every kind, each kind's Channel found in the
+	// registry, which refuses a kind given twice; each account's secret is opened from the vault to connect.
+	registry, err := channels.NewRegistry(larkchannel.LarkChannel{})
+	if err != nil {
+		return fmt.Errorf("registering the channels: %w", err)
+	}
 
-	// A Bot's folder is read for the Files panel and for the files a Bot sends into its Lark chat (issue #312).
+	// A Bot's folder is read for the Files panel and for the files a Bot sends into its chat (issue #312).
 	bots := newBotFiles(cfg.BotFilesCommand)
 
-	larkStore := channelStore{Service: svc, Store: svc.Channels()}
+	channelData := channelStore{Service: svc, Store: svc.Channels()}
 
-	larkChannels := larkbot.New(larkStore, sup,
-		func(ctx context.Context, c channelstore.Channel) (larkbot.Lark, error) {
-			return larkSettings.Open(ctx, c)
-		}, logger).WithWebURL(cfg.PublicURL)
+	runtime := channels.New(channelData, sup, registry, secrets, logger).WithWebURL(cfg.PublicURL)
 	if bots != nil {
-		larkChannels.WithFiles(bots)
+		runtime.WithFiles(bots)
 	}
-	larkSettings = larkbot.NewService(larkStore, secrets, larkChannels, larkbot.Connect)
+
+	larkSettings := larkchannel.NewService(channels.NewService(channelData, secrets, runtime))
 
 	// The Routines of the Bots (issue #211): the tick, and the runs it starts.
-	routineRunner := routines.New(svc, routines.Config{
-		Command: cfg.RoutineCommand, Coordinator: sup, Owner: larkChannels, Logger: logger,
+	routineRunner := routines.New(svc, svc.Routines(), routines.Config{
+		Command: cfg.RoutineCommand, Coordinator: sup, Owner: runtime, Logger: logger,
 		Tokens: botTokens{svc: svc, coordinator: cfg.CoordinatorToken},
 	})
 
@@ -375,7 +397,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		WithAccounts(subscriptions).WithGatewayModels(gateway).WithGatewayKeys(gateway).WithGatewayUsage(gateway).
 		WithHostTokens(tokens).
 		WithMachines(machineMgr).WithTerminals(nodeTerminals(nodes)).WithDevices(nodes).
-		WithWorkspaces(nodes.Files, bots).
+		WithWorkspaces(nodes.Files, bots).WithChatFiles(newChatFiles(cfg.ChatRmCommand)).
 		WithSecrets(ownerSecrets{vault: secrets, referrers: referrers}).
 		WithIntegrations(integrations).WithApprovals(proxy).WithRelay(proxy).WithLarkChannels(larkSettings).
 		WithSkillSources(skillsource.NewGitHub(&http.Client{Timeout: 2 * time.Minute})).
@@ -460,12 +482,12 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		_ = routineRunner.Run(ctx)
 	}()
 
-	larkDone := make(chan struct{})
+	channelsDone := make(chan struct{})
 
 	go func() {
-		defer close(larkDone)
+		defer close(channelsDone)
 
-		_ = larkChannels.Run(ctx)
+		_ = runtime.Run(ctx)
 	}()
 
 	// Idle tabs and the idle Chrome are closed while the server runs, and Chrome when it stops.
@@ -482,7 +504,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	cancel(nil)
 	<-browserDone
 	<-routinesDone
-	<-larkDone
+	<-channelsDone
 	<-loopDone
 	<-machinesDone
 	<-refreshDone

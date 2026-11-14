@@ -116,6 +116,20 @@ func (s *Supervisor) Working(chatID string) bool {
 	return p != nil && p.isWorking()
 }
 
+// Stop ends the chat's pi, if one runs, and waits for it to exit (issue #484): the chat was deleted, and its files
+// go next, as t3code detaches a deleted thread's provider session before its files are cleaned up. pi's gateway key
+// and token end as it exits. A pi that works is asked to stop by its stdin closing, and killed after stopTimeout.
+func (s *Supervisor) Stop(chatID string) {
+	s.mu.Lock()
+	p := s.procs[chatID]
+	delete(s.procs, chatID)
+	s.mu.Unlock()
+
+	if p != nil {
+		p.stop()
+	}
+}
+
 // Key returns the model gateway's key of the chat's running pi. No pi, or
 // one that has ended, has none.
 func (s *Supervisor) Key(chatID string) (string, bool) {

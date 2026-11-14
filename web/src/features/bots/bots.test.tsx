@@ -91,6 +91,7 @@ function server(
   let bots = start
   const put: { name: string; settings: BotSettings }[] = []
   const removed: string[] = []
+  const renamed: { id: string; name: string }[] = []
 
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
     const request = input as Request
@@ -104,7 +105,7 @@ function server(
     if (request.method === "GET" && path === "/profiles") return json({ data: opts.profiles ?? [] })
 
     const one = /^\/bots\/([^/]+)$/.exec(path)
-    const found = one && bots.find((b) => b.name === one[1])
+    const found = one && bots.find((b) => b.id === one[1])
 
     if (request.method === "GET" && one) {
       return found ? json(found) : json({ code: "not_found", message: "no such bot" }, 404)
@@ -117,7 +118,19 @@ function server(
 
       const { provider: _provider, model: _model, effort: _effort, ...kept } = found ?? bot(one[1]!)
       const stored: Bot = { ...kept, ...settings, persona: settings.persona ?? "" }
-      bots = [...bots.filter((b) => b.name !== one[1]), stored]
+      bots = [...bots.filter((b) => b.id !== one[1]), stored]
+
+      return json(stored)
+    }
+
+    if (request.method === "PATCH" && found) {
+      const { name } = (await request.clone().json()) as { name: string }
+      if (bots.some((b) => b.id !== found.id && b.name === name)) {
+        return json({ code: "conflict", message: `a bot is named ${name} already` }, 409)
+      }
+      renamed.push({ id: found.id, name })
+      const stored: Bot = { ...found, name }
+      bots = bots.map((b) => (b.id === found.id ? stored : b))
 
       return json(stored)
     }
@@ -127,7 +140,7 @@ function server(
       if (refused) return refused
 
       removed.push(one[1]!)
-      bots = bots.filter((b) => b.name !== one[1])
+      bots = bots.filter((b) => b.id !== one[1])
 
       return new Response(null, { status: 204 })
     }
@@ -135,7 +148,7 @@ function server(
     return json({ code: "not_found", message: "not found" }, 404)
   })
 
-  return { put, removed }
+  return { put, removed, renamed }
 }
 
 function open(path: string) {
@@ -217,12 +230,37 @@ test("a draft is sent as the settings the server replaces", () => {
 test("a new Bot's name follows the server's rule and is not one taken", () => {
   const named = (name: string) => problem({ ...emptyDraft, name }, ["coordinator"])
 
-  expect(named("")).toBe("Give the Bot a name.")
-  expect(named("Researcher")).toMatch(/lowercase letters/)
-  expect(named("1st")).toMatch(/starting with a letter/)
-  expect(named("a".repeat(64))).toMatch(/at most 63/)
-  expect(named("coordinator")).toBe("A Bot has this name already.")
-  expect(named("research-2")).toBeNull()
+  expect(named("  ")).toBe("Give the Bot a name.")
+  expect(named("a".repeat(65))).toBe("A name is at most 64 characters.")
+  expect(named(" coordinator ")).toBe("A Bot has this name already.")
+  expect(named("Trợ lý")).toBeNull()
+  expect(named("a".repeat(64))).toBeNull()
+})
+
+// Scenario: the owner renames the main Bot to a name with Vietnamese letters; a name another Bot has is refused
+// before anything is sent, and the page's heading follows the new name (issue #466).
+test("the main Bot is renamed on its page, and a name another Bot has is refused", async () => {
+  const { renamed } = server([bot("coordinator"), bot("researcher")])
+  open("/bots/coordinator")
+  const user = userEvent.setup()
+
+  const form = await screen.findByRole("form", { name: "Name" })
+  const field = within(form).getByRole("textbox")
+  expect(field).toHaveValue("coordinator")
+  expect(form).toHaveTextContent("The main Bot")
+  expect(within(form).getByRole("button", { name: "Rename" })).toBeDisabled()
+
+  await user.clear(field)
+  await user.type(field, "researcher")
+  expect(form).toHaveTextContent("A Bot has this name already.")
+  expect(within(form).getByRole("button", { name: "Rename" })).toBeDisabled()
+
+  await user.clear(field)
+  await user.type(field, "Trợ lý")
+  await user.click(within(form).getByRole("button", { name: "Rename" }))
+
+  expect(await screen.findByRole("heading", { name: "Trợ lý", level: 2 })).toBeInTheDocument()
+  expect(renamed).toEqual([{ id: "coordinator", name: "Trợ lý" }])
 })
 
 // Scenario: two Bots. Each card says its model, or that pi chooses, and how full its memory is.
@@ -326,7 +364,6 @@ test("a Bot's persona is saved with its model, and its memory is read only", asy
   const user = userEvent.setup()
 
   expect(await screen.findByRole("heading", { name: "researcher", level: 2 })).toBeInTheDocument()
-  expect(screen.queryByLabelText("Name")).not.toBeInTheDocument()
   await vi.waitFor(() =>
     expect(screen.getByLabelText("Model")).toHaveTextContent("gpt-lunagateway"),
   )

@@ -239,8 +239,8 @@ func TestARunNamesTheBotOfItsChat(t *testing.T) {
 	assert.Empty(t, bots[byOwner.ID])
 }
 
-// Scenario: a Bot has a memory and a chat with messages; a Run was started from that chat and the chat has a
-// gateway key. The plain removal is refused; the owner's forced one removes the Bot, its chat and the messages,
+// Scenario: a Bot has a memory and a chat with messages and an artifact; a Run was started from that chat and the
+// chat has a gateway key. The plain removal is refused; the owner's forced one removes the Bot, its chat and the messages,
 // keeps the Run without its chat and keeps the key, revoked. A Bot a Routine or a Lark Channel uses, and the first
 // Bot, are refused even when forced.
 func TestTheOwnerRemovesABotWithItsChats(t *testing.T) {
@@ -257,6 +257,10 @@ func TestTheOwnerRemovesABotWithItsChats(t *testing.T) {
 	chat, err := w.s.CreateChat(ctx, trialBot.ID, "")
 	require.NoError(t, err)
 	_, err = w.s.AddChatMessage(ctx, chat.ID, ChatOwner, "Which model are you?")
+	require.NoError(t, err)
+	// Its artifact goes with the chat (issue #484): its row would otherwise hold the chat by its foreign key.
+	_, _, err = w.s.ShowArtifact(ctx, ArtifactMaker{Bot: trialBot.ID, Chat: chat.ID},
+		ShowArtifact{Title: "Usage", Pack: page(t, "<p>usage")})
 	require.NoError(t, err)
 
 	_, err = w.db.ExecContext(ctx, "UPDATE runs SET chat_id = ? WHERE id = ?", chat.ID, w.run.ID)
@@ -277,6 +281,10 @@ func TestTheOwnerRemovesABotWithItsChats(t *testing.T) {
 		chat.ID).Scan(&messages))
 	assert.Zero(t, chats)
 	assert.Zero(t, messages)
+
+	var artifacts int
+	require.NoError(t, w.db.QueryRowContext(ctx, "SELECT count(*) FROM artifacts").Scan(&artifacts))
+	assert.Zero(t, artifacts)
 
 	var runChat sql.NullString
 	require.NoError(t, w.db.QueryRowContext(ctx, "SELECT chat_id FROM runs WHERE id = ?", w.run.ID).Scan(&runChat))

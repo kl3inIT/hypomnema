@@ -1,3 +1,4 @@
+import { useQueryClient } from "@tanstack/react-query"
 import { Link, useNavigate } from "@tanstack/react-router"
 import { ChevronRight, Copy } from "lucide-react"
 import { useState } from "react"
@@ -14,7 +15,9 @@ import { ProfileEditor } from "./profile-editor"
 import { copyName, draftOf, emptyDraft, runtimeName, savedAgo, type Draft } from "./profiles-state"
 import { RuntimeMark } from "./runtime-mark"
 import {
+  profilesKey,
   useApplyProfile,
+  useDeleteProfile,
   useModels,
   useProfile,
   useProfiles,
@@ -114,6 +117,7 @@ export function ProfileScreen({ name }: { name: string }) {
               </div>
               {view === "versions" && <Versions profile={p} />}
               {view === "memory" && <AgentMemory name={p.name} />}
+              <Removal profile={p} />
             </>
           )}
         </div>
@@ -182,6 +186,51 @@ function Versions({ profile }: { profile: Profile }) {
         )
       })}
     </ol>
+  )
+}
+
+// Removal deletes the agent after a question (issue #485), as the Bot page's Removal (features/bots/bot-screen.tsx).
+// The server refuses implementer and an agent an unfinished task, another agent's fallbacks or a Bot's workers still
+// name, and the dialog stays open with its reason. One that ran before is hidden, not gone, as Coder deletes a
+// template, and saving an agent of its name brings it back.
+function Removal({ profile }: { profile: Profile }) {
+  const remove = useDeleteProfile()
+  const navigate = useNavigate()
+  const queryClient = useQueryClient()
+
+  const gone = async () => {
+    // The list is read again before the page leaves; this agent's own queries go with its page.
+    await queryClient.invalidateQueries({ queryKey: profilesKey, exact: true })
+    await navigate({ to: "/agents" })
+    queryClient.removeQueries({ queryKey: [...profilesKey, profile.name] })
+  }
+
+  return (
+    <section
+      aria-label="Delete"
+      className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t pt-4"
+    >
+      <p className="min-w-0 flex-1 basis-64 text-xs text-muted-foreground">
+        An agent can be deleted while no unfinished task, no other agent's fallbacks and no Bot's
+        workers name it. implementer is always there.
+      </p>
+      <ConfirmDialog
+        trigger={
+          <Button variant="outline" size="sm">
+            Delete agent
+          </Button>
+        }
+        title={`Delete ${profile.name}?`}
+        consequence={
+          "New tasks can no longer go to it. If it ran before, its versions stay with those runs and saving an " +
+          "agent of this name brings it back; otherwise it is gone."
+        }
+        action="Delete"
+        run={() => remove.mutateAsync(profile.name)}
+        onDone={gone}
+        done={`${profile.name} deleted`}
+      />
+    </section>
   )
 }
 
