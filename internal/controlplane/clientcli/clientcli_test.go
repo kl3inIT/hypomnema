@@ -986,7 +986,7 @@ func TestProfilesFromTheCLI(t *testing.T) {
 	w.login(t, bearertoken.Owner)
 
 	file := filepath.Join(t.TempDir(), "reviewer.yaml")
-	source := "name: reviewer\ndescription: d\nruntime: claude\nmodel:\n  name: opus\n"
+	source := "name: reviewer\ndescription: d\nruntime: claude\nmodel:\n  name: claude-opus-5-5\n"
 	require.NoError(t, os.WriteFile(file, []byte(source), 0o600))
 
 	out, err := w.cmd(t, "profiles", "apply", file)

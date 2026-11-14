@@ -42,12 +42,11 @@ Each adapted file names its source.
   (src/renderer/src/components/icons/GitHubIcon.tsx), MIT. The marks of GitLab, Google, Gmail, Google Calendar,
   Google Drive and Google Docs there are copied from Onyx (https://github.com/onyx-dot-app/onyx,
   web/lib/opal/src/logos), MIT, Copyright (c) 2023-present DanswerAI, Inc. Each mark belongs to its brand.
-- Exa's mark there is the path of LobeHub's icons (https://github.com/lobehub/lobe-icons, exa.svg), MIT, Copyright
-  (c) 2023 LobeHub, as OpenClaw ships it (extensions/exa/assets/activity.svg); Tavily's and Firecrawl's are the
-  paths of the same icons (tavily.svg, firecrawl.svg), as OpenClaw ships them (extensions/tavily/assets/activity.svg,
-  extensions/firecrawl/assets/activity.svg). Parallel's is OpenClaw's drawing
-  (https://github.com/openclaw/openclaw, extensions/parallel/assets/activity.svg), MIT, Copyright (c) 2026 OpenClaw
-  Foundation. Each mark belongs to its brand.
+- Exa's, Tavily's and Firecrawl's marks there are LobeHub's colour icons (https://github.com/lobehub/lobe-icons,
+  src/Exa/components/Color.tsx, src/Tavily/components/Color.tsx, src/Firecrawl/components/Color.tsx), MIT,
+  Copyright (c) 2023 LobeHub. Parallel's, TinyFish's and You.com's are the marks their websites serve, fetched
+  2026-11-14: https://parallel.ai/views/icons/logo-parallel.svg, https://www.tinyfish.ai/TF-Logos/Icon/SVG/TF_ICON.svg
+  and https://you.com/icon.svg. Each mark belongs to its brand.
 - Apache Superset's mark there is the path of Simple Icons (https://github.com/simple-icons/simple-icons,
   icons/apachesuperset.svg), CC0 1.0. Apache Superset and its logo are trademarks of The Apache Software
   Foundation.

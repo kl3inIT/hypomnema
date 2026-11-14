@@ -55,7 +55,8 @@ func TestAnOfferCarriesTheGatewaysKeyUntilTheDispatchSettles(t *testing.T) {
 	_, _, err = svc.ApplyProfile(ctx, "",
 		"name: codex-worker\ndescription: d\nruntime: codex\nmodel: {provider: gateway, name: gpt-sol}\n")
 	require.NoError(t, err)
-	_, _, err = svc.ApplyProfile(ctx, "", "name: implementer\ndescription: d\nruntime: claude\nmodel: {name: opus}\n")
+	_, _, err = svc.ApplyProfile(ctx, "",
+		"name: implementer\ndescription: d\nruntime: claude\nmodel: {name: claude-opus-5-5}\n")
 	require.NoError(t, err)
 	_, err = svc.AddAccount(ctx, "claude", "acct_1")
 	require.NoError(t, err)

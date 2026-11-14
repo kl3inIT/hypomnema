@@ -915,7 +915,7 @@ func TestOnlyTheOwnerChangesProfiles(t *testing.T) {
 	assert.NotEmpty(t, models.JSON200.Data)
 
 	body := openapi.Source{Source: "name: reviewer\ndescription: d\nruntime: claude\n" +
-		"model: {name: opus, effort: max}\nfallbacks: [explorer]\n"}
+		"model: {name: claude-opus-5-5, effort: max}\nfallbacks: [explorer]\n"}
 
 	refused, err := laptop.ApplyProfileWithResponse(ctx, "reviewer", body)
 	require.NoError(t, err)

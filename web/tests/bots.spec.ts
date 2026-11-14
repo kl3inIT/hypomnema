@@ -35,7 +35,7 @@ const coordinator = bot("coordinator", {
 })
 
 const models = [
-  { provider: "claude-subscription", name: "opus", kind: "claude_subscription" },
+  { provider: "claude-subscription", name: "claude-opus-5-5", kind: "claude_subscription" },
   { provider: "gateway", name: "gpt-luna", kind: "model_gateway" },
   { provider: "gateway", name: "gpt-sol", kind: "model_gateway" },
 ]
@@ -344,13 +344,13 @@ test("a new Bot is made with a name, a model and a persona", async ({ page }) =>
 
   await expect(page).toHaveURL(/\/bots\/researcher$/)
   await expect(page.getByRole("heading", { name: "researcher", level: 2 })).toBeVisible()
-  await expect(page.getByText("Bot · Claude Opus (claude-subscription)")).toBeVisible()
+  await expect(page.getByText("Bot · Claude Opus 5.5 (claude-subscription)")).toBeVisible()
   await expect(page.getByRole("textbox", { name: "Memory" })).toHaveValue("")
   expect(calls.at(-1)).toEqual({
     call: "PUT /bots/researcher",
     body: {
       provider: "claude-subscription",
-      model: "opus",
+      model: "claude-opus-5-5",
       effort: "high",
       persona: "You are the team's researcher. Answer with sources.",
       skills: [],

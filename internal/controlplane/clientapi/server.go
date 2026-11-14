@@ -24,6 +24,7 @@ import (
 	nethttpmiddleware "github.com/oapi-codegen/nethttp-middleware"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/artifactpack"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/coordinator"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/machines"
@@ -295,9 +296,9 @@ func bodyLimit(r *http.Request) int64 {
 // acting as the owner, or else the token it bears.
 func (s *Server) authenticate(ctx context.Context, r *http.Request) (orchestration.Token, string, error) {
 	if secret := sessionSecret(r); secret != "" {
-		tok, session, err := s.svc.AuthenticateSession(ctx, secret)
+		u, session, err := s.svc.Users().AuthenticateSession(ctx, secret)
 		if err == nil {
-			return tok, session.ID, nil
+			return orchestration.Token{ID: u.ID, Name: u.Name, Kind: bearertoken.Owner}, session.ID, nil
 		}
 
 		if !errors.Is(err, orchestration.ErrNotFound) {

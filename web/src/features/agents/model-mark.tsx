@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils"
 export function ModelMark({ name, className }: { name: string; className?: string }) {
   const n = name.toLowerCase()
 
-  if (/claude|opus|sonnet|haiku|fable/.test(n)) return <ClaudeMark className={className} />
+  if (/claude/.test(n)) return <ClaudeMark className={className} />
   if (/gemini/.test(n)) return <GeminiIcon className={className} />
   if (/gpt/.test(n)) return <CodexMark className={className} />
 

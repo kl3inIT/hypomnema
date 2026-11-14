@@ -42,7 +42,7 @@ const models: Model[] = [
   { provider: "gateway", name: "gpt-sol", kind: "model_gateway" },
   { provider: "gateway", name: "gpt-luna", kind: "model_gateway" },
   { provider: "gateway", name: "plain-mini", kind: "model_gateway" },
-  { provider: "claude-subscription", name: "opus", kind: "claude_subscription" },
+  { provider: "claude-subscription", name: "claude-opus-5-5", kind: "claude_subscription" },
 ]
 
 describe("a chat's model and effort (issue #369)", () => {

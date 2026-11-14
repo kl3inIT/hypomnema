@@ -15,8 +15,7 @@ import (
 // A model's attributes (issue #367) are what a client needs to know of it:
 // its context window, largest output, inputs, whether it reasons and at which
 // effort levels. A value set in the model's YAML wins; else the value
-// models.dev gives the first target's model (the price book's snapshot; a
-// Claude short name is looked up as the model it stands for, prices.ClaudeModel), as
+// models.dev gives the first target's model (the price book's snapshot), as
 // 9router-go, omniroute and omp seed theirs and let a model override them;
 // else it is unknown, and a client keeps its own default.
 

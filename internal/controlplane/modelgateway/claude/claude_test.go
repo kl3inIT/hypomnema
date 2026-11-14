@@ -99,13 +99,16 @@ func TestBuildRequestPlacesCacheBreakpoints(t *testing.T) {
 }
 
 // ttlsInOrder lists the ttl of every breakpoint in the order Anthropic reads
-// them, tools then system then messages; "" for none.
+// them, tools then system then messages, a tool result's own blocks before the
+// next block of its message; "" for none.
 func ttlsInOrder(t *testing.T, body map[string]any) []string {
 	t.Helper()
 
 	var out []string
 
-	walk := func(v any) {
+	var walk func(v any)
+
+	walk = func(v any) {
 		list, _ := v.([]any)
 		for _, block := range list {
 			b, _ := block.(map[string]any)
@@ -113,6 +116,8 @@ func ttlsInOrder(t *testing.T, body map[string]any) []string {
 				ttl, _ := cc["ttl"].(string)
 				out = append(out, ttl)
 			}
+
+			walk(b["content"])
 		}
 	}
 
@@ -149,6 +154,40 @@ func TestTheClientsCacheBreakpointsAgreeWithTheGateways(t *testing.T) {
 	short := build(`{"type":"function","function":{"name":"read"},"cache_control":{"type":"ephemeral","ttl":"5m"}}`)
 	require.Len(t, short, 4)
 	assert.Equal(t, []string{"5m", "", "", ""}, short, "after a five-minute mark, none is kept an hour")
+}
+
+// Scenario: the client marked a block inside an earlier tool result for the
+// cache (issue #409). A tool message's image part reaches the Messages
+// tool_result's own content as it was sent, its mark with it (a text part is
+// rebuilt without one). A mark with no ttl is kept an hour; one the client gave
+// five minutes stays so, and the gateway's mark on the message after it is not
+// kept an hour, which Anthropic would refuse.
+func TestACacheBreakpointInsideAToolResultAgreesWithTheGateways(t *testing.T) {
+	t.Parallel()
+
+	build := func(cacheControl string) []string {
+		chat := `{"model":"m","messages":[` +
+			`{"role":"user","content":"look at the screenshot"},` +
+			`{"role":"assistant","content":"","tool_calls":[{"id":"call_1","type":"function",` +
+			`"function":{"name":"read","arguments":"{\"path\":\"shot.png\"}"}}]},` +
+			`{"role":"tool","tool_call_id":"call_1","content":[{"type":"image",` +
+			`"source":{"type":"base64","media_type":"image/png","data":"iVBORw0KGgo="},` +
+			`"cache_control":` + cacheControl + `}]},` +
+			`{"role":"user","content":"what does it show?"}],` +
+			`"tools":[{"type":"function","function":{"name":"read"}}]}`
+		built, err := claude.BuildRequest([]byte(chat), claude.Options{Model: "claude-sonnet-5-5", Token: "tok"})
+		require.NoError(t, err)
+
+		return ttlsInOrder(t, decode(t, built))
+	}
+
+	bare := build(`{"type":"ephemeral"}`)
+	require.Len(t, bare, 4, "the gateway's tools and system marks, the client's nested one, the gateway's last")
+	assert.Equal(t, []string{"1h", "1h", "1h", "1h"}, bare)
+
+	short := build(`{"type":"ephemeral","ttl":"5m"}`)
+	require.Len(t, short, 4)
+	assert.Equal(t, []string{"1h", "1h", "5m", ""}, short, "after the nested five-minute mark, none is kept an hour")
 }
 
 // Scenario: a probe (Claude Code's own "quota" check) stays minimal — no decoy

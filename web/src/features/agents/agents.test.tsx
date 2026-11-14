@@ -63,7 +63,7 @@ const profile = (name: string, m: Partial<Profile> = {}): Profile => ({
 })
 
 const models: Model[] = [
-  { provider: "claude-subscription", name: "opus", kind: "claude_subscription" },
+  { provider: "claude-subscription", name: "claude-opus-5-5", kind: "claude_subscription" },
   { provider: "gateway", name: "gpt-sol", kind: "model_gateway" },
 ]
 
@@ -169,7 +169,11 @@ const agent = (name: string) => screen.findByRole("article", { name })
 // View menu's Status group counts them.
 test("a card says what the agent runs on and whether it can run now", async () => {
   server([
-    profile("implementer", { model: "opus", provider: "claude-subscription", effort: "xhigh" }),
+    profile("implementer", {
+      model: "claude-opus-5-5",
+      provider: "claude-subscription",
+      effort: "xhigh",
+    }),
     profile("codex-implementer", {
       runtime: "codex",
       available: false,
@@ -181,7 +185,7 @@ test("a card says what the agent runs on and whether it can run now", async () =
 
   const implementer = await agent("implementer")
   expect(implementer).toHaveTextContent("What implementer is for.")
-  expect(implementer).toHaveTextContent("Model:Claude Opus(claude-subscription)")
+  expect(implementer).toHaveTextContent("Model:Claude Opus 5.5(claude-subscription)")
   expect(implementer).toHaveTextContent("Effort:Extra High")
   expect(implementer).toHaveTextContent("Version:1saved 2h ago")
   expect(implementer).toHaveTextContent("Can run now")
@@ -327,7 +331,10 @@ test("a name with other characters is not sent, and the form says why", async ()
 test("saving an agent makes a revision, and a refusal is shown in the server's words", async () => {
   const applied = server([profile("reviewer")], {
     apply: () =>
-      json({ code: "invalid", message: 'model "opus" cannot run against provider gateway' }, 422),
+      json(
+        { code: "invalid", message: 'model "claude-opus-5-5" cannot run against provider gateway' },
+        422,
+      ),
   })
   open("/agents/reviewer")
   const user = userEvent.setup()
@@ -343,7 +350,7 @@ test("saving an agent makes a revision, and a refusal is shown in the server's w
   await user.click(save)
 
   expect(
-    await screen.findByText('model "opus" cannot run against provider gateway'),
+    await screen.findByText('model "claude-opus-5-5" cannot run against provider gateway'),
   ).toBeInTheDocument()
   expect(applied[0]?.source).toContain('description: "Reviews a change."')
   expect(screen.getByLabelText("Description")).toHaveValue("Reviews a change.")
@@ -608,7 +615,7 @@ test("an agent is duplicated into the new agent's form", async () => {
   const reviewer = profile("reviewer", {
     description: "Reviews a change.",
     provider: "claude-subscription",
-    model: "opus",
+    model: "claude-opus-5-5",
     effort: "high",
     instruction: "Be strict.",
   })
@@ -624,11 +631,11 @@ test("an agent is duplicated into the new agent's form", async () => {
   expect(router.state.location.pathname).toBe("/agents/new")
   expect(screen.getByLabelText("Name")).toHaveValue("reviewer-copy-3")
   expect(screen.getByLabelText("Description")).toHaveValue("Reviews a change.")
-  expect(screen.getByLabelText("Model")).toHaveTextContent("Claude Opus")
+  expect(screen.getByLabelText("Model")).toHaveTextContent("Claude Opus 5.5")
   expect(screen.getByLabelText("Instructions")).toHaveValue("Be strict.")
 
   await user.click(screen.getByRole("button", { name: "Create profile" }))
   await vi.waitFor(() => expect(applied).toHaveLength(1))
   expect(applied[0]?.name).toBe("reviewer-copy-3")
-  expect(applied[0]?.source).toContain("  name: opus\n  effort: high\n")
+  expect(applied[0]?.source).toContain("  name: claude-opus-5-5\n  effort: high\n")
 })

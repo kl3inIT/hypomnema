@@ -517,7 +517,7 @@ func (q *Queries) ListGatewaySearchUsage(ctx context.Context, since string) ([]G
 
 const listGatewayUsage = `-- name: ListGatewayUsage :many
 SELECT u.id, u.key_id, u.model, u.provider, u.upstream_model, u.stream, u.attempts, u.outcome, u.status, u.prompt_tokens, u.completion_tokens, u.cached_tokens, u.reasoning_tokens, u.estimated, u.duration_ms, u.created_at, u.account_id, u.error, u.cache_write_tokens, u.cost_micros, u.priced_model, k.name AS key_name FROM gateway_usage u JOIN gateway_keys k ON k.id = u.key_id
-ORDER BY u.created_at DESC, u.id DESC LIMIT ?1
+ORDER BY u.created_at DESC, u.rowid DESC LIMIT ?1
 `
 
 type ListGatewayUsageRow struct {
@@ -595,7 +595,7 @@ const listUsageRequests = `-- name: ListUsageRequests :many
 SELECT u.id, u.key_id, u.model, u.provider, u.upstream_model, u.stream, u.attempts, u.outcome, u.status, u.prompt_tokens, u.completion_tokens, u.cached_tokens, u.reasoning_tokens, u.estimated, u.duration_ms, u.created_at, u.account_id, u.error, u.cache_write_tokens, u.cost_micros, u.priced_model, k.name AS key_name FROM gateway_usage u JOIN gateway_keys k ON k.id = u.key_id
 WHERE u.created_at >= ?1
   AND (CAST(?2 AS INTEGER) = 0 OR u.outcome IN ('upstream_error', 'transport_error', 'truncated'))
-ORDER BY u.created_at DESC, u.id DESC LIMIT ?4 OFFSET ?3
+ORDER BY u.created_at DESC, u.rowid DESC LIMIT ?4 OFFSET ?3
 `
 
 type ListUsageRequestsParams struct {

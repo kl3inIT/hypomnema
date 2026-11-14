@@ -150,36 +150,6 @@ func TestAModelModelsDevDoesNotKnowIsUnknown(t *testing.T) {
 	}
 }
 
-// Scenario: the owner serves the Claude subscription's opus, as Claude Code
-// names it, and sets nothing (issue #399). It has what models.dev says of the
-// newest Claude Opus, and that model's price, not pi's defaults.
-func TestAClaudeShortNameHasItsNewestModelsAttributes(t *testing.T) {
-	t.Parallel()
-
-	g := newGateway(t)
-
-	m, err := g.ApplyModel(t.Context(), "name: opus\ntargets: [{provider: claude-subscription, model: opus}]\n")
-	require.NoError(t, err)
-
-	got, err := g.Resolve(t.Context(), m)
-	require.NoError(t, err)
-
-	newest, ok := prices.ClaudeModel("opus")
-	require.True(t, ok)
-
-	seed, ok := prices.Find("claude_subscription", newest)
-	require.True(t, ok)
-	require.NotNil(t, seed.Context)
-
-	assert.Equal(t, modelgateway.Value[int64]{Value: seed.Context, Source: modelgateway.SourceModelsDev,
-		ModelsDev: seed.Context}, got.ContextWindow)
-	assert.Equal(t, seed.MaxOutput, got.MaxOutput.Value)
-	assert.Equal(t, &[]string{"text", "image"}, got.Input.Value)
-	assert.Equal(t, ptr(true), got.Reasoning.Value)
-	require.NotNil(t, got.Price)
-	assert.Equal(t, newest, got.Price.Model)
-}
-
 // Scenario: the owner serves Antigravity's claude-sonnet-4-6 as
 // claude-sonnet (issue #399). Its window and largest output are the ones the
 // subscription serves, from CLIProxyAPI's registry, smaller than the API's

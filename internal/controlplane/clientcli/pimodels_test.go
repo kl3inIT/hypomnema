@@ -143,13 +143,14 @@ func TestPiIsGivenEachModelsAttributes(t *testing.T) {
 
 	_, err := g.ApplyModel(ctx, "name: sol\ntargets: [{provider: codex-subscription, model: gpt-6.1-sol}]\n")
 	require.NoError(t, err)
-	_, err = g.ApplyModel(ctx, "name: sonnet\ntargets: [{provider: claude-subscription, model: claude-sonnet-5-5}]\n"+
-		"context_window: 400000\n")
+	_, err = g.ApplyModel(ctx, "name: claude-sonnet-5-5\n"+
+		"targets: [{provider: claude-subscription, model: claude-sonnet-5-5}]\ncontext_window: 400000\n")
 	require.NoError(t, err)
-	// Claude Code's short name, as migrations 00008 and 00043 seed it (issue #399).
-	_, err = g.ApplyModel(ctx, "name: opus\ntargets: [{provider: claude-subscription, model: opus}]\n")
+	_, err = g.ApplyModel(ctx, "name: claude-opus-5-5\n"+
+		"targets: [{provider: claude-subscription, model: claude-opus-5-5}]\n")
 	require.NoError(t, err)
-	_, err = w.svc.ApplyProvider(ctx, "", "name: model-gateway\nkind: model_gateway\nmodels: [sol, sonnet, opus]\n")
+	_, err = w.svc.ApplyProvider(ctx, "",
+		"name: model-gateway\nkind: model_gateway\nmodels: [sol, claude-sonnet-5-5, claude-opus-5-5]\n")
 	require.NoError(t, err)
 
 	out, err := w.cmd(t, "pi-models")
@@ -183,20 +184,17 @@ func TestPiIsGivenEachModelsAttributes(t *testing.T) {
 	require.NotNil(t, sol.Cost)
 	assert.InDelta(t, float64(*codex.Input)/1e6, sol.Cost.Input, 1e-9)
 
-	sonnet := models["sonnet"]
+	sonnet := models["claude-sonnet-5-5"]
 	assert.Equal(t, int64(400_000), sonnet.ContextWindow, "the window the owner set")
 	assert.Equal(t, "max", *sonnet.ThinkingLevelMap["max"])
 	assert.Nil(t, sonnet.ThinkingLevelMap["minimal"], "the gateway gives Claude no minimal of its own")
 
-	newest, ok := prices.ClaudeModel("opus")
+	claude, ok := prices.Find("claude_subscription", "claude-opus-5-5")
 	require.True(t, ok)
 
-	claude, ok := prices.Find("claude_subscription", newest)
-	require.True(t, ok)
-
-	opus := models["opus"]
-	assert.Equal(t, "opus", opus.ID)
-	assert.Equal(t, *claude.Context, opus.ContextWindow, "the newest Opus's window, not pi's 128000")
+	opus := models["claude-opus-5-5"]
+	assert.Equal(t, "claude-opus-5-5", opus.ID)
+	assert.Equal(t, *claude.Context, opus.ContextWindow, "models.dev's window, not pi's 128000")
 	assert.Equal(t, *claude.MaxOutput, opus.MaxTokens)
 	assert.Equal(t, []string{"text", "image"}, opus.Input)
 	assert.True(t, opus.Reasoning)
