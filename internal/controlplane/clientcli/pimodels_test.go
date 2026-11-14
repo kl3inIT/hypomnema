@@ -34,6 +34,8 @@ func (runningPi) Watch(_ string) (<-chan coordinator.Frame, func()) { return nil
 
 func (runningPi) Abort(_ context.Context, _ string) error { return nil }
 
+func (runningPi) Compact(_ context.Context, _ string) error { return nil }
+
 func (p runningPi) Key(chatID string) (string, bool) { return p.key, chatID == p.chat && p.key != "" }
 
 // Scenario: the launcher starts pi for a chat (issue #204). It writes pi's

@@ -6,6 +6,12 @@ VALUES (@id, @title, @bot, @provider, @model, @effort, @now, @now);
 -- The chat's own model and effort (issue #369); NULL is the Bot's.
 UPDATE chats SET provider = @provider, model = @model, effort = @effort WHERE id = @id;
 
+-- name: SetChatContextUsage :exec
+-- pi's last report of the chat's context window (issue #384); the chat's updated_at stays, as it orders the list by
+-- what was said.
+UPDATE chats SET context_tokens = @tokens, context_window = @context_window, context_percent = @percent
+WHERE id = @id;
+
 -- name: GetChat :one
 SELECT * FROM chats WHERE id = @id;
 

@@ -200,6 +200,11 @@ func (s *Supervisor) deliver(ctx context.Context, chatID string) error {
 		return err
 	}
 
+	// A compaction the owner asked for runs as a turn of its own; what was written meanwhile waits for its end.
+	if p.isCompacting() {
+		return nil
+	}
+
 	if err := s.applyModel(ctx, p); err != nil {
 		return err
 	}

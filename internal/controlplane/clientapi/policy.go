@@ -203,6 +203,7 @@ var policies = map[string]policy{
 	"ListChatMessages":  {scope: scopeOwner, long: true},
 	"StreamChat":        {scope: scopeOwner, long: true},
 	"AbortChat":         {scope: scopeOwner},
+	"CompactChat":       {scope: scopeOwner},
 	// pi reads its own key (issue #204). The handler lets one token through, pi's, by its name: no scope here
 	// says that.
 	"GetChatGatewayKey": {},
