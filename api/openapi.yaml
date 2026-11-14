@@ -3596,6 +3596,16 @@ components:
           description: >-
             The node said at its last connect that it opens a terminal when asked. Left out for a node whose
             version has none or whose own configuration turned it off.
+        device:
+          type: string
+          enum: [android]
+          description: >-
+            The device the node said at its last connect that it holds, as its own configuration names it. Left
+            out for a node that holds none.
+        kvm:
+          type: boolean
+          description: >-
+            The node said at its last connect that its user can use /dev/kvm, which an Android emulator needs.
         active:
           type: integer
           description: Its Dispatches that have not settled.
@@ -3918,7 +3928,16 @@ components:
         size:
           type: string
           maxLength: 64
-          description: With a provider, the machine's size; left out, the provider's default.
+          description: >-
+            With a provider, the machine's size; left out, the provider's default, or for a device the size the
+            emulator was tried on (c7i-flex.2xlarge at AWS).
+        device:
+          type: string
+          enum: [android]
+          description: >-
+            With a provider, a machine that holds an Android emulator: at AWS a size with nested virtualization
+            and at least 40 GiB of disk; its first boot installs what the emulator needs. Left out, a plain
+            machine.
     CreatedNode:
       type: object
       required: [node]

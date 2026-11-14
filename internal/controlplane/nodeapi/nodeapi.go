@@ -221,10 +221,13 @@ func (s *Server) hello(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	hello := orchestration.Hello{WorktreeRoot: req.WorktreeRoot, Terminal: req.Terminal, System: orchestration.SystemInfo{
-		DaemonVersion: req.DaemonVersion, OS: req.System.OS, Arch: req.System.Arch, CPUs: req.System.CPUs,
-		MemoryBytes: req.System.MemoryBytes, DiskBytes: req.System.DiskBytes,
-	}}
+	hello := orchestration.Hello{
+		WorktreeRoot: req.WorktreeRoot, Terminal: req.Terminal, Device: req.Device, KVM: req.KVM,
+		System: orchestration.SystemInfo{
+			DaemonVersion: req.DaemonVersion, OS: req.System.OS, Arch: req.System.Arch, CPUs: req.System.CPUs,
+			MemoryBytes: req.System.MemoryBytes, DiskBytes: req.System.DiskBytes,
+		},
+	}
 	for _, rt := range req.Runtimes {
 		hello.Runtimes = append(hello.Runtimes, orchestration.RuntimeInfo{
 			Runtime: rt.Runtime, Path: rt.Path, Version: rt.Version,

@@ -26,7 +26,7 @@ type fakeCloud struct {
 	createErr error
 }
 
-func (c *fakeCloud) Validate(context.Context, string, string) error { return nil }
+func (c *fakeCloud) Validate(context.Context, string, string, string) error { return nil }
 
 func (c *fakeCloud) Create(_ context.Context, s machines.Spec) (string, error) {
 	if c.createErr != nil {

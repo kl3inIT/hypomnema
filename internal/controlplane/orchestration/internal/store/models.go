@@ -475,6 +475,8 @@ type Node struct {
 	Tools              sql.NullString
 	Terminal           int64
 	Gpus               sql.NullString
+	Device             string
+	Kvm                int64
 }
 
 type NodeToken struct {

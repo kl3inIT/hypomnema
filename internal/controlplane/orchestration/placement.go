@@ -390,7 +390,7 @@ func (p *placement) nodeOut(n *nodeLoad) Node {
 		},
 		LastSeenAt:    optionalTime(n.row.LastSeenAt),
 		UnavailableAt: optionalTime(n.row.UnavailableAt), Connected: p.connected(n), Active: n.active,
-		Terminal:  n.row.Terminal == 1,
+		Terminal: n.row.Terminal == 1, Device: n.row.Device, KVM: n.row.Kvm == 1,
 		CreatedAt: millis(n.row.CreatedAt), UpdatedAt: millis(n.row.UpdatedAt),
 	}
 }

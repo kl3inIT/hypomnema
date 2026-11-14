@@ -28,8 +28,10 @@ var ErrNoPublicURL = errors.New("the control plane's public URL is not set or is
 
 // FirstBoot returns the script a new machine runs once: it installs the node
 // from the control plane at publicURL and gives it token. The script holds
-// the token, so it is passed to the provider and kept nowhere else.
-func FirstBoot(publicURL, token string) (string, error) {
+// the token, so it is passed to the provider and kept nowhere else. For a
+// device (DeviceAndroid) it also installs what the emulator needs and tells
+// the node it holds one (issue #417); empty for a plain machine.
+func FirstBoot(publicURL, token, device string) (string, error) {
 	u, err := url.Parse(strings.TrimRight(strings.TrimSpace(publicURL), "/"))
 	if err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 		return "", ErrNoPublicURL
@@ -41,8 +43,8 @@ func FirstBoot(publicURL, token string) (string, error) {
 
 	var b strings.Builder
 
-	err = firstBootTemplate.Execute(&b, struct{ Token, InstallURL string }{
-		Token: token, InstallURL: u.String() + installPath,
+	err = firstBootTemplate.Execute(&b, struct{ Token, InstallURL, Device string }{
+		Token: token, InstallURL: u.String() + installPath, Device: device,
 	})
 	if err != nil {
 		return "", fmt.Errorf("rendering the first-boot script: %w", err)

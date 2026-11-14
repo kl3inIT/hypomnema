@@ -15,6 +15,7 @@ UPDATE nodes
 SET updated_at = @now, last_seen_at = @now, worktree_root = @worktree_root, runtimes = @runtimes,
     daemon_version = @daemon_version, os = @os, arch = @arch, cpus = @cpus, memory_bytes = @memory_bytes,
     disk_bytes = @disk_bytes, unavailable_at = NULL, terminal = @terminal,
+    device = @device, kvm = @kvm,
     machine_error = CASE WHEN machine_state IN ('provisioning', 'provision_failed') THEN NULL ELSE machine_error END,
     machine_state = CASE WHEN machine_state IN ('provisioning', 'provision_failed') THEN 'ready' ELSE machine_state END,
     machine_power = CASE WHEN machine_power = 'starting' THEN NULL ELSE machine_power END
