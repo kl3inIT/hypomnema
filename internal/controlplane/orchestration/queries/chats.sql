@@ -34,12 +34,36 @@ SELECT sqlc.embed(chat_messages),
        CAST(coalesce(events.run_id, '') AS TEXT)      AS event_run_id,
        CAST(coalesce(events.task_id, '') AS TEXT)     AS event_task_id,
        CAST(coalesce(events.question_id, '') AS TEXT) AS event_question_id,
-       CAST(coalesce(events.payload, '') AS TEXT)     AS event_payload
+       CAST(coalesce(events.payload, '') AS TEXT)     AS event_payload,
+       CAST(coalesce(artifacts.id, '') AS TEXT)       AS artifact_id,
+       CAST(coalesce(artifacts.revision, 0) AS INTEGER) AS artifact_revision,
+       CAST(coalesce(artifacts.updated_at, 0) AS INTEGER) AS artifact_updated_at,
+       CAST(coalesce(artifact_revisions.title, '') AS TEXT) AS artifact_title,
+       CAST(coalesce(artifact_revisions.type, '') AS TEXT)  AS artifact_type
 FROM chat_messages
 LEFT JOIN events ON chat_messages.kind = 'wake' AND events.seq = chat_messages.event_seq
+LEFT JOIN artifacts ON chat_messages.kind = 'artifact' AND artifacts.message_seq = chat_messages.seq
+LEFT JOIN artifact_revisions ON artifact_revisions.artifact_id = artifacts.id
+    AND artifact_revisions.revision = artifacts.revision
 WHERE chat_messages.chat_id = @chat_id AND chat_messages.seq > @after
 ORDER BY chat_messages.seq
 LIMIT @lim;
+
+-- name: ListChatArtifactMessages :many
+-- A chat's artifacts' messages with what each shows now (issue #402): a chat's stream sends one again when its
+-- artifact was replaced, as the message is updated in place.
+SELECT sqlc.embed(chat_messages),
+       artifacts.id         AS artifact_id,
+       artifacts.revision   AS artifact_revision,
+       artifacts.updated_at AS artifact_updated_at,
+       artifact_revisions.title AS artifact_title,
+       artifact_revisions.type  AS artifact_type
+FROM artifacts
+JOIN chat_messages ON chat_messages.seq = artifacts.message_seq
+JOIN artifact_revisions ON artifact_revisions.artifact_id = artifacts.id
+    AND artifact_revisions.revision = artifacts.revision
+WHERE artifacts.chat_id = @chat_id
+ORDER BY chat_messages.seq;
 
 -- name: UndeliveredChatMessages :many
 -- Owner messages and wake-ups not yet given to pi, oldest first.

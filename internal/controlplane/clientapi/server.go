@@ -23,6 +23,7 @@ import (
 	"github.com/getkin/kin-openapi/openapi3filter"
 	nethttpmiddleware "github.com/oapi-codegen/nethttp-middleware"
 
+	"github.com/kl3inIT/hypomnema/internal/controlplane/artifactpack"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/coordinator"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/machines"
@@ -59,6 +60,8 @@ type Server struct {
 	nodeFiles NodeFiles
 	botFiles  BotFiles
 	tickets   terminalTickets
+	// frames are the addresses folder pages' files load from in their locked frames (issue #402).
+	frames artifactFrames
 	// browser is the browser every agent shares; nil when the control plane has none.
 	browser Browser
 	views   viewTickets
@@ -261,6 +264,9 @@ func (s *Server) Register(mux *http.ServeMux) error {
 	// A WebSocket is not in the contract's request and response shapes; its ticket is its permission.
 	mux.HandleFunc("GET "+BasePath+"/terminals/{ticket}", s.terminalSocket)
 	mux.HandleFunc("GET "+BasePath+"/browser/views/{ticket}", s.browserViewSocket)
+	// A folder page's files, for its sandboxed frame, which sends no sign-in: the token in the address is the
+	// permission (issue #402).
+	mux.HandleFunc(artifactFilesPath+"{token}/{path...}", s.artifactFiles)
 
 	mux.Handle(BasePath+"/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, bodyLimit(r))
@@ -270,11 +276,16 @@ func (s *Server) Register(mux *http.ServeMux) error {
 	return nil
 }
 
-// bodyLimit is what a request's body may hold: a skill's archive is the one
-// body over the default (skillpack.MaxArchive).
+// bodyLimit is what a request's body may hold: a skill's archive
+// (skillpack.MaxArchive) and an artifact's files (artifactpack.MaxBody) are
+// the bodies over the default.
 func bodyLimit(r *http.Request) int64 {
 	if r.Method == http.MethodPost && r.URL.Path == BasePath+"/skills/archive" {
 		return skillpack.MaxArchive
+	}
+
+	if r.Method == http.MethodPost && r.URL.Path == BasePath+"/artifacts" {
+		return artifactpack.MaxBody
 	}
 
 	return maxBodyBytes

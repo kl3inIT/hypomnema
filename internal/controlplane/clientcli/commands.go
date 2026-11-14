@@ -499,6 +499,42 @@ var commands = []command{
 		run:     modelKey,
 	},
 	{
+		name:    "artifact show",
+		summary: "show the owner a page, a PDF, an image or a file in your chat, or replace one you showed (a Bot)",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("title", "", "one line of at most 80 characters; a new artifact needs it")
+			fs.String("html-file", "", "one HTML page, at most 256 KB, or - for standard input")
+			fs.String("path", "", "in your directory: a folder with index.html and its data (5 MB), an .html file, "+
+				"a PDF, an image or any file")
+			fs.String("id", "", "the artifact to replace with this as its next revision")
+			jsonFlag(fs)
+		},
+		run: artifactShow,
+	},
+	{
+		name: "artifact list", summary: "artifacts, the latest changed first",
+		flags: func(fs *flag.FlagSet) {
+			fs.String("chat", "", "only this chat's")
+			fs.Int("limit", 0, "how many (default 100)")
+			jsonFlag(fs)
+		},
+		run: artifactList,
+	},
+	{
+		name: "artifact info", args: "<artifact_id>", min: 1, max: 1,
+		summary: "an artifact with its revisions and their files", flags: jsonFlag, run: artifactInfo,
+	},
+	{
+		name: "artifact download", args: "<artifact_id>", min: 1, max: 1,
+		summary: "save a revision of an artifact: its file, or a folder as a zip",
+		flags: func(fs *flag.FlagSet) {
+			fs.Int("rev", 0, "the revision (default the newest)")
+			fs.String("out", "", "the file to write (default its own name)")
+			jsonFlag(fs)
+		},
+		run: artifactDownload,
+	},
+	{
 		name: "memory show", summary: "a memory: a bot's, an agent's (--agent) or the one about the owner (--owner)",
 		flags: memoryFlags, run: memoryShow,
 	},

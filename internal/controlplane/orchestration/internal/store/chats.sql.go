@@ -245,15 +245,89 @@ func (q *Queries) InsertChatNotice(ctx context.Context, arg InsertChatNoticePara
 	return err
 }
 
+const listChatArtifactMessages = `-- name: ListChatArtifactMessages :many
+SELECT chat_messages.seq, chat_messages.chat_id, chat_messages.role, chat_messages.text, chat_messages.parts, chat_messages.event_seq, chat_messages.delivered_at, chat_messages.created_at, chat_messages.to_coordinator, chat_messages.attachments, chat_messages.kind,
+       artifacts.id         AS artifact_id,
+       artifacts.revision   AS artifact_revision,
+       artifacts.updated_at AS artifact_updated_at,
+       artifact_revisions.title AS artifact_title,
+       artifact_revisions.type  AS artifact_type
+FROM artifacts
+JOIN chat_messages ON chat_messages.seq = artifacts.message_seq
+JOIN artifact_revisions ON artifact_revisions.artifact_id = artifacts.id
+    AND artifact_revisions.revision = artifacts.revision
+WHERE artifacts.chat_id = ?1
+ORDER BY chat_messages.seq
+`
+
+type ListChatArtifactMessagesRow struct {
+	ChatMessage       ChatMessage
+	ArtifactID        string
+	ArtifactRevision  int64
+	ArtifactUpdatedAt int64
+	ArtifactTitle     string
+	ArtifactType      string
+}
+
+// A chat's artifacts' messages with what each shows now (issue #402): a chat's stream sends one again when its
+// artifact was replaced, as the message is updated in place.
+func (q *Queries) ListChatArtifactMessages(ctx context.Context, chatID string) ([]ListChatArtifactMessagesRow, error) {
+	rows, err := q.db.QueryContext(ctx, listChatArtifactMessages, chatID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListChatArtifactMessagesRow{}
+	for rows.Next() {
+		var i ListChatArtifactMessagesRow
+		if err := rows.Scan(
+			&i.ChatMessage.Seq,
+			&i.ChatMessage.ChatID,
+			&i.ChatMessage.Role,
+			&i.ChatMessage.Text,
+			&i.ChatMessage.Parts,
+			&i.ChatMessage.EventSeq,
+			&i.ChatMessage.DeliveredAt,
+			&i.ChatMessage.CreatedAt,
+			&i.ChatMessage.ToCoordinator,
+			&i.ChatMessage.Attachments,
+			&i.ChatMessage.Kind,
+			&i.ArtifactID,
+			&i.ArtifactRevision,
+			&i.ArtifactUpdatedAt,
+			&i.ArtifactTitle,
+			&i.ArtifactType,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listChatMessages = `-- name: ListChatMessages :many
-SELECT chat_messages.seq, chat_messages.chat_id, chat_messages.role, chat_messages.text, chat_messages.parts, chat_messages.event_seq, chat_messages.delivered_at, chat_messages.created_at, chat_messages.to_coordinator, chat_messages.kind, chat_messages.attachments,
+SELECT chat_messages.seq, chat_messages.chat_id, chat_messages.role, chat_messages.text, chat_messages.parts, chat_messages.event_seq, chat_messages.delivered_at, chat_messages.created_at, chat_messages.to_coordinator, chat_messages.attachments, chat_messages.kind,
        CAST(coalesce(events.kind, '') AS TEXT)        AS event_kind,
        CAST(coalesce(events.run_id, '') AS TEXT)      AS event_run_id,
        CAST(coalesce(events.task_id, '') AS TEXT)     AS event_task_id,
        CAST(coalesce(events.question_id, '') AS TEXT) AS event_question_id,
-       CAST(coalesce(events.payload, '') AS TEXT)     AS event_payload
+       CAST(coalesce(events.payload, '') AS TEXT)     AS event_payload,
+       CAST(coalesce(artifacts.id, '') AS TEXT)       AS artifact_id,
+       CAST(coalesce(artifacts.revision, 0) AS INTEGER) AS artifact_revision,
+       CAST(coalesce(artifacts.updated_at, 0) AS INTEGER) AS artifact_updated_at,
+       CAST(coalesce(artifact_revisions.title, '') AS TEXT) AS artifact_title,
+       CAST(coalesce(artifact_revisions.type, '') AS TEXT)  AS artifact_type
 FROM chat_messages
 LEFT JOIN events ON chat_messages.kind = 'wake' AND events.seq = chat_messages.event_seq
+LEFT JOIN artifacts ON chat_messages.kind = 'artifact' AND artifacts.message_seq = chat_messages.seq
+LEFT JOIN artifact_revisions ON artifact_revisions.artifact_id = artifacts.id
+    AND artifact_revisions.revision = artifacts.revision
 WHERE chat_messages.chat_id = ?1 AND chat_messages.seq > ?2
 ORDER BY chat_messages.seq
 LIMIT ?3
@@ -266,12 +340,17 @@ type ListChatMessagesParams struct {
 }
 
 type ListChatMessagesRow struct {
-	ChatMessage     ChatMessage
-	EventKind       string
-	EventRunID      string
-	EventTaskID     string
-	EventQuestionID string
-	EventPayload    string
+	ChatMessage       ChatMessage
+	EventKind         string
+	EventRunID        string
+	EventTaskID       string
+	EventQuestionID   string
+	EventPayload      string
+	ArtifactID        string
+	ArtifactRevision  int64
+	ArtifactUpdatedAt int64
+	ArtifactTitle     string
+	ArtifactType      string
 }
 
 // Each wake-up with the event it reports (issue #303): the event never changes, so it is read here rather than kept
@@ -295,13 +374,18 @@ func (q *Queries) ListChatMessages(ctx context.Context, arg ListChatMessagesPara
 			&i.ChatMessage.DeliveredAt,
 			&i.ChatMessage.CreatedAt,
 			&i.ChatMessage.ToCoordinator,
-			&i.ChatMessage.Kind,
 			&i.ChatMessage.Attachments,
+			&i.ChatMessage.Kind,
 			&i.EventKind,
 			&i.EventRunID,
 			&i.EventTaskID,
 			&i.EventQuestionID,
 			&i.EventPayload,
+			&i.ArtifactID,
+			&i.ArtifactRevision,
+			&i.ArtifactUpdatedAt,
+			&i.ArtifactTitle,
+			&i.ArtifactType,
 		); err != nil {
 			return nil, err
 		}
@@ -448,7 +532,7 @@ func (q *Queries) TouchChat(ctx context.Context, arg TouchChatParams) error {
 }
 
 const undeliveredChatMessages = `-- name: UndeliveredChatMessages :many
-SELECT seq, chat_id, role, text, parts, event_seq, delivered_at, created_at, to_coordinator, kind, attachments FROM chat_messages
+SELECT seq, chat_id, role, text, parts, event_seq, delivered_at, created_at, to_coordinator, attachments, kind FROM chat_messages
 WHERE chat_id = ?1 AND delivered_at IS NULL AND (role = 'owner' OR event_seq IS NOT NULL OR to_coordinator = 1)
 ORDER BY seq
 `
@@ -473,8 +557,8 @@ func (q *Queries) UndeliveredChatMessages(ctx context.Context, chatID string) ([
 			&i.DeliveredAt,
 			&i.CreatedAt,
 			&i.ToCoordinator,
-			&i.Kind,
 			&i.Attachments,
+			&i.Kind,
 		); err != nil {
 			return nil, err
 		}
