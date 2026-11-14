@@ -3,6 +3,7 @@ package modelgateway_test
 import (
 	"io"
 	"net/http"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -64,8 +65,12 @@ func TestTheUsagePageCountsWhatTheGatewayServed(t *testing.T) {
 	assert.Equal(t, "acc_1", all[0].AccountID)
 
 	// The answer is priced as the provider's model, Claude Sonnet 5.5: 12 in,
-	// 4 of 16 read from the cache, 7 out, at its API price.
-	answered := all[1]
+	// 4 of 16 read from the cache, 7 out, at its API price. It is found by its
+	// status: both requests may carry the same millisecond, and then the list's
+	// order between them is the ids', which are random.
+	i := slices.IndexFunc(all, func(r modelgateway.Usage) bool { return r.Status == http.StatusOK })
+	require.GreaterOrEqual(t, i, 0, "the answered request is listed")
+	answered := all[i]
 	require.NotNil(t, answered.CostMicros)
 	assert.Equal(t, "claude-sonnet-5-5", answered.PricedModel)
 	assert.Equal(t, int64(94), *answered.CostMicros, "12×2 + 4×0.1 + 7×10 micro-dollars")
