@@ -20,23 +20,100 @@ package claude
 func applyCache(body item) {
 	markLast(body["system"])
 	markLast(body["tools"])
+	markLastMessage(body["messages"])
+	settleTTLs(body)
+}
 
-	if messages, ok := body["messages"].([]any); ok && len(messages) > 0 {
-		for i := len(messages) - 1; i >= 0; i-- {
-			msg, ok := messages[i].(item)
+// markLastMessage marks the last block of the last message that has one.
+func markLastMessage(list any) {
+	messages, ok := list.([]any)
+	if !ok {
+		return
+	}
+
+	for i := len(messages) - 1; i >= 0; i-- {
+		msg, ok := messages[i].(item)
+		if !ok {
+			continue
+		}
+
+		blocks := blocksOf(msg["content"])
+		if len(blocks) == 0 {
+			continue
+		}
+
+		markBlock(blocks[len(blocks)-1])
+		msg["content"] = blocks
+
+		return
+	}
+}
+
+// settleTTLs makes the client's breakpoints agree with the gateway's (issue
+// #409), as CLIProxyAPI does after it places its own
+// (claude_executor_execute.go): a breakpoint with no ttl is kept an hour
+// (upgradeClaudeCacheControlTTLDoc), one whose ttl the client wrote stays,
+// and, since Anthropic reads the breakpoints tools, then system, then
+// messages, and refuses a one-hour one after a shorter one, a one-hour
+// breakpoint after a shorter one loses its ttl (normalizeCacheControlTTLDoc).
+func settleTTLs(body item) {
+	var marks []item
+
+	collect := func(blocks any) {
+		list, ok := blocks.([]any)
+		if !ok {
+			return
+		}
+
+		for _, block := range list {
+			b, ok := block.(item)
 			if !ok {
 				continue
 			}
 
-			blocks := blocksOf(msg["content"])
-			if len(blocks) == 0 {
-				continue
+			if cc, ok := b["cache_control"].(item); ok {
+				marks = append(marks, cc)
 			}
 
-			markBlock(blocks[len(blocks)-1])
-			msg["content"] = blocks
+			// A tool result's own blocks come before the next block of its message.
+			if nested, ok := b["content"].([]any); ok {
+				for _, n := range nested {
+					if nb, ok := n.(item); ok {
+						if cc, ok := nb["cache_control"].(item); ok {
+							marks = append(marks, cc)
+						}
+					}
+				}
+			}
+		}
+	}
 
-			return
+	collect(body["tools"])
+	collect(body["system"])
+
+	if messages, ok := body["messages"].([]any); ok {
+		for _, m := range messages {
+			if msg, ok := m.(item); ok {
+				collect(msg["content"])
+			}
+		}
+	}
+
+	shorter := false
+
+	for _, cc := range marks {
+		if _, has := cc["ttl"]; !has {
+			cc["ttl"] = cacheTTL
+		}
+
+		if cc["ttl"] != cacheTTL {
+			shorter = true
+
+			continue
+		}
+
+		if shorter {
+			delete(cc, "ttl")
 		}
 	}
 }
