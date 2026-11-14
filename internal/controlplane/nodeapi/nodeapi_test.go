@@ -52,7 +52,7 @@ func newPlane(t *testing.T) *plane {
 	svc := orchestration.New(db, platform.SystemClock{}, platform.NewID)
 
 	_, _, err = svc.ApplyProfile(t.Context(), "",
-		"name: implementer\ndescription: d\nruntime: claude\nmodel: {name: opus}\n")
+		"name: implementer\ndescription: d\nruntime: claude\nmodel: {name: claude-opus-5-5}\n")
 	require.NoError(t, err)
 
 	mux := http.NewServeMux()
@@ -265,7 +265,7 @@ func TestDispatchRunsOverTheSocket(t *testing.T) {
 	assert.Equal(t, "/srv/wt/"+task.RunID+"/"+task.ID, offer.Worktree)
 	assert.Equal(t, "claude", offer.Runtime)
 	assert.Equal(t, p.account.ID, offer.AccountRef)
-	assert.Equal(t, "opus", offer.Model)
+	assert.Equal(t, "claude-opus-5-5", offer.Model)
 
 	accept := nodeproto.Report{ReportID: "rep_accept", Kind: nodeproto.ReportAccept, DispatchID: offer.DispatchID}
 	ack := p.report(conn, accept)

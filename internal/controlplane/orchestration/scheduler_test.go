@@ -282,14 +282,14 @@ func TestTaskValuesWinOverProfileDefaults(t *testing.T) {
 
 	w := newWorld(t)
 	implementer, _, err := w.s.ApplyProfile(t.Context(), "",
-		"name: implementer\ndescription: d\nruntime: claude\nmodel: {name: opus, effort: high}\n")
+		"name: implementer\ndescription: d\nruntime: claude\nmodel: {name: claude-opus-5-5, effort: high}\n")
 	require.NoError(t, err)
 	_, _, err = w.s.ApplyProfile(t.Context(), "", "name: reviewer\ndescription: d\nruntime: codex\n")
 	require.NoError(t, err)
 
 	w.tasks(
 		NewTask{Ref: "a", Profile: "implementer", Spec: "a"},
-		NewTask{Ref: "b", Profile: "implementer", Spec: "b", Model: "sonnet"},
+		NewTask{Ref: "b", Profile: "implementer", Spec: "b", Model: "claude-sonnet-5-5"},
 		NewTask{Ref: "c", Profile: "reviewer", Spec: "c"},
 	)
 
@@ -303,7 +303,7 @@ func TestTaskValuesWinOverProfileDefaults(t *testing.T) {
 	}
 
 	v := implementer.VersionID
-	assert.Equal(t, map[string][3]string{"a": {"opus", "high", v}, "b": {"sonnet", "high", v}}, got)
+	assert.Equal(t, map[string][3]string{"a": {"claude-opus-5-5", "high", v}, "b": {"claude-sonnet-5-5", "high", v}}, got)
 }
 
 // Scenario: a ready Task no node can run. After UnplaceableAfter the owner is
@@ -665,7 +665,7 @@ func TestMigrationKeepsProvidersAndWhatNamesThem(t *testing.T) {
 
 	claude, err := s.GetProvider(ctx, "claude-subscription")
 	require.NoError(t, err)
-	assert.Contains(t, claude.Models, "opus")
+	assert.Contains(t, claude.Models, "claude-opus-5-5")
 
 	antigravity, err := s.GetProvider(ctx, "antigravity-subscription")
 	require.NoError(t, err)

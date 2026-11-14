@@ -52,7 +52,7 @@ const bot = (name: string, m: Partial<Bot> = {}): Bot => ({
 })
 
 const models: Model[] = [
-  { provider: "claude-subscription", name: "opus", kind: "claude_subscription" },
+  { provider: "claude-subscription", name: "claude-opus-5-5", kind: "claude_subscription" },
   { provider: "gateway", name: "gpt-luna", kind: "model_gateway" },
 ]
 

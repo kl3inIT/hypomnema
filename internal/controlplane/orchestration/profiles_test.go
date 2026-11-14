@@ -1,11 +1,14 @@
 package orchestration
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 )
 
 // Scenario: a fresh control plane has the starting set, and applying a
@@ -65,7 +68,7 @@ func TestAChangedProfileIsANewVersion(t *testing.T) {
 	w.tasks(NewTask{Ref: "a", Spec: "a"})
 	first := w.dispatchOf(w.schedule().Created[0])
 
-	source := "name: implementer\ndescription: d\nruntime: claude\nmodel:\n  name: sonnet\n  effort: high\n" +
+	source := "name: implementer\ndescription: d\nruntime: claude\nmodel:\n  name: claude-sonnet-5-5\n  effort: high\n" +
 		"instruction: Run the tests before finishing.\n"
 
 	v2, created, err := w.s.ApplyProfile(ctx, "", source)
@@ -89,7 +92,7 @@ func TestAChangedProfileIsANewVersion(t *testing.T) {
 
 	assert.NotEqual(t, v2.VersionID, w.dispatchOf(first.ID).ProfileVersionID, "the first keeps its version")
 	assert.Equal(t, v2.VersionID, second.ProfileVersionID)
-	assert.Equal(t, "sonnet", second.Model)
+	assert.Equal(t, "claude-sonnet-5-5", second.Model)
 
 	pending, err := w.s.NodePending(ctx, w.node.ID)
 	require.NoError(t, err)
@@ -111,20 +114,20 @@ func TestAProfileIsCheckedWhenApplied(t *testing.T) {
 	w := newWorld(t)
 
 	_, err := w.s.ApplyProvider(t.Context(), "", "name: router\nkind: openai_compatible\n"+
-		"base_url: https://router.example/v1\napi_key_ref: ROUTER_KEY\nmodels: [sonnet, gpt-5]\n")
+		"base_url: https://router.example/v1\napi_key_ref: ROUTER_KEY\nmodels: [claude-sonnet-5-5, gpt-5]\n")
 	require.NoError(t, err)
 
 	for source, want := range map[string]string{
-		"name: Bad Name\ndescription: d\nruntime: claude\n":                                 "lowercase",
-		"name: x\ndescription: d\nruntime: claude\nflavor: red\n":                           "flavor",
-		"name: x\ndescription: d\nruntime: gemini\n":                                        "unknown runtime",
-		"name: x\ndescription: d\nruntime: claude\nmodel: {name: opus, effort: huge}\n":     "unknown effort",
-		"name: x\ndescription: d\nruntime: claude\nmodel: {name: gpt-5}\n":                  "no provider",
-		"name: x\ndescription: d\nruntime: claude\nmodel: {provider: router, name: opus}\n": "cannot run against",
-		"name: x\ndescription: d\nruntime: codex\nmodel: {provider: router, name: opus}\n":  "does not offer",
-		"name: x\ndescription: d\nruntime: pi\n":                                            "a bot's",
-		"name: x\ndescription: d\nruntime: codex\nmodel: {provider: nobody}\n":              "not found",
-		"name: x\nruntime: claude\n":                                                        "needs a description",
+		"name: Bad Name\ndescription: d\nruntime: claude\n":                                        "lowercase",
+		"name: x\ndescription: d\nruntime: claude\nflavor: red\n":                                  "flavor",
+		"name: x\ndescription: d\nruntime: gemini\n":                                               "unknown runtime",
+		"name: x\ndescription: d\nruntime: claude\nmodel: {name: claude-opus-5-5, effort: huge}\n": "unknown effort",
+		"name: x\ndescription: d\nruntime: claude\nmodel: {name: gpt-5}\n":                         "no provider",
+		"name: x\ndescription: d\nruntime: claude\nmodel: {provider: router, name: opus}\n":        "cannot run against",
+		"name: x\ndescription: d\nruntime: codex\nmodel: {provider: router, name: opus}\n":         "does not offer",
+		"name: x\ndescription: d\nruntime: pi\n":                                                   "a bot's",
+		"name: x\ndescription: d\nruntime: codex\nmodel: {provider: nobody}\n":                     "not found",
+		"name: x\nruntime: claude\n":                                                               "needs a description",
 	} {
 		_, _, err := w.s.ApplyProfile(t.Context(), "", source)
 		require.ErrorContains(t, err, want, source)
@@ -138,15 +141,17 @@ func TestAProfileIsCheckedWhenApplied(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "router", p.Provider, "only router offers gpt-5 to codex")
 
-	p, _, err = w.s.ApplyProfile(t.Context(), "", "name: x\ndescription: d\nruntime: claude\nmodel: {name: sonnet}\n")
+	p, _, err = w.s.ApplyProfile(t.Context(), "",
+		"name: x\ndescription: d\nruntime: claude\nmodel: {name: claude-sonnet-5-5}\n")
 	require.NoError(t, err)
 	assert.Equal(t, "claude-subscription", p.Provider, "claude cannot use router's kind")
 
-	_, err = w.s.ApplyProvider(t.Context(), "", "name: anthropic\nkind: anthropic\nmodels: [sonnet]\n")
+	_, err = w.s.ApplyProvider(t.Context(), "", "name: anthropic\nkind: anthropic\nmodels: [claude-sonnet-5-5]\n")
 	require.NoError(t, err)
 
-	_, _, err = w.s.ApplyProfile(t.Context(), "", "name: y\ndescription: d\nruntime: claude\nmodel: {name: sonnet}\n")
-	require.ErrorContains(t, err, "name the provider", "claude now reaches sonnet two ways")
+	_, _, err = w.s.ApplyProfile(t.Context(), "",
+		"name: y\ndescription: d\nruntime: claude\nmodel: {name: claude-sonnet-5-5}\n")
+	require.ErrorContains(t, err, "name the provider", "claude now reaches claude-sonnet-5-5 two ways")
 }
 
 // A provider names where its key is kept, never the key; and it cannot drop
@@ -205,6 +210,67 @@ func TestATaskIsCheckedAgainstItsProfile(t *testing.T) {
 		require.ErrorContains(t, err, want, nt.Ref)
 	}
 
-	ok := w.tasks(NewTask{Ref: "h", Profile: "reviewer", Spec: "h", Model: "opus", Effort: "max"})
+	ok := w.tasks(NewTask{Ref: "h", Profile: "reviewer", Spec: "h", Model: "claude-opus-5-5", Effort: "max"})
 	assert.Equal(t, "reviewer", ok[0].Profile)
+}
+
+// Scenario: a database with Claude Code's short names on the Claude
+// subscription, as 00008 and 00043 seeded them, a gateway model opus served
+// from it, another model served from its fable, and a key that may use opus
+// and that model (issue #410). After the migration only the full models are
+// offered, the YAML lists no short name, opus is no gateway model, the other
+// model is served from the full Fable and the key keeps only what is left. The
+// way back offers the seeded short names again.
+func TestMigrationRemovesClaudesShortNames(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	db, err := sqlite.Open(ctx, sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	p, err := provider(db)
+	require.NoError(t, err)
+	_, err = p.UpTo(ctx, 69)
+	require.NoError(t, err)
+
+	_, err = db.ExecContext(ctx, `
+		INSERT INTO gateway_models (name, capability, source, created_at, updated_at)
+		VALUES ('opus', 'chat', 'name: opus', 1, 1), ('top', 'chat', 'name: top', 1, 1);
+		INSERT INTO gateway_model_targets (model, position, provider, upstream_model)
+		VALUES ('opus', 0, 'claude-subscription', 'opus'), ('top', 0, 'claude-subscription', 'fable');
+		INSERT INTO gateway_keys (id, name, key_hash, models, created_at)
+		VALUES ('gk_1', 'pi', 'h', '["opus","top"]', 1);`)
+	require.NoError(t, err)
+
+	require.NoError(t, Migrate(ctx, db))
+	require.NoError(t, CheckSchema(ctx, db))
+
+	s := New(db, &fakeClock{now: t0}, func(prefix string) string { return prefix + "_1" })
+
+	claude, err := s.GetProvider(ctx, "claude-subscription")
+	require.NoError(t, err)
+	assert.ElementsMatch(t,
+		[]string{"claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5", "claude-fable-5-2"}, claude.Models)
+	assert.Contains(t, claude.Source, "models: [claude-opus-5-5, claude-sonnet-5-5, claude-haiku-5-5]\n")
+
+	var models, upstream string
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT group_concat(name) FROM gateway_models`).Scan(&models))
+	assert.Equal(t, "top", models)
+	require.NoError(t, db.QueryRowContext(ctx,
+		`SELECT upstream_model FROM gateway_model_targets WHERE model = 'top'`).Scan(&upstream))
+	assert.Equal(t, "claude-fable-5-2", upstream)
+
+	var allowed string
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT models FROM gateway_keys WHERE id = 'gk_1'`).Scan(&allowed))
+	assert.JSONEq(t, `["top"]`, allowed)
+
+	_, err = p.DownTo(ctx, 69)
+	require.NoError(t, err)
+
+	claude, err = s.GetProvider(ctx, "claude-subscription")
+	require.NoError(t, err)
+	assert.Subset(t, claude.Models, []string{"opus", "sonnet", "haiku", "fable"})
+	assert.Contains(t, claude.Source,
+		"models: [claude-opus-5-5, claude-sonnet-5-5, claude-haiku-5-5, opus, sonnet, haiku]\n")
 }
