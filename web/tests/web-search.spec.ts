@@ -248,6 +248,19 @@ test("the owner sees the search chain, its keys and what each used", async ({ pa
   await shot(page, "web-search-chain")
   await page.getByRole("heading", { name: "Without a key" }).scrollIntoViewIfNeeded()
   await shot(page, "web-search-keyless")
+  await you.scrollIntoViewIfNeeded()
+  await shot(page, "web-search-you")
+
+  // Each provider's mark is drawn in its colours, which read on the light theme as on the dark (#412).
+  await page.evaluate(`localStorage.setItem("theme", "light")`)
+  await page.reload()
+  await expect(page.locator("html")).not.toHaveClass(/dark/)
+  await expect(row(page, "Exa, With your API keys")).toBeVisible()
+  await shot(page, "web-search-chain-light")
+  await page.getByRole("heading", { name: "Without a key" }).scrollIntoViewIfNeeded()
+  await shot(page, "web-search-keyless-light")
+  await you.scrollIntoViewIfNeeded()
+  await shot(page, "web-search-you-light")
 })
 
 // Scenario: the owner switches Codex's search off: the server is asked, the row says Off, and a toast says so.

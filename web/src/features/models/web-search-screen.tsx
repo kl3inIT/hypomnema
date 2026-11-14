@@ -33,7 +33,14 @@ import type {
   WebSearchLink,
   WebSearchOrder,
 } from "@/api/generated/types.gen"
-import { ExaIcon, FirecrawlIcon, ParallelIcon, TavilyIcon } from "@/components/icons/brand-icons"
+import {
+  ExaIcon,
+  FirecrawlIcon,
+  ParallelIcon,
+  TavilyIcon,
+  TinyFishIcon,
+  YouIcon,
+} from "@/components/icons/brand-icons"
 import { Badge } from "@/components/ui/badge"
 import { Button, buttonVariants } from "@/components/ui/button"
 import {
@@ -620,9 +627,9 @@ function StateBadge({
   )
 }
 
-// Mark is the maker's mark of a provider: Exa's, Tavily's, Firecrawl's and Parallel's as OpenClaw ships them, the
-// subscriptions' as the Models page draws them, and a globe for TinyFish and You.com, whose marks the references
-// carry only as pictures.
+// Mark is the maker's mark of a provider, in its colours: Exa's, Tavily's and Firecrawl's as LobeHub's colour icons
+// draw them, Parallel's, TinyFish's and You.com's as their websites serve them, and the subscriptions' as the Models
+// page draws them.
 function Mark({ provider }: { provider: WebSearchLink["provider"] }) {
   const className = "size-5 shrink-0 self-start"
 
@@ -630,11 +637,15 @@ function Mark({ provider }: { provider: WebSearchLink["provider"] }) {
     case "exa":
       return <ExaIcon className={className} />
     case "tavily":
-      return <TavilyIcon className={`${className} text-foreground`} />
+      return <TavilyIcon className={className} />
     case "firecrawl":
-      return <FirecrawlIcon className={`${className} text-foreground`} />
+      return <FirecrawlIcon className={className} />
     case "parallel":
       return <ParallelIcon className={`${className} text-foreground`} />
+    case "tinyfish":
+      return <TinyFishIcon className={className} />
+    case "you":
+      return <YouIcon className={className} />
     case "codex":
     case "claude":
     case "antigravity":

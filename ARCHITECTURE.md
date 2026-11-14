@@ -2351,17 +2351,17 @@ Node (`internal/node`):
     lists the web search chain above in three parts, a row each as the Models page's account rows: "With your
     keys" (their turn, `#n`, as 9router numbers a chain's providers; a grip to drag one onto another's place on a
     desktop, as search-rotation's dashboard reorders its engines, sent at once), "Without a key" and "From your
-    subscriptions". A row has the maker's mark (Exa's, Tavily's and Firecrawl's from LobeHub's icons and
-    Parallel's as OpenClaw ships them, the subscriptions'; a globe for TinyFish and You.com), a badge (Ready, Rate
-    limited / Out of credits / Refused / Daily limit until a time, No key, No account, Off) and an "In use" switch,
-    as OmniRoute's search provider cards have a status and a switch. A keyed provider lists its keys under it, each
-    with its secret's name, a badge (Ready, a rest until a time, Spent), when it was last used, its calls today and
-    this month, Exa's spend this month, and its balance as the Machines page's meter with the credits left, else
-    "Allowance unknown" with why when pointed at; "Remove" asks first. "Add key" takes one more key in a password
-    field in a dialog, as OmniRoute's and 9router's "Add API Key" modals, and the toast names the secret it is kept
-    under. TinyFish's row says its terms let it use queries for training. A keyless row shows its calls and
-    "Allowance unknown". A subscription with no account links to `/settings/models`, where an account is added: the
-    one place for it. The chain is read again every 30 seconds while the page is open.
+    subscriptions". A row has the maker's mark in its colours (Exa's, Tavily's and Firecrawl's from LobeHub's
+    colour icons, Parallel's, TinyFish's and You.com's as their websites serve them, the subscriptions'), a badge
+    (Ready, Rate limited / Out of credits / Refused / Daily limit until a time, No key, No account, Off) and an "In
+    use" switch, as OmniRoute's search provider cards have a status and a switch. A keyed provider lists its keys
+    under it, each with its secret's name, a badge (Ready, a rest until a time, Spent), when it was last used, its
+    calls today and this month, Exa's spend this month, and its balance as the Machines page's meter with the
+    credits left, else "Allowance unknown" with why when pointed at; "Remove" asks first. "Add key" takes one more
+    key in a password field in a dialog, as OmniRoute's and 9router's "Add API Key" modals, and the toast names the
+    secret it is kept under. TinyFish's row says its terms let it use queries for training. A keyless row shows its
+    calls and "Allowance unknown". A subscription with no account links to `/settings/models`, where an account is
+    added: the one place for it. The chain is read again every 30 seconds while the page is open.
   - The Settings screens are built on the standard components ([issue #123](https://github.com/kl3inIT/hypomnema/issues/123)):
     every shadcn component of the project's style is in `web/src/components/ui`; a form is TanStack Form with a
     zod schema, and says what is wrong when it is sent; the Vault's table is TanStack Table; a removal asks with
