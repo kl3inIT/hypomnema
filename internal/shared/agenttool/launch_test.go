@@ -88,9 +88,7 @@ func connect(proxy, host string) string {
 type controlPlane struct {
 	srv      *httptest.Server
 	accounts []Connection
-	// listClient is the one app id a control plane from before issue #311 told for every account.
-	listClient string
-	calls      []string
+	calls    []string
 }
 
 func newControlPlane(t *testing.T, accounts ...Connection) *controlPlane {
@@ -109,7 +107,7 @@ func newControlPlane(t *testing.T, accounts ...Connection) *controlPlane {
 			return
 		}
 
-		list := ConnectionList{Data: c.accounts, ClientID: c.listClient}
+		list := ConnectionList{Data: c.accounts}
 
 		_ = json.NewEncoder(w).Encode(list)
 	})
@@ -241,8 +239,7 @@ func TestTheLauncherRunsAProxiedToolWithAPlaceholderAndABridge(t *testing.T) {
 // the launcher also gives it the id of that account's app, which the control
 // plane tells with each account, and the brand it is always run with. Like
 // every tool it holds a placeholder and goes through the proxy; no token is
-// asked for. A control plane from before told one id for every account, and
-// the launcher still gives that one.
+// asked for.
 func TestTheLauncherGivesLarksToolTheAppOfTheAccountBesideThePlaceholder(t *testing.T) {
 	home := installedAs(t, LarkCLI())
 	c := newControlPlane(t, Connection{Label: "work", Account: "Hypomnema", ClientID: "cli_a1b2"},
@@ -255,13 +252,6 @@ func TestTheLauncherGivesLarksToolTheAppOfTheAccountBesideThePlaceholder(t *test
 	assert.Equal(t, "token="+Placeholder+" key=\"\" args=calendar +agenda\nclient=cli_report brand=lark\n"+
 		"proxy=true ca=true connect=502\nhypomnema: the stand-in opens no stream\n", out.String())
 	assert.Equal(t, []string{"connections lark", "certificate", "tunnel lark:report gmail.googleapis.com:443"}, c.calls)
-
-	older := newControlPlane(t, Connection{Label: "work", Account: "Hypomnema"})
-	older.listClient = "cli_a1b2"
-	out.Reset()
-
-	require.NoError(t, older.launcher(home, &out).Run(t.Context(), "lark-cli", []string{"calendar", "+agenda"}))
-	assert.Contains(t, out.String(), "client=cli_a1b2 brand=lark\n")
 }
 
 // Scenario: an agent given an AWS role runs the AWS CLI (issue #331). It

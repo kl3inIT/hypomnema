@@ -77,7 +77,7 @@ export function machineNote(node: Node) {
 export function noTerminal(node: Node) {
   if (!node.connected) return "The machine is not connected."
   if (!node.terminal) {
-    return "Its node opens no terminal: it is an older version, or its own configuration turned it off."
+    return "Its node does not offer a terminal: its configuration turned it off, or its system has none."
   }
 
   return undefined

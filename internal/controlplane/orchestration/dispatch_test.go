@@ -341,7 +341,6 @@ func TestDispatchRunsToSuccess(t *testing.T) {
 	beat := w.heartbeat(c)
 	assert.Equal(t, t0.Add(30*time.Second+LeaseDuration), beat.LeaseExpiresAt)
 	assert.False(t, beat.StopRequested)
-	require.NoError(t, w.s.ReportProgress(t.Context(), w.again(c)))
 
 	require.NoError(t, w.finish(c, success("added the login endpoint")))
 

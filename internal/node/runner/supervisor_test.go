@@ -275,8 +275,6 @@ func (r *reporter) startedCount() int {
 	return len(r.started)
 }
 
-func (r *reporter) Progress(context.Context) error { return nil }
-
 func (r *reporter) Ask(_ context.Context, a nodeproto.Ask) (string, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

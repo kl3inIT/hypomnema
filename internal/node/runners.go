@@ -12,10 +12,6 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
 )
 
-// defaultRuntime is the runtime of an offer that names none: one from before
-// a node ran more than Claude Code.
-const defaultRuntime = "claude"
-
 // entry is one entry of the registry: a runtime's key and what runs it.
 type entry struct {
 	key string
@@ -63,7 +59,7 @@ var _ daemon.Runner = runners{}
 func (rs runners) of(d statedb.Dispatch) (runner.Runtime, error) {
 	key := d.Offer.Runtime
 	if key == "" {
-		key = defaultRuntime
+		return nil, fmt.Errorf("the offer of %s names no runtime", d.Offer.DispatchID)
 	}
 
 	rt, ok := rs.byRuntime[key]

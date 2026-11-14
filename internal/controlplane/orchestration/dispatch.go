@@ -405,25 +405,6 @@ func (s *Service) ReportStarted(ctx context.Context, call NodeCall, processRef, 
 	})
 }
 
-// ReportProgress is the node saying the worker did something. It no longer
-// moves the stall timer: a worker that keeps calling a tool that fails is
-// busy but makes no progress, so progress is read from the transcript, a tool
-// that succeeded (AddItems; issue #359, OpenMausBot's okToolCalls). The call
-// is still accepted from nodes that send it.
-func (s *Service) ReportProgress(ctx context.Context, call NodeCall) error {
-	return nodeVoid(ctx, s, call, "progress", nil, func(_ *store.Queries, _ int64, d store.Dispatch) error {
-		if err := checkEpoch(d, call); err != nil {
-			return err
-		}
-
-		if DispatchStatus(d.Status) != DispatchRunning {
-			return fmt.Errorf("%w: dispatch %s is %s, not running", ErrConflict, d.ID, d.Status)
-		}
-
-		return nil
-	})
-}
-
 // RecordEffect records an outside effect: its intent before it happens, done
 // after. A done completes the intent with the same Seq, or stands alone.
 func (s *Service) RecordEffect(ctx context.Context, call NodeCall, e Effect) error {

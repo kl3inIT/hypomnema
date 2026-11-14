@@ -53,7 +53,6 @@ var errReplaced = errors.New("another connection of this node took over")
 type Reporter interface {
 	ID() string
 	Started(ctx context.Context, processRef, cliSessionRef string) error
-	Progress(ctx context.Context) error
 	Ask(ctx context.Context, a nodeproto.Ask) (string, error)
 	AnswerReceived(ctx context.Context, questionID string) error
 	Finished(ctx context.Context, f nodeproto.Finished) error
@@ -591,8 +590,7 @@ func (d *Daemon) submit(ctx context.Context, r nodeproto.Report) error {
 	return nil
 }
 
-// ephemeralReport sends a report that is not worth resending (a heartbeat,
-// progress); its answer is still handled.
+// ephemeralReport sends a report that is not worth resending (a heartbeat); its answer is still handled.
 func (d *Daemon) ephemeralReport(r nodeproto.Report) {
 	r.ReportID = d.newID("rep")
 

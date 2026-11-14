@@ -105,8 +105,7 @@ type Offer struct {
 	OwnerMemory string `json:"owner_memory,omitempty"`
 	Spec        string `json:"spec"`
 	Repo        string `json:"repo,omitempty"`
-	// RepoHost and RepoKind say where Repo is and how that host is used; a
-	// node from before hosts existed reads neither and assumes GitHub.
+	// RepoHost and RepoKind say where Repo is and how that host is used.
 	RepoHost string `json:"repo_host,omitempty"`
 	RepoKind string `json:"repo_kind,omitempty"`
 	// RepoToken is the host's token for this Dispatch. Orchestration never
@@ -253,7 +252,7 @@ func offerOf(ctx context.Context, q *store.Queries, d store.Dispatch) (Offer, er
 		return Offer{}, err
 	}
 
-	host, kind := repoHost(run), ""
+	host, kind := run.RepoHost.String, ""
 
 	if host != "" {
 		h, err := gitHostOf(ctx, q, host)

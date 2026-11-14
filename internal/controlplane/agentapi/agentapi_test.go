@@ -324,9 +324,7 @@ func TestABotGetsOnlyTheAccountsOnItsList(t *testing.T) {
 
 // Scenario: two Lark accounts, each an app of its own (issue #311): the
 // owner's "work" and a reports app. Lark's tool is told each account's app
-// with it, so that it runs as the app of the account it acts as. A launcher
-// from before reads one id for every account: it is told one only while
-// every account given is the same app.
+// with it, so that it runs as the app of the account it acts as.
 func TestEachLarkAccountIsListedWithItsOwnApp(t *testing.T) {
 	t.Parallel()
 
@@ -353,7 +351,7 @@ func TestEachLarkAccountIsListedWithItsOwnApp(t *testing.T) {
 	require.NoError(t, err)
 
 	assert.Equal(t, agenttool.ConnectionList{
-		Data: []agenttool.Connection{{Label: "work", Account: "Hypomnema", ClientID: "cli_work"}}, ClientID: "cli_work",
+		Data: []agenttool.Connection{{Label: "work", Account: "Hypomnema", ClientID: "cli_work"}},
 	}, list())
 
 	_, err = w.svc.SaveServiceConnection(ctx, orchestration.Connection{
@@ -362,10 +360,8 @@ func TestEachLarkAccountIsListedWithItsOwnApp(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	got := list()
 	assert.ElementsMatch(t, []agenttool.Connection{
 		{Label: "work", Account: "Hypomnema", ClientID: "cli_work"},
 		{Label: "report", Account: "Superset Report", ClientID: "cli_report"},
-	}, got.Data)
-	assert.Empty(t, got.ClientID, "two apps have no one id")
+	}, list().Data)
 }

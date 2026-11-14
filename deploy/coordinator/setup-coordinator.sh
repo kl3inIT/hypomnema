@@ -70,11 +70,6 @@ chmod 0440 "$rule.new"
 visudo -cf "$rule.new" >/dev/null
 mv "$rule.new" "$rule"
 
-echo "== keys of earlier installations"
-# pi had a gateway key made by hand until issue #204, and before that the key of 9router, which it called itself
-# until 2026-11-10. Neither is read any more; the owner revokes the first with `hypomnema gateway keys revoke`.
-rm -f "$home/gateway.key" "$home/ninerouter.key" "$cp_home/hypomnema-cp/pi-gateway.key"
-
 echo "== coordinator token and skill"
 if [ ! -s /home/coordinator/.hypomnema/client.json ]; then
   token_file=$(sudo -u coordinator mktemp)

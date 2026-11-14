@@ -512,7 +512,7 @@ func TestReportsThatCannotApplyAreRejected(t *testing.T) {
 	var offer nodeproto.Offer
 	require.NoError(t, json.Unmarshal(p.next(conn, nodeproto.TypeOffer).Payload, &offer))
 
-	stale := p.report(conn, nodeproto.Report{Kind: nodeproto.ReportProgress, DispatchID: offer.DispatchID, Epoch: 7})
+	stale := p.report(conn, nodeproto.Report{Kind: nodeproto.ReportHeartbeat, DispatchID: offer.DispatchID, Epoch: 7})
 	assert.Equal(t, nodeproto.AckRejected, stale.Status)
 
 	unknown := p.report(conn, nodeproto.Report{Kind: "teleport", DispatchID: offer.DispatchID})
