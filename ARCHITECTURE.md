@@ -1906,8 +1906,17 @@ Node (`internal/node`):
   twice or a known runtime with none. A Dispatch is started and adopted with the Runtime of its offer's runtime
   (`claude` when it names none); a stop, a release, an answer and a question's id go to the Supervisor, which holds
   the Dispatch's job. A stop sends the runtime's interrupt and closes the worker's input, and kills a worker still
-  alive after 30 s; one with no interrupt (Codex) is killed at once (Omnigent's uniform stop). A release kills the
-  shim by its PID file and removes `run/<dispatch>`, also when no job is in memory.
+  alive after 30 s; one with no interrupt (Codex) is killed at once (Omnigent's uniform stop). A release cancels the
+  job's journal reader and waits for it to return, so nothing of the Dispatch is reported after it (Omnara's output
+  watch), then kills the shim by its PID file and removes `run/<dispatch>`, also when no job is in memory.
+- Adopting a worker (issue #403): the journal's offset and the turn's state after it (`Turn.State`: the CLI's
+  session, its result or failure, the usage) are one checkpoint, `run/<dispatch>/offset`, renamed into place after
+  each read; a bare number, as daemons before #403 wrote, is an offset with no state. A new daemon hands the state
+  to `Runtime.Adopted`, so an adopted ACP worker cancels its own session on a stop and a worker that exits after
+  the restart is reported with its outcome, not as exited (Orca records the provider's session id on its persisted
+  record; Omnara keeps a process's state in its store, not in its output). A run directory with no PID file is
+  given 10 s for the shim to write one, as a start is, and then ends as `start_failed` ("the shim did not start";
+  Omnara fails a process whose execution was never committed).
 - A Codex worker (`internal/node/codex`; [research](docs/research/2026-11-10-codex-responses-passthrough.md)) has
   no login on the node: its model comes from the control plane's gateway under the offer's key. One turn is one
   process under a shim, as a Claude Code worker's: `codex exec --json --skip-git-repo-check --ignore-user-config

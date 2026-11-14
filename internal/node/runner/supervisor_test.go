@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sync"
@@ -47,7 +48,8 @@ type line struct {
 }
 
 // fakeCLI starts on "go" and says a first note; "more" makes it say the
-// next; "interrupt" ends it, as does the end of its input. In mode ask it
+// next, "result" its result; "interrupt" ends it, as does the end of its
+// input. In mode ask it
 // asks through the bridge, finishes with the answer, and ends.
 func fakeCLI(mode string) int {
 	out := json.NewEncoder(os.Stdout)
@@ -79,7 +81,12 @@ func fakeCLI(mode string) int {
 		case "more":
 			notes++
 			say(line{Type: "note", N: notes})
+		case "result":
+			say(line{Type: "result"})
 		case "interrupt":
+			// The session the interrupt named, for a test to read.
+			_ = os.WriteFile("interrupted.txt", []byte(l.Session), 0o600)
+
 			return 1
 		}
 	}
@@ -136,7 +143,22 @@ func (f *fake) Prepare(context.Context, statedb.Dispatch) (Launch, error) {
 	}, nil
 }
 
-func (f *fake) Adopted() Turn { return f.turn() }
+func (f *fake) Adopted(state []byte) Turn {
+	t := f.turn()
+
+	var s fakeState
+	if json.Unmarshal(state, &s) == nil {
+		t.done, t.session = s.Done, s.Session
+	}
+
+	return t
+}
+
+// fakeState is what a fake turn keeps across a restart.
+type fakeState struct {
+	Done    bool   `json:"done"`
+	Session string `json:"session"`
+}
 
 func (f *fake) turn() *fakeTurn {
 	f.mu.Lock()
@@ -156,9 +178,10 @@ func (f *fake) last() *fakeTurn {
 }
 
 type fakeTurn struct {
-	mu    sync.Mutex
-	lines []line
-	done  bool
+	mu      sync.Mutex
+	lines   []line
+	done    bool
+	session string
 }
 
 func (t *fakeTurn) Line(ctx context.Context, w *Worker, raw []byte) {
@@ -170,6 +193,10 @@ func (t *fakeTurn) Line(ctx context.Context, w *Worker, raw []byte) {
 	t.mu.Lock()
 	t.lines = append(t.lines, l)
 	t.done = t.done || l.Type == "result"
+
+	if l.Type == "started" {
+		t.session = l.Session
+	}
 	t.mu.Unlock()
 
 	if l.Type == "started" {
@@ -177,13 +204,29 @@ func (t *fakeTurn) Line(ctx context.Context, w *Worker, raw []byte) {
 	}
 }
 
-func (t *fakeTurn) Interrupt() []byte { return []byte(`{"type":"interrupt"}`) }
+func (t *fakeTurn) Interrupt() []byte {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	raw, _ := json.Marshal(line{Type: "interrupt", Session: t.session}) //nolint:errchkjson // strings
+
+	return raw
+}
 
 func (t *fakeTurn) Result() Result {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
 	return Result{Done: t.done}
+}
+
+func (t *fakeTurn) State() []byte {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	raw, _ := json.Marshal(fakeState{Done: t.done, Session: t.session}) //nolint:errchkjson // a bool and a string
+
+	return raw
 }
 
 func (t *fakeTurn) Outcome(ex nodeproto.Exit) nodeproto.Finished {
@@ -336,7 +379,9 @@ func (g *rig) start(r *reporter) {
 func (g *rig) restart() *rig {
 	g.t.Helper()
 
-	g.sup.drop("dsp_1").cancel()
+	w := g.sup.drop("dsp_1")
+	w.cancel()
+	<-w.done
 
 	return &rig{
 		t: g.t, worktree: g.worktree, rt: &fake{exe: g.rt.exe, mode: g.rt.mode},
@@ -457,4 +502,181 @@ func TestAskIsRelayedAndAnswered(t *testing.T) {
 	require.Len(t, r.finished, 1)
 	assert.Equal(t, "added the button", r.finished[0].Summary, "the outcome is the finish tool's report")
 	assert.Equal(t, 1, r.asked(), "a question is asked once")
+}
+
+// Scenario: the daemon restarts while the worker works. A stop through the
+// new daemon names the CLI's session, which the earlier daemon read before
+// the restart (issue #403).
+func TestAnAdoptedWorkerIsStoppedInItsSession(t *testing.T) {
+	t.Parallel()
+
+	g := newRig(t, "hang")
+	g.start(newReporter())
+	g.waitRead(2)
+
+	again := g.restart()
+	second := newReporter()
+	require.NoError(t, again.sup.Adopt(t.Context(), again.rt, again.dispatch(), second))
+
+	again.sup.Stop("dsp_1")
+	second.wait(t)
+
+	interrupted, err := os.ReadFile(filepath.Join(g.worktree, "interrupted.txt"))
+	require.NoError(t, err)
+	assert.Equal(t, "ses_fake", string(interrupted))
+}
+
+// Scenario: the CLI said its result before the daemon restarted, and exits
+// after. The new daemon reports the turn's outcome, not an unknown exit
+// (issue #403).
+func TestATurnsResultOutlivesARestart(t *testing.T) {
+	t.Parallel()
+
+	g := newRig(t, "hang")
+	g.start(newReporter())
+	require.NoError(t, shim.Send(t.Context(), g.sup.dir("dsp_1"), []byte(`{"type":"result"}`)))
+	g.waitRead(3)
+
+	again := g.restart()
+	second := newReporter()
+	require.NoError(t, again.sup.Adopt(t.Context(), again.rt, again.dispatch(), second))
+	require.NoError(t, shim.Send(t.Context(), g.sup.dir("dsp_1"), []byte(shim.CloseLine)))
+	second.wait(t)
+
+	assert.Zero(t, second.exited, "the outcome is known")
+	require.Len(t, second.finished, 1)
+	assert.Equal(t, "worker_error", second.finished[0].Class, "the turn's Outcome")
+}
+
+// Scenario: a daemon stopped after it made a worker's run directory and
+// before its shim started. The new daemon adopts it, waits for the shim as a
+// start does, and ends it as a start that failed (issue #403).
+func TestARunDirectoryWithoutAShimEnds(t *testing.T) {
+	t.Parallel()
+
+	g := newRig(t, "hang")
+	require.NoError(t, os.MkdirAll(g.sup.dir("dsp_1"), 0o700))
+
+	r := newReporter()
+	require.NoError(t, g.sup.Adopt(t.Context(), g.rt, g.dispatch(), r))
+	r.wait(t)
+
+	require.Len(t, r.finished, 1)
+	assert.Equal(t, "start_failed", r.finished[0].Class)
+	assert.Equal(t, "the shim did not start", r.finished[0].Summary)
+}
+
+// Scenario: the control plane takes back a Dispatch while its journal reader
+// is busy. Release returns once the reader stopped, and nothing is reported
+// after it (issue #403).
+func TestReleaseWaitsForTheJournalReader(t *testing.T) {
+	t.Parallel()
+
+	sup := &Supervisor{Home: t.TempDir(), Logger: slog.New(slog.DiscardHandler)}
+	dir := sup.dir("dsp_1")
+	_, err := bridge.Ask(bridge.Dir(dir), nodeproto.Ask{Text: "goth?", To: "owner"})
+	require.NoError(t, err)
+
+	r := &slowAsk{
+		reporter: newReporter(), asking: make(chan struct{}), canceled: make(chan struct{}), gate: make(chan struct{}),
+	}
+	// A shim that is gone: the reader, once free, would see it dead and report.
+	sup.watch(t.Context(), &Worker{id: "dsp_1", dir: dir, pid: deadPID(t), r: r, turn: &fakeTurn{}, started: true})
+	waitFor(t, r.asking)
+
+	released := make(chan struct{})
+
+	go func() {
+		sup.Release("dsp_1")
+		close(released)
+	}()
+
+	waitFor(t, r.canceled)
+
+	// An earlier Release returned at once; give the reader time to run on after it.
+	select {
+	case <-released:
+	case <-time.After(time.Second):
+	}
+
+	close(r.gate)
+	waitFor(t, released)
+
+	assert.Never(t, func() bool {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+
+		return r.exited+len(r.finished)+r.stopped > 0
+	}, time.Second, 20*time.Millisecond, "a released worker reports nothing")
+	assert.NoDirExists(t, dir)
+}
+
+// Scenario: a node takes a release while its workers run. The new daemon
+// reads on from the bare offset the earlier one wrote, with no turn state.
+func TestAnEarlierDaemonsOffsetIsRead(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, offsetFile), []byte("123"), 0o600))
+
+	n, state := readCheckpoint(dir)
+	assert.Equal(t, int64(123), n)
+	assert.Nil(t, state)
+
+	writeCheckpoint(dir, 456, []byte(`{"done":true}`))
+
+	n, state = readCheckpoint(dir)
+	assert.Equal(t, int64(456), n)
+	assert.JSONEq(t, `{"done":true}`, string(state))
+}
+
+// slowAsk is a reporter whose Ask is still running when the worker is released.
+type slowAsk struct {
+	*reporter
+
+	asking, canceled, gate chan struct{}
+}
+
+func (r *slowAsk) Ask(ctx context.Context, _ nodeproto.Ask) (string, error) {
+	close(r.asking)
+	<-ctx.Done()
+	close(r.canceled)
+	<-r.gate
+
+	return "", ctx.Err()
+}
+
+// deadPID is the pid of a process that has exited.
+func deadPID(t *testing.T) int {
+	t.Helper()
+
+	exe, err := os.Executable()
+	require.NoError(t, err)
+
+	cmd := exec.CommandContext(t.Context(), exe, "-test.run=^$") //nolint:gosec // the test binary itself
+	require.NoError(t, cmd.Run())
+
+	return cmd.Process.Pid
+}
+
+func waitFor(t *testing.T, c <-chan struct{}) {
+	t.Helper()
+
+	select {
+	case <-c:
+	case <-time.After(20 * time.Second):
+		t.Fatal("timed out")
+	}
+}
+
+// waitRead waits until the turn read n lines and the offset was saved after them.
+func (g *rig) waitRead(n int) {
+	g.t.Helper()
+
+	dir := g.sup.dir("dsp_1")
+	require.Eventually(g.t, func() bool {
+		info, err := os.Stat(filepath.Join(dir, shim.JournalFile))
+
+		return err == nil && len(g.rt.last().seen()) == n && readOffset(dir) == info.Size()
+	}, 20*time.Second, 20*time.Millisecond)
 }
