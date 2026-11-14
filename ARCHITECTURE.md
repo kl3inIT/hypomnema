@@ -1028,7 +1028,7 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       in place up to 30 minutes instead and then refused. An Approval
       not answered in time stays open (owner, 2026-11-11): the tool is told it waits; a coordinator ends its turn
       and a worker asks the owner and waits. Answering an Approval a chat asked writes one `approval` row in that
-      chat in the same transaction (issue #465, migration 00081, after t3code's `TimelinePendingApprovalRow.tsx`
+      chat in the same transaction (issue #465, migration 00082, after t3code's `TimelinePendingApprovalRow.tsx`
       and AI Elements' `confirmation.tsx`): `chat_messages.approval_id` names it, its text says the answer, what
       was asked and how far it reaches, and `ChatMessage.approval` gives the Approval's title, action, answer,
       scope and time, read with the row. When it is answered after its request ended, the coordinator is woken
