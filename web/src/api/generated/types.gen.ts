@@ -6905,6 +6905,33 @@ export type ListProfilesResponses = {
 
 export type ListProfilesResponse = ListProfilesResponses[keyof ListProfilesResponses];
 
+export type DeleteProfileData = {
+  body?: never;
+  path: {
+    name: string;
+  };
+  query?: never;
+  url: '/profiles/{name}';
+};
+
+export type DeleteProfileErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type DeleteProfileError = DeleteProfileErrors[keyof DeleteProfileErrors];
+
+export type DeleteProfileResponses = {
+  /**
+   * The profile is deleted.
+   */
+  204: void;
+};
+
+export type DeleteProfileResponse = DeleteProfileResponses[keyof DeleteProfileResponses];
+
 export type GetProfileData = {
   body?: never;
   path: {

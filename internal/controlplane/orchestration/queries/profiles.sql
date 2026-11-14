@@ -26,13 +26,21 @@ SELECT m.provider, m.name, p.kind FROM models m JOIN providers p ON p.name = m.p
 WHERE m.name = @name ORDER BY m.provider;
 
 -- name: GetProfile :one
+-- A profile that is not deleted.
+SELECT * FROM profiles WHERE name = @name AND deleted_at IS NULL;
+
+-- name: GetProfileEvenDeleted :one
 SELECT * FROM profiles WHERE name = @name;
 
 -- name: InsertProfile :exec
 INSERT INTO profiles (name, current_version_id, created_at, updated_at) VALUES (@name, @version_id, @now, @now);
 
 -- name: SetProfileVersion :exec
-UPDATE profiles SET current_version_id = @version_id, updated_at = @now WHERE name = @name;
+-- A new version of a deleted profile brings it back (issue #485).
+UPDATE profiles SET current_version_id = @version_id, deleted_at = NULL, updated_at = @now WHERE name = @name;
+
+-- name: MarkProfileDeleted :exec
+UPDATE profiles SET updated_at = @now, deleted_at = @now WHERE name = @name;
 
 -- name: InsertProfileVersion :exec
 INSERT INTO profile_versions (id, profile, version, source, digest, description, runtime, provider, model, effort,
@@ -44,10 +52,13 @@ VALUES (@id, @profile, @version, @source, @digest, @description, @runtime, @prov
 SELECT * FROM profile_versions WHERE id = @id;
 
 -- name: CurrentProfileVersion :one
-SELECT v.* FROM profiles p JOIN profile_versions v ON v.id = p.current_version_id WHERE p.name = @name;
+-- The current version of a profile that is not deleted.
+SELECT v.* FROM profiles p JOIN profile_versions v ON v.id = p.current_version_id
+WHERE p.name = @name AND p.deleted_at IS NULL;
 
 -- name: ListCurrentProfileVersions :many
-SELECT v.* FROM profiles p JOIN profile_versions v ON v.id = p.current_version_id ORDER BY p.name;
+SELECT v.* FROM profiles p JOIN profile_versions v ON v.id = p.current_version_id
+WHERE p.deleted_at IS NULL ORDER BY p.name;
 
 -- name: ListProfileVersions :many
 SELECT * FROM profile_versions WHERE profile = @profile ORDER BY version DESC;
@@ -59,9 +70,9 @@ SELECT name FROM providers WHERE api_key_ref = @api_key_ref ORDER BY name;
 SELECT count(*) FROM tasks WHERE profile = @profile AND created_at >= @since;
 
 -- name: CountFallbacksNaming :one
--- The profiles whose current version names a profile among its backups.
+-- The profiles, not deleted, whose current version names a profile among its backups.
 SELECT count(*) FROM profiles p JOIN profile_versions v ON v.id = p.current_version_id
-WHERE p.name <> @profile AND (',' || v.fallbacks || ',') LIKE ('%,' || @profile || ',%');
+WHERE p.name <> @profile AND p.deleted_at IS NULL AND (',' || v.fallbacks || ',') LIKE ('%,' || @profile || ',%');
 
 -- name: DeleteProfileVersions :exec
 DELETE FROM profile_versions WHERE profile = @profile;
@@ -71,3 +82,17 @@ DELETE FROM profiles WHERE name = @name;
 
 -- name: CountDispatchesOfProfileVersion :one
 SELECT count(*) FROM dispatches WHERE profile_version_id = @version_id;
+
+-- name: CountDispatchesOfProfile :one
+-- The Dispatches that ran any version of a profile.
+SELECT count(*) FROM dispatches d JOIN profile_versions v ON v.id = d.profile_version_id WHERE v.profile = @profile;
+
+-- name: CountUnfinishedTasksOfProfile :one
+-- The Tasks that name a profile and have not ended, a failed one of an open Run included: the owner may reopen it.
+SELECT count(*) FROM tasks t JOIN runs r ON r.id = t.run_id
+WHERE t.profile = @profile
+  AND (t.status NOT IN ('succeeded', 'failed', 'canceled') OR (t.status = 'failed' AND r.status = 'open'));
+
+-- name: BotsNamingWorker :many
+-- The Bots whose workers list names a profile.
+SELECT name FROM bots WHERE workers IS NOT NULL AND ',' || workers || ',' LIKE '%,' || @profile || ',%' ORDER BY name;
