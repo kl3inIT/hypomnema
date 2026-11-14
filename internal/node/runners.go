@@ -16,24 +16,43 @@ import (
 // a node ran more than Claude Code.
 const defaultRuntime = "claude"
 
-// worker is what the daemon asks of the runner of one runtime.
-type worker interface {
-	Start(ctx context.Context, d statedb.Dispatch, r daemon.Reporter) error
-	Adopt(ctx context.Context, d statedb.Dispatch, r daemon.Reporter) error
-	Stop(id string)
-	Release(id string)
-	Answer(id string, q nodeproto.Question)
-	Asked(id, reportID, questionID string)
+// entry is one entry of the registry: a runtime's key and what runs it.
+type entry struct {
+	key string
+	rt  runner.Runtime
 }
 
-// runners gives the daemon one Runner over the runner of each runtime
-// (issue #107). A worker is started and adopted by the runner of its offer's
-// runtime; what names only a Dispatch goes to every runner, and the ones that
-// do not know it do nothing. The transcripts of all of them go through one
-// forwarder (issue #157), which the acknowledgements of the control plane
-// reach.
+// registry is the Runtime of each key, refused when a key is named twice or
+// a known runtime has none (Orca's registry of agents, which throws on a
+// duplicate; docs/conventions.md, Strategy behind a registry).
+func registry(entries ...entry) (map[string]runner.Runtime, error) {
+	out := map[string]runner.Runtime{}
+
+	for _, e := range entries {
+		if _, dup := out[e.key]; dup {
+			return nil, fmt.Errorf("two runtimes are named %s", e.key)
+		}
+
+		out[e.key] = e.rt
+	}
+
+	for _, key := range knownRuntimes {
+		if out[key] == nil {
+			return nil, fmt.Errorf("no runtime is named %s", key)
+		}
+	}
+
+	return out, nil
+}
+
+// runners gives the daemon one Runner over the Supervisor (issue #392). A
+// worker is started and adopted with the Runtime of its offer's runtime;
+// what names only a Dispatch goes to the Supervisor, which holds its job.
+// The transcripts of all of them go through one forwarder (issue #157),
+// which the acknowledgements of the control plane reach.
 type runners struct {
-	byRuntime   map[string]worker
+	supervisor  *runner.Supervisor
+	byRuntime   map[string]runner.Runtime
 	transcripts *transcript.Forwarder
 	// skills fetches the skills an offer names before its worker starts (issue #21).
 	skills skills.Cache
@@ -41,22 +60,22 @@ type runners struct {
 
 var _ daemon.Runner = runners{}
 
-func (rs runners) of(d statedb.Dispatch) (worker, error) {
-	runtime := d.Offer.Runtime
-	if runtime == "" {
-		runtime = defaultRuntime
+func (rs runners) of(d statedb.Dispatch) (runner.Runtime, error) {
+	key := d.Offer.Runtime
+	if key == "" {
+		key = defaultRuntime
 	}
 
-	r, ok := rs.byRuntime[runtime]
+	rt, ok := rs.byRuntime[key]
 	if !ok {
-		return nil, fmt.Errorf("this node has no runner for %s", runtime)
+		return nil, fmt.Errorf("this node has no runner for %s", key)
 	}
 
-	return r, nil
+	return rt, nil
 }
 
 func (rs runners) Start(ctx context.Context, d statedb.Dispatch, rep daemon.Reporter) error {
-	r, err := rs.of(d)
+	rt, err := rs.of(d)
 	if err != nil {
 		return err
 	}
@@ -65,40 +84,26 @@ func (rs runners) Start(ctx context.Context, d statedb.Dispatch, rep daemon.Repo
 		return err
 	}
 
-	return r.Start(ctx, d, rep)
+	return rs.supervisor.Start(ctx, rt, d, rep)
 }
 
 func (rs runners) Adopt(ctx context.Context, d statedb.Dispatch, rep daemon.Reporter) error {
-	r, err := rs.of(d)
+	rt, err := rs.of(d)
 	if err != nil {
 		return err
 	}
 
-	return r.Adopt(ctx, d, rep)
+	return rs.supervisor.Adopt(ctx, rt, d, rep)
 }
 
-func (rs runners) Stop(id string) {
-	for _, r := range rs.byRuntime {
-		r.Stop(id)
-	}
-}
+func (rs runners) Stop(id string) { rs.supervisor.Stop(id) }
 
-func (rs runners) Release(id string) {
-	for _, r := range rs.byRuntime {
-		r.Release(id)
-	}
-}
+func (rs runners) Release(id string) { rs.supervisor.Release(id) }
 
-func (rs runners) Answer(id string, q nodeproto.Question) {
-	for _, r := range rs.byRuntime {
-		r.Answer(id, q)
-	}
-}
+func (rs runners) Answer(id string, q nodeproto.Question) { rs.supervisor.Answer(id, q) }
 
 func (rs runners) Asked(id, reportID, questionID string) {
-	for _, r := range rs.byRuntime {
-		r.Asked(id, reportID, questionID)
-	}
+	rs.supervisor.Asked(id, reportID, questionID)
 }
 
 func (rs runners) ItemsAcked(ack nodeproto.ItemsAck) {
@@ -106,22 +111,3 @@ func (rs runners) ItemsAcked(ack nodeproto.ItemsAck) {
 		rs.transcripts.ItemsAcked(ack)
 	}
 }
-
-// supervised is a runtime whose workers the Supervisor runs.
-type supervised struct {
-	s  *runner.Supervisor
-	rt runner.Runtime
-}
-
-func (w supervised) Start(ctx context.Context, d statedb.Dispatch, rep daemon.Reporter) error {
-	return w.s.Start(ctx, w.rt, d, rep)
-}
-
-func (w supervised) Adopt(ctx context.Context, d statedb.Dispatch, rep daemon.Reporter) error {
-	return w.s.Adopt(ctx, w.rt, d, rep)
-}
-
-func (w supervised) Stop(id string)                         { w.s.Stop(id) }
-func (w supervised) Release(id string)                      { w.s.Release(id) }
-func (w supervised) Answer(id string, q nodeproto.Question) { w.s.Answer(id, q) }
-func (w supervised) Asked(id, reportID, questionID string)  { w.s.Asked(id, reportID, questionID) }

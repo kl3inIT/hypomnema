@@ -191,7 +191,7 @@ func SetAccount(home, accountID, tokenFile string) error {
 	return saveConfig(home, cfg)
 }
 
-// Run runs the daemon with the Claude runner until ctx ends.
+// Run runs the daemon with the runtimes' workers until ctx ends.
 func Run(ctx context.Context, home string, logger *slog.Logger) error {
 	cfg, err := LoadConfig(home)
 	if err != nil {
@@ -225,10 +225,6 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 	}
 	defer db.Close() //nolint:errcheck // Closing at shutdown; nothing is left to report it to.
 
-	claudeRunner := supervised{s: &runner.Supervisor{
-		Home: home, Exe: exe, URL: cfg.URL, Logger: logger, Worktrees: worktree.Maker{Root: home, Logger: logger},
-	}, rt: &claude.ClaudeRuntime{Home: home, Exe: exe, Claude: claudePath, URL: cfg.URL, Accounts: cfg.Accounts}}
-
 	logger.InfoContext(ctx, "node starting", slog.String("event", "node.starting"), slog.String("url", cfg.URL),
 		slog.Int("runtimes", len(runtimes)), slog.Int("accounts", len(cfg.Accounts)))
 
@@ -239,11 +235,20 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 		defer terminals.Close()
 	}
 
-	// The agents that speak ACP share one runner (issue #107).
+	// The agents that speak ACP share one runtime (issue #107).
 	acpRuntime := &acp.ACPRuntime{Home: home, Exe: exe, Paths: paths, URL: cfg.URL}
-	acpRunner := supervised{s: &runner.Supervisor{
-		Home: home, Exe: exe, URL: cfg.URL, Logger: logger, Worktrees: worktree.Maker{Root: home, Logger: logger},
-	}, rt: acpRuntime}
+
+	byRuntime, err := registry(
+		entry{"claude", &claude.ClaudeRuntime{
+			Home: home, Exe: exe, Claude: claudePath, URL: cfg.URL, Accounts: cfg.Accounts,
+		}},
+		// A Codex worker's model comes from the control plane's gateway (issue #107).
+		entry{"codex", &codex.CodexRuntime{Home: home, Exe: exe, Codex: codexPath, URL: cfg.URL}},
+		entry{"omp", acpRuntime}, entry{"opencode", acpRuntime},
+	)
+	if err != nil {
+		return err
+	}
 
 	// Workers' transcripts go to the control plane beside their reports, whatever the runtime (issues #43, #157).
 	transcripts := &transcript.Forwarder{
@@ -253,18 +258,14 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 		},
 	}
 
-	all := runners{byRuntime: map[string]worker{}, transcripts: transcripts, skills: skills.Cache{
-		Home: home, URL: cfg.URL, Token: cfg.Token, Client: &http.Client{Timeout: 5 * time.Minute},
-	}}
-	for _, runtime := range acp.Runtimes() {
-		all.byRuntime[runtime] = acpRunner
+	all := runners{
+		supervisor: &runner.Supervisor{
+			Home: home, Exe: exe, URL: cfg.URL, Logger: logger, Worktrees: worktree.Maker{Root: home, Logger: logger},
+		},
+		byRuntime: byRuntime, transcripts: transcripts, skills: skills.Cache{
+			Home: home, URL: cfg.URL, Token: cfg.Token, Client: &http.Client{Timeout: 5 * time.Minute},
+		},
 	}
-
-	all.byRuntime["claude"] = claudeRunner
-	// A Codex worker's model comes from the control plane's gateway (issue #107).
-	all.byRuntime["codex"] = supervised{s: &runner.Supervisor{
-		Home: home, Exe: exe, URL: cfg.URL, Logger: logger, Worktrees: worktree.Maker{Root: home, Logger: logger},
-	}, rt: &codex.CodexRuntime{Home: home, Exe: exe, Codex: codexPath, URL: cfg.URL}}
 
 	d := daemon.New(daemon.Config{
 		URL: cfg.URL, Token: cfg.Token, WorktreeRoot: cfg.WorktreeRoot, Version: platform.Version, Runtimes: runtimes,
