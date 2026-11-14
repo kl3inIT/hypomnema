@@ -434,3 +434,116 @@ func TestAChatChoosesItsModelAndEffort(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"sonnet", "high"}, []string{bot.Model, bot.Effort}, "the Bot keeps its default")
 }
+
+// Scenario: the owner deletes a chat (issue #484). Its messages, its setup changes and its artifacts go, and the
+// bytes of an artifact no other chat keeps go with them, while another chat's artifact of the same bytes stays. The
+// Run started in it, its approval and its gateway key stay without the chat, the key revoked. The chat is returned,
+// so that its files can be removed after the commit; a chat deleted twice is not found.
+func TestTheOwnerDeletesAChat(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	chat, err := w.s.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+	_, err = w.s.AddChatMessage(ctx, chat.ID, ChatOwner, "show me the sales")
+	require.NoError(t, err)
+	_, err = w.s.PutBotFromChat(ctx, chat.ID, Bot{Name: "helper"})
+	require.NoError(t, err)
+
+	gone, _, err := w.s.ShowArtifact(ctx, ArtifactMaker{Bot: chat.Bot, Chat: chat.ID},
+		ShowArtifact{Title: "Sales", Pack: page(t, "<p>only here")})
+	require.NoError(t, err)
+	_, _, err = w.s.ShowArtifact(ctx, ArtifactMaker{Bot: chat.Bot, Chat: chat.ID},
+		ShowArtifact{Title: "Shared", Pack: page(t, "<p>in both chats")})
+	require.NoError(t, err)
+
+	other, err := w.s.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+	kept, _, err := w.s.ShowArtifact(ctx, ArtifactMaker{Bot: other.Bot, Chat: other.ID},
+		ShowArtifact{Title: "Shared", Pack: page(t, "<p>in both chats")})
+	require.NoError(t, err)
+
+	for _, q := range []string{
+		"UPDATE runs SET chat_id = ? WHERE id = '" + w.run.ID + "'",
+		"INSERT INTO gateway_keys (id, name, key_hash, models, created_at, chat_id) " +
+			"VALUES ('gk_1', 'chat key', 'hash', '[\"*\"]', 1, ?)",
+		"INSERT INTO approvals (id, integration, label, action, action_name, chat_id, asked_by, title, payload, " +
+			"match_hash, created_at) VALUES ('apr_1', 'google', 'work', 'gmail.send', 'Send mail', ?, 'coordinator', " +
+			"'Send mail', '[]', 'h', 1)",
+	} {
+		_, err = w.db.ExecContext(ctx, q, chat.ID)
+		require.NoError(t, err)
+	}
+
+	deleted, err := w.s.DeleteChat(ctx, chat.ID)
+	require.NoError(t, err)
+	assert.Equal(t, chat.ID, deleted.ID)
+	assert.Equal(t, DefaultBot, deleted.Bot, "the caller removes the files in this Bot's folder")
+
+	_, err = w.s.GetChat(ctx, chat.ID)
+	require.ErrorIs(t, err, ErrNotFound)
+
+	count := func(q string, args ...any) int {
+		t.Helper()
+
+		var n int
+		require.NoError(t, w.db.QueryRowContext(ctx, q, args...).Scan(&n))
+
+		return n
+	}
+	assert.Zero(t, count("SELECT count(*) FROM chat_messages WHERE chat_id = ?", chat.ID))
+	assert.Zero(t, count("SELECT count(*) FROM setup_changes WHERE chat_id = ?", chat.ID))
+	assert.Zero(t, count("SELECT count(*) FROM artifacts WHERE chat_id = ?", chat.ID))
+	assert.Zero(t, count("SELECT count(*) FROM artifact_revisions WHERE artifact_id = ?", gone.ID),
+		"the revisions go with their artifact")
+	assert.Equal(t, 1, count("SELECT count(*) FROM artifact_blobs"), "only the other chat's bytes are kept")
+
+	shared, err := w.s.ReadArtifactFile(ctx, kept.ID, 1, "")
+	require.NoError(t, err)
+	assert.Equal(t, "<p>in both chats", string(shared.Data))
+
+	assert.Equal(t, 1, count("SELECT count(*) FROM runs WHERE id = ? AND chat_id IS NULL", w.run.ID),
+		"the Run stays without its chat")
+	assert.Equal(t, 1, count("SELECT count(*) FROM approvals WHERE id = 'apr_1' AND chat_id IS NULL"))
+	assert.Equal(t, 1, count("SELECT count(*) FROM gateway_keys "+
+		"WHERE id = 'gk_1' AND chat_id IS NULL AND revoked_at IS NOT NULL"), "the chat's key is revoked and kept")
+
+	_, err = w.s.GetBot(ctx, "helper")
+	require.NoError(t, err, "what the chat changed stays; only its record goes")
+
+	_, err = w.s.DeleteChat(ctx, chat.ID)
+	require.ErrorIs(t, err, ErrNotFound)
+}
+
+// Scenario: a chat a Routine tells its runs in is not deleted until the Routine is removed, and the chat of a
+// prompt Routine's live run is not deleted while that run goes, as OpenMausBot refuses a working room.
+func TestAChatARoutinePostsIntoIsNotDeleted(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	chat, err := w.s.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+
+	spec := daily("morning")
+	spec.ChatID = chat.ID
+	r := w.routine(spec)
+
+	_, err = w.s.DeleteChat(ctx, chat.ID)
+	require.ErrorIs(t, err, ErrConflict)
+	require.ErrorContains(t, err, "remove them first")
+
+	started, err := w.s.RunRoutineNow(ctx, r.ID)
+	require.NoError(t, err)
+	require.NotEmpty(t, started.Run.ChatID, "a prompt run has a chat of its own")
+
+	_, err = w.s.DeleteChat(ctx, started.Run.ChatID)
+	require.ErrorIs(t, err, ErrConflict)
+	require.ErrorContains(t, err, "stop it first")
+
+	_, err = w.s.GetChat(ctx, chat.ID)
+	require.NoError(t, err, "the refused chat is still there")
+}

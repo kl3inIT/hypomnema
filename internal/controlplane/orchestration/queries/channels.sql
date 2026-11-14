@@ -62,6 +62,10 @@ WHERE channel = @channel AND external_chat_id = @external_chat_id;
 UPDATE channel_chats SET chat_id = @chat_id, sent_seq = 0
 WHERE channel = @channel AND external_chat_id = @external_chat_id;
 
+-- name: DeleteChannelChatOfChat :exec
+-- The Lark chat a deleted chat answered (issue #484): its next message starts a new chat.
+DELETE FROM channel_chats WHERE chat_id = @chat_id;
+
 -- name: InsertChannelMessage :execrows
 INSERT INTO channel_messages (message_id, channel, created_at) VALUES (@message_id, @channel, @now)
 ON CONFLICT DO NOTHING;
