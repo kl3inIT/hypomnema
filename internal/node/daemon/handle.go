@@ -71,11 +71,29 @@ func (d *Daemon) handle(ctx context.Context, msg nodeproto.Message) error {
 		return d.openTerminal(msg.Payload)
 	case nodeproto.TypeFilesRequest:
 		return d.answerFiles(msg.Payload) //nolint:contextcheck // answered on the daemon's own context
+	case nodeproto.TypeDeviceStart, nodeproto.TypeDeviceStop:
+		d.phone(msg.Type)
+
+		return nil
 	case nodeproto.TypeHeartbeat, nodeproto.TypeReport, nodeproto.TypeItems, nodeproto.TypeHeartbeatAck:
 		fallthrough
 	default:
 		return nil
 	}
+}
+
+// phone starts or stops the phone the node holds (issue #417). Either may
+// take minutes, an install longer, so the phone does it on its own, under
+// Run's context: a reconnect does not cut it short, and the socket goes on.
+// It is asked here, on the reader, so that the asks keep the order the
+// messages came in: a stop after a start wins. What came of it is said with
+// the phone's state.
+func (d *Daemon) phone(t nodeproto.Type) {
+	if d.cfg.Phone == nil || d.base == nil {
+		return
+	}
+
+	d.cfg.Phone.Ask(d.base, t == nodeproto.TypeDeviceStart)
 }
 
 // offered records an offer and queues its accept. The worker starts only once

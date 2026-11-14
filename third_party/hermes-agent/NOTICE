@@ -1,0 +1,22 @@
+Hermes Agent
+Copyright (c) 2026 Nous Research
+
+Used under the MIT License (internal/controlplane/clientcli/skills/pdf/LICENSE,
+kept in the skill's folder as Hermes ships it).
+Source: https://github.com/NousResearch/hermes-agent at
+022a14437b2dcd40fb71024b754b59c94afed70e, skills/productivity/pdf.
+
+What is adapted from it here: the pdf skill
+(internal/controlplane/clientcli/skills/pdf/): its SKILL.md, references/forms.md
+and the scripts in scripts/. Changed: the interpreter block is `python` only
+(the Bots' documents environment) and the scripts are named where the skill is
+installed, ~/.agents/skills/pdf/scripts; Hermes's own frontmatter fields and
+tool names give way to the Agent Skills fields and pi's tools (bash, read,
+write); OCR (references/ocr-extraction.md, scripts/extract_pymupdf.py,
+scripts/extract_marker.py), nano-pdf editing (references/nano-pdf-editing.md)
+and tests/ are left out with every mention of them, in SKILL.md, forms.md,
+pdf_read.py, pdf_page_image.py and pdf_form_layout.py.
+
+What is learned from it, with no code of it copied: how `hypomnema skills
+install` puts a whole skill folder in place and leaves an edited copy alone,
+from tools/skills_sync.py (dir_hash, _is_runtime_cache, _replace_skill_dir).
