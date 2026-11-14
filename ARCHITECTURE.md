@@ -493,12 +493,13 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     launcher runs every chat's pi, a Lark group's too, in an unprivileged bubblewrap box, its own PID, IPC and UTS
     namespaces, ended with the launcher. Read-only: `/usr` (with merged `/bin`, `/lib`, `/lib64`, `/sbin`), `/etc`, the resolver Ubuntu's
     `/etc/resolv.conf` links to (`/run/systemd/resolve`), the CPU list, `/opt/hypomnema-node`, pi, the
-    integrations' tools and guides, the skills every Bot gets (`~/.agents/skills`), and this pi's prompt, skills and
-    `models.json` (`run/<chat>/`, made by the launcher outside the box). Private: `/tmp`, `/var/tmp`, `/proc`,
+    integrations' tools and guides, the skills every Bot gets (`~/.agents/skills`), and this pi's prompt, skills,
+    `models.json` and `settings.json` (`run/<chat>/`, made by the launcher outside the box). Private: `/tmp`, `/var/tmp`, `/proc`,
     `/dev`, and an empty home in which `~/.hypomnema/client.json` holds the control plane's address and pi's token
     (bubblewrap's `--file`), so the coordinator token's `client.json` is not there. pi's agent directory is private
     too, since pi locks files there as it reads them; the instructions every Bot gets (`AGENTS.md`), the tools pi
-    fetched (`bin/`) and this chat's `models.json` are bound into it read-only. Read-write: the Bot's directory and
+    fetched (`bin/`) and this chat's `models.json` and `settings.json` are bound into it read-only, so a Bot cannot
+    change its own settings. Read-write: the Bot's directory and
     the chat's sessions (`sessions/<chat>/`; pi names a session `<time>_<chat>.jsonl`, and one kept with the others
     before is moved in). Other Bots' directories, other chats' sessions and other pi processes are not in it. The
     network is the host's (OpenMausBot's `net: "shared"`; owner, 2026-11-12): a Bot's shell still reaches every
@@ -1329,6 +1330,12 @@ not exist yet.
     and cache write per million tokens; a missing cache price is the input's). An unknown one is left out, so pi
     keeps its default (128000, 16384), but for `input`: a model whose input is not known reads text and pictures
     (`["text", "image"]`, issue #368: pi takes a model without it as text-only, and the gateway passes pictures on).
+  - pi's `settings.json` is written next to it, from that `models.json` (`hypomnema pi-settings`, issue #395;
+    [research](docs/research/2026-11-14-pi-defaults.md)): each model with a window compacts once fewer than
+    max(15% of the window, 16,384) tokens are free (`compaction.modelOverrides`, which pi reads for the model in
+    use, so a model changed during a chat needs nothing more), as omp and opencode reserve; a model without one
+    keeps pi's 16,384. pi's read-only `grep`, `find` and `ls` are on beside `read`, `bash`, `edit` and `write`
+    (`defaultTools`). Everything else is pi's default.
 - `POST /v1/responses` (issue #107, after 9router-go;
   [research](docs/research/2026-11-10-codex-responses-passthrough.md)) is for a client that speaks OpenAI's Responses
   format, which the Codex CLI does and nothing else. It serves a model's `codex_subscription` targets only:
