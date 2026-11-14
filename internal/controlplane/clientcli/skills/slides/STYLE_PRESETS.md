@@ -4,6 +4,9 @@ Curated visual styles for Frontend Slides. Each preset is inspired by real desig
 
 **Viewport CSS:** For mandatory base styles, see [viewport-base.css](viewport-base.css). Include in every presentation.
 
+**Fonts:** every preset names system font stacks from "System Font Stacks" below, by their name; copy the stack's
+`font-family` value. No preset loads a font from the network.
+
 ---
 
 ## Dark Themes
@@ -15,8 +18,8 @@ Curated visual styles for Frontend Slides. Each preset is inspired by real desig
 **Layout:** Colored card on dark gradient. Number top-left, navigation top-right, title bottom-left.
 
 **Typography:**
-- Display: `Archivo Black` (900)
-- Body: `Space Grotesk` (400/500)
+- Display: Industrial (700, uppercase)
+- Body: Humanist (400/500)
 
 **Colors:**
 ```css
@@ -44,8 +47,8 @@ Curated visual styles for Frontend Slides. Each preset is inspired by real desig
 **Layout:** Split panel—white top, blue bottom. Brand marks in corners.
 
 **Typography:**
-- Display: `Manrope` (800)
-- Body: `Manrope` (400/500)
+- Display: Geometric Humanist (800)
+- Body: Geometric Humanist (400/500)
 
 **Colors:**
 ```css
@@ -73,8 +76,8 @@ Curated visual styles for Frontend Slides. Each preset is inspired by real desig
 **Layout:** Split panels—electric blue left, dark right. Script accents.
 
 **Typography:**
-- Display: `Syne` (700/800)
-- Mono: `Space Mono` (400/700)
+- Display: Industrial (700/800)
+- Mono: Monospace Code (400/700)
 
 **Colors:**
 ```css
@@ -101,8 +104,8 @@ Curated visual styles for Frontend Slides. Each preset is inspired by real desig
 **Layout:** Centered content on dark. Abstract soft shapes in corner.
 
 **Typography:**
-- Display: `Cormorant` (400/600) — elegant serif
-- Body: `IBM Plex Sans` (300/400)
+- Display: Old Style (400/600) — elegant serif
+- Body: Humanist (300/400)
 
 **Colors:**
 ```css
@@ -134,8 +137,8 @@ Curated visual styles for Frontend Slides. Each preset is inspired by real desig
 **Layout:** Cream paper card on dark background. Colorful tabs on right edge.
 
 **Typography:**
-- Display: `Bodoni Moda` (400/700) — classic editorial
-- Body: `DM Sans` (400/500)
+- Display: Didone (400/700) — classic editorial
+- Body: Geometric Humanist (400/500)
 
 **Colors:**
 ```css
@@ -166,8 +169,8 @@ Curated visual styles for Frontend Slides. Each preset is inspired by real desig
 **Layout:** White card on pastel background. Vertical pills on right edge.
 
 **Typography:**
-- Display: `Plus Jakarta Sans` (700/800)
-- Body: `Plus Jakarta Sans` (400/500)
+- Display: Geometric Humanist (700/800)
+- Body: Geometric Humanist (400/500)
 
 **Colors:**
 ```css
@@ -197,8 +200,8 @@ Curated visual styles for Frontend Slides. Each preset is inspired by real desig
 **Layout:** Two-color vertical split (peach left, lavender right).
 
 **Typography:**
-- Display: `Outfit` (700/800)
-- Body: `Outfit` (400/500)
+- Display: Rounded Sans (700/800)
+- Body: Rounded Sans (400/500)
 
 **Colors:**
 ```css
@@ -227,8 +230,8 @@ Curated visual styles for Frontend Slides. Each preset is inspired by real desig
 **Layout:** Centered content on cream. Abstract geometric shapes as accent.
 
 **Typography:**
-- Display: `Fraunces` (700/900) — distinctive serif
-- Body: `Work Sans` (400/500)
+- Display: Antique (700/900) — distinctive serif
+- Body: Humanist (400/500)
 
 **Colors:**
 ```css
@@ -254,7 +257,7 @@ Curated visual styles for Frontend Slides. Each preset is inspired by real desig
 
 **Vibe:** Futuristic, techy, confident
 
-**Typography:** `Clash Display` + `Satoshi` (Fontshare)
+**Typography:** Industrial + Geometric Humanist
 
 **Colors:** Deep navy (#0a0f1c), cyan accent (#00ffcc), magenta (#ff00aa)
 
@@ -266,7 +269,7 @@ Curated visual styles for Frontend Slides. Each preset is inspired by real desig
 
 **Vibe:** Developer-focused, hacker aesthetic
 
-**Typography:** `JetBrains Mono` (monospace only)
+**Typography:** Monospace Code (monospace only)
 
 **Colors:** GitHub dark (#0d1117), terminal green (#39d353)
 
@@ -278,7 +281,7 @@ Curated visual styles for Frontend Slides. Each preset is inspired by real desig
 
 **Vibe:** Clean, precise, Bauhaus-inspired
 
-**Typography:** `Archivo` (800) + `Nunito` (400)
+**Typography:** Neo-Grotesque (800) + Classical Humanist (400)
 
 **Colors:** Pure white, pure black, red accent (#ff3300)
 
@@ -290,7 +293,7 @@ Curated visual styles for Frontend Slides. Each preset is inspired by real desig
 
 **Vibe:** Editorial, literary, thoughtful
 
-**Typography:** `Cormorant Garamond` + `Source Serif 4`
+**Typography:** Old Style + Transitional
 
 **Colors:** Warm cream (#faf9f7), charcoal (#1a1a1a), crimson accent (#c41e3a)
 
@@ -300,24 +303,51 @@ Curated visual styles for Frontend Slides. Each preset is inspired by real desig
 
 ## Font Pairing Quick Reference
 
-| Preset | Display Font | Body Font | Source |
-|--------|--------------|-----------|--------|
-| Bold Signal | Archivo Black | Space Grotesk | Google |
-| Electric Studio | Manrope | Manrope | Google |
-| Creative Voltage | Syne | Space Mono | Google |
-| Dark Botanical | Cormorant | IBM Plex Sans | Google |
-| Notebook Tabs | Bodoni Moda | DM Sans | Google |
-| Pastel Geometry | Plus Jakarta Sans | Plus Jakarta Sans | Google |
-| Split Pastel | Outfit | Outfit | Google |
-| Vintage Editorial | Fraunces | Work Sans | Google |
-| Neon Cyber | Clash Display | Satoshi | Fontshare |
-| Terminal Green | JetBrains Mono | JetBrains Mono | JetBrains |
+| Preset | Display Stack | Body Stack |
+|--------|---------------|------------|
+| Bold Signal | Industrial | Humanist |
+| Electric Studio | Geometric Humanist | Geometric Humanist |
+| Creative Voltage | Industrial | Monospace Code |
+| Dark Botanical | Old Style | Humanist |
+| Notebook Tabs | Didone | Geometric Humanist |
+| Pastel Geometry | Geometric Humanist | Geometric Humanist |
+| Split Pastel | Rounded Sans | Rounded Sans |
+| Vintage Editorial | Antique | Humanist |
+| Neon Cyber | Industrial | Geometric Humanist |
+| Terminal Green | Monospace Code | Monospace Code |
+| Swiss Modern | Neo-Grotesque | Classical Humanist |
+| Paper & Ink | Old Style | Transitional |
+
+---
+
+## System Font Stacks
+
+From Modern Font Stacks (modernfontstacks.com, CC0): each stack lists faces already installed on Windows, macOS,
+iOS, Android or Linux, so the deck looks designed without loading a font. Use them as
+`--font-display` / `--font-body`; give each role its own weight, size, case and tracking.
+
+| Name | `font-family` |
+|------|---------------|
+| Transitional | `Charter, 'Bitstream Charter', 'Sitka Text', Cambria, serif` |
+| Old Style | `'Iowan Old Style', 'Palatino Linotype', 'URW Palladio L', P052, serif` |
+| Humanist | `Seravek, 'Gill Sans Nova', Ubuntu, Calibri, 'DejaVu Sans', source-sans-pro, sans-serif` |
+| Geometric Humanist | `Avenir, Montserrat, Corbel, 'URW Gothic', source-sans-pro, sans-serif` |
+| Classical Humanist | `Optima, Candara, 'Noto Sans', source-sans-pro, sans-serif` |
+| Neo-Grotesque | `Inter, Roboto, 'Helvetica Neue', 'Arial Nova', 'Nimbus Sans', Arial, sans-serif` |
+| Monospace Slab Serif | `'Nimbus Mono PS', 'Courier New', monospace` |
+| Monospace Code | `ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, 'DejaVu Sans Mono', monospace` |
+| Industrial | `Bahnschrift, 'DIN Alternate', 'Franklin Gothic Medium', 'Nimbus Sans Narrow', sans-serif-condensed, sans-serif` |
+| Rounded Sans | `ui-rounded, 'Hiragino Maru Gothic ProN', Quicksand, Comfortaa, Manjari, 'Arial Rounded MT', 'Arial Rounded MT Bold', Calibri, source-sans-pro, sans-serif` |
+| Slab Serif | `Rockwell, 'Rockwell Nova', 'Roboto Slab', 'DejaVu Serif', 'Sitka Small', serif` |
+| Antique | `Superclarendon, 'Bookman Old Style', 'URW Bookman', 'URW Bookman L', 'Georgia Pro', Georgia, serif` |
+| Didone | `Didot, 'Bodoni MT', 'Noto Serif Display', 'URW Palladio L', P052, Sylfaen, serif` |
+| Handwritten | `'Segoe Print', 'Bradley Hand', Chilanka, TSCu_Comic, casual, cursive` |
 
 ---
 
 ## DO NOT USE (Generic AI Patterns)
 
-**Fonts:** Inter, Roboto, Arial, system fonts as display
+**Fonts:** a bare `system-ui` or Arial look as display; any `<link>` or `@import` to a font service
 
 **Colors:** `#6366f1` (generic indigo), purple gradients on white
 

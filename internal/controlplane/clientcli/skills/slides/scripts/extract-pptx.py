@@ -6,7 +6,7 @@ Returns a JSON structure with slides, text, and images.
 Usage:
     python extract-pptx.py <input.pptx> [output_dir]
 
-Requires: pip install python-pptx
+Requires: python-pptx, in `python` (the documents environment).
 """
 
 import json

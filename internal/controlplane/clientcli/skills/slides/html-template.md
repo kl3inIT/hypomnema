@@ -12,8 +12,7 @@ Reference architecture for generating slide presentations. Every presentation fo
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Presentation Title</title>
 
-    <!-- Fonts: use Fontshare or Google Fonts — never system fonts -->
-    <link rel="stylesheet" href="https://api.fontshare.com/v2/css?f[]=...">
+    <!-- Fonts: system font stacks only (STYLE_PRESETS.md); no <link> to any host -->
 
     <style>
         /* ===========================================
@@ -30,8 +29,8 @@ Reference architecture for generating slide presentations. Every presentation fo
             --accent-glow: rgba(0, 255, 204, 0.3);
 
             /* Typography — authored at 1920×1080 stage size */
-            --font-display: 'Clash Display', sans-serif;
-            --font-body: 'Satoshi', sans-serif;
+            --font-display: Bahnschrift, 'DIN Alternate', 'Franklin Gothic Medium', 'Nimbus Sans Narrow', sans-serif-condensed, sans-serif;
+            --font-body: Avenir, Montserrat, Corbel, 'URW Gothic', source-sans-pro, sans-serif;
             --title-size: 112px;
             --subtitle-size: 34px;
             --body-size: 28px;
@@ -150,10 +149,13 @@ Reference architecture for generating slide presentations. Every presentation fo
 Every presentation must include:
 
 1. **SlidePresentation Class** — Main controller with:
-   - Keyboard navigation (arrows, space, page up/down)
+   - Keyboard navigation (arrows, space, page up/down, Home/End), listened for on `document`
    - Touch/swipe support
    - Mouse wheel navigation
    - Optional progress indicator or page count, kept outside the slide stage
+
+   The deck runs in the artifact's frame: it gets the keys once the owner clicks it, so a click on the stage must
+   not do anything else. Do not call `requestFullscreen` (the frame may not); the panel has its own Full screen.
 
 2. **Stage Scaling** — For fixed 16:9 presentation behavior:
    - Keep all slides at 1920×1080 inside `.deck-stage`
@@ -168,98 +170,13 @@ Every presentation must include:
    - Magnetic buttons
    - Counter animations
 
-4. **Inline Editing** (included by default after draft generation):
-   - Edit toggle button (hidden by default, revealed via hover hotzone or `E` key)
-   - Auto-save to localStorage
-   - Export/save file functionality
-   - See "Inline Editing Implementation" section below
-
-## Inline Editing Implementation
-
-Inline editing is a lightweight post-draft affordance. Do not ask the user whether they want it during the pre-generation Q&A. Include it by default unless the user explicitly asks for a locked/export-only presentation or no editing controls.
-
-**Do NOT use CSS `~` sibling selector for hover-based show/hide.** The CSS-only approach (`edit-hotzone:hover ~ .edit-toggle`) fails because `pointer-events: none` on the toggle button breaks the hover chain: user hovers hotzone -> button becomes visible -> mouse moves toward button -> leaves hotzone -> button disappears before click.
-
-**Required approach: JS-based hover with 400ms delay timeout.**
-
-HTML:
-```html
-<div class="edit-hotzone"></div>
-<button class="edit-toggle" id="editToggle" title="Edit mode (E)">✏️</button>
-```
-
-CSS (visibility controlled by JS classes only):
-```css
-/* Do NOT use CSS ~ sibling selector for this!
-   pointer-events: none breaks the hover chain.
-   Must use JS with delay timeout. */
-.edit-hotzone {
-    position: fixed; top: 0; left: 0;
-    width: 80px; height: 80px;
-    z-index: 10000;
-    cursor: pointer;
-}
-.edit-toggle {
-    opacity: 0;
-    pointer-events: none;
-    transition: opacity 0.3s ease;
-    z-index: 10001;
-}
-.edit-toggle.show,
-.edit-toggle.active {
-    opacity: 1;
-    pointer-events: auto;
-}
-```
-
-JS (three interaction methods):
-```javascript
-// 1. Click handler on the toggle button
-document.getElementById('editToggle').addEventListener('click', () => {
-    editor.toggleEditMode();
-});
-
-// 2. Hotzone hover with 400ms grace period
-const hotzone = document.querySelector('.edit-hotzone');
-const editToggle = document.getElementById('editToggle');
-let hideTimeout = null;
-
-hotzone.addEventListener('mouseenter', () => {
-    clearTimeout(hideTimeout);
-    editToggle.classList.add('show');
-});
-hotzone.addEventListener('mouseleave', () => {
-    hideTimeout = setTimeout(() => {
-        if (!editor.isActive) editToggle.classList.remove('show');
-    }, 400);
-});
-editToggle.addEventListener('mouseenter', () => {
-    clearTimeout(hideTimeout);
-});
-editToggle.addEventListener('mouseleave', () => {
-    hideTimeout = setTimeout(() => {
-        if (!editor.isActive) editToggle.classList.remove('show');
-    }, 400);
-});
-
-// 3. Hotzone direct click
-hotzone.addEventListener('click', () => {
-    editor.toggleEditMode();
-});
-
-// 4. Keyboard shortcut (E key, skip when editing text)
-document.addEventListener('keydown', (e) => {
-    if ((e.key === 'e' || e.key === 'E') && !e.target.getAttribute('contenteditable')) {
-        editor.toggleEditMode();
-    }
-});
-```
+No inline editing and no `localStorage`, `sessionStorage` or cookies: the frame has no storage and saves no file.
 
 ## Image Pipeline (Skip If No Images)
 
 If user chose "No images" in Phase 1, skip this entirely. If images were provided, process them before generating HTML.
 
-**Dependency:** `pip install Pillow`
+**Dependency:** Pillow, already in `python` (the documents environment); never `pip install`.
 
 ### Image Processing
 
@@ -295,7 +212,9 @@ Save processed images with `_processed` suffix. Never overwrite originals.
 
 ### Image Placement
 
-**Use direct file paths** (not base64) — presentations are viewed locally:
+**Use relative file paths** (not base64) in a deck folder shown with `--path`, whose images are served beside its
+`index.html`; only a small logo goes into a single-file deck as a `data:` URL. Never an absolute path or another
+host:
 
 ```html
 <img src="assets/logo_round.png" alt="Logo" class="slide-image logo">
@@ -337,14 +256,13 @@ Save processed images with `_processed` suffix. Never overwrite originals.
 
 ## File Structure
 
-Single presentations:
+A presentation without images (`--html-file`, at most 256 KB):
 ```
-presentation.html    # Self-contained, all CSS/JS inline
-assets/              # Images only, if any
+[name].html          # Self-contained, all CSS/JS inline
 ```
 
-Multiple presentations in one project:
+A presentation with images (`--path [name]`, at most 5 MB in all):
 ```
-[name].html
-[name]-assets/
+[name]/index.html    # Self-contained, all CSS/JS inline
+[name]/assets/       # Images only
 ```
