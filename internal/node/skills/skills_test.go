@@ -132,6 +132,6 @@ func TestSkillsArePlacedWhereEachCLIReadsThem(t *testing.T) {
 
 	var manifest map[string]string
 	require.NoError(t, json.Unmarshal(b, &manifest))
-	assert.Equal(t, PluginName, manifest["name"])
+	assert.Equal(t, "hypomnema", manifest["name"], "Claude Code shows the skills as hypomnema:<skill>")
 	assert.FileExists(t, filepath.Join(plugin, "skills", "review-go", "SKILL.md"))
 }

@@ -193,7 +193,7 @@ func TestCreatedMachineJoinsWithItsOwnToken(t *testing.T) {
 	found := tokenInScript.FindStringSubmatch(spec.UserData)
 	require.Len(t, found, 2, "the script sets the node's token")
 
-	owner, err := w.svc.AuthenticateNode(t.Context(), found[1])
+	owner, _, err := w.svc.AuthenticateNodeToken(t.Context(), found[1])
 	require.NoError(t, err)
 	assert.Equal(t, n.ID, owner.ID)
 
@@ -296,7 +296,7 @@ func TestRemoveKeepsTheNodeUntilTheMachineIsDestroyed(t *testing.T) {
 	assert.Equal(t, orchestration.NodeDrained, got.Status)
 	assert.Contains(t, got.Machine.Error, "RequestLimitExceeded")
 
-	_, err := w.svc.AuthenticateNode(t.Context(), token)
+	_, _, err := w.svc.AuthenticateNodeToken(t.Context(), token)
 	require.ErrorIs(t, err, orchestration.ErrNotFound)
 
 	w.cloud.deleteErr = nil

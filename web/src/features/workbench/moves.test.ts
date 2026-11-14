@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { alone, closeTabIn, dropTab, withoutPane, type Bench } from "./moves"
+import { alone, dropTab, withoutPane, type Bench } from "./moves"
 import { closeTab, openTab, paneOf, replaceTab, type PaneTab } from "./pane"
 
 const chat = (id: string): PaneTab => ({ kind: "chat", chat: id })
@@ -74,7 +74,8 @@ describe("closing", () => {
   })
 
   it("the last tab of a pane takes the pane off the grid, and the last pane leaves none", () => {
-    expect(closeTabIn(bench, "p2", "chat:c")?.layout).toBe("p1")
+    expect(closeTab(paneOf(chat("c")), "chat:c")).toBeNull()
+    expect(withoutPane(bench, "p2")?.layout).toBe("p1")
     expect(withoutPane({ layout: "p1", panes: bench.panes }, "p1")).toBeNull()
   })
 })

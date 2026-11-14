@@ -1,30 +1,11 @@
 import { expect, test, type Page } from "@playwright/test"
 
 import { shot } from "./shot.js"
+import type { Skill } from "../src/api/generated/types.gen.js"
 
 // The Skills pages (issue #21), built, against a fake client API, on a phone and a desktop.
 
 const ago = (hours: number) => new Date(Date.now() - hours * 3600_000).toISOString()
-
-type Revision = {
-  revision: number
-  description: string
-  digest: string
-  size: number
-  files: number
-  source: string
-  commit?: string
-  created_at: string
-}
-
-type Skill = {
-  name: string
-  everyone: boolean
-  latest: Revision
-  revisions?: Revision[]
-  created_at: string
-  updated_at: string
-}
 
 const revision = (
   n: number,

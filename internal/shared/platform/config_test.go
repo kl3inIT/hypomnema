@@ -21,28 +21,24 @@ func TestEnvReportsEveryProblemAtOnce(t *testing.T) {
 
 	env := platform.NewEnv(envOf(map[string]string{
 		"X_LOG_FORMAT": "xml",
-		"X_COUNT":      "zero",
 	}))
 
 	env.Required("X_URL")
-	env.Int("X_COUNT", 1, 1, 10)
 	env.Log("X")
 
 	err := env.Err()
 	require.Error(t, err)
 	require.ErrorIs(t, err, platform.ErrMissing)
 	require.ErrorContains(t, err, "X_URL")
-	require.ErrorContains(t, err, "X_COUNT")
 	require.ErrorContains(t, err, "X_LOG_FORMAT")
 }
 
 func TestEnvDefaults(t *testing.T) {
 	t.Parallel()
 
-	env := platform.NewEnv(envOf(map[string]string{"X_COUNT": " 7 "}))
+	env := platform.NewEnv(envOf(map[string]string{"X_ADDR": " "}))
 
 	assert.Equal(t, "fallback", env.String("X_ADDR", "fallback"))
-	assert.Equal(t, 7, env.Int("X_COUNT", 1, 1, 10))
 	assert.Equal(t, platform.LogConfig{Level: slog.LevelInfo, Format: platform.LogFormatJSON}, env.Log("X"))
 	require.NoError(t, env.Err())
 }

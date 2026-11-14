@@ -88,9 +88,6 @@ func (s *Stream) Finished() bool { return s.finish != "" }
 // Failed returns the error the backend reported, or nil.
 func (s *Stream) Failed() *Failure { return s.failure }
 
-// Usage returns the tokens the backend counted, or nil before the end.
-func (s *Stream) Usage() *Usage { return s.usage }
-
 type event struct {
 	Type     string          `json:"type"`
 	Delta    string          `json:"delta"`

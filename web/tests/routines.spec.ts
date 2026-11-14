@@ -1,70 +1,14 @@
 import { expect, test, type Page } from "@playwright/test"
 
 import { shot } from "./shot.js"
+import type {
+  RoutineRun as Run,
+  ChatMessage as Message,
+  Routine,
+} from "../src/api/generated/types.gen.js"
 
 // The Routines page with its panel and form, a Bot's short list, and the cards in a chat (issue #211), built,
 // against a fake client API, on a phone and a desktop.
-
-type Run = {
-  id: string
-  routine_id: string
-  started_by: "schedule" | "manual"
-  state: "running" | "waiting" | "succeeded" | "failed" | "canceled"
-  started_at: string
-  ended_at?: string
-  exit_code?: number
-  output: string
-  error: string
-  chat_id?: string
-}
-
-type Message = {
-  seq: number
-  chat_id: string
-  role: "owner" | "coordinator" | "tool" | "system"
-  text: string
-  parts?: { type: string; id?: string; routine_id?: string; text?: string }[]
-  created_at: string
-}
-
-type Grant = {
-  integration: string
-  label: string
-  action: string
-  action_name: string
-  created_at: string
-}
-
-type Routine = {
-  id: string
-  bot: string
-  name: string
-  kind: "prompt" | "script"
-  prompt?: string
-  script?: string
-  script_text?: string
-  every_minutes?: number
-  cron?: string
-  timezone?: string
-  schedule: string
-  sentence: string
-  timeout_seconds: number
-  state: "on" | "paused"
-  paused_reason?: string
-  summary?: string
-  chat_id?: string
-  announce: boolean
-  next_run_at?: string
-  failures: number
-  skipped: number
-  last_skipped_at?: string
-  can_undo: boolean
-  created_by: string
-  created_at: string
-  updated_at: string
-  last_run?: Run
-  grants: Grant[]
-}
 
 const minutes = (n: number) => new Date(Date.now() + n * 60_000).toISOString()
 

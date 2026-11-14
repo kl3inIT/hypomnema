@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -43,17 +42,6 @@ func (e *NodeEnd) Type(ctx context.Context, data []byte) error {
 // Resize tells the node the terminal's new size, as JSON.
 func (e *NodeEnd) Resize(ctx context.Context, size []byte) error {
 	return e.conn.Write(ctx, websocket.MessageText, size)
-}
-
-// CloseReason is why the node closed the connection, from a read error; ""
-// when it did not say.
-func CloseReason(err error) string {
-	var closed websocket.CloseError
-	if errors.As(err, &closed) {
-		return closed.Reason
-	}
-
-	return ""
 }
 
 // Close ends the connection and lets the node's request return.

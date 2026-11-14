@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test"
+import { shot } from "./shot.js"
 
 // The Machines page, built, against a fake client API, on a phone and a desktop.
 
@@ -35,16 +36,6 @@ const node = (id: string, name: string, m: object = {}) => ({
   created_at: now,
   ...m,
 })
-
-// shot keeps a picture for the owner to look at when UI_CHECK names a folder; a normal run takes none.
-async function shot(page: Page, name: string) {
-  const dir = process.env.UI_CHECK
-  if (!dir) return
-
-  const size = page.viewportSize()
-  const device = size && size.width < 600 ? "phone" : "desktop"
-  await page.screenshot({ path: `${dir}/${name}-${device}.png` })
-}
 
 async function fakeServer(page: Page) {
   let nodes = [

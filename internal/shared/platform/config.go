@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"strconv"
 	"strings"
 )
 
@@ -47,24 +46,6 @@ func (e *Env) Required(name string) string {
 	v := strings.TrimSpace(e.getenv(name))
 	if v == "" {
 		e.errs = append(e.errs, fmt.Errorf("%s: %w", name, ErrMissing))
-	}
-
-	return v
-}
-
-// Int returns the setting as an integer within [lowest, highest], or def when
-// it is unset.
-func (e *Env) Int(name string, def, lowest, highest int) int {
-	raw := strings.TrimSpace(e.getenv(name))
-	if raw == "" {
-		return def
-	}
-
-	v, err := strconv.Atoi(raw)
-	if err != nil || v < lowest || v > highest {
-		e.errs = append(e.errs, fmt.Errorf("%s: %q is not an integer from %d to %d", name, raw, lowest, highest))
-
-		return def
 	}
 
 	return v

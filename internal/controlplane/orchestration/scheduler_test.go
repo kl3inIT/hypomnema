@@ -437,11 +437,11 @@ func TestNodeTokenAuthenticatesAndIsNotStored(t *testing.T) {
 	assert.Equal(t, NodeDispatchesDefault, n.MaxDispatches)
 	assert.True(t, strings.HasPrefix(token, "hyn_"))
 
-	got, err := w.s.AuthenticateNode(t.Context(), token)
+	got, _, err := w.s.AuthenticateNodeToken(t.Context(), token)
 	require.NoError(t, err)
 	assert.Equal(t, n.ID, got.ID)
 
-	_, err = w.s.AuthenticateNode(t.Context(), token+"x")
+	_, _, err = w.s.AuthenticateNodeToken(t.Context(), token+"x")
 	require.ErrorIs(t, err, ErrNotFound)
 
 	var stored int
