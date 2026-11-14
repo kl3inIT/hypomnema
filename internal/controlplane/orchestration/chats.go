@@ -14,6 +14,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/artifactpack"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/storeutil"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/workspacefs"
 )
@@ -57,7 +58,7 @@ const (
 // Limits on chats.
 const (
 	// MaxChatText bounds one message.
-	MaxChatText = 100_000
+	MaxChatText = storeutil.MaxChatText
 	// ChatPageDefault and ChatPageMax bound a page of messages or chats.
 	ChatPageDefault = 100
 	ChatPageMax     = 500

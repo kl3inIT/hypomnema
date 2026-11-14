@@ -29,6 +29,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/agentapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/routinestore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/serviceproxy"
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
@@ -516,13 +517,13 @@ const runHold = 300 * time.Millisecond
 
 // routineRun starts a run of a script Routine and returns the key its
 // launcher is given.
-func (w *world) routineRun(routineID string) (orchestration.RoutineRun, string) {
+func (w *world) routineRun(routineID string) (routinestore.RoutineRun, string) {
 	w.t.Helper()
 
 	started, err := w.svc.RunRoutineNow(w.t.Context(), routineID)
 	require.NoError(w.t, err)
 
-	launch, err := w.svc.ClaimRoutineScript(w.t.Context(), routineID, orchestration.DefaultBot)
+	launch, err := w.svc.Routines().ClaimRoutineScript(w.t.Context(), routineID, orchestration.DefaultBot)
 	require.NoError(w.t, err)
 
 	return started.Run, launch.Key
@@ -540,10 +541,10 @@ func TestAlwaysForARoutineStopsAskingInItsRunsOnly(t *testing.T) {
 	w := newWorld(t, time.Minute)
 	ctx := t.Context()
 
-	routine, err := w.svc.PutRoutine(ctx, orchestration.RoutineSpec{
-		Bot: orchestration.DefaultBot, Name: "digest", Kind: orchestration.RoutineScript, Script: "digest.sh",
+	routine, err := w.svc.Routines().PutRoutine(ctx, routinestore.RoutineSpec{
+		Bot: orchestration.DefaultBot, Name: "digest", Kind: routinestore.RoutineScript, Script: "digest.sh",
 		ScriptText: "#!/bin/sh\ngws gmail +send\n", EveryMinutes: 60,
-	}, orchestration.RoutineAuthor{})
+	}, routinestore.RoutineAuthor{})
 	require.NoError(t, err)
 
 	first, key := w.routineRun(routine.ID)
@@ -571,7 +572,7 @@ func TestAlwaysForARoutineStopsAskingInItsRunsOnly(t *testing.T) {
 	require.Equal(t, http.StatusOK, (<-answered).Status, "the same call goes on")
 	assert.Contains(t, w.logs.String(), `verdict="approved for the routine"`)
 
-	_, err = w.svc.FinishRoutineRun(ctx, first.ID, orchestration.RunResult{State: orchestration.RunSucceeded})
+	_, err = w.svc.FinishRoutineRun(ctx, first.ID, routinestore.RunResult{State: routinestore.RunSucceeded})
 	require.NoError(t, err)
 
 	_, next := w.routineRun(routine.ID)
@@ -614,10 +615,10 @@ func TestARunsRequestNobodyAnswersIsRefused(t *testing.T) {
 	w := newWorld(t, time.Minute)
 	ctx := t.Context()
 
-	routine, err := w.svc.PutRoutine(ctx, orchestration.RoutineSpec{
-		Bot: orchestration.DefaultBot, Name: "digest", Kind: orchestration.RoutineScript, Script: "digest.sh",
+	routine, err := w.svc.Routines().PutRoutine(ctx, routinestore.RoutineSpec{
+		Bot: orchestration.DefaultBot, Name: "digest", Kind: routinestore.RoutineScript, Script: "digest.sh",
 		ScriptText: "#!/bin/sh\ngws gmail +send\n", EveryMinutes: 60,
-	}, orchestration.RoutineAuthor{})
+	}, routinestore.RoutineAuthor{})
 	require.NoError(t, err)
 
 	run, key := w.routineRun(routine.ID)

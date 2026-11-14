@@ -750,10 +750,18 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     agents' project folders, the `paths` of `skills.sh.json`, three levels deep; else anywhere five deep), and
     keeps that folder as the source's path. CLI: `skills search <words> [--owner o]`, `skills add --github
     owner/repo --skill <name>`, which prints the audits first. Nothing else is sent to skills.sh.
-- Routines (`orchestration/routines.go` keeps the record, `internal/controlplane/routines` runs them;
-  [issue #211](https://github.com/kl3inIT/hypomnema/issues/211), migration 00056,
-  [research](docs/research/2026-11-12-work-on-a-schedule.md)): a Routine is work a Bot does on a schedule. What
-  the work is, is not built in.
+- Routines (the domain store `orchestration/routinestore` keeps the record, reached through `Service.Routines()`;
+  `internal/controlplane/routines` runs them; [issue #211](https://github.com/kl3inIT/hypomnema/issues/211),
+  migration 00056, [research](docs/research/2026-11-12-work-on-a-schedule.md)): a Routine is work a Bot does on a
+  schedule. What the work is, is not built in.
+  - **Where the code is** (issue #404). The store imports the generated queries and never the root. What also
+    writes another domain's tables stays in the root and calls the store's functions that end in `Tx` with its
+    own queries: starting a run (`RunRoutineNow`, `ClaimDueRoutines`: a prompt run's chat), ending one
+    (`FinishRoutineRun`: what the run still asked is refused), what a run's approvals ended as
+    (`RoutineRunAnswers`), a line in a chat (`TellChat`), an approval that waits a run or grants "always for this
+    Routine" (`RunOfAskerTx`, `GrantedTx`, `WaitRunTx`, `ResumeRunTx`, `GrantTx`), and a Bot removed with its
+    chats or refused for its Routines (`DetachFromChatsOfBotTx`, `CountRoutinesOfBotTx`). The runner takes the
+    two apart: `routines.New(svc, svc.Routines(), cfg)`.
   - **What it is.** A row of `routines`: its Bot, a name of its own among the Bot's, a kind, a schedule, on or
     paused (with the reason), when it runs next, the chat it was made in, and whether a run's result is told
     there. A `prompt` Routine gives the Bot its text in a new chat each run. A `script` Routine names a file
@@ -767,7 +775,8 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     downtime (`routine-intervals.ts`, `nextAlignedInterval`). No seconds field, no `@every`, no one-time Routine.
     A schedule is said in words ("every hour", "every weekday at 7:00 Ho Chi Minh time"): a familiar cron
     expression as what it means and any other as itself, with its zone as people say it
-    (`orchestration/schedule_words.go`, after OpenMausBot's `shared/cron-label.ts` and `plain-time-zone.ts`).
+    (`orchestration/routinestore/schedule_words.go`, after OpenMausBot's `shared/cron-label.ts` and
+    `plain-time-zone.ts`).
     `POST /routine-schedule` checks a schedule as a Routine's is and answers its words and its next three times,
     counted from now, without keeping anything.
   - **The tick.** The runner looks every 60 s (`ClaimDueRoutines`): each Routine that is on and due gets its next
@@ -2882,6 +2891,7 @@ internal/controlplane/orchestration  Runs, Tasks, Dispatches, Conversations, que
 internal/controlplane/orchestration/internal/storeutil  what its stores share: the one write helper, which signals event readers after the commit
 internal/controlplane/orchestration/storeerr  the errors every orchestration store returns, re-exported by orchestration
 internal/controlplane/orchestration/channelstore  the Channels (tables channels and channel_*, Lark the one kind): who may talk through each, the messages taken, the Lark chats and groups, the question cards, reached through orchestration's Channels()
+internal/controlplane/orchestration/routinestore  the Routines, their runs and the grants the owner gave them: the schedule, the claim of due Routines, a run's end applied to its Routine, pruning, a Bot's change and its undo, reached through orchestration's Routines()
 internal/controlplane/orchestration/memorystore  the agents' memories and the one about the owner, and the entry rules a Bot's memory follows, reached through orchestration's Memories()
 internal/controlplane/orchestration/userstore  the web's users and sessions, reached through orchestration's Users()
 internal/controlplane/skillsource  fetches a skill from a public GitHub repository at the commit its ref names

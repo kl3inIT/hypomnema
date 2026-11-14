@@ -13,6 +13,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/routinestore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/routines"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite/sqlitetest"
@@ -29,7 +30,7 @@ const (
 
 var (
 	t0    = time.Date(2026, 11, 7, 9, 0, 0, 0, time.UTC)
-	owner = orchestration.RoutineAuthor{}
+	owner = routinestore.RoutineAuthor{}
 )
 
 type clock struct {
@@ -190,7 +191,7 @@ func newWorld(t *testing.T) *world {
 }
 
 func (w *world) runnerWith(command ...string) *routines.Runner {
-	return routines.New(w.svc, routines.Config{
+	return routines.New(w.svc, w.svc.Routines(), routines.Config{
 		Command: command, Coordinator: w.pi, Owner: w.lark, Now: w.clock.Now, Exec: w.script.exec, Tokens: w.tokens,
 		After: func(d time.Duration) <-chan time.Time {
 			w.waits = append(w.waits, d)
@@ -203,11 +204,11 @@ func (w *world) runnerWith(command ...string) *routines.Runner {
 	})
 }
 
-func (w *world) hourly(name string, chatID string) orchestration.Routine {
+func (w *world) hourly(name string, chatID string) routinestore.Routine {
 	w.t.Helper()
 
-	r, err := w.svc.PutRoutine(w.t.Context(), orchestration.RoutineSpec{
-		Bot: orchestration.DefaultBot, Name: name, Kind: orchestration.RoutineScript, Script: "sync.sh",
+	r, err := w.svc.Routines().PutRoutine(w.t.Context(), routinestore.RoutineSpec{
+		Bot: orchestration.DefaultBot, Name: name, Kind: routinestore.RoutineScript, Script: "sync.sh",
 		ScriptText: "#!/bin/sh\necho 3 rows written\n", EveryMinutes: 60, ChatID: chatID, Announce: true,
 	}, owner)
 	require.NoError(w.t, err)
@@ -215,11 +216,11 @@ func (w *world) hourly(name string, chatID string) orchestration.Routine {
 	return r
 }
 
-func (w *world) daily(name, chatID string) orchestration.Routine {
+func (w *world) daily(name, chatID string) routinestore.Routine {
 	w.t.Helper()
 
-	r, err := w.svc.PutRoutine(w.t.Context(), orchestration.RoutineSpec{
-		Bot: orchestration.DefaultBot, Name: name, Kind: orchestration.RoutinePrompt,
+	r, err := w.svc.Routines().PutRoutine(w.t.Context(), routinestore.RoutineSpec{
+		Bot: orchestration.DefaultBot, Name: name, Kind: routinestore.RoutinePrompt,
 		Prompt: "Summarize what changed overnight.", EveryMinutes: 1440, ChatID: chatID, Announce: true,
 	}, owner)
 	require.NoError(w.t, err)
@@ -236,10 +237,10 @@ func (w *world) chat() string {
 	return c.ID
 }
 
-func (w *world) routine(id string) orchestration.Routine {
+func (w *world) routine(id string) routinestore.Routine {
 	w.t.Helper()
 
-	r, err := w.svc.GetRoutine(w.t.Context(), id)
+	r, err := w.svc.Routines().GetRoutine(w.t.Context(), id)
 	require.NoError(w.t, err)
 
 	return r
@@ -247,13 +248,13 @@ func (w *world) routine(id string) orchestration.Routine {
 
 // ended waits until the Routine has n runs and the newest is in a state,
 // and returns it.
-func (w *world) ended(routineID string, n int, state orchestration.RunState) orchestration.RoutineRun {
+func (w *world) ended(routineID string, n int, state routinestore.RunState) routinestore.RoutineRun {
 	w.t.Helper()
 
-	var run orchestration.RoutineRun
+	var run routinestore.RoutineRun
 
 	require.Eventually(w.t, func() bool {
-		runs, err := w.svc.ListRoutineRuns(w.t.Context(), routineID, 0)
+		runs, err := w.svc.Routines().ListRoutineRuns(w.t.Context(), routineID, 0)
 		if err != nil || len(runs) != n {
 			return false
 		}
@@ -320,7 +321,7 @@ func change(n orchestration.NewApproval) orchestration.NewApproval {
 // holds it: it asks, waits in place until the Approval is answered, and
 // says how it ended.
 func (w *world) held(ctx context.Context, routineID string, asked chan<- orchestration.Approval) (string, error) {
-	launch, err := w.svc.ClaimRoutineScript(ctx, routineID, orchestration.DefaultBot)
+	launch, err := w.svc.Routines().ClaimRoutineScript(ctx, routineID, orchestration.DefaultBot)
 	if err != nil {
 		return "", err
 	}
@@ -371,7 +372,7 @@ func TestAScriptRoutineRunsThroughTheLauncher(t *testing.T) {
 	w.clock.add(time.Hour)
 	w.runner.Tick(t.Context())
 
-	run := w.ended(sync.ID, 1, orchestration.RunSucceeded)
+	run := w.ended(sync.ID, 1, routinestore.RunSucceeded)
 	require.NotNil(t, run.ExitCode)
 	assert.Zero(t, *run.ExitCode)
 	assert.Equal(t, "3 rows written\n", run.Output)
@@ -387,7 +388,7 @@ func TestAScriptRoutineRunsThroughTheLauncher(t *testing.T) {
 	w.clock.add(time.Hour)
 	w.runner.Tick(t.Context())
 
-	failed := w.ended(sync.ID, 2, orchestration.RunFailed)
+	failed := w.ended(sync.ID, 2, routinestore.RunFailed)
 	assert.Equal(t, "the script exited with code 1", failed.Error)
 	assert.Equal(t, "lark-cli: the Base refused\n", failed.Output)
 	assert.Equal(t, t0.Add(3*time.Hour), *w.routine(sync.ID).NextRunAt, "a script's own failure waits for the schedule")
@@ -397,7 +398,7 @@ func TestAScriptRoutineRunsThroughTheLauncher(t *testing.T) {
 	w.clock.add(time.Hour)
 	w.runner.Tick(t.Context())
 
-	late := w.ended(sync.ID, 3, orchestration.RunFailed)
+	late := w.ended(sync.ID, 3, routinestore.RunFailed)
 	assert.Equal(t, "the script was stopped at its limit of 10m0s", late.Error)
 	assert.Equal(t, w.clock.Now().Add(time.Minute), *w.routine(sync.ID).NextRunAt,
 		"a script that ran out of time may pass: it is tried again after the second step of the backoff")
@@ -413,7 +414,7 @@ func TestAScriptRoutineRunsThroughTheLauncher(t *testing.T) {
 	w.clock.add(time.Minute)
 	w.runner.Tick(t.Context())
 
-	third := w.ended(sync.ID, 4, orchestration.RunFailed)
+	third := w.ended(sync.ID, 4, routinestore.RunFailed)
 	assert.Contains(t, third.Error, "could not be run: sudo: a password is required")
 	assert.Nil(t, third.ExitCode)
 	assert.Equal(t, w.clock.Now().Add(5*time.Minute), *w.routine(sync.ID).NextRunAt)
@@ -431,9 +432,9 @@ func TestAScriptRunFailsWhereNoCommandIsSet(t *testing.T) {
 
 	run, err := w.runner.RunNow(t.Context(), sync.ID)
 	require.NoError(t, err)
-	assert.Equal(t, orchestration.RunRunning, run.State)
+	assert.Equal(t, routinestore.RunRunning, run.State)
 
-	failed := w.ended(sync.ID, 1, orchestration.RunFailed)
+	failed := w.ended(sync.ID, 1, routinestore.RunFailed)
 	assert.Contains(t, failed.Error, "HYPOMNEMA_ROUTINE_COMMAND")
 	assert.Empty(t, w.script.ran())
 }
@@ -481,7 +482,7 @@ func TestAScriptRunHasATokenOfItsOwnThatEndsWithIt(t *testing.T) {
 
 	_, err = w.runner.RunNow(ctx, sync.ID)
 	require.NoError(t, err)
-	w.ended(sync.ID, 1, orchestration.RunSucceeded)
+	w.ended(sync.ID, 1, routinestore.RunSucceeded)
 
 	during := <-seen
 	assert.Equal(t, bearertoken.Bot, during.Kind)
@@ -503,7 +504,7 @@ func TestAScriptRunHasATokenOfItsOwnThatEndsWithIt(t *testing.T) {
 	_, err = w.runner.RunNow(ctx, sync.ID)
 	require.NoError(t, err)
 
-	failed := w.ended(sync.ID, 2, orchestration.RunFailed)
+	failed := w.ended(sync.ID, 2, routinestore.RunFailed)
 	assert.Contains(t, failed.Error, "making the run's token failed")
 	assert.Len(t, w.script.ran(), 1, "no script runs without its token")
 }
@@ -540,7 +541,7 @@ func TestAScriptsRequestWaitsInPlaceForTheOwner(t *testing.T) {
 	require.NoError(t, err)
 
 	approval := <-asked
-	waiting := w.ended(sync.ID, 1, orchestration.RunWaiting)
+	waiting := w.ended(sync.ID, 1, routinestore.RunWaiting)
 
 	_, err = w.runner.RunNow(t.Context(), sync.ID)
 	require.ErrorIs(t, err, orchestration.ErrConflict)
@@ -549,7 +550,7 @@ func TestAScriptsRequestWaitsInPlaceForTheOwner(t *testing.T) {
 	_, err = w.svc.DecideApproval(t.Context(), approval.ID, true, orchestration.ScopeOnce)
 	require.NoError(t, err)
 
-	done := w.ended(sync.ID, 1, orchestration.RunSucceeded)
+	done := w.ended(sync.ID, 1, routinestore.RunSucceeded)
 	assert.Equal(t, waiting.ID, done.ID)
 	assert.Len(t, w.script.ran(), 1, "the script was started once: its call went on where it waited")
 	assert.Zero(t, w.routine(sync.ID).Failures)
@@ -562,7 +563,7 @@ func TestAScriptsRequestWaitsInPlaceForTheOwner(t *testing.T) {
 	_, err = w.svc.DecideApproval(t.Context(), (<-asked).ID, false, "")
 	require.NoError(t, err)
 
-	stopped := w.ended(sync.ID, 2, orchestration.RunStopped)
+	stopped := w.ended(sync.ID, 2, routinestore.RunStopped)
 	assert.Equal(t, `the owner rejected "Change a Base: usage"`, stopped.Error)
 	assert.Zero(t, w.routine(sync.ID).Failures, "his no is no failure of the routine")
 
@@ -575,7 +576,7 @@ func TestAScriptsRequestWaitsInPlaceForTheOwner(t *testing.T) {
 	_, err = w.svc.ExpireApproval(t.Context(), (<-asked).ID)
 	require.NoError(t, err)
 
-	failed := w.ended(sync.ID, 3, orchestration.RunFailed)
+	failed := w.ended(sync.ID, 3, routinestore.RunFailed)
 	assert.Equal(t, `nobody answered the approval of "Change a Base: usage" in time`, failed.Error)
 	assert.Equal(t, 1, w.routine(sync.ID).Failures)
 	assert.Len(t, w.script.ran(), 3)
@@ -597,23 +598,23 @@ func TestAPromptRoutineRunsInAChatOfItsOwn(t *testing.T) {
 	w.clock.add(24 * time.Hour)
 	w.runner.Tick(t.Context())
 
-	run := w.ended(brief.ID, 1, orchestration.RunRunning)
+	run := w.ended(brief.ID, 1, routinestore.RunRunning)
 	require.NotEmpty(t, run.ChatID)
 	require.NotEqual(t, home, run.ChatID)
 
 	w.runner.Follow(t.Context())
-	w.ended(brief.ID, 1, orchestration.RunRunning)
+	w.ended(brief.ID, 1, routinestore.RunRunning)
 
 	w.work(run.ChatID, true)
 	w.says(run.ChatID, "Reading the repositories…")
 	w.runner.Follow(t.Context())
-	w.ended(brief.ID, 1, orchestration.RunRunning)
+	w.ended(brief.ID, 1, routinestore.RunRunning)
 
 	w.says(run.ChatID, "Two pull requests were merged overnight.")
 	w.work(run.ChatID, false)
 	w.runner.Follow(t.Context())
 
-	done := w.ended(brief.ID, 1, orchestration.RunSucceeded)
+	done := w.ended(brief.ID, 1, routinestore.RunSucceeded)
 	assert.Equal(t, "Two pull requests were merged overnight.", done.Output)
 	assert.Nil(t, done.ExitCode)
 
@@ -639,7 +640,7 @@ func TestAPromptRoutineRunsInAChatOfItsOwn(t *testing.T) {
 
 	w.runner.Follow(t.Context())
 
-	failed := w.ended(brief.ID, 2, orchestration.RunFailed)
+	failed := w.ended(brief.ID, 2, routinestore.RunFailed)
 	assert.Contains(t, failed.Error, "429 too many requests")
 	assert.Equal(t, w.clock.Now().Add(30*time.Second), *w.routine(brief.ID).NextRunAt, "a rate limit is tried again early")
 	w.said(home, 1)
@@ -651,12 +652,12 @@ func TestAPromptRoutineRunsInAChatOfItsOwn(t *testing.T) {
 
 	w.clock.add(59 * time.Minute)
 	w.runner.Follow(t.Context())
-	w.ended(brief.ID, 3, orchestration.RunRunning)
+	w.ended(brief.ID, 3, routinestore.RunRunning)
 
 	w.clock.add(2 * time.Minute)
 	w.runner.Follow(t.Context())
 
-	late := w.ended(brief.ID, 3, orchestration.RunFailed)
+	late := w.ended(brief.ID, 3, routinestore.RunFailed)
 	assert.Equal(t, "stopped after 1h0m0s", late.Error)
 	assert.Equal(t, []string{third.ChatID}, w.pi.stopped())
 }
@@ -685,24 +686,24 @@ func TestAPromptRunWaitsForTheOwner(t *testing.T) {
 	assert.Equal(t, run.ID, asked.RoutineRunID)
 
 	w.runner.Follow(t.Context())
-	w.ended(brief.ID, 1, orchestration.RunWaiting)
+	w.ended(brief.ID, 1, routinestore.RunWaiting)
 
 	w.clock.add(20 * time.Minute)
 	w.runner.Follow(t.Context())
-	w.ended(brief.ID, 1, orchestration.RunWaiting)
+	w.ended(brief.ID, 1, routinestore.RunWaiting)
 	assert.Empty(t, w.pi.stopped(), "within its hour it waits")
 
 	_, err = w.svc.DecideApproval(t.Context(), asked.ID, true, orchestration.ScopeOnce)
 	require.NoError(t, err)
 
 	w.runner.Follow(t.Context())
-	w.ended(brief.ID, 1, orchestration.RunRunning)
+	w.ended(brief.ID, 1, routinestore.RunRunning)
 
 	w.says(run.ChatID, "The Base has the new rows.")
 	w.work(run.ChatID, false)
 	w.runner.Follow(t.Context())
 
-	done := w.ended(brief.ID, 1, orchestration.RunSucceeded)
+	done := w.ended(brief.ID, 1, routinestore.RunSucceeded)
 	assert.Equal(t, "The Base has the new rows.", done.Output)
 
 	second, err := w.runner.RunNow(t.Context(), brief.ID)
@@ -713,12 +714,12 @@ func TestAPromptRunWaitsForTheOwner(t *testing.T) {
 	_, _, err = w.svc.AskApproval(t.Context(), change(orchestration.NewApproval{ChatID: second.ChatID}))
 	require.NoError(t, err)
 	w.runner.Follow(t.Context())
-	w.ended(brief.ID, 2, orchestration.RunWaiting)
+	w.ended(brief.ID, 2, routinestore.RunWaiting)
 
 	w.clock.add(time.Hour + time.Minute)
 	w.runner.Follow(t.Context())
 
-	late := w.ended(brief.ID, 2, orchestration.RunFailed)
+	late := w.ended(brief.ID, 2, routinestore.RunFailed)
 	assert.Equal(t, "stopped after 1h0m0s", late.Error)
 	assert.Equal(t, []string{second.ChatID}, w.pi.stopped(), "the wait counts toward its hour")
 }
@@ -735,7 +736,7 @@ func TestAPromptRunFailsWhereNothingAnswersChats(t *testing.T) {
 	require.NoError(t, err)
 
 	w.runner.Follow(t.Context())
-	assert.Contains(t, w.ended(brief.ID, 1, orchestration.RunFailed).Error, "HYPOMNEMA_COORDINATOR_COMMAND")
+	assert.Contains(t, w.ended(brief.ID, 1, routinestore.RunFailed).Error, "HYPOMNEMA_COORDINATOR_COMMAND")
 }
 
 // Scenario: the owner removes a Routine whose script still runs: the script
@@ -758,7 +759,7 @@ func TestRemovingARoutineStopsItsRun(t *testing.T) {
 	_, err := w.runner.RunNow(t.Context(), sync.ID)
 	require.NoError(t, err)
 
-	_, err = w.svc.PauseRoutine(t.Context(), sync.ID)
+	_, err = w.svc.Routines().PauseRoutine(t.Context(), sync.ID)
 	require.NoError(t, err)
 
 	select {
@@ -775,15 +776,15 @@ func TestRemovingARoutineStopsItsRun(t *testing.T) {
 		require.Fail(t, "the script of a removed routine was not stopped")
 	}
 
-	_, err = w.svc.GetRoutine(t.Context(), sync.ID)
+	_, err = w.svc.Routines().GetRoutine(t.Context(), sync.ID)
 	require.ErrorIs(t, err, orchestration.ErrNotFound)
 
 	chat := w.chat()
 
-	made, err := w.svc.PutRoutine(t.Context(), orchestration.RoutineSpec{
-		Bot: orchestration.DefaultBot, Name: "brief", Kind: orchestration.RoutinePrompt, Prompt: "Summarize.",
+	made, err := w.svc.Routines().PutRoutine(t.Context(), routinestore.RoutineSpec{
+		Bot: orchestration.DefaultBot, Name: "brief", Kind: routinestore.RoutinePrompt, Prompt: "Summarize.",
 		EveryMinutes: 1440, ChatID: chat, Announce: true,
-	}, orchestration.RoutineAuthor{Bot: true})
+	}, routinestore.RoutineAuthor{Bot: true})
 	require.NoError(t, err)
 
 	run, err := w.runner.RunNow(t.Context(), made.ID)
@@ -819,13 +820,13 @@ func TestARestartEndsTheRunsItInterrupted(t *testing.T) {
 
 	_, _, err = w.svc.AskApproval(t.Context(), change(orchestration.NewApproval{ChatID: waits.Run.ChatID}))
 	require.NoError(t, err)
-	w.ended(weekly.ID, 1, orchestration.RunWaiting)
+	w.ended(weekly.ID, 1, routinestore.RunWaiting)
 
 	w.clock.add(10 * time.Minute)
 	w.runner.Interrupted(t.Context())
 
 	for _, id := range []string{sync.ID, brief.ID, weekly.ID} {
-		failed := w.ended(id, 1, orchestration.RunFailed)
+		failed := w.ended(id, 1, routinestore.RunFailed)
 		assert.Equal(t, "the control plane restarted while it ran", failed.Error)
 		assert.Zero(t, w.routine(id).Failures, "an interrupted run is no failure of the routine")
 	}
@@ -858,7 +859,7 @@ func TestOverdueRoutinesBeginFiveAtOnceAndTheRestApart(t *testing.T) {
 	assert.Equal(t, []time.Duration{5 * time.Second, 5 * time.Second}, w.waits)
 
 	for _, id := range ids {
-		w.ended(id, 1, orchestration.RunSucceeded)
+		w.ended(id, 1, routinestore.RunSucceeded)
 	}
 
 	assert.Len(t, w.script.ran(), 7, "each overdue routine runs once")
@@ -877,12 +878,12 @@ func TestTheOwnerIsToldWhenARoutineIsPausedForItsFailures(t *testing.T) {
 	chat := w.chat()
 	sync := w.hourly("sync", chat)
 
-	for i := range orchestration.RoutinePauseAfter {
+	for i := range routinestore.RoutinePauseAfter {
 		w.script.then(exits("the Base refused\n", 1))
 
 		_, err := w.runner.RunNow(t.Context(), sync.ID)
 		require.NoError(t, err)
-		w.ended(sync.ID, i+1, orchestration.RunFailed)
+		w.ended(sync.ID, i+1, routinestore.RunFailed)
 	}
 
 	require.Eventually(t, func() bool { return len(w.lark.heard()) == 2 }, eventual, every,
@@ -895,5 +896,5 @@ func TestTheOwnerIsToldWhenARoutineIsPausedForItsFailures(t *testing.T) {
 
 	told := w.said(chat, 2)
 	assert.Contains(t, told[1], "was paused after 10 failed runs")
-	assert.Equal(t, orchestration.RoutinePaused, w.routine(sync.ID).State)
+	assert.Equal(t, routinestore.RoutinePaused, w.routine(sync.ID).State)
 }
