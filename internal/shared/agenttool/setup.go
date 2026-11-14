@@ -110,12 +110,32 @@ func writeWhole(target string, content []byte, mode os.FileMode) error {
 		return err
 	}
 
-	tmp := target + ".tmp"
-	if err := os.WriteFile(tmp, content, mode); err != nil {
+	// A name of its own beside the target: two Dispatches started at once write the same guides.
+	f, err := os.CreateTemp(filepath.Dir(target), filepath.Base(target)+".*.tmp")
+	if err != nil {
 		return err
 	}
 
-	return os.Rename(tmp, target)
+	tmp := f.Name()
+
+	_, err = f.Write(content)
+	if closeErr := f.Close(); err == nil {
+		err = closeErr
+	}
+
+	if err == nil {
+		err = os.Chmod(tmp, mode)
+	}
+
+	if err == nil {
+		err = os.Rename(tmp, target)
+	}
+
+	if err != nil {
+		_ = os.Remove(tmp)
+	}
+
+	return err
 }
 
 // Env is what an agent's environment gains to use its Connections: the

@@ -68,6 +68,8 @@ func TestACallIsReadOrRefused(t *testing.T) {
 		{Logcat, `{"lines":5000}`},
 		{Logcat, `{"level":"X"}`},
 		{Screen, `[1]`},
+		{Screen, `{"target":"#1"}`},
+		{Tap, `{"target":"#1","force":true}`},
 	}
 
 	for _, tt := range refused {

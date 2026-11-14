@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/phone"
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
@@ -87,6 +88,10 @@ func (s *Server) deviceCall(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
+
+	// A call may wait for the phone's machine to wake and the phone to boot, longer than the server's write
+	// timeout; its answer must still reach the agent, which would otherwise repeat a tap it did not see.
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
 
 	result, err := s.device.Call(r.Context(), a.key, asked.Tool, asked.Arguments)
 	if err != nil {

@@ -47,6 +47,8 @@ type agents struct {
 	// its boxes are not tapped (the issue's "never runs on another's half-done
 	// screen").
 	stale map[string]bool
+	// boot is the boot each agent's last screen was taken in: one of an earlier boot is not tapped by number.
+	boot map[string]uint64
 }
 
 // Call runs one phone tool for an agent and returns its result. A phone that
@@ -163,12 +165,22 @@ func (m *Manager) screen(ctx context.Context, agent string) nodeproto.DeviceAnsw
 	}
 
 	m.agents.stale[agent] = false
+	m.agents.boot[agent] = m.bootNumber()
 
 	return nodeproto.DeviceAnswer{Content: []nodeproto.DeviceContent{
 		{Type: "image", Data: base64.StdEncoding.EncodeToString(png), MimeType: "image/png"},
 		{Type: "text", Text: "Numbered boxes mark what was found on the screen. Tap one with device_tap and " +
 			"its number, such as \"#3\"; take a new screen after each action."},
 	}}
+}
+
+// bootNumber is the count of the phone's boots, which changes each time it
+// starts again.
+func (m *Manager) bootNumber() uint64 {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return m.boots
 }
 
 // screenFile is where an agent's last screen is kept, named by a hash of the
@@ -196,6 +208,10 @@ func (m *Manager) point(ctx context.Context, agent string, p devicetool.Point) (
 	if stale {
 		return "", "", "Another agent used the phone since your last device_screen, so its numbers may point " +
 			"elsewhere now. Call device_screen again."
+	}
+
+	if m.agents.boot[agent] != m.bootNumber() {
+		return "", "", "The phone started again since your last device_screen. Call device_screen again."
 	}
 
 	out, err := m.android(ctx, "screen", "resolve", "--screenshot="+file, "--string=#"+strconv.Itoa(p.Box))

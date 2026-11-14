@@ -257,3 +257,19 @@ func TestABadCallDoesNotStartThePhone(t *testing.T) {
 	assert.True(t, answer.IsError)
 	assert.Equal(t, nodeproto.DeviceStopped, r.m.Status().State)
 }
+
+// A screen of an earlier boot is not tapped by number: the phone stopped and
+// started again since, and what it shows now is another screen.
+func TestAScreenOfAnEarlierBootIsNotTappedByNumber(t *testing.T) {
+	t.Parallel()
+
+	r, _ := toolRig(t)
+
+	require.False(t, call(t, r, "d-1", "device_screen", `{}`).IsError)
+	r.m.Stop(t.Context())
+
+	answer := call(t, r, "d-1", "device_tap", `{"target":"#1"}`)
+	assert.True(t, answer.IsError)
+	assert.Contains(t, textOf(answer), "started again")
+	assert.Equal(t, nodeproto.DeviceRunning, r.m.Status().State, "the call started the phone")
+}

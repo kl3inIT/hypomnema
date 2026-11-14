@@ -177,6 +177,24 @@ type arguments struct {
 	Level      string  `json:"level"`
 }
 
+// takes are the arguments each tool's schema names.
+var takes = map[string][]string{
+	Tap:    {"target"},
+	Swipe:  {"from", "to", "duration_ms"},
+	Type:   {"text", "into", "submit"},
+	Key:    {"key"},
+	Launch: {"package"},
+	Logcat: {"lines", "contains", "level"},
+}
+
+func takesOf(tool string) string {
+	if len(takes[tool]) == 0 {
+		return "none"
+	}
+
+	return strings.Join(takes[tool], ", ")
+}
+
 // Read reads a call's arguments, refusing a tool that is not offered and
 // arguments its tool does not take.
 func Read(tool string, raw json.RawMessage) (Call, error) {
@@ -186,6 +204,18 @@ func Read(tool string, raw json.RawMessage) (Call, error) {
 
 	var a arguments
 	if len(raw) > 0 && string(raw) != "null" {
+		var given map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &given); err != nil {
+			return Call{}, fmt.Errorf("%w: they are not a JSON object of the tool's arguments", ErrBadArguments)
+		}
+
+		// What the tool's schema does not name is refused, as its additionalProperties says.
+		for name := range given {
+			if !slices.Contains(takes[tool], name) {
+				return Call{}, bad("%s takes no argument %q; it takes %s", tool, name, takesOf(tool))
+			}
+		}
+
 		if err := json.Unmarshal(raw, &a); err != nil {
 			return Call{}, fmt.Errorf("%w: they are not a JSON object of the tool's arguments", ErrBadArguments)
 		}
