@@ -235,3 +235,47 @@ func TestTheOwnerRemovesABotWithItsChats(t *testing.T) {
 	w.routine(spec)
 	require.ErrorIs(t, w.s.ForceDeleteBot(ctx, "scheduled"), ErrConflict, "a Routine uses it")
 }
+
+// Scenario: what a Bot's chats show of its tool calls (issue #441) is stored with it, on unless set, read for each
+// of its chats, and put back by an undo of the Bot coordinator's change; a level that is not one is refused.
+func TestABotKeepsWhatItsChatsShowOfItsTools(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	reporter, err := w.s.PutBot(ctx, Bot{Name: "reporter", Persona: "You send the report."})
+	require.NoError(t, err)
+	assert.Equal(t, ToolsOn, reporter.ToolDisplay)
+
+	_, err = w.s.PutBot(ctx, Bot{Name: "reporter", ToolDisplay: "loud"})
+	require.ErrorIs(t, err, ErrInvalid)
+
+	chat, err := w.s.CreateChat(ctx, "reporter", "")
+	require.NoError(t, err)
+
+	coordinatorChat, err := w.s.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+
+	_, err = w.s.PutBotFromChat(ctx, coordinatorChat.ID,
+		Bot{Name: "reporter", Persona: "You send the report.", ToolDisplay: ToolsOff})
+	require.NoError(t, err)
+
+	shown, err := w.s.ChatToolDisplay(ctx, chat.ID)
+	require.NoError(t, err)
+	assert.Equal(t, ToolsOff, shown, "read for the Bot's chat")
+
+	changes, err := w.s.ListSetupChanges(ctx, coordinatorChat.ID)
+	require.NoError(t, err)
+	require.Len(t, changes, 1, "a change of the setting alone is a change")
+
+	_, err = w.s.UndoSetupChange(ctx, changes[0].ID)
+	require.NoError(t, err)
+
+	shown, err = w.s.ChatToolDisplay(ctx, chat.ID)
+	require.NoError(t, err)
+	assert.Equal(t, ToolsOn, shown, "the undo puts it back")
+
+	_, err = w.s.ChatToolDisplay(ctx, "cht_nobody")
+	require.ErrorIs(t, err, ErrNotFound)
+}
