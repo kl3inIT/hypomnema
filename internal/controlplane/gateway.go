@@ -98,7 +98,7 @@ func accountToken(t subscription.Token, err error) (modelgateway.AccountToken, e
 
 	return modelgateway.AccountToken{
 		AccountID: t.AccountID, ExternalID: t.ExternalID, AccessToken: t.AccessToken, Project: t.Project,
-		Version: t.Version,
+		Plan: t.Plan, Version: t.Version,
 	}, nil
 }
 
