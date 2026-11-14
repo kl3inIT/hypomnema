@@ -1553,7 +1553,9 @@ not exist yet.
     `computeFingerprint`, not 9router-go's random build and body hash) so the prompt's top is byte-identical between
     turns, and the cache breakpoints Claude Code sets go on — the system prefix, the last tool, the last message
     (pi/omp `applyAnthropicCacheControl`), each kept an hour (`ttl: 1h`, with `extended-cache-ttl-2025-04-11` among
-    the betas; issue #397, as Claude Code, omp, CLIProxyAPI and 9router-go keep a subscription's cache). A probe
+    the betas; issue #397, as Claude Code, omp, CLIProxyAPI and 9router-go keep a subscription's cache); a client's own breakpoint
+    with no ttl is kept an hour too, one it gave a ttl keeps it, and a one-hour breakpoint after a shorter one loses
+    its ttl, as Anthropic reads them tools, system, messages; issue #409, CLIProxyAPI `normalizeCacheControlTTLDoc`). A probe
     (Claude Code's own `quota`/`ping` check) is left minimal, with no decoys and no breakpoints.
   - The call goes to `api.anthropic.com/v1/messages?beta=true`, always as a stream, with the account's token in the
     Bearer header (never the api-key header), a refresh on a 401, a cooldown on a 429.
@@ -2435,11 +2437,16 @@ the internet, so that a machine created at a provider can install the node from 
   two days). All have Claude Code; the four new ones have the Codex CLI; stc-hy-app also has omp 18.18.6 and
   opencode 2.2.7, installed by hand with their own installers and linked into `/usr/local/bin` (the control plane
   installs them on every node since #107). The earlier
-  control plane on aioffice-app (`~ubuntu/hypomnema-cp`) is stopped and kept for rollback.
-- Accounts, since 2026-11-11: every one is kept by the control plane. `claude kept` is a token sent to the node with
-  each Dispatch; the earlier `claude personal`, a token file on aioffice-app, is disabled. Workers under Codex, omp
-  and opencode run from the profiles `codex-worker`, `omp-worker`, `opencode-worker` and `omp-claude`, against the
-  provider `model-gateway`.
+  control plane on aioffice-app (`~ubuntu/hypomnema-cp`) was deleted on 2026-11-13.
+- Accounts, as of 2026-11-14, are kept by the control plane. Claude has two: `dat.ph@vtii.vn`, logged in on the
+  control plane by OAuth, serves the model gateway; `personal`, a `claude setup-token` kept by the control plane, is
+  sent to the node with each Dispatch of a Claude Code worker and is also served by the gateway. The earlier hand-kept
+  token file and the account called `claude kept` are gone. Both accounts are the same Anthropic organization (a cache
+  written under one was read under the other, [#381](https://github.com/kl3inIT/hypomnema/issues/381)).
+- Since [#381](https://github.com/kl3inIT/hypomnema/issues/381) (v0.9.23) a Claude Code worker may instead run through
+  the gateway with a key of its Dispatch; the profile `implementer-gateway` is on trial.
+- Workers under Codex, omp and opencode run from the profiles `codex-worker`, `omp-worker`, `opencode-worker` and
+  `omp-claude`, against the provider `model-gateway`.
 - The owner's laptop joined as `laptop` and is logged in with a coordinator token; the coordinator skill is
   installed.
 - Each machine joins the tailnet once, approved in the owner's Tailscale account. The control plane and Tailscale start with
