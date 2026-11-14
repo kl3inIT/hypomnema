@@ -7,6 +7,7 @@ import (
 	"fmt"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/memorystore"
 	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
 )
 
@@ -224,12 +225,12 @@ func offerOf(ctx context.Context, q *store.Queries, d store.Dispatch) (Offer, er
 		instruction, agent = v.Instruction.String, v.Profile
 	}
 
-	memory, err := readMemory(ctx, q, memoryOfAgent, agent)
+	memory, err := memorystore.AgentMemoryTx(ctx, q, agent)
 	if err != nil {
 		return Offer{}, err
 	}
 
-	owner, err := readMemory(ctx, q, memoryOfOwner, "")
+	owner, err := memorystore.OwnerMemoryTx(ctx, q)
 	if err != nil {
 		return Offer{}, err
 	}
