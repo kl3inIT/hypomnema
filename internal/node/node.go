@@ -241,10 +241,10 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 	}
 
 	// The agents that speak ACP share one runner (issue #107).
-	acpRunner := &acp.Runner{
-		Home: home, Exe: exe, Paths: paths, URL: cfg.URL, Logger: logger,
-		Worktrees: worktree.Maker{Root: home, Logger: logger},
-	}
+	acpRuntime := &acp.ACPRuntime{Home: home, Exe: exe, Paths: paths, URL: cfg.URL}
+	acpRunner := supervised{s: &runner.Supervisor{
+		Home: home, Exe: exe, URL: cfg.URL, Logger: logger, Worktrees: worktree.Maker{Root: home, Logger: logger},
+	}, rt: acpRuntime}
 
 	// Workers' transcripts go to the control plane beside their reports, whatever the runtime (issues #43, #157).
 	transcripts := &transcript.Forwarder{
@@ -281,7 +281,7 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 				paths[r.Runtime] = r.Path
 			}
 
-			acpRunner.SetPaths(paths)
+			acpRuntime.SetPaths(paths)
 
 			return found
 		},
