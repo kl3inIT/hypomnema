@@ -925,7 +925,7 @@ func TestTaskMovesToABackupProfileWhenItsOwnIsOutOfQuota(t *testing.T) {
 	_, _, err := w.s.ApplyProfile(ctx, "", "name: codex-own\ndescription: d\nruntime: codex\n")
 	require.NoError(t, err)
 	backup, _, err := w.s.ApplyProfile(ctx, "",
-		"name: claude-worker\ndescription: d\nruntime: claude\nmodel: {provider: gateway, name: claude-sonnet-5-5}\n")
+		"name: claude-worker\ndescription: d\nruntime: claude\nmodel: {provider: model-gateway, name: claude-sonnet-5-5}\n")
 	require.NoError(t, err)
 	writer, _, err := w.s.ApplyProfile(ctx, "",
 		"name: writer\ndescription: d\nruntime: codex\nfallbacks: [codex-own, claude-worker]\n")
@@ -1002,7 +1002,7 @@ func TestTaskUnderWayIsHandedToABackupInItsWorktree(t *testing.T) {
 	ctx := t.Context()
 
 	backup, _, err := w.s.ApplyProfile(ctx, "",
-		"name: claude-worker\ndescription: d\nruntime: claude\nmodel: {provider: gateway, name: claude-sonnet-5-5}\n")
+		"name: claude-worker\ndescription: d\nruntime: claude\nmodel: {provider: model-gateway, name: claude-sonnet-5-5}\n")
 	require.NoError(t, err)
 	_, _, err = w.s.ApplyProfile(ctx, "",
 		"name: writer\ndescription: d\nruntime: codex\nfallbacks: [claude-worker]\n")
@@ -1106,7 +1106,7 @@ func TestTaskThatWroteThroughAnAccountIsNotHandedOff(t *testing.T) {
 	ctx := t.Context()
 
 	_, _, err := w.s.ApplyProfile(ctx, "",
-		"name: claude-worker\ndescription: d\nruntime: claude\nmodel: {provider: gateway, name: claude-sonnet-5-5}\n")
+		"name: claude-worker\ndescription: d\nruntime: claude\nmodel: {provider: model-gateway, name: claude-sonnet-5-5}\n")
 	require.NoError(t, err)
 	_, _, err = w.s.ApplyProfile(ctx, "", "name: writer\ndescription: d\nruntime: codex\nfallbacks: [claude-worker]\n")
 	require.NoError(t, err)
@@ -1171,7 +1171,7 @@ func TestABotsTaskFallsBackOnlyToItsWorkers(t *testing.T) {
 	ctx := t.Context()
 
 	_, _, err := w.s.ApplyProfile(ctx, "",
-		"name: claude-worker\ndescription: d\nruntime: claude\nmodel: {provider: gateway, name: claude-sonnet-5-5}\n")
+		"name: claude-worker\ndescription: d\nruntime: claude\nmodel: {provider: model-gateway, name: claude-sonnet-5-5}\n")
 	require.NoError(t, err)
 	_, _, err = w.s.ApplyProfile(ctx, "", "name: writer\ndescription: d\nruntime: codex\nfallbacks: [claude-worker]\n")
 	require.NoError(t, err)

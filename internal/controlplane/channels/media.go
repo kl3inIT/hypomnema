@@ -1,7 +1,6 @@
-package larkbot
+package channels
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -14,7 +13,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/shared/workspacefs"
 )
 
-// A Bot sends a file into its Lark chat (issue #312) with a line of its reply
+// A Bot sends a file into its chat at a service (issue #312) with a line of its reply
 // that is MEDIA:<path>, which its built-in instructions teach it, as OpenClaw
 // (src/media/parse-output.ts, src/agents/system-prompt-messaging.ts) and
 // Hermes (agent/prompt_builder.py) have their agents ask. The line is taken
@@ -24,22 +23,15 @@ import (
 // followed (OpenClaw src/media/local-roots.ts: a session reads only its own
 // workspace). It is sent after the reply's text, a file message in the same
 // chat (OpenClaw extensions/feishu/src/media.ts; Hermes
-// plugins/platforms/feishu/adapter.py). A file that cannot be sent gets one
-// short line in the chat that says why.
+// plugins/platforms/feishu/adapter.py); how the service files it is the
+// kind's Channel's. A file that cannot be sent gets one short line in the
+// chat that says why.
 
 // Files reads a Bot's folder: the helper `hypomnema files serve`, run as the
 // user the Bots' files belong to. Root is where a Bot's folder is.
 type Files interface {
 	Ask(ctx context.Context, bot string, req workspacefs.Request) (workspacefs.Result, error)
 	Root(bot string) string
-}
-
-// Attachment is a file sent into a Lark chat: its name as Lark shows it, the
-// file_type Lark files it under, and its bytes.
-type Attachment struct {
-	Name string
-	Kind string
-	Data []byte
 }
 
 // noticeNotSent is the line a file that was not sent gets: its name and why.
@@ -136,7 +128,8 @@ func (c *Channels) attachment(ctx context.Context, bot, asked string) (Attachmen
 	case errors.As(err, &refused):
 		return Attachment{}, refusalOf(refused.Code, bot)
 	case err != nil:
-		c.logger.WarnContext(ctx, "a file a Bot asked to send was not read", slog.String("event", "larkbot.file_failed"),
+		c.logger.WarnContext(ctx, "a file a Bot asked to send was not read",
+			slog.String("event", "channels.file_failed"),
 			slog.String("bot", bot), slog.Any("error", err))
 
 		return Attachment{}, "it could not be read"
@@ -144,9 +137,7 @@ func (c *Channels) attachment(ctx context.Context, bot, asked string) (Attachmen
 		return Attachment{}, "it is empty"
 	}
 
-	name := uploadName(path.Base(res.File.Path))
-
-	return Attachment{Name: name, Kind: fileType(name, res.File.Data), Data: res.File.Data}, ""
+	return Attachment{Name: uploadName(path.Base(res.File.Path)), Data: res.File.Data}, ""
 }
 
 // relativeTo is a path the Bot named as one relative to its folder: as it is
@@ -187,7 +178,7 @@ func refusalOf(code workspacefs.Code, bot string) string {
 	}
 }
 
-// uploadName is a file's name as Lark is given it: control characters,
+// uploadName is a file's name as the service is given it: control characters,
 // quotes and backslashes become _, and the name stays as written otherwise,
 // Vietnamese and all (OpenClaw media.ts, sanitizeFileNameForUpload).
 func uploadName(name string) string {
@@ -206,36 +197,6 @@ func shownName(asked string) string {
 	return strings.NewReplacer("<", "_", ">", "_").Replace(uploadName(path.Base(asked)))
 }
 
-// The first bytes of the files Lark files under a type of its own.
-var (
-	pdfMagic  = []byte("%PDF-")
-	zipMagic  = []byte("PK\x03\x04")
-	oleMagic  = []byte{0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1}
-	fileTypes = map[string]struct {
-		kind  string
-		magic []byte
-	}{
-		".pdf": {"pdf", pdfMagic},
-		".doc": {"doc", oleMagic}, ".docx": {"doc", zipMagic},
-		".xls": {"xls", oleMagic}, ".xlsx": {"xls", zipMagic},
-		".ppt": {"ppt", oleMagic}, ".pptx": {"ppt", zipMagic},
-	}
-)
-
-// fileType is the file_type Lark files an upload under: pdf, doc, xls or ppt
-// by the name's extension (OpenClaw media.ts, detectFileType), when the
-// file's bytes are of that kind, and stream for anything else. A name alone
-// does not make a file what it says (OpenClaw: never pass a filename to
-// signature detection).
-func fileType(name string, data []byte) string {
-	t, ok := fileTypes[strings.ToLower(path.Ext(name))]
-	if !ok || !bytes.HasPrefix(data, t.magic) {
-		return "stream"
-	}
-
-	return t.kind
-}
-
 // attach sends the files a reply asked for, one after another, after its
 // text. Each gets its own wait, as an upload of 30 MB takes a while.
 func (r *relay) attach(ctx context.Context, paths []string) {
@@ -250,21 +211,21 @@ func (r *relay) attachOne(ctx context.Context, asked string) {
 
 	a, refusal := r.all.attachment(ctx, r.chat.Bot, asked)
 	if refusal == "" {
-		err := r.lark.SendFile(ctx, r.chat.ExternalChatID, a)
+		err := r.conn.SendFile(ctx, r.chat.ExternalChatID, a)
 		if err == nil {
 			return
 		}
 
 		r.failed(ctx, "sending a file", err)
 
-		refusal = "Lark did not take it"
+		refusal = r.cn.caps.Platform + " did not take it"
 	}
 
-	r.all.logger.InfoContext(ctx, "a file a Bot asked to send was not sent", slog.String("event", "larkbot.file_refused"),
+	r.all.logger.InfoContext(ctx, "a file a Bot asked to send was not sent", slog.String("event", "channels.file_refused"),
 		slog.String("channel", r.chat.Channel), slog.String("chat_id", r.chat.ChatID), slog.String("reason", refusal))
 
 	notice := fmt.Sprintf(noticeNotSent, shownName(asked), refusal)
-	if err := r.lark.SendText(ctx, r.chat.ExternalChatID, notice); err != nil {
+	if err := r.conn.Notice(ctx, r.chat.ExternalChatID, notice); err != nil {
 		r.failed(ctx, "saying a file was not sent", err)
 	}
 }

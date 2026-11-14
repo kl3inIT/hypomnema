@@ -32,24 +32,27 @@ type world struct {
 	held Account
 }
 
-// worldGateway is the world's model gateway, with the Claude models its
-// scenarios name.
-const worldGateway = "name: gateway\nkind: model_gateway\nmodels: [claude-opus-5-5, claude-sonnet-5-5]\n"
+// worldGateway is the world's model gateway: the seeded provider, offering
+// only the Claude models its scenarios name.
+const worldGateway = "name: model-gateway\nkind: model_gateway\nmodels: [claude-opus-5-5, claude-sonnet-5-5]\n"
 
 func newWorld(t *testing.T) *world {
 	t.Helper()
 
 	w := newSeedWorld(t)
 
-	_, _, err := w.s.ApplyProfile(t.Context(), "",
-		"name: implementer\ndescription: d\nruntime: claude\nmodel: {provider: gateway}\n")
+	_, err := w.s.ApplyProvider(t.Context(), "", worldGateway)
+	require.NoError(t, err)
+
+	_, _, err = w.s.ApplyProfile(t.Context(), "",
+		"name: implementer\ndescription: d\nruntime: claude\nmodel: {provider: model-gateway}\n")
 	require.NoError(t, err)
 
 	return w
 }
 
-// newSeedWorld is a world whose profiles are the starting set as the
-// migrations seed it, with the world's gateway beside them.
+// newSeedWorld is a world whose providers and profiles are the starting set
+// as the migrations seed it, the model gateway's included (issue #462).
 func newSeedWorld(t *testing.T) *world {
 	t.Helper()
 
@@ -57,9 +60,6 @@ func newSeedWorld(t *testing.T) *world {
 	w := &world{t: t, s: s, db: db, clock: clock}
 	// The node's own limit is the system's, so the older scenarios meet only one.
 	w.node = w.addNode("node_a", MaxActiveDispatches, "claude")
-
-	_, err := s.ApplyProvider(t.Context(), "", worldGateway)
-	require.NoError(t, err)
 
 	w.run = newRun(t, s)
 

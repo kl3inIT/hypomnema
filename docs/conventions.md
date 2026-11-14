@@ -25,7 +25,7 @@ stored data. In Hypomnema these families exist from the start:
 | Runtime (drive a worker) | `claude`, `codex`, `omp`, `opencode` |
 | Machine provider | `aws` (EC2); later Hetzner, Modal, Daytona, E2B… |
 | Model provider of the gateway | per kind of provider |
-| Channel | `lark`, a Channel's `kind`, its rows in the shared `channels` tables (the web chat is the client API itself) |
+| Channel | `lark` (`LarkChannel` in `controlplane/channels/lark`), a Channel's `kind`, its rows in the shared `channels` tables; the runtime every kind shares is `controlplane/channels` (the web chat is the client API itself) |
 
 - One interface per function, named after the function (`Runtime`, `Channel`); one type per implementation, named
   after the vendor and function (`CodexRuntime`, `TelegramChannel`), inside the owning module.
@@ -81,7 +81,7 @@ keeps one flat `internal/` with a storage package behind named methods.
 
 ```
 cmd/hypomnema, cmd/hypomnema-node   entry points
-internal/controlplane/...   flat packages: orchestration, vault, coordinator, clientapi, nodeapi, agentapi, serviceproxy, larkbot, modelgateway…
+internal/controlplane/...   flat packages: orchestration, vault, coordinator, clientapi, nodeapi, agentapi, serviceproxy, channels, modelgateway…
 internal/node/...           flat packages: daemon, shim, claude, codex, acp, statedb, worktree…
 internal/shared/...         platform (config, logging, HTTP, errors, ids, clock), sqlite, nodeproto, githost…
 ```
@@ -111,7 +111,7 @@ The three boundaries that matter:
   its owner (as Omnara and Gitea); the SQLite driver only in `shared/sqlite` and `database/sql` only in the packages
   that own tables (as Omnara's statedb rule); a banned-import list where every entry names
   its replacement (as Teleport: `log` → `log/slog`, `github.com/pkg/errors` → `errors`, `math/rand` →
-  `crypto/rand`).
+  `crypto/rand`); a vendor's SDK only in its implementation (Lark's in `channels/lark`).
 - **Full dependency check per binary** (as Nomad's `make check`, Tailscale's `depaware`): `go list -deps` of the node
   must not contain `internal/controlplane`, and the control plane's must not contain `internal/node`. `depguard` sees
   only direct imports and would miss a leak through `shared`.

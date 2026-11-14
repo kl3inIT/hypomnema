@@ -1,8 +1,10 @@
 package clientcli
 
 import (
+	"encoding/json"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -238,6 +240,53 @@ func TestTheShippedPdfSkillNamesOnlyWhatItShips(t *testing.T) {
 	text, err := fs.ReadFile(skill, "SKILL.md")
 	require.NoError(t, err)
 	assert.Contains(t, string(text), "S=~/.agents/skills/pdf/scripts", "the scripts are named where they are installed")
+}
+
+// Every JSON sample the pdf skill shows parses, so a Bot that copies one gets
+// a spec the scripts read: the fenced ```json blocks of its Markdown and the
+// spec a script's docstring shows (issue #474).
+func TestThePdfSkillsJSONSamplesParse(t *testing.T) {
+	t.Parallel()
+
+	skill, err := fs.Sub(skillFiles, "skills/pdf")
+	require.NoError(t, err)
+
+	fenced := regexp.MustCompile("(?s)```json\\r?\\n(.*?)```")
+	docstring := regexp.MustCompile(`(?ms)^\{\r?$.*?^\}\r?$`)
+	samples := 0
+
+	err = fs.WalkDir(skill, ".", func(name string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return err
+		}
+
+		b, err := fs.ReadFile(skill, name)
+		if err != nil {
+			return err
+		}
+
+		var found []string
+
+		switch path.Ext(name) {
+		case ".md":
+			for _, m := range fenced.FindAllStringSubmatch(string(b), -1) {
+				found = append(found, m[1])
+			}
+		case ".py":
+			found = docstring.FindAllString(string(b), -1)
+		}
+
+		for i, sample := range found {
+			assert.True(t, json.Valid([]byte(sample)), "%s: JSON sample %d does not parse:\n%s", name, i+1, sample)
+		}
+
+		samples += len(found)
+
+		return nil
+	})
+	require.NoError(t, err)
+	assert.GreaterOrEqual(t, samples, 4,
+		"the samples of SKILL.md, references/forms.md, pdf_create.py and pdf_make_form.py")
 }
 
 // The pages skill as shipped (issue #423): OpenMausBot's data-dashboards

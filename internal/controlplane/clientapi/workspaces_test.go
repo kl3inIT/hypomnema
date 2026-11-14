@@ -57,8 +57,6 @@ func (w *world) chatWithATask(c *openapi.ClientWithResponses) (orchestration.Cha
 	})
 	require.NoError(w.t, err)
 
-	claudeThroughTheGateway(w.t, w.svc)
-
 	node, _, err := w.svc.AddNode(ctx, "box", 0)
 	require.NoError(w.t, err)
 	require.NoError(w.t, w.svc.NodeHello(ctx, node.ID, orchestration.Hello{

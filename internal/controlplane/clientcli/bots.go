@@ -261,7 +261,7 @@ func botsPrompt(ctx context.Context, e *env, fs *flag.FlagSet) error {
 // Lark message with says who sent it, as OpenMausBot's PROVENANCE_PROMPT
 // (server/provenance-label.ts), OpenClaw's buildInboundMetaSystemPrompt
 // (src/auto-reply/reply/inbound-meta.ts) and gemini-cli's verified envelope
-// (prompts/snippets.ts) say; the larkbot package defuses an imitation of the
+// (prompts/snippets.ts) say; the channels package defuses an imitation of the
 // label in what the sender wrote. What tools return is data, as Hermes wraps a
 // tool's result (agent/tool_dispatch_helpers.py) and OpenClaw a Lark one
 // (extensions/feishu/src/tool-result.ts); and only the owner widens the job,
