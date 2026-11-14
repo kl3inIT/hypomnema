@@ -1,20 +1,16 @@
-import { useForm } from "@tanstack/react-form"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
 import {
   Box,
   GripVertical,
   ImageIcon,
-  Pencil,
   Plus,
   Power,
-  RotateCcw,
   Timer,
   UserRound,
   type LucideIcon,
 } from "lucide-react"
-import { useId, useState, type DragEvent, type ReactNode } from "react"
-import { z } from "zod"
+import { useState, type DragEvent, type ReactNode } from "react"
 
 import "@/api/client"
 import { getImages, setImageOrder, setImageProvider } from "@/api/generated/sdk.gen"
@@ -26,35 +22,15 @@ import type {
   Images,
 } from "@/api/generated/types.gen"
 import { Badge } from "@/components/ui/badge"
-import { Button, buttonVariants } from "@/components/ui/button"
-import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogPanel,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog"
-import { FieldGroup } from "@/components/ui/field"
+import { buttonVariants } from "@/components/ui/button"
 import { Item, ItemActions, ItemContent, ItemDescription, ItemTitle } from "@/components/ui/item"
-import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
 import { ProviderMark } from "@/features/agents/model-mark"
-import { ErrorAlert, SettingsSection, TextField } from "@/features/settings/settings-parts"
+import { ErrorAlert, SettingsSection } from "@/features/settings/settings-parts"
 import { SettingsPage } from "@/features/settings/settings-shell"
 import { said } from "@/features/settings/use-integrations"
 
-import {
-  accountsText,
-  imageProviderName,
-  imageState,
-  madeText,
-  modelPattern,
-  modelText,
-} from "./images-state"
+import { accountsText, imageProviderName, imageState, madeText } from "./images-state"
 import { moved } from "./web-search-state"
 
 const imagesKey = ["images"] as const
@@ -63,9 +39,9 @@ const imagesKey = ["images"] as const
 // order a request asks them, as the Web search page lists its providers (web-search-screen.tsx) and OmniRoute and
 // 9router keep their image providers beside their models. A provider is dragged by its handle on a desktop, as the
 // Web search page's keyed providers are (search-rotation's dashboard); on a phone the order is set with
-// `hypomnema image order`. Each row has its state, the model it makes images with, which the owner may change to
-// try a newer one (owner, 2026-11-14), its accounts and what it made, and its switch. The page does what
-// `hypomnema image providers|order` does.
+// `hypomnema image order`. Each row has its state, the one model it makes images with (issue #453: not chosen),
+// named as OmniRoute names it with its id beside, its accounts and what it made, and its switch. The page does
+// what `hypomnema image providers|order` does.
 export function ImagesScreen() {
   const images = useQuery({
     queryKey: imagesKey,
@@ -77,7 +53,7 @@ export function ImagesScreen() {
   return (
     <SettingsPage
       title="Images"
-      description="How agents make and edit images: your subscriptions in the order a request asks them, the model each uses, and what each made."
+      description="How agents make and edit images: your subscriptions in the order a request asks them, the model each makes them with, and what each made."
     >
       <ErrorAlert error={images.error} />
       {images.isPending ? (
@@ -88,7 +64,7 @@ export function ImagesScreen() {
             id="images-providers"
             icon={UserRound}
             title="From your subscriptions"
-            note="Asked in this order; drag a provider by its handle to change it. A request that names a model is sent to that model; otherwise each provider uses the model shown. Claude makes no images."
+            note="Asked in this order; drag a provider by its handle to change it. Each provider makes images with the model shown; a request that names a model only picks the provider. Claude makes no images."
           >
             <ProviderList links={images.data.providers} />
           </SettingsSection>
@@ -230,8 +206,9 @@ function ProviderRow({
           <ItemDescription>
             <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
               <StateBadge state={state} icon={stateIcon(link.state)} />
-              <Fact icon={Box} title="The model it makes images with when a request names none">
-                <span className="font-mono">{modelText(link)}</span>
+              <Fact icon={Box} title="The model it makes images with">
+                {link.model_name}
+                <span className="font-mono text-muted-foreground/80">· {link.model}</span>
               </Fact>
               <Fact icon={UserRound}>{accountsText(link)}</Fact>
               <Fact icon={ImageIcon} title="This control plane's requests, by UTC day and month">
@@ -252,7 +229,6 @@ function ProviderRow({
                 Add an account
               </Link>
             )}
-            <ModelDialog link={link} />
             <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <label htmlFor={`use-${link.provider}`} className="inline-flex items-center gap-1">
                 <Power className="size-3" aria-hidden />
@@ -270,130 +246,6 @@ function ProviderRow({
         </div>
       </Item>
     </div>
-  )
-}
-
-const modelSchema = z.object({
-  model: z
-    .string()
-    .trim()
-    .refine((m) => m === "" || modelPattern.test(m), "Letters, digits and . _ : - only."),
-})
-
-// ModelDialog sets the model a provider makes images with: any name, passed on as it is, so a model released
-// later can be tried; empty is the default again. The references' names are offered to pick.
-function ModelDialog({ link }: { link: ImageProviderLink }) {
-  const formId = useId()
-  const [open, setOpen] = useState(false)
-  const name = imageProviderName(link.provider)
-  const save = useProviderChange(link, (change) =>
-    change.model
-      ? `${name} makes images with ${change.model}`
-      : `${name} makes images with its default model`,
-  )
-  const form = useForm({
-    defaultValues: { model: link.model_chosen ? link.model : "" },
-    validators: { onSubmit: modelSchema },
-    onSubmit: async ({ value }) => {
-      await save.mutateAsync({ model: value.model.trim() })
-      setOpen(false)
-    },
-  })
-
-  return (
-    <Dialog
-      open={open}
-      onOpenChange={(next) => {
-        setOpen(next)
-        if (!next) {
-          form.reset()
-          save.reset()
-        }
-      }}
-    >
-      <DialogTrigger
-        render={
-          <Button variant="ghost" size="sm" aria-label={`Change ${name}'s image model`}>
-            <Pencil data-icon="inline-start" />
-            Model
-          </Button>
-        }
-      />
-      <DialogContent size="sm">
-        <DialogHeader>
-          <DialogTitle>{name}&apos;s image model</DialogTitle>
-          <DialogDescription>
-            The model {name} makes images with when a request names none. Any name is passed to{" "}
-            {name} as it is, so a newer model can be tried here; if {name} does not know it, the
-            request fails with its words.
-          </DialogDescription>
-        </DialogHeader>
-        <DialogPanel>
-          <form
-            id={formId}
-            autoComplete="off"
-            noValidate
-            onSubmit={(event) => {
-              event.preventDefault()
-              void form.handleSubmit()
-            }}
-          >
-            <FieldGroup>
-              <form.Field name="model">
-                {(field) => (
-                  <div className="flex flex-col gap-2">
-                    <TextField
-                      field={field}
-                      label="Model"
-                      placeholder={link.default_model}
-                      description={`Empty is the default, ${link.default_model}.`}
-                      action={
-                        field.state.value !== "" ? (
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="xs"
-                            aria-label="Use the default model"
-                            onClick={() => field.handleChange("")}
-                          >
-                            <RotateCcw data-icon="inline-start" />
-                            Default
-                          </Button>
-                        ) : undefined
-                      }
-                    />
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <span className="text-xs text-muted-foreground">Known names:</span>
-                      {link.suggested_models.map((model) => (
-                        <Button
-                          key={model}
-                          type="button"
-                          variant="outline"
-                          size="xs"
-                          onClick={() =>
-                            field.handleChange(model === link.default_model ? "" : model)
-                          }
-                        >
-                          <span className="font-mono">{model}</span>
-                        </Button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </form.Field>
-            </FieldGroup>
-          </form>
-        </DialogPanel>
-        <ErrorAlert error={save.error} />
-        <DialogFooter>
-          <DialogClose render={<Button variant="outline" />}>Cancel</DialogClose>
-          <Button type="submit" form={formId} disabled={save.isPending}>
-            {save.isPending && <Spinner data-icon="inline-start" />}
-            Save model
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
   )
 }
 

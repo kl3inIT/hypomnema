@@ -18,7 +18,7 @@ import (
 // one with `hypomnema image generate|edit`, as it searches the web with
 // `hypomnema web search` (web.go), the call recorded on its chat's gateway
 // key; and the Images page of Settings → Gateway lists the providers in
-// order, with each one's switch, model, state and usage, as the Web search
+// order, with each one's switch, its one model, state and usage, as the Web search
 // page lists its own (web_search.go).
 
 // Images makes images. chatID is the chat of the Bot's pi that asks, empty
@@ -34,7 +34,6 @@ type ImageSettings interface {
 	ImageCounts(ctx context.Context, now time.Time) (map[string]modelgateway.ImageCount, error)
 	ImageRests(ctx context.Context) (map[string]map[string]time.Time, error)
 	SetImageProvider(ctx context.Context, provider string, on bool) error
-	SetImageModel(ctx context.Context, provider, model string) error
 	SetImageOrder(ctx context.Context, providers []string) error
 }
 
@@ -76,6 +75,7 @@ func (s *Server) GenerateImages(ctx context.Context, req openapi.GenerateImagesR
 	out := openapi.GenerateImages200JSONResponse{
 		Provider: openapi.ImageProvider(res.Provider), Model: res.Model, Created: res.Created,
 		Images: make([]openapi.GeneratedImage, 0, len(res.Images)),
+		Size:   ptr(res.Size), Quality: ptr(res.Quality), OutputFormat: ptr(res.Format),
 	}
 
 	for _, img := range res.Images {
@@ -110,28 +110,15 @@ func (s *Server) GetImages(ctx context.Context, _ openapi.GetImagesRequestObject
 	return openapi.GetImages200JSONResponse(out), nil
 }
 
-// SetImageProvider switches a provider or sets its model, and answers the providers.
+// SetImageProvider switches a provider on or off, and answers the providers.
 func (s *Server) SetImageProvider(ctx context.Context, req openapi.SetImageProviderRequestObject,
 ) (openapi.SetImageProviderResponseObject, error) {
-	switch {
-	case s.imageSettings == nil:
+	if s.imageSettings == nil {
 		return nil, errNoImages
-	case req.Body.On == nil && req.Body.Model == nil:
-		return nil, fmt.Errorf("%w: the change sets on, model or both", orchestration.ErrInvalid)
 	}
 
-	provider := string(req.Provider)
-
-	if req.Body.On != nil {
-		if err := s.imageSettings.SetImageProvider(ctx, provider, *req.Body.On); err != nil {
-			return nil, gatewayKeyError(err)
-		}
-	}
-
-	if req.Body.Model != nil {
-		if err := s.imageSettings.SetImageModel(ctx, provider, *req.Body.Model); err != nil {
-			return nil, gatewayKeyError(err)
-		}
+	if err := s.imageSettings.SetImageProvider(ctx, string(req.Provider), req.Body.On); err != nil {
+		return nil, gatewayKeyError(err)
 	}
 
 	out, err := s.imageProviders(ctx)
@@ -216,9 +203,8 @@ func (s *Server) imageProviders(ctx context.Context) (openapi.Images, error) {
 	for _, st := range settings {
 		c := counts[st.Provider]
 		link := openapi.ImageProviderLink{
-			Provider: openapi.ImageProvider(st.Provider), On: st.On, Model: st.Model,
-			DefaultModel: modelgateway.DefaultImageModel(st.Provider), ModelChosen: st.Chosen,
-			SuggestedModels: modelgateway.SuggestedImageModels(st.Provider), Accounts: len(usable[st.Provider]),
+			Provider: openapi.ImageProvider(st.Provider), On: st.On, Model: modelgateway.ImageModel(st.Provider),
+			ModelName: modelgateway.ImageModelName(st.Provider), Accounts: len(usable[st.Provider]),
 			Usage: openapi.WebSearchUsage{
 				Today: openapi.WebSearchTally{Answered: c.Today.Answered, Failed: c.Today.Failed},
 				Month: openapi.WebSearchTally{Answered: c.Month.Answered, Failed: c.Month.Failed},

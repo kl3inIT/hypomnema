@@ -356,7 +356,7 @@ func (q *Queries) ListDispatchesWithGatewayKeys(ctx context.Context) ([]sql.Null
 }
 
 const listGatewayImageProviders = `-- name: ListGatewayImageProviders :many
-SELECT provider, off, position, model, updated_at FROM gateway_image_providers ORDER BY provider
+SELECT provider, off, position, updated_at FROM gateway_image_providers ORDER BY provider
 `
 
 // What the owner set on Settings, Gateway, Images (issue #431).
@@ -373,7 +373,6 @@ func (q *Queries) ListGatewayImageProviders(ctx context.Context) ([]GatewayImage
 			&i.Provider,
 			&i.Off,
 			&i.Position,
-			&i.Model,
 			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
@@ -830,22 +829,6 @@ func (q *Queries) RevokeGatewayKeysOfDispatch(ctx context.Context, arg RevokeGat
 		return 0, err
 	}
 	return result.RowsAffected()
-}
-
-const setGatewayImageModel = `-- name: SetGatewayImageModel :exec
-INSERT INTO gateway_image_providers (provider, model, updated_at) VALUES (?1, ?2, ?3)
-ON CONFLICT (provider) DO UPDATE SET model = excluded.model, updated_at = excluded.updated_at
-`
-
-type SetGatewayImageModelParams struct {
-	Provider string
-	Model    sql.NullString
-	Now      int64
-}
-
-func (q *Queries) SetGatewayImageModel(ctx context.Context, arg SetGatewayImageModelParams) error {
-	_, err := q.db.ExecContext(ctx, setGatewayImageModel, arg.Provider, arg.Model, arg.Now)
-	return err
 }
 
 const setGatewayImageOff = `-- name: SetGatewayImageOff :exec

@@ -14,20 +14,14 @@ import (
 // What the owner sets on Settings → Gateway → Images (issue #431), kept as
 // web search's switches and order are (search_switches.go): a switch for each
 // image provider, all on until turned off; the order they are asked in, by
-// default Codex then Antigravity (owner, 2026-11-14); and the model each
-// makes images with when a request names none, by default its reference's,
-// which the owner may change to try a newer one (owner, 2026-11-14). Read at
-// each request, so a change counts from the next.
+// default Codex then Antigravity (owner, 2026-11-14). Each makes images with
+// its one model (ImageModel), which is not set (issue #453). Read at each
+// request, so a change counts from the next.
 
 // ImageProviderSetting is one image provider as the owner set it.
 type ImageProviderSetting struct {
 	Provider string
 	On       bool
-	// Model is the model it makes images with when a request names none:
-	// the owner's, else DefaultImageModel.
-	Model string
-	// Chosen says the owner chose Model.
-	Chosen bool
 }
 
 // ImageSettings are the image providers in the order they are asked.
@@ -68,14 +62,7 @@ func (s *Service) ImageSettings(ctx context.Context) ([]ImageProviderSetting, er
 	out := make([]ImageProviderSetting, 0, len(providers))
 
 	for _, p := range providers {
-		r := stored[p]
-		setting := ImageProviderSetting{Provider: p, On: r.Off == 0, Model: DefaultImageModel(p)}
-
-		if r.Model.Valid {
-			setting.Model, setting.Chosen = r.Model.String, true
-		}
-
-		out = append(out, setting)
+		out = append(out, ImageProviderSetting{Provider: p, On: stored[p].Off == 0})
 	}
 
 	return out, nil
@@ -100,31 +87,6 @@ func (s *Service) SetImageProvider(ctx context.Context, provider string, on bool
 			Provider: provider, Off: flag(!on), Now: now,
 		}); err != nil {
 			return fmt.Errorf("switching image provider %s: %w", provider, err)
-		}
-
-		return nil
-	})
-}
-
-// SetImageModel keeps the model an image provider makes images with when a
-// request names none; "" goes back to its default. Any well-formed name is
-// kept: whether the provider has it, its first answer says.
-func (s *Service) SetImageModel(ctx context.Context, provider, model string) error {
-	if err := checkImageProvider(provider); err != nil {
-		return err
-	}
-
-	if model != "" && !ValidImageModel(model) {
-		return fmt.Errorf("%w: %q is not a model's name: letters, digits and . _ : -", ErrInvalid, model)
-	}
-
-	stored := sql.NullString{String: model, Valid: model != "" && model != DefaultImageModel(provider)}
-
-	return s.write(ctx, func(q *store.Queries, now int64) error {
-		if err := q.SetGatewayImageModel(ctx, store.SetGatewayImageModelParams{
-			Provider: provider, Model: stored, Now: now,
-		}); err != nil {
-			return fmt.Errorf("setting image provider %s's model: %w", provider, err)
 		}
 
 		return nil
