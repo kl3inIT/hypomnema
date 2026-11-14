@@ -25,7 +25,7 @@ stored data. In Hypomnema these families exist from the start:
 | Runtime (drive a worker) | `claude`, `codex`, `omp`, `opencode` |
 | Machine provider | `aws` (EC2); later Hetzner, Modal, Daytona, E2B… |
 | Model provider of the gateway | per kind of provider |
-| Channel | Lark; later Telegram (the web chat is the client API itself) |
+| Channel | `lark`, a Channel's `kind`, its rows in the shared `channels` tables (the web chat is the client API itself) |
 
 - One interface per function, named after the function (`Runtime`, `Channel`); one type per implementation, named
   after the vendor and function (`CodexRuntime`, `TelegramChannel`), inside the owning module.
@@ -95,7 +95,7 @@ The three boundaries that matter:
 2. **Orchestration state has one writer**: only `controlplane/orchestration` uses the generated sqlc code for Run, Task,
    Dispatch, Gate, leases and nodes, and exposes named operations (`ClaimNextDispatch`, `ExpireLeases`,
    `MarkNodeLost`…), as Omnara's `internal/storage`. A domain that writes no other's tables (the web's users, the
-   memories, the Lark Channels) is a store under the tree, `orchestration/userstore`, `orchestration/memorystore`
+   memories, the Channels) is a store under the tree, `orchestration/userstore`, `orchestration/memorystore`
    and `orchestration/channelstore`, reached through the root's accessors (`Users()`, `Memories()`, `Channels()`),
    as Omnara's `*store` packages behind its facade (issue #404). It imports the generated queries,
    `internal/storeutil` and `storeerr`, never the root; what of it ends in `Tx` takes the caller's queries and

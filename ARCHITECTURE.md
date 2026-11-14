@@ -1144,17 +1144,23 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     Channel's Bot, and what the Bot says there goes back to Lark. There may be several Channels, and several may
     talk to one Bot (OpenClaw's `bindings[]`: one channel account routed to one agent). What Lark calls a bot is
     a Channel's app.
-    - A Channel is a row of `lark_channels`: its name (as a Bot's, at most 50 characters), its app's id, the
-      name of the vault secret with the app's secret, the Bot it talks to, its mode, the owner's `open_id`,
-      whether it is on and whether its replies link to the web (`web_link`, migration 00063). One app is one
-      Channel: an app that another Channel has is refused (Hermes refuses two profiles on one app). The one Lark bot there was before migration 00047 is the Channel `main`, which talks
+    - A Channel is a row of `channels`: its name (as a Bot's, at most 50 characters), its kind (`kind`, only
+      `lark`), its app's id, the name of the vault secret with the app's secret, the Bot it talks to, its mode,
+      the owner's id (`owner_id`, his `open_id`), whether it is on and whether its replies link to the web
+      (`web_link`, migration 00063). One app is one Channel: an app that another Channel has is refused (Hermes
+      refuses two profiles on one app); `(kind, app_id)` is unique, and so is `app_id` alone, kept from
+      migration 00047. Migration 00079 (issue #404) renamed the tables `lark_channels` and `lark_channel_*` in
+      place to `channels` and `channel_*` and the columns `open_id`, `lark_chat_id`, `owner_open_id` and
+      `chats.lark_group` to `person_id`, `external_chat_id`, `owner_id` and `chats.channel_group`, as MemoryOS
+      keeps every provider in one set of channel tables; every Channel there was became of the kind `lark`. The one Lark bot there was before migration 00047 is the Channel `main`, which talks
       to `coordinator`.
     - The Channels' rows are kept by the domain store `orchestration/channelstore` (issue #404), reached through
       `Service.Channels()`, which imports the generated queries, `internal/storeutil` and `storeerr`, never the
       root; it only reads the Bots, chats and Runs it checks, through the shared queries. What also writes
       another domain stays in the root and calls its functions ending in `Tx` with the root's queries: starting
-      the chat of a Lark chat (`RecordLarkChannelChatTx`, `ResetLarkChannelChatTx`) and refusing or forcing a
-      Bot's removal (`CountLarkChannelsOfBotTx`, `DeleteLarkChannelChatsOfBotTx`). `larkbot` is handed the
+      the chat of a Lark chat (`RecordChannelChatTx`, `ResetChannelChatTx`) and refusing or forcing a
+      Bot's removal (`CountChannelsOfBotTx`, `DeleteChannelChatsOfBotTx`). Its types are `Channel` (with its
+      `Kind`), `ChannelPerson`, `ChannelChat`, `ChannelGroup` and `QuestionCard`. `larkbot` is handed the
       Channels' store with the orchestration beside it.
     - It talks to Lark through Lark's Go SDK (`github.com/larksuite/oapi-sdk-go/v3`): events come over a
       persistent connection the control plane opens, one per Channel, so nothing public is opened for it. Only
@@ -1178,10 +1184,10 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     - A message is taken when a person sent it in their direct chat with the Channel's app, once (a row per
       Lark message id, kept a day). The sender's organization must be the app's. The owner always may; others
       by the mode: the people he added, or every member of the organization. People are kept per Channel
-      (`lark_channel_people`): Lark gives a person another `open_id` in each app. A refusal, a message that is
+      (`channel_people`): Lark gives a person another `open_id` in each app. A refusal, a message that is
       not text and a pi that is not running are answered with a short notice.
     - Groups ([#246](https://github.com/kl3inIT/hypomnema/issues/246), migration 00055): each Channel keeps a
-      roster of the Lark groups its bot is in (`lark_channel_groups`, MemoryOS's `ChannelGroupRoster`): a group
+      roster of the Lark groups its bot is in (`channel_groups`, MemoryOS's `ChannelGroupRoster`): a group
       is added when the bot is added to it (`im.chat.member.bot.added_v1`; `deleted_v1` removes it) and by Lark's
       whole list of the bot's groups (`GET /open-apis/im/v1/chats`), read when the Channel connects and every ten
       minutes; a group the list no longer holds is removed unless it was added or asked in since the list was
@@ -1193,7 +1199,7 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       only. Anything else, commands included, is dropped without a word and not recorded. A group mentioning the
       bot before any listing is put on the roster, off. The bot's mention is taken out of the text and another
       person's is written as `@name`.
-    - A group has one chat with the Bot, marked `chats.lark_group`, which stays on a chat the group no longer
+    - A group has one chat with the Bot, marked `chats.channel_group`, which stays on a chat the group no longer
       uses. `/new` from any member it answers starts it over for everyone, as do four hours without a question
       (`asked_at` of the roster) and the first question after the bot was added to the group again; one message
       of a group at a time decides which chat it goes to. Every
@@ -1212,7 +1218,7 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       question (recorded as waiting before the Bot is given it, so an answer that comes before Lark has put the
       "working" mark still quotes it; issue #377), mentions nobody and has no link to the web; the bot says nothing when it joins. Questions for
       approval still go to the owner's direct chat only.
-    - Each person's direct chat is one chat with the Channel's Bot (`lark_channel_chats`), and `/new` opens
+    - Each person's direct chat is one chat with the Channel's Bot (`channel_chats`), and `/new` opens
       another with it. A chat that is open keeps its Bot when the Channel is given another. The owner's text is
       added as it is; another person's is added under a line that names them and says approvals are the
       owner's. It is an owner message in the record, so pi answers it as any other.
@@ -1220,7 +1226,7 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       supervisor's live frames, and closed with the kept message. A kept Bot message with nothing written live
       (a wake-up's answer) is a card of its own. The last message sent is recorded per chat, so a restart sends
       nothing twice.
-    - A question for the owner is a card in his direct chat with a Channel's app (`lark_channel_questions`). It
+    - A question for the owner is a card in his direct chat with a Channel's app (`channel_questions`). It
       goes out through one Channel: the one whose Lark chat is the chat that started the question's Run
       (`runs.chat_id`), as Hermes sends an approval to the conversation the work came from, and for a Run
       started elsewhere the oldest Channel that is on. A Channel that is off sends none. The card has a button
@@ -2742,7 +2748,7 @@ internal/controlplane/machines  machines created at a provider: the Provider int
 internal/controlplane/orchestration  Runs, Tasks, Dispatches, Conversations, questions, events, nodes, accounts, machine providers, skills, the scheduler; migrations; queries generated by sqlc (internal/store); the facade over its domain stores
 internal/controlplane/orchestration/internal/storeutil  what its stores share: the one write helper, which signals event readers after the commit
 internal/controlplane/orchestration/storeerr  the errors every orchestration store returns, re-exported by orchestration
-internal/controlplane/orchestration/channelstore  the Lark Channels: who may talk through each, the messages taken, the Lark chats and groups, the question cards, reached through orchestration's Channels()
+internal/controlplane/orchestration/channelstore  the Channels (tables channels and channel_*, Lark the one kind): who may talk through each, the messages taken, the Lark chats and groups, the question cards, reached through orchestration's Channels()
 internal/controlplane/orchestration/memorystore  the agents' memories and the one about the owner, and the entry rules a Bot's memory follows, reached through orchestration's Memories()
 internal/controlplane/orchestration/userstore  the web's users and sessions, reached through orchestration's Users()
 internal/controlplane/skillsource  fetches a skill from a public GitHub repository at the commit its ref names
