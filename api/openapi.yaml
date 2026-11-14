@@ -2418,6 +2418,24 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Chat" }
         default: { $ref: "#/components/responses/Error" }
+    patch:
+      operationId: UpdateChat
+      summary: Choose the model and effort the chat runs with
+      description: >-
+        Each field given replaces the chat's, and an empty one gives the chat its Bot's again (issue #369). pi takes
+        the change before the chat's next message; the Bot keeps its own.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ChatChange" }
+      responses:
+        "200":
+          description: The chat.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Chat" }
+        default: { $ref: "#/components/responses/Error" }
   /chats/{chat_id}/stream:
     parameters:
       - $ref: "#/components/parameters/ChatID"
@@ -5304,6 +5322,29 @@ components:
         bot:
           type: string
           description: The Bot the chat talks with; `coordinator` when left out.
+        provider:
+          type: string
+          description: Where the model is found; the provider that offers it when left out.
+        model:
+          type: string
+          description: The chat's own model, chosen on the New chat page (issue #369); its Bot's when left out.
+        effort:
+          type: string
+          description: The chat's own effort, one of the model gateway's levels; its Bot's when left out.
+    ChatChange:
+      type: object
+      additionalProperties: false
+      description: A change of the model and effort a chat runs with; a field left out stays as it is.
+      properties:
+        provider:
+          type: string
+          description: Where the model is found, given with the model; the provider that offers it when empty.
+        model:
+          type: string
+          description: The model; empty for its Bot's.
+        effort:
+          type: string
+          description: The effort, one of none, minimal, low, medium, high, xhigh and max; empty for its Bot's.
     WorkspaceList:
       type: object
       required: [data]
@@ -5433,6 +5474,15 @@ components:
         id: { type: string }
         title: { type: string }
         bot: { type: string, description: The Bot the chat talks with. }
+        provider:
+          type: string
+          description: Where the chat's own model is found; absent with the model.
+        model:
+          type: string
+          description: The chat's own model (issue #369); absent when it runs with its Bot's.
+        effort:
+          type: string
+          description: The chat's own effort, one of the model gateway's levels; absent when it is its Bot's.
         working:
           type: boolean
           description: The coordinator is working on a turn of this chat.

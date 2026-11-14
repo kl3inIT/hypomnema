@@ -39,12 +39,29 @@ func (s *Server) ListChats(ctx context.Context, req openapi.ListChatsRequestObje
 // CreateChat starts a chat.
 func (s *Server) CreateChat(ctx context.Context, req openapi.CreateChatRequestObject,
 ) (openapi.CreateChatResponseObject, error) {
-	chat, err := s.svc.CreateChatWithID(ctx, val(req.Body.Id), val(req.Body.Bot), val(req.Body.Title))
+	b := req.Body
+	chat, err := s.svc.CreateChatWithID(ctx, val(b.Id), val(b.Bot), val(b.Title), orchestration.ChatModel{
+		Provider: val(b.Provider), Model: val(b.Model), Effort: val(b.Effort),
+	})
 	if err != nil {
 		return nil, err
 	}
 
 	return openapi.CreateChat201JSONResponse(s.toChat(chat)), nil
+}
+
+// UpdateChat changes the model and effort the chat runs with (issue #369); the supervisor gives pi the change before
+// the chat's next message.
+func (s *Server) UpdateChat(ctx context.Context, req openapi.UpdateChatRequestObject,
+) (openapi.UpdateChatResponseObject, error) {
+	chat, err := s.svc.SetChatModel(ctx, req.ChatId, orchestration.ChatModelChange{
+		Provider: req.Body.Provider, Model: req.Body.Model, Effort: req.Body.Effort,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return openapi.UpdateChat200JSONResponse(s.toChat(chat)), nil
 }
 
 // GetChat returns a chat and whether pi works on it.
@@ -136,7 +153,10 @@ func chatMessageList(msgs []orchestration.ChatMessage, after int64) openapi.List
 }
 
 func (s *Server) toChat(c orchestration.Chat) openapi.Chat {
-	out := openapi.Chat{Id: c.ID, Title: c.Title, Bot: c.Bot, CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt}
+	out := openapi.Chat{
+		Id: c.ID, Title: c.Title, Bot: c.Bot, Provider: opt(c.Choice.Provider), Model: opt(c.Choice.Model),
+		Effort: opt(c.Choice.Effort), CreatedAt: c.CreatedAt, UpdatedAt: c.UpdatedAt,
+	}
 
 	if s.coordinator != nil {
 		out.Coordinator = s.coordinator.Enabled()
