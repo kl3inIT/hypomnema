@@ -83,7 +83,7 @@ if [ ! -s /home/coordinator/.hypomnema/client.json ]; then
   sudo -u coordinator rm -f "$token_file"
 fi
 # The built-in skills into ~/.agents/skills, which every Bot's box binds read-only: the stubs, and pdf as a whole
-# folder with its scripts (issue #458). A copy the owner edited is left alone.
+# folder with its scripts (issue #458), and slides likewise (issue #479). A copy the owner edited is left alone.
 sudo -u coordinator -H /usr/local/bin/hypomnema skills install --agent agents
 
 echo "pi's models are the providers that are the model gateway: a Bot names one of them and one of its models"
