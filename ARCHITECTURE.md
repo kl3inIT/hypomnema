@@ -2629,4 +2629,6 @@ and the node in the control plane binary.
   template). Migrating took 1.5 s for each test under the race detector. Tests of the migrations themselves, and
   the owner commands' tests, which migrate through the command, still migrate their own.
 - Dependabot (`.github/dependabot.yml`) proposes updates weekly for the Go modules (`/`, `/tools/ci`), the web
-  client, pi (`deploy/coordinator`) and the GitHub Actions, with minor and patch updates grouped for all but pi.
+  client, pi (`deploy/coordinator`) and the GitHub Actions, with minor and patch updates grouped for all but pi,
+  and security updates grouped per ecosystem. It leaves `@hey-api/openapi-ts` alone: its `next` build is taken by
+  hand (#424).

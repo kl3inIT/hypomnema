@@ -1,5 +1,6 @@
 # Dependency updates (issue #54). Weekly, with minor and patch updates grouped per ecosystem so each week brings a
-# few pull requests; a major version comes alone. CI checks each one like any other pull request.
+# few pull requests; a major version comes alone. Security updates are grouped per ecosystem too (#424). CI checks
+# each one like any other pull request.
 version: 2
 updates:
   - package-ecosystem: gomod
@@ -8,12 +9,22 @@ updates:
     groups:
       go:
         update-types: [minor, patch]
+      go-security:
+        applies-to: security-updates
+        patterns: ["*"]
   - package-ecosystem: npm
     directory: /web
     schedule: { interval: weekly }
     groups:
       web:
         update-types: [minor, patch]
+      web-security:
+        applies-to: security-updates
+        patterns: ["*"]
+    ignore:
+      # Its next build is used: the releases need the JavaScript compiler API that TypeScript 7 dropped, and
+      # Dependabot reads 0.0.0-next-… as older than every release (#424). A newer next build is taken by hand.
+      - dependency-name: "@hey-api/openapi-ts"
   - package-ecosystem: npm
     # pi, the coordinator on the server; a new version is installed by running deploy/coordinator/setup-coordinator.sh.
     directory: /deploy/coordinator
