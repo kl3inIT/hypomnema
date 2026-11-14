@@ -568,13 +568,25 @@ type worker struct {
 	n    int
 }
 
+// claudeThroughTheGateway gives the world a model gateway and points the
+// starting implementer at it: a Claude Code worker runs only through the
+// gateway (issue #381).
+func claudeThroughTheGateway(t *testing.T, svc *orchestration.Service) {
+	t.Helper()
+
+	_, err := svc.ApplyProvider(t.Context(), "", "name: gateway\nkind: model_gateway\nmodels: [claude-opus-5-5]\n")
+	require.NoError(t, err)
+	_, _, err = svc.ApplyProfile(t.Context(), "",
+		"name: implementer\ndescription: d\nruntime: claude\nmodel: {provider: gateway}\n")
+	require.NoError(t, err)
+}
+
 // askFromAWorker puts one Task of the Run on a node and has its worker ask a question.
 func (w *world) askFromAWorker(c *openapi.ClientWithResponses, runID, text string, to orchestration.Addressee) string {
 	w.t.Helper()
 	ctx := w.t.Context()
 
-	_, err := w.svc.AddAccount(ctx, "claude", "main")
-	require.NoError(w.t, err)
+	claudeThroughTheGateway(w.t, w.svc)
 
 	node, _, err := w.svc.AddNode(ctx, "box", 0)
 	require.NoError(w.t, err)
@@ -890,12 +902,16 @@ func TestOnlyTheOwnerChangesProfiles(t *testing.T) {
 	owner, _ := w.token("web", bearertoken.Owner)
 	ctx := t.Context()
 
+	_, err := w.svc.ApplyProvider(ctx, "", "name: gateway\nkind: model_gateway\nmodels: [claude-opus-5-5]\n")
+	require.NoError(t, err)
+
 	list, err := laptop.ListProfilesWithResponse(ctx)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, list.StatusCode())
 	assert.Len(t, list.JSON200.Data, 3)
 
-	// Each worker's profile says whether a worker can start now; no node is connected here.
+	// Each worker's profile says whether a worker can start now: the starting set names no provider, and a Claude
+	// Code worker runs only through the gateway (issue #381).
 	for _, p := range list.JSON200.Data {
 		if p.Runtime == "pi" {
 			assert.Nil(t, p.Available, p.Name)
@@ -906,7 +922,7 @@ func TestOnlyTheOwnerChangesProfiles(t *testing.T) {
 		require.NotNil(t, p.Available, p.Name)
 		assert.False(t, *p.Available, p.Name)
 		require.NotNil(t, p.UnavailableReason, p.Name)
-		assert.Equal(t, openapi.NoNode, *p.UnavailableReason, p.Name)
+		assert.Equal(t, openapi.NeedsGateway, *p.UnavailableReason, p.Name)
 	}
 
 	models, err := laptop.ListModelsWithResponse(ctx)

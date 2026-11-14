@@ -58,8 +58,9 @@ The owner keeps these profiles, and may add, change or reword any of them: go by
 what a profile was called or did before.
 
 - Give work only to a profile with `available: true`. One at `false` has `unavailable_reason`: `no_node` (no
-  connected node has its CLI), `no_account` (its runtime has no account), or `accounts_cooling` (every account
-  waits for a limit to reset, at `available_at`). Tell the owner which profiles cannot run and why, when the work
+  connected node has its CLI), `no_account` (its runtime has no account), `accounts_cooling` (every account
+  waits for a limit to reset, at `available_at`), or `needs_gateway` (a Claude Code profile that names no provider
+  of kind `model_gateway`, the only way a Claude Code worker runs). Tell the owner which profiles cannot run and why, when the work
   needs one of them; say nothing about it when everything the work needs can run. A profile with no `available`
   is not a worker's (the coordinator's own).
 

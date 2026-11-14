@@ -210,8 +210,9 @@ func (s *Service) RemoveAccountLogin(ctx context.Context, id string) error {
 	})
 }
 
-// AddTokenAccount records an account whose token the control plane keeps and
-// sends to the node with each Dispatch. secretRef names the vault's secret for
+// AddTokenAccount records an account whose token the owner pasted. The
+// control plane keeps it and the model gateway serves the account; it is
+// never sent to a node (issue #381). secretRef names the vault's secret for
 // the new account's id; the caller stores the token there.
 func (s *Service) AddTokenAccount(
 	ctx context.Context, runtime, label string, secretRef func(accountID string) string,
@@ -220,7 +221,7 @@ func (s *Service) AddTokenAccount(
 
 	switch {
 	case runtime != TokenRuntime:
-		return Account{}, fmt.Errorf("%w: only a %s account is a token sent to a node", ErrInvalid, TokenRuntime)
+		return Account{}, fmt.Errorf("%w: only a %s account is a pasted token", ErrInvalid, TokenRuntime)
 	case label == "":
 		return Account{}, fmt.Errorf("%w: an account needs a label", ErrInvalid)
 	}
@@ -241,21 +242,6 @@ func (s *Service) AddTokenAccount(
 	}
 
 	return s.getAccount(ctx, id)
-}
-
-// AccountTokenRef returns the secret ref of an account whose token is sent to
-// the node, and false for any other account.
-func (s *Service) AccountTokenRef(ctx context.Context, accountID string) (string, bool, error) {
-	row, err := s.read().GetAccount(ctx, accountID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", false, nil
-	}
-
-	if err != nil {
-		return "", false, fmt.Errorf("reading account %s: %w", accountID, err)
-	}
-
-	return row.SecretRef.String, sentToNode(row), nil
 }
 
 // AccountsUsingSecretRef names the accounts whose tokens are the secret ref

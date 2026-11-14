@@ -161,7 +161,11 @@ func newWorld(t *testing.T) *world {
 	_, token, err := svc.AddNode(t.Context(), "node_a", 2)
 	require.NoError(t, err)
 
-	_, err = svc.AddAccount(t.Context(), "claude", "acct_1")
+	// A Claude Code worker runs through the model gateway (issue #381).
+	_, err = svc.ApplyProvider(t.Context(), "", "name: gateway\nkind: model_gateway\nmodels: [claude-opus-5-5]\n")
+	require.NoError(t, err)
+	_, _, err = svc.ApplyProfile(t.Context(), "",
+		"name: implementer\ndescription: d\nruntime: claude\nmodel: {provider: gateway}\n")
 	require.NoError(t, err)
 
 	return &world{t: t, svc: svc, url: srv.URL, token: token, state: filepath.Join(t.TempDir(), "node", "state.db")}

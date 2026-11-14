@@ -325,6 +325,11 @@ func placeTask(ctx context.Context, q *store.Queries, p *placement, task store.T
 	}
 
 	if open {
+		// A Conversation begun under a node's Claude account before issue #381 does not go on.
+		if gatewayOnly(conv.Runtime) && conv.AccountRef != GatewayAccountRef {
+			return nil, ReasonNeedsGateway, nil
+		}
+
 		if !p.nodeReady(conv.NodeID, conv.Runtime, host) {
 			return nil, ReasonNoNode, nil
 		}
@@ -347,6 +352,10 @@ func placeTask(ctx context.Context, q *store.Queries, p *placement, task store.T
 // placeNew chooses the node and the account of a Task's new Conversation.
 func placeNew(p *placement, task store.Task, r resolved, host where) (*DispatchSpec, string) {
 	runtime := r.runtime
+
+	if !r.gateway && gatewayOnly(runtime) {
+		return nil, ReasonNeedsGateway
+	}
 
 	n := p.pickNode(runtime, host)
 	if runtime == "" || n == nil {
