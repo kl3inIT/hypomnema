@@ -1296,7 +1296,9 @@ not exist yet.
 - A Dispatch whose model the gateway serves gets a key of its own (issue #107, as the git host's token travels):
   made as its offer is sent to the node, good for the Dispatch's model only, carried in the offer (`model_key`). An
   offer sent again carries a new key and the earlier one stops. The control plane revokes a Dispatch's keys when the
-  Dispatch settles, looked for at every commit of orchestration and every minute. The Codex runner uses it.
+  Dispatch settles, looked for at every commit of orchestration and every minute. The Codex runner uses it, and
+  the Claude Code runner since issue #381 when a profile of runtime `claude` names a provider of kind
+  `model_gateway`.
 - A chat's pi gets a key of its own too (issue #204, after Omnigent, whose pi asks the process that started it):
   - The coordinator's supervisor asks for it as it starts pi for the chat (`AddChatKey`): good for the Bot's model,
     or for every model when the Bot names none. Its value stays in the supervisor's memory with that process; the
@@ -1862,7 +1864,11 @@ Node (`internal/node`):
     and `--effort` when set).
   - The worker gets a clean environment: PATH, HOME and the locale, plus the account's token
     (`CLAUDE_CODE_OAUTH_TOKEN`, read from the file named in the node's configuration) and its own
-    `CLAUDE_CONFIG_DIR`. The spec holding them is deleted once the worker runs. Claude Code's own auto-memory is off
+    `CLAUDE_CONFIG_DIR`. Under the gateway (issue #381; [research](docs/research/2026-11-14-claude-code-workers-through-the-gateway.md))
+    it gets no token: `ANTHROPIC_BASE_URL` is the control plane's address, `ANTHROPIC_AUTH_TOKEN` the Dispatch's
+    key, `CLAUDE_CODE_PROMPT_CACHE_TTL=1h` asks for the one-hour cache for the main conversation (subagents keep
+    five minutes), and `ANTHROPIC_DEFAULT_OPUS|SONNET|HAIKU_MODEL` are the Dispatch's model, the only one its key
+    may use; its `CLAUDE_CONFIG_DIR` is `accounts/gateway/claude`. The spec holding them is deleted once the worker runs. Claude Code's own auto-memory is off
     (`CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`, as OpenMausBot's bots): it is kept per working folder, a worker's is a new
     worktree per Task, and the agent's memory is the control plane's (issue #21).
   - The shim appends each line of the worker's stdout to a journal with an fsync, writes what arrives on its unix
