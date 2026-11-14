@@ -277,6 +277,14 @@ type Event struct {
 	CreatedAt  int64
 }
 
+type GatewayImageProvider struct {
+	Provider  string
+	Off       int64
+	Position  sql.NullInt64
+	Model     sql.NullString
+	UpdatedAt int64
+}
+
 type GatewayKey struct {
 	ID         string
 	Name       string

@@ -359,6 +359,9 @@ func TestOmpThroughTheGateway(t *testing.T) {
 	require.NoError(t, err)
 	assert.Contains(t, string(config), "xdev: false")
 	assert.Contains(t, string(config), "web_search:\n  enabled: false\n", "omp's own search is off")
+	assert.Contains(t, string(models), "      - id: auto\n        name: \"Images through Hypomnema\"\n"+
+		"        api: openai-images\n", "the gateway is omp's image model (issue #431)")
+	assert.Contains(t, string(config), "modelRoles:\n  image: \"hypomnema/auto\"\n", "and its image role")
 
 	assert.Equal(t, "initialize\nsession/new\nsession/prompt", g.file("methods.txt"))
 	assert.Equal(t, g.worktree, g.file("cwd.txt"))
@@ -390,8 +393,16 @@ func TestOpencodeThroughTheGateway(t *testing.T) {
 		Model     string `json:"model"`
 		Providers map[string]struct {
 			Settings map[string]string `json:"settings"`
+			Models   map[string]struct {
+				Type string `json:"type"`
+			} `json:"models"`
 		} `json:"providers"`
-		Permissions []map[string]string `json:"permissions"`
+		Permissions  []map[string]string `json:"permissions"`
+		Experimental struct {
+			ImageGenerate struct {
+				Model string `json:"model"`
+			} `json:"image_generate"`
+		} `json:"experimental"`
 	}
 	require.NoError(t, json.Unmarshal(raw, &config))
 
@@ -407,6 +418,9 @@ func TestOpencodeThroughTheGateway(t *testing.T) {
 			"opencode's own %s is off", own)
 	}
 	assert.NotContains(t, string(raw), `"skills"`, "a worker given no skill is told of no folder")
+	assert.Equal(t, "image", config.Providers["hypomnema"].Models["auto"].Type,
+		"the gateway is opencode's image model (issue #431)")
+	assert.Equal(t, "hypomnema/auto", config.Experimental.ImageGenerate.Model)
 }
 
 // Scenario: a follow-up Dispatch of a Conversation. The agent resumes its

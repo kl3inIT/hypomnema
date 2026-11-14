@@ -1632,6 +1632,64 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/WebSearch" }
         default: { $ref: "#/components/responses/Error" }
+  /gateway/images:
+    get:
+      operationId: GetImages
+      summary: >-
+        The image providers in the order a request asks them, each with its switch, state, model and usage
+      description: >-
+        Codex (with gpt-image-2 unless the owner set another model) and Antigravity (gemini-3.1-flash-image), in
+        the owner's order, by default Codex first. A provider can make images while an account of it is logged in
+        on the control plane and in use, a Codex account on a paid ChatGPT plan; its account is added on the
+        Models page. It rests while each such account rests after a limit, until the vendor's reset.
+      responses:
+        "200":
+          description: The providers.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Images" }
+        default: { $ref: "#/components/responses/Error" }
+  /gateway/images/providers/{provider}:
+    parameters:
+      - name: provider
+        in: path
+        required: true
+        schema: { $ref: "#/components/schemas/ImageProvider" }
+    put:
+      operationId: SetImageProvider
+      summary: Switch an image provider on or off, or set the model it makes images with; only the owner
+      description: >-
+        A provider that is off is neither asked nor may be named, from the next request on. A model is any name the
+        provider may know, passed to it as it is, so a model released later can be tried; an empty one is the
+        provider's default again. A request that names a model uses that one instead.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ImageProviderChange" }
+      responses:
+        "200":
+          description: The providers after the change.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Images" }
+        default: { $ref: "#/components/responses/Error" }
+  /gateway/images/order:
+    put:
+      operationId: SetImageOrder
+      summary: Set the order a request asks the image providers in; only the owner
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ImageOrder" }
+      responses:
+        "200":
+          description: The providers in their new order.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Images" }
+        default: { $ref: "#/components/responses/Error" }
   /bots:
     get:
       operationId: ListBots
@@ -2634,6 +2692,27 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/WebPage" }
+        default: { $ref: "#/components/responses/Error" }
+  /images/generations:
+    post:
+      operationId: GenerateImages
+      summary: Make or edit images through the owner's subscriptions; any token, a Bot's included
+      description: >-
+        With reference images it is an edit. The image providers are asked in the owner's order, each with the
+        model the request names (gpt-image-* is Codex's, gemini-* Antigravity's, or provider/model) or the
+        one the owner set; `errors` says why those asked before the one that answered did not. Every provider
+        limited is answered 429 with `Retry-After`; none with an account to use, 503.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ImageRequest" }
+      responses:
+        "200":
+          description: The images.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ImageAnswer" }
         default: { $ref: "#/components/responses/Error" }
   /chats:
     get:
@@ -3842,6 +3921,117 @@ components:
       properties:
         provider: { type: string }
         message: { type: string }
+    ImageProvider:
+      type: string
+      enum: [codex, antigravity]
+    Images:
+      type: object
+      required: [providers]
+      properties:
+        providers:
+          type: array
+          description: The image providers, in the order a request that names none asks them.
+          items: { $ref: "#/components/schemas/ImageProviderLink" }
+    ImageProviderLink:
+      type: object
+      required: [provider, "on", state, model, default_model, model_chosen, suggested_models, accounts, usage]
+      properties:
+        provider: { $ref: "#/components/schemas/ImageProvider" }
+        "on":
+          type: boolean
+          description: The owner's switch for the provider.
+        state:
+          type: string
+          enum: [ready, resting, not_set_up, "off"]
+          description: >-
+            ready: it is asked in its turn. resting: each of its accounts rests until `resting_until`, after a limit.
+            not_set_up: no account of it is in use (for Codex, none on a paid plan). off: the owner switched it off.
+        resting_until: { type: string, format: date-time }
+        model:
+          type: string
+          description: The model it makes images with when a request names none.
+        default_model: { type: string }
+        model_chosen:
+          type: boolean
+          description: The owner set the model; false, it is the default.
+        suggested_models:
+          type: array
+          description: Models the references name for it; any other name may be set.
+          items: { type: string }
+        accounts:
+          type: integer
+          description: Its accounts that can make images, now or after their rest.
+        usage: { $ref: "#/components/schemas/WebSearchUsage" }
+    ImageProviderChange:
+      type: object
+      additionalProperties: false
+      properties:
+        "on": { type: boolean }
+        model:
+          type: string
+          maxLength: 100
+          description: The model's name as the provider takes it; empty for the default.
+    ImageOrder:
+      type: object
+      additionalProperties: false
+      required: [providers]
+      properties:
+        providers:
+          type: array
+          minItems: 2
+          maxItems: 2
+          items: { $ref: "#/components/schemas/ImageProvider" }
+    ImageInput:
+      type: object
+      additionalProperties: false
+      required: [data]
+      properties:
+        data: { type: string, format: byte, description: "The image's bytes, base64." }
+        mime_type: { type: string, maxLength: 100, description: Read from the bytes when left out. }
+    ImageRequest:
+      type: object
+      additionalProperties: false
+      required: [prompt]
+      properties:
+        prompt: { type: string, minLength: 1, maxLength: 32000 }
+        images:
+          type: array
+          maxItems: 14
+          description: Reference images; with any, the request is an edit.
+          items: { $ref: "#/components/schemas/ImageInput" }
+        "n": { type: integer, minimum: 1, maximum: 10, description: How many images; 1 when left out. }
+        size:
+          type: string
+          maxLength: 20
+          description: "OpenAI's size (1024x1024, 1536x1024, 1024x1536, auto) or an aspect ratio such as 16:9."
+        model:
+          type: string
+          maxLength: 120
+          description: "gpt-image-*, gemini-*, provider/model, or auto; left out, each provider's own."
+        provider: { $ref: "#/components/schemas/ImageProvider" }
+        quality: { type: string, maxLength: 20 }
+        background: { type: string, maxLength: 20 }
+        image_size: { type: string, maxLength: 4, description: "Antigravity's output size: 1K, 2K or 4K." }
+    ImageAnswer:
+      type: object
+      required: [provider, model, created, images]
+      properties:
+        provider: { $ref: "#/components/schemas/ImageProvider" }
+        model: { type: string }
+        created: { type: integer, format: int64 }
+        images:
+          type: array
+          items: { $ref: "#/components/schemas/GeneratedImage" }
+        errors:
+          type: array
+          items: { $ref: "#/components/schemas/WebSearchError" }
+    GeneratedImage:
+      type: object
+      required: [b64_json, mime_type]
+      properties:
+        b64_json: { type: string, description: "The image's bytes, base64." }
+        mime_type: { type: string }
+        revised_prompt: { type: string }
     WebFetchRequest:
       type: object
       additionalProperties: false
