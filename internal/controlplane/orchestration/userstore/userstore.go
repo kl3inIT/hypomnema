@@ -1,4 +1,22 @@
-package orchestration
+// Package userstore keeps the web's users and their sessions (issue #114), a
+// domain store of the orchestration database reached through the root
+// package's Users(), as Omnara's storage facade reaches its stores (issue
+// #404). It imports the generated store and never the root package.
+//
+// Each rule names the reference it is learned from
+// (docs/research/2026-11-10-web-login.md):
+//
+//   - no password is shipped; the owner makes a user on the server, with a
+//     password of at least 8 characters: Coder and Omnigent;
+//   - the password is kept as bcrypt at cost 10: 9router, 9router-go,
+//     new-api and CLIProxyAPI;
+//   - a session is a row holding the SHA-256 of the cookie's secret: Coder,
+//     and how client tokens are kept here;
+//   - it lasts 30 days (the owner, 2026-11-10, with new-api's number) and is
+//     extended as it is used, written at most once an hour: Coder;
+//   - a new password ends every session of the user: Coder, Omnigent, new-api;
+//   - an unknown name costs the same work as a wrong password: Omnigent.
+package userstore
 
 import (
 	"context"
@@ -13,21 +31,10 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/storeutil"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/storeerr"
+	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 )
-
-// The web's built-in account (issue #114). Each rule names the reference it
-// is learned from (docs/research/2026-11-10-web-login.md):
-//
-//   - no password is shipped; the owner makes a user on the server, with a
-//     password of at least 8 characters: Coder and Omnigent;
-//   - the password is kept as bcrypt at cost 10: 9router, 9router-go,
-//     new-api and CLIProxyAPI;
-//   - a session is a row holding the SHA-256 of the cookie's secret: Coder,
-//     and how client tokens are kept here;
-//   - it lasts 30 days (the owner, 2026-11-10, with new-api's number) and is
-//     extended as it is used, written at most once an hour: Coder;
-//   - a new password ends every session of the user: Coder, Omnigent, new-api;
-//   - an unknown name costs the same work as a wrong password: Omnigent.
 
 const (
 	// SessionLifetime is how long a web session lasts after its last use.
@@ -61,6 +68,29 @@ type Session struct {
 	ExpiresAt time.Time
 }
 
+// Store keeps users and web sessions.
+type Store struct {
+	db    *sql.DB
+	clock platform.Clock
+	newID func(prefix string) string
+	// signal wakes the orchestration's event readers after each commit.
+	signal func()
+}
+
+// New returns the Store over the orchestration database. signal is the
+// root's, called after each commit as for every other write.
+func New(db *sql.DB, clock platform.Clock, newID func(prefix string) string, signal func()) *Store {
+	return &Store{db: db, clock: clock, newID: newID, signal: signal}
+}
+
+func (s *Store) write(ctx context.Context, fn func(q *store.Queries, now int64) error) error {
+	return storeutil.Write(ctx, s.db, s.clock, s.signal, fn)
+}
+
+func (s *Store) read() *store.Queries {
+	return store.New(s.db)
+}
+
 // dummyHash is compared against when no user has the name, so that the
 // answer takes as long as for a wrong password.
 var dummyHash, _ = bcrypt.GenerateFromPassword([]byte("no user has this password"), passwordCost)
@@ -68,9 +98,9 @@ var dummyHash, _ = bcrypt.GenerateFromPassword([]byte("no user has this password
 func hashPassword(password string) (string, error) {
 	switch {
 	case len([]rune(password)) < MinPasswordLength:
-		return "", fmt.Errorf("%w: a password has at least %d characters", ErrInvalid, MinPasswordLength)
+		return "", fmt.Errorf("%w: a password has at least %d characters", storeerr.ErrInvalid, MinPasswordLength)
 	case len(password) > maxPasswordBytes:
-		return "", fmt.Errorf("%w: a password has at most %d bytes", ErrInvalid, maxPasswordBytes)
+		return "", fmt.Errorf("%w: a password has at most %d bytes", storeerr.ErrInvalid, maxPasswordBytes)
 	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), passwordCost)
@@ -82,9 +112,9 @@ func hashPassword(password string) (string, error) {
 }
 
 // AddUser makes a user of the web. The password is hashed; it is kept nowhere.
-func (s *Service) AddUser(ctx context.Context, name, password string) (User, error) {
-	if !namePattern.MatchString(name) {
-		return User{}, fmt.Errorf("%w: a user's name is lowercase letters, digits and dashes", ErrInvalid)
+func (s *Store) AddUser(ctx context.Context, name, password string) (User, error) {
+	if !storeutil.NamePattern.MatchString(name) {
+		return User{}, fmt.Errorf("%w: a user's name is lowercase letters, digits and dashes", storeerr.ErrInvalid)
 	}
 
 	hash, err := hashPassword(password)
@@ -98,10 +128,10 @@ func (s *Service) AddUser(ctx context.Context, name, password string) (User, err
 
 	err = s.write(ctx, func(q *store.Queries, now int64) error {
 		if err := q.InsertUser(ctx, store.InsertUserParams{ID: id, Name: name, PasswordHash: hash, Now: now}); err != nil {
-			return fmt.Errorf("%w: inserting user %q: %w", ErrConflict, name, err)
+			return fmt.Errorf("%w: inserting user %q: %w", storeerr.ErrConflict, name, err)
 		}
 
-		out = User{ID: id, Name: name, CreatedAt: millis(now), UpdatedAt: millis(now)}
+		out = User{ID: id, Name: name, CreatedAt: storeutil.Millis(now), UpdatedAt: storeutil.Millis(now)}
 
 		return nil
 	})
@@ -113,7 +143,7 @@ func (s *Service) AddUser(ctx context.Context, name, password string) (User, err
 }
 
 // SetUserPassword gives a user a new password and ends every session of theirs.
-func (s *Service) SetUserPassword(ctx context.Context, name, password string) error {
+func (s *Store) SetUserPassword(ctx context.Context, name, password string) error {
 	hash, err := hashPassword(password)
 	if err != nil {
 		return err
@@ -122,7 +152,7 @@ func (s *Service) SetUserPassword(ctx context.Context, name, password string) er
 	return s.write(ctx, func(q *store.Queries, now int64) error {
 		u, err := q.GetUserByName(ctx, name)
 		if err != nil {
-			return notFound(err, "user", name)
+			return storeutil.NotFound(err, "user", name)
 		}
 
 		_, err = q.SetUserPassword(ctx, store.SetUserPasswordParams{PasswordHash: hash, Now: now, Name: name})
@@ -139,7 +169,7 @@ func (s *Service) SetUserPassword(ctx context.Context, name, password string) er
 }
 
 // ListUsers returns the users by name.
-func (s *Service) ListUsers(ctx context.Context) ([]User, error) {
+func (s *Store) ListUsers(ctx context.Context) ([]User, error) {
 	rows, err := s.read().ListUsers(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("listing users: %w", err)
@@ -147,7 +177,9 @@ func (s *Service) ListUsers(ctx context.Context) ([]User, error) {
 
 	out := make([]User, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, User{ID: r.ID, Name: r.Name, CreatedAt: millis(r.CreatedAt), UpdatedAt: millis(r.UpdatedAt)})
+		out = append(out, User{
+			ID: r.ID, Name: r.Name, CreatedAt: storeutil.Millis(r.CreatedAt), UpdatedAt: storeutil.Millis(r.UpdatedAt),
+		})
 	}
 
 	return out, nil
@@ -155,7 +187,7 @@ func (s *Service) ListUsers(ctx context.Context) ([]User, error) {
 
 // SignIn checks a name and a password and opens a session. A wrong name or
 // password is ErrBadCredentials.
-func (s *Service) SignIn(ctx context.Context, name, password string) (Session, error) {
+func (s *Store) SignIn(ctx context.Context, name, password string) (Session, error) {
 	u, err := s.read().GetUserByName(ctx, name)
 
 	switch {
@@ -185,7 +217,7 @@ func (s *Service) SignIn(ctx context.Context, name, password string) (Session, e
 		}
 
 		expires := now + SessionLifetime.Milliseconds()
-		out.ExpiresAt = millis(expires)
+		out.ExpiresAt = storeutil.Millis(expires)
 
 		return q.InsertWebSession(ctx, store.InsertWebSessionParams{
 			ID: out.ID, UserID: u.ID, SecretHash: bearertoken.Hash(out.Secret), Now: now, ExpiresAt: expires,
@@ -198,26 +230,26 @@ func (s *Service) SignIn(ctx context.Context, name, password string) (Session, e
 	return out, nil
 }
 
-// AuthenticateSession returns who a cookie's secret signs in, as the owner,
-// and the session. An unknown or ended session is ErrNotFound. A session in
-// use is extended.
-func (s *Service) AuthenticateSession(ctx context.Context, secret string) (Token, Session, error) {
+// AuthenticateSession returns the user a cookie's secret signs in, with its
+// id and name only, and the session. An unknown or ended session is
+// storeerr.ErrNotFound. A session in use is extended.
+func (s *Store) AuthenticateSession(ctx context.Context, secret string) (User, Session, error) {
 	if secret == "" {
-		return Token{}, Session{}, fmt.Errorf("%w: no session", ErrNotFound)
+		return User{}, Session{}, fmt.Errorf("%w: no session", storeerr.ErrNotFound)
 	}
 
 	row, err := s.read().GetWebSessionByHash(ctx, bearertoken.Hash(secret))
 	if errors.Is(err, sql.ErrNoRows) {
-		return Token{}, Session{}, fmt.Errorf("%w: no session has this secret", ErrNotFound)
+		return User{}, Session{}, fmt.Errorf("%w: no session has this secret", storeerr.ErrNotFound)
 	}
 
 	if err != nil {
-		return Token{}, Session{}, fmt.Errorf("authenticating a session: %w", err)
+		return User{}, Session{}, fmt.Errorf("authenticating a session: %w", err)
 	}
 
 	now := s.clock.Now().UnixMilli()
 	if row.ExpiresAt <= now {
-		return Token{}, Session{}, fmt.Errorf("%w: session %s has ended", ErrNotFound, row.ID)
+		return User{}, Session{}, fmt.Errorf("%w: session %s has ended", storeerr.ErrNotFound, row.ID)
 	}
 
 	expires := row.ExpiresAt
@@ -227,18 +259,17 @@ func (s *Service) AuthenticateSession(ctx context.Context, secret string) (Token
 			return q.ExtendWebSession(ctx, store.ExtendWebSessionParams{ExpiresAt: fresh, ID: row.ID})
 		})
 		if err != nil {
-			return Token{}, Session{}, fmt.Errorf("extending session %s: %w", row.ID, err)
+			return User{}, Session{}, fmt.Errorf("extending session %s: %w", row.ID, err)
 		}
 
 		expires = fresh
 	}
 
-	return Token{ID: row.UserID, Name: row.UserName, Kind: bearertoken.Owner},
-		Session{ID: row.ID, ExpiresAt: millis(expires)}, nil
+	return User{ID: row.UserID, Name: row.UserName}, Session{ID: row.ID, ExpiresAt: storeutil.Millis(expires)}, nil
 }
 
 // SignOut ends a session; one that is gone already is no error.
-func (s *Service) SignOut(ctx context.Context, sessionID string) error {
+func (s *Store) SignOut(ctx context.Context, sessionID string) error {
 	return s.write(ctx, func(q *store.Queries, _ int64) error {
 		if err := q.DeleteWebSession(ctx, sessionID); err != nil {
 			return fmt.Errorf("ending session %s: %w", sessionID, err)

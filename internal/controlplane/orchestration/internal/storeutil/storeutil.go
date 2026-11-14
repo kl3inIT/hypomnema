@@ -1,6 +1,6 @@
 // Package storeutil holds what the orchestration's stores share: the one
-// write helper over the generated queries, as Omnara's
-// storage/internal/storeutil serves its stores.
+// write helper over the generated queries and the helpers of their rows, as
+// Omnara's storage/internal/storeutil serves its stores.
 package storeutil
 
 import (
@@ -8,8 +8,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"regexp"
+	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/storeerr"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 )
 
@@ -39,3 +42,19 @@ func Write(
 
 	return nil
 }
+
+// NamePattern is what a name the owner gives (a profile, a Bot, a user) is:
+// lowercase letters, digits and dashes.
+var NamePattern = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
+
+// NotFound turns a missing row into storeerr.ErrNotFound naming what was read.
+func NotFound(err error, kind, id string) error {
+	if errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("%w: %s %s", storeerr.ErrNotFound, kind, id)
+	}
+
+	return fmt.Errorf("reading %s %s: %w", kind, id, err)
+}
+
+// Millis is a stored time, milliseconds since the epoch, in UTC.
+func Millis(ms int64) time.Time { return time.UnixMilli(ms).UTC() }
