@@ -132,6 +132,12 @@ linters:
           deny:
             - pkg: github.com/kl3inIT/hypomnema/internal/controlplane/vault
               desc: a secret's value is opened only by the control plane's own wiring, the model gateway and subscription accounts, never by an API, a coordinator or the web client (issue #66)
+        lark_sdk_in_its_channel:
+          list-mode: lax
+          files: [$all, "!**/internal/controlplane/channels/lark/**"]
+          deny:
+            - pkg: github.com/larksuite/oapi-sdk-go
+              desc: Lark's SDK belongs to its Channel, channels/lark; the shared runtime in channels names no service (issue #404)
         shared_depends_on_no_tree:
           list-mode: lax
           files: ["**/internal/shared/**"]

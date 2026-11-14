@@ -20,7 +20,7 @@ import (
 // saved as files, in the current folder unless --out names another, and
 // their paths printed, one a line, as omp's generate_image and opencode's
 // experimental_image_generate save theirs and say where; a Bot then sends a
-// file into its chat with a MEDIA:<path> line (larkbot/media.go). The
+// file into its chat with a MEDIA:<path> line (channels/media.go). The
 // providers, their switches, order and models are what Settings → Gateway →
 // Images shows and changes.
 

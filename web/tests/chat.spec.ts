@@ -1156,8 +1156,14 @@ test("a chat keeps its draft, and ↑ brings back what it sent", async ({ page, 
   await expect(box).toHaveValue("and a test for it")
   await shot(page, "chat-draft-kept")
 
+  // The reload waits for the send to be answered: a reload while it is on its way stops it, and a send that did not
+  // end puts its text back, as one the server refused (issue #472).
+  const sent = page.waitForResponse(
+    (r) => r.url().endsWith(`/chats/${chat.id}/messages`) && r.request().method() === "POST",
+  )
   await box.press("Enter")
   await expect(box).toHaveValue("")
+  await (await sent).finished()
   await write(page, kept(2, { role: "owner", text: "and a test for it" }))
   await page.reload()
   await expect.poll(() => streams(page)).toBe(1)
