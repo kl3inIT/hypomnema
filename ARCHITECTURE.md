@@ -1774,7 +1774,11 @@ capabilities do not exist yet.
     (pi/omp `applyAnthropicCacheControl`), each kept an hour (`ttl: 1h`, with `extended-cache-ttl-2025-04-11` among
     the betas; issue #397, as Claude Code, omp, CLIProxyAPI and 9router-go keep a subscription's cache); a client's own breakpoint
     with no ttl is kept an hour too, one it gave a ttl keeps it, and a one-hour breakpoint after a shorter one loses
-    its ttl, as Anthropic reads them tools, system, messages; issue #409, CLIProxyAPI `normalizeCacheControlTTLDoc`). A probe
+    its ttl, as Anthropic reads them tools, system, messages; issue #409, CLIProxyAPI `normalizeCacheControlTTLDoc`).
+    A client's breakpoint on a text or image part stays on its block (a blank text part is dropped and hands its
+    breakpoint to the block before), one on a whole message goes on its last block, and a tool message's goes on the
+    `tool_result` block, never inside its content, which Anthropic refuses (issue #482, CLIProxyAPI
+    `AttachCacheControl`, `AttachMessageCacheControl`, `AttachToolMessageCacheControl`). A probe
     (Claude Code's own `quota`/`ping` check) is left minimal, with no decoys and no breakpoints.
   - The call goes to `api.anthropic.com/v1/messages?beta=true`, always as a stream, with the account's token in the
     Bearer header (never the api-key header), a refresh on a 401, a cooldown on a 429.
@@ -1950,20 +1954,26 @@ issue #431): the owner's Codex and Antigravity subscriptions make and edit image
 (`/v1/images/*`, above), for workers (omp and opencode name the gateway as their image model, see their runtime
 below) and for Bots (`hypomnema image`, see Bots). Claude makes none (no reference has it).
 - The providers are asked in the owner's order, by default Codex then Antigravity, each that is on; the first that
-  answers gives the images, and the answer says why those before it did not (as a web search). A request picks the
-  model with `model`: `auto` or none is each provider's own, `gpt-image-*` is Codex's and `gemini-*` Antigravity's
-  (OmniRoute's `isCodexImagesApiModel`), `<provider>/<model>` names both; `provider` names the one asked. Any well
-  formed name is passed on as it is, so a model released later can be tried (owner, 2026-11-14); a provider's
-  refusal comes back with the provider and the model's name. Refused before any provider: no prompt, `n` outside 1
+  answers gives the images, and the answer says why those before it did not (as a web search). Each provider makes
+  images with its one model, not chosen (issue #453, owner, 2026-11-14): Codex `gpt-image-2` (codex-rs's
+  `IMAGE_MODEL`, Hermes' `API_MODEL`), Antigravity `gemini-3.1-flash-image` (9router-go, OmniRoute; the only one
+  Cloud Code served in a probe), since the Codex backend answered every model name, a made-up one too, with the
+  same image. A request's `model` only picks the provider: `gpt-image-*` is Codex and `gemini-*` Antigravity
+  (OmniRoute's `isCodexImagesApiModel`), `<provider>/<anything>` that provider, `auto` or none the order;
+  `provider` names the one asked. Refused before any provider: no prompt, `n` outside 1
   to 10, a reference over 20 MiB (opencode's bound) or not an image, a mask, a file id, a reference that is an
-  address on the web (not fetched, as OmniRoute), a model that names no provider, a provider that is off. A body is
+  address on the web (not fetched, as OmniRoute), a model that names no provider or another than `provider`, a
+  provider that is off. A body is
   at most 64 MiB.
 - Codex (codex-rs `codex-api/src/endpoint/images.rs`, OmniRoute's `codexImages.ts`, Hermes, CLIProxyAPI's direct
   routes): `POST <Codex backend>/images/generations`, or `/images/edits` with references, with chat's headers,
   `Accept: application/json` and an `x-codex-image-turn-id`; the body `{prompt, model, n: 1, size?, quality?,
   background?, images?: [{image_url: data:…}]}`, `quality` `standard`/`hd` read as `medium`/`high`. `n` is fanned out
-  one call each at once, a failure failing the whole, the usage summed (OmniRoute). By default `gpt-image-2`. An
-  account whose plan is `free` is skipped without a call (9router-go, OmniRoute) and the backend's "The '<model>'
+  one call each at once, a failure failing the whole, the usage summed (OmniRoute). The backend does not enforce
+  `size` or `quality` (a 1024x1024 request came back 1312x1199): the `size`, `quality` and `output_format` it
+  answers (codex-rs's `ImageResponse`) are passed back at the top of the answer, as Hermes reports
+  `reported_size` and `reported_quality`, the first call's when `n` fans out. An
+  account whose plan is `free` is skipped without a call (9router-go, OmniRoute) and the backend's "The 'gpt-image-2'
   model is not supported when using Codex with a ChatGPT account." 400 moves on to the next account (OmniRoute,
   its issue #8307). The account's plan reaches the gateway with its token (`AccountToken.Plan`).
 - Antigravity (OmniRoute's `handleGeminiImageGeneration` and `geminiInline.ts`, 9router-go, omp):
@@ -1971,8 +1981,7 @@ below) and for Bots (`hypomnema image`, see Bots). Claude makes none (no referen
   image_gen/<ms>/<id>/0, model, userAgent: antigravity, requestType: image_gen, request: {contents: [references as
   inlineData, then the prompt], generationConfig: {candidateCount: n, imageConfig: {aspectRatio, imageSize?}}}}`;
   a prompt with references first asks to use them all (OmniRoute). `size` becomes the aspect ratio (OmniRoute's
-  table, an `a:b` kept, else 1:1), `image_size` 1K, 2K or 4K (else 1K); at most 14 references. By default
-  `gemini-3.1-flash-image`. An answer with text and no image is a refusal that says the text (`Antigravity returned
+  table, an `a:b` kept, else 1:1), `image_size` 1K, 2K or 4K (else 1K); at most 14 references. An answer with text and no image is a refusal that says the text (`Antigravity returned
   text instead of an image: …`), and no other account is asked for it; it counts within the account's requests in
   flight as chat's do; a suspended account or one to verify is parked as chat parks it.
 - Accounts are taken as chat takes them (`underAccounts`): the next one on 401 (after one refresh), 402, 403, 429,
@@ -1983,19 +1992,18 @@ below) and for Bots (`hypomnema image`, see Bots). Claude makes none (no referen
   with no time named waits as chat's (30 s, 30 minutes for a quota). In memory; an answer clears it. Every provider
   limited is 429 with `Retry-After`; none with an account to use 503 `no_image_provider`; one provider's refusal of
   the request its own 4xx; else 502. Images wait up to 5 minutes for the answer's headers (Hermes's 300 s).
-- Usage: each request is one row of `gateway_usage` on its key, as model `image/<model>`, its provider, account and
+- Usage: each request is one row of `gateway_usage` on its key, as model `image/<the provider's model>`, its provider, account and
   the providers tried; the tokens the provider reported (Codex's `usage`, Antigravity's `usageMetadata`), none
   invented; a request refused before any provider is not recorded. A Bot's is on its chat's key (as its web search).
-- What the owner sets (`gateway_image_providers`, migration 00077: `provider`, `off`, `position`, `model`; read
-  and written only by the gateway): a switch a provider, the order, and each one's model when a request names none,
-  read at each request. `GET /gateway/images` (any token) lists the providers in order, each with its switch, its
-  `state` (`ready`; `resting` with `resting_until`, when each usable account rests; `not_set_up`, no account in use,
-  for Codex none on a paid plan; `off`), its model, default model, whether the owner chose it, the references' names
-  for it (`suggested_models`: `gpt-image-2`; `gemini-3.1-flash-image`, `gemini-3-pro-image`), its usable accounts
-  and its requests today and this month (UTC). The owner's: `PUT /gateway/images/providers/{provider}` `{on?,
-  model?}` (an empty model is the default again) and `PUT /gateway/images/order` `{providers}`. The CLI: `hypomnema
-  image providers`, `image providers set <provider> on|off`, `image providers model <provider> <model>|default`,
-  `image order <provider> <provider>`.
+- What the owner sets (`gateway_image_providers`, migration 00077: `provider`, `off`, `position`; its `model`
+  dropped by 00082; read and written only by the gateway): a switch a provider and the order, read at each request.
+  `GET /gateway/images` (any token) lists the providers in order, each with its switch, its `state` (`ready`;
+  `resting` with `resting_until`, when each usable account rests; `not_set_up`, no account in use, for Codex none on
+  a paid plan; `off`), its one `model` and OmniRoute's name for it (`model_name`: `GPT Image 2 (Codex)`, `Gemini 3.1
+  Flash Image`), its usable accounts and its requests today and this month (UTC). The owner's: `PUT
+  /gateway/images/providers/{provider}` `{on}` and `PUT /gateway/images/order` `{providers}`. The CLI: `hypomnema
+  image providers`, `image providers set <provider> on|off`, `image order <provider> <provider>`; `image generate`
+  prints the size and quality the provider says it made.
 - Not built: Codex's own `imagegen` in a Codex worker reaching the gateway (no reference sets it; issue #431 leaves
   it to a probe); keyless or keyed image providers outside the subscriptions; masks; streaming partial images.
 
@@ -2180,6 +2188,15 @@ The owner's commands:
   (`releasedFolders`); an edited copy is left alone, or with `--force` replaced and kept as `.pdf.bak`, which pi
   does not read. `setup-coordinator.sh` runs `skills install --agent agents` at each deploy, so every Bot gets it
   with no `skills add`. It is listed among the built-in skills.
+- The pages skill (`internal/controlplane/clientcli/skills/pages`, issue #423) is built in the same way, a folder:
+  OpenMausBot's `skills/data-dashboards` at `a6cd67c78610` (Apache-2.0, its `LICENSE` in the folder, the notice in
+  `third_party/openmausbot/NOTICE`), for dashboards and any other page a Bot shows with `hypomnema artifact show`.
+  Its `dashboard.html` template is self-contained: its charts are SVG its own script draws, its sums are computed in
+  the script, and its data is a Superset chart's JSON (`{columns, rows}`) embedded in the page or in `data.json`
+  beside a folder page; it loads no library, font or file from another host and uses no storage, so it runs in the
+  artifact's locked frame (a Playwright test in `web/tests/artifacts.spec.ts` shows it there with no refusal).
+  OpenMausBot's `show_html`/`publish_page`, its Data tools, DuckDB-WASM, ECharts and its `jsx` pages are not kept;
+  a page kept current is a folder page a Routine shows again with `--id`.
 - The slides skill (`internal/controlplane/clientcli/skills/slides`, issue #479) is built in the same way:
   zarazhangrui/frontend-slides at `9906a34d640d` (MIT, its `LICENSE` in the folder, the notice in
   `third_party/frontend-slides/NOTICE`), for slide decks; dashboards and single pages are not its. A deck is one

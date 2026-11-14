@@ -33,7 +33,7 @@ func (m *theImages) Make(
 
 	img := modelgateway.GeneratedImage{B64JSON: base64.StdEncoding.EncodeToString(pngImage), MIME: "image/png"}
 	out := modelgateway.ImageResult{
-		Provider: "codex", Model: "gpt-image-2", Created: 1,
+		Provider: "codex", Model: "gpt-image-2", Created: 1, Size: "1312x1199", Quality: "medium",
 		Errors: []modelgateway.ImageFailure{{Provider: "antigravity", Model: "gemini-3.1-flash-image", Message: "limited"}},
 	}
 
@@ -48,18 +48,12 @@ func (m *theImages) Make(
 type theImageSettings struct {
 	order []string
 	off   map[string]bool
-	model map[string]string
 }
 
 func (s *theImageSettings) ImageSettings(context.Context) ([]modelgateway.ImageProviderSetting, error) {
 	out := make([]modelgateway.ImageProviderSetting, 0, len(s.order))
 	for _, p := range s.order {
-		model, chosen := modelgateway.DefaultImageModel(p), false
-		if m := s.model[p]; m != "" {
-			model, chosen = m, true
-		}
-
-		out = append(out, modelgateway.ImageProviderSetting{Provider: p, On: !s.off[p], Model: model, Chosen: chosen})
+		out = append(out, modelgateway.ImageProviderSetting{Provider: p, On: !s.off[p]})
 	}
 
 	return out, nil
@@ -81,12 +75,6 @@ func (s *theImageSettings) SetImageProvider(_ context.Context, provider string, 
 	return nil
 }
 
-func (s *theImageSettings) SetImageModel(_ context.Context, provider, model string) error {
-	s.model[provider] = model
-
-	return nil
-}
-
 func (s *theImageSettings) SetImageOrder(_ context.Context, providers []string) error {
 	s.order = providers
 
@@ -96,8 +84,9 @@ func (s *theImageSettings) SetImageOrder(_ context.Context, providers []string) 
 // Scenario: a Bot's pi makes two images and edits one with the CLI. The
 // request is its chat's, so the control plane records it on that chat's key;
 // the images are saved where --out says, named after the file asked for and
-// numbered, and their absolute paths printed one a line, then who made them
-// after whom; an edit sends the image files' bytes.
+// numbered, and their absolute paths printed one a line, then who made them,
+// at the size and quality the provider says it made, after whom; --model
+// only picks the provider; an edit sends the image files' bytes.
 func TestABotMakesAndEditsImages(t *testing.T) {
 	t.Parallel()
 
@@ -125,8 +114,8 @@ func TestABotMakesAndEditsImages(t *testing.T) {
 	require.Len(t, lines, 3, out)
 	assert.Equal(t, filepath.Join(dir, "fox-1.png"), lines[0], "the extension is the image's own")
 	assert.Equal(t, filepath.Join(dir, "fox-2.png"), lines[1])
-	assert.Equal(t, "Made by codex with gpt-image-2, after antigravity failed (gemini-3.1-flash-image: limited).",
-		lines[2])
+	assert.Equal(t, "Made by codex with gpt-image-2 at 1312x1199, quality medium, after antigravity failed "+
+		"(gemini-3.1-flash-image: limited).", lines[2])
 
 	saved, err := os.ReadFile(lines[0])
 	require.NoError(t, err)
@@ -152,39 +141,34 @@ func TestABotMakesAndEditsImages(t *testing.T) {
 	assert.Contains(t, err.Error(), "--image")
 }
 
-// Scenario: the owner lists the image providers, sets Antigravity's model to
-// try a newer one, puts it first and switches Codex off, from the terminal.
+// Scenario: the owner lists the image providers, each with its one model,
+// puts Antigravity first and switches Codex off, from the terminal. No
+// model is set: the command for it is gone (issue #453).
 func TestTheOwnerSetsTheImageProvidersFromTheTerminal(t *testing.T) {
 	t.Parallel()
 
 	settings := &theImageSettings{
-		order: []string{"codex", "antigravity"}, off: map[string]bool{}, model: map[string]string{},
+		order: []string{"codex", "antigravity"}, off: map[string]bool{},
 	}
 	w := newWorldWith(t, nil, func(s *clientapi.Server) { s.WithImages(&theImages{}, settings) })
 	w.login(t, bearertoken.Owner)
 
 	out, err := w.cmd(t, "image", "providers")
 	require.NoError(t, err)
-	assert.Equal(t, "1\tcodex\tnot set up\tgpt-image-2 (default)\t0 accounts\t"+
+	assert.Equal(t, "1\tcodex\tnot set up\tgpt-image-2\t0 accounts\t"+
 		"today 2 made, 0 failed; this month 5 made, 1 failed\n"+
-		"2\tantigravity\tnot set up\tgemini-3.1-flash-image (default)\t0 accounts\t"+
+		"2\tantigravity\tnot set up\tgemini-3.1-flash-image\t0 accounts\t"+
 		"today 0 made, 0 failed; this month 0 made, 0 failed\n", out)
 
-	out, err = w.cmd(t, "image", "providers", "model", "antigravity", "gemini-nano-banana-2.1")
-	require.NoError(t, err)
-	assert.Equal(t, "image provider antigravity makes images with gemini-nano-banana-2.1\n", out)
-	assert.Equal(t, "gemini-nano-banana-2.1", settings.model["antigravity"])
+	_, err = w.cmd(t, "image", "providers", "model", "antigravity", "gemini-nano-banana-2.1")
+	require.Error(t, err)
 
 	_, err = w.cmd(t, "image", "order", "antigravity", "codex")
 	require.NoError(t, err)
 	assert.Equal(t, []string{"antigravity", "codex"}, settings.order)
 
-	_, err = w.cmd(t, "image", "providers", "set", "codex", "off")
+	out, err = w.cmd(t, "image", "providers", "set", "codex", "off")
 	require.NoError(t, err)
+	assert.Equal(t, "image provider codex is off\n", out)
 	assert.True(t, settings.off["codex"])
-
-	out, err = w.cmd(t, "image", "providers", "model", "antigravity", "default")
-	require.NoError(t, err)
-	assert.Contains(t, out, "its default model")
-	assert.Empty(t, settings.model["antigravity"])
 }

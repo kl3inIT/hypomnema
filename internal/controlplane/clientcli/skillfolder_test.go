@@ -373,3 +373,48 @@ func TestTheShippedSlidesSkillNamesOnlyWhatItShips(t *testing.T) {
 	assert.Contains(t, string(text), "hypomnema artifact show", "a deck is shown as an artifact")
 	assert.Contains(t, string(text), "name: slides\n")
 }
+
+// The pages skill as shipped (issue #423): OpenMausBot's data-dashboards
+// with its license, naming none of OpenMausBot's own tools, and a template
+// that loads nothing from the network or the browser's storage, so it runs
+// in the artifact's locked frame.
+func TestTheShippedPagesSkillWorksInTheLockedFrame(t *testing.T) {
+	t.Parallel()
+
+	_, folders := shippedSkills()
+	require.Contains(t, folders, "pages")
+
+	skill, err := fs.Sub(skillFiles, "skills/pages")
+	require.NoError(t, err)
+	assert.True(t, exists(skill, "LICENSE"))
+	assert.False(t, exists(skill, "manifest.json"))
+
+	removed := regexp.MustCompile(
+		`(?i)show_html|publish_page|data_sql|data_show|data_export|mausbot|duckdb|echarts|tailwind|lucide|\bjsx\b|parquet`)
+
+	for _, name := range []string{"SKILL.md", "dashboard.html"} {
+		b, err := fs.ReadFile(skill, name)
+		require.NoError(t, err)
+		assert.Empty(t, removed.FindAllString(string(b), -1), "%s names what OpenMausBot has and Hypomnema has not", name)
+	}
+
+	text, err := fs.ReadFile(skill, "SKILL.md")
+	require.NoError(t, err)
+	assert.Contains(t, string(text), "name: pages")
+	assert.Contains(t, string(text), "~/.agents/skills/pages/dashboard.html",
+		"the template is named where it is installed")
+	assert.Contains(t, string(text), "hypomnema artifact show")
+
+	page, err := fs.ReadFile(skill, "dashboard.html")
+	require.NoError(t, err)
+
+	// The SVG namespace is a name, not an address the page loads.
+	for _, u := range regexp.MustCompile(`(?i)(?:https?:)?//[a-z0-9.-]+\.[a-z]{2,}`).FindAllString(string(page), -1) {
+		assert.Equal(t, "http://www.w3.org", u, "the template loads nothing from another host")
+	}
+
+	external := regexp.MustCompile(
+		`(?i)<script[^>]+\bsrc=|<link[^>]+rel="?stylesheet|@import|@font-face|localStorage|sessionStorage|indexedDB|document\.cookie`)
+	assert.Empty(t, external.FindAllString(string(page), -1), "the locked frame has no network, storage or cookies")
+	assert.Less(t, len(page), 256*1024, "a page shown with --html-file is at most 256 KB")
+}
