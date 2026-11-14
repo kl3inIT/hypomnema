@@ -1,12 +1,14 @@
 package orchestration
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/kl3inIT/hypomnema/internal/shared/githost"
+	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 )
 
 func (w *world) runOn(repo, base string) (Run, error) {
@@ -149,8 +151,7 @@ func TestARunNamesARegisteredRepository(t *testing.T) {
 
 // Scenario: a node is offered a Task of a Run on the company's GitLab server.
 // The offer names the host and its kind, so the node clones from there and
-// tells the worker to open its request with GitLab's tool; a Run from before
-// hosts existed is offered as GitHub.
+// tells the worker to open its request with GitLab's tool.
 func TestAnOfferNamesTheHostAndItsKind(t *testing.T) {
 	t.Parallel()
 
@@ -175,14 +176,39 @@ func TestAnOfferNamesTheHostAndItsKind(t *testing.T) {
 	o := pending.Offers[0]
 	assert.Equal(t, [4]string{"gitlab.company.example", "gitlab", "team/app", "develop"},
 		[4]string{o.RepoHost, o.RepoKind, o.Repo, o.Base})
+}
 
-	// A Run stored before hosts existed has no host; it is github.com.
-	_, err = w.db.ExecContext(ctx, `UPDATE runs SET repo_host = NULL, repo = 'kl3inIT/hypomnema' WHERE id = ?`, run.ID)
+// Scenario: a database with Runs from before hosts existed: one on a
+// repository with no host, and one with no repository. After the migration
+// the first is on github.com, where it always was, and the second still has
+// no host (issue #413).
+func TestMigrationNamesTheHostOfRunsFromBeforeHosts(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	db, err := sqlite.Open(ctx, sqlite.Config{Path: filepath.Join(t.TempDir(), "hypomnema.db")})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+
+	p, err := provider(db)
+	require.NoError(t, err)
+	_, err = p.UpTo(ctx, 71)
 	require.NoError(t, err)
 
-	pending, err = w.s.NodePending(ctx, w.node.ID)
+	_, err = db.ExecContext(ctx, `INSERT INTO runs (id, objective, status, created_by, repo, created_at, updated_at)
+		VALUES ('run_old', 'ship it', 'open', 'owner', 'kl3inIT/hypomnema', 100, 100),
+		       ('run_none', 'think', 'open', 'owner', NULL, 100, 100)`)
 	require.NoError(t, err)
-	require.Len(t, pending.Offers, 1)
-	assert.Equal(t, [3]string{"github.com", "github", "kl3inIT/hypomnema"},
-		[3]string{pending.Offers[0].RepoHost, pending.Offers[0].RepoKind, pending.Offers[0].Repo})
+
+	require.NoError(t, Migrate(ctx, db))
+
+	s := New(db, &fakeClock{now: t0}, func(prefix string) string { return prefix + "_new" })
+
+	old, err := s.GetRun(ctx, "run_old")
+	require.NoError(t, err)
+	assert.Equal(t, "github.com", old.RepoHost)
+
+	none, err := s.GetRun(ctx, "run_none")
+	require.NoError(t, err)
+	assert.Empty(t, none.RepoHost)
 }

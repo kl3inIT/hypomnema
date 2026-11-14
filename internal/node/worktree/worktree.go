@@ -44,18 +44,9 @@ type Source struct {
 	Env []string
 }
 
-// SourceOf is the repository an offer names. An empty host and kind are
-// github.com, as offers were before hosts existed. It refuses a host, a kind or
-// a path that cannot be one, so nothing an offer carries reaches git unchecked.
+// SourceOf is the repository an offer names. It refuses a host, a kind or a
+// path that cannot be one, so nothing an offer carries reaches git unchecked.
 func SourceOf(host, kind, path, token string) (Source, error) {
-	if host == "" {
-		host = githost.GitHubHost
-	}
-
-	if kind == "" {
-		kind = string(githost.GitHub)
-	}
-
 	adapter, ok := githost.For(githost.Kind(kind))
 	if !ok {
 		return Source{}, fmt.Errorf("this node does not know hosts of kind %q", kind)

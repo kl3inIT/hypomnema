@@ -835,7 +835,7 @@ func optionalTime(v sql.NullInt64) *time.Time {
 func runFromRow(r store.Run) Run {
 	return Run{
 		ID: r.ID, Objective: r.Objective, Status: RunStatus(r.Status), CreatedBy: r.CreatedBy,
-		Repo: r.Repo.String, RepoHost: repoHost(r), Base: r.Base.String,
+		Repo: r.Repo.String, RepoHost: r.RepoHost.String, Base: r.Base.String,
 		CoordinatorTokenID: r.CoordinatorTokenID.String, ChatID: r.ChatID.String, Uses: splitUses(r.Uses),
 		CreatedAt: millis(r.CreatedAt), UpdatedAt: millis(r.UpdatedAt), FinishedAt: optionalTime(r.FinishedAt),
 	}
@@ -850,14 +850,4 @@ func taskFromRow(t store.Task) Task {
 		CreatedAt: millis(t.CreatedAt), UpdatedAt: millis(t.UpdatedAt), FinishedAt: optionalTime(t.FinishedAt),
 		NotBefore: optionalTime(t.NotBefore), CancelRequestedAt: optionalTime(t.CancelRequestedAt),
 	}
-}
-
-// repoHost is the host of a Run's repository: github.com for a Run from
-// before hosts existed, none for a Run without a repository.
-func repoHost(r store.Run) string {
-	if !r.Repo.Valid || r.Repo.String == "" {
-		return ""
-	}
-
-	return or(r.RepoHost.String, githost.GitHubHost)
 }

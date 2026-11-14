@@ -268,18 +268,6 @@ func (w *Worker) Started(ctx context.Context, processRef, cliSessionRef string) 
 	return err
 }
 
-// Progress reports that the worker is doing something. It is not resent.
-func (w *Worker) Progress(ctx context.Context) error {
-	h, err := w.d.db.Get(ctx, w.id)
-	if err != nil {
-		return err
-	}
-
-	w.d.ephemeralReport(nodeproto.Report{Kind: nodeproto.ReportProgress, DispatchID: w.id, Epoch: h.Epoch})
-
-	return nil
-}
-
 // Ask asks a question the worker waits for; the Runner learns its id through
 // Asked, with the report id returned here.
 func (w *Worker) Ask(ctx context.Context, a nodeproto.Ask) (string, error) {

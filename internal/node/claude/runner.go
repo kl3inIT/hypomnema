@@ -8,7 +8,7 @@
 //	claude -p --input-format stream-json --output-format stream-json --verbose
 //	  --permission-mode manual --permission-prompt-tool stdio [--resume <session>] [--model <m>]
 //
-// It reports the session id from system/init and progress. Every permission
+// It reports the session id from system/init. Every permission
 // prompt is allowed and logged: the node's machine or user is the boundary,
 // as Orca, OpenHands and Coder run their workers by default.
 package claude
@@ -303,8 +303,6 @@ func (t *turn) Line(ctx context.Context, w *runner.Worker, line []byte) {
 	case e.Type == "rate_limit_event" && e.RateLimit != nil && e.RateLimit.Status == "rejected":
 		limited := time.Unix(e.RateLimit.ResetsAt, 0).UTC()
 		t.limited = &limited
-	default:
-		w.Progress(ctx)
 	}
 }
 

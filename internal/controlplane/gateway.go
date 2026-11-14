@@ -17,9 +17,11 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
 )
 
-// The model gateway's commands (issue #20): the model table and the keys.
-// They are commands of the owner on the server, as nodes and tokens are,
-// until the web client has its screens.
+// The model gateway's commands (issue #20): the model table, the keys and
+// the usage. The web client has screens for them; these are commands of the
+// owner on the server, as nodes and tokens are, which open the database
+// directly: they work from a shell or a script there, without the client API
+// or a login.
 
 const gatewayUsage = "gateway models apply FILE | gateway models list | gateway models rm <name> | " +
 	"gateway keys add <name> [--models a,b] | gateway keys list | gateway keys revoke <key id> | " +

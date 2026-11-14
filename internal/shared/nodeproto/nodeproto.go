@@ -302,8 +302,7 @@ type Offer struct {
 	Spec        string `json:"spec"`
 	Repo        string `json:"repo,omitempty"`
 	// RepoHost and RepoKind say where Repo is and how that host is used
-	// (internal/shared/githost); empty from a control plane from before hosts
-	// existed, which means github.com.
+	// (internal/shared/githost).
 	RepoHost string `json:"repo_host,omitempty"`
 	RepoKind string `json:"repo_kind,omitempty"`
 	// RepoToken is the host's token for this Dispatch, when the owner gave the
@@ -360,7 +359,6 @@ const (
 	ReportAccept          = "accept"
 	ReportStarted         = "started"
 	ReportHeartbeat       = "heartbeat"
-	ReportProgress        = "progress"
 	ReportEffect          = "effect"
 	ReportResource        = "resource"
 	ReportReleaseResource = "release_resource"

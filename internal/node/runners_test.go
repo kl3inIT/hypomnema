@@ -9,6 +9,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/node/runner"
 	"github.com/kl3inIT/hypomnema/internal/node/statedb"
+	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
 )
 
 type noRuntime struct{}
@@ -39,4 +40,14 @@ func TestTheRegistryRefusesAMissingOrDuplicateRuntime(t *testing.T) {
 
 	_, err = registry(all[1:]...)
 	require.ErrorContains(t, err, "no runtime is named "+knownRuntimes[0])
+}
+
+// Scenario: an offer that names no runtime is refused, not run as Claude Code.
+func TestAnOfferWithoutARuntimeIsRefused(t *testing.T) {
+	t.Parallel()
+
+	rs := runners{byRuntime: map[string]runner.Runtime{"claude": noRuntime{}}}
+
+	_, err := rs.of(statedb.Dispatch{Offer: nodeproto.Offer{DispatchID: "dsp_1"}})
+	require.ErrorContains(t, err, "the offer of dsp_1 names no runtime")
 }
