@@ -59,6 +59,10 @@ type Config struct {
 	// is set only here, on the machine: the control plane cannot turn it back
 	// on (Nezha's disable_command_execute).
 	DisableTerminal bool `json:"disable_terminal,omitempty"`
+	// Device is the device this machine holds: "android" for a machine made
+	// to run an Android emulator, which its first-boot script sets with
+	// `install --device android`; empty for none (issue #417).
+	Device string `json:"device,omitempty"`
 	// Accounts maps an account id of the control plane to where its
 	// credentials are on this node, for an offer that brings no token of its
 	// own. Only the file's path is here, never the token.
@@ -88,12 +92,12 @@ func Init(home, rawURL, tokenFile, worktreeRoot string) error {
 		return fmt.Errorf("reading the token file: %w", err)
 	}
 
-	return Configure(home, rawURL, strings.TrimSpace(string(raw)), worktreeRoot)
+	return Configure(home, rawURL, strings.TrimSpace(string(raw)), worktreeRoot, "")
 }
 
 // Configure writes the configuration with the token given. An existing
-// configuration keeps its accounts.
-func Configure(home, rawURL, token, worktreeRoot string) error {
+// configuration keeps its accounts, and its device unless one is named.
+func Configure(home, rawURL, token, worktreeRoot, device string) error {
 	u, err := url.Parse(rawURL)
 	if err != nil || (u.Scheme != "https" && u.Scheme != "http") || u.Host == "" {
 		return fmt.Errorf("the control plane URL %q must be http(s)://host", rawURL)
@@ -101,6 +105,10 @@ func Configure(home, rawURL, token, worktreeRoot string) error {
 
 	if !strings.HasPrefix(token, "hyn_") {
 		return errors.New("that does not hold a node token (hyn_…)")
+	}
+
+	if device != "" && device != nodeproto.DeviceAndroid {
+		return fmt.Errorf("the device %q is not one a node holds; it can be %s", device, nodeproto.DeviceAndroid)
 	}
 
 	// An install over a node that is already there changes where it connects and with what, and nothing else:
@@ -133,6 +141,9 @@ func Configure(home, rawURL, token, worktreeRoot string) error {
 	}
 
 	cfg.URL, cfg.Token, cfg.WorktreeRoot = strings.TrimSuffix(rawURL, "/"), token, worktreeRoot
+	if device != "" {
+		cfg.Device = device
+	}
 
 	return saveConfig(home, cfg)
 }
@@ -286,6 +297,7 @@ func Run(ctx context.Context, home string, logger *slog.Logger) error {
 			return found
 		},
 		Terminal: terminals,
+		Device:   cfg.Device, KVM: CanUseKVM,
 	}, db, all, logger)
 
 	transcripts.Send = d.SendItems

@@ -89,5 +89,23 @@ account the control plane keeps (`accounts add claude <label> --token`) and a gi
 Dispatch, so nothing is set for them. The Codex CLI's login is **not** delivered: set it on the machine once, as on
 any node.
 
+## 5. A machine that holds an Android emulator
+
+```sh
+hypomnema machines create phone --provider aws --device android   # c7i-flex.2xlarge unless --size names another
+hypomnema nodes list                                               # "android device, kvm" once it says hello
+```
+
+The emulator needs KVM, which an EC2 instance that is not bare metal has only with nested virtualization: the size
+must be of a family AWS lists for it (C7i, C7i-flex, C8i, C8id, C8i-flex, M7i, M7i-flex, M8i, M8id, M8i-flex, R7i,
+R7iz, R8i, R8id, R8i-flex, X8i, I7i, I7ie; Intel only, no Graviton), and another is refused. The instance is
+started with `NestedVirtualization=enabled`, which costs nothing more, and a disk of at least 40 GiB whatever
+`disk_gib` says. Its first boot also installs Xvfb, Mesa and the emulator's libraries and puts the `hypomnema` user
+in `kvm`; the Android SDK, the emulator and the phone image come in a later step of issue #417.
+
+Cost in Singapore (`ap-southeast-1`), on demand, as tried in
+[the research note](../../docs/research/2026-11-14-android-device-for-agents.md): about $0.39 an hour while it
+runs, and about $3.84 a month for the 40 GB gp3 disk while it is stopped (`machines stop phone`).
+
 `machines providers check` also lists instances that carry this provider's tag and that no node stands for. They
 cost money and nothing here destroys them.

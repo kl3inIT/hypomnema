@@ -1,7 +1,7 @@
 // Command hypomnema-node runs on every machine that does work. It dials out
 // to the control plane; nothing connects to it.
 //
-//	hypomnema-node install --url URL [--home DIR] [--worktree-root DIR] [--no-start]
+//	hypomnema-node install --url URL [--home DIR] [--worktree-root DIR] [--no-start] [--device android]
 //	                        install on this machine: copy the binary into the home, ask for the node
 //	                        token (or read HYPOMNEMA_NODE_TOKEN), write the configuration, say hello,
 //	                        and start a systemd user unit (run by the install script)
@@ -40,7 +40,7 @@ import (
 )
 
 var errUsage = errors.New("usage: hypomnema-node install --url URL [--home DIR] [--worktree-root DIR] " +
-	"[--no-start] | init --url URL --token-file FILE [--home DIR] " +
+	"[--no-start] [--device android] | init --url URL --token-file FILE [--home DIR] " +
 	"[--worktree-root DIR] | check | accounts set <account id> --token-file FILE | run | service | version")
 
 func main() {
@@ -77,6 +77,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 		home := fs.String("home", "", "the node's home (default ~/.hypomnema-node)")
 		root := fs.String("worktree-root", "", "where worktrees are made (default <home>/worktrees)")
 		noStart := fs.Bool("no-start", false, "install the binary and the configuration only")
+		device := fs.String("device", "", "the device this machine holds: android (default: as configured, none)")
 
 		if err := fs.Parse(args[1:]); err != nil || *url == "" || fs.NArg() != 0 {
 			return errUsage
@@ -94,6 +95,7 @@ func run(ctx context.Context, args []string, stdout io.Writer) error {
 
 		return node.Install(ctx, node.InstallOptions{
 			Home: dir, URL: *url, WorktreeRoot: *root, Exe: exe, Token: os.Getenv(node.TokenEnv), NoStart: *noStart,
+			Device: *device,
 		}, stdout)
 	case "init":
 		fs := flag.NewFlagSet("init", flag.ContinueOnError)

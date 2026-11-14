@@ -138,7 +138,8 @@ func secretReferrers(svc *orchestration.Service) vault.Referrers {
 const machinesUsage = "machines providers add <name> --kind aws --key vault:<secret>|aws:<role> --region R " +
 	"--size S [--max N] [--option name=value]... | machines providers key <name> --key vault:<secret>|aws:<role> | " +
 	"machines providers list | machines providers rm|check <name> | " +
-	"machines create <name> --provider P [--region R] [--size S] [--max N] | machines stop|start <node>"
+	"machines create <name> --provider P [--region R] [--size S] [--max N] [--device android] | " +
+	"machines stop|start <node>"
 
 // machinesCommand is the owner's commands for provider machines. A machine
 // is removed as any node is, with `nodes rm`.
@@ -152,13 +153,14 @@ func (o *owner) machinesCommand(ctx context.Context, args []string) error {
 		region := fs.String("region", "", "the region (default: the provider's)")
 		size := fs.String("size", "", "the machine size (default: the provider's)")
 		limit := fs.Int("max", 0, "Dispatches the node runs at once (0: the default)")
+		device := fs.String("device", "", "android: a machine that holds an Android emulator (default: none)")
 
 		if err := fs.Parse(args[2:]); err != nil || *provider == "" || fs.NArg() > 0 {
 			return fmt.Errorf("%w: %s", ErrUsage, machinesUsage)
 		}
 
 		n, err := o.machines.Create(ctx, machines.NewMachine{
-			Name: args[1], Provider: *provider, Region: *region, Size: *size, MaxDispatches: *limit,
+			Name: args[1], Provider: *provider, Region: *region, Size: *size, MaxDispatches: *limit, Device: *device,
 		})
 		if n.Machine != nil {
 			o.printf("node %s (%s): %s %s in %s, %s\n", n.Name, n.ID, *provider, n.Machine.Size, n.Machine.Region,

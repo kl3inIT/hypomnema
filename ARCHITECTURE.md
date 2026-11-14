@@ -155,6 +155,14 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     the provider's and the node's ids, with instance metadata readable only through IMDSv2 from the instance
     itself, because the script holds the token. A repeated create finds the instance by its tags, and the token's
     id is the request's client token, so one node never has two instances.
+  - A machine that holds an Android emulator (issue #417, step 1a; `machines create --device android`, `device` in
+    `POST /nodes`): its size is `c7i-flex.2xlarge` unless one is named, and at AWS a size outside the families
+    with nested virtualization in AWS's user guide (C7i, C7i-flex, C8i, C8id, C8i-flex, M7i, M7i-flex, M8i, M8id,
+    M8i-flex, R7i, R7iz, R8i, R8id, R8i-flex, X8i, I7i, I7ie) is refused before anything exists. The instance is
+    asked for with `NestedVirtualization=enabled` and at least 40 GiB of disk. Its first-boot script also installs
+    Xvfb, Mesa and the libraries the emulator loads, adds the `hypomnema` user to `kvm` before its manager starts,
+    and installs the node with `--device android`, which sets `device` in its configuration. The emulator itself,
+    the SDK and the AVD are not installed yet.
   - Remove (`nodes rm`, `DELETE /nodes/{node_id}`): the node is drained and its tokens revoked, the machine is
     destroyed at the provider, and only then is the node `deleted`. A failed destroy leaves it listed as
     `delete_failed` and is tried again after 30 s, doubling to an hour, until it works.
@@ -188,6 +196,10 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     first, and a shell nobody watches for five minutes is ended. Linux and macOS only.
   - A node says at each hello whether it opens terminals (`nodes.terminal`): its build can, and its own
     configuration has not set `disable_terminal`, which the control plane cannot undo. It is on by default.
+- A node says at each hello which device it holds and whether it can run it (issue #417): `device` is what its
+  configuration names (`android`, set by `hypomnema-node install --device android`; none by default), and `kvm`
+  whether its user can open `/dev/kvm` for reading and writing at that hello. The control plane keeps both on the
+  node (`nodes.device`, `nodes.kvm`); `GET /nodes` and `nodes list` show them.
   - The owner asks for a ticket (`POST /nodes/{node_id}/terminal` with a session id; refused for a node that is
     not connected or opens no terminal), then opens the WebSocket `/api/v1/terminals/{ticket}`, which the ticket
     opens once within 30 s and only from the web client's own origin. There the page sends JSON, `{data}` for
@@ -1769,7 +1781,8 @@ calls, and each call is recorded on a gateway key.
 
 Node API (`internal/controlplane/nodeapi`, protocol in `internal/shared/nodeproto`, after Omnara's daemon protocol):
 - A node registers with `POST /node/v1/hello` and its bearer token. It sends its CLIs, its worktree root, its
-  version and machine (measured with gopsutil, as Nezha's and Beszel's agents) and the Dispatches it still holds. Each of those is answered `retain` (still its own at that epoch), `reattach` (marked
+  version and machine (measured with gopsutil, as Nezha's and Beszel's agents), whether it opens a terminal, the device it holds with whether `/dev/kvm` is usable
+  (issue #417), and the Dispatches it still holds. Each of those is answered `retain` (still its own at that epoch), `reattach` (marked
   unknown while it was away) or `release`.
 - It then holds one WebSocket at `/node/v1/socket` with JSON `{type, payload}` frames of at most 1 MiB.
 - Installing a node (after Omnara's `GET /install/omnarad.sh` and `omnarad install`): the control plane serves a

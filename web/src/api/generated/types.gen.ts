@@ -350,6 +350,14 @@ export type Node = {
    */
   terminal?: boolean;
   /**
+   * The device the node said at its last connect that it holds, as its own configuration names it. Left out for a node that holds none.
+   */
+  device?: 'android';
+  /**
+   * The node said at its last connect that its user can use /dev/kvm, which an Android emulator needs.
+   */
+  kvm?: boolean;
+  /**
    * Its Dispatches that have not settled.
    */
   active: number;
@@ -655,9 +663,13 @@ export type NewNode = {
    */
   region?: string;
   /**
-   * With a provider, the machine's size; left out, the provider's default.
+   * With a provider, the machine's size; left out, the provider's default, or for a device the size the emulator was tried on (c7i-flex.2xlarge at AWS).
    */
   size?: string;
+  /**
+   * With a provider, a machine that holds an Android emulator: at AWS a size with nested virtualization and at least 40 GiB of disk; its first boot installs what the emulator needs. Left out, a plain machine.
+   */
+  device?: 'android';
 };
 
 export type CreatedNode = {

@@ -52,7 +52,14 @@ type Hello struct {
 	System       SystemInfo
 	// Terminal says the node opens a terminal when asked.
 	Terminal bool
+	// Device is the device the node holds: DeviceAndroid, or empty for none (issue #417).
+	Device string
+	// KVM says the node's user can use /dev/kvm, which an Android emulator needs.
+	KVM bool
 }
+
+// DeviceAndroid is a node that holds an Android emulator (issue #417).
+const DeviceAndroid = "android"
 
 // SystemInfo is what a node is: its daemon and its machine. A zero field was
 // not reported.
@@ -131,6 +138,10 @@ type Node struct {
 	Stats *SystemStats
 	// Terminal says the node said at its last hello that it opens a terminal when asked.
 	Terminal bool
+	// Device and KVM are what the node said at its last hello: the device it holds, empty for none, and whether
+	// it can use /dev/kvm to run it (issue #417).
+	Device string
+	KVM    bool
 	// Machine is set for a node created at a provider; nil for one the owner installed.
 	Machine    *Machine
 	LastSeenAt *time.Time
@@ -433,15 +444,23 @@ func (s *Service) NodeHello(ctx context.Context, nodeID string, h Hello) error {
 		}
 	}
 
+	if h.Device != "" && h.Device != DeviceAndroid {
+		return fmt.Errorf("%w: a node holds no device %q", ErrInvalid, h.Device)
+	}
+
 	runtimes, err := json.Marshal(nonNil(h.Runtimes))
 	if err != nil {
 		return fmt.Errorf("encoding runtimes: %w", err)
 	}
 
 	return s.write(ctx, func(q *store.Queries, now int64) error {
-		var terminal int64
+		var terminal, kvm int64
 		if h.Terminal {
 			terminal = 1
+		}
+
+		if h.KVM {
+			kvm = 1
 		}
 
 		n, err := q.NodeHello(ctx, store.NodeHelloParams{
@@ -449,7 +468,7 @@ func (s *Service) NodeHello(ctx context.Context, nodeID string, h Hello) error {
 			DaemonVersion: nullString(h.System.DaemonVersion), Os: nullString(h.System.OS),
 			Arch: nullString(h.System.Arch), Cpus: nullPositive(int64(h.System.CPUs)),
 			MemoryBytes: nullPositive(h.System.MemoryBytes), DiskBytes: nullPositive(h.System.DiskBytes),
-			Terminal: terminal, ID: nodeID,
+			Terminal: terminal, Device: h.Device, Kvm: kvm, ID: nodeID,
 		})
 
 		return oneRow(n, err, "node", nodeID)

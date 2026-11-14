@@ -35,7 +35,24 @@ const (
 	ubuntuImage = "ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-%s-server-*"
 
 	awsDiskGiBDefault = 40
+
+	// AWSDeviceSize is a device machine's size when none is given: the one the Android emulator was tried on, 8
+	// vCPU and 16 GiB (docs/research/2026-11-14-android-device-for-agents.md, issue #417).
+	AWSDeviceSize = "c7i-flex.2xlarge"
+	// awsDeviceDiskGiB is the least disk a device machine gets: the trials' 40 GB gp3 held the SDK, a Play image
+	// and one AVD (issue #417).
+	awsDeviceDiskGiB = 40
 )
+
+// awsNestedFamilies are the instance families that run a hypervisor inside a virtual instance, which the
+// Android emulator needs for KVM: the AWS user guide's list, Intel only
+// (docs.aws.amazon.com/AWSEC2/latest/UserGuide/amazon-ec2-nested-virtualization.html, read 2026-11-14).
+var awsNestedFamilies = []string{
+	"m7i", "m7i-flex", "m8i", "m8id", "m8i-flex",
+	"c7i", "c7i-flex", "c8i", "c8id", "c8i-flex",
+	"r7i", "r7iz", "r8i", "r8id", "r8i-flex", "x8i",
+	"i7i", "i7ie",
+}
 
 // AWS option names, set on the provider record.
 const (
@@ -142,10 +159,29 @@ func parseAWSOptions(options map[string]string) (*awsProvider, error) {
 	return p, nil
 }
 
-func (p *awsProvider) Validate(ctx context.Context, region, size string) error {
+func (p *awsProvider) Validate(ctx context.Context, region, size, device string) error {
+	if err := awsDeviceSizeOK(size, device); err != nil {
+		return err
+	}
+
 	_, err := p.image(ctx, p.client(region), size)
 
 	return err
+}
+
+// awsDeviceSizeOK refuses a device machine whose size has no nested virtualization: the emulator would not start.
+func awsDeviceSizeOK(size, device string) error {
+	if device == "" {
+		return nil
+	}
+
+	family, _, _ := strings.Cut(size, ".")
+	if !slices.Contains(awsNestedFamilies, family) {
+		return fmt.Errorf("a machine that holds an Android emulator needs nested virtualization, which %s has not; "+
+			"it is in %s", size, strings.Join(awsNestedFamilies, ", "))
+	}
+
+	return nil
 }
 
 // image returns the newest Ubuntu image for the size's architecture.
@@ -189,6 +225,10 @@ func (p *awsProvider) image(ctx context.Context, c ec2API, size string) (types.I
 }
 
 func (p *awsProvider) Create(ctx context.Context, s Spec) (string, error) {
+	if err := awsDeviceSizeOK(s.Size, s.Device); err != nil {
+		return "", err
+	}
+
 	c := p.client(s.Region)
 
 	// A create that was cut short may have made the instance: use it rather than make a second one.
@@ -242,6 +282,13 @@ func (p *awsProvider) Create(ctx context.Context, s Spec) (string, error) {
 
 	if p.keyName != "" {
 		in.KeyName = aws.String(p.keyName)
+	}
+
+	// A device machine runs the emulator on KVM inside the instance: nested virtualization on, as the user guide's
+	// `--cpu-options NestedVirtualization=enabled`, and the disk the trials needed (issue #417).
+	if s.Device != "" {
+		in.CpuOptions = &types.CpuOptionsRequest{NestedVirtualization: types.NestedVirtualizationSpecificationEnabled}
+		in.BlockDeviceMappings[0].Ebs.VolumeSize = aws.Int32(max(p.diskGiB, awsDeviceDiskGiB))
 	}
 
 	out, err := c.RunInstances(ctx, in)

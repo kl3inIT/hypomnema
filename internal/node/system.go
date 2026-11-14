@@ -93,3 +93,20 @@ func clampInt64(v uint64) int64 {
 
 	return int64(v)
 }
+
+// kvmDevice is the device an Android emulator needs on Linux; `-accel off` "is not supported and is very slow"
+// (developer.android.com/studio/run/emulator-commandline).
+const kvmDevice = "/dev/kvm"
+
+// CanUseKVM says whether this user can read and write /dev/kvm now, as the node says at each hello (issue #417).
+// Opening the device makes no virtual machine; elsewhere than on Linux the open fails, and the answer is no.
+func CanUseKVM() bool {
+	f, err := os.OpenFile(kvmDevice, os.O_RDWR, 0)
+	if err != nil {
+		return false
+	}
+
+	_ = f.Close()
+
+	return true
+}

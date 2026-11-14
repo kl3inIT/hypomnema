@@ -307,3 +307,61 @@ func TestAWSStopsAndStartsTheNodesInstance(t *testing.T) {
 	require.ErrorContains(t, p.Stop(t.Context(), "ap-southeast-1", "nod_1"), "no machine for this node")
 	require.ErrorContains(t, p.Start(t.Context(), "ap-southeast-1", "nod_1"), "no machine for this node")
 }
+
+// Scenario: a machine that holds an Android emulator is created. EC2 is
+// asked for nested virtualization, without which the emulator has no KVM,
+// and for at least the disk the trials needed, even when the provider's own
+// disk is smaller; a larger one is kept. A plain machine asks for neither.
+func TestAWSDeviceMachineAsksForNestedVirtualization(t *testing.T) {
+	t.Parallel()
+
+	device := spec
+	device.Size, device.Device = "c7i-flex.2xlarge", DeviceAndroid
+
+	for _, c := range []struct {
+		disk string
+		want int32
+	}{{"20", 40}, {"80", 80}} {
+		f := &fakeEC2{images: []types.Image{{ImageId: aws.String("ami-1"), RootDeviceName: aws.String("/dev/sda1")}}}
+		p := newTestAWS(t, f, map[string]string{AWSOptionDiskGiB: c.disk})
+
+		_, err := p.Create(t.Context(), device)
+		require.NoError(t, err)
+		_, err = p.Create(t.Context(), spec)
+		require.NoError(t, err)
+
+		require.Len(t, f.runs, 2)
+		require.NotNil(t, f.runs[0].CpuOptions)
+		assert.Equal(t, types.NestedVirtualizationSpecificationEnabled, f.runs[0].CpuOptions.NestedVirtualization)
+		assert.Equal(t, c.want, aws.ToInt32(f.runs[0].BlockDeviceMappings[0].Ebs.VolumeSize), c.disk)
+
+		assert.Nil(t, f.runs[1].CpuOptions)
+	}
+}
+
+// Scenario: the owner asks for a device machine of a size whose family has
+// no nested virtualization, such as a Graviton or an older Intel one. It is
+// refused before EC2 is asked for anything, with the families that have it;
+// the same size is fine for a plain machine.
+func TestAWSDeviceMachineRefusesASizeWithoutNestedVirtualization(t *testing.T) {
+	t.Parallel()
+
+	f := &fakeEC2{images: []types.Image{{ImageId: aws.String("ami-1"), RootDeviceName: aws.String("/dev/sda1")}}}
+	p := newTestAWS(t, f, nil)
+
+	for _, size := range []string{"t4g.medium", "c6i.2xlarge", "m7a.2xlarge"} {
+		err := p.Validate(t.Context(), "ap-southeast-1", size, DeviceAndroid)
+		require.ErrorContains(t, err, "needs nested virtualization", size)
+		require.ErrorContains(t, err, "c7i-flex, c8i, c8id", size)
+
+		device := spec
+		device.Size, device.Device = size, DeviceAndroid
+		_, err = p.Create(t.Context(), device)
+		require.ErrorContains(t, err, "needs nested virtualization", size)
+
+		require.NoError(t, p.Validate(t.Context(), "ap-southeast-1", size, ""), size)
+	}
+
+	assert.Empty(t, f.runs)
+	require.NoError(t, p.Validate(t.Context(), "ap-southeast-1", "m8id.4xlarge", DeviceAndroid))
+}

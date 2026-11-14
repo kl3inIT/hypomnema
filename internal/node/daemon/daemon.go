@@ -98,6 +98,10 @@ type Config struct {
 	Reach func(ctx context.Context, host string) bool
 	// Terminal holds the shells opened from the web; nil: this node opens none.
 	Terminal *terminal.Manager
+	// Device is the device the node's configuration says it holds, said at hello; empty for none (issue #417).
+	Device string
+	// KVM says whether /dev/kvm can be used now, asked at each hello; nil: it cannot.
+	KVM func() bool
 	// InstallTool has a tool the control plane named on this machine; nil: the node installs none.
 	InstallTool func(ctx context.Context, tool nodeproto.Tool) error
 	// FindRuntimes finds the agent CLIs again once the tools installed changed, since the control plane has the
@@ -267,6 +271,7 @@ func (d *Daemon) hello(ctx context.Context, claims []nodeproto.Claim) (nodeproto
 	body, err := json.Marshal(nodeproto.HelloRequest{
 		InstanceID: d.instance, DaemonVersion: d.cfg.Version, WorktreeRoot: d.cfg.WorktreeRoot,
 		Runtimes: d.currentRuntimes(), System: d.cfg.System, Claims: claims, Terminal: d.cfg.Terminal != nil,
+		Device: d.cfg.Device, KVM: d.cfg.KVM != nil && d.cfg.KVM(),
 	})
 	if err != nil {
 		return nodeproto.HelloResponse{}, fmt.Errorf("encoding hello: %w", err)
