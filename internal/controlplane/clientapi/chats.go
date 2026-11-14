@@ -193,6 +193,8 @@ func toChatMessage(m orchestration.ChatMessage) openapi.ChatMessage {
 		}
 	}
 
+	out.Artifact = toArtifactCard(m.Artifact)
+
 	if len(m.Attachments) > 0 {
 		files := make([]openapi.ChatAttachment, 0, len(m.Attachments))
 		for _, a := range m.Attachments {
@@ -335,6 +337,11 @@ func (s *Server) streamChat(ctx context.Context, w http.ResponseWriter, chatID s
 	w.Header().Set("X-Accel-Buffering", "no")
 	w.WriteHeader(http.StatusOK)
 
+	// The revision of each artifact whose message this stream sent: an artifact replaced since is sent again, as
+	// its message is updated in place (issue #402). A stream that resumes sends the earlier ones once, as it cannot
+	// know what the client saw.
+	shown := map[string]int{}
+
 	working := s.coordinator != nil && s.coordinator.Working(chatID)
 	if !writeSSE(w, "", openapi.ChatState{Working: working}, "state") {
 		return nil
@@ -358,7 +365,15 @@ func (s *Server) streamChat(ctx context.Context, w http.ResponseWriter, chatID s
 				return nil
 			}
 
+			if m.Artifact != nil {
+				shown[m.Artifact.ID] = m.Artifact.Revision
+			}
+
 			after = m.Seq
+		}
+
+		if !s.sendRevised(ctx, w, chatID, after, shown) {
+			return nil
 		}
 
 		flusher.Flush()
@@ -391,6 +406,34 @@ func (s *Server) streamChat(ctx context.Context, w http.ResponseWriter, chatID s
 			}
 		}
 	}
+}
+
+// sendRevised sends again the message of each artifact of the chat whose revision the stream has not sent, as a
+// frame without an id: its seq is behind the cursor. It reports whether the client is still there.
+func (s *Server) sendRevised(ctx context.Context, w io.Writer, chatID string, after int64, shown map[string]int) bool {
+	msgs, err := s.svc.ListChatArtifactMessages(ctx, chatID)
+	if err != nil {
+		if ctx.Err() == nil {
+			s.logger.ErrorContext(ctx, "reading a chat's artifacts failed",
+				slog.String("event", "clientapi.chat_artifacts_failed"), slog.String("error", err.Error()))
+		}
+
+		return true
+	}
+
+	for _, m := range msgs {
+		if m.Seq > after || m.Artifact == nil || shown[m.Artifact.ID] == m.Artifact.Revision {
+			continue
+		}
+
+		if !writeSSE(w, "", toChatMessage(m), "message") {
+			return false
+		}
+
+		shown[m.Artifact.ID] = m.Artifact.Revision
+	}
+
+	return true
 }
 
 // writeSSE writes one frame; id is empty for frames that are not kept. It

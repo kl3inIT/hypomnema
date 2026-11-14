@@ -34,6 +34,7 @@ import { useBots } from "@/features/bots/use-bots"
 import { ownerTab, tabName, useBrowser, whose } from "@/features/browser/browser-state"
 import { BrowserView } from "@/features/browser/browser-view"
 import { ChatBody } from "@/features/chat/chat-body"
+import { ArtifactSide } from "@/features/artifacts/artifact-side"
 import { FileTab } from "@/features/files/file-tab"
 import { FilesPanel } from "@/features/files/files-panel"
 import { baseName, isUnsaved, useUnsaved } from "@/features/files/files-state"
@@ -262,7 +263,7 @@ export function PaneView({
               aria-label="Files"
               aria-pressed={pane.files === true}
               title="The folders this chat's agents work in"
-              onClick={() => onChange({ ...pane, files: !pane.files })}
+              onClick={() => onChange({ ...pane, files: !pane.files, artifact: undefined })}
             >
               <FolderTree />
             </Button>
@@ -326,8 +327,11 @@ export function PaneView({
                           view: "file",
                         }),
                         files: window.matchMedia("(min-width: 768px)").matches,
+                        artifact: undefined,
                       })
                     }
+                    // An artifact opens in the panel beside the chat, in the place of the Files panel (issue #402).
+                    onOpenArtifact={(artifact) => onChange({ ...pane, artifact, files: false })}
                   />
                 ) : (
                   <DraftChat
@@ -339,6 +343,13 @@ export function PaneView({
             )
           })}
         </div>
+        {pane.artifact && !pane.files && (
+          <ArtifactSide
+            key={pane.artifact}
+            id={pane.artifact}
+            onClose={() => onChange({ ...pane, artifact: undefined })}
+          />
+        )}
         {pane.files && filesOf !== null && (
           <FilesPanel
             chat={filesOf}

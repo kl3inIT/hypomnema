@@ -216,6 +216,37 @@ describe("the conversation items", () => {
     expect(chatItems(acknowledged, { sending: [kept] })).toHaveLength(1)
   })
 
+  // Scenario: the Bot shows a dashboard, then revises it; the stream sends its message again with the same seq. The
+  // card is drawn once, as it is now, where it was; any other message sent twice is still taken once.
+  test("an artifact's message is updated in place", () => {
+    const card = {
+      id: "art_1",
+      revision: 1,
+      title: "Sales",
+      type: "html" as const,
+      updated_at: "2026-11-14T10:00:00Z",
+    }
+    const shown = msg({ role: "system", kind: "artifact", text: "Sales", artifact: card })
+    const reply = msg({ role: "coordinator", text: "Here it is." })
+    const revised = {
+      ...shown,
+      text: "Sales by region",
+      artifact: { ...card, revision: 2, title: "Sales by region" },
+    }
+
+    const view = run(
+      { type: "message", message: shown },
+      { type: "message", message: reply },
+      { type: "message", message: revised },
+      { type: "message", message: { ...reply, text: "changed" } },
+    )
+    const items = chatItems(view)
+
+    expect(items.map((i) => i.kind)).toEqual(["artifact", "reply"])
+    expect(items[0]).toMatchObject({ artifact: { revision: 2, title: "Sales by region" } })
+    expect(items[1]).toMatchObject({ text: "Here it is." })
+  })
+
   test("the stream says when it is reconnecting", () => {
     expect(run({ type: "connection", reconnecting: true }).reconnecting).toBe(true)
     expect(

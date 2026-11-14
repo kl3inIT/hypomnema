@@ -12,6 +12,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/kl3inIT/hypomnema/internal/controlplane/artifactpack"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/workspacefs"
@@ -49,6 +50,8 @@ const (
 	ChatStopped ChatKind = "stopped"
 	// ChatApproval tells the coordinator the owner answered an Approval.
 	ChatApproval ChatKind = "approval"
+	// ChatArtifact shows an artifact a Bot made (issue #402, artifacts.go).
+	ChatArtifact ChatKind = "artifact"
 )
 
 // Limits on chats.
@@ -206,6 +209,8 @@ type ChatMessage struct {
 	Wake *WakeEvent
 	// Attachments are the files the owner attached to an owner message (issue #343); nil for other messages.
 	Attachments []ChatAttachment
+	// Artifact is what an artifact's message shows (issue #402); nil for other messages.
+	Artifact *ArtifactCard
 	// DeliveredAt is when pi got an owner message or a wake-up.
 	DeliveredAt *time.Time
 	CreatedAt   time.Time
@@ -574,6 +579,13 @@ func (s *Service) ListChatMessages(ctx context.Context, chatID string, after int
 		m := chatMessage(r.ChatMessage)
 		if r.EventKind != "" {
 			m.Wake = chatWake(r)
+		}
+
+		if r.ArtifactID != "" {
+			m.Artifact = &ArtifactCard{
+				ID: r.ArtifactID, Revision: int(r.ArtifactRevision), Title: r.ArtifactTitle,
+				Type: artifactpack.Type(r.ArtifactType), UpdatedAt: millis(r.ArtifactUpdatedAt),
+			}
 		}
 
 		out = append(out, m)

@@ -13,8 +13,9 @@ export type PaneTab =
 
 export type FileView = "file" | "diff"
 
-// files says whether the Files panel is open beside the pane's tabs.
-export type Pane = { tabs: PaneTab[]; active: string; files?: boolean }
+// files says whether the Files panel is open beside the pane's tabs; artifact is the artifact open there instead
+// (issue #402), as one panel at a time stands beside the chat.
+export type Pane = { tabs: PaneTab[]; active: string; files?: boolean; artifact?: string }
 
 export function tabKey(tab: PaneTab): string {
   switch (tab.kind) {
@@ -75,7 +76,7 @@ export function frontOf(pane: Pane): PaneTab | undefined {
 export function parsePane(value: unknown): Pane | null {
   if (!value || typeof value !== "object") return null
 
-  const { tabs, active, files } = value as Record<string, unknown>
+  const { tabs, active, files, artifact } = value as Record<string, unknown>
   if (!Array.isArray(tabs) || typeof active !== "string") return null
 
   const kept = tabs.filter((tab): tab is PaneTab => {
@@ -101,5 +102,12 @@ export function parsePane(value: unknown): Pane | null {
     }
   })
 
-  return kept.length === 0 ? null : { tabs: kept, active, ...(files === true && { files }) }
+  return kept.length === 0
+    ? null
+    : {
+        tabs: kept,
+        active,
+        ...(files === true && { files }),
+        ...(typeof artifact === "string" && artifact !== "" && { artifact }),
+      }
 }

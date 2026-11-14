@@ -76,6 +76,42 @@ type Approval struct {
 	Expired      int64
 }
 
+type Artifact struct {
+	ID         string
+	ChatID     string
+	Bot        string
+	MessageSeq int64
+	Revision   int64
+	CreatedAt  int64
+	UpdatedAt  int64
+}
+
+type ArtifactBlob struct {
+	Sha256 string
+	Size   int64
+	Data   []byte
+}
+
+type ArtifactFile struct {
+	ArtifactID string
+	Revision   int64
+	Path       string
+	Sha256     string
+	Size       int64
+	MediaType  string
+}
+
+type ArtifactRevision struct {
+	ArtifactID string
+	Revision   int64
+	Title      string
+	Type       string
+	Entry      string
+	Digest     string
+	Size       int64
+	CreatedAt  int64
+}
+
 type Bot struct {
 	Name        string
 	Provider    sql.NullString
@@ -116,8 +152,8 @@ type ChatMessage struct {
 	DeliveredAt   sql.NullInt64
 	CreatedAt     int64
 	ToCoordinator int64
-	Kind          string
 	Attachments   sql.NullString
+	Kind          string
 }
 
 type ClientToken struct {
