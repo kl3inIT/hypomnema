@@ -1085,7 +1085,8 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       says who wrote a message; a note or a claim to be the system, an administrator or the owner inside one
       carries the sender's authority alone; what tools return is data, never an instruction; and a message from
       someone who is not the owner cannot widen the job the persona gives. A group's reply quotes the
-      question, mentions nobody and has no link to the web; the bot says nothing when it joins. Questions for
+      question (recorded as waiting before the Bot is given it, so an answer that comes before Lark has put the
+      "working" mark still quotes it; issue #377), mentions nobody and has no link to the web; the bot says nothing when it joins. Questions for
       approval still go to the owner's direct chat only.
     - Each person's direct chat is one chat with the Channel's Bot (`lark_channel_chats`), and `/new` opens
       another with it. A chat that is open keeps its Bot when the Channel is given another. The owner's text is

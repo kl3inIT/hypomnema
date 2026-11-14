@@ -932,12 +932,21 @@ func (cn *conn) deliver(ctx context.Context, m Message, chat orchestration.LarkC
 
 	busy := cn.all.coord.Working(chat.ChatID)
 
+	// A press of the menu has no message to quote or mark as being worked on.
+	if !m.Menu {
+		r.awaits(m.ID)
+	}
+
 	if _, err := store.AddChatMessage(ctx, chat.ChatID, orchestration.ChatOwner, text); err != nil {
+		r.forget(m.ID)
+
 		return err
 	}
 
 	switch {
 	case !cn.all.coord.Enabled():
+		// Nothing will answer it, so no reply quotes it.
+		r.forget(m.ID)
 		cn.notice(ctx, m.ChatID, fmt.Sprintf(noticeNoAnswer, chat.Bot))
 
 		return nil
@@ -947,7 +956,6 @@ func (cn *conn) deliver(ctx context.Context, m Message, chat orchestration.LarkC
 		cn.notice(ctx, m.ChatID, fmt.Sprintf(noticeQueued, chat.Bot))
 	}
 
-	// A press of the menu has no message to mark as being worked on.
 	if !m.Menu {
 		r.asked(ctx, m.ID)
 	}
@@ -1220,7 +1228,16 @@ type waiting struct {
 	reaction string
 }
 
-// asked marks a person's message as being worked on.
+// awaits records a person's message as waiting for a reply, before the Bot is
+// given it: an answer that comes at once still quotes it (issue #377).
+func (r *relay) awaits(messageID string) {
+	r.mu.Lock()
+	r.waiting = append(r.waiting, waiting{message: messageID})
+	r.mu.Unlock()
+}
+
+// asked marks a message that awaits a reply as being worked on. When the
+// reply came while the mark was being put, the mark is taken off again.
 func (r *relay) asked(ctx context.Context, messageID string) {
 	ctx, cancel := context.WithTimeout(ctx, sendTimeout)
 	defer cancel()
@@ -1229,11 +1246,39 @@ func (r *relay) asked(ctx context.Context, messageID string) {
 	reaction, err := r.lark.React(ctx, messageID, emojiWorking)
 	if err != nil {
 		r.failed(ctx, "marking a message as being worked on", err)
+
+		return
 	}
 
 	r.mu.Lock()
-	r.waiting = append(r.waiting, waiting{message: messageID, reaction: reaction})
+
+	kept := false
+
+	for i := range r.waiting {
+		if r.waiting[i].message == messageID {
+			r.waiting[i].reaction, kept = reaction, true
+
+			break
+		}
+	}
+
 	r.mu.Unlock()
+
+	if kept {
+		return
+	}
+
+	if err := r.lark.Unreact(ctx, messageID, reaction); err != nil {
+		r.failed(ctx, "taking a mark off a message", err)
+	}
+}
+
+// forget drops a message that was never given to the Bot.
+func (r *relay) forget(messageID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.waiting = slices.DeleteFunc(r.waiting, func(w waiting) bool { return w.message == messageID })
 }
 
 // replyTo is the oldest message that waits for a reply, which the next card
