@@ -4,9 +4,9 @@
 #   sudo sh setup-coordinator.sh <control plane user> <this directory, with the hypomnema binary added>
 #
 # It creates the coordinator user, installs Node and pi for it, the root-owned launchers (hypomnema-pi for a chat,
-# hypomnema-routine for a Routine's script, issue #211) and a sudoers rule that lets the control plane's user run, as
-# the coordinator, only those launchers and the helper of the Bots' folders (issue #255: `hypomnema files serve`
-# with its root, which reads a Bot's folder and, for the owner, changes it, issue #297), a coordinator token in a
+# hypomnema-routine for a Routine's script, issue #211, hypomnema-chat-rm for a deleted chat's files, issue #484) and a
+# sudoers rule that lets the control plane's user run, as the coordinator, only those launchers and the helper of the
+# Bots' folders (issue #255: `hypomnema files serve` with its root, which reads a Bot's folder and, for the owner, changes it, issue #297), a coordinator token in a
 # file of mode 0600, and the coordinator skill. The launchers read the token's address and run their setup with it;
 # pi and a Routine's script run in a bubblewrap box
 # (setup-box.sh, issues #260 and #211) with a token of their own and never see this one. No secret is passed on a
@@ -52,6 +52,7 @@ sudo -u coordinator -H env PATH=/opt/hypomnema-node/bin:/usr/bin:/bin "$home/pi/
 echo "== launcher, binary, instructions"
 install -o root -g root -m 0755 "$src/hypomnema-pi" /usr/local/bin/hypomnema-pi
 install -o root -g root -m 0755 "$src/hypomnema-routine" /usr/local/bin/hypomnema-routine
+install -o root -g root -m 0755 "$src/hypomnema-chat-rm" /usr/local/bin/hypomnema-chat-rm
 install -o root -g root -m 0755 "$src/hypomnema" /usr/local/bin/hypomnema
 install -o coordinator -g coordinator -m 0600 "$src/AGENTS.md" "$home/agent/AGENTS.md"
 
@@ -66,7 +67,8 @@ sudo -u coordinator -H /usr/local/bin/hypomnema tool install --dir "$home"
 echo "== sudoers"
 rule=/etc/sudoers.d/hypomnema-coordinator
 {
-  printf '%s ALL=(coordinator) NOPASSWD: /usr/local/bin/hypomnema-pi, /usr/local/bin/hypomnema-routine\n' "$cp_user"
+  printf '%s ALL=(coordinator) NOPASSWD: /usr/local/bin/hypomnema-pi, /usr/local/bin/hypomnema-routine, %s\n' \
+    "$cp_user" /usr/local/bin/hypomnema-chat-rm
   printf '%s ALL=(coordinator) NOPASSWD: /usr/local/bin/hypomnema files serve --root %s/bots\n' "$cp_user" "$home"
 } > "$rule.new"
 chmod 0440 "$rule.new"
@@ -90,3 +92,4 @@ echo "pi's models are the providers that are the model gateway: a Bot names one 
 echo "the Files panel reads the Bots' folders with HYPOMNEMA_BOT_FILES_COMMAND='[\"sudo\",\"-n\",\"-u\",\"coordinator\",\"/usr/local/bin/hypomnema\",\"files\",\"serve\",\"--root\",\"$home/bots\"]' in the control plane's env"
 echo "done: add HYPOMNEMA_COORDINATOR_COMMAND='[\"sudo\",\"-n\",\"-u\",\"coordinator\",\"/usr/local/bin/hypomnema-pi\"]' to the control plane's env and restart it"
 echo "for script routines also add HYPOMNEMA_ROUTINE_COMMAND='[\"sudo\",\"-n\",\"-u\",\"coordinator\",\"/usr/local/bin/hypomnema-routine\"]'"
+echo "for a deleted chat's files to go also add HYPOMNEMA_CHAT_RM_COMMAND='[\"sudo\",\"-n\",\"-u\",\"coordinator\",\"/usr/local/bin/hypomnema-chat-rm\"]'"

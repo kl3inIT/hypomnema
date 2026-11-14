@@ -23,6 +23,8 @@ messages and nothing answers. `HYPOMNEMA_BOT_FILES_COMMAND` (a JSON array, `sudo
 the files a Bot sends into a Lark chat; unset, the panel shows only the Tasks' worktrees and a Bot's files are not
 sent. `HYPOMNEMA_ROUTINE_COMMAND` (a JSON array) runs a script Routine for
 the Bot's name and the Routine's id appended to it; unset, a script Routine's run fails and says so.
+`HYPOMNEMA_CHAT_RM_COMMAND` (a JSON array, `sudo -n -u coordinator /usr/local/bin/hypomnema-chat-rm`) removes a
+deleted chat's files of pi for the chat's id appended to it (issue #484); unset, they stay and the deletion says so.
 The web search providers' keys are vault secrets named `web-search-<provider>` and `web-search-<provider>-<n>`;
 which providers are on and the keyed ones' order are set on Settings → Gateway → Web search and stored (see "Web
 search and fetch").
@@ -69,7 +71,9 @@ meanwhile waits, `abort` stops it with a `stopped` row, a failure ends in a `fai
 its own (reserve 16384, keep 20000). On
 the server pi runs as the `coordinator` user through `deploy/coordinator/`: a root-owned launcher (`hypomnema-pi`,
 a clean environment, only a chat id, a Bot's name and model flags, pi's own token on the first line of stdin), a
-second one for a Routine's script (`hypomnema-routine`, below), one sudoers rule limited to the two, the instructions
+second one for a Routine's script (`hypomnema-routine`, below), a third that removes a deleted chat's `run/<chat>`
+and `sessions/<chat>` (`hypomnema-chat-rm`, accepting only a chat id of the shape the control plane makes; issue
+#484), one sudoers rule limited to the three, the instructions
 every Bot gets, pi's version with its lockfile (`package.json`, which Dependabot updates; the setup installs it with
 `npm ci`), and the setup script the owner runs with sudo. Each pi, and each Routine's script, runs in a bubblewrap box
 with a token of its own (issues #260 and #211, see Bots).
@@ -408,7 +412,15 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   Run records the chat whose pi created it (`runs.chat_id`); the API names that chat's Bot as `Run.bot` (issue #281),
   read by a join of `runs` with `chats` in `GetRunWithBot` and `ListRuns`, and absent for a Run without a chat.
   `GET /runs?chat_id=` lists only the Runs made from a chat and `GET /questions?chat_id=` only the questions of those
-  Runs, with the other filters (issue #314; `hypomnema runs list --chat`, `hypomnema questions --chat`). Each
+  Runs, with the other filters (issue #314; `hypomnema runs list --chat`, `hypomnema questions --chat`). The owner
+  deletes a chat for good (`DELETE /chats/{id}`, `hypomnema chats rm`, the sidebar row's menu; issue #484, after
+  OpenMausBot's, Hermes's and opencode's hard deletes): one transaction detaches its Runs, Routines, Routines' runs
+  and approvals, revokes and keeps its gateway keys, and deletes its setup changes, its Lark chat, its artifacts
+  (with their revisions, and the bytes no other artifact keeps), its messages and the chat. A chat pi works in is
+  refused (409, "stop it first"), as are a chat a Routine tells its runs in and the chat of a Routine's live run.
+  After the commit (t3code's thread deletion) its pi is stopped and its files go: `attachments/<chat>` in its Bot's
+  folder through the folders' helper, then `run/<chat>` and `sessions/<chat>` through `HYPOMNEMA_CHAT_RM_COMMAND`; a
+  file that stays is logged and named in the answer's `files_left`, and the chat stays deleted. Each
   event of such a Run that needs a coordinator (a Task ended or was blocked, a question to the coordinator, an
   escalation, the Run ended) adds one wake-up to the chat, unique per event. A `task.status` event's `reason` is why
   the Task is blocked, or why it failed. Reading a chat's messages (the list and the stream) joins each `wake` row
@@ -490,9 +502,10 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   what the profile `coordinator` was, and a chat that names no Bot talks with it. A chat records its Bot. A Bot with
   chats or a memory, or one a Lark Channel talks to, is not removed, and `coordinator` never is; a Bot is not
   renamed. The owner may remove one with its chats and its memory (`DELETE /bots/{name}?force=true`,
-  `hypomnema bots rm -force`, the page's "Remove with its chats"; issue #330): the chats' messages and setup changes
-  go, the Runs, Routines and approvals made in them stay without the chat, and the chats' gateway keys are revoked
-  and kept. A Bot that Routines or Lark Channels use is refused even then. A provider change that would
+  `hypomnema bots rm -force`, the page's "Remove with its chats"; issue #330): each chat is deleted as a chat is
+  (Chats, above; issue #484), its messages, setup changes and artifacts with it, the Runs, Routines and approvals
+  made in them stay without the chat, and the chats' gateway keys are revoked and kept. Their files on the
+  coordinator's machine stay. A Bot that Routines or Lark Channels use is refused even then. A provider change that would
   leave a Bot's model unserved is refused, as for a profile.
   - The persona is the owner's text of what the Bot is, without versions, as `SOUL.md` of OpenClaw and Hermes. How
     to give work to workers is the persona of `coordinator`; the instructions every Bot gets
@@ -2591,7 +2604,9 @@ Node (`internal/node`):
     is working or needs the owner, its name, its latest chat's title, and "Needs you", "Working" or the time.
     Clicking it opens the latest chat; a chevron, on a Bot with more than one chat, opens its chats newest first,
     each draggable to the grid, and which Bots are open is kept in `localStorage`; a `+` on hover opens New chat
-    with that Bot picked (`/?bot=`). The phone's start page lists the same Bots.
+    with that Bot picked (`/?bot=`). A chat's row has a menu (issue #484, after t3code's thread menu), shown on
+    hover or focus and always on a phone, whose Delete asks first and, for the open chat, then opens New chat with
+    its Bot. The phone's start page lists the same Bots.
     Every page follows `GET /events/stream` from the Tasks' cursor and refreshes what an event may have changed.
 - The machines (issue #69): `/machines` lists the nodes after Beszel's systems table (MIT), as cards (Grid, the
   default) or a Table, both from one column definition; the choice is kept in `localStorage`. A machine shows its

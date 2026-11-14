@@ -1038,6 +1038,8 @@ func (replier) Compact(_ context.Context, _ string) error { return nil }
 
 func (replier) Key(_ string) (string, bool) { return "", false }
 
+func (replier) Stop(_ string) {}
+
 func (r replier) run(ctx context.Context) {
 	for {
 		select {

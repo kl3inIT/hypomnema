@@ -75,6 +75,12 @@ type Config struct {
 	// Routine's id appended to it, from HYPOMNEMA_ROUTINE_COMMAND as a JSON
 	// array; empty: a script Routine's run fails, saying so (issue #211).
 	RoutineCommand []string
+	// ChatRmCommand removes what pi kept for a deleted chat on this machine,
+	// its run/ folder and its sessions, for the chat's id appended to it
+	// (issue #484), from HYPOMNEMA_CHAT_RM_COMMAND as a JSON array, such as
+	// [sudo -n -u coordinator /usr/local/bin/hypomnema-chat-rm]; empty: a
+	// deleted chat's files there stay, and the deletion says so.
+	ChatRmCommand []string
 	// VaultKeys holds the vault's root keys, from HYPOMNEMA_VAULT_KEYS (a
 	// comma-separated list of id:base64 entries) and
 	// HYPOMNEMA_VAULT_ACTIVE_KEY_ID; nil: the vault is not configured.
@@ -176,6 +182,12 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 	if raw := env.String(envPrefix+"_ROUTINE_COMMAND", ""); raw != "" {
 		if err := json.Unmarshal([]byte(raw), &cfg.RoutineCommand); err != nil || len(cfg.RoutineCommand) == 0 {
 			cmdErr = errors.Join(cmdErr, fmt.Errorf("%s_ROUTINE_COMMAND is not a JSON array of strings", envPrefix))
+		}
+	}
+
+	if raw := env.String(envPrefix+"_CHAT_RM_COMMAND", ""); raw != "" {
+		if err := json.Unmarshal([]byte(raw), &cfg.ChatRmCommand); err != nil || len(cfg.ChatRmCommand) == 0 {
+			cmdErr = errors.Join(cmdErr, fmt.Errorf("%s_CHAT_RM_COMMAND is not a JSON array of strings", envPrefix))
 		}
 	}
 
@@ -378,7 +390,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		WithAccounts(subscriptions).WithGatewayModels(gateway).WithGatewayKeys(gateway).WithGatewayUsage(gateway).
 		WithHostTokens(tokens).
 		WithMachines(machineMgr).WithTerminals(nodeTerminals(nodes)).WithDevices(nodes).
-		WithWorkspaces(nodes.Files, bots).
+		WithWorkspaces(nodes.Files, bots).WithChatFiles(newChatFiles(cfg.ChatRmCommand)).
 		WithSecrets(ownerSecrets{vault: secrets, referrers: referrers}).
 		WithIntegrations(integrations).WithApprovals(proxy).WithRelay(proxy).WithLarkChannels(larkSettings).
 		WithSkillSources(skillsource.NewGitHub(&http.Client{Timeout: 2 * time.Minute})).
