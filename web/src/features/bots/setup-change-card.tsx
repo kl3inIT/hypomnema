@@ -6,8 +6,9 @@ import { errorText } from "@/features/agents/profiles-state"
 import { cn } from "@/lib/utils"
 
 import { changeLine, useUndoSetupChange, verb, what } from "./setup-changes"
+import { useBotName } from "./use-bots"
 
-// What the Bot coordinator made, changed or removed of Bots and profiles in a chat (issue #169): each a card where
+// What the main Bot made, changed or removed of Bots and profiles in a chat (issue #169): each a card where
 // it was done, "Made Bot researcher", with Open and Undo. The card is the Routines' "Set up" card
 // (features/routines/chat-cards.tsx, adapted from OpenMausBot's TriggerCard), as OpenMausBot leaves a one-line
 // receipt with Undo for a team setup change that applied at once (docs/approval-levels.md L111-114).
@@ -17,7 +18,8 @@ const action = "rounded px-1 py-0.5 hover:bg-accent hover:text-foreground disabl
 export function SetupChangeCard({ change }: { change: SetupChange }) {
   const undo = useUndoSetupChange()
   const Icon = change.kind === "bot" ? BotIcon : Layers
-  const title = `${verb.done[change.action]} ${what(change)}`
+  const botName = useBotName(change.kind === "bot" ? change.name : "")
+  const title = `${verb.done[change.action]} ${what(change, change.kind === "bot" ? botName : undefined)}`
   const open = change.action !== "removed" && !(change.action === "made" && change.undone_at)
 
   return (
@@ -48,7 +50,7 @@ export function SetupChangeCard({ change }: { change: SetupChange }) {
         <span className="flex shrink-0 items-center gap-0.5 text-muted-foreground">
           {open &&
             (change.kind === "bot" ? (
-              <Link to="/bots/$name" params={{ name: change.name }} className={action}>
+              <Link to="/bots/$id" params={{ id: change.name }} className={action}>
                 Open
               </Link>
             ) : (

@@ -375,7 +375,8 @@ func TestTheCoordinatorChangesWhatAnyBotMayUse(t *testing.T) {
 	vmapBot, err := w.s.PutBot(ctx, Bot{Name: "vmap", Workers: only("reviewer")})
 	require.NoError(t, err)
 
-	widened, err := w.s.PutBotFromChat(ctx, chat.ID, Bot{ID: vmapBot.ID, Name: "vmap", Workers: only("reviewer", "implementer")})
+	widened, err := w.s.PutBotFromChat(ctx, chat.ID,
+		Bot{ID: vmapBot.ID, Name: "vmap", Workers: only("reviewer", "implementer")})
 	require.NoError(t, err, "it widens a Bot's list")
 	assert.Equal(t, only("reviewer", "implementer"), widened.Workers)
 

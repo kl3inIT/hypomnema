@@ -315,7 +315,9 @@ func TestABotGetsOnlyTheAccountsOnItsList(t *testing.T) {
 	require.Equal(t, http.StatusOK, status)
 	assert.ElementsMatch(t, []string{"work", "personal"}, labels, "no list: every one allowed for chats")
 
-	_, err = w.svc.PutBot(ctx, orchestration.Bot{ID: vmapBot.ID, Name: "vmap", Connections: orchestration.AllowList{Limited: true}})
+	_, err = w.svc.PutBot(ctx, orchestration.Bot{
+		ID: vmapBot.ID, Name: "vmap", Connections: orchestration.AllowList{Limited: true},
+	})
 	require.NoError(t, err)
 
 	status, _ = w.token(vmap, "work")

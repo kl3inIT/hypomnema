@@ -37,7 +37,7 @@ async function fakeServer(page: Page, chats: { current: (typeof chat)[] }) {
       case "/tasks":
         return json({ data: [], runs: [], after: 0 })
       case "/bots":
-        return json({ data: [{ name: "coordinator" }] })
+        return json({ data: [{ id: "coordinator", main: true, name: "coordinator" }] })
       default:
         return json({ data: [] })
     }

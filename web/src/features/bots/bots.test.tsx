@@ -38,7 +38,9 @@ const json = (body: unknown, status = 200) =>
   })
 
 const bot = (name: string, m: Partial<Bot> = {}): Bot => ({
+  id: name,
   name,
+  main: name === "coordinator",
   persona: "",
   memory: "",
   memory_limit: 2200,
@@ -143,11 +145,11 @@ function open(path: string) {
     createRoute({ getParentRoute: () => root, path: "/bots/new", component: NewBotScreen }),
     createRoute({
       getParentRoute: () => root,
-      path: "/bots/$name",
+      path: "/bots/$id",
       component: function One() {
-        const { name } = routes[2]!.useParams() as { name: string }
+        const { id } = routes[2]!.useParams() as { id: string }
 
-        return <BotScreen key={name} name={name} />
+        return <BotScreen key={id} id={id} />
       },
     }),
     createRoute({ getParentRoute: () => root, path: "/", component: () => <p>Start</p> }),

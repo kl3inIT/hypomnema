@@ -27,7 +27,7 @@ export function botRows(chats: readonly Chat[], main: string): BotRow[] {
 // Which Bots the owner opened to their chats, kept in this browser as t3code keeps which projects are expanded
 // (MIT, Copyright (c) 2026 T3 Tools Inc., https://github.com/pingdotgg/t3code; apps/web/src/uiStateStore.ts
 // projectExpandedById). A Bot is closed until opened, as OpenMausBot's (useSearchDisclosure's initial). A Bot is kept
-// by its id (issue #466); a key from before, a Bot's name, is dropped.
+// by its id (issue #466): a key from before, a Bot's name, names no row and is not read.
 const openKey = "hypomnema.sidebar.open-bots"
 
 export function readOpenBots(): Record<string, boolean> {
@@ -35,9 +35,7 @@ export function readOpenBots(): Record<string, boolean> {
     const value: unknown = JSON.parse(window.localStorage.getItem(openKey) ?? "{}")
     if (typeof value !== "object" || value === null || Array.isArray(value)) return {}
 
-    return Object.fromEntries(
-      Object.entries(value).filter(([bot, open]) => bot.startsWith("bot_") && typeof open === "boolean"),
-    )
+    return Object.fromEntries(Object.entries(value).filter(([, open]) => typeof open === "boolean"))
   } catch {
     return {}
   }

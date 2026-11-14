@@ -318,10 +318,7 @@ function Memory({ bot }: { bot: Bot }) {
         help="What the Bot keeps across its chats, one entry a line. It writes this itself; you can edit it. The Bot sees a change from its next chat on."
         save={{
           mutate: (text, { onSuccess }) =>
-            save.mutate(
-              { id: bot.id, memory: text },
-              { onSuccess: (b) => onSuccess(b.memory) },
-            ),
+            save.mutate({ id: bot.id, memory: text }, { onSuccess: (b) => onSuccess(b.memory) }),
           isPending: save.isPending,
           error: save.error,
           reset: save.reset,

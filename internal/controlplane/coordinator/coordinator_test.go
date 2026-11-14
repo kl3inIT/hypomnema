@@ -775,7 +775,8 @@ func TestEachPiGetsItsOwnTokenOnItsStdin(t *testing.T) {
 
 	_, err = svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, "and your token now?")
 	require.NoError(t, err)
-	waitFor(t, svc, chat.ID, orchestration.ChatCoordinator, "my token: hyp_bot_v1_2_"+chat.ID+"_"+orchestration.DefaultBotID)
+	token := "my token: hyp_bot_v1_2_" + chat.ID + "_" + orchestration.DefaultBotID
+	waitFor(t, svc, chat.ID, orchestration.ChatCoordinator, token)
 }
 
 // Scenario: the owner stops pi mid-turn, and pi ends the turn as aborted with
@@ -857,7 +858,8 @@ func TestPiStartsWithTheChatsModel(t *testing.T) {
 
 	args, _, model, err = sup.botArgs(ctx, both.ID)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"--bot", vmapBot.ID, "--provider", "gateway", "--model", "gpt-luna", "--thinking", "low"}, args)
+	want := []string{"--bot", vmapBot.ID, "--provider", "gateway", "--model", "gpt-luna", "--thinking", "low"}
+	assert.Equal(t, want, args)
 	assert.Equal(t, "gpt-luna", model.Model, "the chat's gateway key is made for the chat's model")
 }
 

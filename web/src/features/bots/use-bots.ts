@@ -71,7 +71,15 @@ export function usePutBot() {
 
   return useMutation({
     mutationKey: putBotKey,
-    mutationFn: async ({ id, name, settings }: { id?: string; name?: string; settings: BotSettings }) =>
+    mutationFn: async ({
+      id,
+      name,
+      settings,
+    }: {
+      id?: string
+      name?: string
+      settings: BotSettings
+    }) =>
       id
         ? (await putBot({ path: { bot_id: id }, body: settings })).data
         : (await createBot({ body: { name: name ?? "", settings } })).data,

@@ -62,7 +62,7 @@ export function TeamScreen({
     () => teamMachines(machines.data ?? [], cards, chatList),
     [machines.data, cards, chatList],
   )
-  const names = useMemo(() => list.map((b) => b.name), [list])
+  const names = useMemo(() => list.map((b) => b.id), [list])
   const links = useMemo(() => teamLinks(work, names), [work, names])
   const questions = useMemo(() => ownerQuestions(cards), [cards])
   const edges = useMemo(
@@ -87,7 +87,7 @@ export function TeamScreen({
   const openBot = (bot: TeamBot) =>
     bot.chat
       ? void navigate({ to: "/chats/$chatId", params: { chatId: bot.chat } })
-      : void navigate({ to: "/", search: { bot: bot.name } })
+      : void navigate({ to: "/", search: { bot: bot.id } })
   // A row opens the chat its Run came from, where the work is; a Run with no chat opens the Task.
   const openWork = (chatId: string | undefined, taskId: string) =>
     chatId ? void navigate({ to: "/chats/$chatId", params: { chatId } }) : onOpenTask(taskId)
