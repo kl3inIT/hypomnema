@@ -3,6 +3,7 @@ package clientapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -163,6 +164,10 @@ func (s *Server) toChat(c orchestration.Chat) openapi.Chat {
 		out.Working = s.coordinator.Working(c.ID)
 	}
 
+	if u := c.Usage; u != nil {
+		out.ContextUsage = &openapi.ChatContextUsage{ContextWindow: u.Window, Tokens: u.Tokens, Percent: u.Percent}
+	}
+
 	return out
 }
 
@@ -221,6 +226,29 @@ func (s *Server) AbortChat(ctx context.Context, req openapi.AbortChatRequestObje
 	}
 
 	return openapi.AbortChat204Response{}, nil
+}
+
+// CompactChat asks the chat's pi to compact its context now (issue #384); the compaction runs on as a turn of its
+// own, as OpenMausBot's POST /api/bots/:id/compact answers 202 and runs it as a turn.
+func (s *Server) CompactChat(ctx context.Context, req openapi.CompactChatRequestObject,
+) (openapi.CompactChatResponseObject, error) {
+	if _, err := s.svc.GetChat(ctx, req.ChatId); err != nil {
+		return nil, err
+	}
+
+	if s.coordinator == nil || !s.coordinator.Enabled() {
+		return nil, fmt.Errorf("%w: %w", orchestration.ErrUnavailable, coordinator.ErrDisabled)
+	}
+
+	if err := s.coordinator.Compact(ctx, req.ChatId); err != nil {
+		if errors.Is(err, orchestration.ErrConflict) {
+			return nil, err
+		}
+
+		return nil, fmt.Errorf("%w: %w", orchestration.ErrUnavailable, err)
+	}
+
+	return openapi.CompactChat202Response{}, nil
 }
 
 // GetChatGatewayKey returns the key the chat's pi calls the model gateway

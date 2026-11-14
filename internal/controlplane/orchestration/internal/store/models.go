@@ -92,15 +92,18 @@ type Bot struct {
 }
 
 type Chat struct {
-	ID        string
-	Title     string
-	CreatedAt int64
-	UpdatedAt int64
-	Bot       string
-	LarkGroup int64
-	Provider  sql.NullString
-	Model     sql.NullString
-	Effort    sql.NullString
+	ID             string
+	Title          string
+	CreatedAt      int64
+	UpdatedAt      int64
+	Bot            string
+	LarkGroup      int64
+	Provider       sql.NullString
+	Model          sql.NullString
+	Effort         sql.NullString
+	ContextTokens  sql.NullInt64
+	ContextWindow  sql.NullInt64
+	ContextPercent sql.NullFloat64
 }
 
 type ChatMessage struct {

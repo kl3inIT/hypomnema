@@ -57,7 +57,16 @@ that starts gets it as its flags (`none` is pi's `--thinking off`); a running pi
 prompt that starts a turn, without a restart, by pi's RPC `set_model` and `set_thinking_level` (pi
 `docs/rpc-commands.md`), the chat's gateway key made again first for a new model. A pi that refuses is stopped, and
 the next pi starts with the chat's choice. pi's own default, when neither names a model, is had only at start. A
-Lark message to the chat runs with the chat's choice too. On
+Lark message to the chat runs with the chat's choice too. How full a chat's context window is (issue #384) is pi's
+own report: on each `turn_end` and `compaction_end` the supervisor sends pi `get_session_stats`, as Orca's
+`refreshUsage` does, keeps its `contextUsage` with the chat (`chats.context_tokens`, `context_window`,
+`context_percent`, migration 68; the window NULL before pi first reported one, the tokens and the share NULL right
+after a compaction until pi's next answer) and, when it changed, sends the chat's watchers a `usage` frame; `GET
+/chats/{id}` carries it as `context_usage`. `POST /chats/{id}/compact` (owner only, 202) sends pi `compact`, starting
+pi when none runs, as OpenMausBot runs its compaction as a turn: the chat reads working until it ends, a message sent
+meanwhile waits, `abort` stops it with a `stopped` row, a failure ends in a `failed` row ("pi's compaction failed:
+…"), and a chat whose pi works is refused (409), as pi aborts a running turn to compact. pi's compaction settings are
+its own (reserve 16384, keep 20000). On
 the server pi runs as the `coordinator` user through `deploy/coordinator/`: a root-owned launcher (`hypomnema-pi`,
 a clean environment, only a chat id, a Bot's name and model flags, pi's own token on the first line of stdin), a
 second one for a Routine's script (`hypomnema-routine`, below), one sudoers rule limited to the two, the instructions
@@ -2057,6 +2066,13 @@ Node (`internal/node`):
     once (`PATCH /chats/{id}`) and shown before the server answers; a refused one is put back. The New chat page
     and a new chat's tab hold theirs until the first message makes the chat with it; picking another Bot starts
     from that Bot's. Picking a model the chat's effort is not a level of gives the effort back to the Bot.
+  - The context meter (issue #384, `features/chat/context-meter.tsx`): left of the model button, a ring that fills
+    as pi's context does (assistant-ui's ContextDisplay ring, AI Elements' Context), amber from 80 % and red from
+    90 % with a tick where pi compacts on its own (the window less 16384), after t3code's ThreadDetailsContext.
+    Hovered or tapped, a card says "used / window (percent)", where pi compacts, and has Compact (`POST
+    /chats/{id}/compact`), disabled while pi works, "Compacting…" while it is asked. No ring shows before pi
+    reported, as in Orca; after a compaction it shows "–" until pi's next answer. A `usage` frame on the chat's
+    stream updates the chat as the page holds it.
 - The Team page (issue #262, `web/src/features/team`; [design](https://github.com/kl3inIT/hypomnema/issues/262)),
   adapted from OpenMausBot's team map (Apache 2.0): `/team`, first in the sidebar after New chat, carries the
   count of what needs the owner. A canvas draws the Bots in a column and every machine in a column beside it,

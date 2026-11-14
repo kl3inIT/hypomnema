@@ -69,9 +69,42 @@ type Chat struct {
 	// Bot is the Bot the chat talks with.
 	Bot string
 	// Choice is the model and effort the chat runs with, each empty when it is the Bot's (issue #369).
-	Choice    ChatModel
+	Choice ChatModel
+	// Usage is how full its context window is, nil before pi first reported it (issue #384).
+	Usage     *ContextUsage
 	CreatedAt time.Time
 	UpdatedAt time.Time
+}
+
+// ContextUsage is pi's report of how full a chat's context window is (issue #384; pi docs/rpc-commands.md,
+// get_session_stats): the tokens pi counts in its context, the model's window, and the share used. Tokens and Percent
+// are nil right after a compaction, until pi's next answer measures them again (pi agent-session.ts
+// getContextUsage).
+type ContextUsage struct {
+	Tokens  *int64
+	Window  int64
+	Percent *float64
+}
+
+// SetChatContextUsage keeps pi's last report of the chat's context window (issue #384). The chat's updated_at stays:
+// it orders the chats by what was said in them.
+func (s *Service) SetChatContextUsage(ctx context.Context, id string, u ContextUsage) error {
+	if err := s.write(ctx, func(q *store.Queries, _ int64) error {
+		p := store.SetChatContextUsageParams{ID: id, ContextWindow: sql.NullInt64{Int64: u.Window, Valid: u.Window > 0}}
+		if u.Tokens != nil {
+			p.Tokens = sql.NullInt64{Int64: *u.Tokens, Valid: true}
+		}
+
+		if u.Percent != nil {
+			p.Percent = sql.NullFloat64{Float64: *u.Percent, Valid: true}
+		}
+
+		return q.SetChatContextUsage(ctx, p)
+	}); err != nil {
+		return fmt.Errorf("keeping the context usage of chat %s: %w", id, err)
+	}
+
+	return nil
 }
 
 // ChatModel is a chat's own model and effort (issue #369), as a t3code thread, an Orca session and an Omnigent
@@ -371,8 +404,26 @@ func chatFromRow(r store.Chat) Chat {
 	return Chat{
 		ID: r.ID, Title: r.Title, Bot: r.Bot,
 		Choice:    ChatModel{Provider: r.Provider.String, Model: r.Model.String, Effort: r.Effort.String},
+		Usage:     usageFromRow(r),
 		CreatedAt: millis(r.CreatedAt), UpdatedAt: millis(r.UpdatedAt),
 	}
+}
+
+func usageFromRow(r store.Chat) *ContextUsage {
+	if !r.ContextWindow.Valid || r.ContextWindow.Int64 <= 0 {
+		return nil
+	}
+
+	u := &ContextUsage{Window: r.ContextWindow.Int64}
+	if r.ContextTokens.Valid {
+		u.Tokens = &r.ContextTokens.Int64
+	}
+
+	if r.ContextPercent.Valid {
+		u.Percent = &r.ContextPercent.Float64
+	}
+
+	return u
 }
 
 // AddChatMessage appends a message. An owner message waits for pi until it

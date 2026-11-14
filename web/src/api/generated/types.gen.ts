@@ -2410,8 +2410,27 @@ export type Chat = {
    * A coordinator is configured to answer; false means messages are kept and nothing answers.
    */
   coordinator: boolean;
+  context_usage?: ChatContextUsage;
   created_at: string;
   updated_at: string;
+};
+
+/**
+ * How full the chat's context window is, as pi last reported it after a turn or a compaction (issue #384; pi's get_session_stats). Absent from a chat before pi first reported it.
+ */
+export type ChatContextUsage = {
+  /**
+   * The model's context window in tokens; pi compacts on its own at this less 16384.
+   */
+  context_window: number;
+  /**
+   * The tokens in pi's context; absent right after a compaction, until pi's next answer.
+   */
+  tokens?: number;
+  /**
+   * The share of the window used, 0 to 100; absent with tokens.
+   */
+  percent?: number;
 };
 
 export type ChatList = {
@@ -7271,6 +7290,31 @@ export type AbortChatResponses = {
 };
 
 export type AbortChatResponse = AbortChatResponses[keyof AbortChatResponses];
+
+export type CompactChatData = {
+  body?: never;
+  path: {
+    chat_id: string;
+  };
+  query?: never;
+  url: '/chats/{chat_id}/compact';
+};
+
+export type CompactChatErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type CompactChatError = CompactChatErrors[keyof CompactChatErrors];
+
+export type CompactChatResponses = {
+  /**
+   * pi is compacting the chat's context.
+   */
+  202: unknown;
+};
 
 export type GetChatGatewayKeyData = {
   body?: never;

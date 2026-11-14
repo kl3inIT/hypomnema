@@ -143,7 +143,7 @@ func (q *Queries) CountChatsOfBot(ctx context.Context, bot string) (int64, error
 }
 
 const getChat = `-- name: GetChat :one
-SELECT id, title, created_at, updated_at, bot, lark_group, provider, model, effort FROM chats WHERE id = ?1
+SELECT id, title, created_at, updated_at, bot, lark_group, provider, model, effort, context_tokens, context_window, context_percent FROM chats WHERE id = ?1
 `
 
 func (q *Queries) GetChat(ctx context.Context, id string) (Chat, error) {
@@ -159,6 +159,9 @@ func (q *Queries) GetChat(ctx context.Context, id string) (Chat, error) {
 		&i.Provider,
 		&i.Model,
 		&i.Effort,
+		&i.ContextTokens,
+		&i.ContextWindow,
+		&i.ContextPercent,
 	)
 	return i, err
 }
@@ -314,7 +317,7 @@ func (q *Queries) ListChatMessages(ctx context.Context, arg ListChatMessagesPara
 }
 
 const listChats = `-- name: ListChats :many
-SELECT id, title, created_at, updated_at, bot, lark_group, provider, model, effort FROM chats ORDER BY updated_at DESC, id LIMIT ?1
+SELECT id, title, created_at, updated_at, bot, lark_group, provider, model, effort, context_tokens, context_window, context_percent FROM chats ORDER BY updated_at DESC, id LIMIT ?1
 `
 
 func (q *Queries) ListChats(ctx context.Context, lim int64) ([]Chat, error) {
@@ -336,6 +339,9 @@ func (q *Queries) ListChats(ctx context.Context, lim int64) ([]Chat, error) {
 			&i.Provider,
 			&i.Model,
 			&i.Effort,
+			&i.ContextTokens,
+			&i.ContextWindow,
+			&i.ContextPercent,
 		); err != nil {
 			return nil, err
 		}
@@ -363,6 +369,30 @@ type MarkChatMessagesDeliveredParams struct {
 
 func (q *Queries) MarkChatMessagesDelivered(ctx context.Context, arg MarkChatMessagesDeliveredParams) error {
 	_, err := q.db.ExecContext(ctx, markChatMessagesDelivered, arg.Now, arg.ChatID, arg.Upto)
+	return err
+}
+
+const setChatContextUsage = `-- name: SetChatContextUsage :exec
+UPDATE chats SET context_tokens = ?1, context_window = ?2, context_percent = ?3
+WHERE id = ?4
+`
+
+type SetChatContextUsageParams struct {
+	Tokens        sql.NullInt64
+	ContextWindow sql.NullInt64
+	Percent       sql.NullFloat64
+	ID            string
+}
+
+// pi's last report of the chat's context window (issue #384); the chat's updated_at stays, as it orders the list by
+// what was said.
+func (q *Queries) SetChatContextUsage(ctx context.Context, arg SetChatContextUsageParams) error {
+	_, err := q.db.ExecContext(ctx, setChatContextUsage,
+		arg.Tokens,
+		arg.ContextWindow,
+		arg.Percent,
+		arg.ID,
+	)
 	return err
 }
 

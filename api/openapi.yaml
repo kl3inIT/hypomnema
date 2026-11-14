@@ -2541,7 +2541,9 @@ paths:
         ChatMessage as data. While pi works, frames without an id show what is
         not kept yet: `reset` (a new reply starts), `delta` (ChatDelta),
         `tool` (ChatToolActivity) and `state` (ChatState); a kept message
-        replaces what they showed. A comment line is sent every 10 seconds.
+        replaces what they showed. `usage` (ChatContextUsage) says how full the
+        context window is after pi reported it again. A comment line is sent
+        every 10 seconds.
       parameters:
         - $ref: "#/components/parameters/After"
         - name: Last-Event-ID
@@ -2808,6 +2810,21 @@ paths:
       responses:
         "204":
           description: pi was asked to stop, or was not working.
+        default: { $ref: "#/components/responses/Error" }
+  /chats/{chat_id}/compact:
+    parameters:
+      - $ref: "#/components/parameters/ChatID"
+    post:
+      operationId: CompactChat
+      summary: Ask the coordinator to compact the chat's context now
+      description: >-
+        pi summarises the older part of the conversation with its own compaction (issue #384), starting when no pi
+        runs for the chat. It runs as a turn of its own: the chat reads working until it ends, a message sent
+        meanwhile waits for it, and abort stops it; a failure ends in a failed row. The context usage that follows
+        comes as a `usage` frame on the chat's stream. A chat whose coordinator is working is refused with 409.
+      responses:
+        "202":
+          description: pi is compacting the chat's context.
         default: { $ref: "#/components/responses/Error" }
   /chats/{chat_id}/gateway-key:
     parameters:
@@ -5640,8 +5657,28 @@ components:
         coordinator:
           type: boolean
           description: A coordinator is configured to answer; false means messages are kept and nothing answers.
+        context_usage: { $ref: "#/components/schemas/ChatContextUsage" }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+    ChatContextUsage:
+      type: object
+      description: >-
+        How full the chat's context window is, as pi last reported it after a turn or a compaction (issue #384; pi's
+        get_session_stats). Absent from a chat before pi first reported it.
+      required: [context_window]
+      properties:
+        context_window:
+          type: integer
+          format: int64
+          description: The model's context window in tokens; pi compacts on its own at this less 16384.
+        tokens:
+          type: integer
+          format: int64
+          description: The tokens in pi's context; absent right after a compaction, until pi's next answer.
+        percent:
+          type: number
+          format: double
+          description: The share of the window used, 0 to 100; absent with tokens.
     ChatList:
       type: object
       required: [data]

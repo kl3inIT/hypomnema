@@ -18,6 +18,7 @@ import { useAttachments } from "./attachments"
 import { ChatModelControls } from "./chat-model-picker"
 import { choiceOf, type ChatChoice } from "./chat-model-state"
 import { Composer } from "./composer"
+import { ContextMeter } from "./context-meter"
 import { Conversation } from "./conversation"
 import { DockContext } from "./dock-context"
 import { wakeCount } from "./dock-state"
@@ -148,11 +149,18 @@ export function ChatBody({ chatId, onOpenFile }: { chatId: string; onOpenFile?: 
               attachments={attachments}
               controls={
                 chat.data && (
-                  <ChatModelControls
-                    bot={bot}
-                    choice={choiceOf(chat.data)}
-                    onChange={(next) => void choose(next)}
-                  />
+                  <>
+                    <ContextMeter
+                      chatId={chatId}
+                      usage={chat.data.context_usage}
+                      working={view.working}
+                    />
+                    <ChatModelControls
+                      bot={bot}
+                      choice={choiceOf(chat.data)}
+                      onChange={(next) => void choose(next)}
+                    />
+                  </>
                 )
               }
             />
