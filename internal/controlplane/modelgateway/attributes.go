@@ -15,7 +15,8 @@ import (
 // A model's attributes (issue #367) are what a client needs to know of it:
 // its context window, largest output, inputs, whether it reasons and at which
 // effort levels. A value set in the model's YAML wins; else the value
-// models.dev gives the first target's model (the price book's snapshot), as
+// models.dev gives the first target's model (the price book's snapshot; a
+// Claude short name is looked up as the model it stands for, prices.ClaudeModel), as
 // 9router-go, omniroute and omp seed theirs and let a model override them;
 // else it is unknown, and a client keeps its own default.
 
@@ -49,8 +50,11 @@ const (
 	SourceSet       Source = "set"
 	SourceModelsDev Source = "models_dev"
 	// SourceCodex is the window of a Codex subscription's model, from Codex's own list.
-	SourceCodex   Source = "codex"
-	SourceUnknown Source = "unknown"
+	SourceCodex Source = "codex"
+	// SourceAntigravity is the window or largest output of an Antigravity
+	// subscription's model, from CLIProxyAPI's registry of them.
+	SourceAntigravity Source = "antigravity"
+	SourceUnknown     Source = "unknown"
 )
 
 // codexWindows are the context windows Codex itself gives its models, which a
@@ -63,6 +67,28 @@ const (
 var codexWindows = map[string]int64{"gpt-6.1-terra": 500000, "gpt-daybreak-red-latest": 372000}
 
 const codexWindow int64 = 272000
+
+// antigravityLimits are the window and largest output an Antigravity
+// subscription serves each of its models with, by the name the backend
+// takes. models.dev gives the API's (1,000,000 for claude-sonnet-4-6, where
+// the subscription serves 200,000). Copied from CLIProxyAPI (MIT License,
+// Copyright (c) 2025-2005.9 Luis Pater, Copyright (c) 2025.9-present
+// Router-For.ME; https://github.com/router-for-me/CLIProxyAPI, c5251b5):
+// internal/registry/models/models.json, its antigravity section's
+// context_length and max_completion_tokens. A model it gives neither is left
+// out.
+var antigravityLimits = map[string]struct{ window, output int64 }{
+	"claude-opus-4-6-thinking": {200000, 64000},
+	"claude-sonnet-4-6":        {200000, 64000},
+	"claude-opus-5-5-high":     {1000000, 128000},
+	"claude-sonnet-5-5-high":   {1000000, 128000},
+	"gemini-4-argon-high":      {1048576, 1048576},
+	"gemini-3.8-flash-high":    {1048576, 65536},
+	"gemini-3-flash":           {1048576, 65536},
+	"gpt-oss-120b-medium":      {114000, 32768},
+	"gemini-3.1-flash-lite":    {1048576, 65535},
+	"gemini-3.5-flash-lite":    {1048576, 65535},
+}
 
 // Value is one resolved attribute: the value used (nil when unknown), where
 // it came from, and what models.dev gives (nil when nothing), which a model
@@ -142,7 +168,7 @@ func resolveAttributes(name string, set Attributes, kind, upstream string) Resol
 
 	out := Resolved{
 		ContextWindow: contextWindowOf(set.ContextWindow, seed.Context, kind, upstream),
-		MaxOutput:     resolve(set.MaxOutput, seed.MaxOutput),
+		MaxOutput:     maxOutputOf(set.MaxOutput, seed.MaxOutput, kind, upstream),
 		Input:         resolve(listOf(set.Input), listOf(seed.Inputs)),
 		Reasoning:     resolve(set.Reasoning, seed.Reasoning),
 		Efforts:       resolve(listOf(set.Efforts), listOf(seedEfforts)),
@@ -158,18 +184,38 @@ func resolveAttributes(name string, set Attributes, kind, upstream string) Resol
 }
 
 // contextWindowOf resolves a model's window as resolve does, but a Codex
-// subscription's model takes Codex's own window before models.dev's.
+// subscription's model takes Codex's own window before models.dev's, and an
+// Antigravity subscription's one CLIProxyAPI's registry gives.
 func contextWindowOf(set, seed *int64, kind, upstream string) Value[int64] {
-	if set != nil || kind != "codex_subscription" {
+	if set != nil {
 		return resolve(set, seed)
 	}
 
-	w, ok := codexWindows[upstream]
-	if !ok {
-		w = codexWindow
+	switch kind {
+	case "codex_subscription":
+		w, ok := codexWindows[upstream]
+		if !ok {
+			w = codexWindow
+		}
+
+		return Value[int64]{Value: &w, Source: SourceCodex, ModelsDev: seed}
+	case "antigravity_subscription":
+		if l, ok := antigravityLimits[upstream]; ok {
+			return Value[int64]{Value: &l.window, Source: SourceAntigravity, ModelsDev: seed}
+		}
 	}
 
-	return Value[int64]{Value: &w, Source: SourceCodex, ModelsDev: seed}
+	return resolve(set, seed)
+}
+
+// maxOutputOf resolves a model's largest output as resolve does, but an
+// Antigravity subscription's model takes the one CLIProxyAPI's registry gives.
+func maxOutputOf(set, seed *int64, kind, upstream string) Value[int64] {
+	if l, ok := antigravityLimits[upstream]; ok && set == nil && kind == "antigravity_subscription" {
+		return Value[int64]{Value: &l.output, Source: SourceAntigravity, ModelsDev: seed}
+	}
+
+	return resolve(set, seed)
 }
 
 // effortsOf are the effort levels a provider's adapter passes on as levels of
