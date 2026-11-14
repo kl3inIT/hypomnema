@@ -65,10 +65,11 @@ UPDATE gateway_keys SET revoked_at = @now WHERE id = @id AND revoked_at IS NULL;
 -- name: InsertGatewayUsage :exec
 INSERT INTO gateway_usage (id, key_id, model, provider, upstream_model, stream, attempts, outcome, status,
                            prompt_tokens, completion_tokens, cached_tokens, reasoning_tokens, estimated, duration_ms,
-                           account_id, error, cache_write_tokens, cost_micros, priced_model, created_at)
+                           account_id, error, cache_write_tokens, cache_write_1h_tokens, cost_micros, priced_model,
+                           created_at)
 VALUES (@id, @key_id, @model, @provider, @upstream_model, @stream, @attempts, @outcome, @status,
         @prompt_tokens, @completion_tokens, @cached_tokens, @reasoning_tokens, @estimated, @duration_ms,
-        @account_id, @error, @cache_write_tokens, @cost_micros, @priced_model, @now);
+        @account_id, @error, @cache_write_tokens, @cache_write_1h_tokens, @cost_micros, @priced_model, @now);
 
 -- name: ListGatewayUsage :many
 SELECT u.*, k.name AS key_name FROM gateway_usage u JOIN gateway_keys k ON k.id = u.key_id

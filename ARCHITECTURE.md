@@ -1682,6 +1682,13 @@ capabilities do not exist yet.
   provider's, under the provider's vendor (Claude anthropic, Codex openai) or the maker named in the model. The cost
   is the uncached input, the cache read, the cache write and the output, each at its price (a missing cache price is
   the input's). For a subscription it is what the tokens would cost at the API, not the plan.
+  Since migration 00078 a row also holds the part of the cache write that lasts an hour (`cache_write_1h_tokens`,
+  issue #448): Anthropic's `usage.cache_creation.ephemeral_1h_input_tokens`, read on the Messages route from
+  `message_start`, `message_delta` or a whole answer, and on the chat route carried in the usage as LiteLLM carries
+  it (`prompt_tokens_details.cache_creation_token_details.ephemeral_1h_input_tokens`). For vendor anthropic that
+  part costs twice the input (Anthropic's one-hour rate, LiteLLM's `cache_creation_input_token_cost_above_1hr`;
+  models.dev has none) and the rest of the write `cache_write`, the five-minute rate. Rows recorded before keep 0
+  and their cost. The Usage page's request shows the part next to the cache written.
 - The tables `gateway_models`, `gateway_model_targets`, `gateway_keys` and `gateway_usage` are in the one migration
   stream and are read and written only by this package, through its own generated queries. Providers are read
   through orchestration and keys through the vault.

@@ -5062,7 +5062,8 @@ components:
     GatewayRequest:
       type: object
       required: [id, created_at, key_id, key_name, model, provider, upstream_model, stream, attempts, outcome, status,
-        prompt_tokens, cached_tokens, completion_tokens, reasoning_tokens, cache_write_tokens, estimated, duration_ms]
+        prompt_tokens, cached_tokens, completion_tokens, reasoning_tokens, cache_write_tokens, cache_write_1h_tokens,
+        estimated, duration_ms]
       properties:
         id: { type: string }
         created_at: { type: string, format: date-time }
@@ -5098,6 +5099,10 @@ components:
           type: integer
           format: int64
           description: The part of the tokens in written to the provider's cache.
+        cache_write_1h_tokens:
+          type: integer
+          format: int64
+          description: The part of the cache write that lasts an hour (Anthropic's), priced at its own rate.
         cost_micros:
           type: integer
           format: int64
