@@ -12,7 +12,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 )
 
-// Scenario: a database from before Channels had a kind (migration 78), with
+// Scenario: a database from before Channels had a kind (migration 79), with
 // the Lark Channel main, a person let in, her direct chat, a group the bot is
 // in and its chat, a message taken and a question's card. After the
 // migration every row is there under the tables' and columns' new names, the
@@ -31,7 +31,7 @@ func TestMigrationRenamesTheLarkTablesToChannels(t *testing.T) {
 
 	p, err := provider(db)
 	require.NoError(t, err)
-	_, err = p.UpTo(ctx, 78)
+	_, err = p.UpTo(ctx, 79)
 	require.NoError(t, err)
 
 	for _, stmt := range []string{
@@ -151,7 +151,7 @@ func TestMigrationRenamesTheLarkTablesToChannels(t *testing.T) {
 	require.ErrorIs(t, err, ErrInvalid, "Lark is the one kind there is")
 
 	// The way back: the Lark names, with the rows.
-	_, err = p.DownTo(ctx, 78)
+	_, err = p.DownTo(ctx, 79)
 	require.NoError(t, err)
 
 	var larkChat string

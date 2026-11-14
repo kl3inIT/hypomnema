@@ -1160,7 +1160,7 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       the owner's id (`owner_id`, his `open_id`), whether it is on and whether its replies link to the web
       (`web_link`, migration 00063). One app is one Channel: an app that another Channel has is refused (Hermes
       refuses two profiles on one app); `(kind, app_id)` is unique, and so is `app_id` alone, kept from
-      migration 00047. Migration 00079 (issue #404) renamed the tables `lark_channels` and `lark_channel_*` in
+      migration 00047. Migration 00080 (issue #404) renamed the tables `lark_channels` and `lark_channel_*` in
       place to `channels` and `channel_*` and the columns `open_id`, `lark_chat_id`, `owner_open_id` and
       `chats.lark_group` to `person_id`, `external_chat_id`, `owner_id` and `chats.channel_group`, as MemoryOS
       keeps every provider in one set of channel tables; every Channel there was became of the kind `lark`. The one Lark bot there was before migration 00047 is the Channel `main`, which talks

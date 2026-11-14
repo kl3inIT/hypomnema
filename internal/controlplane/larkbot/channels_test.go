@@ -1169,7 +1169,7 @@ func TestTheCardShowsOfAToolWhatItsBotShows(t *testing.T) {
 			t.Parallel()
 
 			w := newWorld(t)
-			w.setUp(orchestration.LarkChannelOwner)
+			w.setUp(channelstore.ChannelOwner)
 
 			bot, err := w.orch.GetBot(t.Context(), orchestration.DefaultBot)
 			require.NoError(t, err)
