@@ -181,10 +181,27 @@ case "$url" in
   *[!A-Za-z0-9.:/_-]*) fail "the control plane's address in the coordinator's login is not a plain URL" ;;
 esac
 
+# The documents environment (issue #401): the Python with the libraries of the document skills, built by
+# `hypomnema tool install` under the tools, which the box binds read-only. Its bin goes first on PATH, so `python`
+# there imports them and the Hermes pdf skill takes its first branch. The generation active.json selects is read
+# once, here: a rebuild selects a new generation and leaves this one, so a running pi keeps its files (Hermes's
+# side environments, pm/operations.py). Without one pi starts with the system's Python, as before.
+docs="$home/tools/envs/documents"
+docs_path=""
+generation=$(sed -n 's/^.*"generation": *"\([^"]*\)".*$/\1/p' "$docs/active.json" 2> /dev/null || true)
+case "$generation" in
+  gen-*[!0-9a-f]* | gen-) ;;
+  gen-*)
+    if [ -x "$docs/$generation/venv/bin/python" ]; then
+      docs_path="$docs/$generation/venv/bin:"
+    fi
+    ;;
+esac
+
 # The box. Its own PID, IPC and UTS namespaces, ended with the launcher (OpenMausBot's plan.ts options). Read-only:
 # the system (/usr, with merged /bin, /lib, /lib64 and /sbin, and /etc), the resolver Ubuntu's /etc/resolv.conf
-# links to, the CPU list Node reads, Node, pi, the integrations' tools and their guides, the skills every Bot gets
-# (~/.agents/skills), and this pi's prompt, models.json and settings.json. A private /tmp, /var/tmp, /proc and /dev, and an empty
+# links to, the CPU list Node reads, Node, pi, the integrations' tools and their guides, the documents environment
+# (under the tools), the skills every Bot gets (~/.agents/skills), and this pi's prompt, models.json and settings.json. A private /tmp, /var/tmp, /proc and /dev, and an empty
 # home, in which ~/.hypomnema/client.json holds pi's own token. pi's agent directory is private too: pi locks
 # auth.json and models-store.json there as it reads them (auth-storage.ts), so it cannot be read-only; the shared
 # instructions (AGENTS.md), the tools pi fetched (bin/) and this pi's models.json and settings.json are bound in
@@ -192,7 +209,7 @@ esac
 agent="$home/agent"
 exec env -i \
   HOME="$user_home" USER=coordinator LOGNAME=coordinator LANG=C.UTF-8 TERM=dumb \
-  PATH="$home/tools/bin:$node/bin:$home/pi/node_modules/.bin:/usr/local/bin:/usr/bin:/bin" \
+  PATH="$docs_path$home/tools/bin:$node/bin:$home/pi/node_modules/.bin:/usr/local/bin:/usr/bin:/bin" \
   PI_CODING_AGENT_DIR="$agent" HYPOMNEMA_CHAT_ID="$chat" HYPOMNEMA_BOT="$bot" HYPOMNEMA_TOOLS_HOME="$home" \
   "$bwrap" \
   --unshare-user --unshare-pid --unshare-ipc --unshare-uts --unshare-cgroup-try --die-with-parent \

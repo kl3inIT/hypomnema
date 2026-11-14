@@ -55,9 +55,12 @@ install -o root -g root -m 0755 "$src/hypomnema-routine" /usr/local/bin/hypomnem
 install -o root -g root -m 0755 "$src/hypomnema" /usr/local/bin/hypomnema
 install -o coordinator -g coordinator -m 0600 "$src/AGENTS.md" "$home/agent/AGENTS.md"
 
-echo "== tools of the integrations"
+echo "== tools of the integrations and the documents environment"
 # The pinned tools (gws for Google), checked against their checksums, and the scripts pi calls them by. Installed as
-# the coordinator, under its own home, so that pi can read them and nothing else of the machine changes.
+# the coordinator, under its own home, so that pi can read them and nothing else of the machine changes. With them
+# uv, pinned the same way, builds the documents environment of the document skills (issue #401) under the tools: a
+# uv-managed Python and the packages of its lock, so neither sudo nor the system's python3-venv is needed. A run
+# whose pins did not change builds nothing.
 sudo -u coordinator -H /usr/local/bin/hypomnema tool install --dir "$home"
 
 echo "== sudoers"

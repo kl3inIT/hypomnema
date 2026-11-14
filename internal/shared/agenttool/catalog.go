@@ -93,6 +93,40 @@ func Named(name string) (Def, bool) {
 	return Def{}, false
 }
 
+// UV is Astral's uv (github.com/astral-sh/uv, MIT or Apache-2.0), which
+// builds the documents environment the Bots' document skills run in (issue
+// #401) and is for no Integration. OpenClaw's installer specs install a
+// skill's Python dependencies with uv and a downloaded tool with its sha256
+// under its tools directory (docs/tools/skills.md, "Installer specs"), and
+// Hermes's package manager pins its uv by version and SHA-256 (pm/lock.json). It is installed beside the tools, not given to an
+// agent: no script calls it. Its pin also pins the Python it installs, since
+// uv checks each Python it downloads against the SHA-256 its own release
+// lists. The gnu builds are the ones uv's installer picks on a glibc system;
+// the checksums are the ones published beside each release file (.sha256),
+// read on 2026-11-14 and matched against the files.
+func UV() Def {
+	const (
+		version = "0.13.8"
+		release = "https://github.com/astral-sh/uv/releases/download/" + version + "/"
+	)
+
+	return Def{
+		Name: "uv", Version: version,
+		Releases: map[string]Release{
+			"linux/amd64": {
+				URL:    release + "uv-x86_64-unknown-linux-gnu.tar.gz",
+				SHA256: "5acfd9177cfecf0bf87578f059728215ccc884388988f55f7a65041b57387d91",
+				Binary: "uv-x86_64-unknown-linux-gnu/uv",
+			},
+			"linux/arm64": {
+				URL:    release + "uv-aarch64-unknown-linux-gnu.tar.gz",
+				SHA256: "74f2f5c6024d397481db228db8fc25eed420db192243f88438c118e7e013e585",
+				Binary: "uv-aarch64-unknown-linux-gnu/uv",
+			},
+		},
+	}
+}
+
 // GoogleWorkspaceCLI is the Google Workspace CLI (github.com/googleworkspace/cli,
 // Apache-2.0), which Hermes' google-workspace skill uses. It is one static
 // binary; it reads a ready access token from GOOGLE_WORKSPACE_CLI_TOKEN on
