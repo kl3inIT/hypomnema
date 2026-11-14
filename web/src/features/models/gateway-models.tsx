@@ -59,7 +59,7 @@ import {
   modelFormSchema,
   settingsOf,
   shortTokens,
-  tokenCount,
+  tokensHint,
   type ModelForm,
 } from "./gateway-models-state"
 import { gatewayModelsKey } from "./use-models"
@@ -158,6 +158,7 @@ const sourceNames: Record<GatewayModelSource, string> = {
   set: "Set on this model",
   models_dev: "From models.dev",
   codex: "From Codex's own list of models",
+  antigravity: "From CLIProxyAPI's list of Antigravity's models",
   unknown: "Not known",
 }
 
@@ -253,7 +254,6 @@ export function EditGatewayModel({ model }: { model: GatewayModel }) {
     }
   }
 
-  const devTokens = (v: number | undefined) => (v === undefined ? undefined : tokenCount(v))
   const devInput = inputName(a.input.models_dev)
   const devReasoning =
     a.reasoning.models_dev === undefined
@@ -305,18 +305,7 @@ export function EditGatewayModel({ model }: { model: GatewayModel }) {
                           label="context window"
                         />
                       }
-                      placeholder={
-                        devTokens(
-                          a.context_window.source === "codex"
-                            ? a.context_window.value
-                            : a.context_window.models_dev,
-                        ) ?? "128,000"
-                      }
-                      description={
-                        a.context_window.source === "codex"
-                          ? `From Codex's own list: ${devTokens(a.context_window.value)}; models.dev gives the API's ${devTokens(a.context_window.models_dev) ?? "–"}.`
-                          : fromModelsDev(devTokens(a.context_window.models_dev))
-                      }
+                      {...tokensHint(a.context_window, 128000)}
                     />
                   )}
                 </form.Field>
@@ -332,8 +321,7 @@ export function EditGatewayModel({ model }: { model: GatewayModel }) {
                           label="largest output"
                         />
                       }
-                      placeholder={devTokens(a.max_output.models_dev) ?? "16,384"}
-                      description={fromModelsDev(devTokens(a.max_output.models_dev))}
+                      {...tokensHint(a.max_output, 16384)}
                     />
                   )}
                 </form.Field>

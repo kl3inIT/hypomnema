@@ -38,8 +38,8 @@ func TestLookupFollowsTheAskedModelThenTheProvidersModel(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "claude-haiku-5-5", p.Model)
 
-	p, ok = prices.Lookup("claude_subscription", "sonnet", "claude-sonnet-5-5")
-	require.True(t, ok, "an alias the book does not know falls back to the provider's model")
+	p, ok = prices.Lookup("claude_subscription", "small", "claude-sonnet-5-5")
+	require.True(t, ok, "a name the book does not know falls back to the provider's model")
 	assert.Equal(t, "claude-sonnet-5-5", p.Model)
 
 	p, ok = prices.Lookup("codex_subscription", "gpt-6.1-sol")
@@ -71,4 +71,35 @@ func TestFindGivesWhatModelsDevSaysOfAModel(t *testing.T) {
 
 	_, ok = prices.Find("openai_compatible", "deepseek-v4")
 	assert.False(t, ok)
+}
+
+// Scenario: the Claude subscription is served Claude Code's short names
+// (issue #399). Each is priced and described as the newest model of its
+// family in the book, under Anthropic; the same name under a provider of
+// another maker is not Claude's.
+func TestAClaudeShortNameIsTheNewestOfItsFamily(t *testing.T) {
+	t.Parallel()
+
+	for family, want := range map[string]string{
+		"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5", "haiku": "claude-haiku-5-5", "fable": "claude-fable-5-2",
+	} {
+		got, ok := prices.ClaudeModel(family)
+		require.True(t, ok, family)
+		assert.Equal(t, want, got, family)
+
+		p, ok := prices.Lookup("claude_subscription", family, family)
+		require.True(t, ok, family)
+		assert.Equal(t, want, p.Model, family)
+
+		m, ok := prices.Find("anthropic", family)
+		require.True(t, ok, family)
+		assert.Equal(t, want, m.Model, family)
+	}
+
+	got, ok := prices.ClaudeModel("claude-opus-4-5")
+	assert.False(t, ok)
+	assert.Equal(t, "claude-opus-4-5", got, "a full id is itself")
+
+	_, ok = prices.Lookup("openai_compatible", "opus")
+	assert.False(t, ok, "opus of another provider is not Claude's")
 }

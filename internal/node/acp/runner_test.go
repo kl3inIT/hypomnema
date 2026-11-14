@@ -16,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kl3inIT/hypomnema/internal/node/bridge"
+	"github.com/kl3inIT/hypomnema/internal/node/runner"
 	"github.com/kl3inIT/hypomnema/internal/node/shim"
 	"github.com/kl3inIT/hypomnema/internal/node/statedb"
 	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
@@ -191,7 +192,7 @@ func emit(out *json.Encoder, v map[string]any) {
 	}
 }
 
-// reporter records what the runner reports.
+// reporter records what the Supervisor reports.
 type reporter struct {
 	mu       sync.Mutex
 	started  []string
@@ -262,7 +263,8 @@ func (r *reporter) wait(t *testing.T) {
 
 type rig struct {
 	t        *testing.T
-	runner   *Runner
+	sup      *runner.Supervisor
+	rt       *ACPRuntime
 	worktree string
 }
 
@@ -272,11 +274,14 @@ func newRig(t *testing.T, mode string) *rig {
 	exe, err := os.Executable()
 	require.NoError(t, err)
 
+	home := t.TempDir()
+
 	return &rig{
 		t: t, worktree: filepath.Join(t.TempDir(), "wt"),
-		runner: &Runner{
-			Home: t.TempDir(), Exe: exe, Paths: map[string]string{"omp": exe, "opencode": exe},
-			URL: "https://hypomnema.example/", Env: []string{"FAKE_ACP=" + mode}, Logger: slog.New(slog.DiscardHandler),
+		sup: &runner.Supervisor{Home: home, Exe: exe, Logger: slog.New(slog.DiscardHandler)},
+		rt: &ACPRuntime{
+			Home: home, Exe: exe, Paths: map[string]string{"omp": exe, "opencode": exe},
+			URL: "https://hypomnema.example/", Env: []string{"FAKE_ACP=" + mode},
 		},
 	}
 }
@@ -307,7 +312,7 @@ func (g *rig) run(runtime, session string) *reporter {
 	g.t.Helper()
 
 	r := newReporter()
-	require.NoError(g.t, g.runner.Start(g.t.Context(), g.dispatch(runtime, session), r))
+	require.NoError(g.t, g.sup.Start(g.t.Context(), g.rt, g.dispatch(runtime, session), r))
 	r.wait(g.t)
 
 	return r
@@ -332,11 +337,11 @@ func TestOmpThroughTheGateway(t *testing.T) {
 	assert.Equal(t, "added the button", f.Summary)
 	assert.Equal(t, &nodeproto.Usage{Input: 1200, Output: 300, CacheRead: 9000}, f.Usage)
 
-	format, err := os.ReadFile(filepath.Join(g.runner.Home, "run", "dsp_1", "format"))
+	format, err := os.ReadFile(filepath.Join(g.rt.Home, "run", "dsp_1", "format"))
 	require.NoError(t, err)
 	assert.Equal(t, "acp", string(format), "the journal says how it is to be read")
 
-	conversation := filepath.Join(g.runner.Home, "conversations", "cnv_1", "omp")
+	conversation := filepath.Join(g.rt.Home, "conversations", "cnv_1", "omp")
 	assert.Equal(t, "acp\n--model\nhypomnema/claude-sonnet\n--session-dir\n"+filepath.Join(conversation, "sessions")+
 		"\n--thinking\nhigh", g.file("argv.txt"))
 	assert.NotContains(t, g.file("argv.txt"), "hyp_gateway_v1_test")
@@ -377,7 +382,7 @@ func TestOpencodeThroughTheGateway(t *testing.T) {
 	assert.Empty(t, r.finished[0].Class)
 	assert.Equal(t, "acp", g.file("argv.txt"))
 
-	conversation := filepath.Join(g.runner.Home, "conversations", "cnv_1", "opencode")
+	conversation := filepath.Join(g.rt.Home, "conversations", "cnv_1", "opencode")
 	assert.Equal(t, filepath.Join(conversation, "opencode.json"), strings.Split(g.file("env.txt"), "\n")[2])
 
 	raw, err := os.ReadFile(filepath.Join(conversation, "opencode.json")) //nolint:gosec // the test's own directory
@@ -475,7 +480,7 @@ func TestHowAnACPTurnEnds(t *testing.T) {
 
 		g := newRig(t, "hang")
 		r := newReporter()
-		require.NoError(t, g.runner.Start(t.Context(), g.dispatch("omp", ""), r))
+		require.NoError(t, g.sup.Start(t.Context(), g.rt, g.dispatch("omp", ""), r))
 
 		require.Eventually(t, func() bool {
 			_, err := os.Stat(filepath.Join(g.worktree, "prompt.txt"))
@@ -483,7 +488,7 @@ func TestHowAnACPTurnEnds(t *testing.T) {
 			return err == nil
 		}, 10*time.Second, 20*time.Millisecond)
 
-		g.runner.Stop("dsp_1")
+		g.sup.Stop("dsp_1")
 		r.wait(t)
 		assert.Equal(t, 1, r.stopped)
 		assert.Contains(t, g.file("methods.txt"), "session/cancel")
@@ -496,7 +501,7 @@ func TestHowAnACPTurnEnds(t *testing.T) {
 		d := g.dispatch("omp", "")
 		d.Offer.ModelKey = ""
 
-		require.ErrorContains(t, g.runner.Start(t.Context(), d, newReporter()), "no key of the model gateway")
+		require.ErrorContains(t, g.sup.Start(t.Context(), g.rt, d, newReporter()), "no key of the model gateway")
 	})
 }
 
@@ -512,7 +517,7 @@ func TestOmpAndOpencodeFindTheirSkills(t *testing.T) {
 
 			g := newRig(t, "success")
 			digest := strings.Repeat("ef", 32)
-			kept := filepath.Join(g.runner.Home, "skills", digest)
+			kept := filepath.Join(g.rt.Home, "skills", digest)
 			require.NoError(t, os.MkdirAll(kept, 0o700))
 			require.NoError(t, os.WriteFile(filepath.Join(kept, "SKILL.md"), []byte("---\nname: pdf\n---\n"), 0o600))
 
@@ -520,10 +525,10 @@ func TestOmpAndOpencodeFindTheirSkills(t *testing.T) {
 			d.Offer.Skills = []nodeproto.Skill{{Name: "pdf", Revision: 1, Digest: digest}}
 
 			r := newReporter()
-			require.NoError(t, g.runner.Start(t.Context(), d, r))
+			require.NoError(t, g.sup.Start(t.Context(), g.rt, d, r))
 			r.wait(t)
 
-			conversation := filepath.Join(g.runner.Home, "conversations", "cnv_1", runtime)
+			conversation := filepath.Join(g.rt.Home, "conversations", "cnv_1", runtime)
 			where := map[string]string{
 				"omp": filepath.Join(conversation, "agent", "skills"), "opencode": filepath.Join(conversation, "skills"),
 			}[runtime]

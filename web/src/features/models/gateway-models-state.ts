@@ -5,6 +5,8 @@ import type {
   GatewayModelEffort,
   GatewayModelInputKind,
   GatewayModelSettings,
+  GatewayModelSource,
+  GatewayModelTokens,
 } from "@/api/generated/types.gen"
 
 // What the edit form of a gateway model holds (issue #367): each attribute the model's YAML sets, as text; an
@@ -120,4 +122,30 @@ export function inputName(input: GatewayModelInputKind[] | undefined) {
 // fromModelsDev is a hint of what an empty field takes: models.dev's value, or that none is known.
 export function fromModelsDev(value: string | undefined) {
   return value === undefined ? "Not known: the client's own default" : `From models.dev: ${value}`
+}
+
+// ownLists name where a subscription's own number of tokens comes from, before models.dev's: Codex's list for a
+// Codex model's window (issue #367), CLIProxyAPI's for an Antigravity model's window and largest output (#399).
+const ownLists: Partial<Record<GatewayModelSource, string>> = {
+  codex: "Codex's own list",
+  antigravity: "CLIProxyAPI's list of Antigravity's models",
+}
+
+// tokensHint is what an empty number-of-tokens field shows it takes: the subscription's own value, with
+// models.dev's beside it, or models.dev's; the client's default when neither is known.
+export function tokensHint(tokens: GatewayModelTokens, clientDefault: number) {
+  const count = (v: number | undefined) => (v === undefined ? undefined : tokenCount(v))
+  const list = ownLists[tokens.source]
+
+  if (list !== undefined) {
+    return {
+      placeholder: count(tokens.value) ?? tokenCount(clientDefault),
+      description: `From ${list}: ${count(tokens.value)}; models.dev gives the API's ${count(tokens.models_dev) ?? "–"}.`,
+    }
+  }
+
+  return {
+    placeholder: count(tokens.models_dev) ?? tokenCount(clientDefault),
+    description: fromModelsDev(count(tokens.models_dev)),
+  }
 }

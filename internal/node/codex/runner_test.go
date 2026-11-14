@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kl3inIT/hypomnema/internal/node/bridge"
+	"github.com/kl3inIT/hypomnema/internal/node/runner"
 	"github.com/kl3inIT/hypomnema/internal/node/shim"
 	"github.com/kl3inIT/hypomnema/internal/node/statedb"
 	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
@@ -115,7 +116,7 @@ func bridgeDir() string {
 	return ""
 }
 
-// reporter records what the runner reports.
+// reporter records what the Supervisor reports.
 type reporter struct {
 	mu       sync.Mutex
 	started  []string
@@ -186,7 +187,8 @@ func (r *reporter) wait(t *testing.T) {
 
 type rig struct {
 	t        *testing.T
-	runner   *Runner
+	sup      *runner.Supervisor
+	rt       *CodexRuntime
 	worktree string
 }
 
@@ -196,11 +198,13 @@ func newRig(t *testing.T, mode string) *rig {
 	exe, err := os.Executable()
 	require.NoError(t, err)
 
+	home := t.TempDir()
+
 	return &rig{
 		t: t, worktree: filepath.Join(t.TempDir(), "wt"),
-		runner: &Runner{
-			Home: t.TempDir(), Exe: exe, Codex: exe, URL: "https://hypomnema.example/",
-			Env: []string{"FAKE_CODEX=" + mode}, Logger: slog.New(slog.DiscardHandler),
+		sup: &runner.Supervisor{Home: home, Exe: exe, Logger: slog.New(slog.DiscardHandler)},
+		rt: &CodexRuntime{
+			Home: home, Exe: exe, Codex: exe, URL: "https://hypomnema.example/", Env: []string{"FAKE_CODEX=" + mode},
 		},
 	}
 }
@@ -237,7 +241,7 @@ func TestACodexWorkerRunsThroughTheGateway(t *testing.T) {
 
 	g := newRig(t, "success")
 	r := newReporter()
-	require.NoError(t, g.runner.Start(t.Context(), g.dispatch(""), r))
+	require.NoError(t, g.sup.Start(t.Context(), g.rt, g.dispatch(""), r))
 	r.wait(t)
 
 	assert.Equal(t, []string{"shim 0199-thread"}, r.started)
@@ -249,7 +253,7 @@ func TestACodexWorkerRunsThroughTheGateway(t *testing.T) {
 	assert.Equal(t, []nodeproto.Evidence{{Kind: "pull_request", Ref: "kl3inIT/second-bite#7"}}, f.Evidence)
 	assert.Equal(t, &nodeproto.Usage{Input: 1200, Output: 300, CacheRead: 9000}, f.Usage)
 
-	format, err := os.ReadFile(filepath.Join(g.runner.Home, "run", "dsp_1", "format"))
+	format, err := os.ReadFile(filepath.Join(g.rt.Home, "run", "dsp_1", "format"))
 	require.NoError(t, err)
 	assert.Equal(t, "codex", string(format), "the journal says how it is to be read")
 
@@ -274,7 +278,7 @@ func TestACodexWorkerRunsThroughTheGateway(t *testing.T) {
 
 	env := strings.Split(g.file("env.txt"), "\n")
 	assert.Equal(t, "hyp_gateway_v1_test", env[0])
-	assert.Equal(t, filepath.Join(g.runner.Home, "conversations", "cnv_1", "codex"), env[1])
+	assert.Equal(t, filepath.Join(g.rt.Home, "conversations", "cnv_1", "codex"), env[1])
 
 	assert.Contains(t, g.file("prompt.txt"), "add the Google login button")
 	assert.Contains(t, g.file("prompt.txt"), "call the `finish` tool exactly once")
@@ -287,7 +291,7 @@ func TestAFollowUpResumesTheThread(t *testing.T) {
 
 	g := newRig(t, "success")
 	r := newReporter()
-	require.NoError(t, g.runner.Start(t.Context(), g.dispatch("0199-thread"), r))
+	require.NoError(t, g.sup.Start(t.Context(), g.rt, g.dispatch("0199-thread"), r))
 	r.wait(t)
 
 	assert.Contains(t, g.file("argv.txt"), "\nresume\n0199-thread\n-")
@@ -310,7 +314,7 @@ func TestHowACodexTurnEnds(t *testing.T) {
 
 			g := newRig(t, mode)
 			r := newReporter()
-			require.NoError(t, g.runner.Start(t.Context(), g.dispatch(""), r))
+			require.NoError(t, g.sup.Start(t.Context(), g.rt, g.dispatch(""), r))
 			r.wait(t)
 
 			require.Len(t, r.finished, 1)
@@ -327,7 +331,7 @@ func TestHowACodexTurnEnds(t *testing.T) {
 
 		g := newRig(t, "hang")
 		r := newReporter()
-		require.NoError(t, g.runner.Start(t.Context(), g.dispatch(""), r))
+		require.NoError(t, g.sup.Start(t.Context(), g.rt, g.dispatch(""), r))
 
 		require.Eventually(t, func() bool {
 			r.mu.Lock()
@@ -336,7 +340,7 @@ func TestHowACodexTurnEnds(t *testing.T) {
 			return len(r.started) == 1
 		}, 10*time.Second, 20*time.Millisecond)
 
-		g.runner.Stop("dsp_1")
+		g.sup.Stop("dsp_1")
 		r.wait(t)
 		assert.Equal(t, 1, r.stopped)
 	})
@@ -348,7 +352,7 @@ func TestHowACodexTurnEnds(t *testing.T) {
 		d := g.dispatch("")
 		d.Offer.ModelKey = ""
 
-		err := g.runner.Start(t.Context(), d, newReporter())
+		err := g.sup.Start(t.Context(), g.rt, d, newReporter())
 		require.ErrorContains(t, err, "no key of the model gateway")
 	})
 }
@@ -361,11 +365,11 @@ func TestCodexFindsTheSkillsOfItsDispatch(t *testing.T) {
 
 	g := newRig(t, "success")
 	digest := strings.Repeat("cd", 32)
-	kept := filepath.Join(g.runner.Home, "skills", digest)
+	kept := filepath.Join(g.rt.Home, "skills", digest)
 	require.NoError(t, os.MkdirAll(kept, 0o700))
 	require.NoError(t, os.WriteFile(filepath.Join(kept, "SKILL.md"), []byte("---\nname: pdf\n---\n"), 0o600))
 
-	skillsDir := filepath.Join(g.runner.Home, "conversations", "cnv_1", "codex", "skills")
+	skillsDir := filepath.Join(g.rt.Home, "conversations", "cnv_1", "codex", "skills")
 	require.NoError(t, os.MkdirAll(filepath.Join(skillsDir, "review-go"), 0o700))
 	require.NoError(t, os.MkdirAll(filepath.Join(skillsDir, ".system"), 0o700))
 
@@ -373,7 +377,7 @@ func TestCodexFindsTheSkillsOfItsDispatch(t *testing.T) {
 	d.Offer.Skills = []nodeproto.Skill{{Name: "pdf", Revision: 1, Digest: digest}}
 
 	r := newReporter()
-	require.NoError(t, g.runner.Start(t.Context(), d, r))
+	require.NoError(t, g.sup.Start(t.Context(), g.rt, d, r))
 	r.wait(t)
 
 	entries, err := os.ReadDir(skillsDir)

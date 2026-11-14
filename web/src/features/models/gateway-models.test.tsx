@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest"
 import type { GatewayModel } from "@/api/generated/types.gen"
 
 import { EditGatewayModel } from "./gateway-models"
-import { formOf, settingsOf, shortTokens } from "./gateway-models-state"
+import { formOf, settingsOf, shortTokens, tokensHint } from "./gateway-models-state"
 
 afterEach(() => vi.restoreAllMocks())
 
@@ -57,6 +57,29 @@ describe("a gateway model's form", () => {
       input: ["text"],
       reasoning: false,
       efforts: ["low", "medium", "high"],
+    })
+  })
+
+  // Scenario: an Antigravity model's window is the subscription's, from CLIProxyAPI's list, as a Codex model's
+  // is Codex's (issue #399); the field shows it with models.dev's beside it. One nobody knows is the client's.
+  it("shows a subscription's own window before models.dev's", () => {
+    expect(
+      tokensHint({ value: 200000, source: "antigravity", models_dev: 1000000 }, 128000),
+    ).toEqual({
+      placeholder: "200,000",
+      description:
+        "From CLIProxyAPI's list of Antigravity's models: 200,000; models.dev gives the API's 1,000,000.",
+    })
+    expect(tokensHint({ value: 272000, source: "codex" }, 128000).description).toBe(
+      "From Codex's own list: 272,000; models.dev gives the API's –.",
+    )
+    expect(tokensHint({ value: 64000, source: "models_dev", models_dev: 64000 }, 16384)).toEqual({
+      placeholder: "64,000",
+      description: "From models.dev: 64,000",
+    })
+    expect(tokensHint({ source: "unknown" }, 16384)).toEqual({
+      placeholder: "16,384",
+      description: "Not known: the client's own default",
     })
   })
 
