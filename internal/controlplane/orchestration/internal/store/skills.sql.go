@@ -355,7 +355,8 @@ func (q *Queries) ListSkills(ctx context.Context) ([]ListSkillsRow, error) {
 
 const profilesNamingSkill = `-- name: ProfilesNamingSkill :many
 SELECT p.name FROM profiles p JOIN profile_versions v ON v.id = p.current_version_id
-WHERE ',' || v.skills || ',' LIKE '%,' || ?1 || ',%' OR ',' || v.skills_off || ',' LIKE '%,' || ?1 || ',%'
+WHERE p.deleted_at IS NULL
+  AND (',' || v.skills || ',' LIKE '%,' || ?1 || ',%' OR ',' || v.skills_off || ',' LIKE '%,' || ?1 || ',%')
 ORDER BY p.name
 `
 

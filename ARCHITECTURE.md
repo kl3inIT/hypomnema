@@ -678,8 +678,8 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     account" with an empty one. In a chat, each setup change has a card where it was made ("Made Bot researcher", its state,
     Open · Undo), the Routines' "Set up" card's shape (`web/src/features/bots/setup-change-card.tsx`).
   - Not built: MCP servers, pi extensions and a Bot's own skills (issue #169 says these need reading first), a
-    per-Bot switch for the right to manage Bots, rules of what a new Bot inherits, removing a profile (not an
-    operation for the owner either), a Bot on another CLI than pi; a network namespace, an egress gate, and a Unix
+    per-Bot switch for the right to manage Bots, rules of what a new Bot inherits, the Bot coordinator deleting a
+    profile (only the owner does, below), a Bot on another CLI than pi; a network namespace, an egress gate, and a Unix
     user or a container per Bot (issue #260).
 - Skills (`orchestration/skills.go`, issue #21, [research](docs/research/2026-11-12-skills.md)): a skill the owner
   adds, in the Agent Skills format (a folder with a `SKILL.md` whose frontmatter has `name` and `description`, and
@@ -874,6 +874,16 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   kind that runtime can use offers (found from the model when the provider is not named). A provider change that
   would leave a profile's model or runtime unserved is refused. A Task names a profile, `implementer` by default.
   The owner applies a profile, and the Bot `coordinator` from its chat (Bots, above); a provider only the owner.
+  Only the owner deletes a profile (issue #485; `DELETE /profiles/{name}`, `hypomnema profiles rm`, the Delete
+  section at the bottom of an agent's page, as the Bot page's Removal). One no Task named and no Dispatch ran goes
+  with its versions, as Omnigent removes an agent no session uses; one used before is marked deleted
+  (`profiles.deleted_at`, migration 00083), as Coder marks a template and Onyx a persona: it is left out of the
+  lists, reads as not found ("was deleted"), and no new Task, backup or Bot's workers list may name it, while its
+  versions stay for the Dispatches that ran them. Applying its name again brings it back as a new version, even
+  from the same source (Onyx's `mark_persona_as_not_deleted`). `implementer` is never deleted, and a profile is
+  not while a Task that names it has not ended (a failed one of an open Run counts, being reopenable), another
+  profile names it as a backup, or a Bot's workers list names it. Its agent memory is kept either way and
+  belongs to the next profile of the name.
   A provider of kind `model_gateway` is the control plane's own model gateway (issue #107): `codex` can run against
   it, and a Task under it needs no account on a node. Its Conversation names `gateway` where an account's id would
   be, and a rate limit cools no account down: the gateway looks after its own accounts. `claude` runs only against

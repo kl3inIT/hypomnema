@@ -2479,9 +2479,10 @@ paths:
       operationId: ApplyProfile
       summary: Store a profile's YAML; the owner, or the Bot coordinator from its chat
       description: >-
-        A changed source makes a new version. A new version by the Bot
-        coordinator is recorded in its chat as a setup change the owner can
-        undo.
+        A changed source makes a new version; the name of a deleted profile
+        brings it back as a new version, even from the same source. A new
+        version by the Bot coordinator is recorded in its chat as a setup
+        change the owner can undo.
       requestBody:
         required: true
         content:
@@ -2498,6 +2499,20 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Profile" }
+        default: { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: DeleteProfile
+      summary: Delete a profile; only the owner
+      description: >-
+        A profile no Task and no Dispatch ever used goes with its versions. One
+        used before is marked deleted: it is hidden from the lists, reads as
+        not found and no new Task names it, while its versions stay for the
+        Dispatches that ran them; applying its name again brings it back as a
+        new version. Refused for `implementer`, and while an unfinished Task
+        names the profile, another profile names it as a backup, or a Bot's
+        workers list names it.
+      responses:
+        "204": { description: The profile is deleted. }
         default: { $ref: "#/components/responses/Error" }
   /profiles/{name}/versions:
     parameters:

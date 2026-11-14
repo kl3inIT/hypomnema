@@ -10,6 +10,46 @@ import (
 	"database/sql"
 )
 
+const botsNamingWorker = `-- name: BotsNamingWorker :many
+SELECT name FROM bots WHERE workers IS NOT NULL AND ',' || workers || ',' LIKE '%,' || ?1 || ',%' ORDER BY name
+`
+
+// The Bots whose workers list names a profile.
+func (q *Queries) BotsNamingWorker(ctx context.Context, profile sql.NullString) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, botsNamingWorker, profile)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		items = append(items, name)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const countDispatchesOfProfile = `-- name: CountDispatchesOfProfile :one
+SELECT count(*) FROM dispatches d JOIN profile_versions v ON v.id = d.profile_version_id WHERE v.profile = ?1
+`
+
+// The Dispatches that ran any version of a profile.
+func (q *Queries) CountDispatchesOfProfile(ctx context.Context, profile string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countDispatchesOfProfile, profile)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const countDispatchesOfProfileVersion = `-- name: CountDispatchesOfProfileVersion :one
 SELECT count(*) FROM dispatches WHERE profile_version_id = ?1
 `
@@ -23,10 +63,10 @@ func (q *Queries) CountDispatchesOfProfileVersion(ctx context.Context, versionID
 
 const countFallbacksNaming = `-- name: CountFallbacksNaming :one
 SELECT count(*) FROM profiles p JOIN profile_versions v ON v.id = p.current_version_id
-WHERE p.name <> ?1 AND (',' || v.fallbacks || ',') LIKE ('%,' || ?1 || ',%')
+WHERE p.name <> ?1 AND p.deleted_at IS NULL AND (',' || v.fallbacks || ',') LIKE ('%,' || ?1 || ',%')
 `
 
-// The profiles whose current version names a profile among its backups.
+// The profiles, not deleted, whose current version names a profile among its backups.
 func (q *Queries) CountFallbacksNaming(ctx context.Context, profile string) (int64, error) {
 	row := q.db.QueryRowContext(ctx, countFallbacksNaming, profile)
 	var count int64
@@ -50,10 +90,26 @@ func (q *Queries) CountTasksOfProfileSince(ctx context.Context, arg CountTasksOf
 	return count, err
 }
 
-const currentProfileVersion = `-- name: CurrentProfileVersion :one
-SELECT v.id, v.profile, v.version, v.source, v.digest, v.runtime, v.provider, v.model, v.effort, v.instruction, v.created_at, v.description, v.fallbacks, v.skills, v.skills_off FROM profiles p JOIN profile_versions v ON v.id = p.current_version_id WHERE p.name = ?1
+const countUnfinishedTasksOfProfile = `-- name: CountUnfinishedTasksOfProfile :one
+SELECT count(*) FROM tasks t JOIN runs r ON r.id = t.run_id
+WHERE t.profile = ?1
+  AND (t.status NOT IN ('succeeded', 'failed', 'canceled') OR (t.status = 'failed' AND r.status = 'open'))
 `
 
+// The Tasks that name a profile and have not ended, a failed one of an open Run included: the owner may reopen it.
+func (q *Queries) CountUnfinishedTasksOfProfile(ctx context.Context, profile string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countUnfinishedTasksOfProfile, profile)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const currentProfileVersion = `-- name: CurrentProfileVersion :one
+SELECT v.id, v.profile, v.version, v.source, v.digest, v.runtime, v.provider, v.model, v.effort, v.instruction, v.created_at, v.description, v.fallbacks, v.skills, v.skills_off FROM profiles p JOIN profile_versions v ON v.id = p.current_version_id
+WHERE p.name = ?1 AND p.deleted_at IS NULL
+`
+
+// The current version of a profile that is not deleted.
 func (q *Queries) CurrentProfileVersion(ctx context.Context, name string) (ProfileVersion, error) {
 	row := q.db.QueryRowContext(ctx, currentProfileVersion, name)
 	var i ProfileVersion
@@ -105,9 +161,10 @@ func (q *Queries) DeleteProfileVersions(ctx context.Context, profile string) err
 }
 
 const getProfile = `-- name: GetProfile :one
-SELECT name, current_version_id, created_at, updated_at FROM profiles WHERE name = ?1
+SELECT name, current_version_id, created_at, updated_at, deleted_at FROM profiles WHERE name = ?1 AND deleted_at IS NULL
 `
 
+// A profile that is not deleted.
 func (q *Queries) GetProfile(ctx context.Context, name string) (Profile, error) {
 	row := q.db.QueryRowContext(ctx, getProfile, name)
 	var i Profile
@@ -116,6 +173,24 @@ func (q *Queries) GetProfile(ctx context.Context, name string) (Profile, error) 
 		&i.CurrentVersionID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.DeletedAt,
+	)
+	return i, err
+}
+
+const getProfileEvenDeleted = `-- name: GetProfileEvenDeleted :one
+SELECT name, current_version_id, created_at, updated_at, deleted_at FROM profiles WHERE name = ?1
+`
+
+func (q *Queries) GetProfileEvenDeleted(ctx context.Context, name string) (Profile, error) {
+	row := q.db.QueryRowContext(ctx, getProfileEvenDeleted, name)
+	var i Profile
+	err := row.Scan(
+		&i.Name,
+		&i.CurrentVersionID,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.DeletedAt,
 	)
 	return i, err
 }
@@ -242,7 +317,8 @@ func (q *Queries) InsertProfileVersion(ctx context.Context, arg InsertProfileVer
 }
 
 const listCurrentProfileVersions = `-- name: ListCurrentProfileVersions :many
-SELECT v.id, v.profile, v.version, v.source, v.digest, v.runtime, v.provider, v.model, v.effort, v.instruction, v.created_at, v.description, v.fallbacks, v.skills, v.skills_off FROM profiles p JOIN profile_versions v ON v.id = p.current_version_id ORDER BY p.name
+SELECT v.id, v.profile, v.version, v.source, v.digest, v.runtime, v.provider, v.model, v.effort, v.instruction, v.created_at, v.description, v.fallbacks, v.skills, v.skills_off FROM profiles p JOIN profile_versions v ON v.id = p.current_version_id
+WHERE p.deleted_at IS NULL ORDER BY p.name
 `
 
 func (q *Queries) ListCurrentProfileVersions(ctx context.Context) ([]ProfileVersion, error) {
@@ -423,6 +499,20 @@ func (q *Queries) ListProviders(ctx context.Context) ([]Provider, error) {
 	return items, nil
 }
 
+const markProfileDeleted = `-- name: MarkProfileDeleted :exec
+UPDATE profiles SET updated_at = ?1, deleted_at = ?1 WHERE name = ?2
+`
+
+type MarkProfileDeletedParams struct {
+	Now  int64
+	Name string
+}
+
+func (q *Queries) MarkProfileDeleted(ctx context.Context, arg MarkProfileDeletedParams) error {
+	_, err := q.db.ExecContext(ctx, markProfileDeleted, arg.Now, arg.Name)
+	return err
+}
+
 const modelsNamed = `-- name: ModelsNamed :many
 SELECT m.provider, m.name, p.kind FROM models m JOIN providers p ON p.name = m.provider
 WHERE m.name = ?1 ORDER BY m.provider
@@ -458,7 +548,7 @@ func (q *Queries) ModelsNamed(ctx context.Context, name string) ([]ModelsNamedRo
 }
 
 const setProfileVersion = `-- name: SetProfileVersion :exec
-UPDATE profiles SET current_version_id = ?1, updated_at = ?2 WHERE name = ?3
+UPDATE profiles SET current_version_id = ?1, deleted_at = NULL, updated_at = ?2 WHERE name = ?3
 `
 
 type SetProfileVersionParams struct {
@@ -467,6 +557,7 @@ type SetProfileVersionParams struct {
 	Name      string
 }
 
+// A new version of a deleted profile brings it back (issue #485).
 func (q *Queries) SetProfileVersion(ctx context.Context, arg SetProfileVersionParams) error {
 	_, err := q.db.ExecContext(ctx, setProfileVersion, arg.VersionID, arg.Now, arg.Name)
 	return err
