@@ -670,11 +670,6 @@ var commands = []command{
 		summary: "switch an image provider on or off (owner)", flags: jsonFlag, run: imageProvidersSet,
 	},
 	{
-		name: "image providers model", args: "<provider> <model>|default", min: 2, max: 2,
-		summary: "the model an image provider makes images with when a request names none (owner)",
-		flags:   jsonFlag, run: imageProvidersModel,
-	},
-	{
 		name: "image order", args: "<provider> <provider>", min: 2, max: 2,
 		summary: "the order a request asks the image providers in, each named once (owner)",
 		flags:   jsonFlag, run: imageOrder,
