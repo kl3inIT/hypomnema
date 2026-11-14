@@ -65,7 +65,7 @@ import {
 import { Switch } from "@/components/ui/switch"
 import { ModelMark, ProviderMark } from "@/features/agents/model-mark"
 import { Meter } from "@/features/machines/machine-cells"
-import { ConfirmDialog, ErrorAlert } from "@/features/settings/settings-parts"
+import { ConfirmDialog, ErrorAlert, SettingsSection } from "@/features/settings/settings-parts"
 import { SettingsPage } from "@/features/settings/settings-shell"
 import { said } from "@/features/settings/use-integrations"
 import { modelName } from "@/lib/model-name"
@@ -117,7 +117,7 @@ export function ModelsScreen() {
         <p className="py-10 text-center text-sm text-muted-foreground">Loading…</p>
       ) : (
         <>
-          <Section
+          <SettingsSection
             id="subscriptions"
             icon={Users}
             title="Subscriptions"
@@ -130,21 +130,21 @@ export function ModelsScreen() {
                 <SubscriptionCard key={subscription.provider.name} subscription={subscription} />
               ))
             )}
-          </Section>
+          </SettingsSection>
 
           {(gatewayModels.data?.length ?? 0) > 0 && (
-            <Section
+            <SettingsSection
               id="gateway-models"
               icon={Box}
               title="Gateway models"
               note="What the gateway serves and what clients such as pi are told of each: from models.dev unless the model sets its own."
             >
               <GatewayModels models={gatewayModels.data ?? []} />
-            </Section>
+            </SettingsSection>
           )}
 
           {apis.length > 0 && (
-            <Section
+            <SettingsSection
               id="api-providers"
               icon={Plug}
               title="API providers"
@@ -153,38 +153,11 @@ export function ModelsScreen() {
               {apis.map((provider) => (
                 <ApiProviderCard key={provider.name} provider={provider} />
               ))}
-            </Section>
+            </SettingsSection>
           )}
         </>
       )}
     </SettingsPage>
-  )
-}
-
-function Section({
-  id,
-  icon: Icon,
-  title,
-  note,
-  children,
-}: {
-  id: string
-  icon: LucideIcon
-  title: string
-  note: string
-  children: ReactNode
-}) {
-  return (
-    <section aria-labelledby={id} className="flex flex-col gap-3">
-      <div className="flex flex-col gap-1">
-        <h2 id={id} className="flex items-center gap-2 text-sm font-semibold text-foreground">
-          <Icon className="size-4 text-muted-foreground" aria-hidden />
-          {title}
-        </h2>
-        <p className="text-xs text-muted-foreground">{note}</p>
-      </div>
-      {children}
-    </section>
   )
 }
 

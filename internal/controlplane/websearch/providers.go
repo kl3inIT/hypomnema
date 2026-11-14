@@ -276,8 +276,8 @@ func (s *Service) askParallel(ctx context.Context, _ route, query string, _ int)
 // (buildSearxngRequest, normalizeSearxngResponse): its address with /search,
 // format=json, the general category; it has no count, so its first results
 // are kept.
-func (s *Service) askSearXNG(ctx context.Context, _ route, query string, _ int) ([]Result, error) {
-	address := s.cfg.SearXNGURL
+func (s *Service) askSearXNG(ctx context.Context, r route, query string, _ int) ([]Result, error) {
+	address := r.address
 	if !strings.HasSuffix(address, "/search") {
 		address += "/search"
 	}

@@ -150,11 +150,11 @@ type Config struct {
 	// ExaKey gives Exa's API key, read at each search so that a key the owner
 	// adds is used at once; it answers "" when there is none. nil: no key.
 	ExaKey func(ctx context.Context) (string, error)
-	// SearXNGURL is the owner's SearXNG; empty: SearXNG is not asked.
-	SearXNGURL string
-	// Off are the subscription providers the owner turned off: they are
-	// neither tried nor may be named.
-	Off []string
+	// Settings gives what the owner set on the Web search page (issue #354):
+	// the providers switched off and SearXNG's address. It is read at each
+	// search, as ExaKey is, so that a change counts at once. nil: every
+	// provider is on and no SearXNG is set.
+	Settings func(ctx context.Context) (Settings, error)
 	// Rules decide which addresses a page may be read from: the shared
 	// browser's, so that what an agent reads through this package is what it
 	// may open in the browser.
@@ -216,8 +216,6 @@ func New(cfg Config) *Service {
 		cfg.JinaURL = jinaURL
 	}
 
-	cfg.SearXNGURL = strings.TrimRight(cfg.SearXNGURL, "/")
-
 	if cfg.Logger == nil {
 		cfg.Logger = slog.New(slog.DiscardHandler)
 	}
@@ -242,15 +240,22 @@ func (s *Service) Search(ctx context.Context, query string, limit int, provider 
 	query = strings.TrimSpace(query)
 	provider = strings.ToLower(strings.TrimSpace(provider))
 
+	set, err := s.settings(ctx)
+	if err != nil {
+		return Answer{}, err
+	}
+
 	switch {
 	case query == "":
 		return Answer{}, fmt.Errorf("%w: a search needs a query", ErrInvalid)
 	case provider != "" && !validProvider(provider):
 		return Answer{}, fmt.Errorf("%w: the provider is one of %s", ErrInvalid, strings.Join(Providers(), ", "))
-	case provider == ProviderSearXNG && s.cfg.SearXNGURL == "":
-		return Answer{}, fmt.Errorf("%w: no SearXNG is set on this control plane", ErrInvalid)
-	case slices.Contains(SubscriptionProviders(), provider) && !s.subscriptionOn(provider):
+	case slices.Contains(set.Off, provider):
 		return Answer{}, fmt.Errorf("%w: %s's search is turned off on this control plane", ErrInvalid, provider)
+	case provider == ProviderSearXNG && set.SearXNGURL == "":
+		return Answer{}, fmt.Errorf("%w: no SearXNG is set on this control plane", ErrInvalid)
+	case slices.Contains(SubscriptionProviders(), provider) && s.subs == nil:
+		return Answer{}, fmt.Errorf("%w: this control plane searches with no subscription", ErrInvalid)
 	}
 
 	if limit <= 0 {
@@ -258,7 +263,8 @@ func (s *Service) Search(ctx context.Context, query string, limit int, provider 
 	}
 
 	limit = min(limit, MaxResults)
-	key := cacheKey(query, provider, limit)
+	// A setting the owner changes makes another search: an answer kept from before is not given for it.
+	key := cacheKey(query, provider, limit, set)
 
 	if a, ok := s.cached(key); ok {
 		a.Cached = true
@@ -276,7 +282,7 @@ func (s *Service) Search(ctx context.Context, query string, limit int, provider 
 		run, cancel := context.WithTimeout(context.WithoutCancel(ctx), searchBudget)
 		defer cancel()
 
-		a, err := s.search(run, query, limit, provider)
+		a, err := s.search(run, query, limit, provider, set)
 		if err == nil {
 			s.keep(key, a)
 		}
@@ -302,9 +308,26 @@ func (s *Service) Search(ctx context.Context, query string, limit int, provider 
 
 func validProvider(name string) bool { return slices.Contains(Providers(), name) }
 
+// settings reads what the owner set.
+func (s *Service) settings(ctx context.Context) (Settings, error) {
+	if s.cfg.Settings == nil {
+		return Settings{}, nil
+	}
+
+	set, err := s.cfg.Settings(ctx)
+	if err != nil {
+		return Settings{}, fmt.Errorf("reading the web search settings: %w", err)
+	}
+
+	set.SearXNGURL = strings.TrimRight(set.SearXNGURL, "/")
+
+	return set, nil
+}
+
 // search asks each provider the call may use in turn until one answers.
-func (s *Service) search(ctx context.Context, query string, limit int, provider string) (Answer, error) {
-	routes, failures := s.routes(ctx, provider)
+func (s *Service) search(ctx context.Context, query string, limit int, provider string, set Settings,
+) (Answer, error) {
+	routes, failures := s.routes(ctx, provider, set)
 
 	var (
 		tried     bool
@@ -388,6 +411,10 @@ type route struct {
 	// id names the route for its rest.
 	id       string
 	provider string
+	// source says where its search comes from.
+	source string
+	// address is SearXNG's.
+	address string
 	// label says which way, in a failure's reason.
 	label string
 	key   string
@@ -396,60 +423,92 @@ type route struct {
 	ask     func(s *Service, ctx context.Context, r route, query string, limit int) ([]Result, error)
 }
 
+// chain is every way of asking, in the order a call that names no provider
+// tries them: Exa with its key, SearXNG, Exa without a key, Parallel, then
+// the subscriptions (OmniRoute's autoSearchCandidates).
+func chain(key, searxng string) []route {
+	out := []route{
+		{id: "exa", provider: ProviderExa, source: SourceKey, label: "with its key: ", key: key, ask: (*Service).askExa},
+		{
+			id: "searxng", provider: ProviderSearXNG, source: SourceSelfHosted, address: searxng,
+			ask: (*Service).askSearXNG,
+		},
+		{id: "exa-mcp", provider: ProviderExa, source: SourcePublic, label: "public MCP: ", ask: (*Service).askExaMCP},
+		{
+			id: "parallel-mcp", provider: ProviderParallel, source: SourcePublic, label: "public MCP: ",
+			ask: (*Service).askParallel,
+		},
+	}
+
+	for _, p := range SubscriptionProviders() {
+		out = append(out, subscriptionRoute(p))
+	}
+
+	return out
+}
+
+// usable reports whether a route can be asked at all: Exa's key is there,
+// SearXNG's address is set, the control plane has subscriptions. Whether a
+// subscription has an account is known only when it is asked.
+func (s *Service) usable(r route) bool {
+	switch r.source {
+	case SourceKey:
+		return r.key != ""
+	case SourceSelfHosted:
+		return r.address != ""
+	case SourceSubscription:
+		return s.subs != nil
+	default:
+		return true
+	}
+}
+
+// exaKey reads Exa's key for a call that may ask Exa.
+func (s *Service) exaKey(ctx context.Context) (string, error) {
+	if s.cfg.ExaKey == nil {
+		return "", nil
+	}
+
+	key, err := s.cfg.ExaKey(ctx)
+	if err != nil {
+		s.cfg.Logger.ErrorContext(ctx, "reading Exa's key",
+			slog.String("event", "websearch.exa_key_failed"), slog.String("error", err.Error()))
+
+		return "", err
+	}
+
+	return key, nil
+}
+
 // routes are the ways a call may ask, in the order they are tried, and the
 // failures of those that could not even be set up.
-func (s *Service) routes(ctx context.Context, provider string) ([]route, []Failure) {
+func (s *Service) routes(ctx context.Context, provider string, set Settings) ([]route, []Failure) {
 	var failures []Failure
 
 	key := ""
 
-	if s.cfg.ExaKey != nil && (provider == "" || provider == ProviderExa) {
-		k, err := s.cfg.ExaKey(ctx)
+	if provider == "" || provider == ProviderExa {
+		k, err := s.exaKey(ctx)
 		if err != nil {
 			failures = append(failures, Failure{Provider: ProviderExa, Reason: "its key could not be read"})
-			s.cfg.Logger.ErrorContext(ctx, "reading Exa's key",
-				slog.String("event", "websearch.exa_key_failed"), slog.String("error", err.Error()))
 		}
 
 		key = k
 	}
 
-	keyed := route{id: "exa", provider: ProviderExa, label: "with its key: ", key: key, ask: (*Service).askExa}
-	keyless := route{id: "exa-mcp", provider: ProviderExa, label: "public MCP: ", ask: (*Service).askExaMCP}
-	searxng := route{id: "searxng", provider: ProviderSearXNG, ask: (*Service).askSearXNG}
-	parallel := route{id: "parallel-mcp", provider: ProviderParallel, label: "public MCP: ", ask: (*Service).askParallel}
-
-	switch provider {
-	case ProviderExa:
-		// Exa named: its key when there is one, else its public MCP, as omp's searchExa chooses.
-		if key != "" {
-			return []route{keyed}, failures
-		}
-
-		return []route{keyless}, failures
-	case ProviderSearXNG:
-		return []route{searxng}, failures
-	case ProviderParallel:
-		return []route{parallel}, failures
-	case ProviderCodex, ProviderClaude, ProviderAntigravity:
-		return []route{subscriptionRoute(provider)}, failures
-	}
-
 	var out []route
-	if key != "" {
-		out = append(out, keyed)
-	}
 
-	if s.cfg.SearXNGURL != "" {
-		out = append(out, searxng)
-	}
-
-	out = append(out, keyless, parallel)
-
-	for _, p := range SubscriptionProviders() {
-		if s.subscriptionOn(p) {
-			out = append(out, subscriptionRoute(p))
+	for _, r := range chain(key, set.SearXNGURL) {
+		switch {
+		case slices.Contains(set.Off, r.provider), !s.usable(r):
+		case provider == "", provider == r.provider:
+			out = append(out, r)
 		}
+	}
+
+	// Exa named: its key when there is one, else its public MCP, as omp's searchExa chooses.
+	if provider == ProviderExa && len(out) > 1 {
+		out = out[:1]
 	}
 
 	return out, failures

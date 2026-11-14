@@ -5,6 +5,7 @@ import {
   BookOpen,
   Box,
   ChartColumn,
+  Globe,
   KeyRound,
   KeySquare,
   MessagesSquare,
@@ -27,6 +28,7 @@ import { cn } from "@/lib/utils"
 type Section = {
   to:
     | "/settings/models"
+    | "/settings/web-search"
     | "/settings/gateway-keys"
     | "/settings/usage"
     | "/settings/repositories"
@@ -41,7 +43,8 @@ type Section = {
 
 // The group "Gateway" holds the model gateway's models and keys (issue #199), as LiteLLM's sidebar heading "AI
 // Gateway" and Coder's "AI Gateway keys": called "Models" until the owner renamed it, so that no item reads like its
-// group (issue #293, 2026-11-13); not "Agents", which the app's sidebar already has (2026-11-12). "Connections" holds
+// group (issue #293, 2026-11-13), and its web search (issue #354), as OmniRoute and 9router keep their search
+// providers beside their models; not "Agents", which the app's sidebar already has (2026-11-12). "Connections" holds
 // what reaches outside, as OpenClaw's group of that name holds its Channels and t3code's its Secrets. The group "Agents" holds what is given to the agents' CLIs:
 // their skills (issue #21; prototype the owner accepted, 2026-11-12), and the memory about the owner every agent
 // gets, as OpenClaw keeps Memory beside Skills in its group of agents.
@@ -50,6 +53,7 @@ const groups: { heading: string; sections: Section[] }[] = [
     heading: "Gateway",
     sections: [
       { to: "/settings/models", label: "Models", icon: Box },
+      { to: "/settings/web-search", label: "Web search", icon: Globe },
       { to: "/settings/gateway-keys", label: "Gateway keys", icon: KeySquare },
       { to: "/settings/usage", label: "Usage", icon: ChartColumn },
     ],

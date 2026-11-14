@@ -1523,6 +1523,100 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/GatewayRequestList" }
         default: { $ref: "#/components/responses/Error" }
+  /gateway/web-search:
+    get:
+      operationId: GetWebSearch
+      summary: The web search chain, every provider in the order a search tries them, with its source, switch and state
+      description: >-
+        Exa with its key, SearXNG, Exa and Parallel without a key, then the Codex, Claude and Antigravity
+        subscriptions, each listed whether it can be asked or not. A subscription can be asked while an account of
+        it is logged in on the control plane and in use; its account is added on the Models page. Exa's key is
+        kept in the vault under `exa_secret` and is never in this answer.
+      responses:
+        "200":
+          description: The chain.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WebSearch" }
+        default: { $ref: "#/components/responses/Error" }
+  /gateway/web-search/providers/{provider}:
+    parameters:
+      - name: provider
+        in: path
+        required: true
+        schema: { $ref: "#/components/schemas/WebSearchProvider" }
+    put:
+      operationId: SetWebSearchProvider
+      summary: Switch a web search provider on or off; only the owner
+      description: >-
+        A provider that is off is neither tried nor may be named in a search, from the next search on. Exa's
+        two ways, with its key and without, share one switch.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WebSearchSwitch" }
+      responses:
+        "200":
+          description: The chain after the switch.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WebSearch" }
+        default: { $ref: "#/components/responses/Error" }
+  /gateway/web-search/exa-key:
+    put:
+      operationId: PutWebSearchExaKey
+      summary: Keep Exa's API key in the vault, for web searches to ask Exa with it first; only the owner
+      description: The key is never returned. A search uses it from the next one on.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WebSearchExaKey" }
+      responses:
+        "200":
+          description: The chain with Exa's key.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WebSearch" }
+        default: { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: DeleteWebSearchExaKey
+      summary: Remove Exa's API key from the vault; Exa is then asked without one; only the owner
+      responses:
+        "200":
+          description: The chain without Exa's key.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WebSearch" }
+        default: { $ref: "#/components/responses/Error" }
+  /gateway/web-search/searxng:
+    put:
+      operationId: PutWebSearchSearXNG
+      summary: Set the address of the owner's SearXNG, which searches ask after Exa with its key; only the owner
+      description: An http(s) address, which may be on the local network; `/search` is added when it lacks it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WebSearchSearXNG" }
+      responses:
+        "200":
+          description: The chain with SearXNG.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WebSearch" }
+        default: { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: DeleteWebSearchSearXNG
+      summary: Forget SearXNG's address; SearXNG is then not asked; only the owner
+      responses:
+        "200":
+          description: The chain without SearXNG.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/WebSearch" }
+        default: { $ref: "#/components/responses/Error" }
   /bots:
     get:
       operationId: ListBots
@@ -3344,6 +3438,63 @@ components:
       properties:
         ticket: { type: string }
         expires_at: { type: string, format: date-time }
+    WebSearchProvider:
+      type: string
+      enum: [exa, searxng, parallel, codex, claude, antigravity]
+    WebSearch:
+      type: object
+      required: [chain, exa_secret]
+      properties:
+        chain:
+          type: array
+          description: The ways a search is asked, in the order a search that names no provider tries them.
+          items: { $ref: "#/components/schemas/WebSearchLink" }
+        exa_secret:
+          type: string
+          description: The name of the vault secret that holds Exa's API key.
+        searxng_url:
+          type: string
+          description: The address of the owner's SearXNG; absent when none is set.
+    WebSearchLink:
+      type: object
+      required: [provider, source, on, state]
+      properties:
+        provider: { $ref: "#/components/schemas/WebSearchProvider" }
+        source:
+          type: string
+          enum: [key, self_hosted, public, subscription]
+          description: >-
+            Where its search comes from: Exa with the owner's key, the owner's SearXNG, a public endpoint asked
+            with no key, or an account of a subscription.
+        "on":
+          type: boolean
+          description: The owner's switch for the provider.
+        state:
+          type: string
+          enum: [ready, resting, not_set_up, "off"]
+          description: >-
+            ready: it is asked in its turn. resting: it answered 429 and is skipped until `resting_until`.
+            not_set_up: no key in the vault, no SearXNG address, or no subscription account in use. off: the
+            owner switched it off.
+        resting_until: { type: string, format: date-time }
+    WebSearchSwitch:
+      type: object
+      additionalProperties: false
+      required: ["on"]
+      properties:
+        "on": { type: boolean }
+    WebSearchExaKey:
+      type: object
+      additionalProperties: false
+      required: [key]
+      properties:
+        key: { type: string, minLength: 1, maxLength: 1024, writeOnly: true }
+    WebSearchSearXNG:
+      type: object
+      additionalProperties: false
+      required: [url]
+      properties:
+        url: { type: string, minLength: 1, maxLength: 2048, description: "An http(s) address, such as http://localhost:8888." }
     WebSearchRequest:
       type: object
       additionalProperties: false

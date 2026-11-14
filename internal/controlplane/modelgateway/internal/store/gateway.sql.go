@@ -418,6 +418,39 @@ func (q *Queries) ListGatewayModels(ctx context.Context) ([]GatewayModel, error)
 	return items, nil
 }
 
+const listGatewaySearchProviders = `-- name: ListGatewaySearchProviders :many
+SELECT provider, off, base_url, updated_at FROM gateway_search_providers ORDER BY provider
+`
+
+// What the owner set for the web search providers (issue #354).
+func (q *Queries) ListGatewaySearchProviders(ctx context.Context) ([]GatewaySearchProvider, error) {
+	rows, err := q.db.QueryContext(ctx, listGatewaySearchProviders)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GatewaySearchProvider{}
+	for rows.Next() {
+		var i GatewaySearchProvider
+		if err := rows.Scan(
+			&i.Provider,
+			&i.Off,
+			&i.BaseUrl,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listGatewayUsage = `-- name: ListGatewayUsage :many
 SELECT u.id, u.key_id, u.model, u.provider, u.upstream_model, u.stream, u.attempts, u.outcome, u.status, u.prompt_tokens, u.completion_tokens, u.cached_tokens, u.reasoning_tokens, u.estimated, u.duration_ms, u.created_at, u.account_id, u.error, u.cache_write_tokens, u.cost_micros, u.priced_model, k.name AS key_name FROM gateway_usage u JOIN gateway_keys k ON k.id = u.key_id
 ORDER BY u.created_at DESC, u.id DESC LIMIT ?1
@@ -645,6 +678,38 @@ func (q *Queries) RevokeGatewayKeysOfDispatch(ctx context.Context, arg RevokeGat
 		return 0, err
 	}
 	return result.RowsAffected()
+}
+
+const setGatewaySearchBaseURL = `-- name: SetGatewaySearchBaseURL :exec
+INSERT INTO gateway_search_providers (provider, base_url, updated_at) VALUES (?1, ?2, ?3)
+ON CONFLICT (provider) DO UPDATE SET base_url = excluded.base_url, updated_at = excluded.updated_at
+`
+
+type SetGatewaySearchBaseURLParams struct {
+	Provider string
+	BaseUrl  sql.NullString
+	Now      int64
+}
+
+func (q *Queries) SetGatewaySearchBaseURL(ctx context.Context, arg SetGatewaySearchBaseURLParams) error {
+	_, err := q.db.ExecContext(ctx, setGatewaySearchBaseURL, arg.Provider, arg.BaseUrl, arg.Now)
+	return err
+}
+
+const setGatewaySearchOff = `-- name: SetGatewaySearchOff :exec
+INSERT INTO gateway_search_providers (provider, off, updated_at) VALUES (?1, ?2, ?3)
+ON CONFLICT (provider) DO UPDATE SET off = excluded.off, updated_at = excluded.updated_at
+`
+
+type SetGatewaySearchOffParams struct {
+	Provider string
+	Off      int64
+	Now      int64
+}
+
+func (q *Queries) SetGatewaySearchOff(ctx context.Context, arg SetGatewaySearchOffParams) error {
+	_, err := q.db.ExecContext(ctx, setGatewaySearchOff, arg.Provider, arg.Off, arg.Now)
+	return err
 }
 
 const upsertGatewayModel = `-- name: UpsertGatewayModel :exec

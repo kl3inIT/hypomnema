@@ -36,6 +36,9 @@ Each adapted file names its source.
   (src/renderer/src/components/icons/GitHubIcon.tsx), MIT. The marks of GitLab, Google, Gmail, Google Calendar,
   Google Drive and Google Docs there are copied from Onyx (https://github.com/onyx-dot-app/onyx,
   web/lib/opal/src/logos), MIT, Copyright (c) 2023-present DanswerAI, Inc. Each mark belongs to its brand.
+- Exa's mark there is the path of LobeHub's icons (https://github.com/lobehub/lobe-icons, exa.svg), MIT, Copyright
+  (c) 2023 LobeHub, as OpenClaw ships it (extensions/exa/assets/activity.svg). SearXNG's mark there is the path of
+  Simple Icons (icons/searxng.svg), CC0 1.0. Each mark belongs to its brand.
 - Apache Superset's mark there is the path of Simple Icons (https://github.com/simple-icons/simple-icons,
   icons/apachesuperset.svg), CC0 1.0. Apache Superset and its logo are trademarks of The Apache Software
   Foundation.

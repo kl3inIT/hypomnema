@@ -13,7 +13,6 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"net/url"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -123,19 +122,10 @@ type Config struct {
 	// `10.0.0.5`, `192.168.1.0/24` or `10.0.0.5:8080`, separated by commas.
 	// Empty: the public internet only.
 	BrowserAllow egress.Allow
-	// WebSearchSearXNGURL is the owner's SearXNG, which web searches ask
-	// after Exa with its key (issue #354), from
-	// HYPOMNEMA_WEB_SEARCH_SEARXNG_URL; empty: SearXNG is not asked.
-	WebSearchSearXNGURL string
 	// WebSearchExaSecret names the vault secret holding Exa's API key, from
 	// HYPOMNEMA_WEB_SEARCH_EXA_SECRET (default web-search-exa); while no
 	// such secret exists Exa is asked without a key.
 	WebSearchExaSecret string
-	// WebSearchOff are the subscriptions whose own web search is not asked
-	// (issue #354), from HYPOMNEMA_WEB_SEARCH_OFF: codex, claude or
-	// antigravity, separated by commas. Empty: each searches while an
-	// account of it is logged in.
-	WebSearchOff []string
 }
 
 // LoadConfig reads the configuration and reports every problem at once.
@@ -164,8 +154,7 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 		BrowserOff:       env.String(envPrefix+"_BROWSER", "1") == "0",
 		BrowserNoSandbox: env.String(envPrefix+"_BROWSER_SANDBOX", "1") == "0",
 
-		WebSearchSearXNGURL: strings.TrimSuffix(env.String(envPrefix+"_WEB_SEARCH_SEARXNG_URL", ""), "/"),
-		WebSearchExaSecret:  env.String(envPrefix+"_WEB_SEARCH_EXA_SECRET", "web-search-exa"),
+		WebSearchExaSecret: env.String(envPrefix+"_WEB_SEARCH_EXA_SECRET", "web-search-exa"),
 	}
 
 	if cfg.BrowserDir == "" {
@@ -203,28 +192,7 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 
 	cfg.BrowserAllow = allow
 
-	var offErr error
-
-	for _, name := range strings.Split(env.String(envPrefix+"_WEB_SEARCH_OFF", ""), ",") {
-		name = strings.ToLower(strings.TrimSpace(name))
-
-		switch {
-		case name == "":
-		case slices.Contains(websearch.SubscriptionProviders(), name):
-			cfg.WebSearchOff = append(cfg.WebSearchOff, name)
-		default:
-			offErr = fmt.Errorf("%s_WEB_SEARCH_OFF names %s: each is one of %s", envPrefix, name,
-				strings.Join(websearch.SubscriptionProviders(), ", "))
-		}
-	}
-
-	var searxngErr error
-	if u, err := url.Parse(cfg.WebSearchSearXNGURL); cfg.WebSearchSearXNGURL != "" &&
-		(err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "") {
-		searxngErr = fmt.Errorf("%s_WEB_SEARCH_SEARXNG_URL is not an http(s) address", envPrefix)
-	}
-
-	if err := errors.Join(env.Err(), cmdErr, keysErr, allowErr, searxngErr, offErr); err != nil {
+	if err := errors.Join(env.Err(), cmdErr, keysErr, allowErr); err != nil {
 		return Config{}, fmt.Errorf("configuration: %w", err)
 	}
 
@@ -327,7 +295,8 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	// The web's search and pages (issue #354). A page is read only where the shared browser may go: the same
 	// rules, the owner's list of private destinations and the control plane's own port.
 	webSearch := websearch.New(websearch.Config{
-		ExaKey: exaKey(secrets, cfg.WebSearchExaSecret), SearXNGURL: cfg.WebSearchSearXNGURL, Off: cfg.WebSearchOff,
+		// What the owner set on the Web search page, read at each search.
+		ExaKey: exaKey(secrets, cfg.WebSearchExaSecret), Settings: gateway.SearchSettings,
 		Logger: logger,
 		Rules: egress.Rules{Allow: cfg.BrowserAllow, OwnPort: func(port uint16) bool {
 			return slices.Contains(ownPorts, port)
@@ -417,7 +386,8 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		WithSkillDirectory(skillssh.New(&http.Client{Timeout: 30 * time.Second})).
 		WithBuiltinSkills(builtinSkills).
 		WithRoutines(routineRunner).
-		WithWeb(botWeb{meteredWeb: metered, chats: sup})
+		WithWeb(botWeb{meteredWeb: metered, chats: sup}).
+		WithWebSearch(webSearchSettings{web: webSearch, gateway: gateway}, cfg.WebSearchExaSecret)
 	if cfg.VaultKeys != nil {
 		api.WithTokenAccounts(accountTokens{svc: svc, vault: secrets, logger: logger})
 	}

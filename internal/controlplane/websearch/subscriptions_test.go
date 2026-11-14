@@ -60,7 +60,8 @@ func failingFree(t *testing.T, subs *subscriptions, off ...string) *websearch.Se
 	_, parallelURL := newProvider(t, refuses(http.StatusBadGateway, ""))
 
 	svc := websearch.New(websearch.Config{
-		ExaMCPURL: exaMCPURL, ParallelMCPURL: parallelURL, Now: c.Now, Off: off,
+		ExaMCPURL: exaMCPURL, ParallelMCPURL: parallelURL, Now: c.Now,
+		Settings: func(context.Context) (websearch.Settings, error) { return websearch.Settings{Off: off}, nil },
 	})
 
 	return svc.WithSubscriptions(subs)

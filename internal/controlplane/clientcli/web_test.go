@@ -126,3 +126,106 @@ func TestAWebSearchThatFailsSaysWhy(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "this control plane has no web search")
 }
+
+// theChain stands for the web search chain and what the owner sets of it.
+type theChain struct {
+	off     map[string]bool
+	searxng string
+	key     *vaultOfOne
+}
+
+func (c *theChain) Chain(context.Context) ([]websearch.Link, error) {
+	return []websearch.Link{
+		{Provider: "exa", Source: websearch.SourceKey, On: !c.off["exa"], Usable: c.key.value != ""},
+		{Provider: "searxng", Source: websearch.SourceSelfHosted, On: !c.off["searxng"], Usable: c.searxng != "",
+			Address: c.searxng},
+		{Provider: "exa", Source: websearch.SourcePublic, On: !c.off["exa"], Usable: true},
+		{Provider: "parallel", Source: websearch.SourcePublic, On: !c.off["parallel"], Usable: true,
+			RestingUntil: time.Date(2030, 1, 1, 9, 30, 0, 0, time.Local)},
+	}, nil
+}
+
+func (c *theChain) SetSearchProvider(_ context.Context, provider string, on bool) error {
+	c.off[provider] = !on
+
+	return nil
+}
+
+func (c *theChain) SetSearXNG(_ context.Context, address string) error {
+	c.searxng = address
+
+	return nil
+}
+
+// vaultOfOne keeps one secret's value.
+type vaultOfOne struct {
+	name, value string
+}
+
+func (v *vaultOfOne) List(context.Context) ([]clientapi.SecretInfo, error) { return nil, nil }
+
+func (v *vaultOfOne) Value(context.Context, string) (map[string]string, error) {
+	return map[string]string{}, nil
+}
+
+func (v *vaultOfOne) Put(_ context.Context, name string, values map[string]string) (clientapi.SecretInfo, error) {
+	v.name, v.value = name, values["value"]
+
+	return clientapi.SecretInfo{Name: name}, nil
+}
+
+func (v *vaultOfOne) Delete(context.Context, string) error {
+	v.value = ""
+
+	return nil
+}
+
+// Scenario: the owner looks after the web search chain from the terminal,
+// as on Settings → Gateway → Web search: the providers in their order with
+// each one's source and state, a switch, Exa's key read from standard input
+// into the vault, and SearXNG's address.
+func TestTheOwnerLooksAfterTheWebSearchChain(t *testing.T) {
+	t.Parallel()
+
+	vault := &vaultOfOne{}
+	chain := &theChain{off: map[string]bool{}, key: vault}
+	w := newWorldWith(t, nil, func(s *clientapi.Server) {
+		s.WithSecrets(vault).WithWebSearch(chain, "web-search-exa")
+	})
+	w.login(t, bearertoken.Owner)
+
+	out, err := w.cmd(t, "web", "providers")
+	require.NoError(t, err)
+	assert.Equal(t, "1\texa\twith your key\tnot set up\n2\tsearxng\tself-hosted\tnot set up\n"+
+		"3\texa\tpublic, no key\tready\n4\tparallel\tpublic, no key\tresting until 09:30\n", out)
+
+	out, err = w.cmd(t, "web", "providers", "set", "parallel", "off")
+	require.NoError(t, err)
+	assert.Equal(t, "web search provider parallel is off\n", out)
+	assert.True(t, chain.off["parallel"])
+
+	_, err = w.cmd(t, "web", "providers", "set", "parallel", "maybe")
+	require.ErrorIs(t, err, ErrUsage)
+
+	out, err = w.cmdIn(t, "exa-123\n", "web", "exa-key", "set", "--key-file", "-")
+	require.NoError(t, err)
+	assert.Equal(t, "Exa's key is kept in the vault as web-search-exa\n", out)
+	assert.Equal(t, vaultOfOne{name: "web-search-exa", value: "exa-123"}, *vault)
+
+	out, err = w.cmd(t, "web", "searxng", "set", "http://10.0.0.5:8888")
+	require.NoError(t, err)
+	assert.Equal(t, "SearXNG is http://10.0.0.5:8888\n", out)
+
+	out, err = w.cmd(t, "web", "providers")
+	require.NoError(t, err)
+	assert.Contains(t, out, "1\texa\twith your key\tready\n2\tsearxng\tself-hosted\tready\n")
+	assert.Contains(t, out, "4\tparallel\tpublic, no key\toff\n")
+
+	_, err = w.cmd(t, "web", "exa-key", "rm")
+	require.NoError(t, err)
+	assert.Empty(t, vault.value)
+
+	_, err = w.cmd(t, "web", "searxng", "rm")
+	require.NoError(t, err)
+	assert.Empty(t, chain.searxng)
+}
