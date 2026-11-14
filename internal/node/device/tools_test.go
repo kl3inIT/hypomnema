@@ -276,7 +276,9 @@ func TestLaunchingAnAppNotInstalledSaysSo(t *testing.T) {
 
 	answer := call(t, r, "d-1", "device_launch", `{"package":"vn.not.installed"}`)
 	assert.True(t, answer.IsError)
-	assert.Equal(t, "No app with the package vn.not.installed is installed on the phone, or it has no launcher.", textOf(answer))
+	assert.Equal(t,
+		"No app with the package vn.not.installed is installed on the phone, or it has no launcher.",
+		textOf(answer))
 }
 
 // A call the phone cannot take is refused before the phone is started.
