@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
-	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/userstore"
 )
 
 // The web's session (issue #114). Each rule names the reference it is learned
@@ -205,8 +205,8 @@ func (s *Server) CreateSession(
 		return nil, &lockedError{wait: wait}
 	}
 
-	session, err := s.svc.SignIn(ctx, req.Body.Username, req.Body.Password)
-	if errors.Is(err, orchestration.ErrBadCredentials) {
+	session, err := s.svc.Users().SignIn(ctx, req.Body.Username, req.Body.Password)
+	if errors.Is(err, userstore.ErrBadCredentials) {
 		if wait := s.logins.failed(c.address, now); wait > 0 {
 			return nil, &lockedError{wait: wait}
 		}
@@ -233,7 +233,7 @@ func (s *Server) DeleteSession(
 	c := callerOf(ctx)
 
 	if c.sessionID != "" {
-		if err := s.svc.SignOut(ctx, c.sessionID); err != nil {
+		if err := s.svc.Users().SignOut(ctx, c.sessionID); err != nil {
 			return nil, err
 		}
 	}

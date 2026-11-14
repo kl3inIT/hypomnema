@@ -81,7 +81,7 @@ func TestAUserSignsInAndOut(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
-	_, err := w.svc.AddUser(t.Context(), userName, userPassword)
+	_, err := w.svc.Users().AddUser(t.Context(), userName, userPassword)
 	require.NoError(t, err)
 
 	b := w.browser()
@@ -140,7 +140,7 @@ func TestTheCookieIsSecureBehindHTTPS(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
-	_, err := w.svc.AddUser(t.Context(), userName, userPassword)
+	_, err := w.svc.Users().AddUser(t.Context(), userName, userPassword)
 	require.NoError(t, err)
 
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, w.url+BasePath+"/session",
@@ -164,14 +164,14 @@ func TestANewPasswordEndsEverySession(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
-	_, err := w.svc.AddUser(t.Context(), userName, userPassword)
+	_, err := w.svc.Users().AddUser(t.Context(), userName, userPassword)
 	require.NoError(t, err)
 
 	laptop, phone := w.browser(), w.browser()
 	require.Equal(t, http.StatusNoContent, laptop.signIn(userName, userPassword).status)
 	require.Equal(t, http.StatusNoContent, phone.signIn(userName, userPassword).status)
 
-	require.NoError(t, w.svc.SetUserPassword(t.Context(), userName, "battery staple"))
+	require.NoError(t, w.svc.Users().SetUserPassword(t.Context(), userName, "battery staple"))
 
 	assert.Equal(t, http.StatusUnauthorized, laptop.do(http.MethodGet, "/me", "").status)
 	assert.Equal(t, http.StatusUnauthorized, phone.do(http.MethodGet, "/me", "").status)
@@ -188,7 +188,7 @@ func TestWrongPasswordsLockTheAddress(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
-	_, err := w.svc.AddUser(t.Context(), userName, userPassword)
+	_, err := w.svc.Users().AddUser(t.Context(), userName, userPassword)
 	require.NoError(t, err)
 
 	var mu sync.Mutex
@@ -249,7 +249,7 @@ func TestAMadeUpForwardedAddressDoesNotEscapeTheLock(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
-	_, err := w.svc.AddUser(t.Context(), userName, userPassword)
+	_, err := w.svc.Users().AddUser(t.Context(), userName, userPassword)
 	require.NoError(t, err)
 
 	try := func(madeUp string) int {

@@ -98,6 +98,59 @@ func TestBuildRequestPlacesCacheBreakpoints(t *testing.T) {
 	assert.True(t, cached(content[len(content)-1]), "the conversation so far is cached")
 }
 
+// ttlsInOrder lists the ttl of every breakpoint in the order Anthropic reads
+// them, tools then system then messages; "" for none.
+func ttlsInOrder(t *testing.T, body map[string]any) []string {
+	t.Helper()
+
+	var out []string
+
+	walk := func(v any) {
+		list, _ := v.([]any)
+		for _, block := range list {
+			b, _ := block.(map[string]any)
+			if cc, ok := b["cache_control"].(map[string]any); ok {
+				ttl, _ := cc["ttl"].(string)
+				out = append(out, ttl)
+			}
+		}
+	}
+
+	walk(body["tools"])
+	walk(body["system"])
+
+	messages, _ := body["messages"].([]any)
+	for _, m := range messages {
+		msg, _ := m.(map[string]any)
+		walk(msg["content"])
+	}
+
+	return out
+}
+
+// Scenario: the client marked its own tool for the cache (issue #409). A mark
+// with no ttl is kept an hour like the gateway's; one the client gave five
+// minutes stays so, and no one-hour mark follows it, which Anthropic refuses.
+func TestTheClientsCacheBreakpointsAgreeWithTheGateways(t *testing.T) {
+	t.Parallel()
+
+	build := func(tool string) []string {
+		chat := `{"model":"m","messages":[{"role":"user","content":"hi"}],"tools":[` + tool + `]}`
+		built, err := claude.BuildRequest([]byte(chat), claude.Options{Model: "claude-sonnet-5-5", Token: "tok"})
+		require.NoError(t, err)
+
+		return ttlsInOrder(t, decode(t, built))
+	}
+
+	bare := build(`{"type":"function","function":{"name":"read"},"cache_control":{"type":"ephemeral"}}`)
+	require.Len(t, bare, 4, "the client's mark and the gateway's three")
+	assert.Equal(t, []string{"1h", "1h", "1h", "1h"}, bare)
+
+	short := build(`{"type":"function","function":{"name":"read"},"cache_control":{"type":"ephemeral","ttl":"5m"}}`)
+	require.Len(t, short, 4)
+	assert.Equal(t, []string{"5m", "", "", ""}, short, "after a five-minute mark, none is kept an hour")
+}
+
 // Scenario: a probe (Claude Code's own "quota" check) stays minimal — no decoy
 // tools, no cache breakpoints — so a tiny key check is not dressed up.
 func TestBuildRequestLeavesAProbeMinimal(t *testing.T) {

@@ -1193,7 +1193,10 @@ transaction, every status change a guarded `UPDATE` checked against a transition
 - Users and web sessions (issue #114; [research](docs/research/2026-11-10-web-login.md), each rule from a
   reference): a user is a name and a password kept as bcrypt at cost 10, made on the server; none is shipped. Signing
   in opens a web session: a row with the SHA-256 of a random secret, good for 30 days after its last use (extended
-  at most once an hour). A session acts as the owner. A new password ends every session of the user.
+  at most once an hour). A session acts as the owner. A new password ends every session of the user. They are kept
+  by the domain store `orchestration/userstore` (issue #404), reached through `Service.Users()`; it imports the
+  generated queries, the one write helper (`orchestration/internal/storeutil`, which signals event readers after
+  the commit) and the errors (`orchestration/storeerr`, re-exported by the root), never the root package.
 - Creating a Run or Tasks can carry an idempotency key: the same caller and key with the same request return the first
   result, with another request it is a conflict. The key is kept as a receipt, as node calls are.
 
@@ -1550,7 +1553,9 @@ not exist yet.
     `computeFingerprint`, not 9router-go's random build and body hash) so the prompt's top is byte-identical between
     turns, and the cache breakpoints Claude Code sets go on — the system prefix, the last tool, the last message
     (pi/omp `applyAnthropicCacheControl`), each kept an hour (`ttl: 1h`, with `extended-cache-ttl-2025-04-11` among
-    the betas; issue #397, as Claude Code, omp, CLIProxyAPI and 9router-go keep a subscription's cache). A probe
+    the betas; issue #397, as Claude Code, omp, CLIProxyAPI and 9router-go keep a subscription's cache); a client's own breakpoint
+    with no ttl is kept an hour too, one it gave a ttl keeps it, and a one-hour breakpoint after a shorter one loses
+    its ttl, as Anthropic reads them tools, system, messages; issue #409, CLIProxyAPI `normalizeCacheControlTTLDoc`). A probe
     (Claude Code's own `quota`/`ping` check) is left minimal, with no decoys and no breakpoints.
   - The call goes to `api.anthropic.com/v1/messages?beta=true`, always as a stream, with the account's token in the
     Bearer header (never the api-key header), a refresh on a 401, a cooldown on a 429.
@@ -1906,8 +1911,17 @@ Node (`internal/node`):
   twice or a known runtime with none. A Dispatch is started and adopted with the Runtime of its offer's runtime
   (`claude` when it names none); a stop, a release, an answer and a question's id go to the Supervisor, which holds
   the Dispatch's job. A stop sends the runtime's interrupt and closes the worker's input, and kills a worker still
-  alive after 30 s; one with no interrupt (Codex) is killed at once (Omnigent's uniform stop). A release kills the
-  shim by its PID file and removes `run/<dispatch>`, also when no job is in memory.
+  alive after 30 s; one with no interrupt (Codex) is killed at once (Omnigent's uniform stop). A release cancels the
+  job's journal reader and waits for it to return, so nothing of the Dispatch is reported after it (Omnara's output
+  watch), then kills the shim by its PID file and removes `run/<dispatch>`, also when no job is in memory.
+- Adopting a worker (issue #403): the journal's offset and the turn's state after it (`Turn.State`: the CLI's
+  session, its result or failure, the usage) are one checkpoint, `run/<dispatch>/offset`, renamed into place after
+  each read; a bare number, as daemons before #403 wrote, is an offset with no state. A new daemon hands the state
+  to `Runtime.Adopted`, so an adopted ACP worker cancels its own session on a stop and a worker that exits after
+  the restart is reported with its outcome, not as exited (Orca records the provider's session id on its persisted
+  record; Omnara keeps a process's state in its store, not in its output). A run directory with no PID file is
+  given 10 s for the shim to write one, as a start is, and then ends as `start_failed` ("the shim did not start";
+  Omnara fails a process whose execution was never committed).
 - A Codex worker (`internal/node/codex`; [research](docs/research/2026-11-10-codex-responses-passthrough.md)) has
   no login on the node: its model comes from the control plane's gateway under the offer's key. One turn is one
   process under a shim, as a Claude Code worker's: `codex exec --json --skip-git-repo-check --ignore-user-config
@@ -2489,7 +2503,10 @@ internal/controlplane/cloudcode  what is presented to Google's Cloud Code backen
 internal/controlplane/coordinator  the supervisor of pi, the coordinator: one pi in RPC mode per chat
 internal/controlplane/routines  the runner of the Bots' Routines: the tick, a script's run through its launcher, a prompt run followed in its chat
 internal/controlplane/machines  machines created at a provider: the Provider interface, the AWS (EC2) provider, the first-boot script, create, remove and the pass that settles what is left between
-internal/controlplane/orchestration  Runs, Tasks, Dispatches, Conversations, questions, events, nodes, accounts, machine providers, skills, the scheduler; migrations; queries generated by sqlc (internal/store)
+internal/controlplane/orchestration  Runs, Tasks, Dispatches, Conversations, questions, events, nodes, accounts, machine providers, skills, the scheduler; migrations; queries generated by sqlc (internal/store); the facade over its domain stores
+internal/controlplane/orchestration/internal/storeutil  what its stores share: the one write helper, which signals event readers after the commit
+internal/controlplane/orchestration/storeerr  the errors every orchestration store returns, re-exported by orchestration
+internal/controlplane/orchestration/userstore  the web's users and sessions, reached through orchestration's Users()
 internal/controlplane/skillsource  fetches a skill from a public GitHub repository at the commit its ref names
 internal/controlplane/modelgateway/antigravity  the Antigravity subscription's formats: chat to Gemini's shape and back, the schema cleaner
 internal/controlplane/modelgateway/codex  the Codex subscription's formats: chat to Responses and back
