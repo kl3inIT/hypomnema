@@ -2879,10 +2879,29 @@ export type ChatMessage = {
   wake?: ChatWake;
   artifact?: ArtifactCard;
   /**
+   * The Approval an approval row answers; absent for other messages.
+   */
+  approval_id?: string;
+  approval?: ChatApproval;
+  /**
    * When the coordinator got an owner message or a wake-up.
    */
   delivered_at?: string;
   created_at: string;
+};
+
+/**
+ * An Approval asked in the chat, as the owner answered it: what was asked, the answer, how far an approval reaches and when it was given. It no longer changes.
+ */
+export type ChatApproval = {
+  title: string;
+  action_name: string;
+  status: ApprovalStatus;
+  /**
+   * How far an approval reaches; absent for a rejection.
+   */
+  scope?: 'once' | 'session' | 'routine';
+  decided_at?: string;
 };
 
 /**

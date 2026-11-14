@@ -403,7 +403,7 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   (`owner`, `coordinator`, `tool`, `system`; replies and tools with JSON `parts`); owner messages and wake-ups wait
   for pi and are marked delivered one by one. A `system` row has a `kind` (migration 00054, issue #267, after
   t3code's typed timeline items): `wake` (it names its event), `failed` (pi's model call failed), `stopped` (the
-  owner stopped the turn) or `approval` (the coordinator is told an Approval was answered); the API sends it as
+  owner stopped the turn) or `approval` (the owner answered an Approval asked in the chat); the API sends it as
   `ChatMessage.kind`, and the web and Lark read it rather than the text. A
   Run records the chat whose pi created it (`runs.chat_id`); the API names that chat's Bot as `Run.bot` (issue #281),
   read by a join of `runs` with `chats` in `GetRunWithBot` and `ListRuns`, and absent for a Run without a chat.
@@ -1021,13 +1021,18 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       the Routine whose run asked (issue #211, under Routines), or rejects. A request of a Routine's run is held
       in place up to 30 minutes instead and then refused. An Approval
       not answered in time stays open (owner, 2026-11-11): the tool is told it waits; a coordinator ends its turn
-      and a worker asks the owner and waits. When it is answered later, the coordinator is woken in its chat, or
-      the question the worker waits on is answered, and the repeat of the same request, recognized by its decoded
-      content and not its bytes, passes once. Only the owner's token lists and answers Approvals
+      and a worker asks the owner and waits. Answering an Approval a chat asked writes one `approval` row in that
+      chat in the same transaction (issue #465, migration 00081, after t3code's `TimelinePendingApprovalRow.tsx`
+      and AI Elements' `confirmation.tsx`): `chat_messages.approval_id` names it, its text says the answer, what
+      was asked and how far it reaches, and `ChatMessage.approval` gives the Approval's title, action, answer,
+      scope and time, read with the row. When it is answered after its request ended, the coordinator is woken
+      with that same row (`to_coordinator=1`, once), or the question the worker waits on is answered, and the
+      repeat of the same request, recognized by its decoded content and not its bytes, passes once. Only the owner's token lists and answers Approvals
       (`GET /approvals`, `POST /approvals/{id}/decision`; `hypomnema approvals`) and sets an action's answer
       (`.../connections/{label}/actions`; `hypomnema integrations actions`). On the web an Approval is a card
       above the message box of the chat that asked, whose row in the sidebar says it needs the owner, and in the
-      Task of the worker that asked; an account on the Integrations page says what agents may do with it and
+      Task of the worker that asked; once answered, the chat shows its row (`approval-row.tsx`): Approved or
+      Denied, what was asked, the action and how far it reaches, and when, whatever the Bot shows of its tools; an account on the Integrations page says what agents may do with it and
       opens the list of actions.
     - **Who an agent is decides what it gets.** A worker presents its Dispatch's own key (`agent_sessions`,
       migration 00037): made by the node API as the offer is sent, for the Run's Connections, and revoked when the
