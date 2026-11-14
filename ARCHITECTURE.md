@@ -1535,7 +1535,9 @@ not exist yet.
   - The call goes to `api.anthropic.com/v1/messages?beta=true`, always as a stream, with the account's token in the
     Bearer header (never the api-key header), a refresh on a 401, a cooldown on a 429.
   - The backend's Messages events become chat chunks: text, thinking as `reasoning_content`, each tool call with the
-    client's name again, then the finish reason and the usage, which counts cache reads as prompt tokens.
+    client's name again, then the finish reason and, in a stream, a last chunk with no choices and the usage (as the
+    Codex stream ends; before issue #389 a stream carried none and was recorded as estimated), which counts the
+    cache read and written as prompt tokens and says each.
   - Not built: uTLS fingerprinting, a signed `cch`, header order and casing forced over the wire, model-specific
     thinking tables, several accounts rotated.
 - Each request served is one row of `gateway_usage`: the key, the model, the target of the last attempt, how many

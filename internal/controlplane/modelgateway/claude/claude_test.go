@@ -266,7 +266,8 @@ func TestStreamTranslatesAnAnswer(t *testing.T) {
 		}
 	}
 
-	feed(`{"type":"message_start","message":{"id":"msg_1","usage":{"input_tokens":12,"cache_read_input_tokens":3}}}`)
+	feed(`{"type":"message_start","message":{"id":"msg_1","usage":{"input_tokens":12,"cache_read_input_tokens":3,` +
+		`"cache_creation_input_tokens":5}}}`)
 	feed(`{"type":"content_block_start","index":0,"content_block":{"type":"thinking"}}`)
 	feed(`{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"hmm"}}`)
 	feed(`{"type":"content_block_start","index":1,"content_block":{"type":"text"}}`)
@@ -291,8 +292,16 @@ func TestStreamTranslatesAnAnswer(t *testing.T) {
 
 	usage := s.Usage()
 	require.NotNil(t, usage)
-	assert.Equal(t, int64(15), usage.PromptTokens, "input plus the cached read")
+	assert.Equal(t, int64(20), usage.PromptTokens, "input plus the cache read and written")
 	assert.Equal(t, int64(9), usage.CompletionTokens)
+
+	// The stream ends with the usage, as the client and the gateway's meter read it (issue #389).
+	last := chunks[len(chunks)-1]
+	assert.Equal(t, []any{}, last["choices"])
+	assert.Equal(t, map[string]any{
+		"prompt_tokens": 20.0, "completion_tokens": 9.0, "total_tokens": 29.0,
+		"prompt_tokens_details": map[string]any{"cached_tokens": 3.0}, "cache_creation_input_tokens": 5.0,
+	}, last["usage"])
 }
 
 // Scenario: the whole answer is one completion for a client that did not stream.

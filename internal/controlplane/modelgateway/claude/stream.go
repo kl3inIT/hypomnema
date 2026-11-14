@@ -11,7 +11,9 @@ import (
 // translator/claude_response.go, executor/claude_messages.go). A text block
 // becomes content, a thinking block reasoning_content, a tool_use block a tool
 // call whose name is the client's again. The last event carries the usage and
-// the stop reason.
+// the stop reason: the finish chunk, then one chunk with no choices and the
+// usage, as the Codex stream ends (issue #389). Without it the gateway's meter
+// would estimate the answer and see no cache.
 
 // Failure is an error from Anthropic, in the chat format's shape.
 type Failure struct {
@@ -135,7 +137,7 @@ func (s *Stream) Event(data []byte) [][]byte {
 		if e.Delta.StopReason != "" {
 			s.finish = finishReason(e.Delta.StopReason)
 
-			return s.chunk(item{}, s.finish)
+			return append(s.chunk(item{}, s.finish), s.usageChunk()...)
 		}
 
 		return nil
@@ -237,6 +239,25 @@ func (s *Stream) recordUsage(u rawUsage) {
 	}
 
 	s.usage.TotalTokens = s.usage.PromptTokens + s.usage.CompletionTokens
+}
+
+// usageChunk is the last chunk of a stream: no choices, the usage
+// (OpenAI's stream_options.include_usage; codex/stream.go). None when the
+// answer named no usage.
+func (s *Stream) usageChunk() [][]byte {
+	if s.usage == nil {
+		return nil
+	}
+
+	out, err := json.Marshal(item{
+		"id": s.id, "object": "chat.completion.chunk", "created": s.created, "model": s.model,
+		"choices": []any{}, "usage": s.usage,
+	})
+	if err != nil {
+		return nil
+	}
+
+	return [][]byte{out}
 }
 
 // chunk is one chat completion chunk with the delta and, at the end, the

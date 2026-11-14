@@ -139,6 +139,14 @@ func TestAChatIsServedFromTheClaudeSubscription(t *testing.T) {
 	assert.Contains(t, joined, `"content":"hel"`)
 	assert.Contains(t, joined, `"content":"lo"`)
 	assert.Equal(t, "[DONE]", lines[len(lines)-1])
+	assert.NotContains(t, joined, `"usage"`, "a client that did not ask for the usage frame does not get it")
+
+	// The gateway reads Claude's own counts, the cache's too (issue #389).
+	u := g.lastUsage(t)
+	assert.False(t, u.Tokens.Estimated)
+	assert.EqualValues(t, 16, u.Tokens.Prompt)
+	assert.EqualValues(t, 4, u.Tokens.Cached)
+	assert.EqualValues(t, 7, u.Tokens.Completion)
 }
 
 // Scenario: a client that does not stream gets one completion.
