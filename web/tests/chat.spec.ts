@@ -128,6 +128,8 @@ type PageGlobal = { fetch: typeof fetch; streams: Streams }
 type Work = {
   runs: { id: string; status: string; tasks: object[] }[]
   questions: Record<string, unknown>[]
+  // The requests that wait for the owner's answer (GET /approvals); answering one takes it out.
+  approvals?: Record<string, unknown>[]
 }
 
 const noWork = (): Work => ({
@@ -259,7 +261,16 @@ async function fakeServer(
     }
 
     if (path === "/me") return json({ id: "usr_1", name: "admin", kind: "owner" })
-    if (path === "/approvals") return json({ data: [] })
+    if (path === "/approvals") return json({ data: work.approvals ?? [] })
+    const deciding = /^\/approvals\/([^/]+)\/decision$/.exec(path)
+    if (deciding) {
+      const a = work.approvals?.find((x) => x.id === deciding[1])
+      const body = route.request().postDataJSON() as { decision: string }
+      calls.push(`decide ${deciding[1]} ${body.decision}`)
+      work.approvals = work.approvals?.filter((x) => x.id !== deciding[1])
+
+      return json({ ...a, status: body.decision === "reject" ? "rejected" : "approved" })
+    }
     if (path === "/tasks") return json({ data: tasks, runs: [run], after: 5 })
     if (path === "/runs" && url.searchParams.get("chat_id") === chat.id)
       return json({ data: work.runs.filter((r) => r.status === "open") })
@@ -639,6 +650,96 @@ test("a question answered in the chat disappears", async ({ page }) => {
   await question.getByRole("button", { name: "Send answer" }).click()
   await expect.poll(() => calls).toContain("POST /questions/qst_9/answer")
   await expect(question).toHaveCount(0)
+})
+
+// A request pi made in this chat that waits for the owner, as GET /approvals answers it.
+const pendingApproval = (id: string, to: string) => ({
+  id,
+  integration: "google",
+  label: "work",
+  action: "gmail.send",
+  action_name: "Send mail",
+  asked_by: "pi",
+  chat_id: chat.id,
+  title: `Send mail: ${to}`,
+  payload: [
+    { label: "To", value: to },
+    { label: "Subject", value: "Re: October invoice" },
+  ],
+  status: "pending",
+  used: false,
+  created_at: "2026-11-09T10:00:00Z",
+})
+
+// Scenario: pi asks twice to send a mail (issue #465). The owner approves the first for the rest of the chat and
+// denies the second in the card above the composer; each answer then stays in the chat as a row that says the
+// answer, what was asked, how far it reaches and when, and the card is gone.
+test("an answered approval stays in the chat as a row", async ({ page }) => {
+  const work = noWork()
+  work.approvals = [
+    pendingApproval("apr_1", "minh@example.com"),
+    pendingApproval("apr_2", "lan@example.com"),
+  ]
+  const calls = await fakeServer(
+    page,
+    (text) => ({ status: 201, body: message(9, { role: "owner", text }) }),
+    work,
+  )
+  await open(page)
+  await write(page, state(false))
+  await write(page, kept(1, { role: "owner", text: "Answer Minh and Lan about the invoice" }))
+
+  const first = page.getByRole("region", { name: "Approval needed: Send mail: minh@example.com" })
+  await expect(first).toBeVisible()
+  await first.getByRole("button", { name: "More approval options" }).click()
+  await page.getByRole("menuitem", { name: "Approve for this chat" }).click()
+  await expect.poll(() => calls).toContain("decide apr_1 approve_session")
+  await write(
+    page,
+    kept(2, {
+      role: "system",
+      kind: "approval",
+      text: 'Approved: "Send mail: minh@example.com" (apr_1), and Send mail for the rest of this chat.',
+      approval_id: "apr_1",
+      approval: {
+        title: "Send mail: minh@example.com",
+        action_name: "Send mail",
+        status: "approved",
+        scope: "session",
+        decided_at: "2026-11-09T10:01:00Z",
+      },
+    }),
+  )
+
+  const approved = page.getByRole("note", { name: "Approved: Send mail: minh@example.com" })
+  await expect(approved).toContainText("Send mail · For the rest of this chat")
+  await expect(first).toHaveCount(0)
+
+  const second = page.getByRole("region", { name: "Approval needed: Send mail: lan@example.com" })
+  await second.getByRole("button", { name: "Decline" }).click()
+  await expect.poll(() => calls).toContain("decide apr_2 reject")
+  await write(
+    page,
+    kept(3, {
+      role: "system",
+      kind: "approval",
+      text: 'Denied: "Send mail: lan@example.com" (apr_2). Do not run it; say so in your report.',
+      approval_id: "apr_2",
+      approval: {
+        title: "Send mail: lan@example.com",
+        action_name: "Send mail",
+        status: "rejected",
+        decided_at: "2026-11-09T10:02:00Z",
+      },
+    }),
+  )
+
+  const denied = page.getByRole("note", { name: "Denied: Send mail: lan@example.com" })
+  await expect(denied).toBeVisible()
+  await expect(second).toHaveCount(0)
+  await expect(approved).toBeVisible()
+  await settled(page)
+  await shot(page, "chat-approval-rows")
 })
 
 // settled waits for the page's animations and transitions to end, so that a picture shows where things came to rest.

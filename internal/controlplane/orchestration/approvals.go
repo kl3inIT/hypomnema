@@ -357,7 +357,10 @@ func (s *Service) ListApprovals(ctx context.Context, f ApprovalFilter) ([]Approv
 
 // DecideApproval records the owner's answer. The first answer wins: the same
 // answer again returns the stored Approval, another is a conflict, as a
-// question's answer.
+// question's answer. An Approval asked in a chat leaves a row there in the
+// same transaction (issue #465), as t3code keeps an answered request in its
+// timeline and AI Elements shows a confirmation accepted or rejected; pi is
+// given the row only when TellAgentOfApproval marks it.
 func (s *Service) DecideApproval(ctx context.Context, id string, approve bool, scope ApprovalScope) (Approval, error) {
 	status := ApprovalRejected
 	stored := sql.NullString{}
@@ -430,14 +433,49 @@ func (s *Service) DecideApproval(ctx context.Context, id string, approve bool, s
 		}
 
 		out, err = approvalFromRow(row)
+		if err != nil || out.ChatID == "" {
+			return err
+		}
 
-		return err
+		if err := q.InsertChatApproval(ctx, store.InsertChatApprovalParams{
+			ChatID: out.ChatID, Text: approvalNotice(out), ApprovalID: nullString(id), Now: now,
+		}); err != nil {
+			return fmt.Errorf("keeping the answer to approval %s in chat %s: %w", id, out.ChatID, err)
+		}
+
+		return q.TouchChat(ctx, store.TouchChatParams{ID: out.ChatID, Now: now})
 	})
 	if err != nil {
 		return Approval{}, err
 	}
 
 	return out, nil
+}
+
+// approvalNotice says what the owner answered and what the agent that asked
+// does now: a chat's row, which pi reads when it is told, or the answer to
+// the question a worker waits on.
+func approvalNotice(a Approval) string {
+	if a.Status != ApprovalApproved {
+		return fmt.Sprintf("Denied: %q (%s). Do not run it; say so in your report.", a.Title, a.ID)
+	}
+
+	where := "this Run"
+	if a.ChatID != "" {
+		where = "this chat"
+	}
+
+	switch a.Scope {
+	case ScopeSession:
+		return fmt.Sprintf("Approved: %q (%s), and %s for the rest of %s. Run the same command again.",
+			a.Title, a.ID, a.ActionName, where)
+	case ScopeRoutine:
+		return fmt.Sprintf("Approved: %q (%s), and %s always for this routine. Run the same command again.",
+			a.Title, a.ID, a.ActionName)
+	default:
+		return fmt.Sprintf("Approved: %q (%s), this once. Run the same command again, unchanged: it will pass once.",
+			a.Title, a.ID)
+	}
 }
 
 // UseApproval marks an approval for one request as run. It reports whether
@@ -459,40 +497,24 @@ func (s *Service) UseApproval(ctx context.Context, id string) (bool, error) {
 }
 
 // TellAgentOfApproval lets the agent that asked know the owner answered
-// after its request had ended (owner, 2026-11-11). A chat's coordinator gets
-// a wake-up in its chat. A worker gets the answer to the question it waits
-// on; a worker that asked none is not waiting and is told nothing. told says
+// after its request had ended (owner, 2026-11-11). A chat's coordinator is
+// given the answer's row in its chat, which DecideApproval wrote (issue
+// #465), once. A worker gets the answer to the question it waits on; a
+// worker that asked none is not waiting and is told nothing. told says
 // whether anyone was.
 func (s *Service) TellAgentOfApproval(ctx context.Context, a Approval) (told bool, err error) {
-	said := fmt.Sprintf("The owner rejected %q (%s). Do not run it; say so in your report.", a.Title, a.ID)
-	if a.Status == ApprovalApproved {
-		said = fmt.Sprintf("The owner approved %q (%s). Run the same command again, unchanged: it will pass once.",
-			a.Title, a.ID)
-
-		switch a.Scope {
-		case ScopeSession:
-			said = fmt.Sprintf("The owner approved %q (%s), and %s for the rest of this session. Run the same "+
-				"command again.", a.Title, a.ID, a.ActionName)
-		case ScopeRoutine:
-			said = fmt.Sprintf("The owner approved %q (%s), and %s always for this routine. Run the same command "+
-				"again.", a.Title, a.ID, a.ActionName)
-		default:
-		}
-	}
-
 	if a.ChatID != "" {
-		err := s.write(ctx, func(q *store.Queries, now int64) error {
-			if err := q.InsertChatNotice(ctx, store.InsertChatNoticeParams{ChatID: a.ChatID, Text: said, Now: now}); err != nil {
-				return err
-			}
+		err := s.write(ctx, func(q *store.Queries, _ int64) error {
+			n, err := q.TellChatOfApproval(ctx, nullString(a.ID))
+			told = n > 0
 
-			return q.TouchChat(ctx, store.TouchChatParams{ID: a.ChatID, Now: now})
+			return err
 		})
 		if err != nil {
 			return false, fmt.Errorf("telling chat %s of approval %s: %w", a.ChatID, a.ID, err)
 		}
 
-		return true, nil
+		return told, nil
 	}
 
 	if a.DispatchID == "" {
@@ -508,7 +530,7 @@ func (s *Service) TellAgentOfApproval(ctx context.Context, a Approval) (told boo
 		return false, fmt.Errorf("reading the question dispatch %s waits on: %w", a.DispatchID, err)
 	}
 
-	if _, err := s.AnswerQuestion(ctx, question, AddressOwner, Answer{Text: said}); err != nil {
+	if _, err := s.AnswerQuestion(ctx, question, AddressOwner, Answer{Text: approvalNotice(a)}); err != nil {
 		return false, fmt.Errorf("answering the question dispatch %s waits on: %w", a.DispatchID, err)
 	}
 

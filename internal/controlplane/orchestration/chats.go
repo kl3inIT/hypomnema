@@ -49,7 +49,8 @@ const (
 	ChatFailed ChatKind = "failed"
 	// ChatStopped ends a turn the owner stopped.
 	ChatStopped ChatKind = "stopped"
-	// ChatApproval tells the coordinator the owner answered an Approval.
+	// ChatApproval is the owner's answer to an Approval asked in the chat (issue #465), given to the coordinator
+	// when its request had ended.
 	ChatApproval ChatKind = "approval"
 	// ChatArtifact shows an artifact a Bot made (issue #402, artifacts.go).
 	ChatArtifact ChatKind = "artifact"
@@ -212,9 +213,24 @@ type ChatMessage struct {
 	Attachments []ChatAttachment
 	// Artifact is what an artifact's message shows (issue #402); nil for other messages.
 	Artifact *ArtifactCard
+	// ApprovalID is the Approval an approval row answers (issue #465); empty for other messages and older rows.
+	ApprovalID string
+	// Approval is that Approval as it was answered, read with the message; nil where the message is read for pi.
+	Approval *ChatApprovalAnswer
 	// DeliveredAt is when pi got an owner message or a wake-up.
 	DeliveredAt *time.Time
 	CreatedAt   time.Time
+}
+
+// ChatApprovalAnswer is what an approval row shows of its Approval (issue #465): what was asked, the answer and
+// how far it reaches, and when it was given. An answered Approval no longer changes, as a wake-up's event does not.
+type ChatApprovalAnswer struct {
+	Title      string
+	ActionName string
+	Status     ApprovalStatus
+	// Scope is how far an approval reaches; empty for a rejection.
+	Scope     ApprovalScope
+	DecidedAt *time.Time
 }
 
 // ChatAttachment is a file the owner attached to a message (issue #343), as t3code's chat attachment (name, size,
@@ -589,10 +605,31 @@ func (s *Service) ListChatMessages(ctx context.Context, chatID string, after int
 			}
 		}
 
+		if r.ApprovalStatus != "" {
+			m.Approval = chatApproval(r)
+		}
+
 		out = append(out, m)
 	}
 
 	return out, nil
+}
+
+func chatApproval(r store.ListChatMessagesRow) *ChatApprovalAnswer {
+	scope := ApprovalScope(r.ApprovalScope)
+	if r.ApprovalStanding == 1 {
+		scope = ScopeRoutine
+	}
+
+	a := &ChatApprovalAnswer{
+		Title: r.ApprovalTitle, ActionName: r.ApprovalActionName, Status: ApprovalStatus(r.ApprovalStatus), Scope: scope,
+	}
+	if r.ApprovalDecidedAt != 0 {
+		at := millis(r.ApprovalDecidedAt)
+		a.DecidedAt = &at
+	}
+
+	return a
 }
 
 func chatWake(r store.ListChatMessagesRow) *WakeEvent {
@@ -636,6 +673,7 @@ func chatMessage(r store.ChatMessage) ChatMessage {
 		Parts:       rawParts(r.Parts),
 		Attachments: attachmentsOf(r.Attachments),
 		EventSeq:    r.EventSeq.Int64,
+		ApprovalID:  r.ApprovalID.String,
 		DeliveredAt: optionalTime(r.DeliveredAt), CreatedAt: millis(r.CreatedAt),
 	}
 }

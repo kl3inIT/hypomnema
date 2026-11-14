@@ -28,7 +28,8 @@ RETURNING seq;
 
 -- name: ListChatMessages :many
 -- Each wake-up with the event it reports (issue #303): the event never changes, so it is read here rather than kept
--- on the row. Other rows have empty event columns.
+-- on the row. Other rows have empty event columns. An answered Approval's row is read with its Approval, which no
+-- longer changes once answered (issue #465).
 SELECT sqlc.embed(chat_messages),
        CAST(coalesce(events.kind, '') AS TEXT)        AS event_kind,
        CAST(coalesce(events.run_id, '') AS TEXT)      AS event_run_id,
@@ -39,12 +40,19 @@ SELECT sqlc.embed(chat_messages),
        CAST(coalesce(artifacts.revision, 0) AS INTEGER) AS artifact_revision,
        CAST(coalesce(artifacts.updated_at, 0) AS INTEGER) AS artifact_updated_at,
        CAST(coalesce(artifact_revisions.title, '') AS TEXT) AS artifact_title,
-       CAST(coalesce(artifact_revisions.type, '') AS TEXT)  AS artifact_type
+       CAST(coalesce(artifact_revisions.type, '') AS TEXT)  AS artifact_type,
+       CAST(coalesce(approvals.status, '') AS TEXT)      AS approval_status,
+       CAST(coalesce(approvals.scope, '') AS TEXT)       AS approval_scope,
+       CAST(coalesce(approvals.standing, 0) AS INTEGER)  AS approval_standing,
+       CAST(coalesce(approvals.title, '') AS TEXT)       AS approval_title,
+       CAST(coalesce(approvals.action_name, '') AS TEXT) AS approval_action_name,
+       CAST(coalesce(approvals.decided_at, 0) AS INTEGER) AS approval_decided_at
 FROM chat_messages
 LEFT JOIN events ON chat_messages.kind = 'wake' AND events.seq = chat_messages.event_seq
 LEFT JOIN artifacts ON chat_messages.kind = 'artifact' AND artifacts.message_seq = chat_messages.seq
 LEFT JOIN artifact_revisions ON artifact_revisions.artifact_id = artifacts.id
     AND artifact_revisions.revision = artifacts.revision
+LEFT JOIN approvals ON chat_messages.kind = 'approval' AND approvals.id = chat_messages.approval_id
 WHERE chat_messages.chat_id = @chat_id AND chat_messages.seq > @after
 ORDER BY chat_messages.seq
 LIMIT @lim;
@@ -104,11 +112,16 @@ LIMIT @lim;
 -- A chat still under the default title takes one from its first owner message.
 UPDATE chats SET title = @title WHERE id = @id AND title = 'Chat';
 
--- name: InsertChatNotice :exec
--- A message of the control plane's own that the coordinator is given as a wake-up, though no event of a Run is
--- behind it: the owner answered an Approval (issue #154).
-INSERT INTO chat_messages (chat_id, role, kind, text, to_coordinator, created_at)
-VALUES (@chat_id, 'system', 'approval', @text, 1, @now);
+-- name: InsertChatApproval :exec
+-- The owner answered an Approval asked in this chat (issue #465): the row stays where the answer was given. pi is
+-- given it only once TellChatOfApproval marks it for the coordinator.
+INSERT INTO chat_messages (chat_id, role, kind, text, approval_id, created_at)
+VALUES (@chat_id, 'system', 'approval', @text, @approval_id, @now);
+
+-- name: TellChatOfApproval :execrows
+-- The coordinator is given an answered Approval's row as a wake-up, though no event of a Run is behind it (issue
+-- #154): its request had ended, so it must run the command again. Once only.
+UPDATE chat_messages SET to_coordinator = 1 WHERE approval_id = @approval_id AND to_coordinator = 0;
 
 -- name: CountChatsOfBot :one
 SELECT count(*) FROM chats WHERE bot = @bot;

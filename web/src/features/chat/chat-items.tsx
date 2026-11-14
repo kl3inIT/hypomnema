@@ -23,6 +23,7 @@ import { SetupChangeCard } from "@/features/bots/setup-change-card"
 import { RunCard, SetUpCard } from "@/features/routines/chat-cards"
 import { cn } from "@/lib/utils"
 
+import { ApprovalRow } from "./approval-row"
 import { failed, type ChatItem, type Step } from "./chat-state"
 import Markdown from "./markdown"
 import { MessageFiles } from "./message-files"
@@ -59,6 +60,8 @@ export function ChatItemView({
       return <WakeCard wake={item.wake} />
     case "artifact":
       return <ArtifactCard card={item.artifact} />
+    case "approval":
+      return <ApprovalRow approval={item.approval} />
     case "reply":
       return (
         <Reply text={item.text} streaming={item.streaming} createdAt={item.createdAt} bot={bot} />
