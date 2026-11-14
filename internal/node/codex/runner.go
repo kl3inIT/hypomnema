@@ -168,8 +168,25 @@ func (rt *CodexRuntime) Prepare(_ context.Context, d statedb.Dispatch) (runner.L
 	}, nil
 }
 
-// Adopted is a turn read on from where an earlier daemon left it.
-func (rt *CodexRuntime) Adopted() runner.Turn { return &turn{} }
+// Adopted is a turn read on from where an earlier daemon left it, with what
+// it had learnt by then.
+func (rt *CodexRuntime) Adopted(state []byte) runner.Turn {
+	t := &turn{}
+
+	var s saved
+	if json.Unmarshal(state, &s) == nil {
+		t.done, t.failure, t.usage = s.Done, s.Failure, s.Usage
+	}
+
+	return t
+}
+
+// saved is what a turn keeps across a daemon restart.
+type saved struct {
+	Done    bool             `json:"done,omitempty"`
+	Failure string           `json:"failure,omitempty"`
+	Usage   *nodeproto.Usage `json:"usage,omitempty"`
+}
 
 // env is the worker's whole environment: a clean one, with the gateway's key
 // and the Conversation's CODEX_HOME.
@@ -244,6 +261,13 @@ func (t *turn) Interrupt() []byte { return nil }
 
 func (t *turn) Result() runner.Result {
 	return runner.Result{Done: t.done, Failure: t.failure, Usage: t.usage}
+}
+
+func (t *turn) State() []byte {
+	//nolint:errchkjson // A bool, a string and numbers.
+	raw, _ := json.Marshal(saved{Done: t.done, Failure: t.failure, Usage: t.usage})
+
+	return raw
 }
 
 // Outcome is a worker that exited without calling finish: the gateway's key

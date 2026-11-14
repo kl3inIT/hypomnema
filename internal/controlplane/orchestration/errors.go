@@ -1,22 +1,14 @@
 package orchestration
 
-import "errors"
+import "github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/storeerr"
 
-// Errors callers match with errors.Is.
+// Errors callers match with errors.Is. Each is storeerr's, so a domain store
+// gives the same one; storeerr says what each means.
 var (
-	// ErrNotFound: the Run, Task, Dispatch, Conversation, node or account does not exist.
-	ErrNotFound = errors.New("not found")
-	// ErrConflict: the record is not in a status that allows the change, or a
-	// node call names a stale epoch or reuses a request id with another payload.
-	ErrConflict = errors.New("conflict")
-	// ErrInvalid: the request itself is wrong (empty field, unknown dependency).
-	ErrInvalid = errors.New("invalid request")
-	// ErrCoolingDown: the account hit a rate limit and takes no Dispatch yet.
-	ErrCoolingDown = errors.New("account is cooling down")
-	// ErrUnavailable: no capacity now; the system, the node or the account
-	// cannot take the Dispatch (at the limit, offline, drained or unknown).
-	ErrUnavailable = errors.New("unavailable")
-	// ErrForbidden: the caller may not do this, such as a Bot giving work to
-	// a profile it may not give work to.
-	ErrForbidden = errors.New("forbidden")
+	ErrNotFound    = storeerr.ErrNotFound
+	ErrConflict    = storeerr.ErrConflict
+	ErrInvalid     = storeerr.ErrInvalid
+	ErrCoolingDown = storeerr.ErrCoolingDown
+	ErrUnavailable = storeerr.ErrUnavailable
+	ErrForbidden   = storeerr.ErrForbidden
 )

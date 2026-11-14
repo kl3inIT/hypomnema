@@ -26,7 +26,7 @@ func (o *owner) users(ctx context.Context, args []string) error {
 			return err
 		}
 
-		u, err := o.svc.AddUser(ctx, args[1], password)
+		u, err := o.svc.Users().AddUser(ctx, args[1], password)
 		if err != nil {
 			return err
 		}
@@ -40,7 +40,7 @@ func (o *owner) users(ctx context.Context, args []string) error {
 			return err
 		}
 
-		if err := o.svc.SetUserPassword(ctx, args[1], password); err != nil {
+		if err := o.svc.Users().SetUserPassword(ctx, args[1], password); err != nil {
 			return err
 		}
 
@@ -48,7 +48,7 @@ func (o *owner) users(ctx context.Context, args []string) error {
 
 		return nil
 	case len(args) == 1 && args[0] == "list":
-		users, err := o.svc.ListUsers(ctx)
+		users, err := o.svc.Users().ListUsers(ctx)
 		if err != nil {
 			return err
 		}

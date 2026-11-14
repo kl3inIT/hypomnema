@@ -16,6 +16,7 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/storeutil"
 )
 
 // Profiles (issue #42), after Omnara's agent configs and profiles: a profile
@@ -72,7 +73,7 @@ var runtimeProviders = map[string][]string{
 var Efforts = []string{"low", "medium", "high", "xhigh", "max"}
 
 var (
-	namePattern   = regexp.MustCompile(`^[a-z][a-z0-9-]{0,62}$`)
+	namePattern   = storeutil.NamePattern
 	keyRefPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_./:-]{0,99}$`)
 )
 

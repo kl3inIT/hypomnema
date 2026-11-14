@@ -17,7 +17,7 @@ func (noRuntime) Prepare(context.Context, statedb.Dispatch) (runner.Launch, erro
 	return runner.Launch{}, nil
 }
 
-func (noRuntime) Adopted() runner.Turn { return nil }
+func (noRuntime) Adopted([]byte) runner.Turn { return nil }
 
 // Scenario: the node starts. Every runtime it looks for has one Runtime; a
 // key named twice or a runtime with none stops it at startup, not at the

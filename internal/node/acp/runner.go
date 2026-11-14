@@ -133,8 +133,28 @@ func (rt *ACPRuntime) Prepare(_ context.Context, d statedb.Dispatch) (runner.Lau
 	}, nil
 }
 
-// Adopted is a turn whose handshake is past.
-func (rt *ACPRuntime) Adopted() runner.Turn { return &turn{rt: rt} }
+// Adopted is a turn whose handshake is past, with what it had learnt by
+// then: its session above all, which a stop cancels.
+func (rt *ACPRuntime) Adopted(state []byte) runner.Turn {
+	t := &turn{rt: rt}
+
+	var s saved
+	if json.Unmarshal(state, &s) == nil {
+		t.session, t.done, t.failure, t.usage = s.Session, s.Done, s.Failure, s.Usage
+		t.text.WriteString(s.Text)
+	}
+
+	return t
+}
+
+// saved is what a turn keeps across a daemon restart.
+type saved struct {
+	Session string           `json:"session,omitempty"`
+	Text    string           `json:"text,omitempty"`
+	Done    bool             `json:"done,omitempty"`
+	Failure string           `json:"failure,omitempty"`
+	Usage   *nodeproto.Usage `json:"usage,omitempty"`
+}
 
 // request is one JSON-RPC request as a line.
 func request(id int, method string, params any) []byte {
@@ -258,6 +278,18 @@ func (t *turn) Result() runner.Result {
 	defer t.mu.Unlock()
 
 	return runner.Result{Done: t.done, Failure: t.failure, Usage: t.usage}
+}
+
+func (t *turn) State() []byte {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	//nolint:errchkjson // Strings, a bool and numbers.
+	raw, _ := json.Marshal(saved{
+		Session: t.session, Text: t.text.String(), Done: t.done, Failure: t.failure, Usage: t.usage,
+	})
+
+	return raw
 }
 
 // openSession follows the agent's answer to initialize: a follow-up resumes
