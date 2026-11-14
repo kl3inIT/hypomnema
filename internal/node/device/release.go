@@ -15,7 +15,7 @@ package device
 // its size and `sha256sum` here.
 //
 // cmdline-tools are not installed: the emulator boots from these folders
-// alone with an AVD written by hand (avd.go), with no package.xml, sdkmanager,
+// alone with an AVD written without avdmanager (avd.go), with no package.xml, sdkmanager,
 // avdmanager or Java (tried on 2026-11-14).
 
 // component is one pinned file and where it goes under the device's

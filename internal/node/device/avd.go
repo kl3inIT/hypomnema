@@ -1,6 +1,7 @@
 package device
 
 import (
+	_ "embed"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -9,13 +10,19 @@ import (
 	"strings"
 )
 
-// The phone is one AVD, written by hand rather than with avdmanager, which
-// needs cmdline-tools and Java: an AVD is a pointer file, <name>.ini, and a
-// folder holding config.ini, and the emulator reads nothing else to boot it
-// (tried on 2026-11-14, issue #417). Orca boots an AVD made beforehand the
-// same way (src/main/emulator/android/android-avd-boot.ts). The settings are
-// the ones proven on the trial machine
-// (docs/research/2026-11-14-android-device-for-agents.md, section 2).
+// The phone is one AVD, written without avdmanager, which needs cmdline-tools
+// and Java: an AVD is a pointer file, <name>.ini, and a folder holding
+// config.ini. Orca boots an AVD made beforehand the same way
+// (src/main/emulator/android/android-avd-boot.ts).
+//
+// config.ini is the file avdmanager writes for a Pixel 6 with this system
+// image, word for word, with the proven settings appended (an 8 GB data
+// partition, a keyboard, 720x1280 at 320 dpi, 4 GB of RAM; a key given twice
+// takes its last value). A minimal config.ini boots, but adb stays
+// unauthorized forever, also with PlayStore.enabled=no; avdmanager's file is
+// authorized and boots in 33 s (trial machine, 2026-11-14, issue #417). Its
+// PlayStore.enabled=no is what avdmanager writes for a Play image too; the
+// Play Store is still installed. The GPU mode is given on the command line.
 //
 // An AVD that exists is never written again: its folder holds the phone's
 // disk, with the owner's sign-ins.
@@ -25,23 +32,11 @@ const (
 	avdDir  = "avd"
 )
 
-// avdConfig is the phone's config.ini, in the order it is written.
-var avdConfig = [][2]string{
-	{"AvdId", avdName},
-	{"abi.type", "x86_64"},
-	{"hw.cpu.arch", "x86_64"},
-	{"image.sysdir.1", "system-images/android-34/google_apis_playstore/x86_64/"},
-	{"tag.id", "google_apis_playstore"},
-	{"PlayStore.enabled", "true"},
-	{"hw.lcd.width", "720"},
-	{"hw.lcd.height", "1280"},
-	{"hw.lcd.density", "320"},
-	{"hw.ramSize", "4096"},
-	{"disk.dataPartition.size", "8G"},
-	{"hw.keyboard", "yes"},
-	{"hw.gpu.enabled", "yes"},
-	{"hw.gpu.mode", "host"},
-}
+//go:embed avd-config.ini
+var avdTemplate string
+
+// avdConfig is the phone's config.ini: its name, then avdmanager's template.
+var avdConfig = lines([][2]string{{"AvdId", avdName}, {"avd.ini.displayname", avdName}}) + avdTemplate
 
 // writeAVD writes the phone's two files under dir/avd, each only when it is
 // not there.
@@ -60,7 +55,7 @@ func writeAVD(dir string) error {
 		return err
 	}
 
-	return writeOnce(filepath.Join(folder, "config.ini"), lines(avdConfig))
+	return writeOnce(filepath.Join(folder, "config.ini"), avdConfig)
 }
 
 func lines(pairs [][2]string) string {

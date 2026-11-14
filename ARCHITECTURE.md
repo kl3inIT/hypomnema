@@ -361,9 +361,12 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     points inside its archive), the two others into `bin/`. `installed.json` records each component's version
     and checksum as it is installed: an install that stopped takes up at the component it stopped in, the
     download of that one starting again whole. cmdline-tools, sdkmanager, avdmanager and Java are not installed.
-  - The AVD is written by hand (`avd.go`): `avd/phone.ini` and `avd/phone.avd/config.ini`, 720×1280 at 320 dpi,
-    4 GB of RAM, an 8 GB data partition, a keyboard, the GPU in `host` mode, Play on. A file that is there is never
-    written again: the folder holds the phone's disk, with the owner's sign-ins.
+  - The AVD is written without avdmanager (`avd.go`): `avd/phone.ini` and `avd/phone.avd/config.ini`. The
+    config is the file avdmanager writes for a Pixel 6 with this image (`avd-config.ini`, embedded, with
+    `PlayStore.enabled=no` as avdmanager writes it; the Play Store is still there), its name first and the proven
+    settings last: 720×1280 at 320 dpi, 4 GB of RAM, an 8 GB data partition, a keyboard. A minimal config booted,
+    but adb stayed unauthorized (trial machine, 2026-11-14). A file that is there is never written again: the
+    folder holds the phone's disk, with the owner's sign-ins.
   - A start (`device.go`): `/dev/kvm` must be usable; then Xvfb on the first free display from `:99`
     (1280x1024x24, GLX), adb's server of the SDK started before the emulator with the node user's own
     `~/.android`, so its key exists for the Play image to authorize (HOME and `ANDROID_USER_HOME` are not
