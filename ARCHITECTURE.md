@@ -980,6 +980,21 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       `deploy/coordinator/setup-coordinator.sh` installs the tools for the coordinator's user
       (`hypomnema tool install`), `hypomnema-pi` puts the scripts on pi's `PATH`, and the launcher uses the token
       of pi's client configuration: in pi's box, pi's own (issue #260).
+    - **The documents environment** (issue #401, after Hermes's `hermes pm environment documents`:
+      `pm/cli.py` `cmd_environment`, `pm/operations.py` `ensure_environment`): `hypomnema tool install` also
+      installs `uv` 0.13.8 (`agenttool.UV()`, pinned by the `.sha256` beside each release file, for no Integration
+      and with no script) and builds with it, under the coordinator's tools, one Python environment for the
+      document skills: Python 3.14.9 managed by uv (`tools/python`, each download checked by uv against its
+      own pinned SHA-256) and the packages of `internal/shared/agenttool/documents/uv.lock` (python-docx 1.2.0,
+      openpyxl 3.1.5, python-pptx 1.0.2, reportlab 5.1.0, pypdf 6.21.4, pdfplumber 0.11.10, pypdfium2 5.14.0 and
+      their dependencies, every file by its hash), with `uv sync --frozen --compile-bytecode`. Each build is a
+      generation, `tools/envs/documents/gen-<32 hex>/venv`, checked with the pdf skill's imports and then
+      selected by `active.json`, written last and atomically after a disk sync; builders take turns on
+      `.install.lock`, a build of unchanged pins does nothing, and a failed build leaves the selection as it was.
+      No generation is removed. `hypomnema-pi` reads `active.json` as pi starts and puts that generation's `bin`
+      first on `PATH`, inside the box's read-only tools, so `python` there imports the libraries and a running pi
+      keeps its generation through a rebuild; without one, pi starts with the system's Python. No sudo and no
+      system `python3-venv` are needed. A Routine's script does not get it.
     - **The skill** (`internal/shared/agenttool/skills/google-workspace`) is taken from the Google Workspace
       CLI's skills (Apache-2.0) and Hermes' references (MIT), each file naming its source and what was changed:
       Gmail, Calendar and Drive commands, the mail search operators and a morning brief. Its guide replaces the
