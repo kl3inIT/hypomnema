@@ -64,19 +64,26 @@ type botSettings struct {
 	SkillsOff   []string  `json:"skills_off,omitempty"`
 	Connections AllowList `json:"connections"`
 	Workers     AllowList `json:"workers"`
+	// ToolDisplay is empty for ToolsOn, so a Bot's revision from before it was a setting stays the same.
+	ToolDisplay ToolDisplay `json:"tool_display,omitempty"`
 }
 
 func settingsOfBot(b Bot) botSettings {
+	display := b.ToolDisplay
+	if display == ToolsOn {
+		display = ""
+	}
+
 	return botSettings{
 		Provider: b.Provider, Model: b.Model, Effort: b.Effort, Persona: b.Persona, Skills: b.Skills,
-		SkillsOff: b.SkillsOff, Connections: b.Connections, Workers: b.Workers,
+		SkillsOff: b.SkillsOff, Connections: b.Connections, Workers: b.Workers, ToolDisplay: display,
 	}
 }
 
 func (b botSettings) bot(name string) Bot {
 	return Bot{
 		Name: name, Provider: b.Provider, Model: b.Model, Effort: b.Effort, Persona: b.Persona, Skills: b.Skills,
-		SkillsOff: b.SkillsOff, Connections: b.Connections, Workers: b.Workers,
+		SkillsOff: b.SkillsOff, Connections: b.Connections, Workers: b.Workers, ToolDisplay: b.ToolDisplay,
 	}
 }
 

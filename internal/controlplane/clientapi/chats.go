@@ -126,27 +126,38 @@ func (s *Server) ListChatMessages(ctx context.Context, req openapi.ListChatMessa
 			return nil, err
 		}
 
+		// Read at each page: a change of the Bot's setting applies at once (issue #441).
+		display, err := s.svc.ChatToolDisplay(ctx, req.ChatId)
+		if err != nil {
+			return nil, err
+		}
+
 		if len(msgs) > 0 || wake == nil {
-			return chatMessageList(msgs, val(p.After)), nil
+			return chatMessageList(msgs, val(p.After), display), nil
 		}
 
 		select {
 		case <-wake:
 		case <-deadline:
-			return chatMessageList(msgs, val(p.After)), nil
+			return chatMessageList(msgs, val(p.After), display), nil
 		case <-s.stop:
-			return chatMessageList(msgs, val(p.After)), nil
+			return chatMessageList(msgs, val(p.After), display), nil
 		case <-ctx.Done():
 			return nil, fmt.Errorf("waiting for messages: %w", ctx.Err())
 		}
 	}
 }
 
-func chatMessageList(msgs []orchestration.ChatMessage, after int64) openapi.ListChatMessages200JSONResponse {
+// chatMessageList is a page as the Bot's tool display shows it: a message it hides still moves the cursor on.
+func chatMessageList(msgs []orchestration.ChatMessage, after int64, display orchestration.ToolDisplay,
+) openapi.ListChatMessages200JSONResponse {
 	out := openapi.ListChatMessages200JSONResponse{Data: make([]openapi.ChatMessage, 0, len(msgs)), NextAfter: after}
 
 	for _, m := range msgs {
-		out.Data = append(out.Data, toChatMessage(m))
+		if shown, ok := coordinator.ShownMessage(display, m); ok {
+			out.Data = append(out.Data, toChatMessage(shown))
+		}
+
 		out.NextAfter = m.Seq
 	}
 
@@ -349,8 +360,15 @@ func (s *Server) streamChat(ctx context.Context, w http.ResponseWriter, chatID s
 
 	flusher.Flush()
 
+	var display orchestration.ToolDisplay
+
 	for {
 		msgs, err := s.svc.ListChatMessages(ctx, chatID, after, orchestration.ChatPageMax)
+		if err == nil {
+			// Read at each wake-up, so a change of the Bot's setting applies to what is sent next (issue #441).
+			display, err = s.svc.ChatToolDisplay(ctx, chatID)
+		}
+
 		if err != nil {
 			if ctx.Err() == nil {
 				s.logger.ErrorContext(ctx, "chat stream failed",
@@ -361,7 +379,14 @@ func (s *Server) streamChat(ctx context.Context, w http.ResponseWriter, chatID s
 		}
 
 		for _, m := range msgs {
-			if !writeSSE(w, strconv.FormatInt(m.Seq, 10), toChatMessage(m), "message") {
+			visible, ok := coordinator.ShownMessage(display, m)
+			if !ok {
+				after = m.Seq
+
+				continue
+			}
+
+			if !writeSSE(w, strconv.FormatInt(m.Seq, 10), toChatMessage(visible), "message") {
 				return nil
 			}
 
@@ -392,6 +417,11 @@ func (s *Server) streamChat(ctx context.Context, w http.ResponseWriter, chatID s
 			case <-wake:
 				break wait
 			case f := <-live:
+				f, ok := coordinator.ShownFrame(display, f)
+				if !ok {
+					continue
+				}
+
 				if !writeSSE(w, "", f.Data, f.Event) {
 					return nil
 				}

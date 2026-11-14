@@ -56,6 +56,7 @@ const builder = {
   skills_off: [],
   connections: { limited: false, names: [] },
   workers: { limited: false, names: [] },
+  tool_display: "on",
   created_at: "2026-11-09T10:00:00Z",
   updated_at: "2026-11-09T10:00:00Z",
 }
@@ -870,4 +871,213 @@ test("no context meter before pi reported", async ({ page }) => {
 
   await expect(page.getByRole("combobox", { name: /^Model:/ })).toBeVisible()
   await expect(page.getByRole("button", { name: /^Context:/ })).toHaveCount(0)
+})
+
+// The tool calls of one turn as the server sends them at each level of the Bot's setting (issue #441): at full with
+// their arguments, output and time; at on with the tool's name only; at off none.
+const longOutput = `${"412 rows of the report\n".repeat(60)}END OF REPORT`
+const fullCalls = [
+  {
+    role: "tool",
+    text: "pi ran read: report.sql",
+    parts: [
+      {
+        type: "tool_result",
+        id: "t1",
+        name: "read",
+        args: { path: "report.sql" },
+        output: "SELECT 1",
+        duration_ms: 40,
+      },
+    ],
+  },
+  {
+    role: "tool",
+    text: "pi ran bash: superset export",
+    parts: [
+      {
+        type: "tool_result",
+        id: "t2",
+        name: "bash",
+        args: { command: "superset export --dashboard 12" },
+        output: longOutput,
+        duration_ms: 4200,
+      },
+    ],
+  },
+  {
+    role: "tool",
+    text: "pi ran bash: lark send",
+    parts: [
+      {
+        type: "tool_result",
+        id: "t3",
+        name: "bash",
+        args: { command: "lark send report.xlsx" },
+        output: "permission denied",
+        error: true,
+        duration_ms: 900,
+      },
+    ],
+  },
+]
+const onCalls = fullCalls.map((m) => ({
+  role: "tool",
+  text: `pi used ${m.parts[0]!.name}`,
+  parts: m.parts.map((p) => ({
+    type: p.type,
+    id: p.id,
+    name: p.name,
+    ...("error" in p && { error: true }),
+  })),
+}))
+
+async function turn(page: Page, calls: object[]) {
+  await fakeServer(page, (text) => ({ status: 201, body: message(9, { role: "owner", text }) }))
+  await open(page)
+  await write(
+    page,
+    state(false) +
+      kept(1, { role: "owner", text: "send the report" }) +
+      calls.map((c, i) => kept(i + 2, c)).join("") +
+      kept(calls.length + 2, {
+        role: "coordinator",
+        text: "The report is ready; Lark refused the send.",
+      }),
+  )
+  await expect(page.getByRole("log").getByText("The report is ready")).toBeVisible()
+}
+
+// Scenario: the Bot shows its calls in full. Three calls in a row are one group, "Ran 3 tools", marked as failed
+// since one did; open, each row says what it did and how long it took, the failed one in red. A row opens to its
+// command and the start of its output, and Show all gives the rest.
+test("tool calls in full group, open to their command and output, and show all of it", async ({
+  page,
+}) => {
+  await turn(page, fullCalls)
+  const log = page.getByRole("log")
+
+  const group = log.getByRole("button", { name: /Ran 3 tools/ })
+  await expect(group.getByLabel("failed")).toBeVisible()
+  await group.click()
+  await expect(log.getByRole("button", { name: /Read\s*report\.sql/ })).toContainText("40ms")
+  await expect(log.getByRole("button", { name: /Ran\s*lark send report\.xlsx/ })).toContainText(
+    "900ms",
+  )
+  await shot(page, "chat-tools-full")
+
+  await log.getByRole("button", { name: /Ran\s*superset export/ }).click()
+  await expect(log.getByLabel("Input")).toHaveText("superset export --dashboard 12")
+  await expect(log.getByLabel("Output")).not.toContainText("END OF REPORT")
+  await shot(page, "chat-tools-full-open")
+
+  await log.getByRole("button", { name: /Show all/ }).click()
+  await expect(log.getByLabel("Output")).toContainText("END OF REPORT")
+})
+
+// Scenario: the Bot shows its calls on: the rows name each tool, without a command, and do not open.
+test("tool calls shown on name their tools and do not open", async ({ page }) => {
+  await turn(page, onCalls)
+  const log = page.getByRole("log")
+
+  await log.getByRole("button", { name: /Ran 3 tools/ }).click()
+  await expect(log.getByText("read", { exact: true })).toBeVisible()
+  await expect(log.getByText("bash", { exact: true })).toHaveCount(2)
+  await expect(log.getByText(/superset export|lark send/)).toHaveCount(0)
+  await expect(log.getByRole("button", { name: /^bash/ })).toHaveCount(0)
+  await shot(page, "chat-tools-on")
+})
+
+// Scenario: the Bot shows no calls: the server sent none, and the chat has the question and the answer only.
+test("tool calls shown off leave only the answers", async ({ page }) => {
+  await turn(page, [])
+  const log = page.getByRole("log")
+
+  await expect(log.getByRole("button", { name: /Ran \d+ tools?/ })).toHaveCount(0)
+  await expect(log.getByText("send the report")).toBeVisible()
+  await shot(page, "chat-tools-off")
+})
+
+// Scenario: the owner writes in a chat, goes to another chat and comes back, then reloads (issue #433): what was
+// written is still there. Sent, the draft goes and a reload finds the box empty. In the empty box ↑ brings back
+// what the chat sent, newest first, and ↓ goes back to the empty box.
+test("a chat keeps its draft, and ↑ brings back what it sent", async ({ page, isMobile }) => {
+  await fakeServer(page, (text) => ({ status: 201, body: message(2, { role: "owner", text }) }))
+  const other = { ...chat, id: "cht_2", title: "login page" }
+  // The other chat: listed beside this one, with no work of its own.
+  await page.route(
+    (url) =>
+      url.pathname.startsWith("/api/v1/") &&
+      (url.pathname === "/api/v1/chats" ||
+        url.pathname.startsWith(`/api/v1/chats/${other.id}`) ||
+        url.searchParams.get("chat_id") === other.id),
+    (route) => {
+      const path = new URL(route.request().url()).pathname.replace("/api/v1", "")
+      const body =
+        path === "/chats"
+          ? { data: [chat, other] }
+          : path === `/chats/${other.id}`
+            ? other
+            : { data: [] }
+
+      return route.fulfill({ contentType: "application/json", body: JSON.stringify(body) })
+    },
+  )
+  // goTo opens a chat from the Bot's chats in the list, which a phone shows behind its menu.
+  const goTo = async (title: string) => {
+    if (isMobile) await page.getByRole("link", { name: "Menu" }).click()
+    // The Bot's two chats are under it, shown with its toggle once the list is read.
+    const toggle = page
+      .getByRole("button", { name: /the chats of builder$/ })
+      .filter({ visible: true })
+      .first()
+    await expect(toggle).toBeVisible()
+    if ((await toggle.getAttribute("aria-expanded")) === "false") await toggle.click()
+    await page.getByRole("link", { name: title }).filter({ visible: true }).first().click()
+  }
+
+  await open(page)
+  await write(page, state(false) + kept(1, { role: "owner", text: "add a health page" }))
+  const box = page.getByRole("textbox", { name: "Message" })
+  await box.fill("and a test for it")
+
+  await goTo("login page")
+  await expect(page).toHaveURL(/\/chats\/cht_2$/)
+  await expect(box).toHaveValue("")
+
+  await goTo("health page")
+  await expect(page).toHaveURL(/\/chats\/cht_1$/)
+  await expect(box).toHaveValue("and a test for it")
+
+  await page.reload()
+  await expect.poll(() => streams(page)).toBe(1)
+  await write(page, state(false) + kept(1, { role: "owner", text: "add a health page" }))
+  await expect(box).toHaveValue("and a test for it")
+  await shot(page, "chat-draft-kept")
+
+  await box.press("Enter")
+  await expect(box).toHaveValue("")
+  await write(page, kept(2, { role: "owner", text: "and a test for it" }))
+  await page.reload()
+  await expect.poll(() => streams(page)).toBe(1)
+  await write(
+    page,
+    state(false) +
+      kept(1, { role: "owner", text: "add a health page" }) +
+      kept(2, { role: "owner", text: "and a test for it" }),
+  )
+  const log = page.getByRole("log")
+  await expect(log.getByText("and a test for it")).toBeVisible()
+  await expect(box).toHaveValue("")
+
+  await box.focus()
+  await box.press("ArrowUp")
+  await expect(box).toHaveValue("and a test for it")
+  await box.press("ArrowUp")
+  await expect(box).toHaveValue("add a health page")
+  await shot(page, "chat-recall")
+  await box.press("ArrowDown")
+  await expect(box).toHaveValue("and a test for it")
+  await box.press("ArrowDown")
+  await expect(box).toHaveValue("")
 })
