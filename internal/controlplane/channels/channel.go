@@ -115,7 +115,7 @@ type Message struct {
 	Sender     string
 	FromPerson bool
 	// SenderOrg and Org are the organization of the sender and of the
-	// account (MemoryOS, ChannelFeatures.organisations).
+	// account (MemoryOS, ChannelFeatures).
 	SenderOrg string
 	Org       string
 	// ReplyTo is the message this one replies to, when it is a reply.

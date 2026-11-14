@@ -962,7 +962,8 @@ func TestTheOwnerSetsAChannelUp(t *testing.T) {
 	_, err := w.svc.Status(ctx, main)
 	require.ErrorIs(t, err, orchestration.ErrNotFound)
 
-	_, err = w.svc.Set(ctx, "Not A Name", larkchannel.Settings{AppID: appID, AppSecret: secret, Owner: "owner@example.com"})
+	_, err = w.svc.Set(ctx, "Not A Name",
+		larkchannel.Settings{AppID: appID, AppSecret: secret, Owner: "owner@example.com"})
 	require.ErrorIs(t, err, orchestration.ErrInvalid, "a Channel is named as a Bot is")
 
 	_, err = w.svc.Set(ctx, main, larkchannel.Settings{AppID: appID, AppSecret: secret})

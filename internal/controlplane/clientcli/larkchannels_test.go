@@ -58,7 +58,9 @@ func (l *larkChannelSettings) Status(_ context.Context, channel string) (channel
 	return st, nil
 }
 
-func (l *larkChannelSettings) Set(_ context.Context, channel string, set larkchannel.Settings) (channels.Status, error) {
+func (l *larkChannelSettings) Set(
+	_ context.Context, channel string, set larkchannel.Settings,
+) (channels.Status, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
