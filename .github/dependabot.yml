@@ -25,6 +25,9 @@ updates:
       # Its next build is used: the releases need the JavaScript compiler API that TypeScript 7 dropped, and
       # Dependabot reads 0.0.0-next-… as older than every release (#424). A newer next build is taken by hand.
       - dependency-name: "@hey-api/openapi-ts"
+      # react-pdf names the one pdf.js it runs with (11.0.0: 6.3.289) and the worker must be the same version, so
+      # pdfjs-dist moves only with react-pdf, by hand (#435).
+      - dependency-name: "pdfjs-dist"
   - package-ecosystem: npm
     # pi, the coordinator on the server; a new version is installed by running deploy/coordinator/setup-coordinator.sh.
     directory: /deploy/coordinator
