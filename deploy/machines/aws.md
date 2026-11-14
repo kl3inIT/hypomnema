@@ -84,8 +84,9 @@ hypomnema machines start build-1                     # turns it on; the node con
 hypomnema nodes rm build-1                           # destroys the instance, then forgets the node
 ```
 
-A new machine is Ubuntu 24.04 with a `hypomnema` user (no sudo), git, and the Claude Code and Codex CLIs. Their
-logins and git's credentials are **not** on it: until the vault delivers them, set them on the machine once, as on
+A new machine is Ubuntu 24.04 with a `hypomnema` user (no sudo), git, and the Claude Code and Codex CLIs. A Claude
+account the control plane keeps (`accounts add claude <label> --token`) and a git host's token reach it with each
+Dispatch, so nothing is set for them. The Codex CLI's login is **not** delivered: set it on the machine once, as on
 any node.
 
 `machines providers check` also lists instances that carry this provider's tag and that no node stands for. They
