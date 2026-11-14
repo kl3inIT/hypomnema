@@ -1,21 +1,13 @@
 import { expect, test, type Page } from "@playwright/test"
 
 import { shot } from "./shot.js"
+import type { GatewayKey as Key } from "../src/api/generated/types.gen.js"
 
 // The Gateway keys page of Settings (issue #199, step 6), built, against a fake client API, on a phone and a
 // desktop.
 
 const now = Date.now()
 const iso = (ms: number) => new Date(ms).toISOString()
-
-type Key = {
-  id: string
-  name: string
-  prefix: string
-  models: string[]
-  created_at: string
-  last_used_at?: string
-}
 
 const served = (name: string, provider: string) => ({
   name,

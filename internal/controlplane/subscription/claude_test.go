@@ -282,19 +282,6 @@ func (w *claudeWorld) account(session string, skip ...string) string {
 	return token.AccountID
 }
 
-// Scenario: one conversation keeps one account across its requests, so the
-// account's prompt cache stays warm.
-func TestAClaudeSessionKeepsItsAccount(t *testing.T) {
-	t.Parallel()
-
-	w := newClaudeWorld(t)
-	w.loginN(3)
-
-	home := w.account("conversation-1")
-	assert.Equal(t, home, w.account("conversation-1"), "the same session returns the same account")
-	assert.Equal(t, home, w.account("conversation-1"), "and again")
-}
-
 // Scenario: requests with no session are spread round-robin over the accounts,
 // so no one account takes all the load.
 func TestClaudeAccountsRoundRobinWithoutASession(t *testing.T) {

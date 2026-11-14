@@ -365,13 +365,6 @@ func (s *Service) RevokeNodeToken(ctx context.Context, tokenID string) error {
 	})
 }
 
-// AuthenticateNode returns the node a token belongs to.
-func (s *Service) AuthenticateNode(ctx context.Context, token string) (Node, error) {
-	n, _, err := s.AuthenticateNodeToken(ctx, token)
-
-	return n, err
-}
-
 // AuthenticateNodeToken returns the node a token belongs to and the token's
 // id, which CheckNodeToken takes while the node stays connected. A revoked
 // token and a removed node's token are unknown.

@@ -2,24 +2,13 @@ import { expect, test, type Page } from "@playwright/test"
 
 import { choose } from "./choose.js"
 import { shot } from "./shot.js"
+import type {
+  Bot,
+  SetupChange as Change,
+  ChatMessage as Message,
+} from "../src/api/generated/types.gen.js"
 
 // The Bots pages and the Bot of a chat, built, against a fake client API, on a phone and a desktop.
-
-type Bot = {
-  name: string
-  provider?: string
-  model?: string
-  effort?: string
-  persona: string
-  memory: string
-  memory_limit: number
-  skills: string[]
-  skills_off: string[]
-  connections: { limited: boolean; names: string[] }
-  workers: { limited: boolean; names: string[] }
-  created_at: string
-  updated_at: string
-}
 
 const hours = (n: number) => new Date(Date.now() - n * 3_600_000).toISOString()
 
@@ -125,20 +114,6 @@ const profiles = [
   profile("implementer", "claude", "Writes the change and opens a pull request."),
   profile("reviewer", "codex", "Reviews a pull request and reports what to fix."),
 ]
-
-type Change = {
-  id: string
-  chat_id: string
-  kind: "bot" | "profile"
-  name: string
-  action: "made" | "changed" | "removed"
-  can_undo: boolean
-  problem?: string
-  created_at: string
-  undone_at?: string
-}
-
-type Message = { seq: number; chat_id: string; role: string; text: string; created_at: string }
 
 const minutesAgo = (n: number) => new Date(Date.now() - n * 60_000).toISOString()
 
@@ -336,7 +311,7 @@ test("the Bots show as cards and as a table, each with its model and its memory"
   await shot(page, "bots-table")
 })
 
-// Scenario: the owner makes a Bot. A name with a capital keeps Create off; a model pi cannot use is refused in
+// Scenario: the owner makes a Bot. A name with a capital, or one a Bot has, keeps Create off; a model pi cannot use is refused in
 // the server's words; with a model it can use the Bot is stored and its page opens, its memory empty.
 test("a new Bot is made with a name, a model and a persona", async ({ page }) => {
   const calls = await fakeServer(page)
@@ -345,6 +320,10 @@ test("a new Bot is made with a name, a model and a persona", async ({ page }) =>
 
   await page.getByLabel("Name").fill("Researcher")
   await expect(page.getByText("Use lowercase letters, digits and dashes")).toBeVisible()
+  await expect(page.getByRole("button", { name: "Create Bot" })).toBeDisabled()
+
+  await page.getByLabel("Name").fill("coordinator")
+  await expect(page.getByText("A Bot has this name already.")).toBeVisible()
   await expect(page.getByRole("button", { name: "Create Bot" })).toBeDisabled()
 
   await page.getByLabel("Name").fill("researcher")

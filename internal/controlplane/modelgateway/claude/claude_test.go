@@ -304,29 +304,6 @@ func TestStreamTranslatesAnAnswer(t *testing.T) {
 	}, last["usage"])
 }
 
-// Scenario: the whole answer is one completion for a client that did not stream.
-func TestStreamCompletionGathersTheAnswer(t *testing.T) {
-	t.Parallel()
-
-	s := claude.NewStream("chatcmpl-1", 1700000000, "claude-sonnet-5-5", claude.Names{})
-	s.Event(msg(`{"type":"content_block_start","index":0,"content_block":{"type":"text"}}`))
-	s.Event(msg(`{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"hi there"}}`))
-	s.Event(msg(`{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":2}}`))
-
-	var completion map[string]any
-	require.NoError(t, json.Unmarshal(s.Completion(), &completion))
-
-	assert.Equal(t, "chat.completion", completion["object"])
-	choices, ok := completion["choices"].([]any)
-	require.True(t, ok)
-	choice, ok := choices[0].(map[string]any)
-	require.True(t, ok)
-	assert.Equal(t, "stop", choice["finish_reason"])
-	message, ok := choice["message"].(map[string]any)
-	require.True(t, ok)
-	assert.Equal(t, "hi there", message["content"])
-}
-
 // Scenario: an error answer of Anthropic's is read into a failure with its
 // status and type.
 func TestParseFailureReadsAnthropicsError(t *testing.T) {

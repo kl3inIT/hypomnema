@@ -162,6 +162,7 @@ func TestAClaudeClientThatDoesNotStreamGetsOneCompletion(t *testing.T) {
 
 	var completion map[string]any
 	require.NoError(t, json.Unmarshal([]byte(body), &completion))
+	assert.Equal(t, "chat.completion", completion["object"])
 	choices, ok := completion["choices"].([]any)
 	require.True(t, ok)
 	choice, ok := choices[0].(map[string]any)

@@ -1,34 +1,10 @@
 import { expect, test, type Page } from "@playwright/test"
+import { shot } from "./shot.js"
 
 import { choose } from "./choose.js"
+import type { LarkChannel as Channel } from "../src/api/generated/types.gen.js"
 
 // The Channels page, built, against a fake client API, on a phone and a desktop.
-
-type Person = { open_id: string; email: string; name: string; created_at: string }
-
-type Group = {
-  chat_id: string
-  name: string
-  enabled: boolean
-  asked_at?: string
-  created_at: string
-}
-
-type Channel = {
-  name: string
-  bot: string
-  app_id: string
-  mode: string
-  owner_open_id: string
-  enabled: boolean
-  web_link: boolean
-  connected: boolean
-  last_error?: string
-  people: Person[]
-  groups: Group[]
-  created_at: string
-  updated_at: string
-}
 
 const now = new Date().toISOString()
 
@@ -63,16 +39,6 @@ const main: Channel = {
   groups: [],
   created_at: now,
   updated_at: now,
-}
-
-// shot keeps a picture for the owner to look at when UI_CHECK names a folder; a normal run takes none.
-async function shot(page: Page, name: string) {
-  const dir = process.env.UI_CHECK
-  if (!dir) return
-
-  const size = page.viewportSize()
-  const device = size && size.width < 600 ? "phone" : "desktop"
-  await page.screenshot({ path: `${dir}/${name}-${device}.png` })
 }
 
 // The fake keeps the Channels as the control plane does: each set up by a PUT with its app, changed by later
@@ -116,7 +82,7 @@ async function fakeServer(page: Page, start: Channel[] = []) {
         bot?: string
         app_id?: string
         owner?: string
-        mode?: string
+        mode?: Channel["mode"]
         enabled?: boolean
         web_link?: boolean
       }

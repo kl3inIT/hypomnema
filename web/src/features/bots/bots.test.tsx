@@ -436,47 +436,6 @@ test("a removed Bot leaves the list", async () => {
   expect(screen.queryByRole("article", { name: "researcher" })).not.toBeInTheDocument()
 })
 
-// Scenario: the owner makes a Bot. A name the server would refuse, or one a Bot has, keeps Create off and says
-// why; a good one is stored and its page opens.
-test("a new Bot is made with a name, a model and a persona", async () => {
-  const { put } = server([bot("coordinator")])
-  const router = open("/bots/new")
-  const user = userEvent.setup()
-
-  const name = await screen.findByLabelText("Name")
-  const create = screen.getByRole("button", { name: "Create Bot" })
-
-  await user.type(name, "Researcher")
-  expect(screen.getByText(/Use lowercase letters, digits and dashes/)).toBeInTheDocument()
-  expect(create).toBeDisabled()
-
-  await user.clear(name)
-  await user.type(name, "coordinator")
-  expect(await screen.findByText("A Bot has this name already.")).toBeInTheDocument()
-  expect(create).toBeDisabled()
-
-  await user.clear(name)
-  await user.type(name, "researcher")
-  await user.click(screen.getByLabelText("Model"))
-  await user.click(await screen.findByRole("option", { name: /Claude Opus/ }))
-  await user.type(screen.getByLabelText("Persona"), "You are the team's researcher.")
-  await user.click(create)
-
-  await vi.waitFor(() => expect(router.state.location.pathname).toBe("/bots/researcher"))
-  expect(put).toEqual([
-    {
-      name: "researcher",
-      settings: {
-        provider: "claude-subscription",
-        model: "opus",
-        persona: "You are the team's researcher.",
-        skills: [],
-        skills_off: [],
-      },
-    },
-  ])
-})
-
 const google: Integration = {
   id: "google",
   name: "Google",

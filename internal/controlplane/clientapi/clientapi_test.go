@@ -1515,7 +1515,7 @@ func TestOnlyTheOwnerChangesNodes(t *testing.T) {
 
 	require.NotNil(t, created.JSON201.Token)
 
-	node, err := w.svc.AuthenticateNode(ctx, *created.JSON201.Token)
+	node, _, err := w.svc.AuthenticateNodeToken(ctx, *created.JSON201.Token)
 	require.NoError(t, err)
 	assert.Equal(t, created.JSON201.Node.Id, node.ID)
 

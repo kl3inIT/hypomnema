@@ -91,11 +91,6 @@ export function dropTab(
   return source === null ? split : leave(split, source, key)
 }
 
-// closeTabIn is the bench after a tab of a pane is closed, or null when no pane is left.
-export function closeTabIn(bench: Bench, pane: string, key: string): Bench | null {
-  return leave(bench, pane, key)
-}
-
 // alone is the chat a grid of one pane comes back to, shown on its own page: the chat in front, or the first chat.
 // null while there are several panes, or when the one pane has no chat.
 export function alone(bench: Bench): string | null {

@@ -1,24 +1,12 @@
 import { expect, test, type Page } from "@playwright/test"
 
 import { shot } from "./shot.js"
+import type { Account } from "../src/api/generated/types.gen.js"
 
 // The Models page of Settings (issue #199), built, against a fake client API, on a phone and a desktop.
 
 const now = Date.now()
 const iso = (ms: number) => new Date(ms).toISOString()
-
-type Account = {
-  id: string
-  runtime: string
-  label: string
-  status: "active" | "disabled"
-  position: number
-  cooling_until?: string
-  cooling_reason?: string
-  email?: string
-  plan?: string
-  sign_in?: "active" | "login_required" | "no_tokens"
-}
 
 const provider = (name: string, kind: string, models: string[], more: object = {}) => ({
   name,

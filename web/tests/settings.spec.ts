@@ -1,20 +1,24 @@
 import { expect, test, type Locator, type Page } from "@playwright/test"
 
+import type { GitHost as Host, Repo } from "../src/api/generated/types.gen.js"
 import { choose } from "./choose.js"
 import { shot } from "./shot.js"
 
 // Settings, built, against a fake client API, on a phone and a desktop.
 
-type Host = { host: string; kind: string; known: boolean; has_token: boolean }
-type Repo = { name: string; host: string; path: string; base?: string; created_at: string }
-
 const now = new Date().toISOString()
 
 async function fakeServer(page: Page, start: { hosts?: Host[]; repos?: Repo[] } = {}) {
-  let hosts = start.hosts ?? [
-    { host: "github.com", kind: "github", known: true, has_token: true },
-    { host: "gitlab.com", kind: "gitlab", known: true, has_token: false },
-    { host: "git.company.example", kind: "gitlab", known: false, has_token: false },
+  let hosts: Host[] = start.hosts ?? [
+    { host: "github.com", kind: "github", known: true, has_token: true, connections: ["default"] },
+    { host: "gitlab.com", kind: "gitlab", known: true, has_token: false, connections: [] },
+    {
+      host: "git.company.example",
+      kind: "gitlab",
+      known: false,
+      has_token: false,
+      connections: [],
+    },
   ]
   let repos = start.repos ?? []
   // Google, with its OAuth client and one account that was signed in.
@@ -136,13 +140,22 @@ async function fakeServer(page: Page, start: { hosts?: Host[]; repos?: Repo[] } 
 
       if (sub === "token") {
         hosts = hosts.map((h) =>
-          h.host === name ? { ...h, has_token: request.method() === "PUT" } : h,
+          h.host === name
+            ? {
+                ...h,
+                has_token: request.method() === "PUT",
+                connections: request.method() === "PUT" ? ["default"] : [],
+              }
+            : h,
         )
       } else if (request.method() === "DELETE") {
         hosts = hosts.filter((h) => h.host !== name)
       } else if (!hosts.some((h) => h.host === name)) {
-        const body = request.postDataJSON() as { kind: string }
-        hosts = [...hosts, { host: name, kind: body.kind, known: false, has_token: false }]
+        const body = request.postDataJSON() as { kind: Host["kind"] }
+        hosts = [
+          ...hosts,
+          { host: name, kind: body.kind, known: false, has_token: false, connections: [] },
+        ]
       }
 
       return request.method() === "DELETE"

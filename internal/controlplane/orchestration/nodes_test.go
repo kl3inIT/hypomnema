@@ -30,12 +30,12 @@ func TestNodeTokensAreAddedAndRevoked(t *testing.T) {
 
 	require.NoError(t, w.s.RevokeNodeToken(t.Context(), firstID))
 
-	_, err = w.s.AuthenticateNode(t.Context(), first)
+	_, _, err = w.s.AuthenticateNodeToken(t.Context(), first)
 	require.ErrorIs(t, err, ErrNotFound)
 	require.ErrorIs(t, w.s.CheckNodeToken(t.Context(), firstID), ErrNotFound, "a connected node is refused too")
 	require.ErrorIs(t, w.s.RevokeNodeToken(t.Context(), firstID), ErrNotFound, "it is revoked once")
 
-	got, err := w.s.AuthenticateNode(t.Context(), second)
+	got, _, err := w.s.AuthenticateNodeToken(t.Context(), second)
 	require.NoError(t, err)
 	assert.Equal(t, n.ID, got.ID)
 
@@ -67,7 +67,7 @@ func TestRemovedNodeIsGoneAndItsNameIsFree(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, w.s.RemoveNode(t.Context(), n.ID))
 
-	_, err = w.s.AuthenticateNode(t.Context(), token)
+	_, _, err = w.s.AuthenticateNodeToken(t.Context(), token)
 	require.ErrorIs(t, err, ErrNotFound)
 	require.ErrorIs(t, w.s.NodeHeartbeat(t.Context(), n.ID), ErrNotFound)
 	require.ErrorIs(t, w.s.NodeHello(t.Context(), n.ID, Hello{WorktreeRoot: "/srv/wt"}), ErrNotFound)
@@ -128,7 +128,7 @@ func TestMigrationKeepsNodeTokens(t *testing.T) {
 
 	s := New(db, &fakeClock{now: t0}, func(prefix string) string { return prefix + "_new" })
 
-	n, err := s.AuthenticateNode(ctx, token)
+	n, _, err := s.AuthenticateNodeToken(ctx, token)
 	require.NoError(t, err)
 	assert.Equal(t, "nod_old", n.ID)
 	assert.Equal(t, NodeDrained, n.Status)
@@ -187,7 +187,7 @@ func TestRenamedNodeKeepsEverythingButItsName(t *testing.T) {
 	assert.Equal(t, n.ID, renamed.ID)
 	assert.Equal(t, "stc-dev", renamed.Name)
 
-	still, err := s.AuthenticateNode(ctx, token)
+	still, _, err := s.AuthenticateNodeToken(ctx, token)
 	require.NoError(t, err)
 	assert.Equal(t, "stc-dev", still.Name)
 

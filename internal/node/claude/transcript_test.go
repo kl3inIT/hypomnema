@@ -85,53 +85,18 @@ func TestJournalLinesBecomeItems(t *testing.T) {
 	assert.JSONEq(t, `{}`, string(bare[0].Input))
 }
 
-// A file's whole content in a tool call or a long output is cut to the item
-// limit, on a rune boundary, and says how much was left out; short fields of
-// the same input are kept.
+// Claude's decoder cuts what it reads with transcript.Fit (tested there): a
+// Write of a long file still fits one item.
 func TestLongItemsAreCut(t *testing.T) {
 	t.Parallel()
 
-	long := strings.Repeat("é<", 200_000)
-
 	written := itemsOf([]byte(assistant(t, map[string]any{
 		"type": "tool_use", "id": "call_1", "name": "Write",
-		"input": map[string]any{"file_path": "docs/long.md", "content": long},
+		"input": map[string]any{"file_path": "docs/long.md", "content": strings.Repeat("é<", 200_000)},
 	})))
 	require.Len(t, written, 1)
 
 	raw, err := json.Marshal(written[0])
 	require.NoError(t, err)
 	assert.LessOrEqual(t, len(raw), nodeproto.MaxItemBytes)
-
-	var input map[string]string
-	require.NoError(t, json.Unmarshal(written[0].Input, &input))
-	assert.Equal(t, "docs/long.md", input["file_path"])
-	assert.True(t, strings.HasPrefix(input["content"], "é<é<"))
-	assert.Contains(t, input["content"], "more bytes not kept]")
-
-	printed := itemsOf([]byte(toolResult(t, "call_1", long, false)))
-	require.Len(t, printed, 1)
-
-	raw, err = json.Marshal(printed[0])
-	require.NoError(t, err)
-	assert.LessOrEqual(t, len(raw), nodeproto.MaxItemBytes)
-	assert.True(t, strings.HasPrefix(printed[0].Text, "é<é<"))
-	assert.Contains(t, printed[0].Text, "more bytes not kept]")
-
-	// Many large blocks in one line still fit one batch together.
-	blocks := make([]map[string]any, 0, 12)
-	for range 12 {
-		blocks = append(blocks, map[string]any{"type": "text", "text": long})
-	}
-
-	total := 0
-
-	for _, it := range itemsOf([]byte(assistant(t, blocks...))) {
-		raw, err := json.Marshal(it)
-		require.NoError(t, err)
-
-		total += len(raw)
-	}
-
-	assert.LessOrEqual(t, total, nodeproto.MaxBatchBytes)
 }

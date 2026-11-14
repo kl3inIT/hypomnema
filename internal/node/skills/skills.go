@@ -169,8 +169,8 @@ func Place(home, dir string, skills []nodeproto.Skill) error {
 	return nil
 }
 
-// PluginName is the name Claude Code shows the skills under (hypomnema:<skill>).
-const PluginName = "hypomnema"
+// pluginName is the name Claude Code shows the skills under (hypomnema:<skill>).
+const pluginName = "hypomnema"
 
 // PlacePlugin makes dir a Claude Code plugin holding the skills, for
 // --plugin-dir, with the manifest Omnigent writes for its bundles.
@@ -180,7 +180,7 @@ func PlacePlugin(home, dir string, skills []nodeproto.Skill) error {
 	}
 
 	manifest, err := json.Marshal(map[string]string{
-		"name": PluginName, "description": "The skills Hypomnema gives this worker.",
+		"name": pluginName, "description": "The skills Hypomnema gives this worker.",
 	})
 	if err != nil {
 		return err
