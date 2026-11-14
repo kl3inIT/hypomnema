@@ -2188,6 +2188,15 @@ The owner's commands:
   (`releasedFolders`); an edited copy is left alone, or with `--force` replaced and kept as `.pdf.bak`, which pi
   does not read. `setup-coordinator.sh` runs `skills install --agent agents` at each deploy, so every Bot gets it
   with no `skills add`. It is listed among the built-in skills.
+- The pages skill (`internal/controlplane/clientcli/skills/pages`, issue #423) is built in the same way, a folder:
+  OpenMausBot's `skills/data-dashboards` at `a6cd67c78610` (Apache-2.0, its `LICENSE` in the folder, the notice in
+  `third_party/openmausbot/NOTICE`), for dashboards and any other page a Bot shows with `hypomnema artifact show`.
+  Its `dashboard.html` template is self-contained: its charts are SVG its own script draws, its sums are computed in
+  the script, and its data is a Superset chart's JSON (`{columns, rows}`) embedded in the page or in `data.json`
+  beside a folder page; it loads no library, font or file from another host and uses no storage, so it runs in the
+  artifact's locked frame (a Playwright test in `web/tests/artifacts.spec.ts` shows it there with no refusal).
+  OpenMausBot's `show_html`/`publish_page`, its Data tools, DuckDB-WASM, ECharts and its `jsx` pages are not kept;
+  a page kept current is a folder page a Routine shows again with `--id`.
 
 Node (`internal/node`):
 - `init` writes `~/.hypomnema-node/config.json` (mode 0600, directory 0700) with the control plane's URL, the token
