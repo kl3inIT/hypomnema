@@ -49,7 +49,7 @@ func TestTheChatRemoverRemovesOnlyThatChatsFiles(t *testing.T) {
 	write(t, remover, strings.Replace(text, from, "\nuser_home="+userHome+"\n", 1), 0o700)
 
 	run := func(args ...string) error {
-		return exec.CommandContext(t.Context(), remover, args...).Run()
+		return exec.CommandContext(t.Context(), remover, args...).Run() //nolint:gosec // The test's own copy.
 	}
 
 	for _, bad := range [][]string{
