@@ -7,20 +7,30 @@ import { Spinner } from "@/components/ui/spinner"
 import { toast } from "@/components/ui/toast"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 
+import { readWorkspaceRaw, readWorkspaceSheets } from "@/api/generated/sdk.gen"
+import { CsvView } from "@/features/preview/csv-view"
+import { DownloadView } from "@/features/preview/download-view"
+import { FileView, type PreviewReader } from "@/features/preview/preview-loader"
 import {
+  MAX_TEXT_PREVIEW_BYTES,
+  mediaTypeOf,
+  previewKind,
+  type PreviewKind,
+} from "@/features/preview/preview-kind"
+
+import {
+  baseName,
   fileKey,
-  imageType,
   isMarkdown,
   maxWrite,
   problemOf,
+  rawKey,
   rawURL,
   refreshFolder,
   saveFile,
   setUnsaved,
   useDiff,
   useFile,
-  useImage,
-  useObjectURL,
 } from "./files-state"
 
 // The editor loads with the first file opened, not with the page (Omnigent's lazy MonacoCodeEditor).
@@ -30,8 +40,10 @@ const FilePreview = lazy(() => import("./file-preview"))
 // FileTab is a file of a chat's folder in a tab of the pane (issues #255 and #297): its text, which the owner may
 // change and save, or its diff since HEAD, under a header that names it, as Orca's editor shows a file
 // (EditorPanelHeader.tsx, EditorPanelHeaderPath.tsx: one 32 px row, the folder dimmed before the name, its
-// actions). An image is shown as one; a Markdown file as its preview or its source. A binary file, one cut at
-// 10 MiB, and a refusal say so, as Omnigent's FileViewer.tsx and TruncatedBanner do.
+// actions). A Markdown file shows as its preview or its source, a CSV as its table or its source. A file that is
+// not text (an image, a PDF, a workbook, a Word document) opens in the app's file preview, as an Artifact does
+// (issue #422, features/preview); a binary file it has no view for, one cut at 10 MiB, and a refusal say so, as
+// Omnigent's FileViewer.tsx and TruncatedBanner do.
 export function FileTab({
   tab,
   chat,
@@ -48,10 +60,15 @@ export function FileTab({
   shown: boolean
 }) {
   if (view === "diff") return <DiffBody chat={chat} workspace={workspace} path={path} />
-  if (imageType(path)) return <ImageBody chat={chat} workspace={workspace} path={path} />
+  if (previewed.has(previewKind(path, mediaTypeOf(path))))
+    return <PreviewBody chat={chat} workspace={workspace} path={path} />
 
   return <FileBody tab={tab} chat={chat} workspace={workspace} path={path} shown={shown} />
 }
+
+// The kinds the preview shows in place of the editor: the files that are not text. Text, source, Markdown and CSV
+// stay in the editor, where the owner changes them.
+const previewed = new Set<PreviewKind>(["image", "svg", "pdf", "xlsx", "docx", "doc", "pptx"])
 
 function HeaderButton({
   label,
@@ -136,7 +153,8 @@ function FileBody({
   const [trouble, setTrouble] = useState<Trouble>(null)
   const [comparing, setComparing] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [preview, setPreview] = useState(isMarkdown(path))
+  const csv = previewKind(path, mediaTypeOf(path)) === "csv"
+  const [preview, setPreview] = useState(isMarkdown(path) || csv)
 
   const data = file.data
   const text = edit?.draft ?? data?.content ?? ""
@@ -202,6 +220,7 @@ function FileBody({
   }
 
   const markdown = isMarkdown(path)
+  const previewable = markdown || csv
   const stale = trouble === "changed" || movedOn
 
   return (
@@ -218,9 +237,9 @@ function FileBody({
                 : undefined
         }
       >
-        {markdown && editable && (
+        {previewable && editable && (
           <HeaderButton
-            label={preview ? "Show the source" : "Show the preview"}
+            label={preview ? "Show the source" : csv ? "Show the table" : "Show the preview"}
             pressed={preview}
             onClick={() => setPreview(!preview)}
           >
@@ -270,18 +289,24 @@ function FileBody({
       ) : file.isError && edit === null ? (
         <Said>{problemOf(file.error).message}</Said>
       ) : data?.binary ? (
-        <Said>
-          This is a binary file, which is not shown.{" "}
-          <a className="underline" href={rawURL(chat, workspace, path)}>
-            Download it
-          </a>
-        </Said>
+        <DownloadView
+          href={rawURL(chat, workspace, path)}
+          filename={baseName(path)}
+          message="This is a binary file, which is not shown here. Download it to open it."
+        />
       ) : (
         <Suspense fallback={<Waiting />}>
           {comparing && data ? (
             <CodeView kind="diff" path={path} before={data.content} after={text} />
           ) : markdown && preview ? (
             <FilePreview chat={chat} workspace={workspace} path={path} text={text} />
+          ) : csv && preview ? (
+            <CsvView
+              csv={text.slice(0, MAX_TEXT_PREVIEW_BYTES)}
+              truncated={data?.truncated || text.length > MAX_TEXT_PREVIEW_BYTES}
+              download={rawURL(chat, workspace, path)}
+              filename={baseName(path)}
+            />
           ) : (
             <CodeView
               kind="file"
@@ -299,9 +324,20 @@ function FileBody({
   )
 }
 
-function ImageBody({ chat, workspace, path }: { chat: string; workspace: string; path: string }) {
-  const image = useImage(chat, workspace, path)
-  const url = useObjectURL(image.data)
+// PreviewBody is a file of the folder that is not text, in the file preview (issue #422): its bytes read as /raw
+// reads them, a workbook's sheets read by the control plane from the folder's machine. An SVG has no sandboxed
+// address here, so it is drawn from its text in the locked frame, never from a blob: address.
+function PreviewBody({ chat, workspace, path }: { chat: string; workspace: string; path: string }) {
+  const where = { chat_id: chat, workspace_id: workspace }
+  const download = rawURL(chat, workspace, path)
+  const reader: PreviewReader = {
+    download,
+    bytes: async (signal) =>
+      (await readWorkspaceRaw({ path: where, query: { path }, parseAs: "blob", signal }))
+        .data as Blob,
+    sheets: async (signal) =>
+      (await readWorkspaceSheets({ path: where, query: { path }, signal })).data,
+  }
 
   return (
     <>
@@ -311,7 +347,8 @@ function ImageBody({ chat, workspace, path }: { chat: string; workspace: string;
             render={
               <a
                 aria-label="Download"
-                href={rawURL(chat, workspace, path)}
+                href={download}
+                download={baseName(path)}
                 className="inline-flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground [&_svg]:size-3.5"
               />
             }
@@ -321,15 +358,13 @@ function ImageBody({ chat, workspace, path }: { chat: string; workspace: string;
           <TooltipContent>Download</TooltipContent>
         </Tooltip>
       </FileHeader>
-      {image.isPending ? (
-        <Waiting />
-      ) : image.isError ? (
-        <Said>{problemOf(image.error).message}</Said>
-      ) : url ? (
-        <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-4">
-          <img src={url} alt={path} className="max-h-full max-w-full object-contain" />
-        </div>
-      ) : null}
+      <FileView
+        reader={reader}
+        filename={path}
+        mediaType={mediaTypeOf(path)}
+        queryKey={rawKey(chat, workspace, path)}
+        staleTime={30_000}
+      />
     </>
   )
 }

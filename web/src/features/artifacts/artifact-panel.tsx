@@ -92,6 +92,7 @@ export function ArtifactPanel({
       <Header
         title={revision.title}
         type={revision.type}
+        revision={revision}
         description={
           <>
             v{revision.revision}
@@ -178,6 +179,7 @@ export function ArtifactPanel({
           artifact={a}
           revision={revision}
           mode={revision.type === "html" ? mode : "preview"}
+          wide={where !== "side"}
         />
       </div>
     </Frame>
@@ -191,6 +193,7 @@ function Frame({ children }: { children: ReactNode }) {
 function Header({
   title,
   type,
+  revision,
   description,
   start,
   onClose,
@@ -198,6 +201,7 @@ function Header({
 }: {
   title: string
   type?: ArtifactRevision["type"]
+  revision?: ArtifactRevision
   description?: ReactNode
   start?: ReactNode
   onClose?: () => void
@@ -206,7 +210,13 @@ function Header({
   return (
     <div className="flex shrink-0 items-center gap-2 border-b bg-muted/50 py-1.5 ps-3 pe-1.5">
       {start}
-      {type && <ArtifactIcon type={type} className="size-4 shrink-0 text-muted-foreground" />}
+      {type && (
+        <ArtifactIcon
+          type={type}
+          revision={revision}
+          className="size-4 shrink-0 text-muted-foreground"
+        />
+      )}
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium text-foreground" title={title}>
           {title}
