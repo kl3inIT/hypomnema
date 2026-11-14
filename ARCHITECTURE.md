@@ -8,7 +8,7 @@ statement true or false.
 
 | Binary | Commands | What it does today |
 |---|---|---|
-| `cmd/hypomnema` (control plane) | On the server: `migrate`, `serve`, `version`, `nodes`, `machines`, `accounts`, `tokens`, `users`, `secrets`, `gateway`; without the database: `files serve`, `update`, `tool`; over the client API: `login`, `whoami`, `run`, `runs`, `tasks`, `questions`, `answer`, `chat`, `chats`, `bots`, `setup`, `routines`, `memory`, `artifact`, `integrations`, `hosts`, `approvals`, `channels`, `profiles`, `providers`, `repos`, `models`, `skills`, `web`, `browser`, `superset`, `pi-models`, `model-key` (`hypomnema help` lists each one's subcommands) | `migrate` brings the database schema up to the binary's version; `serve` refuses any other schema, then serves `/livez`, `/readyz`, the node API, the client API, the model gateway and the web client, and runs the scheduler loop; the other commands are the owner's and the coordinators' (below) |
+| `cmd/hypomnema` (control plane) | On the server: `migrate`, `serve`, `version`, `nodes`, `machines`, `accounts`, `tokens`, `users`, `secrets`, `gateway`; without the database: `files serve`, `update`, `tool`; over the client API: `login`, `whoami`, `run`, `runs`, `tasks`, `questions`, `answer`, `chat`, `chats`, `bots`, `setup`, `routines`, `memory`, `artifact`, `integrations`, `hosts`, `approvals`, `channels`, `profiles`, `providers`, `repos`, `models`, `skills`, `web`, `image`, `browser`, `superset`, `pi-models`, `model-key` (`hypomnema help` lists each one's subcommands) | `migrate` brings the database schema up to the binary's version; `serve` refuses any other schema, then serves `/livez`, `/readyz`, the node API, the client API, the model gateway and the web client, and runs the scheduler loop; the other commands are the owner's and the coordinators' (below) |
 | `cmd/hypomnema-node` (node) | `install`, `init`, `check`, `accounts set`, `run`, `service`, `tool`, `shim`, `mcp`, `version` | `install --url` puts the node on the machine (below); `init --url --token-file` writes the node's configuration; `check` says hello once and lists the CLIs it found; `accounts set` records where an account's Claude token is; `run` runs the daemon with a runner per runtime (Claude Code, Codex, and ACP for omp and opencode); `tool` runs an integration's tool through its launcher (below); `service` prints a systemd user unit; `shim` runs one worker and `mcp` serves its tools (both started for a worker, not by hand) |
 
 Configuration comes from the environment: `HYPOMNEMA_HTTP_ADDR` (default `127.0.0.1:8080`),
@@ -445,6 +445,17 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     agents` (the setup script) puts its stub in `~/.agents/skills`. Errors: 400 (no query, an unknown provider, an
     address that is not http(s)), 403 (a page not on the public internet), 429 `rate_limited` with `Retry-After`,
     503 `unavailable` (every provider failed, a page that could not be read, no web search).
+  - A Bot makes and edits images (issue #431): `POST /images/generations` `{prompt, images?: [{data, mime_type?}],
+    n?, size?, model?, provider?, quality?, background?, image_size?}` for any token, answering `{provider, model,
+    created, images: [{b64_json, mime_type, revised_prompt?}], errors?}`, and `hypomnema image generate <prompt>` and
+    `hypomnema image edit <prompt> --image <file>…` (`--size`, `--n`, `--model`, `--provider`, `--quality`,
+    `--image-size`, `--out <folder or file>`), which save the images (in the current folder by default, a file name's
+    extension replaced by the image's own and numbered when several, as opencode's tool) and print each absolute
+    path, then who made them; `--json` prints the paths instead of the images. "Images" (above), recorded on the
+    key of the chat's running pi. The skill `images`, which this binary ships, says when to use them and to send an
+    image with a `MEDIA:<path>` line, which a Lark chat delivers as a file (#312); the web chat shows the line as
+    text (it is not turned into a picture), and the file is in the Bot's folder (Files panel). Errors: 400 (a request
+    no provider takes), 429 `rate_limited` with `Retry-After`, 503 `unavailable`.
   - Every owner's and coordinator's token reads Bots and changes a memory an entry at a time; the owner, and the Bot
     `coordinator` from its chat (below), make, change and remove a Bot (`hypomnema bots list|show|set|rm`); only
     the owner replaces a whole memory.
@@ -1333,8 +1344,8 @@ plane, which keeps their tokens fresh. The gateway's Codex provider runs under t
 The model gateway (`internal/controlplane/modelgateway`, issue #20,
 [decision](docs/decisions/2026-11-10-model-gateway.md)) serves chat to clients that speak OpenAI's API, from
 OpenAI-compatible providers the owner declares and from three built-in providers, the owner's Codex, Antigravity and
-Claude subscriptions, and searches the web and reads pages (below). Other provider formats and other capabilities do
-not exist yet.
+Claude subscriptions, searches the web and reads pages, and makes images (below). Other provider formats and other
+capabilities do not exist yet.
 - A model is a YAML document: a public `name`, a `capability` (`chat`, the only one), and `targets` (a provider and
   the model's name there) in the order tried. Applying a name again replaces it. A target must name a provider of a
   kind the gateway has an adapter for (`openai_compatible`, `codex_subscription`, `antigravity_subscription`,
@@ -1454,6 +1465,10 @@ not exist yet.
   refused 400 `Unsupported operation for /v1/alpha/search: <name>`, as a request with no query is; a page is read
   with the worker's `web_fetch`. Each query is recorded as a `/v1/search` call is; the first that fails answers as
   `/v1/search` fails. The body may be as large as a chat request's.
+- `POST /v1/images/generations` and `POST /v1/images/edits` (issue #431, after OmniRoute's routes of the same names
+  and CLIProxyAPI's) take OpenAI's image request, an edit as JSON or as a multipart form, and answer `{created, data:
+  [{b64_json, revised_prompt?}], usage?}` (`url` as a data address when `response_format` is `url`), with any key the
+  gateway knows. What they do is "Images", below.
 - The owner manages the keys a tool outside (opencode, omp) uses on Settings → Gateway keys (issue #199, step 6, after
   Coder's AI Gateway keys and 9router's Endpoint & Key): `GET /gateway/keys` lists the keys the owner made that work,
   with their start (`key_prefix`, the kind and six characters, migration 00053; empty for older keys), models,
@@ -1765,6 +1780,60 @@ calls, and each call is recorded on a gateway key.
 - Not built: testing a provider from the page (OmniRoute's and 9router's "Check", OpenClaw's "Test search");
   reordering on a touch screen (the CLI does it); routing by the kind of query (web-search-plus), a daily budget.
 
+Images (`modelgateway/images.go`, `images_http.go`, `image_settings.go`, `codex/images.go`, `antigravity/images.go`;
+issue #431): the owner's Codex and Antigravity subscriptions make and edit images, for the gateway's clients
+(`/v1/images/*`, above), for workers (omp and opencode name the gateway as their image model, see their runtime
+below) and for Bots (`hypomnema image`, see Bots). Claude makes none (no reference has it).
+- The providers are asked in the owner's order, by default Codex then Antigravity, each that is on; the first that
+  answers gives the images, and the answer says why those before it did not (as a web search). A request picks the
+  model with `model`: `auto` or none is each provider's own, `gpt-image-*` is Codex's and `gemini-*` Antigravity's
+  (OmniRoute's `isCodexImagesApiModel`), `<provider>/<model>` names both; `provider` names the one asked. Any well
+  formed name is passed on as it is, so a model released later can be tried (owner, 2026-11-14); a provider's
+  refusal comes back with the provider and the model's name. Refused before any provider: no prompt, `n` outside 1
+  to 10, a reference over 20 MiB (opencode's bound) or not an image, a mask, a file id, a reference that is an
+  address on the web (not fetched, as OmniRoute), a model that names no provider, a provider that is off. A body is
+  at most 64 MiB.
+- Codex (codex-rs `codex-api/src/endpoint/images.rs`, OmniRoute's `codexImages.ts`, Hermes, CLIProxyAPI's direct
+  routes): `POST <Codex backend>/images/generations`, or `/images/edits` with references, with chat's headers,
+  `Accept: application/json` and an `x-codex-image-turn-id`; the body `{prompt, model, n: 1, size?, quality?,
+  background?, images?: [{image_url: data:…}]}`, `quality` `standard`/`hd` read as `medium`/`high`. `n` is fanned out
+  one call each at once, a failure failing the whole, the usage summed (OmniRoute). By default `gpt-image-2`. An
+  account whose plan is `free` is skipped without a call (9router-go, OmniRoute) and the backend's "The '<model>'
+  model is not supported when using Codex with a ChatGPT account." 400 moves on to the next account (OmniRoute,
+  its issue #8307). The account's plan reaches the gateway with its token (`AccountToken.Plan`).
+- Antigravity (OmniRoute's `handleGeminiImageGeneration` and `geminiInline.ts`, 9router-go, omp):
+  `POST <Cloud Code>/v1internal:generateContent` with the IDE's user agent, `{project, requestId:
+  image_gen/<ms>/<id>/0, model, userAgent: antigravity, requestType: image_gen, request: {contents: [references as
+  inlineData, then the prompt], generationConfig: {candidateCount: n, imageConfig: {aspectRatio, imageSize?}}}}`;
+  a prompt with references first asks to use them all (OmniRoute). `size` becomes the aspect ratio (OmniRoute's
+  table, an `a:b` kept, else 1:1), `image_size` 1K, 2K or 4K (else 1K); at most 14 references. By default
+  `gemini-3.1-flash-image`. An answer with text and no image is a refusal that says the text (`Antigravity returned
+  text instead of an image: …`), and no other account is asked for it; it counts within the account's requests in
+  flight as chat's do; a suspended account or one to verify is parked as chat parks it.
+- Accounts are taken as chat takes them (`underAccounts`): the next one on 401 (after one refresh), 402, 403, 429,
+  502, 503, 504. A refusal rests that account's image model only, never its chat (9router-go locks the connection's
+  model): until the vendor's reset (Codex `resets_at`/`resets_in_seconds`/`Retry-After`, Antigravity's
+  `quotaResetTimeStamp`, `quotaResetDelay` or `retryDelay`; at most two hours), else an hour for a quota used up,
+  2 s doubling to 5 minutes after a rate limit or an overload, 2 minutes after a refusal of the account; Antigravity
+  with no time named waits as chat's (30 s, 30 minutes for a quota). In memory; an answer clears it. Every provider
+  limited is 429 with `Retry-After`; none with an account to use 503 `no_image_provider`; one provider's refusal of
+  the request its own 4xx; else 502. Images wait up to 5 minutes for the answer's headers (Hermes's 300 s).
+- Usage: each request is one row of `gateway_usage` on its key, as model `image/<model>`, its provider, account and
+  the providers tried; the tokens the provider reported (Codex's `usage`, Antigravity's `usageMetadata`), none
+  invented; a request refused before any provider is not recorded. A Bot's is on its chat's key (as its web search).
+- What the owner sets (`gateway_image_providers`, migration 00075: `provider`, `off`, `position`, `model`; read
+  and written only by the gateway): a switch a provider, the order, and each one's model when a request names none,
+  read at each request. `GET /gateway/images` (any token) lists the providers in order, each with its switch, its
+  `state` (`ready`; `resting` with `resting_until`, when each usable account rests; `not_set_up`, no account in use,
+  for Codex none on a paid plan; `off`), its model, default model, whether the owner chose it, the references' names
+  for it (`suggested_models`: `gpt-image-2`; `gemini-3.1-flash-image`, `gemini-3-pro-image`), its usable accounts
+  and its requests today and this month (UTC). The owner's: `PUT /gateway/images/providers/{provider}` `{on?,
+  model?}` (an empty model is the default again) and `PUT /gateway/images/order` `{providers}`. The CLI: `hypomnema
+  image providers`, `image providers set <provider> on|off`, `image providers model <provider> <model>|default`,
+  `image order <provider> <provider>`.
+- Not built: Codex's own `imagegen` in a Codex worker reaching the gateway (no reference sets it; issue #431 leaves
+  it to a probe); keyless or keyed image providers outside the subscriptions; masks; streaming partial images.
+
 Node API (`internal/controlplane/nodeapi`, protocol in `internal/shared/nodeproto`, after Omnara's daemon protocol):
 - A node registers with `POST /node/v1/hello` and its bearer token. It sends its CLIs, its worktree root, its
   version and machine (measured with gopsutil, as Nezha's and Beszel's agents) and the Dispatches it still holds. Each of those is answered `retain` (still its own at that epoch), `reattach` (marked
@@ -1985,7 +2054,11 @@ Node (`internal/node`):
   variable's name (omp: `models.yml` and `config.yml` in its agent directory; opencode: a configuration file of its
   own, away from the user's and the project's). Each CLI's own web tools are off, so that the worker has the control
   plane's (issue #354): omp's `web_search.enabled: false`; opencode's `websearch` and `webfetch` denied in its
-  `permissions`, which takes them out of its tools. A turn is `initialize`, `session/new` with the tools server as an
+  `permissions`, which takes them out of its tools. The gateway is their image model too (issue #431): omp's
+  `models.yml` has a model `auto` of `api: openai-images` under the gateway, named as `modelRoles.image`, so its
+  `generate_image` calls `/v1/images/*`; opencode's has a model `auto` of `type: image` under the same
+  openai-compatible provider, named as `experimental.image_generate.model`. `auto` is "Images" above with each
+  provider's own model. A turn is `initialize`, `session/new` with the tools server as an
   MCP server (or `session/resume`, else `session/load`, for a follow-up; a session that is gone starts anew),
   `session/prompt`, then the agent's input is closed. The messages are written to the shim and read from its
   journal, so a turn survives the daemon; no ACP library holds the connection. A permission request is answered
@@ -2439,6 +2512,12 @@ Node (`internal/node`):
     secret it is kept under. TinyFish's row says its terms let it use queries for training. A keyless row shows its
     calls and "Allowance unknown". A subscription with no account links to `/settings/models`, where an account is
     added: the one place for it. The chain is read again every 30 seconds while the page is open.
+  - `/settings/images` (under Gateway, issue #431, `web/src/features/models/images-screen.tsx`) lists the image
+    providers in their order as the Web search page lists its keyed ones: `#n`, a grip to drag one onto another's
+    place on a desktop, the mark, a badge (Ready, Rate limited until a time, No account, Off), the model with
+    "(default)" or "(yours)", the accounts that can make images, the requests today and this month, "Add an account"
+    when there is none, "Model" and an "In use" switch. "Model" opens a dialog with a field (empty is the default,
+    any name the server takes) and the references' names to pick. The list is read again every 30 seconds.
   - The Settings screens are built on the standard components ([issue #123](https://github.com/kl3inIT/hypomnema/issues/123)):
     every shadcn component of the project's style is in `web/src/components/ui`; a form is TanStack Form with a
     zod schema, and says what is wrong when it is sent; the Vault's table is TanStack Table; a removal asks with
