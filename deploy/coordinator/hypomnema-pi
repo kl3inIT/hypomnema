@@ -183,7 +183,7 @@ esac
 
 # The documents environment (issue #401): the Python with the libraries of the document skills, built by
 # `hypomnema tool install` under the tools, which the box binds read-only. Its bin goes first on PATH, so `python`
-# there imports them and the Hermes pdf skill takes its first branch. The generation active.json selects is read
+# there imports them, the `python` the built-in pdf skill runs (issue #458). The generation active.json selects is read
 # once, here: a rebuild selects a new generation and leaves this one, so a running pi keeps its files (Hermes's
 # side environments, pm/operations.py). Without one pi starts with the system's Python, as before.
 docs="$home/tools/envs/documents"

@@ -357,7 +357,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	larkStore := channelStore{Service: svc, Store: svc.Channels()}
 
 	larkChannels := larkbot.New(larkStore, sup,
-		func(ctx context.Context, c orchestration.LarkChannel) (larkbot.Lark, error) {
+		func(ctx context.Context, c channelstore.Channel) (larkbot.Lark, error) {
 			return larkSettings.Open(ctx, c)
 		}, logger).WithWebURL(cfg.PublicURL)
 	if bots != nil {
@@ -374,7 +374,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	api := clientapi.New(svc, logger, ctx.Done()).WithCoordinator(sup).
 		WithAccounts(subscriptions).WithGatewayModels(gateway).WithGatewayKeys(gateway).WithGatewayUsage(gateway).
 		WithHostTokens(tokens).
-		WithMachines(machineMgr).WithTerminals(nodeTerminals(nodes)).
+		WithMachines(machineMgr).WithTerminals(nodeTerminals(nodes)).WithDevices(nodes).
 		WithWorkspaces(nodes.Files, bots).
 		WithSecrets(ownerSecrets{vault: secrets, referrers: referrers}).
 		WithIntegrations(integrations).WithApprovals(proxy).WithRelay(proxy).WithLarkChannels(larkSettings).

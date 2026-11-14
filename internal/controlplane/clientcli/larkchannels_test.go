@@ -15,6 +15,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/larkbot"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/channelstore"
 )
 
 // larkChannelSettings stands in for the Channels' settings: it keeps what
@@ -62,8 +63,8 @@ func (l *larkChannelSettings) Set(_ context.Context, channel string, set larkbot
 
 	st, known := l.statuses[channel]
 	if !known {
-		st.Channel = orchestration.LarkChannel{
-			Name: channel, Bot: orchestration.DefaultBot, Mode: orchestration.LarkChannelOwner,
+		st.Channel = channelstore.Channel{
+			Name: channel, Bot: orchestration.DefaultBot, Mode: channelstore.ChannelOwner,
 		}
 	}
 
@@ -79,7 +80,7 @@ func (l *larkChannelSettings) Set(_ context.Context, channel string, set larkbot
 	}
 
 	if set.Owner != "" {
-		st.Channel.OwnerOpenID = "ou_owner"
+		st.Channel.OwnerID = "ou_owner"
 	}
 
 	if set.Bot != "" {
@@ -127,16 +128,16 @@ func (l *larkChannelSettings) Remove(_ context.Context, channel string) error {
 }
 
 func (l *larkChannelSettings) AddPerson(_ context.Context, channel, who string,
-) (orchestration.LarkChannelPerson, error) {
+) (channelstore.ChannelPerson, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
 	st, ok := l.statuses[channel]
 	if !ok {
-		return orchestration.LarkChannelPerson{}, orchestration.ErrNotFound
+		return channelstore.ChannelPerson{}, orchestration.ErrNotFound
 	}
 
-	p := orchestration.LarkChannelPerson{OpenID: "ou_linh", Email: who, Name: "Linh"}
+	p := channelstore.ChannelPerson{PersonID: "ou_linh", Email: who, Name: "Linh"}
 	st.People = append(st.People, p)
 	l.statuses[channel] = st
 
@@ -148,8 +149,8 @@ func (l *larkChannelSettings) RemovePerson(_ context.Context, channel, who strin
 	defer l.mu.Unlock()
 
 	st := l.statuses[channel]
-	st.People = slices.DeleteFunc(st.People, func(p orchestration.LarkChannelPerson) bool {
-		return strings.EqualFold(p.Email, who) || p.OpenID == who
+	st.People = slices.DeleteFunc(st.People, func(p channelstore.ChannelPerson) bool {
+		return strings.EqualFold(p.Email, who) || p.PersonID == who
 	})
 	l.statuses[channel] = st
 
@@ -157,7 +158,7 @@ func (l *larkChannelSettings) RemovePerson(_ context.Context, channel, who strin
 }
 
 func (l *larkChannelSettings) SetGroup(_ context.Context, channel, chatID string, enabled bool,
-) (orchestration.LarkChannelGroup, error) {
+) (channelstore.ChannelGroup, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
@@ -169,7 +170,7 @@ func (l *larkChannelSettings) SetGroup(_ context.Context, channel, chatID string
 		}
 	}
 
-	return orchestration.LarkChannelGroup{}, orchestration.ErrNotFound
+	return channelstore.ChannelGroup{}, orchestration.ErrNotFound
 }
 
 // Scenario: the owner sets his Lark Channels up from the terminal. The first,

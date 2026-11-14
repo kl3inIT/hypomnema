@@ -817,8 +817,11 @@ func TestSkillsGetAndInstall(t *testing.T) { //nolint:paralleltest // replaces u
 
 	out, err = w.cmd(t, "skills", "install")
 	require.NoError(t, err)
-	// One stub a skill, for each of the two agents' folders.
-	assert.Equal(t, 2*len(skillNames()), strings.Count(out, "installed"), out)
+	// One stub a skill, for each of the two agents' folders, and the
+	// whole-folder skills in ~/.agents/skills only.
+	stubs, folders := shippedSkills()
+	assert.Equal(t, 2*len(stubs)+len(folders), strings.Count(out, "installed"), out)
+	assert.NoDirExists(t, filepath.Join(home, ".claude", "skills", "pdf"))
 
 	claude := filepath.Join(home, ".claude", "skills", "hypomnema-coordinator", "SKILL.md")
 	agents := filepath.Join(home, ".agents", "skills", "hypomnema-coordinator", "SKILL.md")
@@ -826,7 +829,7 @@ func TestSkillsGetAndInstall(t *testing.T) { //nolint:paralleltest // replaces u
 
 	out, err = w.cmd(t, "skills", "install")
 	require.NoError(t, err)
-	assert.Equal(t, 2*len(skillNames()), strings.Count(out, "is current"), out)
+	assert.Equal(t, 2*len(stubs)+len(folders), strings.Count(out, "is current"), out)
 
 	require.NoError(t, os.WriteFile(claude, []byte("my own notes"), 0o600))
 
@@ -851,7 +854,8 @@ func TestSkillsGetAndInstall(t *testing.T) { //nolint:paralleltest // replaces u
 func TestStubAndGuideShareTheirFrontmatter(t *testing.T) {
 	t.Parallel()
 
-	for _, name := range skillNames() {
+	stubs, _ := shippedSkills()
+	for _, name := range stubs {
 		stub, err := skillFiles.ReadFile("skills/" + name + "/SKILL.md")
 		require.NoError(t, err)
 
@@ -877,7 +881,8 @@ func frontmatter(t *testing.T, s string) string {
 func TestShippedStubsAreReleased(t *testing.T) {
 	t.Parallel()
 
-	for _, name := range skillNames() {
+	stubs, _ := shippedSkills()
+	for _, name := range stubs {
 		stub, err := skillFiles.ReadFile("skills/" + name + "/SKILL.md")
 		require.NoError(t, err)
 		assert.Contains(t, releasedStubs[name], digest(stub), "add the stub's digest to releasedStubs[%q]", name)
@@ -921,7 +926,8 @@ func TestSkillCommandsParse(t *testing.T) {
 }
 
 func fsWalk(fn func(file, text string)) error {
-	for _, name := range skillNames() {
+	stubs, _ := shippedSkills()
+	for _, name := range stubs {
 		files := []string{"SKILL.md", "guide.md"}
 
 		refs, err := references(name)

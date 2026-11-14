@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/channelstore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
 )
 
@@ -33,7 +34,7 @@ type Settings struct {
 	// Bot is the Bot the Channel talks to; the first Bot for a new Channel
 	// that names none.
 	Bot     string
-	Mode    orchestration.LarkChannelMode
+	Mode    channelstore.ChannelMode
 	Enabled *bool
 	// WebLink says a direct chat's reply ends with a link to the web client;
 	// a new Channel has it only when it is the first (the owner's own).
@@ -42,25 +43,25 @@ type Settings struct {
 
 // Status is a Channel as the owner sees it.
 type Status struct {
-	Channel orchestration.LarkChannel
-	People  []orchestration.LarkChannelPerson
+	Channel channelstore.Channel
+	People  []channelstore.ChannelPerson
 	// Groups are the Lark groups the Channel's bot is in.
-	Groups []orchestration.LarkChannelGroup
+	Groups []channelstore.ChannelGroup
 	State  State
 }
 
 // SettingsStore is what the settings need of the store.
 type SettingsStore interface {
 	Store
-	SetLarkChannel(ctx context.Context, c orchestration.LarkChannel) (orchestration.LarkChannel, error)
-	RemoveLarkChannel(ctx context.Context, name string) error
-	AddLarkChannelPerson(ctx context.Context, channel string, p orchestration.LarkChannelPerson,
-	) (orchestration.LarkChannelPerson, error)
-	LarkChannelPeople(ctx context.Context, channel string) ([]orchestration.LarkChannelPerson, error)
-	RemoveLarkChannelPerson(ctx context.Context, channel, openID string) error
-	LarkChannelGroups(ctx context.Context, channel string) ([]orchestration.LarkChannelGroup, error)
-	SetLarkChannelGroup(ctx context.Context, channel, chatID string, enabled bool,
-	) (orchestration.LarkChannelGroup, error)
+	SetChannel(ctx context.Context, c channelstore.Channel) (channelstore.Channel, error)
+	RemoveChannel(ctx context.Context, name string) error
+	AddChannelPerson(ctx context.Context, channel string, p channelstore.ChannelPerson,
+	) (channelstore.ChannelPerson, error)
+	ChannelPeople(ctx context.Context, channel string) ([]channelstore.ChannelPerson, error)
+	RemoveChannelPerson(ctx context.Context, channel, openID string) error
+	ChannelGroups(ctx context.Context, channel string) ([]channelstore.ChannelGroup, error)
+	SetChannelGroup(ctx context.Context, channel, chatID string, enabled bool,
+	) (channelstore.ChannelGroup, error)
 	GetBot(ctx context.Context, name string) (orchestration.Bot, error)
 }
 
@@ -83,7 +84,7 @@ func NewService(store SettingsStore, secrets *vault.Service, channels *Channels,
 
 // Open makes a Channel's connection to Lark from what the owner set up. It
 // is the Channels' own way to an app's secret.
-func (s *Service) Open(ctx context.Context, channel orchestration.LarkChannel) (Lark, error) {
+func (s *Service) Open(ctx context.Context, channel channelstore.Channel) (Lark, error) {
 	opened, err := s.vault.Open(ctx, channel.Secret)
 	if err != nil {
 		return nil, fmt.Errorf("opening the secret of Lark channel %s: %w", channel.Name, err)
@@ -95,7 +96,7 @@ func (s *Service) Open(ctx context.Context, channel orchestration.LarkChannel) (
 // List returns every Channel with its people and whether it is connected,
 // oldest first.
 func (s *Service) List(ctx context.Context) ([]Status, error) {
-	channels, err := s.store.LarkChannels(ctx)
+	channels, err := s.store.ListChannels(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -117,7 +118,7 @@ func (s *Service) List(ctx context.Context) ([]Status, error) {
 // Status returns a Channel, its people and whether it is connected;
 // ErrNotFound when no Channel has that name.
 func (s *Service) Status(ctx context.Context, name string) (Status, error) {
-	ch, err := s.store.LarkChannel(ctx, name)
+	ch, err := s.store.Channel(ctx, name)
 	if err != nil {
 		return Status{}, err
 	}
@@ -125,13 +126,13 @@ func (s *Service) Status(ctx context.Context, name string) (Status, error) {
 	return s.status(ctx, ch)
 }
 
-func (s *Service) status(ctx context.Context, ch orchestration.LarkChannel) (Status, error) {
-	people, err := s.store.LarkChannelPeople(ctx, ch.Name)
+func (s *Service) status(ctx context.Context, ch channelstore.Channel) (Status, error) {
+	people, err := s.store.ChannelPeople(ctx, ch.Name)
 	if err != nil {
 		return Status{}, err
 	}
 
-	groups, err := s.store.LarkChannelGroups(ctx, ch.Name)
+	groups, err := s.store.ChannelGroups(ctx, ch.Name)
 	if err != nil {
 		return Status{}, err
 	}
@@ -143,12 +144,12 @@ func (s *Service) status(ctx context.Context, ch orchestration.LarkChannel) (Sta
 // only in a group the owner switched on (OpenClaw's Feishu groupPolicy
 // allowlist).
 func (s *Service) SetGroup(ctx context.Context, channel, chatID string, enabled bool,
-) (orchestration.LarkChannelGroup, error) {
-	if _, err := s.store.LarkChannel(ctx, channel); err != nil {
-		return orchestration.LarkChannelGroup{}, err
+) (channelstore.ChannelGroup, error) {
+	if _, err := s.store.Channel(ctx, channel); err != nil {
+		return channelstore.ChannelGroup{}, err
 	}
 
-	return s.store.SetLarkChannelGroup(ctx, channel, strings.TrimSpace(chatID), enabled)
+	return s.store.SetChannelGroup(ctx, channel, strings.TrimSpace(chatID), enabled)
 }
 
 // Set sets a Channel up or changes it. The first time it needs the app, its
@@ -157,7 +158,7 @@ func (s *Service) SetGroup(ctx context.Context, channel, chatID string, enabled 
 // id and secret work. An app that is another Channel's and a Bot that does
 // not exist are refused before the secret is kept.
 func (s *Service) Set(ctx context.Context, name string, set Settings) (Status, error) {
-	ch, err := s.store.LarkChannel(ctx, name)
+	ch, err := s.store.Channel(ctx, name)
 	fresh := errors.Is(err, orchestration.ErrNotFound)
 
 	if err != nil && !fresh {
@@ -168,9 +169,9 @@ func (s *Service) Set(ctx context.Context, name string, set Settings) (Status, e
 	set.Owner, set.Bot = strings.TrimSpace(set.Owner), strings.TrimSpace(set.Bot)
 
 	switch {
-	case !orchestration.ValidLarkChannelName(name):
+	case !channelstore.ValidChannelName(name):
 		return Status{}, fmt.Errorf("%w: a channel's name is lowercase letters, digits and dashes, starting with "+
-			"a letter, at most %d characters", orchestration.ErrInvalid, orchestration.MaxLarkChannelName)
+			"a letter, at most %d characters", orchestration.ErrInvalid, channelstore.MaxChannelName)
 	case (set.AppID == "") != (set.AppSecret == ""):
 		return Status{}, fmt.Errorf("%w: the app's id and secret are given together", orchestration.ErrInvalid)
 	case len(set.AppID) > maxField || len(set.AppSecret) > maxField || len(set.Owner) > maxField ||
@@ -180,13 +181,13 @@ func (s *Service) Set(ctx context.Context, name string, set Settings) (Status, e
 	case fresh && (set.AppID == "" || set.Owner == ""):
 		return Status{}, fmt.Errorf("%w: a new Lark channel needs its app's id and secret, and the owner's email "+
 			"at Lark", orchestration.ErrInvalid)
-	case set.Mode != "" && !orchestration.ValidLarkChannelMode(set.Mode):
+	case set.Mode != "" && !channelstore.ValidChannelMode(set.Mode):
 		return Status{}, fmt.Errorf("%w: the mode is owner, allowlist or everyone", orchestration.ErrInvalid)
 	}
 
 	if fresh {
-		ch = orchestration.LarkChannel{
-			Name: name, Bot: orchestration.DefaultBot, Mode: orchestration.LarkChannelOwner, Secret: secretPrefix + name,
+		ch = channelstore.Channel{
+			Name: name, Bot: orchestration.DefaultBot, Mode: channelstore.ChannelOwner, Secret: secretPrefix + name,
 		}
 	}
 
@@ -216,7 +217,7 @@ func (s *Service) Set(ctx context.Context, name string, set Settings) (Status, e
 			return Status{}, err
 		}
 
-		ch.OwnerOpenID = id
+		ch.OwnerID = id
 	}
 
 	if set.Mode != "" {
@@ -230,7 +231,7 @@ func (s *Service) Set(ctx context.Context, name string, set Settings) (Status, e
 	if fresh {
 		// The first Channel is the owner's own, who opens the web client; the next are for other people, who
 		// do not (owner, 2026-11-13).
-		others, err := s.store.LarkChannels(ctx)
+		others, err := s.store.ListChannels(ctx)
 		if err != nil {
 			return Status{}, err
 		}
@@ -248,7 +249,7 @@ func (s *Service) Set(ctx context.Context, name string, set Settings) (Status, e
 		}
 	}
 
-	if _, err := s.store.SetLarkChannel(ctx, ch); err != nil {
+	if _, err := s.store.SetChannel(ctx, ch); err != nil {
 		return Status{}, err
 	}
 
@@ -261,7 +262,7 @@ func (s *Service) Set(ctx context.Context, name string, set Settings) (Status, e
 // refused says why a Channel cannot be what the owner asks: its Bot does not
 // exist, or its app is another Channel's. The store refuses both as well;
 // they are told here before the app's secret is kept.
-func (s *Service) refused(ctx context.Context, ch orchestration.LarkChannel, appID string) error {
+func (s *Service) refused(ctx context.Context, ch channelstore.Channel, appID string) error {
 	if _, err := s.store.GetBot(ctx, ch.Bot); err != nil {
 		if errors.Is(err, orchestration.ErrNotFound) {
 			return fmt.Errorf("%w: no bot is named %q", orchestration.ErrInvalid, ch.Bot)
@@ -274,7 +275,7 @@ func (s *Service) refused(ctx context.Context, ch orchestration.LarkChannel, app
 		return nil
 	}
 
-	others, err := s.store.LarkChannels(ctx)
+	others, err := s.store.ListChannels(ctx)
 	if err != nil {
 		return err
 	}
@@ -290,7 +291,7 @@ func (s *Service) refused(ctx context.Context, ch orchestration.LarkChannel, app
 }
 
 // keep puts the app's secret in the vault, replacing the one that was there.
-func (s *Service) keep(ctx context.Context, ch orchestration.LarkChannel, secret string) error {
+func (s *Service) keep(ctx context.Context, ch channelstore.Channel, secret string) error {
 	payload := vault.Payload{vault.KeyValue: secret}
 
 	_, err := s.vault.Create(ctx, vault.NewSecret{
@@ -329,25 +330,25 @@ func (s *Service) openID(ctx context.Context, lark Lark, who string) (string, er
 // AddPerson adds someone who may talk through a Channel when its mode is the
 // allowlist, by their email at Lark or their open_id in the Channel's app.
 // Their name is read at Lark when the app may read it.
-func (s *Service) AddPerson(ctx context.Context, channel, who string) (orchestration.LarkChannelPerson, error) {
-	ch, err := s.store.LarkChannel(ctx, channel)
+func (s *Service) AddPerson(ctx context.Context, channel, who string) (channelstore.ChannelPerson, error) {
+	ch, err := s.store.Channel(ctx, channel)
 	if err != nil {
-		return orchestration.LarkChannelPerson{}, err
+		return channelstore.ChannelPerson{}, err
 	}
 
 	lark, err := s.Open(ctx, ch)
 	if err != nil {
-		return orchestration.LarkChannelPerson{}, err
+		return channelstore.ChannelPerson{}, err
 	}
 
 	who = strings.TrimSpace(who)
 
 	id, err := s.openID(ctx, lark, who)
 	if err != nil {
-		return orchestration.LarkChannelPerson{}, err
+		return channelstore.ChannelPerson{}, err
 	}
 
-	person := orchestration.LarkChannelPerson{OpenID: id}
+	person := channelstore.ChannelPerson{PersonID: id}
 	if who != id {
 		person.Email = who
 	}
@@ -356,7 +357,7 @@ func (s *Service) AddPerson(ctx context.Context, channel, who string) (orchestra
 	// same.
 	person.Name, _ = lark.NameOf(ctx, id)
 
-	return s.store.AddLarkChannelPerson(ctx, channel, person)
+	return s.store.AddChannelPerson(ctx, channel, person)
 }
 
 // RemovePerson takes someone off a Channel's list, by open_id or by the
@@ -365,14 +366,14 @@ func (s *Service) RemovePerson(ctx context.Context, channel, who string) error {
 	who = strings.TrimSpace(who)
 
 	if !strings.HasPrefix(who, "ou_") {
-		people, err := s.store.LarkChannelPeople(ctx, channel)
+		people, err := s.store.ChannelPeople(ctx, channel)
 		if err != nil {
 			return err
 		}
 
 		for _, p := range people {
 			if strings.EqualFold(p.Email, who) {
-				return s.store.RemoveLarkChannelPerson(ctx, channel, p.OpenID)
+				return s.store.RemoveChannelPerson(ctx, channel, p.PersonID)
 			}
 		}
 
@@ -380,18 +381,18 @@ func (s *Service) RemovePerson(ctx context.Context, channel, who string) error {
 			channel, who)
 	}
 
-	return s.store.RemoveLarkChannelPerson(ctx, channel, who)
+	return s.store.RemoveChannelPerson(ctx, channel, who)
 }
 
 // Remove forgets a Channel and its app's secret. A connection that is open
 // stays until the control plane starts again, and takes no message.
 func (s *Service) Remove(ctx context.Context, name string) error {
-	ch, err := s.store.LarkChannel(ctx, name)
+	ch, err := s.store.Channel(ctx, name)
 	if err != nil {
 		return err
 	}
 
-	if err := s.store.RemoveLarkChannel(ctx, name); err != nil {
+	if err := s.store.RemoveChannel(ctx, name); err != nil {
 		return err
 	}
 

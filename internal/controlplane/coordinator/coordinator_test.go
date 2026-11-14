@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/channelstore"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite/sqlitetest"
@@ -498,13 +499,13 @@ func TestPiRunsAsTheChatsBotWithItsModel(t *testing.T) {
 	assert.Equal(t, []string{"--bot", "coordinator"}, args, "the first chat keeps its Bot")
 
 	// A Lark group's chat is not given the Bot's memory (issue #246); a person's direct chat is.
-	_, err = svc.Channels().SetLarkChannel(ctx, orchestration.LarkChannel{
+	_, err = svc.Channels().SetChannel(ctx, channelstore.Channel{
 		Name: "maps", AppID: "cli_m4p5", Secret: "lark-channel-maps", Bot: "vmap",
-		Mode: orchestration.LarkChannelOwner, OwnerOpenID: "ou_owner", Enabled: true,
+		Mode: channelstore.ChannelOwner, OwnerID: "ou_owner", Enabled: true,
 	})
 	require.NoError(t, err)
 
-	group, err := svc.LarkGroupChatFor(ctx, "maps", "oc_group", "Lark: Maps team")
+	group, err := svc.ChannelGroupChatFor(ctx, "maps", "oc_group", "Lark: Maps team")
 	require.NoError(t, err)
 
 	args, _, _, err = sup.botArgs(ctx, group.ChatID)
@@ -513,7 +514,7 @@ func TestPiRunsAsTheChatsBotWithItsModel(t *testing.T) {
 		"--bot", "vmap", "--group", "--provider", "ninerouter", "--model", "cx/gpt-6.1-sol", "--thinking", "high",
 	}, args)
 
-	direct, err := svc.LarkChannelChatFor(ctx, "maps", "oc_dm", "ou_owner", "")
+	direct, err := svc.ChannelChatFor(ctx, "maps", "oc_dm", "ou_owner", "")
 	require.NoError(t, err)
 
 	args, _, _, err = sup.botArgs(ctx, direct.ChatID)
@@ -670,6 +671,44 @@ func TestAChatsKeyLivesAsLongAsItsPi(t *testing.T) {
 	require.True(t, ok)
 	assert.Equal(t, "secret-"+chat.ID+"-gwk_2", second)
 	assert.False(t, keys.ended("gwk_2"))
+}
+
+// answerAndExit plays a pi that answers each command and exits at once: its
+// response is handed over and then done closes, as the reader does.
+type answerAndExit struct{ p *proc }
+
+func (w answerAndExit) Write(line []byte) (int, error) {
+	var cmd map[string]any
+	if err := json.Unmarshal(line, &cmd); err != nil {
+		return 0, err
+	}
+
+	w.p.mu.Lock()
+	ch := w.p.waiting[fmt.Sprint(cmd["id"])]
+	w.p.mu.Unlock()
+
+	ch <- response{Success: true, Data: json.RawMessage(`{"disposition":"started"}`)}
+	close(w.p.done)
+
+	return len(line), nil
+}
+
+func (answerAndExit) Close() error { return nil }
+
+// Scenario: pi accepts a prompt and exits in its turn (issue #459). The
+// prompt was accepted, so it is not given again to another pi; a call that
+// took the exit over the answer did so about half the time.
+func TestAPromptPiAcceptedBeforeItExitedIsAccepted(t *testing.T) {
+	t.Parallel()
+
+	for range 100 {
+		p := &proc{done: make(chan struct{}), waiting: map[string]chan response{}}
+		p.stdin = answerAndExit{p}
+
+		r, err := p.call(t.Context(), map[string]any{"type": "prompt", "message": "crash please"})
+		require.NoError(t, err)
+		assert.JSONEq(t, `{"disposition":"started"}`, string(r.Data))
+	}
 }
 
 // fakeTokens stands for the control plane's tokens of pi processes: it

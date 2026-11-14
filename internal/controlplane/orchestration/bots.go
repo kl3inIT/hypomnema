@@ -293,7 +293,7 @@ func (s *Service) ForceDeleteBot(ctx context.Context, name string) error {
 			},
 			q.DeleteSetupChangesOfChatsOfBot,
 			func(ctx context.Context, bot string) error {
-				return channelstore.DeleteLarkChannelChatsOfBotTx(ctx, q, bot)
+				return channelstore.DeleteChannelChatsOfBotTx(ctx, q, bot)
 			},
 			q.DeleteChatMessagesOfBot,
 			q.DeleteChatsOfBot, q.DeleteBot,
@@ -338,7 +338,7 @@ func botRemovable(ctx context.Context, q *store.Queries, row store.Bot) error {
 
 // botLive refuses to remove a Bot that Routines or Lark Channels use, even with its chats.
 func botLive(ctx context.Context, q *store.Queries, name string) error {
-	channels, err := channelstore.CountLarkChannelsOfBotTx(ctx, q, name)
+	channels, err := channelstore.CountChannelsOfBotTx(ctx, q, name)
 	if err != nil {
 		return err
 	}

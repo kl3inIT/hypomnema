@@ -161,8 +161,9 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     M8i-flex, R7i, R7iz, R8i, R8id, R8i-flex, X8i, I7i, I7ie) is refused before anything exists. The instance is
     asked for with `NestedVirtualization=enabled` and at least 40 GiB of disk. Its first-boot script also installs
     Xvfb, Mesa and the libraries the emulator loads, adds the `hypomnema` user to `kvm` before its manager starts,
-    and installs the node with `--device android`, which sets `device` in its configuration. The emulator itself,
-    the SDK and the AVD are not installed yet.
+    and installs the node with `--device android`, which sets `device` in its configuration. The node installs
+    the emulator, the phone image and the AVD itself at the phone's first start (see "A phone, on a node that
+    holds one").
   - Remove (`nodes rm`, `DELETE /nodes/{node_id}`): the node is drained and its tokens revoked, the machine is
     destroyed at the provider, and only then is the node `deleted`. A failed destroy leaves it listed as
     `delete_failed` and is tried again after 30 s, doubling to an hour, until it works.
@@ -343,6 +344,60 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     `127.0.0.1:3000`, which covers `::1` too), and the control plane's own port, the gate's,
     Chrome's DevTools port and the sessions' stream ports never open on that machine. A refusal is logged as `browser.refused` with the host, the
     port and the reason; the agent sees Chrome's connection error.
+- A phone, on a node that holds one (issue #417, step 1b; [research](docs/research/2026-11-14-android-device-for-agents.md);
+  `internal/node/device`). Built so far: the node installs the Android emulator and a phone image, writes the
+  AVD, starts and stops the phone when the owner asks and after an idle time, and says its state; the owner's
+  API and CLI. Not built: agents' tools on the phone (step 2), the owner watching and taking over (step 3), and
+  stopping an idle machine (step 4). A real boot from this code is checked on the trial machine, not in CI.
+  - Only a node whose configuration names `device: android` has a phone, and only on Linux x86_64, the one
+    system Google publishes the emulator and the image for. Everything of it is in `device/` in the node's home.
+  - Installed at the first start (`release.go`, `install.go`, after the browser's): platform-tools 37.0.1, the
+    emulator 37.3.9 (the beta channel: 37.2.13 crashed on the owner's map app), the Android 14 Play image for
+    x86_64 (revision 14, 1.5 GB), Android CLI 1.1.16919734 and scrcpy-server 3.3.4, each pinned by URL, size and
+    SHA-256 and fetched by the node from Google and GitHub, never redistributed; the Android SDK's license
+    applies to the SDK parts. A file is downloaded beside its place and checked first; one that does not match
+    is deleted and nothing is installed. The .zip files unpack into an SDK's layout (`sdk/platform-tools`,
+    `sdk/emulator`, `sdk/system-images/android-34/google_apis_playstore/x86_64`; a link is kept only when it
+    points inside its archive), the two others into `bin/`. `installed.json` records each component's version
+    and checksum as it is installed: an install that stopped takes up at the component it stopped in, the
+    download of that one starting again whole. cmdline-tools, sdkmanager, avdmanager and Java are not installed.
+  - The AVD is written without avdmanager (`avd.go`): `avd/phone.ini` and `avd/phone.avd/config.ini`. The
+    config is the file avdmanager writes for a Pixel 6 with this image (`avd-config.ini`, embedded, with
+    `PlayStore.enabled=no` as avdmanager writes it; the Play Store is still there), its name first and the proven
+    settings last: 720×1280 at 320 dpi, 4 GB of RAM, an 8 GB data partition, a keyboard. A minimal config booted,
+    but adb stayed unauthorized (trial machine, 2026-11-14). A file that is there is never written again: the
+    folder holds the phone's disk, with the owner's sign-ins.
+  - A start (`device.go`): `/dev/kvm` must be usable; then Xvfb on the first free display from `:99`
+    (1280x1024x24, GLX), adb's server of the SDK started before the emulator with the node user's own
+    `~/.android`, so its key exists for the Play image to authorize (HOME and `ANDROID_USER_HOME` are not
+    changed: a trial with another HOME left adb unauthorized), then `emulator -avd phone -no-window -no-audio
+    -no-boot-anim -gpu host -memory 4096 -cores 6 -port 5554` with `DISPLAY`, `ANDROID_SDK_ROOT` and
+    `ANDROID_AVD_HOME` set, and the default Quick Boot. The phone is running once `sys.boot_completed` is 1, within
+    5 minutes; then the three animation scales are set to 0. Xvfb and the emulator run in process groups of their
+    own, write to `run/xvfb.log` and `run/emulator.log`, and are recorded in `run/run.json`. A start that fails
+    ends what it started, and the phone is `failed` with the reason (the emulator's last lines when it ended).
+  - A stop: `adb emu kill`, which lets the emulator save its Quick Boot state, then SIGTERM to Xvfb; a group
+    still there after 30 s is killed, and each adb call is given up after its own limit (the boot's 5 minutes, or
+    30 s). One emulator a node. Starts and stops are carried out one at a time, and the latest asked wins: a stop
+    calls off a start under way or not yet begun, and a start asked during a stop boots the phone after it.
+  - The phone is stopped 15 minutes after its last use: its start, or a touch the later steps make; using it over
+    adb does not count yet. An emulator
+    that ended by itself makes the phone `failed`; the node looks every minute.
+  - A node that ends leaves the phone running, and the next node takes it back when `run.json` names a booted
+    phone, as Orca takes an AVD that already runs (`android-avd-boot.ts`); what it names that is not one is
+    ended. The browser instead closes a Chrome an earlier control plane left, because its tabs are agents' the
+    new control plane does not know; the phone holds no agent's session, and a stop at shutdown could outlast the
+    30 s systemd gives the node. A node does not update itself while its phone is being installed or started.
+  - The state is `absent` (not installed), `installing`, `stopped`, `starting`, `running` or `failed`, with the
+    reason and each installed component's version. The node says it at hello (`device_state`) and in every
+    heartbeat (`device`), and sends a heartbeat at once when it changes. The control plane keeps the last one in
+    memory, by node, and stores none of it.
+  - The control plane asks on the node's socket with `device_start` and `device_stop`, which carry nothing and
+    are not answered; the state says what came of them. `GET /api/v1/device` (`hypomnema device status`) lists
+    the nodes that hold a phone, with whether each is connected and can use KVM, the phone's state (left out for a
+    node that is not connected) and what is installed. `POST /api/v1/nodes/{node_id}/device/start` and `/stop`
+    (`hypomnema device start|stop <node>`, by name or id) are refused with 409 for a node without a phone and 503
+    for one not connected, and answer 202. All three are the owner's only.
 - Chats (`orchestration/chats.go`, issue #41 PR 3, after Omnara;
   [research](docs/research/2026-11-09-chat-storage.md)): the owner's conversations with pi. Every message is kept
   (`owner`, `coordinator`, `tool`, `system`; replies and tools with JSON `parts`); owner messages and wake-ups wait
@@ -1155,17 +1210,23 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     Channel's Bot, and what the Bot says there goes back to Lark. There may be several Channels, and several may
     talk to one Bot (OpenClaw's `bindings[]`: one channel account routed to one agent). What Lark calls a bot is
     a Channel's app.
-    - A Channel is a row of `lark_channels`: its name (as a Bot's, at most 50 characters), its app's id, the
-      name of the vault secret with the app's secret, the Bot it talks to, its mode, the owner's `open_id`,
-      whether it is on and whether its replies link to the web (`web_link`, migration 00063). One app is one
-      Channel: an app that another Channel has is refused (Hermes refuses two profiles on one app). The one Lark bot there was before migration 00047 is the Channel `main`, which talks
+    - A Channel is a row of `channels`: its name (as a Bot's, at most 50 characters), its kind (`kind`, only
+      `lark`), its app's id, the name of the vault secret with the app's secret, the Bot it talks to, its mode,
+      the owner's id (`owner_id`, his `open_id`), whether it is on and whether its replies link to the web
+      (`web_link`, migration 00063). One app is one Channel: an app that another Channel has is refused (Hermes
+      refuses two profiles on one app); `(kind, app_id)` is unique, and so is `app_id` alone, kept from
+      migration 00047. Migration 00080 (issue #404) renamed the tables `lark_channels` and `lark_channel_*` in
+      place to `channels` and `channel_*` and the columns `open_id`, `lark_chat_id`, `owner_open_id` and
+      `chats.lark_group` to `person_id`, `external_chat_id`, `owner_id` and `chats.channel_group`, as MemoryOS
+      keeps every provider in one set of channel tables; every Channel there was became of the kind `lark`. The one Lark bot there was before migration 00047 is the Channel `main`, which talks
       to `coordinator`.
     - The Channels' rows are kept by the domain store `orchestration/channelstore` (issue #404), reached through
       `Service.Channels()`, which imports the generated queries, `internal/storeutil` and `storeerr`, never the
       root; it only reads the Bots, chats and Runs it checks, through the shared queries. What also writes
       another domain stays in the root and calls its functions ending in `Tx` with the root's queries: starting
-      the chat of a Lark chat (`RecordLarkChannelChatTx`, `ResetLarkChannelChatTx`) and refusing or forcing a
-      Bot's removal (`CountLarkChannelsOfBotTx`, `DeleteLarkChannelChatsOfBotTx`). `larkbot` is handed the
+      the chat of a Lark chat (`RecordChannelChatTx`, `ResetChannelChatTx`) and refusing or forcing a
+      Bot's removal (`CountChannelsOfBotTx`, `DeleteChannelChatsOfBotTx`). Its types are `Channel` (with its
+      `Kind`), `ChannelPerson`, `ChannelChat`, `ChannelGroup` and `QuestionCard`. `larkbot` is handed the
       Channels' store with the orchestration beside it.
     - It talks to Lark through Lark's Go SDK (`github.com/larksuite/oapi-sdk-go/v3`): events come over a
       persistent connection the control plane opens, one per Channel, so nothing public is opened for it. Only
@@ -1189,10 +1250,10 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     - A message is taken when a person sent it in their direct chat with the Channel's app, once (a row per
       Lark message id, kept a day). The sender's organization must be the app's. The owner always may; others
       by the mode: the people he added, or every member of the organization. People are kept per Channel
-      (`lark_channel_people`): Lark gives a person another `open_id` in each app. A refusal, a message that is
+      (`channel_people`): Lark gives a person another `open_id` in each app. A refusal, a message that is
       not text and a pi that is not running are answered with a short notice.
     - Groups ([#246](https://github.com/kl3inIT/hypomnema/issues/246), migration 00055): each Channel keeps a
-      roster of the Lark groups its bot is in (`lark_channel_groups`, MemoryOS's `ChannelGroupRoster`): a group
+      roster of the Lark groups its bot is in (`channel_groups`, MemoryOS's `ChannelGroupRoster`): a group
       is added when the bot is added to it (`im.chat.member.bot.added_v1`; `deleted_v1` removes it) and by Lark's
       whole list of the bot's groups (`GET /open-apis/im/v1/chats`), read when the Channel connects and every ten
       minutes; a group the list no longer holds is removed unless it was added or asked in since the list was
@@ -1204,7 +1265,7 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       only. Anything else, commands included, is dropped without a word and not recorded. A group mentioning the
       bot before any listing is put on the roster, off. The bot's mention is taken out of the text and another
       person's is written as `@name`.
-    - A group has one chat with the Bot, marked `chats.lark_group`, which stays on a chat the group no longer
+    - A group has one chat with the Bot, marked `chats.channel_group`, which stays on a chat the group no longer
       uses. `/new` from any member it answers starts it over for everyone, as do four hours without a question
       (`asked_at` of the roster) and the first question after the bot was added to the group again; one message
       of a group at a time decides which chat it goes to. Every
@@ -1223,7 +1284,7 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       question (recorded as waiting before the Bot is given it, so an answer that comes before Lark has put the
       "working" mark still quotes it; issue #377), mentions nobody and has no link to the web; the bot says nothing when it joins. Questions for
       approval still go to the owner's direct chat only.
-    - Each person's direct chat is one chat with the Channel's Bot (`lark_channel_chats`), and `/new` opens
+    - Each person's direct chat is one chat with the Channel's Bot (`channel_chats`), and `/new` opens
       another with it. A chat that is open keeps its Bot when the Channel is given another. The owner's text is
       added as it is; another person's is added under a line that names them and says approvals are the
       owner's. It is an owner message in the record, so pi answers it as any other.
@@ -1231,7 +1292,7 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       supervisor's live frames, and closed with the kept message. A kept Bot message with nothing written live
       (a wake-up's answer) is a card of its own. The last message sent is recorded per chat, so a restart sends
       nothing twice.
-    - A question for the owner is a card in his direct chat with a Channel's app (`lark_channel_questions`). It
+    - A question for the owner is a card in his direct chat with a Channel's app (`channel_questions`). It
       goes out through one Channel: the one whose Lark chat is the chat that started the question's Run
       (`runs.chat_id`), as Hermes sends an approval to the conversation the work came from, and for a Run
       started elsewhere the oldest Channel that is on. A Channel that is off sends none. The card has a button
@@ -1901,7 +1962,7 @@ below) and for Bots (`hypomnema image`, see Bots). Claude makes none (no referen
   the providers tried; the tokens the provider reported (Codex's `usage`, Antigravity's `usageMetadata`), none
   invented; a request refused before any provider is not recorded. A Bot's is on its chat's key (as its web search).
 - What the owner sets (`gateway_image_providers`, migration 00077: `provider`, `off`, `position`; its `model`
-  dropped by 00080; read and written only by the gateway): a switch a provider and the order, read at each request.
+  dropped by 00081; read and written only by the gateway): a switch a provider and the order, read at each request.
   `GET /gateway/images` (any token) lists the providers in order, each with its switch, its `state` (`ready`;
   `resting` with `resting_until`, when each usable account rests; `not_set_up`, no account in use, for Codex none on
   a paid plan; `off`), its one `model` and OmniRoute's name for it (`model_name`: `GPT Image 2 (Codex)`, `Gemini 3.1
@@ -2082,6 +2143,17 @@ The owner's commands:
   `SKILL.md` to `~/.claude/skills` and `~/.agents/skills`, replacing a copy only when it matches a released stub
   (otherwise only with `--force`, keeping a backup). Tests check that every command in the skill parses and that the
   stub and guide share their frontmatter.
+- The pdf skill (`internal/controlplane/clientcli/skills/pdf`, issue #458) is built in as a whole folder: Hermes's
+  `skills/productivity/pdf` at `022a14437b2d` (MIT, its `LICENSE` in the folder, the notice in
+  `third_party/hermes-agent/NOTICE`), adapted to the Bots' box: `python` is the documents environment (above), the
+  scripts are named where the skill is installed (`~/.agents/skills/pdf/scripts`), and OCR, nano-pdf editing and
+  Hermes's tests are left out. A skill without a `guide.md` is such a folder: `skills install` copies its files
+  (what is under `scripts/` executable) into `~/.agents/skills` only, where every Bot reads skills, writing a new
+  copy beside the old and swapping them. It replaces an installed copy only while the folder's digest (each file's
+  path and content, Python caches left out, after Hermes's `tools/skills_sync.py` `dir_hash`) is a released one
+  (`releasedFolders`); an edited copy is left alone, or with `--force` replaced and kept as `.pdf.bak`, which pi
+  does not read. `setup-coordinator.sh` runs `skills install --agent agents` at each deploy, so every Bot gets it
+  with no `skills add`. It is listed among the built-in skills.
 
 Node (`internal/node`):
 - `init` writes `~/.hypomnema-node/config.json` (mode 0600, directory 0700) with the control plane's URL, the token
@@ -2755,6 +2827,7 @@ internal/node/shim        one worker kept across daemon restarts: journal, input
 internal/node/skills      the skills an offer names: fetched once by digest, and placed where each CLI reads them
 internal/node/statedb     the node's SQLite state: Dispatches held and the report outbox
 internal/node/terminal    the shells opened from the web: a session per id, its ring of output, the idle end
+internal/node/device      the phone a node holds: pinned SDK parts, the AVD, Xvfb, adb and the emulator, the idle stop
 internal/node/workertools the worker's MCP server: ask and finish, and the tools the control plane lists (the shared browser's, the web's) passed on to it
 internal/node/worktree    bare mirrors and git worktrees per Task
 internal/controlplane/cloudcode  what is presented to Google's Cloud Code backend: its hosts, the Antigravity IDE's user agent and version
@@ -2764,7 +2837,7 @@ internal/controlplane/machines  machines created at a provider: the Provider int
 internal/controlplane/orchestration  Runs, Tasks, Dispatches, Conversations, questions, events, nodes, accounts, machine providers, skills, the scheduler; migrations; queries generated by sqlc (internal/store); the facade over its domain stores
 internal/controlplane/orchestration/internal/storeutil  what its stores share: the one write helper, which signals event readers after the commit
 internal/controlplane/orchestration/storeerr  the errors every orchestration store returns, re-exported by orchestration
-internal/controlplane/orchestration/channelstore  the Lark Channels: who may talk through each, the messages taken, the Lark chats and groups, the question cards, reached through orchestration's Channels()
+internal/controlplane/orchestration/channelstore  the Channels (tables channels and channel_*, Lark the one kind): who may talk through each, the messages taken, the Lark chats and groups, the question cards, reached through orchestration's Channels()
 internal/controlplane/orchestration/memorystore  the agents' memories and the one about the owner, and the entry rules a Bot's memory follows, reached through orchestration's Memories()
 internal/controlplane/orchestration/userstore  the web's users and sessions, reached through orchestration's Users()
 internal/controlplane/skillsource  fetches a skill from a public GitHub repository at the commit its ref names

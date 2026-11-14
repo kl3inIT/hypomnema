@@ -38,6 +38,15 @@ func (q *Queries) DeleteBot(ctx context.Context, name string) error {
 	return err
 }
 
+const deleteChannelChatsOfBot = `-- name: DeleteChannelChatsOfBot :exec
+DELETE FROM channel_chats WHERE chat_id IN (SELECT c.id FROM chats c WHERE c.bot = ?1)
+`
+
+func (q *Queries) DeleteChannelChatsOfBot(ctx context.Context, bot string) error {
+	_, err := q.db.ExecContext(ctx, deleteChannelChatsOfBot, bot)
+	return err
+}
+
 const deleteChatMessagesOfBot = `-- name: DeleteChatMessagesOfBot :exec
 DELETE FROM chat_messages WHERE chat_id IN (SELECT c.id FROM chats c WHERE c.bot = ?1)
 `
@@ -53,15 +62,6 @@ DELETE FROM chats WHERE bot = ?1
 
 func (q *Queries) DeleteChatsOfBot(ctx context.Context, bot string) error {
 	_, err := q.db.ExecContext(ctx, deleteChatsOfBot, bot)
-	return err
-}
-
-const deleteLarkChannelChatsOfBot = `-- name: DeleteLarkChannelChatsOfBot :exec
-DELETE FROM lark_channel_chats WHERE chat_id IN (SELECT c.id FROM chats c WHERE c.bot = ?1)
-`
-
-func (q *Queries) DeleteLarkChannelChatsOfBot(ctx context.Context, bot string) error {
-	_, err := q.db.ExecContext(ctx, deleteLarkChannelChatsOfBot, bot)
 	return err
 }
 

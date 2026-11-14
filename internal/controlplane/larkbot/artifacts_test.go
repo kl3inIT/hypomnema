@@ -8,6 +8,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/artifactpack"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/channelstore"
 )
 
 // Scenario: on Lark the owner asks for a dashboard. Lark shows no page, so the Bot's reply after it names the
@@ -20,7 +21,7 @@ func TestAReplyOnLarkLinksTheArtifactBeforeIt(t *testing.T) {
 	ctx := t.Context()
 	w.web = "https://hyp.example/"
 	w.start()
-	w.setUp(orchestration.LarkChannelOwner)
+	w.setUp(channelstore.ChannelOwner)
 
 	w.lark.say(direct("om_1", ownerDM, ownerID, "a dashboard of this week's sales"))
 	chat := w.chatOf(ownerDM)

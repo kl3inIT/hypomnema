@@ -69,8 +69,8 @@ WHERE chat_id IN (SELECT c.id FROM chats c WHERE c.bot = @bot);
 -- name: DeleteSetupChangesOfChatsOfBot :exec
 DELETE FROM setup_changes WHERE chat_id IN (SELECT c.id FROM chats c WHERE c.bot = @bot);
 
--- name: DeleteLarkChannelChatsOfBot :exec
-DELETE FROM lark_channel_chats WHERE chat_id IN (SELECT c.id FROM chats c WHERE c.bot = @bot);
+-- name: DeleteChannelChatsOfBot :exec
+DELETE FROM channel_chats WHERE chat_id IN (SELECT c.id FROM chats c WHERE c.bot = @bot);
 
 -- name: DeleteChatMessagesOfBot :exec
 DELETE FROM chat_messages WHERE chat_id IN (SELECT c.id FROM chats c WHERE c.bot = @bot);
