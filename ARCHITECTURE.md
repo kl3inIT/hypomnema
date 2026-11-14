@@ -89,8 +89,8 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   Task becomes ready when all its dependencies succeeded; a failed or canceled Task blocks every Task downstream of
   it; reopening a failed Task resets its failure count and unblocks them.
 - Dispatches: the coordinator creates one for a ready Task, in a new Conversation or continuing the open one; a node
-  accepts it (a new epoch and a 90 s lease), reports it started, renews the lease, reports progress, effects
-  (intent, then done) and resources, and reports the outcome. A lost lease or an exit without a report makes the
+  accepts it (a new epoch and a 90 s lease), reports it started, renews the lease, reports effects (intent,
+  then done) and resources, and reports the outcome. A lost lease or an exit without a report makes the
   outcome unknown and blocks the Task; a report from the same epoch, a reattach by the same node and process, a
   settlement by the coordinator or an abandon ends it. A cancel stops the Dispatch and cancels the Task only once
   the stop is confirmed. Worker errors, failed launches and lost Dispatches count toward a breaker of three with a
@@ -100,8 +100,8 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   are marked, stalls (15 min without progress), Dispatches past 4 h and nodes with three expiries in a row are
   returned as escalations, as are open questions to the owner after 1 h, then daily; nothing is killed.
 - A worker that loops is judged from its transcript (issue #359, after OpenMausBot's runtime contract, OpenHands'
-  `StuckDetector` and Gemini CLI's loop detection): progress for the stall timer is a tool result that succeeded,
-  not the node's progress report. The same tool with the same input failing with the same text three times in a
+  `StuckDetector` and Gemini CLI's loop detection): progress for the stall timer is a tool result that succeeded.
+  The same tool with the same input failing with the same text three times in a
   row stops the worker; once the stop is confirmed the Dispatch ends `failed` (`worker_error`, counted by the
   breaker) with "Stopped after 3 identical errors: <tool>: <error>" as its summary (`dispatches.stalled_reason`),
   not `canceled`. A Task whose last two Dispatches failed with tool results and not one success fails at once,
@@ -115,7 +115,7 @@ transaction, every status change a guarded `UPDATE` checked against a transition
 
 - Events: every change writes its events in the same transaction to one log with an increasing `seq`: Runs,
   Tasks and Dispatches with the status they left, Conversations closed, questions opened, answered, forwarded or
-  canceled, and the reaper's escalations. Lease renewals, progress, effects and resources are not events. With one
+  canceled, and the reaper's escalations. Lease renewals, effects and resources are not events. With one
   writer, a later commit always has higher `seq` values, so a reader following `ListEvents` (cursor, limit up to
   500, `has_more`, filters by Run or Task) misses nothing. `Subscribe` wakes readers after each commit with a
   signal that carries no data.
@@ -1958,8 +1958,8 @@ Node (`internal/node`):
 - It records an offer and queues its accept in one transaction, and starts the worker only once the accept is
   acknowledged. It renews each running Dispatch's lease every 30 s and passes stops and answers to its Runner.
 - Durable reports (accept, started, question, answer acknowledged, the final report, reattach) wait in a local SQLite
-  outbox (`internal/node/statedb`) and are resent after every reconnect until acknowledged; heartbeats and progress
-  are not resent.
+  outbox (`internal/node/statedb`) and are resent after every reconnect until acknowledged; heartbeats are not
+  resent.
 - Claude Code workers (`internal/node/claude`) run under a shim (`internal/node/shim`), as every worker:
   - The daemon starts `hypomnema-node shim --dir run/<dispatch>` in its own session. The shim runs `claude -p` with
     bidirectional stream-JSON and host permission prompts (`--resume` when the Conversation continues, `--model`
@@ -1979,7 +1979,6 @@ Node (`internal/node`):
     alive after 30 s is killed with its whole session group.
   - Reported:
     - the session id from `system/init`, as started;
-    - progress at most every 30 s;
     - one turn per Dispatch: stdin is closed after the turn's `result`.
   - The worker's transcript goes to the control plane apart from its reports
     ([research](docs/research/2026-11-10-worker-sessions.md); one forwarder, `internal/node/transcript`, for every

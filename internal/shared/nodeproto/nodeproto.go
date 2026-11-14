@@ -351,7 +351,6 @@ const (
 	ReportAccept          = "accept"
 	ReportStarted         = "started"
 	ReportHeartbeat       = "heartbeat"
-	ReportProgress        = "progress"
 	ReportEffect          = "effect"
 	ReportResource        = "resource"
 	ReportReleaseResource = "release_resource"
