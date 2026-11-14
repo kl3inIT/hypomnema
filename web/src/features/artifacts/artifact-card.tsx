@@ -1,8 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query"
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useState } from "react"
 
 import type { Artifact, ArtifactCard as Card, ArtifactRevision } from "@/api/generated/types.gen"
-import { useObjectURL } from "@/features/files/files-state"
 import { since } from "@/lib/time"
 
 import { ArtifactFullScreen } from "./artifact-full-screen"
@@ -13,6 +12,7 @@ import {
   revisionOf,
   useArtifact,
   useArtifactFile,
+  useImageSource,
   useFrameFiles,
 } from "./artifact-state"
 import { frameDocument, frameSandbox } from "./frame-document"
@@ -133,10 +133,7 @@ function PageThumbnail({ id, revision }: { id: string; revision: ArtifactRevisio
 }
 
 function ImageThumbnail({ id, revision }: { id: string; revision: ArtifactRevision }) {
-  const file = useArtifactFile(id, revision.revision)
-  const type = revision.files[0]?.media_type ?? "application/octet-stream"
-  const typed = useMemo(() => file.data && new Blob([file.data], { type }), [file.data, type])
-  const url = useObjectURL(typed)
+  const { src: url } = useImageSource(id, revision)
 
   if (!url) return <ArtifactIcon type="image" className="size-6 text-muted-foreground" />
 

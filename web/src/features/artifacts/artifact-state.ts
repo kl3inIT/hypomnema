@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query"
+import { useEffect, useMemo } from "react"
 
 import { client } from "@/api/client"
 import { getArtifact, openArtifactFrame, readArtifactFile } from "@/api/generated/sdk.gen"
@@ -77,6 +78,49 @@ export function sizeOf(bytes: number) {
   if (bytes >= 1 << 10) return `${Math.round(bytes / (1 << 10))} KB`
 
   return `${bytes} B`
+}
+
+// rasterTypes are the images whose bytes become a blob: address. A blob: address is of this origin, so a type that
+// can run script there (SVG, HTML) never gets one: opened on its own, as "Open image in new tab" does, it would be a
+// page of the app.
+const rasterTypes = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+  "image/avif",
+  "image/bmp",
+  "image/x-icon",
+])
+
+export const isRaster = (type: string) => rasterTypes.has(type)
+
+// useImageSource is where an image artifact is drawn from: a raster image from its bytes, typed exactly; any other
+// image, an SVG, from its frame's address, which the server sends with a sandboxing policy, so that opened on its
+// own it is never a page of this origin and its script never runs.
+export function useImageSource(id: string, revision: ArtifactRevision) {
+  const type = revision.files.find((f) => f.path === revision.entry)?.media_type ?? ""
+  const raster = isRaster(type)
+  const file = useArtifactFile(id, revision.revision, undefined, raster)
+  const files = useFrameFiles(id, revision.revision, !raster)
+  const blob = useMemo(
+    () => (raster && file.data ? new Blob([file.data], { type }) : undefined),
+    [raster, file.data, type],
+  )
+  const url = useObjectURLOf(blob)
+
+  return {
+    src: raster ? url : files.data && `${files.data}${encodeURIComponent(revision.entry)}`,
+    error: raster ? file.error : files.error,
+  }
+}
+
+// useObjectURLOf is a blob: address for raster bytes, revoked when they change or are no longer shown.
+function useObjectURLOf(blob: Blob | undefined) {
+  const url = useMemo(() => (blob ? URL.createObjectURL(blob) : null), [blob])
+  useEffect(() => () => (url ? URL.revokeObjectURL(url) : undefined), [url])
+
+  return url ?? undefined
 }
 
 // isPhone is a screen where an artifact opens over the whole screen rather than beside the chat (issue #402, row 6).

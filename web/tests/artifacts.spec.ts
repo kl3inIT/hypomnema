@@ -175,6 +175,16 @@ function world() {
       "application/pdf",
     ),
     art_img: one("art_img", "Revenue chart", "image", "chart.png", png, "image/png"),
+    art_svg: one(
+      "art_svg",
+      "Flow",
+      "image",
+      "flow.svg",
+      Buffer.from(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="160" height="60"><rect width="160" height="60" fill="#5b5bd6"/><script>parent.alert(1)</script></svg>',
+      ),
+      "image/svg+xml",
+    ),
     art_xls: one(
       "art_xls",
       "Orders, October",
@@ -362,6 +372,7 @@ async function openChat(page: Page, w: ReturnType<typeof world>) {
     [5, "art_pdf"],
     [6, "art_img"],
     [7, "art_xls"],
+    [8, "art_svg"],
   ] as const) {
     await server.push(
       frame(seq, {
@@ -480,6 +491,19 @@ test.describe("on a desktop", () => {
     await side(page).getByRole("button", { name: "Zoom in" }).click()
     await expect(side(page).getByRole("button", { name: "Reset zoom" })).toHaveText("125%")
     await shot(page, "artifact-image")
+
+    // A raster image is drawn from its bytes; an SVG never from a blob: address of this origin, where its script
+    // would run if it were opened on its own, but from the frame's sandboxed address.
+    expect(
+      await side(page).getByRole("img", { name: "Revenue chart" }).getAttribute("src"),
+    ).toMatch(/^blob:/)
+    await card(page, "Flow").click()
+    const svg = side(page).getByRole("img", { name: "Flow" })
+    await expect(svg).toBeVisible()
+    expect(await svg.getAttribute("src")).toMatch(
+      /^http:\/\/127\.0\.0\.1:4173\/api\/v1\/artifact-files\/tok-svg-1\/flow\.svg$/,
+    )
+    await expect(page.locator('img[src^="blob:"][alt="Flow"]')).toHaveCount(0)
 
     await card(page, "Orders, October").click()
     const download = side(page).getByRole("link", { name: "Download" })

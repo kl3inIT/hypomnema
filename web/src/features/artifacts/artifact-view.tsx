@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query"
 import { Download, File } from "lucide-react"
-import { lazy, Suspense, useMemo, useState } from "react"
+import { lazy, Suspense, useState } from "react"
 
 import type { Artifact, ArtifactRevision } from "@/api/generated/types.gen"
 import { buttonVariants } from "@/components/ui/button"
@@ -13,9 +13,15 @@ import {
   EmptyTitle,
 } from "@/components/ui/empty"
 import { Spinner } from "@/components/ui/spinner"
-import { problemOf, useObjectURL } from "@/features/files/files-state"
+import { problemOf } from "@/features/files/files-state"
 
-import { downloadURL, sizeOf, useArtifactFile, useFrameFiles } from "./artifact-state"
+import {
+  downloadURL,
+  sizeOf,
+  useArtifactFile,
+  useFrameFiles,
+  useImageSource,
+} from "./artifact-state"
 import { frameDocument, frameSandbox } from "./frame-document"
 import { Zoom } from "./zoom"
 
@@ -122,19 +128,13 @@ function PdfFile({ artifact, revision }: Props) {
   )
 }
 
-const mediaOf = (revision: ArtifactRevision) =>
-  revision.files.find((f) => f.path === revision.entry)?.media_type ?? "application/octet-stream"
-
-// ImageFile is an image from its bytes, zoomable from 25% to 200% (Onyx's imageVariant). It is an <img>, where an
-// SVG's script does not run.
+// ImageFile is an image, zoomable from 25% to 200% (Onyx's imageVariant): a raster image from its bytes, an SVG
+// from the frame's sandboxed address (useImageSource). It is an <img>, where an SVG's script does not run.
 function ImageFile({ artifact, revision }: Props) {
-  const file = useArtifactFile(artifact.id, revision.revision)
-  const type = mediaOf(revision)
-  const typed = useMemo(() => file.data && new Blob([file.data], { type }), [file.data, type])
-  const url = useObjectURL(typed)
+  const { src: url, error } = useImageSource(artifact.id, revision)
   const [scale, setScale] = useState(1)
 
-  if (file.error) return <Problem error={file.error} />
+  if (error) return <Problem error={error} />
   if (!url) return <Loading />
 
   return (

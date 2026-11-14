@@ -367,7 +367,7 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     token only replaces one of its Bot's, so that a Routine rebuilds a live dashboard (row 11 of the issue). With
     `--id` the files become the next revision; the same files under the same title make none (200). A pi of
     another chat does not find it.
-  - Kept in the database (migration 70): `artifacts` (its chat, Bot, message and newest revision),
+  - Kept in the database (migration 71): `artifacts` (its chat, Bot, message and newest revision),
     `artifact_revisions` (title, type, the file shown, a digest of the files), `artifact_files` (path, SHA-256,
     size, media type) and `artifact_blobs`, the bytes once by SHA-256. The last ten revisions are kept
     (OpenMausBot's `APP_PAGE_VERSIONS`), and bytes no kept revision names go with the older ones.
@@ -386,6 +386,9 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     (`Content-Security-Policy: sandbox allow-scripts; default-src 'none'`, `nosniff`, `Access-Control-Allow-Origin:
     *`, `no-referrer`, `no-store`).
   - CLI: `artifact show`, `artifact list [--chat]`, `artifact info <id>`, `artifact download <id> [--rev] [--out]`.
+    A download is saved as `<id>-r<rev>-<name>` (a folder as `<id>-r<rev>.zip`), the name only the last part of
+    what the server gave and left out when it is no plain file name here (`..`, a drive's colon, a device of
+    Windows, a control character); a file that is there is never replaced.
     Every Bot's `AGENTS.md` says when and how to show one.
   - Not built: JSX pages, a public link (OpenMausBot's `publish_page`), pinning to a board, the page calling back
     into the chat, viewers for Excel, CSV, Word, Markdown and text (they download), the dashboard skill (row 13).
@@ -2292,8 +2295,9 @@ Node (`internal/node`):
     CSP meta (`frame-document.ts`: scripts and styles inline or from cdnjs, jsdelivr and unpkg, Google Fonts,
     images from `data:`, `blob:` and those CDNs, no other connection, frame, form target or base), and a folder
     page's base and policy add its frame's address. A PDF is drawn by pdf.js through react-pdf, loaded with it
-    (Omnigent's `PdfViewer.tsx`), since a phone shows no PDF in a frame; an image from its bytes, zoomable 25-200 %
-    (Onyx's `imageVariant`); any other file is its name, size and a download (Onyx's `unsupportedVariant`).
+    (Omnigent's `PdfViewer.tsx`), since a phone shows no PDF in a frame; an image zoomable 25-200 % (Onyx's `imageVariant`),
+    a raster one from its bytes as a `blob:` address of its exact type, an SVG from its frame's sandboxed address
+    and never from a `blob:` or `data:` address of this origin, where its script would run opened on its own; any other file is its name, size and a download (Onyx's `unsupportedVariant`).
   - The sidebar lists the places in the order they are used (issue #371, after OpenClaw's navigation): New chat,
     Team with the count that needs the owner, Routines, then Bots, Agents (a terminal mark, apart from the Bots'
     robot) and Machines, above the Bots (issue #361, after OpenMausBot's sidebar): a row a Bot that has chats, and

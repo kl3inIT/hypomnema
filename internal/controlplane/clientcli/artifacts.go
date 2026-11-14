@@ -3,12 +3,16 @@ package clientcli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
+	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/artifactpack"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
@@ -181,17 +185,15 @@ func artifactDownload(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		}
 	}
 
-	var (
-		resp *http.Response
-		name string
-	)
+	var resp *http.Response
 
+	// The name comes from the server: it only names the file in this directory, after the artifact and revision.
+	name := downloadName(id, rev, a.Entry)
 	if files == 1 {
 		resp, err = e.api.ReadArtifactFile(ctx, id, rev, &openapi.ReadArtifactFileParams{})
-		name = a.Entry
 	} else {
 		resp, err = e.api.GetArtifactArchive(ctx, id, rev)
-		name = id + "-" + strconv.Itoa(rev) + ".zip"
+		name = downloadName(id, rev, "") + ".zip"
 	}
 
 	if err != nil {
@@ -212,13 +214,70 @@ func artifactDownload(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		name = out
 	}
 
-	if err := os.WriteFile(name, data, 0o600); err != nil {
-		return fmt.Errorf("saving %s: %w", name, err)
+	if err := saveNew(name, data); err != nil {
+		return err
 	}
 
 	return e.print(fs, map[string]any{"file": name, "size": len(data)}, func() {
 		e.printf("saved revision %d of %s as %s (%s)\n", rev, id, name, size(int64(len(data))))
 	})
+}
+
+// downloadName is the file a revision is saved as by default: <id>-r<rev>-<name>, its name being the last part of
+// what the server named it when that is a plain file name here, and nothing when it is not.
+func downloadName(id string, rev int, entry string) string {
+	name := id + "-r" + strconv.Itoa(rev)
+	if base := safeBase(entry); base != "" {
+		name += "-" + base
+	}
+
+	return name
+}
+
+// windowsReserved are the device names Windows refuses as a file name, with or without an extension.
+var windowsReserved = regexp.MustCompile(`(?i)^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\..*)?$`)
+
+// safeBase is the last part of a name the server gave, or "" when it is no plain file name: empty, "." or "..",
+// with a separator, a drive's colon or a control character, or a device name of Windows.
+func safeBase(name string) string {
+	base := name[strings.LastIndexAny(name, `/\`)+1:]
+
+	if base == "" || base == "." || base == ".." || strings.ContainsAny(base, ":/\\") ||
+		windowsReserved.MatchString(base) {
+		return ""
+	}
+
+	for _, r := range base {
+		if r < 0x20 || r == 0x7f {
+			return ""
+		}
+	}
+
+	return base
+}
+
+// saveNew writes a new file and never replaces one that is there.
+func saveNew(name string, data []byte) error {
+	f, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) //nolint:gosec // a name of this directory
+	if errors.Is(err, fs.ErrExist) {
+		return fmt.Errorf("%s is already there and is not replaced; give another name with --out", name)
+	}
+
+	if err != nil {
+		return fmt.Errorf("saving %s: %w", name, err)
+	}
+
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+
+		return fmt.Errorf("saving %s: %w", name, err)
+	}
+
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("saving %s: %w", name, err)
+	}
+
+	return nil
 }
 
 // size is a number of bytes as people read it.

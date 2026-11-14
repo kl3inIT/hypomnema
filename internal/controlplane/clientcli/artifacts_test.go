@@ -98,4 +98,37 @@ func TestABotShowsAnArtifactFromItsDirectory(t *testing.T) { //nolint:parallelte
 	got, err := os.ReadFile("got.pdf")
 	require.NoError(t, err)
 	assert.Equal(t, "%PDF-1.7 report", string(got))
+
+	_, err = w.cmd(t, "artifact", "download", pdf, "--out", "got.pdf")
+	require.ErrorContains(t, err, "got.pdf is already there and is not replaced", "a file there is never replaced")
+
+	out, err = w.cmd(t, "artifact", "download", pdf)
+	require.NoError(t, err)
+	assert.Contains(t, out, "as "+pdf+"-r1-report.pdf ")
+}
+
+// Scenario: the name a download is saved under comes from the server, so it only ever names a file of this
+// directory: its last part, after the artifact's id and revision, and nothing of it when it is not a plain name
+// here (a way up, a drive, a device of Windows, a control character).
+func TestADownloadsNameStaysInThisDirectory(t *testing.T) {
+	t.Parallel()
+
+	cases := map[string]string{
+		"report.pdf":        "art_1-r2-report.pdf",
+		"../x":              "art_1-r2-x",
+		"../../etc/hosts":   "art_1-r2-hosts",
+		`..\..\win.ini`:     "art_1-r2-win.ini",
+		"C:evil":            "art_1-r2",
+		"..":                "art_1-r2",
+		"":                  "art_1-r2",
+		"dir/":              "art_1-r2",
+		"NUL":               "art_1-r2",
+		"com1.txt":          "art_1-r2",
+		"a\x00b":            "art_1-r2",
+		"Báo cáo quý 3.pdf": "art_1-r2-Báo cáo quý 3.pdf",
+	}
+
+	for entry, want := range cases {
+		assert.Equal(t, want, downloadName("art_1", 2, entry), entry)
+	}
 }
