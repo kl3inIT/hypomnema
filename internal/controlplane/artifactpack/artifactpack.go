@@ -129,7 +129,7 @@ func imageType(f File) string {
 	return ""
 }
 
-// isPDF is a PDF by its signature, as the Lark relay tells one (larkbot/media.go).
+// isPDF is a PDF by its signature, as the Lark Channel tells one (channels/lark/lark.go).
 func isPDF(f File) bool { return bytes.HasPrefix(f.Data, []byte("%PDF-")) }
 
 // MediaType is the type a file of a pack is served as: a page's file by its name, a single file by its bytes.

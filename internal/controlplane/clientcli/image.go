@@ -20,9 +20,9 @@ import (
 // saved as files, in the current folder unless --out names another, and
 // their paths printed, one a line, as omp's generate_image and opencode's
 // experimental_image_generate save theirs and say where; a Bot then sends a
-// file into its chat with a MEDIA:<path> line (larkbot/media.go). The
-// providers, their switches and order are what Settings → Gateway → Images
-// shows and changes; each makes images with its one model (issue #453).
+// file into its chat with a MEDIA:<path> line (channels/media.go). The
+// providers, their switches, order and models are what Settings → Gateway →
+// Images shows and changes.
 
 // imageList is a flag given once a value: --image a.png --image b.png.
 type imageList []string
@@ -44,8 +44,8 @@ func imageFlags(edit bool) func(fs *flag.FlagSet) {
 
 		fs.String("size", "", "1024x1024, 1536x1024, 1024x1536, auto, or an aspect ratio such as 16:9")
 		fs.Int("n", 0, "how many images, 1 to 10 (default 1)")
-		fs.String("model", "", "picks the provider by a model's name: gpt-image-* is Codex, gemini-* Antigravity; "+
-			"each makes images with its one model (default: the providers in their order)")
+		fs.String("model", "", "the model: gpt-image-* (Codex), gemini-* (Antigravity) or <provider>/<model> "+
+			"(default: each provider's own, as Settings → Gateway → Images sets it)")
 		fs.String("provider", "", "ask only this provider: codex or antigravity (default: the first that answers)")
 		fs.String("quality", "", "low, medium, high or auto (Codex)")
 		fs.String("image-size", "", "1K, 2K or 4K (Antigravity)")
@@ -116,15 +116,12 @@ func (e *env) makeImages(ctx context.Context, fs *flag.FlagSet, inputs []string)
 	}
 
 	saved := struct {
-		Provider     openapi.ImageProvider    `json:"provider"`
-		Model        string                   `json:"model"`
-		Created      int64                    `json:"created"`
-		Size         string                   `json:"size,omitempty"`
-		Quality      string                   `json:"quality,omitempty"`
-		OutputFormat string                   `json:"output_format,omitempty"`
-		Paths        []string                 `json:"paths"`
-		Errors       []openapi.WebSearchError `json:"errors,omitempty"`
-	}{a.Provider, a.Model, a.Created, val(a.Size), val(a.Quality), val(a.OutputFormat), paths, val(a.Errors)}
+		Provider openapi.ImageProvider    `json:"provider"`
+		Model    string                   `json:"model"`
+		Created  int64                    `json:"created"`
+		Paths    []string                 `json:"paths"`
+		Errors   []openapi.WebSearchError `json:"errors,omitempty"`
+	}{a.Provider, a.Model, a.Created, paths, val(a.Errors)}
 
 	return e.print(fs, saved, func() {
 		for _, p := range paths {
@@ -132,14 +129,6 @@ func (e *env) makeImages(ctx context.Context, fs *flag.FlagSet, inputs []string)
 		}
 
 		line := fmt.Sprintf("Made by %s with %s", a.Provider, a.Model)
-		// What the provider says it made, which may not be what was asked (issue #453).
-		if size := val(a.Size); size != "" {
-			line += " at " + size
-		}
-
-		if quality := val(a.Quality); quality != "" {
-			line += ", quality " + quality
-		}
 		for i, f := range val(a.Errors) {
 			sep := ", after "
 			if i > 0 {
@@ -248,13 +237,18 @@ func (e *env) printImages(images *openapi.Images) {
 			state += " until " + p.RestingUntil.Local().Format("15:04")
 		}
 
+		model := p.Model + " (default)"
+		if p.ModelChosen {
+			model = p.Model + " (default " + p.DefaultModel + ")"
+		}
+
 		accounts := fmt.Sprintf("%d accounts", p.Accounts)
 		if p.Accounts == 1 {
 			accounts = "1 account"
 		}
 
 		e.printf("%d\t%s\t%s\t%s\t%s\ttoday %d made, %d failed; this month %d made, %d failed\n", i+1, p.Provider, state,
-			p.Model, accounts, p.Usage.Today.Answered, p.Usage.Today.Failed, p.Usage.Month.Answered, p.Usage.Month.Failed)
+			model, accounts, p.Usage.Today.Answered, p.Usage.Today.Failed, p.Usage.Month.Answered, p.Usage.Month.Failed)
 	}
 }
 
@@ -266,8 +260,28 @@ func imageProvidersSet(ctx context.Context, e *env, fs *flag.FlagSet) error {
 
 	on := state == "on"
 
-	resp, err := e.api.SetImageProviderWithResponse(ctx, openapi.ImageProvider(provider),
-		openapi.ImageProviderChange{On: on})
+	return e.changeImageProvider(ctx, fs, provider, openapi.ImageProviderChange{On: &on},
+		"image provider "+provider+" is "+state)
+}
+
+func imageProvidersModel(ctx context.Context, e *env, fs *flag.FlagSet) error {
+	provider, model := fs.Arg(0), fs.Arg(1)
+	if model == "default" {
+		model = ""
+	}
+
+	done := "image provider " + provider + " makes images with " + model
+	if model == "" {
+		done = "image provider " + provider + " makes images with its default model"
+	}
+
+	return e.changeImageProvider(ctx, fs, provider, openapi.ImageProviderChange{Model: &model}, done)
+}
+
+func (e *env) changeImageProvider(
+	ctx context.Context, fs *flag.FlagSet, provider string, change openapi.ImageProviderChange, done string,
+) error {
+	resp, err := e.api.SetImageProviderWithResponse(ctx, openapi.ImageProvider(provider), change)
 	if err != nil {
 		return fmt.Errorf("changing %s: %w", provider, err)
 	}
@@ -276,7 +290,7 @@ func imageProvidersSet(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		return apiError("changing "+provider, resp.StatusCode(), resp.JSONDefault)
 	}
 
-	return e.print(fs, resp.JSON200, func() { e.printf("image provider %s is %s\n", provider, state) })
+	return e.print(fs, resp.JSON200, func() { e.printf("%s\n", done) })
 }
 
 func imageOrder(ctx context.Context, e *env, fs *flag.FlagSet) error {
