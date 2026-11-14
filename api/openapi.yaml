@@ -1905,6 +1905,30 @@ paths:
             application/octet-stream:
               schema: { type: string, format: binary }
         default: { $ref: "#/components/responses/Error" }
+  /artifacts/{artifact_id}/revisions/{revision}/sheets:
+    parameters:
+      - $ref: "#/components/parameters/ArtifactID"
+      - $ref: "#/components/parameters/ArtifactRevisionNumber"
+    get:
+      operationId: ReadArtifactSheets
+      summary: A workbook of a revision read as CSV text a sheet, for its preview (owner only)
+      description: >-
+        Each sheet of an xlsx file as CSV, as MemoryOS and Onyx preview one:
+        read as a stream, a formula as the value the workbook cached (never
+        evaluated), a sheet cut at a row boundary past 500,000 characters.
+        A file that is not a workbook is refused as invalid.
+      parameters:
+        - name: path
+          in: query
+          description: The file's path in the revision; the file shown when absent.
+          schema: { type: string, maxLength: 1100 }
+      responses:
+        "200":
+          description: The sheets, in the workbook's order.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SheetList" }
+        default: { $ref: "#/components/responses/Error" }
   /artifacts/{artifact_id}/revisions/{revision}/archive:
     parameters:
       - $ref: "#/components/parameters/ArtifactID"
@@ -2873,6 +2897,26 @@ paths:
           content:
             application/octet-stream:
               schema: { type: string, format: binary }
+        default: { $ref: "#/components/responses/Error" }
+  /chats/{chat_id}/workspaces/{workspace_id}/sheets:
+    parameters:
+      - $ref: "#/components/parameters/ChatID"
+      - $ref: "#/components/parameters/WorkspaceID"
+    get:
+      operationId: ReadWorkspaceSheets
+      summary: A workbook of up to 10 MiB in a chat's folder read as CSV text a sheet, for its preview (owner only)
+      description: >-
+        The file's bytes are read from the machine that holds the folder, as
+        /raw reads them, and the control plane reads the workbook as
+        ReadArtifactSheets does.
+      parameters:
+        - $ref: "#/components/parameters/WorkspacePath"
+      responses:
+        "200":
+          description: The sheets, in the workbook's order.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SheetList" }
         default: { $ref: "#/components/responses/Error" }
   /chats/{chat_id}/workspaces/{workspace_id}/uploads:
     parameters:
@@ -6255,6 +6299,35 @@ components:
         data:
           type: array
           items: { $ref: "#/components/schemas/Artifact" }
+    SheetList:
+      type: object
+      description: >-
+        A workbook as CSV text a sheet (issue #422): each sheet cut at
+        500,000 characters, all of them at 2,000,000, at most 50 sheets.
+      required: [sheets, truncated]
+      properties:
+        sheets:
+          type: array
+          items: { $ref: "#/components/schemas/Sheet" }
+        truncated:
+          type: boolean
+          description: Sheets past the first 50 were left out; the download holds them.
+    Sheet:
+      type: object
+      required: [name, csv, truncated]
+      properties:
+        name: { type: string }
+        csv:
+          type: string
+          description: >-
+            The sheet's rows as RFC 4180 CSV, one line a sheet row, a row the
+            sheet never stored as an empty line.
+        truncated:
+          type: boolean
+          description: >-
+            Rows past the sheet's 500,000 characters, or past what the
+            workbook's 2,000,000 left for it, were left out; the download
+            holds them.
     ArtifactFrame:
       type: object
       required: [url]

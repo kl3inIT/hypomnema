@@ -75,6 +75,7 @@ var policies = map[string]policy{
 	"WriteWorkspaceFile":          {scope: scopeOwner},
 	"DeleteWorkspaceEntry":        {scope: scopeOwner},
 	"ReadWorkspaceRaw":            {scope: scopeOwner},
+	"ReadWorkspaceSheets":         {scope: scopeOwner},
 	"MakeWorkspaceFolder":         {scope: scopeOwner},
 	"MoveWorkspaceEntry":          {scope: scopeOwner},
 	"BeginWorkspaceUpload":        {scope: scopeOwner},
@@ -204,6 +205,8 @@ var policies = map[string]policy{
 	"ReadArtifactFile":   {},
 	"GetArtifactArchive": {},
 	"OpenArtifactFrame":  {scope: scopeOwner},
+	// Only the owner's web previews a workbook (issue #422, sheets.go).
+	"ReadArtifactSheets": {scope: scopeOwner},
 	"ListChats":          {scope: scopeOwner},
 	"CreateChat":         {scope: scopeOwner},
 	"GetChat":            {scope: scopeOwner},

@@ -2763,6 +2763,29 @@ export type ArtifactList = {
   data: Array<Artifact>;
 };
 
+/**
+ * A workbook as CSV text a sheet (issue #422): each sheet cut at 500,000 characters, all of them at 2,000,000, at most 50 sheets.
+ */
+export type SheetList = {
+  sheets: Array<Sheet>;
+  /**
+   * Sheets past the first 50 were left out; the download holds them.
+   */
+  truncated: boolean;
+};
+
+export type Sheet = {
+  name: string;
+  /**
+   * The sheet's rows as RFC 4180 CSV, one line a sheet row, a row the sheet never stored as an empty line.
+   */
+  csv: string;
+  /**
+   * Rows past the sheet's 500,000 characters, or past what the workbook's 2,000,000 left for it, were left out; the download holds them.
+   */
+  truncated: boolean;
+};
+
 export type ArtifactFrame = {
   /**
    * The folder's path on this server, ending in "/".
@@ -5912,6 +5935,39 @@ export type ReadArtifactFileResponses = {
 
 export type ReadArtifactFileResponse = ReadArtifactFileResponses[keyof ReadArtifactFileResponses];
 
+export type ReadArtifactSheetsData = {
+  body?: never;
+  path: {
+    artifact_id: string;
+    revision: number;
+  };
+  query?: {
+    /**
+     * The file's path in the revision; the file shown when absent.
+     */
+    path?: string;
+  };
+  url: '/artifacts/{artifact_id}/revisions/{revision}/sheets';
+};
+
+export type ReadArtifactSheetsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ReadArtifactSheetsError = ReadArtifactSheetsErrors[keyof ReadArtifactSheetsErrors];
+
+export type ReadArtifactSheetsResponses = {
+  /**
+   * The sheets, in the workbook's order.
+   */
+  200: SheetList;
+};
+
+export type ReadArtifactSheetsResponse = ReadArtifactSheetsResponses[keyof ReadArtifactSheetsResponses];
+
 export type GetArtifactArchiveData = {
   body?: never;
   path: {
@@ -7507,6 +7563,42 @@ export type ReadWorkspaceRawResponses = {
 };
 
 export type ReadWorkspaceRawResponse = ReadWorkspaceRawResponses[keyof ReadWorkspaceRawResponses];
+
+export type ReadWorkspaceSheetsData = {
+  body?: never;
+  path: {
+    chat_id: string;
+    /**
+     * `bot` for the Bot's folder, or a Task's id for its worktree.
+     */
+    workspace_id: string;
+  };
+  query?: {
+    /**
+     * A path in the folder, with forward slashes; empty or absent is the folder itself.
+     */
+    path?: string;
+  };
+  url: '/chats/{chat_id}/workspaces/{workspace_id}/sheets';
+};
+
+export type ReadWorkspaceSheetsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ReadWorkspaceSheetsError = ReadWorkspaceSheetsErrors[keyof ReadWorkspaceSheetsErrors];
+
+export type ReadWorkspaceSheetsResponses = {
+  /**
+   * The sheets, in the workbook's order.
+   */
+  200: SheetList;
+};
+
+export type ReadWorkspaceSheetsResponse = ReadWorkspaceSheetsResponses[keyof ReadWorkspaceSheetsResponses];
 
 export type BeginWorkspaceUploadData = {
   body: WorkspacePathBody;

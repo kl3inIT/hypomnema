@@ -37,12 +37,15 @@ func TestAReplyOnLarkLinksTheArtifactBeforeIt(t *testing.T) {
 
 	link := "\n\n[Open in Hypomnema](https://hyp.example/chats/" + chat + ")"
 
+	first := ownerDM + ": Here it is.\n\n📎 [Sales (week 46)](https://hyp.example/artifacts/" + a.ID + ")" + link
+
 	w.answer(chat, "Here it is.")
+	// The next reply begins once this one is in Lark: a reply that begins while the relay has not read the one
+	// before ends that card with what was written live, with no artifact under it (issue #444).
+	require.Eventually(t, func() bool { return assert.ObjectsAreEqual([]string{first}, w.lark.sent()) }, eventual, tick)
+
 	w.answer(chat, "Anything else?")
 	require.Eventually(t, func() bool {
-		return assert.ObjectsAreEqual([]string{
-			ownerDM + ": Here it is.\n\n📎 [Sales (week 46)](https://hyp.example/artifacts/" + a.ID + ")" + link,
-			ownerDM + ": Anything else?" + link,
-		}, w.lark.sent())
+		return assert.ObjectsAreEqual([]string{first, ownerDM + ": Anything else?" + link}, w.lark.sent())
 	}, eventual, tick)
 }
