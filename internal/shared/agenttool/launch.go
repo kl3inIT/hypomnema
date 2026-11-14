@@ -126,21 +126,17 @@ type Connection struct {
 // ConnectionList answers PathConnections.
 type ConnectionList struct {
 	Data []Connection `json:"data"`
-	// ClientID is the one app's id when every account is the same app, for a
-	// launcher from before each account had its own. Not a secret.
-	ClientID string `json:"client_id,omitempty"`
 }
 
-// clientOf is the id of the app of the account named label: its own, or
-// the list's from a control plane from before each account had its own.
+// clientOf is the id of the app of the account named label.
 func (l ConnectionList) clientOf(label string) string {
 	for _, c := range l.Data {
-		if c.Label == label && c.ClientID != "" {
+		if c.Label == label {
 			return c.ClientID
 		}
 	}
 
-	return l.ClientID
+	return ""
 }
 
 // TokenRequest is the body of PathToken.

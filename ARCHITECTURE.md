@@ -924,8 +924,7 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       Routine script that uses the Connection get that app's token.
     - Its tool is `lark-cli` 1.0.100 (`github.com/larksuite/cli`) for Linux on amd64 and arm64, in the tool
       catalog beside `gws` (`internal/shared/agenttool`) and installed and launched the same way. It will not run
-      on a token alone, so the agent API lists each account with its app's id (and one `client_id` for the whole
-      list only while every account is the same app, for a launcher from before), and the launcher sets
+      on a token alone, so the agent API lists each account with its app's id, and the launcher sets
       `LARKSUITE_CLI_TENANT_ACCESS_TOKEN`, `LARKSUITE_CLI_APP_ID` of the account it acts as and
       `LARKSUITE_CLI_BRAND=lark` for it.
     - **Its skill** (`internal/shared/agenttool/skills/lark`) is one guide, adapted from `lark-cli`'s

@@ -270,14 +270,6 @@ func (s *Server) connections(w http.ResponseWriter, r *http.Request) {
 		out.Data = append(out.Data, conn)
 	}
 
-	// A launcher from before issue #311 reads one id for every account: it is given one only when every account
-	// is the same app, so that it never runs a tool as another app than the account's.
-	if def.ClientEnv != "" && len(allowed) > 0 && !slices.ContainsFunc(allowed, func(c orchestration.Connection) bool {
-		return c.AppID != allowed[0].AppID
-	}) {
-		out.ClientID = allowed[0].AppID
-	}
-
 	answer(w, out)
 }
 
