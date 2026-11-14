@@ -1360,7 +1360,14 @@ func (r *relay) frame(ctx context.Context, f coordinator.Frame) bool {
 
 	switch f.Event {
 	case coordinator.FrameReset:
-		// A new reply begins. A card that shows only what a tool did is kept for it.
+		// A new reply begins. The coordinator keeps a reply before it begins the next one, so the card being
+		// written ends with its kept message and what goes under it (its artifacts), not with what was written:
+		// ended so, the kept reply would come again as a card of its own (#443). A card that shows only what a
+		// tool did is kept for the next reply.
+		if strings.TrimSpace(r.text.String()) != "" {
+			r.keep(ctx)
+		}
+
 		if strings.TrimSpace(r.text.String()) != "" {
 			r.finish(ctx, r.text.String())
 		}
@@ -1477,7 +1484,8 @@ func (r *relay) kept(ctx context.Context) {
 
 		// A reply is kept after its last piece was written, but the two arrive on their own channels. Every
 		// piece of a reply that was just read is already waiting, so it is taken first: a piece taken after
-		// its reply would open a card nothing closes.
+		// its reply would open a card nothing closes. A reset among them ends the reply before it with its own
+		// kept message (frame), so each card ends once, with its own text (#443).
 		for pending := true; pending; {
 			select {
 			case f := <-r.frames:
@@ -1487,44 +1495,73 @@ func (r *relay) kept(ctx context.Context) {
 			}
 		}
 
-		for i := 0; i < len(msgs); i++ {
-			m := msgs[i]
-
-			switch {
-			case m.Role == orchestration.ChatCoordinator && strings.TrimSpace(m.Text) != "" &&
-				i+1 < len(msgs) && msgs[i+1].Kind == orchestration.ChatStopped:
-				// What a turn the person stopped had written is kept together with its stopped row (coordinator
-				// keepReply): the card closes with it and says it was stopped.
-				r.stopped(ctx, m.Text)
-				r.settle(ctx, false)
-
-				i++
-				m = msgs[i]
-			case m.Role == orchestration.ChatCoordinator && strings.TrimSpace(m.Text) != "":
-				r.finish(ctx, m.Text+r.artifacts(ctx, m.Seq))
-				r.settle(ctx, false)
-			case m.Kind == orchestration.ChatStopped:
-				// The server recorded that the person stopped the turn: it was stopped, not failed.
-				r.stopped(ctx, r.text.String())
-				r.settle(ctx, false)
-			case m.Kind == orchestration.ChatFailed:
-				// The model's call failed: what was written stays, with a line that says why it stops there
-				// (MemoryOS), and the message is marked as failed (Hermes).
-				partial := strings.TrimSpace(r.text.String())
-				if partial != "" {
-					partial += "\n\n"
-				}
-
-				r.finish(ctx, partial+fmt.Sprintf(noticeNoReply, r.chat.Bot))
-				r.settle(ctx, true)
-			}
-
-			r.sent = m.Seq
-		}
+		sent := r.sent
+		r.send(ctx, slices.DeleteFunc(msgs, func(m orchestration.ChatMessage) bool { return m.Seq <= sent }), false)
 
 		if err := r.all.store.MarkLarkChannelSent(ctx, r.chat.LarkChatID, r.sent); err != nil {
 			r.failed(ctx, "recording what was sent", err)
 
+			return
+		}
+	}
+}
+
+// keep ends the card being written with its reply's kept message when a reset begins the next reply. That
+// message is the first not sent that ends a card: the coordinator keeps each reply before it begins the next,
+// and the ones after it belong to replies whose frames were not read yet.
+func (r *relay) keep(ctx context.Context) {
+	msgs, err := r.all.store.ListChatMessages(ctx, r.chat.ChatID, r.sent, orchestration.ChatPageDefault)
+	if err != nil || len(msgs) == 0 {
+		return
+	}
+
+	r.send(ctx, msgs, true)
+
+	if err := r.all.store.MarkLarkChannelSent(ctx, r.chat.LarkChatID, r.sent); err != nil {
+		r.failed(ctx, "recording what was sent", err)
+	}
+}
+
+// send ends a card, or sends one, for each kept message; with one, it stops after the first that ends a card.
+func (r *relay) send(ctx context.Context, msgs []orchestration.ChatMessage, one bool) {
+	for i := 0; i < len(msgs); i++ {
+		m := msgs[i]
+		ended := true
+
+		switch {
+		case m.Role == orchestration.ChatCoordinator && strings.TrimSpace(m.Text) != "" &&
+			i+1 < len(msgs) && msgs[i+1].Kind == orchestration.ChatStopped:
+			// What a turn the person stopped had written is kept together with its stopped row (coordinator
+			// keepReply): the card closes with it and says it was stopped.
+			r.stopped(ctx, m.Text)
+			r.settle(ctx, false)
+
+			i++
+			m = msgs[i]
+		case m.Role == orchestration.ChatCoordinator && strings.TrimSpace(m.Text) != "":
+			r.finish(ctx, m.Text+r.artifacts(ctx, m.Seq))
+			r.settle(ctx, false)
+		case m.Kind == orchestration.ChatStopped:
+			// The server recorded that the person stopped the turn: it was stopped, not failed.
+			r.stopped(ctx, r.text.String())
+			r.settle(ctx, false)
+		case m.Kind == orchestration.ChatFailed:
+			// The model's call failed: what was written stays, with a line that says why it stops there
+			// (MemoryOS), and the message is marked as failed (Hermes).
+			partial := strings.TrimSpace(r.text.String())
+			if partial != "" {
+				partial += "\n\n"
+			}
+
+			r.finish(ctx, partial+fmt.Sprintf(noticeNoReply, r.chat.Bot))
+			r.settle(ctx, true)
+		default:
+			ended = false
+		}
+
+		r.sent = m.Seq
+
+		if one && ended {
 			return
 		}
 	}

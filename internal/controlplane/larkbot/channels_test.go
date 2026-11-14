@@ -83,6 +83,8 @@ type lark struct {
 	usedSecret string
 	// hold, when set, keeps every reaction waiting until it is closed: Lark is slow to answer.
 	hold chan struct{}
+	// holdCards, when set, keeps every card that opens waiting until it is closed.
+	holdCards chan struct{}
 }
 
 // newLark is an app at Lark in which the owner and Linh have these ids.
@@ -268,6 +270,14 @@ func (l *lark) cardAt(n int) card {
 }
 
 func (l *lark) OpenCard(_ context.Context, chatID, replyTo, text string) (string, string, error) {
+	l.mu.Lock()
+	hold := l.holdCards
+	l.mu.Unlock()
+
+	if hold != nil {
+		<-hold
+	}
+
 	l.mu.Lock()
 	defer l.mu.Unlock()
 
@@ -777,6 +787,36 @@ func TestTheOwnersMessageReachesTheCoordinatorAndItsAnswerComesBackAsACard(t *te
 	w.lark.say(direct("om_2", ownerDM, ownerID, "thanks"))
 	require.Eventually(t, func() bool { return len(w.texts(chat)) == 4 }, eventual, tick)
 	assert.Len(t, w.lark.sent(), 2, "what was sent before the restart is not sent again")
+}
+
+// Scenario: the coordinator writes two replies in one turn while Lark is slow
+// to open the first card, so both are kept before the Channel reads what was
+// written of the second. Each reply is one card, ended once with its own kept
+// text (#443).
+func TestTwoRepliesInOneTurnAreACardEach(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	w.setUp(orchestration.LarkChannelOwner)
+
+	w.lark.say(direct("om_1", ownerDM, ownerID, "fix the login page"))
+	chat := w.chatOf(ownerDM)
+	require.Eventually(t, func() bool { return len(w.texts(chat)) == 1 }, eventual, tick)
+
+	hold := make(chan struct{})
+	w.lark.mu.Lock()
+	w.lark.holdCards = hold
+	w.lark.mu.Unlock()
+
+	w.answer(chat, "Looking at it.")
+	w.answer(chat, "I gave it to a worker.")
+	close(hold)
+
+	require.Eventually(t, func() bool {
+		return assert.ObjectsAreEqual([]string{
+			ownerDM + ": Looking at it.", ownerDM + ": I gave it to a worker.",
+		}, w.lark.sent())
+	}, eventual, tick)
 }
 
 // Scenario: the Channel is for its owner only, then he adds Linh, then he opens
