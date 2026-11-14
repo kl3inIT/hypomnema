@@ -153,21 +153,9 @@ func (rn *Runner) Start(ctx context.Context, d statedb.Dispatch, r daemon.Report
 		return errors.New("claude is not on this node's PATH")
 	}
 
-	// The token comes with the offer when the control plane keeps the account
-	// (issue #150), else from the file this node's configuration names.
-	token := []byte(o.AccountToken)
-
-	if len(token) == 0 {
-		acc, ok := rn.Accounts[o.AccountRef]
-		if !ok {
-			return fmt.Errorf("the node has no credentials for account %s", o.AccountRef)
-		}
-
-		var err error
-
-		if token, err = os.ReadFile(acc.TokenFile); err != nil {
-			return fmt.Errorf("reading the token of account %s: %w", o.AccountRef, err)
-		}
+	credentials, err := rn.credentials(o)
+	if err != nil {
+		return err
 	}
 
 	var hostEnv []string
@@ -235,7 +223,7 @@ func (rn *Runner) Start(ctx context.Context, d statedb.Dispatch, r daemon.Report
 		return err
 	}
 
-	env := append(append(rn.env(configDir, string(token)), hostEnv...), toolEnv...)
+	env := append(append(rn.env(configDir, credentials), hostEnv...), toolEnv...)
 	spec := shim.Spec{Argv: argv, Env: env, Dir: o.Worktree}
 	if err := shim.WriteSpec(dir, spec); err != nil {
 		return err
@@ -284,18 +272,75 @@ func (rn *Runner) Start(ctx context.Context, d statedb.Dispatch, r daemon.Report
 	return rn.watch(ctx, d.ID, dir, pid, false, r)
 }
 
+// gatewayAccount is the offer's AccountRef when the model gateway serves the
+// worker's model and no account on the node does (issue #107).
+const gatewayAccount = "gateway"
+
+// credentials is how the worker reaches Claude (issue #381). Under the
+// gateway it calls the control plane's /v1/messages with its Dispatch's key,
+// as Claude Code is pointed at an LLM gateway (its docs, llm-gateway-connect:
+// ANTHROPIC_BASE_URL and ANTHROPIC_AUTH_TOKEN), and as the Codex runner calls
+// the gateway. It asks for the one-hour prompt cache for its main
+// conversation, which Claude Code gives a subscription of its own but not a
+// gateway's credential (prompt-caching: "set promptCacheTtl to 1h"; omp's
+// getCacheControl gives a subscription the hour too); subagents keep Claude
+// Code's five minutes, as CLIProxyAPI leaves them. The key is good for the
+// offer's model alone, so every model Claude Code names by family is pinned
+// to it (llm-gateway-connect: pin ANTHROPIC_DEFAULT_*_MODEL). Otherwise the
+// worker runs under the account's token: it comes with the offer when the
+// control plane keeps the account (issue #150), else from the file this
+// node's configuration names.
+func (rn *Runner) credentials(o nodeproto.Offer) ([]string, error) {
+	if o.AccountRef == gatewayAccount {
+		switch {
+		case o.ModelKey == "":
+			return nil, errors.New("the offer carries no key of the model gateway")
+		case rn.URL == "":
+			return nil, errors.New("the node does not know its control plane's URL")
+		}
+
+		out := []string{
+			"ANTHROPIC_BASE_URL=" + strings.TrimRight(rn.URL, "/"), "ANTHROPIC_AUTH_TOKEN=" + o.ModelKey,
+			"CLAUDE_CODE_PROMPT_CACHE_TTL=1h",
+		}
+		if o.Model != "" {
+			out = append(out, "ANTHROPIC_DEFAULT_OPUS_MODEL="+o.Model, "ANTHROPIC_DEFAULT_SONNET_MODEL="+o.Model,
+				"ANTHROPIC_DEFAULT_HAIKU_MODEL="+o.Model)
+		}
+
+		return out, nil
+	}
+
+	token := []byte(o.AccountToken)
+
+	if len(token) == 0 {
+		acc, ok := rn.Accounts[o.AccountRef]
+		if !ok {
+			return nil, fmt.Errorf("the node has no credentials for account %s", o.AccountRef)
+		}
+
+		var err error
+
+		if token, err = os.ReadFile(acc.TokenFile); err != nil {
+			return nil, fmt.Errorf("reading the token of account %s: %w", o.AccountRef, err)
+		}
+	}
+
+	return []string{"CLAUDE_CODE_OAUTH_TOKEN=" + strings.TrimSpace(string(token))}, nil
+}
+
 // env is the worker's whole environment: a clean one (durable-harness
-// env.ts) with the account's token and its own config dir (Orca's
+// env.ts) with how it reaches Claude and its own config dir (Orca's
 // CLAUDE_CONFIG_DIR per account). Claude Code's own auto-memory is off: it is
 // kept per working folder, and a worker's is a new worktree per Task, so its
 // notes would be split between them and the folder's path would change the
 // system prompt the provider caches; the agent's memory is Hypomnema's
 // (issue #21), as OpenMausBot turns it off for its bots
 // (server/drivers/claude-own-memory.ts).
-func (rn *Runner) env(configDir, token string) []string {
-	out := []string{"CLAUDE_CONFIG_DIR=" + configDir, "CLAUDE_CODE_OAUTH_TOKEN=" + strings.TrimSpace(token),
-		"CLAUDE_CODE_DISABLE_AUTO_MEMORY=1",
-		"LANG=C.UTF-8", "MCP_TOOL_TIMEOUT=" + strconv.FormatInt(toolTimeout.Milliseconds(), 10)}
+func (rn *Runner) env(configDir string, credentials []string) []string {
+	out := append([]string{"CLAUDE_CONFIG_DIR=" + configDir}, credentials...)
+	out = append(out, "CLAUDE_CODE_DISABLE_AUTO_MEMORY=1",
+		"LANG=C.UTF-8", "MCP_TOOL_TIMEOUT="+strconv.FormatInt(toolTimeout.Milliseconds(), 10))
 
 	for _, name := range []string{"PATH", "HOME", "USER", "LOGNAME", "TMPDIR", "SystemRoot", "TEMP", "TMP"} {
 		if v, ok := os.LookupEnv(name); ok {
