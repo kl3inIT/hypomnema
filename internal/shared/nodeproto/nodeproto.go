@@ -78,6 +78,12 @@ const (
 	TypeTerminalOpen Type = "terminal_open"
 	// TypeFilesRequest asks the node about a worktree; it answers on PathFiles.
 	TypeFilesRequest Type = "files_request"
+	// TypeDeviceStart and TypeDeviceStop ask the node to start or stop the
+	// phone it holds (issue #417). They carry nothing and are not answered:
+	// the node says the phone's state at hello and in its heartbeats, at once
+	// when it changes.
+	TypeDeviceStart Type = "device_start"
+	TypeDeviceStop  Type = "device_stop"
 )
 
 // Message is one envelope.
@@ -157,6 +163,9 @@ type Heartbeat struct {
 	// said hello: a runtime the control plane had it install is found once
 	// installed (issue #107). Nil: unchanged.
 	Runtimes *[]RuntimeInfo `json:"runtimes,omitempty"`
+	// Device is the state of the phone the node holds (issue #417); nil for a
+	// node that holds none.
+	Device *DeviceState `json:"device,omitempty"`
 }
 
 // Tool is a command-line tool the control plane tells a node to have, for
@@ -208,10 +217,39 @@ type HelloRequest struct {
 	// KVM says /dev/kvm can be read and written by the node's user, which an
 	// Android emulator needs (issue #417).
 	KVM bool `json:"kvm,omitempty"`
+	// DeviceState is the state of the phone the node holds; nil for none.
+	DeviceState *DeviceState `json:"device_state,omitempty"`
 }
 
 // DeviceAndroid is a node that holds an Android emulator (issue #417).
 const DeviceAndroid = "android"
+
+// The states of a node's phone (issue #417).
+const (
+	// DeviceAbsent: not installed yet; it is at the first start.
+	DeviceAbsent     = "absent"
+	DeviceInstalling = "installing"
+	DeviceStopped    = "stopped"
+	DeviceStarting   = "starting"
+	DeviceRunning    = "running"
+	// DeviceFailed: the last start failed, or the emulator ended by itself; Reason says why.
+	DeviceFailed = "failed"
+)
+
+// DeviceState is the state of a node's phone, with the version of each
+// component the node installed.
+type DeviceState struct {
+	State     string            `json:"state"`
+	Reason    string            `json:"reason,omitempty"`
+	Installed []DeviceComponent `json:"installed,omitempty"`
+}
+
+// DeviceComponent is one installed part of the phone: the emulator, the
+// phone image, adb's platform-tools, Android CLI or scrcpy-server.
+type DeviceComponent struct {
+	Name    string `json:"name"`
+	Version string `json:"version"`
+}
 
 // ValidTerminalSize says whether a terminal may have this size (Nezha
 // terminal_session.go: 2 to 1000 columns, 2 to 500 rows).

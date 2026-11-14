@@ -101,11 +101,24 @@ type Config struct {
 	Device string
 	// KVM says whether /dev/kvm can be used now, asked at each hello; nil: it cannot.
 	KVM func() bool
+	// Phone is the phone the node holds, started and stopped when the control plane asks; nil: none.
+	Phone Phone
 	// InstallTool has a tool the control plane named on this machine; nil: the node installs none.
 	InstallTool func(ctx context.Context, tool nodeproto.Tool) error
 	// FindRuntimes finds the agent CLIs again once the tools installed changed, since the control plane has the
 	// node install some (issue #107); nil: Runtimes stay as found at start.
 	FindRuntimes func(ctx context.Context, tools []nodeproto.ToolState) []nodeproto.RuntimeInfo
+}
+
+// Phone is the phone a node holds (issue #417); *device.Manager is the
+// node's, and the end-to-end tests give a fake.
+type Phone interface {
+	Status() nodeproto.DeviceState
+	// Start has the phone running; it may take minutes, and the daemon calls it on its own goroutine.
+	Start(ctx context.Context) error
+	Stop(ctx context.Context)
+	// Changed is told each time the state changes.
+	Changed() <-chan struct{}
 }
 
 // Daemon is one node's connection.
@@ -270,7 +283,7 @@ func (d *Daemon) hello(ctx context.Context, claims []nodeproto.Claim) (nodeproto
 	body, err := json.Marshal(nodeproto.HelloRequest{
 		InstanceID: d.instance, DaemonVersion: d.cfg.Version, WorktreeRoot: d.cfg.WorktreeRoot,
 		Runtimes: d.currentRuntimes(), System: d.cfg.System, Claims: claims, Terminal: d.cfg.Terminal != nil,
-		Device: d.cfg.Device, KVM: d.cfg.KVM != nil && d.cfg.KVM(),
+		Device: d.cfg.Device, KVM: d.cfg.KVM != nil && d.cfg.KVM(), DeviceState: d.phoneState(),
 	})
 	if err != nil {
 		return nodeproto.HelloResponse{}, fmt.Errorf("encoding hello: %w", err)
@@ -444,12 +457,20 @@ func (d *Daemon) loop(ctx context.Context, in <-chan nodeproto.Message, errs <-c
 
 	healthy := false
 
+	// A change of the phone's state is said at once, with a heartbeat; a node without one never hears of any.
+	var phone <-chan struct{}
+	if d.cfg.Phone != nil {
+		phone = d.cfg.Phone.Changed()
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
 			return healthy, nil
 		case err := <-errs:
 			return healthy, err
+		case <-phone:
+			d.send(d.heartbeat(ctx))
 		case <-beat.C:
 			d.send(d.heartbeat(ctx))
 			beat.Reset(heartbeat)
@@ -522,14 +543,14 @@ func (d *Daemon) setOut(out chan nodeproto.Message) {
 // replayed).
 // heartbeat is the heartbeat message, with the machine's measurement when there is one.
 func (d *Daemon) heartbeat(ctx context.Context) nodeproto.Message {
-	hb := nodeproto.Heartbeat{Reaches: d.hosts.said(), Tools: d.tools.said()}
+	hb := nodeproto.Heartbeat{Reaches: d.hosts.said(), Tools: d.tools.said(), Device: d.phoneState()}
 	if d.cfg.Stats != nil {
 		hb.Stats = d.cfg.Stats(ctx)
 	}
 
 	hb.Runtimes = d.changedRuntimes(ctx, hb.Tools)
 
-	if hb.Stats != nil || hb.Reaches != nil || hb.Tools != nil || hb.Runtimes != nil {
+	if hb.Stats != nil || hb.Reaches != nil || hb.Tools != nil || hb.Runtimes != nil || hb.Device != nil {
 		if msg, err := nodeproto.Encode(nodeproto.TypeHeartbeat, hb); err == nil {
 			return msg
 		}
@@ -673,6 +694,17 @@ func mustJSON(v any) json.RawMessage {
 	}
 
 	return raw
+}
+
+// phoneState is the phone's state as hello and a heartbeat say it; nil for a node without one.
+func (d *Daemon) phoneState() *nodeproto.DeviceState {
+	if d.cfg.Phone == nil {
+		return nil
+	}
+
+	st := d.cfg.Phone.Status()
+
+	return &st
 }
 
 // currentRuntimes are the agent CLIs found last.

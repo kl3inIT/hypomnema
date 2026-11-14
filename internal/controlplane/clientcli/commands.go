@@ -608,6 +608,21 @@ var commands = []command{
 		flags: jsonFlag, run: browserStatus,
 	},
 	{
+		name:    "device status",
+		summary: "the nodes that hold an Android phone: each phone's state and what is installed (owner)",
+		flags:   jsonFlag, run: deviceStatus,
+	},
+	{
+		name: "device start", args: "<node>", min: 1, max: 1,
+		summary: "ask a node to start its phone, installing it at the first start (owner)",
+		flags:   jsonFlag, run: deviceStart,
+	},
+	{
+		name: "device stop", args: "<node>", min: 1, max: 1,
+		summary: "ask a node to stop its phone; what is signed in on it stays (owner)",
+		flags:   jsonFlag, run: deviceStop,
+	},
+	{
 		name: "web search", args: "<query>", min: 1, max: -1,
 		summary: "search the web: each result's title, address, date and snippet, and which provider answered",
 		flags: func(fs *flag.FlagSet) {

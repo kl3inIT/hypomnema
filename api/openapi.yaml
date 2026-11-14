@@ -504,6 +504,50 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Node" }
         default: { $ref: "#/components/responses/Error" }
+  /nodes/{node_id}/device/start:
+    parameters:
+      - $ref: "#/components/parameters/NodeID"
+    post:
+      operationId: StartNodeDevice
+      summary: >-
+        Ask a node to start the Android phone it holds (owner only). The node installs the emulator and the phone
+        image at the first start, then boots the phone, which takes minutes; `GET /device` shows how it goes.
+        Refused with 409 for a node that holds no phone and 503 for one that is not connected
+      responses:
+        "202":
+          description: The node was asked; its phone as it said last.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DeviceNode" }
+        default: { $ref: "#/components/responses/Error" }
+  /nodes/{node_id}/device/stop:
+    parameters:
+      - $ref: "#/components/parameters/NodeID"
+    post:
+      operationId: StopNodeDevice
+      summary: >-
+        Ask a node to stop the Android phone it holds (owner only); its disk, with what is signed in on it, is
+        kept. Refused with 409 for a node that holds no phone and 503 for one that is not connected
+      responses:
+        "202":
+          description: The node was asked; its phone as it said last.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DeviceNode" }
+        default: { $ref: "#/components/responses/Error" }
+  /device:
+    get:
+      operationId: GetDevice
+      summary: >-
+        The nodes that hold an Android phone, each with the phone's state and what is installed of it (owner
+        only)
+      responses:
+        "200":
+          description: The nodes that hold a phone.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DeviceList" }
+        default: { $ref: "#/components/responses/Error" }
   /nodes/{node_id}/resume:
     parameters:
       - $ref: "#/components/parameters/NodeID"
@@ -4679,6 +4723,48 @@ components:
         data:
           type: array
           items: { $ref: "#/components/schemas/Node" }
+    DeviceList:
+      type: object
+      required: [data]
+      properties:
+        data:
+          type: array
+          items: { $ref: "#/components/schemas/DeviceNode" }
+    DeviceNode:
+      type: object
+      required: [node_id, name, device, connected, kvm, installed]
+      properties:
+        node_id: { type: string }
+        name: { type: string, description: The node's name. }
+        device:
+          type: string
+          enum: [android]
+        connected: { type: boolean }
+        kvm:
+          type: boolean
+          description: The node said at its last connect that its user can use /dev/kvm, which the emulator needs.
+        state:
+          type: string
+          enum: [absent, installing, stopped, starting, running, failed]
+          description: >-
+            The phone as the node said last: absent before its first start installed it, failed when the last
+            start failed or the emulator ended by itself. Left out for a node that has not said since the control
+            plane started, or that is not connected.
+        reason:
+          type: string
+          description: Why the phone failed.
+        installed:
+          type: array
+          description: >-
+            What the node installed of the phone, each part at its version: platform-tools, android-cli,
+            scrcpy-server, emulator and system-image.
+          items: { $ref: "#/components/schemas/DeviceComponent" }
+    DeviceComponent:
+      type: object
+      required: [name, version]
+      properties:
+        name: { type: string }
+        version: { type: string }
     Account:
       type: object
       required: [id, runtime, label, status, position]

@@ -161,8 +161,9 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     M8i-flex, R7i, R7iz, R8i, R8id, R8i-flex, X8i, I7i, I7ie) is refused before anything exists. The instance is
     asked for with `NestedVirtualization=enabled` and at least 40 GiB of disk. Its first-boot script also installs
     Xvfb, Mesa and the libraries the emulator loads, adds the `hypomnema` user to `kvm` before its manager starts,
-    and installs the node with `--device android`, which sets `device` in its configuration. The emulator itself,
-    the SDK and the AVD are not installed yet.
+    and installs the node with `--device android`, which sets `device` in its configuration. The node installs
+    the emulator, the phone image and the AVD itself at the phone's first start (see "A phone, on a node that
+    holds one").
   - Remove (`nodes rm`, `DELETE /nodes/{node_id}`): the node is drained and its tokens revoked, the machine is
     destroyed at the provider, and only then is the node `deleted`. A failed destroy leaves it listed as
     `delete_failed` and is tried again after 30 s, doubling to an hour, until it works.
@@ -343,6 +344,54 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     `127.0.0.1:3000`, which covers `::1` too), and the control plane's own port, the gate's,
     Chrome's DevTools port and the sessions' stream ports never open on that machine. A refusal is logged as `browser.refused` with the host, the
     port and the reason; the agent sees Chrome's connection error.
+- A phone, on a node that holds one (issue #417, step 1b; [research](docs/research/2026-11-14-android-device-for-agents.md);
+  `internal/node/device`). Built so far: the node installs the Android emulator and a phone image, writes the
+  AVD, starts and stops the phone when the owner asks and after an idle time, and says its state; the owner's
+  API and CLI. Not built: agents' tools on the phone (step 2), the owner watching and taking over (step 3), and
+  stopping an idle machine (step 4). A real boot from this code is checked on the trial machine, not in CI.
+  - Only a node whose configuration names `device: android` has a phone, and only on Linux x86_64, the one
+    system Google publishes the emulator and the image for. Everything of it is in `device/` in the node's home.
+  - Installed at the first start (`release.go`, `install.go`, after the browser's): platform-tools 37.0.1, the
+    emulator 37.3.9 (the beta channel: 37.2.13 crashed on the owner's map app), the Android 14 Play image for
+    x86_64 (revision 14, 1.5 GB), Android CLI 1.1.16919734 and scrcpy-server 3.3.4, each pinned by URL, size and
+    SHA-256 and fetched by the node from Google and GitHub, never redistributed; the Android SDK's license
+    applies to the SDK parts. A file is downloaded beside its place and checked first; one that does not match
+    is deleted and nothing is installed. The .zip files unpack into an SDK's layout (`sdk/platform-tools`,
+    `sdk/emulator`, `sdk/system-images/android-34/google_apis_playstore/x86_64`; a link is kept only when it
+    points inside its archive), the two others into `bin/`. `installed.json` records each component's version
+    and checksum as it is installed: an install that stopped takes up at the component it stopped in, the
+    download of that one starting again whole. cmdline-tools, sdkmanager, avdmanager and Java are not installed.
+  - The AVD is written by hand (`avd.go`): `avd/phone.ini` and `avd/phone.avd/config.ini`, 720×1280 at 320 dpi,
+    4 GB of RAM, an 8 GB data partition, a keyboard, the GPU in `host` mode, Play on. A file that is there is never
+    written again: the folder holds the phone's disk, with the owner's sign-ins.
+  - A start (`device.go`): `/dev/kvm` must be usable; then Xvfb on the first free display from `:99`
+    (1280x1024x24, GLX), adb's server of the SDK started before the emulator with the node user's own
+    `~/.android`, so its key exists for the Play image to authorize (HOME and `ANDROID_USER_HOME` are not
+    changed: a trial with another HOME left adb unauthorized), then `emulator -avd phone -no-window -no-audio
+    -no-boot-anim -gpu host -memory 4096 -cores 6 -port 5554` with `DISPLAY`, `ANDROID_SDK_ROOT` and
+    `ANDROID_AVD_HOME` set, and the default Quick Boot. The phone is running once `sys.boot_completed` is 1, within
+    5 minutes; then the three animation scales are set to 0. Xvfb and the emulator run in process groups of their
+    own, write to `run/xvfb.log` and `run/emulator.log`, and are recorded in `run/run.json`. A start that fails
+    ends what it started, and the phone is `failed` with the reason (the emulator's last lines when it ended).
+  - A stop: `adb emu kill`, which lets the emulator save its Quick Boot state, then SIGTERM to Xvfb; a group
+    still there after 30 s is killed. One emulator a node. A stop asked during a start calls the start off.
+  - The phone is stopped 15 minutes after its last use: its start, or a touch the later steps make. An emulator
+    that ended by itself makes the phone `failed`; the node looks every minute.
+  - A node that ends leaves the phone running, and the next node takes it back when `run.json` names a booted
+    phone, as Orca takes an AVD that already runs (`android-avd-boot.ts`); what it names that is not one is
+    ended. The browser instead closes a Chrome an earlier control plane left, because its tabs are agents' the
+    new control plane does not know; the phone holds no agent's session, and a stop at shutdown could outlast the
+    30 s systemd gives the node. A node does not update itself while its phone is being installed or started.
+  - The state is `absent` (not installed), `installing`, `stopped`, `starting`, `running` or `failed`, with the
+    reason and each installed component's version. The node says it at hello (`device_state`) and in every
+    heartbeat (`device`), and sends a heartbeat at once when it changes. The control plane keeps the last one in
+    memory, by node, and stores none of it.
+  - The control plane asks on the node's socket with `device_start` and `device_stop`, which carry nothing and
+    are not answered; the state says what came of them. `GET /api/v1/device` (`hypomnema device status`) lists
+    the nodes that hold a phone, with whether each is connected and can use KVM, the phone's state (left out for a
+    node that is not connected) and what is installed. `POST /api/v1/nodes/{node_id}/device/start` and `/stop`
+    (`hypomnema device start|stop <node>`, by name or id) are refused with 409 for a node without a phone and 503
+    for one not connected, and answer 202. All three are the owner's only.
 - Chats (`orchestration/chats.go`, issue #41 PR 3, after Omnara;
   [research](docs/research/2026-11-09-chat-storage.md)): the owner's conversations with pi. Every message is kept
   (`owner`, `coordinator`, `tool`, `system`; replies and tools with JSON `parts`); owner messages and wake-ups wait
@@ -2586,6 +2635,7 @@ internal/node/shim        one worker kept across daemon restarts: journal, input
 internal/node/skills      the skills an offer names: fetched once by digest, and placed where each CLI reads them
 internal/node/statedb     the node's SQLite state: Dispatches held and the report outbox
 internal/node/terminal    the shells opened from the web: a session per id, its ring of output, the idle end
+internal/node/device      the phone a node holds: pinned SDK parts, the AVD, Xvfb, adb and the emulator, the idle stop
 internal/node/workertools the worker's MCP server: ask and finish, and the tools the control plane lists (the shared browser's, the web's) passed on to it
 internal/node/worktree    bare mirrors and git worktrees per Task
 internal/controlplane/cloudcode  what is presented to Google's Cloud Code backend: its hosts, the Antigravity IDE's user agent and version

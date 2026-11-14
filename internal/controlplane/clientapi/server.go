@@ -60,7 +60,9 @@ type Server struct {
 	terminals Terminals
 	nodeFiles NodeFiles
 	botFiles  BotFiles
-	tickets   terminalTickets
+	// devices reaches the nodes' phones; nil when the control plane wired none.
+	devices Devices
+	tickets terminalTickets
 	// frames are the addresses folder pages' files load from in their locked frames (issue #402).
 	frames artifactFrames
 	// browser is the browser every agent shares; nil when the control plane has none.
