@@ -226,6 +226,12 @@ var policies = map[string]policy{
 	"SetWebSearchOrder":    {scope: scopeOwner},
 	"AddWebSearchKey":      {scope: scopeOwner},
 	"RemoveWebSearchKey":   {scope: scopeOwner},
+	// Images (issue #431): any token makes one, a Bot's above all; one takes a minute or more. Every token reads the
+	// providers, as it reads the web search chain; only the owner changes them.
+	"GenerateImages":   {long: true},
+	"GetImages":        {},
+	"SetImageProvider": {scope: scopeOwner},
+	"SetImageOrder":    {scope: scopeOwner},
 }
 
 var (
