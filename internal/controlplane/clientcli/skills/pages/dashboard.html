@@ -5,8 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Sales dashboard</title>
 <link rel="icon" href="data:,">
-<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
-<script defer src="https://cdn.jsdelivr.net/npm/echarts@6.1.0/dist/echarts.min.js"></script>
 <style>
 :root {
   color-scheme: light;
@@ -68,6 +66,7 @@ select:hover { border-color: var(--axis); }
 .card { margin: 0; padding: var(--s4); min-width: 0; }
 .wide { grid-column: 1 / -1; }
 .chart { height: 260px; margin-top: var(--s3); }
+.chart svg { display: block; width: 100%; height: 100%; overflow: visible; font-variant-numeric: tabular-nums; }
 .is-updating .kpi, .is-updating .card { opacity: .55; }
 details { margin-top: var(--s2); font-size: 13px; }
 summary { width: fit-content; cursor: pointer; color: var(--ink-2); border-radius: 6px; }
@@ -137,17 +136,306 @@ th { font-size: 12px; font-weight: 600; color: var(--ink-2); }
   <p class="foot" id="foot"></p>
 </main>
 
-<!-- Chat pages: put CSV text in this tag (the whole page must stay under 256 KB). Published pages: leave it empty and
-     ship data.parquet or data.csv next to index.html. -->
-<script type="text/csv" id="embedded-data"></script>
+<!-- The data: what `hypomnema superset chart <dashboard> <chart>` printed (its "columns" and "rows"), or an array of
+     objects, as JSON. A page shown with --html-file must stay under 256 KB in all. A folder page shown with --path may
+     leave this empty and put the same JSON in CONFIG.dataFile beside index.html. The rows below are sample data. -->
+<script type="application/json" id="embedded-data">
+{"columns":["date","region","category","product","orders","units","revenue"],"rows":[["2025-11-01","Hà Nội","Devices","Dashcam D1",106,122,230580000],
+["2025-11-01","Hà Nội","Devices","Tracker T2",134,154,152460000],
+["2025-11-01","Hà Nội","Subscriptions","Fleet plan",189,303,136350000],
+["2025-11-01","Hà Nội","Subscriptions","Driver plan",357,571,85650000],
+["2025-11-01","Hà Nội","Accessories","Install kit",126,145,46400000],
+["2025-11-01","Hà Nội","Accessories","Spare cable",183,211,18990000],
+["2025-11-01","TP.HCM","Devices","Dashcam D1",140,161,304290000],
+["2025-11-01","TP.HCM","Devices","Tracker T2",189,217,214830000],
+["2025-11-01","TP.HCM","Subscriptions","Fleet plan",214,343,154350000],
+["2025-11-01","TP.HCM","Subscriptions","Driver plan",447,715,107250000],
+["2025-11-01","TP.HCM","Accessories","Install kit",143,165,52800000],
+["2025-11-01","TP.HCM","Accessories","Spare cable",214,246,22140000],
+["2025-11-01","Đà Nẵng","Devices","Dashcam D1",51,59,111510000],
+["2025-11-01","Đà Nẵng","Devices","Tracker T2",57,66,65340000],
+["2025-11-01","Đà Nẵng","Subscriptions","Fleet plan",83,132,59400000],
+["2025-11-01","Đà Nẵng","Subscriptions","Driver plan",133,212,31800000],
+["2025-11-01","Đà Nẵng","Accessories","Install kit",50,58,18560000],
+["2025-11-01","Đà Nẵng","Accessories","Spare cable",85,98,8820000],
+["2025-11-01","Cần Thơ","Devices","Dashcam D1",34,39,73710000],
+["2025-11-01","Cần Thơ","Devices","Tracker T2",44,51,50490000],
+["2025-11-01","Cần Thơ","Subscriptions","Fleet plan",59,94,42300000],
+["2025-11-01","Cần Thơ","Subscriptions","Driver plan",89,142,21300000],
+["2025-11-01","Cần Thơ","Accessories","Install kit",37,43,13760000],
+["2025-11-01","Cần Thơ","Accessories","Spare cable",55,63,5670000],
+["2025-12-01","Hà Nội","Devices","Dashcam D1",105,121,228690000],
+["2025-12-01","Hà Nội","Devices","Tracker T2",161,185,183150000],
+["2025-12-01","Hà Nội","Subscriptions","Fleet plan",190,304,136800000],
+["2025-12-01","Hà Nội","Subscriptions","Driver plan",382,611,91650000],
+["2025-12-01","Hà Nội","Accessories","Install kit",119,137,43840000],
+["2025-12-01","Hà Nội","Accessories","Spare cable",174,200,18000000],
+["2025-12-01","TP.HCM","Devices","Dashcam D1",146,168,317520000],
+["2025-12-01","TP.HCM","Devices","Tracker T2",195,224,221760000],
+["2025-12-01","TP.HCM","Subscriptions","Fleet plan",279,446,200700000],
+["2025-12-01","TP.HCM","Subscriptions","Driver plan",479,766,114900000],
+["2025-12-01","TP.HCM","Accessories","Install kit",170,196,62720000],
+["2025-12-01","TP.HCM","Accessories","Spare cable",251,289,26010000],
+["2025-12-01","Đà Nẵng","Devices","Dashcam D1",45,52,98280000],
+["2025-12-01","Đà Nẵng","Devices","Tracker T2",65,75,74250000],
+["2025-12-01","Đà Nẵng","Subscriptions","Fleet plan",87,139,62550000],
+["2025-12-01","Đà Nẵng","Subscriptions","Driver plan",167,267,40050000],
+["2025-12-01","Đà Nẵng","Accessories","Install kit",57,65,20800000],
+["2025-12-01","Đà Nẵng","Accessories","Spare cable",83,95,8550000],
+["2025-12-01","Cần Thơ","Devices","Dashcam D1",36,41,77490000],
+["2025-12-01","Cần Thơ","Devices","Tracker T2",43,49,48510000],
+["2025-12-01","Cần Thơ","Subscriptions","Fleet plan",67,107,48150000],
+["2025-12-01","Cần Thơ","Subscriptions","Driver plan",109,175,26250000],
+["2025-12-01","Cần Thơ","Accessories","Install kit",36,41,13120000],
+["2025-12-01","Cần Thơ","Accessories","Spare cable",57,66,5940000],
+["2026-01-01","Hà Nội","Devices","Dashcam D1",119,137,258930000],
+["2026-01-01","Hà Nội","Devices","Tracker T2",154,177,175230000],
+["2026-01-01","Hà Nội","Subscriptions","Fleet plan",216,346,155700000],
+["2026-01-01","Hà Nội","Subscriptions","Driver plan",418,668,100200000],
+["2026-01-01","Hà Nội","Accessories","Install kit",135,155,49600000],
+["2026-01-01","Hà Nội","Accessories","Spare cable",192,221,19890000],
+["2026-01-01","TP.HCM","Devices","Dashcam D1",153,176,332640000],
+["2026-01-01","TP.HCM","Devices","Tracker T2",199,229,226710000],
+["2026-01-01","TP.HCM","Subscriptions","Fleet plan",276,442,198900000],
+["2026-01-01","TP.HCM","Subscriptions","Driver plan",496,794,119100000],
+["2026-01-01","TP.HCM","Accessories","Install kit",156,179,57280000],
+["2026-01-01","TP.HCM","Accessories","Spare cable",226,260,23400000],
+["2026-01-01","Đà Nẵng","Devices","Dashcam D1",54,62,117180000],
+["2026-01-01","Đà Nẵng","Devices","Tracker T2",70,81,80190000],
+["2026-01-01","Đà Nẵng","Subscriptions","Fleet plan",101,161,72450000],
+["2026-01-01","Đà Nẵng","Subscriptions","Driver plan",169,270,40500000],
+["2026-01-01","Đà Nẵng","Accessories","Install kit",59,68,21760000],
+["2026-01-01","Đà Nẵng","Accessories","Spare cable",82,94,8460000],
+["2026-01-01","Cần Thơ","Devices","Dashcam D1",37,43,81270000],
+["2026-01-01","Cần Thơ","Devices","Tracker T2",44,51,50490000],
+["2026-01-01","Cần Thơ","Subscriptions","Fleet plan",63,100,45000000],
+["2026-01-01","Cần Thơ","Subscriptions","Driver plan",126,201,30150000],
+["2026-01-01","Cần Thơ","Accessories","Install kit",40,46,14720000],
+["2026-01-01","Cần Thơ","Accessories","Spare cable",61,70,6300000],
+["2026-02-01","Hà Nội","Devices","Dashcam D1",130,150,283500000],
+["2026-02-01","Hà Nội","Devices","Tracker T2",152,175,173250000],
+["2026-02-01","Hà Nội","Subscriptions","Fleet plan",238,380,171000000],
+["2026-02-01","Hà Nội","Subscriptions","Driver plan",404,647,97050000],
+["2026-02-01","Hà Nội","Accessories","Install kit",136,156,49920000],
+["2026-02-01","Hà Nội","Accessories","Spare cable",205,236,21240000],
+["2026-02-01","TP.HCM","Devices","Dashcam D1",143,164,309960000],
+["2026-02-01","TP.HCM","Devices","Tracker T2",189,217,214830000],
+["2026-02-01","TP.HCM","Subscriptions","Fleet plan",305,488,219600000],
+["2026-02-01","TP.HCM","Subscriptions","Driver plan",465,744,111600000],
+["2026-02-01","TP.HCM","Accessories","Install kit",158,182,58240000],
+["2026-02-01","TP.HCM","Accessories","Spare cable",262,301,27090000],
+["2026-02-01","Đà Nẵng","Devices","Dashcam D1",57,66,124740000],
+["2026-02-01","Đà Nẵng","Devices","Tracker T2",71,82,81180000],
+["2026-02-01","Đà Nẵng","Subscriptions","Fleet plan",104,167,75150000],
+["2026-02-01","Đà Nẵng","Subscriptions","Driver plan",186,298,44700000],
+["2026-02-01","Đà Nẵng","Accessories","Install kit",57,65,20800000],
+["2026-02-01","Đà Nẵng","Accessories","Spare cable",85,98,8820000],
+["2026-02-01","Cần Thơ","Devices","Dashcam D1",38,44,83160000],
+["2026-02-01","Cần Thơ","Devices","Tracker T2",46,53,52470000],
+["2026-02-01","Cần Thơ","Subscriptions","Fleet plan",73,117,52650000],
+["2026-02-01","Cần Thơ","Subscriptions","Driver plan",113,181,27150000],
+["2026-02-01","Cần Thơ","Accessories","Install kit",43,49,15680000],
+["2026-02-01","Cần Thơ","Accessories","Spare cable",62,71,6390000],
+["2026-03-01","Hà Nội","Devices","Dashcam D1",118,136,257040000],
+["2026-03-01","Hà Nội","Devices","Tracker T2",150,172,170280000],
+["2026-03-01","Hà Nội","Subscriptions","Fleet plan",260,416,187200000],
+["2026-03-01","Hà Nội","Subscriptions","Driver plan",406,649,97350000],
+["2026-03-01","Hà Nội","Accessories","Install kit",122,140,44800000],
+["2026-03-01","Hà Nội","Accessories","Spare cable",192,221,19890000],
+["2026-03-01","TP.HCM","Devices","Dashcam D1",158,182,343980000],
+["2026-03-01","TP.HCM","Devices","Tracker T2",194,223,220770000],
+["2026-03-01","TP.HCM","Subscriptions","Fleet plan",275,440,198000000],
+["2026-03-01","TP.HCM","Subscriptions","Driver plan",521,833,124950000],
+["2026-03-01","TP.HCM","Accessories","Install kit",149,171,54720000],
+["2026-03-01","TP.HCM","Accessories","Spare cable",265,305,27450000],
+["2026-03-01","Đà Nẵng","Devices","Dashcam D1",51,59,111510000],
+["2026-03-01","Đà Nẵng","Devices","Tracker T2",73,84,83160000],
+["2026-03-01","Đà Nẵng","Subscriptions","Fleet plan",112,179,80550000],
+["2026-03-01","Đà Nẵng","Subscriptions","Driver plan",206,329,49350000],
+["2026-03-01","Đà Nẵng","Accessories","Install kit",61,70,22400000],
+["2026-03-01","Đà Nẵng","Accessories","Spare cable",96,110,9900000],
+["2026-03-01","Cần Thơ","Devices","Dashcam D1",34,39,73710000],
+["2026-03-01","Cần Thơ","Devices","Tracker T2",45,52,51480000],
+["2026-03-01","Cần Thơ","Subscriptions","Fleet plan",73,117,52650000],
+["2026-03-01","Cần Thơ","Subscriptions","Driver plan",124,199,29850000],
+["2026-03-01","Cần Thơ","Accessories","Install kit",41,47,15040000],
+["2026-03-01","Cần Thơ","Accessories","Spare cable",58,67,6030000],
+["2026-04-01","Hà Nội","Devices","Dashcam D1",126,145,274050000],
+["2026-04-01","Hà Nội","Devices","Tracker T2",163,188,186120000],
+["2026-04-01","Hà Nội","Subscriptions","Fleet plan",244,390,175500000],
+["2026-04-01","Hà Nội","Subscriptions","Driver plan",457,731,109650000],
+["2026-04-01","Hà Nội","Accessories","Install kit",120,138,44160000],
+["2026-04-01","Hà Nội","Accessories","Spare cable",187,215,19350000],
+["2026-04-01","TP.HCM","Devices","Dashcam D1",157,180,340200000],
+["2026-04-01","TP.HCM","Devices","Tracker T2",192,221,218790000],
+["2026-04-01","TP.HCM","Subscriptions","Fleet plan",294,471,211950000],
+["2026-04-01","TP.HCM","Subscriptions","Driver plan",553,885,132750000],
+["2026-04-01","TP.HCM","Accessories","Install kit",165,190,60800000],
+["2026-04-01","TP.HCM","Accessories","Spare cable",247,284,25560000],
+["2026-04-01","Đà Nẵng","Devices","Dashcam D1",49,56,105840000],
+["2026-04-01","Đà Nẵng","Devices","Tracker T2",66,76,75240000],
+["2026-04-01","Đà Nẵng","Subscriptions","Fleet plan",106,170,76500000],
+["2026-04-01","Đà Nẵng","Subscriptions","Driver plan",173,276,41400000],
+["2026-04-01","Đà Nẵng","Accessories","Install kit",51,59,18880000],
+["2026-04-01","Đà Nẵng","Accessories","Spare cable",85,98,8820000],
+["2026-04-01","Cần Thơ","Devices","Dashcam D1",37,43,81270000],
+["2026-04-01","Cần Thơ","Devices","Tracker T2",44,51,50490000],
+["2026-04-01","Cần Thơ","Subscriptions","Fleet plan",74,118,53100000],
+["2026-04-01","Cần Thơ","Subscriptions","Driver plan",121,194,29100000],
+["2026-04-01","Cần Thơ","Accessories","Install kit",35,40,12800000],
+["2026-04-01","Cần Thơ","Accessories","Spare cable",57,65,5850000],
+["2026-05-01","Hà Nội","Devices","Dashcam D1",114,131,247590000],
+["2026-05-01","Hà Nội","Devices","Tracker T2",160,184,182160000],
+["2026-05-01","Hà Nội","Subscriptions","Fleet plan",258,412,185400000],
+["2026-05-01","Hà Nội","Subscriptions","Driver plan",392,627,94050000],
+["2026-05-01","Hà Nội","Accessories","Install kit",118,136,43520000],
+["2026-05-01","Hà Nội","Accessories","Spare cable",158,182,16380000],
+["2026-05-01","TP.HCM","Devices","Dashcam D1",147,169,319410000],
+["2026-05-01","TP.HCM","Devices","Tracker T2",178,205,202950000],
+["2026-05-01","TP.HCM","Subscriptions","Fleet plan",286,458,206100000],
+["2026-05-01","TP.HCM","Subscriptions","Driver plan",536,857,128550000],
+["2026-05-01","TP.HCM","Accessories","Install kit",132,152,48640000],
+["2026-05-01","TP.HCM","Accessories","Spare cable",230,264,23760000],
+["2026-05-01","Đà Nẵng","Devices","Dashcam D1",49,56,105840000],
+["2026-05-01","Đà Nẵng","Devices","Tracker T2",63,73,72270000],
+["2026-05-01","Đà Nẵng","Subscriptions","Fleet plan",109,175,78750000],
+["2026-05-01","Đà Nẵng","Subscriptions","Driver plan",185,296,44400000],
+["2026-05-01","Đà Nẵng","Accessories","Install kit",52,60,19200000],
+["2026-05-01","Đà Nẵng","Accessories","Spare cable",84,97,8730000],
+["2026-05-01","Cần Thơ","Devices","Dashcam D1",33,38,71820000],
+["2026-05-01","Cần Thơ","Devices","Tracker T2",49,56,55440000],
+["2026-05-01","Cần Thơ","Subscriptions","Fleet plan",66,105,47250000],
+["2026-05-01","Cần Thơ","Subscriptions","Driver plan",126,201,30150000],
+["2026-05-01","Cần Thơ","Accessories","Install kit",36,41,13120000],
+["2026-05-01","Cần Thơ","Accessories","Spare cable",48,55,4950000],
+["2026-06-01","Hà Nội","Devices","Dashcam D1",107,123,232470000],
+["2026-06-01","Hà Nội","Devices","Tracker T2",148,170,168300000],
+["2026-06-01","Hà Nội","Subscriptions","Fleet plan",236,377,169650000],
+["2026-06-01","Hà Nội","Subscriptions","Driver plan",366,585,87750000],
+["2026-06-01","Hà Nội","Accessories","Install kit",115,132,42240000],
+["2026-06-01","Hà Nội","Accessories","Spare cable",159,183,16470000],
+["2026-06-01","TP.HCM","Devices","Dashcam D1",130,149,281610000],
+["2026-06-01","TP.HCM","Devices","Tracker T2",186,214,211860000],
+["2026-06-01","TP.HCM","Subscriptions","Fleet plan",304,487,219150000],
+["2026-06-01","TP.HCM","Subscriptions","Driver plan",468,748,112200000],
+["2026-06-01","TP.HCM","Accessories","Install kit",143,165,52800000],
+["2026-06-01","TP.HCM","Accessories","Spare cable",192,221,19890000],
+["2026-06-01","Đà Nẵng","Devices","Dashcam D1",43,50,94500000],
+["2026-06-01","Đà Nẵng","Devices","Tracker T2",59,68,67320000],
+["2026-06-01","Đà Nẵng","Subscriptions","Fleet plan",95,152,68400000],
+["2026-06-01","Đà Nẵng","Subscriptions","Driver plan",190,304,45600000],
+["2026-06-01","Đà Nẵng","Accessories","Install kit",50,58,18560000],
+["2026-06-01","Đà Nẵng","Accessories","Spare cable",73,84,7560000],
+["2026-06-01","Cần Thơ","Devices","Dashcam D1",29,33,62370000],
+["2026-06-01","Cần Thơ","Devices","Tracker T2",41,47,46530000],
+["2026-06-01","Cần Thơ","Subscriptions","Fleet plan",74,118,53100000],
+["2026-06-01","Cần Thơ","Subscriptions","Driver plan",119,191,28650000],
+["2026-06-01","Cần Thơ","Accessories","Install kit",30,34,10880000],
+["2026-06-01","Cần Thơ","Accessories","Spare cable",45,52,4680000],
+["2026-07-01","Hà Nội","Devices","Dashcam D1",94,108,204120000],
+["2026-07-01","Hà Nội","Devices","Tracker T2",137,158,156420000],
+["2026-07-01","Hà Nội","Subscriptions","Fleet plan",233,372,167400000],
+["2026-07-01","Hà Nội","Subscriptions","Driver plan",381,610,91500000],
+["2026-07-01","Hà Nội","Accessories","Install kit",103,119,38080000],
+["2026-07-01","Hà Nội","Accessories","Spare cable",139,160,14400000],
+["2026-07-01","TP.HCM","Devices","Dashcam D1",135,155,292950000],
+["2026-07-01","TP.HCM","Devices","Tracker T2",155,178,176220000],
+["2026-07-01","TP.HCM","Subscriptions","Fleet plan",314,502,225900000],
+["2026-07-01","TP.HCM","Subscriptions","Driver plan",459,735,110250000],
+["2026-07-01","TP.HCM","Accessories","Install kit",119,137,43840000],
+["2026-07-01","TP.HCM","Accessories","Spare cable",173,199,17910000],
+["2026-07-01","Đà Nẵng","Devices","Dashcam D1",47,54,102060000],
+["2026-07-01","Đà Nẵng","Devices","Tracker T2",60,69,68310000],
+["2026-07-01","Đà Nẵng","Subscriptions","Fleet plan",106,170,76500000],
+["2026-07-01","Đà Nẵng","Subscriptions","Driver plan",161,258,38700000],
+["2026-07-01","Đà Nẵng","Accessories","Install kit",41,47,15040000],
+["2026-07-01","Đà Nẵng","Accessories","Spare cable",61,70,6300000],
+["2026-07-01","Cần Thơ","Devices","Dashcam D1",28,32,60480000],
+["2026-07-01","Cần Thơ","Devices","Tracker T2",40,46,45540000],
+["2026-07-01","Cần Thơ","Subscriptions","Fleet plan",63,100,45000000],
+["2026-07-01","Cần Thơ","Subscriptions","Driver plan",131,209,31350000],
+["2026-07-01","Cần Thơ","Accessories","Install kit",29,33,10560000],
+["2026-07-01","Cần Thơ","Accessories","Spare cable",42,48,4320000],
+["2026-08-01","Hà Nội","Devices","Dashcam D1",114,131,247590000],
+["2026-08-01","Hà Nội","Devices","Tracker T2",155,178,176220000],
+["2026-08-01","Hà Nội","Subscriptions","Fleet plan",278,444,199800000],
+["2026-08-01","Hà Nội","Subscriptions","Driver plan",485,776,116400000],
+["2026-08-01","Hà Nội","Accessories","Install kit",129,148,47360000],
+["2026-08-01","Hà Nội","Accessories","Spare cable",183,211,18990000],
+["2026-08-01","TP.HCM","Devices","Dashcam D1",154,177,334530000],
+["2026-08-01","TP.HCM","Devices","Tracker T2",187,215,212850000],
+["2026-08-01","TP.HCM","Subscriptions","Fleet plan",334,534,240300000],
+["2026-08-01","TP.HCM","Subscriptions","Driver plan",641,1025,153750000],
+["2026-08-01","TP.HCM","Accessories","Install kit",154,177,56640000],
+["2026-08-01","TP.HCM","Accessories","Spare cable",220,253,22770000],
+["2026-08-01","Đà Nẵng","Devices","Dashcam D1",50,57,107730000],
+["2026-08-01","Đà Nẵng","Devices","Tracker T2",76,87,86130000],
+["2026-08-01","Đà Nẵng","Subscriptions","Fleet plan",132,211,94950000],
+["2026-08-01","Đà Nẵng","Subscriptions","Driver plan",199,318,47700000],
+["2026-08-01","Đà Nẵng","Accessories","Install kit",49,56,17920000],
+["2026-08-01","Đà Nẵng","Accessories","Spare cable",77,88,7920000],
+["2026-08-01","Cần Thơ","Devices","Dashcam D1",34,39,73710000],
+["2026-08-01","Cần Thơ","Devices","Tracker T2",46,53,52470000],
+["2026-08-01","Cần Thơ","Subscriptions","Fleet plan",86,138,62100000],
+["2026-08-01","Cần Thơ","Subscriptions","Driver plan",147,235,35250000],
+["2026-08-01","Cần Thơ","Accessories","Install kit",37,43,13760000],
+["2026-08-01","Cần Thơ","Accessories","Spare cable",53,61,5490000],
+["2026-09-01","Hà Nội","Devices","Dashcam D1",110,127,240030000],
+["2026-09-01","Hà Nội","Devices","Tracker T2",137,158,156420000],
+["2026-09-01","Hà Nội","Subscriptions","Fleet plan",226,361,162450000],
+["2026-09-01","Hà Nội","Subscriptions","Driver plan",434,695,104250000],
+["2026-09-01","Hà Nội","Accessories","Install kit",98,113,36160000],
+["2026-09-01","Hà Nội","Accessories","Spare cable",148,170,15300000],
+["2026-09-01","TP.HCM","Devices","Dashcam D1",136,156,294840000],
+["2026-09-01","TP.HCM","Devices","Tracker T2",188,216,213840000],
+["2026-09-01","TP.HCM","Subscriptions","Fleet plan",312,499,224550000],
+["2026-09-01","TP.HCM","Subscriptions","Driver plan",548,876,131400000],
+["2026-09-01","TP.HCM","Accessories","Install kit",132,152,48640000],
+["2026-09-01","TP.HCM","Accessories","Spare cable",177,204,18360000],
+["2026-09-01","Đà Nẵng","Devices","Dashcam D1",50,58,109620000],
+["2026-09-01","Đà Nẵng","Devices","Tracker T2",62,71,70290000],
+["2026-09-01","Đà Nẵng","Subscriptions","Fleet plan",118,189,85050000],
+["2026-09-01","Đà Nẵng","Subscriptions","Driver plan",208,332,49800000],
+["2026-09-01","Đà Nẵng","Accessories","Install kit",48,55,17600000],
+["2026-09-01","Đà Nẵng","Accessories","Spare cable",71,82,7380000],
+["2026-09-01","Cần Thơ","Devices","Dashcam D1",31,36,68040000],
+["2026-09-01","Cần Thơ","Devices","Tracker T2",37,43,42570000],
+["2026-09-01","Cần Thơ","Subscriptions","Fleet plan",76,122,54900000],
+["2026-09-01","Cần Thơ","Subscriptions","Driver plan",116,186,27900000],
+["2026-09-01","Cần Thơ","Accessories","Install kit",30,35,11200000],
+["2026-09-01","Cần Thơ","Accessories","Spare cable",40,46,4140000],
+["2026-10-01","Hà Nội","Devices","Dashcam D1",119,137,258930000],
+["2026-10-01","Hà Nội","Devices","Tracker T2",131,151,149490000],
+["2026-10-01","Hà Nội","Subscriptions","Fleet plan",282,451,202950000],
+["2026-10-01","Hà Nội","Subscriptions","Driver plan",488,781,117150000],
+["2026-10-01","Hà Nội","Accessories","Install kit",92,106,33920000],
+["2026-10-01","Hà Nội","Accessories","Spare cable",151,174,15660000],
+["2026-10-01","TP.HCM","Devices","Dashcam D1",125,144,272160000],
+["2026-10-01","TP.HCM","Devices","Tracker T2",182,209,206910000],
+["2026-10-01","TP.HCM","Subscriptions","Fleet plan",300,480,216000000],
+["2026-10-01","TP.HCM","Subscriptions","Driver plan",553,885,132750000],
+["2026-10-01","TP.HCM","Accessories","Install kit",120,138,44160000],
+["2026-10-01","TP.HCM","Accessories","Spare cable",188,216,19440000],
+["2026-10-01","Đà Nẵng","Devices","Dashcam D1",52,60,113400000],
+["2026-10-01","Đà Nẵng","Devices","Tracker T2",69,79,78210000],
+["2026-10-01","Đà Nẵng","Subscriptions","Fleet plan",129,206,92700000],
+["2026-10-01","Đà Nẵng","Subscriptions","Driver plan",200,320,48000000],
+["2026-10-01","Đà Nẵng","Accessories","Install kit",49,56,17920000],
+["2026-10-01","Đà Nẵng","Accessories","Spare cable",70,80,7200000],
+["2026-10-01","Cần Thơ","Devices","Dashcam D1",33,38,71820000],
+["2026-10-01","Cần Thơ","Devices","Tracker T2",40,46,45540000],
+["2026-10-01","Cần Thơ","Subscriptions","Fleet plan",80,128,57600000],
+["2026-10-01","Cần Thơ","Subscriptions","Driver plan",138,220,33000000],
+["2026-10-01","Cần Thơ","Accessories","Install kit",28,32,10240000],
+["2026-10-01","Cần Thơ","Accessories","Spare cable",43,50,4500000]]}
+</script>
 
 <script type="module">
-const DUCKDB_URL = "https://cdn.jsdelivr.net/npm/@duckdb/duckdb-wasm@1.32.0/+esm";
 const CONFIG = {
-  dataFile: "data.parquet",
-  source: "Orders export (sample data)",
-  updated: "2026-10-22T09:00:00Z",
-  currency: "USD",
+  dataFile: "data.json",
+  source: "Orders by month, region and product (sample data)",
+  updated: "2026-11-01T09:00:00Z",
+  currency: "VND",
 };
 const PERIODS = [{ months: 3, label: "Last 3 months" }, { months: 6, label: "Last 6 months" }, { months: 12, label: "Last 12 months" }, { months: 0, label: "All time" }];
 const state = { region: "", months: 12 };
@@ -165,53 +453,77 @@ const fmt = {
   stamp: new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }),
 };
 const monthLabel = (ym) => fmt.month.format(new Date(`${ym}-01T00:00:00Z`));
-const escapeHtml = (text) => String(text).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
-const quote = (text) => `'${String(text).replaceAll("'", "''")}'`;
 
 async function fetchData() {
   const embedded = $("embedded-data").textContent.trim();
-  if (embedded) return { name: "embedded.csv", text: embedded };
+  if (embedded) return JSON.parse(embedded);
   const response = await fetch(new URL(CONFIG.dataFile, document.baseURI));
   if (!response.ok) throw new Error(`${CONFIG.dataFile} could not be loaded (HTTP ${response.status}).`);
-  return { name: CONFIG.dataFile, bytes: new Uint8Array(await response.arrayBuffer()) };
+  return response.json();
 }
 
-// A page may not start a Worker from another origin's script, so the worker is a blob that imports DuckDB's. The
-// single-threaded bundles need no cross-origin isolation headers, so this also runs in a sandboxed chat page.
-async function openDatabase() {
-  const duckdb = await import(DUCKDB_URL);
-  const { mvp, eh } = duckdb.getJsDelivrBundles();
-  const bundle = await duckdb.selectBundle({ mvp, eh });
-  const workerUrl = URL.createObjectURL(new Blob([`importScripts("${bundle.mainWorker}");`], { type: "text/javascript" }));
-  const db = new duckdb.AsyncDuckDB(new duckdb.VoidLogger(), new Worker(workerUrl));
-  try { await db.instantiate(bundle.mainModule, bundle.pthreadWorker); } finally { URL.revokeObjectURL(workerUrl); }
-  return db;
+/** Superset's { columns, rows } as one object a row; an array of objects is kept. */
+function records(data) {
+  if (Array.isArray(data)) return data;
+  if (!data || !Array.isArray(data.columns) || !Array.isArray(data.rows)) throw new Error("the data is neither { columns, rows } nor an array of rows.");
+  return data.rows.map((row) => Object.fromEntries(data.columns.map((column, i) => [column, row[i]])));
 }
 
-let conn;
-async function rows(sql) {
-  const table = await conn.query(sql);
-  return table.toArray().map((row) => Object.fromEntries(Object.entries(row.toJSON()).map(([key, value]) => [key, typeof value === "bigint" ? Number(value) : value])));
+// A date as Superset sends it, milliseconds since 1970 or text, as YYYY-MM-DD.
+const isoDay = (value) => (typeof value === "number" ? new Date(value).toISOString() : String(value)).slice(0, 10);
+
+/** One source row as the fields the page uses: change the names on the right to your columns. */
+const prepare = (r) => ({
+  date: isoDay(r.date),
+  region: String(r.region ?? ""),
+  category: String(r.category ?? ""),
+  product: String(r.product ?? ""),
+  orders: Number(r.orders) || 0,
+  units: Number(r.units) || 0,
+  revenue: Number(r.revenue) || 0,
+});
+
+let DATA = [];
+
+/** A YYYY-MM-DD day moved by whole months, the day kept within the month. */
+function addMonths(day, months) {
+  const [y, m, d] = day.split("-").map(Number);
+  const first = new Date(Date.UTC(y, m - 1 + months, 1));
+  const last = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0)).getUTCDate();
+  first.setUTCDate(Math.min(d, last));
+  return first.toISOString().slice(0, 10);
 }
 
-/** The WHERE clause for the filters. `shift: 1` is the period just before the selected one. */
-function where({ region = state.region, months = state.months, shift = 0 } = {}) {
-  const parts = [];
-  if (region) parts.push(`region = ${quote(region)}`);
-  if (months) {
-    const end = `(SELECT max(date) FROM data) - INTERVAL ${Number(shift * months)} MONTH`;
-    parts.push(`date > ${end} - INTERVAL ${Number(months)} MONTH AND date <= ${end}`);
+/** The rows the filters keep. `shift: 1` is the period just before the selected one. */
+function select({ region = state.region, months = state.months, shift = 0 } = {}) {
+  const end = months ? addMonths(range.last, -shift * months) : "";
+  const start = months ? addMonths(end, -months) : "";
+  return DATA.filter((r) => (!region || r.region === region) && (!months || (r.date > start && r.date <= end)));
+}
+
+/** Sums of `values` for each distinct `keys`, in first-seen order. */
+function group(data, keys, values) {
+  const out = new Map();
+  for (const r of data) {
+    const id = keys.map((k) => r[k]).join("\u0000");
+    let g = out.get(id);
+    if (!g) out.set(id, (g = Object.fromEntries([...keys.map((k) => [k, r[k]]), ...values.map((v) => [v, 0])])));
+    for (const v of values) g[v] += r[v];
   }
-  return parts.length ? `WHERE ${parts.join(" AND ")}` : "";
+  return [...out.values()];
 }
+const byMonth = (data) => data.map((r) => ({ ...r, month: r.date.slice(0, 7) }));
 
-const QUERIES = {
-  totals: (w) => `SELECT sum(revenue)::DOUBLE AS revenue, count(*)::DOUBLE AS orders, sum(units)::DOUBLE AS units FROM data ${w}`,
-  trend: (w) => `SELECT strftime(date_trunc('month', date), '%Y-%m') AS month, sum(revenue)::DOUBLE AS revenue FROM data ${w} GROUP BY 1 ORDER BY 1`,
-  regions: (w) => `SELECT region, sum(revenue)::DOUBLE AS revenue FROM data ${w} GROUP BY 1 ORDER BY 2 DESC`,
-  mix: (w) => `SELECT strftime(date_trunc('month', date), '%Y-%m') AS month, category, sum(revenue)::DOUBLE AS revenue FROM data ${w} GROUP BY 1, 2 ORDER BY 1`,
-  top: (w) => `SELECT product, category, sum(units)::DOUBLE AS units, sum(revenue)::DOUBLE AS revenue,
-    (sum(revenue) / sum(sum(revenue)) OVER ())::DOUBLE AS share FROM data ${w} GROUP BY 1, 2 ORDER BY revenue DESC LIMIT 10`,
+const AGGREGATES = {
+  totals: (data) => group(data, [], ["revenue", "orders", "units"])[0] ?? { revenue: 0, orders: 0, units: 0 },
+  trend: (data) => group(byMonth(data), ["month"], ["revenue"]).sort((a, b) => a.month.localeCompare(b.month)),
+  regions: (data) => group(data, ["region"], ["revenue"]).sort((a, b) => b.revenue - a.revenue),
+  mix: (data) => group(byMonth(data), ["month", "category"], ["revenue"]).sort((a, b) => a.month.localeCompare(b.month)),
+  top: (data) => {
+    const all = group(data, ["product", "category"], ["units", "revenue"]);
+    const total = all.reduce((sum, d) => sum + d.revenue, 0);
+    return all.sort((a, b) => b.revenue - a.revenue).slice(0, 10).map((d) => ({ ...d, share: total ? d.revenue / total : 0 }));
+  },
 };
 
 /** The CSS colour tokens as the browser resolved them, for the charts: light and dark are defined once, in the CSS. */
@@ -227,22 +539,118 @@ function theme() {
   probe.remove();
   return t;
 }
-const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)");
-const base = (t) => ({
-  animation: !reducedMotion.matches, animationDuration: 300,
-  textStyle: { fontFamily: t.font, color: t.ink2, fontSize: 12 },
-  tooltip: { confine: true, backgroundColor: t.surface, borderColor: t.border, borderWidth: 1, padding: [8, 10],
-    textStyle: { color: t.ink, fontSize: 12, fontFamily: t.font }, extraCssText: "border-radius:8px;box-shadow:0 4px 16px rgba(0,0,0,.14)" },
-});
-const valueAxis = (t, format) => ({ type: "value", axisLine: { show: false }, axisTick: { show: false },
-  axisLabel: { color: t.muted, fontSize: 11, formatter: format }, splitLine: { lineStyle: { color: t.grid, width: 1 } } });
-const categoryAxis = (t, data, extra = {}) => ({ type: "category", data, axisTick: { show: false },
-  axisLine: { lineStyle: { color: t.axis } }, axisLabel: { color: t.muted, fontSize: 11 }, ...extra });
-const tooltipRow = (color, label, value) =>
-  `<div style="display:flex;align-items:center;gap:8px"><span style="width:10px;height:2px;background:${color}"></span><b>${escapeHtml(value)}</b><span style="opacity:.75">${escapeHtml(label)}</span></div>`;
 
-const charts = {};
-const chart = (id) => (charts[id] ??= window.echarts.init($(id), null, { renderer: "svg" }));
+// The charts are SVG drawn here: no library is loaded, so the page needs no network.
+const NS = "http://www.w3.org/2000/svg";
+function svgEl(name, attrs, parent) {
+  const node = document.createElementNS(NS, name);
+  for (const [key, value] of Object.entries(attrs ?? {})) if (value !== undefined) node.setAttribute(key, String(value));
+  parent?.append(node);
+  return node;
+}
+function text(parent, x, y, content, attrs) {
+  const node = svgEl("text", { x, y, ...attrs }, parent);
+  node.textContent = content;
+  return node;
+}
+let measure;
+function textWidth(content, size, t) {
+  measure ??= document.createElement("canvas").getContext("2d");
+  measure.font = `${size}px ${t.font}`;
+  return measure.measureText(content).width;
+}
+/** About four round steps from zero to at least `max`. */
+function ticks(max) {
+  if (!(max > 0)) return [0, 1];
+  const raw = max / 4, power = 10 ** Math.floor(Math.log10(raw));
+  const step = [1, 2, 2.5, 5, 10].map((m) => m * power).find((s) => s >= raw);
+  const out = [];
+  for (let v = 0; v < max + step / 2; v += step) out.push(v);
+  if (out.at(-1) < max) out.push(out.at(-1) + step);
+  return out;
+}
+function canvas(id) {
+  const box = $(id);
+  const width = box.clientWidth, height = box.clientHeight;
+  const svg = svgEl("svg", { viewBox: `0 0 ${width} ${height}`, width, height, "aria-hidden": "true", focusable: "false" });
+  box.replaceChildren(svg);
+  return { svg, width, height };
+}
+
+/**
+ * A line chart. `series` is [{ name, color, values }]; `labels` the x values; `format` a value's short text.
+ * `area` fills under a single line; `peak` marks the highest point; `endLabels` names each line at its end.
+ * Hovering a month shows its values; each chart also has its table.
+ */
+function lineChart(id, { labels, series, format, full, t, area = false, peak = false, endLabels = false }) {
+  const { svg, width, height } = canvas(id);
+  const max = Math.max(0, ...series.flatMap((s) => s.values));
+  const steps = ticks(max), top = steps.at(-1);
+  const left = Math.max(...steps.map((v) => textWidth(format(v), 11, t))) + 8;
+  const right = endLabels ? Math.max(0, ...series.map((s) => textWidth(s.name, 12, t))) + 12 : 16;
+  const box = { left, right: width - right, top: peak ? 28 : 12, bottom: height - 24 };
+  const x = (i) => box.left + (labels.length > 1 ? (i * (box.right - box.left)) / (labels.length - 1) : (box.right - box.left) / 2);
+  const y = (v) => box.bottom - (v / top) * (box.bottom - box.top);
+
+  for (const v of steps) {
+    svgEl("line", { x1: box.left, x2: box.right, y1: y(v), y2: y(v), stroke: v ? t.grid : t.axis, "stroke-width": 1 }, svg);
+    text(svg, box.left - 8, y(v) + 4, format(v), { "text-anchor": "end", fill: t.muted, "font-size": 11 });
+  }
+  const every = Math.max(1, Math.ceil(labels.length / Math.max(1, Math.floor((box.right - box.left) / 72))));
+  labels.forEach((label, i) => {
+    if (i % every && i !== labels.length - 1) return;
+    if (i !== labels.length - 1 && labels.length - 1 - i < every) return;
+    const anchor = i === 0 ? "start" : i === labels.length - 1 ? "end" : "middle";
+    text(svg, x(i), height - 6, label, { "text-anchor": anchor, fill: t.muted, "font-size": 11 });
+  });
+
+  for (const s of series) {
+    const points = s.values.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`);
+    if (area && points.length) svgEl("path", { d: `M${x(0)},${box.bottom}L${points.join("L")}L${x(s.values.length - 1)},${box.bottom}Z`, fill: s.color, "fill-opacity": 0.1 }, svg);
+    svgEl("polyline", { points: points.join(" "), fill: "none", stroke: s.color, "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round" }, svg);
+  }
+
+  if (peak && series[0]?.values.length) {
+    const values = series[0].values, i = values.indexOf(Math.max(...values)), last = i === values.length - 1;
+    svgEl("circle", { cx: x(i), cy: y(values[i]), r: 4.5, fill: series[0].color, stroke: t.surface, "stroke-width": 2 }, svg);
+    text(svg, x(i), y(values[i]) - 10, `Peak ${format(values[i])}`, { "text-anchor": last ? "end" : i === 0 ? "start" : "middle", fill: t.ink, "font-size": 12, "font-weight": 600 });
+  }
+
+  if (endLabels) {
+    // Names at the line ends, moved apart so that none overlaps another.
+    const ends = series.map((s) => ({ s, y: y(s.values.at(-1) ?? 0) })).sort((a, b) => a.y - b.y);
+    for (let i = 1; i < ends.length; i++) ends[i].y = Math.max(ends[i].y, ends[i - 1].y + 14);
+    for (const e of ends) text(svg, box.right + 6, e.y + 4, e.s.name, { fill: t.ink2, "font-size": 12 });
+  }
+
+  // One band a month: hovering it shows a guide line and the month's values as the browser's tooltip.
+  const band = labels.length > 1 ? (box.right - box.left) / (labels.length - 1) : box.right - box.left;
+  const guide = svgEl("line", { y1: box.top, y2: box.bottom, stroke: t.axis, "stroke-width": 1, visibility: "hidden" }, svg);
+  labels.forEach((label, i) => {
+    const hit = svgEl("rect", { x: x(i) - band / 2, y: box.top, width: band, height: box.bottom - box.top, fill: "transparent" }, svg);
+    const rows = [...series].sort((a, b) => b.values[i] - a.values[i]).map((s) => `${full(s.values[i])} ${s.name}`);
+    svgEl("title", {}, hit).textContent = `${label}\n${rows.join("\n")}`;
+    hit.addEventListener("pointerenter", (event) => { if (event.pointerType !== "mouse") return; guide.setAttribute("x1", x(i)); guide.setAttribute("x2", x(i)); guide.setAttribute("visibility", "visible"); });
+    hit.addEventListener("pointerleave", () => guide.setAttribute("visibility", "hidden"));
+  });
+}
+
+/** Horizontal bars from zero, largest at the top, each with its value at its tip. `bars` is [{ label, value, color }]. */
+function barChart(id, { bars, format, full, t }) {
+  const { svg, width, height } = canvas(id);
+  const max = Math.max(0, ...bars.map((b) => b.value)) || 1;
+  const left = Math.max(0, ...bars.map((b) => textWidth(b.label, 12, t))) + 10;
+  const right = Math.max(0, ...bars.map((b) => textWidth(format(b.value), 12, t))) + 10;
+  const slot = height / Math.max(bars.length, 1), thick = Math.min(24, slot * 0.65);
+  const length = (v) => (Math.max(v, 0) / max) * Math.max(width - left - right, 1);
+  bars.forEach((b, i) => {
+    const mid = slot * i + slot / 2;
+    text(svg, left - 10, mid + 4, b.label, { "text-anchor": "end", fill: t.ink2, "font-size": 12 });
+    const bar = svgEl("rect", { x: left, y: mid - thick / 2, width: Math.max(length(b.value), 1), height: thick, rx: 4, fill: b.color }, svg);
+    svgEl("title", {}, bar).textContent = `${b.label}: ${full(b.value)}`;
+    text(svg, left + length(b.value) + 6, mid + 4, format(b.value), { fill: t.ink2, "font-size": 12 });
+  });
+}
 
 function fillTable(table, columns, data, caption) {
   const head = document.createElement("tr");
@@ -301,45 +709,19 @@ function renderTrend(data, t) {
     : `Peak ${fmt.moneyShort.format(values[peak])} in ${months[peak]}; latest ${fmt.moneyShort.format(values[last])} in ${months[last]}`;
   $("note-trend").textContent = note;
   $("chart-trend").setAttribute("aria-label", `Line chart of revenue by month. ${note}.`);
-  const b = base(t);
-  chart("chart-trend").setOption({
-    ...b,
-    grid: { left: 4, right: 32, top: 28, bottom: 4, containLabel: true },
-    tooltip: { ...b.tooltip, trigger: "axis", axisPointer: { type: "line", lineStyle: { color: t.axis } },
-      formatter: (items) => `<div style="margin-bottom:4px">${escapeHtml(items[0].name)}</div>${tooltipRow(t.accent, "revenue", fmt.money.format(items[0].value))}` },
-    xAxis: categoryAxis(t, months, { boundaryGap: false }),
-    yAxis: valueAxis(t, (v) => fmt.moneyShort.format(v)),
-    series: [{
-      type: "line", data: values, showSymbol: false, symbolSize: 8, lineStyle: { width: 2, color: t.accent, cap: "round", join: "round" },
-      itemStyle: { color: t.accent }, areaStyle: { color: t.accent, opacity: 0.1 },
-      markPoint: data.length ? { symbol: "circle", symbolSize: 9, itemStyle: { color: t.accent, borderColor: t.surface, borderWidth: 2 },
-        label: { show: true, position: "top", distance: 6, align: peak === last ? "right" : "center", color: t.ink, fontWeight: 600, fontSize: 12, formatter: `Peak ${fmt.moneyShort.format(values[peak])}` },
-        data: [{ coord: [months[peak], values[peak]] }] } : undefined,
-    }],
-  }, true);
+  lineChart("chart-trend", { labels: months, series: [{ name: "revenue", color: t.accent, values }], format: (v) => fmt.moneyShort.format(v),
+    full: (v) => fmt.money.format(v), t, area: true, peak: true });
   fillTable($("numbers-trend"), [{ label: "Month", value: (d) => monthLabel(d.month) }, { label: "Revenue", num: true, value: (d) => fmt.money.format(d.revenue) }], data, "Revenue by month");
 }
 
 function renderRegions(data, t) {
-  const ordered = [...data].reverse();
   const total = data.reduce((sum, d) => sum + d.revenue, 0);
   const lead = data[0];
   const note = lead ? `${lead.region} leads with ${fmt.pct.format(lead.revenue / total)} of revenue${state.region ? `; ${state.region} highlighted` : ""}` : "No orders in this selection";
   $("note-regions").textContent = note;
   $("chart-regions").setAttribute("aria-label", `Bar chart of revenue by region. ${data.map((d) => `${d.region} ${fmt.moneyShort.format(d.revenue)}`).join(", ")}.`);
-  const b = base(t);
-  chart("chart-regions").setOption({
-    ...b,
-    grid: { left: 4, right: 64, top: 4, bottom: 4, containLabel: true },
-    tooltip: { ...b.tooltip, trigger: "item", formatter: (p) => tooltipRow(p.color, p.name, fmt.money.format(p.value)) },
-    xAxis: { type: "value", show: false },
-    yAxis: categoryAxis(t, ordered.map((d) => d.region), { axisLine: { show: false }, axisLabel: { color: t.ink2, fontSize: 12 } }),
-    series: [{
-      type: "bar", barMaxWidth: 24, barCategoryGap: "35%",
-      data: ordered.map((d) => ({ value: d.revenue, itemStyle: { color: !state.region || d.region === state.region ? t.accent : t.deemph, borderRadius: [0, 4, 4, 0] } })),
-      label: { show: true, position: "right", color: t.ink2, fontSize: 12, formatter: (p) => fmt.moneyShort.format(p.value) },
-    }],
-  }, true);
+  barChart("chart-regions", { bars: data.map((d) => ({ label: d.region, value: d.revenue, color: !state.region || d.region === state.region ? t.accent : t.deemph })),
+    format: (v) => fmt.moneyShort.format(v), full: (v) => fmt.money.format(v), t });
   fillTable($("numbers-regions"), [{ label: "Region", value: (d) => d.region }, { label: "Revenue", num: true, value: (d) => fmt.money.format(d.revenue) },
     { label: "Share", num: true, value: (d) => fmt.pct.format(d.revenue / total) }], data, "Revenue by region");
 }
@@ -356,21 +738,8 @@ function renderMix(data, t) {
   const note = growth && months.length > 1 ? `${growth.c} grew most: ${growth.change >= 0 ? "up" : "down"} ${fmt.pct.format(Math.abs(growth.change))} from ${monthLabel(months[0])} to ${monthLabel(months.at(-1))}` : "Revenue by category and month";
   $("note-mix").textContent = note;
   $("chart-mix").setAttribute("aria-label", `Line chart of revenue by category and month, one line each for ${present.join(", ")}. ${note}.`);
-  const b = base(t);
-  chart("chart-mix").setOption({
-    ...b,
-    grid: { left: 4, right: 84, top: 12, bottom: 4, containLabel: true },
-    tooltip: { ...b.tooltip, trigger: "axis", axisPointer: { type: "line", lineStyle: { color: t.axis } },
-      formatter: (items) => `<div style="margin-bottom:4px">${escapeHtml(items[0].name)}</div>${[...items].sort((x, y) => y.value - x.value).map((i) => tooltipRow(i.color, i.seriesName, fmt.money.format(i.value))).join("")}` },
-    xAxis: categoryAxis(t, months.map(monthLabel), { boundaryGap: false }),
-    yAxis: valueAxis(t, (v) => fmt.moneyShort.format(v)),
-    series: present.map((c) => {
-      const color = t.series[CATEGORIES.indexOf(c) % t.series.length];
-      return { type: "line", name: c, data: months.map((m) => byKey.get(`${m}|${c}`) ?? 0), showSymbol: false, symbolSize: 8,
-        lineStyle: { width: 2, color }, itemStyle: { color }, emphasis: { focus: "series" },
-        endLabel: { show: true, formatter: "{a}", color: t.ink2, fontSize: 12, distance: 6 }, labelLayout: { moveOverlap: "shiftY" } };
-    }),
-  }, true);
+  lineChart("chart-mix", { labels: months.map(monthLabel), format: (v) => fmt.moneyShort.format(v), full: (v) => fmt.money.format(v), t, endLabels: true,
+    series: present.map((c) => ({ name: c, color: t.series[CATEGORIES.indexOf(c) % t.series.length], values: months.map((m) => byKey.get(`${m}|${c}`) ?? 0) })) });
   fillTable($("numbers-mix"), [{ label: "Month", value: (m) => monthLabel(m) },
     ...present.map((c) => ({ label: c, num: true, value: (m) => fmt.money.format(byKey.get(`${m}|${c}`) ?? 0) }))], months, "Revenue by category and month");
 }
@@ -413,25 +782,19 @@ function hasFullPreviousPeriod() {
   return month(range.last) - month(range.first) + 1 >= 2 * state.months;
 }
 
-let pending = 0;
-async function refresh() {
-  const ticket = ++pending;
+function refresh() {
   $("dash").classList.add("is-updating");
-  const w = where();
-  const result = {
-    totals: (await rows(QUERIES.totals(w)))[0],
-    previous: hasFullPreviousPeriod() ? (await rows(QUERIES.totals(where({ shift: 1 }))))[0] : null,
-    trend: await rows(QUERIES.trend(w)),
-    regions: await rows(QUERIES.regions(where({ region: "" }))),
-    mix: await rows(QUERIES.mix(w)),
-    top: await rows(QUERIES.top(w)),
+  const rows = select();
+  latest = {
+    totals: AGGREGATES.totals(rows),
+    previous: hasFullPreviousPeriod() ? AGGREGATES.totals(select({ shift: 1 })) : null,
+    trend: AGGREGATES.trend(rows),
+    regions: AGGREGATES.regions(select({ region: "" })),
+    mix: AGGREGATES.mix(rows),
+    top: AGGREGATES.top(rows),
   };
-  if (ticket !== pending) return;
-  latest = result;
   render();
-  $("dash").classList.remove("is-updating");
-  const period = PERIODS.find((p) => p.months === state.months)?.label ?? "";
-  window.mausbot?.setContext?.(`The person is looking at ${state.region || "all regions"}, ${period.toLowerCase()}.`)?.catch(() => {});
+  requestAnimationFrame(() => $("dash").classList.remove("is-updating"));
 }
 
 function showError(error) {
@@ -445,32 +808,25 @@ function showError(error) {
 }
 
 async function start() {
-  const data = fetchData();
-  data.catch(() => {});
-  const db = await openDatabase();
-  const file = await data;
-  if (file.text !== undefined) await db.registerFileText(file.name, file.text);
-  else await db.registerFileBuffer(file.name, file.bytes);
-  conn = await db.connect();
-  const reader = file.name.endsWith(".parquet") ? `read_parquet(${quote(file.name)})` : `read_csv(${quote(file.name)}, header = true)`;
-  await conn.query(`CREATE TABLE data AS SELECT * FROM ${reader}`);
-  if (!window.echarts) throw new Error("the chart library didn't load from cdn.jsdelivr.net.");
-
-  [range] = await rows(`SELECT min(date)::VARCHAR AS first, max(date)::VARCHAR AS last, count(*)::DOUBLE AS n FROM data`);
-  CATEGORIES = (await rows(`SELECT DISTINCT category FROM data ORDER BY 1`)).map((r) => r.category);
+  DATA = records(await fetchData()).map(prepare).filter((r) => /^\d{4}-\d{2}-\d{2}$/.test(r.date));
+  if (!DATA.length) throw new Error("the data has no rows with a date.");
+  const days = DATA.map((r) => r.date).sort();
+  range = { first: days[0], last: days.at(-1), n: DATA.reduce((sum, r) => sum + r.orders, 0) };
+  CATEGORIES = [...new Set(DATA.map((r) => r.category))].sort();
   const regionSelect = $("filter-region"), periodSelect = $("filter-period");
-  for (const { region } of await rows(`SELECT DISTINCT region FROM data ORDER BY 1`)) regionSelect.append(new Option(region, region));
+  for (const region of [...new Set(DATA.map((r) => r.region))].sort()) regionSelect.append(new Option(region, region));
   for (const p of PERIODS) periodSelect.append(new Option(p.label, String(p.months), false, p.months === state.months));
-  regionSelect.addEventListener("change", () => { state.region = regionSelect.value; refresh().catch(showError); });
-  periodSelect.addEventListener("change", () => { state.months = Number(periodSelect.value); refresh().catch(showError); });
+  regionSelect.addEventListener("change", () => { state.region = regionSelect.value; try { refresh(); } catch (error) { showError(error); } });
+  periodSelect.addEventListener("change", () => { state.months = Number(periodSelect.value); try { refresh(); } catch (error) { showError(error); } });
 
   const updated = CONFIG.updated ? ` · Updated ${fmt.stamp.format(new Date(CONFIG.updated))}` : "";
   $("foot").textContent = `Source: ${CONFIG.source} · ${fmt.int.format(range.n)} orders from ${fmt.day.format(new Date(`${range.first}T00:00:00Z`))} to ${fmt.day.format(new Date(`${range.last}T00:00:00Z`))}${updated}`;
 
-  await refresh();
+  refresh();
   $("status").hidden = true;
   $("dash").setAttribute("aria-busy", "false");
-  new ResizeObserver(() => Object.values(charts).forEach((c) => c.resize())).observe($("dash"));
+  let frame = 0;
+  new ResizeObserver(() => { cancelAnimationFrame(frame); frame = requestAnimationFrame(render); }).observe($("dash"));
   matchMedia("(prefers-color-scheme: dark)").addEventListener("change", render);
   new MutationObserver(render).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
   document.documentElement.dataset.ready = "true";
