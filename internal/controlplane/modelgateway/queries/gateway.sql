@@ -72,7 +72,7 @@ VALUES (@id, @key_id, @model, @provider, @upstream_model, @stream, @attempts, @o
 
 -- name: ListGatewayUsage :many
 SELECT u.*, k.name AS key_name FROM gateway_usage u JOIN gateway_keys k ON k.id = u.key_id
-ORDER BY u.created_at DESC, u.id DESC LIMIT @row_limit;
+ORDER BY u.created_at DESC, u.rowid DESC LIMIT @row_limit;
 
 -- The Usage page (issue #199, step 4). A request failed when its outcome is upstream_error, transport_error or
 -- truncated; a client that left is not the gateway's failure.
@@ -144,7 +144,7 @@ GROUP BY account_id ORDER BY SUM(prompt_tokens + completion_tokens) DESC, accoun
 SELECT u.*, k.name AS key_name FROM gateway_usage u JOIN gateway_keys k ON k.id = u.key_id
 WHERE u.created_at >= @since
   AND (CAST(@failed_only AS INTEGER) = 0 OR u.outcome IN ('upstream_error', 'transport_error', 'truncated'))
-ORDER BY u.created_at DESC, u.id DESC LIMIT @row_limit OFFSET @row_offset;
+ORDER BY u.created_at DESC, u.rowid DESC LIMIT @row_limit OFFSET @row_offset;
 
 -- What the owner set for the web search providers (issues #354, #393).
 -- name: ListGatewaySearchProviders :many
