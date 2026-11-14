@@ -56,6 +56,7 @@ const builder = {
   skills_off: [],
   connections: { limited: false, names: [] },
   workers: { limited: false, names: [] },
+  tool_display: "on",
   created_at: "2026-11-09T10:00:00Z",
   updated_at: "2026-11-09T10:00:00Z",
 }
@@ -870,4 +871,129 @@ test("no context meter before pi reported", async ({ page }) => {
 
   await expect(page.getByRole("combobox", { name: /^Model:/ })).toBeVisible()
   await expect(page.getByRole("button", { name: /^Context:/ })).toHaveCount(0)
+})
+
+// The tool calls of one turn as the server sends them at each level of the Bot's setting (issue #441): at full with
+// their arguments, output and time; at on with the tool's name only; at off none.
+const longOutput = `${"412 rows of the report\n".repeat(60)}END OF REPORT`
+const fullCalls = [
+  {
+    role: "tool",
+    text: "pi ran read: report.sql",
+    parts: [
+      {
+        type: "tool_result",
+        id: "t1",
+        name: "read",
+        args: { path: "report.sql" },
+        output: "SELECT 1",
+        duration_ms: 40,
+      },
+    ],
+  },
+  {
+    role: "tool",
+    text: "pi ran bash: superset export",
+    parts: [
+      {
+        type: "tool_result",
+        id: "t2",
+        name: "bash",
+        args: { command: "superset export --dashboard 12" },
+        output: longOutput,
+        duration_ms: 4200,
+      },
+    ],
+  },
+  {
+    role: "tool",
+    text: "pi ran bash: lark send",
+    parts: [
+      {
+        type: "tool_result",
+        id: "t3",
+        name: "bash",
+        args: { command: "lark send report.xlsx" },
+        output: "permission denied",
+        error: true,
+        duration_ms: 900,
+      },
+    ],
+  },
+]
+const onCalls = fullCalls.map((m) => ({
+  role: "tool",
+  text: `pi used ${m.parts[0]!.name}`,
+  parts: m.parts.map((p) => ({
+    type: p.type,
+    id: p.id,
+    name: p.name,
+    ...("error" in p && { error: true }),
+  })),
+}))
+
+async function turn(page: Page, calls: object[]) {
+  await fakeServer(page, (text) => ({ status: 201, body: message(9, { role: "owner", text }) }))
+  await open(page)
+  await write(
+    page,
+    state(false) +
+      kept(1, { role: "owner", text: "send the report" }) +
+      calls.map((c, i) => kept(i + 2, c)).join("") +
+      kept(calls.length + 2, {
+        role: "coordinator",
+        text: "The report is ready; Lark refused the send.",
+      }),
+  )
+  await expect(page.getByRole("log").getByText("The report is ready")).toBeVisible()
+}
+
+// Scenario: the Bot shows its calls in full. Three calls in a row are one group, "Ran 3 tools", marked as failed
+// since one did; open, each row says what it did and how long it took, the failed one in red. A row opens to its
+// command and the start of its output, and Show all gives the rest.
+test("tool calls in full group, open to their command and output, and show all of it", async ({
+  page,
+}) => {
+  await turn(page, fullCalls)
+  const log = page.getByRole("log")
+
+  const group = log.getByRole("button", { name: /Ran 3 tools/ })
+  await expect(group.getByLabel("failed")).toBeVisible()
+  await group.click()
+  await expect(log.getByRole("button", { name: /Read\s*report\.sql/ })).toContainText("40ms")
+  await expect(log.getByRole("button", { name: /Ran\s*lark send report\.xlsx/ })).toContainText(
+    "900ms",
+  )
+  await shot(page, "chat-tools-full")
+
+  await log.getByRole("button", { name: /Ran\s*superset export/ }).click()
+  await expect(log.getByLabel("Input")).toHaveText("superset export --dashboard 12")
+  await expect(log.getByLabel("Output")).not.toContainText("END OF REPORT")
+  await shot(page, "chat-tools-full-open")
+
+  await log.getByRole("button", { name: /Show all/ }).click()
+  await expect(log.getByLabel("Output")).toContainText("END OF REPORT")
+})
+
+// Scenario: the Bot shows its calls on: the rows name each tool, without a command, and do not open.
+test("tool calls shown on name their tools and do not open", async ({ page }) => {
+  await turn(page, onCalls)
+  const log = page.getByRole("log")
+
+  await log.getByRole("button", { name: /Ran 3 tools/ }).click()
+  await expect(log.getByText("read", { exact: true })).toBeVisible()
+  await expect(log.getByText("bash", { exact: true })).toHaveCount(2)
+  await expect(log.getByText(/superset export|lark send/)).toHaveCount(0)
+  await expect(log.getByRole("button", { name: /^bash/ })).toHaveCount(0)
+  await shot(page, "chat-tools-on")
+})
+
+// Scenario: the Bot shows no calls: the server sent none, and the chat has the question and the answer only.
+test("tool calls shown off leave only the answers", async ({ page }) => {
+  await turn(page, [])
+  const log = page.getByRole("log")
+
+  await expect(log.getByRole("button", { name: /Ran \d+ tools?/ })).toHaveCount(0)
+  await expect(log.getByText("send the report")).toBeVisible()
+  await shot(page, "chat-tools-off")
 })

@@ -124,6 +124,7 @@ type Bot struct {
 	SkillsOff   string
 	Connections sql.NullString
 	Workers     sql.NullString
+	ToolDisplay string
 }
 
 type Chat struct {

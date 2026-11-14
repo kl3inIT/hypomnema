@@ -21,6 +21,7 @@ const bot = (name: string, m: Partial<Bot> = {}): Bot => ({
   skills_off: [],
   connections: { limited: false, names: [] },
   workers: { limited: false, names: [] },
+  tool_display: "on",
   created_at: hours(200),
   updated_at: hours(3),
   ...m,
@@ -591,6 +592,32 @@ test("a Bot's Connections and workers are limited on its page", async ({ page })
       },
     },
   ])
+})
+
+// Scenario: a Bot others use must not show its bash runs (issue #441). Its page says what its chats show of its
+// tool calls, on by default, with a line for each level; choosing off saves at once with the Bot's model and persona,
+// so nothing else changes.
+test("a Bot's tool calls are shown off, on or full as its page sets", async ({ page }) => {
+  const reporter = bot("reporter", { persona: "You send the Superset report." })
+  const calls = await fakeServer(page, [coordinator, reporter])
+  await page.goto("/bots/reporter")
+
+  const tools = page.getByRole("region", { name: "Tool calls in chats" })
+  await tools.scrollIntoViewIfNeeded()
+  await expect(tools.getByRole("radio", { name: /^On/ })).toBeChecked()
+  await expect(tools).toContainText("Only the answers: no tool call is shown.")
+  await expect(tools).toContainText("without its command or output")
+  await expect(tools).toContainText("the output and the time")
+  expect(await fits(page)).toBe(true)
+  await shot(page, "bot-tool-display")
+
+  await tools.getByRole("radio", { name: /^Off/ }).click()
+  await expect(tools.getByRole("radio", { name: /^Off/ })).toBeChecked()
+  expect(calls.at(-1)).toEqual({
+    call: "PUT /bots/reporter",
+    body: { persona: "You send the Superset report.", tool_display: "off" },
+  })
+  await shot(page, "bot-tool-display-off")
 })
 
 // Scenario: the Bot coordinator made a Bot and changed a profile in this chat (issue #169). Each change has its

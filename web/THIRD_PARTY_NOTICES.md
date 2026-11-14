@@ -10,6 +10,12 @@ Each adapted file names its source.
   Copyright (c) 2026 T3 Tools Inc.), with the icon by status of Orca's
   src/renderer/src/components/native-chat/tools/tasks/NativeChatTaskList.tsx (MIT, Copyright (c) 2026 Lovecast
   Inc.).
+- A tool call's row in the chat (`src/features/chat/tool-row.ts`, `ToolRow` in `chat-items.tsx`) is adapted from
+  Orca's src/shared/native-chat/tools/native-chat-tool-summary.ts, native-chat-tool-identity.ts
+  (`formatToolDuration`) and src/renderer/src/components/native-chat/tools/lines/NativeChatToolLine.tsx (MIT,
+  Copyright (c) 2026 Lovecast Inc.), with the verbs of Codex's codex-rs/tui/src/exec_cell/render.rs
+  (https://github.com/openai/codex, Apache License 2.0) and the output's 1,000-character preview of OpenMausBot's
+  src/components/ToolActivity.tsx (Apache License 2.0).
 - Attaching files in the chat (`src/features/chat/attachments.ts`, `attachment-strip.tsx`, `message-files.tsx`) is
   adapted from t3code's apps/web/src/components/chat/useComposerAttachmentIntake.ts, ComposerAttachmentStrip.tsx,
   ComposerImageThumbnail.tsx, TimelineUserMessageRow.tsx and ExpandedImageDialog.tsx and
@@ -201,6 +207,12 @@ SOFTWARE.
 Omnigent is licensed under the Apache License, Version 2.0 (http://www.apache.org/licenses/LICENSE-2.0), whose
 text is given under OpenMausBot below. Its repository carries no NOTICE file and no copyright line; the work is
 copyright its authors (https://github.com/omnigent-ai/omnigent).
+
+## Codex
+
+Codex is licensed under the Apache License, Version 2.0 (http://www.apache.org/licenses/LICENSE-2.0), whose text
+is given under OpenMausBot below. Its NOTICE: "OpenAI Codex, Copyright 2025 OpenAI"
+(https://github.com/openai/codex).
 
 ## Omnara
 

@@ -27,6 +27,21 @@ const (
 	MaxMemory  = memorystore.MaxMemory
 )
 
+// ToolDisplay is what a Bot's chats show of its tool calls (issue #441), to everyone who reads them, after
+// OpenClaw's verboseDefault per agent (src/agents/agent-scope-config.ts, resolveAgentVerboseDefault).
+type ToolDisplay string
+
+// The levels, as OpenClaw's (src/auto-reply/reply/followup-turn-execution.ts, shouldEmitToolResult and
+// shouldEmitToolOutput).
+const (
+	// ToolsOff shows no tool call: only the Bot's answers.
+	ToolsOff ToolDisplay = "off"
+	// ToolsOn shows a row per tool call with its tool's name, without its arguments or output.
+	ToolsOn ToolDisplay = "on"
+	// ToolsFull shows each call's arguments, output, error and time as well.
+	ToolsFull ToolDisplay = "full"
+)
+
 // Bot is a long-lived agent of the control plane (issue #169): its model,
 // what it is (the persona, which only the owner writes) and what it keeps
 // across chats (the memory, which it writes itself). It is apart from a
@@ -47,6 +62,8 @@ type Bot struct {
 	// profiles it may give work to (issue #169, part 3; botaccess.go).
 	Connections AllowList
 	Workers     AllowList
+	// ToolDisplay is what its chats show of its tool calls; empty is ToolsOn.
+	ToolDisplay ToolDisplay
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 }
@@ -55,7 +72,7 @@ func botFromRow(r store.Bot) Bot {
 	return Bot{
 		Name: r.Name, Provider: r.Provider.String, Model: r.Model.String, Effort: r.Effort.String,
 		Persona: r.Persona, Memory: r.Memory, Skills: splitNames(r.Skills), SkillsOff: splitNames(r.SkillsOff),
-		Connections: allowListOf(r.Connections), Workers: allowListOf(r.Workers),
+		Connections: allowListOf(r.Connections), Workers: allowListOf(r.Workers), ToolDisplay: ToolDisplay(r.ToolDisplay),
 		CreatedAt: time.UnixMilli(r.CreatedAt).UTC(), UpdatedAt: time.UnixMilli(r.UpdatedAt).UTC(),
 	}
 }
@@ -77,6 +94,14 @@ func (s *Service) putBot(ctx context.Context, chat string, b Bot) (Bot, error) {
 			ErrInvalid)
 	case utf8.RuneCountInString(b.Persona) > MaxPersona:
 		return Bot{}, fmt.Errorf("%w: a persona is at most %d characters", ErrInvalid, MaxPersona)
+	}
+
+	if b.ToolDisplay == "" {
+		b.ToolDisplay = ToolsOn
+	}
+
+	if !b.ToolDisplay.valid() {
+		return Bot{}, fmt.Errorf("%w: a bot's tool display is off, on or full", ErrInvalid)
 	}
 
 	if err := s.write(ctx, func(q *store.Queries, now int64) error {
@@ -141,11 +166,29 @@ func checkBot(ctx context.Context, q *store.Queries, b *Bot, had *Bot) error {
 }
 
 func upsertBot(ctx context.Context, q *store.Queries, now int64, b Bot) error {
+	if b.ToolDisplay == "" {
+		b.ToolDisplay = ToolsOn
+	}
+
 	return q.UpsertBot(ctx, store.UpsertBotParams{
 		Name: b.Name, Provider: nullString(b.Provider), Model: nullString(b.Model), Effort: nullString(b.Effort),
 		Persona: b.Persona, Skills: strings.Join(b.Skills, ","), SkillsOff: strings.Join(b.SkillsOff, ","),
-		Connections: b.Connections.stored(), Workers: b.Workers.stored(), Now: now,
+		Connections: b.Connections.stored(), Workers: b.Workers.stored(), ToolDisplay: string(b.ToolDisplay), Now: now,
 	})
+}
+
+func (d ToolDisplay) valid() bool {
+	return d == ToolsOff || d == ToolsOn || d == ToolsFull
+}
+
+// ChatToolDisplay is what the chat's Bot shows of its tool calls, read at each call: a change applies at once.
+func (s *Service) ChatToolDisplay(ctx context.Context, chatID string) (ToolDisplay, error) {
+	d, err := s.read().ToolDisplayOfChat(ctx, chatID)
+	if err != nil {
+		return "", notFound(err, "chat", chatID)
+	}
+
+	return ToolDisplay(d), nil
 }
 
 // GetBot returns one Bot.

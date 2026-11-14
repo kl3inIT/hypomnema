@@ -1994,9 +1994,15 @@ export type Bot = {
   skills_off: Array<string>;
   connections: AllowList;
   workers: AllowList;
+  tool_display: ToolDisplay;
   created_at: string;
   updated_at: string;
 };
+
+/**
+ * What the Bot's chats show of its tool calls, to everyone who reads them, on the web and at Lark: off, none, only its answers; on, a row per call with its tool's name; full, each call's arguments, output, error and time as well. The chat messages and the stream leave out what the level hides.
+ */
+export type ToolDisplay = 'off' | 'on' | 'full';
 
 /**
  * What a Bot may use. Not limited, it may use every one; limited, only those named, and none when no name is.
@@ -2260,6 +2266,7 @@ export type BotSettings = {
   skills_off?: Array<string>;
   connections?: AllowList;
   workers?: AllowList;
+  tool_display?: ToolDisplay;
 };
 
 export type Memory = {

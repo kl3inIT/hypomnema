@@ -479,6 +479,17 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     image with a `MEDIA:<path>` line, which a Lark chat delivers as a file (#312); the web chat shows the line as
     text (it is not turned into a picture), and the file is in the Bot's folder (Files panel). Errors: 400 (a request
     no provider takes), 429 `rate_limited` with `Retry-After`, 503 `unavailable`.
+  - What a Bot's chats show of its tool calls (issue #441, migration 00078, after OpenClaw's `verboseDefault` per
+    agent, `src/agents/agent-scope-config.ts`): `bots.tool_display`, `off`, `on` (a new Bot's) or `full`, the same
+    for everyone who reads them, the owner included. The server sends only what the level shows, as OpenClaw drops a
+    tool event below its level before delivery (`coordinator/tooldisplay.go`, read at each page and each wake-up of
+    the stream): at `off` no tool message and no live tool frame; at `on` the message as "pi used <tool>" with each
+    part's id, name and failure only, and a live frame without its arguments; at `full` all that is kept. Lark's card
+    shows nothing of a running tool at `off`, `⚡ name` at `on`, and its arguments at `full`. What is kept is the same
+    at every level, so a Bot switched to `full` shows its earlier calls whole. It is set on the Bot's page ("Tool
+    calls in chats", saved on change), in `PUT /bots/{name}` `tool_display` (left out, kept) and `hypomnema bots
+    set --tool-display off|on|full`; a change from the coordinator's chat is undone with the rest of the Bot's
+    settings.
   - Every owner's and coordinator's token reads Bots and changes a memory an entry at a time; the owner, and the Bot
     `coordinator` from its chat (below), make, change and remove a Bot (`hypomnema bots list|show|set|rm`); only
     the owner replaces a whole memory.
@@ -1225,7 +1236,8 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       Channel. The terminal has no command for groups.
     - What a person sees while the Bot works: their message carries the emoji `Typing` until the reply is
       there, and `CrossMark` when the model's call failed; the card answers that message (Lark shows it
-      quoted), shows the tool that is running (`⚡ name: arguments`) before and under the text, and ends with a
+      quoted), shows the tool that is running before and under the text, as the Bot's tool display shows it (`⚡ name`,
+      `⚡ name: arguments` at full, nothing at off; see Bots), and ends with a
       link to the same chat on the web when `HYPOMNEMA_PUBLIC_URL` is set and the Channel's `web_link` is on,
       read at each reply. A message sent while a turn runs is
       told it is queued, by the name of the chat's Bot. A reply longer than 8,000 characters goes on in further
@@ -2254,7 +2266,13 @@ Node (`internal/node`):
   beside the open one. A chat follows `GET /chats/{id}/stream`: kept messages, then pi's live frames, reopened after
   the last kept message when the server ends it. pi's thoughts and tools between replies form one line that opens,
   with each command and its output; replies render as markdown with streamdown and shiki, loaded apart from the
-  screen. Enter sends unless an input method is composing; Stop asks pi to end its turn.
+  screen.
+  - A tool row (issue #441, `features/chat/tool-row.ts`, after Orca's `NativeChatToolLine.tsx` and Codex's
+    `exec_cell/render.rs`): an icon by kind of tool, a phrase ("Ran `ls`", "Read `report.sql`", the tool's name
+    alone when the Bot shows no arguments), the time on the right, red with a cross when it failed. Calls in a row are
+    one group, "Ran 3 tools", that opens. A row with arguments or output opens to the command or the arguments,
+    then the output's first 1,000 characters with "Show all" for the rest (OpenMausBot's `ToolActivity.tsx`); one
+    without (the Bot's setting is on) does not open. Enter sends unless an input method is composing; Stop asks pi to end its turn.
   - Attaching files (issue #343, `features/chat/attachments.ts`, after t3code's `useComposerAttachmentIntake.ts`):
     in an open chat, with the paperclip, by pasting (a screenshot) or by dropping files on the chat. A file over
     50 MiB or empty is refused and said above the box; the others are chips with a thumbnail or an icon, the name,
