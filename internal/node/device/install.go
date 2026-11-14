@@ -166,11 +166,18 @@ func (i installer) installOne(ctx context.Context, c component, downloads string
 		return fmt.Errorf("clearing an earlier try at %s: %w", c.Name, err)
 	}
 
-	from, err := unpack(file, c, tmp)
+	from, err := unpack(ctx, file, c, tmp)
 	if err != nil {
 		_ = os.RemoveAll(tmp)
 
 		return fmt.Errorf("unpacking %s %s: %w", c.Name, c.Version, err)
+	}
+
+	// A stop asked meanwhile leaves what was installed as it was.
+	if err := ctx.Err(); err != nil {
+		_ = os.RemoveAll(tmp)
+
+		return err
 	}
 
 	if err := os.RemoveAll(place); err != nil {
@@ -268,7 +275,7 @@ func (i installer) download(ctx context.Context, c component, dir string) (strin
 
 // unpack puts a checked file under tmp and returns what is to be renamed
 // into the component's place: the file itself, or the .zip's root folder.
-func unpack(file string, c component, tmp string) (string, error) {
+func unpack(ctx context.Context, file string, c component, tmp string) (string, error) {
 	if err := os.MkdirAll(tmp, 0o700); err != nil {
 		return "", err
 	}
@@ -284,7 +291,7 @@ func unpack(file string, c component, tmp string) (string, error) {
 		return to, copyFile(file, to, mode)
 	}
 
-	if err := unzip(file, tmp, c.MaxUnpacked); err != nil {
+	if err := unzip(ctx, file, tmp, c.MaxUnpacked); err != nil {
 		return "", err
 	}
 
@@ -320,34 +327,46 @@ func copyFile(from, to string, mode os.FileMode) error {
 // unzip writes every member of the archive under home, as the browser's
 // installer does. A member that would land outside home stops it; so does a
 // link whose target is outside home, the one kind of member beside files and
-// folders the SDK's archives may hold.
-func unzip(archive, home string, maxBytes int64) error {
+// folders the SDK's archives may hold. Every member is written through an
+// os.Root of home, which follows the links already made only while they stay
+// inside it: links that each point inside but lead outside together stop it
+// too. A canceled ctx stops it between members.
+func unzip(ctx context.Context, archive, home string, maxBytes int64) error {
 	members, err := zip.OpenReader(archive)
 	if err != nil {
 		return fmt.Errorf("the file is not a .zip: %w", err)
 	}
 	defer members.Close() //nolint:errcheck // Read only.
 
+	root, err := os.OpenRoot(home)
+	if err != nil {
+		return err
+	}
+	defer root.Close() //nolint:errcheck // Only names under it were opened.
+
 	var written int64
 
 	for _, member := range members.File {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+
 		name := filepath.FromSlash(member.Name)
 		if !filepath.IsLocal(name) {
 			return fmt.Errorf("%q is not a path inside the .zip", member.Name)
 		}
 
-		target := filepath.Join(home, name)
 		mode := member.Mode()
 
 		switch {
 		case mode.IsDir():
-			if err := os.MkdirAll(target, 0o700); err != nil {
-				return err
+			if err := root.MkdirAll(name, 0o700); err != nil {
+				return fmt.Errorf("%s: %w", member.Name, err)
 			}
 
 			continue
 		case mode&fs.ModeSymlink != 0:
-			if err := unzipLink(member, name, target); err != nil {
+			if err := unzipLink(root, member, name); err != nil {
 				return fmt.Errorf("%s: %w", member.Name, err)
 			}
 
@@ -356,11 +375,11 @@ func unzip(archive, home string, maxBytes int64) error {
 			return fmt.Errorf("%q is neither a file, a folder nor a link", member.Name)
 		}
 
-		if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
-			return err
+		if err := root.MkdirAll(filepath.Dir(name), 0o700); err != nil {
+			return fmt.Errorf("%s: %w", member.Name, err)
 		}
 
-		n, err := unzipMember(member, target, maxBytes-written, maxBytes)
+		n, err := unzipMember(root, member, name, maxBytes-written, maxBytes)
 		if err != nil {
 			return fmt.Errorf("%s: %w", member.Name, err)
 		}
@@ -373,7 +392,7 @@ func unzip(archive, home string, maxBytes int64) error {
 
 // unzipLink makes a link a member stands for, when what it points at is
 // inside the archive's own tree.
-func unzipLink(member *zip.File, name, target string) error {
+func unzipLink(root *os.Root, member *zip.File, name string) error {
 	in, err := member.Open()
 	if err != nil {
 		return err
@@ -390,14 +409,14 @@ func unzipLink(member *zip.File, name, target string) error {
 		return fmt.Errorf("the link points outside the .zip, at %q", string(raw))
 	}
 
-	if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+	if err := root.MkdirAll(filepath.Dir(name), 0o700); err != nil {
 		return err
 	}
 
-	return os.Symlink(to, target)
+	return root.Symlink(to, name)
 }
 
-func unzipMember(member *zip.File, target string, room, maxBytes int64) (int64, error) {
+func unzipMember(root *os.Root, member *zip.File, name string, room, maxBytes int64) (int64, error) {
 	in, err := member.Open()
 	if err != nil {
 		return 0, err
@@ -410,8 +429,7 @@ func unzipMember(member *zip.File, target string, room, maxBytes int64) (int64, 
 		mode = 0o700
 	}
 
-	//nolint:gosec // Inside the device's directory, checked by the caller.
-	out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
+	out, err := root.OpenFile(name, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
 	if err != nil {
 		return 0, err
 	}

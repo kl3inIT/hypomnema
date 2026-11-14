@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"testing"
 
@@ -256,6 +257,36 @@ func TestInstallKeepsALinkInsideItsTree(t *testing.T) {
 	target, err := os.Readlink(filepath.Join(in.dir, "sdk", "emulator", "lib64", "libc.so"))
 	require.NoError(t, err)
 	assert.Equal(t, "libc.so.1", target)
+}
+
+// Links that each point inside the tree but lead outside it together stop
+// the install: nothing is written through them.
+func TestInstallRefusesLinksThatLeadOutsideTogether(t *testing.T) {
+	t.Parallel()
+
+	if !canLink(t) {
+		t.Skip("this system makes no symbolic links for this user")
+	}
+
+	f := newFiles(t)
+	c := f.pin("/emulator.zip", zipped(t,
+		member{name: "a", content: ".", link: true},
+		member{name: "b", content: "a/..", link: true},
+		member{name: "b/escaped", content: "x"},
+		member{name: "emulator/emulator", content: "y"},
+	), component{Name: nameEmulator, Version: "1", Root: "emulator", Place: sdkDir + "/emulator"})
+
+	in := installer{dir: t.TempDir()}
+	err := in.install(t.Context(), []component{c})
+
+	// Windows resolves the ".." of a link's target before following it, so there b is the tree itself.
+	if runtime.GOOS != "windows" {
+		require.ErrorContains(t, err, "escapes")
+		assert.NoDirExists(t, filepath.Join(in.dir, "sdk", "emulator"))
+	}
+
+	assert.NoFileExists(t, filepath.Join(in.dir, "escaped"))
+	assert.NoFileExists(t, filepath.Join(in.dir, "downloads", "escaped"))
 }
 
 func canLink(t *testing.T) bool {

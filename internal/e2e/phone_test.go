@@ -53,16 +53,16 @@ func (p *fakePhone) Status() nodeproto.DeviceState {
 	return p.state
 }
 
-func (p *fakePhone) Start(context.Context) error {
+func (p *fakePhone) Ask(_ context.Context, start bool) {
+	if !start {
+		p.set("stop", nodeproto.DeviceState{State: nodeproto.DeviceStopped, Installed: p.Status().Installed})
+
+		return
+	}
+
 	p.set("start", nodeproto.DeviceState{State: nodeproto.DeviceRunning, Installed: []nodeproto.DeviceComponent{
 		{Name: "emulator", Version: "37.3.9"}, {Name: "system-image", Version: "android-34-google_apis_playstore-x86_64-r14"},
 	}})
-
-	return nil
-}
-
-func (p *fakePhone) Stop(context.Context) {
-	p.set("stop", nodeproto.DeviceState{State: nodeproto.DeviceStopped, Installed: p.Status().Installed})
 }
 
 func (p *fakePhone) Changed() <-chan struct{} { return p.changed }

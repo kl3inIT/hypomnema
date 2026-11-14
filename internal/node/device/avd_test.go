@@ -29,6 +29,12 @@ func TestTheAVDIsWrittenOnce(t *testing.T) {
 	raw, err := os.ReadFile(config) //nolint:gosec // The test's own directory.
 	require.NoError(t, err)
 
+	// Each file is written whole under a temporary name and linked to its own; no temporary one is left.
+	entries, err := os.ReadDir(filepath.Join(dir, "avd", "phone.avd"))
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	assert.Equal(t, "config.ini", entries[0].Name())
+
 	// config.ini is avdmanager's file with the proven settings after its own
 	// values: a key given twice takes its last value.
 	values := lastValues(string(raw))

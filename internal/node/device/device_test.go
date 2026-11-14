@@ -490,3 +490,96 @@ func TestAStopCallsAStartOff(t *testing.T) {
 	assert.Equal(t, nodeproto.DeviceStopped, r.m.Status().State)
 	assert.Contains(t, r.sys.sent(), "term Xvfb")
 }
+
+// A stop asked after a start wins, whatever order the two are carried out
+// in: a start whose turn comes after the later stop boots nothing.
+func TestALaterStopWinsOverAnEarlierStart(t *testing.T) {
+	t.Parallel()
+
+	r := newRig(t)
+
+	start, stop := r.m.ask(true), r.m.ask(false)
+	r.m.stop(t.Context(), stop)
+
+	require.ErrorIs(t, r.m.start(t.Context(), start), context.Canceled)
+	assert.Empty(t, r.sys.started(), "nothing was started")
+	assert.Equal(t, nodeproto.DeviceAbsent, r.m.Status().State)
+
+	// Asked in order on their own goroutines, a stop calls off the boot under way.
+	r.sys.notBooted = true
+	r.m.opts.BootWithin = time.Minute
+	r.m.Ask(context.WithoutCancel(t.Context()), true)
+
+	require.Eventually(t, func() bool { return r.m.Status().State == nodeproto.DeviceStarting },
+		5*time.Second, time.Millisecond)
+
+	r.m.Ask(context.WithoutCancel(t.Context()), false)
+
+	require.Eventually(t, func() bool {
+		if r.m.Status().State != nodeproto.DeviceStopped {
+			return false
+		}
+
+		r.sys.mu.Lock()
+		defer r.sys.mu.Unlock()
+
+		return r.sys.running("emulator") == nil && r.sys.running("Xvfb") == nil
+	}, 5*time.Second, time.Millisecond)
+}
+
+// A start asked while a stop is still ending the emulator is not dropped:
+// it boots the phone once the stop is done.
+func TestAStartDuringAStopBootsAfterIt(t *testing.T) {
+	t.Parallel()
+
+	r := newRig(t)
+	r.start(t)
+
+	r.sys.mu.Lock()
+	r.sys.deaf["emulator"] = true
+	r.sys.mu.Unlock()
+
+	r.m.opts.EndWithin = 300 * time.Millisecond
+
+	stopped := make(chan struct{})
+
+	go func() {
+		r.m.Stop(context.WithoutCancel(t.Context()))
+		close(stopped)
+	}()
+
+	require.Eventually(t, func() bool { return slices.Contains(r.sys.ranCommands(), "adb -s emulator-5554 emu kill") },
+		5*time.Second, time.Millisecond, "the stop is under way")
+
+	require.NoError(t, r.m.Start(t.Context()))
+	<-stopped
+
+	assert.Equal(t, nodeproto.DeviceRunning, r.m.Status().State)
+	assert.Contains(t, r.sys.sent(), "kill emulator", "the stop ended the first emulator")
+
+	emulators := 0
+
+	for _, c := range r.sys.started() {
+		if program(c) == "emulator" {
+			emulators++
+		}
+	}
+
+	assert.Equal(t, 2, emulators, "the start booted a second one after the stop")
+}
+
+// A start whose programs cannot be recorded in run.json, where the next node
+// would find them, fails and ends what it started.
+func TestAStartThatCannotRecordItsProgramsFails(t *testing.T) {
+	t.Parallel()
+
+	r := newRig(t)
+	require.NoError(t, os.MkdirAll(filepath.Join(r.dir, "run", "run.json.tmp"), 0o700))
+
+	require.Error(t, r.m.Start(t.Context()))
+
+	st := r.m.Status()
+	assert.Equal(t, nodeproto.DeviceFailed, st.State)
+	assert.Contains(t, st.Reason, "run.json")
+	assert.Contains(t, r.sys.sent(), "term Xvfb")
+}

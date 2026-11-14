@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
@@ -34,7 +35,8 @@ import (
 )
 
 const (
-	// IdleAfter is how long the phone runs after its last use (issue #417).
+	// IdleAfter is how long the phone runs after its last use (issue #417): a start, or a Touch. Using the
+	// phone over adb does not count; another start puts the stop off.
 	IdleAfter = 15 * time.Minute
 	// BootWithin is how long the emulator has to finish booting.
 	BootWithin = 5 * time.Minute
@@ -102,6 +104,9 @@ type Manager struct {
 	have     []nodeproto.DeviceComponent
 	lastUsed time.Time
 	run      record
+	// asked counts the starts and stops asked; only the latest one asked is
+	// carried out, whatever order they take op in.
+	asked uint64
 	// starting cancels the start under way; nil when none is.
 	starting context.CancelFunc
 	changed  chan struct{}
@@ -219,19 +224,62 @@ func (m *Manager) Touch() {
 	}
 }
 
-// Start has the phone running: installed first if it is not, then booted. A
-// phone that runs is only touched; a start under way is not begun twice.
-func (m *Manager) Start(ctx context.Context) error {
+// Ask has the phone started (start) or stopped, on its own goroutine under
+// ctx, and returns at once. Asks are ordered as they are made: the latest one
+// wins over those before it that have not been carried out yet, and a stop
+// calls off a boot under way. The daemon asks so, in the order the control
+// plane's messages came.
+func (m *Manager) Ask(ctx context.Context, start bool) {
+	n := m.ask(start)
+
+	go func() {
+		if start {
+			_ = m.start(ctx, n) // A failure is in the phone's state, with its reason.
+
+			return
+		}
+
+		m.stop(ctx, n)
+	}()
+}
+
+// ask records a start or a stop as the latest asked; a stop calls off the
+// boot under way.
+func (m *Manager) ask(start bool) uint64 {
 	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.asked++
+	if !start && m.starting != nil {
+		m.starting()
+	}
+
+	return m.asked
+}
+
+// Start has the phone running: installed first if it is not, then booted. A
+// phone that runs is only touched. A start that a later stop or start
+// replaced before it was carried out, or that a stop called off, returns
+// context.Canceled.
+func (m *Manager) Start(ctx context.Context) error { return m.start(ctx, m.ask(true)) }
+
+// start carries out the start asked as n, unless a later ask replaced it.
+func (m *Manager) start(ctx context.Context, n uint64) error {
+	m.op.Lock()
+	defer m.op.Unlock()
+
+	// The check and the cancel's record are one step under mu, so a stop asked
+	// after it finds the cancel and one asked before it is seen here.
+	m.mu.Lock()
+
+	if m.asked != n {
+		m.mu.Unlock()
+
+		return context.Canceled
+	}
 
 	if m.state == nodeproto.DeviceRunning {
 		m.lastUsed = m.opts.Clock.Now()
-		m.mu.Unlock()
-
-		return nil
-	}
-
-	if m.starting != nil {
 		m.mu.Unlock()
 
 		return nil
@@ -247,9 +295,6 @@ func (m *Manager) Start(ctx context.Context) error {
 		m.mu.Unlock()
 		cancel()
 	}()
-
-	m.op.Lock()
-	defer m.op.Unlock()
 
 	err := m.boot(ctx)
 	if err == nil {
@@ -312,11 +357,9 @@ func (m *Manager) boot(ctx context.Context) error {
 		return err
 	}
 
-	adb := m.path(adbPath)
-
 	// adb's server first, with the node user's own ~/.android: it makes the key the Play image asks to
 	// authorize. A trial with another HOME left adb "unauthorized" (issue #417).
-	out, err := sys.Run(ctx, Command{Path: adb, Args: []string{"start-server"}, Env: os.Environ()})
+	out, err := m.adb(ctx, m.opts.EndWithin, "start-server")
 	if err != nil || out.Code != 0 {
 		return fmt.Errorf("adb's server did not start: %s", why(err, out))
 	}
@@ -335,16 +378,17 @@ func (m *Manager) boot(ctx context.Context) error {
 		return fmt.Errorf("starting the emulator: %w", err)
 	}
 
-	m.keep(func(r *record) { r.Emulator = emulator.Pid() })
+	// A program the next node could not find is not left running: the start fails and ends it.
+	if err := m.keep(func(r *record) { r.Emulator = emulator.Pid() }); err != nil {
+		return err
+	}
 
 	if err := m.waitBoot(ctx, emulator); err != nil {
 		return err
 	}
 
 	for _, scale := range animationScales {
-		out, err := sys.Run(ctx, Command{
-			Path: adb, Args: []string{"-s", serial, "shell", "settings", "put", "global", scale, "0"}, Env: os.Environ(),
-		})
+		out, err := m.adb(ctx, m.opts.EndWithin, "-s", serial, "shell", "settings", "put", "global", scale, "0")
 		if err != nil || out.Code != 0 {
 			return fmt.Errorf("turning the animations off: %s", why(err, out))
 		}
@@ -386,7 +430,9 @@ func (m *Manager) startDisplay(ctx context.Context) (int, error) {
 		return 0, fmt.Errorf("starting Xvfb (is the xvfb package installed?): %w", err)
 	}
 
-	m.keep(func(r *record) { r.Display, r.Xvfb = display, xvfb.Pid() })
+	if err := m.keep(func(r *record) { r.Display, r.Xvfb = display, xvfb.Pid() }); err != nil {
+		return 0, err
+	}
 
 	deadline := time.NewTimer(displayWithin)
 	defer deadline.Stop()
@@ -411,50 +457,66 @@ func (m *Manager) startDisplay(ctx context.Context) (int, error) {
 
 // waitBoot waits until Android says it booted, as Orca waits
 // (android-avd-boot.ts, waitForNewBootedSerial: sys.boot_completed).
+// Each adb call is given the boot's deadline: an adb that hangs does not hold
+// the boot past it.
 func (m *Manager) waitBoot(ctx context.Context, emulator Process) error {
-	deadline := time.NewTimer(m.opts.BootWithin)
-	defer deadline.Stop()
+	boot, cancel := context.WithTimeout(ctx, m.opts.BootWithin)
+	defer cancel()
 
 	tick := time.NewTicker(m.opts.Poll)
 	defer tick.Stop()
 
 	for {
-		if m.booted(ctx) {
+		if m.booted(boot, m.opts.BootWithin) {
 			return nil
 		}
 
 		select {
-		case <-ctx.Done():
-			return ctx.Err()
+		case <-boot.Done():
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+
+			return fmt.Errorf("the phone did not boot within %s: %s", m.opts.BootWithin, m.tail(emuLog))
 		case <-emulator.Done():
 			return fmt.Errorf("the emulator ended while booting: %s", m.tail(emuLog))
-		case <-deadline.C:
-			return fmt.Errorf("the phone did not boot within %s: %s", m.opts.BootWithin, m.tail(emuLog))
 		case <-tick.C:
 		}
 	}
 }
 
-// booted says whether the emulator answers adb and Android finished booting.
-func (m *Manager) booted(ctx context.Context) bool {
-	out, err := m.opts.System.Run(ctx, Command{
-		Path: m.path(adbPath), Args: []string{"-s", serial, "shell", "getprop", "sys.boot_completed"}, Env: os.Environ(),
-	})
+// booted says whether the emulator answers adb and Android finished booting,
+// asking adb for at most within.
+func (m *Manager) booted(ctx context.Context, within time.Duration) bool {
+	out, err := m.adb(ctx, within, "-s", serial, "shell", "getprop", "sys.boot_completed")
 
 	return err == nil && out.Code == 0 && strings.TrimSpace(out.Stdout) == "1"
 }
 
-// Stop ends the phone: a start under way is called off, then the emulator
-// is asked to end and Xvfb after it.
-func (m *Manager) Stop(ctx context.Context) {
-	m.mu.Lock()
-	if m.starting != nil {
-		m.starting()
-	}
-	m.mu.Unlock()
+// adb runs the SDK's adb, ended after within.
+func (m *Manager) adb(ctx context.Context, within time.Duration, args ...string) (Output, error) {
+	ctx, cancel := context.WithTimeout(ctx, within)
+	defer cancel()
 
+	return m.opts.System.Run(ctx, Command{Path: m.path(adbPath), Args: args, Env: os.Environ()})
+}
+
+// Stop ends the phone: a start under way is called off, then the emulator
+// is asked to end and Xvfb after it. A start asked after it wins.
+func (m *Manager) Stop(ctx context.Context) { m.stop(ctx, m.ask(false)) }
+
+// stop carries out the stop asked as n, unless a later ask replaced it.
+func (m *Manager) stop(ctx context.Context, n uint64) {
 	m.op.Lock()
 	defer m.op.Unlock()
+
+	m.mu.Lock()
+	replaced := m.asked != n
+	m.mu.Unlock()
+
+	if replaced {
+		return
+	}
 
 	m.halt(ctx)
 	m.set(m.restingState(), "")
@@ -474,7 +536,8 @@ func (m *Manager) halt(ctx context.Context) {
 	}
 
 	if run.Emulator != 0 && sys.Alive(run.Emulator, emuNeedle) {
-		_, _ = sys.Run(ctx, Command{Path: m.path(adbPath), Args: []string{"-s", serial, "emu", "kill"}, Env: os.Environ()})
+		// An adb that hangs is given up after EndWithin, and the emulator then has its own EndWithin to end.
+		_, _ = m.adb(ctx, m.opts.EndWithin, "-s", serial, "emu", "kill")
 
 		m.end(ctx, run.Emulator, emuNeedle, false)
 		m.opts.Logger.InfoContext(ctx, "the phone stopped", slog.String("event", "device.stopped"))
@@ -484,7 +547,11 @@ func (m *Manager) halt(ctx context.Context) {
 		m.end(ctx, run.Xvfb, xvfbNeedle, true)
 	}
 
-	m.keep(func(r *record) { *r = record{} })
+	// A run.json left behind names programs that ended; the next node finds them gone and ends nothing.
+	if err := m.keep(func(r *record) { *r = record{} }); err != nil {
+		m.opts.Logger.WarnContext(ctx, "the phone's run.json was not removed",
+			slog.String("event", "device.record_failed"), slog.String("error", err.Error()))
+	}
 }
 
 // end waits for a process group to end, after asking it with SIGTERM when
@@ -540,10 +607,12 @@ func (m *Manager) Sweep(ctx context.Context) {
 		m.set(nodeproto.DeviceFailed, "the emulator ended by itself: "+m.tail(emuLog))
 		m.op.Unlock()
 	case idle >= IdleAfter:
-		m.op.Unlock()
+		// Stopped under op rather than asked: a start asked meanwhile waits for op and boots the phone again.
 		m.opts.Logger.InfoContext(ctx, "the idle phone is stopped",
 			slog.String("event", "device.idle"), slog.Duration("idle", idle))
-		m.Stop(ctx)
+		m.halt(ctx)
+		m.set(m.restingState(), "")
+		m.op.Unlock()
 	default:
 		m.op.Unlock()
 	}
@@ -577,6 +646,10 @@ func (m *Manager) Run(ctx context.Context) {
 // no agent's session. What run.json names that is not a booted phone is
 // ended. The idle time counts from now.
 func (m *Manager) adopt(ctx context.Context) {
+	// run.json is read under op: a start cannot write a newer one between the read and its use.
+	m.op.Lock()
+	defer m.op.Unlock()
+
 	raw, err := os.ReadFile(m.path(runDir, runFile))
 	if err != nil {
 		return
@@ -587,15 +660,12 @@ func (m *Manager) adopt(ctx context.Context) {
 		return
 	}
 
-	m.op.Lock()
-	defer m.op.Unlock()
-
 	m.mu.Lock()
 	m.run = run
 	m.mu.Unlock()
 
 	sys := m.opts.System
-	if sys != nil && run.Emulator != 0 && sys.Alive(run.Emulator, emuNeedle) && m.booted(ctx) {
+	if sys != nil && run.Emulator != 0 && sys.Alive(run.Emulator, emuNeedle) && m.booted(ctx, m.opts.EndWithin) {
 		m.mu.Lock()
 		m.lastUsed = m.opts.Clock.Now()
 		m.mu.Unlock()
@@ -611,8 +681,11 @@ func (m *Manager) adopt(ctx context.Context) {
 	m.set(m.restingState(), "")
 }
 
-// keep changes what run.json says and writes it; an empty record removes it.
-func (m *Manager) keep(change func(r *record)) {
+// keep changes what the node knows of its programs and writes it to
+// run.json; an empty record removes the file. The change is kept in memory
+// even when the file could not be written, so that halt still ends what was
+// started.
+func (m *Manager) keep(change func(r *record)) error {
 	m.mu.Lock()
 	change(&m.run)
 	run := m.run
@@ -620,19 +693,27 @@ func (m *Manager) keep(change func(r *record)) {
 
 	path := m.path(runDir, runFile)
 	if run == (record{}) {
-		_ = os.Remove(path)
+		if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("removing the phone's %s: %w", runFile, err)
+		}
 
-		return
+		return nil
 	}
 
 	raw, err := json.Marshal(run)
-	if err != nil {
-		return
+	if err == nil {
+		err = os.WriteFile(path+".tmp", raw, 0o600)
 	}
 
-	if err := os.WriteFile(path+".tmp", raw, 0o600); err == nil {
-		_ = os.Rename(path+".tmp", path)
+	if err == nil {
+		err = os.Rename(path+".tmp", path)
 	}
+
+	if err != nil {
+		return fmt.Errorf("recording the phone's programs in %s: %w", runFile, err)
+	}
+
+	return nil
 }
 
 func (m *Manager) path(parts ...string) string {

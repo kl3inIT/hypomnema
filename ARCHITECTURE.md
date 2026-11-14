@@ -377,8 +377,11 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     own, write to `run/xvfb.log` and `run/emulator.log`, and are recorded in `run/run.json`. A start that fails
     ends what it started, and the phone is `failed` with the reason (the emulator's last lines when it ended).
   - A stop: `adb emu kill`, which lets the emulator save its Quick Boot state, then SIGTERM to Xvfb; a group
-    still there after 30 s is killed. One emulator a node. A stop asked during a start calls the start off.
-  - The phone is stopped 15 minutes after its last use: its start, or a touch the later steps make. An emulator
+    still there after 30 s is killed, and each adb call is given up after its own limit (the boot's 5 minutes, or
+    30 s). One emulator a node. Starts and stops are carried out one at a time, and the latest asked wins: a stop
+    calls off a start under way or not yet begun, and a start asked during a stop boots the phone after it.
+  - The phone is stopped 15 minutes after its last use: its start, or a touch the later steps make; using it over
+    adb does not count yet. An emulator
     that ended by itself makes the phone `failed`; the node looks every minute.
   - A node that ends leaves the phone running, and the next node takes it back when `run.json` names a booted
     phone, as Orca takes an AVD that already runs (`android-avd-boot.ts`); what it names that is not one is

@@ -114,9 +114,9 @@ type Config struct {
 // node's, and the end-to-end tests give a fake.
 type Phone interface {
 	Status() nodeproto.DeviceState
-	// Start has the phone running; it may take minutes, and the daemon calls it on its own goroutine.
-	Start(ctx context.Context) error
-	Stop(ctx context.Context)
+	// Ask has the phone started (start) or stopped and returns at once; the work, minutes for a start, is
+	// done on the phone's own goroutine. The daemon asks in the order the messages came, and the latest wins.
+	Ask(ctx context.Context, start bool)
 	// Changed is told each time the state changes.
 	Changed() <-chan struct{}
 }

@@ -67,25 +67,37 @@ func lines(pairs [][2]string) string {
 	return b.String()
 }
 
-// writeOnce writes a file that is not there and leaves one that is.
+// writeOnce writes a file that is not there and leaves one that is. The file
+// is written whole to a temporary one first and then linked to its name, which
+// fails if the name exists: a node that dies halfway leaves no empty file that
+// a later start would keep.
 func writeOnce(path, content string) error {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600) //nolint:gosec // The device's own file.
-	if errors.Is(err, fs.ErrExist) {
+	if _, err := os.Lstat(path); err == nil {
 		return nil
 	}
 
+	f, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+"-*")
 	if err != nil {
 		return fmt.Errorf("writing the phone's %s: %w", filepath.Base(path), err)
 	}
 
+	tmp := f.Name()
+	defer os.Remove(tmp) //nolint:errcheck // The temporary name only; the file stays linked to its own.
+
 	_, err = f.WriteString(content)
+	if err == nil {
+		err = f.Sync()
+	}
+
 	if closeErr := f.Close(); err == nil {
 		err = closeErr
 	}
 
-	if err != nil {
-		_ = os.Remove(path)
+	if err == nil {
+		err = os.Link(tmp, path)
+	}
 
+	if err != nil && !errors.Is(err, fs.ErrExist) {
 		return fmt.Errorf("writing the phone's %s: %w", filepath.Base(path), err)
 	}
 
