@@ -509,8 +509,7 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     too, since pi locks files there as it reads them; the instructions every Bot gets (`AGENTS.md`), the tools pi
     fetched (`bin/`) and this chat's `models.json` and `settings.json` are bound into it read-only, so a Bot cannot
     change its own settings. Read-write: the Bot's directory and
-    the chat's sessions (`sessions/<chat>/`; pi names a session `<time>_<chat>.jsonl`, and one kept with the others
-    before is moved in). Other Bots' directories, other chats' sessions and other pi processes are not in it. The
+    the chat's sessions (`sessions/<chat>/`; pi names a session `<time>_<chat>.jsonl`). Other Bots' directories, other chats' sessions and other pi processes are not in it. The
     network is the host's (OpenMausBot's `net: "shared"`; owner, 2026-11-12): a Bot's shell still reaches every
     local port of the machine. The launcher refuses to start pi without its token or without bubblewrap, and
     bubblewrap refuses when it cannot make the box: pi never runs outside it.

@@ -117,8 +117,6 @@ dir=$(cd "$dir" && pwd -P)
 # models.json.
 run="$home/run/$chat"
 mkdir -p "$run"
-# Before issue #260 the prompt was kept beside the Bots' directories.
-rm -f "$home/bots/.prompt-$chat"
 
 # The Bot's persona and memory, read with the coordinator's token and given to pi after its built-in instructions.
 # They are read here, once per pi process (Hermes gives its memory once per session). Without them pi would answer as
@@ -169,15 +167,9 @@ fi
 mv -f "$settings.$$" "$settings"
 
 # The chat's sessions have a directory of their own, the only one of pi's sessions in the box. pi names a session
-# file <time>_<session id>.jsonl (session-manager.ts); one kept with the others before issue #260 is moved in.
+# file <time>_<session id>.jsonl (session-manager.ts).
 sessions="$home/sessions/$chat"
 mkdir -p "$sessions"
-for kept in "$home/sessions/"*"_$chat.jsonl"; do
-  name=${kept##*/}
-  if [ -f "$kept" ] && [ ! -e "$sessions/$name" ]; then
-    mv "$kept" "$sessions/$name"
-  fi
-done
 
 # The control plane's address, from the coordinator's own login; pi's client.json in the box has it with pi's token.
 url=$(sed -n 's/^ *"url": *"\([^"]*\)".*$/\1/p' "$user_home/.hypomnema/client.json")
