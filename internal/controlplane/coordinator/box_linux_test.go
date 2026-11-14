@@ -240,7 +240,7 @@ func TestPiRunsInItsBoxWithItsOwnToken(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "hi\n", string(written), "what pi writes in its Bot's directory stays")
 	assert.FileExists(t, filepath.Join(sessions, "new.jsonl"))
-	assert.FileExists(t, filepath.Join(w.home, "sessions", "2026-11-01T00-00-00-000Z_cht_theirs.jsonl"))
+	assert.FileExists(t, filepath.Join(w.home, "sessions", "cht_theirs", "2026-11-01T00-00-00-000Z_cht_theirs.jsonl"))
 	assert.NoFileExists(t, filepath.Join(w.home, "agent", "auth.json"), "pi's agent directory is its own")
 
 	shared, err := os.ReadFile(filepath.Join(w.userHome, ".hypomnema", "client.json"))
