@@ -36,6 +36,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/browser"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/memorystore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/serviceproxy"
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 )
@@ -46,8 +47,7 @@ type Store interface {
 	AgentSessionOf(ctx context.Context, secret string) (orchestration.AgentSession, error)
 	ConnectionsOf(ctx context.Context, integration string) ([]orchestration.Connection, error)
 	GetBot(ctx context.Context, name string) (orchestration.Bot, error)
-	ChangeDispatchMemory(ctx context.Context, dispatchID string, owner bool, op orchestration.MemoryOp) (
-		orchestration.Memory, error)
+	Memories() *memorystore.Store
 }
 
 // Token is a Connection's access token and when it ends.

@@ -8,6 +8,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/memorystore"
 	"github.com/kl3inIT/hypomnema/internal/shared/agenttool"
 )
 
@@ -40,8 +41,8 @@ func (s *Server) memory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	m, err := s.store.ChangeDispatchMemory(r.Context(), a.dispatchID, asked.Target == agenttool.MemoryOwner,
-		orchestration.MemoryOp{Kind: asked.Action, Text: asked.Text, Match: asked.Match})
+	m, err := s.store.Memories().ChangeDispatchMemory(r.Context(), a.dispatchID, asked.Target == agenttool.MemoryOwner,
+		memorystore.Op{Kind: asked.Action, Text: asked.Text, Match: asked.Match})
 	if err != nil {
 		if errors.Is(err, orchestration.ErrInvalid) || errors.Is(err, orchestration.ErrNotFound) {
 			refuse(w, http.StatusUnprocessableEntity, err.Error())
