@@ -40,8 +40,8 @@ import (
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/node/bridge"
-	"github.com/kl3inIT/hypomnema/internal/node/claude"
 	"github.com/kl3inIT/hypomnema/internal/node/daemon"
+	"github.com/kl3inIT/hypomnema/internal/node/runner"
 	"github.com/kl3inIT/hypomnema/internal/node/shim"
 	"github.com/kl3inIT/hypomnema/internal/node/skills"
 	"github.com/kl3inIT/hypomnema/internal/node/statedb"
@@ -283,7 +283,7 @@ func (rn *Runner) Start(ctx context.Context, d statedb.Dispatch, r daemon.Report
 	}
 
 	// The whole prompt, then the end of input: exec reads it to the end.
-	if err := shim.Send(ctx, dir, []byte(claude.Prompt(d)), []byte(shim.CloseLine)); err != nil {
+	if err := shim.Send(ctx, dir, []byte(runner.Prompt(d)), []byte(shim.CloseLine)); err != nil {
 		_ = shim.Kill(pid)
 
 		return err

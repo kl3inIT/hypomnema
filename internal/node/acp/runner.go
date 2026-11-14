@@ -39,8 +39,8 @@ import (
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/node/bridge"
-	"github.com/kl3inIT/hypomnema/internal/node/claude"
 	"github.com/kl3inIT/hypomnema/internal/node/daemon"
+	"github.com/kl3inIT/hypomnema/internal/node/runner"
 	"github.com/kl3inIT/hypomnema/internal/node/shim"
 	"github.com/kl3inIT/hypomnema/internal/node/skills"
 	"github.com/kl3inIT/hypomnema/internal/node/statedb"
@@ -263,7 +263,7 @@ func (rn *Runner) Start(ctx context.Context, d statedb.Dispatch, r daemon.Report
 	}
 
 	return rn.watch(ctx, &job{
-		id: d.ID, dir: dir, r: r, pid: pid, cwd: o.Worktree, resume: session, prompt: claude.Prompt(d),
+		id: d.ID, dir: dir, r: r, pid: pid, cwd: o.Worktree, resume: session, prompt: runner.Prompt(d),
 	})
 }
 

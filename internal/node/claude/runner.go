@@ -35,6 +35,7 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/node/bridge"
 	"github.com/kl3inIT/hypomnema/internal/node/daemon"
+	"github.com/kl3inIT/hypomnema/internal/node/runner"
 	"github.com/kl3inIT/hypomnema/internal/node/shim"
 	"github.com/kl3inIT/hypomnema/internal/node/skills"
 	"github.com/kl3inIT/hypomnema/internal/node/statedb"
@@ -256,7 +257,7 @@ func (rn *Runner) Start(ctx context.Context, d statedb.Dispatch, r daemon.Report
 	}
 
 	first, err := json.Marshal(map[string]any{
-		"type": "user", "message": map[string]any{"role": "user", "content": Prompt(d)},
+		"type": "user", "message": map[string]any{"role": "user", "content": runner.Prompt(d)},
 	})
 	if err != nil {
 		return err

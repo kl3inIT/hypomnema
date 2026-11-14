@@ -1,4 +1,6 @@
-package claude
+// Package runner holds what the node's workers share, whatever their CLI: the first
+// prompt.
+package runner
 
 import (
 	"fmt"
