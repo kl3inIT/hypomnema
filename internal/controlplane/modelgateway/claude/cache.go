@@ -7,6 +7,12 @@ package claude
 // (openai-completions.ts applyAnthropicCacheControl → system prompt, last
 // tool, last conversation message): the first caches the tools and the system
 // prefix, the last caches the conversation so far.
+//
+// Each is kept an hour, as a subscription's cache is everywhere: Claude Code's
+// own main conversation, omp's default for an OAuth token (getCacheControl),
+// CLIProxyAPI's upgrade of a cloaked request's breakpoints under an OAuth
+// token (claude_executor_execute.go), 9router-go's AnchorClaudeCache (issue
+// #397). The request carries extended-cache-ttl-2025-04-11 with it.
 
 // applyCache marks the cache breakpoints on a built Messages body. It runs
 // after the disguise, so the breakpoints land on the final tool list (the
@@ -45,6 +51,9 @@ func markLast(blocks any) {
 	markBlock(list[len(list)-1])
 }
 
+// cacheTTL is how long Anthropic keeps a breakpoint the gateway sets.
+const cacheTTL = "1h"
+
 // markBlock puts an ephemeral cache_control on one block, unless it has one.
 func markBlock(block any) {
 	b, ok := block.(item)
@@ -53,6 +62,6 @@ func markBlock(block any) {
 	}
 
 	if _, has := b["cache_control"]; !has {
-		b["cache_control"] = item{"type": "ephemeral"}
+		b["cache_control"] = item{"type": "ephemeral", "ttl": cacheTTL}
 	}
 }

@@ -111,6 +111,8 @@ func TestAChatIsServedFromTheClaudeSubscription(t *testing.T) {
 	assert.Equal(t, "Bearer access-0", sentHeaders.Get("Authorization"))
 	assert.Empty(t, sentHeaders.Get("X-Api-Key"), "a subscription token never goes in the api-key header")
 	assert.Contains(t, sentHeaders.Get("Anthropic-Beta"), "oauth-2025-04-20")
+	assert.Contains(t, sentHeaders.Get("Anthropic-Beta"), "extended-cache-ttl-2025-04-11",
+		"the one-hour breakpoints go with their beta")
 	assert.Regexp(t, `^claude-cli/\d`, sentHeaders.Get("User-Agent"))
 	assert.Equal(t, "cli", sentHeaders.Get("X-App"))
 	assert.Empty(t, sentHeaders.Get("X-Client-Header"), "a client header never reaches the backend")

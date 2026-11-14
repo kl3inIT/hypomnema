@@ -1539,8 +1539,9 @@ not exist yet.
   - Prompt caching, as the Codex adapter has it: the billing block's fingerprint is deterministic (CLIProxyAPI
     `computeFingerprint`, not 9router-go's random build and body hash) so the prompt's top is byte-identical between
     turns, and the cache breakpoints Claude Code sets go on — the system prefix, the last tool, the last message
-    (pi/omp `applyAnthropicCacheControl`). A probe (Claude Code's own `quota`/`ping` check) is left minimal, with no
-    decoys and no breakpoints.
+    (pi/omp `applyAnthropicCacheControl`), each kept an hour (`ttl: 1h`, with `extended-cache-ttl-2025-04-11` among
+    the betas; issue #397, as Claude Code, omp, CLIProxyAPI and 9router-go keep a subscription's cache). A probe
+    (Claude Code's own `quota`/`ping` check) is left minimal, with no decoys and no breakpoints.
   - The call goes to `api.anthropic.com/v1/messages?beta=true`, always as a stream, with the account's token in the
     Bearer header (never the api-key header), a refresh on a 401, a cooldown on a 429.
   - The backend's Messages events become chat chunks: text, thinking as `reasoning_content`, each tool call with the

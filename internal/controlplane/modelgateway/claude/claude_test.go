@@ -21,7 +21,8 @@ func decode(t *testing.T, built claude.Request) map[string]any {
 	return body
 }
 
-// cached reports whether a block carries an ephemeral cache_control.
+// cached reports whether a block carries an ephemeral cache_control kept an
+// hour (issue #397).
 func cached(block any) bool {
 	b, ok := block.(map[string]any)
 	if !ok {
@@ -30,7 +31,7 @@ func cached(block any) bool {
 
 	cc, ok := b["cache_control"].(map[string]any)
 
-	return ok && cc["type"] == "ephemeral"
+	return ok && cc["type"] == "ephemeral" && cc["ttl"] == "1h"
 }
 
 // lastOf returns the last element of a list value, or nil.
