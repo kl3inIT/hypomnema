@@ -215,6 +215,7 @@ var policies = map[string]policy{
 	"CreateChat":         {scope: scopeOwner},
 	"GetChat":            {scope: scopeOwner},
 	"UpdateChat":         {scope: scopeOwner},
+	"DeleteChat":         {scope: scopeOwner},
 	"ListChatMessages":   {scope: scopeOwner, long: true},
 	"StreamChat":         {scope: scopeOwner, long: true},
 	"AbortChat":          {scope: scopeOwner},

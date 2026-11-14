@@ -2446,6 +2446,16 @@ export type NewChat = {
 };
 
 /**
+ * What a chat's deletion left on the coordinator's machine.
+ */
+export type ChatDeleted = {
+  /**
+   * Each of the chat's files that could not be removed, with why; empty when all of them went. The chat is deleted all the same.
+   */
+  files_left: Array<string>;
+};
+
+/**
  * A change of the model and effort a chat runs with; a field left out stays as it is.
  */
 export type ChatChange = {
@@ -7431,6 +7441,33 @@ export type CreateChatResponses = {
 };
 
 export type CreateChatResponse = CreateChatResponses[keyof CreateChatResponses];
+
+export type DeleteChatData = {
+  body?: never;
+  path: {
+    chat_id: string;
+  };
+  query?: never;
+  url: '/chats/{chat_id}';
+};
+
+export type DeleteChatErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type DeleteChatError = DeleteChatErrors[keyof DeleteChatErrors];
+
+export type DeleteChatResponses = {
+  /**
+   * The chat is deleted.
+   */
+  200: ChatDeleted;
+};
+
+export type DeleteChatResponse = DeleteChatResponses[keyof DeleteChatResponses];
 
 export type GetChatData = {
   body?: never;

@@ -96,7 +96,7 @@ func TestTheTxFunctionsUseTheCallersTransaction(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, routinestore.RunSucceeded, settled.Run.State)
 
-		require.NoError(t, routinestore.DetachFromChatsOfBotTx(ctx, q, bot))
+		require.NoError(t, routinestore.DetachFromChatTx(ctx, q, "cht_made_in"))
 
 		row, err := q.GetRoutine(ctx, "rtn_sync")
 		require.NoError(t, err)

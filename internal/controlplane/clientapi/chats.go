@@ -15,6 +15,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/coordinator"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/shared/workspacefs"
 )
 
 // Chats with the coordinator on the server (issue #41, PR 3). Only the
@@ -63,6 +64,91 @@ func (s *Server) UpdateChat(ctx context.Context, req openapi.UpdateChatRequestOb
 	}
 
 	return openapi.UpdateChat200JSONResponse(s.toChat(chat)), nil
+}
+
+// ChatFiles removes what pi kept for a deleted chat on the coordinator's machine: its run folder and its sessions.
+type ChatFiles interface {
+	Remove(ctx context.Context, chatID string) error
+}
+
+// WithChatFiles sets how a deleted chat's files of pi are removed. Nil leaves them where they are, and a deletion
+// says so.
+func (s *Server) WithChatFiles(f ChatFiles) *Server {
+	s.chatFiles = f
+
+	return s
+}
+
+// DeleteChat deletes a chat for good (issue #484). A chat pi works in is refused, as OpenMausBot refuses to delete
+// a working room (409, "stop that turn first"). After the commit the chat's pi is stopped and its files go, as
+// t3code cleans up a deleted thread's attachments after its events are stored: its attachments in its Bot's folder
+// through the folders' helper, then pi's run folder and sessions. A file that stays is logged and named in the
+// answer; the chat stays deleted.
+func (s *Server) DeleteChat(ctx context.Context, req openapi.DeleteChatRequestObject,
+) (openapi.DeleteChatResponseObject, error) {
+	if _, err := s.svc.GetChat(ctx, req.ChatId); err != nil {
+		return nil, err
+	}
+
+	if s.coordinator != nil && s.coordinator.Working(req.ChatId) {
+		return nil, fmt.Errorf("%w: the coordinator is working in chat %s; stop it first", orchestration.ErrConflict,
+			req.ChatId)
+	}
+
+	chat, err := s.svc.DeleteChat(ctx, req.ChatId)
+	if err != nil {
+		return nil, err
+	}
+
+	// The chat is gone whatever follows, even if the owner's request ends meanwhile.
+	ctx = context.WithoutCancel(ctx)
+
+	if s.coordinator != nil {
+		s.coordinator.Stop(chat.ID)
+	}
+
+	left := []string{}
+
+	for _, err := range s.removeChatFiles(ctx, chat) {
+		s.logger.ErrorContext(ctx, "removing a deleted chat's files failed",
+			slog.String("event", "clientapi.chat_files_left"), slog.String("chat_id", chat.ID),
+			slog.String("error", err.Error()))
+
+		left = append(left, err.Error())
+	}
+
+	return openapi.DeleteChat200JSONResponse{FilesLeft: left}, nil
+}
+
+// removeChatFiles removes a deleted chat's files and returns what could not be. Without the folders' helper no
+// file was attached, as uploads go through it; without the coordinator no pi kept anything.
+func (s *Server) removeChatFiles(ctx context.Context, chat orchestration.Chat) []error {
+	var failed []error
+
+	if s.botFiles != nil {
+		attachments := orchestration.AttachmentsDir(chat.ID)
+		res, err := s.botFiles.Ask(ctx, chat.Bot, workspacefs.Request{Op: workspacefs.OpDelete, Path: attachments})
+
+		switch {
+		case err != nil:
+			failed = append(failed, fmt.Errorf("%s of bot %s: %w", attachments, chat.Bot, err))
+		case res.Error != nil && res.Error.Code != workspacefs.CodeNotFound:
+			failed = append(failed, fmt.Errorf("%s of bot %s: %s", attachments, chat.Bot, res.Error.Message))
+		}
+	}
+
+	switch {
+	case s.coordinator == nil || !s.coordinator.Enabled():
+	case s.chatFiles == nil:
+		failed = append(failed, fmt.Errorf("pi's run/%s and sessions/%s: HYPOMNEMA_CHAT_RM_COMMAND is not set",
+			chat.ID, chat.ID))
+	default:
+		if err := s.chatFiles.Remove(ctx, chat.ID); err != nil {
+			failed = append(failed, fmt.Errorf("pi's run/%s and sessions/%s: %w", chat.ID, chat.ID, err))
+		}
+	}
+
+	return failed
 }
 
 // GetChat returns a chat and whether pi works on it.

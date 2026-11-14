@@ -173,6 +173,11 @@ var commands = []command{
 		flags: jsonFlag, run: chatsList,
 	},
 	{
+		name: "chats rm", args: "<chat>", min: 1, max: 1,
+		summary: "delete a chat for good, with its messages and its files; runs started in it stay (owner)",
+		flags:   jsonFlag, run: chatsRemove,
+	},
+	{
 		name: "hosts list", summary: "the git hosts a Run can be on", flags: jsonFlag, run: hostsList,
 	},
 	{

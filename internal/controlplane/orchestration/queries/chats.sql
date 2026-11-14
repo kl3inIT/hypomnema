@@ -125,3 +125,37 @@ UPDATE chat_messages SET to_coordinator = 1 WHERE approval_id = @approval_id AND
 
 -- name: CountChatsOfBot :one
 SELECT count(*) FROM chats WHERE bot = @bot;
+
+-- name: ListChatIDsOfBot :many
+SELECT id FROM chats WHERE bot = @bot ORDER BY id;
+
+-- A chat deleted (issue #484), on its own or with its Bot (issue #330): what refers to it is let go of or removed
+-- first, in this order. Runs, Routines, their runs (routines.sql) and approvals keep their rows and lose the chat; its gateway keys
+-- are revoked and kept, so the gateway's usage records stay whole; its artifacts go with their revisions.
+
+-- name: DetachRunsFromChat :exec
+UPDATE runs SET chat_id = NULL WHERE chat_id = CAST(@chat_id AS TEXT);
+
+-- name: DetachApprovalsFromChat :exec
+UPDATE approvals SET chat_id = NULL WHERE chat_id = CAST(@chat_id AS TEXT);
+
+-- name: RevokeGatewayKeysOfChat :exec
+UPDATE gateway_keys SET revoked_at = coalesce(revoked_at, @now), chat_id = NULL
+WHERE chat_id = CAST(@chat_id AS TEXT);
+
+-- name: DeleteSetupChangesOfChat :exec
+DELETE FROM setup_changes WHERE chat_id = @chat_id;
+
+-- name: ListArtifactBlobsOfChat :many
+-- The bytes the chat's artifacts keep: those no other artifact keeps go after them.
+SELECT DISTINCT f.sha256 FROM artifact_files f JOIN artifacts a ON a.id = f.artifact_id WHERE a.chat_id = @chat_id;
+
+-- name: DeleteArtifactsOfChat :exec
+-- Their revisions and files go with them (ON DELETE CASCADE).
+DELETE FROM artifacts WHERE chat_id = @chat_id;
+
+-- name: DeleteChatMessages :exec
+DELETE FROM chat_messages WHERE chat_id = @chat_id;
+
+-- name: DeleteChat :exec
+DELETE FROM chats WHERE id = @id;

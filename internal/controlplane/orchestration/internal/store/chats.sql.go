@@ -142,6 +142,65 @@ func (q *Queries) CountChatsOfBot(ctx context.Context, bot string) (int64, error
 	return count, err
 }
 
+const deleteArtifactsOfChat = `-- name: DeleteArtifactsOfChat :exec
+DELETE FROM artifacts WHERE chat_id = ?1
+`
+
+// Their revisions and files go with them (ON DELETE CASCADE).
+func (q *Queries) DeleteArtifactsOfChat(ctx context.Context, chatID string) error {
+	_, err := q.db.ExecContext(ctx, deleteArtifactsOfChat, chatID)
+	return err
+}
+
+const deleteChat = `-- name: DeleteChat :exec
+DELETE FROM chats WHERE id = ?1
+`
+
+func (q *Queries) DeleteChat(ctx context.Context, id string) error {
+	_, err := q.db.ExecContext(ctx, deleteChat, id)
+	return err
+}
+
+const deleteChatMessages = `-- name: DeleteChatMessages :exec
+DELETE FROM chat_messages WHERE chat_id = ?1
+`
+
+func (q *Queries) DeleteChatMessages(ctx context.Context, chatID string) error {
+	_, err := q.db.ExecContext(ctx, deleteChatMessages, chatID)
+	return err
+}
+
+const deleteSetupChangesOfChat = `-- name: DeleteSetupChangesOfChat :exec
+DELETE FROM setup_changes WHERE chat_id = ?1
+`
+
+func (q *Queries) DeleteSetupChangesOfChat(ctx context.Context, chatID string) error {
+	_, err := q.db.ExecContext(ctx, deleteSetupChangesOfChat, chatID)
+	return err
+}
+
+const detachApprovalsFromChat = `-- name: DetachApprovalsFromChat :exec
+UPDATE approvals SET chat_id = NULL WHERE chat_id = CAST(?1 AS TEXT)
+`
+
+func (q *Queries) DetachApprovalsFromChat(ctx context.Context, chatID string) error {
+	_, err := q.db.ExecContext(ctx, detachApprovalsFromChat, chatID)
+	return err
+}
+
+const detachRunsFromChat = `-- name: DetachRunsFromChat :exec
+
+UPDATE runs SET chat_id = NULL WHERE chat_id = CAST(?1 AS TEXT)
+`
+
+// A chat deleted (issue #484), on its own or with its Bot (issue #330): what refers to it is let go of or removed
+// first, in this order. Runs, Routines, their runs (routines.sql) and approvals keep their rows and lose the chat; its gateway keys
+// are revoked and kept, so the gateway's usage records stay whole; its artifacts go with their revisions.
+func (q *Queries) DetachRunsFromChat(ctx context.Context, chatID string) error {
+	_, err := q.db.ExecContext(ctx, detachRunsFromChat, chatID)
+	return err
+}
+
 const getChat = `-- name: GetChat :one
 SELECT id, title, created_at, updated_at, bot, channel_group, provider, model, effort, context_tokens, context_window, context_percent FROM chats WHERE id = ?1
 `
@@ -251,6 +310,34 @@ func (q *Queries) InsertChatMessage(ctx context.Context, arg InsertChatMessagePa
 	return seq, err
 }
 
+const listArtifactBlobsOfChat = `-- name: ListArtifactBlobsOfChat :many
+SELECT DISTINCT f.sha256 FROM artifact_files f JOIN artifacts a ON a.id = f.artifact_id WHERE a.chat_id = ?1
+`
+
+// The bytes the chat's artifacts keep: those no other artifact keeps go after them.
+func (q *Queries) ListArtifactBlobsOfChat(ctx context.Context, chatID string) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listArtifactBlobsOfChat, chatID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var sha256 string
+		if err := rows.Scan(&sha256); err != nil {
+			return nil, err
+		}
+		items = append(items, sha256)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listChatArtifactMessages = `-- name: ListChatArtifactMessages :many
 SELECT chat_messages.seq, chat_messages.chat_id, chat_messages.role, chat_messages.text, chat_messages.parts, chat_messages.event_seq, chat_messages.delivered_at, chat_messages.created_at, chat_messages.to_coordinator, chat_messages.attachments, chat_messages.kind, chat_messages.approval_id,
        artifacts.id         AS artifact_id,
@@ -308,6 +395,33 @@ func (q *Queries) ListChatArtifactMessages(ctx context.Context, chatID string) (
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listChatIDsOfBot = `-- name: ListChatIDsOfBot :many
+SELECT id FROM chats WHERE bot = ?1 ORDER BY id
+`
+
+func (q *Queries) ListChatIDsOfBot(ctx context.Context, bot string) ([]string, error) {
+	rows, err := q.db.QueryContext(ctx, listChatIDsOfBot, bot)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
 	}
 	if err := rows.Close(); err != nil {
 		return nil, err
@@ -481,6 +595,21 @@ type MarkChatMessagesDeliveredParams struct {
 
 func (q *Queries) MarkChatMessagesDelivered(ctx context.Context, arg MarkChatMessagesDeliveredParams) error {
 	_, err := q.db.ExecContext(ctx, markChatMessagesDelivered, arg.Now, arg.ChatID, arg.Upto)
+	return err
+}
+
+const revokeGatewayKeysOfChat = `-- name: RevokeGatewayKeysOfChat :exec
+UPDATE gateway_keys SET revoked_at = coalesce(revoked_at, ?1), chat_id = NULL
+WHERE chat_id = CAST(?2 AS TEXT)
+`
+
+type RevokeGatewayKeysOfChatParams struct {
+	Now    sql.NullInt64
+	ChatID string
+}
+
+func (q *Queries) RevokeGatewayKeysOfChat(ctx context.Context, arg RevokeGatewayKeysOfChatParams) error {
+	_, err := q.db.ExecContext(ctx, revokeGatewayKeysOfChat, arg.Now, arg.ChatID)
 	return err
 }
 

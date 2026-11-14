@@ -8,5 +8,6 @@ import "embed"
 
 // Files are this folder's files, at their names.
 //
-//go:embed AGENTS.md hypomnema-pi hypomnema-routine package.json package-lock.json setup-box.sh setup-coordinator.sh
+//go:embed AGENTS.md hypomnema-chat-rm hypomnema-pi hypomnema-routine package.json package-lock.json
+//go:embed setup-box.sh setup-coordinator.sh
 var Files embed.FS

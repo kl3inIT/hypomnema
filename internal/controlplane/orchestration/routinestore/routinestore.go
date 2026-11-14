@@ -1485,13 +1485,36 @@ func CountRoutinesOfBotTx(ctx context.Context, q *store.Queries, bot string) (in
 	return q.CountRoutinesOfBot(ctx, bot)
 }
 
-// DetachFromChatsOfBotTx makes the Routines and the runs made in a Bot's
-// chats lose the chat, with the caller's queries, when the Bot is removed
-// with its chats: they keep their rows.
-func DetachFromChatsOfBotTx(ctx context.Context, q *store.Queries, bot string) error {
-	if err := q.DetachRoutinesFromChatsOfBot(ctx, bot); err != nil {
+// DetachFromChatTx makes the Routines and the runs made in a chat lose the
+// chat, with the caller's queries, when the chat is deleted on its own or
+// with its Bot (issue #484): they keep their rows.
+func DetachFromChatTx(ctx context.Context, q *store.Queries, chatID string) error {
+	if err := q.DetachRoutinesFromChat(ctx, chatID); err != nil {
 		return err
 	}
 
-	return q.DetachRoutineRunsFromChatsOfBot(ctx, bot)
+	return q.DetachRoutineRunsFromChat(ctx, chatID)
+}
+
+// CountRoutinesOfChatTx counts the Routines that tell their runs in a chat,
+// with the caller's queries: such a chat is not deleted (issue #484).
+func CountRoutinesOfChatTx(ctx context.Context, q *store.Queries, chatID string) (int64, error) {
+	return q.CountRoutinesOfChat(ctx, chatID)
+}
+
+// LiveRunOfChatTx is the run a chat was opened for while it still goes or
+// waits, read with the caller's queries; nil when none.
+func LiveRunOfChatTx(ctx context.Context, q *store.Queries, chatID string) (*RoutineRun, error) {
+	row, err := q.LiveRoutineRunOfChat(ctx, sql.NullString{String: chatID, Valid: true})
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil //nolint:nilnil // No live run is an answer, not a failure.
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("reading the live run of chat %s: %w", chatID, err)
+	}
+
+	run := routineRunFromRow(row)
+
+	return &run, nil
 }

@@ -85,6 +85,18 @@ func (q *Queries) CountRoutinesOfBot(ctx context.Context, bot string) (int64, er
 	return count, err
 }
 
+const countRoutinesOfChat = `-- name: CountRoutinesOfChat :one
+SELECT count(*) FROM routines WHERE chat_id = CAST(?1 AS TEXT)
+`
+
+// The Routines that tell their runs in a chat: a chat one posts into is not deleted (issue #484).
+func (q *Queries) CountRoutinesOfChat(ctx context.Context, chatID string) (int64, error) {
+	row := q.db.QueryRowContext(ctx, countRoutinesOfChat, chatID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
 const deleteRoutine = `-- name: DeleteRoutine :exec
 DELETE FROM routines WHERE id = ?1
 `
@@ -160,6 +172,25 @@ type DeleteStaleRoutineGrantsParams struct {
 // An "always for this Routine" ends when what the Routine runs, or when, changed.
 func (q *Queries) DeleteStaleRoutineGrants(ctx context.Context, arg DeleteStaleRoutineGrantsParams) error {
 	_, err := q.db.ExecContext(ctx, deleteStaleRoutineGrants, arg.RoutineID, arg.Revision)
+	return err
+}
+
+const detachRoutineRunsFromChat = `-- name: DetachRoutineRunsFromChat :exec
+UPDATE routine_runs SET chat_id = NULL WHERE chat_id = CAST(?1 AS TEXT)
+`
+
+func (q *Queries) DetachRoutineRunsFromChat(ctx context.Context, chatID string) error {
+	_, err := q.db.ExecContext(ctx, detachRoutineRunsFromChat, chatID)
+	return err
+}
+
+const detachRoutinesFromChat = `-- name: DetachRoutinesFromChat :exec
+UPDATE routines SET chat_id = NULL WHERE chat_id = CAST(?1 AS TEXT)
+`
+
+// A deleted chat's Routines and runs keep their rows and lose the chat (issue #484).
+func (q *Queries) DetachRoutinesFromChat(ctx context.Context, chatID string) error {
+	_, err := q.db.ExecContext(ctx, detachRoutinesFromChat, chatID)
 	return err
 }
 
