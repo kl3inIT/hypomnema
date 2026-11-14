@@ -335,6 +335,7 @@ export function PaneView({
                   />
                 ) : (
                   <DraftChat
+                    id={tab.id}
                     bot={tab.bot}
                     onStarted={(chat) => onChange(replaceTab(pane, key, { kind: "chat", chat }))}
                   />

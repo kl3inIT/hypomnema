@@ -180,3 +180,44 @@ test("another Bot picked: the files go up again into its folder, and the old cop
   ])
   expect(first.removed).toEqual(["attachments/cht_new/up.txt"])
 })
+
+// Scenario: the owner comes back to a chat whose draft held a file that was up (issue #433). It is attached again
+// without going up, Send gets it, and removing it deletes it.
+test("a draft's files are attached again as they were", async () => {
+  const { folder, uploads, removed } = fakeFolder()
+  const draft = new AttachmentDraft("cht_1", folder)
+  const report = { name: "report.pdf", path: "attachments/cht_1/report.pdf", size: 15 }
+
+  draft.restore([
+    report,
+    { ...report, name: "a.png", path: "attachments/cht_1/a.png", type: "image/png" },
+  ])
+  expect(draft.snapshot().map((item) => item.state)).toEqual(["done", "done"])
+  expect(await draft.ready()).toEqual([
+    report,
+    { name: "a.png", path: "attachments/cht_1/a.png", size: 15, type: "image/png" },
+  ])
+  expect(uploads).toHaveLength(0)
+
+  draft.remove(draft.snapshot()[1]!.id)
+  expect(removed).toEqual(["attachments/cht_1/a.png"])
+})
+
+// Scenario: on the New chat page the draft's file is in one Bot's folder, and the owner picks another. Its bytes are
+// not in the page, so it is not uploaded and says to attach it again (t3code's composerFileNeedsReattach).
+test("a draft's file cannot move to another Bot's folder", async () => {
+  const first = fakeFolder()
+  const second = fakeFolder()
+  const draft = new AttachmentDraft("cht_new", first.folder)
+  draft.restore([{ name: "report.pdf", path: "attachments/cht_new/report.pdf", size: 15 }])
+
+  draft.moveTo(second.folder)
+  await vi.waitFor(() => expect(draft.snapshot()[0]?.state).toBe("failed"))
+  expect(draft.snapshot()[0]?.problem).toBe(
+    "report.pdf is in the other Bot's folder. Attach it again.",
+  )
+  expect(second.uploads).toHaveLength(0)
+  await expect(draft.ready()).rejects.toEqual({
+    message: "report.pdf was not uploaded. Remove it, or attach it again.",
+  })
+})
