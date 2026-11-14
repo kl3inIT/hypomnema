@@ -172,9 +172,10 @@ func answerWith(status int, body string, headers ...string) http.HandlerFunc {
 // Scenario: a client asks for two images and names no model. The Codex
 // backend's Images route is called once an image, as Codex and OmniRoute do,
 // with the Codex CLI's headers under the account and codex-rs's body with
-// gpt-image-2; the answer is OpenAI's, the usage summed, and the request is
-// one usage row on the key as image/gpt-image-2 with the tokens Codex
-// reported.
+// gpt-image-2; the answer is OpenAI's, the usage summed, with the size and
+// quality the backend says it made (here medium, though high was asked:
+// Hermes' reported_quality), and the request is one usage row on the key as
+// image/gpt-image-2 with the tokens Codex reported.
 func TestCodexMakesImagesThroughItsImagesRoute(t *testing.T) {
 	t.Parallel()
 
@@ -186,6 +187,7 @@ func TestCodexMakesImagesThroughItsImagesRoute(t *testing.T) {
 		`{"prompt":"a red fox","n":2,"size":"1024x1536","quality":"hd"}`)
 	require.Equal(t, http.StatusOK, status, body)
 	assert.JSONEq(t, `{"created":1778832973,"data":[{"b64_json":"aW1hZ2U="},{"b64_json":"aW1hZ2U="}],
+		"size":"1024x1536","quality":"medium","output_format":"png",
 		"usage":{"input_tokens":2948,"output_tokens":2744,"total_tokens":5692}}`, body)
 
 	require.Equal(t, 2, got.calls(), "one call an image")
@@ -399,50 +401,55 @@ func TestAntigravityTextOnlyIsARefusalAndItsQuotaResetIsKept(t *testing.T) {
 	assert.Empty(t, subs.cooled())
 }
 
-// Scenario: the request's model chooses the provider and is passed on as it
-// is, so a newer model can be tried; the owner's model for a provider is used
-// when a request names none; a model the provider does not know comes back
-// with its name.
-func TestTheModelIsChosenByTheRequestOrTheOwner(t *testing.T) {
+// Scenario: a request's model only picks the provider (OmniRoute's
+// isCodexImagesApiModel): gpt-image-* reaches Codex and gemini-* Antigravity,
+// each sent its one model whatever the name, and the usage row names that
+// one (issue #453: the Codex backend answers a made-up model too). A name of
+// neither, or one that contradicts the provider asked, is refused.
+func TestARequestsModelOnlyPicksTheProvider(t *testing.T) {
 	t.Parallel()
 
-	backend, got := imageBackend(t, "/images/generations", func(w http.ResponseWriter, r *http.Request) {
-		raw, _ := io.ReadAll(r.Body)
+	codexBackend, codexGot := imageBackend(t, "/images/generations", answerWith(http.StatusOK, codexImageAnswer))
+	antigravityBackend, antigravityGot := imageBackend(t, "/v1internal:generateContent",
+		answerWith(http.StatusOK, antigravityImageAnswer))
+	subs := &imageAccounts{all: []imageAccount{
+		{id: "acc_1", runtime: "codex", plan: "team"}, {id: "g_1", runtime: "antigravity", project: "p"},
+	}}
+	g := newImageGateway(t, subs, codexBackend.URL, antigravityBackend.URL)
 
-		if strings.Contains(string(raw), "gpt-image-9") {
-			answerWith(http.StatusNotFound, `{"detail":"Model not found"}`)(w, r)
+	for _, model := range []string{"gpt-image-99-nonexistent", "codex/gpt-image-2.5-flare"} {
+		status, _, body := g.post(t, "/v1/images/generations", g.key, `{"prompt":"a fox","model":"`+model+`"}`)
+		require.Equal(t, http.StatusOK, status, body)
 
-			return
-		}
+		_, sent := codexGot.last(t)
+		assert.Contains(t, sent, `"model":"gpt-image-2"`, model)
+		assert.Equal(t, "image/gpt-image-2", g.lastUsage(t).Model, model)
+	}
 
-		answerWith(http.StatusOK, codexImageAnswer)(w, r)
-	})
-	subs := &imageAccounts{all: []imageAccount{{id: "acc_1", runtime: "codex", plan: "team"}}}
-	g := newImageGateway(t, subs, backend.URL, "")
-	g.offAntigravity(t)
-
-	status, _, body := g.post(t, "/v1/images/generations", g.key, `{"prompt":"a fox","model":"gpt-image-2.5-flare"}`)
+	status, _, body := g.post(t, "/v1/images/generations", g.key, `{"prompt":"a fox","model":"gemini-3-pro-image"}`)
 	require.Equal(t, http.StatusOK, status, body)
 
-	_, sent := got.last(t)
-	assert.Contains(t, sent, `"model":"gpt-image-2.5-flare"`)
-	assert.Equal(t, "image/gpt-image-2.5-flare", g.lastUsage(t).Model)
+	var req map[string]any
 
-	require.NoError(t, g.svc.SetImageModel(t.Context(), "codex", "gpt-image-2.6"))
+	_, sent := antigravityGot.last(t)
+	require.NoError(t, json.Unmarshal([]byte(sent), &req))
+	assert.Equal(t, "gemini-3.1-flash-image", req["model"])
 
-	status, _, body = g.post(t, "/v1/images/generations", g.key, `{"prompt":"a fox","model":"auto"}`)
-	require.Equal(t, http.StatusOK, status, body)
-
-	_, sent = got.last(t)
-	assert.Contains(t, sent, `"model":"gpt-image-2.6"`)
-
-	status, _, body = g.post(t, "/v1/images/generations", g.key, `{"prompt":"a fox","model":"codex/gpt-image-9"}`)
-	assert.Equal(t, http.StatusNotFound, status)
-	assert.Contains(t, body, "codex gpt-image-9: Model not found")
+	u := g.lastUsage(t)
+	assert.Equal(t, "antigravity", u.Provider)
+	assert.Equal(t, "image/gemini-3.1-flash-image", u.Model)
+	assert.Equal(t, 1, u.Attempts, "Codex, first in the order, was not asked")
 
 	status, _, body = g.post(t, "/v1/images/generations", g.key, `{"prompt":"a fox","model":"dall-e-3"}`)
 	assert.Equal(t, http.StatusBadRequest, status)
 	assert.Contains(t, body, "names no provider")
+
+	status, _, body = g.post(t, "/v1/images/generations", g.key,
+		`{"prompt":"a fox","model":"gpt-image-2","provider":"antigravity"}`)
+	assert.Equal(t, http.StatusBadRequest, status)
+	assert.Contains(t, body, "is codex's, not antigravity's")
+	assert.Equal(t, 2, codexGot.calls())
+	assert.Equal(t, 1, antigravityGot.calls())
 }
 
 // Scenario: Codex has no account; Antigravity, next in the order, makes the
@@ -518,7 +525,7 @@ func TestAnEditComesAsAForm(t *testing.T) {
 }
 
 // Scenario: what the owner sets is kept in the database and read back in the
-// order set; a model equal to the default is the default, and "" resets it.
+// order set.
 func TestTheImageSettingsAreKept(t *testing.T) {
 	t.Parallel()
 
@@ -528,29 +535,18 @@ func TestTheImageSettingsAreKept(t *testing.T) {
 	settings, err := g.svc.ImageSettings(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, []modelgateway.ImageProviderSetting{
-		{Provider: "codex", On: true, Model: "gpt-image-2"},
-		{Provider: "antigravity", On: true, Model: "gemini-3.1-flash-image"},
+		{Provider: "codex", On: true}, {Provider: "antigravity", On: true},
 	}, settings)
 
 	require.NoError(t, g.svc.SetImageOrder(ctx, []string{"antigravity", "codex"}))
 	require.NoError(t, g.svc.SetImageProvider(ctx, "codex", false))
-	require.NoError(t, g.svc.SetImageModel(ctx, "antigravity", "gemini-3-pro-image"))
 
 	settings, err = g.svc.ImageSettings(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, []modelgateway.ImageProviderSetting{
-		{Provider: "antigravity", On: true, Model: "gemini-3-pro-image", Chosen: true},
-		{Provider: "codex", On: false, Model: "gpt-image-2"},
+		{Provider: "antigravity", On: true}, {Provider: "codex", On: false},
 	}, settings)
 
-	require.NoError(t, g.svc.SetImageModel(ctx, "antigravity", ""))
-
-	settings, err = g.svc.ImageSettings(ctx)
-	require.NoError(t, err)
-	assert.Equal(t, "gemini-3.1-flash-image", settings[0].Model)
-	assert.False(t, settings[0].Chosen)
-
 	require.ErrorIs(t, g.svc.SetImageOrder(ctx, []string{"codex"}), modelgateway.ErrInvalid)
-	require.ErrorIs(t, g.svc.SetImageModel(ctx, "codex", "bad model"), modelgateway.ErrInvalid)
 	require.ErrorIs(t, g.svc.SetImageProvider(ctx, "claude", true), modelgateway.ErrNotFound)
 }

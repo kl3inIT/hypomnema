@@ -553,18 +553,13 @@ export type ImageProviderLink = {
   state: 'ready' | 'resting' | 'not_set_up' | 'off';
   resting_until?: string;
   /**
-   * The model it makes images with when a request names none.
+   * The one model it makes images with, as usage rows name it (image/<model>).
    */
   model: string;
-  default_model: string;
   /**
-   * The owner set the model; false, it is the default.
+   * The model's name for people, as OmniRoute names it.
    */
-  model_chosen: boolean;
-  /**
-   * Models the references name for it; any other name may be set.
-   */
-  suggested_models: Array<string>;
+  model_name: string;
   /**
    * Its accounts that can make images, now or after their rest.
    */
@@ -573,11 +568,7 @@ export type ImageProviderLink = {
 };
 
 export type ImageProviderChange = {
-  on?: boolean;
-  /**
-   * The model's name as the provider takes it; empty for the default.
-   */
-  model?: string;
+  on: boolean;
 };
 
 export type ImageOrder = {
@@ -613,7 +604,7 @@ export type ImageRequest = {
    */
   size?: string;
   /**
-   * gpt-image-*, gemini-*, provider/model, or auto; left out, each provider's own.
+   * Picks the provider only: gpt-image-* Codex, gemini-* Antigravity, provider/anything that provider; auto or left out, the order. The provider makes the images with its one model whatever the name.
    */
   model?: string;
   provider?: ImageProvider;
@@ -630,6 +621,18 @@ export type ImageAnswer = {
   model: string;
   created: number;
   images: Array<GeneratedImage>;
+  /**
+   * The size the provider says it made (Codex reports it), which may not be the one asked.
+   */
+  size?: string;
+  /**
+   * The quality the provider says it made (Codex reports it).
+   */
+  quality?: string;
+  /**
+   * The images' format as the provider names it (Codex reports it), such as png.
+   */
+  output_format?: string;
   errors?: Array<WebSearchError>;
 };
 

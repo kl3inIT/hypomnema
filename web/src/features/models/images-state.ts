@@ -59,11 +59,3 @@ export function madeText(usage: ImageProviderLink["usage"]) {
 export function accountsText(link: ImageProviderLink) {
   return link.accounts === 1 ? "1 account" : `${count.format(link.accounts)} accounts`
 }
-
-// modelText says which model a provider makes images with, and whether it is the default.
-export function modelText(link: ImageProviderLink) {
-  return link.model_chosen ? `${link.model} (yours)` : `${link.model} (default)`
-}
-
-// A model's name as a provider takes it: what the server accepts.
-export const modelPattern = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,99}$/

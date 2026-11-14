@@ -1053,7 +1053,7 @@ export const setWebSearchOrder = <ThrowOnError extends boolean = true>(options: 
 /**
  * The image providers in the order a request asks them, each with its switch, state, model and usage
  *
- * Codex (with gpt-image-2 unless the owner set another model) and Antigravity (gemini-3.1-flash-image), in the owner's order, by default Codex first. A provider can make images while an account of it is logged in on the control plane and in use, a Codex account on a paid ChatGPT plan; its account is added on the Models page. It rests while each such account rests after a limit, until the vendor's reset.
+ * Codex (gpt-image-2) and Antigravity (gemini-3.1-flash-image), each with its one model, in the owner's order, by default Codex first. A provider can make images while an account of it is logged in on the control plane and in use, a Codex account on a paid ChatGPT plan; its account is added on the Models page. It rests while each such account rests after a limit, until the vendor's reset.
  */
 export const getImages = <ThrowOnError extends boolean = true>(options?: Options<GetImagesData, ThrowOnError>): RequestResult<GetImagesResponses, GetImagesErrors, ThrowOnError> => (options?.client ?? client).get<GetImagesResponses, GetImagesErrors, ThrowOnError>({
   security: [{ scheme: 'bearer', type: 'http' }],
@@ -1062,9 +1062,9 @@ export const getImages = <ThrowOnError extends boolean = true>(options?: Options
 });
 
 /**
- * Switch an image provider on or off, or set the model it makes images with; only the owner
+ * Switch an image provider on or off; only the owner
  *
- * A provider that is off is neither asked nor may be named, from the next request on. A model is any name the provider may know, passed to it as it is, so a model released later can be tried; an empty one is the provider's default again. A request that names a model uses that one instead.
+ * A provider that is off is neither asked nor may be named, from the next request on.
  */
 export const setImageProvider = <ThrowOnError extends boolean = true>(options: Options<SetImageProviderData, ThrowOnError>): RequestResult<SetImageProviderResponses, SetImageProviderErrors, ThrowOnError> => (options.client ?? client).put<SetImageProviderResponses, SetImageProviderErrors, ThrowOnError>({
   security: [{ scheme: 'bearer', type: 'http' }],
@@ -1742,7 +1742,7 @@ export const fetchWeb = <ThrowOnError extends boolean = true>(options: Options<F
 /**
  * Make or edit images through the owner's subscriptions; any token, a Bot's included
  *
- * With reference images it is an edit. The image providers are asked in the owner's order, each with the model the request names (gpt-image-* is Codex's, gemini-* Antigravity's, or provider/model) or the one the owner set; `errors` says why those asked before the one that answered did not. Every provider limited is answered 429 with `Retry-After`; none with an account to use, 503.
+ * With reference images it is an edit. The image providers are asked in the owner's order, each with its one model; a `model` the request names only picks the provider (gpt-image-* is Codex, gemini-* Antigravity, provider/anything that provider). `size`, `quality` and `output_format` in the answer are what the provider says it made, which may differ from what was asked; `errors` says why those asked before the one that answered did not. Every provider limited is answered 429 with `Retry-After`; none with an account to use, 503.
  */
 export const generateImages = <ThrowOnError extends boolean = true>(options: Options<GenerateImagesData, ThrowOnError>): RequestResult<GenerateImagesResponses, GenerateImagesErrors, ThrowOnError> => (options.client ?? client).post<GenerateImagesResponses, GenerateImagesErrors, ThrowOnError>({
   security: [{ scheme: 'bearer', type: 'http' }],

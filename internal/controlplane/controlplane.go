@@ -22,11 +22,13 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/agentapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/browser"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/browser/egress"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/channels"
+	larkchannel "github.com/kl3inIT/hypomnema/internal/controlplane/channels/lark"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientcli"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/coordinator"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/integration"
-	"github.com/kl3inIT/hypomnema/internal/controlplane/larkbot"
+
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/nodeapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
@@ -354,27 +356,28 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		Tokens: botTokens{svc: svc, coordinator: cfg.CoordinatorToken}, Logger: logger,
 	})
 
-	// The Lark Channels (issues #136 and #169): their settings read each app's secret from the vault, and a
-	// Channel opens its connection through them.
-	var larkSettings *larkbot.Service
+	// The Channels (issues #136, #169 and #404): one runtime for every kind, each kind's Channel found in the
+	// registry, which refuses a kind given twice; each account's secret is opened from the vault to connect.
+	registry, err := channels.NewRegistry(larkchannel.LarkChannel{})
+	if err != nil {
+		return fmt.Errorf("registering the channels: %w", err)
+	}
 
-	// A Bot's folder is read for the Files panel and for the files a Bot sends into its Lark chat (issue #312).
+	// A Bot's folder is read for the Files panel and for the files a Bot sends into its chat (issue #312).
 	bots := newBotFiles(cfg.BotFilesCommand)
 
-	larkStore := channelStore{Service: svc, Store: svc.Channels()}
+	channelData := channelStore{Service: svc, Store: svc.Channels()}
 
-	larkChannels := larkbot.New(larkStore, sup,
-		func(ctx context.Context, c channelstore.Channel) (larkbot.Lark, error) {
-			return larkSettings.Open(ctx, c)
-		}, logger).WithWebURL(cfg.PublicURL)
+	runtime := channels.New(channelData, sup, registry, secrets, logger).WithWebURL(cfg.PublicURL)
 	if bots != nil {
-		larkChannels.WithFiles(bots)
+		runtime.WithFiles(bots)
 	}
-	larkSettings = larkbot.NewService(larkStore, secrets, larkChannels, larkbot.Connect)
+
+	larkSettings := larkchannel.NewService(channels.NewService(channelData, secrets, runtime))
 
 	// The Routines of the Bots (issue #211): the tick, and the runs it starts.
 	routineRunner := routines.New(svc, routines.Config{
-		Command: cfg.RoutineCommand, Coordinator: sup, Owner: larkChannels, Logger: logger,
+		Command: cfg.RoutineCommand, Coordinator: sup, Owner: runtime, Logger: logger,
 		Tokens: botTokens{svc: svc, coordinator: cfg.CoordinatorToken},
 	})
 
@@ -467,12 +470,12 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		_ = routineRunner.Run(ctx)
 	}()
 
-	larkDone := make(chan struct{})
+	channelsDone := make(chan struct{})
 
 	go func() {
-		defer close(larkDone)
+		defer close(channelsDone)
 
-		_ = larkChannels.Run(ctx)
+		_ = runtime.Run(ctx)
 	}()
 
 	// Idle tabs and the idle Chrome are closed while the server runs, and Chrome when it stops.
@@ -489,7 +492,7 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	cancel(nil)
 	<-browserDone
 	<-routinesDone
-	<-larkDone
+	<-channelsDone
 	<-loopDone
 	<-machinesDone
 	<-refreshDone
