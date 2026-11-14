@@ -15,9 +15,6 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
-	"regexp"
-	"slices"
-	"strconv"
 	"strings"
 	"sync"
 )
@@ -62,7 +59,6 @@ type Tokens struct {
 var (
 	once    sync.Once
 	byModel map[string]map[string]Model // vendor → model
-	newest  map[string]string           // Claude short name → its model
 	errLoad error
 )
 
@@ -83,61 +79,6 @@ func load() {
 		byModel[p.Vendor][p.Model] = p
 	}
 
-	newest = newestClaude(byModel["anthropic"])
-}
-
-// claudeID is a Claude model's id: its family, its version's numbers, and a
-// snapshot's date, which is not a version.
-var claudeID = regexp.MustCompile(`^claude-(opus|sonnet|haiku|fable)((?:-\d{1,2})+)(-\d{8})?$`)
-
-// newestClaude is the model each Claude short name stands for: the newest of
-// its family in the book, by its version's numbers. Claude Code's model
-// aliases (opus, sonnet, haiku, fable) each stand for the latest model of
-// the family, and the subscription is served them by those names (migrations
-// 00008 and 00043). A family and version are read from an id as CLIProxyAPI
-// reads them (MIT License, https://github.com/router-for-me/CLIProxyAPI,
-// c5251b5; internal/translator/claude/openai/responses/
-// claude_openai-responses_request.go, claudeModelRejectsAssistantPrefill:
-// an eight-digit date is never a version), and an undated id is taken over a
-// dated snapshot of the same version, as omp prefers the alias
-// (packages/coding-agent/src/config/model-resolver.ts, resolveModelScope).
-func newestClaude(models map[string]Model) map[string]string {
-	out := map[string]string{}
-	versions := map[string][]int{}
-
-	for id := range models {
-		m := claudeID.FindStringSubmatch(id)
-		if m == nil || m[3] != "" {
-			continue
-		}
-
-		var version []int
-
-		for part := range strings.SplitSeq(strings.TrimPrefix(m[2], "-"), "-") {
-			n, _ := strconv.Atoi(part)
-			version = append(version, n)
-		}
-
-		if best, ok := versions[m[1]]; !ok || slices.Compare(version, best) > 0 {
-			versions[m[1]], out[m[1]] = version, id
-		}
-	}
-
-	return out
-}
-
-// ClaudeModel is the model a Claude short name (opus, sonnet, haiku, fable)
-// stands for: the newest of its family the book knows. Any other name is
-// given back as it is, with false.
-func ClaudeModel(name string) (string, bool) {
-	once.Do(load)
-
-	full, ok := newest[strings.ToLower(name)]
-	if !ok {
-		return name, false
-	}
-
-	return full, true
 }
 
 // vendorsOf are the vendors to look a model up under, in order: the
@@ -147,7 +88,7 @@ func vendorsOf(kind, model string) []string {
 	var out []string
 
 	switch kind {
-	case "claude_subscription", "anthropic":
+	case "claude_subscription":
 		out = append(out, "anthropic")
 	case "codex_subscription":
 		out = append(out, "openai")
@@ -178,8 +119,7 @@ func Lookup(kind string, models ...string) (Price, bool) {
 }
 
 // Find returns what the book holds of the first of models found under the
-// provider's vendors, as Lookup looks a price up. Under Anthropic, a Claude
-// short name is looked up as the model it stands for (ClaudeModel).
+// provider's vendors, as Lookup looks a price up.
 func Find(kind string, models ...string) (Model, bool) {
 	return find(kind, func(Model) bool { return true }, models)
 }
@@ -197,12 +137,7 @@ func find(kind string, keep func(Model) bool, models []string) (Model, bool) {
 		}
 
 		for _, vendor := range vendorsOf(kind, model) {
-			id := model
-			if vendor == "anthropic" {
-				id, _ = ClaudeModel(model)
-			}
-
-			if m, ok := byModel[vendor][id]; ok && keep(m) {
+			if m, ok := byModel[vendor][model]; ok && keep(m) {
 				return m, true
 			}
 		}

@@ -25,7 +25,7 @@ const profile = (name: string, m: object = {}) => ({
 const reviewerSource =
   "name: reviewer\n" +
   "description: >-\n  Reviews a change against its spec and reports problems with file and line; changes files only when the task asks for fixes.\n" +
-  "runtime: claude\nmodel:\n  name: opus\n  effort: xhigh\n" +
+  "runtime: claude\nmodel:\n  name: claude-opus-5-5\n  effort: xhigh\n" +
   "instruction: |\n  Review the change the task names. Report what is wrong or missing, with file and line, as the summary of\n  `finish`; change files only when the task asks for fixes.\n"
 
 const reviewer = profile("reviewer", {
@@ -33,7 +33,7 @@ const reviewer = profile("reviewer", {
     "Reviews a change against its spec and reports problems with file and line; changes files only when the task asks for fixes.",
   version: 3,
   version_id: "pfv_reviewer_3",
-  model: "opus",
+  model: "claude-opus-5-5",
   provider: "claude-subscription",
   effort: "xhigh",
   instruction:
@@ -47,8 +47,8 @@ const reviewer = profile("reviewer", {
 })
 
 const models = [
-  { provider: "claude-subscription", name: "opus", kind: "claude_subscription" },
-  { provider: "claude-subscription", name: "sonnet", kind: "claude_subscription" },
+  { provider: "claude-subscription", name: "claude-opus-5-5", kind: "claude_subscription" },
+  { provider: "claude-subscription", name: "claude-sonnet-5-5", kind: "claude_subscription" },
   { provider: "claude-subscription", name: "claude-opus-5-5", kind: "claude_subscription" },
   { provider: "codex-subscription", name: "gpt-6.1-sol", kind: "codex_subscription" },
   { provider: "gateway", name: "gpt-sol", kind: "model_gateway" },
@@ -108,7 +108,7 @@ async function fakeServer(page: Page) {
     profile("explorer", {
       description:
         "Investigates code or a question and reports what it found, with file paths; changes nothing.",
-      model: "sonnet",
+      model: "claude-sonnet-5-5",
       provider: "claude-subscription",
       effort: "low",
       version: 2,
@@ -360,7 +360,7 @@ test("a refused save says why, and a saved one becomes the next version", async 
   await page.getByRole("option", { name: "sonnet" }).click()
   await page.getByRole("button", { name: "Save revision" }).click()
   await expect(page.getByText("Version 4 · Claude Code")).toBeVisible()
-  expect(applied.at(-1)?.source).toContain("  name: sonnet\n")
+  expect(applied.at(-1)?.source).toContain("  name: claude-sonnet-5-5\n")
 })
 
 // Scenario: the owner makes a new agent on Codex.
