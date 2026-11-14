@@ -1615,6 +1615,10 @@ export type GatewayRequest = {
    */
   cache_write_tokens: number;
   /**
+   * The part of the cache write that lasts an hour (Anthropic's), priced at its own rate.
+   */
+  cache_write_1h_tokens: number;
+  /**
    * The cost at the vendor's API price, in micro-dollars; absent when the model has no price.
    */
   cost_micros?: number;

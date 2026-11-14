@@ -28,6 +28,27 @@ func TestCostChargesEachKindOfTokenAtItsPrice(t *testing.T) {
 	assert.Equal(t, int64(2_000), prices.Cost(plain, prices.Tokens{Input: 1_000, CacheRead: 500, Output: 1_000}))
 }
 
+// Scenario: a Claude request wrote 1,000 tokens to the cache, 600 of them for
+// an hour (issue #448). The hour's writes cost twice the input, as Anthropic
+// prices them and LiteLLM's catalog has it; the rest the book's cache_write.
+// Another vendor's writes all cost cache_write.
+func TestCostPricesAnHoursCacheWriteAtTwiceTheInput(t *testing.T) {
+	t.Parallel()
+
+	sonnet := prices.Price{
+		Vendor: "anthropic", Input: ptr(3_000_000), Output: ptr(15_000_000),
+		CacheRead: ptr(300_000), CacheWrite: ptr(3_750_000),
+	}
+	tokens := prices.Tokens{Input: 1_000, CacheWrite: 1_000, CacheWrite1h: 600}
+
+	// 400×3.75 + 600×6 = 5,100 micro-dollars.
+	assert.Equal(t, int64(5_100), prices.Cost(sonnet, tokens))
+
+	other := sonnet
+	other.Vendor = "openai"
+	assert.Equal(t, int64(3_750), prices.Cost(other, tokens), "1000×3.75")
+}
+
 // The model asked for is priced before the provider's own, under the
 // provider's vendor; Antigravity's Claude is priced as Anthropic's by its name;
 // a model the book does not know has no price.

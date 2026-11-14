@@ -175,6 +175,32 @@ func TestAClaudeClientThatDoesNotStreamGetsOneCompletion(t *testing.T) {
 	assert.Equal(t, "stop", choice["finish_reason"])
 }
 
+// Scenario: pi chats with Claude, which writes part of the cache for an hour
+// (issue #448). The usage frame and the whole completion carry the one-hour
+// part where LiteLLM's usage carries it, and the meter records it.
+func TestAClaudeChatRecordsTheCacheWrittenForAnHour(t *testing.T) {
+	t.Parallel()
+
+	for _, streamed := range []bool{true, false} {
+		backend, _ := claudeBackend(t, stream(claudeWrites...))
+		g := newClaudeGateway(t, backend, &accounts{})
+
+		ask := askClaude + `}`
+		if streamed {
+			ask = askClaude + `,"stream":true,"stream_options":{"include_usage":true}}`
+		}
+
+		status, _, body := g.call(t, g.key, ask)
+		require.Equal(t, http.StatusOK, status, body)
+		assert.Contains(t, body, `"cache_creation_token_details":{"ephemeral_1h_input_tokens":30}`,
+			"the client reads the one-hour part too")
+
+		u := g.lastUsage(t)
+		assert.EqualValues(t, 50, u.Tokens.CacheWrite, "streamed %v", streamed)
+		assert.EqualValues(t, 30, u.Tokens.CacheWrite1h, "streamed %v", streamed)
+	}
+}
+
 // Scenario: a token Anthropic refuses is refreshed once and the request sent
 // again under the new token.
 func TestAClaudeRefusedTokenIsRefreshed(t *testing.T) {

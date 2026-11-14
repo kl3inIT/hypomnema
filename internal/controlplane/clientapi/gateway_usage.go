@@ -98,7 +98,8 @@ func (s *Server) ListGatewayRequests(ctx context.Context, req openapi.ListGatewa
 			item.Error = &u.Error
 		}
 
-		item.CacheWriteTokens, item.CostMicros = u.Tokens.CacheWrite, u.CostMicros
+		item.CacheWriteTokens, item.CacheWrite1hTokens = u.Tokens.CacheWrite, u.Tokens.CacheWrite1h
+		item.CostMicros = u.CostMicros
 		if u.PricedModel != "" {
 			item.PricedModel = &u.PricedModel
 		}

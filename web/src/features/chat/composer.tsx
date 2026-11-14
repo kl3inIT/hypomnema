@@ -1,5 +1,5 @@
 import { CircleAlert, Paperclip, X } from "lucide-react"
-import { useRef, useState, type ReactNode } from "react"
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react"
 
 import type { ChatAttachment } from "@/api/generated/types.gen"
 import { Alert, AlertAction, AlertDescription } from "@/components/ui/alert"
@@ -8,6 +8,8 @@ import { cn } from "@/lib/utils"
 
 import { AttachmentStrip } from "./attachment-strip"
 import type { Attachments } from "./attachments"
+import { clearDraft, readDraft, saveDrafts, writeDraft } from "./drafts"
+import { recall, type Walk } from "./recall"
 
 // The message box, after t3code's composer (MIT, Copyright (c) 2026 T3 Tools Inc.,
 // https://github.com/pingdotgg/t3code): chat/ComposerSurface.tsx for the raised card with its glass and outline,
@@ -24,6 +26,10 @@ import type { Attachments } from "./attachments"
 // refused, or was not uploaded, is said above the box.
 //
 // controls sit in the footer left of Send, as t3code's footer holds its model and effort pickers (issue #369).
+//
+// What is written, with the files that are up, is kept as the chat's draft (issue #433, drafts.ts) and is there
+// again when the owner comes back to the chat or reloads; it goes when it is sent. ↑ in the empty box brings back
+// what this chat sent, newest first, and ↓ goes back to the empty box (recall.ts).
 export function Composer({
   onSend,
   onStop,
@@ -32,6 +38,8 @@ export function Composer({
   bot,
   attachments,
   controls,
+  draft,
+  sent,
 }: {
   onSend: (text: string, files: ChatAttachment[]) => Promise<unknown>
   onStop: () => void
@@ -43,12 +51,55 @@ export function Composer({
   attachments?: Attachments
   // controls are what the message is sent with: the chat's model and effort.
   controls?: ReactNode
+  // draft is where the draft is kept, with the chat and Bot of a chat not made yet; without it none is.
+  draft?: { key: string; chat?: string; bot?: string }
+  // sent are the texts this chat sent, newest first, which ↑ brings back.
+  sent?: readonly string[]
 }) {
-  const [text, setText] = useState("")
+  const [text, setText] = useState(() => (draft ? readDraft(draft.key).text : ""))
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const picker = useRef<HTMLInputElement>(null)
+  const box = useRef<HTMLTextAreaElement>(null)
+  const walk = useRef<Walk>(null)
+  // caret is where the caret goes once a message brought back is in the box.
+  const caret = useRef<number | null>(null)
   const files = attachments?.items.length ?? 0
+  const key = draft?.key
+  const chat = draft?.chat
+  const draftBot = draft?.bot
+  const items = attachments?.items
+
+  // The box's text as the draft keeps it.
+  function type(next: string) {
+    setText(next)
+    if (key)
+      writeDraft(key, { text: next, ...(chat && { chat }), ...(draftBot && { bot: draftBot }) })
+  }
+
+  // The files that are up are the draft's; those uploading or not uploaded are not kept.
+  useEffect(() => {
+    if (!key || !items) return
+    const up = items
+      .filter((item) => item.state === "done")
+      .map((item) => ({
+        name: item.name,
+        path: item.path,
+        size: item.size,
+        ...(item.type && { type: item.type }),
+      }))
+    writeDraft(key, { files: up, ...(chat && { chat }), ...(draftBot && { bot: draftBot }) })
+  }, [key, items, chat, draftBot])
+
+  // The draft is saved as the composer goes, to another chat or page.
+  useEffect(() => saveDrafts, [])
+
+  useLayoutEffect(() => {
+    const at = caret.current
+    if (at === null || !box.current) return
+    caret.current = null
+    box.current.setSelectionRange(at, at)
+  })
 
   async function send() {
     const message = text.trim()
@@ -57,15 +108,23 @@ export function Composer({
     setSending(true)
     setError(null)
     attachments?.dismiss()
-    setText("")
+    walk.current = null
+    type("")
 
     try {
-      const sent = attachments ? await attachments.draft.ready() : []
-      await onSend(message, sent)
+      const files = attachments ? await attachments.draft.ready() : []
+      await onSend(message, files)
       attachments?.draft.clear()
+      if (key) {
+        clearDraft(key)
+        // What was typed while it was sent is the next draft.
+        const typed = box.current?.value ?? ""
+        if (typed !== "") type(typed)
+      }
     } catch (err) {
       // What was typed meanwhile is kept; the failed text goes back only into an empty box.
-      setText((typed) => (typed === "" ? message : typed))
+      const typed = box.current?.value ?? ""
+      if (typed === "") type(message)
       setError(`Not sent: ${errorText(err)}`)
     } finally {
       setSending(false)
@@ -119,7 +178,11 @@ export function Composer({
             rows={1}
             value={text}
             disabled={disabled}
-            onChange={(event) => setText(event.target.value)}
+            ref={box}
+            onChange={(event) => {
+              walk.current = null
+              type(event.target.value)
+            }}
             onPaste={(event) => {
               // A pasted image, or files copied in the system's file manager, are attached; text pastes as text.
               const pasted = [...event.clipboardData.files]
@@ -128,6 +191,36 @@ export function Composer({
               attachments.attach(pasted)
             }}
             onKeyDown={(event) => {
+              if (
+                (event.key === "ArrowUp" || event.key === "ArrowDown") &&
+                sent &&
+                !event.altKey &&
+                !event.ctrlKey &&
+                !event.metaKey &&
+                !event.shiftKey &&
+                !event.nativeEvent.isComposing
+              ) {
+                const { selectionStart, selectionEnd } = event.currentTarget
+                if (selectionStart !== selectionEnd) return
+                const moved = recall(
+                  walk.current,
+                  event.key === "ArrowUp" ? "up" : "down",
+                  text,
+                  selectionStart,
+                  sent,
+                )
+                if (!moved) return
+                event.preventDefault()
+                walk.current = moved.walk
+                caret.current = moved.caret
+                type(moved.text)
+                // The same text again renders nothing, so the caret is put there now.
+                if (moved.text === text) {
+                  event.currentTarget.setSelectionRange(moved.caret, moved.caret)
+                }
+
+                return
+              }
               if (event.key !== "Enter" || event.shiftKey || event.nativeEvent.isComposing) return
               event.preventDefault()
               void send()
