@@ -1901,7 +1901,7 @@ below) and for Bots (`hypomnema image`, see Bots). Claude makes none (no referen
   the providers tried; the tokens the provider reported (Codex's `usage`, Antigravity's `usageMetadata`), none
   invented; a request refused before any provider is not recorded. A Bot's is on its chat's key (as its web search).
 - What the owner sets (`gateway_image_providers`, migration 00077: `provider`, `off`, `position`; its `model`
-  dropped by 00079; read and written only by the gateway): a switch a provider and the order, read at each request.
+  dropped by 00080; read and written only by the gateway): a switch a provider and the order, read at each request.
   `GET /gateway/images` (any token) lists the providers in order, each with its switch, its `state` (`ready`;
   `resting` with `resting_until`, when each usable account rests; `not_set_up`, no account in use, for Codex none on
   a paid plan; `off`), its one `model` and OmniRoute's name for it (`model_name`: `GPT Image 2 (Codex)`, `Gemini 3.1
