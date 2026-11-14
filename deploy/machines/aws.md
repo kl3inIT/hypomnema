@@ -101,7 +101,16 @@ must be of a family AWS lists for it (C7i, C7i-flex, C8i, C8id, C8i-flex, M7i, M
 R7iz, R8i, R8id, R8i-flex, X8i, I7i, I7ie; Intel only, no Graviton), and another is refused. The instance is
 started with `NestedVirtualization=enabled`, which costs nothing more, and a disk of at least 40 GiB whatever
 `disk_gib` says. Its first boot also installs Xvfb, Mesa and the emulator's libraries and puts the `hypomnema` user
-in `kvm`; the Android SDK, the emulator and the phone image come in a later step of issue #417.
+in `kvm`. The node itself downloads the Android SDK's parts, the emulator and the Android 14 Play image (about
+2 GB, pinned by checksum, from Google; the Android SDK's license applies) at the phone's first start:
+
+```sh
+hypomnema device start phone    # installs at the first start, then boots; minutes
+hypomnema device status         # absent, installing, starting, running, stopped or failed, with what is installed
+hypomnema device stop phone     # its disk, with what is signed in on it, stays
+```
+
+The phone stops by itself 15 minutes after its last use; the machine keeps running until `machines stop phone`.
 
 Cost in Singapore (`ap-southeast-1`), on demand, as tried in
 [the research note](../../docs/research/2026-11-14-android-device-for-agents.md): about $0.39 an hour while it

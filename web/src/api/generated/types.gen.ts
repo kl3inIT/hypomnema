@@ -1340,6 +1340,41 @@ export type NodeList = {
   data: Array<Node>;
 };
 
+export type DeviceList = {
+  data: Array<DeviceNode>;
+};
+
+export type DeviceNode = {
+  node_id: string;
+  /**
+   * The node's name.
+   */
+  name: string;
+  device: 'android';
+  connected: boolean;
+  /**
+   * The node said at its last connect that its user can use /dev/kvm, which the emulator needs.
+   */
+  kvm: boolean;
+  /**
+   * The phone as the node said last: absent before its first start installed it, failed when the last start failed or the emulator ended by itself. Left out for a node that has not said since the control plane started, or that is not connected.
+   */
+  state?: 'absent' | 'installing' | 'stopped' | 'starting' | 'running' | 'failed';
+  /**
+   * Why the phone failed.
+   */
+  reason?: string;
+  /**
+   * What the node installed of the phone, each part at its version: platform-tools, android-cli, scrcpy-server, emulator and system-image.
+   */
+  installed: Array<DeviceComponent>;
+};
+
+export type DeviceComponent = {
+  name: string;
+  version: string;
+};
+
 export type Account = {
   id: string;
   runtime: string;
@@ -3708,6 +3743,85 @@ export type StartNodeMachineResponses = {
 };
 
 export type StartNodeMachineResponse = StartNodeMachineResponses[keyof StartNodeMachineResponses];
+
+export type StartNodeDeviceData = {
+  body?: never;
+  path: {
+    node_id: string;
+  };
+  query?: never;
+  url: '/nodes/{node_id}/device/start';
+};
+
+export type StartNodeDeviceErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type StartNodeDeviceError = StartNodeDeviceErrors[keyof StartNodeDeviceErrors];
+
+export type StartNodeDeviceResponses = {
+  /**
+   * The node was asked; its phone as it said last.
+   */
+  202: DeviceNode;
+};
+
+export type StartNodeDeviceResponse = StartNodeDeviceResponses[keyof StartNodeDeviceResponses];
+
+export type StopNodeDeviceData = {
+  body?: never;
+  path: {
+    node_id: string;
+  };
+  query?: never;
+  url: '/nodes/{node_id}/device/stop';
+};
+
+export type StopNodeDeviceErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type StopNodeDeviceError = StopNodeDeviceErrors[keyof StopNodeDeviceErrors];
+
+export type StopNodeDeviceResponses = {
+  /**
+   * The node was asked; its phone as it said last.
+   */
+  202: DeviceNode;
+};
+
+export type StopNodeDeviceResponse = StopNodeDeviceResponses[keyof StopNodeDeviceResponses];
+
+export type GetDeviceData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/device';
+};
+
+export type GetDeviceErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GetDeviceError = GetDeviceErrors[keyof GetDeviceErrors];
+
+export type GetDeviceResponses = {
+  /**
+   * The nodes that hold a phone.
+   */
+  200: DeviceList;
+};
+
+export type GetDeviceResponse = GetDeviceResponses[keyof GetDeviceResponses];
 
 export type ResumeNodeData = {
   body?: never;

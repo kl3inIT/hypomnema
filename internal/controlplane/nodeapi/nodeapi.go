@@ -61,12 +61,14 @@ type Server struct {
 	streams map[string]*pendingStream
 	// answers are the files requests nodes have been sent, by request id.
 	answers map[string]*pendingAnswer
+	// devices are the states of their phones nodes said last, by node id (device.go).
+	devices map[string]nodeproto.DeviceState
 }
 
 // New returns a Server over the orchestration service.
 func New(svc *orchestration.Service, logger *slog.Logger) *Server {
 	return &Server{svc: svc, logger: logger, sessions: map[string]*session{}, streams: map[string]*pendingStream{},
-		answers: map[string]*pendingAnswer{}}
+		answers: map[string]*pendingAnswer{}, devices: map[string]nodeproto.DeviceState{}}
 }
 
 // WithHostTokens sets where an offer's git host token comes from.
@@ -250,6 +252,8 @@ func (s *Server) hello(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
+
+	s.deviceSaid(n.ID, req.DeviceState)
 
 	resp := nodeproto.HelloResponse{
 		NodeID: n.ID, Dispositions: make([]nodeproto.Disposition, 0, len(dispositions)),
@@ -580,6 +584,10 @@ func (c *session) stats(ctx context.Context, payload json.RawMessage) {
 	var hb nodeproto.Heartbeat
 
 	err := json.Unmarshal(payload, &hb)
+	if err == nil && hb.Device != nil {
+		c.srv.deviceSaid(c.nodeID, hb.Device)
+	}
+
 	if err == nil && hb.Reaches != nil {
 		err = c.srv.svc.NodeReaches(ctx, c.nodeID, *hb.Reaches)
 	}
