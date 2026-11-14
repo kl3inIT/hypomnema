@@ -600,6 +600,12 @@ var commands = []command{
 		flags:   jsonFlag, run: profilesApply,
 	},
 	{
+		name: "profiles rm", args: "<profile>", min: 1, max: 1,
+		summary: "delete a profile no unfinished task, backup or bot's workers list names; one used before is " +
+			"hidden and kept for its runs, and applying it again brings it back (owner)",
+		flags: jsonFlag, run: profilesRemove,
+	},
+	{
 		name: "providers list", summary: "the sources of models, with the models each offers",
 		flags: jsonFlag, run: providersList,
 	},

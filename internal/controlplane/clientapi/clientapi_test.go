@@ -934,6 +934,23 @@ func TestOnlyTheOwnerChangesProfiles(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, openapi.InvalidRequest, errorCode(t, wrong.Body, wrong.StatusCode(), http.StatusBadRequest))
 
+	// Only the owner deletes a profile (issue #485), and not one another profile names as a backup.
+	notOwner, err := laptop.DeleteProfileWithResponse(ctx, "explorer")
+	require.NoError(t, err)
+	assert.Equal(t, openapi.Forbidden, errorCode(t, notOwner.Body, notOwner.StatusCode(), http.StatusForbidden))
+
+	named, err := owner.DeleteProfileWithResponse(ctx, "explorer")
+	require.NoError(t, err)
+	assert.Equal(t, openapi.Conflict, errorCode(t, named.Body, named.StatusCode(), http.StatusConflict))
+
+	deleted, err := owner.DeleteProfileWithResponse(ctx, "reviewer")
+	require.NoError(t, err)
+	require.Equal(t, http.StatusNoContent, deleted.StatusCode(), string(deleted.Body))
+
+	gone, err := laptop.GetProfileWithResponse(ctx, "reviewer")
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusNotFound, gone.StatusCode())
+
 	provider, err := laptop.ApplyProviderWithResponse(ctx, "router",
 		openapi.Source{Source: "name: router\nkind: openai_compatible\nmodels: [m1]\n"})
 	require.NoError(t, err)

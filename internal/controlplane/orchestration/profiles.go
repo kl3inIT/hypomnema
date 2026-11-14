@@ -260,14 +260,16 @@ func (s *Service) applyProfile(ctx context.Context, chat, name, source string) (
 		p.Provider = provider
 		digest := sourceDigest(source)
 
-		current, err := q.CurrentProfileVersion(ctx, p.Name)
+		// A deleted profile's name applied again brings it back as a new version, even from the same source, as
+		// Onyx's mark_persona_as_not_deleted (backend/onyx/db/persona.py) (issue #485).
+		current, err := currentVersionEvenDeleted(ctx, q, p.Name)
 
 		switch {
 		case errors.Is(err, sql.ErrNoRows):
 		case err != nil:
 			return fmt.Errorf("reading profile %s: %w", p.Name, err)
-		case current.Digest == digest:
-			out = profileFromRow(current)
+		case current.Digest == digest && !current.deleted:
+			out = profileFromRow(current.ProfileVersion)
 
 			return nil
 		}
@@ -318,6 +320,129 @@ func (s *Service) applyProfile(ctx context.Context, chat, name, source string) (
 	return out, created, nil
 }
 
+// versionOfAny is a profile's current version and whether the profile is
+// deleted.
+type versionOfAny struct {
+	store.ProfileVersion
+
+	deleted bool
+}
+
+// currentVersionEvenDeleted reads a profile's current version, a deleted
+// profile's too; sql.ErrNoRows when there is no profile of the name.
+func currentVersionEvenDeleted(ctx context.Context, q *store.Queries, name string) (versionOfAny, error) {
+	row, err := q.GetProfileEvenDeleted(ctx, name)
+	if err != nil {
+		return versionOfAny{}, err
+	}
+
+	v, err := q.GetProfileVersion(ctx, row.CurrentVersionID)
+	if err != nil {
+		return versionOfAny{}, fmt.Errorf("reading the current version of profile %s: %w", name, err)
+	}
+
+	return versionOfAny{ProfileVersion: v, deleted: row.DeletedAt.Valid}, nil
+}
+
+// missingProfile is the error for a profile that is not there to use: none of
+// the name, or a deleted one, which reads as not found, as Coder reads a
+// deleted template (coderd/httpmw/templateparam.go), saying it was deleted.
+func missingProfile(ctx context.Context, q *store.Queries, err error, name string) error {
+	if !errors.Is(err, sql.ErrNoRows) {
+		return notFound(err, "profile", name)
+	}
+
+	if row, rerr := q.GetProfileEvenDeleted(ctx, name); rerr == nil && row.DeletedAt.Valid {
+		return fmt.Errorf("%w: profile %s was deleted; apply it again to bring it back", ErrNotFound, name)
+	}
+
+	return notFound(err, "profile", name)
+}
+
+// DeleteProfile deletes a profile (issue #485). One never used, by no Task
+// and no Dispatch of any version, goes with its versions, as Omnigent removes
+// an agent no session uses (server/routes/builtin_agents.py, remove_agent).
+// One used before is marked deleted and kept with its versions for the
+// Dispatches that ran them, as Coder marks a template deleted
+// (coderd/templates.go, deleteTemplate) and Onyx a persona: it is hidden and
+// no new Task names it. Refused for the starting profile (Hermes's default
+// profile, Onyx's built-ins), and while an unfinished Task names it, another
+// profile names it as a backup, or a Bot's workers list names it (Coder's
+// workspaces, Omnigent's agent_in_use): those are changed first.
+func (s *Service) DeleteProfile(ctx context.Context, name string) error {
+	if name == DefaultProfile {
+		return fmt.Errorf("%w: profile %s is the one a task that names none runs under; it is always there",
+			ErrConflict, DefaultProfile)
+	}
+
+	err := s.write(ctx, func(q *store.Queries, now int64) error {
+		if _, err := q.GetProfile(ctx, name); err != nil {
+			return missingProfile(ctx, q, err, name)
+		}
+
+		if err := profileDeletable(ctx, q, name); err != nil {
+			return err
+		}
+
+		tasks, err := q.CountTasksOfProfileSince(ctx, store.CountTasksOfProfileSinceParams{Profile: name, Since: 0})
+		if err != nil {
+			return fmt.Errorf("reading the tasks of profile %s: %w", name, err)
+		}
+
+		ran, err := q.CountDispatchesOfProfile(ctx, name)
+		if err != nil {
+			return fmt.Errorf("reading the dispatches of profile %s: %w", name, err)
+		}
+
+		if tasks > 0 || ran > 0 {
+			return q.MarkProfileDeleted(ctx, store.MarkProfileDeletedParams{Name: name, Now: now})
+		}
+
+		if err := q.DeleteProfileVersions(ctx, name); err != nil {
+			return fmt.Errorf("removing the versions of profile %s: %w", name, err)
+		}
+
+		return q.DeleteProfile(ctx, name)
+	})
+	if err != nil {
+		return fmt.Errorf("deleting profile %s: %w", name, err)
+	}
+
+	return nil
+}
+
+// profileDeletable refuses to delete a profile that unfinished Tasks, other
+// profiles' backups or Bots' workers lists still name.
+func profileDeletable(ctx context.Context, q *store.Queries, name string) error {
+	unfinished, err := q.CountUnfinishedTasksOfProfile(ctx, name)
+	if err != nil {
+		return fmt.Errorf("reading the tasks of profile %s: %w", name, err)
+	}
+
+	named, err := q.CountFallbacksNaming(ctx, name)
+	if err != nil {
+		return fmt.Errorf("reading the backups naming profile %s: %w", name, err)
+	}
+
+	bots, err := q.BotsNamingWorker(ctx, nullString(name))
+	if err != nil {
+		return fmt.Errorf("reading the bots that give work to profile %s: %w", name, err)
+	}
+
+	switch {
+	case unfinished > 0:
+		return fmt.Errorf("%w: %d unfinished tasks name profile %s; let them end or cancel them first", ErrConflict,
+			unfinished, name)
+	case named > 0:
+		return fmt.Errorf("%w: %d profiles name %s as a backup; change them first", ErrConflict, named, name)
+	case len(bots) > 0:
+		return fmt.Errorf("%w: the workers list of bots %s names profile %s; change them first", ErrConflict,
+			strings.Join(bots, ", "), name)
+	}
+
+	return nil
+}
+
 // checkFallbacks checks the backups a profile names: each an existing
 // worker's profile, named once, and not the profile itself.
 func checkFallbacks(ctx context.Context, q *store.Queries, p Profile) error {
@@ -334,7 +459,7 @@ func checkFallbacks(ctx context.Context, q *store.Queries, p Profile) error {
 		}
 
 		if _, err := q.CurrentProfileVersion(ctx, name); err != nil {
-			return fmt.Errorf("fallback: %w", notFound(err, "profile", name))
+			return fmt.Errorf("fallback: %w", missingProfile(ctx, q, err, name))
 		}
 	}
 
@@ -416,9 +541,11 @@ func knownRuntimes() string {
 
 // GetProfile returns a profile's current version.
 func (s *Service) GetProfile(ctx context.Context, name string) (Profile, error) {
-	row, err := s.read().CurrentProfileVersion(ctx, name)
+	q := s.read()
+
+	row, err := q.CurrentProfileVersion(ctx, name)
 	if err != nil {
-		return Profile{}, notFound(err, "profile", name)
+		return Profile{}, missingProfile(ctx, q, err, name)
 	}
 
 	out := []Profile{profileFromRow(row)}
@@ -741,7 +868,7 @@ func (s *Service) ListModels(ctx context.Context) ([]Model, error) {
 func checkTaskProfile(ctx context.Context, q *store.Queries, nt NewTask) error {
 	v, err := q.CurrentProfileVersion(ctx, nt.Profile)
 	if err != nil {
-		return fmt.Errorf("task %q: %w", nt.Ref, notFound(err, "profile", nt.Profile))
+		return fmt.Errorf("task %q: %w", nt.Ref, missingProfile(ctx, q, err, nt.Profile))
 	}
 
 	if nt.Runtime == "" && nt.Model == "" && nt.Effort == "" {

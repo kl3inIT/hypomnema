@@ -9,7 +9,8 @@ import (
 
 // Profiles, providers and models (issue #42). Every token reads them, so a
 // coordinator sees its choices. The owner applies a profile, and the Bot
-// coordinator from its chat (setupchanges.go); a provider only the owner.
+// coordinator from its chat (setupchanges.go); a provider, and deleting a
+// profile, only the owner.
 
 // ListProfiles returns every profile at its current version.
 func (s *Server) ListProfiles(ctx context.Context, _ openapi.ListProfilesRequestObject,
@@ -62,6 +63,17 @@ func (s *Server) ApplyProfile(ctx context.Context, req openapi.ApplyProfileReque
 	}
 
 	return openapi.ApplyProfile200JSONResponse(toProfile(p)), nil
+}
+
+// DeleteProfile deletes a profile; only the owner (policy.go). One never used
+// goes, one used before is marked deleted (issue #485).
+func (s *Server) DeleteProfile(ctx context.Context, req openapi.DeleteProfileRequestObject,
+) (openapi.DeleteProfileResponseObject, error) {
+	if err := s.svc.DeleteProfile(ctx, req.Name); err != nil {
+		return nil, err
+	}
+
+	return openapi.DeleteProfile204Response{}, nil
 }
 
 // ListProfileVersions returns a profile's versions, newest first.

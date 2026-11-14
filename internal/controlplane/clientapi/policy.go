@@ -187,6 +187,7 @@ var policies = map[string]policy{
 	"GetProfile":          {},
 	"ListProfileVersions": {},
 	"ApplyProfile":        {},
+	"DeleteProfile":       {scope: scopeOwner},
 	"ListSetupChanges":    {scope: scopeOwner},
 	"UndoSetupChange":     {scope: scopeOwner},
 	// Memories (issue #21): every token reads them; a Bot keeps entries about the owner; only the owner changes

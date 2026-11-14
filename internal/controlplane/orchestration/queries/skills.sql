@@ -46,7 +46,8 @@ SELECT skill, revision, digest FROM dispatch_skills WHERE dispatch_id = @dispatc
 
 -- name: ProfilesNamingSkill :many
 SELECT p.name FROM profiles p JOIN profile_versions v ON v.id = p.current_version_id
-WHERE ',' || v.skills || ',' LIKE '%,' || @skill || ',%' OR ',' || v.skills_off || ',' LIKE '%,' || @skill || ',%'
+WHERE p.deleted_at IS NULL
+  AND (',' || v.skills || ',' LIKE '%,' || @skill || ',%' OR ',' || v.skills_off || ',' LIKE '%,' || @skill || ',%')
 ORDER BY p.name;
 
 -- name: SkillArchiveForNode :one
