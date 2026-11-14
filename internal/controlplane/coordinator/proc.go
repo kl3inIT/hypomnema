@@ -180,14 +180,27 @@ func (p *proc) callWithin(ctx context.Context, cmd map[string]any, timeout time.
 		return response{}, fmt.Errorf("writing to pi: %w", err)
 	}
 
-	select {
-	case r := <-ch:
+	answered := func(r response) (response, error) {
 		if !r.Success {
 			return r, fmt.Errorf("pi refused %s: %s", cmd["type"], r.Error)
 		}
 
 		return r, nil
+	}
+
+	select {
+	case r := <-ch:
+		return answered(r)
 	case <-p.done:
+		// The reader hands over pi's last response before it closes done, and select takes either ready case
+		// at random: a pi that accepted a prompt and then exited has answered, or the prompt would be given
+		// again to the next pi (#459).
+		select {
+		case r := <-ch:
+			return answered(r)
+		default:
+		}
+
 		return response{}, fmt.Errorf("pi exited: %s", p.stderrTail())
 	case <-ctx.Done():
 		return response{}, ctx.Err()
