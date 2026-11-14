@@ -266,12 +266,14 @@ func (m *Manager) swipe(ctx context.Context, agent string, c devicetool.Call) no
 func (m *Manager) launch(ctx context.Context, pkg string) nodeproto.DeviceAnswer {
 	out, err := m.adb(ctx, toolWithin, "-s", serial, "shell", "monkey", "-p", pkg, "-c",
 		"android.intent.category.LAUNCHER", "1")
-	if why := failure(out, err); why != "" {
-		return failed("The app could not be opened: " + why)
-	}
-
+	// monkey exits with an error and prints its arguments when the package
+	// has no launcher; the answer says only that (trial machine, 2026-11-15).
 	if strings.Contains(out.Stdout+out.Stderr, "No activities found") {
 		return failed("No app with the package " + pkg + " is installed on the phone, or it has no launcher.")
+	}
+
+	if why := failure(out, err); why != "" {
+		return failed("The app could not be opened: " + why)
 	}
 
 	return text("Opened " + pkg + ".")
@@ -280,8 +282,13 @@ func (m *Manager) launch(ctx context.Context, pkg string) nodeproto.DeviceAnswer
 // logcat reads the last lines of the phone's log, as Orca's logcat does
 // (android-logcat.ts: -d, -v threadtime, -t), at a priority and above.
 func (m *Manager) logcat(ctx context.Context, c devicetool.Call) nodeproto.DeviceAnswer {
+	// logcat's -t takes the last lines before the priority filter is applied,
+	// so `-t 3 *:E` is empty when the last 3 lines are not errors (trial
+	// machine, 2026-11-15): a level or a text reads logcatScan lines and keeps
+	// the last c.Lines of what matches.
 	lines := c.Lines
-	if c.Contains != "" {
+	filtered := c.Contains != "" || c.Level != ""
+	if filtered {
 		lines = logcatScan
 	}
 
@@ -297,11 +304,11 @@ func (m *Manager) logcat(ctx context.Context, c devicetool.Call) nodeproto.Devic
 
 	kept := strings.Split(strings.TrimRight(out.Stdout, "\n"), "\n")
 
-	if c.Contains != "" {
+	if filtered {
 		matching := kept[:0]
 
 		for _, line := range kept {
-			if strings.Contains(line, c.Contains) {
+			if line != "" && !strings.HasPrefix(line, "--------- ") && strings.Contains(line, c.Contains) {
 				matching = append(matching, line)
 			}
 		}

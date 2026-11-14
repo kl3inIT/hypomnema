@@ -29,6 +29,8 @@ type phoneTools struct {
 	// failWith is what an `android input` command prints, as a failure.
 	failWith string
 	logcat   string
+	// noLauncher makes monkey fail as it does for a package not installed.
+	noLauncher bool
 }
 
 var boxArg = regexp.MustCompile(`^--string=#([0-9]+)$`)
@@ -68,6 +70,8 @@ func (p *phoneTools) answer(c Command) (Output, bool) {
 		return Output{Stdout: `[{"text":"Search"}]`}, true
 	case program(c) == "adb" && slices.Contains(c.Args, "logcat"):
 		return Output{Stdout: p.logcat}, true
+	case program(c) == "adb" && slices.Contains(c.Args, "monkey") && p.noLauncher:
+		return Output{Code: 252, Stdout: "  bash arg: -p\n** No activities found to run, monkey aborted.\n"}, true
 	case program(c) == "adb" && (slices.Contains(c.Args, "input") || slices.Contains(c.Args, "monkey")):
 		return Output{Stdout: "Events injected: 1"}, true
 	}
@@ -245,6 +249,34 @@ func TestLogcatKeepsTheLastMatchingLines(t *testing.T) {
 
 	assert.Contains(t, r.sys.ranCommands(),
 		"adb -s emulator-5554 logcat -d -v threadtime -t 5000 *:W")
+}
+
+// A level alone also reads many lines: logcat's -t counts lines before the
+// level filter, so the last lines read with -t 2 may hold no error at all.
+func TestLogcatAtALevelReadsBeforeKeepingTheLast(t *testing.T) {
+	t.Parallel()
+
+	r, tools := toolRig(t)
+	tools.logcat = "--------- beginning of main\na E one\nb E two\nc E three\n"
+
+	answer := call(t, r, "d-1", "device_logcat", `{"lines":2,"level":"E"}`)
+	require.False(t, answer.IsError, textOf(answer))
+	assert.Equal(t, "b E two\nc E three", textOf(answer))
+
+	assert.Contains(t, r.sys.ranCommands(),
+		"adb -s emulator-5554 logcat -d -v threadtime -t 5000 *:E")
+}
+
+// An app that is not installed is said so, without monkey's arguments.
+func TestLaunchingAnAppNotInstalledSaysSo(t *testing.T) {
+	t.Parallel()
+
+	r, tools := toolRig(t)
+	tools.noLauncher = true
+
+	answer := call(t, r, "d-1", "device_launch", `{"package":"vn.not.installed"}`)
+	assert.True(t, answer.IsError)
+	assert.Equal(t, "No app with the package vn.not.installed is installed on the phone, or it has no launcher.", textOf(answer))
 }
 
 // A call the phone cannot take is refused before the phone is started.
