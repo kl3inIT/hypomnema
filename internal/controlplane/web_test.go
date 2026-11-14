@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -30,10 +31,17 @@ func (c chatsWith) Key(chatID string) (string, bool) {
 	return k, ok
 }
 
+// stillClock is a clock that does not move: every row written by it shares one millisecond.
+type stillClock struct{}
+
+func (stillClock) Now() time.Time { return time.Date(2026, 11, 14, 9, 0, 0, 0, time.UTC) }
+
 // Scenario: a worker's search is recorded on its Dispatch's gateway key,
 // a Bot's on the key of its chat's pi, as model web/search with the
 // provider that answered; a page read as web/fetch. A worker whose Dispatch
-// has no gateway key, and a token of no chat, are not recorded.
+// has no gateway key, and a token of no chat, are not recorded. The calls are
+// recorded in one millisecond, as on a fast machine, and still read newest
+// first (issue #444).
 func TestEachWebCallIsRecordedOnTheKeyOfWhoAsked(t *testing.T) {
 	t.Parallel()
 
@@ -44,7 +52,7 @@ func TestEachWebCallIsRecordedOnTheKeyOfWhoAsked(t *testing.T) {
 	t.Cleanup(func() { _ = db.Close() })
 
 	svc := orchestration.New(db, platform.SystemClock{}, platform.NewID)
-	gateway := modelgateway.New(db, platform.SystemClock{}, platform.NewID, gatewayProviders(svc),
+	gateway := modelgateway.New(db, stillClock{}, platform.NewID, gatewayProviders(svc),
 		func(context.Context, string) (string, error) { return "", nil })
 
 	exa := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
