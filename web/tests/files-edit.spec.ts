@@ -270,12 +270,15 @@ test("the owner edits, saves and changes a chat's folder from the Files panel", 
   expect(f.files.get("docs/guide.md")?.content).toContain("More words.")
 
   // The agent writes the file while the owner edits it: the tab says so, and Overwrite saves over the new text.
+  // The owner's edit starts first: an edit starts from the file as the tab last read it, and the tab reads it
+  // every two seconds, so a file changed before the first key is the file the owner opened (issue #472).
+  await typeInEditor(page, " Mine.")
+  await expect(page.getByLabel("not saved")).toBeVisible()
   const now = f.files.get("docs/guide.md")
   f.files.set("docs/guide.md", {
     content: "# The agent's guide\n",
     version: (now?.version ?? 0) + 1,
   })
-  await typeInEditor(page, " Mine.")
   await expect(page.getByText("This file changed on its machine since you opened it.")).toBeVisible(
     { timeout: 10_000 },
   )

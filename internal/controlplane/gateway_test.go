@@ -42,7 +42,10 @@ func TestOwnerSetsUpTheGateway(t *testing.T) {
 
 	out, err = command(t, cfg, "gateway", "models", "list")
 	require.NoError(t, err)
-	assert.Equal(t, "gpt-sol\tchat\trouter:cx/gpt-6.1-sol\n", out)
+	assert.Equal(t, "claude-haiku-5-5\tchat\tclaude-subscription:claude-haiku-5-5\n"+
+		"claude-opus-5-5\tchat\tclaude-subscription:claude-opus-5-5\n"+
+		"claude-sonnet-5-5\tchat\tclaude-subscription:claude-sonnet-5-5\n"+
+		"gpt-sol\tchat\trouter:cx/gpt-6.1-sol\n", out, "beside the Claude models a fresh install is seeded with")
 
 	out, err = command(t, cfg, "gateway", "keys", "add", "pi", "--models", "gpt-sol")
 	require.NoError(t, err)

@@ -22,14 +22,19 @@ func TestTheStartingSetIsThere(t *testing.T) {
 	profiles, err := w.s.ListProfiles(ctx)
 	require.NoError(t, err)
 
-	// The seed, the seed with its description, and for the two that report in a set form, that form (issue #155).
-	versions := map[string]int{"explorer": 3, "implementer": 2, "reviewer": 3}
+	// The seed, the seed with its description, for the two that report in a set form that form (issue #155), and
+	// the model gateway's model (issue #462).
+	versions := map[string]int{"explorer": 4, "implementer": 3, "reviewer": 4}
+	models := map[string]string{
+		"explorer": "claude-sonnet-5-5", "implementer": "claude-opus-5-5", "reviewer": "claude-opus-5-5",
+	}
 
 	names := map[string]string{}
 	for _, p := range profiles {
 		names[p.Name] = p.Runtime
 		assert.NotEmpty(t, p.Description, "%s says what it is for", p.Name)
 		assert.Equal(t, versions[p.Name], p.Version, p.Name)
+		assert.Equal(t, []string{"model-gateway", models[p.Name]}, []string{p.Provider, p.Model}, p.Name)
 
 		// A seeded row holds what applying its own source would store.
 		same, created, err := w.s.ApplyProfile(ctx, p.Name, p.Source)
@@ -74,8 +79,8 @@ func TestAChangedProfileIsANewVersion(t *testing.T) {
 	v2, created, err := w.s.ApplyProfile(ctx, "", source)
 	require.NoError(t, err)
 	assert.True(t, created)
-	assert.Equal(t, 4, v2.Version, "after the two seeded and the world's own")
-	assert.Equal(t, "gateway", v2.Provider, "found from the model")
+	assert.Equal(t, 5, v2.Version, "after the three seeded and the world's own")
+	assert.Equal(t, "model-gateway", v2.Provider, "found from the model")
 
 	same, created, err := w.s.ApplyProfile(ctx, "", source)
 	require.NoError(t, err)
@@ -84,8 +89,8 @@ func TestAChangedProfileIsANewVersion(t *testing.T) {
 
 	versions, err := w.s.ListProfileVersions(ctx, "implementer")
 	require.NoError(t, err)
-	require.Len(t, versions, 4)
-	assert.Equal(t, 4, versions[0].Version, "newest first")
+	require.Len(t, versions, 5)
+	assert.Equal(t, 5, versions[0].Version, "newest first")
 
 	w.tasks(NewTask{Ref: "b", Spec: "b"})
 	second := w.dispatchOf(w.schedule().Created[0])
@@ -148,7 +153,7 @@ func TestAProfileIsCheckedWhenApplied(t *testing.T) {
 	p, _, err = w.s.ApplyProfile(t.Context(), "",
 		"name: x\ndescription: d\nruntime: claude\nmodel: {name: claude-sonnet-5-5}\n")
 	require.NoError(t, err)
-	assert.Equal(t, "gateway", p.Provider, "claude can use the gateway's kind alone")
+	assert.Equal(t, "model-gateway", p.Provider, "claude can use the gateway's kind alone")
 
 	_, err = w.s.ApplyProvider(t.Context(), "", "name: anthropic\nkind: anthropic\nmodels: [claude-sonnet-5-5]\n")
 	require.NoError(t, err)
@@ -156,7 +161,7 @@ func TestAProfileIsCheckedWhenApplied(t *testing.T) {
 	p, _, err = w.s.ApplyProfile(t.Context(), "",
 		"name: y\ndescription: d\nruntime: claude\nmodel: {name: claude-sonnet-5-5}\n")
 	require.NoError(t, err)
-	assert.Equal(t, "gateway", p.Provider, "nor an API of Anthropic's")
+	assert.Equal(t, "model-gateway", p.Provider, "nor an API of Anthropic's")
 
 	_, err = w.s.ApplyProvider(t.Context(), "", "name: gateway-2\nkind: model_gateway\nmodels: [claude-sonnet-5-5]\n")
 	require.NoError(t, err)
@@ -267,7 +272,8 @@ func TestMigrationRemovesClaudesShortNames(t *testing.T) {
 	assert.Contains(t, claude.Source, "models: [claude-opus-5-5, claude-sonnet-5-5, claude-haiku-5-5]\n")
 
 	var models, upstream string
-	require.NoError(t, db.QueryRowContext(ctx, `SELECT group_concat(name) FROM gateway_models`).Scan(&models))
+	require.NoError(t, db.QueryRowContext(ctx,
+		`SELECT group_concat(name) FROM gateway_models WHERE name IN ('opus', 'top')`).Scan(&models))
 	assert.Equal(t, "top", models)
 	require.NoError(t, db.QueryRowContext(ctx,
 		`SELECT upstream_model FROM gateway_model_targets WHERE model = 'top'`).Scan(&upstream))

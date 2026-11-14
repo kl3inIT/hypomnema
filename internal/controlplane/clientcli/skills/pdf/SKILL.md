@@ -37,7 +37,7 @@ Create PDFs from structured specs, build and fill AcroForm forms (with layout li
 
 ## How to Run
 
-All helpers live in `scripts/` (`$S` above) and are argparse CLIs — run them with the `bash` tool; every one supports `--help`. They read/write JSON strictly as UTF-8, print JSON results to stdout, and exit non-zero on failure.
+All helpers live in `scripts/` (`$S` above) and are argparse CLIs — run them with the `bash` tool; every one supports `--help`. They read/write JSON strictly as UTF-8, print JSON results to stdout, and exit non-zero on failure. `pdf_read.py` takes exactly one of `--text`, `--tables`, `--meta`, `--fields` per run; for text and metadata run it twice.
 
 ```bash
 python "$S/pdf_create.py" spec.json -o out.pdf         # build PDF from JSON spec
@@ -86,7 +86,22 @@ python "$S/pdf_meta.py" doc.pdf --list-attachments | --extract-attachments dir/
 ## Procedure
 
 1. **Inspect first.** Run `pdf_read.py file.pdf --meta`. Check `encrypted` (if true, decrypt first with `pdf_secure.py --decrypt`) and `likely_scanned_pages`. If pages are image-only, export them with `pdf_page_image.py --pages <scanned> --dpi 300 --out-dir imgs/` and look at the PNGs with `read` — do not report empty text as "no content".
-2. **Create.** Write a JSON spec with `write` (elements: `heading`, `paragraph`, `table`, `image`, `pagebreak`; optional `title`/`author` metadata; page numbers are added automatically), then run `pdf_create.py`. Verify visually with `read` on a rendered page image if layout matters.
+2. **Create.** Write a JSON spec with `write` (elements: `heading`, `paragraph`, `table`, `image`, `pagebreak`; optional `title`/`author` metadata; `page_size` is `"A4"` or `"letter"`; page numbers are added automatically, `"page_numbers": false` turns them off), then run `pdf_create.py`. Verify visually with `read` on a rendered page image if layout matters. Text outside Latin-1, such as Vietnamese, needs a TTF font: see "Vietnamese and other non-Latin text" below.
+
+   ```json
+   {
+     "title": "Example Report",
+     "author": "example-author",
+     "page_size": "A4",
+     "elements": [
+       {"type": "heading", "text": "Section 1", "level": 1},
+       {"type": "paragraph", "text": "Body text..."},
+       {"type": "table", "rows": [["H1", "H2"], ["a", "b"]], "header": true},
+       {"type": "image", "path": "chart.png", "width": 400},
+       {"type": "pagebreak"}
+     ]
+   }
+   ```
 3. **Extract.** `--text` gives a JSON list of per-page strings; `--tables` gives row arrays per page and can also emit CSV files. Read results with `read`; never eyeball a binary PDF directly.
 4. **Manipulate.** `pdf_merge.py` concatenates and can add one bookmark per source file; `pdf_split.py` handles page ranges (1-based, e.g. `1-3,5,9-`), rotation in 90° steps, and `--compress`. Watermark by preparing a single-page stamp PDF (e.g. via `pdf_create.py`) and overlaying it with `pdf_watermark.py`; for one-liner stamps ("sign here", diagonal DRAFT, corner labels) use `pdf_stamp.py` with text or an image at explicit coordinates.
 5. **Build forms.** Write one form-spec JSON (fields with `label_box`/`entry_box` in PDF points — see `references/forms.md`), lint it with `pdf_form_layout.py` and fix every reported problem, optionally review the `--render-overlay` PNG with `read`, then build with `pdf_make_form.py` and confirm with `pdf_read.py --fields`.
@@ -94,6 +109,46 @@ python "$S/pdf_meta.py" doc.pdf --list-attachments | --extract-attachments dir/
 7. **Metadata & attachments.** `pdf_meta.py --set-meta` writes Title/Author/Subject/Keywords (DocInfo); `--clear-meta` drops them; `--attach`/`--list-attachments`/`--extract-attachments` round-trip embedded files.
 8. **Secure.** Encrypt with distinct user/owner passwords and AES-256. To remove a password you know, `--decrypt` writes an unencrypted copy.
 9. **Verify** (see below) before reporting success.
+
+## Vietnamese and other non-Latin text
+
+reportlab's built-in fonts (Helvetica, which `pdf_create.py`, `pdf_make_form.py` and `pdf_stamp.py` draw with) have no glyphs outside Latin-1: Vietnamese letters such as "ư", "ạ", "ố" come out as black boxes or nothing. For such text, register a TTF that covers it and write the document with reportlab directly. DejaVu Sans covers Vietnamese; check it is there first:
+
+```bash
+F=/usr/share/fonts/truetype/dejavu
+test -f "$F/DejaVuSans.ttf" && test -f "$F/DejaVuSans-Bold.ttf" && echo ok || fc-list ':lang=vi' file
+```
+
+If it is missing, `fc-list ':lang=vi' file` lists the fonts that cover Vietnamese; use one of those paths. If none is listed, say so; do not deliver a PDF whose letters are boxes.
+
+```python
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
+from reportlab.platypus import Paragraph, SimpleDocTemplate, Table, TableStyle
+
+F = "/usr/share/fonts/truetype/dejavu"
+pdfmetrics.registerFont(TTFont("DejaVuSans", f"{F}/DejaVuSans.ttf"))
+pdfmetrics.registerFont(TTFont("DejaVuSans-Bold", f"{F}/DejaVuSans-Bold.ttf"))
+pdfmetrics.registerFontFamily("DejaVuSans", normal="DejaVuSans", bold="DejaVuSans-Bold")
+
+styles = getSampleStyleSheet()
+heading, body = styles["Heading1"], styles["BodyText"]
+heading.fontName, body.fontName = "DejaVuSans-Bold", "DejaVuSans"
+
+table = Table([["Miền", "Doanh thu"], ["Bắc", "120"]], repeatRows=1)
+table.setStyle(TableStyle([
+    ("FONTNAME", (0, 0), (-1, -1), "DejaVuSans"),
+    ("FONTNAME", (0, 0), (-1, 0), "DejaVuSans-Bold"),
+    ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+]))
+SimpleDocTemplate("out.pdf", pagesize=A4, title="Doanh thu").build(
+    [Paragraph("Doanh thu ba miền", heading), Paragraph("Đơn vị: triệu đồng.", body), table])
+```
+
+Then check both the text (`pdf_read.py out.pdf --text` shows the diacritics) and the look (`pdf_page_image.py` and `read`): extracted text can be right while the page shows boxes.
 
 ## Pitfalls
 

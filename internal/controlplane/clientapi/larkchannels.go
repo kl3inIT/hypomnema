@@ -4,8 +4,9 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/kl3inIT/hypomnema/internal/controlplane/channels"
+	larkchannel "github.com/kl3inIT/hypomnema/internal/controlplane/channels/lark"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
-	"github.com/kl3inIT/hypomnema/internal/controlplane/larkbot"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/channelstore"
 )
@@ -16,9 +17,9 @@ import (
 
 // LarkChannels is what the API asks of the Channels' settings.
 type LarkChannels interface {
-	List(ctx context.Context) ([]larkbot.Status, error)
-	Status(ctx context.Context, channel string) (larkbot.Status, error)
-	Set(ctx context.Context, channel string, set larkbot.Settings) (larkbot.Status, error)
+	List(ctx context.Context) ([]channels.Status, error)
+	Status(ctx context.Context, channel string) (channels.Status, error)
+	Set(ctx context.Context, channel string, set larkchannel.Settings) (channels.Status, error)
 	Remove(ctx context.Context, channel string) error
 	AddPerson(ctx context.Context, channel, who string) (channelstore.ChannelPerson, error)
 	RemovePerson(ctx context.Context, channel, who string) error
@@ -39,7 +40,7 @@ func toLarkChannelPerson(p channelstore.ChannelPerson) openapi.LarkChannelPerson
 	return openapi.LarkChannelPerson{OpenId: p.PersonID, Email: p.Email, Name: p.Name, CreatedAt: p.CreatedAt}
 }
 
-func toLarkChannel(st larkbot.Status) openapi.LarkChannel {
+func toLarkChannel(st channels.Status) openapi.LarkChannel {
 	out := openapi.LarkChannel{
 		Name: st.Channel.Name, Bot: st.Channel.Bot, AppId: st.Channel.AppID,
 		Mode: openapi.LarkChannelMode(st.Channel.Mode), OwnerOpenId: st.Channel.OwnerID,
@@ -132,7 +133,7 @@ func (s *Server) PutLarkChannel(ctx context.Context, req openapi.PutLarkChannelR
 		return nil, errNoLarkChannels
 	}
 
-	set := larkbot.Settings{
+	set := larkchannel.Settings{
 		AppID: val(req.Body.AppId), AppSecret: val(req.Body.AppSecret), Owner: val(req.Body.Owner),
 		Bot: val(req.Body.Bot), Enabled: req.Body.Enabled, WebLink: req.Body.WebLink,
 	}
