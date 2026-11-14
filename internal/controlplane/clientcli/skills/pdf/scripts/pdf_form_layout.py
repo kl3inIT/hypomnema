@@ -17,7 +17,7 @@ exit 0 when clean, 1 when any check fails.
 --render-overlay OUT.png rasterizes --overlay-page (default 1) of an
 existing PDF (--pdf; a blank page of spec size if omitted) and draws
 label boxes (blue) and entry boxes (red) with field names, for
-review with `vision_analyze`. If no rasterizer (pypdfium2/pdftoppm) is
+review with `read`. If no rasterizer (pypdfium2/pdftoppm) is
 available the overlay is skipped with {"rendered": false, "missing": [...]}
 and validation exit status is unchanged.
 """

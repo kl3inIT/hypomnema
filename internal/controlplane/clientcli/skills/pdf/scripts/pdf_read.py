@@ -95,8 +95,7 @@ def read_meta(path: str, password: str | None) -> dict:
         "likely_scanned_pages": likely_scanned,
     }
     if likely_scanned:
-        out["note"] = ("Image-only pages detected: no text layer to extract. "
-                       "Use the references/ocr-extraction.md in this skill for OCR.")
+        out["note"] = "Image-only pages detected: no text layer to extract."
     return out
 
 

@@ -83,7 +83,7 @@ Red rectangles = entry boxes (with field names), blue = label boxes.
 Without `--pdf` the overlay is drawn on a blank page (PIL-only, always
 works); with `--pdf` the real page is rasterized underneath
 (needs pypdfium2 or pdftoppm — otherwise the report says
-`"rendered": false` with install hints). Feed the PNG to `vision_analyze`
+`"rendered": false` with install hints). Look at the PNG with `read`
 and ask specifically about collisions, alignment, and stray labels.
 
 ## Radio-group quirks (reportlab + pypdf)
