@@ -10,6 +10,36 @@ import (
 	"database/sql"
 )
 
+const countGatewaySearch = `-- name: CountGatewaySearch :exec
+INSERT INTO gateway_search_usage (provider, key, day, answered, failed, cost_micros)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+ON CONFLICT (provider, key, day) DO UPDATE SET
+    answered = answered + excluded.answered, failed = failed + excluded.failed,
+    cost_micros = cost_micros + excluded.cost_micros
+`
+
+type CountGatewaySearchParams struct {
+	Provider   string
+	Key        string
+	Day        string
+	Answered   int64
+	Failed     int64
+	CostMicros int64
+}
+
+// Each web search call, counted by its UTC day (issue #393).
+func (q *Queries) CountGatewaySearch(ctx context.Context, arg CountGatewaySearchParams) error {
+	_, err := q.db.ExecContext(ctx, countGatewaySearch,
+		arg.Provider,
+		arg.Key,
+		arg.Day,
+		arg.Answered,
+		arg.Failed,
+		arg.CostMicros,
+	)
+	return err
+}
+
 const deleteGatewayModel = `-- name: DeleteGatewayModel :execrows
 DELETE FROM gateway_models WHERE name = ?1
 `
@@ -419,10 +449,10 @@ func (q *Queries) ListGatewayModels(ctx context.Context) ([]GatewayModel, error)
 }
 
 const listGatewaySearchProviders = `-- name: ListGatewaySearchProviders :many
-SELECT provider, off, base_url, updated_at FROM gateway_search_providers ORDER BY provider
+SELECT provider, off, updated_at, position FROM gateway_search_providers ORDER BY provider
 `
 
-// What the owner set for the web search providers (issue #354).
+// What the owner set for the web search providers (issues #354, #393).
 func (q *Queries) ListGatewaySearchProviders(ctx context.Context) ([]GatewaySearchProvider, error) {
 	rows, err := q.db.QueryContext(ctx, listGatewaySearchProviders)
 	if err != nil {
@@ -435,8 +465,42 @@ func (q *Queries) ListGatewaySearchProviders(ctx context.Context) ([]GatewaySear
 		if err := rows.Scan(
 			&i.Provider,
 			&i.Off,
-			&i.BaseUrl,
 			&i.UpdatedAt,
+			&i.Position,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listGatewaySearchUsage = `-- name: ListGatewaySearchUsage :many
+SELECT provider, "key", day, answered, failed, cost_micros FROM gateway_search_usage WHERE day >= ?1 ORDER BY provider, key, day
+`
+
+func (q *Queries) ListGatewaySearchUsage(ctx context.Context, since string) ([]GatewaySearchUsage, error) {
+	rows, err := q.db.QueryContext(ctx, listGatewaySearchUsage, since)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []GatewaySearchUsage{}
+	for rows.Next() {
+		var i GatewaySearchUsage
+		if err := rows.Scan(
+			&i.Provider,
+			&i.Key,
+			&i.Day,
+			&i.Answered,
+			&i.Failed,
+			&i.CostMicros,
 		); err != nil {
 			return nil, err
 		}
@@ -617,6 +681,15 @@ func (q *Queries) ListUsageRequests(ctx context.Context, arg ListUsageRequestsPa
 	return items, nil
 }
 
+const pruneGatewaySearchUsage = `-- name: PruneGatewaySearchUsage :exec
+DELETE FROM gateway_search_usage WHERE day < ?1
+`
+
+func (q *Queries) PruneGatewaySearchUsage(ctx context.Context, before string) error {
+	_, err := q.db.ExecContext(ctx, pruneGatewaySearchUsage, before)
+	return err
+}
+
 const revokeGatewayChatKeys = `-- name: RevokeGatewayChatKeys :execrows
 UPDATE gateway_keys SET revoked_at = ?1 WHERE chat_id IS NOT NULL AND revoked_at IS NULL
 `
@@ -680,22 +753,6 @@ func (q *Queries) RevokeGatewayKeysOfDispatch(ctx context.Context, arg RevokeGat
 	return result.RowsAffected()
 }
 
-const setGatewaySearchBaseURL = `-- name: SetGatewaySearchBaseURL :exec
-INSERT INTO gateway_search_providers (provider, base_url, updated_at) VALUES (?1, ?2, ?3)
-ON CONFLICT (provider) DO UPDATE SET base_url = excluded.base_url, updated_at = excluded.updated_at
-`
-
-type SetGatewaySearchBaseURLParams struct {
-	Provider string
-	BaseUrl  sql.NullString
-	Now      int64
-}
-
-func (q *Queries) SetGatewaySearchBaseURL(ctx context.Context, arg SetGatewaySearchBaseURLParams) error {
-	_, err := q.db.ExecContext(ctx, setGatewaySearchBaseURL, arg.Provider, arg.BaseUrl, arg.Now)
-	return err
-}
-
 const setGatewaySearchOff = `-- name: SetGatewaySearchOff :exec
 INSERT INTO gateway_search_providers (provider, off, updated_at) VALUES (?1, ?2, ?3)
 ON CONFLICT (provider) DO UPDATE SET off = excluded.off, updated_at = excluded.updated_at
@@ -709,6 +766,22 @@ type SetGatewaySearchOffParams struct {
 
 func (q *Queries) SetGatewaySearchOff(ctx context.Context, arg SetGatewaySearchOffParams) error {
 	_, err := q.db.ExecContext(ctx, setGatewaySearchOff, arg.Provider, arg.Off, arg.Now)
+	return err
+}
+
+const setGatewaySearchPosition = `-- name: SetGatewaySearchPosition :exec
+INSERT INTO gateway_search_providers (provider, position, updated_at) VALUES (?1, ?2, ?3)
+ON CONFLICT (provider) DO UPDATE SET position = excluded.position, updated_at = excluded.updated_at
+`
+
+type SetGatewaySearchPositionParams struct {
+	Provider string
+	Position sql.NullInt64
+	Now      int64
+}
+
+func (q *Queries) SetGatewaySearchPosition(ctx context.Context, arg SetGatewaySearchPositionParams) error {
+	_, err := q.db.ExecContext(ctx, setGatewaySearchPosition, arg.Provider, arg.Position, arg.Now)
 	return err
 }
 

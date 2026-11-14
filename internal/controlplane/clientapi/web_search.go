@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
@@ -12,30 +13,28 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/websearch"
 )
 
-// The Web search page of Settings → Gateway (issue #354, PR 3): the search
+// The Web search page of Settings → Gateway (issues #354, #393): the search
 // chain in order, each provider with where its search comes from, the
-// owner's switch and its state, as OmniRoute lists its search providers
-// (src/app/(dashboard)/dashboard/media-providers/[kind]) and 9router its
-// web providers (/v1/models/web). An account is added once, on the Models
-// page: a subscription is ready here while an account of it is in use.
-// Exa's key is entered here and kept in the vault, as OmniRoute and 9router
-// take a search provider's key on its own page (a password field); its
-// value is never answered. SearXNG's address is entered here too, as
-// OmniRoute's and OpenClaw's base URL field.
+// owner's switch, its state, its keys and how much of it is used, as
+// OmniRoute lists its search providers
+// (src/app/(dashboard)/dashboard/media-providers/[kind]) and search-rotation
+// its engines with their balances (static/app.js). An account is added once,
+// on the Models page: a subscription is ready here while an account of it is
+// in use. A provider's keys are entered here and kept in the vault, one
+// secret a key (websearch.KeyName), as OmniRoute and 9router take a search
+// provider's key on its own page (a password field) and mcp-nexus keeps a
+// pool of Tavily keys; a value is never answered.
 
 // WebSearchSettings is the chain and what the owner sets of it.
 type WebSearchSettings interface {
 	Chain(ctx context.Context) ([]websearch.Link, error)
 	SetSearchProvider(ctx context.Context, provider string, on bool) error
-	// SetSearXNG keeps SearXNG's address; "" forgets it.
-	SetSearXNG(ctx context.Context, address string) error
+	SetSearchOrder(ctx context.Context, providers []string) error
 }
 
-// WithWebSearch gives the API the web search chain and the name of the
-// vault secret that holds Exa's key.
-func (s *Server) WithWebSearch(w WebSearchSettings, exaSecret string) *Server {
+// WithWebSearch gives the API the web search chain.
+func (s *Server) WithWebSearch(w WebSearchSettings) *Server {
 	s.webSearch = w
-	s.exaSecret = exaSecret
 
 	return s
 }
@@ -72,12 +71,20 @@ func (s *Server) SetWebSearchProvider(ctx context.Context, req openapi.SetWebSea
 	return openapi.SetWebSearchProvider200JSONResponse(out), nil
 }
 
-// PutWebSearchExaKey keeps Exa's key in the vault. The key is not logged and
-// is not in the answer.
-func (s *Server) PutWebSearchExaKey(ctx context.Context, req openapi.PutWebSearchExaKeyRequestObject,
-) (openapi.PutWebSearchExaKeyResponseObject, error) {
-	if err := s.changeExaKey(ctx, strings.TrimSpace(val(req.Body.Key))); err != nil {
-		return nil, err
+// SetWebSearchOrder keeps the keyed providers' order and answers the chain.
+func (s *Server) SetWebSearchOrder(ctx context.Context, req openapi.SetWebSearchOrderRequestObject,
+) (openapi.SetWebSearchOrderResponseObject, error) {
+	if s.webSearch == nil {
+		return nil, errNoWebSearch
+	}
+
+	order := make([]string, 0, len(req.Body.Providers))
+	for _, p := range req.Body.Providers {
+		order = append(order, string(p))
+	}
+
+	if err := s.webSearch.SetSearchOrder(ctx, order); err != nil {
+		return nil, gatewayKeyError(err)
 	}
 
 	out, err := s.webSearchChain(ctx)
@@ -85,53 +92,37 @@ func (s *Server) PutWebSearchExaKey(ctx context.Context, req openapi.PutWebSearc
 		return nil, err
 	}
 
-	return openapi.PutWebSearchExaKey200JSONResponse(out), nil
+	return openapi.SetWebSearchOrder200JSONResponse(out), nil
 }
 
-// DeleteWebSearchExaKey removes Exa's key; a key that is not there is removed already.
-func (s *Server) DeleteWebSearchExaKey(ctx context.Context, _ openapi.DeleteWebSearchExaKeyRequestObject,
-) (openapi.DeleteWebSearchExaKeyResponseObject, error) {
-	if err := s.changeExaKey(ctx, ""); err != nil {
-		return nil, err
-	}
+// AddWebSearchKey keeps one more key of a provider in the vault, under the
+// lowest free name. The key is not logged and is not in the answer.
+func (s *Server) AddWebSearchKey(ctx context.Context, req openapi.AddWebSearchKeyRequestObject,
+) (openapi.AddWebSearchKeyResponseObject, error) {
+	key := strings.TrimSpace(val(req.Body.Key))
 
-	out, err := s.webSearchChain(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	return openapi.DeleteWebSearchExaKey200JSONResponse(out), nil
-}
-
-// changeExaKey keeps Exa's key, or removes it when key is "".
-func (s *Server) changeExaKey(ctx context.Context, key string) error {
 	switch {
 	case s.webSearch == nil:
-		return errNoWebSearch
+		return nil, errNoWebSearch
 	case s.secrets == nil:
-		return errNoSecrets
-	case key != "":
-		_, err := s.secrets.Put(ctx, s.exaSecret, map[string]string{"value": key})
-
-		return err
+		return nil, errNoSecrets
+	case key == "":
+		return nil, fmt.Errorf("%w: the key is empty", orchestration.ErrInvalid)
 	}
 
-	if err := s.secrets.Delete(ctx, s.exaSecret); err != nil && !errors.Is(err, orchestration.ErrNotFound) {
-		return err
+	secrets, err := s.secrets.List(ctx)
+	if err != nil {
+		return nil, err
 	}
 
-	return nil
-}
-
-// PutWebSearchSearXNG keeps SearXNG's address.
-func (s *Server) PutWebSearchSearXNG(ctx context.Context, req openapi.PutWebSearchSearXNGRequestObject,
-) (openapi.PutWebSearchSearXNGResponseObject, error) {
-	if s.webSearch == nil {
-		return nil, errNoWebSearch
+	taken := make([]string, 0, len(secrets))
+	for _, i := range secrets {
+		taken = append(taken, i.Name)
 	}
 
-	if err := s.webSearch.SetSearXNG(ctx, req.Body.Url); err != nil {
-		return nil, gatewayKeyError(err)
+	name := websearch.NextKeyName(string(req.Provider), taken)
+	if _, err := s.secrets.Put(ctx, name, map[string]string{"value": key}); err != nil {
+		return nil, err
 	}
 
 	out, err := s.webSearchChain(ctx)
@@ -139,18 +130,24 @@ func (s *Server) PutWebSearchSearXNG(ctx context.Context, req openapi.PutWebSear
 		return nil, err
 	}
 
-	return openapi.PutWebSearchSearXNG200JSONResponse(out), nil
+	return openapi.AddWebSearchKey201JSONResponse{Name: name, WebSearch: out}, nil
 }
 
-// DeleteWebSearchSearXNG forgets SearXNG's address.
-func (s *Server) DeleteWebSearchSearXNG(ctx context.Context, _ openapi.DeleteWebSearchSearXNGRequestObject,
-) (openapi.DeleteWebSearchSearXNGResponseObject, error) {
-	if s.webSearch == nil {
+// RemoveWebSearchKey removes one of a provider's keys; a key that is not
+// there is removed already.
+func (s *Server) RemoveWebSearchKey(ctx context.Context, req openapi.RemoveWebSearchKeyRequestObject,
+) (openapi.RemoveWebSearchKeyResponseObject, error) {
+	switch provider, _, ok := websearch.ParseKeyName(req.Name); {
+	case s.webSearch == nil:
 		return nil, errNoWebSearch
+	case s.secrets == nil:
+		return nil, errNoSecrets
+	case !ok || provider != string(req.Provider):
+		return nil, fmt.Errorf("%w: %q is not a name of %s's keys", orchestration.ErrInvalid, req.Name, req.Provider)
 	}
 
-	if err := s.webSearch.SetSearXNG(ctx, ""); err != nil {
-		return nil, gatewayKeyError(err)
+	if err := s.secrets.Delete(ctx, req.Name); err != nil && !errors.Is(err, orchestration.ErrNotFound) {
+		return nil, err
 	}
 
 	out, err := s.webSearchChain(ctx)
@@ -158,7 +155,7 @@ func (s *Server) DeleteWebSearchSearXNG(ctx context.Context, _ openapi.DeleteWeb
 		return nil, err
 	}
 
-	return openapi.DeleteWebSearchSearXNG200JSONResponse(out), nil
+	return openapi.RemoveWebSearchKey200JSONResponse(out), nil
 }
 
 func (s *Server) webSearchChain(ctx context.Context) (openapi.WebSearch, error) {
@@ -186,16 +183,13 @@ func (s *Server) webSearchChain(ctx context.Context) (openapi.WebSearch, error) 
 		}
 	}
 
-	out := openapi.WebSearch{Chain: make([]openapi.WebSearchLink, 0, len(links)), ExaSecret: s.exaSecret}
+	out := openapi.WebSearch{Chain: make([]openapi.WebSearchLink, 0, len(links))}
 
 	for _, l := range links {
-		if l.Address != "" {
-			out.SearxngUrl = ptr(l.Address)
-		}
-
 		usable := l.Usable && (l.Source != websearch.SourceSubscription || signedIn[l.Provider])
 		link := openapi.WebSearchLink{
 			Provider: openapi.WebSearchProvider(l.Provider), Source: openapi.WebSearchLinkSource(l.Source), On: l.On,
+			Usage: toWebSearchUsage(l.Usage), RestingUntil: timePtr(l.RestingUntil), Rest: restPtr(l.Rest),
 		}
 
 		switch {
@@ -209,12 +203,71 @@ func (s *Server) webSearchChain(ctx context.Context) (openapi.WebSearch, error) 
 			link.State = openapi.WebSearchLinkStateReady
 		}
 
-		if !l.RestingUntil.IsZero() {
-			link.RestingUntil = ptr(l.RestingUntil)
+		if l.Source == websearch.SourceKey {
+			keys := make([]openapi.WebSearchKey, 0, len(l.Keys))
+			for _, k := range l.Keys {
+				keys = append(keys, toWebSearchKey(k))
+			}
+
+			link.Keys = &keys
 		}
 
 		out.Chain = append(out.Chain, link)
 	}
 
 	return out, nil
+}
+
+func toWebSearchKey(k websearch.KeyState) openapi.WebSearchKey {
+	out := openapi.WebSearchKey{
+		Name: k.Name, State: openapi.WebSearchKeyStateReady, Usage: toWebSearchUsage(k.Usage),
+		RestingUntil: timePtr(k.RestingUntil), Rest: restPtr(k.Rest), LastUsedAt: timePtr(k.LastUsed),
+	}
+
+	switch {
+	case !k.RestingUntil.IsZero():
+		out.State = openapi.WebSearchKeyStateResting
+	case k.Spent:
+		out.State = openapi.WebSearchKeyStateSpent
+	}
+
+	if k.Balance != nil {
+		out.Balance = &openapi.WebSearchBalance{
+			Used: float32(k.Balance.Used), Limit: float32(k.Balance.Limit), Remaining: float32(k.Balance.Remaining),
+			CheckedAt: k.Balance.CheckedAt,
+		}
+	}
+
+	return out
+}
+
+func toWebSearchUsage(c websearch.Count) openapi.WebSearchUsage {
+	out := openapi.WebSearchUsage{
+		Today: openapi.WebSearchTally{Answered: c.Today.Answered, Failed: c.Today.Failed},
+		Month: openapi.WebSearchTally{Answered: c.Month.Answered, Failed: c.Month.Failed},
+	}
+
+	if c.MonthDollars > 0 {
+		out.MonthDollars = ptr(float32(c.MonthDollars))
+	}
+
+	return out
+}
+
+func timePtr(t time.Time) *time.Time {
+	if t.IsZero() {
+		return nil
+	}
+
+	return &t
+}
+
+func restPtr(why string) *openapi.WebSearchRest {
+	if why == "" {
+		return nil
+	}
+
+	r := openapi.WebSearchRest(why)
+
+	return &r
 }

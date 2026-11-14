@@ -1,6 +1,7 @@
 package modelgateway_test
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -17,8 +18,8 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/websearch"
 )
 
-// webGateway is a gateway whose web search asks fake providers: Exa's MCP
-// answers with one result, Parallel's with 429; and whose fetch may read
+// webGateway is a gateway whose web search asks one fake provider, Exa's
+// MCP, which answers as exaMCP does; and whose fetch may read
 // the page server the test runs.
 func webGateway(t *testing.T, exaMCP http.HandlerFunc) (chatGateway, *httptest.Server) {
 	t.Helper()
@@ -41,8 +42,13 @@ func webGateway(t *testing.T, exaMCP http.HandlerFunc) (chatGateway, *httptest.S
 	allow, err := egress.ParseAllow([]string{pageURL.Host})
 	require.NoError(t, err)
 
+	// Only Exa's MCP is on among the keyless providers, so that the ring's moving start cannot change who answers;
+	// the others are pointed at the 429 server, so no test reaches the internet.
+	off := websearch.Settings{Off: []string{"parallel", "firecrawl", "tavily", "you"}}
 	web := websearch.New(websearch.Config{
-		ExaMCPURL: exa.URL, ParallelMCPURL: parallel.URL, Rules: egress.Rules{Allow: allow},
+		ExaMCPURL: exa.URL, ParallelMCPURL: parallel.URL, TavilyURL: parallel.URL, FirecrawlURL: parallel.URL,
+		YouMCPURL: parallel.URL, Rules: egress.Rules{Allow: allow},
+		Settings: func(context.Context) (websearch.Settings, error) { return off, nil },
 	})
 	upstream, _ := provider(t, plain(http.StatusOK, answer))
 
@@ -128,7 +134,7 @@ func TestAWebCallThatFailsSaysWhy(t *testing.T) {
 
 	require.NoError(t, json.Unmarshal([]byte(answer), &failed))
 	assert.Equal(t, "upstream_failed", failed.Error.Code)
-	assert.Contains(t, failed.Error.Message, "exa (public MCP: rate limited (429)); parallel (public MCP: rate limited")
+	assert.Contains(t, failed.Error.Message, "exa (public MCP: rate limited (429))")
 
 	u := g.lastUsage(t)
 	assert.Equal(t, modelgateway.ModelWebSearch, u.Model)

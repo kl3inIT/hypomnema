@@ -1,6 +1,11 @@
 package clientcli
 
-import "flag"
+import (
+	"flag"
+	"strings"
+
+	"github.com/kl3inIT/hypomnema/internal/controlplane/websearch"
+)
 
 // commands is every command this package runs. The coordinator skill names
 // only these, with only these flags (TestSkillCommandsParse).
@@ -571,8 +576,8 @@ var commands = []command{
 		summary: "search the web: each result's title, address, date and snippet, and which provider answered",
 		flags: func(fs *flag.FlagSet) {
 			fs.Int("max-results", 0, "how many results, 1 to 20 (default 5)")
-			fs.String("provider", "", "ask only this provider: exa, searxng, parallel, codex, claude or antigravity "+
-				"(default: the first that answers)")
+			fs.String("provider", "", "ask only this provider: "+strings.Join(websearch.Providers(), ", ")+
+				" (default: the first that answers)")
 			jsonFlag(fs)
 		},
 		run: webSearch,
@@ -591,25 +596,23 @@ var commands = []command{
 		summary: "switch a web search provider on or off (owner)", flags: jsonFlag, run: webProvidersSet,
 	},
 	{
-		name: "web exa-key set", summary: "keep Exa's API key in the vault, for searches to ask Exa with it (owner)",
+		name: "web keys add", args: "<provider>", min: 1, max: 1,
+		summary: "keep one more API key of exa, firecrawl, parallel, tavily or tinyfish in the vault (owner)",
 		flags: func(fs *flag.FlagSet) {
 			fs.String("key-file", "", "the file holding the key, or - for standard input")
 			jsonFlag(fs)
 		},
-		run: webExaKeySet,
+		run: webKeysAdd,
 	},
 	{
-		name: "web exa-key rm", summary: "remove Exa's API key; Exa is then asked without one (owner)",
-		flags: jsonFlag, run: webExaKeyRemove,
+		name: "web keys rm", args: "<provider> <name>", min: 2, max: 2,
+		summary: "remove one of a provider's keys from the vault, by its name (owner)",
+		flags:   jsonFlag, run: webKeysRemove,
 	},
 	{
-		name: "web searxng set", args: "<url>", min: 1, max: 1,
-		summary: "set the address of your SearXNG, which searches ask after Exa with its key (owner)",
-		flags:   jsonFlag, run: webSearXNGSet,
-	},
-	{
-		name: "web searxng rm", summary: "forget SearXNG's address; SearXNG is then not asked (owner)",
-		flags: jsonFlag, run: webSearXNGRemove,
+		name: "web order", args: "<provider>...", min: 5, max: 5,
+		summary: "the order a search tries the keyed providers in, each named once (owner)",
+		flags:   jsonFlag, run: webOrder,
 	},
 	{
 		name: "skills list", summary: "the skills the owner added, each at its newest revision",

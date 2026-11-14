@@ -23,9 +23,9 @@ messages and nothing answers. `HYPOMNEMA_BOT_FILES_COMMAND` (a JSON array, `sudo
 the files a Bot sends into a Lark chat; unset, the panel shows only the Tasks' worktrees and a Bot's files are not
 sent. `HYPOMNEMA_ROUTINE_COMMAND` (a JSON array) runs a script Routine for
 the Bot's name and the Routine's id appended to it; unset, a script Routine's run fails and says so.
-`HYPOMNEMA_WEB_SEARCH_EXA_SECRET` (default `web-search-exa`) names the vault secret that holds Exa's API key;
-while there is no such secret Exa is asked without a key. Which search providers are on and SearXNG's address are
-set on Settings → Gateway → Web search and stored (see "Web search and fetch").
+The web search providers' keys are vault secrets named `web-search-<provider>` and `web-search-<provider>-<n>`;
+which providers are on and the keyed ones' order are set on Settings → Gateway → Web search and stored (see "Web
+search and fetch").
 
 The coordinator (`internal/controlplane/coordinator`, issue #41 PR 3): `serve` runs one `pi --mode rpc` per chat
 that has something for pi, as the chat's Bot (`--bot`, and `--group` for a Lark group's chat) with the chat's model
@@ -397,7 +397,7 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     is. When the Bot cannot be read pi does not start.
   - A Bot searches the web and reads a page (issue #354, after 9router's `skills/9router-web-search`): `POST
     /web/search` `{query, max_results?, provider?}` and `POST /web/fetch` `{url}`, for any token, and `hypomnema web
-    search <query> [--max-results N] [--provider exa|searxng|parallel|codex|claude|antigravity]` and `hypomnema web fetch <url>`, which print
+    search <query> [--max-results N] [--provider exa|firecrawl|parallel|tavily|tinyfish|you|codex|claude|antigravity]` and `hypomnema web fetch <url>`, which print
     the results or the page marked as outside content (`--json`: the API's answer). Both are "Web search and fetch"
     (below), the call recorded on the gateway key of the chat's running pi. The skill `web-search`, which this binary
     ships, says when to use them, and the instructions every Bot gets name it; `hypomnema skills install --agent
@@ -1577,32 +1577,57 @@ not exist yet.
   stream and are read and written only by this package, through its own generated queries. Providers are read
   through orchestration and keys through the vault.
 
-Web search and fetch (`internal/controlplane/websearch`, issue #354,
+Web search and fetch (`internal/controlplane/websearch`, issues #354 and #393,
 [research](docs/research/2026-11-13-web-search.md)): one Service the control plane makes as it serves, which the
 model gateway serves on `/v1/search` and `/v1/web/fetch` (above), the agent API gives a worker as tools (see "A
-browser every agent shares") and the client API gives a Bot as commands (see Bots). It holds no key and records
-nothing itself: the control plane's wiring reads Exa's key from the vault and records each call on a gateway key.
-- Providers (after omp's `providers/exa.ts` and `parallel.ts`, opencode's `plugin/websearch` and OmniRoute's
-  `handlers/search.ts`): Exa's REST API with its key (`api.exa.ai/search`, OmniRoute's body: `type: auto`, the
-  count, `contents` with text and highlights; a result's snippet its first highlight, else 300 characters of its
-  text); Exa's public MCP without one (`mcp.exa.ai/mcp`, tool `web_search_exa`); Parallel's public MCP
-  (`search.parallel.ai/mcp`, tool `web_search` with the query as the objective and the one search query); and the
-  owner's SearXNG (`<address>/search?format=json&categories=general`); and the subscriptions the owner logged in
-  (below). An MCP is called with one JSON-RPC
-  `tools/call` and no session, its answer JSON or an event stream, at most 256 KiB, as opencode calls it; Exa's text
-  is read into results (`Title:`, `URL:`, `Published:`, its text; 500 characters). A REST answer is at most 4 MiB.
-  Each provider has 10 seconds.
-- A search that names no provider asks Exa with its key (when the vault holds one), SearXNG (when its address is
-  set on the Web search page), Exa without a key, Parallel, then Codex, Claude and Antigravity, in turn (OmniRoute's
-  `autoSearchCandidates`, its subscription search last); one that names `exa`, `searxng`, `parallel`, `codex`,
-  `claude` or `antigravity` asks that one only (Exa with its key when there is one, else without). A provider that
-  fails, or finds nothing (omp), is noted and the next is asked; the answer lists the providers tried before the
-  one that answered and why each did not (omp's `fallbackNotes`), and when none answers the error lists them all.
-  At most 20 results, 5 when the call names no count; the query is trimmed.
-- A provider that answered 429 rests, and is skipped meanwhile with a note: for its `Retry-After` (seconds or a date,
-  at most 30 minutes), else 2 seconds doubling with each 429 in a row up to 5 minutes (9router's
-  `BACKOFF_CONFIG`); an answer clears the count. Exa with and without its key rest apart. When every provider the
-  call may use rests, the call is refused with the time the first is free. The rests are in memory.
+browser every agent shares") and the client API gives a Bot as commands (see Bots). It holds no key and stores
+nothing itself: the control plane's wiring gives it the keys from the vault, the gateway keeps the counts of its
+calls, and each call is recorded on a gateway key.
+- Providers: only those free without a card (owner, 2026-11-14). With the owner's keys, each asked as its reference
+  asks it: Exa (`api.exa.ai/search`, `X-Api-Key`, OmniRoute's body: `type: auto`, the count, `contents` with text
+  and highlights; a result's snippet its first highlight, else 300 characters of its text; the answer's
+  `costDollars.total` kept as its cost), Firecrawl (`api.firecrawl.dev/v2/search` `{query, limit}`, Bearer; the
+  results `data.web` or `data`, the snippet the description or 300 characters of the markdown; 45 seconds;
+  search-rotation), Parallel (`api.parallel.ai/v1/search`, `x-api-key`, the query as the objective and the one
+  search query, `mode: fast`, 400 characters a result; search-rotation), Tavily (`api.tavily.com/search`, Bearer,
+  `search_depth: basic`; opencode, search-rotation) and TinyFish (`GET api.search.tinyfish.ai/?query=…&domain_type=web`,
+  `X-API-Key`; web-search-plus). Without a key: Exa's public MCP (`mcp.exa.ai/mcp`, tool `web_search_exa`),
+  Parallel's (`search.parallel.ai/mcp`, tool `web_search`), Firecrawl's search with no Authorization, Tavily's with
+  `X-Tavily-Access-Mode: keyless` and 3 chunks a source (opencode), and You.com's free MCP
+  (`api.you.com/mcp?profile=free`, tool `you-search`, no extraction, in an MCP session opened with `initialize` as
+  opencode opens TinyFish's; its web results then its news, each page once; 30 seconds; search-rotation). Then the
+  subscriptions the owner logged in (below). An MCP is called with one JSON-RPC `tools/call`, its answer JSON or an
+  event stream, at most 256 KiB, as opencode calls it; Exa's text is read into results (`Title:`, `URL:`,
+  `Published:`, its text; 500 characters). A REST answer is at most 4 MiB (TinyFish's 2 MiB). Each provider has 10
+  seconds unless said.
+- Keys (owner, 2026-11-14): a provider takes several, each a vault secret: `web-search-<provider>` for the first
+  (`web-search-exa` is the name Exa's one key had) and `web-search-<provider>-<n>` with the lowest free number for
+  the next, read from the vault at each search. A search asks a provider's keys least recently used first
+  (mcp-nexus's Tavily pool); a failure that is the key's (429, 401, 402, 403, out of credits) goes to its next key,
+  any other (a 5xx, a timeout, no results) to the next provider.
+- A search that names no provider asks the keyed providers in the owner's order (by default Exa, Firecrawl,
+  Parallel, Tavily, TinyFish, after the independent benchmarks; owner, 2026-11-14), each with its keys; then the
+  keyless ones, Exa, Parallel, Firecrawl, Tavily, You.com, from a start that moves one further at each search, to
+  spread their per-address limits (Hermes's keyless ring, its start random when the control plane starts); then
+  Codex, Claude and Antigravity (OmniRoute's subscription search last). One that names a provider asks that one
+  only: with its keys when it has some, else without. A provider that fails, or finds nothing (omp), is noted and
+  the next is asked; the answer lists the providers tried before the one that answered and why each did not (omp's
+  `fallbackNotes`), and when none answers the error lists them all. At most 20 results, 5 when the call names no
+  count; the query is trimmed.
+- Rests (`websearch/rest.go`), each key and each keyless provider on its own, in memory, cleared by an answer:
+  rate limited (429) for its `Retry-After` (seconds or a date, at most 30 minutes), else 2 seconds doubling with each
+  429 in a row up to 5 minutes (9router's `BACKOFF_CONFIG`); out of credits (402, Tavily's 432, or a 400, 403 or 429
+  with no rate-limit header whose words or code say the credits are spent, web-search-plus's `_out_of_credit`) 5
+  minutes doubling with each in a row up to an hour, asked again after each rest; refused (401, 403) 2 minutes
+  (9router's `COOLDOWN.long`); You.com's 429 with no `Retry-After`, its daily limit, until 00:00 UTC. A subscription
+  rests only after a 429. When every way the call may use rests, the call is refused with the time the first is free.
+- Usage (`websearch/usage.go`), none invented (search-rotation's `docs/provider-access.md`): a Tavily or Firecrawl
+  key's balance is read from the provider (`GET api.tavily.com/usage`, the key's limit when it has one else the
+  plan's with its pay-as-you-go, as OmniRoute reads it; `GET api.firecrawl.dev/v2/team/credit-usage`), at most every
+  5 minutes a key, failures too, and a key whose balance is spent is skipped with a note; each call to a provider is
+  counted by UTC day, for its key or without one, answered or failed, with what the provider said it cost (Exa), in
+  `gateway_search_usage` (migration 00069: `provider`, `key`, `day`, `answered`, `failed`, `cost_micros`; the days
+  before last month dropped). Where no balance is known the page says the allowance is unknown.
 - The same search (the query in NFKC, lower case, its spaces as one; the provider named; the count) is answered from
   memory for 5 minutes (`cached`), at most 500 kept, and the same search asked while one is out waits for it and is
   marked cached (OmniRoute's `searchCache.ts`). A failure is not kept. A search that every caller left ends within
@@ -1622,8 +1647,7 @@ nothing itself: the control plane's wiring reads Exa's key from the vault and re
   reaches nothing, unless `HYPOMNEMA_BROWSER_ALLOW` lists it, and never the control plane's own port. No proxy is
   used. Redirects (301, 302, 303, 307, 308) are followed by hand, at most 5, each to http(s) only, and the address's
   user and password do not cross to another origin (OmniRoute's `redirectGuard.ts`). The providers and Jina are
-  asked without this check: their hosts are fixed, and SearXNG is the owner's, often on the local network
-  (OmniRoute keeps LAN for SearXNG).
+  asked without this check: their hosts are fixed.
 - What reaches an agent as text, a worker's tool result and the CLI's output, is marked as outside content as
   OpenClaw's `wrapExternalContent` marks it: a line saying it is data, then the text between
   `<<<EXTERNAL_UNTRUSTED_CONTENT id="…">>>` and its end marker with a random id, the source (`Web Search`, `Web
@@ -1661,26 +1685,31 @@ nothing itself: the control plane's wiring reads Exa's key from the vault and re
     generationConfig: {temperature: 1, maxOutputTokens: 8192}}}`; an account without a project is refused 400. The
     results are the first candidate's grounding chunks, each address once in order (Google's redirect addresses, as
     given), the snippet the grounded segments joined by ` | `, else the title.
-- What the owner sets (issue #354, PR 3; `websearch/chain.go`, `modelgateway/search_switches.go`): a switch for each
-  provider, all on until turned off (owner, 2026-11-13), and SearXNG's address, in `gateway_search_providers`
-  (migration 00067: `provider`, `off`, `base_url`, read and written only by the gateway). The search reads them at
-  each search, as it reads Exa's key, so a change counts from the next one; a provider that is off is neither tried
-  nor may be named (400), Exa's two ways sharing one switch; a cached answer is not given once a setting changed.
-  SearXNG's address is an http(s) address with a host and no user, kept without its trailing slash; it may be on
-  the local network (OmniRoute's base URL field, OpenClaw's "SearXNG Base URL"). They replaced
-  `HYPOMNEMA_WEB_SEARCH_OFF` and `HYPOMNEMA_WEB_SEARCH_SEARXNG_URL`.
+- What the owner sets (issues #354, #393; `websearch/chain.go`, `modelgateway/search_switches.go`): a switch for each
+  provider, all on until turned off (owner, 2026-11-13; TinyFish too, owner 2026-11-14, its terms letting it use
+  queries for training, which the page says), and the keyed providers' order, in `gateway_search_providers`
+  (migration 00067: `provider`, `off`; migration 00069 dropped SearXNG's row and `base_url` and added `position`;
+  read and written only by the gateway). The search reads them at each search, as it reads the keys, so a change
+  counts from the next one; a provider that is off is neither tried nor may be named (400), its ways with keys and
+  without sharing one switch; a cached answer is not given once a setting changed. SearXNG was removed (owner,
+  2026-11-14).
 - The chain as the client API gives it (`GET /gateway/web-search`, any token): every way of asking in the order
-  above, listed whether it can be asked or not, each with its `source` (`key`, `self_hosted`, `public`,
-  `subscription`), the switch (`on`), its `state` (`off`; `not_set_up`: no key in the vault, no address, or no
-  account of the subscription signed in on the control plane and in use; `resting` with `resting_until`; `ready`),
-  the name of the secret that holds Exa's key and SearXNG's address. The owner's: `PUT
-  /gateway/web-search/providers/{provider}` `{on}`; `PUT /gateway/web-search/exa-key` `{key}` keeps the key in the
-  vault under that name, never answered, and `DELETE` removes it (one not there is removed already); `PUT
-  /gateway/web-search/searxng` `{url}` and `DELETE`. Each answers the chain. The CLI: `hypomnema web providers`,
-  `web providers set <provider> on|off`, `web exa-key set --key-file <file|->`, `web exa-key rm`, `web searxng set
-  <url>`, `web searxng rm`.
-- Not built: testing a provider from the page (OmniRoute's and 9router's "Check", OpenClaw's "Test search"); other
-  providers.
+  above, the keyless ones in the ring's order, listed whether it can be asked or not, each with its `source`
+  (`key`, `public`, `subscription`), the switch (`on`), its `state` (`off`; `not_set_up`: no key in the vault, or no
+  account of the subscription signed in on the control plane and in use; `resting` with `resting_until` and `rest`,
+  for a keyed provider when each key rests; `ready`), its calls today and this month; a keyed provider's `keys`,
+  each with its name, `state` (`ready`, `resting` with its rest, `spent`), when it was last used, its `balance`
+  when its provider tells one, its calls and Exa's `month_dollars`. Never a key's value. The owner's: `PUT
+  /gateway/web-search/providers/{provider}` `{on}`; `POST /gateway/web-search/providers/{provider}/keys` `{key}`
+  keeps one more key in the vault and answers its name (201); `DELETE
+  /gateway/web-search/providers/{provider}/keys/{name}` removes one (one not there is removed already; a name of
+  another provider's 400); `PUT /gateway/web-search/order` `{providers}` names each keyed provider once. Each
+  answers the chain. The CLI: `hypomnema web providers` (a line a way, a line a key under it), `web providers set
+  <provider> on|off`, `web keys add <provider> --key-file <file|->`, `web keys rm <provider> <name>`, `web order
+  <provider>…`. The page lists the keyed providers, dragged by a handle on a desktop to reorder them
+  (search-rotation's dashboard), each with its keys, then the keyless ones and the subscriptions.
+- Not built: testing a provider from the page (OmniRoute's and 9router's "Check", OpenClaw's "Test search");
+  reordering on a touch screen (the CLI does it); routing by the kind of query (web-search-plus), a daily budget.
 
 Node API (`internal/controlplane/nodeapi`, protocol in `internal/shared/nodeproto`, after Omnara's daemon protocol):
 - A node registers with `POST /node/v1/hello` and its bearer token. It sends its CLIs, its worktree root, its
@@ -2303,16 +2332,21 @@ Node (`internal/node`):
     ([issue #135](https://github.com/kl3inIT/hypomnema/issues/135)) has "Connect app", which takes a name only,
     and its Connection has no "Sign in again".
   - Both pages do only what `hosts ...`, `repos ...` and `integrations ...` do in the CLI.
-  - `/settings/web-search` (under Gateway, issue #354, `web/src/features/models/web-search-screen.tsx`) lists the
-    web search chain above in order, a row each as the Models page's account rows: its turn (`#n`, as 9router
-    numbers a chain's providers), the maker's mark (Exa's and SearXNG's, the subscriptions'; a globe for
-    Parallel), where its search comes from ("With your API key", "Self-hosted" with the address, "Public, no
-    key", "From your Codex account"), a badge (Ready, Resting until a time, Needs a key, No address, No account,
-    Off) and an "In use" switch, as OmniRoute's search provider cards have a status and a switch. "Add key" /
-    "Replace key" takes Exa's key in a password field in a dialog, as OmniRoute's and 9router's "Add API Key"
-    modals, and "Remove" asks first; "Set address" / "Change" takes SearXNG's base URL the same way. A
-    subscription with no account links to `/settings/models`, where an account is added: the one place for it.
-    The chain is read again every 30 seconds while the page is open.
+  - `/settings/web-search` (under Gateway, issues #354 and #393, `web/src/features/models/web-search-screen.tsx`)
+    lists the web search chain above in three parts, a row each as the Models page's account rows: "With your
+    keys" (their turn, `#n`, as 9router numbers a chain's providers; a grip to drag one onto another's place on a
+    desktop, as search-rotation's dashboard reorders its engines, sent at once), "Without a key" and "From your
+    subscriptions". A row has the maker's mark (Exa's, Tavily's and Firecrawl's from LobeHub's icons and
+    Parallel's as OpenClaw ships them, the subscriptions'; a globe for TinyFish and You.com), a badge (Ready, Rate
+    limited / Out of credits / Refused / Daily limit until a time, No key, No account, Off) and an "In use" switch,
+    as OmniRoute's search provider cards have a status and a switch. A keyed provider lists its keys under it, each
+    with its secret's name, a badge (Ready, a rest until a time, Spent), when it was last used, its calls today and
+    this month, Exa's spend this month, and its balance as the Machines page's meter with the credits left, else
+    "Allowance unknown" with why when pointed at; "Remove" asks first. "Add key" takes one more key in a password
+    field in a dialog, as OmniRoute's and 9router's "Add API Key" modals, and the toast names the secret it is kept
+    under. TinyFish's row says its terms let it use queries for training. A keyless row shows its calls and
+    "Allowance unknown". A subscription with no account links to `/settings/models`, where an account is added: the
+    one place for it. The chain is read again every 30 seconds while the page is open.
   - The Settings screens are built on the standard components ([issue #123](https://github.com/kl3inIT/hypomnema/issues/123)):
     every shadcn component of the project's style is in `web/src/components/ui`; a form is TanStack Form with a
     zod schema, and says what is wrong when it is sent; the Vault's table is TanStack Table; a removal asks with

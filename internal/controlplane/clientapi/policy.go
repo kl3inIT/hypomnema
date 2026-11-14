@@ -212,13 +212,12 @@ var policies = map[string]policy{
 	// write timeout at worst.
 	"SearchWeb": {long: true},
 	"FetchWeb":  {long: true},
-	// The web search chain (issue #354): every token reads it, as it reads the accounts; only the owner changes it.
-	"GetWebSearch":           {},
-	"SetWebSearchProvider":   {scope: scopeOwner},
-	"PutWebSearchExaKey":     {scope: scopeOwner},
-	"DeleteWebSearchExaKey":  {scope: scopeOwner},
-	"PutWebSearchSearXNG":    {scope: scopeOwner},
-	"DeleteWebSearchSearXNG": {scope: scopeOwner},
+	// The web search chain (issues #354, #393): every token reads it, as it reads the accounts; only the owner changes it.
+	"GetWebSearch":         {},
+	"SetWebSearchProvider": {scope: scopeOwner},
+	"SetWebSearchOrder":    {scope: scopeOwner},
+	"AddWebSearchKey":      {scope: scopeOwner},
+	"RemoveWebSearchKey":   {scope: scopeOwner},
 }
 
 var (

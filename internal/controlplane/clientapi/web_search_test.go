@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -29,7 +30,8 @@ func (searchingAccounts) Search(_ context.Context, provider, _ string, _ int) ([
 }
 
 // webSearchOver wires the search chain as the control plane does: the
-// switches are the gateway's, the rests the search's.
+// switches and the order are the gateway's, the keys the vault's, the rests
+// the search's.
 type webSearchOver struct {
 	web     *websearch.Service
 	gateway *modelgateway.Service
@@ -41,8 +43,8 @@ func (w webSearchOver) SetSearchProvider(ctx context.Context, provider string, o
 	return w.gateway.SetSearchProvider(ctx, provider, on)
 }
 
-func (w webSearchOver) SetSearXNG(ctx context.Context, address string) error {
-	return w.gateway.SetSearXNG(ctx, address)
+func (w webSearchOver) SetSearchOrder(ctx context.Context, providers []string) error {
+	return w.gateway.SetSearchOrder(ctx, providers)
 }
 
 // keptSecrets is a vault in memory: the values kept under each name.
@@ -51,6 +53,18 @@ type keptSecrets struct {
 
 	mu     sync.Mutex
 	values map[string]string
+}
+
+func (k *keptSecrets) List(context.Context) ([]SecretInfo, error) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+
+	var out []SecretInfo
+	for name := range k.values {
+		out = append(out, SecretInfo{Name: name, Kind: "generic", Version: 1})
+	}
+
+	return out, nil
 }
 
 func (k *keptSecrets) Put(_ context.Context, name string, values map[string]string) (SecretInfo, error) {
@@ -82,19 +96,34 @@ func (k *keptSecrets) value(name string) string {
 	return k.values[name]
 }
 
-// Scenario: the owner opens Settings → Gateway → Web search (issue #354). The
-// chain lists every provider in the order a search tries them, each with
-// where its search comes from: Exa's key is not in the vault yet and no
-// SearXNG is set, so those are not set up; Exa's public MCP failed and
-// Parallel answered 429, so Parallel rests until its Retry-After; the Codex
-// account is signed in here and is ready, the Claude account was signed in on
-// a machine and cannot search, and no Antigravity account exists. The owner
-// enters Exa's key, which goes into the vault and never comes back, and Exa
-// with its key is ready first; he gives SearXNG's address, a wrong one
-// refused; he turns Codex off and a search may no longer name it, then on
-// again; he removes the key and the address. A coordinator reads the chain
-// and changes nothing.
-func TestTheOwnerSeesAndSwitchesTheWebSearchChain(t *testing.T) {
+// keys are the vault's web search keys, as the control plane reads them.
+func (k *keptSecrets) keys(context.Context) ([]websearch.Key, error) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+
+	var out []websearch.Key
+
+	for name, value := range k.values {
+		if p, _, ok := websearch.ParseKeyName(name); ok {
+			out = append(out, websearch.Key{Provider: p, Name: name, Value: value})
+		}
+	}
+
+	return out, nil
+}
+
+// Scenario: the owner opens Settings → Gateway → Web search (issue #393).
+// The chain lists the keyed providers in the default order (Exa, Firecrawl,
+// Parallel, Tavily, TinyFish), none with a key yet; the keyless ring, where
+// Parallel answered 429 and rests until its Retry-After; then the Codex
+// account signed in here and ready, the Claude account signed in on a
+// machine that cannot search, and no Antigravity account. The owner adds two
+// Exa keys, which go into the vault as web-search-exa and web-search-exa-2
+// and never come back; removes the first, and again, which is fine; cannot
+// remove a key under another provider's name; drags Tavily first; turns
+// Codex off and a search may no longer name it, then on again. A
+// coordinator reads the chain and changes nothing.
+func TestTheOwnerSeesAndChangesTheWebSearchChain(t *testing.T) {
 	t.Parallel()
 
 	w := newWorld(t)
@@ -102,10 +131,10 @@ func TestTheOwnerSeesAndSwitchesTheWebSearchChain(t *testing.T) {
 	g := gatewayOver(t, w.svc)
 
 	now := time.Date(2026, 11, 14, 9, 0, 0, 0, time.UTC)
-	exaMCP := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, _ *http.Request) {
+	failing := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, _ *http.Request) {
 		rw.WriteHeader(http.StatusInternalServerError)
 	}))
-	t.Cleanup(exaMCP.Close)
+	t.Cleanup(failing.Close)
 
 	parallel := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, _ *http.Request) {
 		rw.Header().Set("Retry-After", "120")
@@ -115,8 +144,8 @@ func TestTheOwnerSeesAndSwitchesTheWebSearchChain(t *testing.T) {
 
 	vault := &keptSecrets{values: map[string]string{}}
 	web := websearch.New(websearch.Config{
-		ExaKey:   func(context.Context) (string, error) { return vault.value("web-search-exa"), nil },
-		Settings: g.SearchSettings, ExaMCPURL: exaMCP.URL, ParallelMCPURL: parallel.URL,
+		Keys: vault.keys, Settings: g.SearchSettings, ExaMCPURL: failing.URL, ParallelMCPURL: parallel.URL,
+		TavilyURL: failing.URL, FirecrawlURL: failing.URL, YouMCPURL: failing.URL,
 		Now: func() time.Time { return now },
 	}).WithSubscriptions(searchingAccounts{})
 
@@ -128,9 +157,9 @@ func TestTheOwnerSeesAndSwitchesTheWebSearchChain(t *testing.T) {
 	w.srv.WithAccounts(&signedIn{
 		svc: w.svc, states: map[string]subscription.State{codex.ID: subscription.StateActive},
 		removed: map[string]bool{},
-	}).WithSecrets(vault).WithWebSearch(webSearchOver{web: web, gateway: g}, "web-search-exa")
+	}).WithSecrets(vault).WithWebSearch(webSearchOver{web: web, gateway: g})
 
-	// Parallel's 429 rests it; Codex answers this search.
+	// Parallel's 429 rests it; the other keyless ones fail; Codex answers this search.
 	a, err := web.Search(ctx, "go 1.27", 0, "")
 	require.NoError(t, err)
 	assert.Equal(t, websearch.ProviderCodex, a.Provider)
@@ -141,52 +170,108 @@ func TestTheOwnerSeesAndSwitchesTheWebSearchChain(t *testing.T) {
 	listed, err := pi.GetWebSearchWithResponse(ctx)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, listed.StatusCode(), string(listed.Body))
-	assert.Equal(t, "web-search-exa", listed.JSON200.ExaSecret)
-	assert.Nil(t, listed.JSON200.SearxngUrl)
 
 	rest := now.Add(2 * time.Minute)
-	link := func(provider, source, state string, on bool) openapi.WebSearchLink {
-		return openapi.WebSearchLink{
+	none := []openapi.WebSearchKey{}
+	link := func(provider, source, state string) openapi.WebSearchLink {
+		l := openapi.WebSearchLink{
 			Provider: openapi.WebSearchProvider(provider), Source: openapi.WebSearchLinkSource(source),
-			State: openapi.WebSearchLinkState(state), On: on,
+			State: openapi.WebSearchLinkState(state), On: true,
 		}
+		if source == "key" {
+			l.Keys = &none
+		}
+
+		return l
 	}
-	resting := link("parallel", "public", "resting", true)
+	resting := link("parallel", "public", "resting")
 	resting.RestingUntil = &rest
+	resting.Rest = ptr(openapi.RateLimit)
 
 	assert.Equal(t, []openapi.WebSearchLink{
-		link("exa", "key", "not_set_up", true),
-		link("searxng", "self_hosted", "not_set_up", true),
-		link("exa", "public", "ready", true),
-		resting,
-		link("codex", "subscription", "ready", true),
-		link("claude", "subscription", "not_set_up", true),
-		link("antigravity", "subscription", "not_set_up", true),
+		link("exa", "key", "not_set_up"), link("firecrawl", "key", "not_set_up"),
+		link("parallel", "key", "not_set_up"), link("tavily", "key", "not_set_up"),
+		link("tinyfish", "key", "not_set_up"),
+		link("exa", "public", "ready"), resting, link("firecrawl", "public", "ready"),
+		link("tavily", "public", "ready"), link("you", "public", "ready"),
+		link("codex", "subscription", "ready"), link("claude", "subscription", "not_set_up"),
+		link("antigravity", "subscription", "not_set_up"),
 	}, listed.JSON200.Chain)
 
 	key := "exa-key"
 
-	refused, err := pi.PutWebSearchExaKeyWithResponse(ctx, openapi.WebSearchExaKey{Key: &key})
+	refused, err := pi.AddWebSearchKeyWithResponse(ctx, openapi.WebSearchKeyedProviderExa,
+		openapi.WebSearchNewKey{Key: &key})
 	require.NoError(t, err)
 	assert.Equal(t, http.StatusForbidden, refused.StatusCode())
 
 	padded := " exa-key \n"
-	changed, err := owner.PutWebSearchExaKeyWithResponse(ctx, openapi.WebSearchExaKey{Key: &padded})
+	added, err := owner.AddWebSearchKeyWithResponse(ctx, openapi.WebSearchKeyedProviderExa,
+		openapi.WebSearchNewKey{Key: &padded})
 	require.NoError(t, err)
-	require.Equal(t, http.StatusOK, changed.StatusCode(), string(changed.Body))
+	require.Equal(t, http.StatusCreated, added.StatusCode(), string(added.Body))
+	assert.Equal(t, "web-search-exa", added.JSON201.Name, "the first Exa key keeps the name it always had")
 	assert.Equal(t, "exa-key", vault.value("web-search-exa"))
-	assert.NotContains(t, string(changed.Body), `"exa-key"`, "the key is never answered")
-	assert.Equal(t, link("exa", "key", "ready", true), changed.JSON200.Chain[0])
+	assert.NotContains(t, string(added.Body), `"exa-key"`, "the key is never answered")
 
-	wrong, err := owner.PutWebSearchSearXNGWithResponse(ctx, openapi.WebSearchSearXNG{Url: "searx.lan:8888"})
+	second := "exa-key-2"
+	added, err = owner.AddWebSearchKeyWithResponse(ctx, openapi.WebSearchKeyedProviderExa,
+		openapi.WebSearchNewKey{Key: &second})
 	require.NoError(t, err)
-	assert.Equal(t, http.StatusBadRequest, wrong.StatusCode())
+	require.Equal(t, http.StatusCreated, added.StatusCode(), string(added.Body))
+	assert.Equal(t, "web-search-exa-2", added.JSON201.Name)
 
-	searxng, err := owner.PutWebSearchSearXNGWithResponse(ctx, openapi.WebSearchSearXNG{Url: "http://10.0.0.5:8888/"})
+	exa := added.JSON201.WebSearch.Chain[0]
+	assert.Equal(t, openapi.WebSearchLinkStateReady, exa.State)
+	require.Len(t, val(exa.Keys), 2)
+	assert.Equal(t, openapi.WebSearchKey{Name: "web-search-exa", State: openapi.WebSearchKeyStateReady},
+		val(exa.Keys)[0])
+
+	empty := ""
+	blank, err := owner.AddWebSearchKeyWithResponse(ctx, openapi.WebSearchKeyedProviderTavily,
+		openapi.WebSearchNewKey{Key: &empty})
 	require.NoError(t, err)
-	require.Equal(t, http.StatusOK, searxng.StatusCode(), string(searxng.Body))
-	assert.Equal(t, "http://10.0.0.5:8888", val(searxng.JSON200.SearxngUrl))
-	assert.Equal(t, link("searxng", "self_hosted", "ready", true), searxng.JSON200.Chain[1])
+	assert.Equal(t, http.StatusBadRequest, blank.StatusCode())
+
+	removed, err := owner.RemoveWebSearchKeyWithResponse(ctx, openapi.WebSearchKeyedProviderExa, "web-search-exa")
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, removed.StatusCode(), string(removed.Body))
+	assert.Empty(t, vault.value("web-search-exa"))
+	assert.Equal(t, "web-search-exa-2", val(removed.JSON200.Chain[0].Keys)[0].Name)
+
+	again, err := owner.RemoveWebSearchKeyWithResponse(ctx, openapi.WebSearchKeyedProviderExa, "web-search-exa")
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusOK, again.StatusCode(), "a key that is not there is removed already")
+
+	other, err := owner.RemoveWebSearchKeyWithResponse(ctx, openapi.WebSearchKeyedProviderTavily, "web-search-exa-2")
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, other.StatusCode(), "a key is removed under its own provider")
+	assert.Equal(t, "exa-key-2", vault.value("web-search-exa-2"))
+
+	order := openapi.WebSearchOrder{Providers: []openapi.WebSearchKeyedProvider{
+		"tavily", "exa", "firecrawl", "parallel", "tinyfish",
+	}}
+
+	notOrdered, err := pi.SetWebSearchOrderWithResponse(ctx, order)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusForbidden, notOrdered.StatusCode())
+
+	ordered, err := owner.SetWebSearchOrderWithResponse(ctx, order)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, ordered.StatusCode(), string(ordered.Body))
+
+	var providers []openapi.WebSearchProvider
+	for _, l := range ordered.JSON200.Chain[:5] {
+		providers = append(providers, l.Provider)
+	}
+
+	assert.Equal(t, []openapi.WebSearchProvider{"tavily", "exa", "firecrawl", "parallel", "tinyfish"}, providers)
+
+	twice, err := owner.SetWebSearchOrderWithResponse(ctx, openapi.WebSearchOrder{
+		Providers: []openapi.WebSearchKeyedProvider{"exa", "exa", "firecrawl", "parallel", "tinyfish"},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusBadRequest, twice.StatusCode(), "each keyed provider is named once")
 
 	notSwitched, err := pi.SetWebSearchProviderWithResponse(ctx, openapi.WebSearchProviderCodex,
 		openapi.WebSearchSwitch{On: false})
@@ -197,7 +282,11 @@ func TestTheOwnerSeesAndSwitchesTheWebSearchChain(t *testing.T) {
 		openapi.WebSearchSwitch{On: false})
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, switched.StatusCode(), string(switched.Body))
-	assert.Equal(t, link("codex", "subscription", "off", false), switched.JSON200.Chain[4])
+
+	codexAt := slices.IndexFunc(switched.JSON200.Chain, func(l openapi.WebSearchLink) bool {
+		return l.Provider == openapi.WebSearchProviderCodex
+	})
+	assert.Equal(t, openapi.WebSearchLinkStateOff, switched.JSON200.Chain[codexAt].State)
 
 	_, err = web.Search(ctx, "go", 0, websearch.ProviderCodex)
 	require.ErrorIs(t, err, websearch.ErrInvalid, "a provider that is off may not be named")
@@ -205,20 +294,5 @@ func TestTheOwnerSeesAndSwitchesTheWebSearchChain(t *testing.T) {
 	switched, err = owner.SetWebSearchProviderWithResponse(ctx, openapi.WebSearchProviderCodex,
 		openapi.WebSearchSwitch{On: true})
 	require.NoError(t, err)
-	assert.Equal(t, openapi.WebSearchLinkStateReady, switched.JSON200.Chain[4].State)
-
-	removed, err := owner.DeleteWebSearchExaKeyWithResponse(ctx)
-	require.NoError(t, err)
-	require.Equal(t, http.StatusOK, removed.StatusCode(), string(removed.Body))
-	assert.Empty(t, vault.value("web-search-exa"))
-	assert.Equal(t, openapi.WebSearchLinkStateNotSetUp, removed.JSON200.Chain[0].State)
-
-	again, err := owner.DeleteWebSearchExaKeyWithResponse(ctx)
-	require.NoError(t, err)
-	assert.Equal(t, http.StatusOK, again.StatusCode(), "a key that is not there is removed already")
-
-	forgot, err := owner.DeleteWebSearchSearXNGWithResponse(ctx)
-	require.NoError(t, err)
-	assert.Nil(t, forgot.JSON200.SearxngUrl)
-	assert.Equal(t, openapi.WebSearchLinkStateNotSetUp, forgot.JSON200.Chain[1].State)
+	assert.Equal(t, openapi.WebSearchLinkStateReady, switched.JSON200.Chain[codexAt].State)
 }

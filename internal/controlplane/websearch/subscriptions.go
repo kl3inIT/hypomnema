@@ -87,6 +87,8 @@ func subscriptionRoute(provider string) route {
 	}
 }
 
-func (s *Service) askSubscription(ctx context.Context, r route, query string, limit int) ([]Result, error) {
-	return s.subs.Search(ctx, r.provider, query, limit)
+func (s *Service) askSubscription(ctx context.Context, r route, query string, limit int) (reply, error) {
+	results, err := s.subs.Search(ctx, r.provider, query, limit)
+
+	return reply{results: results}, err
 }

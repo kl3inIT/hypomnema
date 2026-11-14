@@ -1,29 +1,31 @@
-// Package websearch searches the web and reads a page for every agent (issue
-// #354): the model gateway serves it on /v1/search and /v1/web/fetch, a
-// worker gets it as its web_search and web_fetch tools through the agent API,
-// and a Bot through `hypomnema web search` and `hypomnema web fetch`. It holds
-// no key of its own and records nothing: the caller's wiring reads Exa's key
-// from the vault and records each call on a gateway key.
+// Package websearch searches the web and reads a page for every agent (issues
+// #354 and #393): the model gateway serves it on /v1/search and /v1/web/fetch,
+// a worker gets it as its web_search and web_fetch tools through the agent
+// API, and a Bot through `hypomnema web search` and `hypomnema web fetch`. It
+// holds no key and stores nothing itself: the caller's wiring gives it the
+// providers' keys from the vault and keeps the counts of its calls.
 //
 // What it does is learned from the gateways and agents that have it:
 //
-//   - the providers are Exa (its REST API with a key, its public MCP without
-//     one), Parallel's public MCP and a SearXNG the owner runs: omp
-//     (packages/coding-agent/src/web/search/providers/exa.ts, parallel.ts),
-//     opencode (packages/core/src/plugin/websearch/exa.ts, parallel.ts, mcp.ts)
-//     and OmniRoute (open-sse/handlers/search.ts, config/searchRegistry.ts);
-//   - a call that names no provider tries them keyed first, then SearXNG when
-//     it is set, then the keyless ones, then the subscriptions the owner
-//     logged in (subscriptions.go); a call that names one gets that one only:
-//     OmniRoute's autoSearchCandidates;
+//   - the providers are those free without a card (owner, 2026-11-14): Exa,
+//     Firecrawl, Parallel, Tavily and TinyFish with the owner's keys, Exa,
+//     Parallel, Firecrawl, Tavily and You.com without one (pool.go,
+//     adapters.go, providers.go), then the subscriptions the owner logged in
+//     (subscriptions.go);
+//   - a call that names no provider tries the keyed providers first, in the
+//     owner's order (Hermes tools/web_tools.py, _autodetect_backend), each
+//     provider's keys least recently used first (mcp-nexus
+//     tavily/keyPool.ts); then the keyless ones, taken in turn from a moving
+//     start to spread their per-address limits (Hermes
+//     plugins/web/keyless_mcp.py, _ring_order); then the subscriptions,
+//     last (OmniRoute's fallbackOnly); a call that names one gets that one
+//     only: OmniRoute's autoSearchCandidates;
 //   - a provider that fails is noted and the next one is asked, and the answer
 //     says which one answered after which failed: omp web/search/index.ts
 //     (fallbackNotes);
-//   - a provider that answered 429 rests for its Retry-After, else 2 s doubling
-//     up to 5 minutes, and is skipped meanwhile: 9router
-//     open-sse/config/errorConfig.js (BACKOFF_CONFIG) and
-//     services/accountFallback.js, the numbers the gateway's accounts cool
-//     down with;
+//   - a key or a keyless provider that was rate limited, refused or out of
+//     credits rests on its own while the others go on (rest.go); a key whose
+//     balance is read as spent is skipped (usage.go);
 //   - the same search within 5 minutes is answered from memory, and the same
 //     search asked twice at once goes out once: OmniRoute
 //     open-sse/services/searchCache.ts;
@@ -55,16 +57,33 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/browser/egress"
 )
 
-// The providers a call may name.
+// The providers a call may name, besides the subscriptions.
 const (
-	ProviderExa      = "exa"
-	ProviderSearXNG  = "searxng"
-	ProviderParallel = "parallel"
+	ProviderExa       = "exa"
+	ProviderFirecrawl = "firecrawl"
+	ProviderParallel  = "parallel"
+	ProviderTavily    = "tavily"
+	ProviderTinyFish  = "tinyfish"
+	ProviderYou       = "you"
 )
+
+// KeyedProviders are the providers that take the owner's keys, in the order
+// a search tries them until the owner reorders them: by the independent
+// benchmarks (owner, 2026-11-14, issue #393), TinyFish last.
+func KeyedProviders() []string {
+	return []string{ProviderExa, ProviderFirecrawl, ProviderParallel, ProviderTavily, ProviderTinyFish}
+}
+
+// keylessRing are the providers asked without a key, in the ring's order
+// (issue #393; Hermes keyless_mcp.py _KEYLESS_RING, with Tavily's and
+// You.com's keyless search from search-rotation).
+func keylessRing() []string {
+	return []string{ProviderExa, ProviderParallel, ProviderFirecrawl, ProviderTavily, ProviderYou}
+}
 
 // Providers are the names a call may give, in the order they are listed.
 func Providers() []string {
-	return append([]string{ProviderExa, ProviderSearXNG, ProviderParallel}, SubscriptionProviders()...)
+	return append(append(KeyedProviders(), ProviderYou), SubscriptionProviders()...)
 }
 
 const (
@@ -98,12 +117,12 @@ var (
 	ErrUnreadable = errors.New("the page could not be read")
 )
 
-// RestingError says every provider the call could use rests after a 429,
-// and when the first is free again.
+// RestingError says every provider the call could use rests, and when the
+// first is free again.
 type RestingError struct{ Until time.Time }
 
 func (e *RestingError) Error() string {
-	return "every search provider is rate limited; try again after " + e.Until.UTC().Format(time.RFC3339)
+	return "every search provider is resting; try again after " + e.Until.UTC().Format(time.RFC3339)
 }
 
 // Result is one page a search found.
@@ -144,17 +163,26 @@ type Page struct {
 	Truncated bool
 }
 
+// Key is one of the owner's API keys for a provider, as the vault holds it.
+type Key struct {
+	Provider string
+	// Name is the vault secret's name (KeyName); it names the key everywhere.
+	Name  string
+	Value string
+}
+
 // Config is what the Service needs; the zero value searches with the keyless
 // providers only and reads public pages.
 type Config struct {
-	// ExaKey gives Exa's API key, read at each search so that a key the owner
-	// adds is used at once; it answers "" when there is none. nil: no key.
-	ExaKey func(ctx context.Context) (string, error)
-	// Settings gives what the owner set on the Web search page (issue #354):
-	// the providers switched off and SearXNG's address. It is read at each
-	// search, as ExaKey is, so that a change counts at once. nil: every
-	// provider is on and no SearXNG is set.
+	// Keys gives the owner's keys of every keyed provider, read at each
+	// search so that a key the owner adds is used at once. nil: no key.
+	Keys func(ctx context.Context) ([]Key, error)
+	// Settings gives what the owner set on the Web search page: the providers
+	// switched off and the keyed providers' order. It is read at each search,
+	// as Keys is. nil: every provider is on, in the default order.
 	Settings func(ctx context.Context) (Settings, error)
+	// Usage keeps the count of each provider's and key's calls; nil: none is kept.
+	Usage Usage
 	// Rules decide which addresses a page may be read from: the shared
 	// browser's, so that what an agent reads through this package is what it
 	// may open in the browser.
@@ -163,9 +191,14 @@ type Config struct {
 	// name their own.
 	ExaURL         string
 	ExaMCPURL      string
+	ParallelURL    string
 	ParallelMCPURL string
+	TavilyURL      string
+	FirecrawlURL   string
+	TinyFishURL    string
+	YouMCPURL      string
 	JinaURL        string
-	// Now is the clock rests and the cache read; nil: the wall clock.
+	// Now is the clock rests, counts and the cache read; nil: the wall clock.
 	Now    func() time.Time
 	Logger *slog.Logger
 }
@@ -174,16 +207,19 @@ type Config struct {
 const (
 	exaURL         = "https://api.exa.ai/search"
 	exaMCPURL      = "https://mcp.exa.ai/mcp"
+	parallelURL    = "https://api.parallel.ai/v1/search"
 	parallelMCPURL = "https://search.parallel.ai/mcp"
+	tavilyURL      = "https://api.tavily.com"
+	firecrawlURL   = "https://api.firecrawl.dev/v2"
+	tinyFishURL    = "https://api.search.tinyfish.ai/"
+	youMCPURL      = "https://api.you.com/mcp?profile=free"
 	jinaURL        = "https://r.jina.ai"
 )
 
 // Service searches and reads pages.
 type Service struct {
 	cfg Config
-	// client asks the providers and Jina Reader: fixed hosts and the owner's
-	// own SearXNG, which may be on the local network (OmniRoute keeps
-	// loopback and LAN for SearXNG).
+	// client asks the providers and Jina Reader, whose hosts are fixed.
 	client *http.Client
 	// pages reads the pages agents name, through the address check.
 	pages *http.Client
@@ -194,27 +230,33 @@ type Service struct {
 
 	mu      sync.Mutex
 	resting map[string]rest
-	cache   map[string]cached
-	flight  singleflight.Group
+	// lastUsed is when each key was last asked, for least recently used first.
+	lastUsed map[string]time.Time
+	// ring is where the next search starts in the keyless ring.
+	ring     int
+	balances map[string]balanceRead
+	cache    map[string]cached
+	flight   singleflight.Group
 }
 
 // New returns a Service.
 func New(cfg Config) *Service {
-	if cfg.ExaURL == "" {
-		cfg.ExaURL = exaURL
+	defaults := []struct {
+		field *string
+		value string
+	}{
+		{&cfg.ExaURL, exaURL}, {&cfg.ExaMCPURL, exaMCPURL}, {&cfg.ParallelURL, parallelURL},
+		{&cfg.ParallelMCPURL, parallelMCPURL}, {&cfg.TavilyURL, tavilyURL}, {&cfg.FirecrawlURL, firecrawlURL},
+		{&cfg.TinyFishURL, tinyFishURL}, {&cfg.YouMCPURL, youMCPURL}, {&cfg.JinaURL, jinaURL},
+	}
+	for _, d := range defaults {
+		if *d.field == "" {
+			*d.field = d.value
+		}
 	}
 
-	if cfg.ExaMCPURL == "" {
-		cfg.ExaMCPURL = exaMCPURL
-	}
-
-	if cfg.ParallelMCPURL == "" {
-		cfg.ParallelMCPURL = parallelMCPURL
-	}
-
-	if cfg.JinaURL == "" {
-		cfg.JinaURL = jinaURL
-	}
+	cfg.TavilyURL = strings.TrimRight(cfg.TavilyURL, "/")
+	cfg.FirecrawlURL = strings.TrimRight(cfg.FirecrawlURL, "/")
 
 	if cfg.Logger == nil {
 		cfg.Logger = slog.New(slog.DiscardHandler)
@@ -230,7 +272,10 @@ func New(cfg Config) *Service {
 
 	return &Service{
 		cfg: cfg, client: &http.Client{Transport: transport}, pages: pageClient(cfg.Rules), now: now,
-		resting: map[string]rest{}, cache: map[string]cached{},
+		resting: map[string]rest{}, lastUsed: map[string]time.Time{}, balances: map[string]balanceRead{},
+		cache: map[string]cached{},
+		// Each control plane starts the ring somewhere else, as Hermes seeds its cursor with its session.
+		ring: int(now().UnixNano() % int64(len(keylessRing()))),
 	}
 }
 
@@ -252,8 +297,6 @@ func (s *Service) Search(ctx context.Context, query string, limit int, provider 
 		return Answer{}, fmt.Errorf("%w: the provider is one of %s", ErrInvalid, strings.Join(Providers(), ", "))
 	case slices.Contains(set.Off, provider):
 		return Answer{}, fmt.Errorf("%w: %s's search is turned off on this control plane", ErrInvalid, provider)
-	case provider == ProviderSearXNG && set.SearXNGURL == "":
-		return Answer{}, fmt.Errorf("%w: no SearXNG is set on this control plane", ErrInvalid)
 	case slices.Contains(SubscriptionProviders(), provider) && s.subs == nil:
 		return Answer{}, fmt.Errorf("%w: this control plane searches with no subscription", ErrInvalid)
 	}
@@ -276,7 +319,7 @@ func (s *Service) Search(ctx context.Context, query string, limit int, provider 
 	// inflight map does. The search runs on past a caller that leaves, within
 	// its own budget, so the others still get its answer.
 	led := false
-	answers := s.flight.DoChan(key, func() (any, error) {
+	answers := s.flight.DoChan("search:"+key, func() (any, error) {
 		led = true
 
 		run, cancel := context.WithTimeout(context.WithoutCancel(ctx), searchBudget)
@@ -319,25 +362,29 @@ func (s *Service) settings(ctx context.Context) (Settings, error) {
 		return Settings{}, fmt.Errorf("reading the web search settings: %w", err)
 	}
 
-	set.SearXNGURL = strings.TrimRight(set.SearXNGURL, "/")
-
 	return set, nil
 }
 
-// search asks each provider the call may use in turn until one answers.
+// search asks each way the call may use in turn until one answers.
 func (s *Service) search(ctx context.Context, query string, limit int, provider string, set Settings,
 ) (Answer, error) {
-	routes, failures := s.routes(ctx, provider, set)
+	routes, failures := s.routes(ctx, provider, set, true)
 
 	var (
 		tried     bool
 		firstFree time.Time
+		// skipKeys is a provider whose failure was not its key's: its other keys are not asked.
+		skipKeys = map[string]bool{}
 	)
 
 	for _, r := range routes {
-		if until, ok := s.restingUntil(r.id); ok {
+		if r.source == SourceKey && skipKeys[r.provider] {
+			continue
+		}
+
+		if until, why, ok := s.restingUntil(r.id); ok {
 			failures = append(failures, Failure{
-				Provider: r.provider, Reason: r.label + "rate limited until " + until.UTC().Format(time.RFC3339),
+				Provider: r.provider, Reason: r.label + why + " until " + until.UTC().Format(time.RFC3339),
 			})
 
 			if firstFree.IsZero() || until.Before(firstFree) {
@@ -347,7 +394,15 @@ func (s *Service) search(ctx context.Context, query string, limit int, provider 
 			continue
 		}
 
-		results, err := s.ask(ctx, r, query, limit)
+		if r.source == SourceKey && s.spent(ctx, r) {
+			failures = append(failures, Failure{Provider: r.provider, Reason: r.label + "its balance is spent"})
+
+			continue
+		}
+
+		s.use(r.id)
+
+		rep, err := s.ask(ctx, r, query, limit)
 		if errors.Is(err, ErrNoAccount) {
 			// A subscription with no account is not in the chain; named, it cannot be asked.
 			if provider != "" {
@@ -359,10 +414,12 @@ func (s *Service) search(ctx context.Context, query string, limit int, provider 
 
 		tried = true
 
-		if err == nil && len(results) == 0 {
+		if err == nil && len(rep.results) == 0 {
 			// A provider with nothing to show is not an answer: the next is asked (omp: no renderable content).
 			err = errors.New("no results")
 		}
+
+		s.record(ctx, r, err == nil, rep.costDollars)
 
 		if err != nil {
 			if ctx.Err() != nil {
@@ -370,10 +427,14 @@ func (s *Service) search(ctx context.Context, query string, limit int, provider 
 			}
 
 			failures = append(failures, Failure{Provider: r.provider, Reason: r.label + reasonOf(err)})
-			s.failed(r.id, err)
+
+			if !s.failed(r, err) && r.source == SourceKey {
+				skipKeys[r.provider] = true
+			}
+
 			s.cfg.Logger.WarnContext(ctx, "a web search provider failed",
-				slog.String("event", "websearch.provider_failed"), slog.String("provider", r.id),
-				slog.String("error", err.Error()))
+				slog.String("event", "websearch.provider_failed"), slog.String("provider", r.provider),
+				slog.String("source", r.source), slog.String("key", r.key.Name), slog.String("error", err.Error()))
 
 			continue
 		}
@@ -381,7 +442,7 @@ func (s *Service) search(ctx context.Context, query string, limit int, provider 
 		s.served(r.id)
 
 		return Answer{
-			Provider: r.provider, Query: query, Results: results[:min(len(results), limit)], Errors: failures,
+			Provider: r.provider, Query: query, Results: rep.results[:min(len(rep.results), limit)], Errors: failures,
 		}, nil
 	}
 
@@ -405,116 +466,91 @@ func failureText(failures []Failure) string {
 	return strings.Join(parts, "; ")
 }
 
-// route is one way of asking a provider: Exa has two, with its key and
-// without one, which rest apart since their limits are apart.
+// reply is what a provider answered: its results, and what the answer cost
+// when the provider says so (Exa's costDollars).
+type reply struct {
+	results     []Result
+	costDollars float64
+}
+
+// route is one way of asking a provider: with one of its keys, without a
+// key, or through a subscription. Each rests apart, since their limits are
+// apart.
 type route struct {
-	// id names the route for its rest.
+	// id names the route for its rest and its last use.
 	id       string
 	provider string
 	// source says where its search comes from.
 	source string
-	// address is SearXNG's.
-	address string
 	// label says which way, in a failure's reason.
 	label string
-	key   string
+	key   Key
+	// daily: the provider's limit is a day's, so a 429 rests it until 00:00 UTC (You.com's 100 a day).
+	daily bool
 	// timeout is how long the provider has; zero: providerTimeout.
 	timeout time.Duration
-	ask     func(s *Service, ctx context.Context, r route, query string, limit int) ([]Result, error)
-}
-
-// chain is every way of asking, in the order a call that names no provider
-// tries them: Exa with its key, SearXNG, Exa without a key, Parallel, then
-// the subscriptions (OmniRoute's autoSearchCandidates).
-func chain(key, searxng string) []route {
-	out := []route{
-		{id: "exa", provider: ProviderExa, source: SourceKey, label: "with its key: ", key: key, ask: (*Service).askExa},
-		{
-			id: "searxng", provider: ProviderSearXNG, source: SourceSelfHosted, address: searxng,
-			ask: (*Service).askSearXNG,
-		},
-		{id: "exa-mcp", provider: ProviderExa, source: SourcePublic, label: "public MCP: ", ask: (*Service).askExaMCP},
-		{
-			id: "parallel-mcp", provider: ProviderParallel, source: SourcePublic, label: "public MCP: ",
-			ask: (*Service).askParallel,
-		},
-	}
-
-	for _, p := range SubscriptionProviders() {
-		out = append(out, subscriptionRoute(p))
-	}
-
-	return out
-}
-
-// usable reports whether a route can be asked at all: Exa's key is there,
-// SearXNG's address is set, the control plane has subscriptions. Whether a
-// subscription has an account is known only when it is asked.
-func (s *Service) usable(r route) bool {
-	switch r.source {
-	case SourceKey:
-		return r.key != ""
-	case SourceSelfHosted:
-		return r.address != ""
-	case SourceSubscription:
-		return s.subs != nil
-	default:
-		return true
-	}
-}
-
-// exaKey reads Exa's key for a call that may ask Exa.
-func (s *Service) exaKey(ctx context.Context) (string, error) {
-	if s.cfg.ExaKey == nil {
-		return "", nil
-	}
-
-	key, err := s.cfg.ExaKey(ctx)
-	if err != nil {
-		s.cfg.Logger.ErrorContext(ctx, "reading Exa's key",
-			slog.String("event", "websearch.exa_key_failed"), slog.String("error", err.Error()))
-
-		return "", err
-	}
-
-	return key, nil
+	ask     func(s *Service, ctx context.Context, r route, query string, limit int) (reply, error)
 }
 
 // routes are the ways a call may ask, in the order they are tried, and the
-// failures of those that could not even be set up.
-func (s *Service) routes(ctx context.Context, provider string, set Settings) ([]route, []Failure) {
+// failures of those that could not even be set up. turn moves the keyless
+// ring's start: a search does, the page's listing does not.
+func (s *Service) routes(ctx context.Context, provider string, set Settings, turn bool) ([]route, []Failure) {
 	var failures []Failure
 
-	key := ""
-
-	if provider == "" || provider == ProviderExa {
-		k, err := s.exaKey(ctx)
-		if err != nil {
-			failures = append(failures, Failure{Provider: ProviderExa, Reason: "its key could not be read"})
-		}
-
-		key = k
+	keys, err := s.keys(ctx)
+	if err != nil {
+		failures = append(failures, Failure{Provider: "keys", Reason: "the providers' keys could not be read"})
 	}
+
+	off := func(p string) bool { return slices.Contains(set.Off, p) }
 
 	var out []route
 
-	for _, r := range chain(key, set.SearXNGURL) {
-		switch {
-		case slices.Contains(set.Off, r.provider), !s.usable(r):
-		case provider == "", provider == r.provider:
-			out = append(out, r)
+	keyed := map[string]bool{}
+
+	for _, p := range set.order() {
+		if off(p) || (provider != "" && provider != p) {
+			continue
+		}
+
+		for _, k := range s.leastRecentlyUsed(keys[p]) {
+			out = append(out, keyRoute(k))
+			keyed[p] = true
 		}
 	}
 
-	// Exa named: its key when there is one, else its public MCP, as omp's searchExa chooses.
-	if provider == ProviderExa && len(out) > 1 {
-		out = out[:1]
+	ring := keylessRing()
+	start := 0
+
+	if provider == "" && turn {
+		s.mu.Lock()
+		start = s.ring
+		s.ring = (s.ring + 1) % len(ring)
+		s.mu.Unlock()
+	}
+
+	for _, p := range append(ring[start:], ring[:start]...) {
+		// A provider named is asked with its keys when it has some, else without (omp's searchExa).
+		if off(p) || (provider != "" && (provider != p || keyed[p])) {
+			continue
+		}
+
+		out = append(out, keylessRoute(p))
+	}
+
+	if s.subs != nil {
+		for _, p := range SubscriptionProviders() {
+			if !off(p) && (provider == "" || provider == p) {
+				out = append(out, subscriptionRoute(p))
+			}
+		}
 	}
 
 	return out, failures
 }
 
-func (s *Service) ask(ctx context.Context, r route, query string, limit int) ([]Result, error) {
+func (s *Service) ask(ctx context.Context, r route, query string, limit int) (reply, error) {
 	timeout := r.timeout
 	if timeout <= 0 {
 		timeout = providerTimeout

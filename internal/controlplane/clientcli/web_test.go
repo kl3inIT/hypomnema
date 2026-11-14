@@ -3,6 +3,8 @@ package clientcli
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -127,22 +129,41 @@ func TestAWebSearchThatFailsSaysWhy(t *testing.T) {
 	assert.Contains(t, err.Error(), "this control plane has no web search")
 }
 
-// theChain stands for the web search chain and what the owner sets of it.
+// theChain stands for the web search chain and what the owner sets of it:
+// its Exa keys are the vault's secrets.
 type theChain struct {
-	off     map[string]bool
-	searxng string
-	key     *vaultOfOne
+	off   map[string]bool
+	order []string
+	vault *vaultOfKeys
 }
 
 func (c *theChain) Chain(context.Context) ([]websearch.Link, error) {
-	return []websearch.Link{
-		{Provider: "exa", Source: websearch.SourceKey, On: !c.off["exa"], Usable: c.key.value != ""},
-		{Provider: "searxng", Source: websearch.SourceSelfHosted, On: !c.off["searxng"], Usable: c.searxng != "",
-			Address: c.searxng},
-		{Provider: "exa", Source: websearch.SourcePublic, On: !c.off["exa"], Usable: true},
-		{Provider: "parallel", Source: websearch.SourcePublic, On: !c.off["parallel"], Usable: true,
-			RestingUntil: time.Date(2030, 1, 1, 9, 30, 0, 0, time.Local)},
-	}, nil
+	exa := websearch.Link{Provider: "exa", Source: websearch.SourceKey, On: !c.off["exa"], Keys: []websearch.KeyState{}}
+
+	for _, name := range c.vault.names() {
+		exa.Usable = true
+		exa.Keys = append(exa.Keys, websearch.KeyState{Name: name, Usage: websearch.Count{
+			Today: websearch.Tally{Answered: 2}, Month: websearch.Tally{Answered: 9, Failed: 1}, MonthDollars: 0.045,
+		}})
+	}
+
+	tavily := websearch.Link{Provider: "tavily", Source: websearch.SourceKey, On: !c.off["tavily"], Usable: true,
+		Keys: []websearch.KeyState{{
+			Name: "web-search-tavily", RestingUntil: time.Date(2030, 1, 1, 10, 0, 0, 0, time.Local),
+			Rest: websearch.RestNoCredits, Balance: &websearch.Balance{Used: 1000, Limit: 1000},
+		}},
+		RestingUntil: time.Date(2030, 1, 1, 10, 0, 0, 0, time.Local), Rest: websearch.RestNoCredits,
+	}
+
+	keyed := []websearch.Link{exa, tavily}
+	if len(c.order) > 0 && c.order[0] == "tavily" {
+		keyed = []websearch.Link{tavily, exa}
+	}
+
+	return append(keyed,
+		websearch.Link{Provider: "parallel", Source: websearch.SourcePublic, On: !c.off["parallel"], Usable: true,
+			RestingUntil: time.Date(2030, 1, 1, 9, 30, 0, 0, time.Local), Rest: websearch.RestRateLimited},
+	), nil
 }
 
 func (c *theChain) SetSearchProvider(_ context.Context, provider string, on bool) error {
@@ -151,53 +172,71 @@ func (c *theChain) SetSearchProvider(_ context.Context, provider string, on bool
 	return nil
 }
 
-func (c *theChain) SetSearXNG(_ context.Context, address string) error {
-	c.searxng = address
+func (c *theChain) SetSearchOrder(_ context.Context, providers []string) error {
+	c.order = providers
 
 	return nil
 }
 
-// vaultOfOne keeps one secret's value.
-type vaultOfOne struct {
-	name, value string
+// vaultOfKeys keeps secrets' values by name.
+type vaultOfKeys struct {
+	values map[string]string
 }
 
-func (v *vaultOfOne) List(context.Context) ([]clientapi.SecretInfo, error) { return nil, nil }
+func (v *vaultOfKeys) names() []string {
+	return slices.Sorted(maps.Keys(v.values))
+}
 
-func (v *vaultOfOne) Value(context.Context, string) (map[string]string, error) {
+func (v *vaultOfKeys) List(context.Context) ([]clientapi.SecretInfo, error) {
+	var out []clientapi.SecretInfo
+	for _, name := range v.names() {
+		out = append(out, clientapi.SecretInfo{Name: name})
+	}
+
+	return out, nil
+}
+
+func (v *vaultOfKeys) Value(context.Context, string) (map[string]string, error) {
 	return map[string]string{}, nil
 }
 
-func (v *vaultOfOne) Put(_ context.Context, name string, values map[string]string) (clientapi.SecretInfo, error) {
-	v.name, v.value = name, values["value"]
+func (v *vaultOfKeys) Put(_ context.Context, name string, values map[string]string) (clientapi.SecretInfo, error) {
+	v.values[name] = values["value"]
 
 	return clientapi.SecretInfo{Name: name}, nil
 }
 
-func (v *vaultOfOne) Delete(context.Context, string) error {
-	v.value = ""
+func (v *vaultOfKeys) Delete(_ context.Context, name string) error {
+	delete(v.values, name)
 
 	return nil
 }
 
 // Scenario: the owner looks after the web search chain from the terminal,
 // as on Settings → Gateway → Web search: the providers in their order with
-// each one's source and state, a switch, Exa's key read from standard input
-// into the vault, and SearXNG's address.
+// each one's source, state and usage, each key under its provider; a
+// switch; a second Exa key read from standard input into the vault, then
+// the first removed; and the keyed providers put in another order.
 func TestTheOwnerLooksAfterTheWebSearchChain(t *testing.T) {
 	t.Parallel()
 
-	vault := &vaultOfOne{}
-	chain := &theChain{off: map[string]bool{}, key: vault}
+	vault := &vaultOfKeys{values: map[string]string{"web-search-exa": "exa-1"}}
+	chain := &theChain{off: map[string]bool{}, vault: vault}
 	w := newWorldWith(t, nil, func(s *clientapi.Server) {
-		s.WithSecrets(vault).WithWebSearch(chain, "web-search-exa")
+		s.WithSecrets(vault).WithWebSearch(chain)
 	})
 	w.login(t, bearertoken.Owner)
 
+	none := "today 0 answered, 0 failed; this month 0 answered, 0 failed"
+
 	out, err := w.cmd(t, "web", "providers")
 	require.NoError(t, err)
-	assert.Equal(t, "1\texa\twith your key\tnot set up\n2\tsearxng\tself-hosted\tnot set up\n"+
-		"3\texa\tpublic, no key\tready\n4\tparallel\tpublic, no key\tresting until 09:30\n", out)
+	assert.Equal(t, "1\texa\twith your keys\tready\t"+none+"; allowance unknown\n"+
+		"\tkey web-search-exa\tready\ttoday 2 answered, 0 failed; this month 9 answered, 1 failed; "+
+		"$0.045 this month; allowance unknown\n"+
+		"2\ttavily\twith your keys\tout of credits until 10:00\t"+none+"; allowance unknown\n"+
+		"\tkey web-search-tavily\tout of credits until 10:00\t"+none+"; 0 of 1000 credits left\n"+
+		"3\tparallel\tpublic, no key\trate limited until 09:30\t"+none+"; allowance unknown\n", out)
 
 	out, err = w.cmd(t, "web", "providers", "set", "parallel", "off")
 	require.NoError(t, err)
@@ -207,25 +246,21 @@ func TestTheOwnerLooksAfterTheWebSearchChain(t *testing.T) {
 	_, err = w.cmd(t, "web", "providers", "set", "parallel", "maybe")
 	require.ErrorIs(t, err, ErrUsage)
 
-	out, err = w.cmdIn(t, "exa-123\n", "web", "exa-key", "set", "--key-file", "-")
+	out, err = w.cmdIn(t, "exa-2\n", "web", "keys", "add", "exa", "--key-file", "-")
 	require.NoError(t, err)
-	assert.Equal(t, "Exa's key is kept in the vault as web-search-exa\n", out)
-	assert.Equal(t, vaultOfOne{name: "web-search-exa", value: "exa-123"}, *vault)
+	assert.Equal(t, "exa's key is kept in the vault as web-search-exa-2\n", out)
+	assert.Equal(t, map[string]string{"web-search-exa": "exa-1", "web-search-exa-2": "exa-2"}, vault.values)
 
-	out, err = w.cmd(t, "web", "searxng", "set", "http://10.0.0.5:8888")
+	out, err = w.cmd(t, "web", "keys", "rm", "exa", "web-search-exa")
 	require.NoError(t, err)
-	assert.Equal(t, "SearXNG is http://10.0.0.5:8888\n", out)
+	assert.Equal(t, "web-search-exa was removed from the vault\n", out)
+	assert.Equal(t, map[string]string{"web-search-exa-2": "exa-2"}, vault.values)
 
-	out, err = w.cmd(t, "web", "providers")
-	require.NoError(t, err)
-	assert.Contains(t, out, "1\texa\twith your key\tready\n2\tsearxng\tself-hosted\tready\n")
-	assert.Contains(t, out, "4\tparallel\tpublic, no key\toff\n")
+	_, err = w.cmd(t, "web", "keys", "rm", "tavily", "web-search-exa-2")
+	require.Error(t, err, "a key is removed under its own provider")
 
-	_, err = w.cmd(t, "web", "exa-key", "rm")
+	out, err = w.cmd(t, "web", "order", "tavily", "exa", "firecrawl", "parallel", "tinyfish")
 	require.NoError(t, err)
-	assert.Empty(t, vault.value)
-
-	_, err = w.cmd(t, "web", "searxng", "rm")
-	require.NoError(t, err)
-	assert.Empty(t, chain.searxng)
+	assert.True(t, strings.HasPrefix(out, "1\ttavily\t"), out)
+	assert.Equal(t, []string{"tavily", "exa", "firecrawl", "parallel", "tinyfish"}, chain.order)
 }
