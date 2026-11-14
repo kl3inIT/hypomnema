@@ -152,7 +152,8 @@ func TestAnotherAnthropicClientIsPresentedAsClaudeCode(t *testing.T) {
 
 // claudeWrites is an answer of Anthropic's that wrote 50 tokens to the cache,
 // 30 of them for an hour (usage.cache_creation), as Claude Code's one-hour
-// breakpoints write them.
+// breakpoints write them. Its message_delta repeats the counts without
+// cache_creation, as Anthropic's does.
 var claudeWrites = []string{
 	event(`{"type":"message_start","message":{"id":"msg_1","usage":{"input_tokens":12,"cache_read_input_tokens":4,` +
 		`"cache_creation_input_tokens":50,"cache_creation":{"ephemeral_5m_input_tokens":20,` +
@@ -160,7 +161,8 @@ var claudeWrites = []string{
 	event(`{"type":"content_block_start","index":0,"content_block":{"type":"text"}}`),
 	event(`{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"hello"}}`),
 	event(`{"type":"content_block_stop","index":0}`),
-	event(`{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":7}}`),
+	event(`{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"input_tokens":12,` +
+		`"cache_read_input_tokens":4,"cache_creation_input_tokens":50,"output_tokens":7}}`),
 	event(`{"type":"message_stop"}`),
 }
 
