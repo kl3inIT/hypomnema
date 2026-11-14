@@ -392,6 +392,16 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   - `GET /artifacts?chat_id=` and `GET /artifacts/{id}` (every revision kept, with its files) are read by every
     token, a Bot's only its chat's (its Bot's for a Routine); `GET .../revisions/{n}/file?path=` sends one file and
     `.../archive` a revision as a zip, both as `/raw` sends a file (an attachment, `nosniff`, a sandboxing CSP).
+    `GET .../revisions/{n}/sheets?path=` (owner only, issue #422) reads an xlsx file into CSV text a sheet
+    (`{sheets: [{name, csv, truncated}], truncated}`, `internal/controlplane/spreadsheet`, after MemoryOS's
+    `SpreadsheetPreview.java` and Onyx's `parse_spreadsheet_for_preview`): excelize's streaming row iterator, a
+    formula as the value the workbook cached, never evaluated, a row the sheet never stored as its own empty line,
+    each sheet cut at a row boundary past 500,000 characters. This server adds its own bounds, from the security
+    review: 2,000,000 characters for the whole workbook (a sheet read past what is left is cut the same way, the
+    later ones listed empty and cut), at most 50 sheets (the rest left out, `truncated` at the top), 1,024 cells a
+    row, 64 MiB unpacked by the sizes the zip declares (refused before a part is inflated; every part kept in
+    memory), two workbooks read at once, and 20 seconds a read, which the request stops waiting for when its
+    context ends. What is not a workbook is refused as invalid.
     `POST .../revisions/{n}/frame` (owner only) gives the address a folder page's files load from in its frame,
     `/api/v1/artifact-files/<token>/<path>`, outside the contract and needing no sign-in, as a terminal's ticket:
     a random token kept in memory for an hour after its last use (Onyx's preview token lasts an hour; at most
@@ -404,7 +414,7 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     Windows, a control character); a file that is there is never replaced.
     Every Bot's `AGENTS.md` says when and how to show one.
   - Not built: JSX pages, a public link (OpenMausBot's `publish_page`), pinning to a board, the page calling back
-    into the chat, viewers for Excel, CSV, Word, Markdown and text (they download), the dashboard skill (row 13).
+    into the chat, the dashboard skill (row 13); a pptx or an old .doc is a download.
 - The chat's work docked above its composer (issue #314, `web/src/features/chat/docked-work.tsx`), beside the
   pending Approval cards and in their scrolling box:
   - Each open question to the owner from the chat's Runs, with the Task it comes from, answered with the
@@ -2284,8 +2294,13 @@ Node (`internal/node`):
     two seconds, or refused by the save) a bar says so with Compare (the diff of the file now and the owner's text),
     Reload and Overwrite (Orca's external-change banner); a file that went offers to be saved again. A Markdown
     file opens as its preview, with the chat's renderer (Streamdown), its images at paths of the folder read
-    through `/raw` as `blob:` URLs (Orca's `useLocalImageSrc.ts`), and switches to its source. An image (png, jpg,
-    gif, webp, svg, avif, ico, bmp) opens as one, from its bytes. All files has New file and New folder at its top,
+    through `/raw` as `blob:` URLs (Orca's `useLocalImageSrc.ts`; an SVG drawn from its text in the locked frame
+    instead), and switches to its source; a CSV opens as its table (the preview's `csv-view.tsx`, at most 1,000
+    rows and the first 1 MB, with a note and the download) and switches to its source. A file that is not text
+    opens in the app's file preview, as an Artifact does (issue #422, below): an image, an SVG, a PDF, a workbook
+    (`GET /chats/{id}/workspaces/{ws}/sheets?path=`, its bytes read from the folder's machine as `/raw` reads them,
+    up to 10 MiB, and parsed by the control plane as an Artifact's are), a Word document; a pptx, an old .doc or any
+    other binary file is its name and a download. Text and source stay in Monaco, where they are edited. All files has New file and New folder at its top,
     and a menu on each row (New file and New folder on a folder, Rename, Download, Copy path, Delete), as Orca's
     row menu; a delete says it is for good and asks; a file or folder deleted or moved closes its tabs.
   - Uploading (issue #315, `upload.ts`, after Orca's staged save `staged-file-save.ts`): files picked with Upload
@@ -2294,7 +2309,7 @@ Node (`internal/node`):
     listed, removed when another upload starts there after two minutes untouched), and committed by a rename. A
     commit never goes over a file that is there: the list under the tree asks Replace or Keep it, and a replace names
     the SHA-256 of the file it replaces. Each shows its progress and can be cancelled. Not built: a folder upload,
-    resuming a broken upload, rich Markdown editing, PDF, CSV and notebook views, a Trash and undo, content search,
+    resuming a broken upload, rich Markdown editing, notebook views, a Trash and undo, content search,
     writes over 1 MiB from the editor, more than the first 1000 entries of a directory.
   - Artifacts (issue #402, `web/src/features/artifacts`): an artifact's row in the chat is a compact card
     (`artifact-card.tsx`, after Open Canvas's chip and Claude's card): a small live thumbnail of a page (its frame
@@ -2311,10 +2326,22 @@ Node (`internal/node`):
     `allow-same-origin`, `referrerpolicy="no-referrer"`, on a white canvas; its document starts with OpenMausBot's
     CSP meta (`frame-document.ts`: scripts and styles inline or from cdnjs, jsdelivr and unpkg, Google Fonts,
     images from `data:`, `blob:` and those CDNs, no other connection, frame, form target or base), and a folder
-    page's base and policy add its frame's address. A PDF is drawn by pdf.js through react-pdf, loaded with it
-    (Omnigent's `PdfViewer.tsx`), since a phone shows no PDF in a frame; an image zoomable 25-200 % (Onyx's `imageVariant`),
-    a raster one from its bytes as a `blob:` address of its exact type, an SVG from its frame's sandboxed address
-    and never from a `blob:` or `data:` address of this origin, where its script would run opened on its own; any other file is its name, size and a download (Onyx's `unsupportedVariant`).
+    page's base and policy add its frame's address. Any other file opens in the file preview
+    (`web/src/features/preview`, issue #422), copied from MemoryOS's `web/src/features/preview` (the owner's code,
+    after Onyx's `PreviewModal`), one view a kind in Onyx's order, the PDF reader loaded only with a PDF: a PDF drawn
+    by pdf.js through react-pdf 11 (pdfjs-dist 6.3.289, its worker and image decoders self-hosted under
+    `assets/`, as a phone shows no PDF in a frame), the pages near the view drawn, a floating page field and zoom
+    (fit, 150, 200, 300 %), and a page rail beside it in full screen or on its own page; an image zoomable 25-200 %
+    and turned, a raster one from its bytes as a `blob:` address of its exact type, an SVG from its frame's
+    sandboxed address (in the Files panel from its text in a locked frame: a srcdoc frame with `sandbox=""` whose
+    policy loads only the picture as a `data:` address), never from a `blob:` address of this origin, where its
+    script would run opened on its own; a workbook as a table a sheet, tabs between them; a CSV as a table (RFC
+    4180, virtualized, the header and first column kept in view); a Word document drawn by docx-preview,
+    sanitized by DOMPurify (Onyx's `sanitizeDocxHtml`), inside a shadow root that alone takes its styles, any
+    `@import` and any `url()` not `data:` taken out (the security review; MemoryOS adopts them on the page);
+    Markdown with the chat's renderer; source and text in the read-only Monaco. Text is read up to 1 MiB and a
+    table shows 1,000 rows; a file cut so says so beside the download of the whole. A pptx, an old .doc and any
+    other file is its name and a download (Onyx's `unsupportedVariant`).
   - The sidebar lists the places in the order they are used (issue #371, after OpenClaw's navigation): New chat,
     Team with the count that needs the owner, Routines, then Bots, Agents (a terminal mark, apart from the Bots'
     robot) and Machines, above the Bots (issue #361, after OpenMausBot's sidebar): a row a Bot that has chats, and
@@ -2551,6 +2578,7 @@ api                       the client API's contract (openapi.yaml) and oapi-code
 internal/controlplane     package controlplane: configuration, migrate, serve and the owner's server commands
 internal/controlplane/agentapi  the agent API: what a Dispatch's key or a pi's token may use, an Integration's short-lived token, the browser's and the web's tools
 internal/controlplane/artifactpack  an Artifact's files: the rules a Bot's file or folder is read by, its tar, its type from bytes and name, its limits
+internal/controlplane/spreadsheet  an xlsx workbook read into CSV text a sheet for the web's preview, within its limits
 internal/controlplane/bearertoken  client token format: making, checking and hashing
 internal/controlplane/browser  the browser every agent shares: the pinned agent-browser and headless Chrome, one Chrome and a session an agent, the tools offered, the idle rules, who drives it, the owner's views
 internal/controlplane/browser/egress  the gate on what the shared browser may reach: the SOCKS5 server Chrome goes through, the address classes, the owner's allow list

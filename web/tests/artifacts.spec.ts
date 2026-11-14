@@ -1,11 +1,21 @@
-import { crc32, deflateSync } from "node:zlib"
-
 import { expect, test, type Page } from "@playwright/test"
 
+import {
+  bigLog,
+  chart,
+  docx,
+  markdown,
+  orders,
+  pdf,
+  python,
+  reportPdf,
+  sheets,
+  svg,
+} from "./fixtures/files.js"
 import { shot } from "./shot.js"
 
-// Artifacts (issue #402) against a fake client API: a Bot's dashboard, PDF, image and spreadsheet in a chat, each a
-// card; a page in its locked frame, its data from the frame's own address; its revisions, Code, full screen and
+// Artifacts (issues #402 and #422) against a fake client API: a Bot's dashboard and files of every kind in a chat,
+// each a card; a page in its locked frame, its data from the frame's own address; its revisions, Code, full screen and
 // its own page in a new tab. The chat's stream is held open by the test, which writes frames into it, as in
 // chat.spec.ts.
 
@@ -47,66 +57,8 @@ fetch("data.json").then(r => r.json()).then(d => {
 
 const data = JSON.stringify({ revenue: "1,24 tỷ", days: [62, 66, 58, 74, 81, 90, 54] })
 
-// pdf is a one-page PDF that says its text, with a cross-reference table that is right.
-function pdf(text: string) {
-  const objects = [
-    "<< /Type /Catalog /Pages 2 0 R >>",
-    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
-    `<< /Length ${44 + text.length} >>\nstream\nBT /F1 24 Tf 72 760 Td (${text}) Tj ET\nendstream`,
-    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
-  ]
-  let body = "%PDF-1.4\n"
-  const offsets: number[] = []
-  objects.forEach((o, i) => {
-    offsets.push(body.length)
-    body += `${i + 1} 0 obj\n${o}\nendobj\n`
-  })
-  const xref = body.length
-  body += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`
-  for (const o of offsets) body += `${String(o).padStart(10, "0")} 00000 n \n`
-  body += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`
-
-  return Buffer.from(body, "latin1")
-}
-
-// A small chart as a PNG: five bars on white.
-function chart() {
-  const width = 240
-  const height = 120
-  const heights = [40, 70, 55, 90, 105]
-  const rows: number[] = []
-  for (let y = 0; y < height; y++) {
-    rows.push(0)
-    for (let x = 0; x < width; x++) {
-      const bar = Math.floor(x / 48)
-      const inBar = x % 48 > 8 && x % 48 < 40 && height - y <= (heights[bar] ?? 0)
-      rows.push(...(inBar ? [91, 91, 214] : [255, 255, 255]))
-    }
-  }
-  const chunk = (type: string, body: Buffer) => {
-    const head = Buffer.alloc(4)
-    head.writeUInt32BE(body.length)
-    const typed = Buffer.concat([Buffer.from(type, "latin1"), body])
-    const crc = Buffer.alloc(4)
-    crc.writeUInt32BE(crc32(typed))
-
-    return Buffer.concat([head, typed, crc])
-  }
-  const header = Buffer.alloc(13)
-  header.writeUInt32BE(width, 0)
-  header.writeUInt32BE(height, 4)
-  header.set([8, 2, 0, 0, 0], 8)
-
-  return Buffer.concat([
-    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
-    chunk("IHDR", header),
-    chunk("IDAT", deflateSync(Buffer.from(rows))),
-    chunk("IEND", Buffer.alloc(0)),
-  ])
-}
-
 const png = chart()
+const octet = "application/octet-stream"
 
 type Rev = {
   revision: number
@@ -175,16 +127,7 @@ function world() {
       "application/pdf",
     ),
     art_img: one("art_img", "Revenue chart", "image", "chart.png", png, "image/png"),
-    art_svg: one(
-      "art_svg",
-      "Flow",
-      "image",
-      "flow.svg",
-      Buffer.from(
-        '<svg xmlns="http://www.w3.org/2000/svg" width="160" height="60"><rect width="160" height="60" fill="#5b5bd6"/><script>parent.alert(1)</script></svg>',
-      ),
-      "image/svg+xml",
-    ),
+    art_svg: one("art_svg", "Flow", "image", "flow.svg", svg, "image/svg+xml"),
     art_xls: one(
       "art_xls",
       "Orders, October",
@@ -193,6 +136,20 @@ function world() {
       Buffer.from("PK\u0003\u0004 a sheet"),
       "application/octet-stream",
     ),
+    art_csv: one("art_csv", "Order list", "file", "orders.csv", Buffer.from(orders), octet),
+    art_doc: one("art_doc", "Q3 report", "file", "bao-cao-q3.docx", docx, octet),
+    art_md: one("art_md", "Q3 summary", "file", "summary.md", Buffer.from(markdown), octet),
+    art_py: one("art_py", "Revenue script", "file", "revenue.py", Buffer.from(python), octet),
+    art_log: one("art_log", "Worker log", "file", "worker.log", Buffer.from(bigLog), octet),
+    art_ppt: one(
+      "art_ppt",
+      "Q3 slides",
+      "file",
+      "slides.pptx",
+      Buffer.from("PK\u0003\u0004"),
+      octet,
+    ),
+    art_fin: one("art_fin", "Finance Q3", "pdf", "tai-chinh-q3.pdf", reportPdf, "application/pdf"),
   }
 
   const toJSON = (k: Kept) => {
@@ -299,7 +256,9 @@ async function fakeServer(page: Page, w: ReturnType<typeof world>) {
       })
     }
 
-    const one = /^\/artifacts\/(art_\w+)(?:\/revisions\/(\d+)\/(file|frame|archive))?$/.exec(path)
+    const one = /^\/artifacts\/(art_\w+)(?:\/revisions\/(\d+)\/(file|frame|archive|sheets))?$/.exec(
+      path,
+    )
     if (one) {
       const [, id, rev, op] = one
       const k = w.artifacts[id!]
@@ -308,6 +267,8 @@ async function fakeServer(page: Page, w: ReturnType<typeof world>) {
 
       const r = k.revisions.find((x) => x.revision === Number(rev))!
       if (op === "frame") return json({ url: `/api/v1/artifact-files/tok-${id!.slice(4)}-${rev}/` })
+      // A workbook as the control plane reads it (internal/controlplane/spreadsheet).
+      if (op === "sheets") return json(sheets)
 
       const name = url.searchParams.get("path") ?? r.entry
       const f = r.files.find((x) => x.path === name)!
@@ -373,6 +334,13 @@ async function openChat(page: Page, w: ReturnType<typeof world>) {
     [6, "art_img"],
     [7, "art_xls"],
     [8, "art_svg"],
+    [9, "art_csv"],
+    [10, "art_doc"],
+    [11, "art_md"],
+    [12, "art_py"],
+    [13, "art_log"],
+    [14, "art_ppt"],
+    [15, "art_fin"],
   ] as const) {
     await server.push(
       frame(seq, {
@@ -474,42 +442,130 @@ test.describe("on a desktop", () => {
     await expect(side(page)).toHaveCount(0)
   })
 
-  // Scenario: a PDF is drawn page by page in the app, an image is shown from its bytes and zooms, and a sheet the
-  // app has no view for is offered to download, never opened as a page.
-  test("a PDF, an image and a file each have their view", async ({ page }) => {
+  // Scenario: each kind of file a Bot hands over opens in the panel in its own view (issue #422): a PDF drawn page
+  // by page with its page field and zoom, an image from its bytes that zooms, an SVG from the frame's sandboxed
+  // address, a workbook as a table a sheet, a CSV as a table, a Word document as its pages, Markdown as a document,
+  // source in the editor, a large log as its first megabyte with the download, and a deck as a download.
+  test("every kind of file has its view beside the chat", async ({ page }) => {
     const w = world()
     await openChat(page, w)
 
     await card(page, "Quarterly report").click()
-    await expect(side(page)).toContainText("1 page")
-    await expect(side(page).locator(".react-pdf__Page canvas")).toBeVisible()
-    await expect(side(page).getByText("Quarterly report Q3")).toBeAttached()
+    const toolbar = side(page).getByRole("toolbar", { name: "Document controls" })
+    await expect(toolbar.getByRole("spinbutton", { name: "Page number" })).toHaveValue("1")
+    await expect(toolbar).toContainText("/ 1")
+    await expect(side(page).locator('figure[data-page="1"] canvas')).toBeVisible()
+    await toolbar.getByRole("button", { name: "Zoom in" }).click()
+    await expect(toolbar).toContainText("150%")
     await shot(page, "artifact-pdf")
 
     await card(page, "Revenue chart").click()
-    await expect(side(page).getByRole("img", { name: "Revenue chart" })).toBeVisible()
+    await expect(side(page).getByRole("img", { name: "chart.png" })).toBeVisible()
     await side(page).getByRole("button", { name: "Zoom in" }).click()
-    await expect(side(page).getByRole("button", { name: "Reset zoom" })).toHaveText("125%")
+    await expect(side(page).getByText("125%")).toBeVisible()
     await shot(page, "artifact-image")
 
     // A raster image is drawn from its bytes; an SVG never from a blob: address of this origin, where its script
     // would run if it were opened on its own, but from the frame's sandboxed address.
-    expect(
-      await side(page).getByRole("img", { name: "Revenue chart" }).getAttribute("src"),
-    ).toMatch(/^blob:/)
+    expect(await side(page).getByRole("img", { name: "chart.png" }).getAttribute("src")).toMatch(
+      /^blob:/,
+    )
     await card(page, "Flow").click()
-    const svg = side(page).getByRole("img", { name: "Flow" })
-    await expect(svg).toBeVisible()
-    expect(await svg.getAttribute("src")).toMatch(
+    const flow = side(page).getByRole("img", { name: "flow.svg" })
+    await expect(flow).toBeVisible()
+    expect(await flow.getAttribute("src")).toMatch(
       /^http:\/\/127\.0\.0\.1:4173\/api\/v1\/artifact-files\/tok-svg-1\/flow\.svg$/,
     )
-    await expect(page.locator('img[src^="blob:"][alt="Flow"]')).toHaveCount(0)
+    await expect(page.locator('img[src^="blob:"][alt="flow.svg"]')).toHaveCount(0)
+    expect(await page.title()).not.toBe("pwned")
+    await shot(page, "artifact-svg")
 
     await card(page, "Orders, October").click()
-    const download = side(page).getByRole("link", { name: "Download" })
-    await expect(download).toHaveAttribute("href", "/api/v1/artifacts/art_xls/revisions/1/file")
-    await expect(side(page)).toContainText("orders.xlsx")
+    await expect(side(page).getByRole("tab", { name: "Revenue Q3" })).toBeVisible()
+    await expect(side(page).getByRole("cell", { name: "Hà Nội", exact: true })).toBeVisible()
+    await shot(page, "artifact-xlsx")
+    await side(page).getByRole("tab", { name: "Daily log" }).click()
+    await expect(side(page).getByRole("note")).toContainText("Only the first 1,000 rows are shown.")
+    await expect(side(page).getByRole("link", { name: "Download the whole file" })).toHaveAttribute(
+      "href",
+      "/api/v1/artifacts/art_xls/revisions/1/file",
+    )
+    await shot(page, "artifact-xlsx-cut")
+
+    await card(page, "Order list").click()
+    await expect(side(page).getByRole("cell", { name: "12 Lê Lợi, Quận 1, TP.HCM" })).toBeVisible()
+    await expect(side(page).getByRole("columnheader", { name: "Customer" })).toBeVisible()
+    await shot(page, "artifact-csv")
+
+    await card(page, "Q3 report").click()
+    await expect(
+      side(page).locator('[data-slot="docx-preview"] section.docx').first(),
+    ).toBeVisible()
+    await expect(side(page).locator('[data-slot="docx-preview"] script')).toHaveCount(0)
+
+    // The document's styles stay inside its shadow root: none of them reach the app around it.
+    expect(
+      await page.evaluate(() => {
+        type Sheets = { adoptedStyleSheets: { cssRules: ArrayLike<{ cssText: string }> }[] }
+        const doc = (globalThis as unknown as { document: Sheets }).document
+
+        return doc.adoptedStyleSheets.some((s) =>
+          Array.from(s.cssRules).some((r) => r.cssText.includes("docx")),
+        )
+      }),
+    ).toBe(false)
+    expect(
+      await page
+        .locator('[data-slot="docx-preview"]:visible')
+        .evaluate((h) => h.shadowRoot?.adoptedStyleSheets.length ?? 0),
+    ).toBeGreaterThan(1)
+    await shot(page, "artifact-docx")
+
+    await card(page, "Q3 summary").click()
+    await expect(side(page).getByRole("heading", { name: "Q3 summary" })).toBeVisible()
+    await expect(side(page).getByRole("cell", { name: "1,299" })).toBeVisible()
+    await shot(page, "artifact-markdown")
+
+    await card(page, "Revenue script").click()
+    await expect(side(page).locator('[data-testid="code-view"] .view-lines')).toContainText(
+      "groupby",
+    )
+    await shot(page, "artifact-code")
+
+    await card(page, "Worker log").click()
+    await expect(side(page).getByRole("note")).toContainText(
+      "Only the first 1 MB of the file is shown.",
+    )
+    await expect(side(page).getByRole("link", { name: "Download the whole file" })).toHaveAttribute(
+      "href",
+      "/api/v1/artifacts/art_log/revisions/1/file",
+    )
+    await expect(side(page).locator('[data-testid="code-view"] .view-lines')).toContainText(
+      "handled request 0",
+    )
+    await shot(page, "artifact-large-text")
+
+    await card(page, "Q3 slides").click()
+    await expect(side(page).getByRole("link", { name: "Download" })).toHaveAttribute(
+      "href",
+      "/api/v1/artifacts/art_ppt/revisions/1/file",
+    )
+    await expect(side(page)).toContainText("slides.pptx")
     await shot(page, "artifact-file")
+
+    // Full screen has room for the page rail beside a PDF of several pages.
+    await card(page, "Finance Q3").click()
+    await side(page).getByRole("button", { name: "Full screen" }).click()
+    const full = page.getByRole("dialog", { name: "Artifact, full screen" })
+    const rail = full.getByRole("navigation", { name: "Pages" })
+    await expect(rail.getByRole("button", { name: "Page 1" })).toHaveAttribute(
+      "aria-current",
+      "true",
+    )
+    await expect(full.locator('figure[data-page="1"] canvas')).toBeVisible()
+    await rail.getByRole("button", { name: "Page 2" }).click()
+    await expect(full.getByRole("spinbutton", { name: "Page number" })).toHaveValue("2")
+    await shot(page, "artifact-pdf-full-screen")
   })
 })
 
@@ -534,17 +590,66 @@ test.describe("on a phone", () => {
     await full.getByRole("button", { name: "Close" }).click()
     await expect(full).toHaveCount(0)
 
-    for (const [title, name] of [
-      ["Quarterly report", "artifact-pdf"],
-      ["Revenue chart", "artifact-image"],
-      ["Orders, October", "artifact-file"],
-    ] as const) {
+    const shown = page.getByRole("dialog", { name: "Artifact, full screen" })
+    const kinds: [string, string, (d: typeof shown) => Promise<void>][] = [
+      [
+        "Quarterly report",
+        "artifact-pdf",
+        (d) => expect(d.locator('figure[data-page="1"] canvas')).toBeVisible(),
+      ],
+      [
+        "Revenue chart",
+        "artifact-image",
+        (d) => expect(d.getByRole("img", { name: "chart.png" })).toBeVisible(),
+      ],
+      [
+        "Flow",
+        "artifact-svg",
+        (d) => expect(d.getByRole("img", { name: "flow.svg" })).toBeVisible(),
+      ],
+      [
+        "Orders, October",
+        "artifact-xlsx",
+        (d) => expect(d.getByRole("cell", { name: "Hà Nội", exact: true })).toBeVisible(),
+      ],
+      [
+        "Order list",
+        "artifact-csv",
+        (d) => expect(d.getByRole("columnheader", { name: "Customer" })).toBeVisible(),
+      ],
+      [
+        "Q3 report",
+        "artifact-docx",
+        (d) => expect(d.locator('[data-slot="docx-preview"] section.docx').first()).toBeVisible(),
+      ],
+      [
+        "Q3 summary",
+        "artifact-markdown",
+        (d) => expect(d.getByRole("heading", { name: "Q3 summary" })).toBeVisible(),
+      ],
+      [
+        "Revenue script",
+        "artifact-code",
+        (d) => expect(d.locator('[data-testid="code-view"] .view-lines')).toContainText("groupby"),
+      ],
+      [
+        "Worker log",
+        "artifact-large-text",
+        (d) => expect(d.getByRole("note")).toContainText("Only the first 1 MB"),
+      ],
+      [
+        "Q3 slides",
+        "artifact-file",
+        (d) => expect(d.getByRole("link", { name: "Download" })).toBeVisible(),
+      ],
+    ]
+    for (const [title, name, check] of kinds) {
       await card(page, title).click()
-      const shown = page.getByRole("dialog", { name: "Artifact, full screen" })
-      await expect(shown).toContainText(title)
-      if (title === "Quarterly report") await expect(shown).toContainText("1 page")
+      await expect(shown.getByText(title, { exact: true }).first()).toBeVisible()
+      await check(shown)
       await shot(page, name)
       await shown.getByRole("button", { name: "Close" }).click()
+      await expect(shown).toHaveCount(0)
     }
   })
 

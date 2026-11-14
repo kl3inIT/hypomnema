@@ -178,6 +178,7 @@ export function ArtifactPanel({
           artifact={a}
           revision={revision}
           mode={revision.type === "html" ? mode : "preview"}
+          wide={where !== "side"}
         />
       </div>
     </Frame>

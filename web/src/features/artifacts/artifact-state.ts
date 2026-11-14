@@ -4,6 +4,7 @@ import { useEffect, useMemo } from "react"
 import { client } from "@/api/client"
 import { getArtifact, openArtifactFrame, readArtifactFile } from "@/api/generated/sdk.gen"
 import type { Artifact, ArtifactRevision } from "@/api/generated/types.gen"
+import { isRaster } from "@/features/preview/preview-kind"
 
 // What the web knows of an artifact (issue #402): the artifact with its revisions, a revision's files read as
 // bytes, and the address a folder page's files load from in its frame.
@@ -80,23 +81,9 @@ export function sizeOf(bytes: number) {
   return `${bytes} B`
 }
 
-// rasterTypes are the images whose bytes become a blob: address. A blob: address is of this origin, so a type that
-// can run script there (SVG, HTML) never gets one: opened on its own, as "Open image in new tab" does, it would be a
-// page of the app.
-const rasterTypes = new Set([
-  "image/png",
-  "image/jpeg",
-  "image/gif",
-  "image/webp",
-  "image/avif",
-  "image/bmp",
-  "image/x-icon",
-])
-
-export const isRaster = (type: string) => rasterTypes.has(type)
-
-// useImageSource is where an image artifact is drawn from: a raster image from its bytes, typed exactly; any other
-// image, an SVG, from its frame's address, which the server sends with a sandboxing policy, so that opened on its
+// useImageSource is where an image artifact's card draws it from: a raster image from its bytes, typed exactly (a
+// blob: address is of this origin, so a type that can run script there never gets one); any other image, an SVG,
+// from its frame's address, which the server sends with a sandboxing policy, so that opened on its
 // own it is never a page of this origin and its script never runs.
 export function useImageSource(id: string, revision: ArtifactRevision) {
   const type = revision.files.find((f) => f.path === revision.entry)?.media_type ?? ""
