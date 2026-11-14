@@ -58,7 +58,8 @@ const GatewayAccountRef = "gateway"
 // runtimeProviders lists, per runtime, the provider kinds it can run against.
 // A Runtime is code on the node; a profile only names one.
 var runtimeProviders = map[string][]string{
-	"claude": {ProviderClaudeSubscription, ProviderAnthropic},
+	// Claude Code reaches the gateway's /v1/messages with its Dispatch's key (issue #381).
+	"claude": {ProviderClaudeSubscription, ProviderAnthropic, ProviderModelGateway},
 	"codex":  {ProviderCodexSubscription, ProviderOpenAICompatible, ProviderModelGateway},
 	// pi reaches its model through the gateway as omp and opencode do (issue #204).
 	"pi": {ProviderAnthropic, ProviderOpenAICompatible, ProviderModelGateway},

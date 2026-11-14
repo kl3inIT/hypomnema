@@ -303,8 +303,8 @@ type Offer struct {
 	// on the node (docs/decisions/2026-11-13-worker-credentials-in-the-environment.md).
 	RepoToken string `json:"repo_token,omitempty"`
 	// ModelKey is the model gateway's key for this Dispatch, when AccountRef
-	// is "gateway": the worker's CLI calls <control plane URL>/v1 with it, for
-	// the offer's Model only. It is made as the offer is sent and revoked when
+	// is "gateway": the worker's CLI calls <control plane URL>/v1 with it (a
+	// Claude Code worker its /v1/messages), for the offer's Model only. It is made as the offer is sent and revoked when
 	// the Dispatch settles; the node keeps it with the offer until then.
 	ModelKey string `json:"model_key,omitempty"`
 	// AccountToken is the token of the account the worker runs under, when the
