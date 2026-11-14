@@ -27,6 +27,9 @@ type controlPlane struct {
 	keys    []string
 	started chan struct{}
 	ended   chan struct{}
+	// phone lists the phone's one tool and answers its calls, which go to deviceCalls.
+	phone       bool
+	deviceCalls []agenttool.BrowserCall
 }
 
 func (cp *controlPlane) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -63,6 +66,26 @@ func (cp *controlPlane) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 			return
 		}
+
+		_, _ = io.WriteString(w, result)
+	case "GET " + agenttool.PathDeviceTools:
+		if !cp.phone {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = io.WriteString(w, `{"message":"no node of this control plane holds a phone"}`)
+
+			return
+		}
+
+		_, _ = io.WriteString(w, `{"data":[{"name":"device_screen","description":"Take a picture.",`+
+			`"inputSchema":{"type":"object"}}]}`)
+	case "POST " + agenttool.PathDeviceCall:
+		var call agenttool.BrowserCall
+
+		_ = json.NewDecoder(r.Body).Decode(&call)
+
+		cp.mu.Lock()
+		cp.deviceCalls = append(cp.deviceCalls, call)
+		cp.mu.Unlock()
 
 		_, _ = io.WriteString(w, result)
 	default:
@@ -129,7 +152,8 @@ func TestAWorkerUsesTheSharedBrowser(t *testing.T) {
 	require.Len(t, cp.calls, 1)
 	assert.Equal(t, "agent_browser_screenshot", cp.calls[0].Tool)
 	assert.JSONEq(t, `{"fullPage":true}`, string(cp.calls[0].Arguments))
-	assert.Equal(t, []string{"Bearer " + dispatchKey, "Bearer " + dispatchKey}, cp.keys)
+	// The browser's list, the phone's list (none here) and the call.
+	assert.Equal(t, []string{"Bearer " + dispatchKey, "Bearer " + dispatchKey, "Bearer " + dispatchKey}, cp.keys)
 }
 
 // A control plane that gives no browser leaves the worker its own tools, and
@@ -182,4 +206,38 @@ func TestACancelledBrowserCallEndsAtTheControlPlane(t *testing.T) {
 
 	answer := c.read()
 	assert.Equal(t, true, answer["result"].(map[string]any)["isError"]) //nolint:forcetypeassert // test
+}
+
+// Scenario: a worker on a control plane whose node holds a phone (issue
+// #417) is offered the phone's tools after the browser's, and a device_*
+// call goes to the phone's route with the Dispatch's key; a control plane
+// with no phone offers none.
+func TestAWorkerUsesThePhone(t *testing.T) {
+	t.Parallel()
+
+	const shot = `{"content":[{"type":"image","data":"cG5n","mimeType":"image/png"}],"isError":false}`
+
+	cp := &controlPlane{result: shot, phone: true}
+	c := browsing(t, cp)
+
+	c.send(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+	assert.Equal(t, []string{"ask", "finish", "memory", "agent_browser_open", "device_screen"}, names(t, c.read()))
+
+	c.send(map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": map[string]any{
+		"name": "device_tap", "arguments": map[string]any{"target": "#2"},
+	}})
+
+	raw, err := json.Marshal(c.read()["result"])
+	require.NoError(t, err)
+	assert.JSONEq(t, shot, string(raw))
+
+	require.Len(t, cp.deviceCalls, 1)
+	assert.Equal(t, "device_tap", cp.deviceCalls[0].Tool)
+	assert.JSONEq(t, `{"target":"#2"}`, string(cp.deviceCalls[0].Arguments))
+	assert.Empty(t, cp.calls, "a phone call does not go to the browser")
+
+	without := browsing(t, &controlPlane{result: shot})
+
+	without.send(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
+	assert.Equal(t, []string{"ask", "finish", "memory", "agent_browser_open"}, names(t, without.read()))
 }

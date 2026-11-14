@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/kl3inIT/hypomnema/internal/shared/nodeproto"
 )
 
 // Skills are the guides that teach an agent each Integration's tool, one
@@ -27,6 +29,10 @@ func SkillOf(integration string) (string, bool) {
 		return "lark", true
 	case "aws":
 		return "aws", true
+	case nodeproto.DeviceAndroid:
+		// The phone every worker is given (issue #417): a guide with no command of its own, since its tools
+		// are the worker's MCP tools.
+		return "android-device", true
 	}
 
 	return "", false
@@ -52,17 +58,15 @@ func (p Place) Bin() string { return filepath.Join(p.Home, "tools", "bin") }
 func (p Place) SkillsDir() string { return filepath.Join(p.Home, "skills") }
 
 // Prepare writes the script of each tool and the guide of each skill the
-// Integrations need. It can be run again: a file is rewritten whole. The
-// real tools are installed apart, by ToolInstaller.
+// Integrations need, and the phone's guide, which has no tool. It can be run
+// again: a file is rewritten whole. The real tools are installed apart, by
+// ToolInstaller.
 func (p Place) Prepare(integrations []string) error {
 	for _, integration := range integrations {
-		def, ok := Of(integration)
-		if !ok {
-			continue
-		}
-
-		if err := writeWhole(filepath.Join(p.Bin(), def.Name), []byte(Shim(p.Exe, def.Name)), 0o700); err != nil {
-			return fmt.Errorf("writing the script of %s: %w", def.Name, err)
+		if def, ok := Of(integration); ok {
+			if err := writeWhole(filepath.Join(p.Bin(), def.Name), []byte(Shim(p.Exe, def.Name)), 0o700); err != nil {
+				return fmt.Errorf("writing the script of %s: %w", def.Name, err)
+			}
 		}
 
 		if skill, ok := SkillOf(integration); ok {
@@ -106,12 +110,32 @@ func writeWhole(target string, content []byte, mode os.FileMode) error {
 		return err
 	}
 
-	tmp := target + ".tmp"
-	if err := os.WriteFile(tmp, content, mode); err != nil {
+	// A name of its own beside the target: two Dispatches started at once write the same guides.
+	f, err := os.CreateTemp(filepath.Dir(target), filepath.Base(target)+".*.tmp")
+	if err != nil {
 		return err
 	}
 
-	return os.Rename(tmp, target)
+	tmp := f.Name()
+
+	_, err = f.Write(content)
+	if closeErr := f.Close(); err == nil {
+		err = closeErr
+	}
+
+	if err == nil {
+		err = os.Chmod(tmp, mode)
+	}
+
+	if err == nil {
+		err = os.Rename(tmp, target)
+	}
+
+	if err != nil {
+		_ = os.Remove(tmp)
+	}
+
+	return err
 }
 
 // Env is what an agent's environment gains to use its Connections: the
@@ -140,14 +164,21 @@ func IntegrationsOf(uses []string) []string {
 }
 
 // Brief is what an agent is told about the accounts it may use: which, the
-// command for each Integration, and where its guide is. It goes into a
-// worker's first message.
-func Brief(uses []string) string {
-	if len(uses) == 0 {
-		return ""
+// command for each Integration, and where its guide is; and about the phone
+// when it is given one (device). It goes into a worker's first message.
+func Brief(uses []string, device string) string {
+	var b strings.Builder
+
+	if skill, ok := SkillOf(device); ok && device == nodeproto.DeviceAndroid {
+		fmt.Fprintf(&b, "\nAn Android phone is shared by the workers; its device_* tools drive it, one call at a "+
+			"time. Read \"$%s/%s/guide.md\" before the first call. Look with device_screen before each action and "+
+			"tap its numbered boxes. Never sign in to an account on it, and never buy or pay: ask the owner.\n",
+			EnvSkills, skill)
 	}
 
-	var b strings.Builder
+	if len(uses) == 0 {
+		return b.String()
+	}
 
 	b.WriteString("\nAccounts you may use for this task: " + strings.Join(uses, ", ") + ".\n")
 
@@ -171,22 +202,28 @@ func Brief(uses []string) string {
 	return b.String()
 }
 
-// ForDispatch prepares a node for a Dispatch that may use Connections and
-// returns what the worker's environment gains. With no Connection it does
-// nothing and adds nothing. home is the node's home, where its tools are
-// installed; exe the node's binary; key the Dispatch's own.
-func ForDispatch(home, exe, url string, uses []string, key string) ([]string, error) {
-	if len(uses) == 0 {
+// ForDispatch prepares a node for a Dispatch that may use Connections, or is
+// given the phone (device), and returns what the worker's environment gains.
+// With neither it does nothing and adds nothing. home is the node's home,
+// where its tools are installed; exe the node's binary; key the Dispatch's
+// own.
+func ForDispatch(home, exe, url string, uses []string, key, device string) ([]string, error) {
+	needs := IntegrationsOf(uses)
+	if device != "" {
+		needs = append(needs, device)
+	}
+
+	if len(needs) == 0 {
 		return nil, nil
 	}
 
 	if url == "" || key == "" {
-		return nil, fmt.Errorf("the offer names accounts (%s) but the node has no key or control plane address "+
-			"to get their tokens with", strings.Join(uses, ", "))
+		return nil, fmt.Errorf("the offer names %s but the node has no key or control plane address to use "+
+			"them with", strings.Join(needs, ", "))
 	}
 
 	place := Place{Home: home, Exe: exe}
-	if err := place.Prepare(IntegrationsOf(uses)); err != nil {
+	if err := place.Prepare(needs); err != nil {
 		return nil, err
 	}
 
