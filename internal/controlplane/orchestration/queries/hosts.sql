@@ -12,7 +12,7 @@ SELECT * FROM git_hosts ORDER BY host;
 DELETE FROM git_hosts WHERE host = @host;
 
 -- name: CountOpenRunsOnHost :one
-SELECT count(*) FROM runs WHERE status = 'open' AND repo IS NOT NULL AND coalesce(repo_host, 'github.com') = @host;
+SELECT count(*) FROM runs WHERE status = 'open' AND repo IS NOT NULL AND repo_host = @host;
 
 -- name: CountReposOnHost :one
 SELECT count(*) FROM repos WHERE host = @host;

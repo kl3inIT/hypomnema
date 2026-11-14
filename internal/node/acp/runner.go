@@ -444,7 +444,7 @@ func (t *turn) permit(ctx context.Context, w *runner.Worker, m message) {
 }
 
 // update keeps the agent's last message, which is where omp says what went
-// wrong with the model, and reports progress.
+// wrong with the model.
 func (t *turn) update(ctx context.Context, w *runner.Worker, params json.RawMessage) {
 	var u struct {
 		Update struct {
@@ -466,8 +466,6 @@ func (t *turn) update(ctx context.Context, w *runner.Worker, params json.RawMess
 		t.text.Reset() // What was said before a tool was called is not the last word.
 	}
 	t.mu.Unlock()
-
-	w.Progress(ctx)
 }
 
 // Outcome is a worker that exited without calling finish: the gateway's key

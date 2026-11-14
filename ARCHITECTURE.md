@@ -89,8 +89,8 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   Task becomes ready when all its dependencies succeeded; a failed or canceled Task blocks every Task downstream of
   it; reopening a failed Task resets its failure count and unblocks them.
 - Dispatches: the coordinator creates one for a ready Task, in a new Conversation or continuing the open one; a node
-  accepts it (a new epoch and a 90 s lease), reports it started, renews the lease, reports progress, effects
-  (intent, then done) and resources, and reports the outcome. A lost lease or an exit without a report makes the
+  accepts it (a new epoch and a 90 s lease), reports it started, renews the lease, reports effects (intent,
+  then done) and resources, and reports the outcome. A lost lease or an exit without a report makes the
   outcome unknown and blocks the Task; a report from the same epoch, a reattach by the same node and process, a
   settlement by the coordinator or an abandon ends it. A cancel stops the Dispatch and cancels the Task only once
   the stop is confirmed. Worker errors, failed launches and lost Dispatches count toward a breaker of three with a
@@ -100,8 +100,8 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   are marked, stalls (15 min without progress), Dispatches past 4 h and nodes with three expiries in a row are
   returned as escalations, as are open questions to the owner after 1 h, then daily; nothing is killed.
 - A worker that loops is judged from its transcript (issue #359, after OpenMausBot's runtime contract, OpenHands'
-  `StuckDetector` and Gemini CLI's loop detection): progress for the stall timer is a tool result that succeeded,
-  not the node's progress report. The same tool with the same input failing with the same text three times in a
+  `StuckDetector` and Gemini CLI's loop detection): progress for the stall timer is a tool result that succeeded.
+  The same tool with the same input failing with the same text three times in a
   row stops the worker; once the stop is confirmed the Dispatch ends `failed` (`worker_error`, counted by the
   breaker) with "Stopped after 3 identical errors: <tool>: <error>" as its summary (`dispatches.stalled_reason`),
   not `canceled`. A Task whose last two Dispatches failed with tool results and not one success fails at once,
@@ -115,7 +115,7 @@ transaction, every status change a guarded `UPDATE` checked against a transition
 
 - Events: every change writes its events in the same transaction to one log with an increasing `seq`: Runs,
   Tasks and Dispatches with the status they left, Conversations closed, questions opened, answered, forwarded or
-  canceled, and the reaper's escalations. Lease renewals, progress, effects and resources are not events. With one
+  canceled, and the reaper's escalations. Lease renewals, effects and resources are not events. With one
   writer, a later commit always has higher `seq` values, so a reader following `ListEvents` (cursor, limit up to
   500, `has_more`, filters by Run or Task) misses nothing. `Subscribe` wakes readers after each commit with a
   signal that carries no data.
@@ -555,8 +555,7 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     too, since pi locks files there as it reads them; the instructions every Bot gets (`AGENTS.md`), the tools pi
     fetched (`bin/`) and this chat's `models.json` and `settings.json` are bound into it read-only, so a Bot cannot
     change its own settings. Read-write: the Bot's directory and
-    the chat's sessions (`sessions/<chat>/`; pi names a session `<time>_<chat>.jsonl`, and one kept with the others
-    before is moved in). Other Bots' directories, other chats' sessions and other pi processes are not in it. The
+    the chat's sessions (`sessions/<chat>/`; pi names a session `<time>_<chat>.jsonl`). Other Bots' directories, other chats' sessions and other pi processes are not in it. The
     network is the host's (OpenMausBot's `net: "shared"`; owner, 2026-11-12): a Bot's shell still reaches every
     local port of the machine. The launcher refuses to start pi without its token or without bubblewrap, and
     bubblewrap refuses when it cannot make the box: pi never runs outside it.
@@ -834,7 +833,7 @@ transaction, every status change a guarded `UPDATE` checked against a transition
 - A repository is a git host and a path (issue #44; `internal/shared/githost`,
   [research](docs/research/2026-11-10-git-hosts-and-personal-work.md)).
   - A Run is given `owner/name` (GitHub, as before), the URL of a repository, git's `user@host:path`, or the name
-    of a registered repository; it keeps the host and the path. A Run from before hosts existed is on `github.com`.
+    of a registered repository; it keeps the host and the path.
   - Hosts are of two kinds, `github` and `gitlab`, one adapter each: the clone URL, the command that opens a pull
     request, the request's URL, and reading a request from a worker's evidence. `github.com` and `gitlab.com` are
     known; the owner declares a company's server with its kind, and a Run on a host that is not known is refused
@@ -970,8 +969,7 @@ transaction, every status change a guarded `UPDATE` checked against a transition
       Routine script that uses the Connection get that app's token.
     - Its tool is `lark-cli` 1.0.100 (`github.com/larksuite/cli`) for Linux on amd64 and arm64, in the tool
       catalog beside `gws` (`internal/shared/agenttool`) and installed and launched the same way. It will not run
-      on a token alone, so the agent API lists each account with its app's id (and one `client_id` for the whole
-      list only while every account is the same app, for a launcher from before), and the launcher sets
+      on a token alone, so the agent API lists each account with its app's id, and the launcher sets
       `LARKSUITE_CLI_TENANT_ACCESS_TOKEN`, `LARKSUITE_CLI_APP_ID` of the account it acts as and
       `LARKSUITE_CLI_BRAND=lark` for it.
     - **Its skill** (`internal/shared/agenttool/skills/lark`) is one guide, adapted from `lark-cli`'s
@@ -1386,9 +1384,9 @@ not exist yet.
     is on the Runs every token reads, so a coordinator token, the owner and another chat's pi are refused with 403.
   - pi's `models.json` is written by the launcher as pi starts, for that chat's pi alone (issue #260), from
     `hypomnema pi-models`: one provider of pi for
-    each provider of the control plane that is the gateway (kind `model_gateway`, or an OpenAI-compatible provider
-    whose address is the gateway's own), with the models that provider lists. A Bot may name a provider of kind
-    `model_gateway`. No key is made by hand for pi, and the setup script installs none. Each model of the gateway
+    each provider of the control plane of kind `model_gateway`, with the models that provider lists. A Bot may
+    name a provider of kind `model_gateway`; migration 00073 moved the Bots, chats and Profiles of the older
+    OpenAI-compatible provider `gateway` at the control plane's own `/v1` to it and removed that provider. No key is made by hand for pi, and the setup script installs none. Each model of the gateway
     has its attributes (above, issue #367): `contextWindow`, `maxTokens`, `input`, `reasoning` (true only when
     known), `thinkingLevelMap` (pi's minimal to max as the model's level of that name, null for one it lacks; off
     as `none` when the model has it, else left out, which sends no effort) and `cost` (input, output, cache read
@@ -1961,7 +1959,7 @@ Node (`internal/node`):
   `CodexRuntime`, `ACPRuntime`): its checks and homes, argv, environment and configuration, how it reads a journal
   line, its interrupt, and its outcome. The daemon's registry of runtimes by key fails at startup on a key named
   twice or a known runtime with none. A Dispatch is started and adopted with the Runtime of its offer's runtime
-  (`claude` when it names none); a stop, a release, an answer and a question's id go to the Supervisor, which holds
+  (an offer that names none is refused); a stop, a release, an answer and a question's id go to the Supervisor, which holds
   the Dispatch's job. A stop sends the runtime's interrupt and closes the worker's input, and kills a worker still
   alive after 30 s; one with no interrupt (Codex) is killed at once (Omnigent's uniform stop). A release cancels the
   job's journal reader and waits for it to return, so nothing of the Dispatch is reported after it (Omnara's output
@@ -2009,8 +2007,8 @@ Node (`internal/node`):
 - It records an offer and queues its accept in one transaction, and starts the worker only once the accept is
   acknowledged. It renews each running Dispatch's lease every 30 s and passes stops and answers to its Runner.
 - Durable reports (accept, started, question, answer acknowledged, the final report, reattach) wait in a local SQLite
-  outbox (`internal/node/statedb`) and are resent after every reconnect until acknowledged; heartbeats and progress
-  are not resent.
+  outbox (`internal/node/statedb`) and are resent after every reconnect until acknowledged; heartbeats are not
+  resent.
 - Claude Code workers (`internal/node/claude`) run under a shim (`internal/node/shim`), as every worker:
   - The daemon starts `hypomnema-node shim --dir run/<dispatch>` in its own session. The shim runs `claude -p` with
     bidirectional stream-JSON and host permission prompts (`--resume` when the Conversation continues, `--model`
@@ -2030,7 +2028,6 @@ Node (`internal/node`):
     alive after 30 s is killed with its whole session group.
   - Reported:
     - the session id from `system/init`, as started;
-    - progress at most every 30 s;
     - one turn per Dispatch: stdin is closed after the turn's `result`.
   - The worker's transcript goes to the control plane apart from its reports
     ([research](docs/research/2026-11-10-worker-sessions.md); one forwarder, `internal/node/transcript`, for every
@@ -2038,8 +2035,8 @@ Node (`internal/node`):
     - Each journal line becomes items of one shape for every runtime: `message`, `reasoning`, `tool_call`,
       `tool_result`, `notice`. The first instruction and the final result are not items. An item is cut to 64 KiB
       and says how much was left out.
-    - A journal is in the format its runner names in a file `format` beside it: `claude` (stream-JSON; also a journal
-      with no such file), `codex` (`exec --json`) or `acp`. Each has a decoder in its runner's package. Codex's
+    - A journal is in the format its runner names in a file `format` beside it: `claude` (stream-JSON), `codex`
+      (`exec --json`) or `acp`; a journal with no such file, or one no decoder reads, is not sent. Each has a decoder in its runner's package. Codex's
       commands are calls of `shell`, its file changes of `apply_patch`, its MCP calls `mcp__<server>__<tool>`; an
       ACP agent's chunks of text are one message or thought, a call is one item once its input is known (omp has
       it at once, opencode in the call's first update), and the worker's own tools are named
@@ -2490,9 +2487,9 @@ the internet, so that a machine created at a provider can install the node from 
 - Model gateway, since 2026-11-10: the vault's root key is in `~/hypomnema-cp/env`. The owner's Codex account is
   logged in on the control plane, and the gateway serves the model `gpt-6.1-sol` from `codex-subscription` only.
   Until 2026-11-10 its second target was `ninerouter`, 9router on the same machine; the gateway no longer calls it.
-  The provider `ninerouter` and its key, the secret `ninerouter`, are still stored and used by nothing: a provider
-  cannot be removed yet. pi calls the gateway with its own key (provider `gateway`, the Bot `coordinator`, which the
-  profile `coordinator` became on 2026-11-12 with the launcher that takes `--bot`; the Bot's memory is empty).
+  Migration 00074 removed the provider `ninerouter` (2026-11-14); its key is still the vault's secret `ninerouter`.
+  pi calls the gateway with its own key (provider `model-gateway` since migration 00073, the Bot `coordinator`, which
+  the profile `coordinator` became on 2026-11-12 with the launcher that takes `--bot`; the Bot's memory is empty).
 - An Antigravity account of the owner's is logged in too, since 2026-11-10; the OAuth secret of the IDE's client is
   in `~/hypomnema-cp/env`. Provider `antigravity-subscription` was applied again there with the models Google
   serves that account (`accounts models`): Gemini 2.5, 3 and 3.8, `claude-sonnet-4-6`, `claude-opus-4-6-thinking`,

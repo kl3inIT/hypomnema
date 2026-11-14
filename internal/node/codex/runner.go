@@ -251,8 +251,6 @@ func (t *turn) Line(ctx context.Context, w *runner.Worker, line []byte) {
 		if e.Error != nil && e.Error.Message != "" {
 			t.failure = e.Error.Message
 		}
-	default:
-		w.Progress(ctx)
 	}
 }
 

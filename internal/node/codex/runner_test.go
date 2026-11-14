@@ -142,8 +142,6 @@ func (r *reporter) Started(_ context.Context, processRef, session string) error 
 	return nil
 }
 
-func (r *reporter) Progress(context.Context) error { return nil }
-
 func (r *reporter) Ask(context.Context, nodeproto.Ask) (string, error) { return "rep_q", nil }
 
 func (r *reporter) AnswerReceived(context.Context, string) error { return nil }
