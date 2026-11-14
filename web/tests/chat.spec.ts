@@ -871,3 +871,87 @@ test("no context meter before pi reported", async ({ page }) => {
   await expect(page.getByRole("combobox", { name: /^Model:/ })).toBeVisible()
   await expect(page.getByRole("button", { name: /^Context:/ })).toHaveCount(0)
 })
+
+// Scenario: the owner writes in a chat, goes to another chat and comes back, then reloads (issue #433): what was
+// written is still there. Sent, the draft goes and a reload finds the box empty. In the empty box ↑ brings back
+// what the chat sent, newest first, and ↓ goes back to the empty box.
+test("a chat keeps its draft, and ↑ brings back what it sent", async ({ page, isMobile }) => {
+  await fakeServer(page, (text) => ({ status: 201, body: message(2, { role: "owner", text }) }))
+  const other = { ...chat, id: "cht_2", title: "login page" }
+  // The other chat: listed beside this one, with no work of its own.
+  await page.route(
+    (url) =>
+      url.pathname.startsWith("/api/v1/") &&
+      (url.pathname === "/api/v1/chats" ||
+        url.pathname.startsWith(`/api/v1/chats/${other.id}`) ||
+        url.searchParams.get("chat_id") === other.id),
+    (route) => {
+      const path = new URL(route.request().url()).pathname.replace("/api/v1", "")
+      const body =
+        path === "/chats"
+          ? { data: [chat, other] }
+          : path === `/chats/${other.id}`
+            ? other
+            : { data: [] }
+
+      return route.fulfill({ contentType: "application/json", body: JSON.stringify(body) })
+    },
+  )
+  // goTo opens a chat from the Bot's chats in the list, which a phone shows behind its menu.
+  const goTo = async (title: string) => {
+    if (isMobile) await page.getByRole("link", { name: "Menu" }).click()
+    // The Bot's two chats are under it, shown with its toggle once the list is read.
+    const toggle = page
+      .getByRole("button", { name: /the chats of builder$/ })
+      .filter({ visible: true })
+      .first()
+    await expect(toggle).toBeVisible()
+    if ((await toggle.getAttribute("aria-expanded")) === "false") await toggle.click()
+    await page.getByRole("link", { name: title }).filter({ visible: true }).first().click()
+  }
+
+  await open(page)
+  await write(page, state(false) + kept(1, { role: "owner", text: "add a health page" }))
+  const box = page.getByRole("textbox", { name: "Message" })
+  await box.fill("and a test for it")
+
+  await goTo("login page")
+  await expect(page).toHaveURL(/\/chats\/cht_2$/)
+  await expect(box).toHaveValue("")
+
+  await goTo("health page")
+  await expect(page).toHaveURL(/\/chats\/cht_1$/)
+  await expect(box).toHaveValue("and a test for it")
+
+  await page.reload()
+  await expect.poll(() => streams(page)).toBe(1)
+  await write(page, state(false) + kept(1, { role: "owner", text: "add a health page" }))
+  await expect(box).toHaveValue("and a test for it")
+  await shot(page, "chat-draft-kept")
+
+  await box.press("Enter")
+  await expect(box).toHaveValue("")
+  await write(page, kept(2, { role: "owner", text: "and a test for it" }))
+  await page.reload()
+  await expect.poll(() => streams(page)).toBe(1)
+  await write(
+    page,
+    state(false) +
+      kept(1, { role: "owner", text: "add a health page" }) +
+      kept(2, { role: "owner", text: "and a test for it" }),
+  )
+  const log = page.getByRole("log")
+  await expect(log.getByText("and a test for it")).toBeVisible()
+  await expect(box).toHaveValue("")
+
+  await box.focus()
+  await box.press("ArrowUp")
+  await expect(box).toHaveValue("and a test for it")
+  await box.press("ArrowUp")
+  await expect(box).toHaveValue("add a health page")
+  await shot(page, "chat-recall")
+  await box.press("ArrowDown")
+  await expect(box).toHaveValue("and a test for it")
+  await box.press("ArrowDown")
+  await expect(box).toHaveValue("")
+})

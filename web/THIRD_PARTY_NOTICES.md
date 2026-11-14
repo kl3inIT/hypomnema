@@ -18,6 +18,12 @@ Each adapted file names its source.
   (https://github.com/vercel/ai-elements, Apache License 2.0), OpenMausBot's src/components/AttachmentGallery.tsx
   (Apache License 2.0) and assistant-ui's packages/ui/src/components/react/assistant-ui/elements/message-attachment.tsx
   (MIT, Copyright (c) 2026 AgentbaseAI Inc.).
+- A chat's draft kept in the browser (`src/features/chat/drafts.ts`, issue #433) follows t3code's
+  apps/web/src/composerDraftStore.ts (MIT, Copyright (c) 2026 T3 Tools Inc.) and OpenMausBot's src/lib/drafts.ts
+  (Apache License 2.0): a draft a chat with its uploaded files, saved a moment after a write and when the page hides.
+  ↑ in the composer bringing back what the chat sent (`src/features/chat/recall.ts`) is adapted from opencode
+  (https://github.com/anomalyco/opencode, packages/app/src/composer/suggestions/machine.ts, stepHistory and
+  canNavigateHistory), MIT, Copyright (c) 2025 opencode.
 - The chat's Runs docked above its composer (`src/features/chat/docked-work.tsx`, `dock-state.ts`) are adapted
   from Orca's src/renderer/src/components/native-chat/tools/tasks/NativeChatDockedTaskList.tsx and
   NativeChatTaskList.tsx (MIT, Copyright (c) 2026 Lovecast Inc.): the strip that opens to its list, its "n of m"
@@ -124,6 +130,32 @@ t3code's license:
 MIT License
 
 Copyright (c) 2026 T3 Tools Inc.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+## opencode
+
+```text
+MIT License
+
+Copyright (c) 2025 opencode
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
