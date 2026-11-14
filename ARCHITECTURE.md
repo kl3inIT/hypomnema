@@ -788,7 +788,7 @@ transaction, every status change a guarded `UPDATE` checked against a transition
 - A repository is a git host and a path (issue #44; `internal/shared/githost`,
   [research](docs/research/2026-11-10-git-hosts-and-personal-work.md)).
   - A Run is given `owner/name` (GitHub, as before), the URL of a repository, git's `user@host:path`, or the name
-    of a registered repository; it keeps the host and the path. A Run from before hosts existed is on `github.com`.
+    of a registered repository; it keeps the host and the path.
   - Hosts are of two kinds, `github` and `gitlab`, one adapter each: the clone URL, the command that opens a pull
     request, the request's URL, and reading a request from a worker's evidence. `github.com` and `gitlab.com` are
     known; the owner declares a company's server with its kind, and a Run on a host that is not known is refused

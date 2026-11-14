@@ -29,7 +29,7 @@ func (q *Queries) ConnectionOfRepo(ctx context.Context, arg ConnectionOfRepoPara
 }
 
 const countOpenRunsOnHost = `-- name: CountOpenRunsOnHost :one
-SELECT count(*) FROM runs WHERE status = 'open' AND repo IS NOT NULL AND coalesce(repo_host, 'github.com') = ?1
+SELECT count(*) FROM runs WHERE status = 'open' AND repo IS NOT NULL AND repo_host = ?1
 `
 
 func (q *Queries) CountOpenRunsOnHost(ctx context.Context, host sql.NullString) (int64, error) {

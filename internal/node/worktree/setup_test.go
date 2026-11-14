@@ -62,7 +62,7 @@ func declaring(t *testing.T, file string) (Maker, Source, string, *lockedBuffer)
 		Logger: slog.New(slog.NewTextHandler(logged, nil)),
 	}
 
-	repo, err := SourceOf("", "", "kl3inIT/second-bite", "")
+	repo, err := SourceOf("github.com", "github", "kl3inIT/second-bite", "")
 	require.NoError(t, err)
 
 	return m, repo, filepath.Join(dir, "wt", "run_1", "tsk_1"), logged

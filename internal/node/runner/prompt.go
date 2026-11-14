@@ -71,8 +71,9 @@ func Prompt(d statedb.Dispatch) string {
 	return b.String()
 }
 
-// openCommand is the host's command to open a pull request; an offer from
-// before hosts existed names no kind and means GitHub.
+// openCommand is the host's command to open a pull request. An offer with a
+// repository of a kind this node does not know never starts a worker
+// (worktree.SourceOf); GitHub's command only keeps this total.
 func openCommand(kind, base, branch string) string {
 	adapter, ok := githost.For(githost.Kind(kind))
 	if !ok {

@@ -53,7 +53,7 @@ func TestWorktreeIsMadeReusedAndRemade(t *testing.T) {
 	m := Maker{Root: filepath.Join(dir, "node"), URL: filepath.ToSlash(filepath.Join(dir, "origin")) + "/%s"}
 	path := filepath.Join(dir, "wt", "run_1", "tsk_1")
 
-	repo, err := SourceOf("", "", "kl3inIT/second-bite", "")
+	repo, err := SourceOf("github.com", "github", "kl3inIT/second-bite", "")
 	require.NoError(t, err)
 
 	require.NoError(t, m.Ensure(t.Context(), repo, "main", "tsk_1", path))
@@ -81,21 +81,21 @@ func TestWorktreeIsMadeReusedAndRemade(t *testing.T) {
 }
 
 // An offer names its repository's host and kind. Each kind is cloned from its
-// own address; an offer from before hosts existed is GitHub; what cannot be a
-// repository, or is of a kind this node does not know, never reaches git.
+// own address; what cannot be a repository, or is of a kind this node does not
+// know, never reaches git.
 func TestAnOffersRepositoryIsCheckedBeforeGitSeesIt(t *testing.T) {
 	t.Parallel()
 
-	old, err := SourceOf("", "", "kl3inIT/hypomnema", "")
+	hub, err := SourceOf("github.com", "github", "kl3inIT/hypomnema", "")
 	require.NoError(t, err)
-	assert.Equal(t, "https://github.com/kl3inIT/hypomnema.git", old.URL)
+	assert.Equal(t, "https://github.com/kl3inIT/hypomnema.git", hub.URL)
 
 	own, err := SourceOf("gitlab.company.example:8443", "gitlab", "team/platform/api", "")
 	require.NoError(t, err)
 	assert.Equal(t, "https://gitlab.company.example:8443/team/platform/api.git", own.URL)
 
 	m := Maker{Root: "/srv/node"}
-	assert.Equal(t, filepath.Join("/srv/node", "repos", "kl3inIT", "hypomnema.git"), m.mirrorPath(old.Repo))
+	assert.Equal(t, filepath.Join("/srv/node", "repos", "kl3inIT", "hypomnema.git"), m.mirrorPath(hub.Repo))
 	assert.Equal(t,
 		filepath.Join("/srv/node", "repos", "_hosts", "gitlab.company.example_8443", "team", "platform", "api.git"),
 		m.mirrorPath(own.Repo))
@@ -114,6 +114,8 @@ func TestAnOffersRepositoryIsCheckedBeforeGitSeesIt(t *testing.T) {
 		"a path that climbs out":         {"gitlab.com", "gitlab", "../../etc"},
 		"a host that is not one":         {"gitlab.com/x?y", "gitlab", "team/app"},
 		"no path":                        {"gitlab.com", "gitlab", ""},
+		"no host":                        {"", "github", "kl3inIT/hypomnema"},
+		"no kind":                        {"github.com", "", "kl3inIT/hypomnema"},
 	} {
 		_, err := SourceOf(bad[0], bad[1], bad[2], "")
 		assert.Error(t, err, name)
