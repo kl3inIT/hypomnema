@@ -114,7 +114,10 @@ var releasedStubs = map[string][]string{
 // (Hermes's .bundled_manifest origin hashes, tools/skills_sync.py). A changed
 // folder adds its digest here (TestShippedFoldersAreReleased).
 var releasedFolders = map[string][]string{
-	"pdf": {"c945c0d5aaeae2eb9abaf15af44d5c640060785bd86b7b1ad6821bbb8fd8cb2b"},
+	"pdf": {
+		"c945c0d5aaeae2eb9abaf15af44d5c640060785bd86b7b1ad6821bbb8fd8cb2b", // #458
+		"5a21174acf72f04f8a75d55451d35094ff66a46117f42ce6f77202ce3dd0f020", // #474: JSON samples, pdf_read modes, a TTF for Vietnamese
+	},
 }
 
 // folderSkill says whether a skill is installed as a whole folder: it has no
