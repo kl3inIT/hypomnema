@@ -58,6 +58,7 @@ func printBot(e *env, b *openapi.Bot) {
 
 	e.printf("connections: %s\n", allowLine(b.Connections, "every one switched on for chats"))
 	e.printf("workers: %s\n", allowLine(b.Workers, "every profile"))
+	e.printf("tool calls shown: %s\n", b.ToolDisplay)
 
 	if b.Persona != "" {
 		e.printf("\n%s\n", b.Persona)
@@ -180,6 +181,9 @@ func botsSet(ctx context.Context, e *env, fs *flag.FlagSet) error {
 			if v == "true" {
 				set.Workers = &openapi.AllowList{Names: []string{}}
 			}
+		case "tool-display":
+			d := openapi.ToolDisplay(v)
+			set.ToolDisplay = &d
 		case "persona-file":
 			persona, err := e.read(v)
 			if err != nil {

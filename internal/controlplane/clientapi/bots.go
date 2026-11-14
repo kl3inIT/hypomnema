@@ -62,14 +62,16 @@ func (s *Server) PutBot(ctx context.Context, req openapi.PutBotRequestObject) (o
 		Persona: val(req.Body.Persona),
 	}
 
-	// Skills and lists left out are kept: a client that does not know them does not take them away.
-	if req.Body.Skills == nil || req.Body.SkillsOff == nil || req.Body.Connections == nil || req.Body.Workers == nil {
+	// Skills, lists and the tool display left out are kept: a client that does not know them does not take them away.
+	if req.Body.Skills == nil || req.Body.SkillsOff == nil || req.Body.Connections == nil || req.Body.Workers == nil ||
+		req.Body.ToolDisplay == nil {
 		had, err := s.svc.GetBot(ctx, req.Name)
 
 		switch {
 		case err == nil:
 			bot.Skills, bot.SkillsOff = had.Skills, had.SkillsOff
 			bot.Connections, bot.Workers = had.Connections, had.Workers
+			bot.ToolDisplay = had.ToolDisplay
 		case !errors.Is(err, orchestration.ErrNotFound):
 			return nil, err
 		}
@@ -89,6 +91,10 @@ func (s *Server) PutBot(ctx context.Context, req openapi.PutBotRequestObject) (o
 
 	if l := req.Body.Workers; l != nil {
 		bot.Workers = fromAllowList(*l)
+	}
+
+	if d := req.Body.ToolDisplay; d != nil {
+		bot.ToolDisplay = orchestration.ToolDisplay(*d)
 	}
 
 	var b orchestration.Bot
@@ -167,7 +173,7 @@ func toBot(b orchestration.Bot) openapi.Bot {
 		Persona: b.Persona, Memory: b.Memory, MemoryLimit: orchestration.MaxMemory,
 		Skills: append([]string{}, b.Skills...), SkillsOff: append([]string{}, b.SkillsOff...),
 		Connections: toAllowList(b.Connections), Workers: toAllowList(b.Workers),
-		CreatedAt: b.CreatedAt, UpdatedAt: b.UpdatedAt,
+		ToolDisplay: openapi.ToolDisplay(b.ToolDisplay), CreatedAt: b.CreatedAt, UpdatedAt: b.UpdatedAt,
 	}
 }
 

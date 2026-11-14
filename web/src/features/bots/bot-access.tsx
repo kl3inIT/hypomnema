@@ -1,9 +1,17 @@
 import { useIsMutating } from "@tanstack/react-query"
-import { Bot as BotIcon, Plug } from "lucide-react"
+import { Bot as BotIcon, Plug, Wrench } from "lucide-react"
 import type { ReactNode } from "react"
 
-import type { AllowList, Bot, BotSettings } from "@/api/generated/types.gen"
+import type { AllowList, Bot, BotSettings, ToolDisplay } from "@/api/generated/types.gen"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import {
+  Field,
+  FieldContent,
+  FieldDescription,
+  FieldLabel,
+  FieldTitle,
+} from "@/components/ui/field"
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Switch } from "@/components/ui/switch"
 import { errorText } from "@/features/agents/profiles-state"
 import { useProfiles } from "@/features/agents/use-profiles"
@@ -106,7 +114,72 @@ function AccessCard({
   )
 }
 
-// BotAccess is the two cards on a Bot's page. The PUT carries the Bot's stored settings, so a switch changes only
+// toolDisplays are the levels of what a Bot's chats show of its tool calls (issue #441), OpenClaw's verbose levels
+// per agent (off, on, full), each with what people see, the owner included, on the web and at Lark.
+const toolDisplays: { value: ToolDisplay; title: string; line: string }[] = [
+  { value: "off", title: "Off", line: "Only the answers: no tool call is shown." },
+  {
+    value: "on",
+    title: "On",
+    line: "A row per tool call with its tool's name, without its command or output.",
+  },
+  {
+    value: "full",
+    title: "Full",
+    line: "Each row opens to the command or arguments, the output and the time.",
+  },
+]
+
+function ToolDisplayCard({
+  bot,
+  pending,
+  onChange,
+}: {
+  bot: Bot
+  pending: boolean
+  onChange: (display: ToolDisplay) => void
+}) {
+  return (
+    <section
+      aria-labelledby="bot-tool-display"
+      className="flex flex-col gap-3 rounded-xl border bg-card p-4"
+    >
+      <div className="flex items-start gap-3">
+        <span className="mt-0.5 shrink-0 text-primary">
+          <Wrench className="size-4" aria-hidden />
+        </span>
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <h3 id="bot-tool-display" className="text-sm font-medium">
+            Tool calls in chats
+          </h3>
+          <p className="text-xs text-muted-foreground">
+            What everyone who reads its chats sees, you included, here and at Lark.
+          </p>
+        </div>
+      </div>
+      <RadioGroup
+        aria-labelledby="bot-tool-display"
+        value={bot.tool_display}
+        disabled={pending}
+        onValueChange={(next) => onChange(next as ToolDisplay)}
+      >
+        {toolDisplays.map((d) => (
+          <FieldLabel key={d.value} htmlFor={`tool-display-${d.value}`}>
+            <Field orientation="horizontal">
+              <RadioGroupItem id={`tool-display-${d.value}`} value={d.value} />
+              <FieldContent>
+                <FieldTitle>{d.title}</FieldTitle>
+                <FieldDescription>{d.line}</FieldDescription>
+              </FieldContent>
+            </Field>
+          </FieldLabel>
+        ))}
+      </RadioGroup>
+    </section>
+  )
+}
+
+// BotAccess is the cards on a Bot's page. The PUT carries the Bot's stored settings, so a switch changes only
 // its list; what the form above holds unsaved stays in the form.
 export function BotAccess({ bot }: { bot: Bot }) {
   const put = usePutBot()
@@ -116,7 +189,10 @@ export function BotAccess({ bot }: { bot: Bot }) {
   const services = useServices()
   const profiles = useProfiles()
 
-  function save(change: Pick<BotSettings, "connections" | "workers">, what: string) {
+  function save(
+    change: Pick<BotSettings, "connections" | "workers" | "tool_display">,
+    what: string,
+  ) {
     put.mutate(
       { name: bot.name, settings: { ...keptSettings(bot), ...change } },
       { onSuccess: () => said(what) },
@@ -207,6 +283,13 @@ export function BotAccess({ bot }: { bot: Bot }) {
             { workers },
             workers.limited ? `Workers of ${bot.name} saved` : `${bot.name} may use every worker`,
           )
+        }
+      />
+      <ToolDisplayCard
+        bot={bot}
+        pending={saving}
+        onChange={(tool_display) =>
+          save({ tool_display }, `${bot.name} shows tool calls: ${tool_display}`)
         }
       />
       {put.error && (
