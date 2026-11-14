@@ -532,6 +532,116 @@ export type WebSearchError = {
   message: string;
 };
 
+export type ImageProvider = 'codex' | 'antigravity';
+
+export type Images = {
+  /**
+   * The image providers, in the order a request that names none asks them.
+   */
+  providers: Array<ImageProviderLink>;
+};
+
+export type ImageProviderLink = {
+  provider: ImageProvider;
+  /**
+   * The owner's switch for the provider.
+   */
+  on: boolean;
+  /**
+   * ready: it is asked in its turn. resting: each of its accounts rests until `resting_until`, after a limit. not_set_up: no account of it is in use (for Codex, none on a paid plan). off: the owner switched it off.
+   */
+  state: 'ready' | 'resting' | 'not_set_up' | 'off';
+  resting_until?: string;
+  /**
+   * The model it makes images with when a request names none.
+   */
+  model: string;
+  default_model: string;
+  /**
+   * The owner set the model; false, it is the default.
+   */
+  model_chosen: boolean;
+  /**
+   * Models the references name for it; any other name may be set.
+   */
+  suggested_models: Array<string>;
+  /**
+   * Its accounts that can make images, now or after their rest.
+   */
+  accounts: number;
+  usage: WebSearchUsage;
+};
+
+export type ImageProviderChange = {
+  on?: boolean;
+  /**
+   * The model's name as the provider takes it; empty for the default.
+   */
+  model?: string;
+};
+
+export type ImageOrder = {
+  providers: [
+    ImageProvider,
+    ImageProvider
+  ];
+};
+
+export type ImageInput = {
+  /**
+   * The image's bytes, base64.
+   */
+  data: string;
+  /**
+   * Read from the bytes when left out.
+   */
+  mime_type?: string;
+};
+
+export type ImageRequest = {
+  prompt: string;
+  /**
+   * Reference images; with any, the request is an edit.
+   */
+  images?: Array<ImageInput>;
+  /**
+   * How many images; 1 when left out.
+   */
+  n?: number;
+  /**
+   * OpenAI's size (1024x1024, 1536x1024, 1024x1536, auto) or an aspect ratio such as 16:9.
+   */
+  size?: string;
+  /**
+   * gpt-image-*, gemini-*, provider/model, or auto; left out, each provider's own.
+   */
+  model?: string;
+  provider?: ImageProvider;
+  quality?: string;
+  background?: string;
+  /**
+   * Antigravity's output size: 1K, 2K or 4K.
+   */
+  image_size?: string;
+};
+
+export type ImageAnswer = {
+  provider: ImageProvider;
+  model: string;
+  created: number;
+  images: Array<GeneratedImage>;
+  errors?: Array<WebSearchError>;
+};
+
+export type GeneratedImage = {
+  /**
+   * The image's bytes, base64.
+   */
+  b64_json: string;
+  mime_type: string;
+  revised_prompt?: string;
+};
+
 export type WebFetchRequest = {
   /**
    * An http or https address.
@@ -2651,6 +2761,29 @@ export type Artifact = {
 
 export type ArtifactList = {
   data: Array<Artifact>;
+};
+
+/**
+ * A workbook as CSV text a sheet (issue #422): each sheet cut at 500,000 characters, all of them at 2,000,000, at most 50 sheets.
+ */
+export type SheetList = {
+  sheets: Array<Sheet>;
+  /**
+   * Sheets past the first 50 were left out; the download holds them.
+   */
+  truncated: boolean;
+};
+
+export type Sheet = {
+  name: string;
+  /**
+   * The sheet's rows as RFC 4180 CSV, one line a sheet row, a row the sheet never stored as an empty line.
+   */
+  csv: string;
+  /**
+   * Rows past the sheet's 500,000 characters, or past what the workbook's 2,000,000 left for it, were left out; the download holds them.
+   */
+  truncated: boolean;
 };
 
 export type ArtifactFrame = {
@@ -5404,6 +5537,83 @@ export type SetWebSearchOrderResponses = {
 
 export type SetWebSearchOrderResponse = SetWebSearchOrderResponses[keyof SetWebSearchOrderResponses];
 
+export type GetImagesData = {
+  body?: never;
+  path?: never;
+  query?: never;
+  url: '/gateway/images';
+};
+
+export type GetImagesErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GetImagesError = GetImagesErrors[keyof GetImagesErrors];
+
+export type GetImagesResponses = {
+  /**
+   * The providers.
+   */
+  200: Images;
+};
+
+export type GetImagesResponse = GetImagesResponses[keyof GetImagesResponses];
+
+export type SetImageProviderData = {
+  body: ImageProviderChange;
+  path: {
+    provider: ImageProvider;
+  };
+  query?: never;
+  url: '/gateway/images/providers/{provider}';
+};
+
+export type SetImageProviderErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type SetImageProviderError = SetImageProviderErrors[keyof SetImageProviderErrors];
+
+export type SetImageProviderResponses = {
+  /**
+   * The providers after the change.
+   */
+  200: Images;
+};
+
+export type SetImageProviderResponse = SetImageProviderResponses[keyof SetImageProviderResponses];
+
+export type SetImageOrderData = {
+  body: ImageOrder;
+  path?: never;
+  query?: never;
+  url: '/gateway/images/order';
+};
+
+export type SetImageOrderErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type SetImageOrderError = SetImageOrderErrors[keyof SetImageOrderErrors];
+
+export type SetImageOrderResponses = {
+  /**
+   * The providers in their new order.
+   */
+  200: Images;
+};
+
+export type SetImageOrderResponse = SetImageOrderResponses[keyof SetImageOrderResponses];
+
 export type ListBotsData = {
   body?: never;
   path?: never;
@@ -5724,6 +5934,39 @@ export type ReadArtifactFileResponses = {
 };
 
 export type ReadArtifactFileResponse = ReadArtifactFileResponses[keyof ReadArtifactFileResponses];
+
+export type ReadArtifactSheetsData = {
+  body?: never;
+  path: {
+    artifact_id: string;
+    revision: number;
+  };
+  query?: {
+    /**
+     * The file's path in the revision; the file shown when absent.
+     */
+    path?: string;
+  };
+  url: '/artifacts/{artifact_id}/revisions/{revision}/sheets';
+};
+
+export type ReadArtifactSheetsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ReadArtifactSheetsError = ReadArtifactSheetsErrors[keyof ReadArtifactSheetsErrors];
+
+export type ReadArtifactSheetsResponses = {
+  /**
+   * The sheets, in the workbook's order.
+   */
+  200: SheetList;
+};
+
+export type ReadArtifactSheetsResponse = ReadArtifactSheetsResponses[keyof ReadArtifactSheetsResponses];
 
 export type GetArtifactArchiveData = {
   body?: never;
@@ -6938,6 +7181,31 @@ export type FetchWebResponses = {
 
 export type FetchWebResponse = FetchWebResponses[keyof FetchWebResponses];
 
+export type GenerateImagesData = {
+  body: ImageRequest;
+  path?: never;
+  query?: never;
+  url: '/images/generations';
+};
+
+export type GenerateImagesErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type GenerateImagesError = GenerateImagesErrors[keyof GenerateImagesErrors];
+
+export type GenerateImagesResponses = {
+  /**
+   * The images.
+   */
+  200: ImageAnswer;
+};
+
+export type GenerateImagesResponse = GenerateImagesResponses[keyof GenerateImagesResponses];
+
 export type ListChatsData = {
   body?: never;
   path?: never;
@@ -7295,6 +7563,42 @@ export type ReadWorkspaceRawResponses = {
 };
 
 export type ReadWorkspaceRawResponse = ReadWorkspaceRawResponses[keyof ReadWorkspaceRawResponses];
+
+export type ReadWorkspaceSheetsData = {
+  body?: never;
+  path: {
+    chat_id: string;
+    /**
+     * `bot` for the Bot's folder, or a Task's id for its worktree.
+     */
+    workspace_id: string;
+  };
+  query?: {
+    /**
+     * A path in the folder, with forward slashes; empty or absent is the folder itself.
+     */
+    path?: string;
+  };
+  url: '/chats/{chat_id}/workspaces/{workspace_id}/sheets';
+};
+
+export type ReadWorkspaceSheetsErrors = {
+  /**
+   * An error.
+   */
+  default: Error;
+};
+
+export type ReadWorkspaceSheetsError = ReadWorkspaceSheetsErrors[keyof ReadWorkspaceSheetsErrors];
+
+export type ReadWorkspaceSheetsResponses = {
+  /**
+   * The sheets, in the workbook's order.
+   */
+  200: SheetList;
+};
+
+export type ReadWorkspaceSheetsResponse = ReadWorkspaceSheetsResponses[keyof ReadWorkspaceSheetsResponses];
 
 export type BeginWorkspaceUploadData = {
   body: WorkspacePathBody;

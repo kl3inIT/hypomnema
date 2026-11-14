@@ -740,7 +740,8 @@ test("files attached by button and paste are sent and shown with the message", a
   await expect(dialog).toHaveCount(0)
 
   await log.getByRole("button", { name: "Open report.pdf" }).click()
-  await expect.poll(() => calls).toContain("GET file attachments/cht_1/report (2).pdf")
+  // A PDF opens in the file preview (issue #422), which reads its bytes as /raw does.
+  await expect.poll(() => calls).toContain("GET raw attachments/cht_1/report (2).pdf")
   await settled(page)
   await shot(page, "chat-attachment-opened")
 })

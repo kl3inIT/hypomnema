@@ -30,6 +30,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/modelgateway"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/nodeapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/channelstore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/routines"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/serviceproxy"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/skillsource"
@@ -353,14 +354,16 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 	// A Bot's folder is read for the Files panel and for the files a Bot sends into its Lark chat (issue #312).
 	bots := newBotFiles(cfg.BotFilesCommand)
 
-	larkChannels := larkbot.New(svc, sup,
+	larkStore := channelStore{Service: svc, Store: svc.Channels()}
+
+	larkChannels := larkbot.New(larkStore, sup,
 		func(ctx context.Context, c orchestration.LarkChannel) (larkbot.Lark, error) {
 			return larkSettings.Open(ctx, c)
 		}, logger).WithWebURL(cfg.PublicURL)
 	if bots != nil {
 		larkChannels.WithFiles(bots)
 	}
-	larkSettings = larkbot.NewService(svc, secrets, larkChannels, larkbot.Connect)
+	larkSettings = larkbot.NewService(larkStore, secrets, larkChannels, larkbot.Connect)
 
 	// The Routines of the Bots (issue #211): the tick, and the runs it starts.
 	routineRunner := routines.New(svc, routines.Config{
@@ -380,7 +383,9 @@ func Serve(ctx context.Context, cfg Config, stdout io.Writer) error {
 		WithBuiltinSkills(builtinSkills).
 		WithRoutines(routineRunner).
 		WithWeb(botWeb{meteredWeb: metered, chats: sup}).
-		WithWebSearch(webSearchSettings{web: webSearch, gateway: gateway})
+		WithWebSearch(webSearchSettings{web: webSearch, gateway: gateway}).
+		WithImages(botImages{server: gatewayServer, gateway: gateway, chats: sup, logger: logger},
+			imageSettings{Service: gateway, server: gatewayServer})
 	if cfg.VaultKeys != nil {
 		api.WithTokenAccounts(accountTokens{svc: svc, vault: secrets})
 	}
@@ -530,4 +535,12 @@ func builtinSkills() ([]clientapi.BuiltinSkill, error) {
 	}
 
 	return out, nil
+}
+
+// channelStore is what the Lark Channels keep: the Channels' own store, and
+// the orchestration for the chats, questions and Bots they also use and for
+// starting the chat of a Lark chat, which writes both (issue #404).
+type channelStore struct {
+	*orchestration.Service
+	*channelstore.Store
 }

@@ -75,6 +75,7 @@ var policies = map[string]policy{
 	"WriteWorkspaceFile":          {scope: scopeOwner},
 	"DeleteWorkspaceEntry":        {scope: scopeOwner},
 	"ReadWorkspaceRaw":            {scope: scopeOwner},
+	"ReadWorkspaceSheets":         {scope: scopeOwner},
 	"MakeWorkspaceFolder":         {scope: scopeOwner},
 	"MoveWorkspaceEntry":          {scope: scopeOwner},
 	"BeginWorkspaceUpload":        {scope: scopeOwner},
@@ -204,6 +205,8 @@ var policies = map[string]policy{
 	"ReadArtifactFile":   {},
 	"GetArtifactArchive": {},
 	"OpenArtifactFrame":  {scope: scopeOwner},
+	// Only the owner's web previews a workbook (issue #422, sheets.go).
+	"ReadArtifactSheets": {scope: scopeOwner},
 	"ListChats":          {scope: scopeOwner},
 	"CreateChat":         {scope: scopeOwner},
 	"GetChat":            {scope: scopeOwner},
@@ -226,6 +229,12 @@ var policies = map[string]policy{
 	"SetWebSearchOrder":    {scope: scopeOwner},
 	"AddWebSearchKey":      {scope: scopeOwner},
 	"RemoveWebSearchKey":   {scope: scopeOwner},
+	// Images (issue #431): any token makes one, a Bot's above all; one takes a minute or more. Every token reads the
+	// providers, as it reads the web search chain; only the owner changes them.
+	"GenerateImages":   {long: true},
+	"GetImages":        {},
+	"SetImageProvider": {scope: scopeOwner},
+	"SetImageOrder":    {scope: scopeOwner},
 }
 
 var (

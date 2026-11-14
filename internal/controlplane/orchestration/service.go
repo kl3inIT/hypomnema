@@ -10,8 +10,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/channelstore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/storeutil"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/memorystore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/userstore"
 	"github.com/kl3inIT/hypomnema/internal/shared/githost"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
@@ -31,6 +33,10 @@ type Service struct {
 	botTokens *botTokens
 	// users is the domain store of the web's users (issue #404).
 	users *userstore.Store
+	// memories is the domain store of the agents' and the owner's memories.
+	memories *memorystore.Store
+	// channels is the domain store of the Lark Channels.
+	channels *channelstore.Store
 }
 
 // New returns a Service over an opened, migrated database. The clock and id
@@ -44,6 +50,8 @@ func New(db *sql.DB, clock platform.Clock, newID func(prefix string) string, opt
 	}
 
 	s.users = userstore.New(s.db, s.clock, s.newID, s.notify.signal)
+	s.memories = memorystore.New(s.db, s.clock, s.notify.signal)
+	s.channels = channelstore.New(s.db, s.clock, s.notify.signal)
 
 	return s
 }
@@ -51,6 +59,15 @@ func New(db *sql.DB, clock platform.Clock, newID func(prefix string) string, opt
 // Users returns the store of the web's users and sessions, over the same
 // connection and clock, waking the same event readers.
 func (s *Service) Users() *userstore.Store { return s.users }
+
+// Memories returns the store of the agents' memories and the one about the
+// owner, over the same connection and clock, waking the same event readers.
+func (s *Service) Memories() *memorystore.Store { return s.memories }
+
+// Channels returns the store of the Lark Channels, who may talk through them,
+// their chats, groups and question cards, over the same connection and clock,
+// waking the same event readers.
+func (s *Service) Channels() *channelstore.Store { return s.channels }
 
 // write runs fn in one transaction and wakes event readers after the commit.
 func (s *Service) write(ctx context.Context, fn func(q *store.Queries, now int64) error) error {
@@ -822,15 +839,7 @@ func nullMillis(t *time.Time) sql.NullInt64 {
 
 func millis(ms int64) time.Time { return storeutil.Millis(ms) }
 
-func optionalTime(v sql.NullInt64) *time.Time {
-	if !v.Valid {
-		return nil
-	}
-
-	t := millis(v.Int64)
-
-	return &t
-}
+func optionalTime(v sql.NullInt64) *time.Time { return storeutil.OptionalMillis(v) }
 
 func runFromRow(r store.Run) Run {
 	return Run{

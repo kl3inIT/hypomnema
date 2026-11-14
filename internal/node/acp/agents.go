@@ -23,6 +23,10 @@ const (
 	// examples of a custom model (omp docs/models.md, opencode models.mdx).
 	contextWindow = 128000
 	maxOutput     = 16384
+	// imageModel is the gateway's image model as a worker names it: auto, the
+	// providers the owner set in their order, each with its own model (issue
+	// #431, modelgateway/images.go).
+	imageModel = "auto"
 )
 
 // launch is how to start one turn of an agent.
@@ -66,7 +70,11 @@ func Runtimes() []string { return []string{"omp", "opencode"} }
 // own), with the tools server's tools shown as plain tools (tools.xdev:
 // false) and sessions kept beside it (--session-dir). omp's own web_search
 // is off (web_search.enabled, omp src/tools/settings.ts), so that the worker
-// has one search, the control plane's (issue #354).
+// has one search, the control plane's (issue #354). The gateway is its image
+// model too (issue #431): a model of api openai-images, which its
+// generate_image tool calls at <base URL>/images/generations and
+// /images/edits (packages/ai/src/images/openai-images.ts), named as the
+// image role (modelRoles.image, docs/settings.md).
 func prepareOmp(l launch) ([]string, []string, error) {
 	agentDir, sessions := filepath.Join(l.Dir, "agent"), filepath.Join(l.Dir, "sessions")
 
@@ -82,12 +90,17 @@ func prepareOmp(l launch) ([]string, []string, error) {
         reasoning: %t
         contextWindow: %d
         maxTokens: %d
+      - id: %s
+        name: "Images through Hypomnema"
+        api: openai-images
 `, providerID, quoteYAML(l.URL), keyVariable, quoteYAML(l.Model), quoteYAML(l.Model), l.Effort != "",
-		contextWindow, maxOutput)
+		contextWindow, maxOutput, imageModel)
+	config := fmt.Sprintf("tools:\n  xdev: false\nweb_search:\n  enabled: false\nmodelRoles:\n  image: %s\n",
+		quoteYAML(providerID+"/"+imageModel))
 
 	for name, content := range map[string]string{
 		filepath.Join(agentDir, "models.yml"): models,
-		filepath.Join(agentDir, "config.yml"): "tools:\n  xdev: false\nweb_search:\n  enabled: false\n",
+		filepath.Join(agentDir, "config.yml"): config,
 	} {
 		if err := writeFile(name, content); err != nil {
 			return nil, nil, err
@@ -114,7 +127,11 @@ func prepareOmp(l launch) ([]string, []string, error) {
 // behind code: denied, they are plain tools (opencode core/src/tool.ts).
 // Its own `websearch` and `webfetch` are denied too, which takes them out of
 // its tools (core/src/tool.ts, whollyDisabled), so that the worker has the
-// control plane's web tools only (issue #354).
+// control plane's web tools only (issue #354). The gateway is its image model
+// too (issue #431): a model of type image of the same openai-compatible
+// provider, whose package makes images through OpenAI's Images routes
+// (packages/ai/src/protocols/openai-images.ts), named as the default of its
+// experimental_image_generate tool (schema/src/config/experimental.ts).
 func prepareOpencode(l launch) ([]string, []string, error) {
 	model := map[string]any{
 		"capabilities": map[string]any{"tools": true, "input": []string{"text"}, "output": []string{"text"}},
@@ -126,8 +143,12 @@ func prepareOpencode(l launch) ([]string, []string, error) {
 		"providers": map[string]any{providerID: map[string]any{
 			"package":  "@opencode/ai/providers/openai-compatible",
 			"settings": map[string]any{"baseURL": l.URL, "apiKey": "{env:" + keyVariable + "}"},
-			"models":   map[string]any{l.Model: model},
+			"models": map[string]any{l.Model: model, imageModel: map[string]any{
+				"type": "image", "name": "Images through Hypomnema",
+				"capabilities": map[string]any{"input": []string{"text", "image"}, "output": []string{"image"}},
+			}},
 		}},
+		"experimental": map[string]any{"image_generate": map[string]any{"model": providerID + "/" + imageModel}},
 		"permissions": []map[string]string{
 			{"action": "*", "resource": "*", "effect": "allow"},
 			{"action": "execute", "resource": "*", "effect": "deny"},

@@ -651,6 +651,35 @@ var commands = []command{
 		flags:   jsonFlag, run: webOrder,
 	},
 	{
+		name: "image generate", args: "<prompt>", min: 1, max: -1, long: true,
+		summary: "make images through the owner's subscriptions, save them and print their paths",
+		flags:   imageFlags(false), run: imageGenerate,
+	},
+	{
+		name: "image edit", args: "<prompt>", min: 1, max: -1, long: true,
+		summary: "edit images, or make one from reference images (--image), save it and print its path",
+		flags:   imageFlags(true), run: imageEdit,
+	},
+	{
+		name:    "image providers",
+		summary: "the image providers in the order a request asks them, with each one's model and state",
+		flags:   jsonFlag, run: imageProviders,
+	},
+	{
+		name: "image providers set", args: "<provider> on|off", min: 2, max: 2,
+		summary: "switch an image provider on or off (owner)", flags: jsonFlag, run: imageProvidersSet,
+	},
+	{
+		name: "image providers model", args: "<provider> <model>|default", min: 2, max: 2,
+		summary: "the model an image provider makes images with when a request names none (owner)",
+		flags:   jsonFlag, run: imageProvidersModel,
+	},
+	{
+		name: "image order", args: "<provider> <provider>", min: 2, max: 2,
+		summary: "the order a request asks the image providers in, each named once (owner)",
+		flags:   jsonFlag, run: imageOrder,
+	},
+	{
 		name: "skills list", summary: "the skills the owner added, each at its newest revision",
 		flags: jsonFlag, run: skillsList,
 	},

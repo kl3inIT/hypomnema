@@ -4,12 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
 
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/channelstore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/memorystore"
 )
 
 // DefaultBot is the Bot that is always there: a chat that names no other
@@ -19,11 +20,11 @@ const DefaultBot = "coordinator"
 // botRuntime is what every Bot runs: pi, started by the control plane.
 const botRuntime = "pi"
 
-// Limits of a Bot's texts. The memory's is Hermes's (tools/memory_tool.py,
-// memory_char_limit): the whole memory is in pi's prompt in every chat.
+// Limits of a Bot's texts. The memory's is an agent's, memorystore's
+// (Hermes's): the whole memory is in pi's prompt in every chat.
 const (
 	MaxPersona = 16000
-	MaxMemory  = 2200
+	MaxMemory  = memorystore.MaxMemory
 )
 
 // Bot is a long-lived agent of the control plane (issue #169): its model,
@@ -247,7 +248,11 @@ func (s *Service) ForceDeleteBot(ctx context.Context, name string) error {
 					Now: sql.NullInt64{Int64: now, Valid: true}, Bot: bot,
 				})
 			},
-			q.DeleteSetupChangesOfChatsOfBot, q.DeleteLarkChannelChatsOfBot, q.DeleteChatMessagesOfBot,
+			q.DeleteSetupChangesOfChatsOfBot,
+			func(ctx context.Context, bot string) error {
+				return channelstore.DeleteLarkChannelChatsOfBotTx(ctx, q, bot)
+			},
+			q.DeleteChatMessagesOfBot,
 			q.DeleteChatsOfBot, q.DeleteBot,
 		}
 		for _, step := range steps {
@@ -290,7 +295,7 @@ func botRemovable(ctx context.Context, q *store.Queries, row store.Bot) error {
 
 // botLive refuses to remove a Bot that Routines or Lark Channels use, even with its chats.
 func botLive(ctx context.Context, q *store.Queries, name string) error {
-	channels, err := q.CountLarkChannelsOfBot(ctx, name)
+	channels, err := channelstore.CountLarkChannelsOfBotTx(ctx, q, name)
 	if err != nil {
 		return err
 	}
@@ -311,21 +316,15 @@ func botLive(ctx context.Context, q *store.Queries, name string) error {
 	return nil
 }
 
-// MemoryOp is one change of a Bot's memory.
-type MemoryOp struct {
-	// Kind is add, replace or remove.
-	Kind string
-	// Text is the entry to add, or what replaces the entry found.
-	Text string
-	// Match is part of the one entry to replace or remove.
-	Match string
-}
+// MemoryOp is one change of a Bot's memory, made by the memories' rules
+// (memorystore.Apply).
+type MemoryOp = memorystore.Op
 
 // Kinds of a MemoryOp.
 const (
-	MemoryAdd     = "add"
-	MemoryReplace = "replace"
-	MemoryRemove  = "remove"
+	MemoryAdd     = memorystore.Add
+	MemoryReplace = memorystore.Replace
+	MemoryRemove  = memorystore.Remove
 )
 
 // ChangeBotMemory applies one change to a Bot's memory and returns the Bot.
@@ -340,7 +339,7 @@ func (s *Service) ChangeBotMemory(ctx context.Context, name string, op MemoryOp)
 			return notFound(err, "bot", name)
 		}
 
-		memory, err := appliedMemory(row.Memory, op, MaxMemory)
+		memory, err := memorystore.Apply(row.Memory, op, MaxMemory)
 		if err != nil {
 			return err
 		}
@@ -359,7 +358,7 @@ func (s *Service) ChangeBotMemory(ctx context.Context, name string, op MemoryOp)
 // twice are dropped. The limit holds here too, since the whole memory is in
 // pi's prompt.
 func (s *Service) SetBotMemory(ctx context.Context, name, text string) (Bot, error) {
-	memory, err := ownersMemory(text, MaxMemory)
+	memory, err := memorystore.FromOwner(text, MaxMemory)
 	if err != nil {
 		return Bot{}, err
 	}
@@ -375,60 +374,4 @@ func (s *Service) SetBotMemory(ctx context.Context, name, text string) (Bot, err
 	}
 
 	return s.GetBot(ctx, name)
-}
-
-func memoryEntries(memory string) []string {
-	if memory == "" {
-		return nil
-	}
-
-	return strings.Split(memory, "\n")
-}
-
-func changeMemory(entries []string, kind, text, match string) ([]string, error) {
-	if kind == MemoryAdd {
-		switch {
-		case text == "":
-			return nil, fmt.Errorf("%w: an entry needs text", ErrInvalid)
-		case slices.Contains(entries, text):
-			return entries, nil
-		}
-
-		return append(entries, text), nil
-	}
-
-	if kind != MemoryReplace && kind != MemoryRemove {
-		return nil, fmt.Errorf("%w: unknown change %q; known: add, replace, remove", ErrInvalid, kind)
-	}
-
-	if match == "" {
-		return nil, fmt.Errorf("%w: say part of the entry to %s", ErrInvalid, kind)
-	}
-
-	found := -1
-
-	for i, e := range entries {
-		if !strings.Contains(e, match) {
-			continue
-		}
-
-		if found >= 0 {
-			return nil, fmt.Errorf("%w: %q is in more than one entry; say more of the one you mean", ErrInvalid, match)
-		}
-
-		found = i
-	}
-
-	switch {
-	case found < 0:
-		return nil, fmt.Errorf("%w: no entry has %q", ErrInvalid, match)
-	case kind == MemoryRemove:
-		return slices.Delete(entries, found, found+1), nil
-	case text == "":
-		return nil, fmt.Errorf("%w: say what replaces the entry", ErrInvalid)
-	}
-
-	entries[found] = text
-
-	return entries, nil
 }

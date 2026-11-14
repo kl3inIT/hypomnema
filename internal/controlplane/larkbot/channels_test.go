@@ -18,6 +18,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/coordinator"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/larkbot"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/channelstore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
@@ -83,6 +84,8 @@ type lark struct {
 	usedSecret string
 	// hold, when set, keeps every reaction waiting until it is closed: Lark is slow to answer.
 	hold chan struct{}
+	// holdCards, when set, keeps every card that opens waiting until it is closed.
+	holdCards chan struct{}
 }
 
 // newLark is an app at Lark in which the owner and Linh have these ids.
@@ -269,6 +272,14 @@ func (l *lark) cardAt(n int) card {
 
 func (l *lark) OpenCard(_ context.Context, chatID, replyTo, text string) (string, string, error) {
 	l.mu.Lock()
+	hold := l.holdCards
+	l.mu.Unlock()
+
+	if hold != nil {
+		<-hold
+	}
+
+	l.mu.Lock()
 	defer l.mu.Unlock()
 
 	id := fmt.Sprintf("card-%d", len(l.order)+1)
@@ -424,6 +435,7 @@ func (p *pi) watched(chatID string) bool {
 // questions and takes the first answer, as the store does.
 type asking struct {
 	*orchestration.Service
+	*channelstore.Store
 
 	mu        sync.Mutex
 	questions map[string]orchestration.Question
@@ -577,7 +589,7 @@ func newWorld(t *testing.T) *world {
 		pi:       &pi{watchers: map[string][]chan coordinator.Frame{}, working: map[string]bool{}},
 	}
 	w.orch = orchestration.New(db, w.clock, platform.NewID)
-	w.asks = &asking{Service: w.orch, questions: map[string]orchestration.Question{}}
+	w.asks = &asking{Service: w.orch, Store: w.orch.Channels(), questions: map[string]orchestration.Question{}}
 	// Any commit wakes the Channels; a chat that is made and never used is one.
 	w.asks.changed = func() { _, _ = w.orch.CreateChat(context.Background(), "", "wake") }
 	w.vault = vault.New(db, platform.SystemClock{}, platform.NewID, keys,
@@ -663,13 +675,13 @@ func (w *world) run(channel string) {
 func (w *world) larkChats() []orchestration.LarkChannelChat {
 	w.t.Helper()
 
-	channels, err := w.orch.LarkChannels(w.t.Context())
+	channels, err := w.orch.Channels().LarkChannels(w.t.Context())
 	require.NoError(w.t, err)
 
 	var out []orchestration.LarkChannelChat
 
 	for _, c := range channels {
-		chats, err := w.orch.LarkChannelChats(w.t.Context(), c.Name)
+		chats, err := w.orch.Channels().LarkChannelChats(w.t.Context(), c.Name)
 		require.NoError(w.t, err)
 
 		out = append(out, chats...)
@@ -777,6 +789,36 @@ func TestTheOwnersMessageReachesTheCoordinatorAndItsAnswerComesBackAsACard(t *te
 	w.lark.say(direct("om_2", ownerDM, ownerID, "thanks"))
 	require.Eventually(t, func() bool { return len(w.texts(chat)) == 4 }, eventual, tick)
 	assert.Len(t, w.lark.sent(), 2, "what was sent before the restart is not sent again")
+}
+
+// Scenario: the coordinator writes two replies in one turn while Lark is slow
+// to open the first card, so both are kept before the Channel reads what was
+// written of the second. Each reply is one card, ended once with its own kept
+// text (#443).
+func TestTwoRepliesInOneTurnAreACardEach(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	w.setUp(orchestration.LarkChannelOwner)
+
+	w.lark.say(direct("om_1", ownerDM, ownerID, "fix the login page"))
+	chat := w.chatOf(ownerDM)
+	require.Eventually(t, func() bool { return len(w.texts(chat)) == 1 }, eventual, tick)
+
+	hold := make(chan struct{})
+	w.lark.mu.Lock()
+	w.lark.holdCards = hold
+	w.lark.mu.Unlock()
+
+	w.answer(chat, "Looking at it.")
+	w.answer(chat, "I gave it to a worker.")
+	close(hold)
+
+	require.Eventually(t, func() bool {
+		return assert.ObjectsAreEqual([]string{
+			ownerDM + ": Looking at it.", ownerDM + ": I gave it to a worker.",
+		}, w.lark.sent())
+	}, eventual, tick)
 }
 
 // Scenario: the Channel is for its owner only, then he adds Linh, then he opens
@@ -1509,7 +1551,7 @@ func TestTheBotAnswersInAGroupTheOwnerSwitchedOn(t *testing.T) {
 	assert.Equal(t, []string{"owner: [Đạt admin]: what did @Linh ship?"}, w.texts(chat),
 		"the bot's mention is taken out, another's is named, and the name is a plain label")
 
-	group, err := w.orch.IsLarkGroupChat(t.Context(), chat)
+	group, err := w.orch.Channels().IsLarkGroupChat(t.Context(), chat)
 	require.NoError(t, err)
 	assert.True(t, group, "the coordinator starts without its memory in a group's chat")
 
@@ -1582,7 +1624,7 @@ func TestWhoMayAskInAGroupIsTheChannelsChoice(t *testing.T) {
 		return second != first && len(w.texts(second)) == 1
 	}, eventual, tick)
 
-	stillGroup, err := w.orch.IsLarkGroupChat(t.Context(), first)
+	stillGroup, err := w.orch.Channels().IsLarkGroupChat(t.Context(), first)
 	require.NoError(t, err)
 	assert.True(t, stillGroup, "a chat the group left behind still starts without the memory")
 
