@@ -91,3 +91,27 @@ runs with the agent's rights (`docs/packages.md`): pin an exact version and read
 3. Extensions from pi's own examples (todo, subagent) rather than large community packages; light compaction
    (#366 item 1) to be chosen between omp's methods and pi-vcc.
 4. Not taken: community packages that duplicate the control plane (web search, memory, permissions, MCP adapter).
+
+## 6. The owner's choices (2026-11-14)
+
+- Settings (section 5, item 1): built as issue #395.
+- Skills: the PDF skill now. Dashboards and diagrams first, as artifacts the owner sees in the chat, after a study
+  of how the references make and show them. The others wait here and get an issue when one is needed; the owner
+  named `meeting-action-items` for a later meeting feature.
+
+The candidates, read in their `SKILL.md`, so that an issue can start from here:
+
+| Skill | Source | Does | Needs | Status |
+|---|---|---|---|---|
+| `skill-creator` | Codex `codex-rs/skills/src/assets/samples/skill-creator` (Apache-2.0, 9 files); OpenClaw, OpenMausBot | the Bot writes or fixes a skill | its "Codex skill" wording changed; a skill the Bot writes waits for the owner | waiting |
+| `pdf` | Hermes `skills/productivity/pdf` (MIT, 21 files with scripts) | create, read, merge, fill, OCR PDFs | Python with `pypdf`, `pdfplumber`, `reportlab`, `pypdfium2` (pinned in its Prerequisites) in the Bot's box | **chosen** |
+| `microsoft-office` | Hermes `skills/productivity/microsoft-office` (MIT, 30 files) | create, read, edit docx, pptx, xlsx | the same Python libraries as `pdf` | waiting |
+| `email-inbox-triage` | Hermes `skills/email/email-inbox-triage` (MIT) | rank threads, draft replies; never send or delete by itself | Gmail through `gws` and the service proxy | waiting |
+| `weekly-review-planning` | Hermes `skills/productivity/weekly-review-planning` (MIT) | weekly review: promises, slipping work, next week | calendar, mail, Runs; a Routine | waiting |
+| `meeting-action-items` | Hermes `skills/productivity/meeting-action-items` (MIT) | meeting notes to cited decisions, owners and tasks | — | waiting, for the meeting feature (owner) |
+| `document-to-action-items` | Hermes `skills/productivity/document-to-action-items` (MIT) | deadlines and obligations from documents, proposed for approval | — | waiting |
+| `grounded-citations` | Hermes `skills/research/grounded-citations` (MIT, with scripts) | numbered sources, quotes checked | `hypomnema web` | waiting |
+| `blocked-page-recovery` | Hermes `skills/web/blocked-page-recovery` (MIT) | a page that refuses a fetch: Wayback, archive.today | some steps need keys (Jina) | waiting |
+| news or feed watch | Hermes `competitor-news-monitor`, OpenClaw and Hermes `blogwatcher` | watch sites on a schedule | an RSS tool | waiting |
+| dashboards, diagrams | OpenMausBot `skills/data-dashboards`, OpenClaw `skills/visualize`, `skills/diagram-maker` | pages and diagrams | a way to show HTML in the chat | **next, as artifacts** |
+| `google-workspace` | Hermes, OpenClaw `gog` | Gmail, Calendar, Drive | — | not taken: the Bots' `gws` guide covers it |
