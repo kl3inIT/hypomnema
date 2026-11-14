@@ -235,10 +235,11 @@ func convertMessages(raw []json.RawMessage) (system string, messages []any) {
 
 	for _, m := range raw {
 		var msg struct {
-			Role       string          `json:"role"`
-			Content    json.RawMessage `json:"content"`
-			ToolCallID string          `json:"tool_call_id"`
-			ToolCalls  []struct {
+			Role         string          `json:"role"`
+			Content      json.RawMessage `json:"content"`
+			CacheControl json.RawMessage `json:"cache_control"`
+			ToolCallID   string          `json:"tool_call_id"`
+			ToolCalls    []struct {
 				ID       string `json:"id"`
 				Function struct {
 					Name      string `json:"name"`
@@ -255,10 +256,12 @@ func convertMessages(raw []json.RawMessage) (system string, messages []any) {
 		case msg.Role == "system":
 			systemParts = append(systemParts, systemTextOf(msg.Content)...)
 		case msg.Role == "tool":
-			turns = append(turns, item{"role": "user", "content": []any{item{
+			result := item{
 				"type": "tool_result", "tool_use_id": sanitizeID(msg.ToolCallID, ids),
 				"content": contentBlocks(msg.Content), "is_error": false,
-			}}})
+			}
+			hoistToolCache(result, msg.Content, msg.CacheControl)
+			turns = append(turns, item{"role": "user", "content": []any{result}})
 		case msg.Role == "assistant" && len(msg.ToolCalls) > 0:
 			blocks := contentBlocks(msg.Content)
 			for _, tc := range msg.ToolCalls {
@@ -272,6 +275,7 @@ func convertMessages(raw []json.RawMessage) (system string, messages []any) {
 				})
 			}
 
+			attachMessageCache(blocks, msg.CacheControl)
 			turns = append(turns, item{"role": "assistant", "content": blocks})
 		default:
 			role := msg.Role
@@ -279,7 +283,9 @@ func convertMessages(raw []json.RawMessage) (system string, messages []any) {
 				role = "user"
 			}
 
-			turns = append(turns, item{"role": role, "content": contentBlocks(msg.Content)})
+			blocks := contentBlocks(msg.Content)
+			attachMessageCache(blocks, msg.CacheControl)
+			turns = append(turns, item{"role": role, "content": blocks})
 		}
 	}
 
@@ -331,6 +337,9 @@ func systemTextOf(content json.RawMessage) []string {
 
 // contentBlocks turns a message's content into Messages content blocks: a
 // string is one text block; a list of OpenAI parts becomes text and image blocks.
+// A text or image part keeps its own breakpoint; a blank text part is dropped,
+// as Anthropic refuses an empty text block, and its breakpoint goes to the
+// block before it (CLIProxyAPI convertOpenAIContentPartToClaudePart).
 func contentBlocks(content json.RawMessage) []any {
 	if len(content) == 0 {
 		return []any{}
@@ -354,9 +363,10 @@ func contentBlocks(content json.RawMessage) []any {
 
 	for _, p := range parts {
 		var part struct {
-			Type     string          `json:"type"`
-			Text     string          `json:"text"`
-			ImageURL json.RawMessage `json:"image_url"`
+			Type         string          `json:"type"`
+			Text         string          `json:"text"`
+			ImageURL     json.RawMessage `json:"image_url"`
+			CacheControl json.RawMessage `json:"cache_control"`
 			// A Messages block a client sent through: kept as it is.
 			Raw item
 		}
@@ -366,10 +376,22 @@ func contentBlocks(content json.RawMessage) []any {
 
 		switch part.Type {
 		case "text", "input_text":
-			out = append(out, item{"type": "text", "text": part.Text})
+			if strings.TrimSpace(part.Text) == "" {
+				if len(out) > 0 {
+					if prev, ok := out[len(out)-1].(item); ok {
+						if _, has := prev["cache_control"]; !has {
+							attachCache(prev, part.CacheControl)
+						}
+					}
+				}
+
+				continue
+			}
+
+			out = append(out, attachCache(item{"type": "text", "text": part.Text}, part.CacheControl))
 		case "image_url":
 			if block := imageBlock(part.ImageURL); block != nil {
-				out = append(out, block)
+				out = append(out, attachCache(block, part.CacheControl))
 			}
 		case "text_block", "tool_result", "tool_use", "image", "thinking":
 			out = append(out, part.Raw) // Already a Messages block.

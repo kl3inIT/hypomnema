@@ -1,5 +1,10 @@
 package claude
 
+import (
+	"encoding/json"
+	"strings"
+)
+
 // Prompt-cache breakpoints. A chat client speaks OpenAI, which has no
 // cache_control, so the gateway places the breakpoints Claude Code places, or
 // the subscription pays full input tokens every turn. Three ephemeral markers,
@@ -141,4 +146,120 @@ func markBlock(block any) {
 	if _, has := b["cache_control"]; !has {
 		b["cache_control"] = item{"type": "ephemeral", "ttl": cacheTTL}
 	}
+}
+
+// The client's own breakpoints on its messages (issue #482). A chat client may
+// mark a part or a whole message with an Anthropic cache_control; the rules
+// that carry them onto the Messages blocks are CLIProxyAPI's (MIT, Copyright
+// (c) 2025 Luis Pater, Router-For.ME), commit c5251b5, read on 2026-11-15:
+// internal/translator/common/cache_control.go (AttachCacheControl,
+// AttachMessageCacheControl, AttachToolMessageCacheControl) and
+// internal/translator/claude/openai/chat-completions/claude_openai_request.go.
+
+// clientCache reads a client's cache_control: an object whose type is
+// "ephemeral", or nil (CLIProxyAPI isValidCacheControl). Its ttl is left as
+// the client wrote it, for settleTTLs.
+func clientCache(raw json.RawMessage) item {
+	var cc item
+	if len(raw) == 0 || json.Unmarshal(raw, &cc) != nil || cc == nil {
+		return nil
+	}
+
+	if kind, ok := cc["type"].(string); !ok || kind != "ephemeral" {
+		return nil
+	}
+
+	return cc
+}
+
+// canHoldCache reports whether Anthropic takes a breakpoint on a block: not on
+// thinking, nor on a blank text block (CLIProxyAPI claudeBlockCanHostCacheControl).
+func canHoldCache(block item) bool {
+	switch block["type"] {
+	case "thinking", "redacted_thinking":
+		return false
+	case "text":
+		text, _ := block["text"].(string)
+
+		return strings.TrimSpace(text) != ""
+	default:
+		return true
+	}
+}
+
+// attachCache puts a client's valid breakpoint on a block that can hold one
+// and returns the block (CLIProxyAPI AttachCacheControl).
+func attachCache(block item, raw json.RawMessage) item {
+	if cc := clientCache(raw); cc != nil && canHoldCache(block) {
+		block["cache_control"] = cc
+	}
+
+	return block
+}
+
+// attachMessageCache puts a message's own breakpoint on its last block that
+// can hold one, unless a part's breakpoint is already there (CLIProxyAPI
+// AttachMessageCacheControl).
+func attachMessageCache(blocks []any, raw json.RawMessage) {
+	cc := clientCache(raw)
+	if cc == nil {
+		return
+	}
+
+	for i := len(blocks) - 1; i >= 0; i-- {
+		block, ok := blocks[i].(item)
+		if !ok || !canHoldCache(block) {
+			continue
+		}
+
+		if _, has := block["cache_control"]; !has {
+			block["cache_control"] = cc
+		}
+
+		return
+	}
+}
+
+// hoistToolCache puts a tool message's breakpoint on its tool_result block:
+// the first valid one of its parts, else the message's own. None stays inside
+// the result's content, which Anthropic refuses (CLIProxyAPI
+// AttachToolMessageCacheControl, extractFirstPartCacheControl).
+func hoistToolCache(result item, content, message json.RawMessage) {
+	cc := firstPartCache(content)
+	if cc == nil {
+		cc = clientCache(message)
+	}
+
+	for _, b := range blocksOf(result["content"]) {
+		if block, ok := b.(item); ok {
+			delete(block, "cache_control")
+		}
+	}
+
+	if cc != nil {
+		result["cache_control"] = cc
+	}
+}
+
+// firstPartCache reads the first valid breakpoint among a content's parts, a
+// list or a single object.
+func firstPartCache(content json.RawMessage) item {
+	var parts []json.RawMessage
+	if json.Unmarshal(content, &parts) != nil {
+		parts = []json.RawMessage{content}
+	}
+
+	for _, p := range parts {
+		var part struct {
+			CacheControl json.RawMessage `json:"cache_control"`
+		}
+
+		if json.Unmarshal(p, &part) == nil {
+			if cc := clientCache(part.CacheControl); cc != nil {
+				return cc
+			}
+		}
+	}
+
+	return nil
 }

@@ -156,38 +156,190 @@ func TestTheClientsCacheBreakpointsAgreeWithTheGateways(t *testing.T) {
 	assert.Equal(t, []string{"5m", "", "", ""}, short, "after a five-minute mark, none is kept an hour")
 }
 
+// buildChat builds a chat body with one tool, so the gateway sets its three
+// breakpoints too.
+func buildChat(t *testing.T, messages string) map[string]any {
+	t.Helper()
+
+	chat := `{"model":"m","messages":[` + messages + `],"tools":[{"type":"function","function":{"name":"read"}}]}`
+	built, err := claude.BuildRequest([]byte(chat), claude.Options{Model: "claude-sonnet-5-5", Token: "tok"})
+	require.NoError(t, err)
+
+	return decode(t, built)
+}
+
+// blocksOfMessage returns the content blocks of the body's i-th message.
+func blocksOfMessage(t *testing.T, body map[string]any, i int) []map[string]any {
+	t.Helper()
+
+	messages, ok := body["messages"].([]any)
+	require.True(t, ok)
+	require.Greater(t, len(messages), i)
+	msg, ok := messages[i].(map[string]any)
+	require.True(t, ok)
+	content, ok := msg["content"].([]any)
+	require.True(t, ok)
+
+	out := make([]map[string]any, 0, len(content))
+
+	for _, block := range content {
+		b, ok := block.(map[string]any)
+		require.True(t, ok)
+
+		out = append(out, b)
+	}
+
+	return out
+}
+
+// toolResultOf finds the tool_result block among a body's messages.
+func toolResultOf(t *testing.T, body map[string]any) map[string]any {
+	t.Helper()
+
+	messages, _ := body["messages"].([]any)
+	for i := range messages {
+		for _, b := range blocksOfMessage(t, body, i) {
+			if b["type"] == "tool_result" {
+				return b
+			}
+		}
+	}
+
+	require.Fail(t, "no tool_result block")
+
+	return nil
+}
+
+// nestedMarks counts the breakpoints left inside a tool_result's content.
+func nestedMarks(result map[string]any) int {
+	n := 0
+
+	content, _ := result["content"].([]any)
+	for _, block := range content {
+		if b, _ := block.(map[string]any); b["cache_control"] != nil {
+			n++
+		}
+	}
+
+	return n
+}
+
 // Scenario: the client marked a block inside an earlier tool result for the
-// cache (issue #409). A tool message's image part reaches the Messages
-// tool_result's own content as it was sent, its mark with it (a text part is
-// rebuilt without one). A mark with no ttl is kept an hour; one the client gave
-// five minutes stays so, and the gateway's mark on the message after it is not
-// kept an hour, which Anthropic would refuse.
+// cache (issues #409, #482). Anthropic refuses a breakpoint inside a
+// tool_result's content, so the mark moves onto the tool_result block itself
+// and none stays inside. A mark with no ttl is kept an hour; one the client
+// gave five minutes stays so, and the gateway's mark on the message after it
+// is not kept an hour, which Anthropic would refuse.
 func TestACacheBreakpointInsideAToolResultAgreesWithTheGateways(t *testing.T) {
 	t.Parallel()
 
-	build := func(cacheControl string) []string {
-		chat := `{"model":"m","messages":[` +
-			`{"role":"user","content":"look at the screenshot"},` +
-			`{"role":"assistant","content":"","tool_calls":[{"id":"call_1","type":"function",` +
-			`"function":{"name":"read","arguments":"{\"path\":\"shot.png\"}"}}]},` +
-			`{"role":"tool","tool_call_id":"call_1","content":[{"type":"image",` +
-			`"source":{"type":"base64","media_type":"image/png","data":"iVBORw0KGgo="},` +
-			`"cache_control":` + cacheControl + `}]},` +
-			`{"role":"user","content":"what does it show?"}],` +
-			`"tools":[{"type":"function","function":{"name":"read"}}]}`
-		built, err := claude.BuildRequest([]byte(chat), claude.Options{Model: "claude-sonnet-5-5", Token: "tok"})
-		require.NoError(t, err)
-
-		return ttlsInOrder(t, decode(t, built))
+	build := func(cacheControl string) map[string]any {
+		return buildChat(t, `{"role":"user","content":"look at the screenshot"},`+
+			`{"role":"assistant","content":"","tool_calls":[{"id":"call_1","type":"function",`+
+			`"function":{"name":"read","arguments":"{\"path\":\"shot.png\"}"}}]},`+
+			`{"role":"tool","tool_call_id":"call_1","content":[{"type":"image",`+
+			`"source":{"type":"base64","media_type":"image/png","data":"iVBORw0KGgo="},`+
+			`"cache_control":`+cacheControl+`}]},`+
+			`{"role":"user","content":"what does it show?"}`)
 	}
 
 	bare := build(`{"type":"ephemeral"}`)
-	require.Len(t, bare, 4, "the gateway's tools and system marks, the client's nested one, the gateway's last")
-	assert.Equal(t, []string{"1h", "1h", "1h", "1h"}, bare)
+	result := toolResultOf(t, bare)
+	assert.True(t, cached(result), "the mark is on the tool_result block, kept an hour")
+	assert.Zero(t, nestedMarks(result), "no mark stays inside the result")
+	assert.Equal(t, []string{"1h", "1h", "1h", "1h"}, ttlsInOrder(t, bare),
+		"the gateway's tools and system marks, the client's, the gateway's last")
 
 	short := build(`{"type":"ephemeral","ttl":"5m"}`)
-	require.Len(t, short, 4)
-	assert.Equal(t, []string{"1h", "1h", "5m", ""}, short, "after the nested five-minute mark, none is kept an hour")
+	assert.Zero(t, nestedMarks(toolResultOf(t, short)))
+	assert.Equal(t, []string{"1h", "1h", "5m", ""}, ttlsInOrder(t, short),
+		"after the client's five-minute mark, none is kept an hour")
+}
+
+// Scenario: a client marked a text part of an early message for the cache
+// (issue #482). The mark reaches Anthropic on that text block with its five
+// minutes, and the gateway's mark on the last message after it is not kept an
+// hour, which Anthropic would refuse.
+func TestAClientsBreakpointOnATextPartReachesAnthropic(t *testing.T) {
+	t.Parallel()
+
+	body := buildChat(t, `{"role":"user","content":[{"type":"text","text":"a long document"},`+
+		`{"type":"text","text":"the question","cache_control":{"type":"ephemeral","ttl":"5m"}}]},`+
+		`{"role":"assistant","content":"an answer"},`+
+		`{"role":"user","content":"and another"}`)
+
+	first := blocksOfMessage(t, body, 0)
+	require.Len(t, first, 2)
+	assert.NotContains(t, first[0], "cache_control", "the unmarked part stays unmarked")
+	assert.Equal(t, map[string]any{"type": "ephemeral", "ttl": "5m"}, first[1]["cache_control"])
+	assert.Equal(t, []string{"1h", "1h", "5m", ""}, ttlsInOrder(t, body))
+}
+
+// Scenario: a blank text part is dropped, as Anthropic refuses an empty text
+// block, and its mark goes to the block before it; a mark whose type is not
+// ephemeral is not sent (issue #482).
+func TestABlankTextPartPassesItsBreakpointBack(t *testing.T) {
+	t.Parallel()
+
+	body := buildChat(t, `{"role":"user","content":[{"type":"text","text":"a long document"},`+
+		`{"type":"text","text":"  ","cache_control":{"type":"ephemeral"}}]},`+
+		`{"role":"assistant","content":[{"type":"text","text":"an answer","cache_control":{"type":"forever"}}]},`+
+		`{"role":"user","content":"and another"}`)
+
+	first := blocksOfMessage(t, body, 0)
+	require.Len(t, first, 1, "the blank part is dropped")
+	assert.True(t, cached(first[0]), "its mark is on the block before it")
+
+	answer := blocksOfMessage(t, body, 1)
+	assert.NotContains(t, answer[0], "cache_control", "a mark that is not ephemeral is not sent")
+}
+
+// Scenario: a client marked a whole message for the cache (issue #482). The
+// mark lands on the message's last block; a part's own mark there wins.
+func TestAMessagesBreakpointLandsOnItsLastBlock(t *testing.T) {
+	t.Parallel()
+
+	body := buildChat(t, `{"role":"user","content":[{"type":"text","text":"a long document"},`+
+		`{"type":"text","text":"the question"}],"cache_control":{"type":"ephemeral","ttl":"5m"}},`+
+		`{"role":"assistant","content":[{"type":"text","text":"an answer","cache_control":{"type":"ephemeral"}}],`+
+		`"cache_control":{"type":"ephemeral","ttl":"5m"}},`+
+		`{"role":"user","content":"and another"}`)
+
+	first := blocksOfMessage(t, body, 0)
+	require.Len(t, first, 2)
+	assert.NotContains(t, first[0], "cache_control")
+	assert.Equal(t, map[string]any{"type": "ephemeral", "ttl": "5m"}, first[1]["cache_control"])
+
+	answer := blocksOfMessage(t, body, 1)
+	assert.Equal(t, map[string]any{"type": "ephemeral"}, answer[0]["cache_control"],
+		"the part's own mark wins, and is not kept an hour after a five-minute mark")
+	assert.Equal(t, []string{"1h", "1h", "5m", "", ""}, ttlsInOrder(t, body))
+}
+
+// Scenario: a tool message marked as a whole or on a text part (issue #482).
+// Either mark is on the tool_result block and none stays inside its content;
+// a part's mark wins over the message's.
+func TestAToolMessagesBreakpointIsOnItsToolResult(t *testing.T) {
+	t.Parallel()
+
+	build := func(tool string) map[string]any {
+		return buildChat(t, `{"role":"user","content":"read it"},`+
+			`{"role":"assistant","content":"","tool_calls":[{"id":"call_1","type":"function",`+
+			`"function":{"name":"read","arguments":"{}"}}]},`+tool+`,`+
+			`{"role":"user","content":"and now?"}`)
+	}
+
+	message := build(`{"role":"tool","tool_call_id":"call_1","content":"the file",` +
+		`"cache_control":{"type":"ephemeral","ttl":"5m"}}`)
+	result := toolResultOf(t, message)
+	assert.Equal(t, map[string]any{"type": "ephemeral", "ttl": "5m"}, result["cache_control"])
+	assert.Zero(t, nestedMarks(result))
+
+	part := build(`{"role":"tool","tool_call_id":"call_1","content":[{"type":"text","text":"the file",` +
+		`"cache_control":{"type":"ephemeral"}}],"cache_control":{"type":"ephemeral","ttl":"5m"}}`)
+	result = toolResultOf(t, part)
+	assert.True(t, cached(result), "the part's mark wins and is kept an hour")
+	assert.Zero(t, nestedMarks(result), "no mark stays inside the result")
 }
 
 // Scenario: a probe (Claude Code's own "quota" check) stays minimal — no decoy
