@@ -284,7 +284,7 @@ type routineUndo struct {
 
 func routineFromRow(r store.Routine) Routine {
 	return Routine{
-		ID: r.ID, Bot: r.Bot, Name: r.Name, Kind: RoutineKind(r.Kind), Prompt: r.Prompt, Script: r.Script,
+		ID: r.ID, Bot: r.BotID, Name: r.Name, Kind: RoutineKind(r.Kind), Prompt: r.Prompt, Script: r.Script,
 		ScriptText: r.ScriptText, EveryMinutes: int(r.EveryMinutes.Int64), Cron: r.Cron.String,
 		Timezone: r.Timezone.String, Timeout: time.Duration(r.TimeoutSeconds) * time.Second,
 		Revision: int(r.Revision), State: RoutineState(r.State), PausedReason: r.PausedReason, Summary: r.Summary,
@@ -312,7 +312,7 @@ func undoOf(r store.Routine) *routineUndo {
 
 func specOfRow(r store.Routine) RoutineSpec {
 	return RoutineSpec{
-		Bot: r.Bot, Name: r.Name, Kind: RoutineKind(r.Kind), Prompt: r.Prompt, Script: r.Script,
+		Bot: r.BotID, Name: r.Name, Kind: RoutineKind(r.Kind), Prompt: r.Prompt, Script: r.Script,
 		ScriptText: r.ScriptText, EveryMinutes: int(r.EveryMinutes.Int64), Cron: r.Cron.String,
 		Timezone: r.Timezone.String, TimeoutSeconds: int(r.TimeoutSeconds), Summary: r.Summary,
 		ChatID: r.ChatID.String, Announce: r.Announce == 1,
@@ -353,8 +353,8 @@ func ScheduleWords(r Routine) string {
 }
 
 // RoutineSentence restates a Routine in one sentence: its schedule and its
-// work.
-func RoutineSentence(r Routine) string {
+// work, done by the Bot called bot.
+func RoutineSentence(r Routine, bot string) string {
 	schedule := ScheduleWords(r)
 	schedule = strings.ToUpper(schedule[:1]) + schedule[1:]
 
@@ -367,7 +367,7 @@ func RoutineSentence(r Routine) string {
 		work += ": " + strings.TrimSuffix(r.Summary, ".")
 	}
 
-	return fmt.Sprintf("%s, %s %s.", schedule, r.Bot, work)
+	return fmt.Sprintf("%s, %s %s.", schedule, bot, work)
 }
 
 // schedule is a checked schedule.
@@ -598,8 +598,8 @@ func routineRefs(ctx context.Context, q *store.Queries, n RoutineSpec, by Routin
 		return nil
 	}
 
-	if chat.Bot != n.Bot {
-		return fmt.Errorf("%w: chat %s talks with bot %s, not %s", ErrInvalid, n.ChatID, chat.Bot, n.Bot)
+	if chat.BotID != n.Bot {
+		return fmt.Errorf("%w: chat %s talks with bot %s, not %s", ErrInvalid, n.ChatID, chat.BotID, n.Bot)
 	}
 
 	if _, err := q.RoutineRunOfChat(ctx, nullString(n.ChatID)); err == nil {
@@ -728,7 +728,7 @@ func (s *Service) UndoRoutine(ctx context.Context, id string) (r Routine, remove
 		}
 
 		before := *undo.Before
-		before.Bot, before.Name = row.Bot, row.Name
+		before.Bot, before.Name = row.BotID, row.Name
 
 		sched, err := scheduleOf(before.EveryMinutes, before.Cron, before.Timezone)
 		if err != nil {
@@ -883,7 +883,7 @@ func (s *Service) startRun(ctx context.Context, q *store.Queries, now int64, row
 	if row.Kind == string(RoutinePrompt) {
 		chatID := s.newID("cht")
 		if err := q.InsertChat(ctx, store.InsertChatParams{
-			ID: chatID, Title: "Routine " + row.Name, Bot: row.Bot, Now: now,
+			ID: chatID, Title: "Routine " + row.Name, Bot: row.BotID, Now: now,
 		}); err != nil {
 			return StartedRun{}, fmt.Errorf("opening the chat of a run of routine %s: %w", row.ID, err)
 		}
@@ -1031,7 +1031,7 @@ func (s *Service) ClaimRoutineScript(ctx context.Context, routineID, bot string)
 		}
 
 		switch {
-		case row.Bot != bot:
+		case row.BotID != bot:
 			return fmt.Errorf("%w: routine %s is not bot %s's", ErrInvalid, routineID, bot)
 		case row.Kind != string(RoutineScript):
 			return fmt.Errorf("%w: routine %s runs a prompt, not a script", ErrInvalid, routineID)

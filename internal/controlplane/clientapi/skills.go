@@ -273,11 +273,11 @@ func toSkillRevision(r orchestration.SkillRevision) openapi.SkillRevision {
 // ListBotSkills returns the skills a Bot gets now.
 func (s *Server) ListBotSkills(ctx context.Context, req openapi.ListBotSkillsRequestObject,
 ) (openapi.ListBotSkillsResponseObject, error) {
-	if err := botAllowed(principal(ctx), req.Name); err != nil {
+	if err := botAllowed(principal(ctx), req.BotId); err != nil {
 		return nil, err
 	}
 
-	given, err := s.svc.BotSkills(ctx, req.Name)
+	given, err := s.svc.BotSkills(ctx, req.BotId)
 	if err != nil {
 		return nil, err
 	}

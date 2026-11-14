@@ -25,7 +25,7 @@ func TestABotTokenIsBoundToItsChatAndEndsWithItsPi(t *testing.T) {
 	chat, err := s.CreateChat(ctx, "", "")
 	require.NoError(t, err)
 
-	secret, err := s.AddBotToken(ctx, "pi-coordinator", chat.ID, DefaultBot)
+	secret, err := s.AddBotToken(ctx, "pi-coordinator", chat.ID, DefaultBotID)
 	require.NoError(t, err)
 
 	kind, err := bearertoken.Parse(secret)
@@ -36,7 +36,7 @@ func TestABotTokenIsBoundToItsChatAndEndsWithItsPi(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, Token{
 		ID: parent.ID, Name: "pi-coordinator", Kind: bearertoken.Bot, CreatedAt: clock.Now(), Chat: chat.ID,
-		Bot: DefaultBot,
+		Bot: DefaultBotID,
 	}, got)
 
 	restarted := New(db, clock, s.newID)
@@ -49,7 +49,7 @@ func TestABotTokenIsBoundToItsChatAndEndsWithItsPi(t *testing.T) {
 	_, err = s.AuthenticateToken(ctx, secret)
 	require.ErrorIs(t, err, ErrNotFound, "the token ends with its pi")
 
-	again, err := s.AddBotToken(ctx, "pi-coordinator", chat.ID, DefaultBot)
+	again, err := s.AddBotToken(ctx, "pi-coordinator", chat.ID, DefaultBotID)
 	require.NoError(t, err)
 	require.NoError(t, s.RevokeToken(ctx, parent.ID))
 
@@ -68,13 +68,13 @@ func TestABotTokenNeedsItsCoordinatorAndItsChatsBot(t *testing.T) {
 	chat, err := s.CreateChat(ctx, "", "")
 	require.NoError(t, err)
 
-	_, err = s.AddBotToken(ctx, "pi-coordinator", chat.ID, DefaultBot)
+	_, err = s.AddBotToken(ctx, "pi-coordinator", chat.ID, DefaultBotID)
 	require.ErrorIs(t, err, ErrNotFound, "no such coordinator token")
 
 	_, _, err = s.AddToken(ctx, "web", bearertoken.Owner)
 	require.NoError(t, err)
 
-	_, err = s.AddBotToken(ctx, "web", chat.ID, DefaultBot)
+	_, err = s.AddBotToken(ctx, "web", chat.ID, DefaultBotID)
 	require.ErrorIs(t, err, ErrInvalid, "an owner's token is not a coordinator's")
 
 	_, _, err = s.AddToken(ctx, "pi-coordinator", bearertoken.Coordinator)
@@ -83,7 +83,7 @@ func TestABotTokenNeedsItsCoordinatorAndItsChatsBot(t *testing.T) {
 	_, err = s.AddBotToken(ctx, "pi-coordinator", chat.ID, "vmap")
 	require.ErrorIs(t, err, ErrInvalid, "the chat talks with another Bot")
 
-	_, err = s.AddBotToken(ctx, "pi-coordinator", "cht_missing", DefaultBot)
+	_, err = s.AddBotToken(ctx, "pi-coordinator", "cht_missing", DefaultBotID)
 	require.ErrorIs(t, err, ErrNotFound)
 }
 
@@ -99,7 +99,7 @@ func TestARoutineTokenIsMadeForAScriptRoutineOnly(t *testing.T) {
 	require.NoError(t, err)
 
 	asked, err := s.PutRoutine(ctx, RoutineSpec{
-		Bot: DefaultBot, Name: "digest", Kind: RoutinePrompt, Prompt: "Sum up the day.", EveryMinutes: 60,
+		Bot: DefaultBotID, Name: "digest", Kind: RoutinePrompt, Prompt: "Sum up the day.", EveryMinutes: 60,
 	}, RoutineAuthor{})
 	require.NoError(t, err)
 

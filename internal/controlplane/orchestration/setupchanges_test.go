@@ -24,13 +24,14 @@ func TestTheCoordinatorsNewBotCanBeUndone(t *testing.T) {
 	chat, err := w.s.CreateChat(ctx, "", "")
 	require.NoError(t, err)
 
-	_, err = w.s.PutBotFromChat(ctx, chat.ID, Bot{Name: "researcher", Persona: "You find sources."})
+	researcher, err := w.s.PutBotFromChat(ctx, chat.ID, Bot{Name: "researcher", Persona: "You find sources."})
 	require.NoError(t, err)
 
 	changes, err := w.s.ListSetupChanges(ctx, chat.ID)
 	require.NoError(t, err)
 	require.Len(t, changes, 1)
-	assert.Equal(t, []string{"bot", "researcher", "made"}, []string{changes[0].Kind, changes[0].Name, changes[0].Action})
+	assert.Equal(t, []string{"bot", researcher.ID, "made"}, []string{changes[0].Kind, changes[0].Name, changes[0].Action},
+		"a Bot's change names it by its id")
 	assert.True(t, changes[0].CanUndo, changes[0].Problem)
 
 	undone, err := w.s.UndoSetupChange(ctx, changes[0].ID)
@@ -38,7 +39,7 @@ func TestTheCoordinatorsNewBotCanBeUndone(t *testing.T) {
 	assert.NotNil(t, undone.UndoneAt)
 	assert.False(t, undone.CanUndo)
 
-	_, err = w.s.GetBot(ctx, "researcher")
+	_, err = w.s.GetBot(ctx, researcher.ID)
 	require.ErrorIs(t, err, ErrNotFound, "a Bot it made is removed")
 
 	_, err = w.s.UndoSetupChange(ctx, changes[0].ID)
@@ -55,23 +56,23 @@ func TestAnUndoOfAChangedBotIsRefusedOnceChangedOrUsed(t *testing.T) {
 	w := newWorld(t)
 	ctx := t.Context()
 
-	_, err := w.s.PutBot(ctx, Bot{Name: "vmap", Persona: "You answer about VMAP."})
+	vmapBot, err := w.s.PutBot(ctx, Bot{Name: "vmap", Persona: "You answer about VMAP."})
 	require.NoError(t, err)
 
-	_, err = w.s.ChangeBotMemory(ctx, "vmap", MemoryOp{Kind: MemoryAdd, Text: "Linh leads the maps team."})
+	_, err = w.s.ChangeBotMemory(ctx, vmapBot.ID, MemoryOp{Kind: MemoryAdd, Text: "Linh leads the maps team."})
 	require.NoError(t, err)
 
 	chat, err := w.s.CreateChat(ctx, "", "")
 	require.NoError(t, err)
 
-	vmapChat, err := w.s.CreateChat(ctx, "vmap", "")
+	vmapChat, err := w.s.CreateChat(ctx, vmapBot.ID, "")
 	require.NoError(t, err)
 
 	change := func(persona string) SetupChange {
 		w.clock.now = w.clock.now.Add(time.Minute)
 
 		_, err := w.s.PutBotFromChat(ctx, chat.ID, Bot{
-			Name: "vmap", Persona: persona, Workers: AllowList{Limited: true, Names: []string{"reviewer"}},
+			ID: vmapBot.ID, Name: "vmap", Persona: persona, Workers: AllowList{Limited: true, Names: []string{"reviewer"}},
 		})
 		require.NoError(t, err)
 
@@ -91,7 +92,7 @@ func TestAnUndoOfAChangedBotIsRefusedOnceChangedOrUsed(t *testing.T) {
 	require.NoError(t, err, "its own reply in the chat of the change is not a use")
 	assert.NotNil(t, undone.UndoneAt)
 
-	vmap, err := w.s.GetBot(ctx, "vmap")
+	vmap, err := w.s.GetBot(ctx, vmapBot.ID)
 	require.NoError(t, err)
 	assert.Equal(t, "You answer about VMAP.", vmap.Persona)
 	assert.False(t, vmap.Workers.Limited, "the list it had: none")
@@ -107,7 +108,7 @@ func TestAnUndoOfAChangedBotIsRefusedOnceChangedOrUsed(t *testing.T) {
 
 	changed := change("You answer about roads.")
 
-	_, err = w.s.PutBot(ctx, Bot{Name: "vmap", Persona: "The owner's words."})
+	_, err = w.s.PutBot(ctx, Bot{ID: vmapBot.ID, Name: "vmap", Persona: "The owner's words."})
 	require.NoError(t, err)
 
 	listed, err := w.s.GetSetupChange(ctx, changed.ID)
@@ -127,24 +128,24 @@ func TestARemovedBotComesBackAndTheCoordinatorStays(t *testing.T) {
 	w := newWorld(t)
 	ctx := t.Context()
 
-	_, err := w.s.PutBot(ctx, Bot{Name: "vmap", Persona: "You answer about VMAP.", Skills: nil})
+	vmapBot, err := w.s.PutBot(ctx, Bot{Name: "vmap", Persona: "You answer about VMAP.", Skills: nil})
 	require.NoError(t, err)
 
 	chat, err := w.s.CreateChat(ctx, "", "")
 	require.NoError(t, err)
 
-	require.ErrorIs(t, w.s.DeleteBotFromChat(ctx, chat.ID, DefaultBot), ErrConflict)
+	require.ErrorIs(t, w.s.DeleteBotFromChat(ctx, chat.ID, DefaultBotID), ErrConflict)
 
-	_, err = w.s.PutBot(ctx, Bot{Name: "maps"})
+	mapsBot, err := w.s.PutBot(ctx, Bot{Name: "maps"})
 	require.NoError(t, err)
 
-	vmapChat, err := w.s.CreateChat(ctx, "vmap", "")
+	vmapChat, err := w.s.CreateChat(ctx, vmapBot.ID, "")
 	require.NoError(t, err)
 
-	require.ErrorIs(t, w.s.DeleteBotFromChat(ctx, vmapChat.ID, "maps"), ErrForbidden,
+	require.ErrorIs(t, w.s.DeleteBotFromChat(ctx, vmapChat.ID, mapsBot.ID), ErrForbidden,
 		"only the Bot coordinator's chat makes changes")
 
-	require.NoError(t, w.s.DeleteBotFromChat(ctx, chat.ID, "maps"))
+	require.NoError(t, w.s.DeleteBotFromChat(ctx, chat.ID, mapsBot.ID))
 
 	changes, err := w.s.ListSetupChanges(ctx, chat.ID)
 	require.NoError(t, err)
@@ -154,7 +155,7 @@ func TestARemovedBotComesBackAndTheCoordinatorStays(t *testing.T) {
 	_, err = w.s.UndoSetupChange(ctx, changes[0].ID)
 	require.NoError(t, err)
 
-	_, err = w.s.GetBot(ctx, "maps")
+	_, err = w.s.GetBot(ctx, mapsBot.ID)
 	require.NoError(t, err, "back")
 }
 
@@ -237,11 +238,14 @@ func TestABotsListsNarrowWhatItMayUse(t *testing.T) {
 	_, err = w.s.PutBot(ctx, Bot{Name: "vmap", Workers: AllowList{Limited: true, Names: []string{"ghost"}}})
 	require.ErrorIs(t, err, ErrNotFound)
 
+	vmapBot, err := w.s.PutBot(ctx, Bot{Name: "vmap"})
+	require.NoError(t, err)
+
 	open, err := w.s.PutBot(ctx, Bot{Name: "open"})
 	require.NoError(t, err)
 
 	vmap, err := w.s.PutBot(ctx, Bot{
-		Name:        "vmap",
+		ID:          vmapBot.ID,
 		Connections: AllowList{Limited: true, Names: []string{"google:work", "google:old"}},
 		Workers:     AllowList{Limited: true, Names: []string{"reviewer"}},
 	})
@@ -277,12 +281,12 @@ func TestABotsListsNarrowWhatItMayUse(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = w.s.CreateRun(ctx, NewRun{
-		Objective: "x", CreatedBy: "pi", CoordinatorTokenID: tok.ID, Bot: "vmap", Uses: []string{"google:home"},
+		Objective: "x", CreatedBy: "pi", CoordinatorTokenID: tok.ID, Bot: vmapBot.ID, Uses: []string{"google:home"},
 	})
 	require.ErrorIs(t, err, ErrForbidden)
 
 	run, err := w.s.CreateRun(ctx, NewRun{
-		Objective: "x", CreatedBy: "pi", CoordinatorTokenID: tok.ID, Bot: "vmap", Uses: []string{"google:work"},
+		Objective: "x", CreatedBy: "pi", CoordinatorTokenID: tok.ID, Bot: vmapBot.ID, Uses: []string{"google:work"},
 	})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"google:work"}, run.Uses)
@@ -368,14 +372,14 @@ func TestTheCoordinatorChangesWhatAnyBotMayUse(t *testing.T) {
 
 	only := func(names ...string) AllowList { return AllowList{Limited: true, Names: names} }
 
-	_, err = w.s.PutBot(ctx, Bot{Name: "vmap", Workers: only("reviewer")})
+	vmapBot, err := w.s.PutBot(ctx, Bot{Name: "vmap", Workers: only("reviewer")})
 	require.NoError(t, err)
 
-	widened, err := w.s.PutBotFromChat(ctx, chat.ID, Bot{Name: "vmap", Workers: only("reviewer", "implementer")})
+	widened, err := w.s.PutBotFromChat(ctx, chat.ID, Bot{ID: vmapBot.ID, Name: "vmap", Workers: only("reviewer", "implementer")})
 	require.NoError(t, err, "it widens a Bot's list")
 	assert.Equal(t, only("reviewer", "implementer"), widened.Workers)
 
-	_, err = w.s.PutBotFromChat(ctx, chat.ID, Bot{Name: DefaultBot, Workers: only("reviewer")})
+	_, err = w.s.PutBotFromChat(ctx, chat.ID, Bot{Name: DefaultBotID, Workers: only("reviewer")})
 	require.NoError(t, err, "it changes its own lists")
 
 	made, err := w.s.PutBotFromChat(ctx, chat.ID, Bot{Name: "researcher"})

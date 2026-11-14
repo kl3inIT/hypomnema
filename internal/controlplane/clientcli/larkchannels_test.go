@@ -64,7 +64,7 @@ func (l *larkChannelSettings) Set(_ context.Context, channel string, set larkbot
 	st, known := l.statuses[channel]
 	if !known {
 		st.Channel = channelstore.Channel{
-			Name: channel, Bot: orchestration.DefaultBot, Mode: channelstore.ChannelOwner,
+			Name: channel, Bot: orchestration.DefaultBotID, Mode: channelstore.ChannelOwner,
 		}
 	}
 
@@ -187,12 +187,20 @@ func TestSettingLarkChannelsUpFromTheCLI(t *testing.T) {
 	w := newWorldWith(t, nil, func(s *clientapi.Server) { s.WithLarkChannels(channels) })
 	w.login(t, bearertoken.Owner)
 
+	// --bot names a Bot by its name; the Channel keeps its id and is printed with its name (issue #466).
+	_, err := w.svc.PutBot(t.Context(), orchestration.Bot{Name: "vmap"})
+	require.NoError(t, err)
+
 	out, err := w.cmd(t, "channels", "lark", "list")
 	require.NoError(t, err)
 	assert.Empty(t, out, "no Channel is set up")
 
 	_, err = w.cmd(t, "channels", "lark", "show", "main")
 	require.Error(t, err, "no Channel is set up")
+
+	_, err = w.cmdIn(t, `{"app_id":"cli_n0n3","app_secret":"x"}`, "channels", "lark", "set", "none",
+		"--app-file", "-", "--owner", "owner@example.com", "--bot", "nobody")
+	require.ErrorContains(t, err, "no bot has this id or name")
 
 	_, err = w.cmdIn(t, `{"app_id":"cli_a1b2"}`, "channels", "lark", "set", "main", "--app-file", "-")
 	require.ErrorContains(t, err, "app_id and app_secret")

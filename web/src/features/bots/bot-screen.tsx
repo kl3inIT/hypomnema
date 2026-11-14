@@ -28,14 +28,22 @@ import { BotAccess } from "./bot-access"
 import {
   draftOf,
   emptyDraft,
-  firstBot,
   modelLine,
+  nameProblem,
   problem,
   sameDraft,
   settingsOf,
   type Draft,
 } from "./bots-state"
-import { botsKey, useBot, useBots, useDeleteBot, usePutBot, useSetBotMemory } from "./use-bots"
+import {
+  botsKey,
+  useBot,
+  useBots,
+  useDeleteBot,
+  usePutBot,
+  useRenameBot,
+  useSetBotMemory,
+} from "./use-bots"
 
 // Crumbs is the way back to the list, as the Agents pages' "Agents › name".
 function Crumbs({ here }: { here: string }) {
@@ -50,16 +58,17 @@ function Crumbs({ here }: { here: string }) {
   )
 }
 
-// BotScreen is one Bot (issue #169): its name and model, the form for its model and persona, its memory to read
-// and edit, and its removal. The page is the Agents pages' profile page (features/agents/profile-screen.tsx).
-export function BotScreen({ name }: { name: string }) {
-  const bot = useBot(name)
+// BotScreen is one Bot (issue #169), at its id: its name and model, its name to change (issue #466), the form for
+// its model and persona, its memory to read and edit, and its removal. The page is the Agents pages' profile page
+// (features/agents/profile-screen.tsx).
+export function BotScreen({ id }: { id: string }) {
+  const bot = useBot(id)
   const models = useModels()
   const b = bot.data
 
   return (
     <main className="flex min-w-0 flex-1 flex-col">
-      <PageHeader title={<Crumbs here={name} />} />
+      <PageHeader title={<Crumbs here={b?.name ?? ""} />} />
       <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-10 sm:px-5">
         <div className="mx-auto flex w-full max-w-2xl flex-col gap-5 pt-2">
           {bot.error ? (
@@ -85,10 +94,11 @@ export function BotScreen({ name }: { name: string }) {
                 </div>
               </header>
 
+              <Rename key={b.name} bot={b} />
               <BotForm start={draftOf(b)} models={models.data ?? []} stored={b} />
               <Memory bot={b} />
               <BotAccess bot={b} />
-              <BotRoutines bot={b.name} />
+              <BotRoutines bot={b.id} />
               <Channels bot={b} />
               <Removal bot={b} />
             </>
@@ -99,7 +109,64 @@ export function BotScreen({ name }: { name: string }) {
   )
 }
 
-// BotForm edits a Bot's model, persona and skills, and a new Bot's name, and saves them with one PUT. Its buttons
+// Rename gives the Bot another name (issue #466): its id, chats, Routines and Channels stay, so nothing else on the
+// page changes. A name another Bot has is refused here and by the server. The field is the one a node's name has
+// on the Machines page.
+function Rename({ bot }: { bot: Bot }) {
+  const [name, setName] = useState(bot.name)
+  const rename = useRenameBot()
+  const taken = (useBots().data ?? []).filter((b) => b.id !== bot.id).map((b) => b.name)
+
+  const changed = name.trim() !== bot.name
+  const wrong = changed ? nameProblem(name, taken) : null
+
+  return (
+    <form
+      aria-label="Name"
+      className="flex flex-col gap-2"
+      onSubmit={(event) => {
+        event.preventDefault()
+        if (changed && !wrong) rename.mutate({ id: bot.id, name: name.trim() })
+      }}
+    >
+      <Field>
+        <FieldLabel htmlFor="bot-rename">Name</FieldLabel>
+        <div className="flex gap-2">
+          <Input
+            id="bot-rename"
+            autoComplete="off"
+            spellCheck={false}
+            value={name}
+            onChange={(event) => {
+              rename.reset()
+              setName(event.target.value)
+            }}
+          />
+          <Button
+            type="submit"
+            variant="outline"
+            disabled={!changed || wrong !== null || rename.isPending}
+          >
+            {rename.isPending ? "Renaming…" : "Rename"}
+          </Button>
+        </div>
+        <FieldDescription>
+          {wrong ??
+            (bot.main
+              ? "The main Bot: a chat that names no Bot talks with it. Its chats, Routines and channels stay when it is renamed."
+              : "What the Bot is called. Its chats, Routines and channels stay when it is renamed.")}
+        </FieldDescription>
+      </Field>
+      {rename.error && (
+        <Alert variant="destructive">
+          <AlertDescription>{errorText(rename.error)}</AlertDescription>
+        </Alert>
+      )}
+    </form>
+  )
+}
+
+// BotForm edits a Bot's model, persona and skills, and a new Bot's name, and saves them with one request. Its buttons
 // are the profile editor's (features/agents/profile-editor.tsx). Leaving the page drops what was not saved
 // (owner, 2026-11-13).
 function BotForm({
@@ -118,7 +185,7 @@ function BotForm({
   const [start, setStart] = useState(first)
   const [draft, setDraft] = useState(first)
   const put = usePutBot()
-  // The names taken, so that a new Bot does not replace one that exists: PUT changes a Bot of the same name.
+  // The names taken: a Bot's name is its own (issue #466).
   const taken = (useBots().data ?? []).map((b) => b.name)
 
   const dirty = !sameDraft(draft, start)
@@ -130,7 +197,7 @@ function BotForm({
 
   function save() {
     put.mutate(
-      { name: stored?.name ?? draft.name.trim(), settings: settingsOf(draft, models) },
+      { id: stored?.id, name: draft.name.trim(), settings: settingsOf(draft, models) },
       {
         onSuccess: (bot) => {
           setStart(draftOf(bot))
@@ -162,8 +229,7 @@ function BotForm({
             onChange={(event) => set({ name: event.target.value })}
           />
           <FieldDescription>
-            A chat names its Bot by this. Lowercase letters, digits and dashes, starting with a
-            letter. It cannot be changed later.
+            What the Bot is called, up to 64 characters. It can be changed later.
           </FieldDescription>
         </Field>
       )}
@@ -253,7 +319,7 @@ function Memory({ bot }: { bot: Bot }) {
         save={{
           mutate: (text, { onSuccess }) =>
             save.mutate(
-              { name: bot.name, memory: text },
+              { id: bot.id, memory: text },
               { onSuccess: (b) => onSuccess(b.memory) },
             ),
           isPending: save.isPending,
@@ -273,7 +339,7 @@ function Channels({ bot }: { bot: Bot }) {
   const services = useServices()
   if (!channels.data) return null
 
-  const mine = channelsOf(bot.name, channels.data)
+  const mine = channelsOf(bot.id, channels.data)
 
   return (
     <section aria-labelledby="bot-channels" className="flex flex-col gap-2 border-t pt-4">
@@ -314,7 +380,7 @@ function Channels({ bot }: { bot: Bot }) {
   )
 }
 
-// Removal takes a Bot away after a question. The server refuses the first Bot, one with chats, one with a
+// Removal takes a Bot away after a question. The server refuses the main Bot, one with chats, one with a
 // memory and one a Channel talks to, and the dialog stays open with its reason.
 function Removal({ bot }: { bot: Bot }) {
   const remove = useDeleteBot()
@@ -325,7 +391,7 @@ function Removal({ bot }: { bot: Bot }) {
     // The list is read again before the page leaves; this Bot's own query goes with its page.
     await queryClient.invalidateQueries({ queryKey: botsKey, exact: true })
     await navigate({ to: "/bots" })
-    queryClient.removeQueries({ queryKey: [...botsKey, bot.name] })
+    queryClient.removeQueries({ queryKey: [...botsKey, bot.id] })
   }
 
   return (
@@ -347,11 +413,11 @@ function Removal({ bot }: { bot: Bot }) {
           title={`Remove ${bot.name}?`}
           consequence="The Bot, its model and its persona are removed. This cannot be undone."
           action="Remove"
-          run={() => remove.mutateAsync({ name: bot.name })}
+          run={() => remove.mutateAsync({ id: bot.id })}
           onDone={gone}
           done={`${bot.name} removed`}
         />
-        {bot.name !== firstBot && (
+        {!bot.main && (
           <ConfirmDialog
             trigger={
               <Button variant="destructive" size="sm">
@@ -364,7 +430,7 @@ function Removal({ bot }: { bot: Bot }) {
               "those chats stay. This cannot be undone."
             }
             action="Remove all"
-            run={() => remove.mutateAsync({ name: bot.name, force: true })}
+            run={() => remove.mutateAsync({ id: bot.id, force: true })}
             onDone={gone}
             done={`${bot.name} and its chats removed`}
           />
@@ -393,7 +459,7 @@ export function NewBotScreen() {
           <BotForm
             start={emptyDraft}
             models={models.data ?? []}
-            onSaved={(bot) => void navigate({ to: "/bots/$name", params: { name: bot.name } })}
+            onSaved={(bot) => void navigate({ to: "/bots/$id", params: { id: bot.id } })}
           />
         </div>
       </div>

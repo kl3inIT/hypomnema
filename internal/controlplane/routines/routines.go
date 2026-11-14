@@ -60,6 +60,7 @@ type Store interface {
 	Undelivered(ctx context.Context, chatID string) ([]orchestration.ChatMessage, error)
 	ListChatMessages(ctx context.Context, chatID string, after int64, limit int) ([]orchestration.ChatMessage, error)
 	TellChat(ctx context.Context, chatID, text, routineID, runID string) error
+	GetBot(ctx context.Context, id string) (orchestration.Bot, error)
 	Subscribe(ctx context.Context) <-chan struct{}
 }
 
@@ -640,13 +641,24 @@ func (r *Runner) finish(ctx context.Context, runID string, result orchestration.
 	case settled.Paused:
 		// Always told, with the reason and how to switch it on again (OpenClaw, service/auto-disable.ts L20-49).
 		r.alert(ctx, routine, "A routine was paused", fmt.Sprintf("Routine %q of %s was %s\n\nFix what fails, then "+
-			"switch it on again with `hypomnema routines resume %s`.", routine.Name, routine.Bot, routine.PausedReason,
-			routine.ID))
+			"switch it on again with `hypomnema routines resume %s`.", routine.Name, r.botName(ctx, routine.Bot),
+			routine.PausedReason, routine.ID))
 	case settled.Alert:
 		r.alert(ctx, routine, "A routine keeps failing", fmt.Sprintf("Routine %q of %s failed %d times in a row. "+
-			"The last: %s\n\nRead it with `hypomnema routines show %s`.", routine.Name, routine.Bot, routine.Failures,
-			run.Error, routine.ID))
+			"The last: %s\n\nRead it with `hypomnema routines show %s`.", routine.Name, r.botName(ctx, routine.Bot),
+			routine.Failures, run.Error, routine.ID))
 	}
+}
+
+// botName is what the owner is told a Bot is called: its name, read when told since it may change (issue #466),
+// or its id when it cannot be read.
+func (r *Runner) botName(ctx context.Context, id string) string {
+	b, err := r.store.GetBot(ctx, id)
+	if err != nil {
+		return id
+	}
+
+	return b.Name
 }
 
 // alert tells the owner in the chat the Routine was made in and through the

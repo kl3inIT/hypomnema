@@ -325,22 +325,22 @@ func (s *Supervisor) procFor(ctx context.Context, chatID string) (*proc, error) 
 	return p, nil
 }
 
-// botArgs are the launcher's flags for the chat's Bot: its name, by which the
+// botArgs are the launcher's flags for the chat's Bot: its id, by which the
 // launcher finds its directory, persona and memory, whether the chat is a
 // Lark group's, and the chat's model (model.go): the provider (an id in pi's
 // models.json), the model and the effort. The model is returned too: the
-// chat's gateway key is good for it; and the Bot's name, which pi's token is
+// chat's gateway key is good for it; and the Bot's id, which pi's token is
 // bound to.
 func (s *Supervisor) botArgs(ctx context.Context, chatID string,
 ) ([]string, string, orchestration.ChatModel, error) {
 	none := orchestration.ChatModel{}
 
-	name, m, err := s.chatModel(ctx, chatID)
+	id, m, err := s.chatModel(ctx, chatID)
 	if err != nil {
 		return nil, "", none, err
 	}
 
-	args := []string{"--bot", name}
+	args := []string{"--bot", id}
 
 	// The chat of a Lark group is not given the Bot's memory, which holds what the owner's chats taught it, and
 	// is told who writes there (issue #246; OpenClaw leaves MEMORY.md out of a group session's prompt).
@@ -365,7 +365,7 @@ func (s *Supervisor) botArgs(ctx context.Context, chatID string,
 		args = append(args, "--thinking", piLevel(m.Effort))
 	}
 
-	return args, name, m, nil
+	return args, id, m, nil
 }
 
 // revoke ends a pi's gateway key and its token. The pi is gone or never

@@ -22,8 +22,10 @@ func TestTheOwnerMakesASecondBot(t *testing.T) {
 	bots, err := w.s.ListBots(ctx)
 	require.NoError(t, err)
 	require.Len(t, bots, 1)
-	assert.Equal(t, DefaultBot, bots[0].Name)
-	assert.Contains(t, bots[0].Persona, "coordinator", "the first Bot says it gives work to workers")
+	assert.Equal(t, DefaultBotID, bots[0].ID)
+	assert.Equal(t, "coordinator", bots[0].Name, "the main Bot keeps the name it had")
+	assert.True(t, bots[0].Main())
+	assert.Contains(t, bots[0].Persona, "coordinator", "the main Bot says it gives work to workers")
 
 	_, err = w.s.ApplyProvider(ctx, "", "name: router\nkind: openai_compatible\n"+
 		"base_url: https://router.example/v1\napi_key_ref: ROUTER_KEY\nmodels: [sonnet]\n")
@@ -33,7 +35,9 @@ func TestTheOwnerMakesASecondBot(t *testing.T) {
 		bot  Bot
 		want string
 	}{
-		{Bot{Name: "Bad Name"}, "lowercase"},
+		{Bot{Name: "  "}, "1 to 64 characters"},
+		{Bot{Name: strings.Repeat("b", 65)}, "1 to 64 characters"},
+		{Bot{Name: "coordinator"}, "another bot is named"},
 		{Bot{Name: "x", Model: "opus"}, "no provider"},
 		{Bot{Name: "x", Model: "sonnet", Effort: "huge"}, "unknown effort"},
 		{Bot{Name: "x", Persona: strings.Repeat("a", 2e4)}, "at most"},
@@ -52,31 +56,91 @@ func TestTheOwnerMakesASecondBot(t *testing.T) {
 
 	untouched, err := w.s.CreateChat(ctx, "", "")
 	require.NoError(t, err)
-	assert.Equal(t, DefaultBot, untouched.Bot)
+	assert.Equal(t, DefaultBotID, untouched.Bot)
 
-	_, err = w.s.ChangeBotMemory(ctx, "vmap", MemoryOp{Kind: MemoryAdd, Text: "Linh leads the maps team."})
+	_, err = w.s.ChangeBotMemory(ctx, vmap.ID, MemoryOp{Kind: MemoryAdd, Text: "Linh leads the maps team."})
 	require.NoError(t, err)
 
-	vmap, err = w.s.PutBot(ctx, Bot{Name: "vmap", Persona: "You answer about VMAP and Tasco."})
+	vmap, err = w.s.PutBot(ctx, Bot{ID: vmap.ID, Name: "vmap", Persona: "You answer about VMAP and Tasco."})
 	require.NoError(t, err)
 	assert.Empty(t, vmap.Model, "the model is what was put")
 	assert.Equal(t, "Linh leads the maps team.", vmap.Memory, "a change of the Bot keeps its memory")
 
-	require.ErrorIs(t, w.s.DeleteBot(ctx, "vmap"), ErrConflict, "it has a memory")
+	require.ErrorIs(t, w.s.DeleteBot(ctx, vmap.ID), ErrConflict, "it has a memory")
 
-	_, err = w.s.ChangeBotMemory(ctx, "vmap", MemoryOp{Kind: MemoryRemove, Match: "Linh"})
+	_, err = w.s.ChangeBotMemory(ctx, vmap.ID, MemoryOp{Kind: MemoryRemove, Match: "Linh"})
 	require.NoError(t, err)
 
-	chat, err := w.s.CreateChat(ctx, "vmap", "")
+	chat, err := w.s.CreateChat(ctx, vmap.ID, "")
 	require.NoError(t, err)
-	assert.Equal(t, "vmap", chat.Bot)
-	require.ErrorIs(t, w.s.DeleteBot(ctx, "vmap"), ErrConflict, "it has a chat")
+	assert.Equal(t, vmap.ID, chat.Bot)
+	require.ErrorIs(t, w.s.DeleteBot(ctx, vmap.ID), ErrConflict, "it has a chat")
 
-	_, err = w.s.PutBot(ctx, Bot{Name: "spare"})
+	spareBot, err := w.s.PutBot(ctx, Bot{Name: "spare"})
 	require.NoError(t, err)
-	require.NoError(t, w.s.DeleteBot(ctx, "spare"))
-	require.ErrorIs(t, w.s.DeleteBot(ctx, "spare"), ErrNotFound)
-	require.ErrorIs(t, w.s.DeleteBot(ctx, DefaultBot), ErrConflict, "the first Bot is always there")
+	require.NoError(t, w.s.DeleteBot(ctx, spareBot.ID))
+	require.ErrorIs(t, w.s.DeleteBot(ctx, spareBot.ID), ErrNotFound)
+	require.ErrorIs(t, w.s.DeleteBot(ctx, DefaultBotID), ErrConflict, "the main Bot is always there")
+
+	_, err = w.s.PutBot(ctx, Bot{ID: "bot_nobodyaaaaaaaaaaaaaaaaaaaa", Persona: "x"})
+	require.ErrorIs(t, err, ErrNotFound, "a change names a Bot that is there")
+}
+
+// Scenario: any Bot is renamed, the main one too (issue #466). Its id, chats, Routines, Channels and memory stay,
+// and so does what the main Bot alone may do. A name is trimmed, may hold any letters, and is one Bot's only.
+func TestABotIsRenamedAndKeepsWhatNamesIt(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	ctx := t.Context()
+
+	maps, err := w.s.PutBot(ctx, Bot{Name: "vmap"})
+	require.NoError(t, err)
+
+	chat, err := w.s.CreateChat(ctx, maps.ID, "")
+	require.NoError(t, err)
+
+	_, err = w.s.ChangeBotMemory(ctx, maps.ID, MemoryOp{Kind: MemoryAdd, Text: "Linh leads the maps team."})
+	require.NoError(t, err)
+
+	renamed, err := w.s.RenameBot(ctx, maps.ID, "  Bản đồ VMAP ")
+	require.NoError(t, err)
+	assert.Equal(t, maps.ID, renamed.ID)
+	assert.Equal(t, "Bản đồ VMAP", renamed.Name, "trimmed, any letters")
+	assert.Equal(t, "Linh leads the maps team.", renamed.Memory)
+
+	read, err := w.s.GetChat(ctx, chat.ID)
+	require.NoError(t, err)
+	assert.Equal(t, maps.ID, read.Bot, "its chat names it by its id")
+
+	main, err := w.s.RenameBot(ctx, DefaultBotID, "Trợ lý")
+	require.NoError(t, err)
+	assert.Equal(t, "Trợ lý", main.Name)
+	assert.True(t, main.Main(), "the main Bot is the main one whatever it is called")
+
+	fresh, err := w.s.CreateChat(ctx, "", "")
+	require.NoError(t, err)
+	assert.Equal(t, DefaultBotID, fresh.Bot, "a chat that names no Bot is the main one's")
+
+	for name, c := range map[string]struct {
+		id, name string
+		want     error
+	}{
+		"another bot's name": {maps.ID, "Trợ lý", ErrConflict},
+		"no name":            {maps.ID, " ", ErrInvalid},
+		"too long a name":    {maps.ID, strings.Repeat("ả", 65), ErrInvalid},
+		"no such bot":        {"bot_nobodyaaaaaaaaaaaaaaaaaaaa", "x", ErrNotFound},
+	} {
+		_, err := w.s.RenameBot(ctx, c.id, c.name)
+		require.ErrorIs(t, err, c.want, name)
+	}
+
+	_, err = w.s.PutBot(ctx, Bot{Name: "Trợ lý"})
+	require.ErrorIs(t, err, ErrConflict, "a new Bot takes no name another has")
+
+	coordinator, err := w.s.PutBot(ctx, Bot{Name: "coordinator"})
+	require.NoError(t, err, "a name given up is free")
+	assert.False(t, coordinator.Main())
 }
 
 // Scenario: a Bot keeps what it learned across its chats. It adds entries,
@@ -91,7 +155,7 @@ func TestABotKeepsAMemory(t *testing.T) {
 	ctx := t.Context()
 
 	add := func(text string) (Bot, error) {
-		return w.s.ChangeBotMemory(ctx, DefaultBot, MemoryOp{Kind: MemoryAdd, Text: text})
+		return w.s.ChangeBotMemory(ctx, DefaultBotID, MemoryOp{Kind: MemoryAdd, Text: text})
 	}
 
 	_, err := add("The owner writes in Vietnamese.")
@@ -113,21 +177,21 @@ func TestABotKeepsAMemory(t *testing.T) {
 		{Kind: MemoryReplace, Match: "Deploys"}:            "what replaces",
 		{Kind: MemoryAdd, Text: strings.Repeat("a", 2200)}: "over its limit",
 	} {
-		_, err := w.s.ChangeBotMemory(ctx, DefaultBot, op)
+		_, err := w.s.ChangeBotMemory(ctx, DefaultBotID, op)
 		require.ErrorIs(t, err, ErrInvalid, want)
 		require.ErrorContains(t, err, want)
 	}
 
-	b, err = w.s.GetBot(ctx, DefaultBot)
+	b, err = w.s.GetBot(ctx, DefaultBotID)
 	require.NoError(t, err)
 	assert.Equal(t, "The owner writes in Vietnamese.\nDeploys wait for the owner's yes.", b.Memory,
 		"a refused change changed nothing")
 
-	b, err = w.s.ChangeBotMemory(ctx, DefaultBot, MemoryOp{Kind: MemoryReplace, Match: "Deploys", Text: "x\ny"})
+	b, err = w.s.ChangeBotMemory(ctx, DefaultBotID, MemoryOp{Kind: MemoryReplace, Match: "Deploys", Text: "x\ny"})
 	require.NoError(t, err)
 	assert.Equal(t, "The owner writes in Vietnamese.\nx y", b.Memory)
 
-	b, err = w.s.ChangeBotMemory(ctx, DefaultBot, MemoryOp{Kind: MemoryRemove, Match: "Vietnamese"})
+	b, err = w.s.ChangeBotMemory(ctx, DefaultBotID, MemoryOp{Kind: MemoryRemove, Match: "Vietnamese"})
 	require.NoError(t, err)
 	assert.Equal(t, "x y", b.Memory)
 
@@ -144,15 +208,15 @@ func TestARunNamesTheBotOfItsChat(t *testing.T) {
 	w := newWorld(t)
 	ctx := t.Context()
 
-	_, err := w.s.PutBot(ctx, Bot{Name: "vmap"})
+	vmapBot, err := w.s.PutBot(ctx, Bot{Name: "vmap"})
 	require.NoError(t, err)
 
-	chat, err := w.s.CreateChat(ctx, "vmap", "")
+	chat, err := w.s.CreateChat(ctx, vmapBot.ID, "")
 	require.NoError(t, err)
 
-	fromChat, err := w.s.CreateRun(ctx, NewRun{Objective: "add the depot", CreatedBy: "vmap", ChatID: chat.ID})
+	fromChat, err := w.s.CreateRun(ctx, NewRun{Objective: "add the depot", CreatedBy: vmapBot.ID, ChatID: chat.ID})
 	require.NoError(t, err)
-	assert.Equal(t, "vmap", fromChat.Bot)
+	assert.Equal(t, vmapBot.ID, fromChat.Bot)
 
 	byOwner, err := w.s.CreateRun(ctx, NewRun{Objective: "rotate the keys", CreatedBy: "owner"})
 	require.NoError(t, err)
@@ -160,7 +224,7 @@ func TestARunNamesTheBotOfItsChat(t *testing.T) {
 
 	read, err := w.s.GetRun(ctx, fromChat.ID)
 	require.NoError(t, err)
-	assert.Equal(t, "vmap", read.Bot)
+	assert.Equal(t, vmapBot.ID, read.Bot)
 
 	page, err := w.s.ListRuns(ctx, RunFilter{}, nil, 0)
 	require.NoError(t, err)
@@ -170,7 +234,7 @@ func TestARunNamesTheBotOfItsChat(t *testing.T) {
 		bots[r.ID] = r.Bot
 	}
 
-	assert.Equal(t, "vmap", bots[fromChat.ID])
+	assert.Equal(t, vmapBot.ID, bots[fromChat.ID])
 	assert.Contains(t, bots, byOwner.ID)
 	assert.Empty(t, bots[byOwner.ID])
 }
@@ -185,12 +249,12 @@ func TestTheOwnerRemovesABotWithItsChats(t *testing.T) {
 	w := newWorld(t)
 	ctx := t.Context()
 
-	_, err := w.s.PutBot(ctx, Bot{Name: "trial"})
+	trialBot, err := w.s.PutBot(ctx, Bot{Name: "trial"})
 	require.NoError(t, err)
-	_, err = w.s.ChangeBotMemory(ctx, "trial", MemoryOp{Kind: MemoryAdd, Text: "A test Bot."})
+	_, err = w.s.ChangeBotMemory(ctx, trialBot.ID, MemoryOp{Kind: MemoryAdd, Text: "A test Bot."})
 	require.NoError(t, err)
 
-	chat, err := w.s.CreateChat(ctx, "trial", "")
+	chat, err := w.s.CreateChat(ctx, trialBot.ID, "")
 	require.NoError(t, err)
 	_, err = w.s.AddChatMessage(ctx, chat.ID, ChatOwner, "Which model are you?")
 	require.NoError(t, err)
@@ -201,10 +265,10 @@ func TestTheOwnerRemovesABotWithItsChats(t *testing.T) {
 		"VALUES ('gk_1', 'chat key', 'hash', '[\"*\"]', 1, ?)", chat.ID)
 	require.NoError(t, err)
 
-	require.ErrorIs(t, w.s.DeleteBot(ctx, "trial"), ErrConflict, "it has a chat and a memory")
-	require.NoError(t, w.s.ForceDeleteBot(ctx, "trial"))
+	require.ErrorIs(t, w.s.DeleteBot(ctx, trialBot.ID), ErrConflict, "it has a chat and a memory")
+	require.NoError(t, w.s.ForceDeleteBot(ctx, trialBot.ID))
 
-	_, err = w.s.GetBot(ctx, "trial")
+	_, err = w.s.GetBot(ctx, trialBot.ID)
 	require.ErrorIs(t, err, ErrNotFound)
 
 	var chats, messages int
@@ -225,15 +289,15 @@ func TestTheOwnerRemovesABotWithItsChats(t *testing.T) {
 	assert.False(t, keyChat.Valid)
 	assert.True(t, revoked.Valid, "the chat's key is revoked and kept")
 
-	require.ErrorIs(t, w.s.ForceDeleteBot(ctx, "trial"), ErrNotFound)
-	require.ErrorIs(t, w.s.ForceDeleteBot(ctx, DefaultBot), ErrConflict)
+	require.ErrorIs(t, w.s.ForceDeleteBot(ctx, trialBot.ID), ErrNotFound)
+	require.ErrorIs(t, w.s.ForceDeleteBot(ctx, DefaultBotID), ErrConflict)
 
-	_, err = w.s.PutBot(ctx, Bot{Name: "scheduled"})
+	scheduledBot, err := w.s.PutBot(ctx, Bot{Name: "scheduled"})
 	require.NoError(t, err)
 	spec := daily("morning")
-	spec.Bot = "scheduled"
+	spec.Bot = scheduledBot.ID
 	w.routine(spec)
-	require.ErrorIs(t, w.s.ForceDeleteBot(ctx, "scheduled"), ErrConflict, "a Routine uses it")
+	require.ErrorIs(t, w.s.ForceDeleteBot(ctx, scheduledBot.ID), ErrConflict, "a Routine uses it")
 }
 
 // Scenario: what a Bot's chats show of its tool calls (issue #441) is stored with it, on unless set, read for each
@@ -248,17 +312,17 @@ func TestABotKeepsWhatItsChatsShowOfItsTools(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, ToolsOn, reporter.ToolDisplay)
 
-	_, err = w.s.PutBot(ctx, Bot{Name: "reporter", ToolDisplay: "loud"})
+	_, err = w.s.PutBot(ctx, Bot{ID: reporter.ID, Name: "reporter", ToolDisplay: "loud"})
 	require.ErrorIs(t, err, ErrInvalid)
 
-	chat, err := w.s.CreateChat(ctx, "reporter", "")
+	chat, err := w.s.CreateChat(ctx, reporter.ID, "")
 	require.NoError(t, err)
 
 	coordinatorChat, err := w.s.CreateChat(ctx, "", "")
 	require.NoError(t, err)
 
 	_, err = w.s.PutBotFromChat(ctx, coordinatorChat.ID,
-		Bot{Name: "reporter", Persona: "You send the report.", ToolDisplay: ToolsOff})
+		Bot{ID: reporter.ID, Name: "reporter", Persona: "You send the report.", ToolDisplay: ToolsOff})
 	require.NoError(t, err)
 
 	shown, err := w.s.ChatToolDisplay(ctx, chat.ID)

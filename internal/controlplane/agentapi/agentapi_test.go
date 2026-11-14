@@ -274,23 +274,23 @@ func TestABotGetsOnlyTheAccountsOnItsList(t *testing.T) {
 	}
 
 	limited := orchestration.AllowList{Limited: true, Names: []string{"notion:work"}}
-	_, err = w.svc.PutBot(ctx, orchestration.Bot{Name: "vmap", Connections: limited})
+	vmapBot, err := w.svc.PutBot(ctx, orchestration.Bot{Name: "vmap", Connections: limited})
 	require.NoError(t, err)
 
-	chat, err := w.svc.CreateChat(ctx, "vmap", "")
+	chat, err := w.svc.CreateChat(ctx, vmapBot.ID, "")
 	require.NoError(t, err)
 
-	vmap, err := w.svc.AddBotToken(ctx, "pi", chat.ID, "vmap")
+	vmap, err := w.svc.AddBotToken(ctx, "pi", chat.ID, vmapBot.ID)
 	require.NoError(t, err)
 
 	mine, err := w.svc.CreateChat(ctx, "", "")
 	require.NoError(t, err)
 
-	coordinator, err := w.svc.AddBotToken(ctx, "pi", mine.ID, orchestration.DefaultBot)
+	coordinator, err := w.svc.AddBotToken(ctx, "pi", mine.ID, orchestration.DefaultBotID)
 	require.NoError(t, err)
 
 	routine, err := w.svc.PutRoutine(ctx, orchestration.RoutineSpec{
-		Bot: "vmap", Name: "sync", Kind: orchestration.RoutineScript, Script: "sync.sh", ScriptText: "#!/bin/sh\n",
+		Bot: vmapBot.ID, Name: "sync", Kind: orchestration.RoutineScript, Script: "sync.sh", ScriptText: "#!/bin/sh\n",
 		EveryMinutes: 60,
 	}, orchestration.RoutineAuthor{})
 	require.NoError(t, err)
@@ -315,7 +315,7 @@ func TestABotGetsOnlyTheAccountsOnItsList(t *testing.T) {
 	require.Equal(t, http.StatusOK, status)
 	assert.ElementsMatch(t, []string{"work", "personal"}, labels, "no list: every one allowed for chats")
 
-	_, err = w.svc.PutBot(ctx, orchestration.Bot{Name: "vmap", Connections: orchestration.AllowList{Limited: true}})
+	_, err = w.svc.PutBot(ctx, orchestration.Bot{ID: vmapBot.ID, Name: "vmap", Connections: orchestration.AllowList{Limited: true}})
 	require.NoError(t, err)
 
 	status, _ = w.token(vmap, "work")

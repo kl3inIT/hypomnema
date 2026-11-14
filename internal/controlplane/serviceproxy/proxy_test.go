@@ -522,7 +522,7 @@ func (w *world) routineRun(routineID string) (orchestration.RoutineRun, string) 
 	started, err := w.svc.RunRoutineNow(w.t.Context(), routineID)
 	require.NoError(w.t, err)
 
-	launch, err := w.svc.ClaimRoutineScript(w.t.Context(), routineID, orchestration.DefaultBot)
+	launch, err := w.svc.ClaimRoutineScript(w.t.Context(), routineID, orchestration.DefaultBotID)
 	require.NoError(w.t, err)
 
 	return started.Run, launch.Key
@@ -541,7 +541,7 @@ func TestAlwaysForARoutineStopsAskingInItsRunsOnly(t *testing.T) {
 	ctx := t.Context()
 
 	routine, err := w.svc.PutRoutine(ctx, orchestration.RoutineSpec{
-		Bot: orchestration.DefaultBot, Name: "digest", Kind: orchestration.RoutineScript, Script: "digest.sh",
+		Bot: orchestration.DefaultBotID, Name: "digest", Kind: orchestration.RoutineScript, Script: "digest.sh",
 		ScriptText: "#!/bin/sh\ngws gmail +send\n", EveryMinutes: 60,
 	}, orchestration.RoutineAuthor{})
 	require.NoError(t, err)
@@ -615,7 +615,7 @@ func TestARunsRequestNobodyAnswersIsRefused(t *testing.T) {
 	ctx := t.Context()
 
 	routine, err := w.svc.PutRoutine(ctx, orchestration.RoutineSpec{
-		Bot: orchestration.DefaultBot, Name: "digest", Kind: orchestration.RoutineScript, Script: "digest.sh",
+		Bot: orchestration.DefaultBotID, Name: "digest", Kind: orchestration.RoutineScript, Script: "digest.sh",
 		ScriptText: "#!/bin/sh\ngws gmail +send\n", EveryMinutes: 60,
 	}, orchestration.RoutineAuthor{})
 	require.NoError(t, err)
@@ -651,7 +651,7 @@ func TestAPisTokenAsksInItsOwnChatOnly(t *testing.T) {
 	w := newWorld(t, time.Minute)
 	ctx := t.Context()
 
-	secret, err := w.svc.AddBotToken(ctx, "pi", w.chat, orchestration.DefaultBot)
+	secret, err := w.svc.AddBotToken(ctx, "pi", w.chat, orchestration.DefaultBotID)
 	require.NoError(t, err)
 
 	other, err := w.svc.CreateChat(ctx, "", "Another chat")

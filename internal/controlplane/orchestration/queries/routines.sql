@@ -1,5 +1,5 @@
 -- name: InsertRoutine :exec
-INSERT INTO routines (id, bot, name, kind, prompt, script, script_text, every_minutes, anchor_at, cron, timezone,
+INSERT INTO routines (id, bot_id, name, kind, prompt, script, script_text, every_minutes, anchor_at, cron, timezone,
                       timeout_seconds, state, summary, chat_id, announce, next_run_at, created_by, undo,
                       created_at, updated_at)
 VALUES (@id, @bot, @name, @kind, @prompt, @script, @script_text, @every_minutes, @anchor_at, @cron, @timezone,
@@ -18,17 +18,17 @@ WHERE id = @id;
 SELECT * FROM routines WHERE id = @id;
 
 -- name: GetRoutineByName :one
-SELECT * FROM routines WHERE bot = @bot AND name = @name;
+SELECT * FROM routines WHERE bot_id = @bot AND name = @name;
 
 -- name: ListRoutines :many
 -- Empty filters match everything. The oldest first.
 SELECT * FROM routines
-WHERE (CAST(@bot AS TEXT) = '' OR bot = @bot)
+WHERE (CAST(@bot AS TEXT) = '' OR bot_id = @bot)
   AND (CAST(@chat_id AS TEXT) = '' OR chat_id = @chat_id)
 ORDER BY created_at, id;
 
 -- name: CountRoutinesOfBot :one
-SELECT count(*) FROM routines WHERE bot = @bot;
+SELECT count(*) FROM routines WHERE bot_id = @bot;
 
 -- name: DeleteRoutine :exec
 DELETE FROM routines WHERE id = @id;

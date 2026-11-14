@@ -144,7 +144,7 @@ func (s *Store) read() *store.Queries {
 
 func channelFromRow(r store.Channel) Channel {
 	return Channel{
-		Name: r.Name, Kind: ChannelKind(r.Kind), AppID: r.AppID, Secret: r.Secret, Bot: r.Bot, Mode: ChannelMode(r.Mode),
+		Name: r.Name, Kind: ChannelKind(r.Kind), AppID: r.AppID, Secret: r.Secret, Bot: r.BotID, Mode: ChannelMode(r.Mode),
 		OwnerID: r.OwnerID, Enabled: r.Enabled != 0, WebLink: r.WebLink != 0,
 		CreatedAt: storeutil.Millis(r.CreatedAt), UpdatedAt: storeutil.Millis(r.UpdatedAt),
 	}
@@ -187,7 +187,7 @@ func (s *Store) SetChannel(ctx context.Context, c Channel) (Channel, error) {
 	if err := s.write(ctx, func(q *store.Queries, now int64) error {
 		if _, err := q.GetBot(ctx, c.Bot); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
-				return fmt.Errorf("%w: no bot is named %q", storeerr.ErrInvalid, c.Bot)
+				return fmt.Errorf("%w: no bot has the id %q", storeerr.ErrInvalid, c.Bot)
 			}
 
 			return err
@@ -388,7 +388,7 @@ func (s *Store) channelChat(ctx context.Context, r store.ChannelChat) (ChannelCh
 	}
 
 	return ChannelChat{
-		Channel: r.Channel, ExternalChatID: r.ExternalChatID, PersonID: r.PersonID, ChatID: r.ChatID, Bot: chat.Bot,
+		Channel: r.Channel, ExternalChatID: r.ExternalChatID, PersonID: r.PersonID, ChatID: r.ChatID, Bot: chat.BotID,
 		SentSeq: r.SentSeq, Group: chat.ChannelGroup != 0,
 	}, nil
 }

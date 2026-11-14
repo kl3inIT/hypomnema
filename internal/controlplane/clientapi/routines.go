@@ -49,10 +49,15 @@ func toRoutineRun(r orchestration.RoutineRun) openapi.RoutineRun {
 // routine is a Routine as the API shows it: with its schedule in words, its
 // last run and what the owner allowed it always.
 func (s *Server) routine(ctx context.Context, r orchestration.Routine) (openapi.Routine, error) {
+	bot, err := s.svc.GetBot(ctx, r.Bot)
+	if err != nil {
+		return openapi.Routine{}, err
+	}
+
 	out := openapi.Routine{
 		Id: r.ID, Bot: r.Bot, Name: r.Name, Kind: openapi.RoutineKind(r.Kind), Prompt: opt(r.Prompt),
 		Script: opt(r.Script), ScriptText: opt(r.ScriptText), EveryMinutes: ptr(r.EveryMinutes), Cron: opt(r.Cron),
-		Timezone: opt(r.Timezone), Schedule: orchestration.ScheduleWords(r), Sentence: orchestration.RoutineSentence(r),
+		Timezone: opt(r.Timezone), Schedule: orchestration.ScheduleWords(r), Sentence: orchestration.RoutineSentence(r, bot.Name),
 		TimeoutSeconds: int(r.Timeout.Seconds()), State: openapi.RoutineState(r.State),
 		PausedReason: opt(r.PausedReason), Summary: opt(r.Summary), ChatId: opt(r.ChatID), Announce: r.Announce,
 		NextRunAt: r.NextRunAt, Failures: r.Failures, Skipped: r.Skipped, LastSkippedAt: r.LastSkippedAt,
@@ -133,7 +138,7 @@ func (s *Server) PutRoutine(ctx context.Context, req openapi.PutRoutineRequestOb
 	tok := principal(ctx)
 
 	// A pi's token makes the Routines of its own Bot, from its own chat.
-	if err := botAllowed(tok, req.Name); err != nil {
+	if err := botAllowed(tok, req.BotId); err != nil {
 		return nil, err
 	}
 
@@ -143,7 +148,7 @@ func (s *Server) PutRoutine(ctx context.Context, req openapi.PutRoutineRequestOb
 	}
 
 	r, err := s.svc.PutRoutine(ctx, orchestration.RoutineSpec{
-		Bot: req.Name, Name: req.Routine, Kind: orchestration.RoutineKind(b.Kind), Prompt: val(b.Prompt),
+		Bot: req.BotId, Name: req.Routine, Kind: orchestration.RoutineKind(b.Kind), Prompt: val(b.Prompt),
 		Script: val(b.Script), ScriptText: val(b.ScriptText), EveryMinutes: val(b.EveryMinutes), Cron: val(b.Cron),
 		Timezone: val(b.Timezone), TimeoutSeconds: val(b.TimeoutSeconds), Summary: val(b.Summary),
 		ChatID: chat,

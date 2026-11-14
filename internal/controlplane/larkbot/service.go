@@ -62,7 +62,6 @@ type SettingsStore interface {
 	ChannelGroups(ctx context.Context, channel string) ([]channelstore.ChannelGroup, error)
 	SetChannelGroup(ctx context.Context, channel, chatID string, enabled bool,
 	) (channelstore.ChannelGroup, error)
-	GetBot(ctx context.Context, name string) (orchestration.Bot, error)
 }
 
 // Service is the owner's side of the Channels: what each is and who may talk
@@ -187,7 +186,7 @@ func (s *Service) Set(ctx context.Context, name string, set Settings) (Status, e
 
 	if fresh {
 		ch = channelstore.Channel{
-			Name: name, Bot: orchestration.DefaultBot, Mode: channelstore.ChannelOwner, Secret: secretPrefix + name,
+			Name: name, Bot: orchestration.DefaultBotID, Mode: channelstore.ChannelOwner, Secret: secretPrefix + name,
 		}
 	}
 
@@ -265,7 +264,7 @@ func (s *Service) Set(ctx context.Context, name string, set Settings) (Status, e
 func (s *Service) refused(ctx context.Context, ch channelstore.Channel, appID string) error {
 	if _, err := s.store.GetBot(ctx, ch.Bot); err != nil {
 		if errors.Is(err, orchestration.ErrNotFound) {
-			return fmt.Errorf("%w: no bot is named %q", orchestration.ErrInvalid, ch.Bot)
+			return fmt.Errorf("%w: no bot has the id %q", orchestration.ErrInvalid, ch.Bot)
 		}
 
 		return err

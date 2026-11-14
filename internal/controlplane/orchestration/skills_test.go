@@ -219,15 +219,15 @@ func TestABotGetsItsSkills(t *testing.T) {
 	_, err := w.s.PutBot(ctx, Bot{Name: "vmap", Skills: []string{"nowhere"}})
 	require.ErrorIs(t, err, ErrNotFound)
 
-	bot, err := w.s.PutBot(ctx, Bot{Name: "vmap", Skills: []string{"lark-docs"}, SkillsOff: []string{"pdf"}})
+	vmapBot, err := w.s.PutBot(ctx, Bot{Name: "vmap", Skills: []string{"lark-docs"}, SkillsOff: []string{"pdf"}})
 	require.NoError(t, err)
-	assert.Equal(t, []string{"lark-docs"}, bot.Skills)
-	assert.Equal(t, []string{"pdf"}, bot.SkillsOff)
+	assert.Equal(t, []string{"lark-docs"}, vmapBot.Skills)
+	assert.Equal(t, []string{"pdf"}, vmapBot.SkillsOff)
 
 	latest, _, err := w.s.AddSkill(ctx, namedSkill(t, "review-go", "2"), SkillSource{Source: SkillUpload})
 	require.NoError(t, err)
 
-	given, err := w.s.BotSkills(ctx, "vmap")
+	given, err := w.s.BotSkills(ctx, vmapBot.ID)
 	require.NoError(t, err)
 	require.Len(t, given, 2)
 	assert.Equal(t, "lark-docs", given[0].Name)
@@ -246,5 +246,5 @@ func TestABotGetsItsSkills(t *testing.T) {
 
 	err = w.s.DeleteSkill(ctx, "lark-docs")
 	require.ErrorIs(t, err, ErrConflict)
-	require.ErrorContains(t, err, "vmap")
+	require.ErrorContains(t, err, "vmap", "the Bots are named by their names")
 }

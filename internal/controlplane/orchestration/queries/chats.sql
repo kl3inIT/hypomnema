@@ -1,5 +1,5 @@
 -- name: InsertChat :exec
-INSERT INTO chats (id, title, bot, provider, model, effort, created_at, updated_at)
+INSERT INTO chats (id, title, bot_id, provider, model, effort, created_at, updated_at)
 VALUES (@id, @title, @bot, @provider, @model, @effort, @now, @now);
 
 -- name: SetChatModel :exec
@@ -111,4 +111,4 @@ INSERT INTO chat_messages (chat_id, role, kind, text, to_coordinator, created_at
 VALUES (@chat_id, 'system', 'approval', @text, 1, @now);
 
 -- name: CountChatsOfBot :one
-SELECT count(*) FROM chats WHERE bot = @bot;
+SELECT count(*) FROM chats WHERE bot_id = @bot;

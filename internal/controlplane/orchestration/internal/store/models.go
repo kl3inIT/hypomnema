@@ -78,7 +78,7 @@ type Approval struct {
 type Artifact struct {
 	ID         string
 	ChatID     string
-	Bot        string
+	BotID      string
 	MessageSeq int64
 	Revision   int64
 	CreatedAt  int64
@@ -112,7 +112,7 @@ type ArtifactRevision struct {
 }
 
 type Bot struct {
-	Name        string
+	ID          string
 	Provider    sql.NullString
 	Model       sql.NullString
 	Effort      sql.NullString
@@ -125,13 +125,14 @@ type Bot struct {
 	Connections sql.NullString
 	Workers     sql.NullString
 	ToolDisplay string
+	Name        string
 }
 
 type Channel struct {
 	Name      string
 	AppID     string
 	Secret    string
-	Bot       string
+	BotID     string
 	Mode      string
 	OwnerID   string
 	Enabled   int64
@@ -188,7 +189,7 @@ type Chat struct {
 	Title          string
 	CreatedAt      int64
 	UpdatedAt      int64
-	Bot            string
+	BotID          string
 	ChannelGroup   int64
 	Provider       sql.NullString
 	Model          sql.NullString
@@ -574,7 +575,7 @@ type Repo struct {
 
 type Routine struct {
 	ID             string
-	Bot            string
+	BotID          string
 	Name           string
 	Kind           string
 	Prompt         string
@@ -641,7 +642,7 @@ type Run struct {
 	ChatID             sql.NullString
 	RepoHost           sql.NullString
 	Uses               sql.NullString
-	Bot                sql.NullString
+	BotID              sql.NullString
 }
 
 type Secret struct {

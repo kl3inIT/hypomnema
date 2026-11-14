@@ -4,12 +4,20 @@ import { modelKey, splitModel } from "@/features/agents/profiles-state"
 
 // What the Bots pages say about a Bot, apart from how they draw it.
 
-// firstBot is the Bot that is always there and that a chat talks with when none is named.
-export const firstBot = "coordinator"
+// mainBotOf is the id of the main Bot among those read, the one that is always there and that a chat talks with
+// when none is named; "" before they are read. The server says which it is (Bot.main), so nothing here names it.
+export function mainBotOf(bots: Pick<Bot, "id" | "main">[] | undefined) {
+  return bots?.find((bot) => bot.main)?.id ?? ""
+}
 
-// A Bot's name follows the server's rule (orchestration/bots.go, PutBot): lowercase letters, digits and dashes,
-// starting with a letter, at most 63.
-export const namePattern = /^[a-z][a-z0-9-]{0,62}$/
+// botNameOf is what the Bot of an id is called (issue #466): its name, or its id when it is not among those read.
+export function botNameOf(bots: Pick<Bot, "id" | "name">[] | undefined, id: string) {
+  return bots?.find((bot) => bot.id === id)?.name ?? id
+}
+
+// maxName is the longest a Bot's name may be, as the server's rule (orchestration/bots.go, botName): trimmed, 1 to
+// 64 characters, any letters.
+export const maxName = 64
 
 // modelLine is a Bot's model as a card says it: the name, or that pi chooses.
 export function modelLine(bot: Pick<Bot, "model">) {
@@ -77,7 +85,7 @@ export function sameDraft(a: Draft, b: Draft) {
   )
 }
 
-// settingsOf is the draft as PUT /bots/{name} takes it. The server replaces what it is given, so what the draft
+// settingsOf is the draft as PUT /bots/{bot_id} and POST /bots take it. The server replaces what it is given, so what the draft
 // leaves empty is left out and falls back to pi's default; the skills are always given, the form holds them.
 export function settingsOf(draft: Draft, models: Model[]): BotSettings {
   const model = draft.model ? splitModel(draft.model, models) : { provider: "", name: "" }
@@ -92,20 +100,23 @@ export function settingsOf(draft: Draft, models: Model[]): BotSettings {
   }
 }
 
-// problem says what keeps a new Bot from being made, in the form's own words; the server checks the rest.
-export function problem(draft: Draft, taken: string[]): string | null {
-  const name = draft.name.trim()
+// nameProblem says what keeps a name from being a Bot's, in the form's own words; the server checks the rest.
+export function nameProblem(name: string, taken: string[]): string | null {
+  const trimmed = name.trim()
 
-  if (!name) return "Give the Bot a name."
-  if (!namePattern.test(name)) {
-    return "Use lowercase letters, digits and dashes, starting with a letter; at most 63."
-  }
-  if (taken.includes(name)) return "A Bot has this name already."
+  if (!trimmed) return "Give the Bot a name."
+  if ([...trimmed].length > maxName) return `A name is at most ${maxName} characters.`
+  if (taken.includes(trimmed)) return "A Bot has this name already."
 
   return null
 }
 
-// keptSettings is a Bot's stored model and persona as PUT /bots/{name} takes them, so that a change of one list
+// problem says what keeps a new Bot from being made.
+export function problem(draft: Draft, taken: string[]): string | null {
+  return nameProblem(draft.name, taken)
+}
+
+// keptSettings is a Bot's stored model and persona as PUT /bots/{bot_id} takes them, so that a change of one list
 // replaces nothing else; the skills and the other list are left out and the server keeps them.
 export function keptSettings(bot: Bot): BotSettings {
   return {

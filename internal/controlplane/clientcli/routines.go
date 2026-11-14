@@ -27,7 +27,7 @@ const routineEnv = "HYPOMNEMA_ROUTINE"
 func runKeyFile(dir, routineID string) string { return filepath.Join(dir, ".run-"+routineID) }
 
 func routineFlags(fs *flag.FlagSet) {
-	fs.String("bot", "", "the bot the routine belongs to (default: the bot this is, or coordinator)")
+	fs.String("bot", "", "the bot the routine belongs to, by id or name (default: the bot this is, or the main bot)")
 	fs.Int("every", 0, "run every this many minutes, 5 to 1440")
 	fs.String("cron", "", "run by this 5-field cron expression; needs --tz")
 	fs.String("tz", "", "the IANA time zone of the cron expression, such as Asia/Ho_Chi_Minh")
@@ -41,18 +41,18 @@ func routineFlags(fs *flag.FlagSet) {
 	jsonFlag(fs)
 }
 
-// routineBot is the Bot a command is for: the one named, the one this
-// process is, or the first.
-func routineBot(fs *flag.FlagSet) string {
+// routineBot is the id of the Bot a command is for: the one named, the one
+// this process is, or the main one.
+func routineBot(ctx context.Context, e *env, fs *flag.FlagSet) (string, error) {
 	if bot := str(fs, "bot"); bot != "" {
-		return bot
+		return botIDOf(ctx, e, bot)
 	}
 
 	if bot := os.Getenv(botEnv); bot != "" {
-		return bot
+		return bot, nil
 	}
 
-	return "coordinator"
+	return mainBotID(ctx, e)
 }
 
 // routineSettings reads what the flags say on top of what a Routine has: a
@@ -147,13 +147,14 @@ func when(t *time.Time) string {
 	return t.Local().Format("2006-01-02 15:04")
 }
 
-func printRoutineLine(e *env, r openapi.Routine) {
+// printRoutineLine prints a Routine with its Bot's name, from bots (botNames).
+func printRoutineLine(e *env, bots map[string]string, r openapi.Routine) {
 	last := "never ran"
 	if r.LastRun != nil {
 		last = fmt.Sprintf("last %s %s", r.LastRun.State, when(&r.LastRun.StartedAt))
 	}
 
-	e.printf("%s\t%s/%s\t%s\t%s\t%s\tnext %s\t%s\n", r.Id, r.Bot, r.Name, r.Kind, r.Schedule, r.State,
+	e.printf("%s\t%s/%s\t%s\t%s\t%s\tnext %s\t%s\n", r.Id, nameOf(bots, r.Bot), r.Name, r.Kind, r.Schedule, r.State,
 		when(r.NextRunAt), last)
 }
 
@@ -174,8 +175,8 @@ func printRun(e *env, r openapi.RoutineRun) {
 	}
 }
 
-func printRoutine(e *env, r *openapi.Routine) {
-	printRoutineLine(e, *r)
+func printRoutine(e *env, bots map[string]string, r *openapi.Routine) {
+	printRoutineLine(e, bots, *r)
 	e.printf("%s\n", r.Sentence)
 
 	if reason := val(r.PausedReason); reason != "" {
@@ -234,7 +235,18 @@ func getRoutine(ctx context.Context, e *env, id string) (*openapi.Routine, error
 }
 
 func routinesList(ctx context.Context, e *env, fs *flag.FlagSet) error {
-	resp, err := e.api.ListRoutinesWithResponse(ctx, &openapi.ListRoutinesParams{Bot: optional(fs, "bot")})
+	var bot *string
+
+	if ref := str(fs, "bot"); ref != "" {
+		id, err := botIDOf(ctx, e, ref)
+		if err != nil {
+			return err
+		}
+
+		bot = &id
+	}
+
+	resp, err := e.api.ListRoutinesWithResponse(ctx, &openapi.ListRoutinesParams{Bot: bot})
 	if err != nil {
 		return fmt.Errorf("listing routines: %w", err)
 	}
@@ -248,8 +260,10 @@ func routinesList(ctx context.Context, e *env, fs *flag.FlagSet) error {
 			e.printf("no routine\n")
 		}
 
+		bots := botNames(ctx, e)
+
 		for _, r := range resp.JSON200.Data {
-			printRoutineLine(e, r)
+			printRoutineLine(e, bots, r)
 		}
 	})
 }
@@ -278,7 +292,7 @@ func routinesShow(ctx context.Context, e *env, fs *flag.FlagSet) error {
 	}{Routine: r, Runs: runs.JSON200.Data}
 
 	return e.print(fs, shown, func() {
-		printRoutine(e, r)
+		printRoutine(e, botNames(ctx, e), r)
 
 		if len(shown.Runs) > 0 {
 			e.printf("\nruns, the newest first:\n")
@@ -317,7 +331,12 @@ func routineNamed(ctx context.Context, e *env, bot, name string) (*openapi.Routi
 // routinesSet makes a Routine or changes what the flags name. It is on at
 // once, for the owner and for a Bot alike.
 func routinesSet(ctx context.Context, e *env, fs *flag.FlagSet) error {
-	bot, name := routineBot(fs), fs.Arg(0)
+	name := fs.Arg(0)
+
+	bot, err := routineBot(ctx, e, fs)
+	if err != nil {
+		return err
+	}
 
 	have, err := routineNamed(ctx, e, bot, name)
 	if err != nil {
@@ -338,7 +357,7 @@ func routinesSet(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		return apiError("saving routine "+name+" of bot "+bot, resp.StatusCode(), resp.JSONDefault)
 	}
 
-	return e.print(fs, resp.JSON200, func() { printRoutine(e, resp.JSON200) })
+	return e.print(fs, resp.JSON200, func() { printRoutine(e, botNames(ctx, e), resp.JSON200) })
 }
 
 func routinesUndo(ctx context.Context, e *env, fs *flag.FlagSet) error {
@@ -361,7 +380,7 @@ func routinesUndo(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		}
 
 		e.printf("routine %s is what it was before the bot's change:\n", id)
-		printRoutine(e, resp.JSON200.Routine)
+		printRoutine(e, botNames(ctx, e), resp.JSON200.Routine)
 	})
 }
 
@@ -377,7 +396,7 @@ func routinesPause(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		return apiError("pausing routine "+id, resp.StatusCode(), resp.JSONDefault)
 	}
 
-	return e.print(fs, resp.JSON200, func() { printRoutineLine(e, *resp.JSON200) })
+	return e.print(fs, resp.JSON200, func() { printRoutineLine(e, botNames(ctx, e), *resp.JSON200) })
 }
 
 func routinesResume(ctx context.Context, e *env, fs *flag.FlagSet) error {
@@ -392,7 +411,7 @@ func routinesResume(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		return apiError("resuming routine "+id, resp.StatusCode(), resp.JSONDefault)
 	}
 
-	return e.print(fs, resp.JSON200, func() { printRoutineLine(e, *resp.JSON200) })
+	return e.print(fs, resp.JSON200, func() { printRoutineLine(e, botNames(ctx, e), *resp.JSON200) })
 }
 
 func routinesRun(ctx context.Context, e *env, fs *flag.FlagSet) error {
@@ -460,9 +479,14 @@ func routinesRevoke(ctx context.Context, e *env, fs *flag.FlagSet) error {
 // plane's text is what runs, so the file is what the owner read. The key is
 // never printed: the tools a script calls read it from its file.
 func routinesScript(ctx context.Context, e *env, fs *flag.FlagSet) error {
-	id, bot, dir := fs.Arg(0), str(fs, "bot"), str(fs, "into")
-	if bot == "" || dir == "" {
+	id, ref, dir := fs.Arg(0), str(fs, "bot"), str(fs, "into")
+	if ref == "" || dir == "" {
 		return fmt.Errorf("%w: name the routine's bot with --bot and the directory with --into", ErrUsage)
+	}
+
+	bot, err := botIDOf(ctx, e, ref)
+	if err != nil {
+		return err
 	}
 
 	resp, err := e.api.LaunchRoutineScriptWithResponse(ctx, id, openapi.RoutineLaunchRequest{Bot: bot})

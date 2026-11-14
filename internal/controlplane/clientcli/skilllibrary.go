@@ -206,10 +206,17 @@ const digestFile = ".hypomnema-digest"
 // for a chat (deploy/coordinator/hypomnema-pi), with the coordinator token,
 // before pi starts in its box.
 func skillsSync(ctx context.Context, e *env, fs *flag.FlagSet) error {
-	bot, dir := str(fs, "bot"), str(fs, "dir")
-	if bot == "" || dir == "" {
+	ref, dir := str(fs, "bot"), str(fs, "dir")
+	if ref == "" || dir == "" {
 		return fmt.Errorf("%w: skills sync --bot <bot> --dir <folder>", ErrUsage)
 	}
+
+	b, err := findBot(ctx, e, ref)
+	if err != nil {
+		return err
+	}
+
+	bot := b.Id
 
 	resp, err := e.api.ListBotSkillsWithResponse(ctx, bot)
 	if err != nil {
@@ -257,7 +264,7 @@ func skillsSync(ctx context.Context, e *env, fs *flag.FlagSet) error {
 		}
 	}
 
-	e.printf("bot %s: %d skills in %s\n", bot, len(given), dir)
+	e.printf("bot %s: %d skills in %s\n", b.Name, len(given), dir)
 
 	return nil
 }

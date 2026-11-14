@@ -182,7 +182,7 @@ func TestAProviderKeepsItsProfilesWorking(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"m1", "m2"}, p.Models)
 
-	_, err = w.s.PutBot(ctx, Bot{Name: DefaultBot, Provider: "router", Model: "m1"})
+	_, err = w.s.PutBot(ctx, Bot{Name: DefaultBotID, Provider: "router", Model: "m1"})
 	require.NoError(t, err)
 
 	_, err = w.s.ApplyProvider(ctx, "", "name: router\nkind: openai_compatible\nmodels: [m2]\n")

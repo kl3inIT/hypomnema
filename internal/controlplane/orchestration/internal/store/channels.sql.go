@@ -37,7 +37,7 @@ func (q *Queries) CloseChannelQuestion(ctx context.Context, arg CloseChannelQues
 }
 
 const countChannelsOfBot = `-- name: CountChannelsOfBot :one
-SELECT count(*) FROM channels WHERE bot = ?1
+SELECT count(*) FROM channels WHERE bot_id = ?1
 `
 
 func (q *Queries) CountChannelsOfBot(ctx context.Context, bot string) (int64, error) {
@@ -114,7 +114,7 @@ func (q *Queries) FirstEnabledChannel(ctx context.Context) (string, error) {
 }
 
 const getChannel = `-- name: GetChannel :one
-SELECT name, app_id, secret, bot, mode, owner_id, enabled, created_at, updated_at, web_link, kind FROM channels WHERE name = ?1
+SELECT name, app_id, secret, bot_id, mode, owner_id, enabled, created_at, updated_at, web_link, kind FROM channels WHERE name = ?1
 `
 
 func (q *Queries) GetChannel(ctx context.Context, name string) (Channel, error) {
@@ -124,7 +124,7 @@ func (q *Queries) GetChannel(ctx context.Context, name string) (Channel, error) 
 		&i.Name,
 		&i.AppID,
 		&i.Secret,
-		&i.Bot,
+		&i.BotID,
 		&i.Mode,
 		&i.OwnerID,
 		&i.Enabled,
@@ -137,7 +137,7 @@ func (q *Queries) GetChannel(ctx context.Context, name string) (Channel, error) 
 }
 
 const getChannelByApp = `-- name: GetChannelByApp :one
-SELECT name, app_id, secret, bot, mode, owner_id, enabled, created_at, updated_at, web_link, kind FROM channels WHERE kind = ?1 AND app_id = ?2
+SELECT name, app_id, secret, bot_id, mode, owner_id, enabled, created_at, updated_at, web_link, kind FROM channels WHERE kind = ?1 AND app_id = ?2
 `
 
 type GetChannelByAppParams struct {
@@ -152,7 +152,7 @@ func (q *Queries) GetChannelByApp(ctx context.Context, arg GetChannelByAppParams
 		&i.Name,
 		&i.AppID,
 		&i.Secret,
-		&i.Bot,
+		&i.BotID,
 		&i.Mode,
 		&i.OwnerID,
 		&i.Enabled,
@@ -456,7 +456,7 @@ func (q *Queries) ListChannelPeople(ctx context.Context, channel string) ([]Chan
 }
 
 const listChannels = `-- name: ListChannels :many
-SELECT name, app_id, secret, bot, mode, owner_id, enabled, created_at, updated_at, web_link, kind FROM channels ORDER BY created_at, name
+SELECT name, app_id, secret, bot_id, mode, owner_id, enabled, created_at, updated_at, web_link, kind FROM channels ORDER BY created_at, name
 `
 
 func (q *Queries) ListChannels(ctx context.Context) ([]Channel, error) {
@@ -472,7 +472,7 @@ func (q *Queries) ListChannels(ctx context.Context) ([]Channel, error) {
 			&i.Name,
 			&i.AppID,
 			&i.Secret,
-			&i.Bot,
+			&i.BotID,
 			&i.Mode,
 			&i.OwnerID,
 			&i.Enabled,
@@ -624,11 +624,11 @@ func (q *Queries) SetChannelGroupEnabled(ctx context.Context, arg SetChannelGrou
 }
 
 const upsertChannel = `-- name: UpsertChannel :exec
-INSERT INTO channels (name, kind, app_id, secret, bot, mode, owner_id, enabled, web_link, created_at,
+INSERT INTO channels (name, kind, app_id, secret, bot_id, mode, owner_id, enabled, web_link, created_at,
     updated_at)
 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10)
 ON CONFLICT (name) DO UPDATE SET kind = excluded.kind, app_id = excluded.app_id, secret = excluded.secret,
-    bot = excluded.bot, mode = excluded.mode, owner_id = excluded.owner_id, enabled = excluded.enabled,
+    bot_id = excluded.bot_id, mode = excluded.mode, owner_id = excluded.owner_id, enabled = excluded.enabled,
     web_link = excluded.web_link, updated_at = excluded.updated_at
 `
 

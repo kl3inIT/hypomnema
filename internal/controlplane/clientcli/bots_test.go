@@ -45,7 +45,7 @@ func TestBotsAndTheirMemoryFromTheCLI(t *testing.T) {
 	assert.Contains(t, out, "You answer questions about VMAP.\n\n## Who is speaking\n",
 		"a Bot is told who may instruct it, after its persona")
 	assert.Contains(t, out, "do not look for another way to do it.\n\n## About the owner")
-	assert.Contains(t, out, "You are the bot `vmap`.")
+	assert.Contains(t, out, "You are the bot `vmap` (id ")
 	assert.Contains(t, out, "Your memory is empty.")
 
 	_, err = pi.cmd(t, "memory", "add", "Linh leads the maps team.")
@@ -143,4 +143,44 @@ func TestABotsListsFromTheCLI(t *testing.T) {
 	out, err = w.cmd(t, "bots", "prompt", "coordinator")
 	require.NoError(t, err)
 	assert.Contains(t, out, "## Bots and profiles")
+}
+
+// Scenario: the owner renames a Bot from the terminal (issue #466), naming it by its name or its id. The main Bot is
+// renamed too and stays the main one; a name another Bot has is refused; a coordinator's token renames nothing.
+func TestABotIsRenamedFromTheCLI(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t)
+	w.login(t, bearertoken.Owner)
+
+	var vmap openapi.Bot
+	w.jsonCmd(t, &vmap, "", "bots", "set", "vmap")
+
+	out, err := w.cmd(t, "bots", "rename", "vmap", "Bản đồ")
+	require.NoError(t, err)
+	assert.Equal(t, "bot "+vmap.Id+" is now named Bản đồ\n", out)
+
+	var shown openapi.Bot
+	w.jsonCmd(t, &shown, "", "bots", "show", vmap.Id)
+	assert.Equal(t, "Bản đồ", shown.Name, "named by its id")
+
+	_, err = w.cmd(t, "bots", "show", "vmap")
+	require.ErrorContains(t, err, "no bot has this id or name", "the old name names nothing")
+
+	_, err = w.cmd(t, "bots", "rename", "coordinator", "Trợ lý")
+	require.NoError(t, err)
+
+	out, err = w.cmd(t, "bots", "list")
+	require.NoError(t, err)
+	assert.Contains(t, out, "\tTrợ lý (main)\t")
+	assert.Contains(t, out, vmap.Id+"\tBản đồ\t")
+
+	_, err = w.cmd(t, "bots", "rename", "Bản đồ", "Trợ lý")
+	require.ErrorContains(t, err, "another bot is named")
+
+	pi := &world{svc: w.svc, url: w.url, home: filepath.Join(t.TempDir(), "coordinator")}
+	pi.login(t, bearertoken.Coordinator)
+
+	_, err = pi.cmd(t, "bots", "rename", vmap.Id, "maps")
+	require.ErrorContains(t, err, "forbidden")
 }

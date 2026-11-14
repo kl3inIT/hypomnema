@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -95,6 +96,11 @@ func newBoxWorld(t *testing.T, bwrap, script string) *boxWorld {
 	// `hypomnema routines script` does, and the limit the test's caller names.
 	boxWrite(t, filepath.Join(root, "kept", "sync.sh"), script, 0o600)
 	boxWrite(t, filepath.Join(root, "bin", "hypomnema"), `#!/bin/sh
+if [ "$1 $2 $3" = "bots show `+orchestration.DefaultBotID+`" ]; then
+  printf '%s	coordinator (main)	pi
+' "$3"
+  exit 0
+fi
 [ "$1 $2 $4 $6" = "routines script --bot --into" ] || exit 9
 dir=$7
 mkdir -p "$dir"
@@ -144,7 +150,7 @@ func (w *boxWorld) command(t *testing.T, env ...string) *exec.Cmd {
 	t.Helper()
 
 	//nolint:gosec // The test's own copy of the launcher.
-	cmd := exec.CommandContext(t.Context(), "sh", w.launcher, "coordinator", boxRoutine)
+	cmd := exec.CommandContext(t.Context(), "sh", w.launcher, orchestration.DefaultBotID, boxRoutine)
 	cmd.Env = append(append(os.Environ(), "HYPOMNEMA_SECRET_OF_THE_CALLER=x"), env...)
 
 	return cmd
@@ -230,14 +236,14 @@ func TestARoutinesScriptRunsInItsBoxWithItsOwnToken(t *testing.T) {
 	assert.Equal(t, 3, exit.ExitCode(), "the script's own exit code")
 
 	work := filepath.Join(w.home, "work")
-	assert.Equal(t, work, seen["cwd"], "the first Bot works where pi always worked")
+	assert.Equal(t, work, seen["cwd"], "the main Bot works where pi always worked")
 
 	pid, err := strconv.Atoi(seen["pid"])
 	require.NoError(t, err)
 	assert.LessOrEqual(t, pid, 3, "the script has a PID namespace of its own")
 
 	assert.JSONEq(t, `{"url":"http://127.0.0.1:18990","token":"hyp_bot_v1_run"}`, seen["client"])
-	assert.Equal(t, "key-of-"+boxRoutine+"-for-coordinator", seen["key"])
+	assert.Equal(t, "key-of-"+boxRoutine+"-for-"+orchestration.DefaultBotID, seen["key"])
 	assert.Equal(t, "none", seen["stdin"], "the control plane's pipe is the launcher's")
 	assert.Equal(t, "hidden", seen["other"], "another Bot's directory")
 	assert.Equal(t, "hidden", seen["sessions"], "the chats' sessions")

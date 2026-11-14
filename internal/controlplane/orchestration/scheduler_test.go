@@ -1176,7 +1176,7 @@ func TestABotsTaskFallsBackOnlyToItsWorkers(t *testing.T) {
 	_, _, err = w.s.ApplyProfile(ctx, "", "name: writer\ndescription: d\nruntime: codex\nfallbacks: [claude-worker]\n")
 	require.NoError(t, err)
 
-	_, err = w.s.PutBot(ctx, Bot{Name: "vmap", Workers: AllowList{Limited: true, Names: []string{"writer"}}})
+	vmapBot, err := w.s.PutBot(ctx, Bot{Name: "vmap", Workers: AllowList{Limited: true, Names: []string{"writer"}}})
 	require.NoError(t, err)
 
 	w.addNode("node_codex", 4, "codex")
@@ -1189,7 +1189,7 @@ func TestABotsTaskFallsBackOnlyToItsWorkers(t *testing.T) {
 	resets := t0.Add(2 * time.Hour)
 	require.NoError(t, w.finish(w.begin(first[0]), Outcome{Class: FailureRateLimited, ResetsAt: &resets}))
 
-	botRun, err := w.s.CreateRun(ctx, NewRun{Objective: "maps", CreatedBy: "pi", Bot: "vmap"})
+	botRun, err := w.s.CreateRun(ctx, NewRun{Objective: "maps", CreatedBy: "pi", Bot: vmapBot.ID})
 	require.NoError(t, err)
 
 	_, err = w.s.CreateTasks(ctx, botRun.ID, []NewTask{{Ref: "b", Profile: "writer", Spec: "the bot's"}})
@@ -1200,7 +1200,7 @@ func TestABotsTaskFallsBackOnlyToItsWorkers(t *testing.T) {
 	tok, _, err := w.s.AddToken(ctx, "pi-coordinator", bearertoken.Coordinator)
 	require.NoError(t, err)
 
-	chat, err := w.s.CreateChat(ctx, "vmap", "")
+	chat, err := w.s.CreateChat(ctx, vmapBot.ID, "")
 	require.NoError(t, err)
 
 	older, err := w.s.CreateRun(ctx, NewRun{

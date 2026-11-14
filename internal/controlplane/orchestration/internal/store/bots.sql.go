@@ -12,7 +12,7 @@ import (
 
 const countRepliesOfBotSince = `-- name: CountRepliesOfBotSince :one
 SELECT count(*) FROM chat_messages m JOIN chats c ON c.id = m.chat_id
-WHERE c.bot = ?1 AND m.role = 'coordinator' AND m.created_at >= ?2 AND m.chat_id <> ?3
+WHERE c.bot_id = ?1 AND m.role = 'coordinator' AND m.created_at >= ?2 AND m.chat_id <> ?3
 `
 
 type CountRepliesOfBotSinceParams struct {
@@ -30,16 +30,16 @@ func (q *Queries) CountRepliesOfBotSince(ctx context.Context, arg CountRepliesOf
 }
 
 const deleteBot = `-- name: DeleteBot :exec
-DELETE FROM bots WHERE name = ?1
+DELETE FROM bots WHERE id = ?1
 `
 
-func (q *Queries) DeleteBot(ctx context.Context, name string) error {
-	_, err := q.db.ExecContext(ctx, deleteBot, name)
+func (q *Queries) DeleteBot(ctx context.Context, id string) error {
+	_, err := q.db.ExecContext(ctx, deleteBot, id)
 	return err
 }
 
 const deleteChannelChatsOfBot = `-- name: DeleteChannelChatsOfBot :exec
-DELETE FROM channel_chats WHERE chat_id IN (SELECT c.id FROM chats c WHERE c.bot = ?1)
+DELETE FROM channel_chats WHERE chat_id IN (SELECT c.id FROM chats c WHERE c.bot_id = ?1)
 `
 
 func (q *Queries) DeleteChannelChatsOfBot(ctx context.Context, bot string) error {
@@ -48,7 +48,7 @@ func (q *Queries) DeleteChannelChatsOfBot(ctx context.Context, bot string) error
 }
 
 const deleteChatMessagesOfBot = `-- name: DeleteChatMessagesOfBot :exec
-DELETE FROM chat_messages WHERE chat_id IN (SELECT c.id FROM chats c WHERE c.bot = ?1)
+DELETE FROM chat_messages WHERE chat_id IN (SELECT c.id FROM chats c WHERE c.bot_id = ?1)
 `
 
 func (q *Queries) DeleteChatMessagesOfBot(ctx context.Context, bot string) error {
@@ -57,7 +57,7 @@ func (q *Queries) DeleteChatMessagesOfBot(ctx context.Context, bot string) error
 }
 
 const deleteChatsOfBot = `-- name: DeleteChatsOfBot :exec
-DELETE FROM chats WHERE bot = ?1
+DELETE FROM chats WHERE bot_id = ?1
 `
 
 func (q *Queries) DeleteChatsOfBot(ctx context.Context, bot string) error {
@@ -66,7 +66,7 @@ func (q *Queries) DeleteChatsOfBot(ctx context.Context, bot string) error {
 }
 
 const deleteSetupChangesOfChatsOfBot = `-- name: DeleteSetupChangesOfChatsOfBot :exec
-DELETE FROM setup_changes WHERE chat_id IN (SELECT c.id FROM chats c WHERE c.bot = ?1)
+DELETE FROM setup_changes WHERE chat_id IN (SELECT c.id FROM chats c WHERE c.bot_id = ?1)
 `
 
 func (q *Queries) DeleteSetupChangesOfChatsOfBot(ctx context.Context, bot string) error {
@@ -75,7 +75,7 @@ func (q *Queries) DeleteSetupChangesOfChatsOfBot(ctx context.Context, bot string
 }
 
 const detachApprovalsFromChatsOfBot = `-- name: DetachApprovalsFromChatsOfBot :exec
-UPDATE approvals SET chat_id = NULL WHERE chat_id IN (SELECT c.id FROM chats c WHERE c.bot = ?1)
+UPDATE approvals SET chat_id = NULL WHERE chat_id IN (SELECT c.id FROM chats c WHERE c.bot_id = ?1)
 `
 
 func (q *Queries) DetachApprovalsFromChatsOfBot(ctx context.Context, bot string) error {
@@ -84,7 +84,7 @@ func (q *Queries) DetachApprovalsFromChatsOfBot(ctx context.Context, bot string)
 }
 
 const detachRoutineRunsFromChatsOfBot = `-- name: DetachRoutineRunsFromChatsOfBot :exec
-UPDATE routine_runs SET chat_id = NULL WHERE chat_id IN (SELECT c.id FROM chats c WHERE c.bot = ?1)
+UPDATE routine_runs SET chat_id = NULL WHERE chat_id IN (SELECT c.id FROM chats c WHERE c.bot_id = ?1)
 `
 
 func (q *Queries) DetachRoutineRunsFromChatsOfBot(ctx context.Context, bot string) error {
@@ -93,7 +93,7 @@ func (q *Queries) DetachRoutineRunsFromChatsOfBot(ctx context.Context, bot strin
 }
 
 const detachRoutinesFromChatsOfBot = `-- name: DetachRoutinesFromChatsOfBot :exec
-UPDATE routines SET chat_id = NULL WHERE chat_id IN (SELECT c.id FROM chats c WHERE c.bot = ?1)
+UPDATE routines SET chat_id = NULL WHERE chat_id IN (SELECT c.id FROM chats c WHERE c.bot_id = ?1)
 `
 
 func (q *Queries) DetachRoutinesFromChatsOfBot(ctx context.Context, bot string) error {
@@ -103,7 +103,7 @@ func (q *Queries) DetachRoutinesFromChatsOfBot(ctx context.Context, bot string) 
 
 const detachRunsFromChatsOfBot = `-- name: DetachRunsFromChatsOfBot :exec
 
-UPDATE runs SET chat_id = NULL WHERE chat_id IN (SELECT c.id FROM chats c WHERE c.bot = ?1)
+UPDATE runs SET chat_id = NULL WHERE chat_id IN (SELECT c.id FROM chats c WHERE c.bot_id = ?1)
 `
 
 // A Bot removed with its chats (issue #330): what refers to its chats is let go of or removed first, in this order.
@@ -115,14 +115,14 @@ func (q *Queries) DetachRunsFromChatsOfBot(ctx context.Context, bot string) erro
 }
 
 const getBot = `-- name: GetBot :one
-SELECT name, provider, model, effort, persona, memory, created_at, updated_at, skills, skills_off, connections, workers, tool_display FROM bots WHERE name = ?1
+SELECT id, provider, model, effort, persona, memory, created_at, updated_at, skills, skills_off, connections, workers, tool_display, name FROM bots WHERE id = ?1
 `
 
-func (q *Queries) GetBot(ctx context.Context, name string) (Bot, error) {
-	row := q.db.QueryRowContext(ctx, getBot, name)
+func (q *Queries) GetBot(ctx context.Context, id string) (Bot, error) {
+	row := q.db.QueryRowContext(ctx, getBot, id)
 	var i Bot
 	err := row.Scan(
-		&i.Name,
+		&i.ID,
 		&i.Provider,
 		&i.Model,
 		&i.Effort,
@@ -135,6 +135,33 @@ func (q *Queries) GetBot(ctx context.Context, name string) (Bot, error) {
 		&i.Connections,
 		&i.Workers,
 		&i.ToolDisplay,
+		&i.Name,
+	)
+	return i, err
+}
+
+const getBotByName = `-- name: GetBotByName :one
+SELECT id, provider, model, effort, persona, memory, created_at, updated_at, skills, skills_off, connections, workers, tool_display, name FROM bots WHERE name = ?1
+`
+
+func (q *Queries) GetBotByName(ctx context.Context, name string) (Bot, error) {
+	row := q.db.QueryRowContext(ctx, getBotByName, name)
+	var i Bot
+	err := row.Scan(
+		&i.ID,
+		&i.Provider,
+		&i.Model,
+		&i.Effort,
+		&i.Persona,
+		&i.Memory,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+		&i.Skills,
+		&i.SkillsOff,
+		&i.Connections,
+		&i.Workers,
+		&i.ToolDisplay,
+		&i.Name,
 	)
 	return i, err
 }
@@ -158,6 +185,46 @@ func (q *Queries) GetSetupChange(ctx context.Context, id string) (SetupChange, e
 		&i.UndoneAt,
 	)
 	return i, err
+}
+
+const insertBot = `-- name: InsertBot :exec
+INSERT INTO bots (id, name, provider, model, effort, persona, skills, skills_off, connections, workers, tool_display,
+                  created_at, updated_at)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
+        ?12, ?12)
+`
+
+type InsertBotParams struct {
+	ID          string
+	Name        string
+	Provider    sql.NullString
+	Model       sql.NullString
+	Effort      sql.NullString
+	Persona     string
+	Skills      string
+	SkillsOff   string
+	Connections sql.NullString
+	Workers     sql.NullString
+	ToolDisplay string
+	Now         int64
+}
+
+func (q *Queries) InsertBot(ctx context.Context, arg InsertBotParams) error {
+	_, err := q.db.ExecContext(ctx, insertBot,
+		arg.ID,
+		arg.Name,
+		arg.Provider,
+		arg.Model,
+		arg.Effort,
+		arg.Persona,
+		arg.Skills,
+		arg.SkillsOff,
+		arg.Connections,
+		arg.Workers,
+		arg.ToolDisplay,
+		arg.Now,
+	)
+	return err
 }
 
 const insertSetupChange = `-- name: InsertSetupChange :exec
@@ -218,7 +285,7 @@ func (q *Queries) LastSetupChangeOf(ctx context.Context, arg LastSetupChangeOfPa
 }
 
 const listBots = `-- name: ListBots :many
-SELECT name, provider, model, effort, persona, memory, created_at, updated_at, skills, skills_off, connections, workers, tool_display FROM bots ORDER BY created_at, name
+SELECT id, provider, model, effort, persona, memory, created_at, updated_at, skills, skills_off, connections, workers, tool_display, name FROM bots ORDER BY created_at, name
 `
 
 func (q *Queries) ListBots(ctx context.Context) ([]Bot, error) {
@@ -231,7 +298,7 @@ func (q *Queries) ListBots(ctx context.Context) ([]Bot, error) {
 	for rows.Next() {
 		var i Bot
 		if err := rows.Scan(
-			&i.Name,
+			&i.ID,
 			&i.Provider,
 			&i.Model,
 			&i.Effort,
@@ -244,6 +311,7 @@ func (q *Queries) ListBots(ctx context.Context) ([]Bot, error) {
 			&i.Connections,
 			&i.Workers,
 			&i.ToolDisplay,
+			&i.Name,
 		); err != nil {
 			return nil, err
 		}
@@ -309,9 +377,27 @@ func (q *Queries) MarkSetupChangeUndone(ctx context.Context, arg MarkSetupChange
 	return err
 }
 
+const renameBot = `-- name: RenameBot :execrows
+UPDATE bots SET name = ?1, updated_at = ?2 WHERE id = ?3
+`
+
+type RenameBotParams struct {
+	Name string
+	Now  int64
+	ID   string
+}
+
+func (q *Queries) RenameBot(ctx context.Context, arg RenameBotParams) (int64, error) {
+	result, err := q.db.ExecContext(ctx, renameBot, arg.Name, arg.Now, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 const revokeGatewayKeysOfChatsOfBot = `-- name: RevokeGatewayKeysOfChatsOfBot :exec
 UPDATE gateway_keys SET revoked_at = coalesce(revoked_at, ?1), chat_id = NULL
-WHERE chat_id IN (SELECT c.id FROM chats c WHERE c.bot = ?2)
+WHERE chat_id IN (SELECT c.id FROM chats c WHERE c.bot_id = ?2)
 `
 
 type RevokeGatewayKeysOfChatsOfBotParams struct {
@@ -325,22 +411,22 @@ func (q *Queries) RevokeGatewayKeysOfChatsOfBot(ctx context.Context, arg RevokeG
 }
 
 const setBotMemory = `-- name: SetBotMemory :exec
-UPDATE bots SET memory = ?1, updated_at = ?2 WHERE name = ?3
+UPDATE bots SET memory = ?1, updated_at = ?2 WHERE id = ?3
 `
 
 type SetBotMemoryParams struct {
 	Memory string
 	Now    int64
-	Name   string
+	ID     string
 }
 
 func (q *Queries) SetBotMemory(ctx context.Context, arg SetBotMemoryParams) error {
-	_, err := q.db.ExecContext(ctx, setBotMemory, arg.Memory, arg.Now, arg.Name)
+	_, err := q.db.ExecContext(ctx, setBotMemory, arg.Memory, arg.Now, arg.ID)
 	return err
 }
 
 const toolDisplayOfChat = `-- name: ToolDisplayOfChat :one
-SELECT b.tool_display FROM chats c JOIN bots b ON b.name = c.bot WHERE c.id = ?1
+SELECT b.tool_display FROM chats c JOIN bots b ON b.id = c.bot_id WHERE c.id = ?1
 `
 
 // What the chat's Bot shows of its tool calls (issue #441).
@@ -351,19 +437,14 @@ func (q *Queries) ToolDisplayOfChat(ctx context.Context, chatID string) (string,
 	return tool_display, err
 }
 
-const upsertBot = `-- name: UpsertBot :exec
-INSERT INTO bots (name, provider, model, effort, persona, skills, skills_off, connections, workers, tool_display,
-                  created_at, updated_at)
-VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11,
-        ?11)
-ON CONFLICT (name) DO UPDATE SET provider = excluded.provider, model = excluded.model, effort = excluded.effort,
-    persona = excluded.persona, skills = excluded.skills, skills_off = excluded.skills_off,
-    connections = excluded.connections, workers = excluded.workers, tool_display = excluded.tool_display,
-    updated_at = excluded.updated_at
+const updateBot = `-- name: UpdateBot :exec
+UPDATE bots SET provider = ?1, model = ?2, effort = ?3, persona = ?4, skills = ?5,
+    skills_off = ?6, connections = ?7, workers = ?8, tool_display = ?9,
+    updated_at = ?10
+WHERE id = ?11
 `
 
-type UpsertBotParams struct {
-	Name        string
+type UpdateBotParams struct {
 	Provider    sql.NullString
 	Model       sql.NullString
 	Effort      sql.NullString
@@ -374,11 +455,12 @@ type UpsertBotParams struct {
 	Workers     sql.NullString
 	ToolDisplay string
 	Now         int64
+	ID          string
 }
 
-func (q *Queries) UpsertBot(ctx context.Context, arg UpsertBotParams) error {
-	_, err := q.db.ExecContext(ctx, upsertBot,
-		arg.Name,
+// A Bot's settings; its name and memory stay.
+func (q *Queries) UpdateBot(ctx context.Context, arg UpdateBotParams) error {
+	_, err := q.db.ExecContext(ctx, updateBot,
 		arg.Provider,
 		arg.Model,
 		arg.Effort,
@@ -389,6 +471,7 @@ func (q *Queries) UpsertBot(ctx context.Context, arg UpsertBotParams) error {
 		arg.Workers,
 		arg.ToolDisplay,
 		arg.Now,
+		arg.ID,
 	)
 	return err
 }

@@ -1,6 +1,6 @@
 -- name: InsertRun :exec
 INSERT INTO runs (id, objective, status, created_by, repo, repo_host, base, coordinator_token_id, chat_id, uses,
-                  bot, created_at, updated_at)
+                  bot_id, created_at, updated_at)
 VALUES (@id, @objective, 'open', @created_by, @repo, @repo_host, @base, @coordinator_token_id, @chat_id, @uses,
         @bot, @now, @now);
 
@@ -9,14 +9,14 @@ SELECT * FROM runs WHERE id = @id;
 
 -- name: GetRunWithBot :one
 -- A Run with the Bot of its chat; bot is empty for a Run without a chat.
-SELECT sqlc.embed(runs), CAST(coalesce(chats.bot, '') AS TEXT) AS bot
+SELECT sqlc.embed(runs), CAST(coalesce(chats.bot_id, '') AS TEXT) AS bot
 FROM runs LEFT JOIN chats ON chats.id = runs.chat_id
 WHERE runs.id = @id;
 
 -- name: ListRuns :many
 -- Newest first, after the cursor (created_at, id) of the previous page when one is given; each with the Bot of its
 -- chat, empty for a Run without a chat. Empty filters match everything.
-SELECT sqlc.embed(runs), CAST(coalesce(chats.bot, '') AS TEXT) AS bot
+SELECT sqlc.embed(runs), CAST(coalesce(chats.bot_id, '') AS TEXT) AS bot
 FROM runs LEFT JOIN chats ON chats.id = runs.chat_id
 WHERE (CAST(@status AS TEXT) = '' OR runs.status = @status)
   AND (CAST(@chat_id AS TEXT) = '' OR runs.chat_id = @chat_id)

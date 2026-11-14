@@ -395,14 +395,14 @@ func TestAChatChoosesItsModelAndEffort(t *testing.T) {
 		"base_url: https://router.example/v1\napi_key_ref: ROUTER_KEY\nmodels: [sonnet, haiku]\n")
 	require.NoError(t, err)
 
-	_, err = w.s.PutBot(ctx, Bot{Name: "vmap", Model: "sonnet", Effort: "high"})
+	vmapBot, err := w.s.PutBot(ctx, Bot{Name: "vmap", Model: "sonnet", Effort: "high"})
 	require.NoError(t, err)
 
-	plain, err := w.s.CreateChat(ctx, "vmap", "")
+	plain, err := w.s.CreateChat(ctx, vmapBot.ID, "")
 	require.NoError(t, err)
 	assert.Equal(t, ChatModel{}, plain.Choice, "a chat that chose nothing runs with its Bot's")
 
-	chat, err := w.s.CreateChatWithID(ctx, "", "vmap", "", ChatModel{Model: "haiku", Effort: "minimal"})
+	chat, err := w.s.CreateChatWithID(ctx, "", vmapBot.ID, "", ChatModel{Model: "haiku", Effort: "minimal"})
 	require.NoError(t, err)
 	assert.Equal(t, ChatModel{Provider: "router", Model: "haiku", Effort: "minimal"}, chat.Choice,
 		"the provider is the one that offers the model")
@@ -421,7 +421,7 @@ func TestAChatChoosesItsModelAndEffort(t *testing.T) {
 	require.ErrorIs(t, err, ErrInvalid)
 	_, err = w.s.SetChatModel(ctx, chat.ID, ChatModelChange{Effort: &huge})
 	require.ErrorContains(t, err, "unknown effort")
-	_, err = w.s.CreateChatWithID(ctx, "", "vmap", "", ChatModel{Model: "opus"})
+	_, err = w.s.CreateChatWithID(ctx, "", vmapBot.ID, "", ChatModel{Model: "opus"})
 	require.ErrorIs(t, err, ErrInvalid)
 	_, err = w.s.SetChatModel(ctx, "cht_nobody", ChatModelChange{Effort: &low})
 	require.ErrorIs(t, err, ErrNotFound)
@@ -430,7 +430,7 @@ func TestAChatChoosesItsModelAndEffort(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, ChatModel{Effort: "low"}, got.Choice, "a refused change leaves the chat's choice")
 
-	bot, err := w.s.GetBot(ctx, "vmap")
+	bot, err := w.s.GetBot(ctx, vmapBot.ID)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"sonnet", "high"}, []string{bot.Model, bot.Effort}, "the Bot keeps its default")
 }

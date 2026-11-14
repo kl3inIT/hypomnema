@@ -472,35 +472,35 @@ func TestPiRunsAsTheChatsBotWithItsModel(t *testing.T) {
 
 	args, _, _, err := sup.botArgs(ctx, first.ID)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"--bot", "coordinator"}, args, "the starting set leaves pi's own default model")
+	assert.Equal(t, []string{"--bot", orchestration.DefaultBotID}, args, "the starting set leaves pi's own default model")
 
 	_, err = svc.ApplyProvider(ctx, "", "name: ninerouter\nkind: openai_compatible\n"+
 		"base_url: http://172.22.0.1:20128/v1\napi_key_ref: file:ninerouter.key\nmodels: [cx/gpt-6.1-sol]\n")
 	require.NoError(t, err)
 
-	_, err = svc.PutBot(ctx, orchestration.Bot{
+	vmapBot, err := svc.PutBot(ctx, orchestration.Bot{
 		Name: "vmap", Provider: "ninerouter", Model: "cx/gpt-6.1-sol", Effort: "high", Persona: "You answer about VMAP.",
 	})
 	require.NoError(t, err)
 
-	second, err := svc.CreateChat(ctx, "vmap", "")
+	second, err := svc.CreateChat(ctx, vmapBot.ID, "")
 	require.NoError(t, err)
 
 	args, bot, model, err := sup.botArgs(ctx, second.ID)
 	require.NoError(t, err)
 	assert.Equal(t, []string{
-		"--bot", "vmap", "--provider", "ninerouter", "--model", "cx/gpt-6.1-sol", "--thinking", "high",
+		"--bot", vmapBot.ID, "--provider", "ninerouter", "--model", "cx/gpt-6.1-sol", "--thinking", "high",
 	}, args)
 	assert.Equal(t, "cx/gpt-6.1-sol", model.Model, "the chat's gateway key is made for this model")
-	assert.Equal(t, "vmap", bot, "pi's token is bound to the Bot")
+	assert.Equal(t, vmapBot.ID, bot, "pi's token is bound to the Bot")
 
 	args, _, _, err = sup.botArgs(ctx, first.ID)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"--bot", "coordinator"}, args, "the first chat keeps its Bot")
+	assert.Equal(t, []string{"--bot", orchestration.DefaultBotID}, args, "the first chat keeps its Bot")
 
 	// A Lark group's chat is not given the Bot's memory (issue #246); a person's direct chat is.
 	_, err = svc.Channels().SetChannel(ctx, channelstore.Channel{
-		Name: "maps", AppID: "cli_m4p5", Secret: "lark-channel-maps", Bot: "vmap",
+		Name: "maps", AppID: "cli_m4p5", Secret: "lark-channel-maps", Bot: vmapBot.ID,
 		Mode: channelstore.ChannelOwner, OwnerID: "ou_owner", Enabled: true,
 	})
 	require.NoError(t, err)
@@ -511,7 +511,7 @@ func TestPiRunsAsTheChatsBotWithItsModel(t *testing.T) {
 	args, _, _, err = sup.botArgs(ctx, group.ChatID)
 	require.NoError(t, err)
 	assert.Equal(t, []string{
-		"--bot", "vmap", "--group", "--provider", "ninerouter", "--model", "cx/gpt-6.1-sol", "--thinking", "high",
+		"--bot", vmapBot.ID, "--group", "--provider", "ninerouter", "--model", "cx/gpt-6.1-sol", "--thinking", "high",
 	}, args)
 
 	direct, err := svc.ChannelChatFor(ctx, "maps", "oc_dm", "ou_owner", "")
@@ -760,7 +760,7 @@ func TestEachPiGetsItsOwnTokenOnItsStdin(t *testing.T) {
 	chat, err := svc.CreateChat(ctx, "", "")
 	require.NoError(t, err)
 
-	first := "hyp_bot_v1_1_" + chat.ID + "_coordinator"
+	first := "hyp_bot_v1_1_" + chat.ID + "_" + orchestration.DefaultBotID
 
 	_, err = svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, "what is your token?")
 	require.NoError(t, err)
@@ -775,7 +775,7 @@ func TestEachPiGetsItsOwnTokenOnItsStdin(t *testing.T) {
 
 	_, err = svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, "and your token now?")
 	require.NoError(t, err)
-	waitFor(t, svc, chat.ID, orchestration.ChatCoordinator, "my token: hyp_bot_v1_2_"+chat.ID+"_coordinator")
+	waitFor(t, svc, chat.ID, orchestration.ChatCoordinator, "my token: hyp_bot_v1_2_"+chat.ID+"_"+orchestration.DefaultBotID)
 }
 
 // Scenario: the owner stops pi mid-turn, and pi ends the turn as aborted with
@@ -840,24 +840,24 @@ func TestPiStartsWithTheChatsModel(t *testing.T) {
 		"base_url: http://127.0.0.1:8080/v1\napi_key_ref: file:gateway.key\nmodels: [gpt-sol, gpt-luna]\n")
 	require.NoError(t, err)
 
-	_, err = svc.PutBot(ctx, orchestration.Bot{Name: "vmap", Model: "gpt-sol", Effort: "high"})
+	vmapBot, err := svc.PutBot(ctx, orchestration.Bot{Name: "vmap", Model: "gpt-sol", Effort: "high"})
 	require.NoError(t, err)
 
-	effortOnly, err := svc.CreateChatWithID(ctx, "", "vmap", "", orchestration.ChatModel{Effort: "none"})
+	effortOnly, err := svc.CreateChatWithID(ctx, "", vmapBot.ID, "", orchestration.ChatModel{Effort: "none"})
 	require.NoError(t, err)
 
 	args, _, model, err := sup.botArgs(ctx, effortOnly.ID)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"--bot", "vmap", "--provider", "gateway", "--model", "gpt-sol", "--thinking", "off"},
+	assert.Equal(t, []string{"--bot", vmapBot.ID, "--provider", "gateway", "--model", "gpt-sol", "--thinking", "off"},
 		args, "the Bot's model with the chat's effort")
 	assert.Equal(t, "gpt-sol", model.Model)
 
-	both, err := svc.CreateChatWithID(ctx, "", "vmap", "", orchestration.ChatModel{Model: "gpt-luna", Effort: "low"})
+	both, err := svc.CreateChatWithID(ctx, "", vmapBot.ID, "", orchestration.ChatModel{Model: "gpt-luna", Effort: "low"})
 	require.NoError(t, err)
 
 	args, _, model, err = sup.botArgs(ctx, both.ID)
 	require.NoError(t, err)
-	assert.Equal(t, []string{"--bot", "vmap", "--provider", "gateway", "--model", "gpt-luna", "--thinking", "low"}, args)
+	assert.Equal(t, []string{"--bot", vmapBot.ID, "--provider", "gateway", "--model", "gpt-luna", "--thinking", "low"}, args)
 	assert.Equal(t, "gpt-luna", model.Model, "the chat's gateway key is made for the chat's model")
 }
 
@@ -875,10 +875,10 @@ func TestAChangedModelReachesARunningPi(t *testing.T) {
 		"base_url: http://127.0.0.1:8080/v1\napi_key_ref: file:gateway.key\nmodels: [gpt-sol, gpt-luna]\n")
 	require.NoError(t, err)
 
-	_, err = svc.PutBot(ctx, orchestration.Bot{Name: "vmap", Model: "gpt-sol", Effort: "high"})
+	vmapBot, err := svc.PutBot(ctx, orchestration.Bot{Name: "vmap", Model: "gpt-sol", Effort: "high"})
 	require.NoError(t, err)
 
-	chat, err := svc.CreateChat(ctx, "vmap", "")
+	chat, err := svc.CreateChat(ctx, vmapBot.ID, "")
 	require.NoError(t, err)
 
 	_, err = svc.AddChatMessage(ctx, chat.ID, orchestration.ChatOwner, "which model first")
