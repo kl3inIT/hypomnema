@@ -72,11 +72,7 @@ var piThinkingLevels = []string{"off", "minimal", "low", "medium", "high", "xhig
 // each Dispatch (internal/node/acp/agents.go). The key is the command pi
 // runs at each request. Each model has the attributes the gateway gives it
 // (issue #367): its window, largest output, inputs, reasoning, effort levels
-// and price.
-//
-// A provider is the gateway when its kind says so, or when it is an
-// OpenAI-compatible provider whose address is the gateway's own: the
-// provider pi was given before the gateway had a kind of its own.
+// and price. A provider is the gateway when its kind is model_gateway.
 func piModels(ctx context.Context, e *env, _ *flag.FlagSet) error {
 	resp, err := e.api.ListProvidersWithResponse(ctx)
 	if err != nil {
@@ -105,7 +101,7 @@ func piModels(ctx context.Context, e *env, _ *flag.FlagSet) error {
 	file := piModelsFile{Providers: map[string]piProvider{}}
 
 	for _, p := range resp.JSON200.Data {
-		if !isGateway(p, gateway) || len(p.Models) == 0 {
+		if string(p.Kind) != kindModelGateway || len(p.Models) == 0 {
 			continue
 		}
 
@@ -193,12 +189,4 @@ func valOr[T any](p *T, otherwise T) T {
 	}
 
 	return *p
-}
-
-func isGateway(p openapi.Provider, gateway string) bool {
-	if string(p.Kind) == kindModelGateway {
-		return true
-	}
-
-	return p.BaseUrl != nil && strings.TrimRight(*p.BaseUrl, "/") == gateway
 }

@@ -1334,9 +1334,9 @@ not exist yet.
     is on the Runs every token reads, so a coordinator token, the owner and another chat's pi are refused with 403.
   - pi's `models.json` is written by the launcher as pi starts, for that chat's pi alone (issue #260), from
     `hypomnema pi-models`: one provider of pi for
-    each provider of the control plane that is the gateway (kind `model_gateway`, or an OpenAI-compatible provider
-    whose address is the gateway's own), with the models that provider lists. A Bot may name a provider of kind
-    `model_gateway`. No key is made by hand for pi, and the setup script installs none. Each model of the gateway
+    each provider of the control plane of kind `model_gateway`, with the models that provider lists. A Bot may
+    name a provider of kind `model_gateway`; migration 00072 moved the Bots, chats and Profiles of the older
+    OpenAI-compatible provider `gateway` at the control plane's own `/v1` to it and removed that provider. No key is made by hand for pi, and the setup script installs none. Each model of the gateway
     has its attributes (above, issue #367): `contextWindow`, `maxTokens`, `input`, `reasoning` (true only when
     known), `thinkingLevelMap` (pi's minimal to max as the model's level of that name, null for one it lacks; off
     as `none` when the model has it, else left out, which sends no effort) and `cost` (input, output, cache read
