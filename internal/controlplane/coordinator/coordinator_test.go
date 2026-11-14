@@ -672,6 +672,44 @@ func TestAChatsKeyLivesAsLongAsItsPi(t *testing.T) {
 	assert.False(t, keys.ended("gwk_2"))
 }
 
+// answerAndExit plays a pi that answers each command and exits at once: its
+// response is handed over and then done closes, as the reader does.
+type answerAndExit struct{ p *proc }
+
+func (w answerAndExit) Write(line []byte) (int, error) {
+	var cmd map[string]any
+	if err := json.Unmarshal(line, &cmd); err != nil {
+		return 0, err
+	}
+
+	w.p.mu.Lock()
+	ch := w.p.waiting[fmt.Sprint(cmd["id"])]
+	w.p.mu.Unlock()
+
+	ch <- response{Success: true, Data: json.RawMessage(`{"disposition":"started"}`)}
+	close(w.p.done)
+
+	return len(line), nil
+}
+
+func (answerAndExit) Close() error { return nil }
+
+// Scenario: pi accepts a prompt and exits in its turn (issue #459). The
+// prompt was accepted, so it is not given again to another pi; a call that
+// took the exit over the answer did so about half the time.
+func TestAPromptPiAcceptedBeforeItExitedIsAccepted(t *testing.T) {
+	t.Parallel()
+
+	for range 100 {
+		p := &proc{done: make(chan struct{}), waiting: map[string]chan response{}}
+		p.stdin = answerAndExit{p}
+
+		r, err := p.call(t.Context(), map[string]any{"type": "prompt", "message": "crash please"})
+		require.NoError(t, err)
+		assert.JSONEq(t, `{"disposition":"started"}`, string(r.Data))
+	}
+}
+
 // fakeTokens stands for the control plane's tokens of pi processes: it
 // hands one out per pi and remembers which it was asked to end.
 type fakeTokens struct {
