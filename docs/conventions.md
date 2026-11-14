@@ -95,10 +95,11 @@ The three boundaries that matter:
 2. **Orchestration state has one writer**: only `controlplane/orchestration` uses the generated sqlc code for Run, Task,
    Dispatch, Gate, leases and nodes, and exposes named operations (`ClaimNextDispatch`, `ExpireLeases`,
    `MarkNodeLost`…), as Omnara's `internal/storage`. A domain that writes no other's tables (the web's users, the
-   memories) is a store under the tree, `orchestration/userstore` and `orchestration/memorystore`, reached through
-   the root's accessors (`Users()`, `Memories()`), as Omnara's `*store` packages behind its facade (issue #404). It
-   imports the generated queries, `internal/storeutil` and `storeerr`, never the root; what of it ends in `Tx` takes
-   the caller's queries and begins no transaction. These rows change together under concurrency, so one package
+   memories, the Lark Channels) is a store under the tree, `orchestration/userstore`, `orchestration/memorystore`
+   and `orchestration/channelstore`, reached through the root's accessors (`Users()`, `Memories()`, `Channels()`),
+   as Omnara's `*store` packages behind its facade (issue #404). It imports the generated queries,
+   `internal/storeutil` and `storeerr`, never the root; what of it ends in `Tx` takes the caller's queries and
+   begins no transaction, and a write that spans another domain stays in the root and calls it. These rows change together under concurrency, so one package
    holds one lock order.
 3. **Untrusted input passes policy**: every state change requested by a Coordinator, a Bot, a Channel or a webhook goes
    through the client API, which checks what the token may do, and every request to a service through the service
