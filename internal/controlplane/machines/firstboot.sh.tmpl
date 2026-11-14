@@ -2,7 +2,7 @@
 # First boot of a Hypomnema machine (issue #69, step 3). cloud-init runs this once, as root. It makes the user
 # the node runs as, installs git and the agent CLIs, and runs the node's install script as that user with the
 # node's token, as Coder's templates start their agent from user data and Omnara's managed launcher runs its
-# installer with the API URL and the machine token.
+# installer with the API URL and the machine token. The install is told the device the machine holds, if any.
 set -u
 
 user=hypomnema
@@ -15,6 +15,19 @@ export DEBIAN_FRONTEND=noninteractive
 if command -v apt-get >/dev/null 2>&1; then
   apt-get update -y && apt-get install -y git curl ca-certificates || log "installing packages failed"
 fi
+{{- if .Device}}
+
+# A machine that holds an Android emulator (issue #417): Xvfb and Mesa, on which `-gpu host` renders with llvmpipe
+# where SwiftShader crashed, and the libraries the emulator loads, the list proven on Ubuntu 24.04 in the trials
+# (docs/research/2026-11-14-android-device-for-agents.md). The user joins kvm before its manager starts below, so
+# the node can open /dev/kvm; a failure leaves a node that says it cannot, which the owner sees.
+if command -v apt-get >/dev/null 2>&1; then
+  apt-get install -y xvfb mesa-utils libgl1-mesa-dri libegl-mesa0 libpulse0 libnss3 libxcomposite1 libxcursor1 \
+    libxi6 libxtst6 libgl1 libegl1 libxkbfile1 libxkbcommon0 libxkbcommon-x11-0 libxcb-cursor0 libxdamage1 \
+    libxrandr2 libasound2t64 unzip || log "installing the emulator's packages failed"
+fi
+usermod -aG kvm "$user" || log "adding the user to kvm failed"
+{{- end}}
 
 # Node.js for the agent CLIs comes from nodejs.org as one archive, checked against the checksum published beside
 # it. Ubuntu's nodejs and npm packages bring 565 others, which once took over ten minutes to download, and are a
@@ -61,7 +74,8 @@ export HYPOMNEMA_NODE_TOKEN XDG_RUNTIME_DIR DBUS_SESSION_BUS_ADDRESS
 
 cd "/home/$user" || exit 1
 if sudo -H -u "$user" --preserve-env=HYPOMNEMA_NODE_TOKEN,XDG_RUNTIME_DIR,DBUS_SESSION_BUS_ADDRESS \
-  sh -c 'curl --fail --silent --show-error --location --proto "=https" "$1" | sh' sh {{shellQuote .InstallURL}}; then
+  sh -c 'u=$1; shift; curl --fail --silent --show-error --location --proto "=https" "$u" | sh -s -- "$@"' \
+  sh {{shellQuote .InstallURL}}{{if .Device}} --device {{shellQuote .Device}}{{end}}; then
   log "the node is installed"
 else
   log "installing the node failed"

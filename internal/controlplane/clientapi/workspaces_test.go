@@ -57,8 +57,7 @@ func (w *world) chatWithATask(c *openapi.ClientWithResponses) (orchestration.Cha
 	})
 	require.NoError(w.t, err)
 
-	_, err = w.svc.AddAccount(ctx, "claude", "main")
-	require.NoError(w.t, err)
+	claudeThroughTheGateway(w.t, w.svc)
 
 	node, _, err := w.svc.AddNode(ctx, "box", 0)
 	require.NoError(w.t, err)

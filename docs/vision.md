@@ -63,9 +63,11 @@ Two deployables, all Go:
   speaks another, an account pinned per session, and usage recorded per key.
 - **One store of accounts, two uses.** The owner adds an API key or a subscription (Claude, Codex, Antigravity) once
   in the web client; the secret is kept by the vault, and only the control plane refreshes a subscription's refresh
-  token. An account can be handed to workers that run a vendor CLI directly (Claude Code with a `claude setup-token`
-  token, Codex through `codex app-server` with tokens the control plane refreshes), served by the gateway through an
-  adapter that builds the request as the vendor's client does, or both. The owner is the only user and accepts that
+  token. An account can be handed to workers that run a vendor CLI directly (Codex through `codex app-server` with
+  tokens the control plane refreshes), served by the gateway through an adapter that builds the request as the
+  vendor's client does, or both. A Claude subscription is only served by the gateway: a Claude Code worker calls it
+  with its Dispatch's key, and the token never leaves the control plane
+  ([decision](decisions/2026-11-14-claude-code-workers-only-through-the-gateway.md)). The owner is the only user and accepts that
   a vendor may block an account used this way; until 2026-11-10 the intent was that a Claude subscription is used
   only by Claude Code and that the gateway never builds a request with a subscription.
 - **One machine is enough to start**, with three OS users that each hold only their own: `hypomnema` (control plane

@@ -202,7 +202,16 @@ type HelloRequest struct {
 	// Terminal says the node opens a terminal when asked: its build can, and
 	// its own configuration has not turned it off.
 	Terminal bool `json:"terminal,omitempty"`
+	// Device is the device the node holds, as its own configuration says:
+	// DeviceAndroid, or empty for none (issue #417).
+	Device string `json:"device,omitempty"`
+	// KVM says /dev/kvm can be read and written by the node's user, which an
+	// Android emulator needs (issue #417).
+	KVM bool `json:"kvm,omitempty"`
 }
+
+// DeviceAndroid is a node that holds an Android emulator (issue #417).
+const DeviceAndroid = "android"
 
 // ValidTerminalSize says whether a terminal may have this size (Nezha
 // terminal_session.go: 2 to 1000 columns, 2 to 500 rows).
@@ -306,11 +315,6 @@ type Offer struct {
 	// Claude Code worker its /v1/messages), for the offer's Model only. It is made as the offer is sent and revoked when
 	// the Dispatch settles; the node keeps it with the offer until then.
 	ModelKey string `json:"model_key,omitempty"`
-	// AccountToken is the token of the account the worker runs under, when the
-	// control plane keeps it: a Claude Code worker gets it as
-	// CLAUDE_CODE_OAUTH_TOKEN. Without it the node uses the token file of its
-	// own configuration. The node keeps it with the offer until the Dispatch ends.
-	AccountToken string `json:"account_token,omitempty"`
 	// Uses are the Connections the Run's workers may use ("google:work");
 	// AgentKey is this Dispatch's own key to the control plane's agent API,
 	// with which the tool launcher asks for a token of one of them. It is

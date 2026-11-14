@@ -46,13 +46,6 @@ const (
 	disallowedTools = "AskUserQuestion,Task,Agent"
 )
 
-// Account is how the node runs Claude under one account when the control
-// plane sends no token with the offer: the file holding its `claude
-// setup-token` token.
-type Account struct {
-	TokenFile string `json:"token_file"`
-}
-
 // ClaudeRuntime runs Claude Code workers.
 type ClaudeRuntime struct {
 	// Home is the node's home: accounts/<id> holds each account's config dir.
@@ -61,9 +54,9 @@ type ClaudeRuntime struct {
 	Exe string
 	// Claude is the claude binary.
 	Claude string
-	// URL is the control plane's base URL, where a worker's tools ask for a token.
-	URL      string
-	Accounts map[string]Account
+	// URL is the control plane's base URL: the model gateway a worker calls,
+	// and where its tools ask for a token.
+	URL string
 	// Env is added to each worker's environment (tests).
 	Env []string
 }
@@ -162,7 +155,7 @@ type saved struct {
 }
 
 // gatewayAccount is the offer's AccountRef when the model gateway serves the
-// worker's model and no account on the node does (issue #107).
+// worker's model (issue #107); a Claude Code worker has no other (issue #381).
 const gatewayAccount = "gateway"
 
 // credentials is how the worker reaches Claude (issue #381). Under the
@@ -175,47 +168,30 @@ const gatewayAccount = "gateway"
 // getCacheControl gives a subscription the hour too); subagents keep Claude
 // Code's five minutes, as CLIProxyAPI leaves them. The key is good for the
 // offer's model alone, so every model Claude Code names by family is pinned
-// to it (llm-gateway-connect: pin ANTHROPIC_DEFAULT_*_MODEL). Otherwise the
-// worker runs under the account's token: it comes with the offer when the
-// control plane keeps the account (issue #150), else from the file this
-// node's configuration names.
+// to it (llm-gateway-connect: pin ANTHROPIC_DEFAULT_*_MODEL). There is no
+// other way: no subscription token comes to the node (issue #381,
+// docs/decisions/2026-11-14-claude-code-workers-only-through-the-gateway.md).
 func (rt *ClaudeRuntime) credentials(o nodeproto.Offer) ([]string, error) {
-	if o.AccountRef == gatewayAccount {
-		switch {
-		case o.ModelKey == "":
-			return nil, errors.New("the offer carries no key of the model gateway")
-		case rt.URL == "":
-			return nil, errors.New("the node does not know its control plane's URL")
-		}
-
-		out := []string{
-			"ANTHROPIC_BASE_URL=" + strings.TrimRight(rt.URL, "/"), "ANTHROPIC_AUTH_TOKEN=" + o.ModelKey,
-			"CLAUDE_CODE_PROMPT_CACHE_TTL=1h",
-		}
-		if o.Model != "" {
-			out = append(out, "ANTHROPIC_DEFAULT_OPUS_MODEL="+o.Model, "ANTHROPIC_DEFAULT_SONNET_MODEL="+o.Model,
-				"ANTHROPIC_DEFAULT_HAIKU_MODEL="+o.Model)
-		}
-
-		return out, nil
+	switch {
+	case o.AccountRef != gatewayAccount:
+		return nil, fmt.Errorf("the offer names account %q: a Claude Code worker runs only through the model "+
+			"gateway (a profile whose provider is of kind model_gateway)", o.AccountRef)
+	case o.ModelKey == "":
+		return nil, errors.New("the offer carries no key of the model gateway")
+	case rt.URL == "":
+		return nil, errors.New("the node does not know its control plane's URL")
 	}
 
-	token := []byte(o.AccountToken)
-
-	if len(token) == 0 {
-		acc, ok := rt.Accounts[o.AccountRef]
-		if !ok {
-			return nil, fmt.Errorf("the node has no credentials for account %s", o.AccountRef)
-		}
-
-		var err error
-
-		if token, err = os.ReadFile(acc.TokenFile); err != nil {
-			return nil, fmt.Errorf("reading the token of account %s: %w", o.AccountRef, err)
-		}
+	out := []string{
+		"ANTHROPIC_BASE_URL=" + strings.TrimRight(rt.URL, "/"), "ANTHROPIC_AUTH_TOKEN=" + o.ModelKey,
+		"CLAUDE_CODE_PROMPT_CACHE_TTL=1h",
+	}
+	if o.Model != "" {
+		out = append(out, "ANTHROPIC_DEFAULT_OPUS_MODEL="+o.Model, "ANTHROPIC_DEFAULT_SONNET_MODEL="+o.Model,
+			"ANTHROPIC_DEFAULT_HAIKU_MODEL="+o.Model)
 	}
 
-	return []string{"CLAUDE_CODE_OAUTH_TOKEN=" + strings.TrimSpace(string(token))}, nil
+	return out, nil
 }
 
 // env is the worker's whole environment: a clean one (durable-harness

@@ -71,10 +71,13 @@ type NewMachine struct {
 	Name string
 	// Provider is the provider's name.
 	Provider string
-	// Region and Size are the provider's defaults when empty.
+	// Region and Size are the provider's defaults when empty; Size is
+	// AWSDeviceSize for a device.
 	Region        string
 	Size          string
 	MaxDispatches int
+	// Device is DeviceAndroid for a machine that holds an Android emulator; empty for a plain one (issue #417).
+	Device string
 }
 
 // Create asks the provider for a machine and returns its node, which is
@@ -86,10 +89,19 @@ func (m *Manager) Create(ctx context.Context, n NewMachine) (orchestration.Node,
 		return orchestration.Node{}, err
 	}
 
+	if n.Device != "" && n.Device != DeviceAndroid {
+		return orchestration.Node{}, fmt.Errorf("%w: a machine holds no device %q; it can hold %s",
+			orchestration.ErrInvalid, n.Device, DeviceAndroid)
+	}
+
+	// A device machine's size defaults to the one the emulator was tried on, not to the provider's (issue #417).
 	region, size := orDefault(n.Region, rec.Region), orDefault(n.Size, rec.Size)
+	if n.Device != "" && n.Size == "" {
+		size = AWSDeviceSize
+	}
 
 	// Everything that can be refused without a machine is checked before the node exists.
-	if _, err := FirstBoot(m.publicURL, "check"); err != nil {
+	if _, err := FirstBoot(m.publicURL, "check", n.Device); err != nil {
 		return orchestration.Node{}, fmt.Errorf("%w: %w", orchestration.ErrInvalid, err)
 	}
 
@@ -98,7 +110,7 @@ func (m *Manager) Create(ctx context.Context, n NewMachine) (orchestration.Node,
 		return orchestration.Node{}, err
 	}
 
-	if err := m.call(ctx, func(ctx context.Context) error { return p.Validate(ctx, region, size) }); err != nil {
+	if err := m.call(ctx, func(ctx context.Context) error { return p.Validate(ctx, region, size, n.Device) }); err != nil {
 		return orchestration.Node{}, fmt.Errorf("%w: machine provider %s: %w", orchestration.ErrInvalid, rec.Name, err)
 	}
 
@@ -109,7 +121,7 @@ func (m *Manager) Create(ctx context.Context, n NewMachine) (orchestration.Node,
 		return orchestration.Node{}, err
 	}
 
-	script, err := FirstBoot(m.publicURL, token)
+	script, err := FirstBoot(m.publicURL, token, n.Device)
 	if err != nil {
 		return m.failed(ctx, node, err)
 	}
@@ -119,6 +131,7 @@ func (m *Manager) Create(ctx context.Context, n NewMachine) (orchestration.Node,
 	err = m.call(ctx, func(ctx context.Context) error {
 		id, err := p.Create(ctx, Spec{
 			NodeID: node.ID, Name: node.Name, Region: region, Size: size, UserData: script, RequestID: tokenID,
+			Device: n.Device,
 		})
 		resourceID = id
 

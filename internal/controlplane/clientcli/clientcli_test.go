@@ -349,13 +349,25 @@ type worker struct {
 	n    int
 }
 
+// claudeThroughTheGateway gives the world a model gateway and points the
+// starting implementer at it: a Claude Code worker runs only through the
+// gateway (issue #381).
+func claudeThroughTheGateway(t *testing.T, svc *orchestration.Service) {
+	t.Helper()
+
+	_, err := svc.ApplyProvider(t.Context(), "", "name: gateway\nkind: model_gateway\nmodels: [claude-opus-5-5]\n")
+	require.NoError(t, err)
+	_, _, err = svc.ApplyProfile(t.Context(), "",
+		"name: implementer\ndescription: d\nruntime: claude\nmodel: {provider: gateway}\n")
+	require.NoError(t, err)
+}
+
 // startWorker places the first ready Task on a node and starts its worker.
 func startWorker(t *testing.T, w *world) *worker {
 	t.Helper()
 	ctx := t.Context()
 
-	_, err := w.svc.AddAccount(ctx, "claude", "main")
-	require.NoError(t, err)
+	claudeThroughTheGateway(t, w.svc)
 
 	node, _, err := w.svc.AddNode(ctx, "box", 0)
 	require.NoError(t, err)
@@ -984,6 +996,7 @@ func TestProfilesFromTheCLI(t *testing.T) {
 
 	w := newWorld(t)
 	w.login(t, bearertoken.Owner)
+	claudeThroughTheGateway(t, w.svc)
 
 	file := filepath.Join(t.TempDir(), "reviewer.yaml")
 	source := "name: reviewer\ndescription: d\nruntime: claude\nmodel:\n  name: claude-opus-5-5\n"

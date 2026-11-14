@@ -56,6 +56,13 @@ export function standing(profile: Profile): Standing | null {
       return { tone: "warn", short: "No machine", text: `No machine online has ${runtime}` }
     case "no_account":
       return { tone: "warn", short: "No account", text: `No ${runtime} account` }
+    // A Claude Code profile that names no provider of kind model_gateway (issue #381).
+    case "needs_gateway":
+      return {
+        tone: "warn",
+        short: "No gateway",
+        text: `${runtime} runs only through the model gateway`,
+      }
     case "accounts_cooling":
       return {
         tone: "warn",

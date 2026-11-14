@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"os"
 	"strings"
 
@@ -14,11 +13,11 @@ import (
 )
 
 // A Claude subscription token the control plane keeps (issue #150): the
-// owner pastes the token of `claude setup-token` once, it is a secret of the
-// vault, and the node gets it in the offer of each Dispatch, as OpenClaw
-// sends a saved subscription credential to its node per session and
-// OpenHands looks a secret up as it spawns the CLI
-// (docs/research/2026-11-11-claude-credentials-for-workers.md).
+// owner pastes the token of `claude setup-token` once and it is a secret of
+// the vault, as OpenClaw's `models auth paste-token` keeps one. The model
+// gateway serves the account with it; it never leaves the control plane, and
+// a Claude Code worker gets only its Dispatch's gateway key (issue #381,
+// docs/decisions/2026-11-14-claude-code-workers-only-through-the-gateway.md).
 
 // maxAccountTokenBytes bounds what is read as a pasted token.
 const maxAccountTokenBytes = 4096
@@ -29,37 +28,10 @@ func accountSecretName(accountID string) string {
 	return "account-" + strings.ReplaceAll(strings.ToLower(accountID), "_", "-")
 }
 
-// accountTokens gives the node API the token of an account the control plane keeps.
+// accountTokens keeps the accounts whose token the owner pastes.
 type accountTokens struct {
-	svc    *orchestration.Service
-	vault  *vault.Service
-	logger *slog.Logger
-}
-
-// Token returns the token of an account that is sent to the node, and false
-// for an account a node holds or one logged in for the gateway.
-func (a accountTokens) Token(ctx context.Context, accountID string) (string, bool) {
-	ref, sent, err := a.svc.AccountTokenRef(ctx, accountID)
-	if err != nil || !sent {
-		return "", false
-	}
-
-	name, ok := vault.NameFromRef(ref)
-	if !ok {
-		return "", false
-	}
-
-	opened, err := a.vault.Open(ctx, name)
-	if err != nil {
-		// The worker then fails for want of a token, which the owner is told; the reason is here.
-		a.logger.ErrorContext(ctx, "reading an account's token",
-			slog.String("event", "controlplane.account_token_failed"), slog.String("account_id", accountID),
-			slog.String("error", err.Error()))
-
-		return "", false
-	}
-
-	return opened.Payload[vault.KeyValue], true
+	svc   *orchestration.Service
+	vault *vault.Service
 }
 
 // accountsAddToken is `accounts add <runtime> <label> --token FILE|-`: an
@@ -80,7 +52,7 @@ func (o *owner) accountsAddToken(ctx context.Context, runtime, label, file strin
 		return err
 	}
 
-	o.printf("account %s (%s %s); its token is kept here and sent to the node with each Dispatch\n",
+	o.printf("account %s (%s %s); its token is kept here and the model gateway serves it\n",
 		a.ID, a.Runtime, a.Label)
 
 	return nil

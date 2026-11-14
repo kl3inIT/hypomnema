@@ -40,7 +40,7 @@ type cloud struct {
 	startErr error
 }
 
-func (c *cloud) Validate(context.Context, string, string) error { return c.validate }
+func (c *cloud) Validate(context.Context, string, string, string) error { return c.validate }
 
 func (c *cloud) Create(_ context.Context, s machines.Spec) (string, error) {
 	c.specs = append(c.specs, s)
@@ -201,8 +201,9 @@ func TestCreatedMachineJoinsWithItsOwnToken(t *testing.T) {
 	assert.Equal(t, orchestration.MachineReady, w.node(n.ID).Machine.State)
 }
 
-// Scenario: the first-boot script is run by sh on the new machine, where
-// nobody sees a syntax error.
+// Scenario: the first-boot script, of a plain machine and of one that holds
+// an Android emulator, is run by sh on the new machine, where nobody sees a
+// syntax error.
 func TestFirstBootScriptIsValidShell(t *testing.T) {
 	t.Parallel()
 
@@ -211,13 +212,64 @@ func TestFirstBootScriptIsValidShell(t *testing.T) {
 		t.Skip("no sh on this machine")
 	}
 
-	script, err := machines.FirstBoot(publicURL, "hyn_it's-quoted")
-	require.NoError(t, err)
+	for _, device := range []string{"", machines.DeviceAndroid} {
+		script, err := machines.FirstBoot(publicURL, "hyn_it's-quoted", device)
+		require.NoError(t, err)
 
-	cmd := exec.CommandContext(t.Context(), sh, "-n") //nolint:gosec // G204: the sh found on PATH, a fixed flag
-	cmd.Stdin = strings.NewReader(script)
-	out, err := cmd.CombinedOutput()
-	require.NoError(t, err, string(out))
+		cmd := exec.CommandContext(t.Context(), sh, "-n") //nolint:gosec // G204: the sh found on PATH, a fixed flag
+		cmd.Stdin = strings.NewReader(script)
+		out, err := cmd.CombinedOutput()
+		require.NoError(t, err, device+": "+string(out))
+	}
+}
+
+// Scenario: the owner asks for a machine that holds an Android emulator and
+// names no size. The provider is asked for the size the emulator was tried
+// on, not the provider's default, with a first-boot script that installs
+// what the emulator needs, puts the node's user in kvm, and installs the
+// node as one that holds a device. A plain machine's script does none of it.
+func TestDeviceMachineInstallsWhatTheEmulatorNeeds(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t, publicURL)
+
+	_, err := w.mgr.Create(t.Context(), machines.NewMachine{
+		Name: "phone", Provider: "aws", Device: machines.DeviceAndroid,
+	})
+	require.NoError(t, err)
+	w.create("build-1")
+
+	require.Len(t, w.cloud.specs, 2)
+	device, plain := w.cloud.specs[0], w.cloud.specs[1]
+
+	assert.Equal(t, machines.DeviceAndroid, device.Device)
+	assert.Equal(t, machines.AWSDeviceSize, device.Size)
+	assert.Equal(t, "t3.medium", plain.Size)
+	assert.Empty(t, plain.Device)
+
+	for _, want := range []string{
+		"xvfb mesa-utils libgl1-mesa-dri libegl-mesa0", "libasound2t64 unzip", `usermod -aG kvm "$user"`,
+		"--device 'android'",
+	} {
+		assert.Contains(t, device.UserData, want)
+		assert.NotContains(t, plain.UserData, want)
+	}
+
+	// The user joins kvm before its manager starts, or the node's service would not have the group.
+	assert.Less(t, strings.Index(device.UserData, "usermod -aG kvm"), strings.Index(device.UserData, "systemctl start"))
+}
+
+// Scenario: the owner names a device no machine can hold. Nothing is
+// created and no node is listed.
+func TestCreateRefusesADeviceNoMachineHolds(t *testing.T) {
+	t.Parallel()
+
+	w := newWorld(t, publicURL)
+
+	_, err := w.mgr.Create(t.Context(), machines.NewMachine{Name: "phone", Provider: "aws", Device: "ios"})
+	require.ErrorIs(t, err, orchestration.ErrInvalid)
+	assert.Empty(t, w.listed())
+	assert.Empty(t, w.cloud.specs)
 }
 
 // Scenario: a create that cannot work is refused before a node or a machine

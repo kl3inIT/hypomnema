@@ -55,10 +55,9 @@ func TestAnOfferCarriesTheGatewaysKeyUntilTheDispatchSettles(t *testing.T) {
 	_, _, err = svc.ApplyProfile(ctx, "",
 		"name: codex-worker\ndescription: d\nruntime: codex\nmodel: {provider: gateway, name: gpt-sol}\n")
 	require.NoError(t, err)
-	_, _, err = svc.ApplyProfile(ctx, "",
-		"name: implementer\ndescription: d\nruntime: claude\nmodel: {name: claude-opus-5-5}\n")
+	_, _, err = svc.ApplyProfile(ctx, "", "name: codex-own\ndescription: d\nruntime: codex\n")
 	require.NoError(t, err)
-	_, err = svc.AddAccount(ctx, "claude", "acct_1")
+	_, err = svc.AddAccount(ctx, "codex", "acct_1")
 	require.NoError(t, err)
 
 	_, token, err := svc.AddNode(ctx, "node_a", 4)
@@ -92,7 +91,7 @@ func TestAnOfferCarriesTheGatewaysKeyUntilTheDispatchSettles(t *testing.T) {
 	require.NoError(t, err)
 	_, err = svc.CreateTasks(ctx, run.ID, []orchestration.NewTask{
 		{Ref: "g", Profile: "codex-worker", Spec: "through the gateway"},
-		{Ref: "c", Profile: "implementer", Spec: "under its own account"},
+		{Ref: "c", Profile: "codex-own", Spec: "under its own account"},
 	})
 	require.NoError(t, err)
 

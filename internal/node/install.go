@@ -42,6 +42,8 @@ type InstallOptions struct {
 	Token string
 	// NoStart leaves the service alone: the binary and the configuration only.
 	NoStart bool
+	// Device is the device the machine holds ("android"); empty keeps what the configuration says (issue #417).
+	Device string
 }
 
 // Install puts the node on this machine and starts it. It can be run again:
@@ -55,7 +57,7 @@ func Install(ctx context.Context, o InstallOptions, stdout io.Writer) error {
 		}
 	}
 
-	if err := Configure(o.Home, o.URL, token, o.WorktreeRoot); err != nil {
+	if err := Configure(o.Home, o.URL, token, o.WorktreeRoot, o.Device); err != nil {
 		return err
 	}
 

@@ -382,8 +382,8 @@ func (s *Server) CreateNode(ctx context.Context, req openapi.CreateNodeRequestOb
 		return s.createMachine(ctx, provider, req.Body)
 	}
 
-	if val(req.Body.Region) != "" || val(req.Body.Size) != "" {
-		return nil, fmt.Errorf("%w: a region or a size needs a provider", orchestration.ErrInvalid)
+	if val(req.Body.Region) != "" || val(req.Body.Size) != "" || val(req.Body.Device) != "" {
+		return nil, fmt.Errorf("%w: a region, a size or a device needs a provider", orchestration.ErrInvalid)
 	}
 
 	n, token, err := s.svc.AddNode(ctx, req.Body.Name, val(req.Body.MaxDispatches))
@@ -405,7 +405,7 @@ func (s *Server) createMachine(ctx context.Context, provider string, body *opena
 
 	n, err := s.machines.Create(ctx, machines.NewMachine{
 		Name: body.Name, Provider: provider, Region: val(body.Region), Size: val(body.Size),
-		MaxDispatches: val(body.MaxDispatches),
+		MaxDispatches: val(body.MaxDispatches), Device: string(val(body.Device)),
 	})
 	if err != nil && n.Machine == nil {
 		return nil, err

@@ -29,7 +29,12 @@ type Spec struct {
 	UserData string
 	// RequestID is the same for every repeat of one create.
 	RequestID string
+	// Device is DeviceAndroid for a machine that holds an Android emulator; empty for a plain one (issue #417).
+	Device string
 }
+
+// DeviceAndroid is a machine made to hold an Android emulator (issue #417).
+const DeviceAndroid = "android"
 
 // Resource is a machine as the provider lists it.
 type Resource struct {
@@ -45,9 +50,10 @@ type Resource struct {
 // Provider is one account at a provider. Every call may be repeated after an
 // error.
 type Provider interface {
-	// Validate says whether a machine of this size can be created in the
-	// region with this account, without creating anything.
-	Validate(ctx context.Context, region, size string) error
+	// Validate says whether a machine of this size, holding the device
+	// (empty for none), can be created in the region with this account,
+	// without creating anything.
+	Validate(ctx context.Context, region, size, device string) error
 	// Create asks for the node's machine and returns the provider's id for
 	// it. Repeated for the same node it returns the same machine.
 	Create(ctx context.Context, s Spec) (string, error)

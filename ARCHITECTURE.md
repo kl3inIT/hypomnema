@@ -9,7 +9,7 @@ statement true or false.
 | Binary | Commands | What it does today |
 |---|---|---|
 | `cmd/hypomnema` (control plane) | On the server: `migrate`, `serve`, `version`, `nodes`, `machines`, `accounts`, `tokens`, `users`, `secrets`, `gateway`; without the database: `files serve`, `update`, `tool`; over the client API: `login`, `whoami`, `run`, `runs`, `tasks`, `questions`, `answer`, `chat`, `chats`, `bots`, `setup`, `routines`, `memory`, `artifact`, `integrations`, `hosts`, `approvals`, `channels`, `profiles`, `providers`, `repos`, `models`, `skills`, `web`, `image`, `browser`, `superset`, `pi-models`, `model-key` (`hypomnema help` lists each one's subcommands) | `migrate` brings the database schema up to the binary's version; `serve` refuses any other schema, then serves `/livez`, `/readyz`, the node API, the client API, the model gateway and the web client, and runs the scheduler loop; the other commands are the owner's and the coordinators' (below) |
-| `cmd/hypomnema-node` (node) | `install`, `init`, `check`, `accounts set`, `run`, `service`, `tool`, `shim`, `mcp`, `version` | `install --url` puts the node on the machine (below); `init --url --token-file` writes the node's configuration; `check` says hello once and lists the CLIs it found; `accounts set` records where an account's Claude token is; `run` runs the daemon with a runner per runtime (Claude Code, Codex, and ACP for omp and opencode); `tool` runs an integration's tool through its launcher (below); `service` prints a systemd user unit; `shim` runs one worker and `mcp` serves its tools (both started for a worker, not by hand) |
+| `cmd/hypomnema-node` (node) | `install`, `init`, `check`, `run`, `service`, `tool`, `shim`, `mcp`, `version` | `install --url` puts the node on the machine (below); `init --url --token-file` writes the node's configuration; `check` says hello once and lists the CLIs it found; `run` runs the daemon with a runner per runtime (Claude Code, Codex, and ACP for omp and opencode); `tool` runs an integration's tool through its launcher (below); `service` prints a systemd user unit; `shim` runs one worker and `mcp` serves its tools (both started for a worker, not by hand) |
 
 Configuration comes from the environment: `HYPOMNEMA_HTTP_ADDR` (default `127.0.0.1:8080`),
 `HYPOMNEMA_DATABASE_PATH` (required, absolute), `HYPOMNEMA_LOG_LEVEL`, `HYPOMNEMA_LOG_FORMAT` (`json` or `text`),
@@ -155,6 +155,14 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     the provider's and the node's ids, with instance metadata readable only through IMDSv2 from the instance
     itself, because the script holds the token. A repeated create finds the instance by its tags, and the token's
     id is the request's client token, so one node never has two instances.
+  - A machine that holds an Android emulator (issue #417, step 1a; `machines create --device android`, `device` in
+    `POST /nodes`): its size is `c7i-flex.2xlarge` unless one is named, and at AWS a size outside the families
+    with nested virtualization in AWS's user guide (C7i, C7i-flex, C8i, C8id, C8i-flex, M7i, M7i-flex, M8i, M8id,
+    M8i-flex, R7i, R7iz, R8i, R8id, R8i-flex, X8i, I7i, I7ie) is refused before anything exists. The instance is
+    asked for with `NestedVirtualization=enabled` and at least 40 GiB of disk. Its first-boot script also installs
+    Xvfb, Mesa and the libraries the emulator loads, adds the `hypomnema` user to `kvm` before its manager starts,
+    and installs the node with `--device android`, which sets `device` in its configuration. The emulator itself,
+    the SDK and the AVD are not installed yet.
   - Remove (`nodes rm`, `DELETE /nodes/{node_id}`): the node is drained and its tokens revoked, the machine is
     destroyed at the provider, and only then is the node `deleted`. A failed destroy leaves it listed as
     `delete_failed` and is tried again after 30 s, doubling to an hour, until it works.
@@ -170,7 +178,8 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   - `machines providers check <name>` proves the key works and lists the provider's machines that no node stands
     for; it runs when asked, not on a timer, and destroys nothing.
   - Not built: other providers, and delivering the Codex CLI's login to a new machine, which the owner still sets
-    on it once; a Claude account the control plane keeps and a git host's token reach it with each Dispatch.
+    on it once; a git host's token reaches it with each Dispatch, and a Claude Code worker on it runs through the
+    model gateway.
 - A node updates itself (issue #69, after Nezha's agent, `cmd/agent/main.go`): the control plane names where
   the node's releases are at each hello (`HYPOMNEMA_NODE_RELEASE_URL`, the latest GitHub release by default). A
   node of a released version that systemd runs looks there 30 s after it starts and then at a random interval of
@@ -188,6 +197,10 @@ transaction, every status change a guarded `UPDATE` checked against a transition
     first, and a shell nobody watches for five minutes is ended. Linux and macOS only.
   - A node says at each hello whether it opens terminals (`nodes.terminal`): its build can, and its own
     configuration has not set `disable_terminal`, which the control plane cannot undo. It is on by default.
+- A node says at each hello which device it holds and whether it can run it (issue #417): `device` is what its
+  configuration names (`android`, set by `hypomnema-node install --device android`; none by default), and `kvm`
+  whether its user can open `/dev/kvm` for reading and writing at that hello. The control plane keeps both on the
+  node (`nodes.device`, `nodes.kvm`); `GET /nodes` and `nodes list` show them.
   - The owner asks for a ticket (`POST /nodes/{node_id}/terminal` with a session id; refused for a node that is
     not connected or opens no terminal), then opens the WebSocket `/api/v1/terminals/{ticket}`, which the ticket
     opens once within 30 s and only from the web client's own origin. There the page sends JSON, `{data}` for
@@ -782,11 +795,17 @@ transaction, every status change a guarded `UPDATE` checked against a transition
   The owner applies a profile, and the Bot `coordinator` from its chat (Bots, above); a provider only the owner.
   A provider of kind `model_gateway` is the control plane's own model gateway (issue #107): `codex` can run against
   it, and a Task under it needs no account on a node. Its Conversation names `gateway` where an account's id would
-  be, and a rate limit cools no account down: the gateway looks after its own accounts.
+  be, and a rate limit cools no account down: the gateway looks after its own accounts. `claude` runs only against
+  it, as `omp` and `opencode` do (issue #381, [decision](docs/decisions/2026-11-14-claude-code-workers-only-through-the-gateway.md)): a Claude Code profile that names
+  another provider is refused when applied, and a Task that would run Claude Code without the gateway (a profile
+  that names no provider, a Task that sets its runtime to `claude`, or a Conversation begun under a node's Claude
+  account before this) is not placed and waits with the reason `needs_gateway`; the coordinator's `CreateDispatch`
+  refuses it too. Account placement on a node is for the other runtimes only.
   A profile's current version says whether a worker can start under it now (issue #139, as Omnigent's agent list
   says `available_on_host`): `available`, and when not, `unavailable_reason` (`no_node`: no connected, active node
   has its CLI; `no_account`: its runtime has no active account on a node; `accounts_cooling`, with `available_at`,
-  the time the first account is free). It is computed from the scheduler's own view of nodes and accounts when
+  the time the first account is free; `needs_gateway`: a Claude Code profile that names no provider of kind
+  `model_gateway`, said before any other). It is computed from the scheduler's own view of nodes and accounts when
   the profile is read. A node at its limit still counts; a model the gateway serves needs no account, and the
   state of the gateway's own accounts is not looked at. `profiles
   list` shows it, and the coordinator skill tells the coordinator to read it before creating Tasks.
@@ -1375,8 +1394,7 @@ capabilities do not exist yet.
   made as its offer is sent to the node, good for the Dispatch's model only, carried in the offer (`model_key`). An
   offer sent again carries a new key and the earlier one stops. The control plane revokes a Dispatch's keys when the
   Dispatch settles, looked for at every commit of orchestration and every minute. The Codex runner uses it, and
-  the Claude Code runner since issue #381 when a profile of runtime `claude` names a provider of kind
-  `model_gateway`.
+  the Claude Code runner, which has no other credential since issue #381.
 - A chat's pi gets a key of its own too (issue #204, after Omnigent, whose pi asks the process that started it):
   - The coordinator's supervisor asks for it as it starts pi for the chat (`AddChatKey`): good for the chat's model
     (its own, or its Bot's; issue #369), or for every model when neither names one, and made again for the new model
@@ -1821,7 +1839,7 @@ below) and for Bots (`hypomnema image`, see Bots). Claude makes none (no referen
 - Usage: each request is one row of `gateway_usage` on its key, as model `image/<model>`, its provider, account and
   the providers tried; the tokens the provider reported (Codex's `usage`, Antigravity's `usageMetadata`), none
   invented; a request refused before any provider is not recorded. A Bot's is on its chat's key (as its web search).
-- What the owner sets (`gateway_image_providers`, migration 00075: `provider`, `off`, `position`, `model`; read
+- What the owner sets (`gateway_image_providers`, migration 00077: `provider`, `off`, `position`, `model`; read
   and written only by the gateway): a switch a provider, the order, and each one's model when a request names none,
   read at each request. `GET /gateway/images` (any token) lists the providers in order, each with its switch, its
   `state` (`ready`; `resting` with `resting_until`, when each usable account rests; `not_set_up`, no account in use,
@@ -1836,7 +1854,8 @@ below) and for Bots (`hypomnema image`, see Bots). Claude makes none (no referen
 
 Node API (`internal/controlplane/nodeapi`, protocol in `internal/shared/nodeproto`, after Omnara's daemon protocol):
 - A node registers with `POST /node/v1/hello` and its bearer token. It sends its CLIs, its worktree root, its
-  version and machine (measured with gopsutil, as Nezha's and Beszel's agents) and the Dispatches it still holds. Each of those is answered `retain` (still its own at that epoch), `reattach` (marked
+  version and machine (measured with gopsutil, as Nezha's and Beszel's agents), whether it opens a terminal, the device it holds with whether `/dev/kvm` is usable
+  (issue #417), and the Dispatches it still holds. Each of those is answered `retain` (still its own at that epoch), `reattach` (marked
   unknown while it was away) or `release`.
 - It then holds one WebSocket at `/node/v1/socket` with JSON `{type, payload}` frames of at most 1 MiB.
 - Installing a node (after Omnara's `GET /install/omnarad.sh` and `omnarad install`): the control plane serves a
@@ -1933,14 +1952,14 @@ The owner's commands:
     is removed with `nodes rm`;
   - `accounts add claude <label> --token FILE|-` records an account whose token the control plane keeps (issue
     #150; [research](docs/research/2026-11-11-claude-credentials-for-workers.md)): the token of `claude
-    setup-token`, read from a file or standard input and stored in the vault as the secret the account names. Such
-    an account (`sent_to_node`) is placed like one a node holds, on any node that has Claude Code; the node API
-    reads its token from the vault as it sends an offer (`account_token`), and the Claude Code runner starts the
-    worker under it, with the account's own `CLAUDE_CONFIG_DIR`. The node keeps the token with the offer until the
-    Dispatch ends. An account logged in on the control plane for the gateway is still not given to a worker.
+    setup-token`, read from a file or standard input and stored in the vault as the secret the account names. The
+    model gateway serves it as it serves an account logged in here; it never leaves the control plane, and no
+    worker runs under it on a node (issue #381, [decision](docs/decisions/2026-11-14-claude-code-workers-only-through-the-gateway.md)). Migration 00076 dropped the column
+    `sent_to_node` that marked such an account as sent with each offer.
   - `accounts disable <account>` keeps placement off an account, and `accounts enable <account>` lets it be used
     again; neither touches its token.
-  - `accounts add <runtime> <label>` records an account whose CLI is logged in on a node; `accounts login codex|antigravity|claude
+  - `accounts add <runtime> <label>` records an account whose CLI is logged in on a node (a Claude one is never
+    placed: Claude Code runs only through the gateway); `accounts login codex|antigravity|claude
     [--label L]` logs a subscription in here, printing a link and a code and waiting, or asking for the pasted
     address; `accounts list` shows each with the state of its tokens; `accounts models <account>` asks the vendor which
     models it serves the account, with what is left of each quota (Antigravity only); `accounts limits <account>`
@@ -2006,7 +2025,8 @@ The owner's commands:
 
 Node (`internal/node`):
 - `init` writes `~/.hypomnema-node/config.json` (mode 0600, directory 0700) with the control plane's URL, the token
-  read from a file, and the worktree root.
+  read from a file, and the worktree root. An `accounts` key, where a node kept the paths of Claude token files
+  until issue #381, is ignored when the file is read and dropped when it is written.
 - At connect the node finds `claude`, `codex`, `omp` and `opencode` and reads their `--version`: omp and opencode
   where the control plane had it install them, else on its PATH.
 - Since issue #107 the control plane tells every node, from node release v0.9.17 on, to have omp and opencode, as it
@@ -2081,10 +2101,10 @@ Node (`internal/node`):
   - The daemon starts `hypomnema-node shim --dir run/<dispatch>` in its own session. The shim runs `claude -p` with
     bidirectional stream-JSON and host permission prompts (`--resume` when the Conversation continues, `--model`
     and `--effort` when set).
-  - The worker gets a clean environment: PATH, HOME and the locale, plus the account's token
-    (`CLAUDE_CODE_OAUTH_TOKEN`, read from the file named in the node's configuration) and its own
-    `CLAUDE_CONFIG_DIR`. Under the gateway (issue #381; [research](docs/research/2026-11-14-claude-code-workers-through-the-gateway.md))
-    it gets no token: `ANTHROPIC_BASE_URL` is the control plane's address, `ANTHROPIC_AUTH_TOKEN` the Dispatch's
+  - The worker gets a clean environment: PATH, HOME and the locale, and runs only through the model gateway (issue
+    #381; [research](docs/research/2026-11-14-claude-code-workers-through-the-gateway.md),
+    [decision](docs/decisions/2026-11-14-claude-code-workers-only-through-the-gateway.md)). It gets no subscription token: an offer that names an account fails to start, saying so.
+    `ANTHROPIC_BASE_URL` is the control plane's address, `ANTHROPIC_AUTH_TOKEN` the Dispatch's
     key, `CLAUDE_CODE_PROMPT_CACHE_TTL=1h` asks for the one-hour cache for the main conversation (subagents keep
     five minutes), and `ANTHROPIC_DEFAULT_OPUS|SONNET|HAIKU_MODEL` are the Dispatch's model, the only one its key
     may use; its `CLAUDE_CONFIG_DIR` is `accounts/gateway/claude`. The spec holding them is deleted once the worker runs. Claude Code's own auto-memory is off

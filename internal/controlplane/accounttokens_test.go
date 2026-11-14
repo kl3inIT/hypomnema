@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/subscription"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/vault"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 	"github.com/kl3inIT/hypomnema/internal/shared/sqlite"
@@ -25,8 +26,8 @@ const claudeToken = "sk-ant-oat01-0123456789abcdef-never-printed"
 
 // Scenario: the owner gives the control plane the token of `claude
 // setup-token`. It comes on standard input and is never printed; it is sealed
-// in the database, never in the clear; the node API gets it for that account
-// and for no other; removing the account removes the token.
+// in the database, never in the clear; the model gateway serves the account
+// with it (no node gets it, issue #381); removing the account removes the token.
 func TestOwnerGivesTheControlPlaneAClaudeToken(t *testing.T) {
 	t.Parallel()
 
@@ -49,7 +50,7 @@ func TestOwnerGivesTheControlPlaneAClaudeToken(t *testing.T) {
 
 	out, err := run("  "+claudeToken+"\r\n", "accounts", "add", "claude", "personal", "--token", "-")
 	require.NoError(t, err)
-	assert.Contains(t, out, "(claude personal); its token is kept here")
+	assert.Contains(t, out, "(claude personal); its token is kept here and the model gateway serves it")
 	assert.NotContains(t, out, claudeToken)
 
 	id := regexp.MustCompile(`acc_[a-z0-9]+`).FindString(out)
@@ -69,20 +70,17 @@ func TestOwnerGivesTheControlPlaneAClaudeToken(t *testing.T) {
 	t.Cleanup(func() { _ = db.Close() })
 
 	svc := orchestration.New(db, platform.SystemClock{}, platform.NewID)
-	tokens := accountTokens{
-		svc: svc, vault: vault.New(db, platform.SystemClock{}, platform.NewID, cfg.VaultKeys, secretReferrers(svc)),
-		logger: slog.New(slog.DiscardHandler),
-	}
+	subs := newSubscriptions(Config{}, svc,
+		vault.New(db, platform.SystemClock{}, platform.NewID, cfg.VaultKeys, secretReferrers(svc)),
+		slog.New(slog.DiscardHandler))
 
-	got, ok := tokens.Token(t.Context(), id)
-	require.True(t, ok)
-	assert.Equal(t, claudeToken, got)
-
-	onNode, err := svc.AddAccount(t.Context(), "claude", "on a node")
+	got, err := subs.Token(t.Context(), "claude", "")
 	require.NoError(t, err)
+	assert.Equal(t, id, got.AccountID)
+	assert.Equal(t, claudeToken, got.AccessToken)
 
-	_, ok = tokens.Token(t.Context(), onNode.ID)
-	assert.False(t, ok, "an account a node holds has no token here")
+	onNode, err := svc.AddAccount(t.Context(), "codex", "on a node")
+	require.NoError(t, err)
 
 	// The owner turns an account off and on: placement passes a disabled one over.
 	out, err = run("", "accounts", "disable", onNode.ID)
@@ -91,7 +89,7 @@ func TestOwnerGivesTheControlPlaneAClaudeToken(t *testing.T) {
 
 	out, err = run("", "accounts", "list")
 	require.NoError(t, err)
-	assert.Contains(t, out, "claude\ton a node\tdisabled")
+	assert.Contains(t, out, "codex\ton a node\tdisabled")
 
 	_, err = run("", "accounts", "enable", onNode.ID)
 	require.NoError(t, err)
@@ -105,8 +103,8 @@ func TestOwnerGivesTheControlPlaneAClaudeToken(t *testing.T) {
 	_, err = run("", "accounts", "rm", id)
 	require.NoError(t, err)
 
-	_, ok = tokens.Token(t.Context(), id)
-	assert.False(t, ok)
+	_, err = subs.Token(t.Context(), "claude", "")
+	require.ErrorIs(t, err, subscription.ErrNoAccount, "the gateway has no Claude account left")
 
 	// A file on the server works as standard input does.
 	file := filepath.Join(t.TempDir(), "token")
@@ -118,7 +116,7 @@ func TestOwnerGivesTheControlPlaneAClaudeToken(t *testing.T) {
 
 // Scenario: the owner adds a Claude account on the Models page by pasting the
 // token of `claude setup-token` (issue #199). The account is there under the
-// name given, the token is never answered and the node gets it for a worker.
+// name given, the token is never answered and the model gateway serves it.
 // A token that is not one line, a vendor with no token to paste, and a
 // coordinator are refused, and nothing is kept for them.
 func TestOwnerPastesAClaudeTokenOnTheModelsPage(t *testing.T) {
@@ -152,8 +150,9 @@ func TestOwnerPastesAClaudeTokenOnTheModelsPage(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, accounts, 1, "nothing is kept for a refused token")
 
-	tokens := accountTokens{svc: api.svc, vault: api.tokens.vault, logger: slog.New(slog.DiscardHandler)}
-	got, ok := tokens.Token(t.Context(), out["id"].(string)) //nolint:forcetypeassert // the answer names its id
-	require.True(t, ok)
-	assert.Equal(t, claudeToken, got)
+	got, err := newSubscriptions(Config{}, api.svc, api.tokens.vault, slog.New(slog.DiscardHandler)).
+		Token(t.Context(), "claude", "")
+	require.NoError(t, err)
+	assert.Equal(t, out["id"], got.AccountID)
+	assert.Equal(t, claudeToken, got.AccessToken)
 }
