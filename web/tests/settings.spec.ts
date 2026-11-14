@@ -1,6 +1,7 @@
-import { expect, test, type Page } from "@playwright/test"
+import { expect, test, type Locator, type Page } from "@playwright/test"
 
 import { choose } from "./choose.js"
+import { shot } from "./shot.js"
 
 // Settings, built, against a fake client API, on a phone and a desktop.
 
@@ -8,16 +9,6 @@ type Host = { host: string; kind: string; known: boolean; has_token: boolean }
 type Repo = { name: string; host: string; path: string; base?: string; created_at: string }
 
 const now = new Date().toISOString()
-
-// shot keeps a picture for the owner to look at when UI_CHECK names a folder; a normal run takes none.
-async function shot(page: Page, name: string) {
-  const dir = process.env.UI_CHECK
-  if (!dir) return
-
-  const size = page.viewportSize()
-  const device = size && size.width < 600 ? "phone" : "desktop"
-  await page.screenshot({ path: `${dir}/${name}-${device}.png` })
-}
 
 async function fakeServer(page: Page, start: { hosts?: Host[]; repos?: Repo[] } = {}) {
   let hosts = start.hosts ?? [
@@ -425,6 +416,13 @@ test("the owner reads and edits what every agent knows about him", async ({ page
   expect(calls).toEqual(["PUT /owner-memory"])
 })
 
+// top shows a part of the page at the top of the screen, for a picture of it.
+const top = (target: Locator) => target.evaluate((e) => e.scrollIntoView({ block: "start" }))
+
+// Scenario: the owner opens Settings from the app and lands on Integrations. There is a card a product, a row a
+// host: GitHub's one host has a token; gitlab.com and the company's GitLab server have none, and the GitLab card
+// says once how to connect them. The owner gives gitlab.com a token and sees its row connected while the company's
+// server is still without one; the token is typed into a password field and is nowhere on the page afterwards.
 test("the owner opens Settings and gives a host its token", async ({ page }) => {
   const calls = await fakeServer(page)
   await page.goto("/")
@@ -432,33 +430,53 @@ test("the owner opens Settings and gives a host its token", async ({ page }) => 
 
   await expect(page).toHaveURL(/\/settings\/integrations$/)
   await expect(page.getByRole("heading", { name: "Integrations", level: 1 })).toBeVisible()
-  await expect(card(page, "GitHub")).toContainText("Connected")
-  await expect(card(page, "GitLab")).toContainText("No token")
-  await expect(card(page, "git.company.example")).toContainText("GitLab server")
+  const github = card(page, "GitHub")
+  const gitlab = card(page, "GitLab")
+  const gitlabCom = gitlab.getByLabel("GitLab host gitlab.com")
+  const company = gitlab.getByLabel("GitLab host git.company.example")
+  await expect(github.getByLabel("GitHub host github.com")).toContainText("Connected")
+  await expect(github.getByText("How to create a token")).toHaveCount(0)
+  await expect(gitlabCom).toContainText("No token")
+  await expect(company).toContainText("server")
+  await expect(company).toContainText("No token")
+  await expect(gitlab.getByText("How to create a token")).toHaveCount(1)
   expect(await fits(page)).toBe(true)
-  await shot(page, "integrations-list")
+  await top(page.getByRole("heading", { name: "Git hosts" }))
+  await shot(page, "git-hosts-github")
+  await top(gitlab)
+  await shot(page, "git-hosts-no-token")
 
-  await card(page, "GitLab").getByRole("button", { name: "Add token" }).click()
+  await gitlabCom.getByRole("button", { name: "Add token" }).click()
   const dialog = page.locator("[data-slot=dialog-content]")
   await expect(dialog.getByLabel("Access token")).toHaveAttribute("type", "password")
   await dialog.getByLabel("Access token").fill("glpat-typed")
   await shot(page, "integrations-token-dialog")
   await dialog.getByRole("button", { name: "Save token" }).click()
 
-  await expect(card(page, "GitLab")).toContainText("Connected")
+  await expect(gitlabCom).toContainText("Connected")
+  await expect(company).toContainText("No token")
+  await expect(gitlab.getByText("How to create a token")).toHaveCount(1)
   await expect(dialog).toBeHidden()
   await expect(page.getByText("glpat-typed")).toHaveCount(0)
+  expect(await fits(page)).toBe(true)
+  // The picture waits for the toast to go: it would cover the card's foot.
+  if (process.env.UI_CHECK) {
+    await expect(page.getByText("The token of GitLab was saved")).toBeHidden({ timeout: 15_000 })
+  }
+  await top(gitlab)
+  await shot(page, "git-hosts-one-token")
   expect(calls).toEqual(["PUT /hosts/gitlab.com/token"])
 })
 
-// Scenario: the owner adds a company's server; one the server refuses says why in the dialog. Then removes the
-// declared server after being asked.
+// Scenario: the owner adds a company's server from the GitLab card; one the server refuses says why in the
+// dialog. The added server is a row of the GitLab card. Then the owner removes it after being asked.
 test("the owner adds and removes a company's git server", async ({ page }) => {
   const calls = await fakeServer(page)
   await page.goto("/settings/integrations")
 
-  await page.getByRole("button", { name: "Add a git server" }).click()
+  await card(page, "GitLab").getByRole("button", { name: "Add server" }).click()
   const dialog = page.locator("[data-slot=dialog-content]")
+  await expect(dialog.getByRole("heading", { name: "Add a GitLab server" })).toBeVisible()
   await dialog.getByLabel("Address").fill("https://refused.example/team/app")
   await shot(page, "integrations-add-server")
   await dialog.getByRole("button", { name: "Add", exact: true }).click()
@@ -467,12 +485,13 @@ test("the owner adds and removes a company's git server", async ({ page }) => {
 
   await dialog.getByLabel("Address").fill("gitlab.other.example")
   await dialog.getByRole("button", { name: "Add", exact: true }).click()
-  await expect(card(page, "gitlab.other.example")).toContainText("No token")
+  const added = card(page, "GitLab").getByLabel("GitLab host gitlab.other.example")
+  await expect(added).toContainText("No token")
 
-  await card(page, "gitlab.other.example").getByRole("button", { name: "Remove" }).click()
+  await added.getByRole("button", { name: "Remove gitlab.other.example" }).click()
   await shot(page, "integrations-remove-confirm")
   await page.getByRole("alertdialog").getByRole("button", { name: "Remove host" }).click()
-  await expect(card(page, "gitlab.other.example")).toHaveCount(0)
+  await expect(added).toHaveCount(0)
 
   expect(calls).toEqual([
     "PUT /hosts/refused.example",
