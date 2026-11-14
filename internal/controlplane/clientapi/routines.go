@@ -9,6 +9,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/clientapi/openapi"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/routinestore"
 )
 
 // Routines (issue #211): work a Bot does on a schedule. Every token reads
@@ -22,11 +23,11 @@ import (
 // plane's runner.
 type Routines interface {
 	// RunNow starts a run by hand; a conflict while another still goes.
-	RunNow(ctx context.Context, id string) (orchestration.RoutineRun, error)
+	RunNow(ctx context.Context, id string) (routinestore.RoutineRun, error)
 	// Remove removes a Routine and stops its live run.
 	Remove(ctx context.Context, id string) error
 	// Undo undoes a Bot's last change; removed says the Routine is gone.
-	Undo(ctx context.Context, id string) (r orchestration.Routine, removed bool, err error)
+	Undo(ctx context.Context, id string) (r routinestore.Routine, removed bool, err error)
 }
 
 // WithRoutines sets what runs the Routines.
@@ -38,7 +39,7 @@ func (s *Server) WithRoutines(r Routines) *Server {
 
 var errNoRoutines = fmt.Errorf("%w: this control plane runs no routines", orchestration.ErrUnavailable)
 
-func toRoutineRun(r orchestration.RoutineRun) openapi.RoutineRun {
+func toRoutineRun(r routinestore.RoutineRun) openapi.RoutineRun {
 	return openapi.RoutineRun{
 		Id: r.ID, RoutineId: r.RoutineID, StartedBy: openapi.RoutineRunStartedBy(r.StartedBy),
 		State: openapi.RoutineRunState(r.State), StartedAt: r.StartedAt, EndedAt: r.EndedAt, ExitCode: r.ExitCode,
@@ -48,11 +49,11 @@ func toRoutineRun(r orchestration.RoutineRun) openapi.RoutineRun {
 
 // routine is a Routine as the API shows it: with its schedule in words, its
 // last run and what the owner allowed it always.
-func (s *Server) routine(ctx context.Context, r orchestration.Routine) (openapi.Routine, error) {
+func (s *Server) routine(ctx context.Context, r routinestore.Routine) (openapi.Routine, error) {
 	out := openapi.Routine{
 		Id: r.ID, Bot: r.Bot, Name: r.Name, Kind: openapi.RoutineKind(r.Kind), Prompt: opt(r.Prompt),
 		Script: opt(r.Script), ScriptText: opt(r.ScriptText), EveryMinutes: ptr(r.EveryMinutes), Cron: opt(r.Cron),
-		Timezone: opt(r.Timezone), Schedule: orchestration.ScheduleWords(r), Sentence: orchestration.RoutineSentence(r),
+		Timezone: opt(r.Timezone), Schedule: routinestore.ScheduleWords(r), Sentence: routinestore.RoutineSentence(r),
 		TimeoutSeconds: int(r.Timeout.Seconds()), State: openapi.RoutineState(r.State),
 		PausedReason: opt(r.PausedReason), Summary: opt(r.Summary), ChatId: opt(r.ChatID), Announce: r.Announce,
 		NextRunAt: r.NextRunAt, Failures: r.Failures, Skipped: r.Skipped, LastSkippedAt: r.LastSkippedAt,
@@ -60,7 +61,7 @@ func (s *Server) routine(ctx context.Context, r orchestration.Routine) (openapi.
 		Grants: []openapi.RoutineGrant{},
 	}
 
-	runs, err := s.svc.ListRoutineRuns(ctx, r.ID, 1)
+	runs, err := s.svc.Routines().ListRoutineRuns(ctx, r.ID, 1)
 	if err != nil {
 		return openapi.Routine{}, err
 	}
@@ -70,7 +71,7 @@ func (s *Server) routine(ctx context.Context, r orchestration.Routine) (openapi.
 		out.LastRun = &last
 	}
 
-	grants, err := s.svc.RoutineGrants(ctx, r.ID)
+	grants, err := s.svc.Routines().RoutineGrants(ctx, r.ID)
 	if err != nil {
 		return openapi.Routine{}, err
 	}
@@ -87,7 +88,7 @@ func (s *Server) routine(ctx context.Context, r orchestration.Routine) (openapi.
 // ListRoutines lists the Routines, each with its last run.
 func (s *Server) ListRoutines(ctx context.Context, req openapi.ListRoutinesRequestObject,
 ) (openapi.ListRoutinesResponseObject, error) {
-	all, err := s.svc.ListRoutines(ctx, orchestration.RoutineFilter{
+	all, err := s.svc.Routines().ListRoutines(ctx, routinestore.RoutineFilter{
 		Bot: val(req.Params.Bot), ChatID: val(req.Params.ChatId),
 	})
 	if err != nil {
@@ -111,7 +112,7 @@ func (s *Server) ListRoutines(ctx context.Context, req openapi.ListRoutinesReque
 // GetRoutine returns a Routine.
 func (s *Server) GetRoutine(ctx context.Context, req openapi.GetRoutineRequestObject,
 ) (openapi.GetRoutineResponseObject, error) {
-	r, err := s.svc.GetRoutine(ctx, req.RoutineId)
+	r, err := s.svc.Routines().GetRoutine(ctx, req.RoutineId)
 	if err != nil {
 		return nil, err
 	}
@@ -142,14 +143,14 @@ func (s *Server) PutRoutine(ctx context.Context, req openapi.PutRoutineRequestOb
 		return nil, err
 	}
 
-	r, err := s.svc.PutRoutine(ctx, orchestration.RoutineSpec{
-		Bot: req.Name, Name: req.Routine, Kind: orchestration.RoutineKind(b.Kind), Prompt: val(b.Prompt),
+	r, err := s.svc.Routines().PutRoutine(ctx, routinestore.RoutineSpec{
+		Bot: req.Name, Name: req.Routine, Kind: routinestore.RoutineKind(b.Kind), Prompt: val(b.Prompt),
 		Script: val(b.Script), ScriptText: val(b.ScriptText), EveryMinutes: val(b.EveryMinutes), Cron: val(b.Cron),
 		Timezone: val(b.Timezone), TimeoutSeconds: val(b.TimeoutSeconds), Summary: val(b.Summary),
 		ChatID: chat,
 		// A run's result goes to the chat the Routine was made in unless the owner chose none.
 		Announce: b.Announce == nil || *b.Announce,
-	}, orchestration.RoutineAuthor{
+	}, routinestore.RoutineAuthor{
 		Bot: tok.Kind != bearertoken.Owner, FromRun: val(b.FromRoutine) != "" || tok.Routine != "",
 	})
 	if err != nil {
@@ -199,7 +200,7 @@ func (s *Server) LaunchRoutineScript(ctx context.Context, req openapi.LaunchRout
 			errForbidden)
 	}
 
-	launch, err := s.svc.ClaimRoutineScript(ctx, req.RoutineId, req.Body.Bot)
+	launch, err := s.svc.Routines().ClaimRoutineScript(ctx, req.RoutineId, req.Body.Bot)
 	if err != nil {
 		return nil, err
 	}
@@ -231,7 +232,7 @@ func (s *Server) DeleteRoutine(ctx context.Context, req openapi.DeleteRoutineReq
 // PauseRoutine stops a Routine's schedule.
 func (s *Server) PauseRoutine(ctx context.Context, req openapi.PauseRoutineRequestObject,
 ) (openapi.PauseRoutineResponseObject, error) {
-	r, err := s.svc.PauseRoutine(ctx, req.RoutineId)
+	r, err := s.svc.Routines().PauseRoutine(ctx, req.RoutineId)
 	if err != nil {
 		return nil, err
 	}
@@ -247,7 +248,7 @@ func (s *Server) PauseRoutine(ctx context.Context, req openapi.PauseRoutineReque
 // ResumeRoutine switches a paused Routine on again.
 func (s *Server) ResumeRoutine(ctx context.Context, req openapi.ResumeRoutineRequestObject,
 ) (openapi.ResumeRoutineResponseObject, error) {
-	r, err := s.svc.ResumeRoutine(ctx, req.RoutineId)
+	r, err := s.svc.Routines().ResumeRoutine(ctx, req.RoutineId)
 	if err != nil {
 		return nil, err
 	}
@@ -265,7 +266,7 @@ func (s *Server) ListRoutineRuns(ctx context.Context, req openapi.ListRoutineRun
 ) (openapi.ListRoutineRunsResponseObject, error) {
 	offset := val(req.Params.Offset)
 
-	runs, total, err := s.svc.RoutineRunPage(ctx, req.RoutineId, val(req.Params.Limit), offset)
+	runs, total, err := s.svc.Routines().RoutineRunPage(ctx, req.RoutineId, val(req.Params.Limit), offset)
 	if err != nil {
 		return nil, err
 	}
@@ -285,7 +286,7 @@ func (s *Server) ListRoutineRuns(ctx context.Context, req openapi.ListRoutineRun
 // PreviewRoutineSchedule says a schedule in words with its next times.
 func (s *Server) PreviewRoutineSchedule(_ context.Context, req openapi.PreviewRoutineScheduleRequestObject,
 ) (openapi.PreviewRoutineScheduleResponseObject, error) {
-	p, err := s.svc.PreviewSchedule(val(req.Body.EveryMinutes), val(req.Body.Cron), val(req.Body.Timezone))
+	p, err := s.svc.Routines().PreviewSchedule(val(req.Body.EveryMinutes), val(req.Body.Cron), val(req.Body.Timezone))
 	if err != nil {
 		return nil, err
 	}
@@ -302,7 +303,7 @@ func (s *Server) RunRoutine(ctx context.Context, req openapi.RunRoutineRequestOb
 	}
 
 	if tok.Kind == bearertoken.Bot {
-		r, err := s.svc.GetRoutine(ctx, req.RoutineId)
+		r, err := s.svc.Routines().GetRoutine(ctx, req.RoutineId)
 		if err != nil {
 			return nil, err
 		}
@@ -327,11 +328,11 @@ func (s *Server) RunRoutine(ctx context.Context, req openapi.RunRoutineRequestOb
 // RevokeRoutineGrant takes back an "always for this Routine".
 func (s *Server) RevokeRoutineGrant(ctx context.Context, req openapi.RevokeRoutineGrantRequestObject,
 ) (openapi.RevokeRoutineGrantResponseObject, error) {
-	if _, err := s.svc.GetRoutine(ctx, req.RoutineId); err != nil {
+	if _, err := s.svc.Routines().GetRoutine(ctx, req.RoutineId); err != nil {
 		return nil, err
 	}
 
-	err := s.svc.RevokeRoutineGrant(ctx, req.RoutineId, req.Integration, req.Label, req.Action)
+	err := s.svc.Routines().RevokeRoutineGrant(ctx, req.RoutineId, req.Integration, req.Label, req.Action)
 	if err != nil && !errors.Is(err, orchestration.ErrNotFound) {
 		return nil, err
 	}

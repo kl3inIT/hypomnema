@@ -1,4 +1,27 @@
-package orchestration
+// Package routinestore keeps the Routines (issue #211), a domain store of the
+// orchestration database reached through the root package's Routines(), as
+// Omnara's storage facade reaches its stores (issue #404). It imports the
+// generated store and never the root package; it only reads the tables of
+// other domains (Bots, chats), through the shared queries. A write that spans
+// another domain, such as a prompt run's chat, an approval that grants a
+// Routine an action always, or removing a Bot with its chats, stays in the
+// root and calls the functions here that end in Tx with its own queries.
+//
+// A Routine is work a Bot does on a schedule. What the work is, is not built
+// in: a prompt the Bot works on with its model in a new chat, or a script
+// that runs with the Bot's tools and no model. This package keeps the
+// record: the Routine, its schedule, its runs and the grants the owner gave
+// it. Running one is the routines package's.
+//
+// Each rule names the code it follows; the comparison is in
+// docs/research/2026-11-12-work-on-a-schedule.md. OpenMausBot: the record,
+// the schedule, an interval's grid, the count of skipped times, a Bot's
+// change applied at once with an undo. Hermes: a script that is a file, the
+// next time set before the run starts, a run that makes no Routines.
+// OpenClaw: what a failure does to the next time, the alert and the pause,
+// what is kept of the runs, the standing grant bound to the job's revision.
+// MemoryOS: one live run kept by the database.
+package routinestore
 
 import (
 	"context"
@@ -20,22 +43,10 @@ import (
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/storeutil"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/storeerr"
+	"github.com/kl3inIT/hypomnema/internal/shared/platform"
 )
-
-// Routines (issue #211): work a Bot does on a schedule. What the work is, is
-// not built in: a prompt the Bot works on with its model in a new chat, or a
-// script that runs with the Bot's tools and no model. This file keeps the
-// record: the Routine, its schedule, its runs and the grants the owner gave
-// it. Running one is the routines package's.
-//
-// Each rule names the code it follows; the comparison is in
-// docs/research/2026-11-12-work-on-a-schedule.md. OpenMausBot: the record,
-// the schedule, an interval's grid, the count of skipped times, a Bot's
-// change applied at once with an undo. Hermes: a script that is a file, the
-// next time set before the run starts, a run that makes no Routines.
-// OpenClaw: what a failure does to the next time, the alert and the pause,
-// what is kept of the runs, the standing grant bound to the job's revision.
-// MemoryOS: one live run kept by the database.
 
 // RoutineKind says what a Routine runs.
 type RoutineKind string
@@ -86,7 +97,7 @@ const (
 	ScriptTimeout = 10 * time.Minute
 	PromptTimeout = 60 * time.Minute
 	// MaxScriptText bounds a script, as a chat message is bounded.
-	MaxScriptText = MaxChatText
+	MaxScriptText = storeutil.MaxChatText
 	// RoutineAlertAfter is the failures in a row after which the owner is
 	// told, at most once every RoutineAlertEvery (OpenClaw,
 	// service/failure-alerts.ts L45-46), and RoutinePauseAfter those after
@@ -282,16 +293,52 @@ type routineUndo struct {
 	Before *RoutineSpec `json:"before,omitempty"`
 }
 
+// Store keeps the Routines.
+type Store struct {
+	db    *sql.DB
+	clock platform.Clock
+	newID func(prefix string) string
+	// signal wakes the orchestration's event readers after each commit.
+	signal func()
+}
+
+// New returns the Store over the orchestration database. newID and signal
+// are the root's: ids are made and commits signaled as for every other
+// write.
+func New(db *sql.DB, clock platform.Clock, newID func(prefix string) string, signal func()) *Store {
+	return &Store{db: db, clock: clock, newID: newID, signal: signal}
+}
+
+func (s *Store) write(ctx context.Context, fn func(q *store.Queries, now int64) error) error {
+	return storeutil.Write(ctx, s.db, s.clock, s.signal, fn)
+}
+
+func (s *Store) read() *store.Queries {
+	return store.New(s.db)
+}
+
+func nullString(s string) sql.NullString {
+	return sql.NullString{String: s, Valid: s != ""}
+}
+
+func boolInt(b bool) int64 {
+	if b {
+		return 1
+	}
+
+	return 0
+}
+
 func routineFromRow(r store.Routine) Routine {
 	return Routine{
 		ID: r.ID, Bot: r.Bot, Name: r.Name, Kind: RoutineKind(r.Kind), Prompt: r.Prompt, Script: r.Script,
 		ScriptText: r.ScriptText, EveryMinutes: int(r.EveryMinutes.Int64), Cron: r.Cron.String,
 		Timezone: r.Timezone.String, Timeout: time.Duration(r.TimeoutSeconds) * time.Second,
 		Revision: int(r.Revision), State: RoutineState(r.State), PausedReason: r.PausedReason, Summary: r.Summary,
-		ChatID: r.ChatID.String, Announce: r.Announce == 1, NextRunAt: optionalTime(r.NextRunAt),
-		Failures: int(r.Failures), Skipped: int(r.Skipped), LastSkippedAt: optionalTime(r.LastSkippedAt),
-		CreatedBy: r.CreatedBy, CanUndo: undoOf(r) != nil, CreatedAt: millis(r.CreatedAt),
-		UpdatedAt: millis(r.UpdatedAt),
+		ChatID: r.ChatID.String, Announce: r.Announce == 1, NextRunAt: storeutil.OptionalMillis(r.NextRunAt),
+		Failures: int(r.Failures), Skipped: int(r.Skipped), LastSkippedAt: storeutil.OptionalMillis(r.LastSkippedAt),
+		CreatedBy: r.CreatedBy, CanUndo: undoOf(r) != nil, CreatedAt: storeutil.Millis(r.CreatedAt),
+		UpdatedAt: storeutil.Millis(r.UpdatedAt),
 	}
 }
 
@@ -322,7 +369,7 @@ func specOfRow(r store.Routine) RoutineSpec {
 func routineRunFromRow(r store.RoutineRun) RoutineRun {
 	out := RoutineRun{
 		ID: r.ID, RoutineID: r.RoutineID, StartedBy: r.StartedBy, State: RunState(r.State),
-		StartedAt: millis(r.StartedAt), EndedAt: optionalTime(r.EndedAt),
+		StartedAt: storeutil.Millis(r.StartedAt), EndedAt: storeutil.OptionalMillis(r.EndedAt),
 		Output: r.Output, Error: r.Error, ChatID: r.ChatID.String,
 	}
 
@@ -383,36 +430,37 @@ type schedule struct {
 func scheduleOf(everyMinutes int, expr, zone string) (schedule, error) {
 	switch {
 	case everyMinutes != 0 && expr != "":
-		return schedule{}, fmt.Errorf("%w: a schedule is every N minutes or a cron expression, not both", ErrInvalid)
+		return schedule{}, fmt.Errorf("%w: a schedule is every N minutes or a cron expression, not both", storeerr.ErrInvalid)
 	case expr == "" && zone != "":
-		return schedule{}, fmt.Errorf("%w: a time zone goes with a cron expression", ErrInvalid)
+		return schedule{}, fmt.Errorf("%w: a time zone goes with a cron expression", storeerr.ErrInvalid)
 	case expr == "":
 		if everyMinutes < MinRoutineMinutes || everyMinutes > MaxRoutineMinutes {
 			return schedule{}, fmt.Errorf("%w: a Routine runs every %d to %d minutes, or by a cron expression",
-				ErrInvalid, MinRoutineMinutes, MaxRoutineMinutes)
+				storeerr.ErrInvalid, MinRoutineMinutes, MaxRoutineMinutes)
 		}
 
 		return schedule{every: time.Duration(everyMinutes) * time.Minute}, nil
 	case zone == "":
-		return schedule{}, fmt.Errorf("%w: a cron expression needs its time zone, such as Asia/Ho_Chi_Minh", ErrInvalid)
+		return schedule{}, fmt.Errorf("%w: a cron expression needs its time zone, such as Asia/Ho_Chi_Minh",
+			storeerr.ErrInvalid)
 	case len(strings.Fields(expr)) != 5 || strings.Contains(expr, "="):
 		return schedule{}, fmt.Errorf("%w: a cron expression has five fields: minute, hour, day of month, month, "+
-			"day of week", ErrInvalid)
+			"day of week", storeerr.ErrInvalid)
 	}
 
 	// "Local" would be the server's zone, whichever that is.
 	loc, err := time.LoadLocation(zone)
 	if err != nil || zone == "Local" {
-		return schedule{}, fmt.Errorf("%w: %q is not an IANA time zone", ErrInvalid, zone)
+		return schedule{}, fmt.Errorf("%w: %q is not an IANA time zone", storeerr.ErrInvalid, zone)
 	}
 
 	parsed, err := cronParser.Parse(expr)
 	if err != nil {
-		return schedule{}, fmt.Errorf("%w: the cron expression %q: %s", ErrInvalid, expr, err.Error())
+		return schedule{}, fmt.Errorf("%w: the cron expression %q: %s", storeerr.ErrInvalid, expr, err.Error())
 	}
 
 	if parsed.Next(time.Unix(0, 0).In(loc)).IsZero() {
-		return schedule{}, fmt.Errorf("%w: the cron expression %q never comes", ErrInvalid, expr)
+		return schedule{}, fmt.Errorf("%w: the cron expression %q never comes", storeerr.ErrInvalid, expr)
 	}
 
 	return schedule{cron: parsed, zone: loc}, nil
@@ -447,7 +495,7 @@ func scheduleOfRow(r store.Routine) (schedule, error) {
 	}
 
 	if r.AnchorAt.Valid {
-		s.anchor = millis(r.AnchorAt.Int64)
+		s.anchor = storeutil.Millis(r.AnchorAt.Int64)
 	}
 
 	return s, nil
@@ -462,15 +510,15 @@ func checkRoutine(n RoutineSpec) (RoutineSpec, schedule, error) {
 	sched, err := scheduleOf(n.EveryMinutes, n.Cron, n.Timezone)
 
 	switch {
-	case !namePattern.MatchString(n.Name):
+	case !storeutil.NamePattern.MatchString(n.Name):
 		return n, sched, fmt.Errorf("%w: a routine's name is lowercase letters, digits and dashes, starting with a "+
-			"letter", ErrInvalid)
+			"letter", storeerr.ErrInvalid)
 	case err != nil:
 		return n, sched, err
 	case len(n.Summary) > 500:
-		return n, sched, fmt.Errorf("%w: what the work is, is said in at most 500 characters", ErrInvalid)
+		return n, sched, fmt.Errorf("%w: what the work is, is said in at most 500 characters", storeerr.ErrInvalid)
 	case n.TimeoutSeconds < 0:
-		return n, sched, fmt.Errorf("%w: a limit is a number of seconds", ErrInvalid)
+		return n, sched, fmt.Errorf("%w: a limit is a number of seconds", storeerr.ErrInvalid)
 	}
 
 	switch n.Kind {
@@ -479,14 +527,14 @@ func checkRoutine(n RoutineSpec) (RoutineSpec, schedule, error) {
 
 		switch {
 		case n.Prompt == "":
-			return n, sched, fmt.Errorf("%w: a prompt routine needs its prompt", ErrInvalid)
-		case len(n.Prompt) > MaxChatText:
-			return n, sched, fmt.Errorf("%w: a prompt is at most %d bytes", ErrInvalid, MaxChatText)
+			return n, sched, fmt.Errorf("%w: a prompt routine needs its prompt", storeerr.ErrInvalid)
+		case len(n.Prompt) > storeutil.MaxChatText:
+			return n, sched, fmt.Errorf("%w: a prompt is at most %d bytes", storeerr.ErrInvalid, storeutil.MaxChatText)
 		case n.Script != "" || n.ScriptText != "":
-			return n, sched, fmt.Errorf("%w: a routine runs a prompt or a script, not both", ErrInvalid)
+			return n, sched, fmt.Errorf("%w: a routine runs a prompt or a script, not both", storeerr.ErrInvalid)
 		case n.TimeoutSeconds != 0:
 			return n, sched, fmt.Errorf("%w: a prompt run works for at most %s; only a script's limit is set",
-				ErrInvalid, PromptTimeout)
+				storeerr.ErrInvalid, PromptTimeout)
 		}
 
 		n.TimeoutSeconds = int(PromptTimeout / time.Second)
@@ -498,16 +546,16 @@ func checkRoutine(n RoutineSpec) (RoutineSpec, schedule, error) {
 		switch {
 		case !scriptPattern.MatchString(n.Script):
 			return n, sched, fmt.Errorf("%w: a script is named by its file under the bot's routines directory, a "+
-				"name of letters, digits, dots, dashes and underscores; never a path or a command line", ErrInvalid)
+				"name of letters, digits, dots, dashes and underscores; never a path or a command line", storeerr.ErrInvalid)
 		case strings.TrimSpace(n.ScriptText) == "":
-			return n, sched, fmt.Errorf("%w: a script routine needs the script's text", ErrInvalid)
+			return n, sched, fmt.Errorf("%w: a script routine needs the script's text", storeerr.ErrInvalid)
 		case len(n.ScriptText) > MaxScriptText:
-			return n, sched, fmt.Errorf("%w: a script is at most %d bytes", ErrInvalid, MaxScriptText)
+			return n, sched, fmt.Errorf("%w: a script is at most %d bytes", storeerr.ErrInvalid, MaxScriptText)
 		case n.Prompt != "":
-			return n, sched, fmt.Errorf("%w: a routine runs a prompt or a script, not both", ErrInvalid)
+			return n, sched, fmt.Errorf("%w: a routine runs a prompt or a script, not both", storeerr.ErrInvalid)
 		}
 	default:
-		return n, sched, fmt.Errorf("%w: a routine runs a prompt or a script", ErrInvalid)
+		return n, sched, fmt.Errorf("%w: a routine runs a prompt or a script", storeerr.ErrInvalid)
 	}
 
 	return n, sched, nil
@@ -536,7 +584,7 @@ func sameSchedule(a, b RoutineSpec) bool {
 // cron/scheduler.py L416-428). A changed schedule starts from now; a change
 // of what runs or when ends what the Routine was allowed always; its state
 // and its runs stay.
-func (s *Service) PutRoutine(ctx context.Context, n RoutineSpec, by RoutineAuthor) (Routine, error) {
+func (s *Store) PutRoutine(ctx context.Context, n RoutineSpec, by RoutineAuthor) (Routine, error) {
 	n, sched, err := checkRoutine(n)
 	if err != nil {
 		return Routine{}, err
@@ -544,9 +592,9 @@ func (s *Service) PutRoutine(ctx context.Context, n RoutineSpec, by RoutineAutho
 
 	switch {
 	case by.FromRun:
-		return Routine{}, fmt.Errorf("%w: a routine's run cannot make or change routines", ErrConflict)
+		return Routine{}, fmt.Errorf("%w: a routine's run cannot make or change routines", storeerr.ErrConflict)
 	case by.Bot && n.ChatID == "":
-		return Routine{}, fmt.Errorf("%w: a bot makes a routine from the chat it works in", ErrInvalid)
+		return Routine{}, fmt.Errorf("%w: a bot makes a routine from the chat it works in", storeerr.ErrInvalid)
 	}
 
 	var id string
@@ -582,7 +630,7 @@ func (s *Service) PutRoutine(ctx context.Context, n RoutineSpec, by RoutineAutho
 // the chat is one it talks in and not a Routine's run.
 func routineRefs(ctx context.Context, q *store.Queries, n RoutineSpec, by RoutineAuthor) error {
 	if _, err := q.GetBot(ctx, n.Bot); err != nil {
-		return notFound(err, "bot", n.Bot)
+		return storeutil.NotFound(err, "bot", n.Bot)
 	}
 
 	if n.ChatID == "" {
@@ -591,7 +639,7 @@ func routineRefs(ctx context.Context, q *store.Queries, n RoutineSpec, by Routin
 
 	chat, err := q.GetChat(ctx, n.ChatID)
 	if err != nil {
-		return notFound(err, "chat", n.ChatID)
+		return storeutil.NotFound(err, "chat", n.ChatID)
 	}
 
 	if !by.Bot {
@@ -599,11 +647,11 @@ func routineRefs(ctx context.Context, q *store.Queries, n RoutineSpec, by Routin
 	}
 
 	if chat.Bot != n.Bot {
-		return fmt.Errorf("%w: chat %s talks with bot %s, not %s", ErrInvalid, n.ChatID, chat.Bot, n.Bot)
+		return fmt.Errorf("%w: chat %s talks with bot %s, not %s", storeerr.ErrInvalid, n.ChatID, chat.Bot, n.Bot)
 	}
 
 	if _, err := q.RoutineRunOfChat(ctx, nullString(n.ChatID)); err == nil {
-		return fmt.Errorf("%w: a routine's run cannot make or change routines", ErrConflict)
+		return fmt.Errorf("%w: a routine's run cannot make or change routines", storeerr.ErrConflict)
 	} else if !errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("reading the run of chat %s: %w", n.ChatID, err)
 	}
@@ -631,7 +679,7 @@ func insertRoutine(ctx context.Context, q *store.Queries, now int64, id string, 
 	)
 
 	if sched.cron == nil {
-		sched.anchor = millis(now).Add(sched.every)
+		sched.anchor = storeutil.Millis(now).Add(sched.every)
 		anchor = nullTime(sched.anchor)
 	}
 
@@ -649,7 +697,7 @@ func insertRoutine(ctx context.Context, q *store.Queries, now int64, id string, 
 		ID: id, Bot: n.Bot, Name: n.Name, Kind: string(n.Kind), Prompt: n.Prompt, Script: n.Script,
 		ScriptText: n.ScriptText, EveryMinutes: nullInt(n.EveryMinutes), AnchorAt: anchor, Cron: nullString(n.Cron),
 		Timezone: nullString(n.Timezone), TimeoutSeconds: int64(n.TimeoutSeconds), Summary: n.Summary,
-		ChatID: nullString(n.ChatID), Announce: boolInt(n.Announce), NextRunAt: nullTime(sched.next(millis(now))),
+		ChatID: nullString(n.ChatID), Announce: boolInt(n.Announce), NextRunAt: nullTime(sched.next(storeutil.Millis(now))),
 		CreatedBy: author, Undo: undo, Now: now,
 	})
 }
@@ -671,12 +719,12 @@ func updateRoutine(ctx context.Context, q *store.Queries, now int64, row store.R
 		p.AnchorAt = sql.NullInt64{}
 
 		if sched.cron == nil {
-			sched.anchor = millis(now).Add(sched.every)
+			sched.anchor = storeutil.Millis(now).Add(sched.every)
 			p.AnchorAt = nullTime(sched.anchor)
 		}
 
 		if row.State == string(RoutineOn) {
-			p.NextRunAt = nullTime(sched.next(millis(now)))
+			p.NextRunAt = nullTime(sched.next(storeutil.Millis(now)))
 		}
 	}
 
@@ -705,11 +753,11 @@ func updateRoutine(ctx context.Context, q *store.Queries, now int64, row store.R
 // removed, one it changed is what it was before. A Routine changed since is
 // not undone (OpenMausBot, server/routine-requests.ts L1099-1147). removed
 // says the Routine is gone, with the run of it that was live, if one was.
-func (s *Service) UndoRoutine(ctx context.Context, id string) (r Routine, removed bool, live *RoutineRun, err error) {
+func (s *Store) UndoRoutine(ctx context.Context, id string) (r Routine, removed bool, live *RoutineRun, err error) {
 	err = s.write(ctx, func(q *store.Queries, now int64) error {
 		row, err := q.GetRoutine(ctx, id)
 		if err != nil {
-			return notFound(err, "routine", id)
+			return storeutil.NotFound(err, "routine", id)
 		}
 
 		undo := undoOf(row)
@@ -717,9 +765,9 @@ func (s *Service) UndoRoutine(ctx context.Context, id string) (r Routine, remove
 		switch {
 		case !row.Undo.Valid:
 			return fmt.Errorf("%w: the last change of routine %s was not a bot's; there is nothing to undo",
-				ErrConflict, id)
+				storeerr.ErrConflict, id)
 		case undo == nil:
-			return fmt.Errorf("%w: routine %s was changed since; undo it by hand", ErrConflict, id)
+			return fmt.Errorf("%w: routine %s was changed since; undo it by hand", storeerr.ErrConflict, id)
 		case undo.Before == nil:
 			removed, r = true, routineFromRow(row)
 			live, err = liveRun(ctx, q, id)
@@ -751,17 +799,17 @@ func (s *Service) UndoRoutine(ctx context.Context, id string) (r Routine, remove
 }
 
 // GetRoutine returns one Routine.
-func (s *Service) GetRoutine(ctx context.Context, id string) (Routine, error) {
+func (s *Store) GetRoutine(ctx context.Context, id string) (Routine, error) {
 	row, err := s.read().GetRoutine(ctx, id)
 	if err != nil {
-		return Routine{}, notFound(err, "routine", id)
+		return Routine{}, storeutil.NotFound(err, "routine", id)
 	}
 
 	return routineFromRow(row), nil
 }
 
 // ListRoutines returns the Routines, the oldest first.
-func (s *Service) ListRoutines(ctx context.Context, f RoutineFilter) ([]Routine, error) {
+func (s *Store) ListRoutines(ctx context.Context, f RoutineFilter) ([]Routine, error) {
 	rows, err := s.read().ListRoutines(ctx, store.ListRoutinesParams{Bot: f.Bot, ChatID: f.ChatID})
 	if err != nil {
 		return nil, fmt.Errorf("listing routines: %w", err)
@@ -794,12 +842,12 @@ func liveRun(ctx context.Context, q *store.Queries, routineID string) (*RoutineR
 // DeleteRoutine removes a Routine with its runs and its grants, and returns
 // the run of it that was live, for whoever runs it to stop (OpenClaw,
 // service/ops-mutations.ts L427-456: removing a job cancels its active run).
-func (s *Service) DeleteRoutine(ctx context.Context, id string) (*RoutineRun, error) {
+func (s *Store) DeleteRoutine(ctx context.Context, id string) (*RoutineRun, error) {
 	var live *RoutineRun
 
 	err := s.write(ctx, func(q *store.Queries, _ int64) error {
 		if _, err := q.GetRoutine(ctx, id); err != nil {
-			return notFound(err, "routine", id)
+			return storeutil.NotFound(err, "routine", id)
 		}
 
 		var err error
@@ -818,21 +866,21 @@ func (s *Service) DeleteRoutine(ctx context.Context, id string) (*RoutineRun, er
 }
 
 // PauseRoutine stops a Routine's schedule; a run still going goes on.
-func (s *Service) PauseRoutine(ctx context.Context, id string) (Routine, error) {
+func (s *Store) PauseRoutine(ctx context.Context, id string) (Routine, error) {
 	return s.switchRoutine(ctx, id, RoutinePaused, "paused by the owner")
 }
 
 // ResumeRoutine switches a paused Routine on again, from now, with its
 // failures forgotten.
-func (s *Service) ResumeRoutine(ctx context.Context, id string) (Routine, error) {
+func (s *Store) ResumeRoutine(ctx context.Context, id string) (Routine, error) {
 	return s.switchRoutine(ctx, id, RoutineOn, "")
 }
 
-func (s *Service) switchRoutine(ctx context.Context, id string, to RoutineState, reason string) (Routine, error) {
+func (s *Store) switchRoutine(ctx context.Context, id string, to RoutineState, reason string) (Routine, error) {
 	err := s.write(ctx, func(q *store.Queries, now int64) error {
 		row, err := q.GetRoutine(ctx, id)
 		if err != nil {
-			return notFound(err, "routine", id)
+			return storeutil.NotFound(err, "routine", id)
 		}
 
 		if row.State == string(to) {
@@ -847,7 +895,7 @@ func (s *Service) switchRoutine(ctx context.Context, id string, to RoutineState,
 				return err
 			}
 
-			p.NextRunAt = nullTime(sched.next(millis(now)))
+			p.NextRunAt = nullTime(sched.next(storeutil.Millis(now)))
 		} else {
 			p.Failures, p.AlertedAt = row.Failures, row.AlertedAt
 		}
@@ -861,44 +909,31 @@ func (s *Service) switchRoutine(ctx context.Context, id string, to RoutineState,
 	return s.GetRoutine(ctx, id)
 }
 
-// promptNotice is what a prompt run's chat begins with. It goes to the Bot
-// as a wake-up of the control plane, since nobody wrote it there.
-func promptNotice(r store.Routine, by string) string {
-	how := "by its schedule"
-	if by == StartedByHand {
-		how = "by hand, now"
+// GetRoutineTx reads one Routine with the caller's queries.
+func GetRoutineTx(ctx context.Context, q *store.Queries, id string) (Routine, error) {
+	row, err := q.GetRoutine(ctx, id)
+	if err != nil {
+		return Routine{}, storeutil.NotFound(err, "routine", id)
 	}
 
-	return fmt.Sprintf("Routine %q (%s) runs %s. Nobody is in this chat: do the work below without asking, and end "+
-		"with what you did. You cannot make or change routines from here.\n\n%s", r.Name, r.ID, how, r.Prompt)
+	return routineFromRow(row), nil
 }
 
-// startRun begins a run of a Routine that has none live. A prompt run gets
-// its own chat, with the prompt waiting for the Bot.
-func (s *Service) startRun(ctx context.Context, q *store.Queries, now int64, row store.Routine, by string,
+// LiveRunTx is the run of a Routine that still goes or waits, read with the
+// caller's queries; nil when none.
+func LiveRunTx(ctx context.Context, q *store.Queries, routineID string) (*RoutineRun, error) {
+	return liveRun(ctx, q, routineID)
+}
+
+// StartRunTx records a run of a Routine that has none live, with the
+// caller's queries. A prompt run's chat, which chatID names, was opened by
+// the caller in the same transaction; chatID is empty for a script's run.
+func StartRunTx(ctx context.Context, q *store.Queries, now int64, r Routine, id, by, chatID string,
 ) (StartedRun, error) {
-	id := s.newID("rrn")
-	p := store.InsertRoutineRunParams{ID: id, RoutineID: row.ID, StartedBy: by, Now: now}
-
-	if row.Kind == string(RoutinePrompt) {
-		chatID := s.newID("cht")
-		if err := q.InsertChat(ctx, store.InsertChatParams{
-			ID: chatID, Title: "Routine " + row.Name, Bot: row.Bot, Now: now,
-		}); err != nil {
-			return StartedRun{}, fmt.Errorf("opening the chat of a run of routine %s: %w", row.ID, err)
-		}
-
-		if err := q.InsertRoutinePrompt(ctx, store.InsertRoutinePromptParams{
-			ChatID: chatID, Text: promptNotice(row, by), Now: now,
-		}); err != nil {
-			return StartedRun{}, fmt.Errorf("giving the prompt of routine %s: %w", row.ID, err)
-		}
-
-		p.ChatID = nullString(chatID)
-	}
-
-	if err := q.InsertRoutineRun(ctx, p); err != nil {
-		return StartedRun{}, fmt.Errorf("recording a run of routine %s: %w", row.ID, err)
+	if err := q.InsertRoutineRun(ctx, store.InsertRoutineRunParams{
+		ID: id, RoutineID: r.ID, StartedBy: by, Now: now, ChatID: nullString(chatID),
+	}); err != nil {
+		return StartedRun{}, fmt.Errorf("recording a run of routine %s: %w", r.ID, err)
 	}
 
 	run, err := q.GetRoutineRun(ctx, id)
@@ -906,109 +941,61 @@ func (s *Service) startRun(ctx context.Context, q *store.Queries, now int64, row
 		return StartedRun{}, fmt.Errorf("reading run %s: %w", id, err)
 	}
 
-	return StartedRun{Routine: routineFromRow(row), Run: routineRunFromRow(run)}, nil
+	return StartedRun{Routine: r, Run: routineRunFromRow(run)}, nil
 }
 
-// RunRoutineNow starts a run by hand. While a run of the Routine is live it
-// answers that one is running (OpenClaw, service/ops-run-preparation.ts
-// L207-209: "already-running").
-func (s *Service) RunRoutineNow(ctx context.Context, id string) (StartedRun, error) {
-	var out StartedRun
+// ClaimDueTx returns the Routines whose time has come and whose run is to
+// begin now, with the caller's queries, which then starts each with
+// StartRunTx. A Routine's next time is set before its run starts, in the
+// same transaction, so a crash does not run it twice (Hermes, cron/jobs.py
+// L2701-2704). A Routine found overdue runs once: the times it missed are
+// not replayed. A time that comes while a run of the Routine is live is
+// skipped and counted on the Routine, with no run of its own (OpenClaw,
+// service/timer-runnable.ts L83-88; the count: OpenMausBot,
+// server/routines.ts L1059-1060). With a limit above zero at most that many
+// are returned, and more says Routines are still due.
+func ClaimDueTx(ctx context.Context, q *store.Queries, now int64, limit int) (due []Routine, more bool, err error) {
+	rows, err := q.DueRoutines(ctx, sql.NullInt64{Int64: now, Valid: true})
+	if err != nil {
+		return nil, false, fmt.Errorf("listing the routines that are due: %w", err)
+	}
 
-	err := s.write(ctx, func(q *store.Queries, now int64) error {
-		row, err := q.GetRoutine(ctx, id)
+	for _, row := range rows {
+		sched, err := scheduleOfRow(row)
 		if err != nil {
-			return notFound(err, "routine", id)
+			return nil, false, fmt.Errorf("routine %s: %w", row.ID, err)
 		}
 
-		live, err := liveRun(ctx, q, id)
+		next := nullTime(sched.next(storeutil.Millis(now)))
+
+		live, err := liveRun(ctx, q, row.ID)
 		if err != nil {
-			return err
+			return nil, false, err
 		}
 
 		if live != nil {
-			return fmt.Errorf("%w: run %s of the routine is still %s", ErrConflict, live.ID, live.State)
+			if err := q.SkipRoutineTime(ctx, store.SkipRoutineTimeParams{
+				ID: row.ID, NextRunAt: next, SkippedAt: row.NextRunAt,
+			}); err != nil {
+				return nil, false, fmt.Errorf("skipping a time of routine %s: %w", row.ID, err)
+			}
+
+			continue
 		}
 
-		out, err = s.startRun(ctx, q, now, row, StartedByHand)
+		if limit > 0 && len(due) == limit {
+			return due, true, nil
+		}
 
-		return err
-	})
-	if err != nil {
-		return StartedRun{}, fmt.Errorf("running routine %s: %w", id, err)
+		if err := q.SetRoutineNextRun(ctx, store.SetRoutineNextRunParams{ID: row.ID, NextRunAt: next}); err != nil {
+			return nil, false, fmt.Errorf("advancing routine %s: %w", row.ID, err)
+		}
+
+		row.NextRunAt = next
+		due = append(due, routineFromRow(row))
 	}
 
-	return out, nil
-}
-
-// ClaimDueRoutines starts a run of the Routines whose time has come and
-// returns the runs that began. A Routine's next time is set before its run
-// starts, in the same transaction, so a crash does not run it twice (Hermes,
-// cron/jobs.py L2701-2704). A Routine found overdue runs once: the times it
-// missed are not replayed. A time that comes while a run of the Routine is
-// live is skipped and counted on the Routine, with no run of its own
-// (OpenClaw, service/timer-runnable.ts L83-88; the count: OpenMausBot,
-// server/routines.ts L1059-1060). With a limit above zero at most that many
-// runs begin, and more says Routines are still due.
-func (s *Service) ClaimDueRoutines(ctx context.Context, limit int) (started []StartedRun, more bool, err error) {
-	err = s.write(ctx, func(q *store.Queries, now int64) error {
-		started, more = started[:0], false
-
-		due, err := q.DueRoutines(ctx, sql.NullInt64{Int64: now, Valid: true})
-		if err != nil {
-			return fmt.Errorf("listing the routines that are due: %w", err)
-		}
-
-		for _, row := range due {
-			sched, err := scheduleOfRow(row)
-			if err != nil {
-				return fmt.Errorf("routine %s: %w", row.ID, err)
-			}
-
-			next := nullTime(sched.next(millis(now)))
-
-			live, err := liveRun(ctx, q, row.ID)
-			if err != nil {
-				return err
-			}
-
-			if live != nil {
-				if err := q.SkipRoutineTime(ctx, store.SkipRoutineTimeParams{
-					ID: row.ID, NextRunAt: next, SkippedAt: row.NextRunAt,
-				}); err != nil {
-					return fmt.Errorf("skipping a time of routine %s: %w", row.ID, err)
-				}
-
-				continue
-			}
-
-			if limit > 0 && len(started) == limit {
-				more = true
-
-				break
-			}
-
-			if err := q.SetRoutineNextRun(ctx, store.SetRoutineNextRunParams{ID: row.ID, NextRunAt: next}); err != nil {
-				return fmt.Errorf("advancing routine %s: %w", row.ID, err)
-			}
-
-			row.NextRunAt = next
-
-			run, err := s.startRun(ctx, q, now, row, StartedBySchedule)
-			if err != nil {
-				return err
-			}
-
-			started = append(started, run)
-		}
-
-		return nil
-	})
-	if err != nil {
-		return nil, false, err
-	}
-
-	return started, more, nil
+	return due, false, nil
 }
 
 // ClaimRoutineScript gives the launcher of a script Routine's live run what
@@ -1016,7 +1003,7 @@ func (s *Service) ClaimDueRoutines(ctx context.Context, limit int) (started []St
 // given once a run, to a caller that names the Routine's Bot: whoever asks
 // again is refused, so a request can present the key only from inside the
 // run the launcher started.
-func (s *Service) ClaimRoutineScript(ctx context.Context, routineID, bot string) (ScriptLaunch, error) {
+func (s *Store) ClaimRoutineScript(ctx context.Context, routineID, bot string) (ScriptLaunch, error) {
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
 		return ScriptLaunch{}, fmt.Errorf("making a run's key: %w", err)
@@ -1027,14 +1014,14 @@ func (s *Service) ClaimRoutineScript(ctx context.Context, routineID, bot string)
 	err := s.write(ctx, func(q *store.Queries, _ int64) error {
 		row, err := q.GetRoutine(ctx, routineID)
 		if err != nil {
-			return notFound(err, "routine", routineID)
+			return storeutil.NotFound(err, "routine", routineID)
 		}
 
 		switch {
 		case row.Bot != bot:
-			return fmt.Errorf("%w: routine %s is not bot %s's", ErrInvalid, routineID, bot)
+			return fmt.Errorf("%w: routine %s is not bot %s's", storeerr.ErrInvalid, routineID, bot)
 		case row.Kind != string(RoutineScript):
-			return fmt.Errorf("%w: routine %s runs a prompt, not a script", ErrInvalid, routineID)
+			return fmt.Errorf("%w: routine %s runs a prompt, not a script", storeerr.ErrInvalid, routineID)
 		}
 
 		live, err := liveRun(ctx, q, routineID)
@@ -1043,7 +1030,7 @@ func (s *Service) ClaimRoutineScript(ctx context.Context, routineID, bot string)
 		}
 
 		if live == nil {
-			return fmt.Errorf("%w: no run of routine %s is starting", ErrConflict, routineID)
+			return fmt.Errorf("%w: no run of routine %s is starting", storeerr.ErrConflict, routineID)
 		}
 
 		n, err := q.ClaimRoutineRunKey(ctx, store.ClaimRoutineRunKeyParams{
@@ -1054,7 +1041,7 @@ func (s *Service) ClaimRoutineScript(ctx context.Context, routineID, bot string)
 		}
 
 		if n != 1 {
-			return fmt.Errorf("%w: run %s of routine %s was started already", ErrConflict, live.ID, routineID)
+			return fmt.Errorf("%w: run %s of routine %s was started already", storeerr.ErrConflict, live.ID, routineID)
 		}
 
 		out.Script, out.Text = row.Script, row.ScriptText
@@ -1070,17 +1057,17 @@ func (s *Service) ClaimRoutineScript(ctx context.Context, routineID, bot string)
 }
 
 // GetRoutineRun returns one run.
-func (s *Service) GetRoutineRun(ctx context.Context, id string) (RoutineRun, error) {
+func (s *Store) GetRoutineRun(ctx context.Context, id string) (RoutineRun, error) {
 	row, err := s.read().GetRoutineRun(ctx, id)
 	if err != nil {
-		return RoutineRun{}, notFound(err, "routine run", id)
+		return RoutineRun{}, storeutil.NotFound(err, "routine run", id)
 	}
 
 	return routineRunFromRow(row), nil
 }
 
 // ListRoutineRuns returns a Routine's runs, the newest first.
-func (s *Service) ListRoutineRuns(ctx context.Context, routineID string, limit int) ([]RoutineRun, error) {
+func (s *Store) ListRoutineRuns(ctx context.Context, routineID string, limit int) ([]RoutineRun, error) {
 	runs, _, err := s.RoutineRunPage(ctx, routineID, limit, 0)
 
 	return runs, err
@@ -1089,7 +1076,7 @@ func (s *Service) ListRoutineRuns(ctx context.Context, routineID string, limit i
 // RoutineRunPage returns a page of a Routine's runs, the newest first, from
 // offset, and how many runs the Routine has (OpenClaw,
 // src/gateway/server-methods/cron-history.ts: offset, limit and hasMore).
-func (s *Service) RoutineRunPage(ctx context.Context, routineID string, limit, offset int,
+func (s *Store) RoutineRunPage(ctx context.Context, routineID string, limit, offset int,
 ) (runs []RoutineRun, total int, err error) {
 	if limit <= 0 || limit > RoutineRunPageMax {
 		limit = RoutineRunPageMax
@@ -1099,7 +1086,7 @@ func (s *Service) RoutineRunPage(ctx context.Context, routineID string, limit, o
 
 	q := s.read()
 	if _, err := q.GetRoutine(ctx, routineID); err != nil {
-		return nil, 0, notFound(err, "routine", routineID)
+		return nil, 0, storeutil.NotFound(err, "routine", routineID)
 	}
 
 	rows, err := q.ListRoutineRuns(ctx, store.ListRoutineRunsParams{
@@ -1124,7 +1111,7 @@ func (s *Service) RoutineRunPage(ctx context.Context, routineID string, limit, o
 
 // LiveRoutineRuns returns the runs that still go or wait for the owner, each
 // with its Routine, the oldest first.
-func (s *Service) LiveRoutineRuns(ctx context.Context) ([]StartedRun, error) {
+func (s *Store) LiveRoutineRuns(ctx context.Context) ([]StartedRun, error) {
 	q := s.read()
 
 	rows, err := q.ListLiveRoutineRuns(ctx)
@@ -1199,77 +1186,74 @@ func afterFailure(sched schedule, natural, now time.Time, failures int64, passin
 	}
 }
 
-// FinishRoutineRun ends a run and applies what its end means for the
-// Routine (OpenClaw, service/timer-outcomes.ts). A failed run, by the
-// schedule or by hand, adds to the failures in a row and moves the next run
-// (afterFailure); a success resets the count. A run ended by a restart of
-// the control plane is recorded as failed and is no failure of the Routine
-// (L179-182); a prompt Routine is then run again after the backoff, a script
-// is not (service/jobs-scheduling.ts L31-49). A canceled run changes
-// nothing. After RoutineAlertAfter failures in a row the owner is to be
-// told, at most once every RoutineAlertEvery; after RoutinePauseAfter the
-// Routine is paused with the reason. What the run still asked the owner is
-// refused. A run ends once: ending it again is a conflict.
-func (s *Service) FinishRoutineRun(ctx context.Context, runID string, r RunResult) (Settled, error) {
+// CheckRunResult refuses a run's end that is not one: a run ends
+// succeeded, failed or canceled.
+func CheckRunResult(r RunResult) error {
 	if r.State != RunSucceeded && r.State != RunFailed && r.State != RunStopped {
-		return Settled{}, fmt.Errorf("%w: a run ends succeeded, failed or canceled", ErrInvalid)
+		return fmt.Errorf("%w: a run ends succeeded, failed or canceled", storeerr.ErrInvalid)
 	}
 
-	var out Settled
+	return nil
+}
 
-	err := s.write(ctx, func(q *store.Queries, now int64) error {
-		out = Settled{}
+// EndRunTx ends a run with the caller's queries. A run ends once: ending it
+// again is a conflict. The caller then refuses what the run still asked the
+// owner and applies the end to the Routine with SettleRunTx.
+func EndRunTx(ctx context.Context, q *store.Queries, now int64, runID string, r RunResult) error {
+	if _, err := q.GetRoutineRun(ctx, runID); err != nil {
+		return storeutil.NotFound(err, "routine run", runID)
+	}
 
-		if _, err := q.GetRoutineRun(ctx, runID); err != nil {
-			return notFound(err, "routine run", runID)
-		}
-
-		n, err := q.FinishRoutineRun(ctx, store.FinishRoutineRunParams{
-			ID: runID, State: string(r.State), Now: sql.NullInt64{Int64: now, Valid: true},
-			ExitCode: nullCode(r.ExitCode), Output: tail(r.Output), Error: r.Error,
-		})
-		if err != nil {
-			return fmt.Errorf("ending run %s: %w", runID, err)
-		}
-
-		if n != 1 {
-			return fmt.Errorf("%w: run %s has ended", ErrConflict, runID)
-		}
-
-		if err := q.ExpireApprovalsOfRoutineRun(ctx, store.ExpireApprovalsOfRoutineRunParams{
-			RoutineRunID: nullString(runID), Now: sql.NullInt64{Int64: now, Valid: true},
-		}); err != nil {
-			return fmt.Errorf("refusing what run %s still asked: %w", runID, err)
-		}
-
-		run, err := q.GetRoutineRun(ctx, runID)
-		if err != nil {
-			return fmt.Errorf("reading run %s: %w", runID, err)
-		}
-
-		row, err := q.GetRoutine(ctx, run.RoutineID)
-		if err != nil {
-			return notFound(err, "routine", run.RoutineID)
-		}
-
-		out.Run = routineRunFromRow(run)
-
-		if err := settleRoutine(ctx, q, now, row, r, &out); err != nil {
-			return err
-		}
-
-		row, err = q.GetRoutine(ctx, row.ID)
-		if err != nil {
-			return fmt.Errorf("reading routine %s: %w", run.RoutineID, err)
-		}
-
-		out.Routine = routineFromRow(row)
-
-		return nil
+	n, err := q.FinishRoutineRun(ctx, store.FinishRoutineRunParams{
+		ID: runID, State: string(r.State), Now: sql.NullInt64{Int64: now, Valid: true},
+		ExitCode: nullCode(r.ExitCode), Output: tail(r.Output), Error: r.Error,
 	})
 	if err != nil {
+		return fmt.Errorf("ending run %s: %w", runID, err)
+	}
+
+	if n != 1 {
+		return fmt.Errorf("%w: run %s has ended", storeerr.ErrConflict, runID)
+	}
+
+	return nil
+}
+
+// SettleRunTx applies what an ended run means for its Routine, with the
+// caller's queries (OpenClaw, service/timer-outcomes.ts). A failed run, by
+// the schedule or by hand, adds to the failures in a row and moves the next
+// run (afterFailure); a success resets the count. A run ended by a restart
+// of the control plane is recorded as failed and is no failure of the
+// Routine (L179-182); a prompt Routine is then run again after the backoff,
+// a script is not (service/jobs-scheduling.ts L31-49). A canceled run
+// changes nothing. After RoutineAlertAfter failures in a row the owner is to
+// be told, at most once every RoutineAlertEvery; after RoutinePauseAfter the
+// Routine is paused with the reason.
+func SettleRunTx(ctx context.Context, q *store.Queries, now int64, runID string, r RunResult) (Settled, error) {
+	var out Settled
+
+	run, err := q.GetRoutineRun(ctx, runID)
+	if err != nil {
+		return Settled{}, fmt.Errorf("reading run %s: %w", runID, err)
+	}
+
+	row, err := q.GetRoutine(ctx, run.RoutineID)
+	if err != nil {
+		return Settled{}, storeutil.NotFound(err, "routine", run.RoutineID)
+	}
+
+	out.Run = routineRunFromRow(run)
+
+	if err := settleRoutine(ctx, q, now, row, r, &out); err != nil {
 		return Settled{}, err
 	}
+
+	row, err = q.GetRoutine(ctx, row.ID)
+	if err != nil {
+		return Settled{}, fmt.Errorf("reading routine %s: %w", run.RoutineID, err)
+	}
+
+	out.Routine = routineFromRow(row)
 
 	return out, nil
 }
@@ -1304,12 +1288,12 @@ func settleRoutine(ctx context.Context, q *store.Queries, now int64, row store.R
 		p.Failures++
 
 		if on {
-			natural := sched.next(millis(now))
+			natural := sched.next(storeutil.Millis(now))
 			if row.NextRunAt.Valid && row.NextRunAt.Int64 > now {
-				natural = millis(row.NextRunAt.Int64)
+				natural = storeutil.Millis(row.NextRunAt.Int64)
 			}
 
-			p.NextRunAt = nullTime(afterFailure(sched, natural, millis(now), p.Failures, r.Passing))
+			p.NextRunAt = nullTime(afterFailure(sched, natural, storeutil.Millis(now), p.Failures, r.Passing))
 		}
 
 		if p.Failures >= RoutineAlertAfter &&
@@ -1343,7 +1327,7 @@ func firstLine(s string) string {
 // PruneRoutineRuns removes the runs that are no longer kept: those that
 // ended more than RoutineRunsKeptFor ago, and those beyond the newest
 // RoutineRunsKept of a Routine.
-func (s *Service) PruneRoutineRuns(ctx context.Context) error {
+func (s *Store) PruneRoutineRuns(ctx context.Context) error {
 	err := s.write(ctx, func(q *store.Queries, now int64) error {
 		before := sql.NullInt64{Int64: now - RoutineRunsKeptFor.Milliseconds(), Valid: true}
 		if err := q.DeleteRoutineRunsBefore(ctx, before); err != nil {
@@ -1372,45 +1356,9 @@ func (s *Service) PruneRoutineRuns(ctx context.Context) error {
 	return nil
 }
 
-// RunAnswers is what the owner said, or did not say, to what a run asked.
-type RunAnswers struct {
-	// Rejected is the request the owner said no to; nil when he said no to
-	// none.
-	Rejected *Approval
-	// Expired is the request nobody answered in time; nil when each was
-	// answered.
-	Expired *Approval
-}
-
-// RoutineRunAnswers reads how the Approvals of a run ended.
-func (s *Service) RoutineRunAnswers(ctx context.Context, runID string) (RunAnswers, error) {
-	rows, err := s.read().ListDecidedApprovalsOfRoutineRun(ctx, nullString(runID))
-	if err != nil {
-		return RunAnswers{}, fmt.Errorf("reading the answered approvals of run %s: %w", runID, err)
-	}
-
-	var out RunAnswers
-
-	for _, row := range rows {
-		a, err := approvalFromRow(row)
-		if err != nil {
-			return RunAnswers{}, err
-		}
-
-		switch {
-		case a.Expired && out.Expired == nil:
-			out.Expired = &a
-		case a.Status == ApprovalRejected && !a.Expired && out.Rejected == nil:
-			out.Rejected = &a
-		}
-	}
-
-	return out, nil
-}
-
 // RoutineGrants lists what the owner allowed a Routine always, as the
 // Routine is now.
-func (s *Service) RoutineGrants(ctx context.Context, routineID string) ([]RoutineGrant, error) {
+func (s *Store) RoutineGrants(ctx context.Context, routineID string) ([]RoutineGrant, error) {
 	rows, err := s.read().ListRoutineGrants(ctx, routineID)
 	if err != nil {
 		return nil, fmt.Errorf("listing the grants of routine %s: %w", routineID, err)
@@ -1420,7 +1368,7 @@ func (s *Service) RoutineGrants(ctx context.Context, routineID string) ([]Routin
 	for i, r := range rows {
 		out[i] = RoutineGrant{
 			RoutineID: r.RoutineID, Integration: r.Integration, Label: r.Label, Action: r.Action,
-			ActionName: r.ActionName, ApprovalID: r.ApprovalID, CreatedAt: millis(r.CreatedAt),
+			ActionName: r.ActionName, ApprovalID: r.ApprovalID, CreatedAt: storeutil.Millis(r.CreatedAt),
 		}
 	}
 
@@ -1429,7 +1377,7 @@ func (s *Service) RoutineGrants(ctx context.Context, routineID string) ([]Routin
 
 // RevokeRoutineGrant takes back an "always for this Routine": the action
 // asks again from the Routine's next request.
-func (s *Service) RevokeRoutineGrant(ctx context.Context, routineID, integration, label, action string) error {
+func (s *Store) RevokeRoutineGrant(ctx context.Context, routineID, integration, label, action string) error {
 	err := s.write(ctx, func(q *store.Queries, _ int64) error {
 		n, err := q.DeleteRoutineGrant(ctx, store.DeleteRoutineGrantParams{
 			RoutineID: routineID, Integration: integration, Label: label, Action: action,
@@ -1439,8 +1387,8 @@ func (s *Service) RevokeRoutineGrant(ctx context.Context, routineID, integration
 		}
 
 		if n == 0 {
-			return fmt.Errorf("%w: routine %s has no grant of %s for %s", ErrNotFound, routineID, action,
-				Use(integration, label))
+			return fmt.Errorf("%w: routine %s has no grant of %s for %s:%s", storeerr.ErrNotFound, routineID,
+				action, integration, label)
 		}
 
 		return nil
@@ -1452,26 +1400,98 @@ func (s *Service) RevokeRoutineGrant(ctx context.Context, routineID, integration
 	return nil
 }
 
-// TellChat adds a line the Bot said to a chat, for whoever reads it: what a
-// Routine's run has to tell where the Routine was made. A run's result names
-// the run in a part, which the web draws as the run's card (OpenMausBot,
-// src/components/RoutineRunCard.tsx: a message carries its run); the text is
-// for every other reader.
-func (s *Service) TellChat(ctx context.Context, chatID, text, routineID, runID string) error {
-	var parts json.RawMessage
+// RunOfAskerTx finds, with the caller's queries, the live run of a Routine a
+// request belongs to: the run whose chat asks, or the run whose key the
+// script presents. A key is given once, to the launcher that starts the
+// run's script, so naming a Routine is not enough to be its run. Both are
+// empty for a request no live run made.
+func RunOfAskerTx(ctx context.Context, q *store.Queries, runKey, chatID string) (routineID, runID string, err error) {
+	var run store.RoutineRun
 
-	if runID != "" {
-		var err error
-
-		parts, err = json.Marshal([]map[string]string{
-			{"type": "routine_run", "id": runID, "routine_id": routineID, "text": text},
-		})
-		if err != nil {
-			return fmt.Errorf("writing the part of run %s: %w", runID, err)
-		}
+	switch {
+	case runKey != "":
+		run, err = q.LiveRoutineRunOfKey(ctx, nullString(bearertoken.Hash(runKey)))
+	case chatID != "":
+		run, err = q.LiveRoutineRunOfChat(ctx, nullString(chatID))
+	default:
+		return "", "", nil
 	}
 
-	_, err := s.AddChatMessageParts(ctx, chatID, ChatCoordinator, text, parts)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", "", nil
+	}
 
-	return err
+	if err != nil {
+		return "", "", fmt.Errorf("reading the routine's run that asks: %w", err)
+	}
+
+	return run.RoutineID, run.ID, nil
+}
+
+// GrantedTx says, with the caller's queries, whether the owner allowed a
+// Routine an action of a Connection always, as the Routine is now.
+func GrantedTx(ctx context.Context, q *store.Queries, routineID, integration, label, action string) (bool, error) {
+	grants, err := q.CountRoutineGrants(ctx, store.CountRoutineGrantsParams{
+		RoutineID: routineID, Integration: integration, Label: label, Action: action,
+	})
+	if err != nil {
+		return false, fmt.Errorf("reading the grants of routine %s: %w", routineID, err)
+	}
+
+	return grants > 0, nil
+}
+
+// GrantTx keeps, with the caller's queries, an "always for this Routine" the
+// owner gave in answering an approval. The grant is for the Routine as it is
+// now: a change of what it runs, or when, ends it.
+func GrantTx(ctx context.Context, q *store.Queries, now int64, g RoutineGrant) error {
+	routine, err := q.GetRoutine(ctx, g.RoutineID)
+	if err != nil {
+		return storeutil.NotFound(err, "routine", g.RoutineID)
+	}
+
+	if err := q.UpsertRoutineGrant(ctx, store.UpsertRoutineGrantParams{
+		RoutineID: g.RoutineID, Integration: g.Integration, Label: g.Label, Action: g.Action,
+		ActionName: g.ActionName, Revision: routine.Revision, ApprovalID: g.ApprovalID, Now: now,
+	}); err != nil {
+		return fmt.Errorf("keeping the grant of routine %s: %w", g.RoutineID, err)
+	}
+
+	return nil
+}
+
+// WaitRunTx records, with the caller's queries, that a run waits for the
+// owner while its call does.
+func WaitRunTx(ctx context.Context, q *store.Queries, runID string) error {
+	if _, err := q.WaitRoutineRun(ctx, runID); err != nil {
+		return fmt.Errorf("recording that run %s waits: %w", runID, err)
+	}
+
+	return nil
+}
+
+// ResumeRunTx lets a run that waited go on, with the caller's queries.
+func ResumeRunTx(ctx context.Context, q *store.Queries, runID string) error {
+	if _, err := q.ResumeRoutineRun(ctx, runID); err != nil {
+		return fmt.Errorf("resuming run %s: %w", runID, err)
+	}
+
+	return nil
+}
+
+// CountRoutinesOfBotTx counts a Bot's Routines with the caller's queries: a
+// Bot with Routines is not removed.
+func CountRoutinesOfBotTx(ctx context.Context, q *store.Queries, bot string) (int64, error) {
+	return q.CountRoutinesOfBot(ctx, bot)
+}
+
+// DetachFromChatsOfBotTx makes the Routines and the runs made in a Bot's
+// chats lose the chat, with the caller's queries, when the Bot is removed
+// with its chats: they keep their rows.
+func DetachFromChatsOfBotTx(ctx context.Context, q *store.Queries, bot string) error {
+	if err := q.DetachRoutinesFromChatsOfBot(ctx, bot); err != nil {
+		return err
+	}
+
+	return q.DetachRoutineRunsFromChatsOfBot(ctx, bot)
 }

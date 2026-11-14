@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/kl3inIT/hypomnema/internal/controlplane/bearertoken"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/routinestore"
 )
 
 // Bot tokens (issue #260): the key of one pi process, made when the
@@ -71,12 +72,12 @@ func (s *Service) AddRoutineToken(ctx context.Context, coordinator, routineID st
 		return "", err
 	}
 
-	r, err := s.GetRoutine(ctx, routineID)
+	r, err := s.routines.GetRoutine(ctx, routineID)
 	if err != nil {
 		return "", err
 	}
 
-	if r.Kind != RoutineScript {
+	if r.Kind != routinestore.RoutineScript {
 		return "", fmt.Errorf("%w: routine %s runs no script", ErrInvalid, routineID)
 	}
 

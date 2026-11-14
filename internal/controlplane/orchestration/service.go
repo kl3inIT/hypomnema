@@ -14,6 +14,7 @@ import (
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/store"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/internal/storeutil"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/memorystore"
+	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/routinestore"
 	"github.com/kl3inIT/hypomnema/internal/controlplane/orchestration/userstore"
 	"github.com/kl3inIT/hypomnema/internal/shared/githost"
 	"github.com/kl3inIT/hypomnema/internal/shared/platform"
@@ -37,6 +38,8 @@ type Service struct {
 	memories *memorystore.Store
 	// channels is the domain store of the Lark Channels.
 	channels *channelstore.Store
+	// routines is the domain store of the Routines, their runs and grants.
+	routines *routinestore.Store
 }
 
 // New returns a Service over an opened, migrated database. The clock and id
@@ -52,6 +55,7 @@ func New(db *sql.DB, clock platform.Clock, newID func(prefix string) string, opt
 	s.users = userstore.New(s.db, s.clock, s.newID, s.notify.signal)
 	s.memories = memorystore.New(s.db, s.clock, s.notify.signal)
 	s.channels = channelstore.New(s.db, s.clock, s.notify.signal)
+	s.routines = routinestore.New(s.db, s.clock, s.newID, s.notify.signal)
 
 	return s
 }
@@ -68,6 +72,13 @@ func (s *Service) Memories() *memorystore.Store { return s.memories }
 // their chats, groups and question cards, over the same connection and clock,
 // waking the same event readers.
 func (s *Service) Channels() *channelstore.Store { return s.channels }
+
+// Routines returns the store of the Routines, their runs and the grants the
+// owner gave them, over the same connection, clock and ids, waking the same
+// event readers. Starting and ending a run, which writes chats and
+// approvals too, stays here (RunRoutineNow, ClaimDueRoutines,
+// FinishRoutineRun).
+func (s *Service) Routines() *routinestore.Store { return s.routines }
 
 // write runs fn in one transaction and wakes event readers after the commit.
 func (s *Service) write(ctx context.Context, fn func(q *store.Queries, now int64) error) error {
