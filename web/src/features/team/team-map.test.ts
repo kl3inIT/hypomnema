@@ -29,6 +29,7 @@ const bot = (name: string, m: Partial<Bot> = {}): Bot => ({
   skills_off: [],
   connections: { limited: false, names: [] },
   workers: { limited: false, names: [] },
+  tool_display: "on",
   created_at: "2026-11-01T00:00:00Z",
   updated_at: "2026-11-01T00:00:00Z",
   ...m,

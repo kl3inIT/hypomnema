@@ -1,13 +1,19 @@
 -- name: UpsertBot :exec
-INSERT INTO bots (name, provider, model, effort, persona, skills, skills_off, connections, workers, created_at,
-                  updated_at)
-VALUES (@name, @provider, @model, @effort, @persona, @skills, @skills_off, @connections, @workers, @now, @now)
+INSERT INTO bots (name, provider, model, effort, persona, skills, skills_off, connections, workers, tool_display,
+                  created_at, updated_at)
+VALUES (@name, @provider, @model, @effort, @persona, @skills, @skills_off, @connections, @workers, @tool_display, @now,
+        @now)
 ON CONFLICT (name) DO UPDATE SET provider = excluded.provider, model = excluded.model, effort = excluded.effort,
     persona = excluded.persona, skills = excluded.skills, skills_off = excluded.skills_off,
-    connections = excluded.connections, workers = excluded.workers, updated_at = excluded.updated_at;
+    connections = excluded.connections, workers = excluded.workers, tool_display = excluded.tool_display,
+    updated_at = excluded.updated_at;
 
 -- name: GetBot :one
 SELECT * FROM bots WHERE name = @name;
+
+-- name: ToolDisplayOfChat :one
+-- What the chat's Bot shows of its tool calls (issue #441).
+SELECT b.tool_display FROM chats c JOIN bots b ON b.name = c.bot WHERE c.id = @chat_id;
 
 -- name: ListBots :many
 SELECT * FROM bots ORDER BY created_at, name;

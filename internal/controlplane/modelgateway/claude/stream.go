@@ -249,7 +249,9 @@ func (s *Stream) recordUsage(u rawUsage) {
 		s.usage.PromptDetails.CachedTokens = u.CacheReadInput
 		s.usage.CacheCreationInputTokens = u.CacheCreationInput
 
-		s.usage.PromptDetails.CacheCreation = nil
+		// message_delta repeats the counts but carries no cache_creation, so
+		// the one-hour part message_start gave is kept unless an event names
+		// its own (issue #448).
 		if u.CacheCreation.Ephemeral1hInput > 0 {
 			s.usage.PromptDetails.CacheCreation = &CacheCreation{Ephemeral1hInputTokens: u.CacheCreation.Ephemeral1hInput}
 		}

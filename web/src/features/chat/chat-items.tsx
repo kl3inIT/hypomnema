@@ -4,7 +4,9 @@ import {
   ChevronRight,
   CircleAlert,
   Copy,
+  FilePen,
   FileText,
+  FolderOpen,
   Info,
   ListChecks,
   Search,
@@ -13,7 +15,7 @@ import {
   Wrench,
   X,
 } from "lucide-react"
-import { useState, type ReactNode } from "react"
+import { useState } from "react"
 
 import type { ChatMessage } from "@/api/generated/types.gen"
 import { ArtifactCard } from "@/features/artifacts/artifact-card"
@@ -21,9 +23,10 @@ import { SetupChangeCard } from "@/features/bots/setup-change-card"
 import { RunCard, SetUpCard } from "@/features/routines/chat-cards"
 import { cn } from "@/lib/utils"
 
-import { argLine, failed, type ChatItem, type Step } from "./chat-state"
+import { failed, type ChatItem, type Step } from "./chat-state"
 import Markdown from "./markdown"
 import { MessageFiles } from "./message-files"
+import { hasDetail, outputPreview, toolDuration, toolInput, toolPhrase } from "./tool-row"
 import { WakeCard } from "./wake-card"
 import { WorkLogBlock, WorkLogButton, WorkLogDetails, WorkLogList, WorkLogRow } from "./work-log"
 
@@ -324,26 +327,64 @@ function ThoughtRow({ text }: { text: string }) {
 const toolIcons: Record<string, typeof Wrench> = {
   bash: SquareTerminal,
   read: FileText,
+  write: FilePen,
+  edit: FilePen,
   grep: Search,
   find: Search,
-  ls: Search,
+  ls: FolderOpen,
 }
 
+// ToolRow is one tool call (issue #441), as Orca's NativeChatToolLine: an icon by kind of tool, the phrase, the time
+// on the right and red when it failed; it opens, when the Bot shows calls in full, to the command or arguments and
+// the output, as Orca's ToolLineDetail. A call the Bot shows without detail does not open.
 function ToolRow({ step }: { step: Extract<Step, { kind: "tool" }> }) {
   const [open, setOpen] = useState(false)
   const r = step.result
-  const line = argLine(step.args)
+  const { verb, target } = toolPhrase(step.name, step.args)
   const Icon = toolIcons[step.name] ?? Wrench
-  const icon = <Icon className="size-4 stroke-2 text-icon-muted" />
+  const failedCall = r?.error === true
+  const icon = (
+    <Icon
+      className={cn("size-4 stroke-2", failedCall ? "text-destructive/80" : "text-icon-muted")}
+    />
+  )
+  const time = toolDuration(r?.duration_ms)
 
   const label = (
-    <span className={cn("block truncate", !r && "live-tool-shine")}>
-      <span className="font-medium text-foreground/80">{step.name}</span>
-      {line && <span className="ms-1.5 font-mono text-xs">{line}</span>}
+    <span
+      className={cn("block truncate", !r && "live-tool-shine", failedCall && "text-destructive")}
+    >
+      {verb && (
+        <span className={cn("font-medium", !failedCall && "text-foreground/80")}>{verb}</span>
+      )}
+      {verb && " "}
+      <span
+        className={cn(
+          verb ? "ms-0.5 font-mono text-xs" : "font-medium",
+          !verb && !failedCall && "text-foreground/80",
+        )}
+      >
+        {target}
+      </span>
     </span>
   )
 
   if (!r) return <WorkLogRow icon={icon} label={label} />
+
+  const detail = hasDetail(step.args, r)
+  const trailing = (
+    <span className="flex shrink-0 items-center gap-1.5">
+      {failedCall && <X className="size-3 shrink-0 text-tool-error-icon/60" aria-label="failed" />}
+      {time && (
+        <span className="text-2xs text-muted-foreground tabular-nums" aria-label={`took ${time}`}>
+          {time}
+        </span>
+      )}
+      {detail && <Chevron open={open} />}
+    </span>
+  )
+
+  if (!detail) return <WorkLogRow icon={icon} label={label} trailing={trailing} />
 
   return (
     <WorkLogRow
@@ -351,49 +392,68 @@ function ToolRow({ step }: { step: Extract<Step, { kind: "tool" }> }) {
       expanded={open}
       icon={icon}
       label={label}
-      trailing={
-        <span className="flex shrink-0 items-center gap-1">
-          {r.error && <X className="size-3 shrink-0 text-tool-error-icon/60" aria-label="failed" />}
-          <Chevron open={open} />
-        </span>
-      }
+      trailing={trailing}
     >
       {open && (
         <WorkLogDetails kind="panel">
-          <ToolOutput output={r.output} error={r.error} truncated={r.truncated} />
+          <ToolDetail
+            input={toolInput(step.name, step.args)}
+            output={r.output}
+            error={failedCall}
+            truncated={r.truncated}
+          />
         </WorkLogDetails>
       )}
     </WorkLogRow>
   )
 }
 
-function ToolOutput({
+// ToolDetail is an open call: what it was given, then its output, the first 1,000 characters with "Show all" for
+// the rest, as OpenMausBot's ToolActivity shows a preview and the rest on request.
+function ToolDetail({
+  input,
   output,
   error,
   truncated,
 }: {
+  input: string
   output?: string
   error?: boolean
   truncated?: boolean
 }) {
-  let body: ReactNode = output || "(no output)"
-  if (truncated) {
-    body = (
-      <>
-        {body}
-        {"\n… cut at 16 KiB"}
-      </>
-    )
-  }
+  const [all, setAll] = useState(false)
+  const shown = outputPreview(output ?? "", all)
 
   return (
-    <pre
-      className={cn(
-        "ms-7 max-h-64 cursor-text overflow-auto font-mono text-2xs leading-relaxed break-words whitespace-pre-wrap select-text",
-        error ? "text-destructive" : "text-secondary-label",
+    <div className="ms-7 flex flex-col gap-1.5 py-1">
+      {input && (
+        <pre
+          aria-label="Input"
+          className="max-h-64 cursor-text overflow-auto rounded-md border bg-muted/40 p-2 font-mono text-2xs leading-relaxed break-words whitespace-pre-wrap text-foreground/80 select-text"
+        >
+          {input}
+        </pre>
       )}
-    >
-      {body}
-    </pre>
+      <pre
+        aria-label="Output"
+        className={cn(
+          "max-h-64 cursor-text overflow-auto font-mono text-2xs leading-relaxed break-words whitespace-pre-wrap select-text",
+          error ? "text-destructive" : "text-secondary-label",
+        )}
+      >
+        {shown.text || "(no output)"}
+        {shown.more && "…"}
+        {!shown.more && truncated && "\n… cut at 16 KiB"}
+      </pre>
+      {shown.more && (
+        <button
+          type="button"
+          onClick={() => setAll(true)}
+          className="self-start text-xs font-medium text-primary hover:underline"
+        >
+          Show all ({(output ?? "").length.toLocaleString("en")} characters)
+        </button>
+      )}
+    </div>
   )
 }

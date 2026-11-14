@@ -102,6 +102,7 @@ const vmap = {
   skills_off: [],
   connections: { limited: false, names: [] },
   workers: { limited: false, names: [] },
+  tool_display: "on",
   created_at: new Date().toISOString(),
   updated_at: new Date().toISOString(),
 } satisfies Bot
