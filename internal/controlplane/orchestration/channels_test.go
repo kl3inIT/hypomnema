@@ -70,29 +70,20 @@ func TestMigrationRenamesTheLarkTablesToChannels(t *testing.T) {
 	assert.Equal(t, [2]string{"ou_linh", "linh@example.com"}, [2]string{person, email})
 
 	type chatRow struct {
-		External, Person, Chat string
-		Sent                   int64
-		Group                  int64
+		Person, Chat string
+		Sent, Group  int64
 	}
 
-	rows, err := db.QueryContext(ctx, `SELECT cc.external_chat_id, cc.person_id, cc.chat_id, cc.sent_seq,
-		c.channel_group FROM channel_chats cc JOIN chats c ON c.id = cc.chat_id ORDER BY cc.external_chat_id`)
-	require.NoError(t, err)
-
-	var chats []chatRow
-
-	for rows.Next() {
+	for external, want := range map[string]chatRow{
+		"oc_dm":    {Person: "ou_linh", Chat: "cht_dm", Sent: 4},
+		"oc_group": {Chat: "cht_group", Sent: 2, Group: 1},
+	} {
 		var r chatRow
-		require.NoError(t, rows.Scan(&r.External, &r.Person, &r.Chat, &r.Sent, &r.Group))
-		chats = append(chats, r)
+		require.NoError(t, db.QueryRowContext(ctx, `SELECT cc.person_id, cc.chat_id, cc.sent_seq, c.channel_group
+			FROM channel_chats cc JOIN chats c ON c.id = cc.chat_id WHERE cc.external_chat_id = ?`, external).
+			Scan(&r.Person, &r.Chat, &r.Sent, &r.Group), external)
+		assert.Equal(t, want, r, external)
 	}
-
-	require.NoError(t, rows.Err())
-	require.NoError(t, rows.Close())
-	assert.Equal(t, []chatRow{
-		{External: "oc_dm", Person: "ou_linh", Chat: "cht_dm", Sent: 4},
-		{External: "oc_group", Chat: "cht_group", Sent: 2, Group: 1},
-	}, chats)
 
 	var group, groupName string
 	var asked sql.NullInt64
@@ -123,26 +114,13 @@ func TestMigrationRenamesTheLarkTablesToChannels(t *testing.T) {
 		assert.Equal(t, "channels", parent, table)
 	}
 
-	broken, err := db.QueryContext(ctx, `PRAGMA foreign_key_check`)
-	require.NoError(t, err)
-	assert.False(t, broken.Next(), "no row breaks a foreign key")
-	require.NoError(t, broken.Close())
+	assert.Zero(t, foreignKeyBreaks(t, db), "no row breaks a foreign key")
 
 	// No table or index is named lark; the old index is made again under the new name.
-	var named []string
-
-	rows, err = db.QueryContext(ctx, `SELECT name FROM sqlite_schema WHERE name LIKE '%lark%' OR tbl_name LIKE '%lark%'`)
-	require.NoError(t, err)
-
-	for rows.Next() {
-		var n string
-		require.NoError(t, rows.Scan(&n))
-		named = append(named, n)
-	}
-
-	require.NoError(t, rows.Err())
-	require.NoError(t, rows.Close())
-	assert.Empty(t, named)
+	var named sql.NullString
+	require.NoError(t, db.QueryRowContext(ctx, `SELECT group_concat(name) FROM sqlite_schema
+		WHERE name LIKE '%lark%' OR tbl_name LIKE '%lark%'`).Scan(&named))
+	assert.False(t, named.Valid, "named lark: %s", named.String)
 
 	var indexes int
 	require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_schema WHERE type = 'index'
@@ -187,8 +165,15 @@ func TestMigrationRenamesTheLarkTablesToChannels(t *testing.T) {
 	assert.Equal(t, []any{"ou_owner", "ou_linh", "oc_group", int64(1), "oc_group"},
 		[]any{owner, person, larkChat, larkGroup, group})
 
-	broken, err = db.QueryContext(ctx, `PRAGMA foreign_key_check`)
-	require.NoError(t, err)
-	assert.False(t, broken.Next(), "no row breaks a foreign key on the way back")
-	require.NoError(t, broken.Close())
+	assert.Zero(t, foreignKeyBreaks(t, db), "no row breaks a foreign key on the way back")
+}
+
+// foreignKeyBreaks counts the rows PRAGMA foreign_key_check reports.
+func foreignKeyBreaks(t *testing.T, db *sql.DB) int {
+	t.Helper()
+
+	var n int
+	require.NoError(t, db.QueryRowContext(t.Context(), `SELECT count(*) FROM pragma_foreign_key_check`).Scan(&n))
+
+	return n
 }

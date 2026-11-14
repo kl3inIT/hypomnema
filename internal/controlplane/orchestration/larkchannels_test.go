@@ -58,7 +58,8 @@ func TestMigrationTurnsTheLarkBotIntoTheChannelMain(t *testing.T) {
 	//nolint:gosec // G101: the name of a vault secret, not a credential
 	assert.Equal(t, channelstore.Channel{
 		Name: "main", Kind: channelstore.KindLark, AppID: "cli_a1b2", Secret: "lark-bot-app", Bot: DefaultBot,
-		Mode: channelstore.ChannelAllowlist, OwnerID: "ou_owner", Enabled: true, CreatedAt: main.CreatedAt, UpdatedAt: main.UpdatedAt,
+		Mode: channelstore.ChannelAllowlist, OwnerID: "ou_owner", Enabled: true, CreatedAt: main.CreatedAt,
+		UpdatedAt: main.UpdatedAt,
 		// A Channel that existed keeps the link under its replies (migration 62).
 		WebLink: true,
 	}, main)
@@ -80,7 +81,9 @@ func TestMigrationTurnsTheLarkBotIntoTheChannelMain(t *testing.T) {
 
 	card, err := s.Channels().QuestionCardByMessage(ctx, "main", "om_card_1")
 	require.NoError(t, err)
-	assert.Equal(t, channelstore.QuestionCard{QuestionID: "q_1", Channel: "main", CardID: "card_1", MessageID: "om_card_1", Seq: 2},
+	assert.Equal(t, channelstore.QuestionCard{
+		QuestionID: "q_1", Channel: "main", CardID: "card_1", MessageID: "om_card_1", Seq: 2,
+	},
 		card)
 
 	// The way back: the Channel main is the one bot again.
@@ -144,7 +147,8 @@ func TestChannelsAreKeptEachWithItsBot(t *testing.T) {
 	require.ErrorIs(t, err, ErrConflict, "an app that is another Channel's")
 
 	// The same person is another open_id in each app, so on each Channel apart.
-	_, err = w.s.Channels().AddChannelPerson(ctx, "maps", channelstore.ChannelPerson{PersonID: "ou_linh_in_maps", Name: "Linh"})
+	_, err = w.s.Channels().AddChannelPerson(ctx, "maps",
+		channelstore.ChannelPerson{PersonID: "ou_linh_in_maps", Name: "Linh"})
 	require.NoError(t, err)
 	_, err = w.s.Channels().ChannelPerson(ctx, "main", "ou_linh_in_maps")
 	require.ErrorIs(t, err, ErrNotFound)
